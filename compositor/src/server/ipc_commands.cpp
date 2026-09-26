@@ -645,6 +645,14 @@ namespace umbriel {
     server.emitRendererLostForTest();
     return nlohmann::json{{"ok", nullptr}};
   }
+
+  nlohmann::json IpcCommands::outputCommits(Server& server, std::string_view /*arg*/) {
+    nlohmann::json commits = nlohmann::json::object();
+    for (const auto& output : server.outputs()) {
+      commits[output->wlr()->name] = output->wlr()->commit_seq;
+    }
+    return nlohmann::json{{"ok", std::move(commits)}};
+  }
 #endif
 
   static constexpr IpcCommandSpec kIpcCommands[] = {
@@ -670,6 +678,7 @@ namespace umbriel {
        &IpcCommands::clockResume, nullptr},
       {"renderer-recover", "", "emit renderer loss and exercise recovery", false, &IpcCommands::rendererRecover,
        nullptr},
+      {"output-commits", "", "committed frame count per output", false, &IpcCommands::outputCommits, nullptr},
 #endif
   };
 
