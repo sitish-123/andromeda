@@ -3,6 +3,7 @@
 #include "config/config_watcher.h"
 #include "config/store.h"
 #include "core/log.h"
+#include "desktop-unstable-v1-protocol.h"
 #include "input/cursor.h"
 #include "input/gestures.h"
 #include "input/keyboard.h"
@@ -18,6 +19,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
+#include "server/desktop_input_manager.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "view/popup.h"
@@ -698,6 +700,9 @@ namespace umbriel {
         m_overview->forceClose();
       }
       applyConfig(result.effects);
+      if (m_desktopInputManager != nullptr) {
+        m_desktopInputManager->settingsChanged();
+      }
       if ((result.change.colors || result.change.appearance) && m_ipc != nullptr) {
         m_ipc->notifyThemeChanged();
       }
@@ -861,6 +866,37 @@ namespace umbriel {
     Server* self;
     self = wl_container_of(listener, self, m_newOutput);
     self->addOutput(static_cast<wlr_output*>(data));
+  }
+
+  std::vector<InputDeviceInfo> Server::inputDevices() const {
+    std::vector<InputDeviceInfo> devices;
+    const auto add = [&devices](wlr_input_device* device, uint32_t kind) {
+      if (device != nullptr && wlr_input_device_is_libinput(device) && device->name != nullptr) {
+        devices.push_back({.name = device->name, .kind = kind});
+      }
+    };
+    for (const auto& keyboard : m_keyboards) {
+      add(&keyboard->wlr()->base, DSK_INPUT_MANAGER_V1_KIND_KEYBOARD);
+    }
+    for (const auto& pointer : m_pointers) {
+      libinput_device* handle =
+          wlr_input_device_is_libinput(pointer->device) ? wlr_libinput_get_device_handle(pointer->device) : nullptr;
+      const bool touchpad = handle != nullptr && libinput_device_config_tap_get_finger_count(handle) > 0;
+      add(pointer->device, touchpad ? DSK_INPUT_MANAGER_V1_KIND_TOUCHPAD : DSK_INPUT_MANAGER_V1_KIND_MOUSE);
+    }
+    for (const auto& touch : m_touchDevices) {
+      add(touch->device, DSK_INPUT_MANAGER_V1_KIND_TOUCH);
+    }
+    for (const auto& tablet : m_tabletDevices) {
+      add(tablet->device, DSK_INPUT_MANAGER_V1_KIND_TABLET);
+    }
+    return devices;
+  }
+
+  void Server::inputDevicesChanged() {
+    if (m_desktopInputManager != nullptr) {
+      m_desktopInputManager->devicesChanged();
+    }
   }
 
   void Server::onNewInput(wl_listener* listener, void* data) {
@@ -1088,6 +1124,7 @@ namespace umbriel {
     std::erase_if(server->m_pointers, [watch](const std::unique_ptr<PointerDevice>& pointer) {
       return pointer.get() == watch;
     });
+    server->inputDevicesChanged();
   }
 
   void Server::onRequestActivate(wl_listener* listener, void* data) {
@@ -1852,6 +1889,7 @@ namespace umbriel {
       return entry.get() == watch;
     });
     server->pairTabletPads();
+    server->inputDevicesChanged();
   }
 
   void Server::onTabletPadButton(wl_listener* listener, void* data) {
