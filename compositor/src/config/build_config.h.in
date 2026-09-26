@@ -1,0 +1,5 @@
+#pragma once
+
+namespace umbriel {
+  inline constexpr char kDataDir[] = @UMBRIEL_DATA_DIR@;
+}

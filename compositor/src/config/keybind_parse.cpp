@@ -1,0 +1,719 @@
+#include "config/keybind_parse.h"
+
+// <cmath> must precede the Wayland headers to avoid a libstdc++ 16 include-order failure.
+// clang-format off
+#include <cmath>
+#include <linux/input-event-codes.h>
+#include <xkbcommon/xkbcommon.h>
+// WLR_MODIFIER_* only. Pulling src/wlr.h would drag SceneFX and the renderer
+// into a translation unit that parses strings.
+extern "C" {
+#include <wlr/types/wlr_keyboard.h>
+}
+// clang-format on
+
+#include <algorithm>
+#include <cctype>
+#include <charconv>
+#include <cstddef>
+#include <system_error>
+#include <utility>
+
+namespace umbriel {
+
+  namespace {
+
+    std::string toLower(std::string_view text) {
+      std::string lowered(text);
+      std::ranges::transform(lowered, lowered.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+      });
+      return lowered;
+    }
+
+    WheelDirection wheelFromName(std::string_view lowered) {
+      if (lowered == "wheelup") {
+        return WheelDirection::Up;
+      }
+      if (lowered == "wheeldown") {
+        return WheelDirection::Down;
+      }
+      if (lowered == "wheelleft") {
+        return WheelDirection::Left;
+      }
+      if (lowered == "wheelright") {
+        return WheelDirection::Right;
+      }
+      return WheelDirection::None;
+    }
+
+    bool applyModifier(std::string_view token, Keybind& output) {
+      const std::string modifier = toLower(token);
+      if (modifier == "mod") {
+        output.useMod = true;
+      } else if (modifier == "shift") {
+        output.modifiers |= WLR_MODIFIER_SHIFT;
+      } else if (modifier == "ctrl" || modifier == "control") {
+        output.modifiers |= WLR_MODIFIER_CTRL;
+      } else if (modifier == "alt") {
+        output.modifiers |= WLR_MODIFIER_ALT;
+      } else if (modifier == "super" || modifier == "logo" || modifier == "win") {
+        output.modifiers |= WLR_MODIFIER_LOGO;
+      } else {
+        return false;
+      }
+      return true;
+    }
+
+    // Fold every token but the last into the bind's modifier state.
+    bool applyModifiers(const std::vector<std::string_view>& tokens, Keybind& output) {
+      for (size_t index = 0; index + 1 < tokens.size(); ++index) {
+        if (!applyModifier(tokens[index], output)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // Strip a leading "submap[name]" (with optional trailing comma) and record it.
+    // Returns false when the prefix is present but malformed.
+    bool takeSubmapPrefix(std::string_view& chord, Keybind& output) {
+      constexpr std::string_view kPrefix = "submap[";
+      if (!chord.starts_with(kPrefix)) {
+        return true;
+      }
+      const size_t closeBracket = chord.find(']');
+      if (closeBracket == std::string_view::npos) {
+        return false;
+      }
+      output.submap = chord.substr(kPrefix.size(), closeBracket - kPrefix.size());
+      if (output.submap.empty()) {
+        return false;
+      }
+      size_t restStart = closeBracket + 1;
+      if (restStart < chord.size() && chord[restStart] == ',') {
+        ++restStart;
+      }
+      if (restStart >= chord.size()) {
+        return false;
+      }
+      chord = chord.substr(restStart);
+      return true;
+    }
+
+    bool splitChordTokens(std::string_view chord, std::vector<std::string_view>& tokens) {
+      size_t start = 0;
+      while (start <= chord.size()) {
+        const size_t separator = chord.find('+', start);
+        const size_t end = separator == std::string_view::npos ? chord.size() : separator;
+        const std::string_view token = chord.substr(start, end - start);
+        if (token.empty()) {
+          return false;
+        }
+        tokens.push_back(token);
+        if (separator == std::string_view::npos) {
+          break;
+        }
+        start = separator + 1;
+      }
+      return !tokens.empty();
+    }
+
+    // Shared shape of a parameterized action: "name:arg" with a non-empty arg.
+    bool takeActionArg(std::string_view value, const ActionSpec& spec, std::string_view& arg) {
+      if (value.size() <= spec.name.size() + 1 || value[spec.name.size()] != ':' || !value.starts_with(spec.name)) {
+        return false;
+      }
+      arg = value.substr(spec.name.size() + 1);
+      return true;
+    }
+
+    bool parseWorkspaceArg(std::string_view arg, WorkspaceArg& workspace) {
+      std::string_view selector = arg;
+      const size_t separator = selector.find('/');
+      if (separator != std::string_view::npos) {
+        if (separator == 0
+            || separator + 1 == selector.size()
+            || selector.find('/', separator + 1) != std::string_view::npos) {
+          return false;
+        }
+        workspace.output = selector.substr(separator + 1);
+        selector = selector.substr(0, separator);
+      }
+
+      const bool beginsQuoted = selector.starts_with('"');
+      const bool endsQuoted = selector.ends_with('"');
+      if (beginsQuoted || endsQuoted) {
+        if (!beginsQuoted || !endsQuoted || selector.size() <= 2) {
+          return false;
+        }
+        selector.remove_prefix(1);
+        selector.remove_suffix(1);
+        if (selector.contains('"')) {
+          return false;
+        }
+        workspace.reference = WorkspaceName{std::string(selector)};
+        return true;
+      }
+
+      if (std::ranges::all_of(selector, [](char value) { return value >= '0' && value <= '9'; })) {
+        size_t index = 0;
+        const auto [end, error] = std::from_chars(selector.data(), selector.data() + selector.size(), index);
+        if (error != std::errc{} || end != selector.data() + selector.size() || index < 1 || index > kMaxWorkspaces) {
+          return false;
+        }
+        workspace.reference = WorkspaceIndex{index};
+        return true;
+      }
+
+      workspace.reference = WorkspaceName{std::string(selector)};
+      return true;
+    }
+
+    constexpr ActionSpec kActionSpecs[] = {
+        {"cheatsheet-close", "", "Hide the keybind cheatsheet", KeybindAction::CheatsheetClose},
+        {"cheatsheet-open", "", "Show the keybind cheatsheet", KeybindAction::CheatsheetOpen},
+        {"cheatsheet-toggle", "", "Show or hide the keybind cheatsheet", KeybindAction::CheatsheetToggle},
+        {"column-center", "", "Center the focused column in the viewport", KeybindAction::ColumnCenter},
+        {"column-focus-first", "", "Focus the first column in the workspace", KeybindAction::ColumnFocusFirst},
+        {"column-focus-last", "", "Focus the last column in the workspace", KeybindAction::ColumnFocusLast},
+        {"column-move-left", "", "Move the focused column one position left", KeybindAction::ColumnMoveLeft},
+        {"column-move-right", "", "Move the focused column one position right", KeybindAction::ColumnMoveRight},
+        {"column-move-to-first", "", "Move the focused column to the first position", KeybindAction::ColumnMoveToFirst},
+        {"column-move-to-last", "", "Move the focused column to the last position", KeybindAction::ColumnMoveToLast},
+        {"column-move-to-output-down", "", "Move the focused column to the output below",
+         KeybindAction::ColumnMoveToOutputDown},
+        {"column-move-to-output-left", "", "Move the focused column to the output left",
+         KeybindAction::ColumnMoveToOutputLeft},
+        {"column-move-to-output-right", "", "Move the focused column to the output right",
+         KeybindAction::ColumnMoveToOutputRight},
+        {"column-move-to-output-up", "", "Move the focused column to the output above",
+         KeybindAction::ColumnMoveToOutputUp},
+        {"column-move-to-workspace", "<workspace>[/<output>]", "Move the focused column to the selected workspace",
+         KeybindAction::ColumnMoveToWorkspace, ActionArgKind::Workspace},
+        {"column-move-to-workspace-next", "", "Move the focused column to the next workspace",
+         KeybindAction::ColumnMoveToWorkspaceNext},
+        {"column-move-to-workspace-previous", "", "Move the focused column to the previous workspace",
+         KeybindAction::ColumnMoveToWorkspacePrevious},
+        {"config-reload", "", "Reload the configuration file", KeybindAction::ConfigReload},
+        {"dpms-off", "[<output>]", "Power off one output, or every output when bare", KeybindAction::DpmsOff,
+         ActionArgKind::OptionalOutput},
+        {"dpms-on", "[<output>]", "Power on one output, or every output when bare", KeybindAction::DpmsOn,
+         ActionArgKind::OptionalOutput},
+        {"keyboard-layout-next", "", "Switch one keyboard to its next configured layout",
+         KeybindAction::KeyboardLayoutNext},
+        {"layout-master-count-decrease", "", "Demote the last master window to the stack",
+         KeybindAction::LayoutMasterCountDecrease},
+        {"layout-master-count-increase", "", "Promote the first stack window to master",
+         KeybindAction::LayoutMasterCountIncrease},
+        {"layout-scroll-down", "", "Scroll the strip toward its end", KeybindAction::LayoutScrollDown},
+        {"layout-scroll-drag", "", "Pan the strip while the bound button is held", KeybindAction::LayoutScrollDrag},
+        {"layout-scroll-left", "", "Scroll the strip toward its start", KeybindAction::LayoutScrollLeft},
+        {"layout-scroll-right", "", "Scroll the strip toward its end", KeybindAction::LayoutScrollRight},
+        {"layout-scroll-up", "", "Scroll the strip toward its start", KeybindAction::LayoutScrollUp},
+        {"output-focus-down", "", "Focus the output below", KeybindAction::OutputFocusDown},
+        {"output-focus-left", "", "Focus the output to the left", KeybindAction::OutputFocusLeft},
+        {"output-focus-next", "", "Focus the next output, wrapping around", KeybindAction::OutputFocusNext},
+        {"output-focus-previous", "", "Focus the previous output, wrapping around", KeybindAction::OutputFocusPrevious},
+        {"output-focus-right", "", "Focus the output to the right", KeybindAction::OutputFocusRight},
+        {"output-focus-up", "", "Focus the output above", KeybindAction::OutputFocusUp},
+        {"overview-close", "", "Close the workspace overview", KeybindAction::OverviewClose},
+        {"overview-open", "", "Open the workspace overview", KeybindAction::OverviewOpen},
+        {"overview-toggle", "", "Open or close the workspace overview", KeybindAction::OverviewToggle},
+        {"scratchpad-focus-next", "[<scratchpad>]", "Focus the next visible scratchpad window",
+         KeybindAction::ScratchpadFocusNext, ActionArgKind::OptionalScratchpad},
+        {"scratchpad-toggle", "[<scratchpad>]", "Show or hide the selected scratchpad windows",
+         KeybindAction::ScratchpadToggle, ActionArgKind::OptionalScratchpad},
+        {"session-quit", "[skip-confirmation]", "Quit the session, confirming first unless told to skip",
+         KeybindAction::SessionQuit, ActionArgKind::SkipConfirmation},
+        {"shortcuts-inhibit-toggle", "", "Toggle shortcuts inhibition for the focused surface",
+         KeybindAction::ShortcutsInhibitToggle},
+        {"spawn", "<cmd>", "Run a command with a launch activation token", KeybindAction::Spawn,
+         ActionArgKind::Command},
+        {"submap", "<name>", "Enter a submap layer, or leave one with 'reset'", KeybindAction::Submap,
+         ActionArgKind::Command},
+        {"window-center", "", "Center the focused floating window on its output", KeybindAction::WindowCenter},
+        {"window-close", "[<window-id>]", "Close the focused window, or the given window", KeybindAction::WindowClose,
+         ActionArgKind::OptionalWindowId},
+        {"window-consume-left", "", "Stack the focused window into the column left", KeybindAction::WindowConsumeLeft},
+        {"window-consume-or-expel-left", "", "Split the window out, or stack it into the column left",
+         KeybindAction::WindowConsumeOrExpelLeft},
+        {"window-consume-or-expel-right", "", "Split the window out, or stack it into the column right",
+         KeybindAction::WindowConsumeOrExpelRight},
+        {"window-consume-right", "", "Stack the focused window into the column right",
+         KeybindAction::WindowConsumeRight},
+        {"window-cycle-primary-extent", "", "Cycle the focused area's primary extent through presets",
+         KeybindAction::WindowCyclePrimaryExtent},
+        {"window-cycle-primary-extent-back", "", "Cycle the primary extent presets in reverse",
+         KeybindAction::WindowCyclePrimaryExtentBack},
+        {"window-cycle-secondary-extent", "", "Cycle the focused area's secondary extent through presets",
+         KeybindAction::WindowCycleSecondaryExtent},
+        {"window-cycle-secondary-extent-back", "", "Cycle the secondary extent presets in reverse",
+         KeybindAction::WindowCycleSecondaryExtentBack},
+        {"window-focus", "<window-id>", "Focus the given window", KeybindAction::WindowFocusId,
+         ActionArgKind::WindowId},
+        {"window-focus-down", "", "Focus the next window down in the column", KeybindAction::WindowFocusDown},
+        {"window-focus-last", "", "Focus the previously focused window", KeybindAction::WindowFocusLast},
+        {"window-focus-left", "", "Focus the window to the left", KeybindAction::WindowFocusLeft},
+        {"window-focus-next", "", "Focus the next window in layout order", KeybindAction::WindowFocusNext},
+        {"window-focus-or-output-down", "", "Focus down, or the output below at the edge",
+         KeybindAction::WindowFocusOrOutputDown},
+        {"window-focus-or-output-left", "", "Focus left, or the output left at the edge",
+         KeybindAction::WindowFocusOrOutputLeft},
+        {"window-focus-or-output-right", "", "Focus right, or the output right at the edge",
+         KeybindAction::WindowFocusOrOutputRight},
+        {"window-focus-or-output-up", "", "Focus up, or the output above at the edge",
+         KeybindAction::WindowFocusOrOutputUp},
+        {"window-focus-or-workspace-down", "", "Focus down, or the next workspace at the edge",
+         KeybindAction::WindowFocusOrWorkspaceDown},
+        {"window-focus-or-workspace-up", "", "Focus up, or the previous workspace at the edge",
+         KeybindAction::WindowFocusOrWorkspaceUp},
+        {"window-focus-previous", "", "Focus the previous window in layout order", KeybindAction::WindowFocusPrevious},
+        {"window-focus-right", "", "Focus the window to the right", KeybindAction::WindowFocusRight},
+        {"window-focus-switch-floating", "", "Focus the last window of the opposite floating state",
+         KeybindAction::WindowFocusSwitchFloating},
+        {"window-focus-up", "", "Focus the next window up in the column", KeybindAction::WindowFocusUp},
+        {"window-focus-warp", "<window-id>", "Focus the given window and warp the cursor to it",
+         KeybindAction::WindowFocusWarpId, ActionArgKind::WindowId},
+        {"window-modify-height-down", "<delta>", "Resize the focused window from its bottom edge",
+         KeybindAction::WindowModifyHeightDown, ActionArgKind::FractionDelta},
+        {"window-modify-height-up", "<delta>", "Resize the focused window from its top edge",
+         KeybindAction::WindowModifyHeightUp, ActionArgKind::FractionDelta},
+        {"window-modify-primary-extent", "<delta>", "Change the focused area's primary extent by a fraction",
+         KeybindAction::WindowModifyPrimaryExtent, ActionArgKind::FractionDelta},
+        {"window-modify-secondary-extent", "<delta>", "Change the focused area's secondary extent by a fraction",
+         KeybindAction::WindowModifySecondaryExtent, ActionArgKind::FractionDelta},
+        {"window-modify-width-left", "<delta>", "Resize the focused column from its left edge",
+         KeybindAction::WindowModifyWidthLeft, ActionArgKind::FractionDelta},
+        {"window-modify-width-right", "<delta>", "Resize the focused column from its right edge",
+         KeybindAction::WindowModifyWidthRight, ActionArgKind::FractionDelta},
+        {"window-move-down", "", "Move the focused window down in its column", KeybindAction::WindowMoveDown},
+        {"window-move-or-output-down", "", "Move down, or the column to the output below",
+         KeybindAction::WindowMoveOrOutputDown},
+        {"window-move-or-output-left", "", "Move the column left, or to the output left",
+         KeybindAction::WindowMoveOrOutputLeft},
+        {"window-move-or-output-right", "", "Move the column right, or to the output right",
+         KeybindAction::WindowMoveOrOutputRight},
+        {"window-move-or-output-up", "", "Move up, or the column to the output above",
+         KeybindAction::WindowMoveOrOutputUp},
+        {"window-move-or-workspace-down", "", "Move down, or to the next workspace at the edge",
+         KeybindAction::WindowMoveOrWorkspaceDown},
+        {"window-move-or-workspace-up", "", "Move up, or to the previous workspace at the edge",
+         KeybindAction::WindowMoveOrWorkspaceUp},
+        {"window-move-to-output-down", "", "Move the focused window to the output below",
+         KeybindAction::WindowMoveToOutputDown},
+        {"window-move-to-output-left", "", "Move the focused window to the output left",
+         KeybindAction::WindowMoveToOutputLeft},
+        {"window-move-to-output-next", "", "Move the focused window to the next output",
+         KeybindAction::WindowMoveToOutputNext},
+        {"window-move-to-output-previous", "", "Move the focused window to the previous output",
+         KeybindAction::WindowMoveToOutputPrevious},
+        {"window-move-to-output-right", "", "Move the focused window to the output right",
+         KeybindAction::WindowMoveToOutputRight},
+        {"window-move-to-output-up", "", "Move the focused window to the output above",
+         KeybindAction::WindowMoveToOutputUp},
+        {"window-move-to-scratchpad", "[<scratchpad>]", "Move the focused window into a scratchpad",
+         KeybindAction::WindowMoveToScratchpad, ActionArgKind::OptionalScratchpad},
+        {"window-move-to-workspace", "<workspace>[/<output>]", "Move the focused window to the selected workspace",
+         KeybindAction::WindowMoveToWorkspace, ActionArgKind::Workspace},
+        {"window-move-to-workspace-next", "", "Move the focused window to the next workspace",
+         KeybindAction::WindowMoveToWorkspaceNext},
+        {"window-move-to-workspace-previous", "", "Move the focused window to the previous workspace",
+         KeybindAction::WindowMoveToWorkspacePrevious},
+        {"window-move-to-workspace-silent", "<workspace>[/<output>]",
+         "Move the focused window to the selected workspace silently", KeybindAction::WindowMoveToWorkspaceSilent,
+         ActionArgKind::Workspace},
+        {"window-move-to-workspace-silent-next", "", "Move the focused window to the next workspace silently",
+         KeybindAction::WindowMoveToWorkspaceSilentNext},
+        {"window-move-to-workspace-silent-previous", "", "Move the focused window to the previous workspace silently",
+         KeybindAction::WindowMoveToWorkspaceSilentPrevious},
+        {"window-move-up", "", "Move the focused window up in its column", KeybindAction::WindowMoveUp},
+        {"window-restore-from-scratchpad", "[<scratchpad>]", "Return a scratchpad window to its saved workspace",
+         KeybindAction::WindowRestoreFromScratchpad, ActionArgKind::OptionalScratchpad},
+        {"window-set-primary-extent", "<fraction>", "Set the focused area's primary extent fraction",
+         KeybindAction::WindowSetPrimaryExtent, ActionArgKind::Fraction},
+        {"window-set-secondary-extent", "<fraction>", "Set the focused area's secondary extent fraction",
+         KeybindAction::WindowSetSecondaryExtent, ActionArgKind::Fraction},
+        {"window-swap-next", "", "Swap with the next window in layout order", KeybindAction::WindowSwapNext},
+        {"window-swap-previous", "", "Swap with the previous window in layout order",
+         KeybindAction::WindowSwapPrevious},
+        {"window-toggle-floating", "[<window-id>]", "Float or tile the focused window, or the given window",
+         KeybindAction::ToggleFloating, ActionArgKind::OptionalWindowId},
+        {"window-toggle-fullscreen", "", "Toggle fullscreen or exit a window covering the focus",
+         KeybindAction::ToggleFullscreen},
+        {"window-toggle-maximize", "", "Toggle full width for the focused column", KeybindAction::ToggleMaximize},
+        {"window-toggle-maximize-to-edges", "", "Toggle maximize without gaps, struts, or borders",
+         KeybindAction::ToggleMaximizeToEdges},
+        {"window-toggle-pinned", "", "Pin the focused window above other windows", KeybindAction::TogglePinned},
+        {"window-toggle-scratchpad", "[<scratchpad>]", "Move the focused window to or from a scratchpad",
+         KeybindAction::WindowToggleScratchpad, ActionArgKind::OptionalScratchpad},
+        {"workspace-focus-last", "", "Focus the previously active workspace", KeybindAction::WorkspaceFocusLast},
+        {"workspace-move-down", "", "Move the focused workspace down the list", KeybindAction::WorkspaceMoveDown},
+        {"workspace-move-to-output-down", "", "Move every workspace window to the output below",
+         KeybindAction::WorkspaceMoveToOutputDown},
+        {"workspace-move-to-output-left", "", "Move every workspace window to the output left",
+         KeybindAction::WorkspaceMoveToOutputLeft},
+        {"workspace-move-to-output-right", "", "Move every workspace window to the output right",
+         KeybindAction::WorkspaceMoveToOutputRight},
+        {"workspace-move-to-output-up", "", "Move every workspace window to the output above",
+         KeybindAction::WorkspaceMoveToOutputUp},
+        {"workspace-move-up", "", "Move the focused workspace up the list", KeybindAction::WorkspaceMoveUp},
+        {"workspace-next", "", "Switch to the next workspace on this output", KeybindAction::WorkspaceNext},
+        {"workspace-previous", "", "Switch to the previous workspace on this output", KeybindAction::WorkspacePrevious},
+        {"workspace-set-layout", "<scrolling|dwindle|master|toggle>", "Set the active workspace's layout mode",
+         KeybindAction::WorkspaceSetLayout, ActionArgKind::LayoutMode},
+        {"workspace-swap-active-output-down", "", "Swap active workspace windows with the output below",
+         KeybindAction::WorkspaceSwapActiveOutputDown},
+        {"workspace-swap-active-output-left", "", "Swap active workspace windows with the output left",
+         KeybindAction::WorkspaceSwapActiveOutputLeft},
+        {"workspace-swap-active-output-next", "", "Swap active workspace windows with the next output",
+         KeybindAction::WorkspaceSwapActiveOutputNext},
+        {"workspace-swap-active-output-previous", "", "Swap active workspace windows with the previous output",
+         KeybindAction::WorkspaceSwapActiveOutputPrevious},
+        {"workspace-swap-active-output-right", "", "Swap active workspace windows with the output right",
+         KeybindAction::WorkspaceSwapActiveOutputRight},
+        {"workspace-swap-active-output-up", "", "Swap active workspace windows with the output above",
+         KeybindAction::WorkspaceSwapActiveOutputUp},
+        {"workspace-switch", "<workspace>[/<output>]", "Switch to the selected workspace",
+         KeybindAction::WorkspaceSwitch, ActionArgKind::Workspace},
+    };
+
+  } // namespace
+
+  std::span<const ActionSpec> actionSpecs() { return kActionSpecs; }
+
+  uint32_t mouseButtonFromName(std::string_view name) {
+    const std::string lowered = toLower(name);
+    if (lowered == "mouseleft") {
+      return BTN_LEFT;
+    }
+    if (lowered == "mouseright") {
+      return BTN_RIGHT;
+    }
+    if (lowered == "mousemiddle") {
+      return BTN_MIDDLE;
+    }
+    if (lowered == "mouseback") {
+      return BTN_SIDE;
+    }
+    if (lowered == "mouseforward") {
+      return BTN_EXTRA;
+    }
+    return 0;
+  }
+
+  const char* mouseButtonName(uint32_t button) {
+    switch (button) {
+    case BTN_LEFT:
+      return "MouseLeft";
+    case BTN_RIGHT:
+      return "MouseRight";
+    case BTN_MIDDLE:
+      return "MouseMiddle";
+    case BTN_SIDE:
+      return "MouseBack";
+    case BTN_EXTRA:
+      return "MouseForward";
+    default:
+      return nullptr;
+    }
+  }
+
+  bool parseChord(std::string_view chord, Keybind& output) {
+    output = Keybind{};
+
+    if (!takeSubmapPrefix(chord, output)) {
+      return false;
+    }
+
+    std::vector<std::string_view> tokens;
+    if (!splitChordTokens(chord, tokens)) {
+      return false;
+    }
+    if (tokens.size() == 1 && applyModifier(tokens.front(), output)) {
+      output.modifierOnly = true;
+      output.repeat = false;
+      return true;
+    }
+
+    const std::string lastLower = toLower(tokens.back());
+    const WheelDirection wheelDir = wheelFromName(lastLower);
+    const uint32_t mouseButton = mouseButtonFromName(lastLower);
+
+    if (wheelDir != WheelDirection::None || mouseButton != 0) {
+      // A bare wheel or mouse-button bind would hijack all client input.
+      if (tokens.size() < 2) {
+        return false;
+      }
+      if (!applyModifiers(tokens, output)) {
+        return false;
+      }
+      output.wheel = wheelDir;
+      output.mouseButton = mouseButton;
+      return true;
+    }
+
+    const std::string keyName(tokens.back());
+    const xkb_keysym_t keysym = xkb_keysym_from_name(keyName.c_str(), XKB_KEYSYM_CASE_INSENSITIVE);
+    if (keysym == XKB_KEY_NoSymbol) {
+      return false;
+    }
+
+    if (!applyModifiers(tokens, output)) {
+      return false;
+    }
+
+    output.keysym = xkb_keysym_to_lower(keysym);
+    return true;
+  }
+
+  bool parseAction(std::string_view value, Keybind& output) {
+    for (const auto& spec : kActionSpecs) {
+      std::string_view arg;
+      switch (spec.argKind) {
+      case ActionArgKind::None:
+        if (value == spec.name) {
+          output.action = spec.action;
+          output.payload = std::monostate{};
+          return true;
+        }
+        break;
+      case ActionArgKind::Command:
+        if (takeActionArg(value, spec, arg)) {
+          output.action = spec.action;
+          // "submap" shares the name:<text> syntax with "spawn", but its
+          // argument is a submap name rather than a shell command.
+          if (spec.action == KeybindAction::Submap) {
+            if (!validSubmapName(arg)) {
+              return false;
+            }
+            output.payload = SubmapArg{.name = std::string(arg)};
+          } else {
+            output.payload = SpawnArg{.command = std::string(arg)};
+          }
+          return true;
+        }
+        break;
+      case ActionArgKind::Fraction: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        double fraction = 0.0;
+        const auto [fractionPtr, fractionError] = std::from_chars(arg.data(), arg.data() + arg.size(), fraction);
+        if (fractionError != std::errc{}
+            || fractionPtr != arg.data() + arg.size()
+            || !std::isfinite(fraction)
+            || fraction < 0.1
+            || fraction > 1.0) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = FractionArg{.fraction = fraction};
+        return true;
+      }
+      case ActionArgKind::FractionDelta: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        // std::from_chars rejects a leading '+', but the delta is signed.
+        if (!arg.empty() && arg.front() == '+') {
+          arg.remove_prefix(1);
+        }
+        double delta = 0.0;
+        const auto [deltaPtr, deltaError] = std::from_chars(arg.data(), arg.data() + arg.size(), delta);
+        if (deltaError != std::errc{}
+            || deltaPtr != arg.data() + arg.size()
+            || !std::isfinite(delta)
+            || delta == 0.0
+            || std::fabs(delta) > 0.9) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = FractionArg{.fraction = delta};
+        return true;
+      }
+      case ActionArgKind::Workspace: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        WorkspaceArg workspace;
+        if (!parseWorkspaceArg(arg, workspace)) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = std::move(workspace);
+        return true;
+      }
+      case ActionArgKind::OptionalOutput:
+        if (value == spec.name) {
+          output.action = spec.action;
+          output.payload = OutputArg{};
+          return true;
+        }
+        if (takeActionArg(value, spec, arg)) {
+          output.action = spec.action;
+          output.payload = OutputArg{.output = std::string(arg)};
+          return true;
+        }
+        break;
+      case ActionArgKind::OptionalScratchpad:
+        if (value == spec.name) {
+          output.action = spec.action;
+          output.payload = ScratchpadArg{};
+          return true;
+        }
+        if (takeActionArg(value, spec, arg)) {
+          output.action = spec.action;
+          output.payload = ScratchpadArg{.name = std::string(arg)};
+          return true;
+        }
+        break;
+      case ActionArgKind::WindowId:
+        if (takeActionArg(value, spec, arg)) {
+          output.action = spec.action;
+          output.payload = WindowIdArg{.id = std::string(arg)};
+          return true;
+        }
+        break;
+      case ActionArgKind::OptionalWindowId:
+        if (value == spec.name) {
+          output.action = spec.action;
+          output.payload = WindowIdArg{};
+          return true;
+        }
+        if (takeActionArg(value, spec, arg)) {
+          output.action = spec.action;
+          output.payload = WindowIdArg{.id = std::string(arg)};
+          return true;
+        }
+        break;
+      case ActionArgKind::SkipConfirmation:
+        if (value == spec.name) {
+          output.action = spec.action;
+          output.payload = QuitArg{};
+          return true;
+        }
+        if (takeActionArg(value, spec, arg) && arg == "skip-confirmation") {
+          output.action = spec.action;
+          output.payload = QuitArg{.skipConfirmation = true};
+          return true;
+        }
+        break;
+      case ActionArgKind::LayoutMode:
+        if (takeActionArg(value, spec, arg)) {
+          if (arg == "scrolling") {
+            output.action = spec.action;
+            output.payload = LayoutModeArg{.mode = LayoutMode::Scrolling};
+            return true;
+          }
+          if (arg == "dwindle") {
+            output.action = spec.action;
+            output.payload = LayoutModeArg{.mode = LayoutMode::Dwindle};
+            return true;
+          }
+          if (arg == "master") {
+            output.action = spec.action;
+            output.payload = LayoutModeArg{.mode = LayoutMode::Master};
+            return true;
+          }
+          if (arg == "toggle") {
+            output.action = spec.action;
+            output.payload = LayoutModeArg{};
+            return true;
+          }
+        }
+        break;
+      }
+    }
+    return false;
+  }
+
+  std::vector<Keybind> defaultKeybinds() {
+    std::vector<Keybind> keybinds;
+    keybinds.reserve(60);
+    // Built by assignment rather than aggregate initialisation: the trigger and payload fields already carry default
+    // member initialisers, and naming every one of them just to satisfy -Wmissing-field-initializers is noise.
+    auto add = [&keybinds](KeybindAction action, uint32_t keysym, uint32_t modifiers = 0) -> Keybind& {
+      Keybind bind;
+      bind.modifiers = modifiers;
+      bind.useMod = true;
+      bind.keysym = xkb_keysym_to_lower(keysym);
+      bind.action = action;
+      return keybinds.emplace_back(std::move(bind));
+    };
+
+    add(KeybindAction::SessionQuit, XKB_KEY_Escape);
+    // Holding close would also close each window that focus moves to.
+    add(KeybindAction::WindowClose, XKB_KEY_q).repeat = false;
+    add(KeybindAction::WindowFocusNext, XKB_KEY_F1);
+
+    add(KeybindAction::WindowFocusLeft, XKB_KEY_Left);
+    add(KeybindAction::WindowFocusLeft, XKB_KEY_h);
+    add(KeybindAction::WindowFocusRight, XKB_KEY_Right);
+    add(KeybindAction::WindowFocusRight, XKB_KEY_l);
+    add(KeybindAction::WindowFocusUp, XKB_KEY_Up);
+    add(KeybindAction::WindowFocusUp, XKB_KEY_k);
+    add(KeybindAction::WindowFocusDown, XKB_KEY_Down);
+    add(KeybindAction::WindowFocusDown, XKB_KEY_j);
+
+    add(KeybindAction::ColumnMoveLeft, XKB_KEY_Left, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::ColumnMoveLeft, XKB_KEY_h, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::ColumnMoveRight, XKB_KEY_Right, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::ColumnMoveRight, XKB_KEY_l, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::WindowMoveUp, XKB_KEY_Up, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::WindowMoveUp, XKB_KEY_k, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::WindowMoveDown, XKB_KEY_Down, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::WindowMoveDown, XKB_KEY_j, WLR_MODIFIER_SHIFT);
+
+    add(KeybindAction::WindowConsumeLeft, XKB_KEY_comma);
+    add(KeybindAction::WindowConsumeRight, XKB_KEY_period);
+    add(KeybindAction::WindowCyclePrimaryExtent, XKB_KEY_r);
+    add(KeybindAction::WindowCyclePrimaryExtentBack, XKB_KEY_r, WLR_MODIFIER_SHIFT);
+    add(KeybindAction::ToggleFullscreen, XKB_KEY_f);
+    add(KeybindAction::ToggleMaximize, XKB_KEY_f, WLR_MODIFIER_CTRL);
+    add(KeybindAction::ToggleMaximizeToEdges, XKB_KEY_m);
+    add(KeybindAction::ToggleFloating, XKB_KEY_t);
+    add(KeybindAction::TogglePinned, XKB_KEY_p);
+    // Holding the overview key would thrash open/close.
+    add(KeybindAction::OverviewToggle, XKB_KEY_o).repeat = false;
+
+    for (int index = 0; index < 9; ++index) {
+      const uint32_t digit = XKB_KEY_1 + static_cast<uint32_t>(index);
+      const uint32_t keypad = XKB_KEY_KP_1 + static_cast<uint32_t>(index);
+      auto addWorkspace = [&](KeybindAction action, uint32_t keysym, uint32_t modifiers) {
+        Keybind bind;
+        bind.modifiers = modifiers;
+        bind.useMod = true;
+        bind.keysym = keysym;
+        bind.action = action;
+        WorkspaceArg workspace;
+        workspace.reference = WorkspaceIndex{static_cast<size_t>(index + 1)};
+        bind.payload = std::move(workspace);
+        keybinds.push_back(std::move(bind));
+      };
+      addWorkspace(KeybindAction::WorkspaceSwitch, digit, 0);
+      addWorkspace(KeybindAction::WorkspaceSwitch, keypad, 0);
+      addWorkspace(KeybindAction::WindowMoveToWorkspace, digit, WLR_MODIFIER_SHIFT);
+      addWorkspace(KeybindAction::WindowMoveToWorkspace, keypad, WLR_MODIFIER_SHIFT);
+    }
+
+    // Default wheel binds: Mod+WheelUp = window-focus-left, Mod+WheelDown = window-focus-right.
+    {
+      Keybind wheel;
+      wheel.useMod = true;
+      wheel.wheel = WheelDirection::Up;
+      wheel.action = KeybindAction::WindowFocusLeft;
+      keybinds.push_back(std::move(wheel));
+    }
+    {
+      Keybind wheel;
+      wheel.useMod = true;
+      wheel.wheel = WheelDirection::Down;
+      wheel.action = KeybindAction::WindowFocusRight;
+      keybinds.push_back(std::move(wheel));
+    }
+
+    return keybinds;
+  }
+
+} // namespace umbriel

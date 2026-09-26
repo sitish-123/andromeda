@@ -1,0 +1,4655 @@
+#include "view/view.h"
+
+#include "config/config.h"
+#include "config/resolve.h"
+#include "config/store.h"
+#include "core/log.h"
+#include "core/tracy.h"
+#include "input/cursor.h"
+#include "input/seat.h"
+#include "layer/layer_surface.h"
+#include "layout/scrolling.h"
+#include "output/output.h"
+#include "overview/overview.h"
+#include "scene/animation_shader.h"
+#include "scene/surface_blur.h"
+#include "server/server.h"
+extern "C" {
+#include <umbrielfx/render/animation.h>
+}
+#include "view/maximize.h"
+#include "view/xdg_size.h"
+// clang-format off
+#include <algorithm>
+#include <cmath>
+#include <ranges>
+#include <utility>
+#include <variant>
+#include "wlr.h"
+// clang-format on
+#include "workspace/scratchpad.h"
+#include "workspace/workspace.h"
+
+namespace umbriel {
+  namespace {
+    constexpr Logger kLog("view");
+    // Distance the built-in windows_in "slide" style starts an opener below its resting position.
+    constexpr int kOpenSlidePx = 60;
+
+    void setCompositorOpacity(wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+      float opacity = *static_cast<float*>(data);
+      if (wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer)) {
+        if (const wlr_alpha_modifier_surface_v1_state* clientAlpha =
+                wlr_alpha_modifier_v1_get_surface_state(sceneSurface->surface)) {
+          opacity *= static_cast<float>(clientAlpha->multiplier);
+        }
+      }
+      wlr_scene_buffer_set_opacity(buffer, opacity);
+    }
+
+    bool looksTiled(const wlr_xdg_toplevel* toplevel, bool parented) {
+      const auto& state = toplevel->current;
+      const bool fixedWidth = state.max_width > 0 && state.min_width == state.max_width;
+      const bool fixedHeight = state.max_height > 0 && state.min_height == state.max_height;
+      return !parented && !fixedWidth && !fixedHeight;
+    }
+
+    template <typename T>
+    bool changedInitialRule(const std::optional<T>& current, const std::optional<T>& initiallyApplied) {
+      return current.has_value() && current != initiallyApplied;
+    }
+
+    bool scratchpadOwnsOpeningGeometry() {
+      const auto& scratchpad = config().animation.scratchpad;
+      return scratchpad.fullscreen || scratchpad.maximize || (scratchpad.scale > 0.0 && scratchpad.scale <= 1.0);
+    }
+
+    constexpr int contentTypePriority(ContentType type) {
+      switch (type) {
+      case ContentType::Game:
+        return 3;
+      case ContentType::Video:
+        return 2;
+      case ContentType::Photo:
+        return 1;
+      case ContentType::None:
+        return 0;
+      }
+      return 0;
+    }
+
+    View* tiledViewAtLayoutPoint(Workspace& workspace, double lx, double ly) {
+      for (const Column& column : workspace.layout().columns()) {
+        for (View* candidate : column.views) {
+          if (candidate == nullptr || !candidate->mapped() || !candidate->tiled()) {
+            continue;
+          }
+          const wlr_box target = workspace.presentedTiledBox(candidate);
+          if (target.width > 0 && target.height > 0 && wlr_box_contains_point(&target, lx, ly)) {
+            return candidate;
+          }
+        }
+      }
+      return nullptr;
+    }
+
+    bool sceneNodeShowsSurface(wlr_scene_node* node, wlr_surface* surface) {
+      switch (node->type) {
+      case WLR_SCENE_NODE_BUFFER: {
+        wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+        wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+        return sceneSurface != nullptr && sceneSurface->surface == surface;
+      }
+      case WLR_SCENE_NODE_TREE: {
+        wlr_scene_tree* tree = wlr_scene_tree_from_node(node);
+        wlr_scene_node* child = nullptr;
+        wl_list_for_each(child, &tree->children, link) {
+          if (sceneNodeShowsSurface(child, surface)) {
+            return true;
+          }
+        }
+        return false;
+      }
+      default:
+        return false;
+      }
+    }
+
+    // Direct child of the xdg scene tree that holds the toplevel subsurface tree.
+    wlr_scene_node* toplevelSurfaceTreeNode(wlr_scene_tree* xdgTree, wlr_surface* mainSurface) {
+      wlr_scene_node* child = nullptr;
+      wl_list_for_each(child, &xdgTree->children, link) {
+        if (child->type == WLR_SCENE_NODE_TREE && sceneNodeShowsSurface(child, mainSurface)) {
+          return child;
+        }
+      }
+      return nullptr;
+    }
+    WorkspaceGroup* windowRuleWorkspaceGroup(Server& server, const ResolvedWindowRule& rule, WorkspaceGroup* fallback) {
+      Output* targetOutput = nullptr;
+      if (rule.defaultOutput) {
+        targetOutput = server.outputFromName(*rule.defaultOutput);
+      } else if (rule.defaultWorkspace) {
+        const OutputRule* owner = nullptr;
+        if (const auto* position = std::get_if<WorkspaceIndex>(&*rule.defaultWorkspace)) {
+          owner = uniqueFixedWorkspaceOwner(config(), position->value - 1);
+        } else if (const auto* name = std::get_if<WorkspaceName>(&*rule.defaultWorkspace)) {
+          WorkspaceGroup* match = nullptr;
+          bool ambiguous = false;
+          for (const auto& output : server.outputs()) {
+            WorkspaceGroup* group = output->workspaceGroup();
+            if (group == nullptr || group->workspaceNamed(name->value) == nullptr) {
+              continue;
+            }
+            if (match != nullptr) {
+              ambiguous = true;
+            } else {
+              match = group;
+            }
+          }
+          if (!ambiguous && match != nullptr) {
+            return match;
+          }
+          if (ambiguous && fallback != nullptr && fallback->workspaceNamed(name->value) != nullptr) {
+            return fallback;
+          }
+        }
+        if (owner != nullptr) {
+          targetOutput = server.outputFromName(owner->name);
+        }
+      }
+      return targetOutput != nullptr && targetOutput->workspaceGroup() != nullptr ? targetOutput->workspaceGroup()
+                                                                                  : fallback;
+    }
+
+    Workspace* windowRuleWorkspace(WorkspaceGroup* group, const ResolvedWindowRule& rule) {
+      if (group == nullptr) {
+        return nullptr;
+      }
+      Workspace* target = group->active();
+      if (rule.defaultWorkspace) {
+        Workspace* ruleTarget = nullptr;
+        if (const auto* position = std::get_if<WorkspaceIndex>(&*rule.defaultWorkspace)) {
+          ruleTarget = group->workspaceAtClamped(position->value - 1);
+        } else if (const auto* name = std::get_if<WorkspaceName>(&*rule.defaultWorkspace)) {
+          ruleTarget = group->workspaceNamed(name->value);
+        }
+        if (ruleTarget != nullptr) {
+          target = ruleTarget;
+        }
+      }
+      return target;
+    }
+
+  } // namespace
+
+  View::View(Server& server, wlr_xdg_toplevel* toplevel)
+      : SceneNode(SceneNodeKind::View), m_server(&server), m_toplevel(toplevel),
+        m_xwayland(server.isXwaylandSurface(toplevel->base->surface)) {
+    m_server->registerAnimatable(this);
+    // Register map/unmap listeners BEFORE creating the scene tree so our handlers fire before wlroots' internal unmap
+    // handler disables the surface subtree (needed for close-animation buffer snapshot).
+    m_map.notify = onMap;
+    wl_signal_add(&m_toplevel->base->surface->events.map, &m_map);
+    m_unmap.notify = onUnmap;
+    wl_signal_add(&m_toplevel->base->surface->events.unmap, &m_unmap);
+    m_rootSurfaceDestroy.notify = onRootSurfaceDestroy;
+    wl_signal_add(&m_toplevel->base->surface->events.destroy, &m_rootSurfaceDestroy);
+
+    m_sceneTree = wlr_scene_tree_create(m_server->xdgTree());
+    m_decoration.createShadow(m_sceneTree);
+    m_contentTree = wlr_scene_xdg_surface_create(m_sceneTree, m_toplevel->base);
+    // Both carry the tag: popups and constraints find the view through `base->data`, layer walks through the frame.
+    m_sceneTree->node.data = sceneNodeData(this);
+    m_contentTree->node.data = sceneNodeData(this);
+    m_toplevel->base->data = m_contentTree;
+    wlr_scene_node_set_enabled(&m_sceneTree->node, false);
+    m_presentation.createBackdrop(m_contentTree);
+
+    // A scene-node capture uses the node's scene as its render source. Keep a
+    // second scene containing only the client surfaces so transparency cannot
+    // reveal the wallpaper, another window, or compositor effects.
+    m_captureScene = wlr_scene_create();
+    if (m_captureScene != nullptr) {
+      m_captureScene->restack_xwayland_surfaces = false;
+      wlr_scene_xdg_surface_create(&m_captureScene->tree, m_toplevel->base);
+    }
+    notifyOutputScale();
+
+    // The surface watcher must run before the general commit handler so a
+    // newly committed content type participates in initial window rules.
+    watchViewSurfaceTree(m_toplevel->base->surface);
+    m_commit.notify = onCommit;
+    wl_signal_add(&m_toplevel->base->surface->events.commit, &m_commit);
+    m_clientCommit.notify = onClientCommit;
+    wl_signal_add(&m_toplevel->base->surface->events.client_commit, &m_clientCommit);
+    m_destroy.notify = onDestroy;
+    wl_signal_add(&m_toplevel->events.destroy, &m_destroy);
+
+    m_requestMove.notify = onRequestMove;
+    wl_signal_add(&m_toplevel->events.request_move, &m_requestMove);
+    m_requestResize.notify = onRequestResize;
+    wl_signal_add(&m_toplevel->events.request_resize, &m_requestResize);
+    m_requestMaximize.notify = onRequestMaximize;
+    wl_signal_add(&m_toplevel->events.request_maximize, &m_requestMaximize);
+    m_requestFullscreen.notify = onRequestFullscreen;
+    wl_signal_add(&m_toplevel->events.request_fullscreen, &m_requestFullscreen);
+    m_setParent.notify = onSetParent;
+    wl_signal_add(&m_toplevel->events.set_parent, &m_setParent);
+    m_setTitle.notify = onSetTitle;
+    wl_signal_add(&m_toplevel->events.set_title, &m_setTitle);
+    m_setAppId.notify = onSetAppId;
+    wl_signal_add(&m_toplevel->events.set_app_id, &m_setAppId);
+
+    if (wlr_foreign_toplevel_manager_v1* manager = m_server->foreignToplevelManager()) {
+      m_foreign = wlr_foreign_toplevel_handle_v1_create(manager);
+      if (m_foreign != nullptr) {
+        m_foreign->data = this;
+        m_foreignActivate.notify = onForeignActivate;
+        wl_signal_add(&m_foreign->events.request_activate, &m_foreignActivate);
+        m_foreignClose.notify = onForeignClose;
+        wl_signal_add(&m_foreign->events.request_close, &m_foreignClose);
+        m_foreignDestroy.notify = onForeignDestroy;
+        wl_signal_add(&m_foreign->events.destroy, &m_foreignDestroy);
+        updateForeignIdentity();
+        updateForeignState();
+      }
+    }
+
+    if (wlr_ext_foreign_toplevel_list_v1* list = m_server->extForeignToplevelList()) {
+      const wlr_ext_foreign_toplevel_handle_v1_state state = {
+          .title = m_toplevel->title,
+          .app_id = m_toplevel->app_id,
+      };
+      m_extForeign = wlr_ext_foreign_toplevel_handle_v1_create(list, &state);
+      if (m_extForeign != nullptr) {
+        m_extForeign->data = this;
+        m_extForeignDestroy.notify = onExtForeignDestroy;
+        wl_signal_add(&m_extForeign->events.destroy, &m_extForeignDestroy);
+      }
+    }
+  }
+
+  View::~View() {
+    if (m_acceptClientMaximizeIdle != nullptr) {
+      wl_event_source_remove(m_acceptClientMaximizeIdle);
+      m_acceptClientMaximizeIdle = nullptr;
+    }
+    m_server->unregisterAnimatable(this);
+    clearViewSurfaceWatches();
+    setWorkspace(nullptr);
+    if (m_map.link.next != nullptr) {
+      wl_list_remove(&m_map.link);
+      wl_list_remove(&m_unmap.link);
+      wl_list_remove(&m_commit.link);
+      wl_list_remove(&m_clientCommit.link);
+      wl_list_remove(&m_destroy.link);
+      wl_list_remove(&m_requestMove.link);
+      wl_list_remove(&m_requestResize.link);
+      wl_list_remove(&m_requestMaximize.link);
+      wl_list_remove(&m_requestFullscreen.link);
+      wl_list_remove(&m_setParent.link);
+      wl_list_remove(&m_setTitle.link);
+      wl_list_remove(&m_setAppId.link);
+    }
+    if (m_rootSurfaceDestroy.link.next != nullptr) {
+      wl_list_remove(&m_rootSurfaceDestroy.link);
+      m_rootSurfaceDestroy.link.next = nullptr;
+      m_rootSurfaceDestroy.link.prev = nullptr;
+    }
+    if (m_foreign != nullptr) {
+      leaveForeignOutput();
+      wlr_foreign_toplevel_handle_v1_destroy(m_foreign);
+      m_foreign = nullptr;
+    }
+    if (m_extForeign != nullptr) {
+      wl_list_remove(&m_extForeignDestroy.link);
+      wlr_ext_foreign_toplevel_handle_v1_destroy(m_extForeign);
+      m_extForeign = nullptr;
+    }
+    if (m_captureSource != nullptr) {
+      wl_list_remove(&m_captureSourceDestroy.link);
+      m_captureSource = nullptr;
+    }
+    if (m_captureScene != nullptr) {
+      wlr_scene_node_destroy(&m_captureScene->tree.node);
+      m_captureScene = nullptr;
+    }
+    if (m_sceneTree != nullptr) {
+      m_decoration.poolShadow(m_sceneTree, nullptr, 0, 0, false);
+      wlr_scene_node_destroy(&m_sceneTree->node);
+      m_sceneTree = nullptr;
+    }
+  }
+
+  wlr_scene_tree* View::captureTree() const { return m_captureScene != nullptr ? &m_captureScene->tree : nullptr; }
+
+  void View::moveToWorkspace(Workspace* workspace, bool attachToLayout) {
+    moveToWorkspace(workspace, attachToLayout, LayoutAttachOrigin::ExistingView);
+  }
+
+  void View::moveToWorkspace(Workspace* workspace, bool attachToLayout, LayoutAttachOrigin origin) {
+    const bool wasDisplaced = m_displacedHome.has_value();
+    m_displacedHome.reset();
+    setWorkspace(workspace, attachToLayout, origin);
+    if (wasDisplaced) {
+      m_server->scheduleDisplacedViewRestore();
+    }
+  }
+
+  void View::setWorkspace(Workspace* workspace, bool attachToLayout) {
+    setWorkspace(workspace, attachToLayout, LayoutAttachOrigin::ExistingView);
+  }
+
+  void View::setWorkspace(Workspace* workspace, bool attachToLayout, LayoutAttachOrigin origin) {
+    if (workspace != nullptr
+        && m_server->scratchpadManager() != nullptr
+        && m_server->scratchpadManager()->contains(this)) {
+      return;
+    }
+    if (m_workspace == workspace) {
+      return;
+    }
+    Output* previousOutput =
+        m_workspace != nullptr && m_workspace->group() != nullptr ? m_workspace->group()->output() : nullptr;
+    if (m_workspace != nullptr) {
+      Workspace* previous = m_workspace;
+      const bool sameGroup = workspace != nullptr && workspace->group() == previous->group();
+      m_workspace = nullptr;
+      // Keep an empty destination alive until this view has been attached.
+      // addView() reconciles the group after the transfer is complete.
+      previous->removeView(this, !sameGroup);
+    }
+    m_workspace = workspace;
+    if (m_workspace != nullptr) {
+      m_workspace->addView(this, attachToLayout, origin);
+    } else {
+      // A pinned view normally hangs below an output-owned clipping root. Park its frame on the server-owned pinned
+      // root before the last output is destroyed, then addView() can rehome it when an output returns. Leaving it under
+      // the dying output frees nodes that the live View still owns.
+      if (m_pinned) {
+        setSceneParent(m_server->pinnedTree());
+      }
+      setOnActiveWorkspace(true);
+    }
+    notifyOutputScale();
+    if (m_mapped
+        && !m_tiled
+        && m_workspace != nullptr
+        && (m_pendingFloatingWidthPx
+            || m_pendingFloatingHeightPx
+            || m_pendingFloatingWidth
+            || m_pendingFloatingHeight
+            || m_pendingFloatingPosition)) {
+      auto [width, height] = floatingSize();
+      const wlr_box usable = floatingUsableArea();
+      const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+      if (m_pendingFloatingWidthPx) {
+        width = clampXdgWidth(*m_pendingFloatingWidthPx, hints);
+        m_pendingFloatingWidthPx.reset();
+        m_pendingFloatingWidth.reset();
+      } else if (m_pendingFloatingWidth && usable.width > 0) {
+        width = clampXdgWidth(floatingFractionSize(*m_pendingFloatingWidth, usable.width), hints);
+        m_pendingFloatingWidth.reset();
+      }
+      if (m_pendingFloatingHeightPx) {
+        height = clampXdgHeight(*m_pendingFloatingHeightPx, hints);
+        m_pendingFloatingHeightPx.reset();
+        m_pendingFloatingHeight.reset();
+      } else if (m_pendingFloatingHeight && usable.height > 0) {
+        height = clampXdgHeight(floatingFractionSize(*m_pendingFloatingHeight, usable.height), hints);
+        m_pendingFloatingHeight.reset();
+      }
+      if (width > 0 && height > 0 && (m_toplevel->scheduled.width != width || m_toplevel->scheduled.height != height)) {
+        requestFloatingSize(width, height);
+        beginResizeAnimation(width, height);
+      }
+      if (m_pendingFloatingPosition) {
+        if (const auto positioned = getFloatingPosition(usable, m_pendingFloatingPosition, std::array{width, height})) {
+          animateTo(positioned->x, positioned->y);
+          m_floating.rememberPositionFraction(*positioned, usable);
+          m_pendingFloatingPosition.reset();
+        }
+      }
+    }
+    if (m_mapped) {
+      if (m_workspace != nullptr) {
+        enterForeignOutput();
+      } else {
+        // An unassigned view has no output to advertise. In particular, the preferred output may be the one currently
+        // being destroyed, and foreign-toplevel output membership installs a bind listener that must be gone before
+        // wlr_output_finish completes.
+        leaveForeignOutput();
+      }
+    }
+    if (m_mapped) {
+      m_server->scheduleIpcWindowsEvent();
+      if (previousOutput != nullptr) {
+        previousOutput->updateVrr();
+        previousOutput->updateHdr();
+      }
+      if (m_workspace != nullptr && m_workspace->group() != nullptr) {
+        Output* output = m_workspace->group()->output();
+        output->updateVrr();
+        output->updateHdr();
+      }
+    }
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewWorkspaceChanged(this);
+    }
+  }
+
+  bool View::attachToAvailableWorkspace(const ResolvedWindowRule& rule, LayoutAttachOrigin origin) {
+    Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
+    WorkspaceGroup* preferredGroup = preferred != nullptr ? preferred->workspaceGroup() : nullptr;
+    WorkspaceGroup* targetGroup = windowRuleWorkspaceGroup(*m_server, rule, preferredGroup);
+    Workspace* target = windowRuleWorkspace(targetGroup, rule);
+    if (target == nullptr) {
+      return false;
+    }
+    setWorkspace(target, false);
+    if (m_workspace != target) {
+      return false;
+    }
+    target->layoutAttach(this, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx, origin);
+    return true;
+  }
+
+  void View::detachWorkspace() {
+    m_workspace = nullptr;
+    m_openingScale = 1.0;
+    m_openingSlide = 0;
+    setOnActiveWorkspace(true);
+  }
+
+  void View::setOnActiveWorkspace(bool active) {
+    if (m_pinned) {
+      return;
+    }
+    if (m_onActiveWorkspace == active) {
+      return;
+    }
+    m_onActiveWorkspace = active;
+    if (m_sceneTree != nullptr) {
+      wlr_scene_node_set_enabled(&m_sceneTree->node, active);
+      m_decoration.setShadowEnabled(active);
+    } else {
+      m_decoration.setShadowEnabled(active);
+    }
+    if (!m_mapped) {
+      return;
+    }
+    if (active) {
+      enterForeignOutput();
+    } else {
+      // Output membership tracks the physical monitor, not the active workspace: a window on another workspace is still
+      // on its output. Leaving the output here would make foreign-toplevel clients drop the window from their task
+      // lists. Workspace-less overlays leave here, then their owner can
+      // explicitly advertise a retained output assignment.
+      if (m_workspace == nullptr) {
+        leaveForeignOutput();
+      }
+      setForeignActivated(false);
+      setBorderFocused(false);
+    }
+    if (Output* output = currentOutput()) {
+      output->updateHdr();
+    }
+  }
+
+  void View::setNodeEnabled(bool enabled) {
+    enabled = enabled && !m_tiledOpeningDeferred;
+    wlr_scene_node_set_enabled(&m_sceneTree->node, enabled);
+    m_decoration.setShadowEnabled(enabled);
+    m_server->updateIdleInhibit();
+  }
+
+  void View::raiseToTop() {
+    View* root = this;
+    while (View* parent = root->transientParent()) {
+      root = parent;
+    }
+    root->raiseTransientTree();
+  }
+
+  View* View::xdgParent() const {
+    if (m_toplevel->parent == nullptr || m_toplevel->parent->base == nullptr) {
+      return nullptr;
+    }
+    View* parent = fromSurface(m_toplevel->parent->base->surface);
+    if (parent == this || parent == nullptr || !parent->m_mapped) {
+      return nullptr;
+    }
+    return parent;
+  }
+
+  View* View::transientParent() const {
+    if (!m_mapped) {
+      return nullptr;
+    }
+    View* parent = xdgParent();
+    if (parent == nullptr) {
+      return nullptr;
+    }
+    if (m_workspace != nullptr && parent->m_workspace == m_workspace) {
+      return parent;
+    }
+    ScratchpadManager* scratchpad = m_server->scratchpadManager();
+    if (scratchpad == nullptr || !scratchpad->contains(this) || !scratchpad->contains(parent)) {
+      return nullptr;
+    }
+    const std::string_view name = scratchpad->nameFor(this);
+    return !name.empty() && scratchpad->nameFor(parent) == name ? parent : nullptr;
+  }
+
+  bool View::inheritScratchpadFromParent(bool restoreTiled) {
+    ScratchpadManager* scratchpad = m_server->scratchpadManager();
+    if (!m_mapped
+        || scratchpad == nullptr
+        || scratchpad->contains(this)
+        || m_initialRules.defaultScratchpad
+        || m_initialRules.defaultWorkspace
+        || m_initialRules.defaultPinned.value_or(false)) {
+      return false;
+    }
+    View* parent = xdgParent();
+    if (parent == nullptr) {
+      return false;
+    }
+    Workspace* restoreWorkspace = m_workspace;
+    Output* restoreOutput = restoreWorkspace != nullptr && restoreWorkspace->group() != nullptr
+        ? restoreWorkspace->group()->output()
+        : currentOutput();
+    return scratchpad->assignFromParent(
+        this, parent,
+        ScratchpadManager::AutomaticAdmission{
+            .restoreOutput = restoreOutput,
+            .restoreWorkspace = restoreWorkspace,
+            .focusOrigin = scratchpad->outputFor(parent),
+            .restoreTiled = restoreTiled,
+            .updateRestoreLocation = true,
+        }
+    );
+  }
+
+  void View::syncTransientSceneParent() {
+    if (!m_mapped || m_workspace == nullptr || m_pinned || m_server->cursor()->isDraggingView(this)) {
+      return;
+    }
+
+    wlr_scene_tree* target = homeTree();
+    if (View* parent = transientParent()) {
+      wlr_scene_tree* parentTree = parent->m_sceneTree->node.parent;
+      Output* output = currentOutput();
+      const bool parentElevated = parentTree == m_server->dragTree()
+          || parentTree == m_workspace->fullscreenTree()
+          || (output != nullptr && parentTree == output->pinnedRoot());
+      if (parentElevated) {
+        target = parentTree;
+      }
+    }
+
+    if (m_sceneTree->node.parent == target) {
+      return;
+    }
+    setSceneParent(target);
+  }
+
+  void View::raiseTransientTree() {
+    syncTransientSceneParent();
+    wlr_scene_node_raise_to_top(&m_sceneTree->node);
+
+    const auto views = m_server->registry().all();
+    for (const auto& view : std::views::reverse(views)) {
+      View* child = view.get();
+      if (child != this && child->transientParent() == this) {
+        child->raiseTransientTree();
+      }
+    }
+  }
+
+  void View::setInScratchpad(bool scratchpad) {
+    if (m_inScratchpad == scratchpad) {
+      return;
+    }
+    m_inScratchpad = scratchpad;
+    setBorderFocused(m_borderFocusedState);
+    refreshStateRuleEffects();
+  }
+
+  void View::setSceneParent(wlr_scene_tree* parent) {
+    wlr_scene_node_reparent(&m_sceneTree->node, parent);
+    syncShadowPool();
+  }
+
+  void View::syncShadowPool() {
+    wlr_scene_tree* pool = m_workspace != nullptr && m_sceneTree->node.parent == m_workspace->viewLayer(true)
+        ? m_workspace->tileShadowLayer()
+        : nullptr;
+    m_decoration.poolShadow(m_sceneTree, pool, m_sceneTree->node.x, m_sceneTree->node.y, m_sceneTree->node.enabled);
+  }
+
+  void View::setScenePosition(int x, int y) {
+    wlr_scene_node_set_position(&m_sceneTree->node, x, y);
+    m_decoration.setShadowPosition(x, y);
+  }
+
+  void View::applySeatFocus(bool withKeyboard) {
+    // Mechanism only. Policy lives in Server::focusView; do not call directly
+    // from input/event code.
+    if (!m_onActiveWorkspace && !m_pinned) {
+      return;
+    }
+
+    wlr_seat* seat = m_server->seat()->wlr();
+    wlr_surface* surface = m_toplevel->base->surface;
+    // Always clear other views first: the previous seat surface may be a layer, so
+    // deactivating only that surface can leave another window's focus border on.
+    m_server->deactivateViews(this);
+
+    raiseToTop();
+    if (!m_toplevel->scheduled.activated) {
+      wlr_xdg_toplevel_set_activated(m_toplevel, true);
+    }
+    setBorderFocused(true);
+    setForeignActivated(true);
+
+    if (!withKeyboard) {
+      return;
+    }
+
+    // Re-focusing the popup's owning toplevel must preserve its active XDG
+    // keyboard grab. Ending that grab tells wlroots to dismiss the popup.
+    if (seat->keyboard_state.focused_surface == surface) {
+      return;
+    }
+
+    // A popup can still own wlroots' keyboard grab when its dismissing click
+    // reaches another view. Let that click transfer the seat immediately
+    // instead of losing the enter to a popup that is about to disappear. A
+    // data-device drag is different: it deliberately owns the grab until the
+    // initiating button is released, and FocusManager replays the selected
+    // view when that happens.
+    if (seat->drag == nullptr && wlr_seat_keyboard_has_grab(seat)) {
+      wlr_seat_keyboard_end_grab(seat);
+    }
+    m_server->notifyKeyboardEnter(surface);
+  }
+
+  void View::cancelPositionAnimation() {
+    // Freeze wherever the node currently sits; callers use this to take over
+    // positioning (drags, layout snaps) without a jump.
+    m_posX.snap(m_sceneTree->node.x);
+    m_posY.snap(m_sceneTree->node.y);
+  }
+
+  void View::scheduleFrame() {
+    if (Output* output = currentOutput()) {
+      wlr_output_schedule_frame(output->wlr());
+    }
+  }
+
+  bool View::fadeComposited() const {
+    if (!m_fade.animating()) {
+      return false;
+    }
+    return m_customFade
+        || (!m_inScratchpad && lifecycleShader(m_server->renderer(), AnimationEvent::WindowsIn) != nullptr);
+  }
+
+  float View::effectiveOpacity() const {
+    // Overshooting curves can push this past [0, 1]; wlr_scene_buffer_set_opacity asserts.
+    const float ruleOpacity =
+        m_toplevel->scheduled.fullscreen && config().appearance.opaqueFullscreen ? 1.0F : m_ruleOpacity;
+    const float fade = fadeComposited() ? 1.0F : m_fadeAlpha;
+    return std::clamp(
+        fade * ruleOpacity * m_dragOpacity * m_overviewOpacity * static_cast<float>(m_focusDim.current()), 0.0F, 1.0F
+    );
+  }
+
+  bool View::fullscreenOpaque() const {
+    if (config().appearance.opaqueFullscreen) {
+      return true;
+    }
+    if (m_ruleOpacity < 1.0F) {
+      return false;
+    }
+    wlr_surface* surface = m_toplevel->base->surface;
+    if (const wlr_alpha_modifier_surface_v1_state* clientAlpha = wlr_alpha_modifier_v1_get_surface_state(surface);
+        clientAlpha != nullptr && clientAlpha->multiplier < 1.0) {
+      return false;
+    }
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    return geometry.width <= 0 || geometry.height <= 0 || !surfaceTransparent(surface, geometry);
+  }
+
+  void View::setFadeAlpha(float alpha) {
+    // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
+    m_fadeAlpha = std::clamp(alpha, 0.0F, 1.0F);
+    float effective = effectiveOpacity();
+    wlr_scene_node_for_each_buffer(&m_contentTree->node, setCompositorOpacity, &effective);
+    m_resizeCrossfade.applyOpacity(effective);
+    m_decoration.setBorderRawColor(m_borderColorAnim.current(), effective);
+    // The analytic fallback still follows the lifecycle fade. Shader-shaped
+    // shadows get their opacity from captured pixels instead of this multiplier.
+    const float shadowOpacity = fadeComposited() ? effective * m_fadeAlpha : effective;
+    m_decoration.setAlpha(shadowOpacity, m_fadeAlpha * m_overviewOpacity);
+  }
+
+  void View::setOverviewOpacity(float opacity) {
+    const float clamped = std::clamp(opacity, 0.0F, 1.0F);
+    if (clamped == m_overviewOpacity) {
+      return;
+    }
+    m_overviewOpacity = clamped;
+    setFadeAlpha(m_fadeAlpha);
+  }
+
+  void View::applyEffectiveOpacity() {
+    if (m_sceneTree == nullptr) {
+      return;
+    }
+    float effective = effectiveOpacity();
+    if (effective >= 1.0F) {
+      return;
+    }
+    wlr_scene_node_for_each_buffer(&m_contentTree->node, setCompositorOpacity, &effective);
+    m_resizeCrossfade.applyOpacity(effective);
+  }
+
+  void View::flushPendingEffectiveOpacity() {
+    if (!m_effectiveOpacityCommitPending) {
+      return;
+    }
+    applyEffectiveOpacity();
+    m_effectiveOpacityCommitPending = false;
+  }
+
+  void View::watchViewSurfaceTree(wlr_surface* root, wlr_subsurface* attachment) {
+    if (root == nullptr) {
+      return;
+    }
+    watchViewSurface(root, attachment);
+
+    wlr_subsurface* child;
+    wl_list_for_each(child, &root->current.subsurfaces_below, current.link) {
+      watchViewSurfaceTree(child->surface, child);
+    }
+    wl_list_for_each(child, &root->current.subsurfaces_above, current.link) {
+      watchViewSurfaceTree(child->surface, child);
+    }
+  }
+
+  void View::watchViewSurface(wlr_surface* surface, wlr_subsurface* attachment) {
+    if (surface == nullptr) {
+      return;
+    }
+
+    const auto existing =
+        std::ranges::find_if(m_viewSurfaceWatches, [surface](const auto& watch) { return watch->surface == surface; });
+    if (existing != m_viewSurfaceWatches.end()) {
+      ViewSurfaceWatch& watch = **existing;
+      if (watch.subsurface == nullptr && attachment != nullptr) {
+        watch.subsurface = attachment;
+        watch.subsurfaceDestroy.notify = onViewSubsurfaceDestroy;
+        wl_signal_add(&attachment->events.destroy, &watch.subsurfaceDestroy);
+      }
+      return;
+    }
+
+    auto watch = std::make_unique<ViewSurfaceWatch>();
+    watch->view = this;
+    watch->surface = surface;
+    watch->subsurface = attachment;
+    watch->contentType = m_server->surfaceContentType(surface);
+    watch->commit.notify = onViewSurfaceCommit;
+    wl_signal_add(&surface->events.commit, &watch->commit);
+    watch->newSubsurface.notify = onViewSurfaceNewSubsurface;
+    wl_signal_add(&surface->events.new_subsurface, &watch->newSubsurface);
+    if (watch->subsurface != nullptr) {
+      watch->subsurfaceDestroy.notify = onViewSubsurfaceDestroy;
+      wl_signal_add(&watch->subsurface->events.destroy, &watch->subsurfaceDestroy);
+    }
+    watch->destroy.notify = onViewSurfaceDestroy;
+    wl_signal_add(&surface->events.destroy, &watch->destroy);
+    m_viewSurfaceWatches.push_back(std::move(watch));
+  }
+
+  void View::clearViewSurfaceWatches() {
+    for (const auto& watch : m_viewSurfaceWatches) {
+      wl_list_remove(&watch->commit.link);
+      wl_list_remove(&watch->newSubsurface.link);
+      if (watch->subsurface != nullptr) {
+        wl_list_remove(&watch->subsurfaceDestroy.link);
+      }
+      wl_list_remove(&watch->destroy.link);
+    }
+    m_viewSurfaceWatches.clear();
+  }
+
+  void View::cancelFadeAnimation() {
+    m_fade.snap(1.0);
+    dropOpeningInset();
+    setFadeAlpha(1.0F);
+  }
+
+  bool View::tiledOpeningActive() const {
+    return m_mapped
+        && !m_inScratchpad
+        && m_tiled
+        && !layoutFullscreen()
+        && m_workspace != nullptr
+        && m_workspace->layout().columnOf(this) >= 0
+        && m_fade.animating()
+        && m_fade.target() > m_fade.from();
+  }
+
+  bool View::fullscreenOpeningActive() const {
+    return m_mapped && !m_inScratchpad && layoutFullscreen() && m_fade.animating() && m_fade.target() > m_fade.from();
+  }
+
+  wlr_box View::openingInsetBox(const wlr_box& box) const {
+    wlr_box presented = box;
+    if (openingInsetActive()) {
+      const double progress = std::clamp(m_fade.current(), 0.0, 1.0);
+      const double scale = std::lerp(m_openingScale, 1.0, progress);
+      presented.width = static_cast<int>(std::lround(box.width * scale));
+      presented.height = static_cast<int>(std::lround(box.height * scale));
+      presented.x = box.x + (box.width - presented.width) / 2;
+      presented.y = box.y
+          + (box.height - presented.height) / 2
+          + static_cast<int>(std::lround(std::lerp(m_openingSlide, 0.0, progress)));
+    }
+    presented.width = std::max(1, presented.width);
+    presented.height = std::max(1, presented.height);
+    return presented;
+  }
+
+  wlr_box View::fullscreenLayoutBox() const {
+    if (m_workspace != nullptr) {
+      const wlr_box box = m_workspace->fullscreenTargetBox(this);
+      if (box.width > 0 && box.height > 0) {
+        return box;
+      }
+    }
+    return fullscreenArea();
+  }
+
+  std::optional<wlr_box> View::openingLayoutBox() const {
+    if (!tiledOpeningActive() || m_presentedTiledBox.width <= 0 || m_presentedTiledBox.height <= 0) {
+      return std::nullopt;
+    }
+    return m_presentedTiledBox;
+  }
+
+  void View::dropOpeningInset() {
+    if (!openingInsetPending()) {
+      return;
+    }
+    m_openingScale = 1.0;
+    m_openingSlide = 0;
+    if (!m_mapped) {
+      return;
+    }
+    // The inset moved the node off its resting origin; the caller settles the size.
+    if (layoutFullscreen()) {
+      const wlr_box area = fullscreenLayoutBox();
+      if (area.width > 0 && area.height > 0) {
+        setScenePosition(area.x, area.y);
+      }
+      return;
+    }
+    if (m_tiled && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0) {
+      const wlr_box slot = m_workspace->presentedTiledBox(this);
+      setScenePosition(slot.x, slot.y);
+    }
+  }
+
+  wlr_box View::committedContentBox() const {
+    wlr_box box = m_toplevel->base->geometry;
+    if (!m_tiled || m_toplevel->current.fullscreen) {
+      return box;
+    }
+    // A client may ack a configure, render the new size into its buffer, and leave set_window_geometry at the old size
+    // (Electron does, permanently). Presenting that stale box would crop the content the client just drew, so trust
+    // the pixels: grow the box towards the size this view was configured to, never past what the surface holds.
+    const wlr_surface_state& surface = m_toplevel->base->surface->current;
+    box.width = std::max(box.width, std::min(m_toplevel->scheduled.width, surface.width - box.x));
+    box.height = std::max(box.height, std::min(m_toplevel->scheduled.height, surface.height - box.y));
+    return box;
+  }
+
+  int View::presentedWidth(const wlr_box& target) const {
+    if (sizeGrabActive()) {
+      return target.width;
+    }
+    if (layoutPresentationOwned()) {
+      return m_presentation.width();
+    }
+    if (m_toplevel->current.fullscreen) {
+      return target.width;
+    }
+    return std::min(committedContentBox().width, target.width);
+  }
+
+  void View::trackPresentedSize(int width, int height) { m_presentation.track(width, height); }
+
+  int View::presentedHeight(const wlr_box& target) const {
+    if (sizeGrabActive()) {
+      return target.height;
+    }
+    if (layoutPresentationOwned()) {
+      return m_presentation.height();
+    }
+    if (m_toplevel->current.fullscreen) {
+      return target.height;
+    }
+    return std::min(committedContentBox().height, target.height);
+  }
+
+  // Fullscreen chrome follows committed state. Transitions may scale the old buffer, while settled mismatched buffers
+  // remain centered and cropped without distortion.
+
+  void View::updateFullscreenPresentation(int width, int height) {
+    m_presentation.updateFullscreen(
+        m_toplevel->current.fullscreen, width, height,
+        toplevelSurfaceTreeNode(m_contentTree, m_toplevel->base->surface), m_toplevel->base->geometry
+    );
+  }
+
+  void View::applyPresentedCrop(const wlr_box& content, const wlr_box& surfaceClip) {
+    m_presentation.applyCrop(
+        m_contentTree, m_toplevel->base->surface, m_toplevel->base->geometry, content, surfaceClip
+    );
+  }
+
+  void View::resetPresentedSurface() {
+    m_presentation.resetCrop(m_contentTree, m_toplevel->base->surface);
+    // Clear the subsurface clip so the next syncViewPresentation re-applies the resting clip through a real
+    // reconfigure: an unchanged clip box early-outs and would leave the animated src/dst behind.
+    setSurfaceTreeClip(nullptr);
+  }
+
+  void View::applyPresentedSize() {
+    // A dragged window is out of the layout's hands, so it derives its own
+    // presentation instead of going through the workspace below.
+    if (const Cursor* cursor = m_server->cursor(); cursor != nullptr && cursor->isDraggingView(this)) {
+      applyDragPresentation();
+      return;
+    }
+    // Buffer scale + crop is derived in applyPresentation (applyPresentedCrop) via syncViewPresentation below, so the
+    // animated size and the presented crop are always applied together instead of fighting over dest_size.
+    const int width = m_presentation.width();
+    const int height = m_presentation.height();
+    updateBorderGeometry(width, height);
+    if (!m_toplevel->scheduled.fullscreen) {
+      updateShadow(width, height);
+    }
+    updateBlur(width, height);
+    syncOwnedPresentation();
+  }
+
+  void View::syncOwnedPresentation() {
+    if (m_workspace != nullptr) {
+      m_workspace->syncViewPresentation(this);
+      return;
+    }
+    if (ScratchpadManager* scratchpad = m_server->scratchpadManager();
+        scratchpad != nullptr && scratchpad->contains(this)) {
+      scratchpad->syncViewPresentation(this);
+    }
+  }
+
+  void View::applyDragPresentation() {
+    applyPresentation({
+        .x = m_sceneTree->node.x,
+        .y = m_sceneTree->node.y,
+        .width = m_presentation.width(),
+        .height = m_presentation.height(),
+    });
+  }
+
+  void View::finishSizeAnimation() {
+    const wlr_box content = committedContentBox();
+    m_presentation.setSize(content.width, content.height);
+    resetPresentedSurface();
+    updateBorderGeometry();
+    updateBlur();
+    updateShadow();
+    syncOwnedPresentation();
+  }
+
+  void View::cancelSizeAnimation() {
+    if (!layoutPresentationOwned()) {
+      return;
+    }
+    m_layoutPresentationHeld = false;
+    m_tiledSizeRequest.reset();
+    m_resizeCrossfade.discard();
+    if (m_layoutMotion) {
+      m_workspace->releaseLayoutMotion(this);
+      m_layoutMotion = false;
+    }
+    dropOpeningInset();
+    const wlr_box content = committedContentBox();
+    m_presentation.snapTo(content.width, content.height);
+    finishSizeAnimation();
+  }
+
+  bool View::sizeGrabActive() const {
+    const Cursor* cursor = m_server->cursor();
+    if (cursor == nullptr) {
+      return false;
+    }
+    return cursor->grabbedView() == this || cursor->isResizingWorkspace(m_workspace);
+  }
+
+  bool View::sizeGrabTracksPointer() const {
+    const Cursor* cursor = m_server->cursor();
+    return cursor != nullptr && sizeGrabActive() && !cursor->isDraggingView(this);
+  }
+
+  void View::enterDragPresentation() {
+    cancelPositionAnimation();
+    m_dragOpacity = config().appearance.dragOpacity;
+    setFadeAlpha(m_fadeAlpha);
+    m_effectiveOpacityCommitPending = false;
+    if (m_pinned) {
+      wlr_scene_node_place_above(&m_server->dragTree()->node, &m_server->pinnedTree()->node);
+    }
+    setSceneParent(m_server->dragTree());
+    setNodeEnabled(true);
+    resetSurfaceClip();
+    raiseToTop();
+  }
+
+  void View::restoreHomePresentation() {
+    // The drag derived its own presented size and crop; drop them so the
+    // resting presentation below is re-applied through a real reconfigure.
+    resetPresentedSurface();
+    m_dragOpacity = 1.0F;
+    m_effectiveOpacityCommitPending = false;
+    setFadeAlpha(m_fadeAlpha);
+    wlr_scene_node_place_below(&m_server->dragTree()->node, &m_server->dragIconTree()->node);
+    if (ScratchpadManager* scratchpad = m_server->scratchpadManager();
+        scratchpad != nullptr && scratchpad->contains(this)) {
+      scratchpad->restorePresentation(this);
+      return;
+    }
+    if (m_pinned) {
+      restorePinnedSceneParent();
+      if (m_workspace != nullptr) {
+        m_workspace->syncViewPresentation(this);
+      }
+      return;
+    }
+
+    setSceneParent(homeTree());
+    if (m_workspace == nullptr) {
+      setNodeEnabled(m_mapped && m_onActiveWorkspace);
+      return;
+    }
+    setNodeEnabled(m_mapped && m_onActiveWorkspace);
+    m_workspace->restackFloatingViews();
+    if (m_mapped) {
+      m_workspace->syncViewPresentation(this);
+    }
+  }
+
+  void View::beginResizeAnimation(int width, int height, bool allowFullscreen) {
+    const Overview* overview = m_server->overview();
+    const bool presentedInOverview = overview != nullptr && overview->active() && m_workspace != nullptr;
+    const ScratchpadManager* scratchpad = m_server->scratchpadManager();
+    const bool presentedInScratchpad = scratchpad != nullptr && scratchpad->contains(this);
+    if (!m_mapped
+        || (!m_onActiveWorkspace && !presentedInOverview)
+        || (m_workspace == nullptr && !presentedInScratchpad && !allowFullscreen)
+        || (!allowFullscreen && (m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen))
+        || width <= 0
+        || height <= 0) {
+      return;
+    }
+    // Nothing presented yet (first map): the fade-in covers the appear.
+    if (m_presentation.width() <= 0 || m_presentation.height() <= 0) {
+      return;
+    }
+    if (sizeGrabTracksPointer() || (width == m_presentation.width() && height == m_presentation.height())) {
+      return;
+    }
+    if (m_presentation.targeting(width, height)) {
+      return;
+    }
+    const auto& animation = config().animation;
+    const auto& move = animation.windowsMove;
+    if (!animation.enabled || !move.enabled) {
+      m_presentation.setSize(width, height);
+      m_presentation.snapTo(width, height);
+      applyPresentedSize();
+      return;
+    }
+    m_presentation.animateTo(width, height, move.durationMs, move.curve);
+    scheduleFrame();
+  }
+
+  void View::setPosition(int x, int y) {
+    m_posX.snap(x);
+    m_posY.snap(y);
+    m_positioned = true;
+    setScenePosition(x, y);
+  }
+
+  void View::snapPosition(int x, int y) { setPosition(x, y); }
+
+  void View::setLayoutTarget(int x, int y) {
+    m_posX.snap(x);
+    m_posY.snap(y);
+    m_positioned = true;
+  }
+
+  void View::presentTiledBox(const wlr_box& box) {
+    m_presentedTiledBox = box;
+    presentBox(box);
+  }
+
+  void View::placePresentedBox(const wlr_box& box) {
+    const wlr_box presented = openingInsetBox(box);
+    setScenePosition(presented.x, presented.y);
+    m_presentation.setSize(presented.width, presented.height);
+  }
+
+  void View::presentBox(const wlr_box& box) {
+    if ((tiledOpeningActive() || fullscreenOpeningActive()) && m_presentation.animating()) {
+      // windows_in owns lifecycle composition. A resize tween started by the admitting arrange would otherwise win
+      // shader selection and apply a second windows_move over the workspace-owned logical presentation.
+      m_presentation.snapTo(m_presentation.width(), m_presentation.height());
+    }
+    placePresentedBox(box);
+    applyPresentedSize();
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewPresentationChanged(this);
+    }
+    syncAnimationShaders();
+  }
+
+  void View::deferTiledOpening() {
+    if (m_tiledOpeningDeferred || !m_mapped) {
+      return;
+    }
+    m_tiledOpeningDeferred = true;
+    m_fade.snap(0.0);
+    setFadeAlpha(0.0F);
+    setNodeEnabled(false);
+    syncAnimationShaders();
+  }
+
+  void View::resumeTiledOpening() {
+    if (!m_tiledOpeningDeferred) {
+      return;
+    }
+    m_tiledOpeningDeferred = false;
+    if (!m_mapped) {
+      return;
+    }
+
+    const auto& animation = config().animation;
+    const auto& open = animation.windowsIn;
+    m_customFade = animation.enabled
+        && open.enabled
+        && animationShader(m_server->renderer(), AnimationEvent::WindowsIn) != nullptr;
+    m_openingScale = 1.0;
+    m_openingSlide = 0;
+    if (!animation.enabled
+        || !open.enabled
+        || (open.style == "none" && animationShader(m_server->renderer(), AnimationEvent::WindowsIn) == nullptr)) {
+      m_fade.snap(1.0);
+      setFadeAlpha(1.0F);
+    } else {
+      m_fade.snap(0.0);
+      m_fade.retarget(1.0, open.durationMs, open.curve);
+      setFadeAlpha(0.0F);
+      if (!m_customFade && (open.style == "popin" || open.style == "zoom")) {
+        m_openingScale = std::clamp(open.style == "zoom" ? 0.5 : open.scale, 0.0, 1.0);
+      }
+      scheduleFrame();
+    }
+    setNodeEnabled(m_onActiveWorkspace);
+    syncAnimationShaders();
+  }
+
+  void View::beginLayoutMotion(float direction) {
+    // The motion owns the presented size from here; a size tween still running would overwrite it on its next tick.
+    m_presentation.snapTo(m_presentation.width(), m_presentation.height());
+    m_layoutPresentationHeld = false;
+    m_layoutMotion = true;
+    m_layoutMotionDirection = direction;
+  }
+
+  void View::requestTiledSize(int width, int height) {
+    m_tiledSizeRequest = TiledSizeRequest{
+        .serial = wlr_xdg_toplevel_set_size(m_toplevel, width, height),
+        .width = width,
+        .height = height,
+    };
+  }
+
+  bool View::settleTiledSizeRequest() {
+    if (!m_tiledSizeRequest) {
+      return true;
+    }
+    const TiledSizeRequest& request = *m_tiledSizeRequest;
+    if (!serialSettled(m_toplevel->base->current.configure_serial, request.serial)) {
+      return false;
+    }
+    const wlr_box content = committedContentBox();
+    if (content.width != request.width || content.height != request.height) {
+      return false;
+    }
+    m_tiledSizeRequest.reset();
+    if (m_layoutPresentationHeld) {
+      m_layoutPresentationHeld = false;
+      m_presentation.setSize(content.width, content.height);
+      m_presentation.snapTo(content.width, content.height);
+      resetPresentedSurface();
+    }
+    return true;
+  }
+
+  void View::completeLayoutMotion(const wlr_box& target) {
+    if (!m_layoutMotion && !m_layoutPresentationHeld) {
+      return;
+    }
+    m_layoutMotion = false;
+    m_layoutPresentationHeld = !settleTiledSizeRequest();
+    if (m_layoutPresentationHeld) {
+      presentTiledBox(target);
+    } else {
+      finishSizeAnimation();
+    }
+    syncAnimationShaders();
+  }
+
+  void View::endLayoutMotion() {
+    if (!m_layoutMotion && !m_layoutPresentationHeld) {
+      m_tiledSizeRequest.reset();
+      return;
+    }
+    m_layoutMotion = false;
+    m_layoutPresentationHeld = false;
+    m_tiledSizeRequest.reset();
+    if (tiledOpeningActive() && m_workspace != nullptr) {
+      presentTiledBox(m_workspace->presentedTiledBox(this));
+    } else {
+      dropOpeningInset();
+      finishSizeAnimation();
+    }
+    // Clears the windows_move shader on the frame the motion ends.
+    syncAnimationShaders();
+  }
+
+  void View::animateFadeTo(float toAlpha, int durationMs, const AnimationCurve& curve) {
+    m_customFade = m_inScratchpad && animationShader(m_server->renderer(), AnimationEvent::Scratchpad) != nullptr;
+    m_fade.snap(m_fadeAlpha);
+    m_fade.retarget(toAlpha, durationMs, curve);
+    scheduleFrame();
+  }
+
+  void View::setDragPosition(int x, int y) { setScenePosition(x, y); }
+
+  void View::animateTo(int x, int y) {
+    // First placement snaps: the node starts at the default (0,0) world origin, so animating would fly the window
+    // across the layout on open. The fade-in covers the appear instead.
+    const Overview* overview = m_server->overview();
+    const bool presentedInOverview = overview != nullptr && overview->active() && m_workspace != nullptr;
+    if (!m_mapped || (!m_onActiveWorkspace && !presentedInOverview) || !m_positioned) {
+      setPosition(x, y);
+      return;
+    }
+    const int fromX = m_sceneTree->node.x;
+    const int fromY = m_sceneTree->node.y;
+    if (fromX == x && fromY == y) {
+      m_posX.snap(x);
+      m_posY.snap(y);
+      return;
+    }
+    const auto& animation = config().animation;
+    const auto& move = animation.windowsMove;
+    if (!animation.enabled || !move.enabled) {
+      setPosition(x, y);
+      return;
+    }
+    // Animate from wherever the node visually is, not from the last target.
+    m_posX.snap(fromX);
+    m_posX.retarget(x, move.durationMs, move.curve);
+    m_posY.snap(fromY);
+    m_posY.retarget(y, move.durationMs, move.curve);
+    scheduleFrame();
+  }
+
+  void View::syncAnimationShaders(wlr_scene_tree* target, wlr_scene_node* border) {
+    if (target == nullptr) {
+      target = m_contentTree;
+      if (m_decoration.borderTree() != nullptr) {
+        border = &m_decoration.borderTree()->node;
+      }
+    }
+    if (target == nullptr) {
+      return;
+    }
+    if (!m_mapped) {
+      wlr_scene_node_clear_animations(&target->node);
+      if (border != nullptr) {
+        wlr_scene_node_clear_animations(border);
+      }
+      return;
+    }
+    auto* renderer = m_server->renderer();
+    if (m_posX.animating() || m_posY.animating() || m_presentation.animating()) {
+      const auto& movement = m_posX.animating() ? m_posX : (m_posY.animating() ? m_posY : m_presentation.animation());
+      updateAnimationShader(&target->node, renderer, AnimationEvent::WindowsMove, movement);
+    } else if (
+        const AnimatedValue* motion =
+            m_layoutMotion && m_workspace != nullptr ? m_workspace->layoutMotionValue() : nullptr;
+        motion != nullptr
+    ) {
+      updateAnimationShader(&target->node, renderer, AnimationEvent::WindowsMove, *motion, m_layoutMotionDirection);
+    } else {
+      updateAnimationShader(&target->node, renderer, AnimationEvent::WindowsMove, m_presentation.animation());
+    }
+    updateAnimationShader(&target->node, renderer, AnimationEvent::DimUnfocused, m_focusDim);
+    updateAnimationShader(
+        &target->node, renderer, m_inScratchpad ? AnimationEvent::Scratchpad : AnimationEvent::WindowsIn, m_fade
+    );
+    wlr_scene_node_set_animation(
+        &target->node, static_cast<unsigned>(m_inScratchpad ? AnimationEvent::WindowsIn : AnimationEvent::Scratchpad),
+        nullptr, nullptr
+    );
+    updateAnimationShader(
+        border, renderer, AnimationEvent::Border, m_borderColorAnim, m_borderFocusedState ? 1.0F : -1.0F
+    );
+  }
+
+  bool View::tickAnimations(uint64_t nowMsec) {
+    bool active = false;
+
+    // Disable sibling size animations during a tiled resize, so they do not
+    // trail the pointer while clients acknowledge successive configures.
+    const Cursor* cursor = m_server->cursor();
+    if (cursor != nullptr && cursor->isResizingWorkspace(m_workspace) && sizeAnimating()) {
+      cancelSizeAnimation();
+    }
+
+    const bool movedX = m_posX.tick(nowMsec);
+    const bool movedY = m_posY.tick(nowMsec);
+    if (movedX || movedY) {
+      const int cx = static_cast<int>(std::lround(m_posX.current()));
+      const int cy = static_cast<int>(std::lround(m_posY.current()));
+      setScenePosition(cx, cy);
+      // Clips are derived from the node's current position; refresh them as the
+      // node moves or partial-visibility trims land displaced.
+      syncOwnedPresentation();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewPresentationChanged(this);
+      }
+      active = m_posX.animating() || m_posY.animating();
+    }
+
+    if (m_presentation.tick(nowMsec)) {
+      applyPresentedSize();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewPresentationChanged(this);
+      }
+      if (sizeAnimating()) {
+        active = true;
+      } else if (cursor == nullptr || !cursor->isDraggingView(this)) {
+        // A drag keeps the size it retargeted to: settling on committed
+        // geometry here would snap the window back until the client acks.
+        finishSizeAnimation();
+      }
+    }
+
+    if (m_fade.tick(nowMsec)) {
+      m_customFade = m_customFade
+          && m_fade.animating()
+          && animationShader(
+                 m_server->renderer(), m_inScratchpad ? AnimationEvent::Scratchpad : AnimationEvent::WindowsIn
+             ) != nullptr;
+      const float rawAlpha = std::clamp(static_cast<float>(m_fade.current()), 0.0F, 1.0F);
+      const bool builtInSlide = !m_inScratchpad
+          && !m_customFade
+          && config().animation.windowsIn.style == "slide"
+          && animationShader(m_server->renderer(), AnimationEvent::WindowsIn) == nullptr;
+      // Keep the window visible through more of its travel so slide is clearly distinct from fade.
+      setFadeAlpha(builtInSlide ? std::sqrt(rawAlpha) : rawAlpha);
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewPresentationChanged(this);
+      }
+      // A fresh tiled opener owns its final slot while the fade runs. After a later admission, an already positioned
+      // opener can instead receive intermediate logical boxes from windows_move. Popin/zoom applies its inset to either
+      // box, and a custom shader stays composed over the lifecycle presentation.
+      const bool finishingTiledOpen = m_mapped
+          && !m_inScratchpad
+          && m_tiled
+          && !layoutFullscreen()
+          && m_workspace != nullptr
+          && m_workspace->layout().columnOf(this) >= 0
+          && m_fade.target() > m_fade.from();
+      // A fullscreen opener is presented inside the output box its layout assigned, which the arrange that follows
+      // its map owns. Styles without an inset leave the node where that arrange put it.
+      const bool insetFullscreenOpen =
+          openingInsetPending() && m_mapped && !m_inScratchpad && layoutFullscreen() && m_fade.target() > m_fade.from();
+      if (insetFullscreenOpen) {
+        if (fullscreenOpeningActive()) {
+          presentBox(fullscreenLayoutBox());
+        } else {
+          dropOpeningInset();
+          finishSizeAnimation();
+        }
+      } else if (finishingTiledOpen && !m_layoutMotion) {
+        if (tiledOpeningActive()) {
+          presentTiledBox(m_workspace->presentedTiledBox(this));
+        } else {
+          dropOpeningInset();
+          finishSizeAnimation();
+        }
+      }
+      active = active || m_fade.animating();
+    }
+    if (m_focusDim.tick(nowMsec)) {
+      setFadeAlpha(m_fadeAlpha);
+      active = active || m_focusDim.animating();
+    }
+    if (m_resizeCrossfade.tick(nowMsec)) {
+      active = true;
+    }
+
+    if (m_borderColorAnim.tick(nowMsec)) {
+      m_decoration.setBorderRawColor(m_borderColorAnim.current(), effectiveOpacity());
+      active = active || m_borderColorAnim.animating();
+    }
+    syncAnimationShaders();
+    return active;
+  }
+
+  bool View::animatesOn(const Output* output) const {
+    const Workspace* workspace = m_workspace;
+    if (workspace != nullptr && workspace->group() != nullptr) {
+      return workspace->group()->output() == output;
+    }
+    // Scratchpad views have no workspace; fall back to the output we are physically on.
+    return currentOutput() == output;
+  }
+
+  bool View::hasActiveAnimations() const {
+    return m_posX.animating()
+        || m_posY.animating()
+        || sizeAnimating()
+        || m_fade.animating()
+        || m_borderColorAnim.animating()
+        || m_focusDim.animating()
+        || m_resizeCrossfade.active();
+  }
+
+  bool View::layoutFullscreen() const { return m_toplevel->scheduled.fullscreen; }
+
+  // True when this is the only tiled window in the workspace.
+  bool View::isAloneInLayout() const {
+    return m_tiled
+        && m_workspace != nullptr
+        && m_workspace->layout().columnOf(this) >= 0
+        && m_workspace->isOnlyTiledView(this);
+  }
+
+  pid_t View::pid() const { return m_xwayland ? -1 : surfaceClientPid(m_toplevel->base->surface); }
+
+  // Reads the rules with the alone state forced either way, so the alone effect knows what it should change, and so
+  // the opening configure can read the alone rules while the view is not in the layout yet.
+  ResolvedWindowRule View::resolveRulesWithAlone(bool alone) const {
+    WindowRuleState state = ruleState();
+    state.alone = alone;
+    return resolveWindowRules(
+        config(), ruleText(m_toplevel->app_id), ruleText(m_toplevel->title), m_xdgTag, m_contentType, state,
+        m_server->uptimeMs()
+    );
+  }
+
+  // The difference between the alone and not-alone rules. Only the five size-related fields are kept: the others
+  // are handled by the normal dynamic rules.
+  ResolvedWindowRule View::aloneRuleDiff(const ResolvedWindowRule& alone, const ResolvedWindowRule& other) const {
+    ResolvedWindowRule diff;
+    if (alone.defaultFullscreen != other.defaultFullscreen) {
+      diff.defaultFullscreen = alone.defaultFullscreen;
+    }
+    if (alone.defaultMaximizeToEdges != other.defaultMaximizeToEdges) {
+      diff.defaultMaximizeToEdges = alone.defaultMaximizeToEdges;
+    }
+    if (alone.defaultMaximize != other.defaultMaximize) {
+      diff.defaultMaximize = alone.defaultMaximize;
+    }
+    if (alone.defaultScrollingExtentPx != other.defaultScrollingExtentPx) {
+      diff.defaultScrollingExtentPx = alone.defaultScrollingExtentPx;
+    }
+    if (alone.defaultScrollingExtent != other.defaultScrollingExtent) {
+      diff.defaultScrollingExtent = alone.defaultScrollingExtent;
+    }
+    return diff;
+  }
+
+  // Applies one effect at a time, in the same order as at map time. Returns whether the effect was applied: if the
+  // window is already there, or the layout cannot do it, nothing is claimed and leaving alone will not undo anything.
+  // The exception is a state the opening configure seeded from these same rules, which this pass takes over.
+  bool View::applyAloneRuleEffects(const ResolvedWindowRule& delta) {
+    if (delta.defaultFullscreen && *delta.defaultFullscreen) {
+      if (m_toplevel->scheduled.fullscreen && m_aloneOpeningSeed != AloneSeed::Fullscreen) {
+        return false;
+      }
+      setFullscreen(true);
+      m_aloneAction = AloneAction::Fullscreen;
+      return true;
+    }
+    if (delta.defaultMaximizeToEdges && *delta.defaultMaximizeToEdges) {
+      if (m_maximizedToEdges || m_toplevel->scheduled.fullscreen) {
+        return false;
+      }
+      setMaximizedToEdges(true);
+      m_aloneAction = AloneAction::MaximizeToEdges;
+      return true;
+    }
+    if (!openingParented() && delta.defaultMaximize && *delta.defaultMaximize) {
+      if (m_toplevel->scheduled.maximized && m_aloneOpeningSeed != AloneSeed::Maximize) {
+        return false;
+      }
+      setMaximized(true);
+      m_aloneAction = AloneAction::Maximize;
+      return true;
+    }
+    if ((delta.defaultScrollingExtentPx || delta.defaultScrollingExtent)
+        && m_workspace != nullptr
+        && !m_toplevel->scheduled.fullscreen
+        && !m_maximizedToEdges
+        && !m_toplevel->scheduled.maximized) {
+      ScrollingLayout* scrolling = m_workspace->scrollingLayout();
+      if (scrolling != nullptr) {
+        const int column = scrolling->columnOf(this);
+        if (column >= 0) {
+          // Pixel rules take precedence over fraction rules
+          if (delta.defaultScrollingExtentPx) {
+            const int target = *delta.defaultScrollingExtentPx;
+            const double current = scrolling->widthFraction(column);
+            if (target != current) {
+              m_aloneSavedWidthFrac = current;
+              scrolling->setWidthFromPixels(column, m_workspace->scrollViewportExtent(), target);
+              m_workspace->markArrange();
+              m_aloneAction = AloneAction::Width;
+              return true;
+            }
+          } else if (delta.defaultScrollingExtent) {
+            const double target = *delta.defaultScrollingExtent;
+            const double current = scrolling->widthFraction(column);
+            if (target != current) {
+              m_aloneSavedWidthFrac = current;
+              scrolling->setWidthFraction(column, target);
+              m_workspace->markArrange();
+              m_aloneAction = AloneAction::Width;
+              return true;
+            }
+          }
+          m_aloneSavedWidthFrac = scrolling->widthFraction(-1);
+          m_aloneAction = AloneAction::Width;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Undoes the effect that was applied. For the width, the value saved before is restored, it is cleared even when
+  // the window no longer has a column (the layout changed).
+  void View::revertAloneRuleEffects() {
+    switch (m_aloneAction) {
+    case AloneAction::Fullscreen:
+      if (m_toplevel->scheduled.fullscreen) {
+        setFullscreen(false);
+      }
+      break;
+    case AloneAction::MaximizeToEdges:
+      if (m_maximizedToEdges) {
+        setMaximizedToEdges(false);
+      }
+      break;
+    case AloneAction::Maximize:
+      if (m_toplevel->scheduled.maximized && !m_maximizedToEdges) {
+        setMaximized(false);
+      }
+      break;
+    case AloneAction::Width:
+      if (m_workspace != nullptr) {
+        ScrollingLayout* scrolling = m_workspace->scrollingLayout();
+        if (scrolling != nullptr) {
+          const int column = scrolling->columnOf(this);
+          if (column >= 0) {
+            const std::optional<double> notAloneWidth = resolveRulesWithAlone(false).defaultScrollingExtent;
+            const double restore = notAloneWidth.value_or(m_aloneSavedWidthFrac.value_or(scrolling->widthFraction(-1)));
+            scrolling->setWidthFraction(column, restore);
+            m_workspace->markArrange();
+          }
+        }
+        m_aloneSavedWidthFrac.reset();
+      }
+      break;
+    case AloneAction::None:
+      break;
+    }
+    m_aloneAction = AloneAction::None;
+  }
+
+  // Called by the workspace whenever the tiled windows change or the config reloads. If the window is no longer
+  // alone, the applied effect is undone. While alone, the four settings are only re-applied when they changed.
+  bool View::notifyAloneStateChanged() {
+    if (!m_mapped || m_workspace == nullptr) {
+      return false;
+    }
+    refreshStateRuleEffects();
+    const bool alone = isAloneInLayout();
+    if (!alone) {
+      if (!m_aloneEffectsActive) {
+        return false;
+      }
+      revertAloneRuleEffects();
+      m_lastAloneDelta = ResolvedWindowRule{};
+      m_aloneEffectsActive = false;
+      m_workspace->ensureFocusedVisible();
+      return true;
+    }
+    const ResolvedWindowRule delta = aloneRuleDiff(resolvedRules(), resolveRulesWithAlone(false));
+    if (delta == m_lastAloneDelta) {
+      return false;
+    }
+    bool changed = false;
+    if (m_aloneEffectsActive) {
+      revertAloneRuleEffects();
+      changed = true;
+    }
+    const bool applied = applyAloneRuleEffects(delta);
+    m_lastAloneDelta = delta;
+    m_aloneEffectsActive = applied;
+    return changed || applied;
+  }
+
+  // The opening configure states a window that would be the only tiled one from its alone rules, before the view is
+  // in the layout. Now that it is, notifyAloneStateChanged hands that state to the alone effect, so leaving alone
+  // undoes it again. The seed is single-use: a later pass must not take over a state the user or the client chose.
+  void View::settleOpeningAloneState() {
+    // Restored maximize only steals alone ownership when the compositor honors it. Otherwise the alone rule owns the
+    // state like any other window, and the client's session flag is ignored.
+    const bool clientRequested = m_aloneOpeningSeed == AloneSeed::Fullscreen ? m_toplevel->requested.fullscreen
+                                                                             : m_aloneOpeningSeed == AloneSeed::Maximize
+            && m_toplevel->requested.maximized
+            && config().general.honorRestoredMaximize;
+    if (clientRequested) {
+      // The client has asked for the state itself since the opening configure, so it owns it.
+      m_aloneOpeningSeed = AloneSeed::None;
+    } else if (!isAloneInLayout()) {
+      // Another window reached the workspace first, so nothing owns the seeded state: neither the client nor the
+      // window's not-alone rules. The arrange the attach marked carries the tiled size.
+      if (m_aloneOpeningSeed == AloneSeed::Fullscreen) {
+        setFullscreen(false, FullscreenExitLayout::DeferToCaller);
+      } else if (m_aloneOpeningSeed == AloneSeed::Maximize) {
+        setMaximized(false);
+      }
+    }
+    notifyAloneStateChanged();
+    m_aloneOpeningSeed = AloneSeed::None;
+  }
+
+  void View::onMap(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_map);
+    self->handleMap();
+  }
+
+  void View::onUnmap(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_unmap);
+    self->handleUnmap();
+  }
+
+  void View::onRootSurfaceDestroy(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_rootSurfaceDestroy);
+    wl_list_remove(&self->m_rootSurfaceDestroy.link);
+    self->m_rootSurfaceDestroy.link.next = nullptr;
+    self->m_rootSurfaceDestroy.link.prev = nullptr;
+  }
+
+  void View::onCommit(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_commit);
+    self->handleCommit();
+  }
+
+  void View::onClientCommit(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_clientCommit);
+    self->handleClientCommit();
+  }
+
+  void View::onViewSurfaceCommit(wl_listener* listener, void* /*data*/) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, commit);
+    watch->view->syncContentType(watch->surface);
+    if (watch->view->effectiveOpacity() < 1.0F) {
+      watch->view->m_effectiveOpacityCommitPending = true;
+      watch->view->scheduleFrame();
+    }
+  }
+
+  void View::onViewSurfaceNewSubsurface(wl_listener* listener, void* data) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, newSubsurface);
+    auto* subsurface = static_cast<wlr_subsurface*>(data);
+    watch->view->watchViewSurfaceTree(subsurface->surface, subsurface);
+    watch->view->syncContentType();
+  }
+
+  void View::onViewSubsurfaceDestroy(wl_listener* listener, void* /*data*/) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, subsurfaceDestroy);
+    watch->subsurface = nullptr;
+    wl_list_remove(&watch->subsurfaceDestroy.link);
+    watch->view->syncContentType();
+  }
+
+  void View::onViewSurfaceDestroy(wl_listener* listener, void* /*data*/) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, destroy);
+    View* view = watch->view;
+    wl_list_remove(&watch->commit.link);
+    wl_list_remove(&watch->newSubsurface.link);
+    if (watch->subsurface != nullptr) {
+      wl_list_remove(&watch->subsurfaceDestroy.link);
+    }
+    wl_list_remove(&watch->destroy.link);
+    std::erase_if(view->m_viewSurfaceWatches, [watch](const auto& candidate) { return candidate.get() == watch; });
+  }
+
+  void View::onDestroy(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_destroy);
+    self->handleDestroy();
+  }
+
+  void View::onRequestMove(wl_listener* listener, void* data) {
+    View* self = wl_container_of(listener, self, m_requestMove);
+    self->handleRequestMove(data);
+  }
+
+  void View::onRequestResize(wl_listener* listener, void* data) {
+    View* self = wl_container_of(listener, self, m_requestResize);
+    self->handleRequestResize(data);
+  }
+
+  void View::onRequestMaximize(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_requestMaximize);
+    self->handleRequestMaximize();
+  }
+
+  void View::onAcceptClientMaximizeRequests(void* data) {
+    auto* self = static_cast<View*>(data);
+    self->m_acceptClientMaximizeIdle = nullptr;
+    if (!self->m_mapped || self->m_acceptClientMaximizeRequests) {
+      return;
+    }
+    // Clients such as kitty restore maximize just after their first frame. Keep the gate closed until the client
+    // acknowledges the configure that carries the opening layout.
+    const wlr_xdg_surface* surface = self->m_toplevel->base;
+    if (surface->configure_idle != nullptr || !wl_list_empty(&surface->configure_list)) {
+      self->m_acceptClientMaximizeSerial = surface->scheduled_serial;
+      return;
+    }
+    self->m_acceptClientMaximizeRequests = true;
+  }
+
+  void View::onRequestFullscreen(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_requestFullscreen);
+    self->handleRequestFullscreen();
+  }
+
+  void View::onSetParent(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_setParent);
+    self->handleSetParent();
+  }
+
+  void View::onSetTitle(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_setTitle);
+    self->handleSetTitle();
+  }
+
+  void View::onSetAppId(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_setAppId);
+    self->handleSetAppId();
+  }
+
+  wlr_box View::floatingUsableArea() const {
+    if (m_workspace != nullptr && m_workspace->group() != nullptr && m_workspace->group()->output() != nullptr) {
+      return m_workspace->group()->output()->usableArea();
+    }
+    if (m_server != nullptr && m_server->scratchpadManager() != nullptr) {
+      if (Output* output = m_server->scratchpadManager()->outputFor(this)) {
+        return output->usableArea();
+      }
+    }
+    return m_server->usableAreaAt(m_sceneTree->node.x, m_sceneTree->node.y);
+  }
+
+  wlr_box View::openingUsableArea(Output* targetOutput) const {
+    const wlr_cursor* cursor = m_server->cursor()->wlr();
+    if (targetOutput == nullptr) {
+      return m_server->usableAreaAt(cursor->x, cursor->y);
+    }
+    wlr_box usable = targetOutput->usableArea();
+    if (usable.width <= 0 || usable.height <= 0) {
+      wlr_output_layout_get_box(m_server->outputLayout(), targetOutput->wlr(), &usable);
+    }
+    if (usable.width <= 0 || usable.height <= 0) {
+      usable = m_server->usableAreaAt(cursor->x, cursor->y);
+    }
+    return usable;
+  }
+
+  std::optional<FloatingPoint> View::floatingClampTarget(FloatingPoint origin, int width, int height, bool resize) {
+    if (m_tiled
+        || !m_mapped
+        || m_toplevel->scheduled.fullscreen
+        || m_toplevel->scheduled.maximized
+        || sizeGrabActive()) {
+      return std::nullopt;
+    }
+    if (Cursor* cursor = m_server->cursor(); cursor != nullptr && cursor->isDraggingView(this)) {
+      return std::nullopt;
+    }
+    const wlr_box usable = floatingUsableArea();
+    if (usable.width <= 0 || usable.height <= 0 || width <= 0 || height <= 0) {
+      return std::nullopt;
+    }
+    const wlr_box& geo = m_toplevel->base->geometry;
+    const wlr_box box{.x = geo.x, .y = geo.y, .width = width, .height = height};
+    const FloatingPoint clamped =
+        resize ? clampFloatingOriginForResize(origin, box, usable) : clampFloatingOrigin(origin, box, usable);
+    if (clamped.x == origin.x && clamped.y == origin.y) {
+      return std::nullopt;
+    }
+    return clamped;
+  }
+
+  void View::clampFloatingPosition() {
+    if (m_posX.animating() || m_posY.animating()) {
+      return;
+    }
+    const wlr_box& geo = m_toplevel->base->geometry;
+    const FloatingPoint origin{.x = m_sceneTree->node.x, .y = m_sceneTree->node.y};
+    if (const auto clamped = floatingClampTarget(origin, geo.width, geo.height, false)) {
+      setPosition(clamped->x, clamped->y);
+    }
+  }
+
+  void View::clampFloatingPositionForSize(int width, int height) {
+    const FloatingPoint origin{.x = layoutTargetX(), .y = layoutTargetY()};
+    if (const auto clamped = floatingClampTarget(origin, width, height, true)) {
+      animateTo(clamped->x, clamped->y);
+    }
+  }
+
+  void View::rememberFloatingPosition() {
+    if (m_tiled) {
+      return;
+    }
+    m_floating.rememberPositionFraction({layoutTargetX(), layoutTargetY()}, floatingUsableArea());
+  }
+
+  void View::restoreFloatingPosition(bool rememberRestored) {
+    if (m_tiled) {
+      return;
+    }
+    const wlr_box usable = floatingUsableArea();
+    if (const std::optional<FloatingPoint> origin = m_floating.restoredOrigin(usable)) {
+      animateTo(origin->x, origin->y);
+      if (rememberRestored) {
+        // Re-anchor on the new usable area so a second deliberate cross-output move lands proportionally again.
+        m_floating.rememberPositionFraction(*origin, usable);
+      }
+      return;
+    }
+    clampFloatingPosition();
+  }
+
+  bool View::centerFloating() {
+    if (!m_mapped || m_tiled || m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen) {
+      return false;
+    }
+    const wlr_box usable = floatingUsableArea();
+    const wlr_box& geo = m_toplevel->base->geometry;
+    if (usable.width <= 0 || usable.height <= 0 || geo.width <= 0 || geo.height <= 0) {
+      return false;
+    }
+    const FloatingPoint origin = centeredOrigin(usable, geo.width, geo.height);
+    animateTo(origin.x, origin.y);
+    m_floating.rememberPositionFraction(origin, usable);
+    return true;
+  }
+
+  wlr_box View::fullscreenArea() const {
+    Output* output = nullptr;
+    if (m_workspace != nullptr && m_workspace->group() != nullptr) {
+      output = m_workspace->group()->output();
+    }
+    if (output == nullptr) {
+      output = currentOutput();
+    }
+    wlr_output* wlrOutput = output != nullptr ? output->wlr() : m_server->preferredOutput();
+    wlr_box fullArea{};
+    wlr_output_layout_get_box(m_server->outputLayout(), wlrOutput, &fullArea);
+    return fullArea;
+  }
+
+  wlr_box View::targetBox() const {
+    // A window that mapped in this same dispatch has its arrange still pending, so its slot is missing or stale.
+    const bool inLayout = m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0;
+    if (inLayout) {
+      m_workspace->flushArrange();
+    }
+    if (m_toplevel->scheduled.fullscreen) {
+      // Fullscreen takes the output's size; the strip still places a tiled one at its column.
+      const wlr_box area = fullscreenArea();
+      return {layoutTargetX(), layoutTargetY(), area.width, area.height};
+    }
+    if (inLayout) {
+      return m_workspace->presentedTiledBox(this);
+    }
+    // A float's scheduled size is the one a maximize or resize is taking it to, and the client's own once it settled.
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    const int width = m_toplevel->scheduled.width > 0 ? m_toplevel->scheduled.width : geometry.width;
+    const int height = m_toplevel->scheduled.height > 0 ? m_toplevel->scheduled.height : geometry.height;
+    return {layoutTargetX(), layoutTargetY(), width, height};
+  }
+
+  std::optional<FloatingPoint> View::getFloatingPosition(
+      const wlr_box usable, const std::optional<WindowPosition>& position, const std::optional<std::array<int, 2>> size
+  ) {
+    if (usable.width <= 0 || usable.height <= 0) {
+      return std::nullopt;
+    }
+
+    int w;
+    int h;
+    // Use size if provided
+    if (size) {
+      w = (*size)[0];
+      h = (*size)[1];
+    } else {
+      const wlr_box& geo = m_toplevel->base->geometry;
+      w = geo.width > 0 ? geo.width : usable.width;
+      h = geo.height > 0 ? geo.height : usable.height;
+    }
+    // Floats keep their own size; only center within the usable area.
+    const int width = w;
+    const int height = h;
+    FloatingPoint origin = centeredOrigin(usable, width, height);
+    if (position) {
+      origin = {.x = usable.x + position->x, .y = usable.y + position->y};
+      switch (position->anchor) {
+      case WindowPositionAnchor::TopLeft:
+        break;
+      case WindowPositionAnchor::TopRight:
+        origin.x = usable.x + usable.width - width - position->x;
+        break;
+      case WindowPositionAnchor::BottomLeft:
+        origin.y = usable.y + usable.height - height - position->y;
+        break;
+      case WindowPositionAnchor::BottomRight:
+        origin.x = usable.x + usable.width - width - position->x;
+        origin.y = usable.y + usable.height - height - position->y;
+        break;
+      case WindowPositionAnchor::Top:
+        origin.x = usable.x + (usable.width - width) / 2 + position->x;
+        break;
+      case WindowPositionAnchor::Bottom:
+        origin.x = usable.x + (usable.width - width) / 2 + position->x;
+        origin.y = usable.y + usable.height - height - position->y;
+        break;
+      case WindowPositionAnchor::Left:
+        origin.y = usable.y + (usable.height - height) / 2 + position->y;
+        break;
+      case WindowPositionAnchor::Right:
+        origin.x = usable.x + usable.width - width - position->x;
+        origin.y = usable.y + (usable.height - height) / 2 + position->y;
+        break;
+      case WindowPositionAnchor::Center:
+        origin.x = usable.x + (usable.width - width) / 2 + position->x;
+        origin.y = usable.y + (usable.height - height) / 2 + position->y;
+        break;
+      }
+      origin = clampFloatingOrigin(origin, {.x = 0, .y = 0, .width = width, .height = height}, usable);
+    }
+    return origin;
+  }
+
+  void View::placeInUsableArea(const std::optional<WindowPosition>& position) {
+    const wlr_box usable = floatingUsableArea();
+
+    std::optional<FloatingPoint> origin = getFloatingPosition(usable, position);
+    if (!origin) {
+      return;
+    }
+    if (position) {
+      m_floating.rememberPositionFraction(*origin, usable);
+    } else if (const View* parent = transientParent()) {
+      // Where the parent is headed, not where its node is mid-animation right after it mapped. A fullscreen parent
+      // shows over any panel, so the whole output counts as visible for it.
+      const wlr_box shownIn = parent->m_toplevel->scheduled.fullscreen ? parent->fullscreenArea() : usable;
+      const wlr_box& geo = m_toplevel->base->geometry;
+      const int width = geo.width > 0 ? geo.width : usable.width;
+      const int height = geo.height > 0 ? geo.height : usable.height;
+      origin = centeredOverShown(parent->targetBox(), shownIn, width, height);
+    }
+    setPosition(origin->x, origin->y);
+  }
+
+  bool View::decorated() const { return m_decoration.bordersVisible(); }
+
+  int View::borderInset() const { return decorated() ? m_decoration.totalBorderWidth() : 0; }
+
+  int View::surfaceRadius() const {
+    return decorated() && !m_toplevel->scheduled.fullscreen ? nestedRadius(m_decoration.cornerRadius(), borderInset())
+                                                            : 0;
+  }
+
+  void View::setBorderFocused(bool focused) {
+    const bool focusChanged = m_borderFocusedState != focused;
+    m_borderFocusedState = focused;
+
+    const auto& animation = config().animation;
+    const auto& dim = animation.dimUnfocused;
+    if (focusChanged || !m_focusDimInitialized) {
+      m_focusDimInitialized = true;
+      const double target = focused || !m_mapped || !animation.enabled || !dim.enabled ? 1.0 : 1.0 - dim.dim;
+      if (m_mapped && focusChanged && animation.enabled && dim.enabled) {
+        m_focusDim.retarget(target, dim.durationMs, dim.curve);
+        scheduleFrame();
+      } else {
+        m_focusDim.snap(target);
+      }
+      setFadeAlpha(m_fadeAlpha);
+    }
+
+    const Config::Colors::Border& colors = m_decoration.borderColors();
+    const std::array<float, 4>& targetBase = focused ? colors.focused : colors.unfocused;
+
+    // A window without a drawn border has nothing to fade, and an invisible transition would still keep frames coming.
+    const auto& border = animation.border;
+    if (m_mapped && focusChanged && animation.enabled && border.enabled && borderInset() > 0) {
+      m_borderColorAnim.retarget(targetBase, border.durationMs, border.curve);
+      scheduleFrame();
+    } else {
+      m_borderColorAnim.snap(targetBase);
+      m_decoration.setBorderColor(focused, effectiveOpacity());
+    }
+
+    if (focusChanged && m_mapped) {
+      applyDynamicRules();
+    }
+  }
+
+  void View::settleFocusChrome() {
+    if (!m_borderColorAnim.animating() && !m_focusDim.animating()) {
+      return;
+    }
+    m_borderColorAnim.snap(m_borderColorAnim.target());
+    m_focusDim.snap(m_focusDim.target());
+    setFadeAlpha(m_fadeAlpha);
+    syncAnimationShaders();
+  }
+
+  void View::setUrgent(bool urgent) {
+    if (m_urgent == urgent) {
+      return;
+    }
+    m_urgent = urgent;
+    if (m_workspace != nullptr) {
+      m_workspace->updateUrgent();
+    }
+    m_server->scheduleIpcWindowsEvent();
+  }
+
+  void View::applyCornerRadius() {
+    // Apps that draw through subsurfaces (Firefox renders all of its chrome and web content into one desynchronized
+    // MozContainer subsurface) leave their content square unless those buffers round too. Every buffer under the
+    // toplevel's surface tree is rounded against one box, the window's content box, so the arc always lands on the
+    // window's corners whichever surface draws them: an inset main surface, a full-window subsurface and an interior
+    // subsurface (embedded video) all follow from that box without knowing anything about each other. Popups are
+    // excluded: their surface is its own root.
+    const int radius = surfaceRadius();
+    // A tiled target and an active resize animation can both lead committed geometry, so the box follows the presented
+    // size in either case.
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    const bool usePresentedSize =
+        (m_tiled || sizeAnimating()) && m_presentation.width() > 0 && m_presentation.height() > 0;
+    struct Ctx {
+      View* view;
+      int radius;
+      int contentWidth;
+      int contentHeight;
+      int treeX;
+      int treeY;
+    } ctx{
+        this,
+        radius,
+        usePresentedSize ? m_presentation.width() : geometry.width,
+        usePresentedSize ? m_presentation.height() : geometry.height,
+        m_contentTree->node.x,
+        m_contentTree->node.y,
+    };
+    wlr_scene_node_for_each_buffer(
+        &m_contentTree->node,
+        [](wlr_scene_buffer* buffer, int sx, int sy, void* data) {
+          auto* ctx = static_cast<Ctx*>(data);
+          wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+          if (sceneSurface == nullptr
+              || wlr_surface_get_root_surface(sceneSurface->surface) != ctx->view->m_toplevel->base->surface) {
+            return;
+          }
+
+          // The iterator accumulates positions from the node it was handed, so subtracting the tree's own position
+          // yields tree-local coordinates. The xdg scene helper places the surface tree at (-geometry.x, -geometry.y),
+          // which puts the content box at the tree origin, and the corner box is node-relative.
+          const wlr_box cornerBox{
+              ctx->treeX - sx,
+              ctx->treeY - sy,
+              ctx->contentWidth,
+              ctx->contentHeight,
+          };
+          // Always set, zeros included: a window that lost its radius must lose the box with it.
+          wlr_scene_buffer_set_corner_radii(buffer, corner_radii_all(ctx->radius));
+          wlr_scene_buffer_set_corner_box(buffer, ctx->radius > 0 ? &cornerBox : nullptr);
+        },
+        &ctx
+    );
+  }
+
+  void View::updateBlur() {
+    const wlr_box content = committedContentBox();
+    updateBlur(content.width, content.height);
+  }
+
+  void View::updateBlur(int contentWidth, int contentHeight) {
+    UMBRIEL_ZONE("View::updateBlur");
+    if (m_toplevel->current.fullscreen && fullscreenOpaque()) {
+      m_decoration.hideBlur();
+      return;
+    }
+    const wlr_box nodeBox{0, 0, contentWidth, contentHeight};
+    m_decoration.updateBlur(
+        m_contentTree, m_toplevel->base->surface, nodeBox, m_toplevel->base->geometry, surfaceRadius(), nullptr,
+        effectiveOpacity(), m_fadeAlpha
+    );
+  }
+
+  void View::updateShadow() {
+    if (m_toplevel->scheduled.fullscreen || m_maximizedToEdges) {
+      m_decoration.hideShadow();
+      return;
+    }
+    // Tiled targets and active resize animations can lead committed geometry,
+    // so their shadows must follow the presented size.
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    const bool usePresentedSize =
+        (m_tiled || sizeAnimating()) && m_presentation.width() > 0 && m_presentation.height() > 0;
+    updateShadow(
+        usePresentedSize ? m_presentation.width() : geometry.width,
+        usePresentedSize ? m_presentation.height() : geometry.height
+    );
+  }
+
+  void View::updateShadow(int contentWidth, int contentHeight) {
+    UMBRIEL_ZONE("View::updateShadow");
+    const int borderTotal = borderInset();
+    m_decoration.updateShadow(contentWidth, contentHeight, borderTotal, decorated() ? m_decoration.cornerRadius() : 0);
+    m_decoration.setShadowAnimationSource(&m_contentTree->node);
+  }
+
+  void View::showDecorations(bool enabled) {
+    m_decoration.ensureBorders(m_contentTree);
+    m_decoration.setBordersEnabled(enabled);
+    updateBorderGeometry();
+    applyCornerRadius();
+    updateBlur();
+    updateShadow();
+  }
+
+  void View::updateBorderGeometry() {
+    const wlr_box content = committedContentBox();
+    updateBorderGeometry(content.width, content.height);
+  }
+
+  void View::updateBorderGeometry(int contentWidth, int contentHeight) {
+    m_decoration.updateBorderGeometry(contentWidth, contentHeight);
+  }
+
+  void View::refreshConfigChrome() {
+    m_focusDimInitialized = false;
+    setBorderFocused(false);
+    updateBorderGeometry();
+    applyCornerRadius();
+    applyDynamicRules();
+    if (notifyAloneStateChanged() && m_workspace != nullptr) {
+      m_workspace->markArrange();
+    }
+    updateShadow();
+    reloadBackdropColor();
+  }
+
+  CloseSnapshotId View::beginCloseAnimation() {
+    const auto& animation = config().animation;
+    if (!m_mapped
+        || m_tiledOpeningDeferred
+        || !m_onActiveWorkspace
+        || !animation.enabled
+        || !animation.windowsOut.enabled
+        || m_server->sessionLocked()
+        || (m_server->overview() != nullptr && m_server->overview()->active())) {
+      return kInvalidCloseSnapshot;
+    }
+
+    Output* output =
+        m_workspace != nullptr && m_workspace->group() != nullptr ? m_workspace->group()->output() : currentOutput();
+    if (output == nullptr) {
+      return kInvalidCloseSnapshot;
+    }
+
+    // Under the output's clipped root, so a snapshot of a view straddling the shared edge stays contained while it
+    // fades. Server::removeOutput purges this output's snapshots before the Output is destroyed. The tree remains at
+    // the captured presented box in output-root coordinates; the buffers keep their offsets inside the content subtree.
+    wlr_scene_tree* snap = wlr_scene_tree_create(output->viewRoot());
+    if (snap == nullptr) {
+      return kInvalidCloseSnapshot;
+    }
+    wlr_scene_node_set_position(&snap->node, m_presentedBox.x, m_presentedBox.y);
+    wlr_scene_tree* content = wlr_scene_tree_create(snap);
+    if (content == nullptr) {
+      wlr_scene_node_destroy(&snap->node);
+      return kInvalidCloseSnapshot;
+    }
+
+    std::vector<BorderSnapshot> snapBorders;
+    m_decoration.snapshotBorders(snap, m_borderColorAnim.current(), effectiveOpacity(), snapBorders);
+
+    // Copy surface buffers.
+    struct CopyCtx {
+      wlr_scene_tree* snap;
+      int rootX;
+      int rootY;
+      int buffersCopied;
+    };
+    CopyCtx ctx{content, m_contentTree->node.x, m_contentTree->node.y, 0};
+    wlr_scene_node_for_each_buffer(
+        &m_contentTree->node,
+        [](wlr_scene_buffer* src, int sx, int sy, void* data) {
+          auto* c = static_cast<CopyCtx*>(data);
+          if (src->buffer == nullptr || !src->node.enabled) {
+            return;
+          }
+          wlr_scene_buffer* copy = wlr_scene_buffer_create(c->snap, src->buffer);
+          if (copy == nullptr) {
+            return;
+          }
+          wlr_scene_node_set_position(&copy->node, sx - c->rootX, sy - c->rootY);
+          if (src->dst_width > 0 && src->dst_height > 0) {
+            wlr_scene_buffer_set_dest_size(copy, src->dst_width, src->dst_height);
+          }
+          if (src->src_box.width > 0 && src->src_box.height > 0) {
+            wlr_scene_buffer_set_source_box(copy, &src->src_box);
+          }
+          wlr_scene_buffer_set_transform(copy, src->transform);
+          wlr_scene_buffer_set_corner_radii(copy, src->corners);
+          wlr_scene_buffer_set_corner_box(copy, &src->corner_box);
+          wlr_scene_buffer_set_opacity(copy, src->opacity);
+          wlr_scene_buffer_set_transfer_function(copy, src->transfer_function);
+          wlr_scene_buffer_set_primaries(copy, src->primaries);
+          wlr_scene_buffer_set_luminance_multiplier(copy, src->luminance_multiplier);
+          wlr_scene_buffer_set_color_encoding(copy, src->color_encoding);
+          wlr_scene_buffer_set_color_range(copy, src->color_range);
+          ++c->buffersCopied;
+        },
+        &ctx
+    );
+
+    if (ctx.buffersCopied == 0) {
+      wlr_scene_node_destroy(&snap->node);
+      return kInvalidCloseSnapshot;
+    }
+
+    wlr_scene_node_copy_animations_for_snapshot(&snap->node, &m_contentTree->node);
+    // A close snapshot owns its windows_out lifecycle. Keep a possible interrupted windows_in effect, but do not
+    // freeze windows_move into the snapshot.
+    wlr_scene_node_set_animation(&snap->node, static_cast<unsigned>(AnimationEvent::WindowsMove), nullptr, nullptr);
+    const auto shadow = m_decoration.snapshotShadow(output->viewRoot(), &snap->node, m_decoration.shadowPooled());
+    const CloseSnapshotId id = m_server->animateCloseSnapshot(
+        output, snap, content, std::move(snapBorders), m_presentedBox, std::nullopt, shadow
+    );
+    wlr_output_schedule_frame(output->wlr());
+    return id;
+  }
+
+  void View::setSurfaceTreeClip(const wlr_box* clip) {
+    // Clip only the toplevel subsurface tree. Calling set_clip on the xdg root also stamps that clip onto popup
+    // children (wrong coords → cut-off menus), and clearing clip on border/popup trees asserts when they have no
+    // subsurface tree.
+    if (wlr_scene_node* surfaceNode = toplevelSurfaceTreeNode(m_contentTree, m_toplevel->base->surface)) {
+      wlr_scene_subsurface_tree_set_clip(surfaceNode, clip);
+    } else if (clip == nullptr) {
+      wlr_scene_subsurface_tree_set_clip(&m_contentTree->node, nullptr);
+    }
+    // A clip change runs wlroots' scene surface reconfigure, which resets the scene-buffer opacity (to the client
+    // alpha, 1.0 without wp_alpha_modifier). This runs in the render path after the animation tick, so re-apply our
+    // fade/rule opacity or the frame renders fully opaque (the fade then only survives on frames whose clip is
+    // unchanged, seen as transparent flashes).
+    applyEffectiveOpacity();
+  }
+
+  Output* View::currentOutput() const {
+    if (m_workspace != nullptr && m_workspace->group() != nullptr && m_workspace->group()->output() != nullptr) {
+      return m_workspace->group()->output();
+    }
+    if (m_server != nullptr && m_server->scratchpadManager() != nullptr) {
+      if (Output* output = m_server->scratchpadManager()->outputFor(this)) {
+        return output;
+      }
+    }
+    // Other floating views with no workspace use their scene coordinates.
+    if (m_sceneTree != nullptr && m_server != nullptr && m_server->outputLayout() != nullptr) {
+      wlr_output* wlrOut = wlr_output_layout_output_at(
+          m_server->outputLayout(), m_sceneTree->node.x + (m_toplevel ? m_toplevel->current.width / 2 : 0),
+          m_sceneTree->node.y + (m_toplevel ? m_toplevel->current.height / 2 : 0)
+      );
+      if (wlrOut != nullptr) {
+        return m_server->outputFromWlr(wlrOut);
+      }
+    }
+    return m_server->outputFromWlr(m_server->preferredOutput());
+  }
+
+  std::optional<bool> View::tearingRuleOverride() { return resolvedRules().allowTearing; }
+
+  void View::notifyOutputScale() {
+    Output* output = currentOutput();
+    if (output == nullptr || m_toplevel == nullptr || m_toplevel->base == nullptr) {
+      return;
+    }
+    wlr_xdg_surface_for_each_surface(m_toplevel->base, &Output::notifySurfaceScaleIter, output);
+    wlr_xdg_surface_for_each_popup_surface(m_toplevel->base, &Output::notifySurfaceScaleIter, output);
+  }
+
+  void View::unconstrainPopup(wlr_xdg_popup* popup) {
+    if (popup == nullptr || m_sceneTree == nullptr) {
+      return;
+    }
+    Output* output = currentOutput();
+    if (output == nullptr) {
+      return;
+    }
+
+    wlr_box target = output->usableArea();
+    if (target.width <= 0 || target.height <= 0) {
+      wlr_output_layout_get_box(m_server->outputLayout(), output->wlr(), &target);
+    }
+    if (target.width <= 0 || target.height <= 0) {
+      return;
+    }
+
+    int lx = 0;
+    int ly = 0;
+    if (!wlr_scene_node_coords(&m_sceneTree->node, &lx, &ly)) {
+      return;
+    }
+
+    // wlroots supports flip, slide, and resize adjustments from the client's xdg-positioner. For tiled views, constrain
+    // horizontally to the window geometry, so a nested menu at the right edge flips or slides left even when the tile
+    // itself is flush with the output edge. Vertically, use the output working area. Floating popups can use the whole
+    // area. The box is in root toplevel surface coordinates. The xdg scene root is positioned at the window geometry,
+    // not at the surface origin.
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    const wlr_box box{
+        .x = m_tiled ? geometry.x : target.x - lx + geometry.x,
+        .y = target.y - ly + geometry.y,
+        .width = m_tiled ? geometry.width : target.width,
+        .height = target.height,
+    };
+    wlr_xdg_popup_unconstrain_from_box(popup, &box);
+  }
+
+  View* View::fromSurface(wlr_surface* surface) {
+    wlr_surface* walk = surface;
+    while (walk != nullptr) {
+      if (wlr_xdg_toplevel* toplevel = wlr_xdg_toplevel_try_from_wlr_surface(walk)) {
+        auto* tree = static_cast<wlr_scene_tree*>(toplevel->base->data);
+        if (tree == nullptr) {
+          return nullptr;
+        }
+        SceneNode* node = sceneNodeFrom(tree->node.data);
+        if (node == nullptr || node->kind != SceneNodeKind::View) {
+          return nullptr;
+        }
+        return static_cast<View*>(node);
+      }
+      if (wlr_xdg_popup* popup = wlr_xdg_popup_try_from_wlr_surface(walk)) {
+        walk = popup->parent;
+        continue;
+      }
+      break;
+    }
+    return nullptr;
+  }
+
+  void View::resetSurfaceClip() {
+    // Fullscreen must not keep a copied tile clip (that freezes usable-area size and leaves a bar-sized gap). Use
+    // scheduled (not current): on leave, scheduled clears immediately while current lags until the client acks.
+    const bool fullscreen = m_toplevel->scheduled.fullscreen;
+    const wlr_box content = committedContentBox();
+    trackPresentedSize(content.width, content.height);
+    if (!fullscreen && !m_tiled) {
+      syncFloatingSurfaceClip();
+      applyCornerRadius();
+      updateBorderGeometry();
+      return;
+    }
+    const wlr_box* clip = (!fullscreen && m_tiled) ? &content : nullptr;
+    setSurfaceTreeClip(clip);
+    applyCornerRadius();
+    updateBorderGeometry();
+    updateBlur();
+    updateShadow();
+  }
+
+  void View::requestFloatingSize(int width, int height) {
+    m_floating.recordSizeRequest(width, height, wlr_xdg_toplevel_set_size(m_toplevel, width, height));
+  }
+
+  std::array<int, 2> View::floatingSize() const {
+    if (const auto& pending = m_floating.pendingSize()) {
+      return *pending;
+    }
+    const wlr_box& geo = m_toplevel->base->geometry;
+    return {geo.width, geo.height};
+  }
+
+  std::optional<std::array<int, 2>> View::floatingAxisBasis(bool width) const {
+    if (!m_mapped || m_tiled) {
+      return std::nullopt;
+    }
+    const wlr_box usable = floatingUsableArea();
+    const auto [basisWidth, basisHeight] = floatingSize();
+    const int basis = width ? basisWidth : basisHeight;
+    const int extent = width ? usable.width : usable.height;
+    if (extent <= 0 || basis <= 0) {
+      return std::nullopt;
+    }
+    return std::array{basis, extent};
+  }
+
+  std::optional<double> View::floatingFraction(bool width) const {
+    const auto axis = floatingAxisBasis(width);
+    if (!axis) {
+      return std::nullopt;
+    }
+    return floatingSizeFraction((*axis)[0], (*axis)[1]);
+  }
+
+  bool View::resizeFloatingFractions(
+      const std::optional<double>& widthFraction, const std::optional<double>& heightFraction
+  ) {
+    if (!m_mapped || m_tiled || m_toplevel->current.fullscreen || m_toplevel->scheduled.fullscreen) {
+      return false;
+    }
+    const wlr_box usable = floatingUsableArea();
+    if (usable.width <= 0 || usable.height <= 0) {
+      return false;
+    }
+    const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+    const auto [basisWidth, basisHeight] = floatingSize();
+    const int width =
+        widthFraction ? clampXdgWidth(floatingFractionSize(*widthFraction, usable.width), hints) : basisWidth;
+    const int height =
+        heightFraction ? clampXdgHeight(floatingFractionSize(*heightFraction, usable.height), hints) : basisHeight;
+    if (width <= 0 || height <= 0) {
+      return false;
+    }
+    dropMaximizedForResize();
+    requestFloatingSize(width, height);
+    beginResizeAnimation(width, height);
+    clampFloatingPositionForSize(width, height);
+    return true;
+  }
+
+  std::array<int, 2> View::floatingRestoreSize() const {
+    if (m_floating.size()) {
+      return *m_floating.size();
+    }
+    // First-time floats prefer the last acked or scheduled configure size,
+    // then fall back to the layout target and committed geometry.
+    int width = m_toplevel->current.width;
+    int height = m_toplevel->current.height;
+    if (width <= 0 || height <= 0) {
+      width = m_toplevel->scheduled.width;
+      height = m_toplevel->scheduled.height;
+    }
+    if ((width <= 0 || height <= 0) && m_workspace != nullptr) {
+      const wlr_box target = m_workspace->layout().targetBox(this);
+      if (target.width > 0 && target.height > 0) {
+        const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+        width = clampXdgWidth(target.width, hints);
+        height = clampXdgHeight(target.height, hints);
+      }
+    }
+    if (width <= 0 || height <= 0) {
+      const wlr_box& geo = m_toplevel->base->geometry;
+      width = geo.width;
+      height = geo.height;
+    }
+    return {width, height};
+  }
+
+  void View::beginFloatingResize(uint32_t edges) {
+    const wlr_box& geo = m_toplevel->base->geometry;
+    m_floating.beginResize(
+        {.x = m_sceneTree->node.x + geo.x, .y = m_sceneTree->node.y + geo.y, .width = geo.width, .height = geo.height},
+        edges
+    );
+    syncFloatingResizePosition();
+  }
+
+  void View::resizeFloating(int width, int height) {
+    syncFloatingResizePosition();
+    requestFloatingSize(width, height);
+  }
+
+  void View::resizeFloatingEdge(uint32_t edges, double delta) {
+    // Mirror the guard set of resizeFloatingFractions: a fullscreen view owns its
+    // size, a tiled one has no floating box, and a view with no usable area has
+    // nothing to size against.
+    if (!m_mapped || m_tiled || m_toplevel->current.fullscreen || m_toplevel->scheduled.fullscreen) {
+      return;
+    }
+    const wlr_box usable = floatingUsableArea();
+    if (usable.width <= 0 || usable.height <= 0) {
+      return;
+    }
+    const bool widthAxis = (edges & (WLR_EDGE_LEFT | WLR_EDGE_RIGHT)) != 0;
+    const auto current = floatingFraction(widthAxis);
+    if (!current) {
+      return;
+    }
+    // The same 0.1 fraction floor the fraction path enforces, so a hint-less
+    // client cannot collapse to a single pixel.
+    const double target = std::clamp(*current + delta, 0.1, 1.0);
+    const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+    const auto [basisWidth, basisHeight] = floatingSize();
+    // A pending size and the position animation target form one logical box.
+    // Anchor that box rather than the in-flight scene node, so repeated actions
+    // keep the same far edge while the previous resize is still animating.
+    const wlr_box& geo = m_toplevel->base->geometry;
+    const wlr_box anchor{
+        .x = layoutTargetX() + geo.x,
+        .y = layoutTargetY() + geo.y,
+        .width = basisWidth,
+        .height = basisHeight,
+    };
+    const int width = widthAxis ? clampXdgWidth(floatingFractionSize(target, usable.width), hints) : basisWidth;
+    const int height = widthAxis ? basisHeight : clampXdgHeight(floatingFractionSize(target, usable.height), hints);
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    // Pin the edge opposite the named one, then take the same steps the fraction
+    // path does: drop a maximize, animate the change, and keep the window on
+    // screen. The origin animates to where the requested size puts it, over the
+    // same duration and curve as the size, so the opposite edge stays put for the
+    // whole resize instead of drifting while the client catches up with the
+    // configure.
+    //
+    // The anchor session stays open until the client answers the configure, so a
+    // client that commits a size other than the requested one (because of size
+    // hints, or because it refused the resize) still has the origin recomputed from
+    // the geometry that actually arrived. finishFloatingResize ends the session but
+    // leaves the anchor until the request settles, so that commit both re-pins the
+    // edge and retires the anchor.
+    const FloatingPoint anchoredOrigin =
+        anchoredContentOrigin(anchor, edges, {.x = 0, .y = 0, .width = width, .height = height});
+    m_floating.beginResize(anchor, edges);
+    dropMaximizedForResize();
+    requestFloatingSize(width, height);
+    beginResizeAnimation(width, height);
+    animateTo(anchoredOrigin.x - geo.x, anchoredOrigin.y - geo.y);
+    clampFloatingPositionForSize(width, height);
+    finishFloatingResize();
+  }
+
+  void View::finishFloatingResize() { m_floating.endResize(); }
+
+  void View::syncFloatingResizePosition() {
+    if (!m_floating.anchor()) {
+      return;
+    }
+    const wlr_box& geo = m_toplevel->base->geometry;
+    const FloatingPoint content = anchoredContentOrigin(*m_floating.anchor(), m_floating.edges(), geo);
+    const int x = content.x - geo.x;
+    const int y = content.y - geo.y;
+    // A keybind resize animates the origin along with the size, so a commit whose
+    // geometry implies a different origin retargets that animation instead of
+    // snapping it, which is what re-pins the edge when the client commits a size
+    // other than the requested one. A target that already matches is left alone, so
+    // the animation is not restarted. A pointer drag places the origin directly
+    // instead, because it has to follow the cursor.
+    if ((m_posX.animating() || m_posY.animating()) && !sizeGrabActive()) {
+      if (layoutTargetX() != x || layoutTargetY() != y) {
+        animateTo(x, y);
+      }
+      return;
+    }
+    setPosition(x, y);
+  }
+
+  void View::adoptFloatingClientSize() {
+    if (m_tiled || !m_mapped || m_toplevel->scheduled.fullscreen || m_toplevel->scheduled.maximized) {
+      return;
+    }
+    wlr_xdg_surface* base = m_toplevel->base;
+    if (!m_floating.retireSizeRequestIfSettled(base->current.configure_serial)) {
+      return;
+    }
+    const wlr_box& geo = base->geometry;
+    if (geo.width <= 0 || geo.height <= 0) {
+      return;
+    }
+    if (m_toplevel->scheduled.width != geo.width || m_toplevel->scheduled.height != geo.height) {
+      // Once the latest compositor size request is committed, a floating
+      // client owns its size. Direct assignment avoids an echo configure.
+      m_toplevel->scheduled.width = geo.width;
+      m_toplevel->scheduled.height = geo.height;
+      clampFloatingPosition();
+    }
+  }
+
+  void View::syncFloatingSurfaceClip() {
+    if (m_tiled || m_toplevel->scheduled.fullscreen) {
+      return;
+    }
+    const wlr_box& geo = m_toplevel->base->geometry;
+    int width = m_toplevel->scheduled.width;
+    int height = m_toplevel->scheduled.height;
+    if (width <= 0) {
+      width = m_toplevel->current.width;
+    }
+    if (height <= 0) {
+      height = m_toplevel->current.height;
+    }
+    // Electron often keeps a wide buffer while tiled; without a clip, toggling float
+    // would suddenly show the full surface.
+    if (width > 0 && height > 0 && (geo.width > width || geo.height > height)) {
+      const wlr_box clip{geo.x, geo.y, std::min(geo.width, width), std::min(geo.height, height)};
+      setSurfaceTreeClip(&clip);
+    } else {
+      setSurfaceTreeClip(nullptr);
+    }
+    updateBlur();
+    updateShadow();
+  }
+
+  wlr_scene_tree* View::homeTree() const {
+    const bool fs = m_toplevel->scheduled.fullscreen;
+    if (m_workspace != nullptr) {
+      return fs ? m_workspace->fullscreenTree() : m_workspace->viewLayer(m_tiled);
+    }
+    return fs ? m_server->fullscreenTree() : m_server->xdgTree();
+  }
+
+  void View::applyFullscreenLayout(bool animate) {
+    const wlr_box fullArea = fullscreenArea();
+    if (fullArea.width <= 0 || fullArea.height <= 0) {
+      return;
+    }
+    if (m_toplevel->scheduled.width != fullArea.width || m_toplevel->scheduled.height != fullArea.height) {
+      wlr_xdg_toplevel_set_size(m_toplevel, fullArea.width, fullArea.height);
+    }
+    if (fullscreenOpeningActive()) {
+      // windows_in owns the node position and the presented size until the fade ends; the layout owns only the box
+      // they are derived from.
+      setLayoutTarget(fullArea.x, fullArea.y);
+      placePresentedBox(fullArea);
+    } else if (animate) {
+      beginResizeAnimation(fullArea.width, fullArea.height, true);
+      animateTo(fullArea.x, fullArea.y);
+    } else if (!m_posX.animating() && !m_posY.animating()) {
+      setPosition(fullArea.x, fullArea.y);
+    }
+
+    // Present at the node's absolute position: a workspace mid-slide offsets its
+    // whole tree on either axis, and the local origin does not carry that.
+    int lx = 0;
+    int ly = 0;
+    wlr_scene_node_coords(&m_sceneTree->node, &lx, &ly);
+    const wlr_box target{
+        lx,
+        ly,
+        fullArea.width,
+        fullArea.height,
+    };
+    applyPresentation(target);
+  }
+
+  void View::applyPresentation(const wlr_box& target) {
+    updateFullscreenPresentation(target.width, target.height);
+    const wlr_box& geometry = m_toplevel->base->geometry;
+    // Stay inside the tile while geometry lags configure (Electron often stays wide).
+    const wlr_box content{
+        .x = target.x,
+        .y = target.y,
+        .width = presentedWidth(target),
+        .height = presentedHeight(target),
+    };
+    if (m_toplevel->current.fullscreen) {
+      // The backdrop is the window's own letterbox, so it follows the presented box rather than the tile: a window
+      // scaling into or out of fullscreen carries its surround instead of sitting in an output-wide one. The output's
+      // clipped root scissors whatever hangs over a shared edge.
+      m_presentation.setBackdropBox(0, 0, content.width, content.height);
+    }
+    m_presentedBox = content;
+    trackPresentedSize(content.width, content.height);
+
+    // The presented box in surface coordinates. The fullscreen offsets center a buffer that does not match the tile.
+    // Popup children stay unclipped in setSurfaceTreeClip so context menus can extend past the window edge.
+    const wlr_box surfaceClip{
+        .x = geometry.x - m_presentation.offsetX(),
+        .y = geometry.y - m_presentation.offsetY(),
+        .width = content.width,
+        .height = content.height,
+    };
+    setSurfaceTreeClip(&surfaceClip);
+    applyCornerRadius();
+    if (layoutPresentationOwned() || sizeGrabActive()) {
+      // The clip crops 1:1 in surface coordinates and caps the destination at the committed surface size, so it cannot
+      // express an animated or interactive presented size. Program the buffer directly; the clip above keeps the buffer
+      // node positioned at the visible box origin.
+      applyPresentedCrop(content, surfaceClip);
+    }
+    m_resizeCrossfade.present(content.width, content.height);
+    updateBorderGeometry(content.width, content.height);
+    updateShadow();
+    updateBlur(content.width, content.height);
+  }
+
+  void View::handleMap() {
+    // The XDG map signal is emitted before the root surface commit signal.
+    // Refresh only the root cache here, then let each descendant's own commit
+    // keep its cached double-buffered state authoritative.
+    syncContentType(m_toplevel->base->surface);
+    m_mapped = true;
+    m_tiledOpeningDeferred = false;
+    m_presentedTiledBox = {};
+    m_acceptClientMaximizeRequests = config().general.honorRestoredMaximize;
+    // Firefox often re-assert session maximize after map. With honor off, consume that one request so
+    // it cannot override alone/default opening policy; later maximize requests stay valid.
+    if (config().general.honorRestoredMaximize) {
+      m_consumeRestoredMaximizeRequest = false;
+    } else if (m_toplevel->requested.maximized) {
+      m_consumeRestoredMaximizeRequest = true;
+    }
+    m_acceptClientMaximizeIdle =
+        wl_event_loop_add_idle(wl_display_get_event_loop(m_server->display()), onAcceptClientMaximizeRequests, this);
+    if (m_acceptClientMaximizeIdle == nullptr) {
+      kLog.error("failed to register opening maximize idle source");
+      m_acceptClientMaximizeRequests = true;
+    }
+    m_server->scheduleIpcWindowsEvent();
+    m_tiled = looksTiled(m_toplevel, openingParented());
+    const wlr_box& mapGeo = m_toplevel->base->geometry;
+    m_presentation.setSize(mapGeo.width, mapGeo.height);
+    resetSurfaceClip();
+
+    // Resolve opening rules before startup focus and placement can change
+    // state-based matches. Dynamic rules use the live state later.
+    m_initialRuleState = ruleState();
+    m_initialRuleState.focused = false;
+    m_initialRuleState.alone = false;
+    const ResolvedWindowRule rule = resolveWindowRules(
+        config(), ruleText(m_toplevel->app_id), ruleText(m_toplevel->title), m_xdgTag, m_contentType,
+        m_initialRuleState, m_server->uptimeMs()
+    );
+    m_initialRules = rule;
+    m_initialRulesXdgTag = m_xdgTag;
+    m_initialRulesContentType = m_contentType;
+    m_namedScrollingColumnName = rule.defaultScrollingColumn;
+    m_namedScrollingColumnOrder = rule.defaultScrollingColumnOrder;
+    if (rule.defaultFloating) {
+      m_tiled = !*rule.defaultFloating;
+    }
+    const bool restoreTiled = m_tiled;
+    // Unsettled when any rule uses a title pattern: the first handleSetTitle after map re-applies disruptive effects
+    // with the real title, even if the client mapped with a placeholder.
+    m_initialRulesSettled = !anyWindowRuleHasTitlePattern(config());
+
+    showDecorations(!m_toplevel->scheduled.fullscreen);
+
+    if (m_workspace != nullptr) {
+      m_workspace->layoutAttach(
+          this, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx, LayoutAttachOrigin::OpeningView
+      );
+    } else if (!attachToAvailableWorkspace(rule, LayoutAttachOrigin::OpeningView)) {
+      setOnActiveWorkspace(true);
+    }
+    bool assignedScratchpad = false;
+    if (rule.defaultScratchpad) {
+      if (ScratchpadManager* scratchpad = m_server->scratchpadManager();
+          scratchpad != nullptr && scratchpad->hasScratchpad(*rule.defaultScratchpad)) {
+        Workspace* restoreWorkspace = m_workspace;
+        Output* restoreOutput = restoreWorkspace != nullptr && restoreWorkspace->group() != nullptr
+            ? restoreWorkspace->group()->output()
+            : currentOutput();
+        assignedScratchpad = scratchpad->assignByWindowRule(
+            this, *rule.defaultScratchpad, restoreOutput,
+            ScratchpadManager::AutomaticAdmission{
+                .restoreOutput = restoreOutput,
+                .restoreWorkspace = restoreWorkspace,
+                .focusOrigin = restoreOutput,
+                .restoreTiled = restoreTiled,
+                .updateRestoreLocation = true,
+            }
+        );
+      }
+    }
+    if (!assignedScratchpad) {
+      assignedScratchpad = inheritScratchpadFromParent(restoreTiled);
+    }
+    if (!assignedScratchpad && rule.defaultPinned && *rule.defaultPinned) {
+      setPinned(true, false);
+    }
+    if (assignedScratchpad && !scratchpadOwnsOpeningGeometry()) {
+      // Scratchpad admission has detached the view from its workspace, so its
+      // assigned scratchpad output now supplies the correct usable area.
+      placeInUsableArea(rule.defaultPosition);
+      if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
+        scratchpad->syncViewPresentation(this);
+      }
+    } else if (!assignedScratchpad && !m_tiled) {
+      // The initial commit already applied the floating size rules. Re-requesting them here
+      // races the client's first content-driven resize.
+      placeInUsableArea(rule.defaultPosition);
+      // Enable + clip the float against its home output now that per-output
+      // visibility is resolved data-side (no per-render-pass pass to do it).
+      if (m_workspace != nullptr) {
+        m_workspace->syncViewPresentation(this);
+        // layoutAttach only handles tiled arrivals.
+        m_workspace->exitFullscreenForIncomingView(this);
+      }
+    }
+
+    // Apply rule opacity: flush to scene buffers immediately so views on
+    // inactive workspaces get the correct opacity when they become visible.
+    if (rule.opacity) {
+      m_ruleOpacity = static_cast<float>(*rule.opacity);
+      setFadeAlpha(m_fadeAlpha);
+    }
+
+    updateForeignIdentity();
+    updateForeignState();
+    const std::optional<bool> deferredActivation = std::exchange(m_deferredActivationTrusted, std::nullopt);
+    const bool activateOnMap = deferredActivation.has_value()
+        && rule.focusOnActivate.value_or(*deferredActivation || config().general.focusOnActivate);
+    const bool focusOnMap =
+        activateOnMap || (!deferredActivation.value_or(false) && rule.defaultFocused.value_or(true));
+    const bool hiddenScratchpad = assignedScratchpad && !m_onActiveWorkspace;
+    if (!m_server->sessionLocked() && focusOnMap && !hiddenScratchpad) {
+      m_server->focusView(this, activateOnMap ? FocusReason::XdgActivation : FocusReason::Startup);
+    } else if (deferredActivation.has_value()) {
+      setUrgent(true);
+    }
+
+    // Opening state is compositor-owned. Clients may restore a saved maximized
+    // flag during this transition; only an explicit window rule overrides the
+    // layout's initial size.
+    const bool ruleMaximized = !openingParented() && rule.defaultMaximize && *rule.defaultMaximize;
+    const bool restoredMaximized = config().general.honorRestoredMaximize && m_toplevel->requested.maximized;
+    if (!assignedScratchpad && (ruleMaximized || restoredMaximized)) {
+      setMaximized(true);
+    }
+
+    // After default_maximize so maximize-to-edges wins the column, but before
+    // fullscreen: setFullscreen leaves and restores the maximize-to-edges state.
+    if (!assignedScratchpad && rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges) {
+      setMaximizedToEdges(true);
+    }
+
+    // Fullscreen after workspace + focus so the view lands in the right place.
+    if (!assignedScratchpad && rule.defaultFullscreen && *rule.defaultFullscreen) {
+      setFullscreen(true);
+    }
+
+    settleOpeningAloneState();
+
+    if (transientParent() != nullptr) {
+      raiseToTop();
+    }
+
+    if (m_onActiveWorkspace) {
+      const auto& animation = config().animation;
+      const auto& open = animation.windowsIn;
+      const bool customShader = animationShader(m_server->renderer(), AnimationEvent::WindowsIn) != nullptr;
+      m_customFade = animation.enabled && open.enabled && customShader;
+      const bool animates = animation.enabled && open.enabled && (open.style != "none" || customShader);
+      const bool tiledMember =
+          m_tiled && !layoutFullscreen() && m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0;
+      if (!animates) {
+        setFadeAlpha(1.0F);
+        m_fade.snap(1.0);
+      } else if (tiledMember) {
+        // The admitting arrange places a tiled member and starts its windows_in in the final slot, alongside any
+        // windows_move reflow that makes room for it. An overview card follows that same reveal.
+        deferTiledOpening();
+      } else {
+        setFadeAlpha(0.0F);
+        m_fade.snap(0.0);
+        m_fade.retarget(1.0, open.durationMs, open.curve);
+
+        // Floating and fullscreen windows tween themselves.
+        if (!m_customFade && (open.style == "popin" || open.style == "zoom")) {
+          const double scale = std::clamp(open.style == "zoom" ? 0.5 : open.scale, 0.0, 1.0);
+          if (layoutFullscreen()) {
+            // The output box this window rests in is assigned by the arrange that follows this map, so the inset is
+            // applied against that box on every fade tick instead of tweening a node it has not been placed in yet.
+            m_openingScale = scale;
+            const wlr_box area = fullscreenLayoutBox();
+            setLayoutTarget(area.x, area.y);
+            presentBox(area);
+          } else if (m_presentation.width() > 0 && m_presentation.height() > 0) {
+            const int targetW = m_presentation.width();
+            const int targetH = m_presentation.height();
+            const int startW = std::max(1, static_cast<int>(targetW * scale));
+            const int startH = std::max(1, static_cast<int>(targetH * scale));
+            const int targetX = m_sceneTree->node.x;
+            const int targetY = m_sceneTree->node.y;
+            const int startX = targetX + (targetW - startW) / 2;
+            const int startY = targetY + (targetH - startH) / 2;
+
+            m_presentation.setSize(startW, startH);
+            m_presentation.animateTo(targetW, targetH, open.durationMs, open.curve);
+            setScenePosition(startX, startY);
+            m_posX.snap(startX);
+            m_posY.snap(startY);
+            m_posX.retarget(targetX, open.durationMs, open.curve);
+            m_posY.retarget(targetY, open.durationMs, open.curve);
+          }
+        } else if (!m_customFade && open.style == "slide") {
+          if (layoutFullscreen()) {
+            m_openingSlide = kOpenSlidePx;
+            const wlr_box area = fullscreenLayoutBox();
+            setLayoutTarget(area.x, area.y);
+            presentBox(area);
+          } else {
+            const int targetX = m_sceneTree->node.x;
+            const int targetY = m_sceneTree->node.y;
+            setScenePosition(targetX, targetY + kOpenSlidePx);
+            m_posX.snap(targetX);
+            m_posY.snap(targetY + kOpenSlidePx);
+            m_posY.retarget(targetY, open.durationMs, open.curve);
+          }
+        }
+        scheduleFrame();
+      }
+    }
+
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewMapped(this);
+    }
+    m_server->updateIdleInhibit();
+    if (Output* output = currentOutput()) {
+      output->updateHdr();
+    }
+    if (m_displacedHome) {
+      // Snapshot peers retain their member ids while this view is unmapped.
+      // Replay their shared structure now that this member is visible again.
+      m_server->scheduleDisplacedViewRestore();
+    }
+    // Opening rules resolve before default_floating and default_pinned move the window, so the state selectors may
+    // pick a different set of dynamic effects than the ones applied above.
+    applyDynamicRules();
+  }
+
+  void View::handleUnmap() {
+    m_resizeCrossfade.discard();
+    Workspace* closingWorkspace = m_workspace;
+    Cursor* cursor = m_server->cursor();
+    wlr_seat* seat = m_server->seat()->wlr();
+    const Overview* overview = m_server->overview();
+    View* pointerView = nullptr;
+    if (cursor != nullptr) {
+      wlr_surface* pointerSurface = nullptr;
+      double pointerSx = 0.0;
+      double pointerSy = 0.0;
+      LayerSurface* pointerLayer = nullptr;
+      pointerView =
+          m_server->viewAt(cursor->wlr()->x, cursor->wlr()->y, &pointerSurface, &pointerSx, &pointerSy, &pointerLayer);
+      if (pointerLayer != nullptr) {
+        pointerView = nullptr;
+      }
+    }
+    const bool focusRevealedTile = closingWorkspace != nullptr
+        && closingWorkspace->focusedView() == this
+        && closingWorkspace->active()
+        && m_tiled
+        && m_toplevel->parent == nullptr
+        && config().input.focus.followsMouse
+        && !m_server->sessionLocked()
+        && m_server->exclusiveKeyboardLayer() == nullptr
+        && (overview == nullptr || !overview->active())
+        && cursor != nullptr
+        && cursor->isPassthrough()
+        && seat->drag == nullptr
+        && seat->pointer_state.button_count == 0
+        && View::fromSurface(seat->keyboard_state.focused_surface) == this
+        && pointerView == this
+        && wlr_box_contains_point(&m_presentedBox, cursor->wlr()->x, cursor->wlr()->y);
+    const double closePointerX = cursor != nullptr ? cursor->wlr()->x : 0.0;
+    const double closePointerY = cursor != nullptr ? cursor->wlr()->y : 0.0;
+
+    setUrgent(false);
+    m_floatingMaximized = false;
+    m_maximizedToEdges = false;
+    m_hasFullscreenRestoreBox = false;
+    m_restorePinnedAfterFullscreen = false;
+    if (m_pinned) {
+      m_pinned = false;
+      m_restoreTiledAfterUnpin = false;
+      if (m_workspace != nullptr) {
+        setSceneParent(m_workspace->viewLayer(false));
+        setOnActiveWorkspace(m_workspace->active());
+      }
+    }
+    if (m_server->scratchpadManager() != nullptr) {
+      m_server->scratchpadManager()->remove(this);
+    }
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewUnmapped(this);
+    }
+    // Choose the layout neighbor while this view still belongs to the layout. Waiting for destroy loses that position.
+    // It remains the fallback when the pointer did not belong to the closing tile or no survivor takes its place.
+    if (m_workspace != nullptr && m_workspace->focusedView() == this) {
+      View* replacement = m_workspace->focusReplacementForRemoval(this);
+      if (replacement != nullptr) {
+        if (m_workspace->active() && !m_server->sessionLocked()) {
+          m_server->focusView(replacement, FocusReason::Directional);
+        } else {
+          m_workspace->setFocusedView(replacement);
+        }
+      } else {
+        m_workspace->setFocusedView(nullptr);
+      }
+    }
+    const CloseSnapshotId snapshot = beginCloseAnimation();
+    // The closing snapshot must retain any in-flight opening shader first.
+    wlr_scene_node_clear_animations(&m_contentTree->node);
+    cancelFadeAnimation();
+    // The workspace owns the snapshot's visibility and its slide translation from here.
+    if (snapshot != kInvalidCloseSnapshot && m_workspace != nullptr) {
+      m_workspace->trackCloseSnapshot(snapshot, m_presentedBox);
+    }
+    cancelSizeAnimation();
+    m_tiledSizeRequest.reset();
+    m_layoutPresentationHeld = false;
+    cancelPositionAnimation();
+    m_decoration.setBordersEnabled(false);
+    m_decoration.hideEffects();
+    m_presentation.setBackdropEnabled(false);
+    if (m_toplevel->current.fullscreen || m_toplevel->scheduled.fullscreen) {
+      // Move out of the fullscreen layer back to the normal workspace/xdg tree.
+      setSceneParent(m_workspace ? m_workspace->viewLayer(m_tiled) : m_server->xdgTree());
+    }
+    m_mapped = false;
+    m_openingParentRequested = false;
+    m_acceptClientMaximizeRequests = false;
+    m_consumeRestoredMaximizeRequest = false;
+    m_acceptClientMaximizeSerial.reset();
+    if (m_acceptClientMaximizeIdle != nullptr) {
+      wl_event_source_remove(m_acceptClientMaximizeIdle);
+      m_acceptClientMaximizeIdle = nullptr;
+    }
+    m_server->updateIdleInhibit();
+    if (m_workspace != nullptr && m_workspace->group() != nullptr) {
+      Output* output = m_workspace->group()->output();
+      output->updateVrr();
+      output->updateHdr();
+    }
+    m_server->scheduleIpcWindowsEvent();
+    m_positioned = false;
+    m_presentedTiledBox = {};
+    if (m_workspace != nullptr) {
+      m_workspace->layoutDetach(this, m_tiled);
+      if (focusRevealedTile) {
+        // The scene may still be animating from its old geometry. Arrange now, then read the authoritative layout
+        // targets once so compositor motion cannot produce a chain of hover focus changes.
+        m_workspace->flushArrange();
+        View* replacement = tiledViewAtLayoutPoint(*m_workspace, closePointerX, closePointerY);
+        if (replacement != nullptr && m_workspace->focusedView() != replacement) {
+          m_server->focusView(replacement, FocusReason::PointerHover);
+        }
+      }
+    }
+    leaveForeignOutput();
+    setForeignActivated(false);
+    if (!m_server->cursor()->isPassthrough()) {
+      m_server->cursor()->resetMode();
+    }
+    m_initialRulesSettled = false;
+    m_initialRules = {};
+    m_initialRuleState = {};
+    m_initialRulesXdgTag.reset();
+    m_initialRulesContentType = ContentType::None;
+    m_namedScrollingColumnName.reset();
+    m_namedScrollingColumnOrder.reset();
+    m_ownsNamedScrollingColumnExtent = false;
+    m_ruleOpacity = 1.0F;
+    m_appliedRuleState = {};
+    // An unmapped window keeps no layout state, so the alone effect it owned is gone with it.
+    m_aloneEffectsActive = false;
+    m_aloneAction = AloneAction::None;
+    m_lastAloneDelta = {};
+    m_aloneSavedWidthFrac.reset();
+    m_aloneOpeningSeed = AloneSeed::None;
+    m_hasMaximizeRestoreBox = false;
+    m_floating.clearSizeRequest();
+    m_pendingFloatingWidthPx.reset();
+    m_pendingFloatingHeightPx.reset();
+    m_pendingFloatingWidth.reset();
+    m_pendingFloatingHeight.reset();
+    m_pendingFloatingPosition.reset();
+    m_savedScrollingExtentPx.reset();
+    m_savedScrollingExtent.reset();
+    if (m_displacedHome) {
+      m_server->scheduleDisplacedViewRestore();
+    }
+  }
+
+  void View::deferActivation(bool trusted) {
+    // A trusted launch request wins if clients race multiple tokens during role creation. An untrusted request must
+    // not downgrade it before the first buffer arrives.
+    if (trusted || !m_deferredActivationTrusted.has_value()) {
+      m_deferredActivationTrusted = trusted;
+    }
+  }
+
+  void View::setXdgTag(std::string_view tag) {
+    if (m_xdgTag == tag) {
+      return;
+    }
+    m_xdgTag = std::string(tag);
+    m_server->scheduleIpcWindowsEvent();
+    if (m_mapped) {
+      applyDynamicRules();
+    }
+  }
+
+  void View::syncContentType(wlr_surface* committedSurface) {
+    if (committedSurface != nullptr) {
+      const auto committed = std::ranges::find_if(m_viewSurfaceWatches, [committedSurface](const auto& watch) {
+        return watch->surface == committedSurface;
+      });
+      if (committed != m_viewSurfaceWatches.end()) {
+        (*committed)->contentType = m_server->surfaceContentType(committedSurface);
+      }
+    }
+
+    struct Context {
+      const View* view;
+      ContentType effective = ContentType::None;
+    } context{this};
+    wlr_surface_for_each_surface(
+        m_toplevel->base->surface,
+        [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* data) {
+          auto& context = *static_cast<Context*>(data);
+          const auto watch = std::ranges::find_if(context.view->m_viewSurfaceWatches, [surface](const auto& candidate) {
+            return candidate->surface == surface;
+          });
+          if (watch == context.view->m_viewSurfaceWatches.end()) {
+            return;
+          }
+
+          if (contentTypePriority((*watch)->contentType) > contentTypePriority(context.effective)) {
+            context.effective = (*watch)->contentType;
+          }
+        },
+        &context
+    );
+    const ContentType next = context.effective;
+    if (next == m_contentType) {
+      return;
+    }
+    m_contentType = next;
+    m_server->scheduleIpcWindowsEvent();
+    if (m_mapped) {
+      applyDynamicRules();
+    }
+  }
+
+  void View::handleClientCommit() {
+    // The scene still shows the previous state here, so this is the last moment the outgoing frame can be cloned.
+    const auto& animation = config().animation;
+    wlr_surface* surface = m_toplevel->base->surface;
+    if (!m_mapped
+        || !m_tiled
+        || !m_onActiveWorkspace
+        || !m_tiledSizeRequest
+        || !layoutPresentationOwned()
+        || m_toplevel->scheduled.fullscreen
+        || m_toplevel->current.fullscreen
+        || !animation.enabled
+        || !animation.windowsMove.enabled
+        || (surface->pending.committed & WLR_SURFACE_STATE_BUFFER) == 0
+        || surface->pending.buffer == nullptr
+        || (surface->pending.width == surface->current.width && surface->pending.height == surface->current.height)
+        || !serialSettled(m_toplevel->base->pending.configure_serial, m_tiledSizeRequest->serial)) {
+      return;
+    }
+    m_resizeCrossfade.capture(
+        m_contentTree, toplevelSurfaceTreeNode(m_contentTree, surface), surface, m_presentedBox.width,
+        m_presentedBox.height, surfaceRadius()
+    );
+  }
+
+  void View::handleCommit(bool reconfigureOpeningState) {
+    UMBRIEL_ZONE("View::handleCommit");
+    if (m_resizeCrossfade.pending()) {
+      const auto& move = config().animation.windowsMove;
+      m_resizeCrossfade.start(move.durationMs, move.curve);
+      m_resizeCrossfade.applyOpacity(effectiveOpacity());
+      scheduleFrame();
+    }
+    // Client transparency can change on any commit. An unmap commit reaches here after handleUnmap hid the backdrop.
+    if (m_mapped) {
+      m_presentation.setFullscreenOpaque(fullscreenOpaque());
+    }
+    if (m_captureScene != nullptr) {
+      // Restrict the capture to the xdg window geometry. Client subsurfaces
+      // remain visible, while buffer content outside the declared window is
+      // excluded. Window-owned popups are separate children and remain part
+      // of the isolated scene.
+      wlr_scene_subsurface_tree_set_clip(&m_captureScene->tree.node, &m_toplevel->base->geometry);
+    }
+    if (m_toplevel->base->initial_commit || reconfigureOpeningState) {
+      // Resolve window rules early to influence initial tiled/float decision and size.
+      WindowRuleState openingState = ruleState();
+      openingState.focused = false;
+      openingState.floating = !looksTiled(m_toplevel, openingParented());
+      openingState.alone = false;
+      ResolvedWindowRule rule = resolveWindowRules(
+          config(), ruleText(m_toplevel->app_id), ruleText(m_toplevel->title), m_xdgTag, m_contentType, openingState,
+          m_server->uptimeMs()
+      );
+      ScratchpadManager* scratchpadManager = m_server->scratchpadManager();
+      const bool openingInScratchpad = rule.defaultScratchpad
+          && scratchpadManager != nullptr
+          && scratchpadManager->hasScratchpad(*rule.defaultScratchpad);
+      const auto& scratchpadConfig = config().animation.scratchpad;
+      const bool wantTiled = !openingInScratchpad
+          && !rule.defaultPinned.value_or(false)
+          && (rule.defaultFloating ? !*rule.defaultFloating : looksTiled(m_toplevel, openingParented()));
+
+      // Resolve the workspace this view will attach to, so the output and layout that will actually arrange it are the
+      // ones that size the first configure.
+      Workspace* target = m_workspace;
+      Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
+      WorkspaceGroup* targetGroup = target != nullptr
+          ? target->group()
+          : windowRuleWorkspaceGroup(*m_server, rule, preferred != nullptr ? preferred->workspaceGroup() : nullptr);
+      if (target == nullptr) {
+        target = windowRuleWorkspace(targetGroup, rule);
+      }
+
+      // A window that opens as the only tiled one on its workspace is configured in its `match.is_alone` state right
+      // away, instead of showing one frame at the size its not-alone rules give it. Alone-ness depends on the
+      // workspace those rules select, so this is a second pass, and it overrides only the four settings the alone
+      // effect owns. A state that neither the client nor the not-alone rules asked for is recorded as the alone
+      // rules' own, for map to hand to that effect.
+      if (wantTiled && (target == nullptr || target->isOnlyTiledView(this))) {
+        const ResolvedWindowRule alone = resolveRulesWithAlone(true);
+        const bool seedFullscreen = alone.defaultFullscreen.value_or(false) && !rule.defaultFullscreen.value_or(false);
+        const bool seedMaximized =
+            (alone.defaultMaximize.value_or(false) && !openingParented() && !rule.defaultMaximize.value_or(false))
+            || (alone.defaultMaximizeToEdges.value_or(false) && !rule.defaultMaximizeToEdges.value_or(false));
+        // A client's restored maximize flag only blocks alone ownership when we honor it. Otherwise alone seeds as
+        // usual and the restore is ignored (and consumed after map if the client re-asserts it).
+        const bool clientOwnsRestoredMaximize =
+            config().general.honorRestoredMaximize && m_toplevel->requested.maximized;
+        if (seedFullscreen && !m_toplevel->requested.fullscreen) {
+          m_aloneOpeningSeed = AloneSeed::Fullscreen;
+        } else if (seedMaximized && !m_toplevel->requested.fullscreen && !clientOwnsRestoredMaximize) {
+          m_aloneOpeningSeed = AloneSeed::Maximize;
+        }
+        rule.defaultFullscreen = alone.defaultFullscreen;
+        rule.defaultMaximizeToEdges = alone.defaultMaximizeToEdges;
+        rule.defaultMaximize = alone.defaultMaximize;
+        rule.defaultScrollingExtentPx = alone.defaultScrollingExtentPx;
+        rule.defaultScrollingExtent = alone.defaultScrollingExtent;
+      }
+
+      const bool wantFullscreen = openingInScratchpad
+          ? scratchpadConfig.fullscreen
+          : m_toplevel->requested.fullscreen || (rule.defaultFullscreen && *rule.defaultFullscreen);
+      const bool wantMaximizeToEdges = openingInScratchpad
+          ? !wantFullscreen && scratchpadConfig.maximize
+          : rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges;
+      const bool wantMaximized = openingInScratchpad
+          ? wantMaximizeToEdges
+          : (!openingParented() && rule.defaultMaximize && *rule.defaultMaximize)
+              || wantMaximizeToEdges
+              || (config().general.honorRestoredMaximize && m_toplevel->requested.maximized);
+
+      Output* targetOutput = targetGroup != nullptr ? targetGroup->output() : preferred;
+      if (openingInScratchpad) {
+        targetOutput = scratchpadManager->presentationOutput(*rule.defaultScratchpad, targetOutput);
+      }
+
+      wlr_xdg_toplevel_set_tiled(
+          m_toplevel, wantTiled ? WLR_EDGE_TOP | WLR_EDGE_RIGHT | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT : 0
+      );
+
+      if (wantFullscreen) {
+        // xwayland-satellite can request fullscreen while creating the xdg role, before the initial surface commit.
+        // The request event is too early to configure, but wlroots preserves it in requested state for us to honor now.
+        wlr_xdg_toplevel_set_fullscreen(m_toplevel, true);
+        wlr_box fullArea{};
+        wlr_output* initialOutput = targetOutput != nullptr ? targetOutput->wlr() : m_server->preferredOutput();
+        if (initialOutput != nullptr) {
+          wlr_output_layout_get_box(m_server->outputLayout(), initialOutput, &fullArea);
+        }
+        if (fullArea.width > 0 && fullArea.height > 0) {
+          wlr_xdg_toplevel_set_size(m_toplevel, fullArea.width, fullArea.height);
+        }
+      } else if (wantTiled) {
+        const wlr_box usable = openingUsableArea(targetOutput);
+
+        // No workspace yet (no output, or none active): fall back to a throwaway layout built from the global config,
+        // so the sizing rule stays the layout's either way.
+        const ResolvedLayoutConfig globalConfig =
+            target != nullptr ? ResolvedLayoutConfig{} : resolveGlobalLayout(config());
+        std::unique_ptr<Layout> fallbackLayout;
+        if (target == nullptr) {
+          fallbackLayout = createLayout(globalConfig.mode);
+          fallbackLayout->setConfig(&globalConfig);
+        }
+        const Layout& layout = target != nullptr ? target->layout() : *fallbackLayout;
+        const wlr_box tiledArea =
+            target != nullptr ? target->tiledArea() : applyLayoutStruts(usable, globalConfig.struts);
+
+        Layout::InitialSize initial;
+        const std::optional<Layout::InitialSize> namedScrollingColumnInitial =
+            target != nullptr && rule.defaultScrollingColumn
+            ? target->initialNamedScrollingColumnSize(
+                  this, tiledArea, *rule.defaultScrollingColumn, rule.defaultScrollingColumnOrder, wantMaximized
+              )
+            : std::nullopt;
+        if (wantMaximizeToEdges) {
+          initial = {.width = usable.width, .height = usable.height};
+        } else if (namedScrollingColumnInitial) {
+          initial = *namedScrollingColumnInitial;
+        } else if (wantMaximized && target != nullptr) {
+          initial = target->initialMaximizedSize(this, tiledArea);
+        } else {
+          initial = layout.initialSize(
+              tiledArea, wantMaximized, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx,
+              target != nullptr ? target->focusedView() : nullptr
+          );
+        }
+        const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+        const int width =
+            (initial.width > 0 && !wantMaximizeToEdges) ? clampXdgWidth(initial.width, hints) : initial.width;
+        const int height =
+            (initial.height > 0 && !wantMaximizeToEdges) ? clampXdgHeight(initial.height, hints) : initial.height;
+        wlr_xdg_toplevel_set_size(m_toplevel, width, height);
+        if (wantMaximized) {
+          wlr_xdg_toplevel_set_maximized(m_toplevel, true);
+        }
+
+        // Keep floating defaults symbolic until the first float transition, when the target usable area is known.
+        m_pendingFloatingWidthPx = rule.defaultFloatingWidthPx;
+        m_pendingFloatingHeightPx = rule.defaultFloatingHeightPx;
+        m_pendingFloatingWidth = rule.defaultFloatingWidth;
+        m_pendingFloatingHeight = rule.defaultFloatingHeight;
+        m_pendingFloatingPosition = rule.defaultPosition;
+      } else {
+        const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+        if (wantMaximized) {
+          const wlr_box usable = openingUsableArea(targetOutput);
+          requestFloatingSize(usable.width, usable.height);
+          wlr_xdg_toplevel_set_maximized(m_toplevel, true);
+        } else if (openingInScratchpad && scratchpadConfig.scale > 0.0 && scratchpadConfig.scale <= 1.0) {
+          const wlr_box usable = openingUsableArea(targetOutput);
+          requestFloatingSize(
+              std::max(100, static_cast<int>(std::lround(usable.width * scratchpadConfig.scale))),
+              std::max(100, static_cast<int>(std::lround(usable.height * scratchpadConfig.scale)))
+          );
+        } else {
+          const wlr_box usable = openingUsableArea(targetOutput);
+          int requestedWidth = 0;
+          int requestedHeight = 0;
+          if (rule.defaultFloatingWidthPx) {
+            requestedWidth = clampXdgWidth(*rule.defaultFloatingWidthPx, hints);
+          } else if (rule.defaultFloatingWidth && usable.width > 0) {
+            requestedWidth = clampXdgWidth(floatingFractionSize(*rule.defaultFloatingWidth, usable.width), hints);
+          }
+          if (rule.defaultFloatingHeightPx) {
+            requestedHeight = clampXdgHeight(*rule.defaultFloatingHeightPx, hints);
+          } else if (rule.defaultFloatingHeight && usable.height > 0) {
+            requestedHeight = clampXdgHeight(floatingFractionSize(*rule.defaultFloatingHeight, usable.height), hints);
+          }
+          requestFloatingSize(requestedWidth, requestedHeight);
+        }
+
+        // Keep the configured unit until the window first enters the scrolling layout.
+        m_savedScrollingExtentPx = rule.defaultScrollingExtentPx;
+        m_savedScrollingExtent = rule.defaultScrollingExtent;
+      }
+    }
+    (void)settleTiledSizeRequest();
+    if (!sizeAnimating()) {
+      const wlr_box& geometry = m_toplevel->base->geometry;
+      if (m_decoration.borderGeometryStale(geometry.width, geometry.height)) {
+        updateBorderGeometry();
+      }
+    }
+    applyCornerRadius();
+    // Layout-assigned size changes start their presentation animation in Workspace::arrange. Client commits are not
+    // resize requests: Chromium can change its geometry while keeping the same configure, and retargeting to that
+    // geometry lets a tiled surface escape its assigned box.
+    if (m_mapped
+        && m_tiled
+        && m_onActiveWorkspace
+        && m_workspace != nullptr
+        && !m_toplevel->scheduled.fullscreen
+        && !m_toplevel->current.fullscreen
+        && sizeGrabTracksPointer()) {
+      // During interactive resize, track geometry so no spurious animation
+      // replays the drag when the grab ends and mode returns to Passthrough. A
+      // move grab is not that: it retargets the size once and animates there,
+      // and the client's ack must not cut that animation short.
+      const wlr_box& geometry = m_toplevel->base->geometry;
+      if (geometry.width > 0 && geometry.height > 0) {
+        if (sizeAnimating()) {
+          cancelSizeAnimation();
+        }
+        m_presentation.setSize(geometry.width, geometry.height);
+      }
+    }
+    // Re-apply output clip after configure ack so Super+F / resize sizes show
+    // without needing a workspace switch (clip boxes are copied, not live).
+    if (m_mapped && m_tiled && m_workspace != nullptr && m_workspace->active()) {
+      m_workspace->syncViewPresentation(this);
+    } else if (m_mapped && !m_tiled) {
+      if (m_toplevel->scheduled.fullscreen && m_onActiveWorkspace) {
+        // Keep fullscreen placement authoritative; the xdg scene helper just
+        // reset the surface offset for this commit.
+        applyFullscreenLayout();
+      } else {
+        syncFloatingResizePosition();
+        adoptFloatingClientSize();
+        if (!sizeAnimating()) {
+          syncFloatingSurfaceClip();
+        }
+        // Enable + clip through the current presentation owner (previously
+        // done per render pass).
+        syncOwnedPresentation();
+      }
+    } else {
+      updateBlur();
+      updateShadow();
+    }
+    updateForeignState();
+    if (Output* output = currentOutput()) {
+      output->updateHdr();
+    }
+    // The commit that leaves fullscreen uncovers top-layer surfaces, so an exclusive one takes the seat back.
+    if (m_committedFullscreen && !m_toplevel->current.fullscreen && m_mapped) {
+      if (LayerSurface* layer = m_server->exclusiveKeyboardLayer()) {
+        layer->focus();
+      }
+    }
+    m_committedFullscreen = m_toplevel->current.fullscreen;
+    if (m_mapped
+        && m_acceptClientMaximizeSerial
+        && static_cast<int32_t>(m_toplevel->base->current.configure_serial - *m_acceptClientMaximizeSerial) >= 0) {
+      m_acceptClientMaximizeSerial.reset();
+      m_acceptClientMaximizeRequests = true;
+    }
+    // The first root commit after the opening gate settles the restore sequence.
+    // A later maximize request is client intent and must not be consumed.
+    if (m_mapped && m_acceptClientMaximizeRequests) {
+      m_consumeRestoredMaximizeRequest = false;
+    }
+  }
+
+  void View::handleDestroy() {
+    m_resizeCrossfade.discard();
+    cancelFadeAnimation();
+    cancelPositionAnimation();
+    leaveForeignOutput();
+    if (m_foreign != nullptr) {
+      wl_list_remove(&m_foreignActivate.link);
+      wl_list_remove(&m_foreignClose.link);
+      wl_list_remove(&m_foreignDestroy.link);
+      wlr_foreign_toplevel_handle_v1_destroy(m_foreign);
+      m_foreign = nullptr;
+    }
+    if (m_extForeign != nullptr) {
+      wl_list_remove(&m_extForeignDestroy.link);
+      wlr_ext_foreign_toplevel_handle_v1_destroy(m_extForeign);
+      m_extForeign = nullptr;
+    }
+    if (m_captureSource != nullptr) {
+      wl_list_remove(&m_captureSourceDestroy.link);
+      m_captureSourceDestroy.link.next = nullptr;
+      m_captureSource = nullptr;
+    }
+
+    clearViewSurfaceWatches();
+
+    wl_list_remove(&m_map.link);
+    wl_list_remove(&m_unmap.link);
+    wl_list_remove(&m_commit.link);
+    wl_list_remove(&m_clientCommit.link);
+    wl_list_remove(&m_destroy.link);
+    wl_list_remove(&m_requestMove.link);
+    wl_list_remove(&m_requestResize.link);
+    wl_list_remove(&m_requestMaximize.link);
+    wl_list_remove(&m_requestFullscreen.link);
+    wl_list_remove(&m_setParent.link);
+    wl_list_remove(&m_setTitle.link);
+    wl_list_remove(&m_setAppId.link);
+    m_map.link.next = nullptr;
+    m_unmap.link.next = nullptr;
+    m_commit.link.next = nullptr;
+    m_destroy.link.next = nullptr;
+    m_requestMove.link.next = nullptr;
+    m_requestResize.link.next = nullptr;
+    m_requestMaximize.link.next = nullptr;
+    m_requestFullscreen.link.next = nullptr;
+    m_setParent.link.next = nullptr;
+    m_setTitle.link.next = nullptr;
+    m_setAppId.link.next = nullptr;
+    m_sceneTree->node.data = nullptr;
+    m_contentTree->node.data = nullptr;
+    m_toplevel->base->data = nullptr;
+    m_server->removeView(this);
+  }
+
+  void View::handleRequestMove(void* data) {
+    auto* event = static_cast<wlr_xdg_toplevel_move_event*>(data);
+    m_server->cursor()->beginClientMove(this, event->seat, event->serial);
+  }
+
+  void View::handleRequestResize(void* data) {
+    auto* event = static_cast<wlr_xdg_toplevel_resize_event*>(data);
+    m_server->cursor()->beginClientResize(this, event->seat, event->serial, event->edges);
+  }
+
+  void View::setMaximized(bool maximized, bool animate) {
+    if (m_tiled && m_workspace != nullptr) {
+      m_floatingMaximized = false;
+      if (m_maximizedToEdges) {
+        setMaximizedToEdges(false);
+      }
+      const int column = m_workspace->layout().columnOf(this);
+      if (column >= 0 && m_workspace->layout().isFullWidth(column) != maximized) {
+        m_workspace->layout().toggleFullWidth(column);
+      }
+      wlr_xdg_toplevel_set_maximized(m_toplevel, maximized);
+      if (maximized) {
+        m_workspace->ensureFocusedVisible();
+      }
+      m_workspace->markArrange(animate);
+      updateForeignState();
+      return;
+    }
+
+    // Record the target before cancelSizeAnimation synchronizes the current
+    // presentation back through ScratchpadManager.
+    m_floatingMaximized = maximized;
+    const ScratchpadManager* scratchpad = m_server->scratchpadManager();
+    const bool visibleScratchpad = m_onActiveWorkspace && scratchpad != nullptr && scratchpad->contains(this);
+    // A visible scratchpad has a manager-owned presentation even though it is
+    // detached from a workspace, so its position and size can animate together.
+    const bool animateFloating = animate && (m_workspace != nullptr || visibleScratchpad);
+    if (!animateFloating) {
+      cancelSizeAnimation();
+    }
+    const bool wasMaximized = m_toplevel->scheduled.maximized;
+    if (maximized && !wasMaximized) {
+      // Capture where the float is heading, not where it currently sits.
+      // Dropping fullscreen queues a configure and starts a move, so
+      // base->geometry still holds the fullscreen size and the scene node is
+      // mid-flight from the fullscreen origin. Restoring from either would
+      // strand the float at output size with no way back.
+      const auto [restoreWidth, restoreHeight] = floatingSize();
+      m_floating.clearSizeRequest();
+      m_maximizeRestoreBox = {
+          .x = layoutTargetX(),
+          .y = layoutTargetY(),
+          .width = restoreWidth,
+          .height = restoreHeight,
+      };
+      m_hasMaximizeRestoreBox = restoreWidth > 0 && restoreHeight > 0;
+
+      const wlr_box usable = floatingUsableArea();
+      if (usable.width > 0 && usable.height > 0) {
+        wlr_xdg_toplevel_set_size(m_toplevel, usable.width, usable.height);
+        if (animateFloating) {
+          beginResizeAnimation(usable.width, usable.height);
+          animateTo(usable.x, usable.y);
+        } else {
+          setPosition(usable.x, usable.y);
+        }
+      }
+    } else if (!maximized && wasMaximized && m_hasMaximizeRestoreBox) {
+      requestFloatingSize(m_maximizeRestoreBox.width, m_maximizeRestoreBox.height);
+      if (animateFloating) {
+        beginResizeAnimation(m_maximizeRestoreBox.width, m_maximizeRestoreBox.height);
+        animateTo(m_maximizeRestoreBox.x, m_maximizeRestoreBox.y);
+      } else {
+        setPosition(m_maximizeRestoreBox.x, m_maximizeRestoreBox.y);
+      }
+      m_hasMaximizeRestoreBox = false;
+    }
+    wlr_xdg_toplevel_set_maximized(m_toplevel, maximized);
+    if (!sizeAnimating()) {
+      syncFloatingSurfaceClip();
+    }
+    updateForeignState();
+  }
+
+  void View::handleRequestMaximize() {
+    if (!m_toplevel->base->initialized) {
+      return;
+    }
+    if (!m_mapped) {
+      if (config().general.honorRestoredMaximize && m_toplevel->requested.maximized) {
+        // Some clients restore maximization only after acknowledging the first
+        // configure. Reconfigure before they map a buffer so their first visible
+        // content already matches the maximized layout target.
+        handleCommit(true);
+      } else if (m_toplevel->requested.maximized) {
+        m_consumeRestoredMaximizeRequest = true;
+      }
+      return;
+    }
+    if (!m_acceptClientMaximizeRequests) {
+      // A mapped request before the opening gate is itself the restore re-assert.
+      // Consume it here so no later request inherits the suppression.
+      if (!config().general.honorRestoredMaximize && m_toplevel->requested.maximized) {
+        m_consumeRestoredMaximizeRequest = false;
+      }
+      return;
+    }
+    // Alone-owned maximize is compositor policy. Clients that closed unmaximized (Firefox) re-assert that after map
+    // and would otherwise undo the is_alone default_maximize flash.
+    if (m_aloneEffectsActive
+        && (m_aloneAction == AloneAction::Maximize || m_aloneAction == AloneAction::MaximizeToEdges)) {
+      m_consumeRestoredMaximizeRequest = false;
+      if (m_toplevel->requested.maximized != m_toplevel->scheduled.maximized) {
+        wlr_xdg_toplevel_set_maximized(m_toplevel, m_toplevel->scheduled.maximized);
+      }
+      return;
+    }
+    if (m_consumeRestoredMaximizeRequest && m_toplevel->requested.maximized) {
+      // Drop the opening restore re-assert without granting the client maximize ownership. If the compositor (alone
+      // rule, etc.) already maximized, stay there; otherwise re-ack the unmaximized configure.
+      m_consumeRestoredMaximizeRequest = false;
+      if (!m_toplevel->scheduled.maximized) {
+        wlr_xdg_toplevel_set_maximized(m_toplevel, false);
+      }
+      return;
+    }
+    m_consumeRestoredMaximizeRequest = false;
+    if (m_tiled && m_workspace != nullptr) {
+      if (maximizeRequestTargetsEdges(m_maximizedToEdges)) {
+        setMaximizedToEdges(m_toplevel->requested.maximized);
+        return;
+      }
+      setMaximized(m_toplevel->requested.maximized);
+      return;
+    }
+    setMaximized(m_toplevel->requested.maximized);
+  }
+
+  void View::setMaximizedToEdges(bool maximized, bool animate) {
+    if (!maximized) {
+      m_restoreMaximizedToEdges = false;
+    }
+    if (!m_toplevel->base->initialized || maximized == m_maximizedToEdges) {
+      return;
+    }
+    const bool leavingFullscreen = maximized && m_toplevel->scheduled.fullscreen;
+    if (leavingFullscreen) {
+      setFullscreen(false, FullscreenExitLayout::DeferToCaller);
+    }
+    if (m_tiled || !animate) {
+      cancelSizeAnimation();
+    }
+
+    m_maximizedToEdges = maximized;
+    bool columnFullWidth = false;
+    if (!maximized && m_tiled && m_workspace != nullptr && !m_toplevel->scheduled.fullscreen) {
+      const int column = m_workspace->layout().columnOf(this);
+      columnFullWidth = column >= 0 && m_workspace->layout().isFullWidth(column);
+    }
+    if (m_tiled) {
+      wlr_xdg_toplevel_set_maximized(m_toplevel, maximized || columnFullWidth);
+    } else {
+      setMaximized(maximized, animate);
+    }
+    showDecorations(!maximized && !m_toplevel->scheduled.fullscreen);
+    if (m_workspace != nullptr) {
+      m_workspace->snapVisible(this);
+      if (leavingFullscreen) {
+        // setFullscreen deferred its layout so this final maximize state and edge size replace the pending fullscreen
+        // configure together.
+        m_workspace->arrange(animate);
+      } else {
+        m_workspace->markArrange(animate);
+      }
+    }
+    updateForeignState();
+  }
+
+  void View::toggleMaximizedToEdges() { setMaximizedToEdges(!m_maximizedToEdges); }
+
+  void View::toggleMaximized() { setMaximized(m_tiled ? !m_toplevel->scheduled.maximized : !m_floatingMaximized); }
+
+  void View::restoreMaximizedForMove() {
+    // Fullscreen temporarily covers an underlying floating-maximized state.
+    // Moving the fullscreen surface must not consume the state that should be
+    // revealed when fullscreen ends.
+    if (m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen) {
+      return;
+    }
+    if (m_maximizedToEdges) {
+      setMaximizedToEdges(false, false);
+    } else if (m_floatingMaximized) {
+      setMaximized(false, false);
+    }
+  }
+
+  void View::dropMaximizedForResize() {
+    if (m_tiled || !m_toplevel->base->initialized) {
+      return;
+    }
+    if (!m_maximizedToEdges && !m_floatingMaximized) {
+      return;
+    }
+    // Deliberately not setMaximized(false)/setMaximizedToEdges(false): those
+    // replay the restore box, which would undo the size the caller is about to
+    // request and snap the window back to its pre-maximize origin.
+    cancelSizeAnimation();
+    const bool wasEdges = m_maximizedToEdges;
+    m_maximizedToEdges = false;
+    m_floatingMaximized = false;
+    m_restoreMaximizedToEdges = false;
+    m_hasMaximizeRestoreBox = false;
+    wlr_xdg_toplevel_set_maximized(m_toplevel, false);
+    if (wasEdges) {
+      showDecorations(!m_toplevel->scheduled.fullscreen);
+    }
+    updateForeignState();
+  }
+
+  void View::handleRequestFullscreen() {
+    if (!m_toplevel->base->initialized) {
+      return;
+    }
+    kLog.debug(
+        "request_fullscreen '{}' [{}]: {}", m_toplevel->app_id != nullptr ? m_toplevel->app_id : "?",
+        static_cast<const void*>(this), m_toplevel->requested.fullscreen
+    );
+
+    const bool requested = m_toplevel->requested.fullscreen;
+    const FullscreenRequestDisposition disposition = m_deferredUnfullscreen.observeClientRequest(
+        requested, m_toplevel->scheduled.activated, m_toplevel->scheduled.fullscreen
+    );
+
+    if (disposition == FullscreenRequestDisposition::Acknowledge) {
+      // Wine spams set_fullscreen while already fullscreen. Acknowledge without the visible reparent, scroll snap, and
+      // arrange churn that a full setFullscreen() would run. Observing this newer request also clears any parked
+      // unfullscreen, so activation cannot apply stale client intent.
+      wlr_xdg_surface_schedule_configure(m_toplevel->base);
+      return;
+    }
+
+    if (disposition == FullscreenRequestDisposition::Park) {
+      // Wine games commonly unfullscreen when they lose focus. Park that request briefly instead of ripping the game
+      // out of the fullscreen strip; xdg or foreign activation consumes it, while expiry preserves fullscreen.
+      kLog.debug(
+          "request_fullscreen parked for deactivated '{}'", m_toplevel->app_id != nullptr ? m_toplevel->app_id : "?"
+      );
+      wlr_xdg_surface_schedule_configure(m_toplevel->base);
+      return;
+    }
+
+    // Honor the client's requested state (not a blind toggle).
+    setFullscreen(requested);
+  }
+
+  void View::handleSetParent() {
+    if (m_mapped) {
+      if (inheritScratchpadFromParent(m_tiled) && !scratchpadOwnsOpeningGeometry()) {
+        placeInUsableArea(m_initialRules.defaultPosition);
+        if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
+          scratchpad->syncViewPresentation(this);
+        }
+      }
+      raiseToTop();
+    }
+  }
+
+  void View::recordOpeningParentRequest(bool parentRequested) {
+    // Once mapped, wlroots' normal parent state is authoritative. Retire the
+    // opening hint on any later request, especially an explicit null parent.
+    m_openingParentRequested = !m_mapped && parentRequested;
+  }
+
+  bool View::openingParented() const { return m_toplevel->parent != nullptr || m_openingParentRequested; }
+
+  void View::toggleFullscreen() {
+    if (!m_toplevel->base->initialized) {
+      return;
+    }
+    setFullscreen(!m_toplevel->scheduled.fullscreen);
+  }
+
+  void View::applyDeferredUnfullscreen() {
+    if (!m_deferredUnfullscreen.takeOnActivation() || !m_toplevel->base->initialized) {
+      return;
+    }
+    if (m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen) {
+      kLog.debug(
+          "deferred unfullscreen applied on activation for '{}'",
+          m_toplevel->app_id != nullptr ? m_toplevel->app_id : "?"
+      );
+      setFullscreen(false);
+    }
+  }
+
+  void View::toggleFloating() { setFloating(m_tiled); }
+
+  void View::restorePinnedSceneParent() {
+    if (!m_pinned) {
+      return;
+    }
+    Output* output = currentOutput();
+    // Ordering stays on the server-level trees; only the content hangs under the output's clipped roots.
+    wlr_scene_node_place_above(&m_server->pinnedTree()->node, &m_server->fullscreenTree()->node);
+    setSceneParent(output != nullptr ? output->pinnedRoot() : m_server->pinnedTree());
+    setNodeEnabled(true);
+    raiseToTop();
+  }
+
+  void View::applyPinnedState() {
+    m_pinned = true;
+    restorePinnedSceneParent();
+    if (m_workspace != nullptr) {
+      m_workspace->syncViewPresentation(this);
+      if (m_workspace->group() != nullptr && m_workspace->group()->output() != nullptr) {
+        wlr_output_schedule_frame(m_workspace->group()->output()->wlr());
+      }
+    }
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewPinnedChanged(this);
+    }
+  }
+
+  void View::togglePinned() { setPinned(!m_pinned, true); }
+
+  void View::setPinned(bool pinned, bool focus) {
+    if (!m_mapped
+        || !m_toplevel->base->initialized
+        || (pinned && (m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen))
+        || pinned == m_pinned) {
+      return;
+    }
+    if (pinned) {
+      m_restoreTiledAfterUnpin = m_tiled;
+      if (m_tiled) {
+        setFloating(true, false);
+      }
+      applyPinnedState();
+      if (focus) {
+        m_server->focusView(this);
+      }
+      refreshStateRuleEffects();
+      return;
+    }
+
+    const bool restoreTiled = m_restoreTiledAfterUnpin;
+    m_restoreTiledAfterUnpin = false;
+    m_pinned = false;
+    if (restoreTiled) {
+      setFloating(false, focus);
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewPinnedChanged(this);
+      }
+      return;
+    }
+    if (m_workspace != nullptr) {
+      setSceneParent(m_workspace->viewLayer(false));
+      setOnActiveWorkspace(m_workspace->active());
+      m_workspace->syncFloatingStack(this);
+      m_workspace->syncViewPresentation(this);
+    }
+    setNodeEnabled(m_onActiveWorkspace);
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onViewPinnedChanged(this);
+    }
+    refreshStateRuleEffects();
+  }
+
+  void View::setFloating(bool floating, bool focus, TilePlacement placement) {
+    if (!m_mapped || !m_toplevel->base->initialized) {
+      return;
+    }
+    kLog.debug(
+        "set_floating '{}' [{}] -> {} (tiled={}, pinned={}, fs={})",
+        m_toplevel->app_id != nullptr ? m_toplevel->app_id : "?", static_cast<const void*>(this), floating, m_tiled,
+        m_pinned, m_toplevel->scheduled.fullscreen
+    );
+    if (!floating && m_server->scratchpadManager() != nullptr && m_server->scratchpadManager()->contains(this)) {
+      return;
+    }
+    // A no-op request must stay a no-op: unfullscreening or cancelling the size animation here would let a redundant
+    // "make tiled" call rip a fullscreen game out of its state (the game re-requests, the compositor re-grants, and
+    // every cycle reflows the strip).
+    const bool wantTiled = !floating;
+    if (m_tiled == wantTiled) {
+      return;
+    }
+    if (m_maximizedToEdges) {
+      setMaximizedToEdges(false, false);
+    }
+    m_floatingMaximized = false;
+    const bool unpinning = !floating && m_pinned;
+    if (unpinning) {
+      m_pinned = false;
+      m_restoreTiledAfterUnpin = false;
+      m_restorePinnedAfterFullscreen = false;
+      if (m_workspace != nullptr) {
+        setSceneParent(m_workspace->viewLayer(false));
+        setOnActiveWorkspace(m_workspace->active());
+      }
+    }
+    cancelSizeAnimation();
+    const bool fullscreen = m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen;
+    // Only the float direction leaves fullscreen (it owns its own scene tree). Re-tiling a fullscreen view keeps the
+    // state and re-inserts it as a fullscreen column: dropping it first configures the client to a regular column size
+    // for the instant before it re-requests fullscreen, and game engines latch that transient windowed size for their
+    // input mapping, leaving hover and clicks dead outside it (X geometry recovers, the engine's notion does not).
+    if (floating && fullscreen) {
+      setFullscreen(false, FullscreenExitLayout::DeferToCaller);
+      // Remember to restore on the next re-tile. Set after setFullscreen,
+      // which clears the flag on every leave-fullscreen path.
+      m_refullscreenOnTile = true;
+    }
+    // Consume the memory: a client that itself left fullscreen while floating cleared it (setFullscreen(false) below
+    // via its request), so this only fires for a float episode the client still considers fullscreen.
+    const bool refullscreen = !floating && !fullscreen && m_refullscreenOnTile;
+    m_refullscreenOnTile = floating && m_refullscreenOnTile;
+
+    if (floating) {
+      auto [keepWidth, keepHeight] = floatingRestoreSize();
+      // Where the layout puts the tile, read before it leaves the layout. The drawn node lags behind a pending arrange
+      // (after a move to another output it is still on the old one), so placing from it would depend on frame timing.
+      const bool inLayout = m_workspace != nullptr && m_workspace->layout().columnOf(this) >= 0;
+      if (inLayout) {
+        m_workspace->flushArrange();
+      }
+      const wlr_box slot = inLayout ? m_workspace->layout().targetBox(this)
+                                    : wlr_box{.x = layoutTargetX(), .y = layoutTargetY(), .width = 0, .height = 0};
+      if (m_workspace != nullptr) {
+        const int column = m_workspace->layout().columnOf(this);
+        if (m_workspace->scrollingLayout() != nullptr && column >= 0) {
+          ScrollingLayout* scrolling = m_workspace->scrollingLayout();
+          m_savedScrollingExtentPx.reset();
+          m_savedScrollingExtent = scrolling->widthFraction(column);
+        }
+        if (column >= 0 && m_workspace->layout().isFullWidth(column)) {
+          m_workspace->layout().clearFullWidthState(column);
+          wlr_xdg_toplevel_set_maximized(m_toplevel, false);
+        }
+        m_workspace->layoutDetach(this);
+      }
+      const int keepX = slot.x;
+      const int keepY = slot.y;
+      m_tiled = false;
+      m_presentedTiledBox = {};
+      if (m_workspace != nullptr) {
+        setSceneParent(m_workspace->viewLayer(m_tiled));
+        m_workspace->syncFloatingStack(this);
+      }
+      const wlr_box usable = floatingUsableArea();
+      const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+      if (m_pendingFloatingWidthPx) {
+        keepWidth = clampXdgWidth(*m_pendingFloatingWidthPx, hints);
+        m_pendingFloatingWidthPx.reset();
+        m_pendingFloatingWidth.reset();
+      } else if (m_pendingFloatingWidth && usable.width > 0) {
+        keepWidth = clampXdgWidth(floatingFractionSize(*m_pendingFloatingWidth, usable.width), hints);
+        m_pendingFloatingWidth.reset();
+      }
+      if (m_pendingFloatingHeightPx) {
+        keepHeight = clampXdgHeight(*m_pendingFloatingHeightPx, hints);
+        m_pendingFloatingHeightPx.reset();
+        m_pendingFloatingHeight.reset();
+      } else if (m_pendingFloatingHeight && usable.height > 0) {
+        keepHeight = clampXdgHeight(floatingFractionSize(*m_pendingFloatingHeight, usable.height), hints);
+        m_pendingFloatingHeight.reset();
+      }
+      // Do not clear xdg tiled edges: GTK/Qt often resize (CSD / preferred size) when
+      // tiled state is dropped. Floating is a compositor layout concern.
+      if (keepWidth > 0
+          && keepHeight > 0
+          && (m_toplevel->scheduled.width != keepWidth || m_toplevel->scheduled.height != keepHeight)) {
+        requestFloatingSize(keepWidth, keepHeight);
+      }
+      beginResizeAnimation(keepWidth, keepHeight);
+      int floatX = keepX + 50;
+      int floatY = keepY + 50;
+      bool usedPendingPosition = false;
+      if (m_pendingFloatingPosition) {
+        if (const auto positioned =
+                getFloatingPosition(usable, m_pendingFloatingPosition, std::array{keepWidth, keepHeight})) {
+          floatX = positioned->x;
+          floatY = positioned->y;
+          m_pendingFloatingPosition.reset();
+          usedPendingPosition = true;
+        }
+      }
+      if (!usedPendingPosition) {
+        if (const auto restored = m_floating.restoredOrigin(usable)) {
+          floatX = restored->x;
+          floatY = restored->y;
+        }
+      }
+      if (usable.width > 0 && usable.height > 0 && keepWidth > 0 && keepHeight > 0) {
+        const int decoration = m_decoration.totalBorderWidth();
+        const int minX = usable.x + decoration;
+        const int minY = usable.y + decoration;
+        const int maxX = usable.x + usable.width - decoration - keepWidth;
+        const int maxY = usable.y + usable.height - decoration - keepHeight;
+        floatX = std::clamp(floatX, minX, std::max(minX, maxX));
+        floatY = std::clamp(floatY, minY, std::max(minY, maxY));
+        m_floating.rememberPositionFraction({.x = floatX, .y = floatY}, usable);
+      }
+      animateTo(floatX, floatY);
+      syncFloatingSurfaceClip();
+      // Keep the focus ring when floating a tiled window.
+      showDecorations(true);
+      if (focus) {
+        m_server->focusView(this);
+      }
+      updateForeignState();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewFloatingChanged(this);
+      }
+      refreshStateRuleEffects();
+      return;
+    }
+
+    const wlr_box usable = floatingUsableArea();
+    const wlr_box& geo = m_toplevel->base->geometry;
+    // A fullscreen geometry is not a floating size; remembering it would make
+    // the next float episode restore output-sized dimensions.
+    if (!fullscreen && geo.width > 0 && geo.height > 0) {
+      m_floating.rememberSize(geo.width, geo.height);
+    }
+    m_floating.rememberPositionFraction({.x = layoutTargetX(), .y = layoutTargetY()}, usable);
+
+    m_floating.clearSizeRequest();
+    m_tiled = true;
+    m_restorePinnedAfterFullscreen = false;
+    // Restore the fullscreen the float toggle dropped BEFORE the layout attach: arrange then sizes the column to the
+    // full output instead of a regular column width, and the client sees no transient windowed configure. setFullscreen
+    // also reparents and disables borders.
+    if (refullscreen) {
+      setFullscreen(true);
+    }
+    const bool wantFullscreen = fullscreen || refullscreen;
+    if (m_workspace != nullptr) {
+      setSceneParent(homeTree());
+      m_workspace->syncFloatingStack(this);
+    }
+    wlr_xdg_toplevel_set_tiled(m_toplevel, WLR_EDGE_TOP | WLR_EDGE_RIGHT | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT);
+    wlr_xdg_toplevel_set_maximized(m_toplevel, false);
+    m_decoration.ensureBorders(m_contentTree);
+    m_decoration.setBordersEnabled(!wantFullscreen);
+    updateBorderGeometry();
+    if (m_workspace != nullptr && placement == TilePlacement::Layout) {
+      m_workspace->layoutAttach(this);
+    }
+    applyCornerRadius();
+    updateShadow();
+    if (focus) {
+      m_server->focusView(this);
+    }
+    // setFullscreen(true) is not re-run on this path, so its scroll snap does not happen; without it the strip can rest
+    // showing the neighbor column beside a viewport-wide fullscreen column.
+    if (wantFullscreen && m_workspace != nullptr && placement == TilePlacement::Layout) {
+      m_workspace->snapVisible(this);
+      m_workspace->markArrange(false);
+    }
+    // Restore a saved extent only when this view owns the column it created. Joining a named column preserves that
+    // column's established extent.
+    if (!wantFullscreen && m_workspace != nullptr && m_workspace->scrollingLayout() != nullptr) {
+      ScrollingLayout* scrolling = m_workspace->scrollingLayout();
+      const int column = scrolling->columnOf(this);
+      if (column >= 0) {
+        const bool ownsExtent = !m_namedScrollingColumnName || m_ownsNamedScrollingColumnExtent;
+        if (ownsExtent && m_savedScrollingExtentPx) {
+          scrolling->setWidthFromPixels(column, m_workspace->scrollViewportExtent(), *m_savedScrollingExtentPx);
+        } else if (ownsExtent && m_savedScrollingExtent) {
+          scrolling->setWidthFraction(column, *m_savedScrollingExtent);
+        }
+        m_savedScrollingExtentPx.reset();
+        m_savedScrollingExtent.reset();
+      }
+    }
+    updateForeignState();
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      if (unpinning) {
+        overview->onViewPinnedChanged(this);
+      } else {
+        overview->onViewFloatingChanged(this);
+      }
+    }
+    refreshStateRuleEffects();
+  }
+
+  void View::setFullscreen(bool fullscreen, FullscreenExitLayout exitLayout) {
+    m_deferredUnfullscreen.clear();
+    const bool refreshHoverFocus = !fullscreen
+        && m_mapped
+        && m_onActiveWorkspace
+        && (m_toplevel->scheduled.fullscreen || m_toplevel->current.fullscreen)
+        && config().input.focus.followsMouse;
+    kLog.debug(
+        "set_fullscreen '{}' [{}] -> {} (tiled={}, ws_active={})",
+        m_toplevel->app_id != nullptr ? m_toplevel->app_id : "?", static_cast<const void*>(this), fullscreen, m_tiled,
+        m_workspace != nullptr && m_workspace->active()
+    );
+    if (fullscreen && m_maximizedToEdges) {
+      setMaximizedToEdges(false, false);
+      m_restoreMaximizedToEdges = true;
+    }
+    if (fullscreen && !m_tiled && !m_toplevel->current.fullscreen) {
+      const wlr_box& geometry = m_toplevel->base->geometry;
+      m_fullscreenRestoreBox = {
+          .x = m_sceneTree->node.x,
+          .y = m_sceneTree->node.y,
+          .width = geometry.width,
+          .height = geometry.height,
+      };
+      m_hasFullscreenRestoreBox = geometry.width > 0 && geometry.height > 0;
+    }
+    const bool restoreFloating = !fullscreen && !m_tiled && m_hasFullscreenRestoreBox;
+    // Any leave-fullscreen invalidates a pending float-toggle restore: the
+    // float path re-sets the flag right after its own setFullscreen(false).
+    if (!fullscreen) {
+      m_refullscreenOnTile = false;
+    }
+    const bool unpinning = fullscreen && m_pinned;
+    if (fullscreen) {
+      if (unpinning) {
+        m_pinned = false;
+        m_restorePinnedAfterFullscreen = true;
+        if (m_workspace != nullptr) {
+          setSceneParent(m_workspace->viewLayer(false));
+          setOnActiveWorkspace(m_workspace->active());
+        }
+      }
+      m_floating.clearSizeRequest();
+    }
+    // Entering fullscreen during a size animation grows from the size on screen, not from the committed one.
+    const bool continuePresentation = fullscreen && sizeAnimating();
+    const int presentedWidth = m_presentation.width();
+    const int presentedHeight = m_presentation.height();
+    cancelSizeAnimation();
+    if (continuePresentation) {
+      m_presentation.setSize(presentedWidth, presentedHeight);
+    }
+    wlr_xdg_toplevel_set_fullscreen(m_toplevel, fullscreen);
+    setFadeAlpha(m_fadeAlpha);
+    updateFullscreenPresentation(0, 0);
+    if (fullscreen) {
+      // scheduled.fullscreen is set; reparent to fullscreen layer.
+      setSceneParent(homeTree());
+      raiseToTop();
+      // Snap scroll to the now viewport-wide column and reflow neighbors.
+      if (m_workspace != nullptr) {
+        m_workspace->snapVisible(this);
+        // Arrange now, not at the next frame: the fullscreen configure must carry the output size, and the resize
+        // animation must own the presentation before a fast client commits, or that commit shows its old buffer
+        // centered on the backdrop. arrange() sends the full-output size even when this workspace is hidden.
+        m_workspace->arrange(true);
+      }
+      if (!m_tiled || m_workspace == nullptr) {
+        // Floating fullscreen is not part of the layout; size it directly.
+        applyFullscreenLayout(true);
+      }
+    } else {
+      setSceneParent(homeTree());
+      if (!m_tiled && m_workspace != nullptr) {
+        m_workspace->restackFloatingViews();
+      } else {
+        raiseToTop();
+      }
+      if (restoreFloating) {
+        requestFloatingSize(m_fullscreenRestoreBox.width, m_fullscreenRestoreBox.height);
+        beginResizeAnimation(m_fullscreenRestoreBox.width, m_fullscreenRestoreBox.height, true);
+        animateTo(m_fullscreenRestoreBox.x, m_fullscreenRestoreBox.y);
+      } else if (m_tiled) {
+        m_hasFullscreenRestoreBox = false;
+      }
+    }
+    m_decoration.setBordersEnabled(!fullscreen);
+    applyCornerRadius();
+    updateBlur();
+    updateShadow();
+    if (!fullscreen && m_restoreMaximizedToEdges) {
+      m_restoreMaximizedToEdges = false;
+      // A compound transition owns its final state. Maximize-to-edges applies that state in its caller, while floating
+      // must not carry a stale maximized state after detaching from the layout.
+      if (exitLayout == FullscreenExitLayout::Immediate) {
+        setMaximizedToEdges(true);
+      }
+    }
+    if (!fullscreen) {
+      // scheduled.fullscreen is already false; arrange into usable area (exclusive zones).
+      if (m_tiled && m_workspace != nullptr) {
+        if (exitLayout == FullscreenExitLayout::Immediate) {
+          // wlroots has already scheduled the fullscreen-state configure. Arrange synchronously so its size is
+          // replaced with the restored tile before that configure is sent, keeping state and geometry in one client
+          // transition.
+          m_workspace->snapVisible(this);
+          m_workspace->arrange(true);
+        } else {
+          // A compound transition, such as floating or maximize-to-edges, sets its final geometry after this returns.
+          m_workspace->markArrange(true);
+        }
+      } else if (!restoreFloating) {
+        placeInUsableArea();
+      }
+    }
+    if (!fullscreen && m_restorePinnedAfterFullscreen) {
+      m_restorePinnedAfterFullscreen = false;
+      applyPinnedState();
+    }
+    updateForeignState();
+    if (m_workspace != nullptr && m_workspace->group() != nullptr) {
+      Output* output = m_workspace->group()->output();
+      output->updateVrr();
+      output->updateHdr();
+    }
+    if (unpinning) {
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onViewPinnedChanged(this);
+      }
+    }
+    if (fullscreen && m_mapped && m_onActiveWorkspace) {
+      LayerSurface* layer = LayerSurface::fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface);
+      if (layer != nullptr && layer->output() == currentOutput() && !layer->acceptsKeyboard()) {
+        m_server->focusView(this);
+      }
+    }
+    if (refreshHoverFocus) {
+      // A client-side fullscreen exit, such as leaving a browser video, bypasses the compositor action that normally
+      // invalidates hover focus. The restored scene may put another tile beneath a stationary pointer, so its next
+      // eligible motion must re-run focus selection even without crossing a border.
+      m_server->cursor()->invalidateHoverFocus();
+    }
+    refreshStateRuleEffects();
+  }
+
+  void View::applyWindowRules(const ResolvedWindowRule& initiallyApplied) {
+    if (!m_mapped) {
+      return;
+    }
+    // Late app ID or title settlement may select opening rules, but identity
+    // hints changed after map must not select new one-shot behavior. is_alone never selects opening settings: the
+    // alone effects are applied and undone separately, on every change to the workspace's tiled set.
+    const ResolvedWindowRule rule = resolveWindowRules(
+        config(), ruleText(m_toplevel->app_id), ruleText(m_toplevel->title), m_initialRulesXdgTag,
+        m_initialRulesContentType, m_initialRuleState, m_server->uptimeMs()
+    );
+    ScratchpadManager* scratchpadManager = m_server->scratchpadManager();
+    const bool wasInScratchpad = scratchpadManager != nullptr && scratchpadManager->contains(this);
+    const bool scratchpadChanged = changedInitialRule(rule.defaultScratchpad, initiallyApplied.defaultScratchpad);
+    const bool defaultFloatingChanged = changedInitialRule(rule.defaultFloating, initiallyApplied.defaultFloating);
+    const bool floatingWidthChanged =
+        changedInitialRule(rule.defaultFloatingWidthPx, initiallyApplied.defaultFloatingWidthPx)
+        || changedInitialRule(rule.defaultFloatingWidth, initiallyApplied.defaultFloatingWidth);
+    const bool floatingHeightChanged =
+        changedInitialRule(rule.defaultFloatingHeightPx, initiallyApplied.defaultFloatingHeightPx)
+        || changedInitialRule(rule.defaultFloatingHeight, initiallyApplied.defaultFloatingHeight);
+    const bool floatingPositionChanged = changedInitialRule(rule.defaultPosition, initiallyApplied.defaultPosition);
+    bool floatingGeometryAppliedOnTransition = false;
+    const bool enteringFloatingByRule = !wasInScratchpad && defaultFloatingChanged && *rule.defaultFloating && m_tiled;
+    const bool placementChanged = (rule.defaultOutput.has_value() || rule.defaultWorkspace.has_value())
+        && (rule.defaultOutput != initiallyApplied.defaultOutput
+            || rule.defaultWorkspace != initiallyApplied.defaultWorkspace);
+
+    const bool namedScrollingColumnNameChanged = rule.defaultScrollingColumn.has_value()
+        && rule.defaultScrollingColumn != initiallyApplied.defaultScrollingColumn;
+    const bool namedScrollingColumnOrderChanged = rule.defaultScrollingColumn.has_value()
+        && rule.defaultScrollingColumnOrder != initiallyApplied.defaultScrollingColumnOrder;
+    std::optional<Workspace::NamedScrollingColumnChange> namedScrollingColumnChange;
+    if (namedScrollingColumnNameChanged) {
+      namedScrollingColumnChange = Workspace::NamedScrollingColumnChange::Name;
+    } else if (namedScrollingColumnOrderChanged) {
+      namedScrollingColumnChange = Workspace::NamedScrollingColumnChange::Order;
+    }
+    if (namedScrollingColumnChange) {
+      m_namedScrollingColumnName = rule.defaultScrollingColumn;
+      m_namedScrollingColumnOrder = rule.defaultScrollingColumnOrder;
+    }
+
+    if (!wasInScratchpad && placementChanged && m_workspace != nullptr) {
+      const bool wasActivated = m_activated;
+      WorkspaceGroup* targetGroup = windowRuleWorkspaceGroup(*m_server, rule, m_workspace->group());
+      Workspace* target = windowRuleWorkspace(targetGroup, rule);
+      if (target != nullptr && target != m_workspace) {
+        setWorkspace(target, false);
+        if (m_workspace == target) {
+          if (!enteringFloatingByRule) {
+            target->layoutAttach(
+                this, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx, LayoutAttachOrigin::OpeningView
+            );
+            if (m_tiled && m_toplevel->scheduled.maximized && !m_maximizedToEdges) {
+              setMaximized(true);
+            }
+          }
+          if (wasActivated) {
+            m_server->focusView(this);
+          }
+        }
+      }
+    }
+
+    // Identity can arrive after map. Apply a newly selected one-shot value, but never replay a value already applied at
+    // map over the user's later state.
+    // Move first so a simultaneous floating-size rule resolves against the destination output.
+    if (!wasInScratchpad && defaultFloatingChanged) {
+      const bool wantFloat = *rule.defaultFloating;
+      if (wantFloat != !m_tiled) {
+        if (wantFloat) {
+          if (floatingWidthChanged) {
+            m_pendingFloatingWidthPx = rule.defaultFloatingWidthPx;
+            m_pendingFloatingWidth = rule.defaultFloatingWidth;
+          }
+          if (floatingHeightChanged) {
+            m_pendingFloatingHeightPx = rule.defaultFloatingHeightPx;
+            m_pendingFloatingHeight = rule.defaultFloatingHeight;
+          }
+          if (floatingPositionChanged) {
+            m_pendingFloatingPosition = rule.defaultPosition;
+          }
+        }
+        setFloating(wantFloat);
+        floatingGeometryAppliedOnTransition = wantFloat && !m_tiled;
+      }
+    }
+
+    if (namedScrollingColumnChange && m_workspace != nullptr) {
+      m_workspace->applyNamedScrollingColumnRule(
+          this, rule.defaultScrollingExtent, rule.defaultScrollingExtentPx, *namedScrollingColumnChange
+      );
+    }
+
+    std::optional<std::string_view> scratchpadTarget;
+    if ((!wasInScratchpad || scratchpadChanged)
+        && rule.defaultScratchpad
+        && scratchpadManager != nullptr
+        && scratchpadManager->hasScratchpad(*rule.defaultScratchpad)) {
+      scratchpadTarget = *rule.defaultScratchpad;
+    } else if (wasInScratchpad) {
+      scratchpadTarget = scratchpadManager->nameFor(this);
+    }
+    const bool updateScratchpad =
+        scratchpadTarget && (scratchpadChanged || (wasInScratchpad && (placementChanged || defaultFloatingChanged)));
+
+    bool assignedScratchpad = false;
+    if (updateScratchpad) {
+      Output* savedOutput = wasInScratchpad ? scratchpadManager->restoreOutputFor(this) : nullptr;
+      Workspace* targetWorkspace = !wasInScratchpad ? m_workspace : nullptr;
+      Output* targetOutput = targetWorkspace != nullptr && targetWorkspace->group() != nullptr
+          ? targetWorkspace->group()->output()
+          : savedOutput;
+      if (placementChanged) {
+        WorkspaceGroup* fallbackGroup = targetOutput != nullptr ? targetOutput->workspaceGroup() : nullptr;
+        WorkspaceGroup* targetGroup = windowRuleWorkspaceGroup(*m_server, rule, fallbackGroup);
+        targetWorkspace = windowRuleWorkspace(targetGroup, rule);
+        targetOutput = targetGroup != nullptr ? targetGroup->output() : targetOutput;
+      }
+      if (targetOutput == nullptr) {
+        targetOutput = currentOutput();
+      }
+      std::optional<bool> restoreTiled;
+      if (!wasInScratchpad) {
+        restoreTiled = m_pinned ? m_restoreTiledAfterUnpin : m_tiled;
+      }
+      if (defaultFloatingChanged) {
+        restoreTiled = !*rule.defaultFloating;
+      }
+      if (targetOutput != nullptr) {
+        assignedScratchpad = scratchpadManager->assignByWindowRule(
+            this, *scratchpadTarget, targetOutput,
+            ScratchpadManager::AutomaticAdmission{
+                .restoreOutput = targetOutput,
+                .restoreWorkspace = targetWorkspace,
+                .focusOrigin = currentOutput(),
+                .restoreTiled = restoreTiled,
+                .updateRestoreLocation = !wasInScratchpad || placementChanged,
+            }
+        );
+      }
+    }
+    const bool inScratchpad = wasInScratchpad || assignedScratchpad;
+    if (!inScratchpad && changedInitialRule(rule.defaultPinned, initiallyApplied.defaultPinned)) {
+      setPinned(*rule.defaultPinned, false);
+    }
+
+    ScrollingLayout* scrolling = m_workspace != nullptr ? m_workspace->scrollingLayout() : nullptr;
+    const bool defaultExtentChanged =
+        changedInitialRule(rule.defaultScrollingExtentPx, initiallyApplied.defaultScrollingExtentPx)
+        || changedInitialRule(rule.defaultScrollingExtent, initiallyApplied.defaultScrollingExtent);
+    const bool ownsNamedScrollingColumnExtent =
+        m_displacedHome ? m_displacedHome->ownsNamedScrollingColumnExtent : m_ownsNamedScrollingColumnExtent;
+    if (defaultExtentChanged
+        && m_tiled
+        && m_namedScrollingColumnName
+        && m_displacedHome
+        && ownsNamedScrollingColumnExtent) {
+      m_displacedHome->pendingNamedScrollingColumnExtentPx = rule.defaultScrollingExtentPx;
+      m_displacedHome->pendingNamedScrollingColumnExtent = rule.defaultScrollingExtent;
+    }
+    const bool canResizeCurrentNamedScrollingColumn =
+        ownsNamedScrollingColumnExtent && (!m_displacedHome || m_ownsNamedScrollingColumnExtent);
+    if (defaultExtentChanged
+        && m_tiled
+        && scrolling != nullptr
+        && (!m_namedScrollingColumnName || canResizeCurrentNamedScrollingColumn)) {
+      const int column = scrolling->columnOf(this);
+      if (column >= 0) {
+        if (rule.defaultScrollingExtentPx) {
+          scrolling->setWidthFromPixels(column, m_workspace->scrollViewportExtent(), *rule.defaultScrollingExtentPx);
+        } else if (rule.defaultScrollingExtent) {
+          scrolling->setWidthFraction(column, *rule.defaultScrollingExtent);
+        }
+        m_workspace->markArrange();
+      }
+    }
+    if (defaultExtentChanged && !m_tiled) {
+      m_savedScrollingExtentPx = rule.defaultScrollingExtentPx;
+      m_savedScrollingExtent = rule.defaultScrollingExtent;
+    }
+
+    if (!inScratchpad && !floatingGeometryAppliedOnTransition && (floatingWidthChanged || floatingHeightChanged)) {
+      if (!m_tiled) {
+        const wlr_box usable = floatingUsableArea();
+        const XdgSizeHints hints = xdgSizeHints(m_toplevel);
+        auto [width, height] = floatingSize();
+        if (floatingWidthChanged) {
+          if (rule.defaultFloatingWidthPx) {
+            width = clampXdgWidth(*rule.defaultFloatingWidthPx, hints);
+          } else if (rule.defaultFloatingWidth && usable.width > 0) {
+            width = clampXdgWidth(floatingFractionSize(*rule.defaultFloatingWidth, usable.width), hints);
+          }
+        }
+        if (floatingHeightChanged) {
+          if (rule.defaultFloatingHeightPx) {
+            height = clampXdgHeight(*rule.defaultFloatingHeightPx, hints);
+          } else if (rule.defaultFloatingHeight && usable.height > 0) {
+            height = clampXdgHeight(floatingFractionSize(*rule.defaultFloatingHeight, usable.height), hints);
+          }
+        }
+        if (width > 0 && height > 0) {
+          requestFloatingSize(width, height);
+          placeInUsableArea();
+        }
+      } else {
+        if (floatingWidthChanged) {
+          m_pendingFloatingWidthPx = rule.defaultFloatingWidthPx;
+          m_pendingFloatingWidth = rule.defaultFloatingWidth;
+        }
+        if (floatingHeightChanged) {
+          m_pendingFloatingHeightPx = rule.defaultFloatingHeightPx;
+          m_pendingFloatingHeight = rule.defaultFloatingHeight;
+        }
+      }
+    }
+
+    if (!inScratchpad && !floatingGeometryAppliedOnTransition && floatingPositionChanged) {
+      if (!m_tiled) {
+        placeInUsableArea(rule.defaultPosition);
+      } else {
+        m_pendingFloatingPosition = rule.defaultPosition;
+      }
+    }
+
+    if (!inScratchpad
+        && changedInitialRule(rule.defaultFullscreen, initiallyApplied.defaultFullscreen)
+        && *rule.defaultFullscreen
+        && !m_toplevel->scheduled.fullscreen) {
+      setFullscreen(true);
+    }
+
+    if (!inScratchpad
+        && changedInitialRule(rule.defaultMaximizeToEdges, initiallyApplied.defaultMaximizeToEdges)
+        && *rule.defaultMaximizeToEdges
+        && !m_maximizedToEdges) {
+      setMaximizedToEdges(true);
+    }
+
+    if (!inScratchpad
+        && !openingParented()
+        && changedInitialRule(rule.defaultMaximize, initiallyApplied.defaultMaximize)
+        && *rule.defaultMaximize
+        && !m_toplevel->scheduled.maximized) {
+      setMaximized(true);
+    }
+
+    // Dynamic effects use the current identity hints, including ones changed after map.
+    applyDynamicRules();
+  }
+
+  void View::refreshStartupRuleEffects() {
+    m_rulesGeneration = 0;
+    if (m_mapped) {
+      applyDynamicRules();
+    }
+  }
+
+  void View::refreshStateRuleEffects() {
+    if (m_mapped && m_appliedRuleState != ruleState()) {
+      applyDynamicRules();
+    }
+  }
+
+  WindowRuleState View::ruleState() const {
+    return {
+        .focused = m_borderFocusedState,
+        .floating = !m_tiled,
+        .pinned = m_pinned,
+        .scratchpad = m_inScratchpad,
+        .alone = isAloneInLayout(),
+    };
+  }
+
+  const ResolvedWindowRule& View::resolvedRules() {
+    const std::optional<std::string_view> appId = ruleText(m_toplevel->app_id);
+    const std::optional<std::string_view> title = ruleText(m_toplevel->title);
+    const uint64_t generation = configStore().generation();
+    const WindowRuleState state = ruleState();
+
+    // An unset identity string is a distinct key from an empty one: only the latter matches a pattern accepting the
+    // empty string, so a client that replaces a missing title with an empty one must re-resolve.
+    if (m_rulesGeneration == generation
+        && m_rulesState == state
+        && m_rulesAppId == appId
+        && m_rulesTitle == title
+        && m_rulesXdgTag == m_xdgTag
+        && m_rulesContentType == m_contentType) {
+      return m_rules;
+    }
+
+    m_rules = resolveWindowRules(config(), appId, title, m_xdgTag, m_contentType, state, m_server->uptimeMs());
+    m_rulesGeneration = generation;
+    m_rulesState = state;
+    m_rulesAppId = appId;
+    m_rulesTitle = title;
+    m_rulesXdgTag = m_xdgTag;
+    m_rulesContentType = m_contentType;
+    return m_rules;
+  }
+
+  void View::applyDynamicRules(const ResolvedWindowRule* resolved) {
+    const ResolvedWindowRule& rule = resolved != nullptr ? *resolved : resolvedRules();
+    m_appliedRuleState = ruleState();
+    // Tile spacing stays on the global border width, so a decoration change redraws this window without an arrange.
+    if (m_decoration.applyRule(rule)) {
+      updateBorderGeometry();
+      applyCornerRadius();
+      updateShadow();
+    }
+    const Config::Colors::Border& colors = m_decoration.borderColors();
+    const std::array<float, 4>& targetBorder = m_borderFocusedState ? colors.focused : colors.unfocused;
+    const auto& borderAnimation = config().animation.border;
+    if (m_mapped && m_borderColorAnim.animating() && borderAnimation.enabled) {
+      if (m_borderColorAnim.target() != targetBorder) {
+        m_borderColorAnim.retarget(targetBorder, borderAnimation.durationMs, borderAnimation.curve);
+        scheduleFrame();
+      }
+    } else {
+      m_borderColorAnim.snap(targetBorder);
+      m_decoration.setBorderColor(m_borderFocusedState, effectiveOpacity());
+    }
+    const float newOpacity = rule.opacity ? static_cast<float>(*rule.opacity) : 1.0F;
+    if (newOpacity != m_ruleOpacity) {
+      m_ruleOpacity = newOpacity;
+      setFadeAlpha(m_fadeAlpha); // refresh effective opacity
+    }
+    m_presentation.setFullscreenOpaque(fullscreenOpaque());
+    updateBlur();
+    // updateBlur creates the full node box. Re-apply the owning output's clip immediately, because focus, title, and
+    // app-id rule refreshes do not necessarily produce a later surface commit or layout pass.
+    if (m_workspace != nullptr) {
+      m_workspace->syncViewPresentation(this);
+    }
+    if (m_mapped) {
+      m_server->refreshOutputPolicies();
+    }
+  }
+
+} // namespace umbriel

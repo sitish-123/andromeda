@@ -1,0 +1,1452 @@
+#include "server/server.h"
+
+#include "config/config.h"
+#include "config/config_diag.h"
+#include "config/config_watcher.h"
+#include "config/resolve.h"
+#include "core/application_scope.h"
+#include "core/fdlimit.h"
+#include "core/log.h"
+#include "core/process.h"
+#include "core/tracy.h"
+#include "input/cursor.h"
+#include "input/gestures.h"
+#include "input/keyboard.h"
+#include "input/seat.h"
+#include "input/text_input.h"
+#include "layer/layer_surface.h"
+#include "lock/session_lock.h"
+#include "output/output.h"
+#include "overview/overview.h"
+#include "scene/cheatsheet.h"
+#include "scene/color.h"
+#include "scene/config_banner.h"
+#include "scene/hint_rect.h"
+#include "scene/quit_confirm.h"
+#include "server/backend_manager.h"
+#include "server/desktop_output_manager.h"
+#include "server/ipc.h"
+#include "server/wine_color_manager.h"
+#include "view/view.h"
+#include "wlr.h"
+#include "workspace/scratchpad.h"
+#include "workspace/workspace.h"
+#include "xwayland/supervisor.h"
+
+extern "C" {
+#include <umbrielfx/render/animation.h>
+}
+
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <cmath>
+#include <csignal>
+#include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
+#include <optional>
+#include <ranges>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unistd.h>
+#include <vector>
+
+namespace umbriel {
+
+  namespace {
+
+    constexpr Logger kLog("server");
+    constexpr size_t kWaylandClientBufferSize = 1024 * 1024;
+    // Security-context clients only receive reviewed, ordinary application
+    // protocols. New globals stay unavailable until they are classified here.
+    // [[security_context_rule]] widens the set for matching clients.
+    constexpr std::array<std::string_view, 30> kAllowedSecurityContextGlobals{
+        "wl_shm",
+        "wl_drm",
+        "zwp_linux_dmabuf_v1",
+        "wp_linux_drm_syncobj_manager_v1",
+        "wl_compositor",
+        "wl_subcompositor",
+        "wl_data_device_manager",
+        "zwp_primary_selection_device_manager_v1",
+        "wp_viewporter",
+        "wp_fractional_scale_manager_v1",
+        "wp_presentation",
+        "wp_tearing_control_manager_v1",
+        "wp_content_type_manager_v1",
+        "wl_output",
+        "wp_color_manager_v1",
+        "xdg_wm_base",
+        "xdg_toplevel_tag_manager_v1",
+        "zxdg_exporter_v2",
+        "zxdg_decoration_manager_v1",
+        "org_kde_kwin_server_decoration_manager",
+        "zwp_relative_pointer_manager_v1",
+        "zwp_pointer_constraints_v1",
+        "zwp_pointer_gestures_v1",
+        "zwp_tablet_manager_v2",
+        "zwp_idle_inhibit_manager_v1",
+        "zwp_keyboard_shortcuts_inhibit_manager_v1",
+        "xdg_activation_v1",
+        "wl_seat",
+        "wp_cursor_shape_manager_v1",
+        "zwp_text_input_manager_v3",
+    };
+
+    bool isAllowedSecurityContextGlobal(std::string_view interface) {
+      return std::ranges::find(kAllowedSecurityContextGlobals, interface) != kAllowedSecurityContextGlobals.end();
+    }
+
+    struct ClientGlobalPolicy {
+      wl_listener destroy{};
+      bool advertiseDecorationManagers = true;
+      bool advertisePrimarySelection = true;
+      // Resolved on first use: security-context metadata is attached after the client-created signal.
+      std::optional<std::vector<std::string>> securityContextGlobals;
+    };
+
+    void onClientGlobalPolicyDestroy(wl_listener* listener, void* /*data*/) {
+      ClientGlobalPolicy* policy;
+      policy = wl_container_of(listener, policy, destroy);
+      wl_list_remove(&policy->destroy.link);
+      delete policy;
+    }
+
+    ClientGlobalPolicy* attachClientGlobalPolicy(wl_client* client) {
+      auto* policy = new ClientGlobalPolicy{};
+      policy->advertiseDecorationManagers = config().appearance.preferNoCsd;
+      policy->advertisePrimarySelection = config().input.middleClickPaste;
+      policy->destroy.notify = onClientGlobalPolicyDestroy;
+      wl_client_add_destroy_listener(client, &policy->destroy);
+      return policy;
+    }
+
+    ClientGlobalPolicy* clientGlobalPolicy(const wl_client* client) {
+      wl_listener* listener =
+          wl_client_get_destroy_listener(const_cast<wl_client*>(client), onClientGlobalPolicyDestroy);
+      if (listener == nullptr) {
+        return attachClientGlobalPolicy(const_cast<wl_client*>(client));
+      }
+      ClientGlobalPolicy* policy;
+      policy = wl_container_of(listener, policy, destroy);
+      return policy;
+    }
+
+    void onClientCreated(wl_listener* /*listener*/, void* data) {
+      attachClientGlobalPolicy(static_cast<wl_client*>(data));
+    }
+
+    bool filterGlobal(const wl_client* client, const wl_global* global, void* data) {
+      auto* server = static_cast<Server*>(data);
+      const wl_interface* interface = wl_global_get_interface(global);
+      if (interface == nullptr) {
+        return true;
+      }
+      const std::string_view interfaceName(interface->name);
+      // A global filter is consulted both when a global is advertised and when
+      // it is bound, so each client's decisions must remain stable for its
+      // entire connection.
+      ClientGlobalPolicy* policy = clientGlobalPolicy(client);
+      if (const wlr_security_context_v1_state* context = server->clientSecurityContext(client);
+          context != nullptr && !isAllowedSecurityContextGlobal(interfaceName)) {
+        // Nested contexts stay blocked unconditionally: per-app grants are only
+        // trustworthy while labels originate from unrestricted clients.
+        if (interfaceName == "wp_security_context_manager_v1") {
+          return false;
+        }
+        if (!policy->securityContextGlobals) {
+          policy->securityContextGlobals =
+              securityContextRuleGlobals(config(), context->sandbox_engine, context->app_id);
+        }
+        if (std::ranges::find(*policy->securityContextGlobals, interfaceName)
+            == policy->securityContextGlobals->end()) {
+          return false;
+        }
+      }
+      if (interfaceName == "zwp_primary_selection_device_manager_v1") {
+        return policy->advertisePrimarySelection;
+      }
+      if (interfaceName == "zxdg_decoration_manager_v1" || interfaceName == "org_kde_kwin_server_decoration_manager") {
+        return policy->advertiseDecorationManagers;
+      }
+      if (interfaceName == "wp_color_manager_v1") {
+        const bool wine = WineColorManager::clientNeedsCompatibility(client);
+        if (server->wineColorManager() != nullptr && global == server->wineColorManager()->global()) {
+          return wine;
+        }
+        return !wine;
+      }
+      return true;
+    }
+
+    std::string shellQuote(std::string_view value) {
+      std::string quoted("'");
+      for (const char character : value) {
+        if (character == '\'') {
+          quoted += "'\\''";
+        } else {
+          quoted += character;
+        }
+      }
+      quoted += '\'';
+      return quoted;
+    }
+
+    void applyConfiguredEnvironment() {
+      for (const auto& [name, value] : config().environment.variables) {
+        if (setenv(name.c_str(), value.c_str(), 1) != 0) {
+          kLog.warn("failed to export environment variable {}", name);
+        }
+      }
+    }
+
+    std::string sessionEnvironmentCommand() {
+      std::string configuredAssignments;
+      for (const auto& [name, value] : config().environment.variables) {
+        configuredAssignments += ' ';
+        configuredAssignments += shellQuote(name + "=" + value);
+      }
+
+      const std::string publishConfigured =
+          configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
+      std::string command =
+          "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
+          "UMBRIEL_SOCKET'; systemd_ready=false; "
+          "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
+          "if systemctl --user import-environment $variables";
+      command += publishConfigured;
+      command += "; then systemd_ready=true; else "
+                 "echo 'umbriel: failed to publish the session environment' >&2; fi; fi; "
+                 "if command -v dbus-update-activation-environment >/dev/null 2>&1; then "
+                 "dbus-update-activation-environment $variables || "
+                 "echo 'umbriel: failed to update the D-Bus activation environment' >&2; fi; "
+                 "if $systemd_ready; then systemctl --user start --no-block umbriel-session.target || "
+                 "echo 'umbriel: failed to start the systemd session target' >&2; fi";
+      return command;
+    }
+
+  } // namespace
+
+  const wlr_security_context_v1_state* Server::clientSecurityContext(const wl_client* client) const {
+    if (m_securityContextManager == nullptr) {
+      return nullptr;
+    }
+    return wlr_security_context_manager_v1_lookup_client(m_securityContextManager, client);
+  }
+
+  ContentType Server::surfaceContentType(wlr_surface* surface) const {
+    if (m_contentTypeManager == nullptr || surface == nullptr) {
+      return ContentType::None;
+    }
+    switch (wlr_surface_get_content_type_v1(m_contentTypeManager, surface)) {
+    case WP_CONTENT_TYPE_V1_TYPE_PHOTO:
+      return ContentType::Photo;
+    case WP_CONTENT_TYPE_V1_TYPE_VIDEO:
+      return ContentType::Video;
+    case WP_CONTENT_TYPE_V1_TYPE_GAME:
+      return ContentType::Game;
+    case WP_CONTENT_TYPE_V1_TYPE_NONE:
+    default:
+      return ContentType::None;
+    }
+  }
+
+  pid_t surfaceClientPid(const wlr_surface* surface) {
+    if (surface == nullptr || surface->resource == nullptr) {
+      return -1;
+    }
+    pid_t pid = -1;
+    wl_client_get_credentials(wl_resource_get_client(surface->resource), &pid, nullptr, nullptr);
+    return pid > 0 ? pid : -1;
+  }
+
+  bool Server::isXwaylandSurface(const wlr_surface* surface) const {
+    if (m_xwayland == nullptr) {
+      return false;
+    }
+    const pid_t pid = surfaceClientPid(surface);
+    return pid > 0 && pid == m_xwayland->pid();
+  }
+
+  Server::Server() {
+    m_nested = std::getenv("WAYLAND_DISPLAY") != nullptr
+        || std::getenv("WAYLAND_SOCKET") != nullptr
+        || std::getenv("DISPLAY") != nullptr;
+
+    m_display = wl_display_create();
+    if (m_display == nullptr) {
+      throw std::runtime_error("failed to create wl_display");
+    }
+    m_protocolLogger = wl_display_add_protocol_logger(m_display, onProtocolMessage, this);
+    if (m_protocolLogger == nullptr) {
+      throw std::runtime_error("failed to register Wayland protocol logger");
+    }
+    wl_display_set_default_max_buffer_size(m_display, kWaylandClientBufferSize);
+    m_clientCreated.notify = onClientCreated;
+    wl_display_add_client_created_listener(m_display, &m_clientCreated);
+
+    m_backendManager = BackendManager::create(m_display, config().drm);
+    if (m_backendManager == nullptr) {
+      throw std::runtime_error("failed to create wlr_backend");
+    }
+    m_backend = m_backendManager->backend();
+    m_session = m_backendManager->session();
+
+    m_renderer = m_backendManager->createRenderer();
+    if (m_renderer == nullptr) {
+      throw std::runtime_error("failed to create fx_renderer");
+    }
+    m_rendererLost.notify = onRendererLost;
+    wl_signal_add(&m_renderer->events.lost, &m_rendererLost);
+
+    if (!wlr_renderer_init_wl_shm(m_renderer, m_display)) {
+      throw std::runtime_error("failed to initialize wl_shm");
+    }
+
+    const int drmFd = wlr_renderer_get_drm_fd(m_renderer);
+    wlr_linux_dmabuf_v1* linuxDmabuf = nullptr;
+    if (wlr_renderer_get_texture_formats(m_renderer, WLR_BUFFER_CAP_DMABUF) != nullptr && drmFd >= 0) {
+      if (wlr_drm_create(m_display, m_renderer) == nullptr) {
+        kLog.warn("failed to create legacy wl_drm global");
+      }
+      linuxDmabuf = wlr_linux_dmabuf_v1_create_with_renderer(m_display, 4, m_renderer);
+      if (linuxDmabuf == nullptr) {
+        throw std::runtime_error("failed to create linux-dmabuf global");
+      }
+    }
+
+    if (drmFd >= 0 && m_renderer->features.timeline && m_backend->features.timeline) {
+      if (wlr_linux_drm_syncobj_manager_v1_create(m_display, 1, drmFd) == nullptr) {
+        throw std::runtime_error("failed to create linux-drm-syncobj manager");
+      }
+      kLog.info("explicit synchronization enabled");
+    }
+
+    m_allocator = wlr_allocator_autocreate(m_backend, m_renderer);
+    if (m_allocator == nullptr) {
+      throw std::runtime_error("failed to create wlr_allocator");
+    }
+    if (!m_backendManager->verifyOpenDevices("after allocator creation")) {
+      throw std::runtime_error("renderer or allocator opened an excluded GPU");
+    }
+
+    prepareAnimationShaders(m_renderer);
+    m_compositor = wlr_compositor_create(m_display, 5, m_renderer);
+    wlr_subcompositor_create(m_display);
+    wlr_data_device_manager_create(m_display);
+    if (wlr_primary_selection_v1_device_manager_create(m_display) == nullptr) {
+      throw std::runtime_error("failed to create primary-selection manager");
+    }
+    m_securityContextManager = wlr_security_context_manager_v1_create(m_display);
+    if (m_securityContextManager == nullptr) {
+      throw std::runtime_error("failed to create security-context manager");
+    }
+    wl_display_set_global_filter(m_display, filterGlobal, this);
+    wlr_viewporter_create(m_display);
+    wlr_fractional_scale_manager_v1_create(m_display, 1);
+    wlr_presentation_create(m_display, m_backend, 2);
+    m_tearingControlManager = wlr_tearing_control_manager_v1_create(m_display, 1);
+    if (m_tearingControlManager == nullptr) {
+      throw std::runtime_error("failed to create tearing-control manager");
+    }
+    m_contentTypeManager = wlr_content_type_manager_v1_create(m_display, 1);
+    if (m_contentTypeManager == nullptr) {
+      throw std::runtime_error("failed to create content-type manager");
+    }
+    if (wlr_ext_data_control_manager_v1_create(m_display, 1) == nullptr) {
+      throw std::runtime_error("failed to create ext-data-control manager");
+    }
+    if (wlr_data_control_manager_v1_create(m_display) == nullptr) {
+      throw std::runtime_error("failed to create legacy data-control manager");
+    }
+
+    m_outputLayout = wlr_output_layout_create(m_display);
+    wlr_xdg_output_manager_v1_create(m_display, m_outputLayout);
+    // A scene helper served by libwlroots allocates nodes too small for
+    // umbrielfx's trailing fields, which renders every surface black instead of
+    // failing. Refuse to build a scene on top of that.
+    if (const char* mismatch = umbrielfx_scene_check_helpers(); mismatch != nullptr) {
+      throw std::runtime_error(std::string("umbrielfx scene helpers are not linked correctly: ") + mismatch);
+    }
+    m_scene = wlr_scene_create();
+    if (linuxDmabuf != nullptr) {
+      wlr_scene_set_linux_dmabuf_v1(m_scene, linuxDmabuf);
+    }
+    if (m_renderer->features.input_color_transform) {
+      size_t transferFunctionsLen = 0;
+      wp_color_manager_v1_transfer_function* transferFunctions =
+          wlr_color_manager_v1_transfer_function_list_from_renderer(m_renderer, &transferFunctionsLen);
+      size_t primariesLen = 0;
+      wp_color_manager_v1_primaries* primaries =
+          wlr_color_manager_v1_primaries_list_from_renderer(m_renderer, &primariesLen);
+      constexpr wp_color_manager_v1_render_intent renderIntents[] = {
+          WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL,
+      };
+      const wlr_color_manager_v1_options options = {
+          .features =
+              {
+                  .icc_v2_v4 = false,
+                  .parametric = true,
+                  .set_primaries = false,
+                  .set_tf_power = false,
+                  .set_luminances = false,
+                  .set_mastering_display_primaries = true,
+                  .extended_target_volume = false,
+                  .windows_scrgb = false,
+              },
+          .render_intents = renderIntents,
+          .render_intents_len = std::size(renderIntents),
+          .transfer_functions = transferFunctions,
+          .transfer_functions_len = transferFunctionsLen,
+          .primaries = primaries,
+          .primaries_len = primariesLen,
+      };
+      m_colorManager = wlr_color_manager_v1_create(m_display, 2, &options);
+      std::free(transferFunctions);
+      std::free(primaries);
+      if (m_colorManager == nullptr) {
+        throw std::runtime_error("failed to create color-management manager");
+      }
+      wlr_scene_set_color_manager_v1(m_scene, m_colorManager);
+      m_wineColorManager = std::make_unique<WineColorManager>(*this);
+      if (!m_wineColorManager->valid()) {
+        throw std::runtime_error("failed to create Wine color-management manager");
+      }
+    }
+    const Config::Appearance::Blur& blur = config().appearance.blur;
+    wlr_scene_set_blur_data(
+        m_scene, blur.passes, blur.radius, static_cast<float>(blur.noise), static_cast<float>(blur.brightness),
+        static_cast<float>(blur.contrast), static_cast<float>(blur.saturation)
+    );
+    m_sceneLayout = wlr_scene_attach_output_layout(m_scene, m_outputLayout);
+    wlr_scene_set_background_color(m_scene, config().colors.backdrop.data());
+
+    // Global stacking keeps scratchpads above normal windows and below drag, panels, fullscreen, overlays, and lock.
+    // Per-output layer trees keep normal windows below panels.
+    m_backdrop = wlr_scene_rect_create(&m_scene->tree, 0, 0, config().colors.backdrop.data());
+    wlr_scene_rect_set_corner_radius(m_backdrop, 0);
+    m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND] = wlr_scene_tree_create(&m_scene->tree);
+    m_overviewBlurTree = wlr_scene_tree_create(&m_scene->tree);
+    wlr_scene_node_set_enabled(&m_overviewBlurTree->node, false);
+    m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM] = wlr_scene_tree_create(&m_scene->tree);
+    m_xdgTree = wlr_scene_tree_create(&m_scene->tree);
+    m_scratchpadTree = wlr_scene_tree_create(&m_scene->tree);
+    m_scratchpadManager = std::make_unique<ScratchpadManager>(*this, m_scratchpadTree);
+    m_overviewTree = wlr_scene_tree_create(&m_scene->tree);
+    wlr_scene_node_set_enabled(&m_overviewTree->node, false);
+    m_dragTree = wlr_scene_tree_create(&m_scene->tree);
+    m_dragIconTree = wlr_scene_tree_create(&m_scene->tree);
+    m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_TOP] = wlr_scene_tree_create(&m_scene->tree);
+    m_fullscreenTree = wlr_scene_tree_create(&m_scene->tree);
+    m_pinnedTree = wlr_scene_tree_create(&m_scene->tree);
+    m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&m_scene->tree);
+    m_imPopupTree = wlr_scene_tree_create(&m_scene->tree);
+    m_cheatsheetTree = wlr_scene_tree_create(&m_scene->tree);
+    m_bannerTree = wlr_scene_tree_create(&m_scene->tree);
+    m_quitConfirmTree = wlr_scene_tree_create(&m_scene->tree);
+    m_lockTree = wlr_scene_tree_create(&m_scene->tree);
+    m_lockBlank = wlr_scene_rect_create(m_lockTree, 0, 0, config().colors.backdrop.data());
+    wlr_scene_rect_set_corner_radius(m_lockBlank, 0);
+    wlr_scene_node_set_enabled(&m_lockBlank->node, false);
+    wlr_scene_node_set_enabled(&m_lockTree->node, false);
+    wlr_scene_node_lower_to_bottom(&m_backdrop->node);
+
+    m_gammaManager = wlr_gamma_control_manager_v1_create(m_display);
+    m_setGamma.notify = onSetGamma;
+    wl_signal_add(&m_gammaManager->events.set_gamma, &m_setGamma);
+
+    m_xdgShell = wlr_xdg_shell_create(m_display, 3);
+    m_newXdgToplevel.notify = onNewXdgToplevel;
+    wl_signal_add(&m_xdgShell->events.new_toplevel, &m_newXdgToplevel);
+    m_newXdgPopup.notify = onNewXdgPopup;
+    wl_signal_add(&m_xdgShell->events.new_popup, &m_newXdgPopup);
+
+    wlr_xdg_foreign_registry* foreignRegistry = wlr_xdg_foreign_registry_create(m_display);
+    if (foreignRegistry == nullptr) {
+      throw std::runtime_error("failed to create xdg-foreign registry");
+    }
+    if (wlr_xdg_foreign_v2_create(m_display, foreignRegistry) == nullptr) {
+      throw std::runtime_error("failed to create xdg-foreign global");
+    }
+
+    m_xdgToplevelTagManager = wlr_xdg_toplevel_tag_manager_v1_create(m_display, 1);
+    if (m_xdgToplevelTagManager == nullptr) {
+      throw std::runtime_error("failed to create XDG toplevel tag manager");
+    }
+    m_setXdgToplevelTag.notify = onSetXdgToplevelTag;
+    wl_signal_add(&m_xdgToplevelTagManager->events.set_tag, &m_setXdgToplevelTag);
+
+    m_xdgDecorationManager = wlr_xdg_decoration_manager_v1_create(m_display);
+    m_newXdgDecoration.notify = onNewXdgDecoration;
+    wl_signal_add(&m_xdgDecorationManager->events.new_toplevel_decoration, &m_newXdgDecoration);
+
+    m_serverDecorationManager = wlr_server_decoration_manager_create(m_display);
+    wlr_server_decoration_manager_set_default_mode(
+        m_serverDecorationManager, WLR_SERVER_DECORATION_MANAGER_MODE_SERVER
+    );
+
+    m_layerShell = wlr_layer_shell_v1_create(m_display, 4);
+    m_newLayerSurface.notify = onNewLayerSurface;
+    wl_signal_add(&m_layerShell->events.new_surface, &m_newLayerSurface);
+
+    m_foreignToplevelManager = wlr_foreign_toplevel_manager_v1_create(m_display);
+    m_extForeignToplevelList = wlr_ext_foreign_toplevel_list_v1_create(m_display, 1);
+    m_toplevelCaptureSourceManager = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(m_display, 1);
+    m_toplevelCaptureRequest.notify = onToplevelCaptureRequest;
+    wl_signal_add(&m_toplevelCaptureSourceManager->events.new_request, &m_toplevelCaptureRequest);
+
+    m_workspaceManager = wlr_ext_workspace_manager_v1_create(m_display, 1);
+    m_workspaceCommit.notify = onWorkspaceCommit;
+    wl_signal_add(&m_workspaceManager->events.commit, &m_workspaceCommit);
+
+    m_sessionLockManager = wlr_session_lock_manager_v1_create(m_display);
+    m_newSessionLock.notify = onNewSessionLock;
+    wl_signal_add(&m_sessionLockManager->events.new_lock, &m_newSessionLock);
+
+    m_relativePointerManager = wlr_relative_pointer_manager_v1_create(m_display);
+    m_pointerConstraints = wlr_pointer_constraints_v1_create(m_display);
+    m_newPointerConstraint.notify = onNewPointerConstraint;
+    wl_signal_add(&m_pointerConstraints->events.new_constraint, &m_newPointerConstraint);
+    m_pointerGestures = wlr_pointer_gestures_v1_create(m_display);
+    m_virtualKeyboardManager = wlr_virtual_keyboard_manager_v1_create(m_display);
+    m_newVirtualKeyboard.notify = onNewVirtualKeyboard;
+    wl_signal_add(&m_virtualKeyboardManager->events.new_virtual_keyboard, &m_newVirtualKeyboard);
+    m_virtualPointerManager = wlr_virtual_pointer_manager_v1_create(m_display);
+    m_newVirtualPointer.notify = onNewVirtualPointer;
+    wl_signal_add(&m_virtualPointerManager->events.new_virtual_pointer, &m_newVirtualPointer);
+    m_tabletManager = wlr_tablet_v2_create(m_display);
+
+    m_idleNotifier = wlr_idle_notifier_v1_create(m_display);
+    m_idleInhibitManager = wlr_idle_inhibit_v1_create(m_display);
+    m_newIdleInhibitor.notify = onNewIdleInhibitor;
+    wl_signal_add(&m_idleInhibitManager->events.new_inhibitor, &m_newIdleInhibitor);
+    m_shortcutsInhibitManager = wlr_keyboard_shortcuts_inhibit_v1_create(m_display);
+    if (m_shortcutsInhibitManager == nullptr) {
+      throw std::runtime_error("failed to create keyboard-shortcuts-inhibit manager");
+    }
+    m_newShortcutsInhibitor.notify = onNewShortcutsInhibitor;
+    wl_signal_add(&m_shortcutsInhibitManager->events.new_inhibitor, &m_newShortcutsInhibitor);
+
+    wlr_screencopy_manager_v1_create(m_display);
+    m_exportDmabufManager = wlr_export_dmabuf_manager_v1_create(m_display);
+    wlr_ext_output_image_capture_source_manager_v1_create(m_display, 1);
+    wlr_ext_image_copy_capture_manager_v1_create(m_display, 1);
+
+    // Create the manager so apply/test listeners stay wired, but leave heads empty (see updateOutputManagerConfig).
+    // Advertising a full configuration on bind currently takes down the desktop shell from this flake.
+    m_outputManager = wlr_output_manager_v1_create(m_display);
+    m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
+    m_outputManagerApply.notify = onOutputManagerApply;
+    wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
+    m_outputManagerTest.notify = onOutputManagerTest;
+    wl_signal_add(&m_outputManager->events.test, &m_outputManagerTest);
+    m_outputLayoutChange.notify = onOutputLayoutChange;
+    wl_signal_add(&m_outputLayout->events.change, &m_outputLayoutChange);
+
+    m_xdgActivation = wlr_xdg_activation_v1_create(m_display);
+    m_newActivationToken.notify = onNewActivationToken;
+    wl_signal_add(&m_xdgActivation->events.new_token, &m_newActivationToken);
+    m_requestActivate.notify = onRequestActivate;
+    wl_signal_add(&m_xdgActivation->events.request_activate, &m_requestActivate);
+
+    m_cursor = std::make_unique<Cursor>(*this);
+    m_seat = std::make_unique<Seat>(*this);
+    m_padKeyboardFocusChange.notify = onPadKeyboardFocusChange;
+    wl_signal_add(&m_seat->wlr()->keyboard_state.events.focus_change, &m_padKeyboardFocusChange);
+    m_inputMethodRelay = std::make_unique<InputMethodRelay>(*this);
+    m_gestures = std::make_unique<Gestures>(*this);
+    m_overview = std::make_unique<Overview>(*this);
+    updateSeatCapabilities();
+
+    m_newOutput.notify = onNewOutput;
+    wl_signal_add(&m_backend->events.new_output, &m_newOutput);
+    m_newInput.notify = onNewInput;
+    wl_signal_add(&m_backend->events.new_input, &m_newInput);
+
+    wlr_log(WLR_INFO, "mod key: %s (%s session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
+    kLog.info("mod key: {} ({} session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
+  }
+
+  Server::~Server() {
+    m_stopping = true;
+    if (m_rendererRecoveryIdle != nullptr) {
+      wl_event_source_remove(m_rendererRecoveryIdle);
+      m_rendererRecoveryIdle = nullptr;
+    }
+    if (m_protocolLogger != nullptr) {
+      wl_protocol_logger_destroy(m_protocolLogger);
+      m_protocolLogger = nullptr;
+    }
+    wl_list_remove(&m_clientCreated.link);
+    wl_list_remove(&m_newOutput.link);
+    wl_list_remove(&m_newInput.link);
+    wl_list_remove(&m_newXdgToplevel.link);
+    wl_list_remove(&m_setXdgToplevelTag.link);
+    wl_list_remove(&m_newXdgPopup.link);
+    wl_list_remove(&m_newXdgDecoration.link);
+    wl_list_remove(&m_newLayerSurface.link);
+    wl_list_remove(&m_newSessionLock.link);
+    wl_list_remove(&m_newPointerConstraint.link);
+    wl_list_remove(&m_newVirtualKeyboard.link);
+    wl_list_remove(&m_newVirtualPointer.link);
+    wl_list_remove(&m_newIdleInhibitor.link);
+    wl_list_remove(&m_newShortcutsInhibitor.link);
+    wl_list_remove(&m_newActivationToken.link);
+    wl_list_remove(&m_requestActivate.link);
+    wl_list_remove(&m_workspaceCommit.link);
+    wl_list_remove(&m_setGamma.link);
+    wl_list_remove(&m_outputManagerApply.link);
+    wl_list_remove(&m_outputManagerTest.link);
+    wl_list_remove(&m_outputLayoutChange.link);
+    wl_list_remove(&m_rendererLost.link);
+    wl_list_remove(&m_toplevelCaptureRequest.link);
+    wl_list_remove(&m_padKeyboardFocusChange.link);
+    m_configWatcher.reset();
+    m_ipc.reset();
+    m_insertHint.reset();
+    // Each snapshot destroys its own scene tree.
+    m_closeSnapshots.clear();
+    m_configBanner.reset();
+    // Owns scene nodes under m_scene; must go before the scene teardown below.
+    m_cheatsheet.reset();
+    m_overview.reset();
+    m_sessionLock.reset();
+    m_layerSurfaces.clear();
+    m_registry.clear();
+    m_keyboards.clear();
+    m_outputs.clear();
+    m_inputMethodRelay.reset();
+    m_seat.reset();
+    // Holds listeners on the wlr_cursor's gesture signals. wlr_cursor_destroy
+    // asserts its signal lists are empty, so this must precede the cursor.
+    m_gestures.reset();
+    m_cursor.reset();
+
+    // Tear down xwayland-satellite before destroying Wayland clients.
+    m_xwayland.reset();
+    if (m_backgroundFrameTimer != nullptr) {
+      wl_event_source_remove(m_backgroundFrameTimer);
+      m_backgroundFrameTimer = nullptr;
+    }
+    if (m_startupRulesTimer != nullptr) {
+      wl_event_source_remove(m_startupRulesTimer);
+      m_startupRulesTimer = nullptr;
+    }
+    for (wl_event_source*& source : m_signalSources) {
+      if (source != nullptr) {
+        wl_event_source_remove(source);
+        source = nullptr;
+      }
+    }
+    wl_display_destroy_clients(m_display);
+    m_wineColorManager.reset();
+    // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise
+    // the destructor body frees the nodes and the member destructors touch already-freed memory.
+    m_quitConfirm.reset();
+    m_cheatsheet.reset();
+    m_configBanner.reset();
+    m_scratchpadManager.reset();
+    wlr_scene_node_destroy(&m_scene->tree.node);
+    wlr_allocator_destroy(m_allocator);
+    clearAnimationShaderCache();
+    wlr_renderer_destroy(m_renderer);
+    m_backendManager.reset();
+    m_backend = nullptr;
+    m_session = nullptr;
+    wl_display_destroy(m_display);
+  }
+
+  const wlr_image_description_v1_data* Server::surfaceImageDescription(wlr_surface* surface) const {
+    if (const wlr_image_description_v1_data* description = wlr_surface_get_image_description_v1_data(surface)) {
+      return description;
+    }
+    if (m_wineColorManager != nullptr) {
+      if (const wlr_image_description_v1_data* description = m_wineColorManager->surfaceDescription(surface)) {
+        return description;
+      }
+    }
+    return nullptr;
+  }
+
+  const wlr_image_description_v1_data* Server::surfaceTreeHdrDescription(wlr_surface* surface) const {
+    struct Context {
+      const Server* server;
+      const wlr_image_description_v1_data* description = nullptr;
+    } context{.server = this};
+
+    wlr_surface_for_each_surface(
+        surface,
+        [](wlr_surface* candidate, int, int, void* data) {
+          auto* context = static_cast<Context*>(data);
+          if (context->description != nullptr) {
+            return;
+          }
+          const wlr_image_description_v1_data* description = context->server->surfaceImageDescription(candidate);
+          if (description == nullptr) {
+            return;
+          }
+          const bool pqBt2020 = description->tf_named == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ
+              && description->primaries_named == WP_COLOR_MANAGER_V1_PRIMARIES_BT2020;
+          const WineColorManager* wine = context->server->wineColorManager();
+          if (pqBt2020 || (wine != nullptr && wine->surfaceRequiresHdrOutput(candidate))) {
+            context->description = description;
+          }
+        },
+        &context
+    );
+    return context.description;
+  }
+
+  void Server::updateColorPreferences() {
+    if (m_wineColorManager != nullptr) {
+      m_wineColorManager->updatePreferredDescriptions();
+    }
+  }
+
+  bool Server::start(const char* startupCmd) {
+    const char* socket = wl_display_add_socket_auto(m_display);
+    if (socket == nullptr) {
+      wlr_log(WLR_ERROR, "failed to add Wayland socket");
+      return false;
+    }
+    m_socketName = socket;
+
+    if (!wlr_backend_start(m_backend)) {
+      wlr_log(WLR_ERROR, "failed to start backend");
+      return false;
+    }
+    m_backendManager->markStarted();
+
+    // These are delivered through the event loop, not a signal handler, so the shutdown path is ordinary code. Note the
+    // side effect: wl_event_loop_add_signal blocks the signal process-wide, and a blocked mask survives fork and exec,
+    // so every fork below must clear it before handing off to a child.
+    wl_event_loop* loop = wl_display_get_event_loop(m_display);
+    m_signalSources[0] = wl_event_loop_add_signal(loop, SIGINT, onTerminateSignal, this);
+    m_signalSources[1] = wl_event_loop_add_signal(loop, SIGTERM, onTerminateSignal, this);
+    m_applicationScopesRequired = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
+    if (m_applicationScopesRequired) {
+      m_systemdRunExecutable = resolveExecutable("systemd-run");
+      const std::string ownerUnit = currentSystemdUnit();
+      if (m_systemdRunExecutable.empty()) {
+        kLog.warn("application scope isolation unavailable: systemd-run was not found on PATH");
+      } else if (ownerUnit.empty()) {
+        kLog.warn("application scope isolation unavailable: cannot identify the compositor unit");
+      } else {
+        m_applicationScopePartOfProperty = "--property=PartOf=umbriel-session.target";
+        m_applicationScopeBindsToProperty = "--property=BindsTo=" + ownerUnit;
+        m_systemdControlEnvironment = captureSystemdControlEnvironment();
+        m_applicationScopeEnvironmentArguments = applicationScopeEnvironmentArguments(config().environment.variables);
+        kLog.info("application processes will use transient scopes under app.slice");
+      }
+    }
+
+    // Point new clients at us. Drop WAYLAND_SOCKET so children do not keep the
+    // parent compositor connection (libwayland prefers it over WAYLAND_DISPLAY).
+    setenv("WAYLAND_DISPLAY", m_socketName.c_str(), true);
+    unsetenv("WAYLAND_SOCKET");
+    kLog.info("running on WAYLAND_DISPLAY={}", m_socketName);
+
+    // Keep clients on hidden workspaces receiving wl_surface.frame ticks
+    // (see kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer).
+    m_backgroundFrameTimer =
+        wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
+    if (m_backgroundFrameTimer != nullptr) {
+      wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
+    }
+    setenv(
+        "UMBRIEL_SOCKET",
+        (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/umbriel-" + m_socketName + ".sock").c_str(), true
+    );
+    m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+    setenv("XDG_CURRENT_DESKTOP", "umbriel", 1);
+    setenv("XDG_SESSION_DESKTOP", "umbriel", 1);
+    setenv("XDG_SESSION_TYPE", "wayland", 1);
+
+    // Export cursor settings so X11 clients (via xwayland-satellite) and
+    // toolkit clients pick up the compositor's configured cursor.
+    const auto& cursorCfg = config().input.cursor;
+    const std::string cursorSize = std::to_string(cursorCfg.size);
+    setenv("XCURSOR_SIZE", cursorSize.c_str(), 1);
+    if (!cursorCfg.theme.empty()) {
+      setenv("XCURSOR_THEME", cursorCfg.theme.c_str(), 1);
+    }
+
+    // Start xwayland-satellite before session services and autostart so X11
+    // applications can connect. The supervisor applies configured values in
+    // the child while this process retains its session-control environment.
+    if (config().general.xwayland) {
+      m_xwayland = std::make_unique<XwaylandSupervisor>(wl_display_get_event_loop(m_display), m_socketName);
+      m_xwayland->start();
+    }
+
+    // Fork session synchronization before applying configured values locally.
+    // Its child keeps the inherited PATH and bus addresses, while the target
+    // receives the explicit configured assignments before it starts.
+    if (!m_nested) {
+      const std::string command = sessionEnvironmentCommand();
+      spawnCommand(command.c_str(), "session environment synchronization", false, SpawnClass::SessionHelper);
+    }
+    applyConfiguredEnvironment();
+
+    m_startTime = std::chrono::steady_clock::now();
+    m_startupRulesTimer = wl_event_loop_add_timer(loop, onStartupRulesTimer, this);
+    if (m_startupRulesTimer != nullptr) {
+      wl_event_source_timer_update(m_startupRulesTimer, kStartupWindowRuleDurationMs);
+    }
+
+    if (startupCmd != nullptr) {
+      spawn(startupCmd);
+    }
+    for (const std::string& command : config().general.autostart) {
+      spawn(command.c_str());
+    }
+    m_configWatcher =
+        std::make_unique<ConfigWatcher>(wl_display_get_event_loop(m_display), [this] { handleConfigReload(); });
+    m_configBanner = std::make_unique<ConfigBanner>(*this, m_bannerTree);
+    m_configWatcher->watch(configWatchPaths());
+    showConfigDiagnostics();
+    m_cheatsheet = std::make_unique<Cheatsheet>(*this, m_cheatsheetTree);
+    if (config().general.showCheatsheet) {
+      m_cheatsheet->showOnStartup();
+    }
+    m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
+    return true;
+  }
+
+  void Server::showConfigDiagnostics() {
+    std::vector<ConfigDiagnostic> diagnostics = configDiagnostics();
+    if (m_xwayland != nullptr && !m_xwayland->executableAvailable()) {
+      ConfigDiagnostic diagnostic;
+      diagnostic.severity = ConfigDiagnostic::Severity::Warning;
+      diagnostic.message =
+          "general.xwayland is enabled, but xwayland-satellite was not found on PATH; X11 applications will not work";
+      diagnostics.push_back(std::move(diagnostic));
+    }
+    m_configBanner->show(diagnostics);
+  }
+
+  void Server::markDirty(Dirty what) {
+    m_dirty |= what;
+    // Recording is only useful if a frame follows, so ask for one. Marking work
+    // that nothing then flushes would simply never happen.
+    for (const auto& output : m_outputs) {
+      if (output->wlr() != nullptr) {
+        wlr_output_schedule_frame(output->wlr());
+      }
+    }
+  }
+
+  void Server::relayoutBanner() {
+    if (m_configBanner != nullptr) {
+      m_configBanner->relayout();
+    }
+  }
+
+  void Server::relayoutCheatsheet() {
+    if (m_cheatsheet != nullptr) {
+      m_cheatsheet->relayout();
+    }
+  }
+
+  void Server::relayoutQuitConfirm() {
+    if (m_quitConfirm != nullptr) {
+      m_quitConfirm->relayout();
+    }
+  }
+
+  int Server::onTerminateSignal(int signal, void* data) {
+    kLog.info("received signal {}, shutting down", signal);
+    static_cast<Server*>(data)->stop();
+    return 0;
+  }
+
+  void Server::run() { wl_display_run(m_display); }
+
+  void Server::stop() {
+    m_stopping = true;
+    wl_display_terminate(m_display);
+  }
+
+  uint32_t Server::modKey() const {
+    if (!config().general.modKey) {
+      return m_nested ? WLR_MODIFIER_ALT : WLR_MODIFIER_LOGO;
+    }
+    switch (*config().general.modKey) {
+    case ModifierKey::Super:
+      return WLR_MODIFIER_LOGO;
+    case ModifierKey::Alt:
+      return WLR_MODIFIER_ALT;
+    case ModifierKey::Control:
+      return WLR_MODIFIER_CTRL;
+    case ModifierKey::Shift:
+      return WLR_MODIFIER_SHIFT;
+    }
+    return WLR_MODIFIER_LOGO;
+  }
+
+  std::string_view Server::modKeyName() const {
+    if (!config().general.modKey) {
+      return m_nested ? "Alt" : "Super";
+    }
+    switch (*config().general.modKey) {
+    case ModifierKey::Super:
+      return "Super";
+    case ModifierKey::Alt:
+      return "Alt";
+    case ModifierKey::Control:
+      return "Ctrl";
+    case ModifierKey::Shift:
+      return "Shift";
+    }
+    return "Super";
+  }
+
+  HintRect& Server::insertHint() {
+    if (m_insertHint == nullptr) {
+      m_insertHint = std::make_unique<HintRect>(*this, dragTree());
+    }
+    return *m_insertHint;
+  }
+
+  void Server::hideInsertHint() {
+    if (m_insertHint != nullptr) {
+      m_insertHint->hideImmediate();
+    }
+  }
+
+  wlr_scene_tree* Server::shellLayerTree(uint32_t layer) const {
+    if (layer >= kLayerCount) {
+      return m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_TOP];
+    }
+    return m_shellLayerTrees[layer];
+  }
+
+  void Server::spawn(const char* command, const char* description, bool withActivationToken) {
+    spawnCommand(command, description, withActivationToken, SpawnClass::Application);
+  }
+
+  void
+  Server::spawnCommand(const char* command, const char* description, bool withActivationToken, SpawnClass spawnClass) {
+    if (m_socketName.empty()) {
+      wlr_log(WLR_ERROR, "cannot spawn before the Wayland socket exists");
+      return;
+    }
+
+    const bool scopeRequired = spawnClass == SpawnClass::Application && m_applicationScopesRequired;
+    if (scopeRequired
+        && (m_systemdRunExecutable.empty()
+            || m_applicationScopePartOfProperty.empty()
+            || m_applicationScopeBindsToProperty.empty())) {
+      kLog.error("cannot launch application because systemd scope isolation is unavailable");
+      return;
+    }
+    const std::string scopeUnitArgument = scopeRequired
+        ? "--unit=app-umbriel-" + std::to_string(getpid()) + "-" + std::to_string(m_nextApplicationScopeId++) + ".scope"
+        : "";
+
+    wlr_xdg_activation_token_v1* launchToken = nullptr;
+    std::string launchTokenName;
+    if (withActivationToken && m_xdgActivation != nullptr) {
+      launchToken = wlr_xdg_activation_token_v1_create(m_xdgActivation);
+      if (launchToken != nullptr) {
+        trackActivationToken(launchToken, true);
+        const char* name = wlr_xdg_activation_token_v1_get_name(launchToken);
+        if (name != nullptr) {
+          launchTokenName = name;
+        }
+      }
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+      if (launchToken != nullptr) {
+        wlr_xdg_activation_token_v1_destroy(launchToken);
+      }
+      wlr_log(WLR_ERROR, "fork failed");
+      return;
+    }
+    if (pid == 0) {
+      resetChildSignalState();
+      restoreFileDescriptorLimit();
+      if (scopeRequired) {
+        if (!closeChildFileDescriptors() || !restoreSystemdControlEnvironment(m_systemdControlEnvironment)) {
+          _exit(1);
+        }
+      }
+      setenv("WAYLAND_DISPLAY", m_socketName.c_str(), 1);
+      unsetenv("WAYLAND_SOCKET");
+      if (m_xwayland != nullptr && !m_xwayland->display().empty()) {
+        setenv("DISPLAY", m_xwayland->display().c_str(), 1);
+      } else {
+        // Avoid X11/XWayland fallback into the parent session.
+        unsetenv("DISPLAY");
+      }
+      if (!launchTokenName.empty()) {
+        setenv("XDG_ACTIVATION_TOKEN", launchTokenName.c_str(), 1);
+        setenv("DESKTOP_STARTUP_ID", launchTokenName.c_str(), 1);
+      } else {
+        unsetenv("XDG_ACTIVATION_TOKEN");
+        unsetenv("DESKTOP_STARTUP_ID");
+      }
+      if (scopeRequired) {
+        execApplicationInScope(
+            m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
+            m_applicationScopeBindsToProperty.c_str(), m_applicationScopeEnvironmentArguments, command
+        );
+      }
+      execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
+      _exit(1);
+    }
+
+    if (scopeRequired) {
+      wlr_log(
+          WLR_INFO, "launch requested for '%s' on WAYLAND_DISPLAY=%s", description == nullptr ? command : description,
+          m_socketName.c_str()
+      );
+    } else {
+      wlr_log(
+          WLR_INFO, "spawned '%s' on WAYLAND_DISPLAY=%s", description == nullptr ? command : description,
+          m_socketName.c_str()
+      );
+    }
+  }
+
+  void Server::updateSeatCapabilities() { m_seat->updateCapabilities(!m_keyboards.empty(), !m_touchDevices.empty()); }
+
+  void Server::reconcileDynamicWorkspaces() {
+    for (const auto& output : m_outputs) {
+      if (WorkspaceGroup* group = output->workspaceGroup()) {
+        group->reconcileDynamic();
+      }
+    }
+  }
+
+  Server::CloseSnapshot::CloseSnapshot(
+      Server& server, CloseSnapshotId id, Output* output, wlr_scene_tree* tree, wlr_scene_tree* content,
+      std::vector<BorderSnapshot> borders, const wlr_box& box, int durationMs, const AnimationCurve& curve,
+      std::string_view style, double scale, AnimationEvent event, ShadowSnapshot shadow
+  )
+      : m_server(&server), m_id(id), m_tree(tree), m_content(content != nullptr ? content : tree), m_output(output),
+        m_captured(box), m_canvasX(tree->node.x), m_canvasY(tree->node.y), m_borders(std::move(borders)),
+        m_shadow(shadow) {
+    m_event = event;
+    if (m_shadow.node != nullptr) {
+      m_shadowWidth = m_shadow.node->width;
+      m_shadowHeight = m_shadow.node->height;
+      m_shadowHole = m_shadow.node->clipped_region.area;
+    }
+    if (m_content != nullptr && box.width > 0 && box.height > 0) {
+      const wlr_box clip{.x = 0, .y = 0, .width = box.width, .height = box.height};
+      wlr_scene_tree_set_clip(m_content, &clip);
+    }
+    struct CaptureCtx {
+      std::vector<Buffer>* buffers;
+      int originX;
+      int originY;
+    } ctx{&m_buffers, m_content != nullptr ? m_content->node.x : 0, m_content != nullptr ? m_content->node.y : 0};
+    wlr_scene_node_for_each_buffer(
+        &m_content->node,
+        [](wlr_scene_buffer* buffer, int sx, int sy, void* data) {
+          auto& ctx = *static_cast<CaptureCtx*>(data);
+          int width = buffer->dst_width;
+          int height = buffer->dst_height;
+          if (width <= 0 || height <= 0) {
+            width = buffer->buffer != nullptr ? buffer->buffer->width : 0;
+            height = buffer->buffer != nullptr ? buffer->buffer->height : 0;
+          }
+          ctx.buffers->push_back({
+              .node = buffer,
+              .baseOpacity = buffer->opacity,
+              .x = sx - ctx.originX,
+              .y = sy - ctx.originY,
+              .width = width,
+              .height = height,
+          });
+        },
+        &ctx
+    );
+    m_alpha.snap(1.0);
+    m_alpha.retarget(0.0, durationMs, curve);
+
+    if (animationShader(server.renderer(), event) == nullptr) {
+      if (style == "slide") {
+        m_slide.snap(0.0);
+        m_slide.retarget(80.0, durationMs, curve);
+      } else if (style == "zoom") {
+        m_shrinkTo = 0.5;
+      } else if (style == "popin") {
+        m_shrinkTo = std::clamp(scale, 0.1, 1.0);
+      }
+    }
+  }
+
+  Server::CloseSnapshot::~CloseSnapshot() {
+    if (m_server != nullptr) {
+      m_server->unregisterAnimatable(this);
+    }
+    if (m_shadow.tree != nullptr) {
+      wlr_scene_node_destroy(&m_shadow.tree->node);
+    }
+    if (m_tree != nullptr) {
+      wlr_scene_node_destroy(&m_tree->node);
+    }
+  }
+
+  void Server::CloseSnapshot::applyShrink(int width, int height) {
+    // Every border in a snapshot comes from one window, so the first one carries its ring.
+    const BorderSnapshot captured = m_borders.empty() ? BorderSnapshot{} : m_borders.front();
+    // Once the box is thinner than its own ring, shrink the ring with it so the decorated geometry collapses
+    // continuously instead of disappearing in one frame.
+    const int fullExtent = captured.innerWidth + captured.outerWidth;
+    const double ringScale =
+        fullExtent > 0 ? std::clamp(static_cast<double>(std::min(width, height)) / (2 * fullExtent), 0.0, 1.0) : 1.0;
+    const int innerWidth = static_cast<int>(std::lround(captured.innerWidth * ringScale));
+    const int outerWidth = static_cast<int>(std::lround(captured.outerWidth * ringScale));
+    const int radius = static_cast<int>(std::lround(captured.cornerRadius * ringScale));
+    const BorderRing ring = makeBorderRing(width, height, radius, innerWidth, outerWidth);
+    const bool ringVisible = innerWidth + outerWidth > 0;
+    const wlr_box treeClip = m_borders.empty() || !ringVisible ? wlr_box{0, 0, width, height} : ring.box;
+    wlr_scene_tree_set_clip(m_tree, &treeClip);
+
+    if (m_content != nullptr && m_captured.width > 0 && m_captured.height > 0) {
+      // Scale the frozen buffers into the shrinking box just like a live view's presented resize. The windows_out
+      // AnimatedValue remains the sole lifecycle clock.
+      const double scaleX = static_cast<double>(width) / m_captured.width;
+      const double scaleY = static_cast<double>(height) / m_captured.height;
+      for (const Buffer& buffer : m_buffers) {
+        wlr_scene_node_set_position(
+            &buffer.node->node, static_cast<int>(std::lround(buffer.x * scaleX)),
+            static_cast<int>(std::lround(buffer.y * scaleY))
+        );
+        wlr_scene_buffer_set_dest_size(
+            buffer.node, std::max(1, static_cast<int>(std::lround(buffer.width * scaleX))),
+            std::max(1, static_cast<int>(std::lround(buffer.height * scaleY)))
+        );
+      }
+      if (m_content != m_tree) {
+        const wlr_box contentClip{0, 0, width, height};
+        wlr_scene_tree_set_clip(m_content, &contentClip);
+      }
+    }
+
+    for (auto& border : m_borders) {
+      wlr_scene_node_set_enabled(&border.node->node, ringVisible);
+      applyBorderGeometry(border.node, ring, innerWidth, outerWidth);
+    }
+    if (m_shadow.node != nullptr) {
+      const int dw = width - m_captured.width;
+      const int dh = height - m_captured.height;
+      wlr_scene_tree_set_clip(m_shadow.tree, nullptr);
+      wlr_scene_shadow_set_size(m_shadow.node, std::max(0, m_shadowWidth + dw), std::max(0, m_shadowHeight + dh));
+      clipped_region shadowClip = m_shadow.node->clipped_region;
+      shadowClip.area = {
+          m_shadowHole.x,
+          m_shadowHole.y,
+          std::max(0, m_shadowHole.width + dw),
+          std::max(0, m_shadowHole.height + dh),
+      };
+      wlr_scene_shadow_set_clipped_region(m_shadow.node, shadowClip);
+    }
+  }
+
+  void Server::CloseSnapshot::applyPresentation() {
+    if (!m_visible) {
+      // An empty output clip keeps a custom shader's feedback history alive without compositing; a plain snapshot is
+      // disabled.
+      constexpr wlr_box kEmpty{0, 0, 0, 0};
+      const bool animated = wlr_scene_node_set_animation_output_clip(&m_tree->node, &kEmpty);
+      wlr_scene_node_set_enabled(&m_tree->node, animated);
+      if (m_shadow.tree != nullptr) {
+        wlr_scene_node_set_enabled(&m_shadow.tree->node, false);
+      }
+      return;
+    }
+    const bool shrinks = m_shrinkTo < 1.0 && m_captured.width > 0 && m_captured.height > 0;
+    const double closeProgress = 1.0 - std::clamp(m_alpha.current(), 0.0, 1.0);
+    const double scale = shrinks ? std::lerp(1.0, m_shrinkTo, closeProgress) : 1.0;
+    const int width = std::max(1, static_cast<int>(std::lround(m_captured.width * scale)));
+    const int height = std::max(1, static_cast<int>(std::lround(m_captured.height * scale)));
+    const int x = m_canvasX + (shrinks ? (m_captured.width - width) / 2 : 0);
+    const int y =
+        m_canvasY + (shrinks ? (m_captured.height - height) / 2 : 0) + static_cast<int>(std::lround(m_slide.current()));
+    wlr_scene_node_set_position(&m_tree->node, x, y);
+    if (m_shadow.tree != nullptr) {
+      wlr_scene_node_set_position(&m_shadow.tree->node, x, y);
+    }
+    (void)wlr_scene_node_set_animation_output_clip(&m_tree->node, nullptr);
+    wlr_scene_node_set_enabled(&m_tree->node, true);
+    if (m_shadow.tree != nullptr) {
+      wlr_scene_node_set_enabled(&m_shadow.tree->node, true);
+    }
+    if (shrinks) {
+      applyShrink(width, height);
+      return;
+    }
+    wlr_scene_tree_set_clip(m_tree, nullptr);
+    if (m_shadow.tree != nullptr) {
+      wlr_scene_tree_set_clip(m_shadow.tree, nullptr);
+    }
+  }
+
+  void Server::CloseSnapshot::present(int canvasX, int canvasY, bool visible) {
+    m_canvasX = canvasX;
+    m_canvasY = canvasY;
+    m_visible = visible;
+    applyPresentation();
+  }
+
+  bool Server::CloseSnapshot::tickAnimations(uint64_t nowMsec) {
+    const bool movedAlpha = m_alpha.tick(nowMsec);
+    const bool movedSlide = m_slide.tick(nowMsec);
+    updateAnimationShader(&m_tree->node, m_server->renderer(), m_event, m_alpha, -1.0F);
+
+    if (!movedAlpha && !movedSlide) {
+      return false;
+    }
+    // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
+    const float rawAlpha = std::clamp(static_cast<float>(m_alpha.current()), 0.0F, 1.0F);
+    // A lifecycle shader fades the whole snapshot at once, so its buffers and borders stay opaque under it.
+    const bool composited = lifecycleShader(m_server->renderer(), m_event) != nullptr;
+    const bool builtInSlide = !composited && m_slide.target() != m_slide.from();
+    // Keep the moving snapshot visible long enough for slide to read as motion. Fade keeps the configured timeline.
+    const float alpha = composited ? 1.0F : (builtInSlide ? std::sqrt(rawAlpha) : rawAlpha);
+    for (const Buffer& buffer : m_buffers) {
+      wlr_scene_buffer_set_opacity(buffer.node, std::clamp(buffer.baseOpacity * alpha, 0.0F, 1.0F));
+    }
+    for (auto& border : m_borders) {
+      float innerColor[4];
+      float outerColor[4];
+      premultiplied(innerColor, border.innerColor, alpha);
+      premultiplied(outerColor, border.outerColor, alpha);
+      wlr_scene_border_set_colors(border.node, innerColor, outerColor);
+    }
+
+    if (m_shadow.node != nullptr) {
+      auto color = m_shadow.color;
+      color[3] *= builtInSlide ? alpha : rawAlpha;
+      wlr_scene_shadow_set_color(m_shadow.node, color.data());
+    }
+
+    applyPresentation();
+    return m_alpha.animating() || m_slide.animating();
+  }
+
+  void Server::registerAnimatable(Animatable* animatable) {
+    if (animatable == nullptr) {
+      return;
+    }
+    // Insert after every owner in an earlier or equal phase, so the registry
+    // stays in phase order and registration order is preserved within a phase.
+    const auto phase = animatable->animationPhase();
+    const auto at = std::ranges::find_if(m_animatables, [phase](const Animatable* entry) {
+      return entry->animationPhase() > phase;
+    });
+    m_animatables.insert(at, animatable);
+  }
+
+  void Server::unregisterAnimatable(Animatable* animatable) { std::erase(m_animatables, animatable); }
+
+  bool Server::tickAnimations(uint64_t nowMsec) {
+    UMBRIEL_ZONE("Server::tickAnimations");
+    if (nowMsec == m_lastAnimTickMsec) {
+      return animationsActive();
+    }
+    m_lastAnimTickMsec = nowMsec;
+
+    bool active = false;
+    // Iterate a copy so a registration during the pass cannot invalidate the walk. Nothing unregisters mid-pass:
+    // snapshots are reaped below rather than from their own tick, and no owner destroys another. The phase order is
+    // what makes that hold, since finishing the overview calls focusView, which reorders the view registry after every
+    // view has already ticked.
+    m_animatablesScratch.assign(m_animatables.begin(), m_animatables.end());
+    for (Animatable* owner : m_animatablesScratch) {
+      active = owner->tickAnimations(nowMsec) || active;
+    }
+
+    // A snapshot only exists while fading out, so a settled one is finished.
+    // Erasing destroys its scene tree and unregisters it.
+    std::erase_if(m_closeSnapshots, [this](const std::unique_ptr<CloseSnapshot>& snap) {
+      if (snap->hasActiveAnimations()) {
+        return false;
+      }
+      unregisterAnimatable(snap.get());
+      return true;
+    });
+    return active;
+  }
+
+  void Server::flushPendingViewOpacities() {
+    for (const auto& view : m_registry.all()) {
+      view->flushPendingEffectiveOpacity();
+    }
+  }
+
+  bool Server::animationsActive() const {
+    return std::ranges::any_of(m_animatables, [](const Animatable* owner) { return owner->hasActiveAnimations(); });
+  }
+
+  bool Server::animationsActiveFor(const Output* output) const {
+    if (output == nullptr) {
+      return false;
+    }
+    return std::ranges::any_of(m_animatables, [output](const Animatable* owner) {
+      return owner->hasActiveAnimations() && owner->animatesOn(output);
+    });
+  }
+
+  namespace {
+    uint64_t monotonicClockMsec() {
+      timespec now{};
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      return static_cast<uint64_t>(now.tv_sec) * 1000 + static_cast<uint64_t>(now.tv_nsec) / 1'000'000;
+    }
+  } // namespace
+
+  uint64_t Server::animationClockMsec() const {
+#ifdef UMBRIEL_TEST_IPC
+    if (m_frozenAnimationClockMsec) {
+      return *m_frozenAnimationClockMsec;
+    }
+    return static_cast<uint64_t>(static_cast<int64_t>(monotonicClockMsec()) + m_animationClockOffsetMsec);
+#else
+    return monotonicClockMsec();
+#endif
+  }
+
+#ifdef UMBRIEL_TEST_IPC
+  void Server::freezeAnimationClock() {
+    if (!m_frozenAnimationClockMsec) {
+      m_frozenAnimationClockMsec = animationClockMsec();
+    }
+  }
+
+  bool Server::advanceAnimationClock(uint64_t ms) {
+    if (!m_frozenAnimationClockMsec) {
+      return false;
+    }
+    // An action taken while frozen may have left its arrange for the next frame; run it now so the motion it starts
+    // belongs to this instant. Every frame since the freeze ticked the same instant, which the tick skips as a repeat,
+    // so an animation that began meanwhile has no start time yet. Tick once more at that instant to give it one.
+    for (const auto& output : m_outputs) {
+      if (WorkspaceGroup* group = output->workspaceGroup()) {
+        group->flushArrange();
+      }
+    }
+    m_lastAnimTickMsec = 0;
+    tickAnimations(*m_frozenAnimationClockMsec);
+    *m_frozenAnimationClockMsec += ms;
+    for (const auto& output : m_outputs) {
+      wlr_output_schedule_frame(output->wlr());
+    }
+    return true;
+  }
+
+  void Server::resumeAnimationClock() {
+    if (m_frozenAnimationClockMsec) {
+      m_animationClockOffsetMsec =
+          static_cast<int64_t>(*m_frozenAnimationClockMsec) - static_cast<int64_t>(monotonicClockMsec());
+      m_frozenAnimationClockMsec.reset();
+    }
+  }
+
+  void Server::emitRendererLostForTest() { wl_signal_emit_mutable(&m_renderer->events.lost, nullptr); }
+#endif
+
+  bool Server::settled() const {
+    if (std::ranges::any_of(m_animatables, [](const Animatable* owner) { return owner->hasActiveAnimations(); })) {
+      return false;
+    }
+    // A window whose latest configure is still queued, or not yet acknowledged and committed, has not drawn the state
+    // the compositor asked for.
+    for (const auto& view : m_registry.all()) {
+      if (!view->mapped() || view->xwayland() || view->toplevel() == nullptr) {
+        continue;
+      }
+      const wlr_xdg_surface* surface = view->toplevel()->base;
+      if (surface->configure_idle != nullptr || surface->current.configure_serial != surface->scheduled_serial) {
+        return false;
+      }
+    }
+    for (const auto& output : m_outputs) {
+      const WorkspaceGroup* group = output->workspaceGroup();
+      if (group == nullptr) {
+        continue;
+      }
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        if (const Workspace* workspace = group->workspaceAt(index);
+            workspace != nullptr && workspace->arrangePending()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  CloseSnapshotId Server::animateCloseSnapshot(
+      Output* output, wlr_scene_tree* tree, wlr_scene_tree* content, std::vector<BorderSnapshot> borders,
+      const wlr_box& box, std::optional<CloseSnapshotOverrides> overrides, ShadowSnapshot shadow
+  ) {
+    int durationMs = 0;
+    AnimationCurve curve{.easing = Easing::Snappy};
+    std::string style = "fade";
+    double scale = 0.8;
+    if (overrides) {
+      durationMs = overrides->durationMs;
+      curve = overrides->curve;
+      style = overrides->style;
+      scale = overrides->scale;
+    } else {
+      const auto& animation = config().animation;
+      const auto& close = animation.windowsOut;
+      if (!animation.enabled || !close.enabled) {
+        if (shadow.tree != nullptr) {
+          wlr_scene_node_destroy(&shadow.tree->node);
+        }
+        wlr_scene_node_destroy(&tree->node);
+        return kInvalidCloseSnapshot;
+      }
+      durationMs = close.durationMs;
+      curve = close.curve;
+      style = close.style;
+      scale = close.scale;
+    }
+    if (durationMs <= 0) {
+      if (shadow.tree != nullptr) {
+        wlr_scene_node_destroy(&shadow.tree->node);
+      }
+      wlr_scene_node_destroy(&tree->node);
+      return kInvalidCloseSnapshot;
+    }
+
+    const CloseSnapshotId id = m_nextCloseSnapshotId++;
+    auto snapshot = std::make_unique<CloseSnapshot>(
+        *this, id, output, tree, content, std::move(borders), box, durationMs, curve, style, scale,
+        overrides ? overrides->event : AnimationEvent::WindowsOut, shadow
+    );
+    registerAnimatable(snapshot.get());
+    m_closeSnapshots.push_back(std::move(snapshot));
+    return id;
+  }
+
+  void Server::presentCloseSnapshot(CloseSnapshotId id, int canvasX, int canvasY, bool visible) {
+    for (const auto& snapshot : m_closeSnapshots) {
+      if (snapshot->id() == id) {
+        snapshot->present(canvasX, canvasY, visible);
+        return;
+      }
+    }
+  }
+
+  bool Server::closeSnapshotAlive(CloseSnapshotId id) const {
+    return std::ranges::any_of(m_closeSnapshots, [id](const std::unique_ptr<CloseSnapshot>& snapshot) {
+      return snapshot->id() == id;
+    });
+  }
+
+  uint64_t Server::uptimeMs() const {
+    const auto diff = std::chrono::steady_clock::now() - m_startTime;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
+  }
+} // namespace umbriel

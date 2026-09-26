@@ -1,0 +1,255 @@
+# Umbriel
+
+Umbriel is a Wayland compositor designed for daily use, with scrolling, dwindle, and master layouts, per-output
+workspaces, window rules, blur, shadows, and fluid animations.
+
+It runs independently and can be paired with [Noctalia](https://github.com/noctalia-dev/noctalia), which provides a
+first-class desktop shell experience for Umbriel. Umbriel is built in C++23 on
+[wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) and `umbrielfx`, its own hard fork of
+[SceneFX](https://github.com/wlrfx/scenefx). Xwayland support comes from
+[xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite), which must be
+installed and on `PATH`. Portal screen capture and sharing is provided by
+[xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel), an
+xdg-desktop-portal backend for Umbriel.
+
+> [!IMPORTANT]
+> Umbriel is young and actively evolving. It is usable today, but configuration keys, keybinds, and behavior may change
+> between releases, and rough edges remain. Current defaults are opinions, not stability promises.
+
+<p align="center">
+  <img src="https://assets.noctalia.dev/?file=umbriel.svg" alt="Umbriel Logo" style="width: 192px" />
+</p>
+
+<p align="center">
+  <a href="https://docs.noctalia.dev/umbriel/">
+    <img src="https://img.shields.io/badge/docs-fbf099?style=for-the-badge&logo=gitbook&logoColor=110f3d&labelColor=fbf099" alt="Documentation" />
+  </a>
+  <a href="https://discord.noctalia.dev">
+    <img src="https://img.shields.io/badge/discord-fbf099?style=for-the-badge&logo=discord&logoColor=110f3d&labelColor=fbf099" alt="Discord" />
+  </a>
+</p>
+
+## Why Umbriel?
+
+When people ask what Umbriel's selling point is, the honest answer is that there is no single killer feature. We were
+simply disappointed with the choices available to us, so we built the compositor we wanted to live in. The plan is
+not to conquer the world or take over the big names; it is to feel at home with something we have a say in, with less
+friction. That is exactly how Noctalia came to life, and Umbriel is its compositor side.
+
+To understand the values and philosophy guiding the project, read our [ethos](https://noctalia.dev/ethos).
+
+## Features
+
+- Scrolling, dwindle, and master layouts with per-workspace selection, width presets, animated navigation, and
+  mouse-driven resizing and tiled reordering
+- Independent workspaces per output, with hotplug support and configurable modes, positions, scales, and transforms
+- Floating, pinned, and fullscreen windows with configurable placement, focus, sizing, opacity, and visual effects
+- [Global named scratchpads](docs/user/scratchpad.md) for temporarily hiding
+  window groups and summoning them on any output
+- An animated overview, directional focus, configurable keybinds, submaps, and activation policy
+- Blur, shadows, rounded corners, double borders, opacity, and animated position, size, and fade transitions
+- Keyboard, pointer, touch, touchpad gestures, XKB configuration, and text-input-v3/input-method-v2 input method support
+- [Restricted Wayland connections](docs/user/security.md) for sandbox engines through security-context-v1, with
+  per-application protocol grants
+- Layer shell, session locking, clipboard management, screen capture, output control, and gamma control
+- X11 application support through xwayland-satellite, when xwayland-satellite is installed and on `PATH`
+- Live-reloaded TOML configuration with diagnostics and includes, plus local IPC and runtime inspection commands
+- Runs as a nested Wayland compositor inside an existing Wayland or X11 desktop for development, or directly on DRM
+  for daily use
+
+## Building
+
+Distribution maintainers should also read [PACKAGING.md](PACKAGING.md) for the
+installed layout, dependency notes, and config fallback.
+
+The scene graph and renderer live in [`umbrielfx/`](umbrielfx/) and build as part of the tree.
+
+### System build
+
+Install a C++23 compiler, Meson, Ninja, pkg-config, wayland-scanner, and development packages for wlroots 0.20
+(0.20.1 or newer), Wayland, xkbcommon, libinput, pixman, libdrm, EGL, GLES2, GBM, lcms2, Cairo, Pango, tomlplusplus,
+and nlohmann-json. Native `[drm]` GPU exclusions also require libudev. Then build Umbriel:
+
+```sh
+just release
+just install
+```
+
+`jemalloc` is optional but recommended on glibc: it returns freed memory to the OS promptly and bounds heap
+fragmentation in long-running sessions. Meson's `-Djemalloc=enabled` or `-Djemalloc=disabled` forces the choice; the
+default (`auto`) uses it when the development package is installed and skips it otherwise (non-glibc libc builds
+always skip it).
+
+The binaries are written to `build-debug/umbriel` and `build-release/umbriel`.
+
+### Nix
+
+Build the package directly:
+
+```sh
+nix build
+```
+
+The resulting binary is available at `result/bin/umbriel`. For development, enter the project shell and use the same
+Just recipes as a system build:
+
+```sh
+nix develop
+just debug
+```
+
+### Testing
+
+The development shell includes the clients and command-line tools used by the
+test suite. Unit tests and the contained headless compositor harness are two
+commands:
+
+```sh
+nix develop
+just test                 # unit and umbrielfx suites, through Meson
+just check                # every harness check
+```
+
+`just check` also takes name fragments, and `just check-names` lists them:
+
+```sh
+just check 310            # one check
+just check 310 520        # several
+just check overview       # every check in a group
+just check 310 -v         # keep the full output of passing checks
+just mode=asan check 310  # the same check against build-asan
+```
+
+Each check gets its own contained headless compositor, so a failure stays local
+and checks run in any order. Every passing check emits a concise completion
+message, summarized to a single dimmed line unless `-v` is enabled; failing
+checks print their whole output. A failing check keeps its runtime directory
+(compositor log, config, per-client logs) and prints the path.
+
+## Running
+
+Installed display-manager sessions start through `start-umbriel`. For supported
+account shells, it loads the noninteractive login environment, then runs the
+compositor as a user service on systemd or directly on other init systems.
+In a managed systemd session, the launcher imports that login environment into
+the user manager before starting Umbriel. Login-profile values take precedence
+over values with the same names from `environment.d`, including `PATH`;
+variables found only in the user manager remain available.
+
+Start an installed native session from a TTY with:
+
+```sh
+start-umbriel
+```
+
+From an existing Wayland or X11 session, Umbriel opens a nested window (mod = Alt).
+From a TTY it takes over the seat (mod = Super).
+
+Apps that capture the screen through xdg-desktop-portal (browser screen sharing, OBS, portal-aware screenshot
+tools) are served by [xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel), which
+implements the Screencast and Screenshot interfaces for Umbriel.
+
+```sh
+just run debug kitty
+```
+
+Or run the binary directly:
+
+```sh
+./build-debug/umbriel -s kitty
+```
+
+Inside the session:
+
+| Shortcut | Action |
+|----------|--------|
+| mod+Escape | Quit (asks for confirmation) |
+| mod+F1 | Cycle window focus |
+| mod+H/J/K/L or arrows | Focus adjacent window |
+| mod+Shift+H/J/K/L or arrows | Move focused window |
+| mod+comma / mod+period | Consume left / consume right |
+| mod+R / mod+F | Cycle width / toggle fullscreen |
+| mod+T | Toggle floating for the focused window |
+| mod+P | Toggle pin for the focused window |
+| mod+O | Toggle the overview |
+| mod+1..9 | Switch workspace on focused monitor |
+| mod+Shift+1..9 | Move focused window to workspace and follow |
+
+`kitty` is an optional startup command. Replace it with another command, or omit it by running `just run debug`
+or `./build-debug/umbriel`. There is no default spawn keybind, so add one under `[keybinds]` (see
+[`examples/config.toml`](examples/config.toml)) to open more terminals from inside the session, e.g. `"Mod+Return" = "spawn:kitty"`.
+
+Stop with mod+Escape or `Ctrl+C` from the parent terminal.
+
+## Configuration
+
+Umbriel first checks `$XDG_CONFIG_HOME/umbriel/config.toml`, then
+`$XDG_CONFIG_DIRS`, and finally its packaged `share/umbriel/config.toml`.
+These paths remain watched, so creating a higher-priority config switches to it
+without a session restart. Pass `-c path/to/config.toml` to pin another file.
+Config files can include files with
+`[include] files = ["theme.toml", "keybinds.toml"]`; later files and the main
+file override earlier values.
+
+See [`examples/config.toml`](examples/config.toml) for the packaged starting configuration and
+[`our online documentation`](https://docs.noctalia.dev/umbriel/) for the full reference.
+
+### Nix (home-manager / NixOS)
+
+Declarative configuration uses Nix attrsets serialized to TOML with `pkgs.formats.toml`.
+
+```nix
+# flake inputs
+umbriel.url = "git+https://github.com/noctalia-dev/umbriel";
+
+# NixOS
+imports = [ inputs.umbriel.nixosModules.default ];
+programs.umbriel.enable = true;
+
+# home-manager
+imports = [ inputs.umbriel.homeModules.default ];
+programs.umbriel = {
+  enable = true;
+  settings = {
+    general.autostart = [ "noctalia" ];
+    layout.gap = 5;
+    input.keyboard.layout = "de";
+    keybinds = {
+      "Mod+Return" = "spawn:kitty";
+      "Mod+Q" = "window-close";
+      "Mod" = "spawn:noctalia msg panel-toggle launcher";
+    };
+  };
+};
+```
+
+The portal lives in [a separate repository](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel) and comes
+with the NixOS module: enabling Umbriel installs it, configures it as the `xdg.portal` backend, and writes the
+portal configuration screencasting needs. You can set `programs.umbriel.portalPackage` to null if you don't want
+the portal.
+
+When `settings` is omitted, the Home Manager and hjem modules leave the user path untouched so Umbriel loads its
+packaged configuration. Home Manager also accepts a raw TOML string or a path. The hjem module is exported as
+`inputs.umbriel.hjemModules.default`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, naming conventions, the dependency stack, and debugging
+helpers, and [SCOPE.md](SCOPE.md) for what the project takes on and what it declines. Umbriel shares its conventions
+with [noctalia](https://github.com/noctalia-dev/noctalia). For general help and design discussion, join the community
+on [Discord](https://discord.noctalia.dev).
+
+Bug reports are always welcome. Feature requests are read against [SCOPE.md](SCOPE.md), so please skim it before
+opening one, and ask on Discord if you are unsure whether an idea fits.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
+
+## Star History
+
+<p align="center">
+  <a href="https://github.com/noctalia-dev/noctalia/stargazers">
+    <img src="https://api.noctalia.dev/stars/umbriel" alt="Star History" />
+  </a>
+</p>

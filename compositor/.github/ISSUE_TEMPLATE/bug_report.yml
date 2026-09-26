@@ -1,0 +1,202 @@
+name: Bug Report
+description: Report a bug, crash, or regression in Umbriel
+title: "[BUG] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bug reports are always welcome, including small ones.
+
+        Please report shell issues (bar, launcher, notifications, widgets) to
+        [noctalia](https://github.com/noctalia-dev/noctalia), and screen sharing or screenshot portal issues to
+        [xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel).
+
+  - type: checkboxes
+    id: submission-checklist
+    attributes:
+      label: Submission checklist
+      description: Please confirm the following before submitting.
+      options:
+        - label: I have searched existing issues and confirmed this is not a duplicate.
+          required: true
+        - label: I am using the latest release or a recent build of `main`.
+          required: true
+        - label: I confirmed this happens in Umbriel itself, not in a desktop shell, a portal backend, or a single application.
+          required: true
+        - label: I checked whether my configuration causes it, for example by reproducing with the packaged `examples/config.toml`.
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: A clear and concise description of the issue.
+      placeholder: Describe the problem...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Steps required to reproduce the issue, starting from a fresh session.
+
+        Include the exact keybinds, actions, or `umbriel msg` commands used, and the config snippet if it is needed.
+      placeholder: |
+        1. Start a session with ...
+        2. Open ...
+        3. Press ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: input
+    id: umbriel-version
+    attributes:
+      label: Umbriel version
+      description: Paste the output of `umbriel --version`.
+      placeholder: "umbriel 0.1.0 (c8adc515af29)"
+    validations:
+      required: true
+
+  - type: input
+    id: regression
+    attributes:
+      label: Last working version
+      description: If this used to work, name the last version or commit where it did.
+      placeholder: "Optional: v0.1.0, or commit hash"
+
+  - type: dropdown
+    id: session-type
+    attributes:
+      label: Session type
+      description: How was Umbriel running when the issue occurred?
+      options:
+        - Native session (TTY or display manager)
+        - Nested inside a Wayland session
+        - Nested inside an X11 session
+        - Headless
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Source build (just install)
+        - Nix flake (nix build)
+        - NixOS module
+        - Home Manager or hjem module
+        - Distribution package
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Where does the issue show up? Pick the closest match.
+      options:
+        - Layout (scrolling)
+        - Layout (dwindle)
+        - Layout (master)
+        - Floating, pinned, or fullscreen windows
+        - Workspaces or scratchpad
+        - Overview
+        - Window or layer rules
+        - Input (keyboard, pointer, touch, gestures, IME)
+        - Output or display (modes, scale, hotplug, DPMS)
+        - Rendering (blur, shadows, borders, corners, animation)
+        - Xwayland or X11 applications
+        - Configuration or reload
+        - IPC or CLI
+        - Session lock, clipboard, or screen capture
+        - Startup, session, or packaging
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Distribution
+      description: Select the Linux distribution family where the issue occurs.
+      options:
+        - Arch-based
+        - Fedora-based
+        - Debian-based
+        - Gentoo-based
+        - NixOS
+        - openSUSE-based
+        - Void
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment information
+      description: |
+        Please provide relevant system information.
+
+        If you selected `Other` above, name the exact distribution or installation method here.
+        - GPU and driver: e.g. AMD RX 7800 XT (amdgpu)
+        - wlroots version
+        - Outputs: count, resolution, refresh rate, scale, transform
+        - Kernel version
+      placeholder: |
+        GPU and driver: AMD RX 7800 XT (amdgpu)
+        wlroots: 0.20.2
+        Outputs: DP-1 3840x2160@144 scale 1.5, HDMI-A-1 1920x1080@60 scale 1
+        Kernel: 6.17.4
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and error output
+      description: |
+        Paste relevant logs, terminal output, or backtraces.
+
+        Useful sources:
+        - `$XDG_CACHE_HOME/umbriel/umbriel.log` (fallback `~/.cache/umbriel/umbriel.log`)
+        - `journalctl --user -u umbriel.service -b` for managed systemd sessions
+        - Terminal output when running the binary directly
+        - `umbriel outputs`, `umbriel windows`, or `umbriel layers` when the issue involves geometry or focus
+        - A backtrace for crashes, ideally from a debug build
+
+        Large outputs can be wrapped in a `<details>` block or attached as a file.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: |
+        Add screenshots, screen recordings, config snippets, or any other relevant information here.
+
+        Visual, layout, and animation issues are much easier to fix with a recording.

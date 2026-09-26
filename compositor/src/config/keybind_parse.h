@@ -1,0 +1,309 @@
+#pragma once
+
+// Keybind vocabulary and the pure text-to-struct parsers over it. Split out of
+// config.h so the parsing can be exercised without loading a config file.
+
+#include "layout/layout.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace umbriel {
+
+  inline constexpr size_t kMaxWorkspaces = 64;
+
+  enum class WheelDirection {
+    None,
+    Up,
+    Down,
+    Left,
+    Right,
+  };
+
+  enum class KeybindAction {
+    None,
+    Spawn,
+    WindowClose,
+    SessionQuit,
+    WindowFocusLeft,
+    WindowFocusRight,
+    WindowFocusOrOutputLeft,
+    WindowFocusOrOutputRight,
+    WindowFocusUp,
+    WindowFocusDown,
+    WindowFocusOrWorkspaceUp,
+    WindowFocusOrWorkspaceDown,
+    WindowFocusSwitchFloating,
+    WindowFocusOrOutputUp,
+    WindowFocusOrOutputDown,
+    ColumnMoveLeft,
+    ColumnMoveRight,
+    ColumnMoveToWorkspace,
+    ColumnMoveToWorkspaceNext,
+    ColumnMoveToWorkspacePrevious,
+    WindowMoveOrOutputLeft,
+    WindowMoveOrOutputRight,
+    WindowMoveUp,
+    WindowMoveDown,
+    WindowMoveOrWorkspaceUp,
+    WindowMoveOrWorkspaceDown,
+    WindowMoveOrOutputUp,
+    WindowMoveOrOutputDown,
+    WindowConsumeLeft,
+    WindowConsumeOrExpelLeft,
+    WindowConsumeRight,
+    WindowConsumeOrExpelRight,
+    WindowCyclePrimaryExtent,
+    WindowCyclePrimaryExtentBack,
+    WindowSetPrimaryExtent,
+    ToggleMaximize,
+    ToggleMaximizeToEdges,
+    ToggleFullscreen,
+    ToggleFloating,
+    TogglePinned,
+    WindowFocusNext,
+    WorkspaceSwitch,
+    WindowMoveToWorkspace,
+    WindowMoveToWorkspaceSilent,
+    WindowMoveToWorkspaceSilentNext,
+    WindowMoveToWorkspaceSilentPrevious,
+    WindowMoveToWorkspaceNext,
+    WindowMoveToWorkspacePrevious,
+    ConfigReload,
+    KeyboardLayoutNext,
+    ShortcutsInhibitToggle,
+    LayoutScrollDrag,
+    LayoutScrollLeft,
+    LayoutScrollRight,
+    LayoutScrollUp,
+    LayoutScrollDown,
+    OverviewToggle,
+    OverviewOpen,
+    OverviewClose,
+    CheatsheetToggle,
+    CheatsheetOpen,
+    CheatsheetClose,
+    WindowMoveToScratchpad,
+    ScratchpadToggle,
+    WindowRestoreFromScratchpad,
+    WindowToggleScratchpad,
+    ScratchpadFocusNext,
+    Submap,
+    WindowFocusId,
+    WindowFocusWarpId,
+    WorkspaceNext,
+    WorkspacePrevious,
+    OutputFocusLeft,
+    OutputFocusRight,
+    OutputFocusUp,
+    OutputFocusDown,
+    OutputFocusNext,
+    OutputFocusPrevious,
+    WindowMoveToOutputLeft,
+    WindowMoveToOutputRight,
+    WindowMoveToOutputUp,
+    WindowMoveToOutputDown,
+    WindowMoveToOutputNext,
+    WindowMoveToOutputPrevious,
+    ColumnMoveToOutputLeft,
+    ColumnMoveToOutputRight,
+    ColumnMoveToOutputUp,
+    ColumnMoveToOutputDown,
+    WorkspaceMoveToOutputLeft,
+    WorkspaceMoveToOutputRight,
+    WorkspaceMoveToOutputUp,
+    WorkspaceMoveToOutputDown,
+    WorkspaceSwapActiveOutputLeft,
+    WorkspaceSwapActiveOutputRight,
+    WorkspaceSwapActiveOutputUp,
+    WorkspaceSwapActiveOutputDown,
+    WorkspaceSwapActiveOutputNext,
+    WorkspaceSwapActiveOutputPrevious,
+    WindowModifyPrimaryExtent,
+    WindowCenter,
+    WorkspaceSetLayout,
+    DpmsOff,
+    DpmsOn,
+    WorkspaceMoveDown,
+    WorkspaceMoveUp,
+    ColumnCenter,
+    ColumnFocusFirst,
+    ColumnFocusLast,
+    ColumnMoveToFirst,
+    ColumnMoveToLast,
+    WindowFocusPrevious,
+    WindowSwapNext,
+    WindowSwapPrevious,
+    LayoutMasterCountIncrease,
+    LayoutMasterCountDecrease,
+    WindowSetSecondaryExtent,
+    WindowModifySecondaryExtent,
+    WindowModifyWidthLeft,
+    WindowModifyWidthRight,
+    WindowModifyHeightUp,
+    WindowModifyHeightDown,
+    WindowCycleSecondaryExtent,
+    WindowCycleSecondaryExtentBack,
+    WindowFocusLast,
+    WorkspaceFocusLast,
+    Count,
+  };
+
+  // Action payloads. Exactly one is valid for a given action, so they live in a variant rather than as sibling fields:
+  // a spawn command and a workspace selector can no longer be set at the same time, and the submap name no longer
+  // shares storage with the spawn command.
+  struct SpawnArg {
+    std::string command;
+    bool operator==(const SpawnArg&) const = default;
+  };
+  struct SubmapArg {
+    std::string name;
+    bool operator==(const SubmapArg&) const = default;
+  };
+
+  [[nodiscard]] inline bool validSubmapName(std::string_view name) {
+    return !name.empty() && name != "disable" && !name.contains(']');
+  }
+
+  struct FractionArg {
+    double fraction = 0.0;
+    bool operator==(const FractionArg&) const = default;
+  };
+  struct WorkspaceIndex {
+    size_t value = 0;
+    bool operator==(const WorkspaceIndex&) const = default;
+  };
+  struct WorkspaceName {
+    std::string value;
+    bool operator==(const WorkspaceName&) const = default;
+  };
+  using WorkspaceReference = std::variant<WorkspaceIndex, WorkspaceName>;
+  struct WorkspaceArg {
+    WorkspaceReference reference;
+    std::string output; // empty = positions use the cursor-preferred output, names resolve globally
+    bool operator==(const WorkspaceArg&) const = default;
+  };
+  struct OutputArg {
+    std::string output; // empty = the focused output
+    bool operator==(const OutputArg&) const = default;
+  };
+  struct ScratchpadArg {
+    std::string name; // empty = the implicit default scratchpad
+    bool operator==(const ScratchpadArg&) const = default;
+  };
+  struct WindowIdArg {
+    std::string id; // empty = the focused window
+    bool operator==(const WindowIdArg&) const = default;
+  };
+  struct LayoutModeArg {
+    std::optional<LayoutMode> mode; // nullopt cycles scrolling to dwindle to master to scrolling
+    bool operator==(const LayoutModeArg&) const = default;
+  };
+  struct QuitArg {
+    bool skipConfirmation = false;
+    bool operator==(const QuitArg&) const = default;
+  };
+
+  using KeybindPayload = std::variant<
+      std::monostate, SpawnArg, SubmapArg, FractionArg, WorkspaceArg, OutputArg, ScratchpadArg, WindowIdArg,
+      LayoutModeArg, QuitArg>;
+
+  struct Keybind {
+    // What triggers the bind.
+    std::string submap;
+    uint32_t modifiers = 0;
+    bool useMod = false;
+    bool modifierOnly = false;
+    uint32_t keysym = 0;
+    WheelDirection wheel = WheelDirection::None;
+    uint32_t mouseButton = 0; // evdev BTN_* code, 0 = not a mouse bind
+    bool repeat = true;
+    bool allowWhenLocked = false;
+    bool allowWhenInhibited = false;
+    int cooldownMs = 0;
+
+    // What it does.
+    KeybindAction action = KeybindAction::None;
+    KeybindPayload payload;
+    // Optional layer transition after the primary action is dispatched.
+    std::optional<SubmapArg> submapAfter;
+
+    bool operator==(const Keybind&) const = default;
+  };
+
+  // Null unless the bind carries that payload alternative.
+  template <typename Arg> [[nodiscard]] const Arg* payloadIf(const Keybind& bind) {
+    return std::get_if<Arg>(&bind.payload);
+  }
+
+  // "reset" pops the current submap instead of pushing a new one. Recognised in
+  // both the action and matcher so a default-context bind can be an emergency exit.
+  [[nodiscard]] inline bool isSubmapReset(const SubmapArg& arg) { return arg.name == "reset"; }
+
+  [[nodiscard]] inline bool isSubmapResetBind(const Keybind& bind) {
+    const auto* arg = payloadIf<SubmapArg>(bind);
+    return bind.action == KeybindAction::Submap && arg != nullptr && isSubmapReset(*arg);
+  }
+
+  // The cheatsheet's own binds must not dismiss it: the press or chord that
+  // opened the overlay would otherwise close it again in the same event.
+  [[nodiscard]] inline bool isCheatsheetAction(KeybindAction action) {
+    return action == KeybindAction::CheatsheetToggle
+        || action == KeybindAction::CheatsheetOpen
+        || action == KeybindAction::CheatsheetClose;
+  }
+
+  enum class ActionArgKind : uint8_t {
+    None,
+    Command,
+    Fraction,
+    Workspace,
+    OptionalOutput,
+    OptionalScratchpad,
+    WindowId,
+    OptionalWindowId,
+    FractionDelta,
+    LayoutMode,
+    SkipConfirmation
+  };
+
+  struct ActionSpec {
+    std::string_view name;  // e.g. "spawn", "workspace-switch", "window-close"
+    std::string_view param; // "" for simple, "<cmd>" / "<workspace>[/<output>]" for parameterized
+    // One line, no trailing period. `umbriel msg --help` and docs/user/actions.md render it verbatim, and a unit test
+    // fails when the doc table and this table disagree.
+    std::string_view summary;
+    KeybindAction action;
+    ActionArgKind argKind = ActionArgKind::None;
+  };
+
+  // Evdev BTN_* code for a canonical mouse button name such as "MouseBack", or 0 when the name is not one. Matching is
+  // case-insensitive.
+  [[nodiscard]] uint32_t mouseButtonFromName(std::string_view name);
+
+  // Canonical name for an evdev BTN_* code, or nullptr for a button Umbriel does not name.
+  [[nodiscard]] const char* mouseButtonName(uint32_t button);
+
+  // Parse a chord such as "Mod+Shift+h", "Ctrl+Alt+Delete", "Mod+WheelUp", "Mod+MouseBack", or "submap[resize],Escape".
+  // Only the trigger fields are written; the action is set separately by parseAction. Returns false and leaves `output`
+  // default-constructed on any malformed input.
+  bool parseChord(std::string_view chord, Keybind& output);
+
+  // Parse an action such as "window-close", "spawn:foot", "window-set-primary-extent:0.5", or
+  // "workspace-switch:2/DP-1", writing the action and its payload into `output` without touching the trigger fields.
+  // Numeric workspace selectors are positions; surround a name with double quotes when the name itself contains only
+  // digits.
+  bool parseAction(std::string_view value, Keybind& output);
+
+  std::span<const ActionSpec> actionSpecs();
+
+  // The binds used when no config file supplies any.
+  std::vector<Keybind> defaultKeybinds();
+
+} // namespace umbriel

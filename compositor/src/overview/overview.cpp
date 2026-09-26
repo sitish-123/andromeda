@@ -1,0 +1,3297 @@
+#include "overview/overview.h"
+
+#include "overview/preview_geometry.h"
+#include "scene/animation_shader.h"
+extern "C" {
+#include <umbrielfx/render/animation.h>
+}
+
+#include "config/config.h"
+#include "core/log.h"
+#include "input/cursor.h"
+#include "input/gestures.h"
+#include "input/seat.h"
+#include "layer/layer_surface.h"
+#include "layout/drop_target.h"
+#include "layout/layout.h"
+#include "layout/scrolling.h"
+#include "output/output.h"
+#include "overview/shortcut_labels.h"
+#include "scene/border_rect.h"
+#include "scene/color.h"
+#include "scene/hint_rect.h"
+#include "scene/text_buffer.h"
+#include "server/server.h"
+#include "server/wine_color_manager.h"
+#include "view/view.h"
+// clang-format off
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <limits>
+#include <linux/input-event-codes.h>
+#include <format>
+#include <ranges>
+#include <xkbcommon/xkbcommon.h>
+#include "wlr.h"
+// clang-format on
+#include "workspace/scratchpad.h"
+#include "workspace/workspace.h"
+
+namespace umbriel {
+
+  namespace {
+    constexpr Logger kLog("overview");
+    constexpr double kMiddleScrollStepPx = 105.0;
+
+    // Overview progress over which the desktop's shadows and pinned windows fade, starting from the desktop.
+    constexpr double kDesktopChromeFade = 0.1;
+    // Pointer travel that promotes a press on a card into a relocate drag.
+    constexpr double kDragThreshold = 10.0;
+    // How much of the focused border color mixes into the unfocused one for a landing target that is not the live one.
+    constexpr float kLandingTargetBlend = 0.4F;
+    // Inset of a shortcut badge from the card edge it hugs.
+    constexpr int kBadgeMargin = 6;
+
+    std::array<float, 4> mixColor(const std::array<float, 4>& from, const std::array<float, 4>& to, float amount) {
+      std::array<float, 4> out{};
+      for (size_t index = 0; index < out.size(); ++index) {
+        out[index] = std::lerp(from[index], to[index], amount);
+      }
+      return out;
+    }
+
+    bool boxContains(const wlr_box& box, double x, double y) {
+      return x >= box.x && y >= box.y && x < box.x + box.width && y < box.y + box.height;
+    }
+
+    // wlr_scene_rect colors are premultiplied; straight alpha renders as an
+    // over-bright wash (scene/color.h).
+    std::array<float, 4> tint(const std::array<float, 4>& base, double opacity) {
+      std::array<float, 4> out{};
+      // Overshooting curves push the overview progress past [0, 1].
+      premultiplied(out.data(), base, static_cast<float>(std::clamp(opacity, 0.0, 1.0)));
+      return out;
+    }
+    void layoutWorkspaceBackground(
+        wlr_scene_rect* background, const wlr_box& box, int radius, const std::array<float, 4>& color
+    ) {
+      if (background == nullptr) {
+        return;
+      }
+      if (color[3] <= 0.001F) {
+        wlr_scene_node_set_enabled(&background->node, false);
+        return;
+      }
+
+      wlr_scene_node_set_enabled(&background->node, true);
+      wlr_scene_node_set_position(&background->node, box.x, box.y);
+      wlr_scene_rect_set_size(background, box.width, box.height);
+      wlr_scene_rect_set_color(background, color.data());
+      wlr_scene_rect_set_clipped_region(background, clipped_region_get_default());
+      wlr_scene_rect_set_corner_radii(background, corner_radii_all(radius));
+    }
+
+    // Cards are pure output: hit testing runs off Overview's own boxes, so scene
+    // input must never land on them (Server::viewAt then sees layer surfaces only).
+    bool rejectInput(wlr_scene_buffer* /*buffer*/, double* /*sx*/, double* /*sy*/) { return false; }
+
+    char asciiLower(char character) {
+      return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+    }
+
+    char shortcutCharacter(uint32_t keysym) {
+      if (keysym >= XKB_KEY_KP_0 && keysym <= XKB_KEY_KP_9) {
+        return static_cast<char>('0' + (keysym - XKB_KEY_KP_0));
+      }
+      const xkb_keysym_t lowered = xkb_keysym_to_lower(keysym);
+      return lowered >= 0x21 && lowered <= 0x7E ? static_cast<char>(lowered) : '\0';
+    }
+
+    bool shortcutStartsWith(std::string_view label, std::string_view prefix) {
+      if (label.size() < prefix.size()) {
+        return false;
+      }
+      for (size_t index = 0; index < prefix.size(); ++index) {
+        if (asciiLower(label[index]) != prefix[index]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    wlr_scene_buffer* sourceBufferForSurface(wlr_scene_node* node, wlr_surface* surface) {
+      if (node->type == WLR_SCENE_NODE_BUFFER) {
+        wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+        wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+        return sceneSurface != nullptr && sceneSurface->surface == surface ? buffer : nullptr;
+      }
+      if (node->type != WLR_SCENE_NODE_TREE) {
+        return nullptr;
+      }
+      wlr_scene_tree* tree = wlr_scene_tree_from_node(node);
+      wlr_scene_node* child = nullptr;
+      wl_list_for_each(child, &tree->children, link) {
+        if (wlr_scene_buffer* buffer = sourceBufferForSurface(child, surface)) {
+          return buffer;
+        }
+      }
+      return nullptr;
+    }
+  } // namespace
+
+  Overview::Overview(Server& server) : m_server(&server) { m_server->registerAnimatable(this); }
+
+  Overview::~Overview() {
+    m_server->unregisterAnimatable(this);
+    m_zoomAnim.snap(0.0);
+    teardown();
+  }
+
+  double Overview::settledZoom() { return std::clamp(config().overview.zoom, 0.1, 0.75); }
+
+  double Overview::zoom() const { return 1.0 - m_progress * (1.0 - settledZoom()); }
+
+  float Overview::desktopChromeAlpha() const {
+    return static_cast<float>(std::clamp(1.0 - m_progress / kDesktopChromeFade, 0.0, 1.0));
+  }
+
+  double Overview::zoomPixelsPerUnit() const {
+    // A point `d` along an output extent `E` sits at `base + d * z`, with `base` centering the preview, so it moves
+    // at most E / 2 per unit of zoom. Neighbouring rows add a whole step, E * (1 + gap), but they only show near the
+    // open end; a close ends with them off the output.
+    const double rowFactor = m_targetProgress < m_progressFrom ? 0.5 : 1.5 + kPreviewRowGapFraction;
+    double extent = 0.0;
+    for (const auto& state : m_outputs) {
+      wlr_box box{};
+      wlr_output_layout_get_box(m_server->outputLayout(), state->output->wlr(), &box);
+      extent = std::max(extent, static_cast<double>(std::max(box.width, box.height)));
+    }
+    const double zoomSpan = std::abs(m_targetProgress - m_progressFrom) * (1.0 - settledZoom());
+    // Whole pixels per unit keep the target (1.0) on the pixel grid finishSpringTail rounds against.
+    return std::ceil(zoomSpan * extent * rowFactor);
+  }
+
+  // -: geometry
+
+  bool Overview::previewMetrics(const OutputState& state, const Server& server, double zoom, PreviewMetrics& out) {
+    wlr_box outputBox{};
+    wlr_output_layout_get_box(server.outputLayout(), state.output->wlr(), &outputBox);
+    if (outputBox.width <= 0 || outputBox.height <= 0) {
+      return false;
+    }
+    const WorkspaceGroup* group = state.output->workspaceGroup();
+    out.outputBox = outputBox;
+    out.usableBox = state.output->usableArea();
+    if (out.usableBox.width <= 0 || out.usableBox.height <= 0) {
+      out.usableBox = outputBox;
+    }
+    out.zoom = zoom;
+    out.axis = group != nullptr ? group->workspaceAxis() : WorkspaceAxis::Vertical;
+    const PreviewGrid grid = previewGrid(
+        outputBox.x, outputBox.y, outputBox.width, outputBox.height, zoom, out.axis == WorkspaceAxis::Horizontal
+    );
+    out.previewW = grid.width;
+    out.previewH = grid.height;
+    out.baseX = grid.baseX;
+    out.baseY = grid.baseY;
+    out.gap = grid.gap;
+    return true;
+  }
+
+  wlr_box Overview::previewBox(const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex) {
+    const bool horizontal = metrics.axis == WorkspaceAxis::Horizontal;
+    const PreviewGrid grid{
+        .width = metrics.previewW,
+        .height = metrics.previewH,
+        .baseX = metrics.baseX,
+        .baseY = metrics.baseY,
+        .gap = metrics.gap,
+    };
+    const int origin = previewAxisOrigin(grid, horizontal, workspaceIndex, workspaceScroll);
+    return {
+        .x = horizontal ? origin : metrics.baseX,
+        .y = horizontal ? metrics.baseY : origin,
+        .width = metrics.previewW,
+        .height = metrics.previewH,
+    };
+  }
+
+  void Overview::layoutCard(Card& card, const PreviewMetrics& metrics, double workspaceScroll, const View* liveTarget) {
+    View* view = card.view;
+    view->syncAnimationShaders(card.tree, card.border != nullptr ? &card.border->node : nullptr);
+    if (card.shadowTree != nullptr) {
+      wlr_scene_node_set_enabled(&card.shadowTree->node, false);
+    }
+    const wlr_box& geometry = view->toplevel()->base->geometry;
+    if (geometry.width <= 0 || geometry.height <= 0) {
+      card.blur.hide();
+      wlr_scene_node_set_enabled(&card.tree->node, false);
+      return;
+    }
+    wlr_scene_node_set_enabled(&card.tree->node, true);
+    // A tiled opener waiting for the arrange that places it is not showing yet. Its card follows.
+    if (view->tiledOpeningDeferred()) {
+      card.blur.hide();
+      wlr_scene_node_set_enabled(&card.tree->node, false);
+      return;
+    }
+
+    const double z = metrics.zoom;
+    const wlr_box& world = view->presentedBox();
+    if (world.width <= 0 || world.height <= 0) {
+      card.blur.hide();
+      wlr_scene_node_set_enabled(&card.tree->node, false);
+      return;
+    }
+    const int contentW = std::max(1, static_cast<int>(std::lround(world.width * z)));
+    const int contentH = std::max(1, static_cast<int>(std::lround(world.height * z)));
+    if (&card == m_dragCard) {
+      // The drag owns the card origin; only the scale still tracks progress.
+      card.box.width = contentW;
+      card.box.height = contentH;
+    } else {
+      const wlr_box preview = previewBox(metrics, workspaceScroll, card.workspaceIndex);
+      card.box = {
+          .x = preview.x + static_cast<int>(std::lround((world.x - metrics.outputBox.x) * z)),
+          .y = preview.y + static_cast<int>(std::lround((world.y - metrics.outputBox.y) * z)),
+          .width = contentW,
+          .height = contentH,
+      };
+    }
+    wlr_scene_node_set_position(&card.tree->node, card.box.x, card.box.y);
+    // Cards overhang their preview by design; the output's overview tree clip is
+    // what keeps them off the neighbouring monitor.
+    wlr_scene_tree_set_clip(card.tree, nullptr);
+    layoutCardShadow(card, z, desktopChromeAlpha());
+    const float cardOpacity = &card == m_dragCard ? config().appearance.dragOpacity : 1.0F;
+    const float presentedOpacity = view->presentedOpacity() * cardOpacity;
+
+    const int borderWidth = view->decorationBorderWidth();
+    const int outerBorderWidth = view->decorationOuterBorderWidth();
+    const int total = borderWidth + outerBorderWidth;
+    const bool decorated = total > 0 && !view->toplevel()->current.fullscreen && !view->maximizedToEdges();
+    const int scaledRadius = static_cast<int>(std::lround(view->decorationCornerRadius() * z));
+    const int outerRadius = decorated ? scaledRadius : 0;
+    const auto scaledWidth = [z](int width) {
+      return width > 0 ? std::max(1, static_cast<int>(std::lround(width * z))) : 0;
+    };
+    const int innerWidth = scaledWidth(borderWidth);
+    const int outerWidth = scaledWidth(outerBorderWidth);
+    const int surfaceRadius = nestedRadius(outerRadius, innerWidth + outerWidth);
+    const bool borderVisible = decorated && innerWidth + outerWidth > 0;
+    wlr_scene_node_set_enabled(&card.border->node, borderVisible);
+    if (borderVisible) {
+      applyBorderGeometry(
+          card.border, makeBorderRing(contentW, contentH, outerRadius, innerWidth, outerWidth), innerWidth, outerWidth
+      );
+      const std::array<float, 4> innerColor = tint(cardBorderColor(card, liveTarget), presentedOpacity);
+      const std::array<float, 4> outerColor = tint(view->borderColors().outer, presentedOpacity);
+      wlr_scene_border_set_colors(card.border, innerColor.data(), outerColor.data());
+    }
+
+    if (card.badge != nullptr) {
+      // Overshooting curves can push m_progress past [0, 1] and wlr_scene_buffer_set_opacity asserts.
+      const auto badgeAlpha = static_cast<float>(std::clamp(m_progress, 0.0, 1.0));
+      const bool matched = card.shortcutMatched != SIZE_MAX;
+      const bool fits =
+          contentW >= card.badgeWidth + 2 * kBadgeMargin && contentH >= card.badgeHeight + 2 * kBadgeMargin;
+      const bool badgeOn =
+          !card.shortcut.empty() && matched && fits && !m_closing && &card != m_dragCard && badgeAlpha > 0.01F;
+      wlr_scene_node_set_enabled(&card.badge->node, badgeOn);
+      if (badgeOn) {
+        // The badge hugs the card's top-left corner, and only that corner can
+        // go missing: the output tree clips cards at the output edge, and the
+        // top and overlay layers draw their exclusive zones over the overview.
+        // So on each axis it slides just enough to clear the start of the usable
+        // area, never past the card's own opposite inset. A card whose corner
+        // has scrolled out of view keeps its badge at that inset, which is the
+        // bottom-left corner for a preview above the current workspace.
+        // `fits` is what keeps the card-local bounds ordered.
+        const auto inset = [](int origin, int extent, int badgeExtent, int clipStart) {
+          return std::clamp(
+              std::max(clipStart, origin) + kBadgeMargin - origin, kBadgeMargin, extent - badgeExtent - kBadgeMargin
+          );
+        };
+        wlr_scene_node_set_position(
+            &card.badge->node, inset(card.box.x, contentW, card.badgeWidth, metrics.usableBox.x),
+            inset(card.box.y, contentH, card.badgeHeight, metrics.usableBox.y)
+        );
+        wlr_scene_buffer_set_opacity(card.badgeText, badgeAlpha);
+        const std::array<float, 4> background = tint(card.badgeBackground, badgeAlpha);
+        wlr_scene_rect_set_color(card.badgeRect, background.data());
+        // The badge renders unscaled, so it takes the zoomed radius the cards
+        // around it use instead of the full-size one.
+        wlr_scene_rect_set_corner_radius(
+            card.badgeRect, std::min(scaledRadius, std::min(card.badgeWidth, card.badgeHeight) / 2)
+        );
+      }
+    }
+
+    // Every surface of the card rounds against the card's content box, the same rule the live window uses, so a
+    // client that draws its corners from a subsurface keeps them rounded in the thumbnail.
+    const auto roundToCardBox = [surfaceRadius, contentW, contentH](wlr_scene_buffer* buffer) {
+      const wlr_box cornerBox{-buffer->node.x, -buffer->node.y, contentW, contentH};
+      wlr_scene_buffer_set_corner_radii(buffer, corner_radii_all(surfaceRadius));
+      wlr_scene_buffer_set_corner_box(buffer, surfaceRadius > 0 ? &cornerBox : nullptr);
+    };
+    const double fx = static_cast<double>(contentW) / geometry.width;
+    const double fy = static_cast<double>(contentH) / geometry.height;
+    bool blurUpdated = false;
+    for (const auto& entry : card.surfaces) {
+      wlr_surface* surface = entry->surface;
+      if (entry->buffer == nullptr || surface->current.width <= 0 || surface->current.height <= 0) {
+        continue;
+      }
+      const float surfaceOpacity =
+          entry->sourceBuffer != nullptr ? entry->sourceBuffer->opacity * cardOpacity : cardOpacity;
+      wlr_scene_buffer_set_opacity(entry->buffer, surfaceOpacity);
+      if (!entry->isRoot) {
+        wlr_box sub{
+            card.box.x + static_cast<int>(std::lround((entry->sx - geometry.x) * fx)),
+            card.box.y + static_cast<int>(std::lround((entry->sy - geometry.y) * fy)),
+            std::max(1, static_cast<int>(std::lround(surface->current.width * fx))),
+            std::max(1, static_cast<int>(std::lround(surface->current.height * fy))),
+        };
+        wlr_scene_node_set_enabled(&entry->buffer->node, true);
+        wlr_scene_node_set_position(&entry->buffer->node, sub.x - card.box.x, sub.y - card.box.y);
+        wlr_scene_buffer_set_dest_size(entry->buffer, sub.width, sub.height);
+        roundToCardBox(entry->buffer);
+        continue;
+      }
+      // Root surface: crop to the committed window geometry so CSD shadow padding never leaks into the thumbnail, then
+      // scale the visible part of that region onto the card.
+      wlr_fbox base{};
+      wlr_surface_get_buffer_source_box(surface, &base);
+      const double bx = base.width / surface->current.width;
+      const double by = base.height / surface->current.height;
+      wlr_fbox src{base.x + geometry.x * bx, base.y + geometry.y * by, geometry.width * bx, geometry.height * by};
+      if (src.x < base.x) {
+        src.width -= base.x - src.x;
+        src.x = base.x;
+      }
+      if (src.y < base.y) {
+        src.height -= base.y - src.y;
+        src.y = base.y;
+      }
+      src.width = std::min(src.width, base.x + base.width - src.x);
+      src.height = std::min(src.height, base.y + base.height - src.y);
+      if (src.width <= 0 || src.height <= 0) {
+        wlr_scene_node_set_enabled(&entry->buffer->node, false);
+        continue;
+      }
+      wlr_scene_node_set_enabled(&entry->buffer->node, true);
+      wlr_scene_node_set_position(&entry->buffer->node, 0, 0);
+      wlr_scene_buffer_set_source_box(entry->buffer, &src);
+      wlr_scene_buffer_set_dest_size(entry->buffer, contentW, contentH);
+      roundToCardBox(entry->buffer);
+      const wlr_box blurBox{0, 0, contentW, contentH};
+      card.blur.setAlpha(1.0F);
+      card.blur.update(
+          card.tree, surface, blurBox, geometry, surfaceRadius, nullptr, view->blurOptions(), entry->buffer->opacity,
+          entry->buffer
+      );
+      blurUpdated = true;
+    }
+    if (!blurUpdated) {
+      card.blur.hide();
+    }
+  }
+
+  void Overview::layoutCardShadow(Card& card, double zoom, float alpha) const {
+    const wlr_scene_shadow* source = card.view->shadowNode();
+    if (alpha <= 0.0F || source == nullptr || !source->node.enabled || &card == m_dragCard) {
+      return;
+    }
+    wlr_scene_tree* parent = card.view->shadowPooled() ? card.owner->tileShadows : card.tree;
+    if (parent == nullptr) {
+      return;
+    }
+    if (card.shadowTree == nullptr) {
+      card.shadowTree = wlr_scene_tree_create(parent);
+      if (card.shadowTree == nullptr) {
+        return;
+      }
+      card.shadow = wlr_scene_shadow_create(card.shadowTree, 0, 0, 0, 0.0F, source->color);
+      if (card.shadow == nullptr) {
+        destroyCardShadow(card);
+        return;
+      }
+    } else if (card.shadowTree->node.parent != parent) {
+      wlr_scene_node_reparent(&card.shadowTree->node, parent);
+    }
+    // Under the card the tree follows the card origin and sits below its content, the way the real container sits
+    // under the frame; in the pool it carries the card origin itself.
+    if (parent == card.tree) {
+      wlr_scene_node_lower_to_bottom(&card.shadowTree->node);
+      wlr_scene_node_set_position(&card.shadowTree->node, 0, 0);
+    } else {
+      wlr_scene_node_set_position(&card.shadowTree->node, card.box.x, card.box.y);
+    }
+    wlr_scene_node_set_enabled(&card.shadowTree->node, true);
+
+    const auto scaled = [zoom](int value) { return static_cast<int>(std::lround(value * zoom)); };
+    const auto scaledCorner = [zoom](uint16_t value) {
+      return static_cast<uint16_t>(std::lround(static_cast<double>(value) * zoom));
+    };
+    wlr_scene_node_set_position(&card.shadow->node, scaled(source->node.x), scaled(source->node.y));
+    wlr_scene_shadow_set_size(card.shadow, std::max(0, scaled(source->width)), std::max(0, scaled(source->height)));
+    wlr_scene_shadow_set_blur_sigma(card.shadow, static_cast<float>(source->blur_sigma * zoom));
+    wlr_scene_shadow_set_corner_radius(card.shadow, scaled(source->corner_radius));
+    const float color[4] = {source->color[0], source->color[1], source->color[2], source->color[3] * alpha};
+    wlr_scene_shadow_set_color(card.shadow, color);
+    const clipped_region& hole = source->clipped_region;
+    wlr_scene_shadow_set_clipped_region(
+        card.shadow,
+        clipped_region{
+            .area =
+                {
+                    .x = scaled(hole.area.x),
+                    .y = scaled(hole.area.y),
+                    .width = scaled(hole.area.width),
+                    .height = scaled(hole.area.height),
+                },
+            .corners = {
+                .top_left = scaledCorner(hole.corners.top_left),
+                .top_right = scaledCorner(hole.corners.top_right),
+                .bottom_right = scaledCorner(hole.corners.bottom_right),
+                .bottom_left = scaledCorner(hole.corners.bottom_left),
+            },
+        }
+    );
+  }
+
+  void Overview::destroyCardShadow(Card& card) {
+    if (card.shadowTree != nullptr) {
+      wlr_scene_node_destroy(&card.shadowTree->node);
+    }
+    card.shadowTree = nullptr;
+    card.shadow = nullptr;
+  }
+
+  void Overview::layoutOutput(OutputState& state) {
+    PreviewMetrics metrics{};
+    if (!previewMetrics(state, *m_server, zoom(), metrics)) {
+      return;
+    }
+
+    // Previews overhang the output by design (adjacent workspaces peek in). One clip on this output's overview tree
+    // contains every card, ring, and workspace background, so none needs to trim its own geometry. The dragged card
+    // is reparented out to the unclipped overview root, which is what lets it span outputs.
+    wlr_scene_tree_set_clip(state.tree, &metrics.outputBox);
+    if (state.backgroundBlur != nullptr) {
+      wlr_scene_blur* blur = state.backgroundBlur;
+      wlr_scene_node_set_enabled(&blur->node, m_progress > 0.001);
+      wlr_scene_node_set_position(&blur->node, metrics.outputBox.x, metrics.outputBox.y);
+      if (blur->width != metrics.outputBox.width || blur->height != metrics.outputBox.height) {
+        wlr_scene_blur_set_size(blur, metrics.outputBox.width, metrics.outputBox.height);
+      }
+      // Blur alpha and strength are normalized to [0, 1]; clamp an overshooting progress.
+      const auto level = static_cast<float>(std::clamp(m_progress, 0.0, 1.0));
+      if (blur->alpha != level) {
+        wlr_scene_blur_set_alpha(blur, level);
+      }
+      if (blur->strength != level) {
+        wlr_scene_blur_set_strength(blur, level);
+      }
+    }
+
+    wlr_scene_node_set_position(&state.backgroundTint->node, metrics.outputBox.x, metrics.outputBox.y);
+    wlr_scene_rect_set_size(state.backgroundTint, metrics.outputBox.width, metrics.outputBox.height);
+    const std::array<float, 4> backgroundTint = tint(config().colors.overview.backgroundTint, m_progress);
+    // A fully transparent tint leaves the wallpaper untouched.
+    wlr_scene_node_set_enabled(&state.backgroundTint->node, backgroundTint[3] > 0.001F);
+    wlr_scene_rect_set_color(state.backgroundTint, backgroundTint.data());
+
+    refreshDesktop(state);
+    const int backgroundRadius = static_cast<int>(std::lround(config().appearance.cornerRadius * metrics.zoom));
+    const std::array<float, 4> backgroundColor = tint(config().colors.overview.workspaceBackground, m_progress);
+    const double z = metrics.zoom;
+    for (size_t index = 0; index < state.workspaceBackgrounds.size(); ++index) {
+      const WorkspaceBackground& background = state.workspaceBackgrounds[index];
+      const wlr_box full = previewBox(metrics, state.rowScroll.current(), index);
+      layoutWorkspaceBackground(background.fill, full, backgroundRadius, backgroundColor);
+      if (background.mirrors.empty()) {
+        continue;
+      }
+      // The preview is the viewport onto the mirrored stack: a partially anchored surface must not reach into the
+      // gap between previews.
+      wlr_scene_tree_set_clip(background.tree, &full);
+      for (const auto& mirror : background.mirrors) {
+        wlr_box box{};
+        const bool visible = desktopSourceBox(*mirror->source, box);
+        wlr_scene_node_set_enabled(&mirror->buffer->node, visible);
+        if (!visible) {
+          continue;
+        }
+        wlr_scene_node_set_position(
+            &mirror->buffer->node, full.x + static_cast<int>(std::lround(box.x * z)),
+            full.y + static_cast<int>(std::lround(box.y * z))
+        );
+        wlr_scene_buffer_set_dest_size(
+            mirror->buffer, std::max(1, static_cast<int>(std::lround(box.width * z))),
+            std::max(1, static_cast<int>(std::lround(box.height * z)))
+        );
+        // Only a surface spanning the whole output takes the preview's rounding; a smaller one keeps its own edges.
+        const bool spansOutput = box.x <= 0
+            && box.y <= 0
+            && box.x + box.width >= metrics.outputBox.width
+            && box.y + box.height >= metrics.outputBox.height;
+        wlr_scene_buffer_set_corner_radii(mirror->buffer, corner_radii_all(spansOutput ? backgroundRadius : 0));
+      }
+    }
+
+    const View* liveTarget = liveTargetView();
+    for (const auto& card : state.cards) {
+      layoutCard(*card, metrics, state.rowScroll.current(), liveTarget);
+    }
+  }
+
+  void Overview::applyPinnedOpacity(float alpha) const {
+    // A window unpinned while the overview is up becomes a card, so it returns to full opacity underneath.
+    for (const auto& view : m_server->registry().all()) {
+      view->setOverviewOpacity(view->pinned() ? alpha : 1.0F);
+    }
+  }
+
+  View* Overview::liveTargetView() const {
+    const Workspace* workspace = preferredWorkspace();
+    return workspace != nullptr ? workspace->focusedView() : nullptr;
+  }
+
+  std::array<float, 4> Overview::cardBorderColor(const Card& card, const View* liveTarget) const {
+    const auto& border = card.view != nullptr ? card.view->borderColors() : config().colors.border;
+    const Workspace* workspace = card.view != nullptr ? card.view->workspace() : nullptr;
+    if (workspace == nullptr || workspace->focusedView() != card.view || &card == m_dragCard) {
+      return border.unfocused;
+    }
+    // No window holds the seat while the overview is up, so exactly one card wears the focused color: the one a focus
+    // or close action would act on. Every other row still marks the card it would land on, with a weaker mix.
+    if (card.view == liveTarget) {
+      return border.focused;
+    }
+    return mixColor(border.unfocused, border.focused, kLandingTargetBlend);
+  }
+
+  void Overview::applyProgress() {
+    if (m_shortcutsDirty) {
+      m_shortcutsDirty = false;
+      updateShortcutAssignments();
+    }
+    for (const auto& state : m_outputs) {
+      layoutOutput(*state);
+    }
+    // Pinned windows get no card: the real ones fade over the filmstrip instead of blinking at either end.
+    const float chrome = desktopChromeAlpha();
+    applyPinnedOpacity(chrome);
+    wlr_scene_node_set_enabled(&m_server->pinnedTree()->node, chrome > 0.0F);
+    scheduleFrames();
+  }
+
+  void Overview::scheduleFrames() const {
+    for (const auto& state : m_outputs) {
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+  }
+
+  // -: background mirrors
+
+  void Overview::collectDesktopSurfaces(const Output& output, std::vector<DesktopEntry>& out) const {
+    out.clear();
+    if (!config().overview.workspaceWallpaper) {
+      return;
+    }
+    // Scene child order is bottom to top, so walking the two layer trees in place reproduces what renders below the
+    // windows. Children that are not a mapped layer surface (an unmap snapshot, for instance) have no surface to
+    // mirror and drop out here.
+    for (const uint32_t layer : {ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM}) {
+      wlr_scene_tree* layerTree = output.layerTree(layer);
+      if (layerTree == nullptr) {
+        continue;
+      }
+      wlr_scene_node* child = nullptr;
+      wl_list_for_each(child, &layerTree->children, link) {
+        if (child->type != WLR_SCENE_NODE_TREE || !child->enabled) {
+          continue;
+        }
+        wlr_scene_tree* tree = wlr_scene_tree_from_node(child);
+        for (const auto& candidate : m_server->layerSurfaces()) {
+          if (!candidate->mapped() || candidate->scene() == nullptr || candidate->scene()->tree != tree) {
+            continue;
+          }
+          wlr_surface* surface = candidate->layerSurface()->surface;
+          if (surface->buffer == nullptr || surface->current.width <= 0 || surface->current.height <= 0) {
+            break;
+          }
+          out.push_back({.surface = surface, .tree = tree});
+          break;
+        }
+      }
+    }
+  }
+
+  void Overview::clearDesktop(OutputState& state) const {
+    for (const auto& source : state.desktop) {
+      wl_list_remove(&source->commit.link);
+      wl_list_remove(&source->destroy.link);
+    }
+    state.desktop.clear();
+    for (WorkspaceBackground& background : state.workspaceBackgrounds) {
+      for (const auto& mirror : background.mirrors) {
+        wl_list_remove(&mirror->outputSample.link);
+        wl_list_remove(&mirror->frameDone.link);
+        if (mirror->buffer != nullptr) {
+          wlr_scene_node_destroy(&mirror->buffer->node);
+        }
+      }
+      background.mirrors.clear();
+    }
+  }
+
+  void Overview::refreshDesktop(OutputState& state) {
+    std::vector<DesktopEntry> resolved;
+    collectDesktopSurfaces(*state.output, resolved);
+    bool same = resolved.size() == state.desktop.size();
+    for (size_t index = 0; same && index < resolved.size(); ++index) {
+      same = state.desktop[index]->surface == resolved[index].surface;
+    }
+    if (same) {
+      // A surface keeps its scene tree, but the tree can be reparented between layers, so refresh the pointer the
+      // mirror geometry reads.
+      for (size_t index = 0; index < resolved.size(); ++index) {
+        state.desktop[index]->tree = resolved[index].tree;
+      }
+      return;
+    }
+
+    clearDesktop(state);
+    state.desktop.reserve(resolved.size());
+    for (const DesktopEntry& entry : resolved) {
+      auto source = std::make_unique<DesktopSurface>();
+      source->overview = this;
+      source->state = &state;
+      source->surface = entry.surface;
+      source->tree = entry.tree;
+      source->commit.notify = onDesktopSurfaceCommit;
+      wl_signal_add(&entry.surface->events.commit, &source->commit);
+      source->destroy.notify = onDesktopSurfaceDestroy;
+      wl_signal_add(&entry.surface->events.destroy, &source->destroy);
+      state.desktop.push_back(std::move(source));
+    }
+    for (WorkspaceBackground& background : state.workspaceBackgrounds) {
+      createRowMirrors(state, background);
+    }
+    syncDesktopMirrors(state);
+  }
+
+  void Overview::createRowMirrors(OutputState& state, WorkspaceBackground& background) const {
+    if (background.tree == nullptr) {
+      return;
+    }
+    background.mirrors.reserve(state.desktop.size());
+    // Created in stack order, above the fill: scene child order is what keeps a bottom-layer copy over the wallpaper.
+    for (const auto& source : state.desktop) {
+      wlr_scene_buffer* buffer = wlr_scene_buffer_create(background.tree, nullptr);
+      if (buffer == nullptr) {
+        continue;
+      }
+      wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_BILINEAR);
+      buffer->point_accepts_input = rejectInput;
+      auto mirror = std::make_unique<DesktopMirror>();
+      mirror->source = source.get();
+      mirror->buffer = buffer;
+      mirror->outputSample.notify = onDesktopMirrorOutputSample;
+      wl_signal_add(&buffer->events.output_sample, &mirror->outputSample);
+      mirror->frameDone.notify = onDesktopMirrorFrameDone;
+      wl_signal_add(&buffer->events.frame_done, &mirror->frameDone);
+      background.mirrors.push_back(std::move(mirror));
+    }
+  }
+
+  void Overview::syncDesktopMirrors(const OutputState& state) const {
+    for (const WorkspaceBackground& background : state.workspaceBackgrounds) {
+      for (const auto& mirror : background.mirrors) {
+        wlr_surface* surface = mirror->source->surface;
+        // The surface holds the authoritative committed buffer; a scene buffer may already have released the client
+        // one after importing its texture.
+        wlr_buffer* committed = surface->buffer != nullptr ? &surface->buffer->base : nullptr;
+        wlr_scene_buffer_set_buffer_options options{
+            .damage = committed != nullptr ? &surface->buffer_damage : nullptr,
+            .wait_timeline = nullptr,
+            .wait_point = 0,
+        };
+        if (wlr_linux_drm_syncobj_surface_v1_state* sync = wlr_linux_drm_syncobj_v1_get_surface_state(surface)) {
+          options.wait_timeline = sync->acquire_timeline;
+          options.wait_point = sync->acquire_point;
+        }
+        wlr_scene_buffer_set_buffer_with_options(mirror->buffer, committed, &options);
+        if (committed == nullptr) {
+          continue;
+        }
+        wlr_fbox src{};
+        wlr_surface_get_buffer_source_box(surface, &src);
+        wlr_scene_buffer_set_source_box(mirror->buffer, &src);
+        wlr_scene_buffer_set_transform(mirror->buffer, surface->current.transform);
+        // layoutOutput owns the destination geometry; only the color description follows the live node.
+        if (wlr_scene_buffer* live = sourceBufferForSurface(&mirror->source->tree->node, surface)) {
+          wlr_scene_buffer_set_transfer_function(mirror->buffer, live->transfer_function);
+          wlr_scene_buffer_set_primaries(mirror->buffer, live->primaries);
+          wlr_scene_buffer_set_luminance_multiplier(mirror->buffer, live->luminance_multiplier);
+          wlr_scene_buffer_set_color_encoding(mirror->buffer, live->color_encoding);
+          wlr_scene_buffer_set_color_range(mirror->buffer, live->color_range);
+        }
+      }
+    }
+  }
+
+  bool Overview::desktopSourceBox(const DesktopSurface& source, wlr_box& out) {
+    // The output's layer trees sit at its origin and hold every layer surface as a direct child, so the child's own
+    // offset is already output-local. Layout coordinates are unavailable here: the bottom layer is disabled while its
+    // copies stand in, and wlr_scene_node_coords reports nothing through a disabled ancestor.
+    if (!source.tree->node.enabled) {
+      return false;
+    }
+    out = {source.tree->node.x, source.tree->node.y, source.surface->current.width, source.surface->current.height};
+    return out.width > 0 && out.height > 0;
+  }
+
+  void Overview::onDesktopSurfaceCommit(wl_listener* listener, void* /*data*/) {
+    DesktopSurface* source = nullptr;
+    source = wl_container_of(listener, source, commit);
+    source->overview->syncDesktopMirrors(*source->state);
+    source->overview->layoutOutput(*source->state);
+    wlr_output_schedule_frame(source->state->output->wlr());
+  }
+
+  void Overview::onDesktopSurfaceDestroy(wl_listener* listener, void* /*data*/) {
+    DesktopSurface* source = nullptr;
+    source = wl_container_of(listener, source, destroy);
+    OutputState* state = source->state;
+    wl_list_remove(&source->commit.link);
+    wl_list_remove(&source->destroy.link);
+    // Drop this surface's copies only. Re-resolving here would re-bind a surface that is already being destroyed;
+    // the next layout notices the shorter stack and rebuilds from what is left.
+    for (WorkspaceBackground& background : state->workspaceBackgrounds) {
+      std::erase_if(background.mirrors, [source](const std::unique_ptr<DesktopMirror>& mirror) {
+        if (mirror->source != source) {
+          return false;
+        }
+        wl_list_remove(&mirror->outputSample.link);
+        wl_list_remove(&mirror->frameDone.link);
+        if (mirror->buffer != nullptr) {
+          wlr_scene_node_destroy(&mirror->buffer->node);
+        }
+        return true;
+      });
+    }
+    std::erase_if(state->desktop, [source](const std::unique_ptr<DesktopSurface>& candidate) {
+      return candidate.get() == source;
+    });
+    wlr_output_schedule_frame(state->output->wlr());
+  }
+
+  void Overview::onDesktopMirrorOutputSample(wl_listener* listener, void* data) {
+    DesktopMirror* mirror = nullptr;
+    mirror = wl_container_of(listener, mirror, outputSample);
+    auto* event = static_cast<wlr_scene_output_sample_event*>(data);
+    wlr_surface* surface = mirror->source->surface;
+    // No wl_surface.enter here: a mirrored surface leaves its outputs exactly as a window behind a card does.
+    if (event->direct_scanout) {
+      wlr_presentation_surface_scanned_out_on_output(surface, event->output->output);
+    } else {
+      wlr_presentation_surface_textured_on_output(surface, event->output->output);
+    }
+    if (wlr_linux_drm_syncobj_surface_v1_state* sync = wlr_linux_drm_syncobj_v1_get_surface_state(surface);
+        sync != nullptr && event->release_timeline != nullptr) {
+      wlr_linux_drm_syncobj_v1_state_add_release_point(
+          sync, event->release_timeline, event->release_point, event->output->output->event_loop
+      );
+    }
+  }
+
+  void Overview::onDesktopMirrorFrameDone(wl_listener* listener, void* data) {
+    DesktopMirror* mirror = nullptr;
+    mirror = wl_container_of(listener, mirror, frameDone);
+    auto* event = static_cast<wlr_scene_frame_done_event*>(data);
+    // The real bottom layer is hidden, so these copies are what keeps its clients drawing. A second row's copy finds
+    // the callback list already empty.
+    wlr_surface_send_frame_done(mirror->source->surface, &event->when);
+  }
+
+  Overview::WorkspaceBackground Overview::createWorkspaceBackground(OutputState& state) const {
+    WorkspaceBackground background{};
+    background.tree = wlr_scene_tree_create(state.tree);
+    if (background.tree == nullptr) {
+      return background;
+    }
+    // Rows stay below every card even when created after the overview scene was populated.
+    wlr_scene_node_place_above(&background.tree->node, &state.backgroundTint->node);
+    const std::array<float, 4> color = tint(config().colors.overview.workspaceBackground, m_progress);
+    background.fill = wlr_scene_rect_create(background.tree, 1, 1, color.data());
+    createRowMirrors(state, background);
+    return background;
+  }
+
+  // -: cards
+
+  void Overview::syncCardBuffer(CardSurface& entry) {
+    wlr_surface* surface = entry.surface;
+    if (surface == nullptr || entry.buffer == nullptr) {
+      return;
+    }
+
+    wlr_scene_buffer_set_buffer_options options{
+        .damage = &surface->buffer_damage,
+        .wait_timeline = nullptr,
+        .wait_point = 0,
+    };
+    if (wlr_linux_drm_syncobj_surface_v1_state* sync = wlr_linux_drm_syncobj_v1_get_surface_state(surface)) {
+      options.wait_timeline = sync->acquire_timeline;
+      options.wait_point = sync->acquire_point;
+    }
+    // A scene buffer may clear its `buffer` pointer after importing a texture and releasing the client buffer. The
+    // surface retains the authoritative committed buffer, including for hidden workspaces.
+    wlr_buffer* committed = surface->buffer != nullptr ? &surface->buffer->base : nullptr;
+    if (committed == nullptr) {
+      options.damage = nullptr;
+    }
+    wlr_scene_buffer_set_buffer_with_options(entry.buffer, committed, &options);
+
+    // Presentation state comes from the surface's committed state, NEVER from the view's scene buffers: workspace
+    // slides clip those (applyPresentation → applyPresentedCrop), and a window parked on a hidden workspace keeps the
+    // sliver crop. Copying it smears subsurface-presented content (games) into a single stretched line. layoutCard then
+    // re-crops the root surface and re-scales every entry for the thumbnail.
+    wlr_fbox src{};
+    wlr_surface_get_buffer_source_box(surface, &src);
+    wlr_scene_buffer_set_source_box(entry.buffer, &src);
+    wlr_scene_buffer_set_dest_size(entry.buffer, surface->current.width, surface->current.height);
+    wlr_scene_buffer_set_transform(entry.buffer, surface->current.transform);
+    wlr_scene_buffer_set_opaque_region(entry.buffer, &surface->opaque_region);
+
+    // Protocol-derived display properties (alpha-modifier, color management)
+    // are clip-independent, so the view's scene buffer is a safe source.
+    if (wlr_scene_buffer* source = entry.sourceBuffer) {
+      wlr_scene_buffer_set_opacity(entry.buffer, source->opacity);
+      wlr_scene_buffer_set_transfer_function(entry.buffer, source->transfer_function);
+      wlr_scene_buffer_set_primaries(entry.buffer, source->primaries);
+      wlr_scene_buffer_set_luminance_multiplier(entry.buffer, source->luminance_multiplier);
+      wlr_scene_buffer_set_color_encoding(entry.buffer, source->color_encoding);
+      wlr_scene_buffer_set_color_range(entry.buffer, source->color_range);
+    }
+    // wlroots restores scene surfaces to its protocol-owned color state on
+    // every commit. Wine compatibility metadata is repaired at the render
+    // boundary, after this passive mirror has copied the transient state, so
+    // apply the authoritative committed description directly to the mirror.
+    if (WineColorManager* colorManager = entry.card->overview->m_server->wineColorManager()) {
+      colorManager->applySurfaceDescriptionToBuffer(surface, entry.buffer);
+    }
+  }
+
+  void Overview::addCardSurface(wlr_surface* surface, int sx, int sy, void* data) {
+    auto* card = static_cast<Card*>(data);
+    wlr_scene_buffer* source = sourceBufferForSurface(&card->view->sceneTree()->node, surface);
+    if (source == nullptr) {
+      return;
+    }
+    wlr_scene_buffer* buffer = wlr_scene_buffer_create(card->tree, nullptr);
+    if (buffer == nullptr) {
+      return;
+    }
+    auto entry = std::make_unique<CardSurface>();
+    entry->card = card;
+    entry->surface = surface;
+    entry->sourceBuffer = source;
+    entry->buffer = buffer;
+    entry->sx = sx;
+    entry->sy = sy;
+    entry->isRoot = surface == card->view->toplevel()->base->surface;
+    wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_BILINEAR);
+    buffer->point_accepts_input = rejectInput;
+    entry->commit.notify = onCardSurfaceCommit;
+    wl_signal_add(&surface->events.commit, &entry->commit);
+    entry->destroy.notify = onCardSurfaceDestroy;
+    wl_signal_add(&surface->events.destroy, &entry->destroy);
+    entry->outputSample.notify = onCardBufferOutputSample;
+    wl_signal_add(&buffer->events.output_sample, &entry->outputSample);
+    entry->frameDone.notify = onCardBufferFrameDone;
+    wl_signal_add(&buffer->events.frame_done, &entry->frameDone);
+    syncCardBuffer(*entry);
+    card->surfaces.push_back(std::move(entry));
+    if (card->border != nullptr) {
+      wlr_scene_node_raise_to_top(&card->border->node);
+    }
+    if (card->badge != nullptr) {
+      wlr_scene_node_raise_to_top(&card->badge->node);
+    }
+  }
+
+  void Overview::syncCardSurface(wlr_surface* surface, int sx, int sy, void* data) {
+    auto* card = static_cast<Card*>(data);
+    for (const auto& entry : card->surfaces) {
+      if (entry->surface == surface) {
+        entry->sx = sx;
+        entry->sy = sy;
+        syncCardBuffer(*entry);
+        return;
+      }
+    }
+    addCardSurface(surface, sx, sy, data);
+  }
+
+  void Overview::onCardSurfaceCommit(wl_listener* listener, void* /*data*/) {
+    CardSurface* entry;
+    entry = wl_container_of(listener, entry, commit);
+    Card* card = entry->card;
+    Overview* self = card->overview;
+    if (!self->m_active || card->owner == nullptr) {
+      return;
+    }
+    // The source scene surface reconfigures on every commit. Refresh the
+    // passive buffer mirrors, then re-derive their overview crop and scale.
+    wlr_surface_for_each_surface(card->view->toplevel()->base->surface, syncCardSurface, card);
+    PreviewMetrics metrics{};
+    if (previewMetrics(*card->owner, *self->m_server, self->zoom(), metrics)) {
+      self->layoutCard(*card, metrics, card->owner->rowScroll.current(), self->liveTargetView());
+      wlr_output_schedule_frame(card->owner->output->wlr());
+    }
+  }
+
+  void Overview::onCardSurfaceDestroy(wl_listener* listener, void* /*data*/) {
+    CardSurface* entry;
+    entry = wl_container_of(listener, entry, destroy);
+    Card* card = entry->card;
+    wl_list_remove(&entry->commit.link);
+    wl_list_remove(&entry->destroy.link);
+    wl_list_remove(&entry->outputSample.link);
+    wl_list_remove(&entry->frameDone.link);
+    if (entry->buffer != nullptr) {
+      wlr_scene_node_destroy(&entry->buffer->node);
+      entry->buffer = nullptr;
+    }
+    std::erase_if(card->surfaces, [entry](const std::unique_ptr<CardSurface>& candidate) {
+      return candidate.get() == entry;
+    });
+  }
+
+  void Overview::onCardBufferOutputSample(wl_listener* listener, void* data) {
+    CardSurface* entry;
+    entry = wl_container_of(listener, entry, outputSample);
+    auto* event = static_cast<wlr_scene_output_sample_event*>(data);
+    wlr_output* output = event->output->output;
+    if (event->direct_scanout) {
+      wlr_presentation_surface_scanned_out_on_output(entry->surface, output);
+    } else {
+      wlr_presentation_surface_textured_on_output(entry->surface, output);
+    }
+    if (wlr_linux_drm_syncobj_surface_v1_state* sync = wlr_linux_drm_syncobj_v1_get_surface_state(entry->surface);
+        sync != nullptr && event->release_timeline != nullptr) {
+      wlr_linux_drm_syncobj_v1_state_add_release_point(
+          sync, event->release_timeline, event->release_point, output->event_loop
+      );
+    }
+  }
+
+  void Overview::onCardBufferFrameDone(wl_listener* listener, void* data) {
+    CardSurface* entry;
+    entry = wl_container_of(listener, entry, frameDone);
+    auto* event = static_cast<wlr_scene_frame_done_event*>(data);
+    wlr_surface_send_frame_done(entry->surface, &event->when);
+  }
+
+  Overview::Card* Overview::createCard(OutputState& state, View* view, size_t workspaceIndex) {
+    if (view == nullptr || !view->mapped() || view->pinned()) {
+      return nullptr;
+    }
+    wlr_surface* surface = view->toplevel()->base->surface;
+    if (surface == nullptr) {
+      return nullptr;
+    }
+    auto card = std::make_unique<Card>();
+    card->overview = this;
+    card->owner = &state;
+    card->view = view;
+    card->workspaceIndex = workspaceIndex;
+    card->tree = wlr_scene_tree_create(state.tree);
+    if (card->tree == nullptr) {
+      return nullptr;
+    }
+    const std::array<float, 4> innerColor = tint(view->borderColors().unfocused, 1.0);
+    const std::array<float, 4> outerColor = tint(view->borderColors().outer, 1.0);
+    card->border = wlr_scene_border_create(card->tree, innerColor.data(), outerColor.data());
+    if (card->border == nullptr) {
+      wlr_scene_node_destroy(&card->tree->node);
+      return nullptr;
+    }
+    Card* raw = card.get();
+    state.cards.push_back(std::move(card));
+    m_shortcutsDirty = true;
+
+    wlr_surface_for_each_surface(surface, addCardSurface, raw);
+
+    // Animation schedules the first output frame. The passive card buffers then
+    // pace clients from frames where their content was actually sampled.
+    return raw;
+  }
+
+  void Overview::snapshotCardForClose(Card& card) {
+    if (card.tree == nullptr || card.owner == nullptr || card.owner->output == nullptr || card.view == nullptr) {
+      return;
+    }
+
+    wlr_scene_tree* snapshot = wlr_scene_tree_create(m_tree);
+    if (snapshot == nullptr) {
+      return;
+    }
+    wlr_box outputBox{};
+    wlr_output_layout_get_box(m_server->outputLayout(), card.owner->output->wlr(), &outputBox);
+    if (outputBox.width > 0 && outputBox.height > 0) {
+      wlr_scene_tree_set_clip(snapshot, &outputBox);
+    }
+
+    int buffersCopied = 0;
+    for (const auto& entry : card.surfaces) {
+      wlr_scene_buffer* source = entry->buffer;
+      if (source == nullptr || source->buffer == nullptr || !source->node.enabled) {
+        continue;
+      }
+      wlr_scene_buffer* copy = wlr_scene_buffer_create(snapshot, source->buffer);
+      if (copy == nullptr) {
+        continue;
+      }
+      wlr_scene_node_set_position(&copy->node, card.tree->node.x + source->node.x, card.tree->node.y + source->node.y);
+      if (source->dst_width > 0 && source->dst_height > 0) {
+        wlr_scene_buffer_set_dest_size(copy, source->dst_width, source->dst_height);
+      }
+      if (source->src_box.width > 0 && source->src_box.height > 0) {
+        wlr_scene_buffer_set_source_box(copy, &source->src_box);
+      }
+      wlr_scene_buffer_set_transform(copy, source->transform);
+      wlr_scene_buffer_set_corner_radii(copy, source->corners);
+      wlr_scene_buffer_set_corner_box(copy, &source->corner_box);
+      wlr_scene_buffer_set_opacity(copy, source->opacity);
+      wlr_scene_buffer_set_transfer_function(copy, source->transfer_function);
+      wlr_scene_buffer_set_primaries(copy, source->primaries);
+      wlr_scene_buffer_set_luminance_multiplier(copy, source->luminance_multiplier);
+      wlr_scene_buffer_set_color_encoding(copy, source->color_encoding);
+      wlr_scene_buffer_set_color_range(copy, source->color_range);
+      wlr_scene_buffer_set_filter_mode(copy, WLR_SCALE_FILTER_BILINEAR);
+      ++buffersCopied;
+    }
+
+    std::vector<BorderSnapshot> borders;
+    if (card.border != nullptr && card.border->node.enabled) {
+      wlr_scene_border* copy = wlr_scene_border_create(snapshot, card.border->inner_color, card.border->outer_color);
+      if (copy != nullptr) {
+        wlr_scene_border_set_geometry(
+            copy, card.border->width, card.border->height, card.border->inner_width, card.border->outer_width,
+            card.border->clipped_region, card.border->seam_corners, card.border->outer_corners
+        );
+        wlr_scene_node_set_position(
+            &copy->node, card.tree->node.x + card.border->node.x, card.tree->node.y + card.border->node.y
+        );
+        std::array<float, 4> innerColor = cardBorderColor(card, liveTargetView());
+        std::array<float, 4> outerColor = card.view->borderColors().outer;
+        const float presentedOpacity = card.view->presentedOpacity();
+        innerColor[3] *= presentedOpacity;
+        outerColor[3] *= presentedOpacity;
+        borders.push_back(
+            BorderSnapshot{
+                .node = copy,
+                .innerColor = innerColor,
+                .outerColor = outerColor,
+                .innerWidth = card.view->decorationBorderWidth(),
+                .outerWidth = card.view->decorationOuterBorderWidth(),
+                .cornerRadius = card.view->decorationCornerRadius(),
+            }
+        );
+      }
+    }
+
+    if (buffersCopied == 0 && borders.empty()) {
+      wlr_scene_node_destroy(&snapshot->node);
+      return;
+    }
+    wlr_scene_node_copy_animations_for_snapshot(&snapshot->node, &card.tree->node);
+    // The frozen card owns its captured geometry and windows_out lifecycle. Retain an interrupted windows_in effect,
+    // but do not carry the live card's windows_move effect into the close snapshot.
+    wlr_scene_node_set_animation(&snapshot->node, static_cast<unsigned>(AnimationEvent::WindowsMove), nullptr, nullptr);
+    (void)m_server->animateCloseSnapshot(card.owner->output, snapshot, snapshot, std::move(borders), {});
+    wlr_output_schedule_frame(card.owner->output->wlr());
+  }
+
+  void Overview::destroyCard(Card* card) {
+    for (const auto& entry : card->surfaces) {
+      wl_list_remove(&entry->commit.link);
+      wl_list_remove(&entry->destroy.link);
+      wl_list_remove(&entry->outputSample.link);
+      wl_list_remove(&entry->frameDone.link);
+    }
+    card->surfaces.clear();
+    destroyCardShadow(*card);
+    if (card->tree != nullptr) {
+      wlr_scene_node_destroy(&card->tree->node);
+      card->tree = nullptr;
+    }
+    card->border = nullptr;
+  }
+
+  void Overview::dropCard(View* view) {
+    for (const auto& state : m_outputs) {
+      const auto it =
+          std::ranges::find_if(state->cards, [view](const std::unique_ptr<Card>& card) { return card->view == view; });
+      if (it == state->cards.end()) {
+        continue;
+      }
+      destroyCard(it->get());
+      state->cards.erase(it);
+      m_shortcutsDirty = true;
+      return;
+    }
+  }
+
+  void Overview::rebuildCard(View* view) {
+    dropCard(view);
+    Workspace* workspace = view->workspace();
+    if (workspace == nullptr || !view->mapped()) {
+      return;
+    }
+    OutputState* state = stateForWorkspace(workspace);
+    if (state == nullptr) {
+      return;
+    }
+    createCard(*state, view, workspace->index());
+    layoutOutput(*state);
+    wlr_output_schedule_frame(state->output->wlr());
+  }
+
+  Overview::OutputState* Overview::stateFor(const Output* output) {
+    const auto it = std::ranges::find_if(m_outputs, [output](const std::unique_ptr<OutputState>& state) {
+      return state->output == output;
+    });
+    return it == m_outputs.end() ? nullptr : it->get();
+  }
+
+  Overview::OutputState* Overview::stateForWorkspace(const Workspace* workspace) {
+    if (workspace == nullptr || workspace->group() == nullptr) {
+      return nullptr;
+    }
+    return stateFor(workspace->group()->output());
+  }
+
+  Overview::Card* Overview::findCard(const View* view) {
+    for (const auto& state : m_outputs) {
+      for (const auto& card : state->cards) {
+        if (card->view == view) {
+          return card.get();
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  void Overview::renderCardShortcut(Card& card) {
+    if (card.badge != nullptr) {
+      wlr_scene_node_destroy(&card.badge->node);
+    }
+    card.badge = nullptr;
+    card.badgeRect = nullptr;
+    card.badgeText = nullptr;
+    card.badgeWidth = 0;
+    card.badgeHeight = 0;
+
+    if (card.shortcut.empty() || card.tree == nullptr || card.owner == nullptr || card.owner->output == nullptr) {
+      return;
+    }
+
+    const double scale = std::max(1.0, std::ceil(static_cast<double>(card.owner->output->wlr()->scale)));
+    const size_t matched = card.shortcutMatched == SIZE_MAX ? 0 : std::min(card.shortcutMatched, card.shortcut.size());
+    const std::string_view shortcut(card.shortcut);
+    const auto& colors = config().colors;
+    const std::array<float, 4>& badgeColor = colors.overview.badge;
+    card.badgeBackground = keycapBackgroundColor(colors.background, badgeColor);
+    const std::string markup = std::format(
+        "<span foreground='{}' weight='bold'>{}</span><span foreground='{}' weight='bold'>{}</span>",
+        rgbaHex(colors.textPrimary), escapeMarkup(shortcut.substr(0, matched)), rgbaHex(badgeColor),
+        escapeMarkup(shortcut.substr(matched))
+    );
+    TextBufferResult rendered = renderTextBuffer({
+        .markup = markup,
+        .font = "monospace 19",
+        .maxWidth = 350,
+        .padding = 0,
+        .scale = scale,
+        .bgA = 0.0,
+    });
+    if (rendered.buffer == nullptr) {
+      return;
+    }
+
+    card.badge = wlr_scene_tree_create(card.tree);
+    if (card.badge == nullptr) {
+      wlr_buffer_drop(rendered.buffer);
+      return;
+    }
+    // Keycap proportions: the label's line box sets the height, and the badge is
+    // never narrower than it is tall, so a single character reads as a square.
+    constexpr int kBadgeSidePad = 8;
+    const int badgeHeight = rendered.logicalHeight;
+    const int badgeWidth = std::max(rendered.logicalWidth + 2 * kBadgeSidePad, badgeHeight);
+    const std::array<float, 4> background = tint(card.badgeBackground, 1.0);
+    card.badgeRect = wlr_scene_rect_create(card.badge, badgeWidth, badgeHeight, background.data());
+    card.badgeText = wlr_scene_buffer_create(card.badge, rendered.buffer);
+    wlr_buffer_drop(rendered.buffer);
+    if (card.badgeRect == nullptr || card.badgeText == nullptr) {
+      wlr_scene_node_destroy(&card.badge->node);
+      card.badge = nullptr;
+      card.badgeRect = nullptr;
+      card.badgeText = nullptr;
+      return;
+    }
+
+    wlr_scene_node_set_position(
+        &card.badgeText->node, (badgeWidth - rendered.logicalWidth) / 2, (badgeHeight - rendered.logicalHeight) / 2
+    );
+    wlr_scene_buffer_set_dest_size(card.badgeText, rendered.logicalWidth, rendered.logicalHeight);
+    card.badgeText->point_accepts_input = rejectInput;
+    card.badgeWidth = badgeWidth;
+    card.badgeHeight = badgeHeight;
+    wlr_scene_node_raise_to_top(&card.badge->node);
+    wlr_scene_node_set_enabled(&card.badge->node, false);
+  }
+
+  void Overview::assignShortcuts() {
+    m_shortcutInput.clear();
+    m_shortcutsDirty = true;
+    applyProgress();
+  }
+
+  void Overview::updateShortcutAssignments() {
+    const auto updateCard = [this](Card& card, std::string label) {
+      const bool changed = card.shortcut != label;
+      card.shortcut = std::move(label);
+      card.shortcutMatched = 0;
+      if (changed) {
+        renderCardShortcut(card);
+      }
+    };
+    const auto clearAll = [&]() {
+      for (const auto& state : m_outputs) {
+        for (const auto& card : state->cards) {
+          updateCard(*card, {});
+        }
+      }
+    };
+
+    if (!m_active || m_closing || !config().overview.shortcuts || config().overview.shortcutKeys.size() < 2) {
+      clearAll();
+      return;
+    }
+
+    std::vector<OutputState*> orderedStates;
+    orderedStates.reserve(m_outputs.size());
+    Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
+    if (OutputState* state = stateFor(preferred)) {
+      orderedStates.push_back(state);
+    }
+    for (const auto& state : m_outputs) {
+      if (orderedStates.empty() || state.get() != orderedStates.front()) {
+        orderedStates.push_back(state.get());
+      }
+    }
+
+    const double z = std::clamp(config().overview.zoom, 0.1, 0.75);
+    std::vector<Card*> eligible;
+    for (OutputState* state : orderedStates) {
+      PreviewMetrics metrics{};
+      if (state == nullptr || !previewMetrics(*state, *m_server, z, metrics)) {
+        continue;
+      }
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group == nullptr) {
+        continue;
+      }
+
+      std::vector<size_t> visible;
+      visible.reserve(group->workspaceCount());
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        const wlr_box preview = previewBox(metrics, state->rowScroll.target(), index);
+        wlr_box shown{};
+        if (wlr_box_intersection(&shown, &preview, &metrics.outputBox)) {
+          visible.push_back(index);
+        }
+      }
+      std::ranges::stable_sort(visible, [state](size_t left, size_t right) {
+        const double leftDistance = std::abs(static_cast<double>(left) - state->rowScroll.target());
+        const double rightDistance = std::abs(static_cast<double>(right) - state->rowScroll.target());
+        return leftDistance == rightDistance ? left < right : leftDistance < rightDistance;
+      });
+
+      struct PositionedCard {
+        Card* card = nullptr;
+        int x = 0;
+        int y = 0;
+      };
+      // Traverse along the scrolling axis first: it is the axis cards are laid out on.
+      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
+      for (const size_t index : visible) {
+        const wlr_box preview = previewBox(metrics, state->rowScroll.target(), index);
+        std::vector<PositionedCard> previewCards;
+        for (const auto& card : state->cards) {
+          if (card->workspaceIndex != index || card->view == nullptr || !card->view->mapped()) {
+            continue;
+          }
+          const int x =
+              preview.x + static_cast<int>(std::lround((card->view->layoutTargetX() - metrics.outputBox.x) * z));
+          const int y =
+              preview.y + static_cast<int>(std::lround((card->view->layoutTargetY() - metrics.outputBox.y) * z));
+          previewCards.push_back({.card = card.get(), .x = x, .y = y});
+        }
+        std::ranges::stable_sort(
+            previewCards, [horizontalWorkspaces](const PositionedCard& left, const PositionedCard& right) {
+              if (horizontalWorkspaces) {
+                return left.y == right.y ? left.x < right.x : left.y < right.y;
+              }
+              return left.x == right.x ? left.y < right.y : left.x < right.x;
+            }
+        );
+        for (const PositionedCard& positioned : previewCards) {
+          eligible.push_back(positioned.card);
+        }
+      }
+    }
+
+    const auto assignmentFor = [this](const View* view) -> ShortcutAssignment* {
+      const auto assignment = std::ranges::find_if(m_shortcutAssignments, [view](const ShortcutAssignment& item) {
+        return item.view == view;
+      });
+      return assignment == m_shortcutAssignments.end() ? nullptr : &*assignment;
+    };
+    for (Card* card : eligible) {
+      if (assignmentFor(card->view) == nullptr) {
+        m_shortcutAssignments.push_back({.view = card->view, .label = {}});
+      }
+    }
+
+    m_shortcutLabelCapacity = std::max(m_shortcutLabelCapacity, m_shortcutAssignments.size());
+    const std::vector<std::string> labels = shortcutLabels(m_shortcutLabelCapacity, config().overview.shortcutKeys);
+    std::vector<bool> used(labels.size(), false);
+    const auto labelIndex = [&labels](std::string_view label) {
+      for (size_t index = 0; index < labels.size(); ++index) {
+        if (labels[index] == label) {
+          return index;
+        }
+      }
+      return labels.size();
+    };
+
+    for (ShortcutAssignment& assignment : m_shortcutAssignments) {
+      const size_t index = labelIndex(assignment.label);
+      if (index == labels.size() || used[index]) {
+        assignment.label.clear();
+      } else {
+        used[index] = true;
+      }
+    }
+    size_t nextUnused = 0;
+    for (ShortcutAssignment& assignment : m_shortcutAssignments) {
+      if (!assignment.label.empty()) {
+        continue;
+      }
+      while (nextUnused < used.size() && used[nextUnused]) {
+        ++nextUnused;
+      }
+      if (nextUnused == labels.size()) {
+        break;
+      }
+      assignment.label = labels[nextUnused];
+      used[nextUnused] = true;
+    }
+
+    for (Card* card : eligible) {
+      ShortcutAssignment* assignment = assignmentFor(card->view);
+      updateCard(*card, assignment != nullptr ? assignment->label : std::string{});
+    }
+    for (const auto& state : m_outputs) {
+      for (const auto& card : state->cards) {
+        if (std::ranges::find(eligible, card.get()) == eligible.end()) {
+          updateCard(*card, {});
+        }
+      }
+    }
+  }
+
+  void Overview::populateCards(OutputState& state) {
+    WorkspaceGroup* group = state.output->workspaceGroup();
+    if (group == nullptr) {
+      return;
+    }
+    for (size_t row = 0; row < group->workspaceCount(); ++row) {
+      Workspace* workspace = group->workspaceAt(row);
+      if (workspace == nullptr) {
+        continue;
+      }
+      // Tiled, then floating, then fullscreen: mirrors the per-workspace scene
+      // layer split so overlapping cards stack the way the real windows do.
+      for (int pass = 0; pass < 3; ++pass) {
+        for (View* view : workspace->allViews()) {
+          if (view == nullptr || !view->mapped() || view->pinned()) {
+            continue;
+          }
+          const bool fullscreen = view->toplevel()->current.fullscreen;
+          const int layer = fullscreen ? 2 : (view->tiled() ? 0 : 1);
+          if (layer == pass) {
+            createCard(state, view, row);
+          }
+        }
+      }
+    }
+  }
+
+  void Overview::buildState() {
+    m_tree = m_server->overviewTree();
+    for (const auto& output : m_server->outputs()) {
+      WorkspaceGroup* group = output->workspaceGroup();
+      if (group == nullptr || group->workspaceCount() == 0 || !output->onDesktop()) {
+        continue;
+      }
+      auto state = std::make_unique<OutputState>();
+      state->output = output.get();
+      state->tree = wlr_scene_tree_create(m_tree);
+      if (state->tree == nullptr) {
+        continue;
+      }
+      if (config().overview.backgroundBlur && config().appearance.blur.enabled) {
+        state->backgroundBlur = wlr_scene_blur_create(m_server->overviewBlurTree(), 1, 1);
+        if (state->backgroundBlur != nullptr) {
+          wlr_scene_blur_set_should_only_blur_bottom_layer(state->backgroundBlur, config().appearance.blur.optimized);
+        }
+      }
+      const std::array<float, 4> backgroundTint = tint(config().colors.overview.backgroundTint, 0.0);
+      state->backgroundTint = wlr_scene_rect_create(state->tree, 1, 1, backgroundTint.data());
+      wlr_scene_rect_set_corner_radius(state->backgroundTint, 0);
+      state->workspaceBackgrounds.reserve(group->workspaceCount());
+      for (size_t row = 0; row < group->workspaceCount(); ++row) {
+        state->workspaceBackgrounds.push_back(createWorkspaceBackground(*state));
+      }
+      state->tileShadows = wlr_scene_tree_create(state->tree);
+      state->activeWorkspaceIndex = group->active() != nullptr ? group->active()->index() : 0;
+      state->rowScroll.snap(static_cast<double>(state->activeWorkspaceIndex));
+      OutputState* raw = state.get();
+      m_outputs.push_back(std::move(state));
+      populateCards(*raw);
+    }
+  }
+
+  // -: open/close
+
+  bool Overview::beginPresentation() {
+    if (m_active) {
+      return true;
+    }
+    if (m_server->sessionLocked()) {
+      return false;
+    }
+    // A data-device drag owns wlroots' pointer and keyboard grabs until the initiating button is released. Taking
+    // overview input ownership now would hide that release from the drag and leave both grabs active.
+    if (m_server->seat()->wlr()->drag != nullptr) {
+      kLog.debug("overview open ignored during active client drag");
+      return false;
+    }
+    m_server->cursor()->resetMode();
+    // An in-flight three-finger switch settles on the filmstrip instead of the hidden desktop slide.
+    const Gestures::SwitchPick switchPick = m_server->gestures()->pickSwitchForOverview();
+    for (const auto& output : m_server->outputs()) {
+      WorkspaceGroup* group = output->workspaceGroup();
+      if (group == nullptr) {
+        continue;
+      }
+      group->slideFinish();
+      // Settle the visual scroll onto the layout scroll so cards at progress 0
+      // sit exactly where the real windows are.
+      if (Workspace* workspace = group->active()) {
+        workspace->arrange(false);
+      }
+    }
+    // Before buildState: reconcileDynamic must not invalidate cards mid-build.
+    if (switchPick.group != nullptr) {
+      switchPick.group->activate(switchPick.target, false);
+    }
+
+    buildState();
+    if (m_outputs.empty()) {
+      return false;
+    }
+    m_server->cursor()->resetWheelAccumulation();
+
+    if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
+      scratchpad->hideAll();
+    }
+
+    m_active = true;
+    m_closing = false;
+    m_progress = 0.0;
+    m_targetProgress = 0.0;
+    m_pendingFocus = nullptr;
+    m_pointerOutput = m_server->outputFromWlr(m_server->preferredOutput());
+    m_server->notifyOverviewChanged();
+
+    // Initialize every View's canonical presentation box before cards consume it. Hidden workspaces normally skip
+    // scene presentation entirely, but while overview is active their hidden nodes carry the same position and size
+    // state that would be shown if the workspace were active.
+    for (const auto& output : m_server->outputs()) {
+      if (WorkspaceGroup* group = output->workspaceGroup()) {
+        for (size_t index = 0; index < group->workspaceCount(); ++index) {
+          if (Workspace* workspace = group->workspaceAt(index)) {
+            workspace->arrange(false);
+          }
+        }
+      }
+    }
+    if (switchPick.group != nullptr) {
+      if (OutputState* state = stateFor(switchPick.group->output())) {
+        // Read the row after activate: reconcileDynamic may have dropped the workspace the swipe left.
+        const auto row = static_cast<double>(switchPick.target->index());
+        state->rowScroll.snap(row + switchPick.offset);
+        animateRow(*state, row, switchPick.velocity);
+      }
+    }
+    assignShortcuts();
+
+    wlr_scene_node_set_enabled(&m_server->xdgTree()->node, false);
+    wlr_scene_node_set_enabled(&m_server->fullscreenTree()->node, false);
+    wlr_scene_node_set_enabled(&m_tree->node, true);
+    // Bottom-layer surfaces are mirrored into every row, so the real ones step aside the way windows do. The
+    // background layer stays: it is the blur source and what shows around the filmstrip.
+    if (config().overview.workspaceWallpaper) {
+      wlr_scene_node_set_enabled(&m_server->shellLayerTree(ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)->node, false);
+    }
+
+    m_server->clearKeyboardFocus();
+    m_server->cursor()->clearPointerFocus();
+    m_server->cursor()->clearConstraint();
+
+    applyProgress();
+    wlr_scene_node_set_enabled(&m_server->overviewBlurTree()->node, true);
+    for (const auto& state : m_outputs) {
+      state->output->markBlurBackgroundDirty();
+    }
+    kLog.debug("overview opened on {} output(s)", m_outputs.size());
+    return true;
+  }
+
+  void Overview::open() {
+    if (m_active) {
+      if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
+        scratchpad->hideAll();
+      }
+      m_closing = false;
+      m_server->notifyOverviewChanged();
+      m_pendingFocus = nullptr;
+      if (m_progress < 1.0 || m_targetProgress < 1.0) {
+        startAnimation(1.0, false);
+      }
+      return;
+    }
+    if (!beginPresentation()) {
+      return;
+    }
+    startAnimation(1.0, false);
+  }
+
+  void Overview::toggle() {
+    if (m_active && !m_closing) {
+      close();
+    } else {
+      open();
+    }
+  }
+
+  void Overview::close() { beginClose(nullptr); }
+
+  void Overview::closeToWorkspace(Workspace* workspace, View* focus) {
+    if (!m_active || m_closing) {
+      return;
+    }
+    if (workspace != nullptr && workspace->group() != nullptr && workspace->group()->active() != workspace) {
+      // No slide: the real trees are hidden, the filmstrip is the transition.
+      workspace->group()->activate(workspace, false);
+    }
+    if (focus != nullptr && focus->mapped()) {
+      // Overview focus keeps keyboard input withheld, but it updates the workspace and starts any scrolling-column
+      // reveal. Begin it before the closing zoom so both animations receive their first tick together. finishAnimation
+      // repeats the focus after teardown to deliver keyboard focus once the real trees own input again.
+      m_server->focusView(focus, FocusReason::PointerPress);
+    }
+    beginClose(focus);
+  }
+
+  void Overview::beginClose(View* focus) {
+    if (!m_active || m_closing) {
+      return;
+    }
+    m_server->cursor()->resetWheelAccumulation();
+    // A close releases any navigation mid-gesture. Input events carry monotonic milliseconds, so the release sample
+    // shares their clock and bleeds the speed of fingers that came to rest before the close.
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    endNavigation(
+        false, static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count()),
+        m_navigationSource
+    );
+    if (m_dragCard != nullptr) {
+      endDrag(false);
+    }
+    hideDropHint();
+    m_pressCard = nullptr;
+    m_pressWorkspace = nullptr;
+    clearMiddlePress();
+    m_pendingFocus = focus;
+    for (const auto& state : m_outputs) {
+      const WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group != nullptr && group->active() != nullptr) {
+        animateRow(*state, static_cast<double>(group->active()->index()));
+      }
+    }
+    startAnimation(0.0, true);
+  }
+
+  void Overview::forceClose() {
+    if (!m_active) {
+      return;
+    }
+    m_zoomAnim.snap(0.0);
+    for (const auto& state : m_outputs) {
+      state->rowScroll.snap(state->rowScroll.current());
+    }
+    if (m_dragCard != nullptr) {
+      endDrag(false);
+    }
+    m_pendingFocus = nullptr;
+    teardown();
+    restoreFocus(nullptr);
+  }
+
+  void Overview::startAnimation(double target, bool closing) {
+    m_closing = closing;
+    m_server->notifyOverviewChanged();
+    m_targetProgress = target;
+    m_progressFrom = m_progress;
+    const auto& animation = config().animation;
+    const auto& overview = animation.overview;
+    if (!animation.enabled || !overview.enabled) {
+      m_zoomAnim.snap(1.0);
+      m_progress = target;
+      for (const auto& state : m_outputs) {
+        state->rowScroll.snap(state->rowScroll.target());
+      }
+      finishAnimation();
+      return;
+    }
+    m_zoomAnim.snap(0.0);
+    if (overview.curve.easing == Easing::Spring) {
+      // Physics mode, so the tail can end once it no longer moves a pixel.
+      m_zoomAnim.settleSpring(1.0, overview.curve.spring, 0.0);
+    } else {
+      m_zoomAnim.retarget(1.0, overview.durationMs, overview.curve);
+    }
+    // Animations only tick from an output frame; kick one so an idle desktop starts the zoom.
+    scheduleFrames();
+  }
+
+  void Overview::animateRow(OutputState& state, double target, double releaseVelocity) {
+    const auto& animation = config().animation;
+    const auto& overview = animation.overview;
+    if (!animation.enabled || !overview.enabled) {
+      state.rowScroll.snap(target);
+      applyProgress();
+      return;
+    }
+    if (overview.workspaceCurve.easing == Easing::Spring) {
+      state.rowScroll.settleSpring(target, overview.workspaceCurve.spring, releaseVelocity);
+    } else {
+      state.rowScroll.retarget(target, overview.durationMs, overview.workspaceCurve);
+    }
+    // Animations only tick from an output frame; kick one so an idle desktop
+    // starts both timelines from the same frame.
+    scheduleFrames();
+  }
+
+  bool Overview::tickAnimations(uint64_t nowMsec) {
+    bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
+    const bool zoomTicked = m_zoomAnim.tick(nowMsec);
+    if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
+      static_cast<void>(m_zoomAnim.finishSpringTail(zoomPixelsPerUnit()));
+    }
+    if (zoomTicked) {
+      const double value = m_zoomAnim.current();
+      m_progress = m_progressFrom + (m_targetProgress - m_progressFrom) * value;
+    }
+    bool rowTicked = false;
+    for (const auto& state : m_outputs) {
+      const bool ticked = state->rowScroll.tick(nowMsec);
+      if (ticked && state->rowScroll.animating() && state->rowScroll.curve().easing == Easing::Spring) {
+        PreviewMetrics metrics;
+        if (previewMetrics(*state, *m_server, zoom(), metrics)) {
+          const double step =
+              (metrics.axis == WorkspaceAxis::Horizontal ? metrics.previewW : metrics.previewH) + metrics.gap;
+          static_cast<void>(state->rowScroll.finishSpringTail(step));
+        }
+      }
+      rowTicked = ticked || rowTicked;
+      active = active || state->rowScroll.animating();
+    }
+    if (zoomTicked || rowTicked || m_cardPresentationDirty) {
+      applyProgress();
+    }
+    m_cardPresentationDirty = false;
+    for (const auto& state : m_outputs) {
+      updateAnimationShader(
+          &state->tree->node, m_server->renderer(), AnimationEvent::Overview,
+          m_zoomAnim.animating() ? m_zoomAnim : state->rowScroll, m_closing ? -1.0F : 1.0F
+      );
+    }
+    if (zoomTicked && !m_zoomAnim.animating()) {
+      finishAnimation();
+    }
+    return m_zoomAnim.animating() || active;
+  }
+
+  bool Overview::hasActiveAnimations() const {
+    return m_zoomAnim.animating()
+        || std::ranges::any_of(m_outputs, [](const auto& state) { return state->rowScroll.animating(); })
+        || (m_dropHint != nullptr && m_dropHint->hasActiveAnimations());
+  }
+
+  void Overview::finishAnimation() {
+    if (!m_closing) {
+      applyProgress();
+      return;
+    }
+    View* focus = m_pendingFocus;
+    m_pendingFocus = nullptr;
+    teardown();
+    // Real trees are visible again: settle each active workspace so window
+    // positions match where the cards landed.
+    for (const auto& output : m_server->outputs()) {
+      if (WorkspaceGroup* group = output->workspaceGroup()) {
+        if (Workspace* workspace = group->active()) {
+          workspace->markArrange(false);
+        }
+      }
+    }
+    restoreFocus(focus);
+  }
+
+  void Overview::restoreFocus(View* focus) {
+    if (focus != nullptr && focus->mapped()) {
+      m_server->focusView(focus, FocusReason::PointerPress);
+    } else {
+      m_server->refocus();
+    }
+    // Focus chrome changed while the windows were hidden (the open cleared it, focus returned during the close or
+    // just now), so they reappear with the settled result.
+    for (const auto& view : m_server->registry().all()) {
+      view->settleFocusChrome();
+    }
+  }
+
+  void Overview::teardown() {
+    m_server->cursor()->resetWheelAccumulation();
+    cancelNavigation();
+    clearMiddlePress();
+    hideDropHint();
+    for (const auto& state : m_outputs) {
+      clearDesktop(*state);
+      for (const auto& card : state->cards) {
+        destroyCard(card.get());
+      }
+      state->cards.clear();
+      if (state->backgroundBlur != nullptr) {
+        wlr_scene_node_destroy(&state->backgroundBlur->node);
+        state->backgroundBlur = nullptr;
+      }
+      if (state->tree != nullptr) {
+        wlr_scene_node_destroy(&state->tree->node);
+        state->tree = nullptr;
+      }
+      state->output->markBlurBackgroundDirty();
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+    m_outputs.clear();
+    wlr_scene_node_set_enabled(&m_server->overviewBlurTree()->node, false);
+
+    if (m_tree != nullptr) {
+      wlr_scene_node_set_enabled(&m_tree->node, false);
+    }
+    wlr_scene_node_set_enabled(&m_server->xdgTree()->node, true);
+    wlr_scene_node_set_enabled(&m_server->fullscreenTree()->node, true);
+    wlr_scene_node_set_enabled(&m_server->pinnedTree()->node, true);
+    if (m_active) {
+      applyPinnedOpacity(1.0F);
+    }
+    wlr_scene_node_set_enabled(&m_server->shellLayerTree(ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM)->node, true);
+
+    m_active = false;
+    m_closing = false;
+    m_progress = 0.0;
+    m_targetProgress = 0.0;
+    m_pointerOutput = nullptr;
+    m_server->notifyOverviewChanged();
+    m_pressCard = nullptr;
+    m_pressWorkspace = nullptr;
+    m_dragCard = nullptr;
+    m_dragSourceWorkspace = nullptr;
+    m_dragSourceWidth.reset();
+    m_drop = {};
+    m_dropWorkspaceGroup = nullptr;
+    m_cardPresentationDirty = false;
+    m_gestureOpenedHere = false;
+    m_shortcutInput.clear();
+    m_shortcutAssignments.clear();
+    m_shortcutLabelCapacity = 0;
+    m_server->reconcileDynamicWorkspaces();
+  }
+
+  // -: gesture
+
+  void Overview::gestureUpdate(double progress) {
+    if (!m_active) {
+      if (progress <= 0.0 || !beginPresentation()) {
+        return;
+      }
+      m_gestureOpenedHere = true;
+    }
+    m_zoomAnim.snap(0.0);
+    for (const auto& state : m_outputs) {
+      state->rowScroll.snap(state->rowScroll.current());
+    }
+    m_closing = false;
+    m_server->notifyOverviewChanged();
+    m_progress = progress;
+    m_targetProgress = progress;
+    applyProgress();
+  }
+
+  void Overview::gestureEnd(bool commitOpen) {
+    if (!m_active) {
+      return;
+    }
+    m_gestureOpenedHere = false;
+    if (commitOpen) {
+      startAnimation(1.0, false);
+      return;
+    }
+    beginClose(nullptr);
+  }
+
+  // -: hooks
+
+  void Overview::onViewMapped(View* view) {
+    if (!m_active || view == nullptr || !view->mapped() || view->pinned()) {
+      return;
+    }
+    Workspace* workspace = view->workspace();
+    OutputState* state = stateForWorkspace(workspace);
+    if (state == nullptr || findCard(view) != nullptr) {
+      return;
+    }
+    if (createCard(*state, view, workspace->index()) == nullptr) {
+      return;
+    }
+    assignShortcuts();
+  }
+
+  void Overview::onViewPinnedChanged(View* view) {
+    if (!m_active || view == nullptr || !view->mapped()) {
+      return;
+    }
+    // A pinned window shows through the overview only at the desktop chrome's alpha; a card mirrors full opacity.
+    view->setOverviewOpacity(view->pinned() ? desktopChromeAlpha() : 1.0F);
+    Card* card = findCard(view);
+    OutputState* state = card != nullptr ? card->owner : stateForWorkspace(view->workspace());
+    if (view->pinned()) {
+      if (card == nullptr) {
+        return;
+      }
+      if (m_pressCard == card) {
+        m_pressCard = nullptr;
+      }
+      if (m_middlePressCard == card) {
+        clearMiddlePress();
+      }
+      if (m_drop.view == view) {
+        m_drop.view = nullptr;
+        m_drop.edge = 0;
+        hideDropHint();
+      }
+      if (m_dragCard == card) {
+        hideDropHint();
+        m_dragCard = nullptr;
+        m_dragSourceWorkspace = nullptr;
+        m_dragSourceWidth.reset();
+        m_drop = {};
+        m_dropWorkspaceGroup = nullptr;
+        m_server->cursor()->overrideCursor(nullptr);
+      }
+      std::erase_if(m_shortcutAssignments, [view](const ShortcutAssignment& assignment) {
+        return assignment.view == view;
+      });
+      dropCard(view);
+    } else if (card == nullptr && state != nullptr && view->workspace() != nullptr) {
+      createCard(*state, view, view->workspace()->index());
+    }
+    if (state != nullptr) {
+      layoutOutput(*state);
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+    assignShortcuts();
+  }
+
+  void Overview::onViewFloatingChanged(View* view) {
+    if (!m_active || view == nullptr || !view->mapped() || view->pinned()) {
+      return;
+    }
+    // Cards stack tiled, then floating (populateCards): rebuild so this one
+    // moves to its new layer instead of keeping its old spot.
+    rebuildCard(view);
+    assignShortcuts();
+  }
+
+  void Overview::onViewUnmapped(View* view) {
+    if (!m_active || view == nullptr) {
+      return;
+    }
+    std::erase_if(m_shortcutAssignments, [view](const ShortcutAssignment& assignment) {
+      return assignment.view == view;
+    });
+    if (m_pendingFocus == view) {
+      m_pendingFocus = nullptr;
+    }
+    if (m_pressCard != nullptr && m_pressCard->view == view) {
+      m_pressCard = nullptr;
+    }
+    if (m_middlePressCard != nullptr && m_middlePressCard->view == view) {
+      m_middlePressCard = nullptr;
+    }
+    if (m_drop.view == view) {
+      m_drop.view = nullptr;
+      m_drop.edge = 0;
+      hideDropHint();
+    }
+    if (m_dragCard != nullptr && m_dragCard->view == view) {
+      hideDropHint();
+      m_dragCard = nullptr;
+      m_dragSourceWorkspace = nullptr;
+      m_drop = {};
+      m_dropWorkspaceGroup = nullptr;
+      m_server->cursor()->overrideCursor(nullptr);
+    }
+    Workspace* workspace = view->workspace();
+    OutputState* state = stateForWorkspace(workspace);
+    if (Card* card = findCard(view)) {
+      snapshotCardForClose(*card);
+    }
+    dropCard(view);
+    // The closed window may have been the focused one. The overview keeps the focus chrome while it owns the seat, so
+    // reassign to the nearest survivor now rather than leaving the workspace focused on a dead view until zoom-out (or
+    // a later destroy) happens to refocus. Ask before layout detachment so the closing view still identifies its row
+    // and column, preferring its predecessor and using the next neighbor only at the leading edge.
+    if (workspace != nullptr && workspace->focusedView() == view) {
+      View* replacement = workspace->focusReplacementForRemoval(view);
+      if (replacement != nullptr) {
+        if (workspace->active()) {
+          m_server->focusView(replacement, FocusReason::Startup);
+        } else {
+          workspace->setFocusedView(replacement);
+        }
+      } else {
+        workspace->setFocusedView(nullptr);
+      }
+    }
+    if (state != nullptr) {
+      layoutOutput(*state);
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+    assignShortcuts();
+  }
+
+  void Overview::onViewWorkspaceChanged(View* view) {
+    if (!m_active || view == nullptr || !view->mapped()) {
+      return;
+    }
+    if (view->pinned()) {
+      onViewPinnedChanged(view);
+      return;
+    }
+
+    Card* card = findCard(view);
+    Workspace* workspace = view->workspace();
+    OutputState* target = stateForWorkspace(workspace);
+    if (card == nullptr) {
+      if (target != nullptr) {
+        createCard(*target, view, workspace->index());
+        layoutOutput(*target);
+        wlr_output_schedule_frame(target->output->wlr());
+      }
+      assignShortcuts();
+      return;
+    }
+
+    OutputState* source = card->owner;
+    if (target == nullptr) {
+      if (m_pressCard == card) {
+        m_pressCard = nullptr;
+      }
+      if (m_middlePressCard == card) {
+        m_middlePressCard = nullptr;
+      }
+      dropCard(view);
+      if (source != nullptr) {
+        layoutOutput(*source);
+        wlr_output_schedule_frame(source->output->wlr());
+      }
+      assignShortcuts();
+      return;
+    }
+
+    card->workspaceIndex = workspace->index();
+    if (source == target) {
+      layoutOutput(*target);
+      wlr_output_schedule_frame(target->output->wlr());
+      assignShortcuts();
+      return;
+    }
+    if (source == nullptr) {
+      rebuildCard(view);
+      assignShortcuts();
+      return;
+    }
+
+    const auto it = std::ranges::find_if(source->cards, [card](const std::unique_ptr<Card>& candidate) {
+      return candidate.get() == card;
+    });
+    if (it == source->cards.end()) {
+      rebuildCard(view);
+      assignShortcuts();
+      return;
+    }
+
+    std::unique_ptr<Card> moved = std::move(*it);
+    source->cards.erase(it);
+    moved->owner = target;
+    wlr_scene_node_reparent(&moved->tree->node, target->tree);
+    target->cards.push_back(std::move(moved));
+    layoutOutput(*source);
+    layoutOutput(*target);
+    wlr_output_schedule_frame(source->output->wlr());
+    wlr_output_schedule_frame(target->output->wlr());
+    assignShortcuts();
+  }
+
+  void Overview::onWorkspaceActivated(WorkspaceGroup* group) {
+    if (!m_active || group == nullptr || group->active() == nullptr) {
+      return;
+    }
+    if (m_navigationOutput == group->output()) {
+      cancelNavigation();
+    }
+    OutputState* target = stateFor(group->output());
+    if (target == nullptr) {
+      return;
+    }
+    const auto row = static_cast<double>(group->active()->index());
+    target->activeWorkspaceIndex = group->active()->index();
+    if (std::abs(target->rowScroll.target() - row) < 0.001 && target->rowScroll.animating()) {
+      return;
+    }
+    if (m_closing) {
+      m_pendingFocus = nullptr;
+    }
+    animateRow(*target, row);
+    assignShortcuts();
+  }
+
+  void Overview::onWorkspaceArranged(Workspace* workspace) {
+    if (!m_active) {
+      return;
+    }
+    if (OutputState* state = stateForWorkspace(workspace)) {
+      layoutOutput(*state);
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+  }
+
+  void Overview::onWorkspaceInventoryChanged(WorkspaceGroup* group) {
+    if (!m_active || group == nullptr) {
+      return;
+    }
+    if (m_navigationOutput == group->output()) {
+      cancelNavigation();
+    }
+    OutputState* state = stateFor(group->output());
+    if (state == nullptr) {
+      return;
+    }
+    // Renumbering rows on one side of the active workspace must shift the filmstrip scroll by the same amount,
+    // otherwise every surviving card visibly jumps even though its workspace identity did not move.
+    if (Workspace* active = group->active()) {
+      const double delta = static_cast<double>(active->index()) - static_cast<double>(state->activeWorkspaceIndex);
+      state->activeWorkspaceIndex = active->index();
+      state->rowScroll.translate(delta);
+    }
+    syncWorkspaceRows(*state, *group);
+    layoutOutput(*state);
+    wlr_output_schedule_frame(state->output->wlr());
+    assignShortcuts();
+  }
+
+  void Overview::onFocusChanged() {
+    if (!m_active) {
+      return;
+    }
+    cancelNavigation();
+    if (m_closing) {
+      m_pendingFocus = nullptr;
+    }
+    applyProgress();
+  }
+
+  void Overview::onViewPresentationChanged(View* view) {
+    if (!m_active || view == nullptr || stateForWorkspace(view->workspace()) == nullptr) {
+      return;
+    }
+    m_cardPresentationDirty = true;
+  }
+
+  void Overview::onDesktopLayerChanged(Output* output) {
+    if (!m_active) {
+      return;
+    }
+    if (OutputState* state = stateFor(output)) {
+      // layoutOutput re-resolves the stack before placing the rows.
+      layoutOutput(*state);
+      wlr_output_schedule_frame(state->output->wlr());
+    }
+  }
+
+  void Overview::onOutputRemoved(Output* output) {
+    if (m_navigationOutput == output) {
+      // The output may already be tearing down its workspace group.
+      m_navigationOutput = nullptr;
+      cancelNavigation();
+    }
+    if (!m_active) {
+      return;
+    }
+    const auto it = std::ranges::find_if(m_outputs, [output](const std::unique_ptr<OutputState>& state) {
+      return state->output == output;
+    });
+    if (it == m_outputs.end()) {
+      return;
+    }
+    if (m_drop.workspace != nullptr && stateForWorkspace(m_drop.workspace) == it->get()) {
+      hideDropHint();
+      m_drop = {};
+    }
+    if (m_dropWorkspaceGroup != nullptr && m_dropWorkspaceGroup->output() == output) {
+      hideDropHint();
+      m_dropWorkspaceGroup = nullptr;
+    }
+    if (m_dragCard != nullptr && m_dragCard->owner == it->get()) {
+      hideDropHint();
+      m_dragCard = nullptr;
+      m_dragSourceWorkspace = nullptr;
+      m_drop = {};
+      m_dropWorkspaceGroup = nullptr;
+      m_server->cursor()->overrideCursor(nullptr);
+    }
+    if (m_pressCard != nullptr && m_pressCard->owner == it->get()) {
+      m_pressCard = nullptr;
+    }
+    if (m_middleOutput == output) {
+      clearMiddlePress();
+    }
+    clearDesktop(**it);
+    for (const auto& card : (*it)->cards) {
+      destroyCard(card.get());
+    }
+    (*it)->cards.clear();
+    if ((*it)->tree != nullptr) {
+      wlr_scene_node_destroy(&(*it)->tree->node);
+    }
+    m_outputs.erase(it);
+    if (m_outputs.empty()) {
+      forceClose();
+    } else {
+      assignShortcuts();
+    }
+  }
+
+  // -: hit testing
+
+  Overview::Card* Overview::cardAt(double lx, double ly) {
+    // Topmost first: later outputs and later cards paint over earlier ones.
+    // Hit testing uses the same output clip as rendering. The dragged card is
+    // reparented to the unclipped root and hits everywhere.
+    for (const auto& state : std::views::reverse(m_outputs)) {
+      PreviewMetrics metrics{};
+      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
+        continue;
+      }
+      for (const auto& card : std::views::reverse(state->cards)) {
+        if (card->tree == nullptr || !card->tree->node.enabled) {
+          continue;
+        }
+        wlr_box hit = card->box;
+        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &card->box, &metrics.outputBox)) {
+          continue;
+        }
+        if (boxContains(hit, lx, ly)) {
+          return card.get();
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  Workspace*
+  Overview::workspaceAtPoint(double lx, double ly, OutputState** outState, size_t* outIndex, bool extendScrollingAxis) {
+    for (const auto& state : m_outputs) {
+      PreviewMetrics metrics{};
+      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
+        continue;
+      }
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group == nullptr) {
+        continue;
+      }
+      // A preview can only own points on its own output, so a preview overhanging
+      // a neighbour never steals its targets.
+      if (!boxContains(metrics.outputBox, lx, ly)) {
+        continue;
+      }
+      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
+      for (size_t index = 0; index < state->workspaceBackgrounds.size(); ++index) {
+        Workspace* workspace = group->workspaceAt(index);
+        if (workspace == nullptr) {
+          continue;
+        }
+        // Cards intentionally form one output-wide strip even when they overhang
+        // the centered preview. Drag targeting must cover that same visible area
+        // along the scrolling axis or the extreme gaps become dead zones.
+        // Background clicks retain the narrower preview hitbox.
+        const bool extend = extendScrollingAxis && workspace->scrollingLayout() != nullptr;
+        wlr_box box = previewBox(metrics, state->rowScroll.current(), index);
+        if (extend) {
+          if (horizontalWorkspaces) {
+            box.y = metrics.outputBox.y;
+            box.height = metrics.outputBox.height;
+          } else {
+            box.x = metrics.outputBox.x;
+            box.width = metrics.outputBox.width;
+          }
+        }
+        if (!boxContains(box, lx, ly)) {
+          continue;
+        }
+        if (outState != nullptr) {
+          *outState = state.get();
+        }
+        if (outIndex != nullptr) {
+          *outIndex = index;
+        }
+        return workspace;
+      }
+    }
+    return nullptr;
+  }
+
+  WorkspaceGroup*
+  Overview::workspaceGapAt(double lx, double ly, OutputState** outState, size_t* outIndex, wlr_box* outHintBox) {
+    for (const auto& state : m_outputs) {
+      PreviewMetrics metrics{};
+      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
+        continue;
+      }
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group == nullptr || !group->dynamic() || group->workspaceCount() >= kMaxWorkspaces) {
+        continue;
+      }
+      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
+      const size_t previewCount = std::min(group->workspaceCount(), state->workspaceBackgrounds.size());
+      for (size_t index = 0; index < previewCount; ++index) {
+        const wlr_box lower = previewBox(metrics, state->rowScroll.current(), index);
+        // Index zero has no preceding preview. Its insertion gap begins at the output edge, so dynamic workspaces can
+        // also be inserted before the first preview.
+        int before = 0;
+        if (index == 0) {
+          before = horizontalWorkspaces ? metrics.outputBox.x : metrics.outputBox.y;
+        } else {
+          const wlr_box upper = previewBox(metrics, state->rowScroll.current(), index - 1);
+          before = horizontalWorkspaces ? upper.x + upper.width : upper.y + upper.height;
+        }
+        const int after = horizontalWorkspaces ? lower.x : lower.y;
+        if (after <= before) {
+          continue;
+        }
+        const wlr_box gap = horizontalWorkspaces ? wlr_box{before, lower.y, after - before, lower.height}
+                                                 : wlr_box{lower.x, before, lower.width, after - before};
+        wlr_box visible{};
+        if (!wlr_box_intersection(&visible, &gap, &metrics.outputBox) || !boxContains(visible, lx, ly)) {
+          continue;
+        }
+        if (outState != nullptr) {
+          *outState = state.get();
+        }
+        if (outIndex != nullptr) {
+          *outIndex = index;
+        }
+        if (outHintBox != nullptr) {
+          // A bar across the gap: thin along the workspace axis, preview-sized across it.
+          if (horizontalWorkspaces) {
+            const int width = std::clamp(visible.width / 3, 4, 18);
+            *outHintBox = {
+                .x = visible.x + (visible.width - width) / 2,
+                .y = visible.y,
+                .width = width,
+                .height = visible.height,
+            };
+          } else {
+            const int height = std::clamp(visible.height / 3, 4, 18);
+            *outHintBox = {
+                .x = visible.x,
+                .y = visible.y + (visible.height - height) / 2,
+                .width = visible.width,
+                .height = height,
+            };
+          }
+        }
+        return group;
+      }
+    }
+    return nullptr;
+  }
+
+  Workspace* Overview::preferredWorkspace() const {
+    Output* output = m_server->outputFromWlr(m_server->preferredOutput());
+    if (output == nullptr || output->workspaceGroup() == nullptr) {
+      return nullptr;
+    }
+    return output->workspaceGroup()->active();
+  }
+
+  void Overview::clearMiddlePress() {
+    if (m_middleScrolling) {
+      m_server->gestures()->endPointerScroll(true, 0);
+    }
+    if (m_middleDragging) {
+      m_server->cursor()->overrideCursor(nullptr);
+    }
+    m_middlePressCard = nullptr;
+    m_middleOutput = nullptr;
+    m_middlePressed = false;
+    m_middleDragging = false;
+    m_middlePanning = false;
+    m_middleScrolling = false;
+    m_middleAccum = 0;
+  }
+
+  // -: input
+
+  bool Overview::handleButton(uint32_t button, bool pressed, double lx, double ly, uint32_t timeMsec) {
+    if (pressed) {
+      cancelNavigation();
+    }
+    if (!interactive()) {
+      return true; // Swallow everything while zooming back in.
+    }
+
+    if (!pressed) {
+      if (button == BTN_MIDDLE) {
+        Card* card = m_middlePressCard;
+        const bool closeCard = m_middlePressed && !m_middleDragging;
+        if (m_middleScrolling) {
+          // A release settles the strip; clearMiddlePress() cancels whatever is still running.
+          m_server->gestures()->endPointerScroll(false, timeMsec);
+          m_middleScrolling = false;
+        }
+        clearMiddlePress();
+        if (closeCard && card != nullptr && card->view != nullptr && card->view->mapped()) {
+          wlr_xdg_toplevel_send_close(card->view->toplevel());
+        }
+        return true;
+      }
+      if (button != BTN_LEFT) {
+        return true;
+      }
+      if (m_dragCard != nullptr) {
+        endDrag(true);
+        return true;
+      }
+      Card* card = m_pressCard;
+      Workspace* workspace = m_pressWorkspace;
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      if (card != nullptr && card->view != nullptr && card->view->mapped()) {
+        closeToWorkspace(card->view->workspace(), card->view);
+      } else if (workspace != nullptr) {
+        closeToWorkspace(workspace, workspace->focusedView());
+      }
+      return true;
+    }
+
+    Card* card = cardAt(lx, ly);
+    if (button == BTN_MIDDLE) {
+      m_middlePressCard = card;
+      Workspace* workspace = card != nullptr && card->view != nullptr
+          ? card->view->workspace()
+          : workspaceAtPoint(lx, ly, nullptr, nullptr, false);
+      m_middleOutput = workspace != nullptr && workspace->group() != nullptr ? workspace->group()->output() : nullptr;
+      m_middlePressX = lx;
+      m_middlePressY = ly;
+      m_middleAccum = 0;
+      m_middlePressed = true;
+      m_middleDragging = false;
+      m_middlePanning = false;
+      m_middleScrolling = false;
+      return true;
+    }
+    if (button != BTN_LEFT) {
+      return true;
+    }
+
+    m_pressCard = card;
+    m_pressWorkspace = nullptr;
+    m_pressX = lx;
+    m_pressY = ly;
+    if (card == nullptr) {
+      m_pressWorkspace = workspaceAtPoint(lx, ly, nullptr, nullptr, false);
+    }
+    return true;
+  }
+
+  void Overview::handleMotion(double lx, double ly, uint32_t timeMsec) {
+    if (!interactive()) {
+      return;
+    }
+    // The live target resolves through preferredOutput(), and the overview owns motion while it is up: repaint when
+    // the pointer crosses outputs, whether by hand or through the warp a keybind performs to change output.
+    if (Output* output = m_server->outputFromWlr(wlr_output_layout_output_at(m_server->outputLayout(), lx, ly));
+        output != m_pointerOutput) {
+      m_pointerOutput = output;
+      applyProgress();
+    }
+    if (m_middlePressed) {
+      const WorkspaceGroup* group = m_middleOutput != nullptr ? m_middleOutput->workspaceGroup() : nullptr;
+      const bool horizontal = group != nullptr && group->workspaceAxis() == WorkspaceAxis::Horizontal;
+      if (!m_middleDragging) {
+        const double dx = lx - m_middlePressX;
+        const double dy = ly - m_middlePressY;
+        if (dx * dx + dy * dy < kDragThreshold * kDragThreshold) {
+          return;
+        }
+        m_middleDragging = true;
+        // Travel across the workspace axis pans the strip; travel along it steps rows.
+        m_middlePanning = (std::abs(dx) > std::abs(dy)) != horizontal;
+        if (m_middlePanning) {
+          m_middleScrolling = m_server->gestures()->beginPointerScroll(m_middlePressX, m_middlePressY);
+          if (m_middleScrolling) {
+            m_server->gestures()->updatePointerScroll(dx, dy, timeMsec);
+          }
+        }
+        m_middleAccum = 0;
+        m_middlePressX = lx;
+        m_middlePressY = ly;
+        m_server->cursor()->overrideCursor("grabbing");
+      }
+      if (m_middlePanning) {
+        if (m_middleScrolling) {
+          m_server->gestures()->updatePointerScroll(lx - m_middlePressX, ly - m_middlePressY, timeMsec);
+        }
+        m_middlePressX = lx;
+        m_middlePressY = ly;
+        return;
+      }
+      m_middleAccum += horizontal ? lx - m_middlePressX : ly - m_middlePressY;
+      m_middlePressX = lx;
+      m_middlePressY = ly;
+      while (m_middleAccum <= -kMiddleScrollStepPx) {
+        m_middleAccum += kMiddleScrollStepPx;
+        selectRelativeWorkspace(1, m_middleOutput);
+      }
+      while (m_middleAccum >= kMiddleScrollStepPx) {
+        m_middleAccum -= kMiddleScrollStepPx;
+        selectRelativeWorkspace(-1, m_middleOutput);
+      }
+      return;
+    }
+    if (m_dragCard != nullptr) {
+      updateDrag(lx, ly);
+      return;
+    }
+    if (m_pressCard == nullptr) {
+      return;
+    }
+    const double dx = lx - m_pressX;
+    const double dy = ly - m_pressY;
+    if (dx * dx + dy * dy < kDragThreshold * kDragThreshold) {
+      return;
+    }
+    beginDrag();
+    updateDrag(lx, ly);
+  }
+
+  bool Overview::selectRelativeWorkspace(int delta, Output* output) {
+    if (!interactive()) {
+      return false;
+    }
+    if (output == nullptr) {
+      output = m_server->outputFromWlr(m_server->preferredOutput());
+    }
+    if (output == nullptr || output->workspaceGroup() == nullptr) {
+      return false;
+    }
+    WorkspaceGroup* group = output->workspaceGroup();
+    if (group->active() == nullptr) {
+      return false;
+    }
+    const int index = static_cast<int>(group->active()->index()) + delta;
+    if (index < 0 || index >= static_cast<int>(group->workspaceCount())) {
+      return false;
+    }
+    // select() lands in onWorkspaceActivated, which animates the filmstrip onto the new
+    // workspace, so the caller does not have to arrange anything.
+    group->select(group->workspaceAt(static_cast<size_t>(index)));
+    return true;
+  }
+
+  bool Overview::handleAxisNotch(bool vertical, double direction, double lx, double ly) {
+    cancelNavigation();
+    if (!interactive()) {
+      return true;
+    }
+    Output* output = m_server->outputFromWlr(wlr_output_layout_output_at(m_server->outputLayout(), lx, ly));
+    const WorkspaceGroup* group = output != nullptr ? output->workspaceGroup() : nullptr;
+    const bool horizontalWorkspaces = group != nullptr && group->workspaceAxis() == WorkspaceAxis::Horizontal;
+    const int sign = direction < 0 ? -1 : 1;
+    // Wheel input commits discrete targets on its physical axis, unlike continuous touchpad navigation.
+    if (vertical != horizontalWorkspaces) {
+      selectRelativeWorkspace(sign, output);
+      return true;
+    }
+    Workspace* workspace = workspaceAtPoint(lx, ly, nullptr, nullptr, true);
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr) {
+      return true;
+    }
+    View* target = vertical ? workspace->focusVertical(sign) : workspace->focusAdjacent(sign);
+    if (target == nullptr) {
+      return true;
+    }
+    clearShortcutInput();
+    if (workspace->active()) {
+      m_server->focusView(target, FocusReason::Gesture);
+    } else {
+      workspace->setFocusedView(target);
+    }
+    scrolling->snapVisible(scrolling->columnOf(target), workspace->scrollViewportExtent());
+    workspace->markArrange(true);
+    return true;
+  }
+
+  Workspace* Overview::pointerScrollWorkspace(double lx, double ly) {
+    if (!interactive()) {
+      return nullptr;
+    }
+    return workspaceAtPoint(lx, ly, nullptr, nullptr, true);
+  }
+
+  Workspace* Overview::navigationWorkspace() const {
+    const WorkspaceGroup* group = m_navigationOutput != nullptr ? m_navigationOutput->workspaceGroup() : nullptr;
+    if (group != nullptr) {
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        if (group->workspaceAt(index) == m_navigationWorkspace) {
+          return m_navigationWorkspace;
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  void Overview::onNavigationDeviceDestroyed(wl_listener* listener, void* /*data*/) {
+    Overview* self;
+    self = wl_container_of(listener, self, m_navigationDeviceDestroy);
+    self->cancelNavigation();
+  }
+
+  void Overview::cancelNavigation() { endNavigation(true, 0, m_navigationSource); }
+
+  void Overview::beginNavigation(wlr_pointer* pointer, NavigationSource source, double lx, double ly) {
+    cancelNavigation();
+    if (!interactive() || dragging() || pointer == nullptr) {
+      return;
+    }
+    Output* output = m_server->outputFromWlr(wlr_output_layout_output_at(m_server->outputLayout(), lx, ly));
+    if (output == nullptr || output->workspaceGroup() == nullptr) {
+      return;
+    }
+    m_navigationOutput = output;
+    m_navigationHorizontalWorkspaces = output->workspaceGroup()->workspaceAxis() == WorkspaceAxis::Horizontal;
+    m_navigationWorkspace = workspaceAtPoint(lx, ly, nullptr, nullptr, true);
+    if (m_navigationWorkspace == nullptr || m_navigationWorkspace->group() != output->workspaceGroup()) {
+      m_navigationWorkspace = output->workspaceGroup()->active();
+    }
+    m_navigationPointer = pointer;
+    m_navigationDeviceDestroy.notify = onNavigationDeviceDestroyed;
+    wl_signal_add(&pointer->base.events.destroy, &m_navigationDeviceDestroy);
+    m_navigationSource = source;
+    m_navigation.reset();
+    m_navigationStarted = false;
+  }
+
+  void Overview::updateNavigation(double dx, double dy, uint32_t timeMsec) {
+    if (m_navigationOutput == nullptr || !interactive()) {
+      return;
+    }
+    m_navigation.update(dx, dy, timeMsec);
+    const auto axis = m_navigation.axis();
+    if (axis == OverviewNavigation::Axis::Pending) {
+      return;
+    }
+    OutputState* state = stateFor(m_navigationOutput);
+    WorkspaceGroup* group = m_navigationOutput->workspaceGroup();
+    if (state == nullptr || group == nullptr || group->active() == nullptr) {
+      cancelNavigation();
+      return;
+    }
+    const auto& overview = config().overview;
+    const double factor =
+        axis == OverviewNavigation::Axis::Horizontal ? overview.scrollFactorHorizontal : overview.scrollFactorVertical;
+    const auto travel = OverviewNavigation::travelFor(m_navigationSource);
+    if ((axis == OverviewNavigation::Axis::Horizontal) == m_navigationHorizontalWorkspaces) {
+      if (!m_navigationStarted) {
+        m_navigationStart = state->rowScroll.current();
+        m_navigationScale = OverviewNavigation::travelScale(1.0, settledZoom(), factor, travel.workspace);
+        m_navigationStarted = true;
+      }
+      const auto last = static_cast<double>(group->workspaceCount() - 1);
+      // snap() also stops any settle still running on this output; row animations elsewhere and the zoom continue.
+      state->rowScroll.snap(
+          OverviewNavigation::rubberBand(
+              m_navigationStart + m_navigation.position() * m_navigationScale, last, OverviewNavigation::kOverscroll
+          )
+      );
+      applyProgress();
+      return;
+    }
+    Workspace* workspace = navigationWorkspace();
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr) {
+      return;
+    }
+    const auto viewport = static_cast<double>(workspace->scrollViewportExtent());
+    if (!m_navigationStarted) {
+      m_navigationStart = scrolling->scroll();
+      m_navigationCentered = scrolling->centeredRest();
+      m_navigationScale = OverviewNavigation::travelScale(viewport, settledZoom(), factor, travel.viewport);
+      m_navigationStarted = true;
+    }
+    scrolling->setScroll(
+        OverviewNavigation::rubberBand(
+            m_navigationStart + m_navigation.position() * m_navigationScale,
+            static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent())),
+            viewport * OverviewNavigation::kOverscroll
+        )
+    );
+    workspace->markArrange(false);
+  }
+
+  void Overview::endNavigation(bool cancelled, uint32_t timeMsec, NavigationSource source) {
+    if (source != m_navigationSource) {
+      return;
+    }
+    Workspace* workspace = navigationWorkspace();
+    Output* output = m_navigationOutput;
+    // Clear the gesture before selecting or focusing below: both re-enter through onWorkspaceActivated and
+    // onFocusChanged, which cancel the navigation belonging to this output.
+    m_navigationOutput = nullptr;
+    m_navigationWorkspace = nullptr;
+    if (m_navigationPointer != nullptr) {
+      wl_list_remove(&m_navigationDeviceDestroy.link);
+      m_navigationPointer = nullptr;
+    }
+    m_scrollDx = m_scrollDy = 0;
+    m_scrollStopX = m_scrollStopY = false;
+    const bool started = m_navigationStarted;
+    m_navigationStarted = false;
+    if (!started || output == nullptr || !interactive()) {
+      return;
+    }
+    if (!cancelled) {
+      m_navigation.update(0, 0, timeMsec);
+    }
+    const double projected = m_navigationStart + m_navigation.projectedPosition() * m_navigationScale;
+    if ((m_navigation.axis() == OverviewNavigation::Axis::Horizontal) == m_navigationHorizontalWorkspaces) {
+      OutputState* state = stateFor(output);
+      WorkspaceGroup* group = output->workspaceGroup();
+      if (state == nullptr || group == nullptr || group->active() == nullptr) {
+        return;
+      }
+      const auto last = static_cast<double>(group->workspaceCount() - 1);
+      const int index = cancelled ? static_cast<int>(group->active()->index())
+                                  : OverviewNavigation::workspaceTarget(projected, static_cast<int>(last));
+      // Rubber-banded travel moves the filmstrip slower than the fingers, so the release carries the visible speed.
+      const double position = m_navigationStart + m_navigation.position() * m_navigationScale;
+      const double velocity = cancelled ? 0.0
+                                        : m_navigation.velocity()
+              * m_navigationScale
+              * OverviewNavigation::rubberBandDerivative(position, last, OverviewNavigation::kOverscroll);
+      if (index != static_cast<int>(group->active()->index())) {
+        group->select(group->workspaceAt(static_cast<size_t>(index)));
+        state = stateFor(output);
+      }
+      if (state != nullptr) {
+        animateRow(*state, static_cast<double>(index), velocity);
+      }
+      return;
+    }
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr) {
+      return;
+    }
+    const int viewport = workspace->scrollViewportExtent();
+    const auto maximum = static_cast<double>(scrolling->maxScroll(viewport));
+    if (cancelled) {
+      scrolling->setScroll(
+          m_navigationCentered ? m_navigationStart : std::clamp(m_navigationStart, 0.0, maximum), m_navigationCentered
+      );
+      workspace->markArrange(true);
+      return;
+    }
+    double bestDistance = std::numeric_limits<double>::max();
+    double bestPosition = std::clamp(projected, 0.0, maximum);
+    int bestColumn = -1;
+    for (size_t index = 0; index < scrolling->columns().size(); ++index) {
+      if (scrolling->columns()[index].views.empty()) {
+        continue;
+      }
+      const auto column = static_cast<int>(index);
+      const auto x = static_cast<double>(scrolling->columnX(column, viewport));
+      const auto width = static_cast<double>(scrolling->columnWidth(column, viewport));
+      for (const double position : {std::clamp(x, 0.0, maximum), std::clamp(x + width - viewport, 0.0, maximum)}) {
+        const double distance = std::abs(position - projected);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestPosition = position;
+          bestColumn = column;
+        }
+      }
+    }
+    // Match normal strip navigation: focus the outermost fully visible column
+    // in the travel direction, retaining the selected card within that column.
+    const int direction = projected >= scrolling->scroll() ? 1 : -1;
+    const auto count = static_cast<int>(scrolling->columns().size());
+    for (int index = bestColumn + direction; bestColumn >= 0 && index >= 0 && index < count; index += direction) {
+      const double x = scrolling->columnX(index, viewport);
+      const double width = scrolling->columnWidth(index, viewport);
+      if (x < bestPosition || x + width > bestPosition + viewport) {
+        break;
+      }
+      bestColumn = index;
+    }
+    View* target = workspace->focusedView();
+    if (bestColumn >= 0 && (target == nullptr || scrolling->columnOf(target) != bestColumn)) {
+      const auto& views = scrolling->columns()[static_cast<size_t>(bestColumn)].views;
+      target = views.empty() ? nullptr : views.front();
+    }
+    scrolling->setScroll(bestPosition);
+    // Do not activate a different workspace merely because its preview was
+    // panned. Its selected card will receive focus if the user enters that row.
+    if (target != nullptr) {
+      if (workspace->active()) {
+        m_server->focusView(target, FocusReason::Gesture);
+      } else {
+        workspace->setFocusedView(target);
+      }
+    }
+    workspace->markArrange(true);
+  }
+
+  void Overview::handleTouchpadAxis(
+      wlr_pointer* pointer, bool vertical, double delta, uint32_t timeMsec, double lx, double ly
+  ) {
+    // A three-finger swipe owns the overview until it ends; finger scrolling cannot arrive during one anyway.
+    if (m_navigationPointer != nullptr && m_navigationSource != NavigationSource::Scroll) {
+      return;
+    }
+    if (pointer != m_navigationPointer) {
+      if (delta == 0) {
+        return;
+      }
+      beginNavigation(pointer, NavigationSource::Scroll, lx, ly);
+    }
+    if (m_navigationPointer == nullptr) {
+      return;
+    }
+    if (vertical) {
+      m_scrollDy += delta;
+      m_scrollStopY = delta == 0;
+    } else {
+      m_scrollDx += delta;
+      m_scrollStopX = delta == 0;
+    }
+    m_scrollTime = timeMsec;
+  }
+
+  void Overview::handleTouchpadFrame() {
+    if (m_navigationPointer == nullptr || m_navigationSource != NavigationSource::Scroll) {
+      return;
+    }
+    if (m_scrollDx != 0 || m_scrollDy != 0) {
+      updateNavigation(m_scrollDx, m_scrollDy, m_scrollTime);
+    }
+    const auto axis = m_navigation.axis();
+    const bool stop = axis == OverviewNavigation::Axis::Horizontal ? m_scrollStopX
+        : axis == OverviewNavigation::Axis::Vertical               ? m_scrollStopY
+                                                                   : m_scrollStopX || m_scrollStopY;
+    m_scrollDx = m_scrollDy = 0;
+    m_scrollStopX = m_scrollStopY = false;
+    if (stop) {
+      endNavigation(false, m_scrollTime, NavigationSource::Scroll);
+    }
+  }
+
+  void Overview::refreshShortcutMatches() {
+    for (const auto& state : m_outputs) {
+      for (const auto& card : state->cards) {
+        if (card->shortcut.empty()) {
+          continue;
+        }
+        const size_t matched = shortcutStartsWith(card->shortcut, m_shortcutInput) ? m_shortcutInput.size() : SIZE_MAX;
+        const size_t oldDisplayed = card->shortcutMatched == SIZE_MAX ? 0 : card->shortcutMatched;
+        const size_t newDisplayed = matched == SIZE_MAX ? 0 : matched;
+        card->shortcutMatched = matched;
+        if (oldDisplayed != newDisplayed) {
+          renderCardShortcut(*card);
+        }
+      }
+    }
+    applyProgress();
+    scheduleFrames();
+  }
+
+  void Overview::clearShortcutInput() {
+    m_shortcutInput.clear();
+    refreshShortcutMatches();
+  }
+
+  bool Overview::handleShortcutKey(uint32_t keysym) {
+    if (!config().overview.shortcuts || dragging()) {
+      return false;
+    }
+    if (!m_shortcutInput.empty() && keysym == XKB_KEY_BackSpace) {
+      m_shortcutInput.pop_back();
+      refreshShortcutMatches();
+      return true;
+    }
+    if (!m_shortcutInput.empty() && keysym == XKB_KEY_Escape) {
+      clearShortcutInput();
+      return true;
+    }
+
+    const char character = shortcutCharacter(keysym);
+    if (character == '\0' || std::ranges::none_of(config().overview.shortcutKeys, [character](char configured) {
+          return asciiLower(configured) == character;
+        })) {
+      return false;
+    }
+
+    std::string candidate = m_shortcutInput + character;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      for (const auto& state : m_outputs) {
+        for (const auto& card : state->cards) {
+          if (card->shortcut.size() == candidate.size()
+              && shortcutStartsWith(card->shortcut, candidate)
+              && card->view != nullptr
+              && card->view->mapped()) {
+            closeToWorkspace(card->view->workspace(), card->view);
+            return true;
+          }
+        }
+      }
+      for (const auto& state : m_outputs) {
+        for (const auto& card : state->cards) {
+          if (shortcutStartsWith(card->shortcut, candidate)) {
+            m_shortcutInput = candidate;
+            refreshShortcutMatches();
+            return true;
+          }
+        }
+      }
+      if (m_shortcutInput.empty()) {
+        break;
+      }
+      m_shortcutInput.clear();
+      candidate.assign(1, character);
+    }
+
+    clearShortcutInput();
+    return true;
+  }
+
+  bool Overview::handleKeybindAction(KeybindAction action) {
+    const bool directional = action == KeybindAction::WindowFocusLeft
+        || action == KeybindAction::WindowFocusRight
+        || action == KeybindAction::WindowFocusOrOutputLeft
+        || action == KeybindAction::WindowFocusOrOutputRight
+        || action == KeybindAction::WindowFocusUp
+        || action == KeybindAction::WindowFocusDown
+        || action == KeybindAction::WindowFocusOrWorkspaceUp
+        || action == KeybindAction::WindowFocusOrWorkspaceDown
+        || action == KeybindAction::WindowFocusOrOutputUp
+        || action == KeybindAction::WindowFocusOrOutputDown;
+    const bool outputFocus = action == KeybindAction::OutputFocusLeft
+        || action == KeybindAction::OutputFocusRight
+        || action == KeybindAction::OutputFocusUp
+        || action == KeybindAction::OutputFocusDown;
+
+    if (m_closing && (directional || outputFocus)) {
+      m_pendingFocus = nullptr;
+    }
+
+    if (directional && interactive() && !m_shortcutInput.empty()) {
+      clearShortcutInput();
+    }
+    return false;
+  }
+
+  bool Overview::handleFallbackKey(uint32_t keysym) {
+    if (!interactive()) {
+      return false;
+    }
+    if (handleShortcutKey(keysym)) {
+      return true;
+    }
+    auto dispatch = [this](KeybindAction action) {
+      Keybind bind;
+      bind.action = action;
+      return m_server->executeKeybindAction(bind);
+    };
+    // Local windows first, exactly like the composite focus actions. Only an arrow
+    // pointing along the output's workspace axis falls through to a workspace step.
+    const auto arrow = [this, &dispatch](int sign, bool horizontalArrow, KeybindAction action) {
+      Workspace* workspace = preferredWorkspace();
+      if (workspace == nullptr || workspace->group() == nullptr) {
+        return true;
+      }
+      const bool alongWorkspaceAxis =
+          (workspace->group()->workspaceAxis() == WorkspaceAxis::Horizontal) == horizontalArrow;
+      const View* neighbor = horizontalArrow ? workspace->focusAdjacent(sign) : workspace->focusVertical(sign);
+      if (neighbor != nullptr || !alongWorkspaceAxis) {
+        return dispatch(action);
+      }
+      clearShortcutInput();
+      selectRelativeWorkspace(sign, workspace->group()->output());
+      return true;
+    };
+    switch (keysym) {
+    case XKB_KEY_Escape:
+      close();
+      return true;
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+      clearShortcutInput();
+      if (Workspace* workspace = preferredWorkspace()) {
+        closeToWorkspace(workspace, workspace->focusedView());
+      }
+      return true;
+    case XKB_KEY_Left:
+      return arrow(-1, true, KeybindAction::WindowFocusLeft);
+    case XKB_KEY_Right:
+      return arrow(1, true, KeybindAction::WindowFocusRight);
+    case XKB_KEY_Up:
+      return arrow(-1, false, KeybindAction::WindowFocusUp);
+    case XKB_KEY_Down:
+      return arrow(1, false, KeybindAction::WindowFocusDown);
+    default:
+      return false;
+    }
+  }
+
+  // -: drag
+
+  void Overview::beginDrag() {
+    Card* card = m_pressCard;
+    m_pressCard = nullptr;
+    m_pressWorkspace = nullptr;
+    if (card == nullptr || card->view == nullptr || !card->view->mapped()) {
+      return;
+    }
+    View* view = card->view;
+    m_dragCard = card;
+    m_dragOffsetX = m_pressX - card->box.x;
+    m_dragOffsetY = m_pressY - card->box.y;
+    m_dragSourceWorkspace = view->workspace();
+    m_dragSourceColumn = -1;
+    m_dragSourceRow = -1;
+    m_dragSourceWidth.reset();
+    m_drop = {};
+    m_dropWorkspaceGroup = nullptr;
+
+    if (m_dragSourceWorkspace != nullptr && view->tiled()) {
+      m_dragSourceColumn = m_dragSourceWorkspace->layout().columnOf(view);
+      m_dragSourceRow = m_dragSourceWorkspace->layout().rowOf(view);
+      m_dragSourceWidth = captureDropColumnWidth(*m_dragSourceWorkspace, view);
+      if (m_dragSourceColumn >= 0) {
+        // Detach so the source row closes the gap live, exactly like a normal
+        // tile drag; arrange() re-lays that output's cards through the hook.
+        m_dragSourceWorkspace->layoutDetach(view, false);
+      }
+    }
+    wlr_scene_node_reparent(&card->tree->node, m_tree);
+    wlr_scene_node_raise_to_top(&card->tree->node);
+    PreviewMetrics metrics{};
+    if (card->owner != nullptr && previewMetrics(*card->owner, *m_server, zoom(), metrics)) {
+      layoutCard(*card, metrics, card->owner->rowScroll.current(), liveTargetView());
+    }
+    m_server->cursor()->overrideCursor("grabbing");
+  }
+
+  void Overview::updateDrag(double lx, double ly) {
+    Card* card = m_dragCard;
+    card->box.x = static_cast<int>(std::lround(lx - m_dragOffsetX));
+    card->box.y = static_cast<int>(std::lround(ly - m_dragOffsetY));
+    wlr_scene_node_set_position(&card->tree->node, card->box.x, card->box.y);
+
+    OutputState* state = nullptr;
+    size_t workspaceIndex = 0;
+    wlr_box workspaceHint{};
+    if (WorkspaceGroup* group = workspaceGapAt(lx, ly, &state, &workspaceIndex, &workspaceHint)) {
+      m_drop = {};
+      m_dropWorkspaceGroup = group;
+      m_dropWorkspaceIndex = workspaceIndex;
+      showWorkspaceInsertHint(state->output, workspaceHint);
+      scheduleFrames();
+      return;
+    }
+    m_dropWorkspaceGroup = nullptr;
+
+    size_t workspacePosition = 0;
+    Workspace* workspace = workspaceAtPoint(lx, ly, &state, &workspacePosition, true);
+    m_drop = {.workspace = workspace};
+    if (workspace == nullptr || state == nullptr) {
+      hideDropHint();
+      scheduleFrames();
+      return;
+    }
+
+    PreviewMetrics metrics{};
+    if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
+      hideDropHint();
+      return;
+    }
+    // Map the pointer out of the thumbnail and back into workspace world space.
+    const wlr_box preview = previewBox(metrics, state->rowScroll.current(), workspacePosition);
+    const double worldX = metrics.outputBox.x + (lx - preview.x) / metrics.zoom;
+    const double worldY = metrics.outputBox.y + (ly - preview.y) / metrics.zoom;
+
+    if (card->view->tiled()) {
+      // The overview applies its own projection after target selection. Keep
+      // strip hints attached to content that is outside the normal viewport but
+      // visible in the overview margin. Other layouts retain their normal
+      // usable-area bounds.
+      const bool scrolling = workspace->scrollingLayout() != nullptr;
+      m_drop = computeDropTarget(
+          *workspace, worldX, worldY, card->view,
+          DropTargetOptions{
+              .clipHintToUsable = !scrolling,
+              .reserveScrollingViewportEdges = false,
+              .endpointGapsOutsideColumns = scrolling,
+          }
+      );
+    } else {
+      m_drop = {
+          .workspace = workspace,
+          .column = static_cast<int>(workspace->layout().columns().size()),
+      };
+    }
+    if (m_drop.hintBox.width > 0 && m_drop.hintBox.height > 0) {
+      showDropHint(m_drop.hintBox, metrics, state->rowScroll.current(), workspacePosition, state->output);
+    } else {
+      hideDropHint();
+    }
+    scheduleFrames();
+  }
+
+  void Overview::endDrag(bool drop) {
+    Card* card = m_dragCard;
+    if (card == nullptr) {
+      return;
+    }
+    View* view = card->view;
+    WorkspaceGroup* insertionGroup = drop ? m_dropWorkspaceGroup : nullptr;
+    Workspace* target = drop ? m_drop.workspace : nullptr;
+    DropTarget targetDrop = m_drop;
+    const wlr_box cardBox = card->box;
+    OutputState* dropState = target != nullptr ? stateForWorkspace(target) : nullptr;
+
+    m_dragCard = nullptr;
+    m_drop = {};
+    m_dropWorkspaceGroup = nullptr;
+    hideDropHint();
+    m_server->cursor()->overrideCursor(nullptr);
+
+    if (view == nullptr || !view->mapped()) {
+      return;
+    }
+
+    bool insertedWorkspace = false;
+    if (insertionGroup != nullptr) {
+      target = insertionGroup->insertDynamicWorkspace(m_dropWorkspaceIndex);
+      dropState = target != nullptr ? stateForWorkspace(target) : nullptr;
+      if (target != nullptr && dropState != nullptr) {
+        targetDrop = {
+            .workspace = target,
+            .column = 0,
+        };
+        insertedWorkspace = true;
+      }
+    }
+
+    if (target != nullptr && view->tiled()) {
+      applyDrop(
+          *m_server, *view, *target, targetDrop, m_dragSourceWidth.has_value() ? &*m_dragSourceWidth : nullptr,
+          /*animate=*/false
+      );
+    } else if (target != nullptr && dropState != nullptr && insertedWorkspace) {
+      view->rememberFloatingPosition();
+      if (view->workspace() != target) {
+        view->moveToWorkspace(target, /*attachToLayout=*/false);
+      }
+      view->restoreFloatingPosition();
+      m_server->focusView(view, FocusReason::DragDrop);
+    } else if (target != nullptr && dropState != nullptr) {
+      // Floating: map the card origin back out of the thumbnail.
+      PreviewMetrics metrics{};
+      if (previewMetrics(*dropState, *m_server, zoom(), metrics)) {
+        const wlr_box preview = previewBox(metrics, dropState->rowScroll.current(), target->index());
+        const int x = metrics.outputBox.x + static_cast<int>(std::lround((cardBox.x - preview.x) / metrics.zoom));
+        const int y = metrics.outputBox.y + static_cast<int>(std::lround((cardBox.y - preview.y) / metrics.zoom));
+        if (view->workspace() != target) {
+          view->moveToWorkspace(target, /*attachToLayout=*/false);
+          target->exitFullscreenForIncomingView(view);
+        }
+        view->setPosition(x, y);
+        view->rememberFloatingPosition();
+        // Cards are laid out from the presented box, which setPosition does not refresh.
+        target->syncViewPresentation(view);
+      }
+    } else if (m_dragSourceWorkspace != nullptr && view->tiled() && m_dragSourceColumn >= 0) {
+      // Cancelled or dropped on nothing: put the tile back where it came from.
+      if (m_dragSourceWidth.has_value()) {
+        m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
+        const int column = m_dragSourceWorkspace->layout().columnOf(view);
+        m_dragSourceWorkspace->layout().setWidthFraction(column, m_dragSourceWidth->fraction);
+        if (m_dragSourceWidth->fullWidth) {
+          m_dragSourceWorkspace->layout().toggleFullWidth(column);
+        }
+        wlr_xdg_toplevel_set_maximized(view->toplevel(), m_dragSourceWidth->fullWidth);
+      } else if (m_dragSourceWorkspace->dwindleLayout() != nullptr) {
+        // Gap-index insert restores the exact flat position the drag removed.
+        m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
+      } else if (m_dragSourceRow >= 0) {
+        m_dragSourceWorkspace->layout().insertViewIntoColumn(view, m_dragSourceColumn, m_dragSourceRow);
+      } else {
+        m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
+      }
+      m_dragSourceWorkspace->arrange(false);
+    }
+
+    m_dragSourceWorkspace = nullptr;
+    m_dragSourceColumn = -1;
+    m_dragSourceRow = -1;
+    m_dragSourceWidth.reset();
+    // The card moved rows and scene parents; rebuilding is cheaper to reason
+    // about than rebinding its surface listeners in place.
+    rebuildCard(view);
+    applyProgress();
+  }
+
+  void Overview::syncWorkspaceRows(OutputState& state, WorkspaceGroup& group) {
+    const bool grew = state.workspaceBackgrounds.size() < group.workspaceCount();
+    while (state.workspaceBackgrounds.size() > group.workspaceCount()) {
+      WorkspaceBackground background = std::move(state.workspaceBackgrounds.back());
+      state.workspaceBackgrounds.pop_back();
+      for (const auto& mirror : background.mirrors) {
+        wl_list_remove(&mirror->outputSample.link);
+        wl_list_remove(&mirror->frameDone.link);
+      }
+      if (background.tree != nullptr) {
+        wlr_scene_node_destroy(&background.tree->node);
+      }
+    }
+    while (state.workspaceBackgrounds.size() < group.workspaceCount()) {
+      state.workspaceBackgrounds.push_back(createWorkspaceBackground(state));
+    }
+    if (grew) {
+      syncDesktopMirrors(state);
+    }
+    for (const auto& card : state.cards) {
+      if (card->view != nullptr && card->view->workspace() != nullptr) {
+        card->workspaceIndex = card->view->workspace()->index();
+      }
+    }
+  }
+
+  void Overview::showDropHint(
+      const wlr_box& worldBox, const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex,
+      Output* output
+  ) {
+    if (worldBox.width <= 0 || worldBox.height <= 0) {
+      hideDropHint();
+      return;
+    }
+    const double z = metrics.zoom;
+    const wlr_box preview = previewBox(metrics, workspaceScroll, workspaceIndex);
+    const wlr_box mappedBox{
+        .x = preview.x + static_cast<int>(std::lround((worldBox.x - metrics.outputBox.x) * z)),
+        .y = preview.y + static_cast<int>(std::lround((worldBox.y - metrics.outputBox.y) * z)),
+        .width = std::max(1, static_cast<int>(std::lround(worldBox.width * z))),
+        .height = std::max(1, static_cast<int>(std::lround(worldBox.height * z))),
+    };
+    wlr_box visibleBox{};
+    if (!wlr_box_intersection(&visibleBox, &mappedBox, &metrics.outputBox)) {
+      hideDropHint();
+      return;
+    }
+    if (m_dropHint == nullptr) {
+      m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
+    }
+    m_dropHint->show(
+        output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * metrics.zoom))
+    );
+    if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
+      wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
+    }
+  }
+
+  void Overview::showWorkspaceInsertHint(Output* output, const wlr_box& box) {
+    if (output == nullptr || box.width <= 0 || box.height <= 0) {
+      hideDropHint();
+      return;
+    }
+    if (m_dropHint == nullptr) {
+      m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
+    }
+    m_dropHint->show(output, box, box.height / 2);
+    if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
+      wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
+    }
+  }
+
+  void Overview::hideDropHint() {
+    if (m_dropHint != nullptr) {
+      m_dropHint->hideImmediate();
+    }
+  }
+
+} // namespace umbriel

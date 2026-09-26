@@ -1,0 +1,12 @@
+[Unit]
+Description=Umbriel Wayland compositor
+Documentation=https://github.com/noctalia-dev/umbriel
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target
+PartOf=umbriel-session.target
+Before=umbriel-session.target
+
+[Service]
+Type=simple
+Slice=session.slice
+ExecStart=@UMBRIEL_EXECUTABLE@

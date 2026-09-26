@@ -1,0 +1,20 @@
+option(
+  'tests',
+  type: 'feature',
+  value: 'auto',
+  description: 'Build unit tests, harness clients, and umbrielfx checks (auto: on for unsanitized debug builds)',
+)
+option(
+  'test_ipc',
+  type: 'feature',
+  value: 'auto',
+  description: 'IPC commands only the harness uses: settle, the animation clock, output hotplug, renderer recovery'
+    + ' (auto: on for debug builds)',
+)
+option('jemalloc', type: 'feature', value: 'auto', description: 'Use jemalloc on glibc builds')
+option(
+  'tracy',
+  type: 'feature',
+  value: 'disabled',
+  description: 'Compile umbrielfx\'s Tracy CPU and GPU render zones (needs a client built with TRACY_ENABLE and TRACY_ON_DEMAND)',
+)
