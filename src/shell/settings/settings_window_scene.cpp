@@ -1078,6 +1078,8 @@ void SettingsWindow::rebuildSettingsContent() {
   logSettingsProfile("rebuildContent sections", phaseProfileWatch);
   phaseProfileWatch.reset();
 
+  addDisplaysContent(scale);
+
   if (m_selectedSection == "plugins" && m_pluginManager != nullptr) {
     refreshPluginListIfNeeded();
     settings::addSettingsPlugins(

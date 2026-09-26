@@ -1287,6 +1287,8 @@ void WaylandConnection::bindGlobal(
       return;
     }
     const auto bindVersion = std::min(version, kOutputManagerVersion);
+    m_outputManagerGlobalName = name;
+    m_outputManagerGlobalVersion = bindVersion;
     m_outputManager = static_cast<zwlr_output_manager_v1*>(
         wl_registry_bind(registry, name, &zwlr_output_manager_v1_interface, bindVersion)
     );

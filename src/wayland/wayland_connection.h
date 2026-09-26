@@ -15,6 +15,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 struct wl_compositor;
@@ -199,6 +200,11 @@ public:
   [[nodiscard]] TextInputService* textInputService() const noexcept { return m_textInputService; }
   [[nodiscard]] wp_viewporter* viewporter() const noexcept;
   [[nodiscard]] wl_display* display() const noexcept;
+  [[nodiscard]] wl_registry* registry() const noexcept { return m_registry; }
+  /// Registry name and bound version of zwlr_output_manager_v1, 0 when absent.
+  [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> outputManagerGlobal() const noexcept {
+    return {m_outputManagerGlobalName, m_outputManagerGlobalVersion};
+  }
   [[nodiscard]] std::string describeDisplayError(int operationErrno = 0) const;
   [[nodiscard]] wl_compositor* compositor() const noexcept;
   [[nodiscard]] wl_seat* seat() const noexcept;
@@ -326,6 +332,8 @@ private:
   ext_output_image_capture_source_manager_v1* m_outputImageCaptureSourceManager = nullptr;
   ext_foreign_toplevel_image_capture_source_manager_v1* m_foreignToplevelImageCaptureSourceManager = nullptr;
   zwlr_output_manager_v1* m_outputManager = nullptr;
+  std::uint32_t m_outputManagerGlobalName = 0;
+  std::uint32_t m_outputManagerGlobalVersion = 0;
   std::unordered_map<zwlr_output_head_v1*, WaylandOutputHeadInfo> m_outputHeads;
   std::unordered_set<zwlr_output_mode_v1*> m_outputModes;
   std::unique_ptr<FocusGrabService> m_focusGrabService;

@@ -1399,7 +1399,8 @@
         "system": "System",
         "templates": "Templates",
         "umbriel": "Umbriel",
-        "wallpaper": "Wallpaper"
+        "wallpaper": "Wallpaper",
+        "displays": "Displays"
       }
     },
     "notifications": {
@@ -4696,6 +4697,31 @@
       "support-report-saved": "Support report saved.",
       "support-report-title": "Save Support Report",
       "title": "Settings"
+    },
+    "displays": {
+      "enabled": "Enabled",
+      "resolution": "Resolution",
+      "refresh-rate": "Refresh rate",
+      "scale": "Scale",
+      "rotation": "Rotation",
+      "rotation-normal": "Normal",
+      "position": "Position",
+      "right-of": "Right of {name}",
+      "left-of": "Left of {name}",
+      "above": "Above {name}",
+      "below": "Below {name}",
+      "adaptive-sync": "Adaptive sync",
+      "custom": "Custom",
+      "apply": "Apply",
+      "discard": "Discard",
+      "keep": "Keep changes",
+      "revert": "Revert",
+      "confirm": "Keep these display settings? Reverting in {seconds} s.",
+      "failed": "The compositor rejected this configuration.",
+      "cancelled": "Displays changed while applying. Review and apply again.",
+      "busy": "A display change is still in progress.",
+      "unavailable": "This compositor does not support display configuration (wlr-output-management).",
+      "refresh-default": "Default"
     }
   },
   "setup-wizard": {

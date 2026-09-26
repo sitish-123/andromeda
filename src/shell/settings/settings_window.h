@@ -18,6 +18,7 @@
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
+#include "wayland/output_management.h"
 #include "wayland/toplevel_surface.h"
 
 #include <cstdint>
@@ -172,6 +173,11 @@ private:
   void scheduleDeferredRebuild();
   void markPluginListDirty();
   void refreshPluginListIfNeeded();
+  void addDisplaysContent(float scale);
+  void onDisplaysChanged();
+  void editDisplay(OutputHeadConfig config);
+  void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
+  void finishDisplayConfirm(bool keep);
   void maybeOpenPendingEditor();
   void applyPendingContentScrollTarget(float margin);
   void scrollFocusedAreaIntoView(class InputArea* area);
@@ -315,6 +321,13 @@ private:
   std::string m_pluginSearchQuery;
   Timer m_searchDebounceTimer;
   Timer m_pluginSearchDebounceTimer;
+  // Exists only while the Displays section is showing.
+  std::unique_ptr<OutputManagement> m_outputManagement;
+  std::vector<OutputHeadConfig> m_displayEdits;
+  std::vector<OutputHeadConfig> m_displayRevertTo;
+  Timer m_displayConfirmTimer;
+  int m_displayConfirmSecondsLeft = 0;
+  std::string m_displayError;
   // Set by openToBarWidget (e.g. middle-click on a bar widget) / openToPlugin and consumed after
   // the Settings scene is available so the requested editor can be mounted into it.
   std::string m_pendingOpenWidgetInspectorName;

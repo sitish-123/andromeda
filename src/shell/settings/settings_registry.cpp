@@ -86,8 +86,9 @@ namespace settings {
       return defaultKeybindSet(action);
     }
 
-    constexpr std::array<SettingsSectionDescriptor, 24> kSettingsSections{{
+    constexpr std::array<SettingsSectionDescriptor, 25> kSettingsSections{{
         {SettingsSection::Appearance, "appearance", "adjustments-horizontal"},
+        {SettingsSection::Displays, "displays", "device-desktop", true, true},
         {SettingsSection::Wallpaper, "wallpaper", "paint"},
         {SettingsSection::Templates, "templates", "color-swatch"},
         {SettingsSection::Desktop, "desktop", "layout-board"},

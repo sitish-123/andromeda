@@ -336,6 +336,7 @@ namespace settings {
     case SettingsSection::Umbriel:
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
+    case SettingsSection::Displays:
       return false;
     }
     return false;
@@ -373,6 +374,7 @@ namespace settings {
     case SettingsSection::Umbriel:
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
+    case SettingsSection::Displays:
       return {};
     }
     return {};

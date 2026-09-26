@@ -559,6 +559,11 @@ void SettingsWindow::dismissOpenSelectDropdown() {
 }
 
 void SettingsWindow::destroyWindow() {
+  // A pending display confirmation keeps its binding so the revert timer still fires after the window closes.
+  if (m_displayConfirmSecondsLeft == 0) {
+    m_outputManagement.reset();
+    m_displayEdits.clear();
+  }
   m_modalHost.closeAll();
   m_configExportDialogModal.reset();
   m_editorSheetModal.reset();
