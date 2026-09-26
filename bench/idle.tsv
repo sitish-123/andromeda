@@ -1,3 +1,7 @@
 label	process	seconds	rss_kb	anon_kb	threads	cpu_permille	wakeups_per_s	battery_mw	pkg_w	deep_idle	psr_active_pct
 baseline-umbriel	umbriel	60	108964	47216	11	8	19	3515	2.43	Pkg%pc8=3.88	96
 baseline-umbriel	noctalia	60	165984	61408	30	7	25	3515	2.43	Pkg%pc8=3.88	96
+after-bar-fix-boot+4min	umbriel	60	152980	46088	11	4	14	4664	3.11	Pkg%pc8=0.00	98
+after-bar-fix-boot+4min	noctalia	60	163692	64020	30	7	22	4664	3.11	Pkg%pc8=0.00	98
+after-bar-fix	umbriel	60	148360	46092	11	14	30	4225	3.12	Pkg%pc8=0.00	91
+after-bar-fix	noctalia	60	159716	64564	30	8	25	4225	3.12	Pkg%pc8=0.00	91
