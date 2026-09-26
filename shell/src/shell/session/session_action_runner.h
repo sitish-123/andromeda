@@ -47,9 +47,4 @@ private:
   mutable std::optional<std::string> m_suspendCommandOverride;
   mutable std::optional<std::string> m_rebootCommandOverride;
   mutable std::optional<std::string> m_shutdownCommandOverride;
-
-  // Auto-detection cache: where to start scanning fallback variants next time.
-  mutable std::optional<std::size_t> m_cachedSuspendAutoStartIdx;
-  mutable std::optional<std::size_t> m_cachedRebootAutoStartIdx;
-  mutable std::optional<std::size_t> m_cachedShutdownAutoStartIdx;
 };

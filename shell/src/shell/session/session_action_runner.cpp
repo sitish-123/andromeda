@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <functional>
 #include <optional>
+#include <sdbus-c++/sdbus-c++.h>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -41,20 +42,6 @@ namespace {
     );
   }
 
-  [[nodiscard]] std::string commandLabel(const std::vector<std::string>& args) {
-    std::string label;
-    for (const std::string& arg : args) {
-      if (arg.empty()) {
-        continue;
-      }
-      if (!label.empty()) {
-        label += ' ';
-      }
-      label += arg;
-    }
-    return label.empty() ? "<empty>" : label;
-  }
-
   void
   logSessionCommandFailure(std::string_view action, std::string_view commandLabel, const process::RunResult& result) {
     if (result.timedOut) {
@@ -68,92 +55,20 @@ namespace {
     }
   }
 
-  [[nodiscard]] const std::vector<std::vector<std::string>>& suspendCommandVariants() {
-    static const std::vector<std::vector<std::string>> variants = {
-        {"systemctl", "suspend"},
-        {"loginctl", "suspend"},
-        {"pm-suspend"},
-        {"zzz"},
-        {"pkexec", "pm-suspend"},
-        {"run0", "pm-suspend"},
-        {"pkexec", "sh", "-c", "echo mem > /sys/power/state"},
-        {"run0", "sh", "-c", "echo mem > /sys/power/state"},
-        {"sudo", "-n", "pm-suspend"},
-        {"sudo", "-n", "zzz"},
-        {"sudo", "-n", "sh", "-c", "echo mem > /sys/power/state"},
-    };
-    return variants;
-  }
-
-  [[nodiscard]] const std::vector<std::vector<std::string>>& rebootCommandVariants() {
-    static const std::vector<std::vector<std::string>> variants = {
-        {"systemctl", "reboot"}, {"loginctl", "reboot"}, {"reboot"},         {"/sbin/reboot"},
-        {"/usr/sbin/reboot"},    {"pkexec", "reboot"},   {"run0", "reboot"}, {"sudo", "-n", "reboot"},
-    };
-    return variants;
-  }
-
-  [[nodiscard]] const std::vector<std::vector<std::string>>& shutdownCommandVariants() {
-    static const std::vector<std::vector<std::string>> variants = {
-        {"systemctl", "poweroff"}, {"loginctl", "poweroff"}, {"poweroff"},         {"/sbin/poweroff"},
-        {"/usr/sbin/poweroff"},    {"pkexec", "poweroff"},   {"run0", "poweroff"}, {"sudo", "-n", "poweroff"},
-    };
-    return variants;
-  }
-
-  [[nodiscard]] bool runResolvedPowerCommand(
-      std::string_view action, const std::vector<std::vector<std::string>>& commands,
-      std::optional<std::size_t>& cacheIdx, PowerLaunchMode mode
-  ) {
-    if (commands.empty()) {
-      kLog.warn("{}: no supported command found", action);
-      cacheIdx.reset();
+  // A connection of our own: the shell's system bus belongs to the main loop, and actions run on worker threads.
+  [[nodiscard]] bool callLogind(std::string_view action, const char* method) {
+    try {
+      const auto connection = sdbus::createSystemBusConnection();
+      const auto manager = sdbus::createProxy(
+          *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+      );
+      manager->callMethod(method).onInterface("org.freedesktop.login1.Manager").withArguments(true);
+      kLog.info("{}: logind {} accepted", action, method);
+      return true;
+    } catch (const sdbus::Error& e) {
+      kLog.warn("{}: logind {} failed: {}", action, method, e.what());
       return false;
     }
-
-    bool attempted = false;
-    const std::size_t start = cacheIdx.value_or(0) % commands.size();
-    for (std::size_t offset = 0; offset < commands.size(); ++offset) {
-      const std::size_t idx = (start + offset) % commands.size();
-      const auto& command = commands[idx];
-      if (command.empty() || command.front().empty()) {
-        continue;
-      }
-
-      const char* executable = command.front().c_str();
-      if (!process::commandExists(executable)) {
-        kLog.debug("{}: {} not found", action, executable);
-        continue;
-      }
-
-      attempted = true;
-      const std::string label = commandLabel(command);
-      if (mode == PowerLaunchMode::Detached) {
-        if (process::runAsync(command)) {
-          kLog.info("{}: {} launched", action, label);
-          cacheIdx = idx;
-          return true;
-        }
-        kLog.warn("{}: {} failed to launch", action, label);
-        continue;
-      }
-
-      const process::RunResult result = process::runSyncWithTimeout(command, kPowerCommandTimeout);
-      if (result) {
-        kLog.info("{}: {} accepted", action, label);
-        cacheIdx = idx;
-        return true;
-      }
-      logSessionCommandFailure(action, label, result);
-    }
-
-    if (!attempted) {
-      kLog.warn("{}: no supported command found", action);
-    } else {
-      kLog.warn("{}: all command methods failed", action);
-    }
-    cacheIdx.reset();
-    return false;
   }
 
   [[nodiscard]] bool runPowerOverride(std::string_view action, const std::string& command, PowerLaunchMode mode) {
@@ -176,13 +91,13 @@ namespace {
   }
 
   [[nodiscard]] bool runPowerActionResolved(
-      std::string_view action, const std::optional<std::string>& commandOverride,
-      const std::vector<std::vector<std::string>>& variants, std::optional<std::size_t>& cacheIdx, PowerLaunchMode mode
+      std::string_view action, const std::optional<std::string>& commandOverride, const char* logindMethod,
+      PowerLaunchMode mode
   ) {
     if (commandOverride.has_value()) {
       return runPowerOverride(action, *commandOverride, mode);
     }
-    return runResolvedPowerCommand(action, variants, cacheIdx, mode);
+    return callLogind(action, logindMethod);
   }
 
   [[nodiscard]] bool requestLock(LockScreen& lockScreen) {
@@ -231,9 +146,6 @@ void SessionActionRunner::setPowerConfig(const ShellSessionConfig::ShellSessionP
   m_suspendCommandOverride = power.suspend;
   m_rebootCommandOverride = power.reboot;
   m_shutdownCommandOverride = power.shutdown;
-  m_cachedSuspendAutoStartIdx.reset();
-  m_cachedRebootAutoStartIdx.reset();
-  m_cachedShutdownAutoStartIdx.reset();
 }
 
 void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
@@ -298,10 +210,8 @@ bool SessionActionRunner::requestSuspendDetached() const {
     m_hooks.onBeforePlainSuspend();
   }
   std::scoped_lock lock(m_powerMutex);
-  const bool started = runPowerActionResolved(
-      "suspend", m_suspendCommandOverride, suspendCommandVariants(), m_cachedSuspendAutoStartIdx,
-      PowerLaunchMode::Detached
-  );
+  const bool started =
+      runPowerActionResolved("suspend", m_suspendCommandOverride, "Suspend", PowerLaunchMode::Detached);
   if (!started && m_hooks.onPlainSuspendAborted) {
     m_hooks.onPlainSuspendAborted();
   }
@@ -311,18 +221,13 @@ bool SessionActionRunner::requestSuspendDetached() const {
 bool SessionActionRunner::requestRebootDetached() const {
   logActionContext("reboot");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved(
-      "reboot", m_rebootCommandOverride, rebootCommandVariants(), m_cachedRebootAutoStartIdx, PowerLaunchMode::Detached
-  );
+  return runPowerActionResolved("reboot", m_rebootCommandOverride, "Reboot", PowerLaunchMode::Detached);
 }
 
 bool SessionActionRunner::requestShutdownDetached() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved(
-      "shutdown", m_shutdownCommandOverride, shutdownCommandVariants(), m_cachedShutdownAutoStartIdx,
-      PowerLaunchMode::Detached
-  );
+  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "PowerOff", PowerLaunchMode::Detached);
 }
 
 bool SessionActionRunner::lockThenSuspendDetached() const {
@@ -336,10 +241,8 @@ bool SessionActionRunner::suspendBlocking() const {
     m_hooks.onBeforePlainSuspend();
   }
   std::scoped_lock lock(m_powerMutex);
-  const bool started = runPowerActionResolved(
-      "suspend", m_suspendCommandOverride, suspendCommandVariants(), m_cachedSuspendAutoStartIdx,
-      PowerLaunchMode::Blocking
-  );
+  const bool started =
+      runPowerActionResolved("suspend", m_suspendCommandOverride, "Suspend", PowerLaunchMode::Blocking);
   if (!started && m_hooks.onPlainSuspendAborted) {
     m_hooks.onPlainSuspendAborted();
   }
@@ -349,16 +252,11 @@ bool SessionActionRunner::suspendBlocking() const {
 bool SessionActionRunner::rebootBlocking() const {
   logActionContext("reboot");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved(
-      "reboot", m_rebootCommandOverride, rebootCommandVariants(), m_cachedRebootAutoStartIdx, PowerLaunchMode::Blocking
-  );
+  return runPowerActionResolved("reboot", m_rebootCommandOverride, "Reboot", PowerLaunchMode::Blocking);
 }
 
 bool SessionActionRunner::shutdownBlocking() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved(
-      "shutdown", m_shutdownCommandOverride, shutdownCommandVariants(), m_cachedShutdownAutoStartIdx,
-      PowerLaunchMode::Blocking
-  );
+  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "PowerOff", PowerLaunchMode::Blocking);
 }
