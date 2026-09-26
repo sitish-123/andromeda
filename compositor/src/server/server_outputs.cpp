@@ -120,10 +120,18 @@ namespace umbriel {
       reassignOutputViews(&target, source);
     }
     target.setMirrorSource(source);
+    const std::string targetName = savedOutputName(target.identity());
+    if (documentSetsOutput(configRootPath(), targetName)) {
+      kLog.warn(
+          "output '{}' set in {}, which overrides changes made here; not persisting the mirror to displays.toml",
+          targetName, configRootPath().filename().string()
+      );
+      return;
+    }
     const auto file = configRootPath().parent_path() / "displays.toml";
     const std::optional<std::string> saved =
         source != nullptr ? std::optional{savedOutputName(source->identity())} : std::nullopt;
-    if (!saveMirror(file, savedOutputName(target.identity()), saved)) {
+    if (!saveMirror(file, targetName, saved)) {
       kLog.warn("failed to save mirror state to '{}'", file.string());
     }
   }
