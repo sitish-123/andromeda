@@ -226,6 +226,7 @@ private:
   void requestAllSurfacesRedraw();
   void releaseSleepDelayInhibitIfPending();
   void onUpowerStateChangedForHooks();
+  void applyPowerSourceProfile();
   void onNetworkStateChangedForEvents(const NetworkState& state, NetworkChangeOrigin origin);
   void onBluetoothStateChangedForEvents(const BluetoothState& state, BluetoothStateChangeOrigin origin);
   void onPowerProfileChangedForEvents(const PowerProfilesState& state, PowerProfilesChangeOrigin origin);
@@ -283,6 +284,7 @@ private:
   };
   std::unique_ptr<MprisService> m_mprisService;
   std::unique_ptr<PowerProfilesService> m_powerProfilesService;
+  std::optional<bool> m_profileAppliedOnBattery;
   std::unique_ptr<INetworkService> m_networkService;
   std::unique_ptr<NetworkSecretAgent> m_networkSecretAgent;
   ExternalIpService m_externalIpService{&m_httpClient, &m_configService};

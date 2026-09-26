@@ -476,6 +476,23 @@ void Application::syncPolkitAgent() {
   m_polkitAgent->start();
 }
 
+void Application::applyPowerSourceProfile() {
+  if (m_upowerService == nullptr || m_powerProfilesService == nullptr) {
+    return;
+  }
+  const bool onBattery = m_upowerService->state().onBattery;
+  if (m_profileAppliedOnBattery == onBattery) {
+    return;
+  }
+  m_profileAppliedOnBattery = onBattery;
+  const BatteryConfig& battery = m_configService.config().battery;
+  const std::string& profile = onBattery ? battery.profileOnBattery : battery.profileOnAc;
+  if (!profile.empty() && profile != m_powerProfilesService->activeProfile()) {
+    kLog.info("power source {}: switching profile to {}", onBattery ? "battery" : "ac", profile);
+    (void)m_powerProfilesService->setActiveProfile(profile);
+  }
+}
+
 void Application::syncScreenTimeService() {
   m_screenTimeService.setEnabled(m_configService.config().shell.screenTimeEnabled);
 }
@@ -1247,6 +1264,7 @@ void Application::initSystemBusServices() {
           return;
         }
         onUpowerStateChangedForHooks();
+        applyPowerSourceProfile();
         m_batteryWarningMonitor.evaluate(m_configService.config().battery, *m_upowerService, m_notificationManager);
         if (m_bluetoothService != nullptr) {
           m_bluetoothService->refreshBatteryFromUPower();
@@ -1259,9 +1277,12 @@ void Application::initSystemBusServices() {
           m_panelManager.refresh();
         }
       });
+      applyPowerSourceProfile();
       m_configService.addReloadCallback(
           [this]() {
             if (m_configService.lastChange().battery && m_upowerService != nullptr) {
+              m_profileAppliedOnBattery.reset();
+              applyPowerSourceProfile();
               m_batteryWarningMonitor.evaluate(
                   m_configService.config().battery, *m_upowerService, m_notificationManager
               );

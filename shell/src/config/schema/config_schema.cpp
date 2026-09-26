@@ -467,6 +467,8 @@ namespace noctalia::config::schema {
   const Schema<BatteryConfig>& batterySchema() {
     static const Schema<BatteryConfig> s = {
         field(&BatteryConfig::warningThreshold, "warning_threshold", kBatteryWarningThresholdRange),
+        field(&BatteryConfig::profileOnAc, "profile_on_ac"),
+        field(&BatteryConfig::profileOnBattery, "profile_on_battery"),
         // selector comes only from the map key; empty selectors are dropped.
         namedMap<BatteryConfig, BatteryDeviceWarningThreshold>(
             &BatteryConfig::deviceThresholds, "device", batteryDeviceSchema(),
