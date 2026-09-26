@@ -1,0 +1,13 @@
+[Unit]
+Description=Portal backend (umbriel)
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+StartLimitIntervalSec=0
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.umbriel
+ExecStart=@libexecdir@/xdg-desktop-portal-umbriel
+Restart=on-failure
+RestartSec=5s

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Umbriel compositor issues
+    url: https://github.com/noctalia-dev/umbriel/issues
+    about: Report compositor behavior, window management, input, or rendering issues here.
+  - name: Noctalia Discord
+    url: https://discord.noctalia.dev
+    about: Ask questions and discuss ideas before opening an issue.

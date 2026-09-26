@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.umbriel
+Exec=@libexecdir@/xdg-desktop-portal-umbriel
+SystemdService=xdg-desktop-portal-umbriel.service

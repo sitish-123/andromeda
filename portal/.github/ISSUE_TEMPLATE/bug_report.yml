@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a problem with the Umbriel desktop portal backend
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I confirmed the problem is specific to this portal backend, not the Umbriel compositor or an application.
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem, including what you expected to happen and what happened instead.
+      placeholder: |
+        Expected:
+        Actual:
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the application and portal action involved, plus any relevant configuration.
+      placeholder: |
+        1. Start ...
+        2. Open ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versions and environment
+      description: Include the portal version or commit, Umbriel version, distribution, and session type.
+      placeholder: |
+        Portal:
+        Umbriel:
+        Distribution:
+        Session:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and additional context
+      description: Paste relevant logs, errors, screenshots, or recordings. Please redact sensitive information.
+      render: text

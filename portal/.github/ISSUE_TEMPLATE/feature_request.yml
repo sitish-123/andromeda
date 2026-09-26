@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a focused improvement to the Umbriel desktop portal backend
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I confirmed this belongs in the portal backend rather than the Umbriel compositor, an application, or a desktop shell.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What cannot be done today, and who is affected?
+      placeholder: When ..., I cannot ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful behavior and any relevant portal or desktop integration details.
+      placeholder: The portal should ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add alternatives considered, links to relevant specifications, examples, or implementation ideas.

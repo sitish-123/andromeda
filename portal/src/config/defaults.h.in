@@ -1,0 +1,4 @@
+#pragma once
+
+// Build-time defaults injected by meson configure_file.
+#define XDPU_DEFAULT_CHOOSER_CMD "@libexecdir@/umbriel-share-picker"

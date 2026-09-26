@@ -1,0 +1,7 @@
+[screencast]
+chooser_cmd = "@libexecdir@/umbriel-share-picker"
+max_fps = 0
+
+[screenshot]
+cmd = ""
+color_pick_cmd = ""
