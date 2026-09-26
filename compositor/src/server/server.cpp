@@ -642,6 +642,9 @@ namespace umbriel {
         source = nullptr;
       }
     }
+    // Their globals must go before wl_display_destroy frees every global.
+    m_desktopInputManager.reset();
+    m_desktopOutputManager.reset();
     wl_display_destroy_clients(m_display);
     m_wineColorManager.reset();
     // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise

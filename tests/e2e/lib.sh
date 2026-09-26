@@ -4,7 +4,7 @@ UMBRIEL=${UMBRIEL:-$ROOT/compositor/build-debug/umbriel}
 NOCTALIA=${NOCTALIA:-$ROOT/shell/build-debug/noctalia}
 DESKTOP_CLIENT=${DESKTOP_CLIENT:-$ROOT/compositor/build-debug/tests/desktop-client}
 RUNTIME=$(mktemp -d /tmp/dsk.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 
 # boot_headless OUTPUTS: start Umbriel with that many headless outputs; its log goes to $OUT/umbriel.log.
 boot_headless() {

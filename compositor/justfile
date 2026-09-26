@@ -22,7 +22,8 @@ configure m=mode install_prefix=prefix:
         args+=(--buildtype=release -Db_lto=true)
         ;;
       asan)
-        args+=(--buildtype=debug -Db_sanitize=address -Dwerror=true)
+        # jemalloc replaces malloc underneath ASan's allocator and crashes at startup.
+        args+=(--buildtype=debug -Db_sanitize=address -Djemalloc=disabled -Dwerror=true)
         ;;
       tracy)
         # Packaged Tracy clients are the no-op stub; build one under ~/.local.
