@@ -320,8 +320,8 @@ namespace {
     bool m_perOutputTargeted = false;
   };
 
-  [[nodiscard]] bool setGenericOutputPower(WaylandConnection& /*wayland*/, bool on) {
-    return compositors::ext_workspace::setOutputPower(on);
+  [[nodiscard]] bool setGenericOutputPower(WaylandConnection& wayland, bool on) {
+    return wayland.setOutputsPower(on) || compositors::ext_workspace::setOutputPower(on);
   }
 
   [[nodiscard]] std::unique_ptr<compositors::OutputPowerBackend>
@@ -357,8 +357,8 @@ namespace {
       );
     case compositors::CompositorKind::Umbriel:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.umbriel()](WaylandConnection& /*wayland*/, bool on) {
-            return compositors::umbriel::setOutputPower(runtime, on);
+          [&runtime = runtimeRegistry.umbriel()](WaylandConnection& wayland, bool on) {
+            return wayland.setOutputsPower(on) || compositors::umbriel::setOutputPower(runtime, on);
           }
       );
     case compositors::CompositorKind::Dwl:

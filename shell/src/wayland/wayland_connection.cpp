@@ -32,6 +32,7 @@
 #include "wlr-gamma-control-unstable-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-output-management-unstable-v1-client-protocol.h"
+#include "wlr-output-power-management-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
@@ -671,6 +672,20 @@ bool WaylandConnection::hasScreencopy() const noexcept { return m_screencopyMana
 
 zwlr_gamma_control_manager_v1* WaylandConnection::gammaControlManager() const noexcept { return m_gammaControlManager; }
 
+bool WaylandConnection::setOutputsPower(bool on) {
+  if (m_outputPowerManager == nullptr) {
+    return false;
+  }
+  const auto mode = on ? ZWLR_OUTPUT_POWER_V1_MODE_ON : ZWLR_OUTPUT_POWER_V1_MODE_OFF;
+  for (const WaylandOutput& output : m_outputs) {
+    zwlr_output_power_v1* power = zwlr_output_power_manager_v1_get_output_power(m_outputPowerManager, output.output);
+    zwlr_output_power_v1_set_mode(power, mode);
+    zwlr_output_power_v1_destroy(power);
+  }
+  wl_display_flush(m_display);
+  return true;
+}
+
 zwlr_screencopy_manager_v1* WaylandConnection::screencopyManager() const noexcept { return m_screencopyManager; }
 
 ext_image_copy_capture_manager_v1* WaylandConnection::imageCopyCaptureManager() const noexcept {
@@ -1249,6 +1264,13 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zwlr_output_power_manager_v1_interface.name) {
+    m_outputPowerManager = static_cast<zwlr_output_power_manager_v1*>(
+        wl_registry_bind(registry, name, &zwlr_output_power_manager_v1_interface, 1)
+    );
+    return;
+  }
+
   if (interfaceName == zwlr_screencopy_manager_v1_interface.name) {
     const auto bindVersion = std::min(version, kScreencopyManagerVersion);
     m_screencopyManager = static_cast<zwlr_screencopy_manager_v1*>(
@@ -1432,6 +1454,10 @@ void WaylandConnection::cleanup() {
   if (m_gammaControlManager != nullptr) {
     zwlr_gamma_control_manager_v1_destroy(m_gammaControlManager);
     m_gammaControlManager = nullptr;
+  }
+  if (m_outputPowerManager != nullptr) {
+    zwlr_output_power_manager_v1_destroy(m_outputPowerManager);
+    m_outputPowerManager = nullptr;
   }
   if (m_screencopyManager != nullptr) {
     zwlr_screencopy_manager_v1_destroy(m_screencopyManager);
