@@ -72,7 +72,7 @@ numlock_toggle = true
 
 # Applications and session
 "Mod+Return" = { action = "spawn:kitty", repeat = false }
-"Mod" = "spawn:noctalia msg panel-toggle launcher"
+"Mod" = "shell:panel-toggle launcher"
 "Mod+Q" = { action = "window-close", repeat = false }
 "Mod+Escape" = "session-quit"
 "Mod+Shift+Escape" = { action = "shortcuts-inhibit-toggle", allow_when_inhibited = true, repeat = false }
