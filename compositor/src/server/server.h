@@ -107,6 +107,7 @@ namespace umbriel {
   class ConfigWatcher;
   class DesktopInputManager;
   class DesktopOutputManager;
+  class DesktopShell;
   struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
@@ -339,6 +340,7 @@ namespace umbriel {
     // is saved to displays.toml.
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
+    [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
     void inputDevicesChanged();
@@ -702,6 +704,7 @@ namespace umbriel {
     std::unique_ptr<ConfigWatcher> m_configWatcher;
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
     std::unique_ptr<DesktopInputManager> m_desktopInputManager;
+    std::unique_ptr<DesktopShell> m_desktopShell;
     std::unique_ptr<Ipc> m_ipc;
 #ifdef UMBRIEL_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;

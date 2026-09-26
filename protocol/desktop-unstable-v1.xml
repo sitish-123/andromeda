@@ -132,4 +132,33 @@
       <arg name="reason" type="string"/>
     </event>
   </interface>
+
+  <interface name="dsk_shell_v1" version="1">
+    <description summary="compositor-to-shell events">
+      Bound by the desktop shell. Keybinds that drive the shell arrive as
+      action events on the connection the shell already holds, so no process
+      is started per keypress. The compositor also reports the keyboard
+      lock-key state it owns, so the shell never polls LEDs.
+    </description>
+
+    <request name="destroy" type="destructor"/>
+
+    <event name="action">
+      <description summary="run a shell command">
+        A command line in the shell's own command language, as typed after
+        the shell's IPC verb, for example "panel-toggle launcher".
+      </description>
+      <arg name="command" type="string"/>
+    </event>
+
+    <event name="lock_keys">
+      <description summary="lock-key state">
+        Sent on bind and whenever the state changes. Each argument is 1 when
+        that lock is active and 0 otherwise.
+      </description>
+      <arg name="caps_lock" type="uint"/>
+      <arg name="num_lock" type="uint"/>
+      <arg name="scroll_lock" type="uint"/>
+    </event>
+  </interface>
 </protocol>

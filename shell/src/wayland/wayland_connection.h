@@ -48,6 +48,7 @@ struct hyprland_focus_grab_manager_v1;
 struct hyprland_toplevel_mapping_manager_v1;
 struct zwlr_gamma_control_manager_v1;
 struct zwlr_output_power_manager_v1;
+struct dsk_shell_v1;
 struct zwlr_screencopy_manager_v1;
 struct ext_image_copy_capture_manager_v1;
 struct ext_output_image_capture_source_manager_v1;
@@ -157,6 +158,13 @@ public:
   void setPointerEventCallback(WaylandSeat::PointerEventCallback callback);
   void setKeyboardEventCallback(WaylandSeat::KeyboardEventCallback callback);
   void setLockKeysChangeCallback(WaylandSeat::LockKeysChangeCallback callback);
+  // dsk_shell_v1: keybind actions and lock-key state from the compositor.
+  void setShellActionCallback(std::function<void(const std::string& command)> callback);
+  void setCompositorLockKeysCallback(ChangeCallback callback);
+  [[nodiscard]] bool hasCompositorLockKeys() const noexcept { return m_hasCompositorLockKeys; }
+  [[nodiscard]] WaylandSeat::LockKeysState compositorLockKeys() const noexcept { return m_compositorLockKeys; }
+  void onShellAction(const std::string& command);
+  void onCompositorLockKeys(const WaylandSeat::LockKeysState& state);
   /// Fired when both `ext_idle_notifier_v1` and `wl_seat` are bound (including late registry globals).
   void setIdleCapabilitiesReadyCallback(ChangeCallback callback);
   void setClipboardService(ClipboardService* clipboardService);
@@ -335,6 +343,11 @@ private:
   hyprland_focus_grab_manager_v1* m_hyprlandFocusGrabManager = nullptr;
   zwlr_gamma_control_manager_v1* m_gammaControlManager = nullptr;
   zwlr_output_power_manager_v1* m_outputPowerManager = nullptr;
+  dsk_shell_v1* m_desktopShell = nullptr;
+  std::function<void(const std::string&)> m_shellActionCallback;
+  ChangeCallback m_compositorLockKeysCallback;
+  WaylandSeat::LockKeysState m_compositorLockKeys;
+  bool m_hasCompositorLockKeys = false;
   zwlr_screencopy_manager_v1* m_screencopyManager = nullptr;
   ext_image_copy_capture_manager_v1* m_imageCopyCaptureManager = nullptr;
   ext_output_image_capture_source_manager_v1* m_outputImageCaptureSourceManager = nullptr;

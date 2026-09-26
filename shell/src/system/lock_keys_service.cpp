@@ -40,6 +40,9 @@ LockKeysService::LockKeysState LockKeysService::state() const noexcept { return 
 void LockKeysService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
 int LockKeysService::pollTimeoutMs() const {
+  if (m_wayland.hasCompositorLockKeys()) {
+    return -1;
+  }
   if (m_nextRefreshAt == std::chrono::steady_clock::time_point{}) {
     return 0;
   }
@@ -75,6 +78,9 @@ void LockKeysService::refreshNow() {
 }
 
 LockKeysService::LockKeysState LockKeysService::readCurrentState() {
+  if (m_wayland.hasCompositorLockKeys()) {
+    return m_wayland.compositorLockKeys();
+  }
   if (!m_sysfsDiscovered) {
     discoverSysfsLeds();
   }

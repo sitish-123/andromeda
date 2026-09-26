@@ -152,6 +152,7 @@ namespace umbriel {
     WindowCycleSecondaryExtentBack,
     WindowFocusLast,
     WorkspaceFocusLast,
+    Shell,
     Count,
   };
 

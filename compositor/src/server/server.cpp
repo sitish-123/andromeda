@@ -26,6 +26,7 @@
 #include "server/backend_manager.h"
 #include "server/desktop_input_manager.h"
 #include "server/desktop_output_manager.h"
+#include "server/desktop_shell.h"
 #include "server/ipc.h"
 #include "server/wine_color_manager.h"
 #include "view/view.h"
@@ -540,6 +541,7 @@ namespace umbriel {
     m_outputManager = wlr_output_manager_v1_create(m_display);
     m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
     m_desktopInputManager = std::make_unique<DesktopInputManager>(*this);
+    m_desktopShell = std::make_unique<DesktopShell>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
     wlr_output_power_manager_v1* outputPower = wlr_output_power_manager_v1_create(m_display);
@@ -649,6 +651,7 @@ namespace umbriel {
     // Their globals must go before wl_display_destroy frees every global.
     m_desktopInputManager.reset();
     m_desktopOutputManager.reset();
+    m_desktopShell.reset();
     wl_display_destroy_clients(m_display);
     m_wineColorManager.reset();
     // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise

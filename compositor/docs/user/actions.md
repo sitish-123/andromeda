@@ -199,6 +199,7 @@ are described in [Overview](workspaces-overview.md).
 | `dpms-on:[<output>]` | Power on one output, or every output when bare |
 | `keyboard-layout-next` | Switch one keyboard to its next configured layout |
 | `session-quit:[skip-confirmation]` | Quit the session, confirming first unless told to skip |
+| `shell:<cmd>` | Run a desktop shell command without starting a process |
 | `shortcuts-inhibit-toggle` | Toggle shortcuts inhibition for the focused surface |
 | `submap:<name>` | Enter a submap layer, or leave one with 'reset' |
 

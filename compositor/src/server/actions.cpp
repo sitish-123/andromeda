@@ -11,6 +11,7 @@
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
+#include "server/desktop_shell.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -478,6 +479,18 @@ namespace umbriel {
     bool actionSpawn(Server& server, const Keybind& bind, std::string* /*error*/) {
       const auto* arg = payloadIf<SpawnArg>(bind);
       server.spawn(arg != nullptr ? arg->command.c_str() : "", nullptr, true);
+      return true;
+    }
+
+    bool actionShell(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<SpawnArg>(bind);
+      DesktopShell* shell = server.desktopShell();
+      if (arg == nullptr || shell == nullptr || !shell->sendAction(arg->command)) {
+        if (error != nullptr) {
+          *error = "no desktop shell is bound";
+        }
+        return false;
+      }
       return true;
     }
 
@@ -1863,6 +1876,7 @@ namespace umbriel {
         &actionCycleHeight<-1>,
         &actionWindowFocusLast,
         &actionWorkspaceFocusLast,
+        &actionShell,
     };
 
     consteval bool everyActionHasHandler() {

@@ -10,6 +10,7 @@
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
+#include "server/desktop_shell.h"
 #include "server/server.h"
 #include "wlr.h"
 
@@ -236,6 +237,13 @@ namespace umbriel {
     }
     m_server->cursor()->refreshInteractiveCursor();
     notifyLayoutIfChanged();
+    if (DesktopShell* shell = m_server->desktopShell()) {
+      shell->setLockKeys(
+          xkb_state_led_name_is_active(m_keyboard->xkb_state, XKB_LED_NAME_CAPS) > 0,
+          xkb_state_led_name_is_active(m_keyboard->xkb_state, XKB_LED_NAME_NUM) > 0,
+          xkb_state_led_name_is_active(m_keyboard->xkb_state, XKB_LED_NAME_SCROLL) > 0
+      );
+    }
   }
 
   void Keyboard::handleKey(void* data) {

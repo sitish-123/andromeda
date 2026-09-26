@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "core/process/process_fds.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "desktop-unstable-v1-client-protocol.h"
 #include "dwl-ipc-unstable-v2-client-protocol.h"
 #include "ext-background-effect-v1-client-protocol.h"
 #include "ext-data-control-v1-client-protocol.h"
@@ -672,6 +673,44 @@ bool WaylandConnection::hasScreencopy() const noexcept { return m_screencopyMana
 
 zwlr_gamma_control_manager_v1* WaylandConnection::gammaControlManager() const noexcept { return m_gammaControlManager; }
 
+void WaylandConnection::setShellActionCallback(std::function<void(const std::string& command)> callback) {
+  m_shellActionCallback = std::move(callback);
+}
+
+void WaylandConnection::setCompositorLockKeysCallback(ChangeCallback callback) {
+  m_compositorLockKeysCallback = std::move(callback);
+}
+
+namespace {
+
+  void shellAction(void* data, dsk_shell_v1* /*shell*/, const char* command) {
+    auto* self = static_cast<WaylandConnection*>(data);
+    self->onShellAction(command);
+  }
+
+  void shellLockKeys(void* data, dsk_shell_v1* /*shell*/, uint32_t caps, uint32_t num, uint32_t scroll) {
+    auto* self = static_cast<WaylandConnection*>(data);
+    self->onCompositorLockKeys({.capsLock = caps != 0, .numLock = num != 0, .scrollLock = scroll != 0});
+  }
+
+  constexpr dsk_shell_v1_listener kShellListener = {.action = shellAction, .lock_keys = shellLockKeys};
+
+} // namespace
+
+void WaylandConnection::onShellAction(const std::string& command) {
+  if (m_shellActionCallback) {
+    m_shellActionCallback(command);
+  }
+}
+
+void WaylandConnection::onCompositorLockKeys(const WaylandSeat::LockKeysState& state) {
+  m_compositorLockKeys = state;
+  m_hasCompositorLockKeys = true;
+  if (m_compositorLockKeysCallback) {
+    m_compositorLockKeysCallback();
+  }
+}
+
 bool WaylandConnection::setOutputsPower(bool on) {
   if (m_outputPowerManager == nullptr) {
     return false;
@@ -1264,6 +1303,12 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == dsk_shell_v1_interface.name) {
+    m_desktopShell = static_cast<dsk_shell_v1*>(wl_registry_bind(registry, name, &dsk_shell_v1_interface, 1));
+    dsk_shell_v1_add_listener(m_desktopShell, &kShellListener, this);
+    return;
+  }
+
   if (interfaceName == zwlr_output_power_manager_v1_interface.name) {
     m_outputPowerManager = static_cast<zwlr_output_power_manager_v1*>(
         wl_registry_bind(registry, name, &zwlr_output_power_manager_v1_interface, 1)
@@ -1458,6 +1503,10 @@ void WaylandConnection::cleanup() {
   if (m_outputPowerManager != nullptr) {
     zwlr_output_power_manager_v1_destroy(m_outputPowerManager);
     m_outputPowerManager = nullptr;
+  }
+  if (m_desktopShell != nullptr) {
+    dsk_shell_v1_destroy(m_desktopShell);
+    m_desktopShell = nullptr;
   }
   if (m_screencopyManager != nullptr) {
     zwlr_screencopy_manager_v1_destroy(m_screencopyManager);

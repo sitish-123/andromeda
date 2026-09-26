@@ -897,7 +897,16 @@ void Application::initWaylandCallbacks() {
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
   });
+  m_wayland.setShellActionCallback([this](const std::string& command) {
+    kLog.debug("shell action from compositor: {}", command);
+    (void)m_ipcService.execute(command);
+  });
   if constexpr (kLockKeysEnabled) {
+    m_wayland.setCompositorLockKeysCallback([this]() {
+      if (lockKeysConsumersEnabled(m_configService.config())) {
+        m_lockKeysService.refreshNow();
+      }
+    });
     if (lockKeysConsumersEnabled(m_configService.config())) {
       m_lockKeysService.refreshNow();
     }

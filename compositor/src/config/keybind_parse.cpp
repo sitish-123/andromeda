@@ -226,6 +226,8 @@ namespace umbriel {
          KeybindAction::ScratchpadToggle, ActionArgKind::OptionalScratchpad},
         {"session-quit", "[skip-confirmation]", "Quit the session, confirming first unless told to skip",
          KeybindAction::SessionQuit, ActionArgKind::SkipConfirmation},
+        {"shell", "<cmd>", "Run a desktop shell command without starting a process", KeybindAction::Shell,
+         ActionArgKind::Command},
         {"shortcuts-inhibit-toggle", "", "Toggle shortcuts inhibition for the focused surface",
          KeybindAction::ShortcutsInhibitToggle},
         {"spawn", "<cmd>", "Run a command with a launch activation token", KeybindAction::Spawn,
