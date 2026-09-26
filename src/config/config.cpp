@@ -1704,6 +1704,7 @@ namespace umbriel {
         s.sub("touchpad", [&](Section& t) {
           t.boolean("tap", in.touchpad.tap)
               .boolean("natural_scroll", in.touchpad.naturalScroll)
+              .boolean("natural_swipe", in.touchpad.naturalSwipe)
               .boolean("left_handed", in.touchpad.leftHanded)
               .real("sensitivity", -1.0, 1.0, in.touchpad.sensitivity)
               .boolean("disable_while_typing", in.touchpad.disableWhileTyping)

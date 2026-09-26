@@ -1,5 +1,6 @@
 #include "input/gestures.h"
 
+#include "config/config.h"
 #include "input/cursor.h"
 #include "input/seat.h"
 #include "layout/scrolling.h"
@@ -10,6 +11,7 @@
 // clang-format off
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include "wlr.h"
 // clang-format on
 #include "workspace/workspace.h"
@@ -27,6 +29,9 @@ namespace umbriel {
     constexpr double kOverviewDistancePx = 300.0;
 
     int touchpadGestureDirection(wlr_pointer* pointer) {
+      if (const std::optional<bool> naturalSwipe = config().input.touchpad.naturalSwipe) {
+        return *naturalSwipe ? 1 : -1;
+      }
       if (pointer == nullptr || !wlr_input_device_is_libinput(&pointer->base)) {
         return 1;
       }

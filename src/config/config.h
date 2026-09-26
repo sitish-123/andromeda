@@ -803,6 +803,8 @@ namespace umbriel {
       struct Touchpad {
         std::optional<bool> tap = true;
         std::optional<bool> naturalScroll;
+        // Three-finger swipe direction; unset follows the device's natural scroll setting.
+        std::optional<bool> naturalSwipe;
         std::optional<bool> leftHanded;
         std::optional<AccelProfile> accelProfile;
         std::optional<double> sensitivity;
