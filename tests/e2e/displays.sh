@@ -53,8 +53,13 @@ run dbus-run-session --config-file="$RUNTIME/bus.conf" -- bash -c '
   for _ in $(seq 100); do "$1" msg settings-open displays > /dev/null 2>&1 && break; sleep 0.1; done
   sleep 2
   grim "$2/displays.png"
+  "$3" mirror HEADLESS-2 HEADLESS-1
+  sleep 1
+  grim "$2/displays-mirror.png"
+  "$3" state > "$2/mirror-state.txt"
   kill %1
   wait
-' _ "$NOCTALIA" "$OUT"
-[[ -s $OUT/displays.png ]] || { echo "no screenshot" >&2; exit 1; }
+' _ "$NOCTALIA" "$OUT" "$HOME/src/umbriel/build-debug/tests/desktop-client"
+[[ -s $OUT/displays.png && -s $OUT/displays-mirror.png ]] || { echo "no screenshot" >&2; exit 1; }
+grep -qx "HEADLESS-2 HEADLESS-1" "$OUT/mirror-state.txt" || { echo "mirror not reported" >&2; exit 1; }
 echo "artifacts: $OUT"
