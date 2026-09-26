@@ -250,6 +250,18 @@ fractional_client = executable(
 
 # Harness helper that keeps an idle inhibitor attached to a mapped toplevel and
 # reports when the compositor starts honoring its idle notification.
+background_client = executable(
+  'background-client',
+  [
+    'harness/clients/background_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    content_type_client_h,
+    content_type_client_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
 idle_inhibit_client = executable(
   'idle-inhibit-client',
   [
@@ -347,6 +359,7 @@ harness_client_targets = [
   subsurface_client,
   fractional_client,
   idle_inhibit_client,
+  background_client,
   lock_client,
   security_context_client,
   seat_log_client,

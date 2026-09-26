@@ -151,6 +151,7 @@ and sets its extent.
 | `focus_on_activate` | Override activation focus for this window. |
 | `vrr` | Override the focused output's VRR policy. |
 | `tearing` | Request or veto asynchronous presentation. |
+| `background_frames` | Keep sending frame callbacks at 10 Hz while the window is on a hidden workspace, instead of suspending it. Games declaring the `game` content type get this without a rule. |
 | `hdr` | Override the focused output's HDR policy. |
 | `border_color_focused` | Override `colors.border.focused`. |
 | `border_color_unfocused` | Override `colors.border.unfocused`. |

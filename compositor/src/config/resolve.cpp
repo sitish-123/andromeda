@@ -296,6 +296,9 @@ namespace umbriel {
       if (rule.allowTearing) {
         resolved.allowTearing = rule.allowTearing;
       }
+      if (rule.backgroundFrames) {
+        resolved.backgroundFrames = rule.backgroundFrames;
+      }
       if (rule.hdr) {
         resolved.hdr = rule.hdr;
       }

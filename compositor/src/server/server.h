@@ -86,11 +86,11 @@ namespace umbriel {
   enum class ContentType;
   struct ConfigEffects;
 
-  // Slow tick that ferries wl_surface.frame callbacks to toplevels that are mapped but not on the active workspace.
+  // Slow tick that ferries wl_surface.frame callbacks to hidden toplevels that want them (View::wantsBackgroundFrames).
   // wlroots' scene helper only walks enabled scene nodes, so a hidden view otherwise never receives another frame_done
   // and any client that gates its game/network loop on the frame callback stalls until it becomes visible again
-  // (Overwatch under Proton-CachyOS times out its server heartbeat within ~30 s of alt-tab). 10 Hz keeps game logic and
-  // networking alive at negligible cost.
+  // (Overwatch under Proton-CachyOS times out its server heartbeat within ~30 s of alt-tab). Other hidden toplevels are
+  // suspended instead, and the timer is disarmed while no hidden view wants it.
   inline constexpr int kBackgroundFrameIntervalMs = 100;
 
   // The pid of the process owning a surface's Wayland connection, or -1 when the surface has no client or the kernel
@@ -332,6 +332,7 @@ namespace umbriel {
     void refreshSurfaceScales();
     // Re-evaluate each output's policy after keyboard focus or a dynamic window rule changes.
     void refreshOutputPolicies();
+    void updateBackgroundFrameTimer();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
     void applyConfiguredMirrors();
     // Start or, with a null source, stop a mirror at runtime; windows on the target move to the source, and the change
@@ -725,6 +726,7 @@ namespace umbriel {
 
     std::unique_ptr<XwaylandSupervisor> m_xwayland;
     wl_event_source* m_backgroundFrameTimer = nullptr;
+    bool m_backgroundFramesArmed = false;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
     // Non-null while a windows-event idle callback is pending. The idle source

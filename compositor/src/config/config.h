@@ -350,6 +350,9 @@ namespace umbriel {
     // Overrides the client's tearing-control hint. Omitted follows the hint,
     // true forces async preference, and false vetoes it.
     std::optional<bool> allowTearing;
+    // Keeps frame callbacks flowing while the window is on a hidden workspace, for games whose network loop runs on
+    // them and that do not declare the game content type.
+    std::optional<bool> backgroundFrames;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity; // 0.0-1.0
     std::optional<bool> blur;
@@ -401,6 +404,7 @@ namespace umbriel {
           && focusOnActivate == other.focusOnActivate
           && vrr == other.vrr
           && allowTearing == other.allowTearing
+          && backgroundFrames == other.backgroundFrames
           && hdr == other.hdr
           && opacity == other.opacity
           && blur == other.blur
@@ -440,6 +444,7 @@ namespace umbriel {
     std::optional<bool> focusOnActivate;
     std::optional<VrrMode> vrr;
     std::optional<bool> allowTearing;
+    std::optional<bool> backgroundFrames;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity;
     std::optional<bool> blur;

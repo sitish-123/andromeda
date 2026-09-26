@@ -729,10 +729,12 @@ namespace umbriel {
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
 
+    bool sent = false;
     for (const auto& view : self->m_registry.all()) {
-      if (!view->mapped() || view->onActiveWorkspace()) {
+      if (!view->mapped() || view->onActiveWorkspace() || !(view->wantsBackgroundFrames() || view->configurePending())) {
         continue;
       }
+      sent = true;
       wlr_xdg_surface_for_each_surface(
           view->toplevel()->base,
           [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* userData) {
@@ -742,10 +744,25 @@ namespace umbriel {
       );
     }
 
-    if (self->m_backgroundFrameTimer != nullptr) {
+    self->m_backgroundFramesArmed = sent;
+    if (sent) {
       wl_event_source_timer_update(self->m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
     return 0;
+  }
+
+  void Server::updateBackgroundFrameTimer() {
+    if (m_backgroundFrameTimer == nullptr) {
+      return;
+    }
+    const bool wanted = std::ranges::any_of(m_registry.all(), [](const auto& view) {
+      return view->mapped() && !view->onActiveWorkspace() && (view->wantsBackgroundFrames() || view->configurePending());
+    });
+    if (wanted == m_backgroundFramesArmed) {
+      return;
+    }
+    m_backgroundFramesArmed = wanted;
+    wl_event_source_timer_update(m_backgroundFrameTimer, wanted ? kBackgroundFrameIntervalMs : 0);
   }
 
   int Server::onStartupRulesTimer(void* data) {

@@ -73,6 +73,10 @@ namespace umbriel {
     // Effective optional window-rule override used by tearing diagnostics.
     [[nodiscard]] std::optional<bool> tearingRuleOverride();
     [[nodiscard]] bool onActiveWorkspace() const { return m_onActiveWorkspace; }
+    // Whether frame callbacks keep flowing while this window is hidden, instead of it being suspended.
+    [[nodiscard]] bool wantsBackgroundFrames();
+    // A configure is scheduled, unacknowledged, or acknowledged without the commit that applies it.
+    [[nodiscard]] bool configurePending() const;
     [[nodiscard]] bool tiled() const { return m_tiled; }
     [[nodiscard]] bool floating() const { return !m_tiled; }
     [[nodiscard]] bool isAloneInLayout() const;
@@ -176,6 +180,7 @@ namespace umbriel {
     void clearDisplaced() { m_displacedHome.reset(); }
 
     void setOnActiveWorkspace(bool active);
+    void syncSuspended();
     // Scratchpad membership: selects the scratchpad border palette and animation event, and matches is_scratchpad.
     void setInScratchpad(bool scratchpad);
     void animateTo(int x, int y);
@@ -346,6 +351,7 @@ namespace umbriel {
     static void onUnmap(wl_listener* listener, void* data);
     static void onRootSurfaceDestroy(wl_listener* listener, void* data);
     static void onCommit(wl_listener* listener, void* data);
+    static void onConfigure(wl_listener* listener, void* data);
     static void onClientCommit(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);
     static void onRequestMove(wl_listener* listener, void* data);
@@ -722,6 +728,7 @@ namespace umbriel {
     wl_listener m_unmap{};
     wl_listener m_rootSurfaceDestroy{};
     wl_listener m_commit{};
+    wl_listener m_configure{};
     wl_listener m_clientCommit{};
     wl_listener m_destroy{};
     wl_listener m_requestMove{};

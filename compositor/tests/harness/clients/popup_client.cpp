@@ -204,11 +204,13 @@ namespace {
   void toplevelConfigure(void*, xdg_toplevel*, int32_t, int32_t, wl_array*) {}
   void toplevelClose(void*, xdg_toplevel*) {}
 
+  void toplevelBounds(void*, xdg_toplevel*, int32_t, int32_t) {}
+  void toplevelCapabilities(void*, xdg_toplevel*, wl_array*) {}
   constexpr xdg_toplevel_listener kToplevelListener = {
       .configure = toplevelConfigure,
       .close = toplevelClose,
-      .configure_bounds = nullptr,
-      .wm_capabilities = nullptr,
+      .configure_bounds = toplevelBounds,
+      .wm_capabilities = toplevelCapabilities,
   };
 
   void wmBasePing(void*, xdg_wm_base* wmBase, uint32_t serial) { xdg_wm_base_pong(wmBase, serial); }

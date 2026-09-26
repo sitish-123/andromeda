@@ -458,7 +458,7 @@ namespace umbriel {
     m_setGamma.notify = onSetGamma;
     wl_signal_add(&m_gammaManager->events.set_gamma, &m_setGamma);
 
-    m_xdgShell = wlr_xdg_shell_create(m_display, 3);
+    m_xdgShell = wlr_xdg_shell_create(m_display, 6);
     m_newXdgToplevel.notify = onNewXdgToplevel;
     wl_signal_add(&m_xdgShell->events.new_toplevel, &m_newXdgToplevel);
     m_newXdgPopup.notify = onNewXdgPopup;
@@ -750,13 +750,9 @@ namespace umbriel {
     unsetenv("WAYLAND_SOCKET");
     kLog.info("running on WAYLAND_DISPLAY={}", m_socketName);
 
-    // Keep clients on hidden workspaces receiving wl_surface.frame ticks
-    // (see kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer).
+    // Armed by updateBackgroundFrameTimer (see kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer).
     m_backgroundFrameTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
-    if (m_backgroundFrameTimer != nullptr) {
-      wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
-    }
     setenv(
         "UMBRIEL_SOCKET",
         (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/umbriel-" + m_socketName + ".sock").c_str(), true

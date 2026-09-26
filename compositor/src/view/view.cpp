@@ -221,6 +221,8 @@ namespace umbriel {
     watchViewSurfaceTree(m_toplevel->base->surface);
     m_commit.notify = onCommit;
     wl_signal_add(&m_toplevel->base->surface->events.commit, &m_commit);
+    m_configure.notify = onConfigure;
+    wl_signal_add(&m_toplevel->base->events.configure, &m_configure);
     m_clientCommit.notify = onClientCommit;
     wl_signal_add(&m_toplevel->base->surface->events.client_commit, &m_clientCommit);
     m_destroy.notify = onDestroy;
@@ -282,6 +284,7 @@ namespace umbriel {
       wl_list_remove(&m_map.link);
       wl_list_remove(&m_unmap.link);
       wl_list_remove(&m_commit.link);
+      wl_list_remove(&m_configure.link);
       wl_list_remove(&m_clientCommit.link);
       wl_list_remove(&m_destroy.link);
       wl_list_remove(&m_requestMove.link);
@@ -492,9 +495,29 @@ namespace umbriel {
       setForeignActivated(false);
       setBorderFocused(false);
     }
+    syncSuspended();
     if (Output* output = currentOutput()) {
       output->updateHdr();
     }
+  }
+
+  bool View::configurePending() const {
+    const wlr_xdg_surface* base = m_toplevel->base;
+    return base->configure_idle != nullptr
+        || !wl_list_empty(&base->configure_list)
+        || base->pending.configure_serial != base->current.configure_serial;
+  }
+
+  bool View::wantsBackgroundFrames() {
+    return m_contentType == ContentType::Game || resolvedRules().backgroundFrames.value_or(false);
+  }
+
+  void View::syncSuspended() {
+    const bool suspended = m_mapped && !m_onActiveWorkspace && !wantsBackgroundFrames();
+    if (m_toplevel->scheduled.suspended != suspended) {
+      wlr_xdg_toplevel_set_suspended(m_toplevel, suspended);
+    }
+    m_server->updateBackgroundFrameTimer();
   }
 
   void View::setNodeEnabled(bool enabled) {
@@ -1721,6 +1744,14 @@ namespace umbriel {
   void View::onCommit(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_commit);
     self->handleCommit();
+  }
+
+  // A hidden client that redraws only on frame callbacks needs ticks to commit the size it was just configured to.
+  void View::onConfigure(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_configure);
+    if (self->m_mapped && !self->m_onActiveWorkspace) {
+      self->m_server->updateBackgroundFrameTimer();
+    }
   }
 
   void View::onClientCommit(wl_listener* listener, void* /*data*/) {
@@ -3105,6 +3136,7 @@ namespace umbriel {
       setSceneParent(m_workspace ? m_workspace->viewLayer(m_tiled) : m_server->xdgTree());
     }
     m_mapped = false;
+    m_server->updateBackgroundFrameTimer();
     m_openingParentRequested = false;
     m_acceptClientMaximizeRequests = false;
     m_consumeRestoredMaximizeRequest = false;
@@ -3554,6 +3586,7 @@ namespace umbriel {
     wl_list_remove(&m_map.link);
     wl_list_remove(&m_unmap.link);
     wl_list_remove(&m_commit.link);
+    wl_list_remove(&m_configure.link);
     wl_list_remove(&m_clientCommit.link);
     wl_list_remove(&m_destroy.link);
     wl_list_remove(&m_requestMove.link);
@@ -3566,6 +3599,7 @@ namespace umbriel {
     m_map.link.next = nullptr;
     m_unmap.link.next = nullptr;
     m_commit.link.next = nullptr;
+    m_configure.link.next = nullptr;
     m_destroy.link.next = nullptr;
     m_requestMove.link.next = nullptr;
     m_requestResize.link.next = nullptr;
@@ -4648,6 +4682,7 @@ namespace umbriel {
       m_workspace->syncViewPresentation(this);
     }
     if (m_mapped) {
+      syncSuspended();
       m_server->refreshOutputPolicies();
     }
   }
