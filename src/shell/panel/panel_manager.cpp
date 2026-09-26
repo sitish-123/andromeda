@@ -285,7 +285,19 @@ namespace {
 
   // Floating screen position for a built-in panel (one of kPanelPositions).
   // "auto" = bar-relative (and the default for any non-built-in panel).
-  [[nodiscard]] std::string resolvePanelPosition(const ConfigService* configService, std::string_view panelId) {
+  [[nodiscard]] std::string resolvePanelPosition(const ConfigService* configService, std::string_view panelId);
+
+  // Configured position when there is one, else the panel's own; plugin panels always choose their own.
+  [[nodiscard]] std::string
+  effectivePanelPosition(const ConfigService* configService, std::string_view panelId, const Panel& panel) {
+    if (panelId.contains(':')) {
+      return panel.panelScreenPosition();
+    }
+    std::string configured = resolvePanelPosition(configService, panelId);
+    return configured == "auto" ? panel.panelScreenPosition() : configured;
+  }
+
+  std::string resolvePanelPosition(const ConfigService* configService, std::string_view panelId) {
     if (configService == nullptr) {
       return "auto";
     }
@@ -665,9 +677,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   }
   m_panelFillWidth = fillWidth;
   m_panelFillHeight = fillHeight;
-  const bool pluginPanel = m_activePanelId.contains(':');
-  const std::string panelPosition =
-      pluginPanel ? m_activePanel->panelScreenPosition() : resolvePanelPosition(m_config, m_activePanelId);
+  const std::string panelPosition = effectivePanelPosition(m_config, m_activePanelId, *m_activePanel);
   const AttachedRevealDirection detachedDirection = detachedRevealDirection(panelPosition, barConfig.position);
   const bool useScreenPosition =
       activePlacement == PanelPlacement::Floating && panelPosition != "auto" && panelPosition != "center";
@@ -1783,7 +1793,7 @@ void PanelManager::relayoutActivePanelPreferredSize() {
   const std::uint32_t surfaceHeight =
       shell::panel_surface::surfaceExtent(panelHeight, detachedShadowBleed.up, detachedShadowBleed.down);
 
-  const std::string panelPosition = resolvePanelPosition(m_config, m_activePanelId);
+  const std::string panelPosition = effectivePanelPosition(m_config, m_activePanelId, *m_activePanel);
   const bool useCenterScreenLayout =
       m_activePanel->panelPlacement() == PanelPlacement::Floating && panelPosition == "center";
   if (m_panelOutputInputRect.has_value()) {

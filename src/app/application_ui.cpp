@@ -65,6 +65,7 @@
 #include "shell/clipboard/clipboard_panel.h"
 #include "shell/clipboard/clipboard_paste.h"
 #include "shell/control_center/control_center_panel.h"
+#include "shell/display_mode/display_mode_panel.h"
 #include "shell/greeter/greeter_appearance_sync.h"
 #include "shell/launcher/launcher_panel.h"
 #include "shell/panel/plugin_panel.h"
@@ -587,6 +588,7 @@ void Application::initPanelManagerAndPanels() {
   m_panelManager.registerPanel("clipboard", std::move(clipboardPanel));
   syncClipboardService();
   m_panelManager.registerPanel("session", std::make_unique<SessionPanel>(&m_configService, m_sessionActionRunner));
+  m_panelManager.registerPanel("display-mode", std::make_unique<DisplayModePanel>(m_wayland));
   m_panelManager.registerPanel("test", std::make_unique<TestPanel>());
   auto controlCenterPanel = std::make_unique<ControlCenterPanel>(ControlCenterServices{
       .notifications = &m_notificationManager,

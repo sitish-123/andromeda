@@ -781,7 +781,8 @@
           "setup-wizard": "Setup Wizard",
           "test": "Test Panel",
           "tray-drawer": "Tray Drawer",
-          "wallpaper": "Wallpaper"
+          "wallpaper": "Wallpaper",
+          "display-mode": "Display mode"
         },
         "title": "Panels"
       },
@@ -4912,5 +4913,14 @@
     "empty": "No open windows",
     "hint": "Tab · Shift+Tab · Arrow keys · Release Alt to switch · Esc to cancel",
     "title": "Windows"
+  },
+  "display-mode": {
+    "internal-only": "This screen only",
+    "duplicate": "Duplicate",
+    "extend": "Extend",
+    "external-only": "Second screen only",
+    "no-external": "No second display connected",
+    "no-mirroring": "This compositor cannot mirror displays",
+    "failed": "The displays could not be switched"
   }
 }

@@ -25,6 +25,7 @@ namespace panel_catalog {
     constexpr std::array kBuiltinPanels = {
         BuiltinPanelMeta{"clipboard", "launcher.providers.panel.builtin.clipboard", "clipboard"},
         BuiltinPanelMeta{"control-center", "launcher.providers.panel.builtin.control-center", "adjustments"},
+        BuiltinPanelMeta{"display-mode", "launcher.providers.panel.builtin.display-mode", "device-desktop"},
         BuiltinPanelMeta{"launcher", "launcher.providers.panel.builtin.launcher", "search"},
         BuiltinPanelMeta{"polkit", "launcher.providers.panel.builtin.polkit", "shield-lock"},
         BuiltinPanelMeta{"session", "launcher.providers.panel.builtin.session", "power"},
