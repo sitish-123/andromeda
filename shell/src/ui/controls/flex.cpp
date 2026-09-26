@@ -192,6 +192,9 @@ void Flex::setMirrorInRtl(bool mirror) {
 }
 
 void Flex::setPadding(float top, float right, float bottom, float left) {
+  if (m_paddingTop == top && m_paddingRight == right && m_paddingBottom == bottom && m_paddingLeft == left) {
+    return;
+  }
   m_paddingTop = top;
   m_paddingRight = right;
   m_paddingBottom = bottom;
@@ -342,12 +345,10 @@ void Flex::setRowLayout() {
 }
 
 void Flex::setChildGapExcluded(Node* child, bool excluded) {
-  if (excluded) {
-    m_gapExcludedChildren.insert(child);
-  } else {
-    m_gapExcludedChildren.erase(child);
+  const bool changed = excluded ? m_gapExcludedChildren.insert(child).second : m_gapExcludedChildren.erase(child) > 0;
+  if (changed) {
+    markLayoutDirty();
   }
-  markLayoutDirty();
 }
 
 Node* Flex::addChild(std::unique_ptr<Node> child) {

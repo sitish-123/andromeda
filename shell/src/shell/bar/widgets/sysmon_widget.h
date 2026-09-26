@@ -123,6 +123,7 @@ private:
   bool m_showUnits;
   SysmonGlyphPosition m_glyphPosition;
   std::string m_lastRawValue;
+  float m_lastGaugeFillPixels = -1.0F;
   bool m_isVerticalBar = false;
   bool m_lastLabelVertical = false;
 

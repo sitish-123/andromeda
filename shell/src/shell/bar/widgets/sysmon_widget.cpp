@@ -290,6 +290,7 @@ void SysmonWidget::create() {
         .progress = 0.0F,
     });
     m_gauge = static_cast<ProgressBar*>(graphOrGaugeNode.get());
+    m_lastGaugeFillPixels = -1.0F;
   }
 
   std::unique_ptr<Node> textNode;
@@ -572,6 +573,12 @@ void SysmonWidget::syncGaugeProgress(double normalized) {
 
   const float fillAxis = m_isVerticalBar ? m_gauge->width() : m_gauge->height();
   const float progress = (fillAxis > 0.0F && normalized * fillAxis < 1.0F) ? 0.0F : static_cast<float>(normalized);
+  // A sample that moves the fill by less than a pixel would repaint identical pixels and wake the display.
+  const float fillPixels = fillAxis > 0.0F ? std::round(progress * fillAxis) : -1.0F;
+  if (fillPixels >= 0.0F && fillPixels == m_lastGaugeFillPixels) {
+    return;
+  }
+  m_lastGaugeFillPixels = fillPixels;
   m_gauge->setProgress(progress);
   requestRedraw();
 }
