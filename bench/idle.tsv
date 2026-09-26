@@ -1,1 +1,3 @@
-label	process	seconds	rss_kb	anon_kb	threads	cpu_permille	wakeups_per_s	battery_mw	pkg_w	pc10_pct	psr_active_pct
+label	process	seconds	rss_kb	anon_kb	threads	cpu_permille	wakeups_per_s	battery_mw	pkg_w	deep_idle	psr_active_pct
+baseline-umbriel	umbriel	60	108964	47216	11	8	19	3515	2.43	Pkg%pc8=3.88	96
+baseline-umbriel	noctalia	60	165984	61408	30	7	25	3515	2.43	Pkg%pc8=3.88	96

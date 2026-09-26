@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Usage: [sudo] measure-idle.sh [seconds=60] [label] [process...=umbriel noctalia]
 # Prints one TSV row per process: label, process, seconds, rss_kb, anon_kb, threads, cpu_permille, wakeups_per_s,
-# then whole-machine columns (same on every row): battery_mw, pkg_w, pc10_pct, psr_active_pct.
-# battery_mw is "ac" unless discharging. pkg_w and pc10_pct need root and turbostat, psr_active_pct needs root
-# (debugfs); without them they read "-".
+# then whole-machine columns (same on every row): battery_mw, pkg_w, deep_idle, psr_active_pct.
+# battery_mw is "ac" unless discharging. deep_idle is the deepest package C-state residency turbostat can read on
+# this CPU, as "<counter>=<percent>" (SYS%LPI when no package counter exists). pkg_w and deep_idle need root and
+# turbostat, psr_active_pct needs root (debugfs); without them they read "-".
 set -euo pipefail
 
 secs=${1:-60}
@@ -27,7 +28,7 @@ done
 
 tpid=
 if ((EUID == 0)) && command -v turbostat > /dev/null; then
-  turbostat --quiet --Summary --show PkgWatt,Pkg%pc10 --interval "$secs" --num_iterations 1 > "$tmp" 2>/dev/null &
+  turbostat --quiet --Summary --interval "$secs" --num_iterations 1 --out "$tmp" &
   tpid=$!
 fi
 
@@ -37,15 +38,22 @@ psr_on=0
 for ((i = 0; i < secs; i++)); do
   sleep 1
   [[ $mw != ac ]] && mw=$((mw + $(<"$bat/power_now") / 1000))
-  # Self-refresh states: SRDENT for PSR1, SLEEP / FAST_SLEEP / DEEP_SLEEP for PSR2.
-  [[ -n $psr ]] && grep -qE '\[(SRDENT(_ON)?|SLEEP|FAST_SLEEP|DEEP_SLEEP)\]' "$psr" && psr_on=$((psr_on + 1))
+  # "Source PSR/PanelReplay status: <state> [0x...]"; self-refresh is SRDENT (PSR1) or *SLEEP (PSR2).
+  [[ -n $psr ]] && grep -qE 'status: (SRDENT|SLEEP|FAST_SLEEP|DEEP_SLEEP)' "$psr" && psr_on=$((psr_on + 1))
 done
 [[ $mw != ac ]] && mw=$((mw / secs))
 
-pkg_w=- pc10=-
+pkg_w=- deep=-
 if [[ -n $tpid ]]; then
   wait "$tpid" || true
-  read -r pkg_w pc10 < <(awk 'NR == 1 {for (i = 1; i <= NF; i++) h[$i] = i} NR == 2 {print $h["PkgWatt"], $h["Pkg%pc10"]}' "$tmp")
+  read -r pkg_w deep < <(awk '
+    NR == 1 { for (i = 1; i <= NF; i++) h[$i] = i }
+    NR == 2 {
+      d = "-"
+      n = split("Pkg%pc10 Pkg%pc8 Pkg%pc6 Pkg%pc3 Pkg%pc2 SYS%LPI", c, " ")
+      for (i = 1; i <= n; i++) if (c[i] in h) { d = c[i] "=" $h[c[i]]; break }
+      print ("PkgWatt" in h ? $h["PkgWatt"] : "-"), d
+    }' "$tmp") || true
 fi
 psr_pct=-
 [[ -n $psr ]] && psr_pct=$((psr_on * 100 / secs))
@@ -55,5 +63,5 @@ for p in "${procs[@]}"; do
     "/proc/${pid[$p]}/status")
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$p" "$secs" "$rss" "$anon" "$threads" \
     $((($(cpu "${pid[$p]}") - cpu0[$p]) * 1000 / (secs * tck))) \
-    $((($(wakeups "${pid[$p]}") - wake0[$p]) / secs)) "$mw" "$pkg_w" "$pc10" "$psr_pct"
+    $((($(wakeups "${pid[$p]}") - wake0[$p]) / secs)) "$mw" "$pkg_w" "$deep" "$psr_pct"
 done
