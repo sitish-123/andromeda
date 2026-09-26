@@ -1,3 +1,4 @@
+#include "config/resolve.h"
 #include "core/dirty.h"
 #include "input/cursor.h"
 #include "input/seat.h"
@@ -85,6 +86,29 @@ namespace umbriel {
     }
   }
 
+  void Server::applyConfiguredMirrors() {
+    for (const auto& output : m_outputs) {
+      const OutputRule* rule = findOutputRule(config(), output->identity());
+      Output* source = nullptr;
+      if (rule != nullptr && rule->mirror) {
+        for (const auto& candidate : m_outputs) {
+          if (candidate != output
+              && candidate->mirrorSource() == nullptr
+              && outputNameMatch(candidate->identity(), *rule->mirror) != OutputNameMatch::None) {
+            source = candidate.get();
+            break;
+          }
+        }
+      }
+      if (output->mirrorSource() != source) {
+        if (source != nullptr) {
+          reassignOutputViews(output.get(), source);
+        }
+        output->setMirrorSource(source);
+      }
+    }
+  }
+
   void Server::refreshOutputPolicies() {
     for (const auto& output : m_outputs) {
       output->updateVrr();
@@ -100,7 +124,7 @@ namespace umbriel {
     // Protocol-disabled outputs leave the layout, while DPMS-off outputs stay
     // mapped. Neither is a live focus, placement, or restoration target.
     for (const auto& entry : m_outputs) {
-      if (entry->wlr()->enabled) {
+      if (entry->onDesktop()) {
         return entry->wlr();
       }
     }
@@ -126,7 +150,7 @@ namespace umbriel {
     for (const auto& entry : m_outputs) {
       // Disabled outputs are off the desktop: rules and keybinds must not be
       // able to address them, or windows and focus would land on a blank screen.
-      if (entry->wlr()->enabled && outputNameMatch(entry->identity(), name) != OutputNameMatch::None) {
+      if (entry->onDesktop() && outputNameMatch(entry->identity(), name) != OutputNameMatch::None) {
         return entry.get();
       }
     }

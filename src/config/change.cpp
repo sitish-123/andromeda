@@ -49,7 +49,8 @@ namespace umbriel {
           && lhs.transform == rhs.transform
           && lhs.vrr == rhs.vrr
           && lhs.hdr == rhs.hdr
-          && lhs.sdrWhite == rhs.sdrWhite;
+          && lhs.sdrWhite == rhs.sdrWhite
+          && lhs.mirror == rhs.mirror;
     }
 
     bool sameOutputTearingPolicy(const OutputRule* before, const OutputRule* after) {

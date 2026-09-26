@@ -10,6 +10,7 @@
 #include <string_view>
 #include <wayland-server-core.h>
 
+struct wlr_buffer;
 struct wlr_gamma_control_v1;
 struct wlr_output;
 struct wlr_output_layout_output;
@@ -78,6 +79,11 @@ namespace umbriel {
     [[nodiscard]] bool dpmsOff() const { return m_dpmsOff; }
     [[nodiscard]] bool configuredEnabled() const;
     [[nodiscard]] bool desktopEnabled() const { return m_desktopEnabled; }
+    // Part of the desktop and powered: a target for windows, focus, and rules.
+    [[nodiscard]] bool onDesktop() const;
+    // A mirroring output stays powered but leaves the desktop, showing `source`'s frames letterboxed.
+    [[nodiscard]] Output* mirrorSource() const { return m_mirrorSource; }
+    void setMirrorSource(Output* source);
     [[nodiscard]] HdrMode hdrMode() const;
     [[nodiscard]] bool hdrRequested() const;
     [[nodiscard]] bool hdrActive() const;
@@ -142,6 +148,9 @@ namespace umbriel {
     wlr_output_layout_output* addToLayout();
     void arrangeLayer(wlr_scene_tree* tree, const wlr_box* fullArea, wlr_box* usableArea, bool exclusive);
     void updateOptimizedBlur(const wlr_box& fullArea);
+    void attachMirrorTarget();
+    void detachMirrorTarget();
+    void keepFrameForMirrors(wlr_buffer* frame);
 
     Server* m_server = nullptr;
     wlr_output* m_output = nullptr;
@@ -175,6 +184,10 @@ namespace umbriel {
     bool m_trackingPresentation = false;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
+    Output* m_mirrorSource = nullptr;
+    int m_mirrorTargets = 0;
+    // Last committed frame, held only while other outputs mirror this one.
+    wlr_buffer* m_lastFrame = nullptr;
     View* m_autoHdrOwner = nullptr;
     std::string m_hdrFallbackReason;
     std::string m_tearingFallbackReason;

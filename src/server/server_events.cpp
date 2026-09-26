@@ -602,6 +602,7 @@ namespace umbriel {
       markDirty(Dirty::Cheatsheet);
     }
     if (effects.outputState) {
+      applyConfiguredMirrors();
       m_deferOutputManagerConfig = true;
       for (const auto& output : m_outputs) {
         output->applyOutputState();
@@ -1448,6 +1449,7 @@ namespace umbriel {
       wlr_output_set_name(output, m_pendingOutputName.c_str());
     }
     m_outputs.push_back(std::make_unique<Output>(*this, output));
+    applyConfiguredMirrors();
     scheduleDisplacedViewRestore();
     markDirty(Dirty::Backdrop | Dirty::Banner | Dirty::Cheatsheet | Dirty::QuitConfirm);
     if (m_sessionLocked) {
@@ -1933,6 +1935,11 @@ namespace umbriel {
   }
 
   void Server::removeOutput(Output* output) {
+    for (const auto& entry : m_outputs) {
+      if (entry->mirrorSource() == output) {
+        entry->setMirrorSource(nullptr);
+      }
+    }
     m_overview->onOutputRemoved(output);
     m_gestures->cancelForOutput(output);
     if (!m_cursor->isPassthrough()) {
@@ -1968,7 +1975,7 @@ namespace umbriel {
     for (const auto& entry : m_outputs) {
       // Prefer a live monitor: rehoming windows onto a disabled one would
       // strand them off-screen.
-      if (entry.get() != output && entry->wlr()->enabled) {
+      if (entry.get() != output && entry->onDesktop()) {
         fallback = entry.get();
         break;
       }

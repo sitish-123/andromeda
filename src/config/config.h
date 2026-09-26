@@ -245,6 +245,8 @@ namespace umbriel {
     // there: workspace-next/previous and the window and column move variants that
     // name a step.
     bool cyclicWorkspaces = false;
+    // Descriptor or connector of the output this one mirrors instead of joining the desktop.
+    std::optional<std::string> mirror;
     // Direction this output's workspaces are arranged along. Scrolling layouts on
     // it scroll perpendicular to this.
     WorkspaceAxis workspaceAxis = WorkspaceAxis::Vertical;

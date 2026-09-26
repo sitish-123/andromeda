@@ -1791,6 +1791,9 @@ namespace umbriel {
         });
         keys.integer("min_workspaces", 1, static_cast<int>(kMaxWorkspaces), rule.minWorkspaces)
             .boolean("cyclic_workspaces", rule.cyclicWorkspaces);
+        if (std::string mirror; keys.text("mirror", mirror), !mirror.empty()) {
+          rule.mirror = std::move(mirror);
+        }
         if (const toml::node* axisNode = keys.take("workspace_axis")) {
           const auto value = axisNode->value<std::string>();
           if (value == "vertical") {

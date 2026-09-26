@@ -11,6 +11,7 @@
 #include "output/frame_schedule.h"
 #include "output/hdr_format.h"
 #include "output/identity.h"
+#include "output/mirror.h"
 #include "output/mode_selection.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
@@ -94,6 +95,9 @@ namespace umbriel {
   }
 
   bool Output::configuredEnabled() const {
+    if (m_mirrorSource != nullptr) {
+      return false;
+    }
     const OutputRule* rule = findOutputRule(config(), identity());
     return rule != nullptr ? rule->enabled : outputCanAutoEnable(m_output);
   }
@@ -245,7 +249,7 @@ namespace umbriel {
   bool Output::applyConfiguredState() {
     const OutputRule* rule = findOutputRule(config(), identity());
     const std::optional<double> configuredScale = rule != nullptr ? rule->scale : std::nullopt;
-    const bool enabled = desktopEnabled() && !m_dpmsOff;
+    const bool enabled = (desktopEnabled() || m_mirrorSource != nullptr) && !m_dpmsOff;
     wlr_output_state state{};
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, enabled);
@@ -708,6 +712,12 @@ namespace umbriel {
   }
 
   Output::~Output() {
+    if (m_mirrorSource != nullptr) {
+      m_mirrorSource->detachMirrorTarget();
+    }
+    if (m_lastFrame != nullptr) {
+      wlr_buffer_unlock(m_lastFrame);
+    }
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
@@ -1103,6 +1113,17 @@ namespace umbriel {
       // Output not configured yet; no clients can be presenting on it either.
       return;
     }
+    if (m_mirrorSource != nullptr) {
+      if (m_mirrorSource->m_lastFrame != nullptr) {
+        (void)renderMirrorFrame(
+            m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform
+        );
+      }
+      if (Ipc* ipc = m_server->ipc()) {
+        ipc->notifyOutputFrame(*this);
+      }
+      return;
+    }
 
     // Render + commit only if the scene actually changed or a gamma upload is pending. All exit paths below MUST reach
     // the unconditional wlr_scene_output_send_frame_done call at the bottom: mailbox/FIFO clients (games via DXVK,
@@ -1182,6 +1203,9 @@ namespace umbriel {
           m_gammaDirty = false;
         }
         if (commitOk && hasBuffer) {
+          if (m_mirrorTargets > 0) {
+            keepFrameForMirrors(state.buffer);
+          }
           m_lastCommitTearing = commitTearing;
           m_trackingPresentation = true;
           m_trackedPresentationCommitSeq = m_output->commit_seq;
@@ -1315,6 +1339,69 @@ namespace umbriel {
     }
     m_optimizedBlur = nullptr;
     m_server->removeOutput(this);
+  }
+
+  bool Output::onDesktop() const { return m_desktopEnabled && m_output->enabled; }
+
+  void Output::setMirrorSource(Output* source) {
+    if (source == m_mirrorSource) {
+      return;
+    }
+    if (m_mirrorSource != nullptr) {
+      m_mirrorSource->detachMirrorTarget();
+    }
+    m_mirrorSource = source;
+    if (source != nullptr) {
+      source->attachMirrorTarget();
+      kLog.info("output '{}': mirroring '{}'", m_output->name, source->m_output->name);
+    } else {
+      kLog.info("output '{}': stopped mirroring", m_output->name);
+    }
+    // Everything drawn for this output's own desktop would otherwise land at its last layout origin.
+    const bool ownContent = source == nullptr;
+    for (wlr_scene_tree* tree : m_layerTrees) {
+      wlr_scene_node_set_enabled(&tree->node, ownContent);
+    }
+    for (wlr_scene_tree* tree : {m_popupTree, m_viewRoot, m_fullscreenRoot, m_pinnedRoot}) {
+      wlr_scene_node_set_enabled(&tree->node, ownContent);
+    }
+    // Leaving the layout also withdraws the wl_output global, so no client can place surfaces on a mirror.
+    applyOutputState();
+    m_server->updateOutputManagerConfig();
+  }
+
+  void Output::attachMirrorTarget() {
+    if (m_mirrorTargets++ == 0) {
+      // Hardware cursor planes are not part of the committed frame a mirror copies.
+      wlr_output_lock_software_cursors(m_output, true);
+    }
+    scheduleFullFrame();
+  }
+
+  void Output::detachMirrorTarget() {
+    if (--m_mirrorTargets > 0) {
+      return;
+    }
+    wlr_output_lock_software_cursors(m_output, false);
+    keepFrameForMirrors(nullptr);
+  }
+
+  void Output::keepFrameForMirrors(wlr_buffer* frame) {
+    if (frame != nullptr) {
+      wlr_buffer_lock(frame);
+    }
+    if (m_lastFrame != nullptr) {
+      wlr_buffer_unlock(m_lastFrame);
+    }
+    m_lastFrame = frame;
+    if (frame == nullptr) {
+      return;
+    }
+    for (const auto& output : m_server->outputs()) {
+      if (output->m_mirrorSource == this) {
+        wlr_output_schedule_frame(output->m_output);
+      }
+    }
   }
 
 } // namespace umbriel

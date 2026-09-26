@@ -329,6 +329,8 @@ namespace umbriel {
     void refreshSurfaceScales();
     // Re-evaluate each output's policy after keyboard focus or a dynamic window rule changes.
     void refreshOutputPolicies();
+    // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
+    void applyConfiguredMirrors();
     [[nodiscard]] wlr_output* preferredOutput() const;
     [[nodiscard]] Output* outputFromWlr(wlr_output* output) const;
     [[nodiscard]] Output* outputFromName(const std::string& name) const;
