@@ -12,7 +12,7 @@ test: build
 e2e: build
     meson compile -C compositor/build-debug harness-clients
     cd compositor && just asan
-    for t in tests/e2e/display_mode.sh tests/e2e/displays.sh tests/e2e/idle_commits.sh tests/e2e/power_actions.sh tests/e2e/logout.sh tests/e2e/screen_power.sh tests/e2e/shell_protocol.sh; do bash "$t" || exit 1; done
+    for t in tests/e2e/display_mode.sh tests/e2e/displays.sh tests/e2e/idle_commits.sh tests/e2e/power_actions.sh tests/e2e/logout.sh tests/e2e/screen_power.sh tests/e2e/shell_protocol.sh tests/e2e/native_spawns.sh; do bash "$t" || exit 1; done
 
 check: test
     cd compositor && just check
