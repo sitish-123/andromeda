@@ -187,6 +187,9 @@ namespace umbriel {
     wl_event_source* m_frameRetryTimer = nullptr;
     Output* m_mirrorSource = nullptr;
     int m_mirrorTargets = 0;
+    // A mirror target draws only when its source delivered a new frame or a full redraw was asked for; every commit
+    // produces another frame event, so drawing on each would redraw at the refresh rate forever.
+    bool m_mirrorDirty = false;
     // Last committed frame, held only while other outputs mirror this one.
     wlr_buffer* m_lastFrame = nullptr;
     View* m_autoHdrOwner = nullptr;

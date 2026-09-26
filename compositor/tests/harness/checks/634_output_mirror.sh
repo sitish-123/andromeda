@@ -61,6 +61,31 @@ if grim -o HEADLESS-2 "$TARGET_SHOT" 2> /dev/null; then
   exit 1
 fi
 
+target_commits() { "$UMBRIEL" output-commits --json | jq -r '."HEADLESS-2" // .ok."HEADLESS-2"'; }
+before=$(target_commits)
+sleep 1 # real time: a static source must not make the mirror redraw at its refresh rate
+idle_commits=$(($(target_commits) - before))
+if (( idle_commits > 2 )); then
+  echo "the mirror redrew $idle_commits times in 1 s while its source was static"
+  exit 1
+fi
+before=$(target_commits)
+foot --config=/dev/null --title=mirror-change sh -c 'sleep 120' > /dev/null 2>&1 &
+change_pid=$!
+for _ in $(seq 40); do
+  (( $(target_commits) > before )) && break
+  sleep 0.1
+done
+if (( $(target_commits) <= before )); then
+  echo "the mirror did not redraw when its source changed"
+  exit 1
+fi
+kill "$change_pid"
+for _ in $(seq 40); do
+  [[ $("$UMBRIEL" windows --json | jq 'length') -eq 1 ]] && break
+  sleep 0.1
+done
+
 mark=$(log_mark)
 printf '%s\n' "$BASELINE" > "$UMBRIEL_CONFIG"
 "$UMBRIEL" msg config-reload > /dev/null
@@ -77,4 +102,4 @@ if (( after_green < 10000 )); then
   exit 1
 fi
 
-echo "mirroring moves the window to the source and hides the output from clients; removing it restores both"
+echo "mirroring moves the window to the source and hides the output from clients ($idle_commits idle mirror commits in 1 s); removing it restores both"

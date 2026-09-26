@@ -983,6 +983,7 @@ namespace umbriel {
   }
 
   void Output::scheduleFullFrame() {
+    m_mirrorDirty = true;
     wlr_damage_ring_add_whole(&m_sceneOutput->damage_ring);
     wlr_output_schedule_frame(m_output);
   }
@@ -1115,8 +1116,8 @@ namespace umbriel {
       return;
     }
     if (m_mirrorSource != nullptr) {
-      if (m_mirrorSource->m_lastFrame != nullptr) {
-        (void)renderMirrorFrame(
+      if (m_mirrorDirty && m_mirrorSource->m_lastFrame != nullptr) {
+        m_mirrorDirty = !renderMirrorFrame(
             m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform
         );
       }
@@ -1352,6 +1353,7 @@ namespace umbriel {
       m_mirrorSource->detachMirrorTarget();
     }
     m_mirrorSource = source;
+    m_mirrorDirty = true;
     if (source != nullptr) {
       source->attachMirrorTarget();
       kLog.info("output '{}': mirroring '{}'", m_output->name, source->m_output->name);
@@ -1405,6 +1407,7 @@ namespace umbriel {
     }
     for (const auto& output : m_server->outputs()) {
       if (output->m_mirrorSource == this) {
+        output->m_mirrorDirty = true;
         wlr_output_schedule_frame(output->m_output);
       }
     }
