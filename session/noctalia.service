@@ -1,0 +1,10 @@
+[Unit]
+Description=Noctalia desktop shell
+PartOf=umbriel-session.target
+After=umbriel-session.target
+
+[Service]
+Slice=session.slice
+ExecStart=/usr/bin/noctalia
+Restart=on-failure
+RestartSec=0

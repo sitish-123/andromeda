@@ -325,6 +325,9 @@ namespace scripting {
   }
 
   void PluginManager::ensureEnabledMaterialized(const PluginsConfig& plugins) const {
+    if (plugins.enabled.empty()) {
+      return;
+    }
     for (const auto& source : plugins.sources) {
       if (source.kind != PluginSourceKind::Git || !source.enabled) {
         continue;

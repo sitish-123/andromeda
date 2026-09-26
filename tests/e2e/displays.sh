@@ -7,7 +7,7 @@ OUT=${OUT:-$(pwd)/artifacts/displays}
 source "$(dirname "$0")/lib.sh"
 boot_headless 2
 
-SRC=$HOME/src/noctalia
+SRC=$ROOT/shell
 BUILD=$SRC/build-debug
 gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-protocol.c"
 g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/output-apply" \

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="desktop_unstable_v1">
+  <copyright>
+    Copyright © 2026 the desktop project authors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <description summary="desktop shell control of compositor state">
+    Compositor features a desktop shell configures that no standard protocol
+    covers. Only unsandboxed clients see these globals. Outputs are named by
+    their connector, as in zwlr_output_head_v1.name.
+  </description>
+
+  <interface name="dsk_output_manager_v1" version="1">
+    <description summary="output mirroring">
+      Mirroring an output removes it from the desktop and shows another
+      output's frames on it, scaled to fit. Mode, scale, position, and
+      enablement stay on zwlr_output_manager_v1. The compositor persists
+      mirror changes.
+    </description>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="set_mirror">
+      <description summary="mirror source onto target">
+        The result arrives as a mirror or failed event for target.
+      </description>
+      <arg name="target" type="string"/>
+      <arg name="source" type="string"/>
+    </request>
+
+    <request name="clear_mirror">
+      <description summary="return target to the desktop"/>
+      <arg name="target" type="string"/>
+    </request>
+
+    <event name="mirror">
+      <description summary="mirror state of one output">
+        Sent for every connected output on bind, and for an output whenever
+        its mirror state changes. An empty source means not mirroring.
+      </description>
+      <arg name="target" type="string"/>
+      <arg name="source" type="string"/>
+    </event>
+
+    <event name="done">
+      <description summary="end of the initial state batch"/>
+    </event>
+
+    <event name="failed">
+      <description summary="a request was rejected">
+        Unknown output, a source that is itself a mirror, or target equal to
+        source.
+      </description>
+      <arg name="target" type="string"/>
+      <arg name="reason" type="string"/>
+    </event>
+  </interface>
+</protocol>

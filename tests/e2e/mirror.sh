@@ -3,9 +3,10 @@
 # Captures both nested output windows from the host and asserts the mirror shows the source's pixels. Needs a running
 # host Wayland session. Artifacts go to $OUT (default ./artifacts/mirror).
 set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
-UMBRIEL=${UMBRIEL:-$HOME/src/umbriel/build-debug/umbriel}
-PROBE=${PROBE:-$HOME/src/umbriel/build-debug/tests/pixel-probe}
+UMBRIEL=${UMBRIEL:-$ROOT/compositor/build-debug/umbriel}
+PROBE=${PROBE:-$ROOT/compositor/build-debug/tests/pixel-probe}
 OUT=${OUT:-$(pwd)/artifacts/mirror}
 GREEN='g > 0.9 && r < 0.1 && b < 0.1'
 mkdir -p "$OUT"
