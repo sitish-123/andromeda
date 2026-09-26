@@ -19,3 +19,5 @@ check: test
 
 package:
     cd pkg && makepkg -f
+    # makepkg writes the resolved pkgver back into the PKGBUILD.
+    git checkout pkg/PKGBUILD
