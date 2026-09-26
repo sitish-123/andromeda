@@ -29,6 +29,7 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
@@ -103,6 +104,7 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <gio/gio.h>
 #include <limits>
 #include <malloc.h>
 #include <optional>
@@ -126,22 +128,25 @@ namespace {
     }
   }
 
+  // GTK 3 apps read the GNOME key rather than the Settings portal.
   void syncGSettingsColorScheme(std::string_view mode) {
     if (mode.empty()) {
       return;
     }
-    const std::string pref = mode == "light" ? "prefer-light" : "prefer-dark";
-    if (process::commandExists("gsettings")) {
-      std::string cmd = "gsettings set org.gnome.desktop.interface color-scheme \"";
-      cmd += pref;
-      cmd += "\"";
-      (void)process::runAsync(cmd);
-    } else if (process::commandExists("dconf")) {
-      std::string cmd = "dconf write /org/gnome/desktop/interface/color-scheme \"'";
-      cmd += pref;
-      cmd += "'\"";
-      (void)process::runAsync(cmd);
+    GSettingsSchemaSource* source = g_settings_schema_source_get_default();
+    GSettingsSchema* schema =
+        source != nullptr ? g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE) : nullptr;
+    if (schema == nullptr) {
+      return;
     }
+    const bool hasKey = g_settings_schema_has_key(schema, "color-scheme") != FALSE;
+    g_settings_schema_unref(schema);
+    if (!hasKey) {
+      return;
+    }
+    GSettings* settings = g_settings_new("org.gnome.desktop.interface");
+    g_settings_set_string(settings, "color-scheme", mode == "light" ? "prefer-light" : "prefer-dark");
+    g_object_unref(settings);
   }
 } // namespace
 
@@ -744,6 +749,9 @@ void Application::initStyleThemeAndWayland() {
   // gtk-theme templates, and colors_changed only concerns a palette that actually changed.
   m_templateApplyService.setAfterApplyCallback([this](std::string_view appliedMode, bool paletteChanged) {
     syncGSettingsColorScheme(appliedMode);
+    if (m_settingsPortal != nullptr && !appliedMode.empty()) {
+      m_settingsPortal->setDark(appliedMode != "light");
+    }
     if (paletteChanged) {
       m_hookManager.fire(HookKind::ColorsChanged);
     }
@@ -772,8 +780,18 @@ void Application::initStyleThemeAndWayland() {
       );
     }
   });
+  if (m_bus != nullptr) {
+    try {
+      m_settingsPortal = std::make_unique<SettingsPortal>(*m_bus);
+    } catch (const sdbus::Error& e) {
+      kLog.warn("settings portal disabled: {}", e.what());
+    }
+  }
   m_themeService.apply();
   syncGSettingsColorScheme(m_themeService.resolvedMode());
+  if (m_settingsPortal != nullptr) {
+    m_settingsPortal->setDark(!m_themeService.isLightMode());
+  }
   syncScriptApiWallpaperDirectory();
   syncScriptApiShellTimeFormats();
   m_configService.addReloadCallback([this]() { m_themeService.onConfigReload(); }, "theme");

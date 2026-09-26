@@ -502,6 +502,7 @@ _noctalia_sources = files(
   'src/dbus/tray/fcitx_status.cpp',
   'src/dbus/tray/tray_service.cpp',
   'src/dbus/upower/upower_charge_limit_support.cpp',
+  'src/dbus/portal/settings_portal.cpp',
   'src/dbus/udisks/udisks_service.cpp',
   'src/dbus/upower/upower_service.cpp',
   'src/debug/debug_service.cpp',
@@ -1151,6 +1152,14 @@ install_subdir('assets',
   exclude_files: ['dev.noctalia.Noctalia.desktop'],
 )
 
+install_data(
+  'data/noctalia.portal',
+  install_dir: get_option('datadir') / 'xdg-desktop-portal' / 'portals',
+)
+install_data(
+  'data/org.freedesktop.impl.portal.desktop.noctalia.service',
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
 install_data(
   'assets/dev.noctalia.Noctalia.desktop',
   install_dir: get_option('datadir') / 'applications',
