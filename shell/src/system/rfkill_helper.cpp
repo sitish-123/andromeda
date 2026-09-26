@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
@@ -154,8 +155,14 @@ namespace {
     return index;
   }
 
+  // NOCTALIA_RFKILL_DEVICE lets tests capture events without touching the machine's radios.
+  [[nodiscard]] const char* rfkillDevicePath() {
+    const char* path = std::getenv("NOCTALIA_RFKILL_DEVICE");
+    return path != nullptr && path[0] != '\0' ? path : "/dev/rfkill";
+  }
+
   [[nodiscard]] RfkillSwitchResult writeRfkillEvent(const rfkill_event& ev) {
-    const int fd = open("/dev/rfkill", O_WRONLY | O_CLOEXEC);
+    const int fd = open(rfkillDevicePath(), O_WRONLY | O_CLOEXEC);
     if (fd < 0) {
       return {
           .success = false,
@@ -260,3 +267,20 @@ RfkillSwitchResult setRfkillSoftBlockedForNetInterface(std::string_view ifname, 
 bool isRfkillSoftBlocked(RfkillDeviceType type) { return std::ranges::any_of(findEntries(type), &RfkillEntry::soft); }
 
 bool isRfkillHardBlocked(RfkillDeviceType type) { return std::ranges::any_of(findEntries(type), &RfkillEntry::hard); }
+
+RfkillSwitchResult setAllRadiosSoftBlocked(bool softBlocked) {
+  rfkill_event ev{};
+  ev.type = RFKILL_TYPE_ALL;
+  ev.op = RFKILL_OP_CHANGE_ALL;
+  ev.soft = softBlocked ? 1 : 0;
+  RfkillSwitchResult result = writeRfkillEvent(ev);
+  if (!result.success) {
+    kLog.warn("setAllRadiosSoftBlocked: {}", result.detail);
+  }
+  return result;
+}
+
+bool areAllRadiosSoftBlocked() {
+  const std::vector<RfkillEntry> entries = listRfkillEntries();
+  return !entries.empty() && std::ranges::all_of(entries, &RfkillEntry::soft);
+}

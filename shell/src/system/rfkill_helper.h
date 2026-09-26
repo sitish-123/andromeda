@@ -26,3 +26,9 @@ struct RfkillSwitchResult {
 
 /// True when any switch of this type is hard-blocked.
 [[nodiscard]] bool isRfkillHardBlocked(RfkillDeviceType type);
+
+/// Airplane mode: sets or clears the soft block on every radio of every type.
+[[nodiscard]] RfkillSwitchResult setAllRadiosSoftBlocked(bool softBlocked);
+
+/// True when at least one radio exists and all of them are soft-blocked.
+[[nodiscard]] bool areAllRadiosSoftBlocked();

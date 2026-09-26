@@ -778,6 +778,10 @@ namespace noctalia::cli {
     inline constexpr Command wifiDisable{"wifi-disable", "Disable Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command wifiEnable{"wifi-enable", "Enable Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command wifiStatus{"wifi-status", "Print Wi-Fi state", {}, {}, {}, {}, {}, false};
+    inline constexpr Command airplaneStatus{"airplane-status", "Print airplane mode state", {}, {}, {}, {}, {}, false};
+    inline constexpr Command airplaneToggle{
+        "airplane-toggle", "Toggle airplane mode (every radio)", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command wifiToggle{"wifi-toggle", "Toggle Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command windowSwitcher{"window-switcher",
                                             "Open or close the window switcher overlay",
@@ -829,6 +833,8 @@ namespace noctalia::cli {
   } // namespace msg
 
   inline constexpr std::array kMsgSubcommands{
+      msg::airplaneStatus,
+      msg::airplaneToggle,
       msg::annotate,
       msg::barAutoHideSet,
       msg::barHide,

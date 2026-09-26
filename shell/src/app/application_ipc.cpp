@@ -83,6 +83,7 @@
 #include "system/distro_info.h"
 #include "system/easyeffects_service.h"
 #include "system/keyboard_backlight_service.h"
+#include "system/rfkill_helper.h"
 #include "system/system_monitor_service.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/controls/input.h"
@@ -121,6 +122,14 @@ void Application::initIpc() {
   m_dmenuIpc.setLauncherPanel(m_launcherPanel);
   m_dmenuIpc.setPanelManager(&m_panelManager);
   m_dmenuIpc.start();
+
+  m_ipcService.bind(noctalia::cli::msg::airplaneToggle, [](const std::string&) -> std::string {
+    const RfkillSwitchResult result = setAllRadiosSoftBlocked(!areAllRadiosSoftBlocked());
+    return result.success ? "ok\n" : "error: " + result.detail + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::airplaneStatus, [](const std::string&) -> std::string {
+    return areAllRadiosSoftBlocked() ? "on\n" : "off\n";
+  });
 
   m_ipcService.bind(
       noctalia::cli::msg::status,
