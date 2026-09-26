@@ -10,6 +10,8 @@
 #include "layer/layer_surface.h"
 #include "layout/scrolling.h"
 #include "lock/session_lock.h"
+#include "output/display_store.h"
+#include "output/identity.h"
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
@@ -3026,6 +3028,28 @@ namespace umbriel {
       updateColorPreferences();
       refocus();
       refreshSurfaceScales();
+      std::vector<SavedOutput> saved;
+      saved.reserve(requested.size());
+      for (const RequestedHead& entry : requested) {
+        const wlr_output_head_v1_state& state = entry.head->state;
+        const OutputIdentity identity = entry.output->identity();
+        const bool reportsEdid = !identity.make.empty() || !identity.model.empty() || !identity.serial.empty();
+        saved.push_back({
+            .name = reportsEdid ? outputDescriptor(identity) : std::string(identity.connector),
+            .enabled = state.enabled,
+            .width = state.mode != nullptr ? state.mode->width : state.custom_mode.width,
+            .height = state.mode != nullptr ? state.mode->height : state.custom_mode.height,
+            .refreshMHz = state.mode != nullptr ? state.mode->refresh : state.custom_mode.refresh,
+            .x = state.x,
+            .y = state.y,
+            .scale = state.scale,
+            .transform = static_cast<int>(state.transform),
+            .adaptiveSync = state.adaptive_sync_enabled,
+        });
+      }
+      if (const auto file = configRootPath().parent_path() / "displays.toml"; !saveOutputs(file, saved)) {
+        kLog.warn("failed to save output state to '{}'", file.string());
+      }
     }
     if (commitAttempted) {
       m_deferOutputManagerConfig = false;
