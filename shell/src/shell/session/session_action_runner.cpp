@@ -71,6 +71,22 @@ namespace {
     }
   }
 
+  // "yes", "no", "challenge" (needs polkit), or "na" (not available on this hardware, e.g. no swap).
+  [[nodiscard]] bool canLogind(std::string_view action, const char* canMethod) {
+    try {
+      const auto connection = sdbus::createSystemBusConnection();
+      const auto manager = sdbus::createProxy(
+          *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+      );
+      std::string reply;
+      manager->callMethod(canMethod).onInterface("org.freedesktop.login1.Manager").storeResultsTo(reply);
+      return reply == "yes";
+    } catch (const sdbus::Error& e) {
+      kLog.warn("{}: logind {} failed: {}", action, canMethod, e.what());
+      return false;
+    }
+  }
+
   [[nodiscard]] bool runPowerOverride(std::string_view action, const std::string& command, PowerLaunchMode mode) {
     if (mode == PowerLaunchMode::Detached) {
       if (process::runAsync(command)) {
@@ -92,10 +108,14 @@ namespace {
 
   [[nodiscard]] bool runPowerActionResolved(
       std::string_view action, const std::optional<std::string>& commandOverride, const char* logindMethod,
-      PowerLaunchMode mode
+      PowerLaunchMode mode, const char* logindCanMethod = nullptr
   ) {
     if (commandOverride.has_value()) {
       return runPowerOverride(action, *commandOverride, mode);
+    }
+    if (logindCanMethod != nullptr && !canLogind(action, logindCanMethod)) {
+      kLog.warn("{}: logind reports {} unavailable", action, logindCanMethod);
+      return false;
     }
     return callLogind(action, logindMethod);
   }
@@ -146,6 +166,8 @@ void SessionActionRunner::setPowerConfig(const ShellSessionConfig::ShellSessionP
   m_suspendCommandOverride = power.suspend;
   m_rebootCommandOverride = power.reboot;
   m_shutdownCommandOverride = power.shutdown;
+  m_hibernateCommandOverride = power.hibernate;
+  m_suspendThenHibernateCommandOverride = power.suspendThenHibernate;
 }
 
 void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
@@ -179,6 +201,14 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   }
   if (cfg.action == "shutdown") {
     runPowerAction(m_hooks.onShutdown, [this]() { return requestShutdownDetached(); }, "shutdown");
+    return;
+  }
+  if (cfg.action == "hibernate") {
+    runPowerAction({}, [this]() { return requestHibernateDetached(); }, "hibernate");
+    return;
+  }
+  if (cfg.action == "suspend_then_hibernate") {
+    runPowerAction({}, [this]() { return requestSuspendThenHibernateDetached(); }, "suspend_then_hibernate");
     return;
   }
   if (cfg.action == "lock") {
@@ -228,6 +258,30 @@ bool SessionActionRunner::requestShutdownDetached() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);
   return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "PowerOff", PowerLaunchMode::Detached);
+}
+
+bool SessionActionRunner::requestHibernateDetached() const {
+  logActionContext("hibernate");
+  std::scoped_lock lock(m_powerMutex);
+  return runPowerActionResolved(
+      "hibernate", m_hibernateCommandOverride, "Hibernate", PowerLaunchMode::Detached, "CanHibernate"
+  );
+}
+
+bool SessionActionRunner::requestSuspendThenHibernateDetached() const {
+  logActionContext("suspend_then_hibernate");
+  if (m_hooks.onBeforePlainSuspend) {
+    m_hooks.onBeforePlainSuspend();
+  }
+  std::scoped_lock lock(m_powerMutex);
+  const bool started = runPowerActionResolved(
+      "suspend_then_hibernate", m_suspendThenHibernateCommandOverride, "SuspendThenHibernate",
+      PowerLaunchMode::Detached, "CanSuspendThenHibernate"
+  );
+  if (!started && m_hooks.onPlainSuspendAborted) {
+    m_hooks.onPlainSuspendAborted();
+  }
+  return started;
 }
 
 bool SessionActionRunner::lockThenSuspendDetached() const {

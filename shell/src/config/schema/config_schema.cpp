@@ -2089,6 +2089,8 @@ namespace noctalia::config::schema {
           optionalTrimmedStringField(&Power::suspend, "suspend"),
           optionalTrimmedStringField(&Power::reboot, "reboot"),
           optionalTrimmedStringField(&Power::shutdown, "shutdown"),
+          optionalTrimmedStringField(&Power::hibernate, "hibernate"),
+          optionalTrimmedStringField(&Power::suspendThenHibernate, "suspend_then_hibernate"),
       };
       return s;
     }

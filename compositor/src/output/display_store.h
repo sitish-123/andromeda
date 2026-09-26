@@ -41,4 +41,8 @@ namespace umbriel {
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs);
   bool saveMirror(const std::filesystem::path& file, const std::string& name, const std::optional<std::string>& source);
 
+  // True when `configRoot` (the user's own config.toml, without its includes) has a non-empty [output.<name>] table,
+  // which wins over displays.toml for that output. A damaged or missing file reads as false.
+  [[nodiscard]] bool documentSetsOutput(const std::filesystem::path& configRoot, std::string_view name);
+
 } // namespace umbriel

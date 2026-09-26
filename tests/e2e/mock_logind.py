@@ -15,6 +15,9 @@ class Manager(dbus.service.Object):
     def __init__(self, bus, log):
         super().__init__(bus, "/org/freedesktop/login1")
         self.log = log
+        # "yes" unless the test overrides it, to gate Hibernate/SuspendThenHibernate like real hardware without swap.
+        self.can_hibernate = os.environ.get("MOCK_CAN_HIBERNATE", "yes")
+        self.can_suspend_then_hibernate = os.environ.get("MOCK_CAN_SUSPEND_THEN_HIBERNATE", "yes")
 
     def record(self, method, interactive):
         with open(self.log, "a") as out:
@@ -31,6 +34,22 @@ class Manager(dbus.service.Object):
     @dbus.service.method(MANAGER, in_signature="b")
     def PowerOff(self, interactive):
         self.record("PowerOff", interactive)
+
+    @dbus.service.method(MANAGER, in_signature="b")
+    def Hibernate(self, interactive):
+        self.record("Hibernate", interactive)
+
+    @dbus.service.method(MANAGER, in_signature="b")
+    def SuspendThenHibernate(self, interactive):
+        self.record("SuspendThenHibernate", interactive)
+
+    @dbus.service.method(MANAGER, out_signature="s")
+    def CanHibernate(self):
+        return self.can_hibernate
+
+    @dbus.service.method(MANAGER, out_signature="s")
+    def CanSuspendThenHibernate(self):
+        return self.can_suspend_then_hibernate
 
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)

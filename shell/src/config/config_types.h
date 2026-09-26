@@ -244,6 +244,8 @@ struct ShellSessionConfig {
     std::optional<std::string> suspend;
     std::optional<std::string> reboot;
     std::optional<std::string> shutdown;
+    std::optional<std::string> hibernate;
+    std::optional<std::string> suspendThenHibernate;
 
     bool operator==(const ShellSessionPowerConfig&) const = default;
   } power;

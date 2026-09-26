@@ -990,12 +990,14 @@
   "session": {
     "actions": {
       "custom": "Custom",
+      "hibernate": "Hibernate",
       "lock": "Lock",
       "lock-and-suspend": "Lock & Suspend",
       "logout": "Log Out",
       "reboot": "Reboot",
       "shutdown": "Shut Down",
-      "suspend": "Suspend"
+      "suspend": "Suspend",
+      "suspend-then-hibernate": "Suspend then Hibernate"
     },
     "errors": {
       "lock-body": "The session lock protocol is not available.",
