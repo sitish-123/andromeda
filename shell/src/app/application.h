@@ -139,6 +139,7 @@ class SystemBusPollSource;
 class SystemMonitorService;
 class TrayService;
 class UPowerService;
+class UDisksService;
 enum class BluetoothStateChangeOrigin : std::uint8_t;
 enum class NetworkChangeOrigin : std::uint8_t;
 enum class PowerProfilesChangeOrigin : std::uint8_t;
@@ -291,6 +292,8 @@ private:
   std::unique_ptr<IwdSecretAgent> m_iwdSecretAgent;
   // Declared before m_bluetoothService so it outlives the raw pointer in that service.
   std::unique_ptr<UPowerService> m_upowerService;
+  std::unique_ptr<UDisksService> m_udisksService;
+  std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
   std::unique_ptr<BluetoothService> m_bluetoothService;
   std::unique_ptr<BluetoothAgent> m_bluetoothAgent;
   std::unique_ptr<ModemManagerService> m_modemManagerService;

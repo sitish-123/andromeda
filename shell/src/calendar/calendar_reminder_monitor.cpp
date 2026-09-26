@@ -71,7 +71,7 @@ void CalendarReminderMonitor::initialize() {
     return;
   }
   loadPersistedState();
-  m_notifications.setInternalActionCallback(
+  m_notifications.addInternalActionCallback(
       [this](std::uint32_t id, const std::string& actionKey, const std::string& activationToken) {
         onNotificationAction(id, actionKey, activationToken);
       }
