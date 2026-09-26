@@ -29,6 +29,8 @@ public:
   [[nodiscard]] bool requestSuspendDetached() const;
   [[nodiscard]] bool requestRebootDetached() const;
   [[nodiscard]] bool requestShutdownDetached() const;
+  [[nodiscard]] bool requestHibernateDetached() const;
+  [[nodiscard]] bool requestSuspendThenHibernateDetached() const;
   [[nodiscard]] bool lockThenSuspendDetached() const;
 
 private:
@@ -47,4 +49,6 @@ private:
   mutable std::optional<std::string> m_suspendCommandOverride;
   mutable std::optional<std::string> m_rebootCommandOverride;
   mutable std::optional<std::string> m_shutdownCommandOverride;
+  mutable std::optional<std::string> m_hibernateCommandOverride;
+  mutable std::optional<std::string> m_suspendThenHibernateCommandOverride;
 };

@@ -478,6 +478,8 @@ namespace settings {
         {"lock_and_suspend", i18n::tr("session.actions.lock-and-suspend"), {}},
         {"reboot", i18n::tr("session.actions.reboot"), {}},
         {"shutdown", i18n::tr("session.actions.shutdown"), {}},
+        {"hibernate", i18n::tr("session.actions.hibernate"), {}},
+        {"suspend_then_hibernate", i18n::tr("session.actions.suspend-then-hibernate"), {}},
         {"command", i18n::tr("session.actions.custom"), {}},
     };
   }
