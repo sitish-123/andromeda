@@ -40,6 +40,7 @@ void SettingsWindow::addDisplaysContent(float scale) {
   if (m_selectedSection != "displays") {
     if (m_displayConfirmSecondsLeft == 0) {
       m_outputManagement.reset();
+      m_mirrorControl.reset();
       m_displayEdits.clear();
     }
     return;
@@ -48,6 +49,12 @@ void SettingsWindow::addDisplaysContent(float scale) {
     const auto [name, version] = m_wayland->outputManagerGlobal();
     m_outputManagement =
         std::make_unique<OutputManagement>(m_wayland->registry(), name, version, [this]() { onDisplaysChanged(); });
+    if (const auto [mirrorName, mirrorVersion] = m_wayland->desktopOutputGlobal(); mirrorName != 0) {
+      m_mirrorControl = std::make_unique<MirrorControl>(m_wayland->registry(), mirrorName, mirrorVersion, [this]() {
+        m_displayError = m_mirrorControl->lastFailure();
+        requestContentRebuild();
+      });
+    }
   }
 
   const bool dirty = m_outputManagement != nullptr
@@ -58,6 +65,7 @@ void SettingsWindow::addDisplaysContent(float scale) {
       settings::SettingsDisplaysContext{
           .scale = scale,
           .outputs = m_outputManagement.get(),
+          .mirrors = m_mirrorControl.get(),
           .edits = m_displayEdits,
           .dirty = dirty,
           .confirmSecondsLeft = m_displayConfirmSecondsLeft,
@@ -72,6 +80,14 @@ void SettingsWindow::addDisplaysContent(float scale) {
               },
           .keep = [this]() { finishDisplayConfirm(/*keep=*/true); },
           .revert = [this]() { finishDisplayConfirm(/*keep=*/false); },
+          .setMirror =
+              [this](std::string target, std::string source) {
+                if (source.empty()) {
+                  m_mirrorControl->clearMirror(target);
+                } else {
+                  m_mirrorControl->setMirror(target, source);
+                }
+              },
       }
   );
 }

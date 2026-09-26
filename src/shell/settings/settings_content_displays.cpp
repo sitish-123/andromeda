@@ -45,6 +45,14 @@ namespace settings {
 
     std::string formatScale(double scale) { return std::format("{:g}×", scale); }
 
+    const std::string* mirrorSourceOf(const SettingsDisplaysContext& ctx, const std::string& name) {
+      if (ctx.mirrors == nullptr) {
+        return nullptr;
+      }
+      const auto it = ctx.mirrors->mirrors().find(name);
+      return it != ctx.mirrors->mirrors().end() ? &it->second : nullptr;
+    }
+
     // Distinct sizes, largest first.
     std::vector<std::pair<int, int>> modeSizes(const OutputHead& head) {
       std::vector<std::pair<int, int>> sizes;
@@ -210,7 +218,7 @@ namespace settings {
       const auto size = displayLogicalSize(head, config);
       for (std::size_t i = 0; i < heads.size(); ++i) {
         const OutputHeadConfig& other = ctx.edits[i];
-        if (heads[i].name == head.name || !other.enabled) {
+        if (heads[i].name == head.name || !other.enabled || mirrorSourceOf(ctx, heads[i].name) != nullptr) {
           continue;
         }
         const auto otherSize = displayLogicalSize(heads[i], other);
@@ -245,6 +253,41 @@ namespace settings {
       ));
     }
 
+    void addMirrorRow(Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx) {
+      if (ctx.mirrors == nullptr || !ctx.mirrors->ready()) {
+        return;
+      }
+      std::vector<std::string> labels = {i18n::tr("settings.displays.mirror-off")};
+      std::vector<std::string> sources = {""};
+      const std::string* current = mirrorSourceOf(ctx, head.name);
+      std::optional<std::size_t> selected = current == nullptr ? std::optional<std::size_t>{0} : std::nullopt;
+      const auto& heads = ctx.outputs->heads();
+      for (std::size_t i = 0; i < heads.size(); ++i) {
+        const bool isMirror = mirrorSourceOf(ctx, heads[i].name) != nullptr;
+        if (heads[i].name == head.name || !ctx.edits[i].enabled || isMirror) {
+          continue;
+        }
+        if (current != nullptr && *current == heads[i].name) {
+          selected = labels.size();
+        }
+        labels.push_back(displayTitle(heads[i]));
+        sources.push_back(heads[i].name);
+      }
+      if (sources.size() < 2) {
+        return;
+      }
+      body.addChild(makeDisplayRow(
+          i18n::tr("settings.displays.mirror"),
+          makeDisplaySelect(
+              std::move(labels), selected, ctx.scale,
+              [setMirror = ctx.setMirror, target = head.name, sources = std::move(sources)](std::size_t index) {
+                setMirror(target, sources[index]);
+              }
+          ),
+          ctx.scale
+      ));
+    }
+
     void addDisplayCard(
         Flex& content, const OutputHead& head, const OutputHeadConfig& config, const SettingsDisplaysContext& ctx
     ) {
@@ -268,7 +311,13 @@ namespace settings {
       if (!config.enabled) {
         return;
       }
+      addMirrorRow(*body, head, ctx);
       addModeRows(*body, head, config, ctx);
+      // A mirror is scaled to fit and has no place on the desktop, so only its mode and rotation matter.
+      if (mirrorSourceOf(ctx, head.name) != nullptr) {
+        addRotationRow(*body, config, ctx);
+        return;
+      }
       addScaleRow(*body, config, ctx);
       addRotationRow(*body, config, ctx);
       addPlacementRow(*body, head, config, ctx);

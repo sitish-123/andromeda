@@ -378,6 +378,8 @@ foreach _p : [
     'protocols/wlr-screencopy-unstable-v1.xml'],
   ['wlr-output-management-unstable-v1',
     'protocols/wlr-output-management-unstable-v1.xml'],
+  ['desktop-unstable-v1',
+    'protocols/desktop-unstable-v1.xml'],
 ]
   _name = _p[0]
   _xml  = _p[1]
@@ -981,6 +983,7 @@ _noctalia_sources = files(
   'src/wayland/surface.cpp',
   'src/wayland/toplevel_surface.cpp',
   'src/wayland/wayland_connection.cpp',
+  'src/wayland/mirror_control.cpp',
   'src/wayland/output_management.cpp',
   'src/wayland/wayland_seat.cpp',
   'src/wayland/wayland_toplevels.cpp',

@@ -4721,7 +4721,9 @@
       "cancelled": "Displays changed while applying. Review and apply again.",
       "busy": "A display change is still in progress.",
       "unavailable": "This compositor does not support display configuration (wlr-output-management).",
-      "refresh-default": "Default"
+      "refresh-default": "Default",
+      "mirror": "Mirror",
+      "mirror-off": "Off"
     }
   },
   "setup-wizard": {

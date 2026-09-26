@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wayland/mirror_control.h"
 #include "wayland/output_management.h"
 
 #include <cstdint>
@@ -16,6 +17,8 @@ namespace settings {
   struct SettingsDisplaysContext {
     float scale = 1.0F;
     const OutputManagement* outputs = nullptr;
+    // Null when the compositor has no dsk_output_manager_v1.
+    const MirrorControl* mirrors = nullptr;
     // Desired state, one entry per head, in head order.
     std::span<const OutputHeadConfig> edits;
     bool dirty = false;
@@ -26,6 +29,8 @@ namespace settings {
     std::function<void()> discard;
     std::function<void()> keep;
     std::function<void()> revert;
+    // An empty source stops mirroring.
+    std::function<void(std::string target, std::string source)> setMirror;
   };
 
   void addSettingsDisplays(Flex& content, const SettingsDisplaysContext& ctx);

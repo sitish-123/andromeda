@@ -18,6 +18,7 @@
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
+#include "wayland/mirror_control.h"
 #include "wayland/output_management.h"
 #include "wayland/toplevel_surface.h"
 
@@ -323,6 +324,7 @@ private:
   Timer m_pluginSearchDebounceTimer;
   // Exists only while the Displays section is showing.
   std::unique_ptr<OutputManagement> m_outputManagement;
+  std::unique_ptr<MirrorControl> m_mirrorControl;
   std::vector<OutputHeadConfig> m_displayEdits;
   std::vector<OutputHeadConfig> m_displayRevertTo;
   Timer m_displayConfirmTimer;
