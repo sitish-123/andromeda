@@ -139,8 +139,15 @@ layer_shell_protocol_h = custom_target(
 # wlroots' layer-shell header includes the generated header by name, so any
 # target reaching src/wlr.h needs it generated and on its include path. It lands
 # in the build root, which only root-scope targets get for free.
+output_power_protocol_h = custom_target(
+  'wlr-output-power-management-unstable-v1-protocol.h',
+  input: 'protocols/wlr-output-power-management-unstable-v1.xml',
+  output: 'wlr-output-power-management-unstable-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+
 layer_shell_protocol_dep = declare_dependency(
-  sources: layer_shell_protocol_h,
+  sources: [layer_shell_protocol_h, output_power_protocol_h],
   include_directories: include_directories('.'),
 )
 
@@ -450,6 +457,18 @@ security_context_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+output_power_client_h = custom_target(
+  'wlr-output-power-management-unstable-v1-client-protocol.h',
+  input: 'protocols/wlr-output-power-management-unstable-v1.xml',
+  output: 'wlr-output-power-management-unstable-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+output_power_client_c = custom_target(
+  'wlr-output-power-management-unstable-v1-client-protocol.c',
+  input: 'protocols/wlr-output-power-management-unstable-v1.xml',
+  output: 'wlr-output-power-management-unstable-v1-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
 output_mgmt_client_h = custom_target(
   'wlr-output-management-unstable-v1-client-protocol.h',
   input: 'protocols/wlr-output-management-unstable-v1.xml',

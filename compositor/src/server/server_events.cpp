@@ -2760,6 +2760,17 @@ namespace umbriel {
     arrangeLayers(output);
   }
 
+  void Server::onOutputPowerSetMode(wl_listener* listener, void* data) {
+    Server* self = wl_container_of(listener, self, m_outputPowerSetMode);
+    const auto* event = static_cast<wlr_output_power_v1_set_mode_event*>(data);
+    for (const auto& output : self->m_outputs) {
+      if (output->wlr() == event->output) {
+        (void)output->setPowered(event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
+        return;
+      }
+    }
+  }
+
   void Server::onOutputManagerApply(wl_listener* listener, void* data) {
     Server* self;
     self = wl_container_of(listener, self, m_outputManagerApply);

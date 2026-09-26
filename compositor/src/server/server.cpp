@@ -542,6 +542,9 @@ namespace umbriel {
     m_desktopInputManager = std::make_unique<DesktopInputManager>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
+    wlr_output_power_manager_v1* outputPower = wlr_output_power_manager_v1_create(m_display);
+    m_outputPowerSetMode.notify = onOutputPowerSetMode;
+    wl_signal_add(&outputPower->events.set_mode, &m_outputPowerSetMode);
     m_outputManagerTest.notify = onOutputManagerTest;
     wl_signal_add(&m_outputManager->events.test, &m_outputManagerTest);
     m_outputLayoutChange.notify = onOutputLayoutChange;
@@ -600,6 +603,7 @@ namespace umbriel {
     wl_list_remove(&m_workspaceCommit.link);
     wl_list_remove(&m_setGamma.link);
     wl_list_remove(&m_outputManagerApply.link);
+    wl_list_remove(&m_outputPowerSetMode.link);
     wl_list_remove(&m_outputManagerTest.link);
     wl_list_remove(&m_outputLayoutChange.link);
     wl_list_remove(&m_rendererLost.link);

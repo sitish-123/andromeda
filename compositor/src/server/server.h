@@ -444,6 +444,7 @@ namespace umbriel {
     static void onSwitchDestroy(wl_listener* listener, void* data);
     static void onSwitchToggle(wl_listener* listener, void* data);
     static void onOutputManagerApply(wl_listener* listener, void* data);
+    static void onOutputPowerSetMode(wl_listener* listener, void* data);
     static void onOutputManagerTest(wl_listener* listener, void* data);
     static void onOutputLayoutChange(wl_listener* listener, void* data);
     static void onToplevelCaptureRequest(wl_listener* listener, void* data);
@@ -771,6 +772,7 @@ namespace umbriel {
     wl_listener m_workspaceCommit{};
     wl_listener m_setGamma{};
     wl_listener m_outputManagerApply{};
+    wl_listener m_outputPowerSetMode{};
     wl_listener m_outputManagerTest{};
     wl_listener m_outputLayoutChange{};
     wl_listener m_toplevelCaptureRequest{};
