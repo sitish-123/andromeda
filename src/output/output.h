@@ -169,6 +169,8 @@ namespace umbriel {
     bool m_modeFallbackWarned = false;
     bool m_fullscreenHdrRequested = false;
     bool m_lastHdrRequested = false;
+    // VRR value the backend refused even with a modeset; not retried until the wanted value changes.
+    std::optional<bool> m_vrrRejected;
     bool m_lastCommitTearing = false;
     bool m_trackingPresentation = false;
     bool m_appliedConfiguredScale = false;

@@ -537,19 +537,36 @@ namespace umbriel {
     const bool enabled = configuredVrrEnabled();
     const bool currentlyEnabled = m_output->adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED;
     if (enabled == currentlyEnabled) {
+      m_vrrRejected.reset();
+      return;
+    }
+    if (m_vrrRejected == enabled) {
       return;
     }
 
-    wlr_output_state state{};
-    wlr_output_state_init(&state);
-    wlr_output_state_set_adaptive_sync_enabled(&state, enabled);
-    if (!wlr_output_commit_state(m_output, &state)) {
-      kLog.warn("output '{}': failed to {} VRR", m_output->name, enabled ? "enable" : "disable");
-    } else {
+    const auto commitVrr = [this, enabled](bool withModeset) {
+      wlr_output_state state{};
+      wlr_output_state_init(&state);
+      wlr_output_state_set_adaptive_sync_enabled(&state, enabled);
+      // Some drivers (i915 on eDP) only accept a VRR_ENABLED change as part of a modeset.
+      if (withModeset && m_output->current_mode != nullptr) {
+        wlr_output_state_set_mode(&state, m_output->current_mode);
+      }
+      const bool committed = wlr_output_commit_state(m_output, &state);
+      wlr_output_state_finish(&state);
+      return committed;
+    };
+    if (commitVrr(false) || commitVrr(true)) {
       kLog.info("output '{}': VRR {}", m_output->name, enabled ? "enabled" : "disabled");
+      m_vrrRejected.reset();
       m_server->updateOutputManagerConfig();
+      return;
     }
-    wlr_output_state_finish(&state);
+    kLog.warn(
+        "output '{}': failed to {} VRR; not retrying until the setting changes", m_output->name,
+        enabled ? "enable" : "disable"
+    );
+    m_vrrRejected = enabled;
   }
 
   wlr_output_layout_output* Output::addToLayout() {
