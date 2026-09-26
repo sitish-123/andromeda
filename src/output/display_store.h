@@ -1,11 +1,14 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 
 namespace umbriel {
+
+  struct OutputIdentity;
 
   // One output as a settings client last applied it through zwlr_output_manager_v1.
   struct SavedOutput {
@@ -22,12 +25,20 @@ namespace umbriel {
     bool adaptiveSync = false;
   };
 
-  // Merges `outputs` into the [output] tables of the TOML document `existing`, replacing tables with the same name
-  // and keeping the rest, so displays that are unplugged right now keep their saved state. Returns the new document.
+  // Name an output's saved table uses: its descriptor when the display reports EDID, else its connector.
+  [[nodiscard]] std::string savedOutputName(const OutputIdentity& identity);
+
+  // Merges `outputs` into the [output] tables of the TOML document `existing`, updating their keys and keeping every
+  // other table and key (a saved mirror, displays that are unplugged right now). Returns the new document.
   [[nodiscard]] std::string mergeSavedOutputs(std::string_view existing, std::span<const SavedOutput> outputs);
+
+  // Sets or, for nullopt, removes the `mirror` key of output `name`.
+  [[nodiscard]] std::string
+  mergeSavedMirror(std::string_view existing, const std::string& name, const std::optional<std::string>& source);
 
   // Merges `outputs` into `file` through a temporary file and a rename, so a config reload never reads a partial file.
   // Returns false on any I/O error.
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs);
+  bool saveMirror(const std::filesystem::path& file, const std::string& name, const std::optional<std::string>& source);
 
 } // namespace umbriel

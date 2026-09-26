@@ -1,8 +1,10 @@
 #include "config/resolve.h"
 #include "core/dirty.h"
+#include "core/log.h"
 #include "input/cursor.h"
 #include "input/seat.h"
 #include "layer/layer_surface.h"
+#include "output/display_store.h"
 #include "output/identity.h"
 #include "output/output.h"
 #include "server/server.h"
@@ -11,6 +13,10 @@
 #include "workspace/workspace.h"
 
 namespace umbriel {
+
+  namespace {
+    constexpr Logger kLog("output");
+  } // namespace
 
   namespace {
     // Headless outputs are created at the size the backend gives the ones from WLR_HEADLESS_OUTPUTS.
@@ -106,6 +112,19 @@ namespace umbriel {
         }
         output->setMirrorSource(source);
       }
+    }
+  }
+
+  void Server::setOutputMirror(Output& target, Output* source) {
+    if (source != nullptr) {
+      reassignOutputViews(&target, source);
+    }
+    target.setMirrorSource(source);
+    const auto file = configRootPath().parent_path() / "displays.toml";
+    const std::optional<std::string> saved =
+        source != nullptr ? std::optional{savedOutputName(source->identity())} : std::nullopt;
+    if (!saveMirror(file, savedOutputName(target.identity()), saved)) {
+      kLog.warn("failed to save mirror state to '{}'", file.string());
     }
   }
 

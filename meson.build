@@ -328,6 +328,26 @@ tearing_control_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+desktop_client_h = custom_target(
+  'desktop-unstable-v1-client-protocol.h',
+  input: 'protocols/desktop-unstable-v1.xml',
+  output: 'desktop-unstable-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+
+desktop_server_h = custom_target(
+  'desktop-unstable-v1-protocol.h',
+  input: 'protocols/desktop-unstable-v1.xml',
+  output: 'desktop-unstable-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+desktop_server_c = custom_target(
+  'desktop-unstable-v1-protocol.c',
+  input: 'protocols/desktop-unstable-v1.xml',
+  output: 'desktop-unstable-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 color_management_server_h = custom_target(
   'color-management-v1-server-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/color-management/color-management-v1.xml',
@@ -562,6 +582,7 @@ core_sources = files(
   'src/layout/drop_target.cpp',
   'src/server/wine_color_manager.cpp',
   'src/server/backend_manager.cpp',
+  'src/server/desktop_output_manager.cpp',
   'src/server/server.cpp',
   'src/server/server_events.cpp',
   'src/server/server_keybinds.cpp',
@@ -629,6 +650,8 @@ umbriel_core = static_library(
     output_mgmt_client_c,
     color_management_server_h,
     color_management_server_c,
+    desktop_server_h,
+    desktop_server_c,
   ],
   include_directories: include_directories('src'),
   link_with: umbriel_pure,

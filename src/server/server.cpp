@@ -24,6 +24,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
+#include "server/desktop_output_manager.h"
 #include "server/ipc.h"
 #include "server/wine_color_manager.h"
 #include "view/view.h"
@@ -536,6 +537,7 @@ namespace umbriel {
     // Create the manager so apply/test listeners stay wired, but leave heads empty (see updateOutputManagerConfig).
     // Advertising a full configuration on bind currently takes down the desktop shell from this flake.
     m_outputManager = wlr_output_manager_v1_create(m_display);
+    m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
     m_outputManagerTest.notify = onOutputManagerTest;

@@ -83,7 +83,8 @@ namespace umbriel {
     [[nodiscard]] bool onDesktop() const;
     // A mirroring output stays powered but leaves the desktop, showing `source`'s frames letterboxed.
     [[nodiscard]] Output* mirrorSource() const { return m_mirrorSource; }
-    void setMirrorSource(Output* source);
+    // `applyState` false leaves the backend alone, for callers that already committed the output's power state.
+    void setMirrorSource(Output* source, bool applyState = true);
     [[nodiscard]] HdrMode hdrMode() const;
     [[nodiscard]] bool hdrRequested() const;
     [[nodiscard]] bool hdrActive() const;

@@ -2740,7 +2740,7 @@ namespace umbriel {
       wlr_output_configuration_head_v1* head = wlr_output_configuration_head_v1_create(cfg, output->wlr());
       // Physical DPMS is not logical disablement. Protocol-disabled heads are
       // absent from the desktop; DPMS-off heads remain mapped there.
-      head->state.enabled = output->desktopEnabled();
+      head->state.enabled = output->desktopEnabled() || output->mirrorSource() != nullptr;
       if (wlr_output_layout_output* lo = wlr_output_layout_get(m_outputLayout, output->wlr())) {
         head->state.x = lo->x;
         head->state.y = lo->y;
@@ -2987,6 +2987,16 @@ namespace umbriel {
       // Make logical enablement authoritative before any callback can refresh
       // configured output policy and accidentally revive a disabled head.
       for (const RequestedHead& entry : requested) {
+        // Mirrors are reported enabled: enabled keeps the mirror with its new mode, disabled ends it and powers off.
+        if (entry.output->mirrorSource() != nullptr) {
+          if (entry.head->state.enabled) {
+            continue;
+          }
+          entry.output->setMirrorSource(nullptr, /*applyState=*/false);
+          (void)saveMirror(
+              configRootPath().parent_path() / "displays.toml", savedOutputName(entry.output->identity()), std::nullopt
+          );
+        }
         entry.output->adoptOutputManagerEnabled(entry.head->state.enabled);
       }
 
@@ -3003,7 +3013,7 @@ namespace umbriel {
       // Layout mutations emit synchronously. Add every destination before
       // removing sources, then publish only the finished transaction.
       for (const RequestedHead& entry : requested) {
-        if (entry.head->state.enabled) {
+        if (entry.head->state.enabled && entry.output->mirrorSource() == nullptr) {
           entry.output->applyOutputManagerLayout(entry.head->state.x, entry.head->state.y);
         }
       }
@@ -3039,10 +3049,8 @@ namespace umbriel {
       saved.reserve(requested.size());
       for (const RequestedHead& entry : requested) {
         const wlr_output_head_v1_state& state = entry.head->state;
-        const OutputIdentity identity = entry.output->identity();
-        const bool reportsEdid = !identity.make.empty() || !identity.model.empty() || !identity.serial.empty();
         saved.push_back({
-            .name = reportsEdid ? outputDescriptor(identity) : std::string(identity.connector),
+            .name = savedOutputName(entry.output->identity()),
             .enabled = state.enabled,
             .width = state.mode != nullptr ? state.mode->width : state.custom_mode.width,
             .height = state.mode != nullptr ? state.mode->height : state.custom_mode.height,

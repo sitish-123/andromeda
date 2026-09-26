@@ -105,6 +105,7 @@ namespace umbriel {
   class FocusManager;
   class XwaylandSupervisor;
   class ConfigWatcher;
+  class DesktopOutputManager;
   class InputMethodRelay;
   class Gestures;
   class WineColorManager;
@@ -331,6 +332,10 @@ namespace umbriel {
     void refreshOutputPolicies();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
     void applyConfiguredMirrors();
+    // Start or, with a null source, stop a mirror at runtime; windows on the target move to the source, and the change
+    // is saved to displays.toml.
+    void setOutputMirror(Output& target, Output* source);
+    [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] wlr_output* preferredOutput() const;
     [[nodiscard]] Output* outputFromWlr(wlr_output* output) const;
     [[nodiscard]] Output* outputFromName(const std::string& name) const;
@@ -688,6 +693,7 @@ namespace umbriel {
     std::unique_ptr<ScratchpadManager> m_scratchpadManager;
     std::unique_ptr<HintRect> m_insertHint;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
+    std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
     std::unique_ptr<Ipc> m_ipc;
 #ifdef UMBRIEL_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;

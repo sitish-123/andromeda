@@ -18,6 +18,7 @@
 #include "scene/config_banner.h"
 #include "scene/node.h"
 #include "scene/quit_confirm.h"
+#include "server/desktop_output_manager.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "server/wine_color_manager.h"
@@ -1343,7 +1344,7 @@ namespace umbriel {
 
   bool Output::onDesktop() const { return m_desktopEnabled && m_output->enabled; }
 
-  void Output::setMirrorSource(Output* source) {
+  void Output::setMirrorSource(Output* source, bool applyState) {
     if (source == m_mirrorSource) {
       return;
     }
@@ -1366,8 +1367,13 @@ namespace umbriel {
       wlr_scene_node_set_enabled(&tree->node, ownContent);
     }
     // Leaving the layout also withdraws the wl_output global, so no client can place surfaces on a mirror.
-    applyOutputState();
+    if (applyState) {
+      applyOutputState();
+    }
     m_server->updateOutputManagerConfig();
+    if (DesktopOutputManager* manager = m_server->desktopOutputManager()) {
+      manager->broadcast(*this);
+    }
   }
 
   void Output::attachMirrorTarget() {

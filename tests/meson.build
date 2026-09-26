@@ -314,6 +314,13 @@ output_management_client = executable(
   dependencies: [wayland_client_dep],
 )
 
+# Harness helper that drives dsk_output_manager_v1: prints mirror state and requests or clears mirrors.
+desktop_client = executable(
+  'desktop-client',
+  ['harness/clients/desktop_client.cpp', desktop_client_h, desktop_server_c],
+  dependencies: [wayland_client_dep],
+)
+
 # Harness helper that counts, bounds, and samples screenshot pixels for checks.
 pixel_probe = executable(
   'pixel-probe',
@@ -343,4 +350,5 @@ harness_client_targets = [
   security_context_client,
   seat_log_client,
   output_management_client,
+  desktop_client,
 ]
