@@ -1,0 +1,3 @@
+label	process	seconds	rss_kb	anon_kb	threads	cpu_permille	wakeups_per_s	battery_mw
+baseline-hyprland-2026-09-26	noctalia	20	182536	60556	30	8	25	ac
+baseline-hyprland-2026-09-26	Hyprland	20	259732	89788	16	4	8	ac
