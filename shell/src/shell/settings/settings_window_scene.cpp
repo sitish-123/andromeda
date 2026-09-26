@@ -1079,6 +1079,10 @@ void SettingsWindow::rebuildSettingsContent() {
   phaseProfileWatch.reset();
 
   addDisplaysContent(scale);
+  addInputContent(scale);
+  addDateTimeContent(scale);
+  addLanguageContent(scale);
+  addDefaultAppsContent(scale);
 
   if (m_selectedSection == "plugins" && m_pluginManager != nullptr) {
     refreshPluginListIfNeeded();

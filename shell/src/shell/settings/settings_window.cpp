@@ -1255,4 +1255,7 @@ void SettingsWindow::onIdleLiveStatusChanged() {
   m_surface->requestRedraw();
 }
 
-void SettingsWindow::onSecondTick() { onIdleLiveStatusChanged(); }
+void SettingsWindow::onSecondTick() {
+  onIdleLiveStatusChanged();
+  refreshDefaultAppsIfChanged();
+}

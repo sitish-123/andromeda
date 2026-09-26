@@ -1458,7 +1458,13 @@ namespace settings {
 
     // The Plugins section has no registry entries — it renders fully custom
     // content (addSettingsPlugins), so suppress the "no settings found" state.
-    if (visibleEntries == 0 && ctx.selectedSection != "plugins" && ctx.selectedSection != "displays") {
+    if (visibleEntries == 0
+        && ctx.selectedSection != "plugins"
+        && ctx.selectedSection != "displays"
+        && ctx.selectedSection != "input"
+        && ctx.selectedSection != "date-time"
+        && ctx.selectedSection != "language"
+        && ctx.selectedSection != "default-apps") {
       auto emptyState = ui::column(
           {.align = FlexAlign::Center,
            .justify = FlexJustify::Center,

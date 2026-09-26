@@ -148,6 +148,7 @@ void Application::initUiRenderSurfacesAndSettings() {
       m_wayland, &m_configService, &m_renderContext, &m_dependencyService, m_upowerService.get(), &m_idleManager,
       &m_compositorPlatform, m_accountsService.get()
   );
+  m_settingsWindow.setSystemBus(m_systemBus.get());
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setIpcService(&m_ipcService);
   m_settingsWindow.setAsyncTextureCache(&m_asyncTextureCache);

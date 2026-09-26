@@ -337,6 +337,10 @@ namespace settings {
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
     case SettingsSection::Displays:
+    case SettingsSection::Input:
+    case SettingsSection::DateTime:
+    case SettingsSection::Language:
+    case SettingsSection::DefaultApps:
       return false;
     }
     return false;
@@ -375,6 +379,10 @@ namespace settings {
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
     case SettingsSection::Displays:
+    case SettingsSection::Input:
+    case SettingsSection::DateTime:
+    case SettingsSection::Language:
+    case SettingsSection::DefaultApps:
       return {};
     }
     return {};

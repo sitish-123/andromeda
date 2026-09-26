@@ -1401,7 +1401,11 @@
         "templates": "Templates",
         "umbriel": "Umbriel",
         "wallpaper": "Wallpaper",
-        "displays": "Displays"
+        "displays": "Displays",
+        "input": "Input",
+        "date-time": "Date & Time",
+        "language": "Language & Region",
+        "default-apps": "Default Applications"
       }
     },
     "notifications": {
@@ -4725,6 +4729,58 @@
       "refresh-default": "Default",
       "mirror": "Mirror",
       "mirror-off": "Off"
+    },
+    "input": {
+      "unavailable": "This compositor does not support input configuration (dsk_input_manager_v1).",
+      "speed": "Speed",
+      "accel-profile": "Acceleration profile",
+      "accel": {
+        "flat": "Flat",
+        "adaptive": "Adaptive"
+      },
+      "keyboard": "Keyboard",
+      "keyboard.layout": "Layout",
+      "keyboard.variant": "Variant",
+      "keyboard.variant-default": "Default",
+      "keyboard.repeat-rate": "Repeat rate",
+      "keyboard.repeat-delay": "Repeat delay",
+      "keyboard.numlock": "Enable Num Lock at login",
+      "keyboard.option-none": "Off",
+      "touchpad": "Touchpad",
+      "touchpad.tap": "Tap to click",
+      "touchpad.natural-scroll": "Natural scrolling",
+      "touchpad.disable-while-typing": "Disable while typing",
+      "touchpad.left-handed": "Left-handed",
+      "touchpad.click-method": "Click method",
+      "touchpad.click-method.button-areas": "Button areas",
+      "touchpad.click-method.clickfinger": "Click-finger",
+      "mouse": "Mouse"
+    },
+    "datetime": {
+      "unavailable": "org.freedesktop.timedate1 is not available on the system bus.",
+      "title": "Date & Time",
+      "automatic": "Set automatically (NTP)",
+      "timezone": "Time zone",
+      "set-time": "Set time (UTC)",
+      "local-rtc": "Hardware clock uses local time"
+    },
+    "language": {
+      "unavailable": "org.freedesktop.locale1 is not available on the system bus.",
+      "title": "Language & Region",
+      "language": "Language",
+      "keyboard-layout": "System keyboard layout"
+    },
+    "default-apps": {
+      "title": "Default Applications",
+      "web-browser": "Web Browser",
+      "mail": "Mail",
+      "file-manager": "File Manager",
+      "terminal": "Terminal",
+      "text-editor": "Text Editor",
+      "image-viewer": "Image Viewer",
+      "video-player": "Video Player",
+      "music-player": "Music Player",
+      "pdf-viewer": "PDF Viewer"
     }
   },
   "setup-wizard": {
