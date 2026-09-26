@@ -92,7 +92,7 @@ int main() {
     manager.setActionInvokeCallback([&externalKey](uint32_t, const std::string& key, const std::string&) {
       externalKey = key;
     });
-    manager.setInternalActionCallback([&internalKey](uint32_t, const std::string& key, const std::string&) {
+    manager.addInternalActionCallback([&internalKey](uint32_t, const std::string& key, const std::string&) {
       internalKey = key;
     });
 
@@ -123,7 +123,7 @@ int main() {
     ok = check(externalKey == "default", "an external notification action stopped reaching the D-Bus callback") && ok;
 
     manager.setActionInvokeCallback(nullptr);
-    manager.setInternalActionCallback(nullptr);
+    manager.addInternalActionCallback(nullptr);
   }
 
   // Dismissal is the only way a timeout-0 reminder can close, so it must not take the history entry

@@ -1143,6 +1143,7 @@ struct ShellConfig {
   bool niriOverviewTypeToLaunchEnabled = false;
   bool umbrielOverviewTypeToLaunchEnabled = false;
   bool polkitAgent = false;
+  bool automountDrives = true;
   PasswordMaskStyle passwordMaskStyle = PasswordMaskStyle::CircleFilled;
   AnimationConfig animation;
   std::string avatarPath;
@@ -1383,6 +1384,9 @@ struct BatteryConfig {
   // 0 disables the low-battery warning notification and widget warning state by default.
   std::int32_t warningThreshold = 10;
   std::vector<BatteryDeviceWarningThreshold> deviceThresholds;
+  // power-profiles-daemon profile applied when the machine switches to AC or battery; empty leaves it alone.
+  std::string profileOnAc;
+  std::string profileOnBattery;
 
   bool operator==(const BatteryConfig&) const = default;
 };

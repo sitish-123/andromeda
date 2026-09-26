@@ -305,26 +305,31 @@ void SysmonWidget::create() {
     });
   }
 
+  // doLayout positions these children itself; the enclosing Flex must not re-arrange them.
+  const auto addManuallyPlaced = [this](std::unique_ptr<Node> node) {
+    node->setParticipatesInLayout(false);
+    m_containerRow->addChild(std::move(node));
+  };
   m_containerRow = static_cast<Flex*>(container->addChild(ui::row({.gap = Style::spaceXs * m_contentScale})));
   if (m_glyphPosition == SysmonGlyphPosition::Before) {
     if (identityNode != nullptr) {
-      m_containerRow->addChild(std::move(identityNode));
+      addManuallyPlaced(std::move(identityNode));
     }
     if (graphOrGaugeNode != nullptr) {
-      m_containerRow->addChild(std::move(graphOrGaugeNode));
+      addManuallyPlaced(std::move(graphOrGaugeNode));
     }
     if (textNode != nullptr) {
-      m_containerRow->addChild(std::move(textNode));
+      addManuallyPlaced(std::move(textNode));
     }
   } else {
     if (textNode != nullptr) {
-      m_containerRow->addChild(std::move(textNode));
+      addManuallyPlaced(std::move(textNode));
     }
     if (graphOrGaugeNode != nullptr) {
-      m_containerRow->addChild(std::move(graphOrGaugeNode));
+      addManuallyPlaced(std::move(graphOrGaugeNode));
     }
     if (identityNode != nullptr) {
-      m_containerRow->addChild(std::move(identityNode));
+      addManuallyPlaced(std::move(identityNode));
     }
   }
 
@@ -383,7 +388,10 @@ Color SysmonWidget::currentValueColor(ColorSpec baseColor) {
   const Color highlight = resolveColorSpec(m_highlightColor);
   const auto [activityThreshold, criticalThreshold] = currentThresholds();
   const auto factor = static_cast<float>(gradientFactor(currentGradientValue(), activityThreshold, criticalThreshold));
-  return lerpHsvChromaWeighted(base, highlight, factor);
+  // Rounded to what an 8-bit display shows, so sample noise does not repaint an identical color.
+  const auto quantize = [](float channel) { return std::round(channel * 255.0F) / 255.0F; };
+  const Color color = lerpHsvChromaWeighted(base, highlight, factor);
+  return Color{quantize(color.r), quantize(color.g), quantize(color.b), quantize(color.a)};
 }
 
 void SysmonWidget::syncIdentity(Renderer& renderer) {

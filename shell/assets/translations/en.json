@@ -836,6 +836,10 @@
       "placeholder": "Type a reply…"
     },
     "internal": {
+      "drive": "Drives",
+      "drive-mounted": "{label} is ready",
+      "drive-open": "Open",
+      "drive-eject": "Eject",
       "battery": "Battery",
       "battery-critical-body": "{device}: {percent}%; your computer will shut down soon",
       "battery-critical-title": "Battery critically low",

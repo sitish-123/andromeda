@@ -49,7 +49,7 @@ public:
 private:
   void evaluate(std::chrono::system_clock::time_point now);
   // Opens the meeting link of the notification the user clicked. Registered with
-  // NotificationManager::setInternalActionCallback.
+  // NotificationManager::addInternalActionCallback.
   void onNotificationAction(std::uint32_t id, const std::string& actionKey, const std::string& activationToken);
   void fireReminder(const calendar::DueReminder& due, std::chrono::system_clock::time_point now);
   // Rewrites the bodies of reminders still counting down, dropping the ones that have settled on

@@ -35,6 +35,7 @@
 #include "dbus/system_bus.h"
 #include "dbus/system_bus_poll_source.h"
 #include "dbus/tray/tray_service.h"
+#include "dbus/udisks/udisks_service.h"
 #include "dbus/upower/upower_service.h"
 #include "debug/debug_service.h"
 #include "i18n/i18n.h"
@@ -48,6 +49,7 @@
 #include "launcher/session_provider.h"
 #include "launcher/wallpaper_provider.h"
 #include "launcher/window_provider.h"
+#include "net/url_open.h"
 #include "notification/notifications.h"
 #include "pipewire/pipewire_poll_source.h"
 #include "pipewire/pipewire_service.h"
@@ -474,6 +476,23 @@ void Application::syncPolkitAgent() {
   });
   m_polkitPollSource = std::make_unique<PolkitPollSource>(*m_polkitAgent);
   m_polkitAgent->start();
+}
+
+void Application::applyPowerSourceProfile() {
+  if (m_upowerService == nullptr || m_powerProfilesService == nullptr) {
+    return;
+  }
+  const bool onBattery = m_upowerService->state().onBattery;
+  if (m_profileAppliedOnBattery == onBattery) {
+    return;
+  }
+  m_profileAppliedOnBattery = onBattery;
+  const BatteryConfig& battery = m_configService.config().battery;
+  const std::string& profile = onBattery ? battery.profileOnBattery : battery.profileOnAc;
+  if (!profile.empty() && profile != m_powerProfilesService->activeProfile()) {
+    kLog.info("power source {}: switching profile to {}", onBattery ? "battery" : "ac", profile);
+    (void)m_powerProfilesService->setActiveProfile(profile);
+  }
 }
 
 void Application::syncScreenTimeService() {
@@ -1233,6 +1252,46 @@ void Application::initSystemBusServices() {
       m_powerProfilesService.reset();
     }
 
+    if (m_configService.config().shell.automountDrives) {
+      try {
+        m_udisksService = std::make_unique<UDisksService>(*m_systemBus);
+        m_udisksService->setMountedCallback([this](const UDisksService::Mounted& drive) {
+          NotificationRequest request;
+          request.appName = i18n::tr("notifications.internal.drive");
+          request.summary = i18n::tr("notifications.internal.drive-mounted", "label", drive.label);
+          request.body = drive.mountPoint;
+          request.origin = NotificationOrigin::Internal;
+          request.actions = {
+              "default",
+              i18n::tr("notifications.internal.drive-open"),
+              "eject",
+              i18n::tr("notifications.internal.drive-eject"),
+          };
+          const std::uint32_t id = m_notificationManager.addOrReplace(std::move(request));
+          if (id != 0) {
+            m_driveNotifications[id] = {drive.blockPath, drive.mountPoint};
+          }
+        });
+        m_notificationManager.addInternalActionCallback(
+            [this](std::uint32_t id, const std::string& actionKey, const std::string& activationToken) {
+              const auto it = m_driveNotifications.find(id);
+              if (it == m_driveNotifications.end()) {
+                return;
+              }
+              const auto [blockPath, mountPoint] = it->second;
+              m_driveNotifications.erase(it);
+              if (actionKey == "default") {
+                (void)net::openInBrowser("file://" + mountPoint, activationToken);
+              } else if (actionKey == "eject" && m_udisksService != nullptr) {
+                m_udisksService->eject(blockPath);
+              }
+            }
+        );
+      } catch (const std::exception& e) {
+        kLog.warn("drive automount disabled: {}", e.what());
+        m_udisksService.reset();
+      }
+    }
     try {
       m_upowerService = std::make_unique<UPowerService>(*m_systemBus);
       const auto& initialPower = m_upowerService->state();
@@ -1247,6 +1306,7 @@ void Application::initSystemBusServices() {
           return;
         }
         onUpowerStateChangedForHooks();
+        applyPowerSourceProfile();
         m_batteryWarningMonitor.evaluate(m_configService.config().battery, *m_upowerService, m_notificationManager);
         if (m_bluetoothService != nullptr) {
           m_bluetoothService->refreshBatteryFromUPower();
@@ -1259,9 +1319,12 @@ void Application::initSystemBusServices() {
           m_panelManager.refresh();
         }
       });
+      applyPowerSourceProfile();
       m_configService.addReloadCallback(
           [this]() {
             if (m_configService.lastChange().battery && m_upowerService != nullptr) {
+              m_profileAppliedOnBattery.reset();
+              applyPowerSourceProfile();
               m_batteryWarningMonitor.evaluate(
                   m_configService.config().battery, *m_upowerService, m_notificationManager
               );

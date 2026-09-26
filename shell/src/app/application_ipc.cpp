@@ -34,6 +34,7 @@
 #include "dbus/system_bus.h"
 #include "dbus/system_bus_poll_source.h"
 #include "dbus/tray/tray_service.h"
+#include "dbus/udisks/udisks_service.h"
 #include "dbus/upower/upower_service.h"
 #include "debug/debug_service.h"
 #include "i18n/i18n.h"

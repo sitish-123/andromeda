@@ -502,6 +502,7 @@ _noctalia_sources = files(
   'src/dbus/tray/fcitx_status.cpp',
   'src/dbus/tray/tray_service.cpp',
   'src/dbus/upower/upower_charge_limit_support.cpp',
+  'src/dbus/udisks/udisks_service.cpp',
   'src/dbus/upower/upower_service.cpp',
   'src/debug/debug_service.cpp',
   'src/i18n/i18n.cpp',
