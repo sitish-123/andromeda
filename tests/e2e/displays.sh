@@ -53,6 +53,8 @@ run dbus-run-session --config-file="$RUNTIME/bus.conf" -- bash -c '
   for _ in $(seq 100); do "$1" msg settings-open displays > /dev/null 2>&1 && break; sleep 0.1; done
   sleep 2
   grim "$2/displays.png"
+  kill %1
+  wait
 ' _ "$NOCTALIA" "$OUT"
 [[ -s $OUT/displays.png ]] || { echo "no screenshot" >&2; exit 1; }
 echo "artifacts: $OUT"
