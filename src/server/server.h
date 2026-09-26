@@ -105,7 +105,9 @@ namespace umbriel {
   class FocusManager;
   class XwaylandSupervisor;
   class ConfigWatcher;
+  class DesktopInputManager;
   class DesktopOutputManager;
+  struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
   class WineColorManager;
@@ -336,6 +338,9 @@ namespace umbriel {
     // is saved to displays.toml.
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
+    // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
+    [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
+    void inputDevicesChanged();
     [[nodiscard]] wlr_output* preferredOutput() const;
     [[nodiscard]] Output* outputFromWlr(wlr_output* output) const;
     [[nodiscard]] Output* outputFromName(const std::string& name) const;
@@ -694,6 +699,7 @@ namespace umbriel {
     std::unique_ptr<HintRect> m_insertHint;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
+    std::unique_ptr<DesktopInputManager> m_desktopInputManager;
     std::unique_ptr<Ipc> m_ipc;
 #ifdef UMBRIEL_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;

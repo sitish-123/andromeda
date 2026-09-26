@@ -24,6 +24,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
+#include "server/desktop_input_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/ipc.h"
 #include "server/wine_color_manager.h"
@@ -538,6 +539,7 @@ namespace umbriel {
     // Advertising a full configuration on bind currently takes down the desktop shell from this flake.
     m_outputManager = wlr_output_manager_v1_create(m_display);
     m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
+    m_desktopInputManager = std::make_unique<DesktopInputManager>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
     m_outputManagerTest.notify = onOutputManagerTest;
@@ -1013,7 +1015,10 @@ namespace umbriel {
     }
   }
 
-  void Server::updateSeatCapabilities() { m_seat->updateCapabilities(!m_keyboards.empty(), !m_touchDevices.empty()); }
+  void Server::updateSeatCapabilities() {
+    m_seat->updateCapabilities(!m_keyboards.empty(), !m_touchDevices.empty());
+    inputDevicesChanged();
+  }
 
   void Server::reconcileDynamicWorkspaces() {
     for (const auto& output : m_outputs) {

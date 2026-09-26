@@ -74,4 +74,62 @@
       <arg name="reason" type="string"/>
     </event>
   </interface>
+  <interface name="dsk_input_manager_v1" version="1">
+    <description summary="input settings">
+      Input settings named by their config keys ("input.touchpad.tap"), with
+      values as plain text ("true", "0.3", "adaptive", "us,de"). An empty value
+      means unset, which restores the device or built-in default. The
+      compositor validates, applies, and persists every change.
+    </description>
+
+    <enum name="kind">
+      <entry name="keyboard" value="1"/>
+      <entry name="mouse" value="2"/>
+      <entry name="touchpad" value="3"/>
+      <entry name="touch" value="4"/>
+      <entry name="tablet" value="5"/>
+    </enum>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="set">
+      <description summary="change one setting">
+        Answered by setting events and done, or by failed.
+      </description>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+
+    <event name="device_added">
+      <description summary="an input device is connected">
+        Sent for every connected device on bind and whenever one connects.
+      </description>
+      <arg name="name" type="string"/>
+      <arg name="kind" type="uint" enum="kind"/>
+    </event>
+
+    <event name="device_removed">
+      <arg name="name" type="string"/>
+    </event>
+
+    <event name="setting">
+      <description summary="effective value of one setting">
+        Sent for every setting on bind and after every configuration change.
+        locked is 1 when the user's own config file sets the key, which wins
+        over changes made here.
+      </description>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+      <arg name="locked" type="uint"/>
+    </event>
+
+    <event name="done">
+      <description summary="end of a batch of events"/>
+    </event>
+
+    <event name="failed">
+      <arg name="key" type="string"/>
+      <arg name="reason" type="string"/>
+    </event>
+  </interface>
 </protocol>

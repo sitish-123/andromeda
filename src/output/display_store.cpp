@@ -1,14 +1,12 @@
 #include "output/display_store.h"
 
+#include "config/generated_file.h"
 #include "core/toml.h"
 #include "output/identity.h"
 
 #include <array>
 #include <format>
-#include <fstream>
-#include <sstream>
 #include <string_view>
-#include <system_error>
 
 namespace umbriel {
 
@@ -40,56 +38,22 @@ namespace umbriel {
       return table;
     }
 
-  } // namespace
-
-  namespace {
-
-    toml::table parseOrEmpty(std::string_view existing) {
-      if (!existing.empty()) {
-        try {
-          return toml::parse(existing);
-        } catch (const toml::parse_error&) {
-          // A hand-damaged file is replaced rather than kept half-parsed.
+    void mergeOutputs(toml::table& root, std::span<const SavedOutput> outputs) {
+      for (const SavedOutput& output : outputs) {
+        toml::table& table = generatedTable(root, {"output", output.name});
+        for (auto&& [key, value] : outputTable(output)) {
+          table.insert_or_assign(key, std::move(value));
         }
       }
-      return {};
     }
 
-    toml::table& outputTableNamed(toml::table& root, const std::string& name) {
-      if (root["output"].as_table() == nullptr) {
-        root.insert_or_assign("output", toml::table{});
+    void setMirror(toml::table& root, const std::string& name, const std::optional<std::string>& source) {
+      toml::table& table = generatedTable(root, {"output", name});
+      if (source) {
+        table.insert_or_assign("mirror", *source);
+      } else {
+        table.erase("mirror");
       }
-      toml::table& outputs = *root["output"].as_table();
-      if (outputs[name].as_table() == nullptr) {
-        outputs.insert_or_assign(name, toml::table{});
-      }
-      return *outputs[name].as_table();
-    }
-
-    std::string serialize(const toml::table& root) {
-      std::ostringstream out;
-      out << kHeader << root << '\n';
-      return std::move(out).str();
-    }
-
-    template <typename Edit> bool rewrite(const std::filesystem::path& file, Edit edit) {
-      std::string existing;
-      if (std::ifstream in(file); in) {
-        existing.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-      }
-      const std::string document = edit(existing);
-      std::filesystem::path temporary = file;
-      temporary += ".tmp";
-      {
-        std::ofstream out(temporary, std::ios::trunc);
-        out << document;
-        if (!out.flush()) {
-          return false;
-        }
-      }
-      std::error_code error;
-      std::filesystem::rename(temporary, file, error);
-      return !error;
     }
 
   } // namespace
@@ -100,35 +64,21 @@ namespace umbriel {
   }
 
   std::string mergeSavedOutputs(std::string_view existing, std::span<const SavedOutput> outputs) {
-    toml::table root = parseOrEmpty(existing);
-    for (const SavedOutput& output : outputs) {
-      toml::table& table = outputTableNamed(root, output.name);
-      for (auto&& [key, value] : outputTable(output)) {
-        table.insert_or_assign(key, std::move(value));
-      }
-    }
-    return serialize(root);
+    return editGeneratedToml(existing, kHeader, [&](toml::table& root) { mergeOutputs(root, outputs); });
   }
 
   std::string
   mergeSavedMirror(std::string_view existing, const std::string& name, const std::optional<std::string>& source) {
-    toml::table root = parseOrEmpty(existing);
-    toml::table& table = outputTableNamed(root, name);
-    if (source) {
-      table.insert_or_assign("mirror", *source);
-    } else {
-      table.erase("mirror");
-    }
-    return serialize(root);
+    return editGeneratedToml(existing, kHeader, [&](toml::table& root) { setMirror(root, name, source); });
   }
 
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs) {
-    return rewrite(file, [&](std::string_view existing) { return mergeSavedOutputs(existing, outputs); });
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { mergeOutputs(root, outputs); });
   }
 
   bool
   saveMirror(const std::filesystem::path& file, const std::string& name, const std::optional<std::string>& source) {
-    return rewrite(file, [&](std::string_view existing) { return mergeSavedMirror(existing, name, source); });
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { setMirror(root, name, source); });
   }
 
 } // namespace umbriel

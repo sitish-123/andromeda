@@ -519,6 +519,8 @@ ext_workspace_client_c = custom_target(
 pure_sources = files(
   'src/config/change.cpp',
   'src/config/resolve.cpp',
+  'src/config/generated_file.cpp',
+  'src/config/input_settings.cpp',
   'src/config/keybind_parse.cpp',
   'src/config/value_parse.cpp',
   'src/config/section.cpp',
@@ -582,6 +584,7 @@ core_sources = files(
   'src/layout/drop_target.cpp',
   'src/server/wine_color_manager.cpp',
   'src/server/backend_manager.cpp',
+  'src/server/desktop_input_manager.cpp',
   'src/server/desktop_output_manager.cpp',
   'src/server/server.cpp',
   'src/server/server_events.cpp',
