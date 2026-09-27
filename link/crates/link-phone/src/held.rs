@@ -1,0 +1,124 @@
+//! What the headless phone mirrors while it holds a session, driven by stdin commands, and re-sent after every
+//! connect as the app does.
+
+use std::collections::BTreeMap;
+
+use anyhow::{Context, anyhow, bail};
+use link_core::client::{Client, ClientEvent};
+use link_core::identity::DeviceId;
+use link_core::proto::message::{Message, NotificationButton, NotificationPosted, NotificationRemoved};
+use serde_json::{Value, json};
+
+pub struct Held {
+    client: Client,
+    notifications: BTreeMap<String, NotificationPosted>,
+}
+
+impl Held {
+    pub fn new(client: Client) -> Self {
+        Self { client, notifications: BTreeMap::new() }
+    }
+
+    /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
+    /// `reconnect` drops the session and dials again.
+    pub async fn command(&mut self, line: &str) -> Value {
+        let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+        let result = match verb {
+            "notify" => self.notify(rest).await,
+            "unnotify" => self.unnotify(rest.trim()).await,
+            "reconnect" => self.reconnect().await,
+            _ => Err(anyhow!("unknown command")),
+        };
+        result.unwrap_or_else(|error| json!({ "event": "command-failed", "command": verb, "error": error.to_string() }))
+    }
+
+    pub async fn on_event(&mut self, event: &ClientEvent) {
+        match event {
+            ClientEvent::Connected { .. } => {
+                for posted in self.notifications.values() {
+                    self.broadcast(Message::NotificationPosted(posted.clone())).await;
+                }
+            }
+            // As Android does: cancelling the notification removes it, and the listener reports the removal.
+            ClientEvent::Message { message: Message::NotificationDismiss(dismiss), .. }
+                if self.notifications.remove(&dismiss.id).is_some() =>
+            {
+                self.broadcast(Message::NotificationRemoved(NotificationRemoved { id: dismiss.id.clone() })).await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn notify(&mut self, json: &str) -> anyhow::Result<Value> {
+        let posted = notification(&serde_json::from_str(json).context("notify takes a json object")?)?;
+        let id = posted.id.clone();
+        let sent = self.client.broadcast(Message::NotificationPosted(posted.clone())).await?;
+        self.notifications.insert(id.clone(), posted);
+        Ok(json!({ "event": "notified", "id": id, "desktops": sent }))
+    }
+
+    async fn unnotify(&mut self, id: &str) -> anyhow::Result<Value> {
+        if self.notifications.remove(id).is_none() {
+            bail!("no notification {id}");
+        }
+        let sent =
+            self.client.broadcast(Message::NotificationRemoved(NotificationRemoved { id: id.to_owned() })).await?;
+        Ok(json!({ "event": "unnotified", "id": id, "desktops": sent }))
+    }
+
+    /// Drops the session and dials again at once, as the app does when Android's default network changes.
+    async fn reconnect(&self) -> anyhow::Result<Value> {
+        self.client.set_present(false).await?;
+        self.client.set_present(true).await?;
+        Ok(json!({ "event": "reconnecting" }))
+    }
+
+    async fn broadcast(&self, message: Message) {
+        if let Err(error) = self.client.broadcast(message).await {
+            log::warn!("re-sending: {error}");
+        }
+    }
+}
+
+/// `{id, app, title, text, icon_file?, actions: [{id, label, reply}]}`, the icon read from a PNG file.
+pub fn notification(value: &Value) -> anyhow::Result<NotificationPosted> {
+    let text = |key: &str| value[key].as_str().map(str::to_owned).with_context(|| format!("no {key}"));
+    let icon = match value["icon_file"].as_str() {
+        Some(path) => Some(std::fs::read(path).with_context(|| format!("reading {path}"))?),
+        None => None,
+    };
+    let actions = value["actions"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|action| {
+            Ok(NotificationButton {
+                id: action["id"].as_str().context("an action without id")?.to_owned(),
+                label: action["label"].as_str().context("an action without label")?.to_owned(),
+                reply: action["reply"].as_bool().unwrap_or(false),
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
+    Ok(NotificationPosted {
+        id: text("id")?,
+        app: text("app")?,
+        title: text("title")?,
+        text: text("text")?,
+        icon,
+        actions,
+    })
+}
+
+pub fn describe(from: &DeviceId, message: &Message) -> Value {
+    match message {
+        Message::NotificationAction(action) => json!({
+            "event": "notification-action", "desktop": from, "id": action.id, "action": action.action,
+            "reply_text": action.reply_text,
+        }),
+        Message::NotificationDismiss(dismiss) => {
+            json!({ "event": "notification-dismiss", "desktop": from, "id": dismiss.id })
+        }
+        other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
+    }
+}

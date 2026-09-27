@@ -3,6 +3,7 @@
 mod dbus;
 mod hub;
 mod listener;
+mod notifications;
 mod paths;
 
 use std::net::{Ipv6Addr, SocketAddr};

@@ -8,7 +8,7 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::Share;
+use link_core::proto::message::{Message, NotificationPosted, Share};
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
@@ -17,6 +17,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use crate::notifications::{Change, Mirror};
 use crate::paths::Paths;
 
 const WINDOW: Duration = Duration::from_secs(120);
@@ -45,6 +46,8 @@ pub enum Event {
     PairingFinished { id: DeviceId, name: String },
     PairingFailed { reason: String },
     Received { id: DeviceId, share: Share },
+    NotificationPosted { id: DeviceId, posted: NotificationPosted },
+    NotificationRemoved { id: DeviceId, notification: String },
 }
 
 enum Command {
@@ -81,6 +84,7 @@ pub struct Hub {
     window: Option<Window>,
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
+    notifications: Mirror,
     commands: mpsc::Receiver<Command>,
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
@@ -105,6 +109,7 @@ impl Hub {
             window: None,
             windows_opened: 0,
             sessions: HashMap::new(),
+            notifications: Mirror::default(),
             commands,
             session_events,
             snapshots,
@@ -136,7 +141,11 @@ impl Hub {
         match command {
             Command::StartPairing { reply } => drop(reply.send(self.start_pairing())),
             Command::CancelPairing => self.close_window(),
-            Command::Unpair { id, reply } => drop(reply.send(self.unpair(&id))),
+            Command::Unpair { id, reply } => {
+                let unpaired = self.unpair(&id);
+                self.forget_notifications(&id).await;
+                let _ = reply.send(unpaired);
+            }
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
             Command::Paired { spki, name, window } => self.paired(&spki, name, window).await,
             Command::PairingFailed { reason, window } => {
@@ -170,7 +179,39 @@ impl Hub {
                 self.store.remove(&from);
                 self.save();
                 self.refresh();
+                self.forget_notifications(&from).await;
             }
+            SessionEvent::Message { from, message } => {
+                if self.sessions.contains_key(&from) {
+                    self.on_message(from, message).await;
+                }
+            }
+        }
+    }
+
+    async fn on_message(&mut self, from: DeviceId, message: Message) {
+        match message {
+            Message::NotificationPosted(posted) => {
+                for change in self.notifications.post(&from, posted) {
+                    let event = match change {
+                        Change::Posted(posted) => Event::NotificationPosted { id: from.clone(), posted },
+                        Change::Removed(notification) => Event::NotificationRemoved { id: from.clone(), notification },
+                    };
+                    self.emit(event).await;
+                }
+            }
+            Message::NotificationRemoved(removed) => {
+                if self.notifications.remove(&from, &removed.id) {
+                    self.emit(Event::NotificationRemoved { id: from, notification: removed.id }).await;
+                }
+            }
+            other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
+        }
+    }
+
+    async fn forget_notifications(&mut self, id: &DeviceId) {
+        for notification in self.notifications.forget(id) {
+            self.emit(Event::NotificationRemoved { id: id.clone(), notification }).await;
         }
     }
 

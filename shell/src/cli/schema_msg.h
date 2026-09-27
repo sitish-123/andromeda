@@ -164,6 +164,12 @@ namespace noctalia::cli {
       Positional{"summary", {}, {}, true, false, false},
       Positional{"body", {}, {}, true, false, true},
   };
+  inline constexpr std::array kMsgNotificationActionLatestPositionals{
+      Positional{"action", {}, {}, true, false, false},
+  };
+  inline constexpr std::array kMsgNotificationReplyLatestPositionals{
+      Positional{"text", {}, {}, true, false, true},
+  };
   inline constexpr std::array kMsgPanelClosePositionals{
       Positional{"id", {}, {}, false, false, false},
   };
@@ -578,6 +584,29 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command notificationActionLatest{
+        "notification-action-latest",
+        "Invoke an action of the most recent active notification that has it",
+        {},
+        {},
+        {},
+        kMsgNotificationActionLatestPositionals,
+        {},
+        false
+    };
+    inline constexpr Command notificationReplyLatest{
+        "notification-reply-latest",
+        "Send an inline reply through the most recent active notification that takes one",
+        {},
+        {},
+        {},
+        kMsgNotificationReplyLatestPositionals,
+        {},
+        false
+    };
+    inline constexpr Command notificationDismissLatest{
+        "notification-dismiss-latest", "Dismiss the most recent active notification", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command notificationShow{"notification-show",
                                               "Show an internal Noctalia notification",
                                               {},
@@ -968,6 +997,9 @@ namespace noctalia::cli {
       msg::notificationDndStatus,
       msg::notificationDndToggle,
       msg::notificationInvokeLatest,
+      msg::notificationActionLatest,
+      msg::notificationReplyLatest,
+      msg::notificationDismissLatest,
       msg::notificationShow,
       msg::osdDisable,
       msg::osdEnable,

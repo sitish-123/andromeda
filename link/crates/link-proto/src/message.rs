@@ -112,6 +112,90 @@ fn is_web_link(text: &str) -> bool {
     rest.is_some_and(|rest| !rest.is_empty()) && !text.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
+pub const MAX_NOTIFICATION_ID_LEN: usize = 256;
+pub const MAX_APP_LEN: usize = 128;
+pub const MAX_TITLE_LEN: usize = 512;
+/// Also the longest reply.
+pub const MAX_TEXT_LEN: usize = 4096;
+pub const MAX_ICON_LEN: usize = 16 * 1024;
+pub const MAX_ACTIONS: usize = 3;
+pub const MAX_ACTION_LEN: usize = 64;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationButton {
+    pub id: String,
+    pub label: String,
+    /// Whether the action takes reply text (Android `RemoteInput`).
+    pub reply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationPosted {
+    pub id: String,
+    pub app: String,
+    pub title: String,
+    pub text: String,
+    /// PNG.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_bytes")]
+    pub icon: Option<Vec<u8>>,
+    pub actions: Vec<NotificationButton>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationRemoved {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationAction {
+    pub id: String,
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationDismiss {
+    pub id: String,
+}
+
+/// Byte length within `min..=max`, as CDDL's `.size` counts it.
+fn sized(text: &str, min: usize, max: usize) -> bool {
+    (min..=max).contains(&text.len())
+}
+
+fn notification_id(id: &str) -> bool {
+    sized(id, 1, MAX_NOTIFICATION_ID_LEN)
+}
+
+impl NotificationPosted {
+    fn valid(&self) -> bool {
+        notification_id(&self.id)
+            && sized(&self.app, 1, MAX_APP_LEN)
+            && sized(&self.title, 0, MAX_TITLE_LEN)
+            && sized(&self.text, 0, MAX_TEXT_LEN)
+            && self.icon.as_ref().is_none_or(|icon| (1..=MAX_ICON_LEN).contains(&icon.len()))
+            && self.actions.len() <= MAX_ACTIONS
+            && self
+                .actions
+                .iter()
+                .all(|action| sized(&action.id, 1, MAX_ACTION_LEN) && sized(&action.label, 1, MAX_ACTION_LEN))
+    }
+}
+
+impl NotificationAction {
+    fn valid(&self) -> bool {
+        notification_id(&self.id)
+            && sized(&self.action, 1, MAX_ACTION_LEN)
+            && self.reply_text.as_ref().is_none_or(|reply| sized(reply, 1, MAX_TEXT_LEN))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Empty {}
@@ -124,6 +208,10 @@ pub enum Message {
     Unpair,
     Share(Share),
     ShareAck(ShareAck),
+    NotificationPosted(NotificationPosted),
+    NotificationRemoved(NotificationRemoved),
+    NotificationAction(NotificationAction),
+    NotificationDismiss(NotificationDismiss),
 }
 
 impl Message {
@@ -135,6 +223,10 @@ impl Message {
             Self::Unpair => "unpair",
             Self::Share(_) => "share",
             Self::ShareAck(_) => "share-ack",
+            Self::NotificationPosted(_) => "notification-posted",
+            Self::NotificationRemoved(_) => "notification-removed",
+            Self::NotificationAction(_) => "notification-action",
+            Self::NotificationDismiss(_) => "notification-dismiss",
         }
     }
 
@@ -146,6 +238,10 @@ impl Message {
             Self::Unpair => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
+            Self::NotificationPosted(body) => Value::serialized(body),
+            Self::NotificationRemoved(body) => Value::serialized(body),
+            Self::NotificationAction(body) => Value::serialized(body),
+            Self::NotificationDismiss(body) => Value::serialized(body),
         }
     }
 
@@ -160,19 +256,28 @@ impl Message {
             }
             "share" => Self::Share(body.deserialized()?),
             "share-ack" => Self::ShareAck(body.deserialized()?),
+            "notification-posted" => Self::NotificationPosted(body.deserialized()?),
+            "notification-removed" => Self::NotificationRemoved(body.deserialized()?),
+            "notification-action" => Self::NotificationAction(body.deserialized()?),
+            "notification-dismiss" => Self::NotificationDismiss(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
         Ok(message)
     }
 
-    fn validate(&self) -> Result<(), DecodeError> {
+    /// The schema's rules, checked by the receiver while decoding and by senders before sending.
+    pub fn validate(&self) -> Result<(), DecodeError> {
         let valid = match self {
             Self::Hello(hello) => (1..=MAX_NAME_LEN).contains(&hello.name.chars().count()),
             Self::PairSpake(spake) => spake.msg.len() == SPAKE_MSG_LEN,
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
             Self::Unpair | Self::ShareAck(_) => true,
             Self::Share(share) => share.check().is_ok(),
+            Self::NotificationPosted(posted) => posted.valid(),
+            Self::NotificationRemoved(NotificationRemoved { id })
+            | Self::NotificationDismiss(NotificationDismiss { id }) => notification_id(id),
+            Self::NotificationAction(action) => action.valid(),
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

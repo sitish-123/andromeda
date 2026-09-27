@@ -16,12 +16,14 @@ import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.core.domain.Desktop
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.linkFailure
+import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.presence.Presence
 
 data class DevicesState(
     val desktops: List<Desktop> = emptyList(),
     val busy: Set<String> = emptySet(),
     val stayConnected: Boolean = false,
+    val mirrorGranted: Boolean = false,
 )
 
 sealed interface DevicesMessage {
@@ -30,11 +32,16 @@ sealed interface DevicesMessage {
     data class Failed(val failure: LinkFailure) : DevicesMessage
 }
 
-class DevicesViewModel(private val repository: LinkRepository, private val presence: Presence) : ViewModel() {
+class DevicesViewModel(
+    private val repository: LinkRepository,
+    private val presence: Presence,
+    private val mirror: NotificationMirror,
+) : ViewModel() {
     private val busy = MutableStateFlow(emptySet<String>())
     private val messageChannel = Channel<DevicesMessage>(Channel.BUFFERED)
 
-    val state: StateFlow<DevicesState> = combine(repository.desktops, busy, presence.stayConnected, ::DevicesState)
+    val state: StateFlow<DevicesState> =
+        combine(repository.desktops, busy, presence.stayConnected, mirror.granted, ::DevicesState)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), DevicesState())
     val messages: Flow<DevicesMessage> = messageChannel.receiveAsFlow()
 
@@ -50,6 +57,8 @@ class DevicesViewModel(private val repository: LinkRepository, private val prese
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
 
     fun notificationsAllowed() = presence.notificationsAllowed()
+
+    fun mirrorAccessSettings() = mirror.accessSettings()
 
     fun announce(desktop: Desktop) {
         messageChannel.trySend(DevicesMessage.Paired(desktop.name))

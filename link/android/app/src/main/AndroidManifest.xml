@@ -8,6 +8,14 @@
     <!-- connectedDevice also needs one of a set of permissions; core's CHANGE_WIFI_MULTICAST_STATE is one. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
+    <!-- The launcher's apps, listed in the notification filter. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".LinkApplication"
         android:allowBackup="false"
@@ -52,6 +60,16 @@
             android:name=".presence.PresenceService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".notifications.MirrorService"
+            android:exported="true"
+            android:label="@string/mirror_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".notifications.CopyReceiver"

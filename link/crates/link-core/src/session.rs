@@ -24,11 +24,17 @@ pub enum SessionEvent {
     Unpaired {
         from: DeviceId,
     },
+    /// A feature message that is not acknowledged, already checked for its direction.
+    Message {
+        from: DeviceId,
+        message: Message,
+    },
 }
 
 enum Command {
     Share { share: Share, reply: oneshot::Sender<Result<(), Error>> },
     Unpair { reply: oneshot::Sender<Result<(), Error>> },
+    Send { message: Message, reply: oneshot::Sender<Result<(), Error>> },
 }
 
 /// Reaches a running session. Cheap to clone; every clone stops working when the session ends.
@@ -75,6 +81,14 @@ impl SessionHandle {
         let (reply, acked) = oneshot::channel();
         self.commands.send(Command::Share { share, reply }).await.map_err(|_| Error::NotConnected)?;
         tokio::time::timeout(STEP_TIMEOUT, acked).await?.map_err(|_| Error::NotConnected)?
+    }
+
+    /// Sends a message that is not acknowledged, and returns once it is written.
+    pub async fn send(&self, message: Message) -> Result<(), Error> {
+        message.validate()?;
+        let (reply, sent) = oneshot::channel();
+        self.commands.send(Command::Send { message, reply }).await.map_err(|_| Error::NotConnected)?;
+        sent.await.map_err(|_| Error::NotConnected)?
     }
 
     /// Tells the desktop this phone unpaired and waits for it to close the connection.
@@ -140,6 +154,10 @@ impl Live {
                 self.emit(SessionEvent::Unpaired { from: self.peer.clone() }).await;
                 Ok(true)
             }
+            Inbound::Deliver(message) => {
+                self.emit(SessionEvent::Message { from: self.peer.clone(), message }).await;
+                Ok(false)
+            }
         }
     }
 
@@ -152,6 +170,10 @@ impl Live {
             }
             Command::Unpair { reply } => {
                 self.writer.send(Message::Unpair).await?;
+                drop(reply.send(Ok(())));
+            }
+            Command::Send { message, reply } => {
+                self.writer.send(message).await?;
                 drop(reply.send(Ok(())));
             }
         }

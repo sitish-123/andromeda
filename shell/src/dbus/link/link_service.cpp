@@ -6,14 +6,18 @@
 #include "ipc/ipc_service.h"
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
+#include "render/core/image_decoder.h"
 #include "util/string_utils.h"
 #include "wayland/clipboard_service.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <map>
+#include <ranges>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -30,12 +34,53 @@ namespace {
   // The daemon's window length; it reports the close itself through Pairing.
   constexpr auto kPairingWindow = std::chrono::seconds(120);
 
+  // A mirrored notification's buttons are "phone:<the phone's action id>"; its reply field is the shell's inline reply.
+  constexpr std::string_view kPhoneActionPrefix = "phone:";
+  constexpr std::string_view kInlineReplyPrefix = "inline-reply::";
+  // Phone icons are drawn at 64 px; the bound keeps a small hostile PNG from inflating into a huge bitmap.
+  constexpr std::uint32_t kMaxIconSide = 256;
+  constexpr std::array<std::uint8_t, 16> kPngHeader{
+      0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R'
+  };
+
   using VariantMap = std::map<std::string, sdbus::Variant>;
 
   void logFailure(std::string_view method, const std::optional<sdbus::Error>& error) {
     if (error.has_value()) {
       kLog.warn("{} failed: {}", method, error->what());
     }
+  }
+
+  std::uint32_t readBigEndian(const std::uint8_t* bytes) {
+    return (std::uint32_t{bytes[0]} << 24) | (std::uint32_t{bytes[1]} << 16) | (std::uint32_t{bytes[2]} << 8)
+        | std::uint32_t{bytes[3]};
+  }
+
+  // The PNG's size is read from its header before anything is decoded.
+  std::optional<NotificationImageData> decodeIcon(const std::vector<std::uint8_t>& png) {
+    if (png.size() < kPngHeader.size() + 8 || !std::ranges::equal(kPngHeader, png | std::views::take(kPngHeader.size()))) {
+      return std::nullopt;
+    }
+    const std::uint32_t width = readBigEndian(&png[16]);
+    const std::uint32_t height = readBigEndian(&png[20]);
+    if (width == 0 || height == 0 || width > kMaxIconSide || height > kMaxIconSide) {
+      kLog.info("phone notification icon of {}x{} ignored", width, height);
+      return std::nullopt;
+    }
+    auto decoded = decodeRasterImage(png.data(), png.size());
+    if (!decoded) {
+      kLog.info("phone notification icon: {}", decoded.error());
+      return std::nullopt;
+    }
+    return NotificationImageData{
+        .width = decoded->width,
+        .height = decoded->height,
+        .rowStride = decoded->width * 4,
+        .hasAlpha = true,
+        .bitsPerSample = 8,
+        .channels = 4,
+        .data = std::move(decoded->pixels),
+    };
   }
 
 } // namespace
@@ -93,11 +138,22 @@ LinkService::LinkService(SessionBus& bus, NotificationManager& notifications, Cl
         onAction(id, action, activationToken);
       }
   );
+  m_link->uponSignal("NotificationPosted")
+      .onInterface(kLinkInterface)
+      .call([this](
+                const std::string& deviceId, const std::string& id, const std::string& app, const std::string& title,
+                const std::string& text, const std::vector<std::uint8_t>& icon,
+                const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
+            ) { onNotificationPosted(deviceId, id, app, title, text, icon, actions); });
+  m_link->uponSignal("NotificationRemoved")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& deviceId, const std::string& id) { onNotificationRemoved(deviceId, id); });
   m_notifications.addEventCallback([this](const Notification& notification, NotificationEvent event) {
     if (event == NotificationEvent::Closed) {
       m_received.erase(notification.id);
     }
   });
+  m_notifications.addCloseObserver([this](std::uint32_t id, CloseReason reason) { onNotificationClosed(id, reason); });
 
   m_daemon->callMethodAsync("NameHasOwner")
       .onInterface(kDaemonInterface)
@@ -243,7 +299,97 @@ void LinkService::onReceived(const std::string& deviceId, const std::string& kin
   }
 }
 
+void LinkService::onNotificationPosted(
+    const std::string& deviceId, const std::string& id, const std::string& app, const std::string& title,
+    const std::string& text, const std::vector<std::uint8_t>& icon,
+    const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
+) {
+  NotificationRequest request;
+  request.replacesId = mirroredId(deviceId, id);
+  request.appName = app;
+  request.summary = title.empty() ? app : title;
+  request.body = text;
+  request.origin = NotificationOrigin::Internal;
+  request.persistInHistory = true;
+  // A glyph icon takes precedence over image data, so it is only the fallback.
+  request.imageData = decodeIcon(icon);
+  if (!request.imageData.has_value()) {
+    request.icon = std::string("noctalia-glyph:device-mobile");
+  }
+  MirroredNotification mirrored{.deviceId = deviceId, .id = id};
+  for (const auto& action : actions) {
+    if (!action.get<2>()) {
+      request.actions.push_back(std::string(kPhoneActionPrefix) + action.get<0>());
+      request.actions.push_back(action.get<1>());
+    } else if (mirrored.replyAction.empty()) {
+      // The shell offers one reply field per notification, so a second reply action is left out.
+      mirrored.replyAction = action.get<0>();
+      request.actions.emplace_back("inline-reply");
+      request.actions.push_back(action.get<1>());
+    }
+  }
+  if (const std::uint32_t shown = m_notifications.addOrReplace(std::move(request)); shown != 0) {
+    m_mirrored[shown] = std::move(mirrored);
+  }
+  kLog.debug("{}: phone notification from {} shown", deviceName(deviceId), app);
+}
+
+void LinkService::onNotificationRemoved(const std::string& deviceId, const std::string& id) {
+  const std::uint32_t shown = mirroredId(deviceId, id);
+  if (shown == 0) {
+    return;
+  }
+  m_mirrored.erase(shown);
+  (void)m_notifications.close(shown, CloseReason::ClosedByCall);
+}
+
+void LinkService::onNotificationClosed(std::uint32_t id, CloseReason reason) {
+  const auto it = m_mirrored.find(id);
+  if (it == m_mirrored.end()) {
+    return;
+  }
+  const MirroredNotification mirrored = std::move(it->second);
+  m_mirrored.erase(it);
+  if (reason != CloseReason::Dismissed || mirrored.acted) {
+    return;
+  }
+  m_link->callMethodAsync("NotificationDismiss")
+      .onInterface(kLinkInterface)
+      .withArguments(mirrored.deviceId, mirrored.id)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("NotificationDismiss", error); });
+}
+
+std::uint32_t LinkService::mirroredId(const std::string& deviceId, const std::string& id) const {
+  const auto it = std::ranges::find_if(m_mirrored, [&](const auto& entry) {
+    return entry.second.deviceId == deviceId && entry.second.id == id;
+  });
+  return it != m_mirrored.end() ? it->first : 0;
+}
+
+std::string LinkService::deviceName(const std::string& deviceId) const {
+  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
+  return device != m_devices.end() ? device->name : deviceId;
+}
+
 void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
+  if (const auto mirrored = m_mirrored.find(id); mirrored != m_mirrored.end()) {
+    std::string phoneAction;
+    std::string replyText;
+    if (action.starts_with(kInlineReplyPrefix) && !mirrored->second.replyAction.empty()) {
+      phoneAction = mirrored->second.replyAction;
+      replyText = action.substr(kInlineReplyPrefix.size());
+    } else if (action.starts_with(kPhoneActionPrefix)) {
+      phoneAction = action.substr(kPhoneActionPrefix.size());
+    } else {
+      return;
+    }
+    mirrored->second.acted = true;
+    m_link->callMethodAsync("NotificationAction")
+        .onInterface(kLinkInterface)
+        .withArguments(mirrored->second.deviceId, mirrored->second.id, phoneAction, replyText)
+        .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("NotificationAction", error); });
+    return;
+  }
   const auto it = m_received.find(id);
   if (it == m_received.end()) {
     return;

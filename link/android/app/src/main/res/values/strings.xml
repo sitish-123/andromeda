@@ -42,4 +42,10 @@
     <string name="share_sent">Sent to %1$s</string>
     <string name="share_no_desktop">Pair this phone with a desktop first.</string>
     <string name="share_failed">Not sent. %1$s</string>
+    <string name="mirror_label">Mirror to your desktop</string>
+    <string name="mirror_title">Phone notifications on your desktop</string>
+    <string name="mirror_hint">Allow notification access so your desktop shows this phone\'s notifications, with their replies and actions.</string>
+    <string name="mirror_allow">Allow access</string>
+    <string name="mirror_apps">Choose apps</string>
+    <string name="mirror_apps_title">Apps to mirror</string>
 </resources>

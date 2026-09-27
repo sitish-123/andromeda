@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.notifications.Channels
+import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.notifications.ShareNotifier
 import org.umbriel.link.presence.Presence
 
@@ -29,10 +30,12 @@ class AppContainer(private val application: Application) {
     private val notifier = ShareNotifier(application)
     val repository = LinkRepository(application, deviceName(application))
     val presence = Presence(application, repository, scope)
+    val mirror = NotificationMirror(application, repository, scope)
 
     fun start() {
         Channels.create(application)
         presence.start()
+        mirror.start()
         scope.launch { repository.incoming.collect(notifier::post) }
     }
 }

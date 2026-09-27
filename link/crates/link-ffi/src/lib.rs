@@ -8,9 +8,9 @@ use link_core::client::{self, Client, ClientEvent, DesktopState};
 use link_core::identity::{DeviceId, Identity};
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Share};
+use link_core::proto::message::{self, Message, Share};
 use link_core::proto::pairing::PairingError;
-use link_core::store::Peer;
+use link_core::store::{self, Peer};
 use link_core::uri::PairingUri;
 use tokio::sync::{Mutex, mpsc};
 
@@ -38,6 +38,7 @@ impl From<link_core::Error> for LinkError {
             Error::Closed(CloseCode::Unpaired) => Self::Unpaired,
             Error::Unreachable | Error::Timeout => Self::Unreachable,
             Error::Share(rejected) => Self::Rejected { reason: rejected.to_string() },
+            Error::Decode(invalid) => Self::Rejected { reason: invalid.to_string() },
             other => Self::Failed { reason: other.to_string() },
         }
     }
@@ -51,6 +52,44 @@ pub struct Desktop {
     /// Unix seconds.
     pub last_seen: u64,
     pub connected: bool,
+    pub sharing: Sharing,
+}
+
+/// The phone's switches for one desktop.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+#[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
+pub struct Sharing {
+    pub notifications: bool,
+    pub media: bool,
+    pub ring: bool,
+    pub calls: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Feature {
+    Notifications,
+    Media,
+    Ring,
+    Calls,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NotificationButton {
+    pub id: String,
+    pub label: String,
+    pub reply: bool,
+}
+
+/// A phone notification to mirror; the core checks the limits in `link/ARCHITECTURE.md` before sending.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhoneNotification {
+    pub id: String,
+    pub app: String,
+    pub title: String,
+    pub text: String,
+    /// PNG.
+    pub icon: Option<Vec<u8>>,
+    pub actions: Vec<NotificationButton>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -75,6 +114,17 @@ pub enum LinkEvent {
     /// The desktop unpaired this phone, which has forgotten it.
     Unpaired {
         desktop_id: String,
+    },
+    /// Run a mirrored notification's action; `reply_text` only for one that takes `RemoteInput`.
+    NotificationAction {
+        desktop_id: String,
+        id: String,
+        action: String,
+        reply_text: Option<String>,
+    },
+    NotificationDismissed {
+        desktop_id: String,
+        id: String,
     },
 }
 
@@ -162,23 +212,80 @@ impl LinkClient {
         Ok(states.iter().map(|DesktopState { peer, connected }| describe(peer, *connected)).collect())
     }
 
+    pub async fn set_sharing(&self, desktop_id: String, feature: Feature, on: bool) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let feature = match feature {
+            Feature::Notifications => store::Feature::Notifications,
+            Feature::Media => store::Feature::Media,
+            Feature::Ring => store::Feature::Ring,
+            Feature::Calls => store::Feature::Calls,
+        };
+        self.run(async move { client.set_sharing(id, feature, on).await }).await
+    }
+
+    /// Mirrors a notification to every connected desktop that takes notifications; returns how many.
+    pub async fn post_notification(&self, notification: PhoneNotification) -> Result<u32, LinkError> {
+        let PhoneNotification { id, app, title, text, icon, actions } = notification;
+        let actions = actions
+            .into_iter()
+            .map(|action| message::NotificationButton { id: action.id, label: action.label, reply: action.reply })
+            .collect();
+        let posted = message::NotificationPosted { id, app, title, text, icon, actions };
+        self.broadcast(Message::NotificationPosted(posted)).await
+    }
+
+    pub async fn remove_notification(&self, id: String) -> Result<u32, LinkError> {
+        self.broadcast(Message::NotificationRemoved(message::NotificationRemoved { id })).await
+    }
+
     /// The next event, waiting until there is one; `None` once the client has stopped.
     pub async fn next_event(&self) -> Option<LinkEvent> {
-        let event = self.events.lock().await.recv().await?;
-        Some(match event {
-            ClientEvent::Connected { desktop, .. } => LinkEvent::Connected { desktop_id: desktop.id.to_string() },
-            ClientEvent::Disconnected { id, .. } => LinkEvent::Disconnected { desktop_id: id.to_string() },
-            ClientEvent::Received { from, share } => LinkEvent::Received {
-                desktop_id: from.to_string(),
-                kind: match share.kind {
-                    message::ShareKind::Text => ShareKind::Text,
-                    message::ShareKind::Link => ShareKind::Link,
-                },
-                text: share.text,
-            },
-            ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
-        })
+        let mut events = self.events.lock().await;
+        loop {
+            if let Some(event) = translate(events.recv().await?) {
+                return Some(event);
+            }
+        }
     }
+}
+
+impl LinkClient {
+    async fn broadcast(&self, message: Message) -> Result<u32, LinkError> {
+        let client = self.client.clone();
+        let sent = self.run(async move { client.broadcast(message).await }).await?;
+        Ok(u32::try_from(sent).unwrap_or(u32::MAX))
+    }
+}
+
+fn translate(event: ClientEvent) -> Option<LinkEvent> {
+    Some(match event {
+        ClientEvent::Connected { desktop, .. } => LinkEvent::Connected { desktop_id: desktop.id.to_string() },
+        ClientEvent::Disconnected { id, .. } => LinkEvent::Disconnected { desktop_id: id.to_string() },
+        ClientEvent::Received { from, share } => LinkEvent::Received {
+            desktop_id: from.to_string(),
+            kind: match share.kind {
+                message::ShareKind::Text => ShareKind::Text,
+                message::ShareKind::Link => ShareKind::Link,
+            },
+            text: share.text,
+        },
+        ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Message { from, message } => {
+            let desktop_id = from.to_string();
+            match message {
+                Message::NotificationAction(action) => LinkEvent::NotificationAction {
+                    desktop_id,
+                    id: action.id,
+                    action: action.action,
+                    reply_text: action.reply_text,
+                },
+                Message::NotificationDismiss(dismiss) => {
+                    LinkEvent::NotificationDismissed { desktop_id, id: dismiss.id }
+                }
+                _ => return None,
+            }
+        }
+    })
 }
 
 impl LinkClient {
@@ -193,12 +300,14 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool) -> Desktop {
+    let store::Sharing { notifications, media, ring, calls } = peer.sharing;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
         addresses: peer.addresses.iter().map(ToString::to_string).collect(),
         last_seen: peer.last_seen,
         connected,
+        sharing: Sharing { notifications, media, ring, calls },
     }
 }
 

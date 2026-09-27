@@ -23,6 +23,8 @@ pub enum Inbound {
     },
     /// The phone unpaired; only a desktop receives this.
     Unpair,
+    /// An unacknowledged feature message, already checked to travel in this direction.
+    Deliver(Message),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -55,8 +57,18 @@ impl SessionState {
             Message::ShareAck(ack) if self.outstanding.remove(&ack.of) => Ok(Inbound::Acked { of: ack.of }),
             Message::ShareAck(ack) => Err(SessionError::UnknownAck(ack.of)),
             Message::Unpair if self.role == Role::Desktop => Ok(Inbound::Unpair),
+            message if receives(self.role, &message) => Ok(Inbound::Deliver(message)),
             other => Err(SessionError::Unexpected(other.kind())),
         }
+    }
+}
+
+/// Which feature messages each role may receive.
+fn receives(role: Role, message: &Message) -> bool {
+    match message {
+        Message::NotificationPosted(_) | Message::NotificationRemoved(_) => role == Role::Desktop,
+        Message::NotificationAction(_) | Message::NotificationDismiss(_) => role == Role::Phone,
+        _ => false,
     }
 }
 
@@ -66,7 +78,9 @@ mod tests {
 
     use super::*;
     use crate::message::{
-        DecodeError, Hello, MAX_SHARE_LEN, PairConfirm, PairSpake, ShareAck, ShareKind, ShareRejected,
+        DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ICON_LEN, MAX_NOTIFICATION_ID_LEN, MAX_SHARE_LEN,
+        MAX_TEXT_LEN, MAX_TITLE_LEN, NotificationAction, NotificationButton, NotificationDismiss, NotificationPosted,
+        NotificationRemoved, PairConfirm, PairSpake, ShareAck, ShareKind, ShareRejected,
     };
 
     fn envelope(id: u64, message: Message) -> Envelope {
@@ -150,6 +164,88 @@ mod tests {
         assert_eq!(share(ShareKind::Text, &"a".repeat(MAX_SHARE_LEN + 1)).check(), Err(ShareRejected::TooLong));
         assert_eq!(share(ShareKind::Link, "file:///etc/passwd").check(), Err(ShareRejected::NotWebLink));
         assert_eq!(share(ShareKind::Link, "http://10.0.0.1:8080/").check(), Ok(()));
+    }
+
+    fn posted(id: &str) -> NotificationPosted {
+        NotificationPosted {
+            id: id.to_owned(),
+            app: "Messages".to_owned(),
+            title: "Ann".to_owned(),
+            text: "See you at 6".to_owned(),
+            icon: Some(vec![0x89; 64]),
+            actions: vec![NotificationButton { id: "0".to_owned(), label: "Reply".to_owned(), reply: true }],
+        }
+    }
+
+    #[test]
+    fn notification_messages_travel_one_way() {
+        let from_phone = [
+            Message::NotificationPosted(posted("k")),
+            Message::NotificationRemoved(NotificationRemoved { id: "k".to_owned() }),
+        ];
+        let from_desktop = [
+            Message::NotificationAction(NotificationAction {
+                id: "k".to_owned(),
+                action: "0".to_owned(),
+                reply_text: Some("ok".to_owned()),
+            }),
+            Message::NotificationDismiss(NotificationDismiss { id: "k".to_owned() }),
+        ];
+        for (receiver, legal, illegal) in
+            [(Role::Desktop, &from_phone, &from_desktop), (Role::Phone, &from_desktop, &from_phone)]
+        {
+            for message in legal.iter().cloned() {
+                let result = SessionState::new(receiver).on_message(envelope(2, message.clone()));
+                assert_eq!(result, Ok(Inbound::Deliver(message)));
+            }
+            for message in illegal.iter().cloned() {
+                let kind = message.kind();
+                let result = SessionState::new(receiver).on_message(envelope(2, message));
+                assert_eq!(result, Err(SessionError::Unexpected(kind)));
+            }
+        }
+    }
+
+    #[test]
+    fn a_notification_breaking_the_limits_fails_to_decode() {
+        let with = |change: fn(&mut NotificationPosted)| {
+            let mut post = posted("k");
+            change(&mut post);
+            Message::NotificationPosted(post)
+        };
+        let action = |reply: &str| {
+            Message::NotificationAction(NotificationAction {
+                id: "k".to_owned(),
+                action: "0".to_owned(),
+                reply_text: Some(reply.to_owned()),
+            })
+        };
+        let cases = [
+            with(|post| post.id.clear()),
+            with(|post| post.id = "k".repeat(MAX_NOTIFICATION_ID_LEN + 1)),
+            with(|post| post.app.clear()),
+            with(|post| post.title = "t".repeat(MAX_TITLE_LEN + 1)),
+            with(|post| post.text = "t".repeat(MAX_TEXT_LEN + 1)),
+            with(|post| post.icon = Some(Vec::new())),
+            with(|post| post.icon = Some(vec![0; MAX_ICON_LEN + 1])),
+            with(|post| post.actions = vec![post.actions[0].clone(); MAX_ACTIONS + 1]),
+            with(|post| post.actions[0].label.clear()),
+            with(|post| post.actions[0].id = "a".repeat(MAX_ACTION_LEN + 1)),
+            action(""),
+            action(&"r".repeat(MAX_TEXT_LEN + 1)),
+            Message::NotificationDismiss(NotificationDismiss { id: String::new() }),
+        ];
+        for message in cases {
+            let kind = message.kind();
+            let decoded = Envelope::from_cbor(&Envelope::new(1, message).to_cbor());
+            assert!(matches!(decoded, Err(DecodeError::Invalid(k)) if k == kind), "{kind} decoded as {decoded:?}");
+        }
+        let full = with(|post| {
+            post.icon = Some(vec![0; MAX_ICON_LEN]);
+            post.text = "t".repeat(MAX_TEXT_LEN);
+            post.actions = vec![post.actions[0].clone(); MAX_ACTIONS];
+        });
+        assert!(Envelope::from_cbor(&Envelope::new(1, full).to_cbor()).is_ok());
     }
 
     #[test]

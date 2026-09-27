@@ -17,15 +17,22 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.Feature
 import org.umbriel.link.core.domain.IncomingShare
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.LinkFailureException
+import org.umbriel.link.core.domain.NotificationCommand
+import org.umbriel.link.core.domain.PhoneNotification
 import org.umbriel.link.core.domain.ShareKind
+import org.umbriel.link.core.domain.Sharing
 import org.umbriel.link.ffi.LinkClient
 import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
 import org.umbriel.link.ffi.generateIdentity
 import org.umbriel.link.ffi.Desktop as FfiDesktop
+import org.umbriel.link.ffi.Feature as FfiFeature
+import org.umbriel.link.ffi.NotificationButton as FfiNotificationButton
+import org.umbriel.link.ffi.PhoneNotification as FfiPhoneNotification
 import org.umbriel.link.ffi.ShareKind as FfiShareKind
 
 /**
@@ -46,11 +53,29 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         .apply { setReferenceCounted(true) }
     private val _desktops = MutableStateFlow<List<Desktop>>(emptyList())
     private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _connections = MutableSharedFlow<String>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _notificationCommands = MutableSharedFlow<NotificationCommand>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
     /** Shares desktops sent, as they arrive. */
     val incoming: SharedFlow<IncomingShare> = _incoming.asSharedFlow()
+
+    /** The id of each desktop as a session to it opens. */
+    val connections: SharedFlow<String> = _connections.asSharedFlow()
+
+    /** Actions and dismissals desktops ask of mirrored notifications. */
+    val notificationCommands: SharedFlow<NotificationCommand> = _notificationCommands.asSharedFlow()
+
+    /** Succeeds with how many connected desktops took it; none are dialled. */
+    suspend fun postNotification(notification: PhoneNotification): Result<Int> = call {
+        it.postNotification(notification.toFfi()).toInt()
+    }
+
+    suspend fun removeNotification(id: String): Result<Int> = call { it.removeNotification(id).toInt() }
+
+    suspend fun setSharing(desktopId: String, feature: Feature, on: Boolean): Result<Unit> =
+        callAndRefresh { it.setSharing(desktopId, feature.toFfi(), on) }
 
     suspend fun refresh(): Result<Unit> = call { client ->
         _desktops.value = client.desktops().map { it.toDomain() }
@@ -109,12 +134,20 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private suspend fun follow(client: LinkClient) {
         while (true) {
             when (val event = client.nextEvent() ?: return) {
-                is LinkEvent.Connected -> markConnected(event.desktopId, true)
+                is LinkEvent.Connected -> {
+                    markConnected(event.desktopId, true)
+                    _connections.emit(event.desktopId)
+                }
                 is LinkEvent.Disconnected -> markConnected(event.desktopId, false)
                 is LinkEvent.Received -> _incoming.emit(
                     IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
                 )
                 is LinkEvent.Unpaired -> scope.launch { refresh() }
+                is LinkEvent.NotificationAction -> _notificationCommands.emit(
+                    NotificationCommand.Action(event.desktopId, event.id, event.action, event.replyText),
+                )
+                is LinkEvent.NotificationDismissed ->
+                    _notificationCommands.emit(NotificationCommand.Dismiss(event.desktopId, event.id))
             }
         }
     }
@@ -144,7 +177,29 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     }
 }
 
-private fun FfiDesktop.toDomain() = Desktop(id = id, name = name, connected = connected, lastSeen = lastSeen.toLong())
+private fun FfiDesktop.toDomain() = Desktop(
+    id = id,
+    name = name,
+    connected = connected,
+    lastSeen = lastSeen.toLong(),
+    sharing = Sharing(sharing.notifications, sharing.media, sharing.ring, sharing.calls),
+)
+
+private fun Feature.toFfi(): FfiFeature = when (this) {
+    Feature.Notifications -> FfiFeature.NOTIFICATIONS
+    Feature.Media -> FfiFeature.MEDIA
+    Feature.Ring -> FfiFeature.RING
+    Feature.Calls -> FfiFeature.CALLS
+}
+
+private fun PhoneNotification.toFfi() = FfiPhoneNotification(
+    id = id,
+    app = app,
+    title = title,
+    text = text,
+    icon = icon,
+    actions = actions.map { FfiNotificationButton(it.id, it.label, it.reply) },
+)
 
 private fun ShareKind.toFfi(): FfiShareKind = when (this) {
     ShareKind.Text -> FfiShareKind.TEXT

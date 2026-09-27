@@ -49,7 +49,7 @@ import org.umbriel.link.ui.text
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit) {
+fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit, onMirrorApps: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -89,7 +89,7 @@ fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit) {
         if (state.desktops.isEmpty()) {
             EmptyDesktops(Modifier.padding(padding))
         } else {
-            DesktopList(state, viewModel, PaddingValues(16.dp), Modifier.padding(padding))
+            DesktopList(state, viewModel, onMirrorApps, PaddingValues(16.dp), Modifier.padding(padding))
         }
     }
 }
@@ -112,9 +112,23 @@ private fun EmptyDesktops(modifier: Modifier) {
 }
 
 @Composable
-private fun DesktopList(state: DevicesState, viewModel: DevicesViewModel, content: PaddingValues, modifier: Modifier) {
+private fun DesktopList(
+    state: DevicesState,
+    viewModel: DevicesViewModel,
+    onMirrorApps: () -> Unit,
+    content: PaddingValues,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = content, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "stay-connected") { StayConnected(state.stayConnected, viewModel::setStayConnected) }
+        item(key = "mirror") {
+            Mirror(
+                granted = state.mirrorGranted,
+                onAllow = { context.startActivity(viewModel.mirrorAccessSettings()) },
+                onApps = onMirrorApps,
+            )
+        }
         items(state.desktops, key = { it.id }) { desktop ->
             DesktopCard(desktop, busy = desktop.id in state.busy, viewModel)
         }
@@ -133,6 +147,19 @@ private fun StayConnected(checked: Boolean, onChange: (Boolean) -> Unit) {
                 Text(stringResource(R.string.stay_connected_hint), style = MaterialTheme.typography.bodyMedium)
             }
             Switch(checked = checked, onCheckedChange = null)
+        }
+    }
+}
+
+@Composable
+private fun Mirror(granted: Boolean, onAllow: () -> Unit, onApps: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(stringResource(R.string.mirror_title), style = MaterialTheme.typography.titleMedium)
+            if (!granted) Text(stringResource(R.string.mirror_hint), style = MaterialTheme.typography.bodyMedium)
+            FilledTonalButton(onClick = if (granted) onApps else onAllow, modifier = Modifier.padding(top = 12.dp)) {
+                Text(stringResource(if (granted) R.string.mirror_apps else R.string.mirror_allow))
+            }
         }
     }
 }
