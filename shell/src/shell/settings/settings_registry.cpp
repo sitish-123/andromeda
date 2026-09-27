@@ -2827,6 +2827,11 @@ namespace settings {
         ToggleSetting{cfg.audio.enableOverdrive}, "volume"
     ));
     entries.push_back(makeEntry(
+        SettingsSection::Services, "audio", tr("settings.schema.services.audio-hdmi-switch.label"),
+        tr("settings.schema.services.audio-hdmi-switch.description"), {"audio", "auto_switch_hdmi"},
+        ToggleSetting{cfg.audio.autoSwitchHdmi}, "device-desktop"
+    ));
+    entries.push_back(makeEntry(
         SettingsSection::Services, "audio", tr("settings.schema.services.shell-sounds.label"),
         tr("settings.schema.services.shell-sounds.description"), {"audio", "enable_sounds"},
         ToggleSetting{cfg.audio.enableSounds}, "sound"

@@ -33,6 +33,7 @@ namespace noctalia::config::schema {
         field(&AudioConfig::enableSounds, "enable_sounds"),
         field(&AudioConfig::soundVolume, "sound_volume", kUnitRange),
         field(&AudioConfig::soundTheme, "sound_theme"),
+        field(&AudioConfig::autoSwitchHdmi, "auto_switch_hdmi"),
     };
     return s;
   }

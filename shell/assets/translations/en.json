@@ -2736,6 +2736,10 @@
         }
       },
       "services": {
+        "audio-hdmi-switch": {
+          "description": "Play sound on a TV or monitor when it is plugged in, instead of the laptop speaker",
+          "label": "Switch to HDMI Audio"
+        },
         "audio-overdrive": {
           "description": "Allow volume above 100%",
           "label": "Audio Overdrive"

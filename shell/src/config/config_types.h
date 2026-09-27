@@ -1330,6 +1330,7 @@ struct AudioConfig {
   bool enableSounds = false;
   float soundVolume = 0.5F;
   std::string soundTheme = "freedesktop";
+  bool autoSwitchHdmi = true;
 
   bool operator==(const AudioConfig&) const = default;
 };

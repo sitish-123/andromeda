@@ -550,6 +550,7 @@ _noctalia_sources = files(
   'src/pipewire/pipewire_error.cpp',
   'src/pipewire/audio_glyphs.cpp',
   'src/pipewire/audio_route_selection.cpp',
+  'src/pipewire/hdmi_audio_switch.cpp',
   'src/pipewire/wireplumber_mixer.cpp',
   'src/pipewire/privacy_filter.cpp',
   'src/pipewire/pipewire_spectrum.cpp',

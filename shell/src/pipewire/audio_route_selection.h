@@ -21,3 +21,10 @@ activeAudioDeviceRoute(AudioDeviceRoutes routes, std::uint32_t wantDirection, st
     AudioDeviceRoutes nodeRoutes, AudioDeviceRoutes deviceRoutes, std::uint32_t wantDirection,
     std::int32_t profileDevice
 );
+
+// The route describing one audio node, available or not: the best node-local one, else the card route bound to
+// profileDevice. nullptr when neither exists.
+[[nodiscard]] const PipeWireService::DeviceRouteData* audioNodeRoute(
+    AudioDeviceRoutes nodeRoutes, AudioDeviceRoutes deviceRoutes, std::uint32_t wantDirection,
+    std::int32_t profileDevice
+);

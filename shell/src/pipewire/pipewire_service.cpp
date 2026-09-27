@@ -555,6 +555,32 @@ namespace {
     return true;
   }
 
+  // SPA_PARAM_ROUTE_info is a struct of a count followed by that many key/value string pairs.
+  [[nodiscard]] std::string routePortType(const spa_pod* param) {
+    const spa_pod_prop* info = spa_pod_find_prop(param, nullptr, SPA_PARAM_ROUTE_info);
+    if (info == nullptr || !spa_pod_is_struct(&info->value)) {
+      return {};
+    }
+    spa_pod_parser parser;
+    spa_pod_frame frame;
+    spa_pod_parser_pod(&parser, &info->value);
+    std::int32_t count = 0;
+    if (spa_pod_parser_push_struct(&parser, &frame) < 0 || spa_pod_parser_get_int(&parser, &count) < 0) {
+      return {};
+    }
+    for (std::int32_t i = 0; i < count; ++i) {
+      const char* key = nullptr;
+      const char* value = nullptr;
+      if (spa_pod_parser_get_string(&parser, &key) < 0 || spa_pod_parser_get_string(&parser, &value) < 0) {
+        break;
+      }
+      if (std::strcmp(key, "port.type") == 0) {
+        return value;
+      }
+    }
+    return {};
+  }
+
   void upsertRoute(std::vector<PipeWireService::DeviceRouteData>& routes, PipeWireService::DeviceRouteData route) {
     const std::int32_t lookupIndex = route.index >= 0 ? route.index : -1;
     if (lookupIndex < 0) {
@@ -1558,6 +1584,7 @@ void PipeWireService::onNodeParam(
       route.direction = routeDirection;
       route.priority = routePriority;
       route.available = routeAvailable;
+      route.portType = routePortType(param);
       if (routeProps != nullptr) {
         spa_pod_prop* prop = nullptr;
         auto* propsObj = reinterpret_cast<spa_pod_object*>(const_cast<spa_pod*>(routeProps));
@@ -1718,7 +1745,8 @@ void PipeWireService::onDeviceParam(
   route.priority = routePriority;
   route.available = routeAvailable;
   route.muted = muted;
-  upsertRoute(it->second.routes, route);
+  route.portType = routePortType(param);
+  upsertRoute(it->second.routes, std::move(route));
 
   // Device volume is authoritative through mixer-api; only route mute feeds effective mute here.
   for (auto& [nid, node] : m_nodes) {
@@ -1915,6 +1943,12 @@ void PipeWireService::rebuildState() {
     }
     const AudioDeviceRoutes deviceRoutes = device != nullptr ? AudioDeviceRoutes{device->routes} : AudioDeviceRoutes{};
     node.available = !isDeviceNode || audioNodeRouteAvailable(nd->routes, deviceRoutes, wantDir, nd->profileDevice);
+    node.deviceId = nd->deviceId;
+    if (const DeviceRouteData* route =
+            isDeviceNode ? audioNodeRoute(nd->routes, deviceRoutes, wantDir, nd->profileDevice) : nullptr) {
+      node.portType = route->portType;
+      node.portConnected = route->available == SPA_PARAM_AVAILABILITY_yes;
+    }
 
     if (nd->mediaClass == "Audio/Sink") {
       node.isDefault = (nd->name == m_defaultSinkName);

@@ -59,3 +59,23 @@ bool audioNodeRouteAvailable(
   };
   return !std::ranges::any_of(nodeRoutes, matchesDirection) && !std::ranges::any_of(deviceRoutes, matchesDevice);
 }
+
+const PipeWireService::DeviceRouteData* audioNodeRoute(
+    AudioDeviceRoutes nodeRoutes, AudioDeviceRoutes deviceRoutes, std::uint32_t wantDirection,
+    std::int32_t profileDevice
+) {
+  const auto best = [wantDirection](AudioDeviceRoutes routes, std::int32_t device) {
+    const PipeWireService::DeviceRouteData* found = nullptr;
+    for (const auto& route : routes) {
+      if (route.index >= 0
+          && route.direction == wantDirection
+          && routeMatchesDevice(route, device)
+          && (found == nullptr || routeIsBetterCandidate(route, *found))) {
+        found = &route;
+      }
+    }
+    return found;
+  };
+  const PipeWireService::DeviceRouteData* nodeRoute = best(nodeRoutes, kAnyProfileDevice);
+  return nodeRoute != nullptr ? nodeRoute : best(deviceRoutes, profileDevice);
+}

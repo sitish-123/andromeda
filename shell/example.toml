@@ -288,6 +288,7 @@ enable_overdrive = false            # allow volume above 100% (up to 150%)
 enable_sounds = false               # master toggle for UI feedback sounds
 sound_volume = 0.5                  # 0.0 - 1.0
 sound_theme = "freedesktop"
+auto_switch_hdmi = true             # move sound off the laptop speaker when a TV or monitor is plugged in
 
 # ── Brightness ────────────────────────────────────────────────────────────────
 

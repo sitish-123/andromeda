@@ -27,6 +27,7 @@
 #include "net/http_client.h"
 #include "net/http_client_poll_source.h"
 #include "notification/notification_manager.h"
+#include "pipewire/hdmi_audio_switch.h"
 #include "render/core/async_texture_cache.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/core/thumbnail_service.h"
@@ -364,6 +365,7 @@ private:
   OverviewLauncherCapture m_overviewLauncherCapture;
   NotificationToast m_notificationToast;
   AudioOsd m_audioOsd;
+  HdmiAudioSwitch m_hdmiAudioSwitch;
   BrightnessOsd m_brightnessOsd;
   KeyboardBacklightOsd m_keyboardBacklightOsd;
   MediaOsd m_mediaOsd;

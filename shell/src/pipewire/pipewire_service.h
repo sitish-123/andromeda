@@ -41,7 +41,10 @@ struct AudioNode {
   bool muted = false;
   std::uint32_t channelCount = 0;
   bool isDefault = false;
-  bool available = true; // false for a device whose active route is unavailable (e.g. unplugged HDMI)
+  bool available = true;      // false for a device whose active route is unavailable (e.g. unplugged HDMI)
+  std::uint32_t deviceId = 0; // the card, 0 for nodes without one
+  std::string portType;       // SPA route "port.type" of the node's route ("hdmi", "speaker", ...), empty without one
+  bool portConnected = false; // that route reports availability yes (a jack or HDMI sink is plugged in)
 
   bool operator==(const AudioNode&) const = default;
 };
@@ -145,6 +148,7 @@ public:
     std::int32_t priority = 0;
     std::uint32_t available = SPA_PARAM_AVAILABILITY_unknown;
     bool muted = false;
+    std::string portType;
   };
   struct NodeData {
     PipeWireService* service = nullptr;

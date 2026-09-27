@@ -1135,6 +1135,7 @@ void Application::initWidgetControllersAndCallbacks() {
         m_panelManager.refresh();
       }
       if (m_pipewireService != nullptr) {
+        m_hdmiAudioSwitch.onAudioStateChanged(*m_pipewireService, m_configService.config().audio.autoSwitchHdmi);
         m_audioOsd.onAudioStateChanged(*m_pipewireService);
         m_privacyOsd.onPrivacyStateChanged(*m_pipewireService);
       }
