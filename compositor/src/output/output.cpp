@@ -1413,6 +1413,13 @@ namespace umbriel {
     }
   }
 
+  void Output::dropMirrorSource() {
+    if (m_mirrorSource != nullptr) {
+      m_mirrorSource->detachMirrorTarget();
+      m_mirrorSource = nullptr;
+    }
+  }
+
   void Output::attachMirrorTarget() {
     if (m_mirrorTargets++ == 0) {
       // Hardware cursor planes are not part of the committed frame a mirror copies.

@@ -625,6 +625,9 @@ namespace umbriel {
     m_layerSurfaces.clear();
     m_registry.clear();
     m_keyboards.clear();
+    for (const auto& output : m_outputs) {
+      output->dropMirrorSource();
+    }
     m_outputs.clear();
     m_inputMethodRelay.reset();
     m_seat.reset();

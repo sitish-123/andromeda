@@ -85,6 +85,8 @@ namespace umbriel {
     [[nodiscard]] Output* mirrorSource() const { return m_mirrorSource; }
     // `applyState` false leaves the backend alone, for callers that already committed the output's power state.
     void setMirrorSource(Output* source, bool applyState = true);
+    // Ends the mirror link without touching the backend or clients, so teardown can destroy outputs in any order.
+    void dropMirrorSource();
     [[nodiscard]] HdrMode hdrMode() const;
     [[nodiscard]] bool hdrRequested() const;
     [[nodiscard]] bool hdrActive() const;
