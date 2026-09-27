@@ -11,6 +11,7 @@ extern "C" {
 #undef static
 }
 
+using umbriel::fastestPreferredMode;
 using umbriel::outputCanAutoEnable;
 using umbriel::OutputMode;
 using umbriel::preferredFallbackMode;
@@ -169,6 +170,53 @@ UMBRIEL_TEST(outputWithoutAdvertisedModesHasNoFallback) {
   wl_list_init(&output.modes);
 
   CHECK(preferredFallbackMode(&output, nullptr) == nullptr);
+}
+
+// Ways the automatic mode can go wrong: a TV's preferred 4K@30 kept over its 4K@60, a faster mode at another
+// resolution chosen, an output without a preferred mode left without one, and an output without modes given one.
+
+UMBRIEL_TEST(automaticModeTakesHighestRefreshAtPreferredResolution) {
+  wlr_output output{};
+  wl_list_init(&output.modes);
+  wlr_output_mode slow = outputMode(3840, 2160, 30000, true);
+  wlr_output_mode fast = outputMode(3840, 2160, 60000);
+  wlr_output_mode other = outputMode(1920, 1080, 120000);
+  addMode(output, slow);
+  addMode(output, fast);
+  addMode(output, other);
+
+  CHECK(fastestPreferredMode(&output) == &fast);
+}
+
+UMBRIEL_TEST(automaticModeKeepsPreferredWhenItIsFastest) {
+  wlr_output output{};
+  wl_list_init(&output.modes);
+  wlr_output_mode slower = outputMode(2880, 1800, 60000);
+  wlr_output_mode preferred = outputMode(2880, 1800, 120000, true);
+  addMode(output, slower);
+  addMode(output, preferred);
+
+  CHECK(fastestPreferredMode(&output) == &preferred);
+}
+
+UMBRIEL_TEST(automaticModeWithoutPreferredUsesFirstModesResolution) {
+  wlr_output output{};
+  wl_list_init(&output.modes);
+  wlr_output_mode first = outputMode(1920, 1080, 50000);
+  wlr_output_mode faster = outputMode(1920, 1080, 60000);
+  wlr_output_mode other = outputMode(1280, 720, 75000);
+  addMode(output, first);
+  addMode(output, faster);
+  addMode(output, other);
+
+  CHECK(fastestPreferredMode(&output) == &faster);
+}
+
+UMBRIEL_TEST(automaticModeIsNullWithoutModes) {
+  wlr_output output{};
+  wl_list_init(&output.modes);
+
+  CHECK(fastestPreferredMode(&output) == nullptr);
 }
 
 int main() { return RUN_TESTS(); }

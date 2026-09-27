@@ -284,8 +284,9 @@ namespace umbriel {
           }
         }
       } else if (!wlr_output_is_wl(m_output)) {
-        if (wlr_output_mode* mode = wlr_output_preferred_mode(m_output)) {
-          wlr_output_state_set_mode(&state, mode);
+        stagedMode = fastestPreferredMode(m_output);
+        if (stagedMode != nullptr) {
+          wlr_output_state_set_mode(&state, stagedMode);
         }
       }
 
@@ -396,17 +397,20 @@ namespace umbriel {
       committed = commitConfiguredState();
     }
     bool usedModeFallback = false;
-    if (!committed && configuredMode != nullptr) {
+    if (!committed && (configuredMode != nullptr || stagedMode != nullptr)) {
       if (wlr_output_mode* fallback = preferredFallbackMode(m_output, stagedMode)) {
         usedModeFallback = true;
         if (!m_modeFallbackWarned) {
           m_modeFallbackWarned = true;
-          const std::string requested = configuredMode->refreshMHz != 0
+          const std::string requested = configuredMode == nullptr
+              ? std::format("{}x{}@{}mHz", stagedMode->width, stagedMode->height, stagedMode->refresh)
+              : configuredMode->refreshMHz != 0
               ? std::format("{}x{}@{}mHz", configuredMode->width, configuredMode->height, configuredMode->refreshMHz)
               : std::format("{}x{}", configuredMode->width, configuredMode->height);
           kLog.warn(
-              "output '{}': configured mode {} could not be applied, using preferred mode {}x{}@{}mHz", m_output->name,
-              requested, fallback->width, fallback->height, fallback->refresh
+              "output '{}': {} mode {} could not be applied, using preferred mode {}x{}@{}mHz", m_output->name,
+              configuredMode != nullptr ? "configured" : "automatic", requested, fallback->width, fallback->height,
+              fallback->refresh
           );
         }
         wlr_output_state_set_mode(&state, fallback);

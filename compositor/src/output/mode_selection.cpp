@@ -47,6 +47,20 @@ namespace umbriel {
     return selected;
   }
 
+  wlr_output_mode* fastestPreferredMode(wlr_output* output) {
+    wlr_output_mode* best = wlr_output_preferred_mode(output);
+    if (best == nullptr) {
+      return nullptr;
+    }
+    wlr_output_mode* mode = nullptr;
+    wl_list_for_each(mode, &output->modes, link) {
+      if (mode->width == best->width && mode->height == best->height && mode->refresh > best->refresh) {
+        best = mode;
+      }
+    }
+    return best;
+  }
+
   wlr_output_mode* preferredFallbackMode(wlr_output* output, const wlr_output_mode* staged) {
     wlr_output_mode* preferred = wlr_output_preferred_mode(output);
     return preferred == staged ? nullptr : preferred;

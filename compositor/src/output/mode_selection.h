@@ -16,6 +16,10 @@ namespace umbriel {
   // highest refresh.
   [[nodiscard]] wlr_output_mode* selectOutputMode(wlr_output* output, const OutputMode& configured);
 
+  // The mode to enable an unconfigured output with: the highest refresh at the preferred mode's resolution, since a TV
+  // can prefer 4K@30 while offering 4K@60. nullptr when the output advertises no modes.
+  [[nodiscard]] wlr_output_mode* fastestPreferredMode(wlr_output* output);
+
   // The mode to retry with after `staged` failed to commit, or nullptr when the output offers no other one. `staged`
   // is null for a custom mode, which the preferred advertised mode still replaces.
   [[nodiscard]] wlr_output_mode* preferredFallbackMode(wlr_output* output, const wlr_output_mode* staged);

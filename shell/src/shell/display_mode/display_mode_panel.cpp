@@ -48,10 +48,17 @@ namespace {
       return head.currentMode;
     }
     const auto preferred = std::ranges::find_if(head.modes, &OutputMode::preferred);
-    if (preferred != head.modes.end()) {
-      return preferred->handle;
+    if (preferred == head.modes.end()) {
+      return head.modes.empty() ? nullptr : head.modes.front().handle;
     }
-    return head.modes.empty() ? nullptr : head.modes.front().handle;
+    // A TV can prefer 4K@30 while offering 4K@60.
+    const OutputMode* best = &*preferred;
+    for (const OutputMode& mode : head.modes) {
+      if (mode.width == best->width && mode.height == best->height && mode.refreshMhz > best->refreshMhz) {
+        best = &mode;
+      }
+    }
+    return best->handle;
   }
 
 } // namespace
