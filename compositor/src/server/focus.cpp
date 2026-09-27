@@ -9,15 +9,30 @@
 #include "overview/overview.h"
 #include "scene/node.h"
 #include "server/server.h"
+#include "server/toplevel_drag.h"
 #include "view/view.h"
 #include "wlr.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
 
+#include <utility>
+#include <vector>
+
 namespace umbriel {
 
   namespace {
     constexpr Logger kLog("focus");
+
+    struct InputRefusal {
+      std::vector<std::pair<wlr_scene_buffer*, wlr_scene_buffer_point_accepts_input_func_t>> saved;
+    };
+
+    bool acceptsNoInput(wlr_scene_buffer* /*buffer*/, double* /*sx*/, double* /*sy*/) { return false; }
+
+    void refuseInput(wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+      static_cast<InputRefusal*>(data)->saved.emplace_back(buffer, buffer->point_accepts_input);
+      buffer->point_accepts_input = acceptsNoInput;
+    }
 
     constexpr std::string_view focusReasonName(FocusReason reason) {
       switch (reason) {
@@ -47,6 +62,9 @@ namespace umbriel {
   void FocusManager::focusView(View* view, FocusReason reason) {
     if (view == nullptr || m_server.sessionLocked()) {
       return;
+    }
+    while (View* modal = view->modalChild()) {
+      view = modal;
     }
 
     // PointerHover gate: reject focus entirely when revealing would exceed the configured max scroll fraction. Must run
@@ -368,7 +386,18 @@ namespace umbriel {
       *layer = nullptr;
     }
 
+    // A window a toplevel drag carries sits under the pointer but takes no part in picking the drop target. Refusing
+    // input for the lookup, instead of disabling the node, sends the client no output leave and enter.
+    ToplevelDragManager* toplevelDrags = m_server.toplevelDragManager();
+    View* carried = toplevelDrags != nullptr ? toplevelDrags->draggedView() : nullptr;
+    InputRefusal refusal;
+    if (carried != nullptr) {
+      wlr_scene_node_for_each_buffer(&carried->sceneTree()->node, refuseInput, &refusal);
+    }
     wlr_scene_node* node = wlr_scene_node_at(&m_server.scene()->tree.node, lx, ly, sx, sy);
+    for (const auto& [buffer, accepts] : refusal.saved) {
+      buffer->point_accepts_input = accepts;
+    }
     if (node == nullptr || node->type != WLR_SCENE_NODE_BUFFER) {
       return nullptr;
     }

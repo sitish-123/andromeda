@@ -218,7 +218,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_shell_v1" version="1">
+  <interface name="dsk_shell_v1" version="2">
     <description summary="compositor-to-shell events">
       Bound by the desktop shell. Keybinds that drive the shell arrive as
       action events on the connection the shell already holds, so no process
@@ -244,6 +244,15 @@
       <arg name="caps_lock" type="uint"/>
       <arg name="num_lock" type="uint"/>
       <arg name="scroll_lock" type="uint"/>
+    </event>
+
+    <event name="bell" since="2">
+      <description summary="an app rang the system bell">
+        A client rang xdg_system_bell_v1. The shell alerts the user the way
+        its sound settings say. app_id names the ringing window's app, or is
+        empty when the bell came without a surface.
+      </description>
+      <arg name="app_id" type="string"/>
     </event>
   </interface>
 </protocol>

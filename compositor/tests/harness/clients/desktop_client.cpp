@@ -7,6 +7,8 @@
 //   desktop-client settings-set KEY VALUE    exit 1 and print the reason if the compositor rejects it
 //   desktop-client keybinds-state            print "CHORD=ACTION" per effective keybind, " customized" as above
 //   desktop-client keybind-set CHORD ACTION  exit 1 and print the reason if the compositor rejects it
+//   desktop-client shell-events              bind dsk_shell_v1 as the shell does and print "ready", then
+//                                            "action COMMAND" and "bell APP_ID" per event until killed
 #include "desktop-unstable-v1-client-protocol.h"
 
 #include <cstdint>
@@ -21,6 +23,7 @@ namespace {
   struct State {
     dsk_output_manager_v1* manager = nullptr;
     dsk_settings_manager_v1* input = nullptr;
+    dsk_shell_v1* shell = nullptr;
     bool inputDone = false;
     bool printInput = false;
     bool printKeybinds = false;
@@ -75,6 +78,17 @@ namespace {
       .failed = onInputFailed,
   };
 
+  void onShellAction(void*, dsk_shell_v1*, const char* command) {
+    std::println("action {}", command);
+    std::fflush(stdout);
+  }
+  void onShellLockKeys(void*, dsk_shell_v1*, uint32_t, uint32_t, uint32_t) {}
+  void onShellBell(void*, dsk_shell_v1*, const char* appId) {
+    std::println("bell {}", appId);
+    std::fflush(stdout);
+  }
+  const dsk_shell_v1_listener kShell = {.action = onShellAction, .lock_keys = onShellLockKeys, .bell = onShellBell};
+
   void global(void* data, wl_registry* registry, uint32_t name, const char* interface, uint32_t) {
     if (std::strcmp(interface, dsk_output_manager_v1_interface.name) == 0) {
       auto* state = static_cast<State*>(data);
@@ -87,6 +101,10 @@ namespace {
           wl_registry_bind(registry, name, &dsk_settings_manager_v1_interface, 1)
       );
       dsk_settings_manager_v1_add_listener(state->input, &kInput, state);
+    } else if (std::strcmp(interface, dsk_shell_v1_interface.name) == 0) {
+      auto* state = static_cast<State*>(data);
+      state->shell = static_cast<dsk_shell_v1*>(wl_registry_bind(registry, name, &dsk_shell_v1_interface, 2));
+      dsk_shell_v1_add_listener(state->shell, &kShell, state);
     }
   }
   void globalRemove(void*, wl_registry*, uint32_t) {}
@@ -106,11 +124,12 @@ int main(int argc, char** argv) {
       && !(command == "settings-state" && argc == 2)
       && !(command == "settings-set" && argc == 4)
       && !(command == "keybinds-state" && argc == 2)
-      && !(command == "keybind-set" && argc == 4)) {
+      && !(command == "keybind-set" && argc == 4)
+      && !(command == "shell-events" && argc == 2)) {
     std::println(
         stderr,
         "usage: desktop-client state | mirror TARGET SOURCE | clear TARGET | settings-state | settings-set KEY VALUE "
-        "| keybinds-state | keybind-set CHORD ACTION"
+        "| keybinds-state | keybind-set CHORD ACTION | shell-events"
     );
     return 2;
   }
@@ -126,6 +145,18 @@ int main(int argc, char** argv) {
   wl_registry* registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &kRegistry, &state);
   wl_display_roundtrip(display);
+  if (command == "shell-events") {
+    if (state.shell == nullptr) {
+      std::println(stderr, "desktop-client: dsk_shell_v1 is not advertised");
+      return 1;
+    }
+    wl_display_roundtrip(display);
+    std::println("ready");
+    std::fflush(stdout);
+    while (wl_display_dispatch(display) >= 0) {
+    }
+    return 0;
+  }
   if (inputCommand) {
     if (state.input == nullptr) {
       std::println(stderr, "desktop-client: dsk_settings_manager_v1 is not advertised");

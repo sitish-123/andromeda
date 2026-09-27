@@ -10,7 +10,7 @@ namespace umbriel {
 
   namespace {
 
-    constexpr uint32_t kVersion = 1;
+    constexpr uint32_t kVersion = 2;
 
     DesktopShell* shellFrom(wl_resource* resource) {
       return static_cast<DesktopShell*>(wl_resource_get_user_data(resource));
@@ -57,6 +57,18 @@ namespace umbriel {
       dsk_shell_v1_send_action(resource, line.c_str());
     }
     return !m_resources.empty();
+  }
+
+  bool DesktopShell::sendBell(std::string_view appId) {
+    const std::string id(appId);
+    bool sent = false;
+    for (wl_resource* resource : m_resources) {
+      if (wl_resource_get_version(resource) >= DSK_SHELL_V1_BELL_SINCE_VERSION) {
+        dsk_shell_v1_send_bell(resource, id.c_str());
+        sent = true;
+      }
+    }
+    return sent;
   }
 
   void DesktopShell::setLockKeys(bool capsLock, bool numLock, bool scrollLock) {

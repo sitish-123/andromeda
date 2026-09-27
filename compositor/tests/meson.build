@@ -262,6 +262,45 @@ background_client = executable(
   dependencies: [wayland_client_dep],
 )
 
+# Staging protocols only the surface-protocols client speaks.
+staging_client_sources = []
+foreach name : [
+  'single-pixel-buffer',
+  'alpha-modifier',
+  'xdg-dialog',
+  'xdg-toplevel-icon',
+  'xdg-system-bell',
+  'fifo',
+  'commit-timing',
+  'xdg-toplevel-drag',
+]
+  xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging' / name / name + '-v1.xml'
+  staging_client_sources += custom_target(
+    name + '-v1-client-protocol.h',
+    input: xml,
+    output: name + '-v1-client-protocol.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  )
+  staging_client_sources += custom_target(
+    name + '-v1-client-protocol.c',
+    input: xml,
+    output: name + '-v1-client-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  )
+endforeach
+
+surface_protocols_client = executable(
+  'surface-protocols-client',
+  [
+    'harness/clients/surface_protocols_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    viewporter_client_h,
+    viewporter_client_c,
+  ] + staging_client_sources,
+  dependencies: [wayland_client_dep],
+)
+
 idle_inhibit_client = executable(
   'idle-inhibit-client',
   [
@@ -371,6 +410,7 @@ harness_client_targets = [
   fractional_client,
   idle_inhibit_client,
   background_client,
+  surface_protocols_client,
   lock_client,
   security_context_client,
   seat_log_client,

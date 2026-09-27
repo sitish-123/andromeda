@@ -3228,6 +3228,27 @@ namespace umbriel {
     }
   }
 
+  void View::setIconName(std::string_view name) {
+    if (m_iconName == name) {
+      return;
+    }
+    m_iconName = std::string(name);
+    m_server->scheduleIpcWindowsEvent();
+  }
+
+  View* View::modalChild() const {
+    for (const auto& view : m_server->registry().all()) {
+      if (!view->mapped() || view->xdgParent() != this) {
+        continue;
+      }
+      if (const wlr_xdg_dialog_v1* dialog = wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel(view->toplevel());
+          dialog != nullptr && dialog->modal) {
+        return view.get();
+      }
+    }
+    return nullptr;
+  }
+
   void View::syncContentType(wlr_surface* committedSurface) {
     if (committedSurface != nullptr) {
       const auto committed = std::ranges::find_if(m_viewSurfaceWatches, [committedSurface](const auto& watch) {

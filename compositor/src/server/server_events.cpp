@@ -22,6 +22,7 @@
 #include "server/backend_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
+#include "server/desktop_shell.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "view/popup.h"
@@ -968,6 +969,26 @@ namespace umbriel {
     const auto* event = static_cast<wlr_xdg_toplevel_tag_manager_v1_set_tag_event*>(data);
     if (View* view = viewForToplevel(*self, event->toplevel)) {
       view->setXdgTag(event->tag != nullptr ? event->tag : "");
+    }
+  }
+
+  void Server::onSetXdgToplevelIcon(wl_listener* listener, void* data) {
+    Server* self;
+    self = wl_container_of(listener, self, m_setXdgToplevelIcon);
+    const auto* event = static_cast<wlr_xdg_toplevel_icon_manager_v1_set_icon_event*>(data);
+    if (View* view = viewForToplevel(*self, event->toplevel)) {
+      view->setIconName(event->icon != nullptr && event->icon->name != nullptr ? event->icon->name : "");
+    }
+  }
+
+  void Server::onSystemBellRing(wl_listener* listener, void* data) {
+    Server* self;
+    self = wl_container_of(listener, self, m_systemBellRing);
+    const auto* event = static_cast<wlr_xdg_system_bell_v1_ring_event*>(data);
+    const View* view = event->surface != nullptr ? View::fromSurface(event->surface) : nullptr;
+    const char* appId = view != nullptr ? view->toplevel()->app_id : nullptr;
+    if (self->m_desktopShell == nullptr || !self->m_desktopShell->sendBell(appId != nullptr ? appId : "")) {
+      kLog.debug("system bell from '{}' with no shell to ring it", appId != nullptr ? appId : "");
     }
   }
 

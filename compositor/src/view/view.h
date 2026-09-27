@@ -54,6 +54,10 @@ namespace umbriel {
 
     [[nodiscard]] wlr_xdg_toplevel* toplevel() const { return m_toplevel; }
     [[nodiscard]] const std::optional<std::string>& xdgTag() const { return m_xdgTag; }
+    // The themed icon name from xdg-toplevel-icon; empty without one.
+    [[nodiscard]] const std::string& iconName() const { return m_iconName; }
+    // A mapped child of this window that xdg-dialog marked modal, which takes the focus this window is given.
+    [[nodiscard]] View* modalChild() const;
     [[nodiscard]] ContentType contentType() const { return m_contentType; }
     // The view's frame: it carries the position, parent, stacking order, and visibility of the whole window. Its
     // content tree (surfaces, borders, backdrop, blur, and animation shaders) sits at (0, 0) inside it, above the
@@ -380,6 +384,7 @@ namespace umbriel {
     // Capture the outgoing frame when the client commits the size a layout motion requested.
     void handleClientCommit();
     void setXdgTag(std::string_view tag);
+    void setIconName(std::string_view name);
     void syncContentType(wlr_surface* committedSurface = nullptr);
     void handleDestroy();
     void handleRequestMove(void* data);
@@ -615,6 +620,7 @@ namespace umbriel {
     Server* m_server = nullptr;
     wlr_xdg_toplevel* m_toplevel = nullptr;
     std::optional<std::string> m_xdgTag;
+    std::string m_iconName;
     ContentType m_contentType = ContentType::None;
     wlr_scene_tree* m_sceneTree = nullptr;
     wlr_scene_tree* m_contentTree = nullptr;
