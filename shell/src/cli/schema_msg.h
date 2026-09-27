@@ -187,6 +187,11 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array<std::string_view, 1> kMsgLinkRingModeChoices{"stop"};
+  inline constexpr std::array kMsgLinkRingPositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+      Positional{"mode", {}, kMsgLinkRingModeChoices, false, false, false},
+  };
   inline constexpr std::array<std::string_view, 2> kMsgLinkShareKindChoices{"text", "link"};
   inline constexpr std::array kMsgLinkSharePositionals{
       Positional{"device-id", {}, {}, true, false, false},
@@ -865,6 +870,19 @@ namespace noctalia::cli {
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
+    inline constexpr Command linkRing{
+        "link-ring", "Ring a connected phone at full volume, or stop it", {}, {}, {}, kMsgLinkRingPositionals, {}, false
+    };
+    inline constexpr Command linkRinging{
+        "link-ringing",
+        "Print what rings: desktop <device-id> for a phone ringing this desktop, phone <device-id>, or none",
+        {},
+        {},
+        {},
+        {},
+        {},
+        false
+    };
     inline constexpr Command linkShare{
         "link-share", "Send text or a link to a connected phone", {}, {}, {}, kMsgLinkSharePositionals, {}, false
     };
@@ -973,6 +991,8 @@ namespace noctalia::cli {
       msg::linkDevices,
       msg::linkPair,
       msg::linkPairing,
+      msg::linkRing,
+      msg::linkRinging,
       msg::linkShare,
       msg::linkUnpair,
       msg::lockscreenWidgetsEdit,

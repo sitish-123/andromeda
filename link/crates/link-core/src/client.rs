@@ -421,6 +421,7 @@ fn feature_of(message: &Message) -> Option<Feature> {
         | Message::NotificationAction(_)
         | Message::NotificationDismiss(_) => Some(Feature::Notifications),
         Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
+        Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
         _ => None,
     }
 }

@@ -259,6 +259,20 @@ pub struct MediaCommand {
     pub value: Option<u64>,
 }
 
+/// Asks the receiver to start or stop ringing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ring {
+    pub on: bool,
+}
+
+/// The sender's own ringing started or stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ringing {
+    pub on: bool,
+}
+
 fn player_id(player: &str) -> bool {
     sized(player, 1, MAX_PLAYER_LEN)
 }
@@ -305,6 +319,8 @@ pub enum Message {
     MediaPlayer(MediaPlayer),
     MediaGone(MediaGone),
     MediaCommand(MediaCommand),
+    Ring(Ring),
+    Ringing(Ringing),
 }
 
 impl Message {
@@ -323,6 +339,8 @@ impl Message {
             Self::MediaPlayer(_) => "media-player",
             Self::MediaGone(_) => "media-gone",
             Self::MediaCommand(_) => "media-command",
+            Self::Ring(_) => "ring",
+            Self::Ringing(_) => "ringing",
         }
     }
 
@@ -341,6 +359,8 @@ impl Message {
             Self::MediaPlayer(body) => Value::serialized(body),
             Self::MediaGone(body) => Value::serialized(body),
             Self::MediaCommand(body) => Value::serialized(body),
+            Self::Ring(body) => Value::serialized(body),
+            Self::Ringing(body) => Value::serialized(body),
         }
     }
 
@@ -362,6 +382,8 @@ impl Message {
             "media-player" => Self::MediaPlayer(body.deserialized()?),
             "media-gone" => Self::MediaGone(body.deserialized()?),
             "media-command" => Self::MediaCommand(body.deserialized()?),
+            "ring" => Self::Ring(body.deserialized()?),
+            "ringing" => Self::Ringing(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -374,7 +396,7 @@ impl Message {
             Self::Hello(hello) => (1..=MAX_NAME_LEN).contains(&hello.name.chars().count()),
             Self::PairSpake(spake) => spake.msg.len() == SPAKE_MSG_LEN,
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
-            Self::Unpair | Self::ShareAck(_) => true,
+            Self::Unpair | Self::ShareAck(_) | Self::Ring(_) | Self::Ringing(_) => true,
             Self::Share(share) => share.check().is_ok(),
             Self::NotificationPosted(posted) => posted.valid(),
             Self::NotificationRemoved(NotificationRemoved { id })

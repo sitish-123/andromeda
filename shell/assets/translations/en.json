@@ -296,6 +296,8 @@
       "paired": "Paired phones",
       "paired-with": "Paired with {device}",
       "pairing-failed": "Pairing failed: {reason}",
+      "ring": "Ring",
+      "stop-ring": "Stop ringing",
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
       "unpair": "Unpair"
@@ -865,6 +867,9 @@
       "link-open": "Open",
       "link-received-link": "Link from {device}",
       "link-received-text": "Text from {device}",
+      "link-ring-body": "Ringing until you stop it",
+      "link-ring-stop": "Stop",
+      "link-ring-title": "{device} is looking for this desktop",
       "battery": "Battery",
       "battery-critical-body": "{device}: {percent}%; your computer will shut down soon",
       "battery-critical-title": "Battery critically low",

@@ -61,6 +61,26 @@
       <arg name="icon" type="ay"/>
       <arg name="actions" type="a(ssb)"/>
     </signal>
+    <!-- Starts (true) or stops ringing the phone. Returns once sent. Errors: .NotConnected. -->
+    <method name="Ring">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="on" type="b" direction="in"/>
+    </method>
+    <!-- The desktop started or stopped ringing for the phone that asked; the phone shows it. Errors: .NotConnected. -->
+    <method name="DesktopRinging">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="on" type="b" direction="in"/>
+    </method>
+    <!-- The phone asks this desktop to ring (true) or to stop. -->
+    <signal name="RingRequested">
+      <arg name="device_id" type="s"/>
+      <arg name="on" type="b"/>
+    </signal>
+    <!-- The phone's own ringing started or stopped, for any reason. -->
+    <signal name="PhoneRinging">
+      <arg name="device_id" type="s"/>
+      <arg name="on" type="b"/>
+    </signal>
     <!-- A phone notification is gone: removed on the phone, displaced by the 64-per-device limit, or its device
          unpaired. -->
     <signal name="NotificationRemoved">

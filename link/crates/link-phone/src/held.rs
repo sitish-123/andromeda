@@ -8,7 +8,7 @@ use link_core::client::{Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
     MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message, NotificationButton, NotificationPosted,
-    NotificationRemoved, PlaybackState,
+    NotificationRemoved, PlaybackState, Ring, Ringing,
 };
 use serde_json::{Value, json};
 
@@ -18,17 +18,19 @@ pub struct Held {
     notifications: BTreeMap<String, NotificationPosted>,
     /// The phone's own players, which act on the desktop's commands as a real player would.
     players: BTreeMap<String, MediaPlayer>,
+    ringing: bool,
 }
 
 impl Held {
     pub fn new(client: Client, desktop: DeviceId) -> Self {
-        Self { client, desktop, notifications: BTreeMap::new(), players: BTreeMap::new() }
+        Self { client, desktop, notifications: BTreeMap::new(), players: BTreeMap::new(), ringing: false }
     }
 
     /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
     /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
     /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
-    /// session and dials again.
+    /// session and dials again; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
+    /// own ringing, as stopping it on the phone does.
     pub async fn command(&mut self, line: &str) -> Value {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
@@ -38,6 +40,11 @@ impl Held {
             "media" => self.media(rest).await,
             "media-gone" => self.media_gone(rest.trim()).await,
             "media-command" => self.media_command(rest).await,
+            "ring" => self.send_switch(rest, |on| Message::Ring(Ring { on })).await,
+            "ringing" => {
+                self.ringing = rest.trim() == "on";
+                self.send_switch(rest, |on| Message::Ringing(Ringing { on })).await
+            }
             _ => Err(anyhow!("unknown command")),
         };
         result.unwrap_or_else(|error| json!({ "event": "command-failed", "command": verb, "error": error.to_string() }))
@@ -54,6 +61,14 @@ impl Held {
                 }
             }
             ClientEvent::Message { message: Message::MediaCommand(command), .. } => self.obey(command).await,
+            // As the app does: ring or stop, then report the state.
+            ClientEvent::Message { from, message: Message::Ring(ring) } => {
+                self.ringing = ring.on;
+                let report = Message::Ringing(Ringing { on: self.ringing });
+                if let Err(error) = self.client.send(from.clone(), report).await {
+                    log::warn!("reporting the ring: {error}");
+                }
+            }
             // As Android does: cancelling the notification removes it, and the listener reports the removal.
             ClientEvent::Message { message: Message::NotificationDismiss(dismiss), .. }
                 if self.notifications.remove(&dismiss.id).is_some() =>
@@ -105,6 +120,18 @@ impl Held {
         let command: MediaCommand = serde_json::from_str(json).context("not a media-command body")?;
         self.client.send(self.desktop.clone(), Message::MediaCommand(command.clone())).await?;
         Ok(json!({ "event": "media-commanded", "player": command.player }))
+    }
+
+    async fn send_switch(&self, rest: &str, message: impl FnOnce(bool) -> Message) -> anyhow::Result<Value> {
+        let on = match rest.trim() {
+            "on" => true,
+            "off" => false,
+            other => bail!("on or off, not {other:?}"),
+        };
+        let message = message(on);
+        let kind = message.kind();
+        self.client.send(self.desktop.clone(), message).await?;
+        Ok(json!({ "event": "sent", "type": kind, "on": on }))
     }
 
     /// Plays the desktop's command on its own player and reports the new state, as a phone's player would.
@@ -191,6 +218,8 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
             "volume": player.volume, "can": player.can, "artwork_bytes": player.artwork.as_ref().map(Vec::len),
         }),
         Message::MediaGone(gone) => json!({ "event": "media-gone", "desktop": from, "player": gone.player }),
+        Message::Ring(ring) => json!({ "event": "ring", "desktop": from, "on": ring.on }),
+        Message::Ringing(ringing) => json!({ "event": "desktop-ringing", "desktop": from, "on": ringing.on }),
         Message::MediaCommand(command) => json!({
             "event": "media-command", "desktop": from, "player": command.player, "command": command.command,
             "value": command.value,

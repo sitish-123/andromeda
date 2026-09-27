@@ -8,6 +8,7 @@ import org.umbriel.link.R
 object Channels {
     const val PRESENCE = "presence"
     const val SHARES = "shares"
+    const val RING = "ring"
 
     fun create(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -16,6 +17,11 @@ object Channels {
         )
         manager.createNotificationChannel(
             NotificationChannel(SHARES, context.getString(R.string.channel_shares), NotificationManager.IMPORTANCE_HIGH),
+        )
+        // Silent itself: the ring plays on the alarm stream, and the channel only carries Stop.
+        manager.createNotificationChannel(
+            NotificationChannel(RING, context.getString(R.string.channel_ring), NotificationManager.IMPORTANCE_HIGH)
+                .apply { setSound(null, null) },
         )
     }
 }

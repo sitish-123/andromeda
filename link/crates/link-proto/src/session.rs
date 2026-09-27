@@ -68,7 +68,11 @@ fn receives(role: Role, message: &Message) -> bool {
     match message {
         Message::NotificationPosted(_) | Message::NotificationRemoved(_) => role == Role::Desktop,
         Message::NotificationAction(_) | Message::NotificationDismiss(_) => role == Role::Phone,
-        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => true,
+        Message::MediaPlayer(_)
+        | Message::MediaGone(_)
+        | Message::MediaCommand(_)
+        | Message::Ring(_)
+        | Message::Ringing(_) => true,
         _ => false,
     }
 }
@@ -82,8 +86,8 @@ mod tests {
         DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ARTWORK_LEN, MAX_ICON_LEN, MAX_METADATA_LEN,
         MAX_NOTIFICATION_ID_LEN, MAX_PLAYER_LEN, MAX_SHARE_LEN, MAX_TEXT_LEN, MAX_TITLE_LEN, MAX_VOLUME, MediaCommand,
         MediaCommandKind, MediaGone, MediaPlayer, NotificationAction, NotificationButton, NotificationDismiss,
-        NotificationPosted, NotificationRemoved, PairConfirm, PairSpake, PlaybackState, ShareAck, ShareKind,
-        ShareRejected,
+        NotificationPosted, NotificationRemoved, PairConfirm, PairSpake, PlaybackState, Ring, Ringing, ShareAck,
+        ShareKind, ShareRejected,
     };
 
     fn envelope(id: u64, message: Message) -> Envelope {
@@ -268,12 +272,14 @@ mod tests {
     }
 
     #[test]
-    fn media_messages_travel_both_ways() {
+    fn media_and_ring_messages_travel_both_ways() {
         let command = MediaCommand { player: "p".to_owned(), command: MediaCommandKind::Next, value: None };
         let messages = [
             Message::MediaPlayer(player()),
             Message::MediaGone(MediaGone { player: "p".to_owned() }),
             Message::MediaCommand(command),
+            Message::Ring(Ring { on: true }),
+            Message::Ringing(Ringing { on: false }),
         ];
         for role in [Role::Phone, Role::Desktop] {
             for message in messages.clone() {

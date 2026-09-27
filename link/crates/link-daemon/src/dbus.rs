@@ -3,7 +3,7 @@
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    MAX_NAME_LEN, Message, NotificationAction, NotificationDismiss, NotificationPosted, Share, ShareKind,
+    MAX_NAME_LEN, Message, NotificationAction, NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind,
 };
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
@@ -72,6 +72,16 @@ impl Link {
         self.send(&device_id, Message::NotificationDismiss(NotificationDismiss { id })).await
     }
 
+    /// Starts or stops ringing the phone.
+    async fn ring(&self, device_id: String, on: bool) -> Result<(), LinkError> {
+        self.send(&device_id, Message::Ring(Ring { on })).await
+    }
+
+    /// Reports this desktop's ringing, started or stopped by the shell, to the phone that asked for it.
+    async fn desktop_ringing(&self, device_id: String, on: bool) -> Result<(), LinkError> {
+        self.send(&device_id, Message::Ringing(Ringing { on })).await
+    }
+
     #[zbus(property)]
     fn devices(&self) -> Vec<(String, String, bool)> {
         self.snapshots.borrow().devices.clone()
@@ -102,6 +112,12 @@ impl Link {
         icon: &[u8],
         actions: Vec<(String, String, bool)>,
     ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn ring_requested(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn notification_removed(emitter: &SignalEmitter<'_>, device_id: &str, id: &str) -> zbus::Result<()>;
@@ -170,6 +186,8 @@ pub async fn forward(
                     Link::received(emitter, id.as_str(), share.kind.as_str(), &share.text).await?;
                 }
                 Event::NotificationPosted { id, posted } => emit_posted(emitter, &id, posted).await?,
+                Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
+                Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
                 Event::NotificationRemoved { id, notification } => {
                     Link::notification_removed(emitter, id.as_str(), &notification).await?;
                 }

@@ -45,6 +45,9 @@ class DevicesViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), DevicesState())
     val messages: Flow<DevicesMessage> = messageChannel.receiveAsFlow()
 
+    /** Desktops ringing because this phone asked. */
+    val ringingDesktops: StateFlow<Set<String>> = repository.ringingDesktops
+
     init {
         viewModelScope.launch { repository.refresh() }
     }
@@ -55,6 +58,8 @@ class DevicesViewModel(
     fun unpair(desktop: Desktop) = act(desktop, DevicesMessage.Unpaired(desktop.name)) { repository.unpair(desktop.id) }
 
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
+
+    fun ring(desktop: Desktop, on: Boolean) = act(desktop) { repository.ringDesktop(desktop.id, on) }
 
     fun notificationsAllowed() = presence.notificationsAllowed()
 

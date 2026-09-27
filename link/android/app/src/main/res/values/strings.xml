@@ -55,4 +55,10 @@
     <string name="media_pause">Pause</string>
     <string name="media_next">Next</string>
     <string name="media_previous">Previous</string>
+    <string name="channel_ring">Find my phone</string>
+    <string name="ring_title">Your desktop is looking for this phone</string>
+    <string name="ring_text">Tap to stop ringing</string>
+    <string name="ring_stop">Stop</string>
+    <string name="ring_desktop">Ring desktop</string>
+    <string name="ring_desktop_stop">Stop ringing</string>
 </resources>

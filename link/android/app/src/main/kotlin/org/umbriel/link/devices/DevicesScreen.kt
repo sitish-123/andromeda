@@ -185,6 +185,13 @@ private fun DesktopCard(desktop: Desktop, busy: Boolean, viewModel: DevicesViewM
                         Text(stringResource(R.string.connect))
                     }
                 }
+                if (desktop.connected) {
+                    val ringing by viewModel.ringingDesktops.collectAsStateWithLifecycle()
+                    val on = desktop.id in ringing
+                    TextButton(onClick = { viewModel.ring(desktop, !on) }, enabled = !busy) {
+                        Text(stringResource(if (on) R.string.ring_desktop_stop else R.string.ring_desktop))
+                    }
+                }
                 TextButton(onClick = { viewModel.unpair(desktop) }, enabled = !busy) {
                     Text(stringResource(R.string.unpair))
                 }

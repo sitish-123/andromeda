@@ -45,11 +45,34 @@ pub struct Snapshot {
 
 #[derive(Debug)]
 pub enum Event {
-    PairingFinished { id: DeviceId, name: String },
-    PairingFailed { reason: String },
-    Received { id: DeviceId, share: Share },
-    NotificationPosted { id: DeviceId, posted: NotificationPosted },
-    NotificationRemoved { id: DeviceId, notification: String },
+    PairingFinished {
+        id: DeviceId,
+        name: String,
+    },
+    PairingFailed {
+        reason: String,
+    },
+    Received {
+        id: DeviceId,
+        share: Share,
+    },
+    NotificationPosted {
+        id: DeviceId,
+        posted: NotificationPosted,
+    },
+    NotificationRemoved {
+        id: DeviceId,
+        notification: String,
+    },
+    /// The phone asks this desktop to ring, or to stop.
+    RingRequested {
+        id: DeviceId,
+        on: bool,
+    },
+    PhoneRinging {
+        id: DeviceId,
+        on: bool,
+    },
 }
 
 enum Command {
@@ -225,6 +248,8 @@ impl Hub {
                 let name = self.store.peer(&from).map(|peer| peer.name.clone()).unwrap_or_default();
                 self.media.on_phone_message(&self.me, &from, &name, media).await;
             }
+            Message::Ring(ring) => self.emit(Event::RingRequested { id: from, on: ring.on }).await,
+            Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
         }
     }

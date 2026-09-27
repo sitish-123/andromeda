@@ -170,7 +170,8 @@ std::string DevicesTab::structureKey() const {
   }
   key.push_back('\n');
   for (const auto& device : m_link->devices()) {
-    key += device.id + (device.connected ? " 1 " : " 0 ") + device.name + "\n";
+    key += device.id + (device.connected ? " 1 " : " 0 ") + (m_link->phoneRinging(device.id) ? "r " : "- ") +
+        device.name + "\n";
   }
   return key;
 }
@@ -300,6 +301,18 @@ void DevicesTab::rebuild(Renderer& renderer) {
         )
     );
     if (device.connected) {
+      const bool ringing = m_link->phoneRinging(device.id);
+      row->addChild(
+          ui::button({
+              .glyph = ringing ? "bell-off" : "bell-ringing",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ringing ? ButtonVariant::Default : ButtonVariant::Ghost,
+              .tooltip = i18n::tr(ringing ? "control-center.devices.stop-ring" : "control-center.devices.ring"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id, ringing]() { m_link->ring(id, !ringing); },
+          })
+      );
       row->addChild(
           ui::button({
               .glyph = "clipboard",

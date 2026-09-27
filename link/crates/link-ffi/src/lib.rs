@@ -135,6 +135,16 @@ pub enum LinkEvent {
         desktop_id: String,
         player: String,
     },
+    /// A desktop asks this phone to ring, or to stop.
+    RingRequested {
+        desktop_id: String,
+        on: bool,
+    },
+    /// The desktop this phone rang started or stopped ringing.
+    DesktopRinging {
+        desktop_id: String,
+        on: bool,
+    },
     /// A desktop commands this phone's player.
     PlayerCommand {
         desktop_id: String,
@@ -301,6 +311,17 @@ impl LinkClient {
         self.broadcast(Message::MediaGone(message::MediaGone { player })).await
     }
 
+    /// Rings a desktop, or stops it, connecting first if needed.
+    pub async fn ring_desktop(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::Ring(message::Ring { on })).await }).await
+    }
+
+    /// Reports this phone's ringing to every connected desktop that may ring it.
+    pub async fn report_ringing(&self, on: bool) -> Result<u32, LinkError> {
+        self.broadcast(Message::Ringing(message::Ringing { on })).await
+    }
+
     /// Commands one of a desktop's players, connecting first if needed.
     pub async fn media_command(
         &self,
@@ -360,6 +381,8 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                 }
                 Message::MediaPlayer(player) => LinkEvent::PlayerChanged { desktop_id, player: player.into() },
                 Message::MediaGone(gone) => LinkEvent::PlayerGone { desktop_id, player: gone.player },
+                Message::Ring(ring) => LinkEvent::RingRequested { desktop_id, on: ring.on },
+                Message::Ringing(ringing) => LinkEvent::DesktopRinging { desktop_id, on: ringing.on },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,
                     player: command.player,

@@ -66,6 +66,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _notificationCommands = MutableSharedFlow<NotificationCommand>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mediaCommands = MutableSharedFlow<PhoneMediaCommand>(extraBufferCapacity = INCOMING_BUFFER)
     private val _desktopPlayers = MutableStateFlow<List<DesktopPlayer>>(emptyList())
+    private val _ringRequests = MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -83,6 +85,19 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Every connected desktop's players; a desktop's go when its session ends. */
     val desktopPlayers: StateFlow<List<DesktopPlayer>> = _desktopPlayers.asStateFlow()
+
+    /** A desktop asks this phone to ring (true) or stop, as (desktop id, on). */
+    val ringRequests: SharedFlow<Pair<String, Boolean>> = _ringRequests.asSharedFlow()
+
+    /** Desktops ringing because this phone asked, as they report it. */
+    val ringingDesktops: StateFlow<Set<String>> = _ringingDesktops.asStateFlow()
+
+    /** Connects first if needed. */
+    suspend fun ringDesktop(desktopId: String, on: Boolean): Result<Unit> =
+        withMulticast { call { it.ringDesktop(desktopId, on) } }
+
+    /** Tells connected desktops that may ring this phone whether it rings. */
+    suspend fun reportRinging(on: Boolean): Result<Int> = call { it.reportRinging(on).toInt() }
 
     /** Succeeds with how many connected desktops took it. */
     suspend fun publishPlayer(player: MediaPlayer): Result<Int> = call { it.publishPlayer(player.toFfi()).toInt() }
@@ -177,6 +192,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 }
                 is LinkEvent.PlayerGone -> _desktopPlayers.update { list ->
                     list.filterNot { it.desktopId == event.desktopId && it.player.player == event.player }
+                }
+                is LinkEvent.RingRequested -> _ringRequests.emit(event.desktopId to event.on)
+                is LinkEvent.DesktopRinging -> _ringingDesktops.update {
+                    if (event.on) it + event.desktopId else it - event.desktopId
                 }
                 is LinkEvent.PlayerCommand -> _mediaCommands.emit(
                     PhoneMediaCommand(event.desktopId, event.player, event.command.toDomain(), event.value?.toLong()),

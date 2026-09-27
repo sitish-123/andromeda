@@ -6,7 +6,9 @@
 # with D-Bus NotificationAction reaches the RemoteInput, and the updated conversation comes back to D-Bus. A media
 # session on the phone (the fixture app) becomes the MPRIS player umbriel_link_<device> with its title and artwork,
 # and playerctl's pause, next, and seek reach that session; a desktop MPRIS test player shows on the app's Media
-# screen, and its Pause button reaches it as PlayPause.
+# screen, and its Pause button reaches it as PlayPause. D-Bus Ring rings the phone on the alarm stream at full volume
+# while Do Not Disturb (priority, which lets alarms through) stays as the user set it, and a stop puts the volume back; the app's Ring desktop reaches D-Bus as
+# RingRequested, and once the desktop reports ringing, Stop ringing stops it.
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, linkd.log to $OUT
 # (default ./artifacts/link-android-features). Needs the debug APK and a running emulator; run under
 # flock /tmp/link-emulator.lock, since the emulator is shared.
@@ -155,6 +157,42 @@ maestro "$FLOWS/media.yaml"
 wait_for 10 "the app's Pause did not reach the desktop player" grep -qx PlayPause "$OUT/player-calls.txt"
 record '{"step":"desktop-media-on-phone","player":"E2E Player","command":"PlayPause"}'
 
+
+alarm_volume() { adb shell cmd media_session volume --stream 4 --get 2> /dev/null | sed -n 's/.*volume is \([0-9]*\).*/\1/p' | tr -d '\r'; }
+zen() { adb shell settings get global zen_mode | tr -d '\r'; }
+adb shell cmd notification allow_dnd "$PACKAGE"
+# The emulator ignores `cmd media_session volume` for the alarm stream, which stays at its maximum, so the restore
+# is checked against whatever it was.
+VOLUME_BEFORE=$(alarm_volume)
+adb shell cmd notification set_dnd priority
+wait_for 10 "Do Not Disturb did not turn on" eval '[[ $(zen) != 0 ]]'
+ZEN_BEFORE=$(zen)
+link Ring "$ID" true > /dev/null || fail "D-Bus Ring"
+wait_for 10 "the phone did not report ringing" heard PhoneRinging "'$ID', true"
+wait_for 10 "the alarm stream is not at full volume: $(alarm_volume)" eval '[[ $(alarm_volume) == 7 ]]'
+[[ $(zen) == "$ZEN_BEFORE" ]] || fail "the ring changed the user's Do Not Disturb on Android 15: zen_mode $(zen)"
+adb shell dumpsys audio > "$OUT/audio.txt"
+PIID=$(grep "new AudioAttributes:AudioAttributes: usage=USAGE_ALARM" "$OUT/audio.txt" | tail -1 | sed -n 's/.*player piid:\([0-9]*\).*/\1/p')
+[[ -n $PIID ]] && grep -q "player piid:$PIID event:started" "$OUT/audio.txt" || fail "no alarm player started in dumpsys audio"
+adb shell cmd statusbar expand-notifications
+sleep 2 # real time: the shade animates open
+screenshot 4-phone-ringing
+adb shell cmd statusbar collapse
+link Ring "$ID" false > /dev/null || fail "D-Bus Ring off"
+wait_for 10 "the phone did not report the stop" heard PhoneRinging "'$ID', false"
+wait_for 10 "the alarm player was not released" eval 'adb shell dumpsys audio | grep -q "releasing player piid:$PIID"'
+[[ $(alarm_volume) == "$VOLUME_BEFORE" ]] || fail "the alarm volume was not restored: $(alarm_volume), was $VOLUME_BEFORE"
+[[ $(zen) == "$ZEN_BEFORE" ]] || fail "Do Not Disturb was not restored: zen_mode $(zen)"
+adb shell cmd notification set_dnd off
+record "{\"step\":\"find-my-phone\",\"alarm_volume\":\"$VOLUME_BEFORE -> 7 -> $(alarm_volume)\",\"dnd\":\"priority, untouched\",\"player\":\"USAGE_ALARM piid $PIID, released on stop\"}"
+
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+maestro "$FLOWS/ring-desktop.yaml"
+wait_for 10 "the phone did not ring the desktop" heard RingRequested "'$ID', true"
+link DesktopRinging "$ID" true > /dev/null || fail "D-Bus DesktopRinging"
+maestro "$FLOWS/stop-desktop.yaml"
+wait_for 10 "the phone did not stop the desktop" heard RingRequested "'$ID', false"
+record '{"step":"find-my-desktop","ring":"RingRequested true","stop":"RingRequested false"}'
 
 python3 - "$OUT" <<'PY'
 import json, os, sys

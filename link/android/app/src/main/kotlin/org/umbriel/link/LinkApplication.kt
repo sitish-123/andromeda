@@ -13,6 +13,7 @@ import org.umbriel.link.notifications.Channels
 import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.notifications.ShareNotifier
 import org.umbriel.link.presence.Presence
+import org.umbriel.link.ring.Ringer
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -33,12 +34,14 @@ class AppContainer(private val application: Application) {
     val presence = Presence(application, repository, scope)
     val mirror = NotificationMirror(application, repository, scope)
     val media = PhoneMedia(application, repository, scope)
+    val ringer = Ringer(application, repository, scope)
 
     fun start() {
         Channels.create(application)
         presence.start()
         mirror.start()
         media.start()
+        ringer.start()
         scope.launch { repository.incoming.collect(notifier::post) }
     }
 }
