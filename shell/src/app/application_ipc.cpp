@@ -18,6 +18,7 @@
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
@@ -311,15 +312,21 @@ void Application::initIpc() {
     return "ok\n";
   });
 
-  m_ipcService.bind(noctalia::cli::msg::notificationInvokeLatest, [this](const std::string&) -> std::string {
-    // Mirror the toast left-click behavior for the most recent active notification:
-    // invoke its "default" action so the source application raises/focuses its window.
+  m_ipcService.bind(noctalia::cli::msg::notificationInvokeLatest, [this](const std::string& args) -> std::string {
+    // Without an argument this mirrors a left-click on the newest toast: its "default" action raises the source app.
+    // With one, the newest notification offering that action key gets it, as if its button were pressed.
     // all() stores notifications oldest-first (push_back), so iterate in reverse for newest.
+    const std::string trimmed = StringUtils::trim(args);
+    const std::string key = trimmed.empty() ? "default" : trimmed;
     const auto& notifications = m_notificationManager.all();
     for (const auto& notification : std::views::reverse(notifications)) {
-      const auto& actions = notification.actions; // pairs: [key, label, ...]; "default" must be first.
-      if (actions.size() >= 2 && actions[0] == "default") {
-        if (!m_notificationManager.invokeAction(notification.id, "default", true)) {
+      const auto& actions = notification.actions; // pairs: [key, label, ...]
+      bool offers = false;
+      for (std::size_t i = 0; i + 1 < actions.size(); i += 2) {
+        offers = offers || actions[i] == key;
+      }
+      if (offers) {
+        if (!m_notificationManager.invokeAction(notification.id, key, true)) {
           return "error: invokeAction failed\n";
         }
         if (m_panelManager.isOpenPanel("control-center")) {
@@ -642,6 +649,9 @@ void Application::initIpc() {
     m_linkService->registerIpc(m_ipcService, [this]() {
       m_panelManager.openPanel("control-center", PanelOpenRequest{.context = "devices"});
     });
+  }
+  if (m_quickShareService != nullptr) {
+    m_quickShareService->registerIpc(m_ipcService);
   }
   if (m_bluetoothService != nullptr) {
     m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {

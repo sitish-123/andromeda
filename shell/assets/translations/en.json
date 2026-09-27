@@ -298,7 +298,10 @@
       "pairing-failed": "Pairing failed: {reason}",
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
-      "unpair": "Unpair"
+      "unpair": "Unpair",
+      "quick-share": "Quick Share",
+      "quick-share-on": "Nearby Android phones see “{name}” and can send you files.",
+      "quick-share-off": "Turn on to receive from nearby Android phones."
     },
     "display": {
       "disabled": "Disabled",
@@ -1436,7 +1439,8 @@
         "input": "Input",
         "date-time": "Date & Time",
         "language": "Language & Region",
-        "default-apps": "Default Applications"
+        "default-apps": "Default Applications",
+        "devices": "Phone & Devices"
       }
     },
     "notifications": {
@@ -4816,6 +4820,20 @@
       "video-player": "Video Player",
       "music-player": "Music Player",
       "pdf-viewer": "PDF Viewer"
+    },
+    "devices": {
+      "phones": "Your phones",
+      "none": "No phone paired yet.",
+      "pair": "Pair a phone",
+      "pair-hint": "Open Umbriel Link on the phone and scan the code, or type it.",
+      "connected": "Connected",
+      "not-connected": "Not connected",
+      "unpair": "Unpair",
+      "unavailable": "Umbriel Link is not running.",
+      "quick-share": "Quick Share",
+      "visible": "Visible to nearby devices",
+      "visible-hint": "Android phones nearby can send files and links to “{name}”. You accept each one.",
+      "downloads": "Received files go to {path}."
     }
   },
   "setup-wizard": {
@@ -5013,5 +5031,22 @@
     "no-external": "No second display connected",
     "no-mirroring": "This compositor cannot mirror displays",
     "failed": "The displays could not be switched"
+  },
+  "quick-share": {
+    "app": "Quick Share",
+    "offer": "{device} wants to share",
+    "accept": "Accept",
+    "decline": "Decline",
+    "pin": "PIN {pin}",
+    "a-link": "A link",
+    "some-text": "Some text",
+    "failed": "Quick Share failed",
+    "visible-failed": "Could not change Quick Share visibility",
+    "received-files": "Files from {device}",
+    "received-link": "Link from {device}",
+    "received-text": "Text from {device}",
+    "open": "Open",
+    "copy": "Copy",
+    "show-in-folder": "Show in folder"
   }
 }

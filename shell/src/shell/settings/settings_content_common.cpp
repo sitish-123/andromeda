@@ -341,6 +341,7 @@ namespace settings {
     case SettingsSection::DateTime:
     case SettingsSection::Language:
     case SettingsSection::DefaultApps:
+    case SettingsSection::Devices:
       return false;
     }
     return false;
@@ -383,6 +384,7 @@ namespace settings {
     case SettingsSection::DateTime:
     case SettingsSection::Language:
     case SettingsSection::DefaultApps:
+    case SettingsSection::Devices:
       return {};
     }
     return {};

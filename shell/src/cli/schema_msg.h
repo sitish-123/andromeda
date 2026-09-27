@@ -178,6 +178,13 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgScreenRecordRegionPositionals{
       Positional{"geometry", "X,Y WxH in global logical pixels", {}, false, false, true},
   };
+  inline constexpr std::array kMsgNotificationInvokeLatestPositionals{
+      Positional{"action", {}, {}, false, false, false},
+  };
+  inline constexpr std::array<std::string_view, 3> kQuickShareVisibleChoices{"on", "off", "toggle"};
+  inline constexpr std::array kMsgQuickShareVisiblePositionals{
+      Positional{"state", {}, kQuickShareVisibleChoices, false, false, false},
+  };
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
@@ -570,11 +577,11 @@ namespace noctalia::cli {
     };
     inline constexpr Command notificationInvokeLatest{
         "notification-invoke-latest",
-        "Invoke the default action of the most recent active notification",
+        "Invoke the default action, or the given action key, of the most recent notification offering it",
         {},
         {},
         {},
-        {},
+        kMsgNotificationInvokeLatestPositionals,
         {},
         false
     };
@@ -833,6 +840,10 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command quickShareVisible{
+        "quickshare-visible", "Print or set whether nearby Android devices can find this desktop over Quick Share", {},
+        {}, {}, kMsgQuickShareVisiblePositionals, {}, false
+    };
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
@@ -946,6 +957,7 @@ namespace noctalia::cli {
       msg::linkPairing,
       msg::linkShare,
       msg::linkUnpair,
+      msg::quickShareVisible,
       msg::lockscreenWidgetsEdit,
       msg::lockscreenWidgetsExit,
       msg::lockscreenWidgetsToggleEdit,

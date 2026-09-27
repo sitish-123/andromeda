@@ -30,6 +30,7 @@ namespace settings {
     DateTime,
     Language,
     DefaultApps,
+    Devices,
     Wallpaper,
     Templates,
     Desktop,

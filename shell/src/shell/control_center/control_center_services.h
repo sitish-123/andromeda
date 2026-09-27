@@ -20,6 +20,7 @@ class IdleInhibitor;
 class INetworkService;
 class IpcService;
 class LinkService;
+class QuickShareService;
 class ModemManagerService;
 class MprisService;
 class NetworkSecretAgent;
@@ -58,6 +59,7 @@ struct ControlCenterServices {
   INetworkService* network = nullptr;
   NmHotspot* hotspot = nullptr;
   LinkService* link = nullptr;
+  QuickShareService* quickShare = nullptr;
   ScreenRecorder* screenRecorder = nullptr;
   ModemManagerService* modem = nullptr;
   NetworkSecretAgent* networkSecrets = nullptr;

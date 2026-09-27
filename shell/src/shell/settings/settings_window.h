@@ -42,6 +42,8 @@ class Button;
 class AccountsService;
 class CalendarService;
 class ClipboardService;
+class LinkService;
+class QuickShareService;
 class IpcService;
 class ConfigService;
 class CompositorPlatform;
@@ -126,6 +128,13 @@ public:
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
+  void setLinkServices(LinkService* link, QuickShareService* quickShare, std::function<void()> openPairing) {
+    m_linkService = link;
+    m_quickShareService = quickShare;
+    m_openPairing = std::move(openPairing);
+  }
+  // Rebuilds the Phone & Devices page when it is showing.
+  void onDevicesChanged();
   // Backs plugin-store thumbnails; trimmed when the window closes.
   void setAsyncTextureCache(AsyncTextureCache* cache) { m_asyncTextures = cache; }
   void initializeDialogPresenter(
@@ -191,6 +200,7 @@ private:
   void addLanguageContent(float scale);
   void onLanguageChanged();
   void addDefaultAppsContent(float scale);
+  void addDevicesContent(float scale);
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
   void finishDisplayConfirm(bool keep);
@@ -275,6 +285,9 @@ private:
   AccountsService* m_accounts = nullptr;
   CalendarService* m_calendarService = nullptr;
   ClipboardService* m_clipboardService = nullptr;
+  LinkService* m_linkService = nullptr;
+  QuickShareService* m_quickShareService = nullptr;
+  std::function<void()> m_openPairing;
   IpcService* m_ipcService = nullptr;
   AsyncTextureCache* m_asyncTextures = nullptr;
   Label* m_idleLiveStatusLabel = nullptr;

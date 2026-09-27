@@ -1,6 +1,7 @@
 #include "shell/control_center/tabs/devices_tab.h"
 
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/core/texture_manager.h"
@@ -86,7 +87,7 @@ namespace {
 
 } // namespace
 
-DevicesTab::DevicesTab(LinkService* link) : m_link(link) {}
+DevicesTab::DevicesTab(LinkService* link, QuickShareService* quickShare) : m_link(link), m_quickShare(quickShare) {}
 
 std::unique_ptr<Flex> DevicesTab::create() {
   const float scale = contentScale();
@@ -171,6 +172,10 @@ std::string DevicesTab::structureKey() const {
   key.push_back('\n');
   for (const auto& device : m_link->devices()) {
     key += device.id + (device.connected ? " 1 " : " 0 ") + device.name + "\n";
+  }
+  if (m_quickShare != nullptr && m_quickShare->available()) {
+    key += m_quickShare->visible() ? "quick-share 1 " : "quick-share 0 ";
+    key += m_quickShare->name();
   }
   return key;
 }
@@ -326,5 +331,22 @@ void DevicesTab::rebuild(Renderer& renderer) {
     devicesCard->addChild(std::move(row));
   }
   m_list->addChild(std::move(devicesCard));
+
+  if (m_quickShare != nullptr && m_quickShare->available()) {
+    auto quickShareCard = makeCard(scale, opacity);
+    auto quickShareHeader = makeCardHeaderRow(i18n::tr("control-center.devices.quick-share"), scale);
+    quickShareHeader->addChild(ui::toggle({
+        .checked = m_quickShare->visible(),
+        .scale = scale,
+        .onChange = [this](bool visible) { m_quickShare->setVisible(visible); },
+    }));
+    quickShareCard->addChild(std::move(quickShareHeader));
+    quickShareCard->addChild(makeCaption(
+        m_quickShare->visible() ? i18n::tr("control-center.devices.quick-share-on", "name", m_quickShare->name())
+                                : i18n::tr("control-center.devices.quick-share-off"),
+        scale
+    ));
+    m_list->addChild(std::move(quickShareCard));
+  }
   m_list->layout(renderer);
 }

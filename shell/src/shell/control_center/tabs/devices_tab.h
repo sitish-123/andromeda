@@ -8,11 +8,12 @@
 class Flex;
 class Label;
 class LinkService;
+class QuickShareService;
 class ScrollView;
 
 class DevicesTab : public Tab {
 public:
-  explicit DevicesTab(LinkService* link);
+  DevicesTab(LinkService* link, QuickShareService* quickShare);
 
   std::unique_ptr<Flex> create() override;
   void onClose() override;
@@ -26,6 +27,7 @@ private:
   [[nodiscard]] std::string structureKey() const;
 
   LinkService* m_link = nullptr;
+  QuickShareService* m_quickShare = nullptr;
   Flex* m_rootLayout = nullptr;
   ScrollView* m_listScroll = nullptr;
   Flex* m_list = nullptr;
