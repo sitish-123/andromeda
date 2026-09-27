@@ -51,7 +51,7 @@ with_noctalia() {
       "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
       for _ in $(seq 100); do "$NOCTALIA" msg settings-close > /dev/null 2>&1 && break; sleep 0.1; done
       eval "$1"
-      kill %1
+      kill $(jobs -p) 2>/dev/null || true
       wait
     ' _ "$1"
 }
