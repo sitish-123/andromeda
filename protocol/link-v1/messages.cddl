@@ -1,0 +1,22 @@
+; Link v1 control messages. A frame is a big-endian u32 length, then one CBOR envelope of at most 64 KiB.
+; Types marked "0-RTT" are idempotent and may be sent in QUIC early data.
+
+envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg
+
+; 0-RTT. The first message on the control stream from each side.
+hello-msg = { type: "hello", id: uint, body: hello }
+hello = {
+  version: uint,
+  name: tstr .size (1..64),
+  ? addresses: [* tstr],    ; host:port the desktop can be reached at; sent by the desktop only
+}
+
+pair-spake-msg = { type: "pair-spake", id: uint, body: pair-spake }
+pair-spake = {
+  ? method: "code" / "qr",  ; sent by the phone only
+  msg: bstr .size 33,
+}
+
+pair-confirm-msg = { type: "pair-confirm", id: uint, body: { mac: bstr .size 32 } }
+
+unpair-msg = { type: "unpair", id: uint, body: {} }

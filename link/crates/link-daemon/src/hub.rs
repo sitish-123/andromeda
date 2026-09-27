@@ -1,0 +1,346 @@
+//! The hub actor: sole owner of the device store, the pairing window, and the set of live sessions.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use link_core::discovery::Advertiser;
+use link_core::identity::{DeviceId, Spki};
+use link_core::proto::CloseCode;
+use link_core::proto::pairing::{Secret, Secrets};
+use link_core::store::{Peer, Store};
+use link_core::uri::{PairingUri, QR_SECRET_LEN};
+use link_core::{close, net};
+use ring::rand::{SecureRandom, SystemRandom};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::Instant;
+
+use crate::paths::Paths;
+
+const WINDOW: Duration = Duration::from_secs(120);
+
+pub enum Admission {
+    Session,
+    Pair(Arc<Secrets>),
+    Reject(CloseCode),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Snapshot {
+    /// `(device_id, name, connected)`, the D-Bus `Devices` property.
+    pub devices: Vec<(String, String, bool)>,
+    pub pairing: bool,
+}
+
+#[derive(Debug)]
+pub enum Event {
+    PairingFinished { id: DeviceId, name: String },
+    PairingFailed { reason: String },
+}
+
+enum Command {
+    StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
+    CancelPairing,
+    Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
+    Admit { spki: Spki, reply: oneshot::Sender<Admission> },
+    Paired { spki: Spki, name: String },
+    PairingFailed { reason: String },
+    Connected { id: DeviceId, name: String, connection: quinn::Connection },
+    Disconnected { id: DeviceId, stable_id: usize },
+    PeerUnpaired { id: DeviceId },
+}
+
+#[derive(Clone)]
+pub struct HubHandle(mpsc::Sender<Command>);
+
+struct Window {
+    secrets: Arc<Secrets>,
+    deadline: Instant,
+    taken: bool,
+}
+
+pub struct Hub {
+    own: Spki,
+    store: Store,
+    paths: Paths,
+    /// Present only while someone could be looking: a paired device or an open pairing window.
+    advertiser: Option<Advertiser>,
+    window: Option<Window>,
+    sessions: HashMap<DeviceId, quinn::Connection>,
+    commands: mpsc::Receiver<Command>,
+    snapshots: watch::Sender<Snapshot>,
+    events: mpsc::Sender<Event>,
+}
+
+impl Hub {
+    pub fn new(
+        own: Spki,
+        store: Store,
+        paths: Paths,
+    ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
+        let (commands_tx, commands) = mpsc::channel(32);
+        let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
+        let (events, events_rx) = mpsc::channel(8);
+        let mut hub = Self {
+            own,
+            store,
+            paths,
+            advertiser: None,
+            window: None,
+            sessions: HashMap::new(),
+            commands,
+            snapshots,
+            events,
+        };
+        hub.refresh();
+        (hub, HubHandle(commands_tx), snapshots_rx, events_rx)
+    }
+
+    pub async fn run(mut self) -> anyhow::Result<()> {
+        loop {
+            let deadline = self.window.as_ref().map(|window| window.deadline);
+            tokio::select! {
+                command = self.commands.recv() => match command {
+                    Some(command) => self.handle(command).await,
+                    None => return Ok(()),
+                },
+                () = sleep_until(deadline) => {
+                    log::info!("pairing window expired");
+                    self.close_window();
+                }
+            }
+        }
+    }
+
+    async fn handle(&mut self, command: Command) {
+        match command {
+            Command::StartPairing { reply } => drop(reply.send(self.start_pairing())),
+            Command::CancelPairing => self.close_window(),
+            Command::Unpair { id, reply } => drop(reply.send(self.unpair(&id))),
+            Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
+            Command::Paired { spki, name } => self.paired(&spki, name).await,
+            Command::PairingFailed { reason } => {
+                self.close_window();
+                self.emit(Event::PairingFailed { reason }).await;
+            }
+            Command::Connected { id, name, connection } => self.connected(id, name, connection),
+            Command::Disconnected { id, stable_id } => {
+                if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
+                    self.sessions.remove(&id);
+                    self.publish();
+                }
+            }
+            Command::PeerUnpaired { id } => {
+                log::info!("{id} unpaired itself");
+                self.store.remove(&id);
+                self.save();
+                self.refresh();
+            }
+        }
+    }
+
+    fn start_pairing(&mut self) -> anyhow::Result<(String, String)> {
+        let (code, qr) = generate_secrets()?;
+        let uri = PairingUri {
+            fingerprint: self.own.fingerprint(),
+            secret: qr,
+            addresses: net::local_addresses(self.store.port),
+        };
+        let secrets = Secrets { code: Secret::new(code.clone().into_bytes()), qr: Secret::new(qr.to_vec()) };
+        self.window = Some(Window { secrets: Arc::new(secrets), deadline: Instant::now() + WINDOW, taken: false });
+        self.refresh();
+        log::info!("pairing window open");
+        Ok((code, uri.to_string()))
+    }
+
+    fn close_window(&mut self) {
+        if self.window.take().is_some() {
+            self.refresh();
+        }
+    }
+
+    fn admit(&mut self, spki: &Spki) -> Admission {
+        let id = spki.device_id();
+        if let Some(index) = self.store.revoked.iter().position(|revoked| *revoked == id) {
+            self.store.revoked.remove(index);
+            self.save();
+            return Admission::Reject(CloseCode::Unpaired);
+        }
+        if self.store.peer(&id).is_some() {
+            return Admission::Session;
+        }
+        match &mut self.window {
+            Some(window) if window.taken => Admission::Reject(CloseCode::Busy),
+            Some(window) => {
+                window.taken = true;
+                Admission::Pair(window.secrets.clone())
+            }
+            None => Admission::Reject(CloseCode::NotPaired),
+        }
+    }
+
+    async fn paired(&mut self, spki: &Spki, name: String) {
+        let mut peer = Peer::new(spki, name.clone());
+        peer.touch();
+        let id = peer.id.clone();
+        self.store.upsert(peer);
+        self.save();
+        self.close_window();
+        log::info!("paired {id} ({name:?})");
+        self.emit(Event::PairingFinished { id, name }).await;
+    }
+
+    fn connected(&mut self, id: DeviceId, name: String, connection: quinn::Connection) {
+        let Some(peer) = self.store.peer_mut(&id) else {
+            return close(&connection, CloseCode::NotPaired);
+        };
+        peer.name = name;
+        peer.touch();
+        self.save();
+        self.sessions.insert(id, connection);
+        self.publish();
+    }
+
+    fn unpair(&mut self, id: &DeviceId) -> bool {
+        if self.store.remove(id).is_none() {
+            return false;
+        }
+        if let Some(connection) = self.sessions.remove(id) {
+            close(&connection, CloseCode::Unpaired);
+        }
+        self.store.revoked.push(id.clone());
+        self.save();
+        self.refresh();
+        true
+    }
+
+    /// Publishes the D-Bus snapshot and starts, updates, or stops the mDNS advertisement to match.
+    fn refresh(&mut self) {
+        self.publish();
+        let pairing = self.window.is_some();
+        if !pairing && self.store.peers.is_empty() {
+            self.advertiser = None;
+            return;
+        }
+        if let Some(advertiser) = &self.advertiser {
+            return log_mdns(advertiser.set_pairing(pairing));
+        }
+        match Advertiser::start(&self.own.device_id(), self.store.port) {
+            Ok(advertiser) => {
+                log_mdns(advertiser.set_pairing(pairing));
+                self.advertiser = Some(advertiser);
+            }
+            Err(error) => log::warn!("mdns: {error}"),
+        }
+    }
+
+    fn save(&self) {
+        if let Err(error) = self.store.save(&self.paths.devices) {
+            log::error!("saving the device store: {error}");
+        }
+    }
+
+    fn publish(&self) {
+        let devices = self
+            .store
+            .peers
+            .iter()
+            .map(|peer| (peer.id.to_string(), peer.name.clone(), self.sessions.contains_key(&peer.id)))
+            .collect();
+        self.snapshots.send_if_modified(|current| {
+            let next = Snapshot { devices, pairing: self.window.is_some() };
+            let changed = *current != next;
+            *current = next;
+            changed
+        });
+    }
+
+    async fn emit(&self, event: Event) {
+        if self.events.send(event).await.is_err() {
+            log::debug!("no D-Bus forwarder for hub events");
+        }
+    }
+}
+
+fn log_mdns(result: Result<(), link_core::Error>) {
+    if let Err(error) = result {
+        log::warn!("mdns: {error}");
+    }
+}
+
+async fn sleep_until(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// A uniform 6-digit code and a 128-bit QR secret.
+fn generate_secrets() -> anyhow::Result<(String, [u8; QR_SECRET_LEN])> {
+    const CODES: u32 = 1_000_000;
+    let rng = SystemRandom::new();
+    let fill = |bytes: &mut [u8]| rng.fill(bytes).map_err(|_| anyhow::anyhow!("system randomness unavailable"));
+    let code = loop {
+        let mut bytes = [0; 4];
+        fill(&mut bytes)?;
+        let value = u32::from_be_bytes(bytes);
+        if value < u32::MAX - u32::MAX % CODES {
+            break value % CODES;
+        }
+    };
+    let mut qr = [0; QR_SECRET_LEN];
+    fill(&mut qr)?;
+    Ok((format!("{code:06}"), qr))
+}
+
+impl HubHandle {
+    async fn request<T>(&self, make: impl FnOnce(oneshot::Sender<T>) -> Command) -> Option<T> {
+        let (reply, response) = oneshot::channel();
+        self.0.send(make(reply)).await.ok()?;
+        response.await.ok()
+    }
+
+    async fn tell(&self, command: Command) {
+        if self.0.send(command).await.is_err() {
+            log::debug!("hub stopped");
+        }
+    }
+
+    pub async fn start_pairing(&self) -> anyhow::Result<(String, String)> {
+        self.request(|reply| Command::StartPairing { reply })
+            .await
+            .unwrap_or_else(|| Err(anyhow::anyhow!("hub stopped")))
+    }
+
+    pub async fn cancel_pairing(&self) {
+        self.tell(Command::CancelPairing).await;
+    }
+
+    pub async fn unpair(&self, id: DeviceId) -> bool {
+        self.request(|reply| Command::Unpair { id, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn admit(&self, spki: Spki) -> Admission {
+        self.request(|reply| Command::Admit { spki, reply }).await.unwrap_or(Admission::Reject(CloseCode::Busy))
+    }
+
+    pub async fn paired(&self, spki: Spki, name: String) {
+        self.tell(Command::Paired { spki, name }).await;
+    }
+
+    pub async fn pairing_failed(&self, reason: String) {
+        self.tell(Command::PairingFailed { reason }).await;
+    }
+
+    pub async fn connected(&self, id: DeviceId, name: String, connection: quinn::Connection) {
+        self.tell(Command::Connected { id, name, connection }).await;
+    }
+
+    pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {
+        self.tell(Command::Disconnected { id, stable_id }).await;
+    }
+
+    pub async fn peer_unpaired(&self, id: DeviceId) {
+        self.tell(Command::PeerUnpaired { id }).await;
+    }
+}

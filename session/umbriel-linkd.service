@@ -1,0 +1,39 @@
+[Unit]
+Description=Umbriel Link, phone and desktop continuity
+PartOf=umbriel-session.target
+After=umbriel-session.target
+
+[Service]
+Type=dbus
+BusName=org.umbriel.Link1
+Slice=session.slice
+ExecStart=/usr/bin/umbriel-linkd
+Restart=on-failure
+StateDirectory=umbriel-link
+StateDirectoryMode=0700
+# It parses untrusted network input and holds the device key: nothing beyond sockets and its state directory.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+# AF_NETLINK lists interface addresses for mDNS and the pairing QR code.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=umbriel-session.target

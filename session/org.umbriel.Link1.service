@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.umbriel.Link1
+Exec=/bin/false
+SystemdService=umbriel-linkd.service
