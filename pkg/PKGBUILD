@@ -29,7 +29,8 @@ build() {
   meson compile -C build-compositor
   meson compile -C build-shell
   meson compile -C build-portal
-  cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon
+  # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
+  CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon
 }
 
 package_umbriel-desktop-git() {
