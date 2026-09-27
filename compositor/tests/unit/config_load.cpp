@@ -749,14 +749,21 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenLocked) {
       "\"XF86AudioLowerVolume\" = \"spawn:volume-down\"\n"
   );
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().keybinds.size(), size_t{2});
 
-  bool allowedWhenLocked = false;
-  bool defaultsToBlocked = false;
-  for (const auto& bind : store.config().keybinds) {
-    allowedWhenLocked = allowedWhenLocked || bind.allowWhenLocked;
-    defaultsToBlocked = defaultsToBlocked || !bind.allowWhenLocked;
+  // The file's binds sit among the built-ins, so they are found by what they spawn.
+  const auto spawned = [&](std::string_view command) {
+    return std::ranges::find_if(store.config().keybinds, [command](const auto& bind) {
+      const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind);
+      return spawn != nullptr && spawn->command == command;
+    });
+  };
+  CHECK(spawned("volume-up") != store.config().keybinds.end());
+  CHECK(spawned("volume-down") != store.config().keybinds.end());
+  if (spawned("volume-up") == store.config().keybinds.end() || spawned("volume-down") == store.config().keybinds.end()) {
+    return;
   }
+  const bool allowedWhenLocked = spawned("volume-up")->allowWhenLocked;
+  const bool defaultsToBlocked = !spawned("volume-down")->allowWhenLocked;
   CHECK(allowedWhenLocked);
   CHECK(defaultsToBlocked);
   CHECK(!containsDiagnostic(store, "allow_when_locked"));
@@ -773,14 +780,20 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenInhibited) {
       "\"Mod+Return\" = \"spawn:terminal\"\n"
   );
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().keybinds.size(), size_t{2});
 
-  bool allowedWhenInhibited = false;
-  bool defaultsToBlocked = false;
-  for (const auto& bind : store.config().keybinds) {
-    allowedWhenInhibited = allowedWhenInhibited || bind.allowWhenInhibited;
-    defaultsToBlocked = defaultsToBlocked || !bind.allowWhenInhibited;
+  const auto& binds = store.config().keybinds;
+  const auto toggle = std::ranges::find(binds, umbriel::KeybindAction::ShortcutsInhibitToggle, &umbriel::Keybind::action);
+  const auto terminal = std::ranges::find_if(binds, [](const auto& bind) {
+    const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind);
+    return spawn != nullptr && spawn->command == "terminal";
+  });
+  CHECK(toggle != binds.end());
+  CHECK(terminal != binds.end());
+  if (toggle == binds.end() || terminal == binds.end()) {
+    return;
   }
+  const bool allowedWhenInhibited = toggle->allowWhenInhibited;
+  const bool defaultsToBlocked = !terminal->allowWhenInhibited;
   CHECK(allowedWhenInhibited);
   CHECK(defaultsToBlocked);
   CHECK(!containsDiagnostic(store, "allow_when_inhibited"));
@@ -797,7 +810,6 @@ UMBRIEL_TEST(keybindTablePreservesWorkspaceReferenceKinds) {
       "\"Mod+Ctrl+2\" = 'workspace-switch:\"2\"'\n"
   );
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().keybinds.size(), size_t{2});
 
   bool foundPosition = false;
   bool foundNumericName = false;
