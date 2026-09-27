@@ -363,6 +363,8 @@ namespace umbriel {
     bool destroyOutput(const std::string& name, std::string* error);
 
     void removeOutput(Output* output);
+    // Sends closed to every layer surface on `output`, for an output leaving the desktop for good or to mirror.
+    void closeLayerSurfaces(wlr_output* output);
     void reassignOutputViews(Output* source, Output* destination);
     void scheduleDisplacedViewRestore();
     void removeKeyboard(Keyboard* keyboard);

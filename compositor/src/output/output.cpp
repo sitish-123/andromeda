@@ -1411,6 +1411,11 @@ namespace umbriel {
     if (applyState) {
       applyOutputState();
     }
+    // Hidden layer surfaces would keep keyboard focus they were given as exclusive. Closed once off the layout, so
+    // focus falls back to an output still on the desktop.
+    if (source != nullptr) {
+      m_server->closeLayerSurfaces(m_output);
+    }
     m_server->updateOutputManagerConfig();
     if (DesktopOutputManager* manager = m_server->desktopOutputManager()) {
       manager->broadcast(*this);

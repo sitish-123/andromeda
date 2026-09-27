@@ -2013,18 +2013,7 @@ namespace umbriel {
     });
     // wlroots 0.20 does not track output lifetime for layer surfaces, so their wlr_output pointer would dangle once the
     // output is freed. Destroy them now while the wlr_output is still valid.
-    {
-      wlr_output* dying = output->wlr();
-      std::vector<wlr_layer_surface_v1*> toClose;
-      for (const auto& ls : m_layerSurfaces) {
-        if (ls->layerSurface() != nullptr && ls->layerSurface()->output == dying) {
-          toClose.push_back(ls->layerSurface());
-        }
-      }
-      for (wlr_layer_surface_v1* ls : toClose) {
-        wlr_layer_surface_v1_destroy(ls);
-      }
-    }
+    closeLayerSurfaces(output->wlr());
 
     Output* fallback = nullptr;
     for (const auto& entry : m_outputs) {
@@ -2055,6 +2044,18 @@ namespace umbriel {
     updateOutputManagerConfig();
     // Scratchpad and pinned views rehome without going through setWorkspace.
     refreshSurfaceScales();
+  }
+
+  void Server::closeLayerSurfaces(wlr_output* output) {
+    std::vector<wlr_layer_surface_v1*> toClose;
+    for (const auto& ls : m_layerSurfaces) {
+      if (ls->layerSurface() != nullptr && ls->layerSurface()->output == output) {
+        toClose.push_back(ls->layerSurface());
+      }
+    }
+    for (wlr_layer_surface_v1* ls : toClose) {
+      wlr_layer_surface_v1_destroy(ls);
+    }
   }
 
   void Server::reassignOutputViews(Output* source, Output* destination) {
