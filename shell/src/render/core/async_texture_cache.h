@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/poll_source.h"
+#include "core/idle_worker_slots.h"
 #include "render/core/texture_handle.h"
 
 #include <atomic>
@@ -107,7 +108,7 @@ private:
     TextureReadyCallback callback;
   };
 
-  void workerLoop();
+  void workerLoop(std::size_t slot);
   void signalMain();
   void pushResult(DecodedJob job);
   void makeCurrent();
@@ -122,7 +123,7 @@ private:
   std::function<void()> m_makeCurrentCallback;
   std::unique_ptr<TextureManager> m_textureManager;
   int m_eventFd = -1;
-  std::vector<std::thread> m_workers;
+  std::unique_ptr<IdleWorkerSlots> m_workers; // guarded by m_queueMutex
   std::atomic<bool> m_shutdown{false};
 
   mutable std::mutex m_queueMutex;

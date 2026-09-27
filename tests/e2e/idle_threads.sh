@@ -5,7 +5,7 @@
 # threads.txt (counts and per-name tally) to $OUT (default ./artifacts/idle-threads).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/idle-threads}
-MAX_WORKERS=${MAX_WORKERS:-12}
+MAX_WORKERS=${MAX_WORKERS:-4}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
