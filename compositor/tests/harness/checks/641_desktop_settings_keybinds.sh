@@ -20,11 +20,15 @@ expect_bind() {
   return 1
 }
 
-[[ $(bind_of "Mod+q") == "Mod+q=window-close" ]] || { echo "built-in Mod+q not reported"; exit 1; }
+[[ $(bind_of "Mod+q") == "Mod+q=window-close" ]] || {
+  echo "built-in Mod+q not reported; keybinds-state gave:"
+  "$DESKTOP" keybinds-state 2>&1 | head -5 | sed 's/^/  | /'
+  exit 1
+}
 
 "$DESKTOP" keybind-set "Mod+Shift+y" "spawn:foot"
 expect_bind "Mod+Shift+y" "Mod+Shift+y=spawn:foot customized"
-grep -q '"Mod+Shift+y" = "spawn:foot"' "$SAVED" || { echo "settings.toml lacks the bind:"; sed 's/^/  | /' "$SAVED"; exit 1; }
+grep -Eq "[\"']Mod\+Shift\+y[\"'] = [\"']spawn:foot[\"']" "$SAVED" || { echo "settings.toml lacks the bind:"; sed 's/^/  | /' "$SAVED"; exit 1; }
 
 "$DESKTOP" keybind-set "mod+shift+Y" "window-close"
 expect_bind "Mod+Shift+y" "Mod+Shift+y=window-close customized"

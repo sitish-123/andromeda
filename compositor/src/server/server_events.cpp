@@ -20,6 +20,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
+#include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/ipc.h"
 #include "server/server.h"

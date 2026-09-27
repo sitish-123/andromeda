@@ -2618,6 +2618,8 @@ namespace umbriel {
         }
 
         Config loaded;
+        // The caller seeds the built-in keybinds; [keybinds] overrides them chord by chord and "none" removes one.
+        loaded.keybinds = out.keybinds;
         {
           Section root(result.merged, "", store.mutableDiagnostics());
           readColors(root, loaded);
