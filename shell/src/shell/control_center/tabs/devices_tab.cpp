@@ -11,13 +11,16 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <memory>
 #include <qrencode.h>
+#include <string_view>
 #include <vector>
 
 using namespace control_center;
@@ -77,6 +80,16 @@ namespace {
         .configure = [scale, opacity](Flex& card) { applySectionCardStyle(card, scale, opacity); },
     });
   }
+
+  struct Feature {
+    std::string_view name;
+    std::string_view label;
+  };
+  constexpr std::array kFeatures{
+      Feature{.name = "clipboard", .label = "control-center.devices.grant-clipboard"},
+      Feature{.name = "files", .label = "control-center.devices.grant-files"},
+      Feature{.name = "notifications", .label = "control-center.devices.grant-notifications"},
+  };
 
   std::unique_ptr<Label> makeCaption(std::string text, float scale, ColorRole role = ColorRole::OnSurfaceVariant) {
     return ui::label({
@@ -172,9 +185,47 @@ std::string DevicesTab::structureKey() const {
   }
   key.push_back('\n');
   for (const auto& device : m_link->devices()) {
-    key += device.id + (device.connected ? " 1 " : " 0 ") + device.name + "\n";
+    key += device.id + (device.connected ? " 1 " : " 0 ") + device.name;
+    for (const auto feature : kFeatures) {
+      key += m_link->granted(device.id, feature.name) ? " +" : " -";
+    }
+    key += std::ranges::contains(m_link->autoAccept(), device.id) ? " auto\n" : "\n";
   }
   return key;
+}
+
+std::unique_ptr<Flex> DevicesTab::makeSettings(const std::string& id, float scale) {
+  auto settings =
+      ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale, .paddingH = Style::spaceMd * scale});
+  const auto addToggle = [&](std::string label, bool checked, std::function<void(bool)> onChange) {
+    settings->addChild(
+        ui::row(
+            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+            ui::label({
+                .text = std::move(label),
+                .fontSize = Style::fontSizeCaption * scale,
+                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .flexGrow = 1.0F,
+            }),
+            ui::toggle({
+                .checkedImmediate = checked,
+                .toggleSize = ToggleSize::Small,
+                .scale = scale,
+                .onChange = std::move(onChange),
+            })
+        )
+    );
+  };
+  for (const auto feature : kFeatures) {
+    addToggle(i18n::tr(feature.label), m_link->granted(id, feature.name), [this, id, name = feature.name](bool on) {
+      m_link->setGrant(id, std::string(name), on);
+    });
+  }
+  addToggle(
+      i18n::tr("control-center.devices.auto-accept"), std::ranges::contains(m_link->autoAccept(), id),
+      [this, id](bool on) { m_link->setAutoAccept(id, on); }
+  );
+  return settings;
 }
 
 void DevicesTab::rebuild(Renderer& renderer) {
@@ -348,6 +399,7 @@ void DevicesTab::rebuild(Renderer& renderer) {
         })
     );
     devicesCard->addChild(std::move(row));
+    devicesCard->addChild(makeSettings(device.id, scale));
   }
   m_list->addChild(std::move(devicesCard));
   m_list->layout(renderer);

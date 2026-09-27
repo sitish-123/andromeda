@@ -299,6 +299,10 @@
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
       "send-files": "Send a file",
+      "grant-clipboard": "Sync the clipboard",
+      "grant-files": "Receive files",
+      "grant-notifications": "Show its notifications",
+      "auto-accept": "Accept files without asking",
       "unpair": "Unpair"
     },
     "display": {

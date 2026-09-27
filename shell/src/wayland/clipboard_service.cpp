@@ -1031,6 +1031,31 @@ bool ClipboardService::copyData(
   return true;
 }
 
+bool ClipboardService::offerRemote(std::vector<std::string> mimeTypes, RemoteSend send) {
+  if (m_device == nullptr || m_ops == nullptr || mimeTypes.empty() || !send) {
+    return false;
+  }
+  void* source = m_ops->createDataSource(m_manager);
+  if (source == nullptr) {
+    return false;
+  }
+  if (m_ops->addSourceListener(source, sourceListenerFor(*m_ops), this) != 0) {
+    m_ops->destroySource(source);
+    return false;
+  }
+  for (const auto& mimeType : mimeTypes) {
+    m_ops->sourceOffer(source, mimeType.c_str());
+  }
+  m_ops->sourceOffer(source, kRemoteMimeType);
+  m_outgoingSources.push_back(
+      OutgoingSource{.source = source, .mimeTypes = std::move(mimeTypes), .data = nullptr, .remote = std::move(send)}
+  );
+  m_ops->deviceSetSelection(m_device, source);
+  return true;
+}
+
+void ClipboardService::setSelectionListener(SelectionListener listener) { m_selectionListener = std::move(listener); }
+
 void ClipboardService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
 void ClipboardService::setPersistenceChangeCallback(ChangeCallback callback) {
@@ -1225,7 +1250,11 @@ void ClipboardService::handleSourceSend(void* source, const char* mimeType, int 
   const auto it = std::ranges::find(m_outgoingSources, source, &OutgoingSource::source);
   if (it != m_outgoingSources.end() && mimeType != nullptr) {
     const auto mimeIt = std::ranges::find(it->mimeTypes, std::string_view(mimeType));
-    if (mimeIt != it->mimeTypes.end()) {
+    if (mimeIt != it->mimeTypes.end() && it->remote && fd >= 0) {
+      it->remote(*mimeIt, fd);
+      return;
+    }
+    if (mimeIt != it->mimeTypes.end() && it->data != nullptr) {
       if (queueOutgoingWrite(source, fd, it->data)) {
         return;
       }
@@ -1317,6 +1346,9 @@ bool ClipboardService::startReceive(void* offer) {
     kLog.debug("ignoring clipboard selection: password-hint MIME advertised");
     return false;
   }
+  if (std::ranges::contains(state->mimeTypes, std::string_view(kRemoteMimeType))) {
+    return false;
+  }
 
   const std::string mimeType = chooseMimeType(*state);
   if (mimeType.empty()) {
@@ -1355,6 +1387,9 @@ void ClipboardService::finishRead(bool discard) {
 
   if (!shouldStore) {
     return;
+  }
+  if (m_selectionListener) {
+    m_selectionListener(mimeTypes, mimeType, data);
   }
 
   // A selection too large to hold is simply not backed up; the reset in

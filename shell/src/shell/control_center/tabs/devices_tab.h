@@ -24,6 +24,7 @@ private:
   void rebuild(Renderer& renderer);
   void syncCountdown();
   [[nodiscard]] std::string structureKey() const;
+  [[nodiscard]] std::unique_ptr<Flex> makeSettings(const std::string& id, float scale);
 
   LinkService* m_link = nullptr;
   Flex* m_rootLayout = nullptr;

@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -63,6 +64,9 @@ public:
   // the paths that could not be opened.
   std::vector<std::string> sendFiles(const std::string& deviceId, const std::vector<std::string>& paths);
   void setAutoAccept(const std::string& deviceId, bool enabled);
+  // feature is clipboard, files, or notifications.
+  void setGrant(const std::string& deviceId, const std::string& feature, bool granted);
+  [[nodiscard]] bool granted(const std::string& deviceId, std::string_view feature) const;
   void registerIpc(IpcService& ipc, std::function<void()> showPairing);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
@@ -88,6 +92,12 @@ private:
   void onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total);
   void onFinished(const std::string& transferId, const std::string& status, const std::vector<std::string>& paths);
   void callTransfer(const char* method, const std::string& transferId);
+  void onLocalClipboard(
+      const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
+  );
+  void onClipboardOffered(
+      const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes, std::uint64_t size
+  );
   void closeTransferNotification(std::uint32_t& id);
   [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
 
@@ -120,6 +130,9 @@ private:
   std::unordered_map<std::string, Transfer> m_transfers;
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
+  std::map<std::string, std::vector<std::string>> m_grants;
+  // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.
+  std::size_t m_lastClipboardHash = 0;
   ChangeCallback m_changeCallback;
   std::vector<LinkDevice> m_devices;
   std::optional<LinkPairing> m_pairing;

@@ -22,6 +22,8 @@
 #include <map>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <utility>
 
 namespace {
@@ -56,6 +58,10 @@ namespace {
     }
     return unit == 0 ? std::format("{} {}", bytes, kUnits[0]) : std::format("{:.1f} {}", size, kUnits[unit]);
   }
+
+  // The protocol's limits on a clipboard offer.
+  constexpr std::size_t kMaxClipboardBytes = 64U << 20U;
+  constexpr std::size_t kMaxClipboardTypes = 16;
 
   std::string fileUri(const std::filesystem::path& path) {
     gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
@@ -140,6 +146,16 @@ LinkService::LinkService(SessionBus& bus, NotificationManager& notifications, Cl
       .call([this](const std::string& transferId, const std::string& status, const std::vector<std::string>& paths) {
         onFinished(transferId, status, paths);
       });
+  m_link->uponSignal("ClipboardOffered")
+      .onInterface(kLinkInterface)
+      .call([this](
+                const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes,
+                std::uint64_t size
+            ) { onClipboardOffered(deviceId, id, mimeTypes, size); });
+  m_clipboard.setSelectionListener([this](
+                                       const std::vector<std::string>& mimeTypes, const std::string& dataMimeType,
+                                       const std::vector<std::uint8_t>& data
+                                   ) { onLocalClipboard(mimeTypes, dataMimeType, data); });
   m_notifications.addInternalActionCallback(
       [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
         onAction(id, action, activationToken);
@@ -199,6 +215,13 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed Devices: {}", e.what());
+    }
+  }
+  if (const auto it = properties.find("Grants"); it != properties.end()) {
+    try {
+      m_grants = it->second.get<std::map<std::string, std::vector<std::string>>>();
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Grants: {}", e.what());
     }
   }
   if (const auto it = properties.find("AutoAccept"); it != properties.end()) {
@@ -346,6 +369,74 @@ void LinkService::setAutoAccept(const std::string& deviceId, bool enabled) {
       .onInterface(kLinkInterface)
       .withArguments(deviceId, enabled)
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetAutoAccept", error); });
+}
+
+void LinkService::setGrant(const std::string& deviceId, const std::string& feature, bool granted) {
+  m_link->callMethodAsync("SetGrant")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, feature, granted)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetGrant", error); });
+}
+
+bool LinkService::granted(const std::string& deviceId, std::string_view feature) const {
+  const auto it = m_grants.find(deviceId);
+  return it != m_grants.end() && std::ranges::contains(it->second, feature);
+}
+
+void LinkService::onLocalClipboard(
+    const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
+) {
+  const bool anyone = std::ranges::any_of(m_devices, [this](const LinkDevice& device) {
+    return device.connected && granted(device.id, "clipboard");
+  });
+  if (!m_available || !anyone || data.size() > kMaxClipboardBytes) {
+    return;
+  }
+  const std::size_t hash =
+      std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
+  if (hash == m_lastClipboardHash) {
+    return;
+  }
+  m_lastClipboardHash = hash;
+  // The first type is the one the bytes are; the daemon offers the rest as its alternatives.
+  std::vector<std::string> offered{dataMimeType};
+  for (const auto& mimeType : mimeTypes) {
+    if (mimeType != dataMimeType && mimeType.contains('/')) {
+      offered.push_back(mimeType);
+    }
+  }
+  offered.resize(std::min<std::size_t>(offered.size(), kMaxClipboardTypes));
+  const int fd = memfd_create("link-clipboard", MFD_CLOEXEC);
+  if (fd < 0) {
+    kLog.warn("memfd for the clipboard: {}", std::strerror(errno));
+    return;
+  }
+  sdbus::UnixFd memfd{fd, sdbus::adopt_fd};
+  if (::write(fd, data.data(), data.size()) != static_cast<ssize_t>(data.size()) || ::lseek(fd, 0, SEEK_SET) != 0) {
+    kLog.warn("writing the clipboard memfd: {}", std::strerror(errno));
+    return;
+  }
+  m_link->callMethodAsync("OfferClipboard")
+      .onInterface(kLinkInterface)
+      .withArguments(offered, memfd)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("OfferClipboard", error); });
+}
+
+void LinkService::onClipboardOffered(
+    const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes, std::uint64_t /*size*/
+) {
+  // The daemon forwards only offers from devices holding the clipboard grant.
+  const bool offered = m_clipboard.offerRemote(mimeTypes, [this, deviceId, id](const std::string& mimeType, int fd) {
+    m_link->callMethodAsync("PullClipboard")
+        .onInterface(kLinkInterface)
+        .withArguments(deviceId, id, mimeType, sdbus::UnixFd{fd, sdbus::adopt_fd})
+        .uponReplyInvoke([](std::optional<sdbus::Error> error, std::uint64_t /*bytes*/) {
+          logFailure("PullClipboard", error);
+        });
+  });
+  if (!offered) {
+    kLog.warn("could not take the selection for {}'s clipboard", deviceId);
+  }
 }
 
 void LinkService::callTransfer(const char* method, const std::string& transferId) {

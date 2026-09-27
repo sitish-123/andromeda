@@ -75,6 +75,14 @@ struct DataControlOps {
 class ClipboardService : public TextClipboard {
 public:
   using ChangeCallback = std::function<void()>;
+  // Takes ownership of fd, the write end a paste target reads the chosen type from.
+  using RemoteSend = std::function<void(const std::string& mimeType, int fd)>;
+  // A new selection another client owns, after it was read: its types and the bytes of the one read.
+  using SelectionListener = std::function<void(
+      const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
+  )>;
+  // Advertised with a selection served for another device, so reading the shell's own selection never pulls it.
+  static constexpr const char* kRemoteMimeType = "application/x-umbriel-link-remote";
 
   explicit ClipboardService(security::StorageKeyProvider& storageKeyProvider);
   ~ClipboardService();
@@ -129,6 +137,9 @@ public:
   bool copyText(std::string text, std::string mimeType);
   bool copyImagePng(std::vector<std::uint8_t> png);
   bool copyEntry(const ClipboardEntry& entry);
+  // Owns the selection without its bytes: each paste calls send, which fetches the type from elsewhere.
+  bool offerRemote(std::vector<std::string> mimeTypes, RemoteSend send);
+  void setSelectionListener(SelectionListener listener);
   bool promoteEntry(std::size_t index);
   bool setEntryPinned(std::size_t index, bool pinned);
   bool removeHistoryEntry(std::size_t index);
@@ -166,6 +177,7 @@ private:
     void* source = nullptr;
     std::vector<std::string> mimeTypes;
     std::shared_ptr<const std::vector<std::uint8_t>> data;
+    RemoteSend remote;
   };
 
   // The payload of the current selection, kept so it can be re-offered when its
@@ -258,5 +270,6 @@ private:
   ClipboardPersistenceState m_persistenceState = ClipboardPersistenceState::Opening;
   bool m_persistenceMigrationPending = false;
   ChangeCallback m_changeCallback;
+  SelectionListener m_selectionListener;
   ChangeCallback m_persistenceChangeCallback;
 };
