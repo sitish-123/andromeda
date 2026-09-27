@@ -49,6 +49,8 @@ class DevicesViewModel(private val repository: LinkRepository, private val prese
 
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
 
+    fun notificationsAllowed() = presence.notificationsAllowed()
+
     fun announce(desktop: Desktop) {
         messageChannel.trySend(DevicesMessage.Paired(desktop.name))
     }

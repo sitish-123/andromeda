@@ -1,0 +1,10 @@
+# Phones reach the daemon only through the firewall; open it where ufw is running, as the profile describes.
+post_install() {
+  if command -v ufw > /dev/null && ufw status 2> /dev/null | grep -q '^Status: active'; then
+    ufw allow 'Umbriel Link' > /dev/null && echo ':: ufw: allowed Umbriel Link (4717/udp, 5353/udp)'
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

@@ -54,7 +54,9 @@ fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val resources = context.resources
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.notificationsAllowed()
+    }
     val paired = state.desktops.isNotEmpty()
     // Asked once a desktop is paired, the first moment one can send this phone anything to notify about.
     LaunchedEffect(paired) {

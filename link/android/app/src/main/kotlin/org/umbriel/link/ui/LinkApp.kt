@@ -41,6 +41,7 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
                 viewModel = pairing,
                 onBack = { screen = Screen.Devices },
                 onPaired = { desktop ->
+                    container.presence.paired()
                     devices.announce(desktop)
                     screen = Screen.Devices
                 },

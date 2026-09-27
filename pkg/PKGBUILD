@@ -72,6 +72,7 @@ package_umbriel-link-git() {
   pkgdesc='Umbriel Link daemon: phone and desktop continuity'
   depends=(glibc gcc-libs dbus)
   backup=(etc/ufw/applications.d/umbriel-link)
+  install=umbriel-link.install
   install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
   install -Dm644 desktop/session/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
   install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
