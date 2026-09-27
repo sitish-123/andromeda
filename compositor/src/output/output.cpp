@@ -254,7 +254,7 @@ namespace umbriel {
   bool Output::applyConfiguredState() {
     const OutputRule* rule = findOutputRule(config(), identity());
     const std::optional<double> configuredScale = rule != nullptr ? rule->scale : std::nullopt;
-    const bool enabled = (desktopEnabled() || m_mirrorSource != nullptr) && !m_dpmsOff;
+    const bool enabled = m_mirrorSource != nullptr ? !m_mirrorSource->m_dpmsOff : desktopEnabled() && !m_dpmsOff;
     wlr_output_state state{};
     wlr_output_state_init(&state);
     wlr_output_state_set_enabled(&state, enabled);
@@ -444,7 +444,7 @@ namespace umbriel {
           "output '{}': applied mode={}x{}@{}mHz scale={} transform={}", m_output->name, m_output->width,
           m_output->height, m_output->refresh, m_output->scale, static_cast<int>(m_output->transform)
       );
-    } else if (!desktopEnabled()) {
+    } else if (!desktopEnabled() && m_mirrorSource == nullptr) {
       const OutputRule* rule = findOutputRule(config(), identity());
       if (rule == nullptr && !outputCanAutoEnable(m_output)) {
         kLog.info(
@@ -674,6 +674,11 @@ namespace umbriel {
     if (!applyConfiguredState()) {
       m_dpmsOff = previous;
       return false;
+    }
+    for (const auto& output : m_server->outputs()) {
+      if (output->m_mirrorSource == this && output->applyConfiguredState() && powered) {
+        output->scheduleFullFrame();
+      }
     }
 
     if (powered) {

@@ -81,7 +81,7 @@ namespace umbriel {
     [[nodiscard]] bool desktopEnabled() const { return m_desktopEnabled; }
     // Part of the desktop and powered: a target for windows, focus, and rules.
     [[nodiscard]] bool onDesktop() const;
-    // A mirroring output stays powered but leaves the desktop, showing `source`'s frames letterboxed.
+    // A mirroring output leaves the desktop and follows `source`'s power, showing its frames letterboxed.
     [[nodiscard]] Output* mirrorSource() const { return m_mirrorSource; }
     // `applyState` false leaves the backend alone, for callers that already committed the output's power state.
     void setMirrorSource(Output* source, bool applyState = true);
