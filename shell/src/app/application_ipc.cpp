@@ -696,6 +696,7 @@ void Application::initIpc() {
   if (m_quickShareService != nullptr) {
     m_quickShareService->registerIpc(m_ipcService);
   }
+  m_locationService.registerIpc(m_ipcService);
   if (m_bluetoothService != nullptr) {
     m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));

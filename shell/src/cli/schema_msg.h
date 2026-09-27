@@ -894,6 +894,9 @@ namespace noctalia::cli {
         "quickshare-send", "Send files to a nearby Quick Share receiver by its id from quickshare-nearby", {}, {}, {},
         kMsgQuickShareSendPositionals, {}, false
     };
+    inline constexpr Command locationStatus{
+        "location-status", "Print the resolved location: latitude, longitude, source, and name", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
@@ -1023,6 +1026,7 @@ namespace noctalia::cli {
       msg::linkShare,
       msg::linkUnpair,
       msg::quickShareVisible,
+      msg::locationStatus,
       msg::quickShareNearby,
       msg::quickShareSend,
       msg::lockscreenWidgetsEdit,

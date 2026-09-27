@@ -838,7 +838,8 @@
     "source": {
       "address": "Address",
       "auto": "Auto",
-      "manual": "Manual"
+      "manual": "Manual",
+      "system": "System location"
     }
   },
   "lockscreen": {
@@ -2889,8 +2890,8 @@
           "placeholder": "City, Country"
         },
         "location-auto-locate": {
-          "description": "Detect your location automatically from your IP address via noctalia.dev",
-          "label": "Auto-Locate (IP)"
+          "description": "Use the system location service (GeoClue). Without it, your IP address is looked up through noctalia.dev",
+          "label": "Auto-Locate"
         },
         "longitude": {
           "description": "Manual longitude for the sunrise/sunset schedule, used when auto-locate and address are off",

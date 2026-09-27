@@ -1728,6 +1728,7 @@ void Application::initSessionBusServices() {
     m_compositorPlatform.startKdeActiveWindow(*m_bus);
   }
 
+  m_locationService.setSystemBus(m_systemBus.get());
   m_locationService.initialize();
   m_weatherService.initialize();
   m_calendarService.initialize();

@@ -6,12 +6,19 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 class ConfigService;
 class HttpClient;
+class IpcService;
+class SystemBus;
+
+namespace sdbus {
+  class IProxy;
+}
 
 // Coordinates selected from IP geolocation, a geocoded address, or manual configuration.
 struct ResolvedLocation {
@@ -21,8 +28,8 @@ struct ResolvedLocation {
   std::string sourceLabel; // i18n label describing how the location was resolved
 };
 
-// Owns "where am I" for the whole shell. Selects coordinates from IP geolocation,
-// a geocoded address, or manual latitude/longitude and publishes them to consumers.
+// Owns "where am I" for the whole shell. Selects coordinates from the system location service (GeoClue), IP
+// geolocation when GeoClue is absent, a geocoded address, or manual latitude/longitude and publishes them to consumers.
 // Fixed sunrise/sunset schedules remain in LocationConfig. Runs independently of
 // whether weather is enabled.
 class LocationService {
@@ -30,6 +37,11 @@ public:
   using ChangeCallback = std::function<void()>;
 
   LocationService(ConfigService& configService, HttpClient& httpClient);
+  ~LocationService();
+
+  // Before initialize(): where GeoClue is looked for.
+  void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  void registerIpc(IpcService& ipc);
 
   void initialize();
   void addChangeCallback(ChangeCallback callback);
@@ -56,6 +68,9 @@ private:
   void notifyChanged();
   void requestRefresh();
   void startGeolocate();
+  void startGeoclue();
+  void stopGeoclue();
+  void onGeoclueLocation(const std::string& path);
   void startAddressGeocode();
   void handleResponse(const std::filesystem::path& path, bool autoLocated, bool success, std::uint64_t serial);
   void clearResolved();
@@ -72,6 +87,9 @@ private:
 
   ConfigService& m_configService;
   HttpClient& m_httpClient;
+  SystemBus* m_systemBus = nullptr;
+  std::unique_ptr<sdbus::IProxy> m_geoclueClient;
+  std::unique_ptr<sdbus::IProxy> m_geoclueLocation;
   LocationConfig m_config;
   std::vector<ChangeCallback> m_callbacks;
 
