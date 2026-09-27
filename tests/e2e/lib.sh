@@ -10,7 +10,8 @@ trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' 
 boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
   printf '[plugins]\nauto_update = "none"\n' > "$RUNTIME/home/.config/noctalia/config.toml"
-  printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$RUNTIME/umbriel.toml"
+  printf '[general]\nautostart = []\nshow_cheatsheet = false\n\n[include.optional]\nfiles = ["input.toml"]\n' \
+    > "$RUNTIME/umbriel.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
   cat > "$RUNTIME/bus.conf" <<'CONF'
 <busconfig>
@@ -41,9 +42,9 @@ run() {
 
 # with_noctalia SCRIPT: run a bash script while Noctalia runs on a private bus, used as both session and system bus
 # so the test shell never reaches the real BlueZ, NetworkManager, or logind. The script sees $NOCTALIA, $OUT,
-# $UMBRIEL, and $DESKTOP_CLIENT, and Noctalia is answering IPC when it starts.
+# $UMBRIEL, $DESKTOP_CLIENT, and $RUNTIME, and Noctalia is answering IPC when it starts.
 with_noctalia() {
-  run env NOCTALIA="$NOCTALIA" OUT="$OUT" UMBRIEL="$UMBRIEL" DESKTOP_CLIENT="$DESKTOP_CLIENT" \
+  run env NOCTALIA="$NOCTALIA" OUT="$OUT" UMBRIEL="$UMBRIEL" DESKTOP_CLIENT="$DESKTOP_CLIENT" RUNTIME="$RUNTIME" \
     dbus-run-session --config-file="$RUNTIME/bus.conf" -- bash -c '
       set -euo pipefail
       export DBUS_SYSTEM_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS

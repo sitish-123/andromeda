@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/timer_manager.h"
+#include "dbus/locale/locale_service.h"
+#include "dbus/timedate/timedate_service.h"
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
@@ -13,11 +15,13 @@
 #include "shell/settings/settings_registry.h"
 #include "shell/settings/settings_sheet_modal.h"
 #include "shell/settings/widget_add_popup.h"
+#include "system/xkb_layout_catalog.h"
 #include "ui/controls/context_menu_popup.h"
 #include "ui/controls/roving_list_nav.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
+#include "wayland/input_control.h"
 #include "wayland/mirror_control.h"
 #include "wayland/output_management.h"
 #include "wayland/toplevel_surface.h"
@@ -50,6 +54,8 @@ class IdleManager;
 class Input;
 class Label;
 class RenderContext;
+class FileWatcher;
+class SystemBus;
 class ThumbnailService;
 class UPowerService;
 class WaylandConnection;
@@ -115,6 +121,8 @@ public:
     m_saveWallpaperPaletteAsCustom = std::move(callback);
   }
   void setCalendarService(CalendarService* service) { m_calendarService = service; }
+  void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
@@ -176,6 +184,13 @@ private:
   void refreshPluginListIfNeeded();
   void addDisplaysContent(float scale);
   void onDisplaysChanged();
+  void addInputContent(float scale);
+  void onInputChanged();
+  void addDateTimeContent(float scale);
+  void onDateTimeChanged();
+  void addLanguageContent(float scale);
+  void onLanguageChanged();
+  void addDefaultAppsContent(float scale);
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
   void finishDisplayConfirm(bool keep);
@@ -330,6 +345,17 @@ private:
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
   std::string m_displayError;
+  // Exists only while the Input section is showing.
+  std::unique_ptr<InputControl> m_inputControl;
+  std::optional<xkb::Catalog> m_xkbCatalog;
+  SystemBus* m_systemBus = nullptr;
+  // Exists only while the Date & Time section is showing.
+  std::unique_ptr<TimeDateService> m_timeDateService;
+  // Exists only while the Language & Region section is showing (also uses m_xkbCatalog).
+  std::unique_ptr<LocaleService> m_localeService;
+  FileWatcher* m_fileWatcher = nullptr;
+  // Live while the Default Apps section is showing.
+  std::uint64_t m_mimeAppsWatchId = 0;
   // Set by openToBarWidget (e.g. middle-click on a bar widget) / openToPlugin and consumed after
   // the Settings scene is available so the requested editor can be mounted into it.
   std::string m_pendingOpenWidgetInspectorName;

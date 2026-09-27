@@ -1354,6 +1354,12 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == "dsk_input_manager_v1") {
+    m_desktopInputGlobalName = name;
+    m_desktopInputGlobalVersion = std::min(version, 1U);
+    return;
+  }
+
   if (interfaceName == zwlr_output_manager_v1_interface.name) {
     // head/mode release requests need v3; nothing useful to bind below that anyway.
     if (version < kOutputManagerMinVersion) {

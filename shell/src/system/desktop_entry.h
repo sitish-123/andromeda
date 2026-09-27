@@ -35,6 +35,7 @@ struct DesktopEntry {
   std::string exec;
   std::string icon;
   std::string categories;
+  std::string mimeTypes; // MimeType=, semicolon-separated
   std::string keywords;
   std::string startupWmClass;
   std::string workingDir;
