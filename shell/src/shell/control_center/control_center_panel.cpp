@@ -3,6 +3,7 @@
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
+#include "dbus/link/link_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "i18n/i18n.h"
 #include "notification/notification_manager.h"
@@ -50,6 +51,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_mpris = services.mpris;
   m_notificationManager = services.notifications;
   m_dependencies = services.dependencies;
+  m_link = services.link;
   m_tabs[tabIndex(TabId::Home)] = std::make_unique<HomeTab>(services);
   m_tabs[tabIndex(TabId::Media)] = std::make_unique<MediaTab>(
       services.mpris, services.httpClient, services.spectrum, services.config, wayland,
@@ -66,6 +68,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::Network)] =
       std::make_unique<NetworkTab>(services.network, services.networkSecrets, services.externalIp, services.modem);
   m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
+  m_tabs[tabIndex(TabId::Devices)] = std::make_unique<DevicesTab>(services.link);
   m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
@@ -476,6 +479,9 @@ bool ControlCenterPanel::deferExternalRefresh() const {
 bool ControlCenterPanel::deferPointerRelayout() const { return deferExternalRefresh(); }
 
 bool ControlCenterPanel::isTabFeatureAvailable(TabId tab) const {
+  if (tab == TabId::Devices) {
+    return m_link != nullptr && m_link->available();
+  }
   if (m_config == nullptr) {
     switch (tab) {
     case TabId::ScreenTime:

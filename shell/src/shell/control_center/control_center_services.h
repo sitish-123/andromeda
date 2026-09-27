@@ -19,6 +19,7 @@ class HttpClient;
 class IdleInhibitor;
 class INetworkService;
 class IpcService;
+class LinkService;
 class ModemManagerService;
 class MprisService;
 class NetworkSecretAgent;
@@ -56,6 +57,7 @@ struct ControlCenterServices {
   PowerProfilesService* powerProfiles = nullptr;
   INetworkService* network = nullptr;
   NmHotspot* hotspot = nullptr;
+  LinkService* link = nullptr;
   ScreenRecorder* screenRecorder = nullptr;
   ModemManagerService* modem = nullptr;
   NetworkSecretAgent* networkSecrets = nullptr;
