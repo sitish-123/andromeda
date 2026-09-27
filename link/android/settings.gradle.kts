@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "umbriel-link"
-include(":app", ":core")
+include(":app", ":core", ":fixture")

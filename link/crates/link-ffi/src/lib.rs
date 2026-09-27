@@ -8,9 +8,9 @@ use link_core::client::{self, Client, ClientEvent, DesktopState};
 use link_core::identity::{DeviceId, Identity};
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Share};
+use link_core::proto::message::{self, Message, Share};
 use link_core::proto::pairing::PairingError;
-use link_core::store::Peer;
+use link_core::store::{self, Peer};
 use link_core::uri::PairingUri;
 use tokio::sync::{Mutex, mpsc};
 
@@ -38,6 +38,7 @@ impl From<link_core::Error> for LinkError {
             Error::Closed(CloseCode::Unpaired) => Self::Unpaired,
             Error::Unreachable | Error::Timeout => Self::Unreachable,
             Error::Share(rejected) => Self::Rejected { reason: rejected.to_string() },
+            Error::Decode(invalid) => Self::Rejected { reason: invalid.to_string() },
             other => Self::Failed { reason: other.to_string() },
         }
     }
@@ -51,6 +52,44 @@ pub struct Desktop {
     /// Unix seconds.
     pub last_seen: u64,
     pub connected: bool,
+    pub sharing: Sharing,
+}
+
+/// The phone's switches for one desktop.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+#[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
+pub struct Sharing {
+    pub notifications: bool,
+    pub media: bool,
+    pub ring: bool,
+    pub calls: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Feature {
+    Notifications,
+    Media,
+    Ring,
+    Calls,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NotificationButton {
+    pub id: String,
+    pub label: String,
+    pub reply: bool,
+}
+
+/// A phone notification to mirror; the core checks the limits in `link/ARCHITECTURE.md` before sending.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhoneNotification {
+    pub id: String,
+    pub app: String,
+    pub title: String,
+    pub text: String,
+    /// PNG.
+    pub icon: Option<Vec<u8>>,
+    pub actions: Vec<NotificationButton>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -76,6 +115,99 @@ pub enum LinkEvent {
     Unpaired {
         desktop_id: String,
     },
+    /// Run a mirrored notification's action; `reply_text` only for one that takes `RemoteInput`.
+    NotificationAction {
+        desktop_id: String,
+        id: String,
+        action: String,
+        reply_text: Option<String>,
+    },
+    NotificationDismissed {
+        desktop_id: String,
+        id: String,
+    },
+    /// A desktop player appeared or changed.
+    PlayerChanged {
+        desktop_id: String,
+        player: MediaPlayer,
+    },
+    PlayerGone {
+        desktop_id: String,
+        player: String,
+    },
+    /// A desktop asks this phone to ring, or to stop.
+    RingRequested {
+        desktop_id: String,
+        on: bool,
+    },
+    /// The desktop this phone rang started or stopped ringing.
+    DesktopRinging {
+        desktop_id: String,
+        on: bool,
+    },
+    /// A desktop asks to mute the ringer or decline the ringing call.
+    CallActionRequested {
+        desktop_id: String,
+        action: CallAction,
+    },
+    /// A desktop commands this phone's player.
+    PlayerCommand {
+        desktop_id: String,
+        player: String,
+        command: MediaCommandKind,
+        value: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallState {
+    Ringing,
+    Active,
+    Idle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallAction {
+    Mute,
+    Decline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MediaCommandKind {
+    Play,
+    Pause,
+    PlayPause,
+    Next,
+    Previous,
+    /// The value is the absolute position in ms.
+    Seek,
+    /// The value is 0 to 100.
+    Volume,
+}
+
+/// A player on either side; the core checks the limits in `link/ARCHITECTURE.md` before sending one.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MediaPlayer {
+    pub player: String,
+    pub name: String,
+    pub state: PlaybackState,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub length_ms: Option<u64>,
+    /// When sent; advance it while playing.
+    pub position_ms: u64,
+    pub volume: Option<u8>,
+    /// PNG or JPEG.
+    pub artwork: Option<Vec<u8>>,
+    pub can: Vec<MediaCommandKind>,
 }
 
 /// A fresh Ed25519 key as PKCS#8; the app keeps it encrypted by an Android Keystore key.
@@ -162,23 +294,145 @@ impl LinkClient {
         Ok(states.iter().map(|DesktopState { peer, connected }| describe(peer, *connected)).collect())
     }
 
+    pub async fn set_sharing(&self, desktop_id: String, feature: Feature, on: bool) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let feature = match feature {
+            Feature::Notifications => store::Feature::Notifications,
+            Feature::Media => store::Feature::Media,
+            Feature::Ring => store::Feature::Ring,
+            Feature::Calls => store::Feature::Calls,
+        };
+        self.run(async move { client.set_sharing(id, feature, on).await }).await
+    }
+
+    /// Mirrors a notification to every connected desktop that takes notifications; returns how many.
+    pub async fn post_notification(&self, notification: PhoneNotification) -> Result<u32, LinkError> {
+        let PhoneNotification { id, app, title, text, icon, actions } = notification;
+        let actions = actions
+            .into_iter()
+            .map(|action| message::NotificationButton { id: action.id, label: action.label, reply: action.reply })
+            .collect();
+        let posted = message::NotificationPosted { id, app, title, text, icon, actions };
+        self.broadcast(Message::NotificationPosted(posted)).await
+    }
+
+    pub async fn remove_notification(&self, id: String) -> Result<u32, LinkError> {
+        self.broadcast(Message::NotificationRemoved(message::NotificationRemoved { id })).await
+    }
+
+    /// Describes this phone's player to every connected desktop that takes media; returns how many.
+    pub async fn publish_player(&self, player: MediaPlayer) -> Result<u32, LinkError> {
+        self.broadcast(Message::MediaPlayer(player.into())).await
+    }
+
+    pub async fn player_gone(&self, player: String) -> Result<u32, LinkError> {
+        self.broadcast(Message::MediaGone(message::MediaGone { player })).await
+    }
+
+    /// Reports the call state to every connected desktop that takes calls; `number` and `name` only when known.
+    pub async fn report_call(
+        &self,
+        state: CallState,
+        number: Option<String>,
+        name: Option<String>,
+    ) -> Result<u32, LinkError> {
+        let state = match state {
+            CallState::Ringing => message::CallState::Ringing,
+            CallState::Active => message::CallState::Active,
+            CallState::Idle => message::CallState::Idle,
+        };
+        self.broadcast(Message::Call(message::Call { state, number, name })).await
+    }
+
+    /// Rings a desktop, or stops it, connecting first if needed.
+    pub async fn ring_desktop(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::Ring(message::Ring { on })).await }).await
+    }
+
+    /// Reports this phone's ringing to every connected desktop that may ring it.
+    pub async fn report_ringing(&self, on: bool) -> Result<u32, LinkError> {
+        self.broadcast(Message::Ringing(message::Ringing { on })).await
+    }
+
+    /// Commands one of a desktop's players, connecting first if needed.
+    pub async fn media_command(
+        &self,
+        desktop_id: String,
+        player: String,
+        command: MediaCommandKind,
+        value: Option<u64>,
+    ) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let command = message::MediaCommand { player, command: command.into(), value };
+        self.run(async move { client.send(id, Message::MediaCommand(command)).await }).await
+    }
+
     /// The next event, waiting until there is one; `None` once the client has stopped.
     pub async fn next_event(&self) -> Option<LinkEvent> {
-        let event = self.events.lock().await.recv().await?;
-        Some(match event {
-            ClientEvent::Connected { desktop, .. } => LinkEvent::Connected { desktop_id: desktop.id.to_string() },
-            ClientEvent::Disconnected { id, .. } => LinkEvent::Disconnected { desktop_id: id.to_string() },
-            ClientEvent::Received { from, share } => LinkEvent::Received {
-                desktop_id: from.to_string(),
-                kind: match share.kind {
-                    message::ShareKind::Text => ShareKind::Text,
-                    message::ShareKind::Link => ShareKind::Link,
-                },
-                text: share.text,
-            },
-            ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
-        })
+        let mut events = self.events.lock().await;
+        loop {
+            if let Some(event) = translate(events.recv().await?) {
+                return Some(event);
+            }
+        }
     }
+}
+
+impl LinkClient {
+    async fn broadcast(&self, message: Message) -> Result<u32, LinkError> {
+        let client = self.client.clone();
+        let sent = self.run(async move { client.broadcast(message).await }).await?;
+        Ok(u32::try_from(sent).unwrap_or(u32::MAX))
+    }
+}
+
+fn translate(event: ClientEvent) -> Option<LinkEvent> {
+    Some(match event {
+        ClientEvent::Connected { desktop, .. } => LinkEvent::Connected { desktop_id: desktop.id.to_string() },
+        ClientEvent::Disconnected { id, .. } => LinkEvent::Disconnected { desktop_id: id.to_string() },
+        ClientEvent::Received { from, share } => LinkEvent::Received {
+            desktop_id: from.to_string(),
+            kind: match share.kind {
+                message::ShareKind::Text => ShareKind::Text,
+                message::ShareKind::Link => ShareKind::Link,
+            },
+            text: share.text,
+        },
+        ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Message { from, message } => {
+            let desktop_id = from.to_string();
+            match message {
+                Message::NotificationAction(action) => LinkEvent::NotificationAction {
+                    desktop_id,
+                    id: action.id,
+                    action: action.action,
+                    reply_text: action.reply_text,
+                },
+                Message::NotificationDismiss(dismiss) => {
+                    LinkEvent::NotificationDismissed { desktop_id, id: dismiss.id }
+                }
+                Message::MediaPlayer(player) => LinkEvent::PlayerChanged { desktop_id, player: player.into() },
+                Message::MediaGone(gone) => LinkEvent::PlayerGone { desktop_id, player: gone.player },
+                Message::Ring(ring) => LinkEvent::RingRequested { desktop_id, on: ring.on },
+                Message::CallAction(action) => LinkEvent::CallActionRequested {
+                    desktop_id,
+                    action: match action.action {
+                        message::CallActionKind::Mute => CallAction::Mute,
+                        message::CallActionKind::Decline => CallAction::Decline,
+                    },
+                },
+                Message::Ringing(ringing) => LinkEvent::DesktopRinging { desktop_id, on: ringing.on },
+                Message::MediaCommand(command) => LinkEvent::PlayerCommand {
+                    desktop_id,
+                    player: command.player,
+                    command: command.command.into(),
+                    value: command.value,
+                },
+                _ => return None,
+            }
+        }
+    })
 }
 
 impl LinkClient {
@@ -193,12 +447,14 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool) -> Desktop {
+    let store::Sharing { notifications, media, ring, calls } = peer.sharing;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
         addresses: peer.addresses.iter().map(ToString::to_string).collect(),
         last_seen: peer.last_seen,
         connected,
+        sharing: Sharing { notifications, media, ring, calls },
     }
 }
 
@@ -208,4 +464,78 @@ fn parse_id(id: &str) -> Result<DeviceId, LinkError> {
 
 fn stopped() -> LinkError {
     LinkError::Failed { reason: "the link runtime stopped".to_owned() }
+}
+
+impl From<MediaCommandKind> for message::MediaCommandKind {
+    fn from(kind: MediaCommandKind) -> Self {
+        match kind {
+            MediaCommandKind::Play => Self::Play,
+            MediaCommandKind::Pause => Self::Pause,
+            MediaCommandKind::PlayPause => Self::PlayPause,
+            MediaCommandKind::Next => Self::Next,
+            MediaCommandKind::Previous => Self::Previous,
+            MediaCommandKind::Seek => Self::Seek,
+            MediaCommandKind::Volume => Self::Volume,
+        }
+    }
+}
+
+impl From<message::MediaCommandKind> for MediaCommandKind {
+    fn from(kind: message::MediaCommandKind) -> Self {
+        match kind {
+            message::MediaCommandKind::Play => Self::Play,
+            message::MediaCommandKind::Pause => Self::Pause,
+            message::MediaCommandKind::PlayPause => Self::PlayPause,
+            message::MediaCommandKind::Next => Self::Next,
+            message::MediaCommandKind::Previous => Self::Previous,
+            message::MediaCommandKind::Seek => Self::Seek,
+            message::MediaCommandKind::Volume => Self::Volume,
+        }
+    }
+}
+
+impl From<MediaPlayer> for message::MediaPlayer {
+    fn from(player: MediaPlayer) -> Self {
+        let state = match player.state {
+            PlaybackState::Playing => message::PlaybackState::Playing,
+            PlaybackState::Paused => message::PlaybackState::Paused,
+            PlaybackState::Stopped => message::PlaybackState::Stopped,
+        };
+        Self {
+            player: player.player,
+            name: player.name,
+            state,
+            title: player.title,
+            artist: player.artist,
+            album: player.album,
+            length_ms: player.length_ms,
+            position_ms: player.position_ms,
+            volume: player.volume,
+            artwork: player.artwork,
+            can: player.can.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<message::MediaPlayer> for MediaPlayer {
+    fn from(player: message::MediaPlayer) -> Self {
+        let state = match player.state {
+            message::PlaybackState::Playing => PlaybackState::Playing,
+            message::PlaybackState::Paused => PlaybackState::Paused,
+            message::PlaybackState::Stopped => PlaybackState::Stopped,
+        };
+        Self {
+            player: player.player,
+            name: player.name,
+            state,
+            title: player.title,
+            artist: player.artist,
+            album: player.album,
+            length_ms: player.length_ms,
+            position_ms: player.position_ms,
+            volume: player.volume,
+            artwork: player.artwork,
+            can: player.can.into_iter().map(Into::into).collect(),
+        }
+    }
 }

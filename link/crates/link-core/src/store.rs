@@ -28,6 +28,58 @@ pub struct Peer {
     /// Unix seconds.
     #[serde(default)]
     pub last_seen: u64,
+    #[serde(default, skip_serializing_if = "Sharing::is_default")]
+    pub sharing: Sharing,
+}
+
+/// The phone's switches per desktop: what it mirrors to that desktop and lets it do. All on after pairing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
+pub struct Sharing {
+    pub notifications: bool,
+    pub media: bool,
+    pub ring: bool,
+    pub calls: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Feature {
+    Notifications,
+    Media,
+    Ring,
+    Calls,
+}
+
+impl Default for Sharing {
+    fn default() -> Self {
+        Self { notifications: true, media: true, ring: true, calls: true }
+    }
+}
+
+impl Sharing {
+    #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if passes a reference")]
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn allows(self, feature: Feature) -> bool {
+        match feature {
+            Feature::Notifications => self.notifications,
+            Feature::Media => self.media,
+            Feature::Ring => self.ring,
+            Feature::Calls => self.calls,
+        }
+    }
+
+    pub fn set(&mut self, feature: Feature, on: bool) {
+        match feature {
+            Feature::Notifications => self.notifications = on,
+            Feature::Media => self.media = on,
+            Feature::Ring => self.ring = on,
+            Feature::Calls => self.calls = on,
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -44,7 +96,14 @@ pub struct Store {
 
 impl Peer {
     pub fn new(spki: &Spki, name: String) -> Self {
-        Self { id: spki.device_id(), name, key: STANDARD.encode(spki.as_der()), addresses: Vec::new(), last_seen: 0 }
+        Self {
+            id: spki.device_id(),
+            name,
+            key: STANDARD.encode(spki.as_der()),
+            addresses: Vec::new(),
+            last_seen: 0,
+            sharing: Sharing::default(),
+        }
     }
 
     pub fn spki(&self) -> Result<Spki, Error> {

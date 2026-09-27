@@ -7,6 +7,8 @@ use anyhow::Context;
 pub struct Paths {
     pub identity: PathBuf,
     pub devices: PathBuf,
+    /// Artwork of phone players, for their MPRIS `mpris:artUrl`; created on first use.
+    pub art: PathBuf,
 }
 
 impl Paths {
@@ -21,6 +23,6 @@ impl Paths {
             DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
         }
         fs::metadata(&dir).with_context(|| format!("state directory {}", dir.display()))?;
-        Ok(Self { identity: dir.join("identity.pk8"), devices: dir.join("devices.json") })
+        Ok(Self { identity: dir.join("identity.pk8"), devices: dir.join("devices.json"), art: dir.join("art") })
     }
 }

@@ -1,0 +1,8 @@
+# The desktop reported ringing, so the button reads "Stop ringing"; tapping it stops the desktop.
+appId: org.umbriel.link
+---
+- extendedWaitUntil:
+    visible: "Stop ringing"
+    timeout: 15000
+- takeScreenshot: ${OUT}/5-desktop-ringing
+- tapOn: "Stop ringing"

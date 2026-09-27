@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, bail};
+use link_core::Error;
 use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::phone::Phone;
@@ -12,21 +13,30 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
 
-/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line
-/// `<text|link> <text>` is shared with the desktop.
+use crate::held::{self, Held};
+
+/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line is a
+/// command: `<text|link> <text>` shares with the desktop; the rest are in [`Held::command`].
 pub async fn hold(phone: Phone, id: DeviceId, seconds: Option<u64>) -> anyhow::Result<()> {
     let (client, actor, mut events) = client::client(phone);
     let drive = async move {
         client.set_present(true).await?;
+        let mut held = Held::new(client.clone(), id.clone());
         let mut terminate = signal(SignalKind::terminate())?;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         let mut stdin_open = true;
         let deadline = seconds.map(|seconds| tokio::time::Instant::now() + Duration::from_secs(seconds));
         loop {
             tokio::select! {
-                Some(event) = events.recv() => println!("{}", describe(&event)),
+                Some(event) = events.recv() => {
+                    println!("{}", describe(&event));
+                    held.on_event(&event).await;
+                }
                 line = lines.next_line(), if stdin_open => match line? {
-                    Some(line) => println!("{}", share_line(&client, &id, &line).await),
+                    Some(line) if line.starts_with("text ") || line.starts_with("link ") => {
+                        println!("{}", share_line(&client, &id, &line).await);
+                    }
+                    Some(line) => println!("{}", held.command(&line).await),
                     None => stdin_open = false,
                 },
                 _ = terminate.recv() => break,
@@ -66,6 +76,22 @@ pub async fn share_unchecked(mut phone: Phone, id: DeviceId, share: Share) -> an
     Ok(())
 }
 
+/// Sends an unacknowledged message without checking it and prints whether the desktop closed the connection within
+/// the step timeout.
+pub async fn send_unchecked(mut phone: Phone, id: DeviceId, message: Message) -> anyhow::Result<()> {
+    let mut session = phone.connect(&id).await.context("connecting")?;
+    session.control.send(message).await?;
+    let line = match session.control.recv().await {
+        Err(Error::Timeout) => json!({ "accepted": true }),
+        Ok(other) => bail!("desktop answered {}", other.kind()),
+        Err(error) => json!({ "accepted": false, "error": error.to_string() }),
+    };
+    session.close();
+    phone.finish().await;
+    println!("{line}");
+    Ok(())
+}
+
 async fn share_line(client: &Client, id: &DeviceId, line: &str) -> Value {
     let (kind, text) = line.split_once(' ').unwrap_or((line, ""));
     let Some(kind) = ShareKind::parse(kind) else {
@@ -89,6 +115,7 @@ fn describe(event: &ClientEvent) -> Value {
             json!({ "event": "received", "desktop": from, "kind": share.kind.as_str(), "text": share.text })
         }
         ClientEvent::Unpaired { id } => json!({ "event": "unpaired", "desktop": id }),
+        ClientEvent::Message { from, message } => held::describe(from, message),
     }
 }
 

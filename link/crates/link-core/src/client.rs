@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::Share;
+use link_proto::message::{Message, Share};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -16,7 +16,7 @@ use crate::identity::DeviceId;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::Via;
 use crate::session::{self, SessionEvent, SessionHandle};
-use crate::store::Peer;
+use crate::store::{Feature, Peer};
 use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -42,6 +42,11 @@ pub enum ClientEvent {
     Unpaired {
         id: DeviceId,
     },
+    /// A feature message from a desktop whose switch for that feature is on.
+    Message {
+        from: DeviceId,
+        message: Message,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -51,11 +56,35 @@ pub struct DesktopState {
 }
 
 enum Command {
-    Pair { target: PairTarget, reply: oneshot::Sender<Result<Peer, Error>> },
-    Session { id: DeviceId, reply: oneshot::Sender<Result<SessionHandle, Error>> },
-    SetPresent { present: bool },
-    Forget { id: DeviceId, reply: oneshot::Sender<Result<(), Error>> },
-    Desktops { reply: oneshot::Sender<Vec<DesktopState>> },
+    Pair {
+        target: PairTarget,
+        reply: oneshot::Sender<Result<Peer, Error>>,
+    },
+    Session {
+        id: DeviceId,
+        reply: oneshot::Sender<Result<SessionHandle, Error>>,
+    },
+    SetPresent {
+        present: bool,
+    },
+    Forget {
+        id: DeviceId,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
+    Desktops {
+        reply: oneshot::Sender<Vec<DesktopState>>,
+    },
+    SetSharing {
+        id: DeviceId,
+        feature: Feature,
+        on: bool,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
+    /// The live sessions of desktops whose switch for `feature` is on.
+    Sessions {
+        feature: Feature,
+        reply: oneshot::Sender<Vec<SessionHandle>>,
+    },
 }
 
 /// The handle apps hold; every method is answered by the [`ClientActor`].
@@ -144,6 +173,32 @@ impl Client {
         self.request(|reply| Command::Desktops { reply }).await
     }
 
+    pub async fn set_sharing(&self, id: DeviceId, feature: Feature, on: bool) -> Result<(), Error> {
+        self.request(|reply| Command::SetSharing { id, feature, on, reply }).await?
+    }
+
+    /// Sends an unacknowledged message to every connected desktop whose switch for its feature is on, without
+    /// dialling; returns how many it was written to.
+    pub async fn broadcast(&self, message: Message) -> Result<usize, Error> {
+        message.validate()?;
+        let feature = feature_of(&message).ok_or(Error::Unexpected(message.kind()))?;
+        let sessions = self.request(|reply| Command::Sessions { feature, reply }).await?;
+        let mut sent = 0;
+        for session in sessions {
+            match session.send(message.clone()).await {
+                Ok(()) => sent += 1,
+                Err(error) => log::info!("broadcasting a {}: {error}", message.kind()),
+            }
+        }
+        Ok(sent)
+    }
+
+    /// Sends an unacknowledged message to one desktop, connecting first if needed.
+    pub async fn send(&self, id: DeviceId, message: Message) -> Result<(), Error> {
+        message.validate()?;
+        self.session(id).await?.send(message).await
+    }
+
     async fn session(&self, id: DeviceId) -> Result<SessionHandle, Error> {
         self.request(|reply| Command::Session { id, reply }).await?
     }
@@ -198,6 +253,19 @@ impl ClientActor {
                 drop(reply.send(self.phone.forget(&id)));
             }
             Command::Desktops { reply } => drop(reply.send(self.desktops())),
+            Command::SetSharing { id, feature, on, reply } => {
+                drop(reply.send(self.phone.set_sharing(&id, feature, on)));
+            }
+            Command::Sessions { feature, reply } => {
+                let sessions = self
+                    .phone
+                    .desktops()
+                    .iter()
+                    .filter(|peer| peer.sharing.allows(feature))
+                    .filter_map(|peer| self.sessions.get(&peer.id).filter(|handle| handle.is_live()).cloned())
+                    .collect();
+                drop(reply.send(sessions));
+            }
         }
     }
 
@@ -313,8 +381,19 @@ impl ClientActor {
     }
 
     async fn relay(&self, event: SessionEvent) {
-        if let SessionEvent::Received { from, share } = event {
-            self.emit(ClientEvent::Received { from, share }).await;
+        match event {
+            SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
+            SessionEvent::Message { from, message } => {
+                let allowed = feature_of(&message).is_some_and(|feature| {
+                    self.phone.desktops().iter().any(|peer| peer.id == from && peer.sharing.allows(feature))
+                });
+                if allowed {
+                    self.emit(ClientEvent::Message { from, message }).await;
+                } else {
+                    log::info!("{from}: dropped a {} its switch does not allow", message.kind());
+                }
+            }
+            SessionEvent::Unpaired { .. } => {}
         }
     }
 
@@ -331,6 +410,20 @@ impl ClientActor {
         if self.events.send(event).await.is_err() {
             log::debug!("nobody reads client events");
         }
+    }
+}
+
+/// The per-desktop switch that governs a feature message.
+fn feature_of(message: &Message) -> Option<Feature> {
+    match message {
+        Message::NotificationPosted(_)
+        | Message::NotificationRemoved(_)
+        | Message::NotificationAction(_)
+        | Message::NotificationDismiss(_) => Some(Feature::Notifications),
+        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
+        Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
+        Message::Call(_) | Message::CallAction(_) => Some(Feature::Calls),
+        _ => None,
     }
 }
 

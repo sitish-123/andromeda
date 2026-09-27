@@ -37,6 +37,70 @@
       <arg name="kind" type="s"/>
       <arg name="text" type="s"/>
     </signal>
+    <!-- Runs a phone notification's action; reply_text is empty for an action that takes none. Returns once sent,
+         unacknowledged. Errors: .NotConnected, .Rejected for arguments over the limits in messages.cddl. -->
+    <method name="NotificationAction">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="id" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+      <arg name="reply_text" type="s" direction="in"/>
+    </method>
+    <!-- The user dismissed a phone notification on the desktop; the phone cancels it. Errors as NotificationAction. -->
+    <method name="NotificationDismiss">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="id" type="s" direction="in"/>
+    </method>
+    <!-- A phone notification to show, or a change to one on show (same id). icon is PNG, empty when absent;
+         actions are (id, label, reply), reply meaning the action takes text. An identical re-post is not signalled. -->
+    <signal name="NotificationPosted">
+      <arg name="device_id" type="s"/>
+      <arg name="id" type="s"/>
+      <arg name="app" type="s"/>
+      <arg name="title" type="s"/>
+      <arg name="text" type="s"/>
+      <arg name="icon" type="ay"/>
+      <arg name="actions" type="a(ssb)"/>
+    </signal>
+    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing call). Returns once sent.
+         Errors: .NotConnected, .Rejected for another action. -->
+    <method name="CallAction">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+    </method>
+    <!-- The phone's call state changed: state is "ringing", "active", or "idle"; number and name are empty when the
+         phone may not read them. -->
+    <signal name="Call">
+      <arg name="device_id" type="s"/>
+      <arg name="state" type="s"/>
+      <arg name="number" type="s"/>
+      <arg name="name" type="s"/>
+    </signal>
+    <!-- Starts (true) or stops ringing the phone. Returns once sent. Errors: .NotConnected. -->
+    <method name="Ring">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="on" type="b" direction="in"/>
+    </method>
+    <!-- The desktop started or stopped ringing for the phone that asked; the phone shows it. Errors: .NotConnected. -->
+    <method name="DesktopRinging">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="on" type="b" direction="in"/>
+    </method>
+    <!-- The phone asks this desktop to ring (true) or to stop. -->
+    <signal name="RingRequested">
+      <arg name="device_id" type="s"/>
+      <arg name="on" type="b"/>
+    </signal>
+    <!-- The phone's own ringing started or stopped, for any reason. -->
+    <signal name="PhoneRinging">
+      <arg name="device_id" type="s"/>
+      <arg name="on" type="b"/>
+    </signal>
+    <!-- A phone notification is gone: removed on the phone, displaced by the 64-per-device limit, or its device
+         unpaired. -->
+    <signal name="NotificationRemoved">
+      <arg name="device_id" type="s"/>
+      <arg name="id" type="s"/>
+    </signal>
   </interface>
   <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for
        Accept or Decline (60 s, then declined). -->

@@ -497,6 +497,8 @@ void NotificationManager::setActionInvokeCallback(ActionInvokeCallback callback)
 
 void NotificationManager::setCloseCallback(CloseCallback callback) { m_closeCallback = std::move(callback); }
 
+void NotificationManager::addCloseObserver(CloseCallback callback) { m_closeObservers.push_back(std::move(callback)); }
+
 bool NotificationManager::hasPendingDBusClose(uint32_t id) const noexcept { return m_pendingDBusClose.contains(id); }
 
 bool NotificationManager::invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke) {
@@ -584,6 +586,9 @@ void NotificationManager::emitPendingDBusClose(uint32_t id, CloseReason reason) 
   if (m_closeCallback) {
     m_closeCallback(id, reason);
   }
+  for (const CloseCallback& observer : m_closeObservers) {
+    observer(id, reason);
+  }
 }
 
 bool NotificationManager::close(uint32_t id, CloseReason reason) {
@@ -645,8 +650,13 @@ bool NotificationManager::close(uint32_t id, CloseReason reason) {
   const bool deferDBusClose = reason == CloseReason::Expired && notificationHasInvokableActions(closed);
   if (deferDBusClose) {
     m_pendingDBusClose.insert(id);
-  } else if (m_closeCallback) {
-    m_closeCallback(id, reason);
+  } else {
+    if (m_closeCallback) {
+      m_closeCallback(id, reason);
+    }
+    for (const CloseCallback& observer : m_closeObservers) {
+      observer(id, reason);
+    }
   }
 
   if (!historyHandledUnreadChange) {

@@ -338,6 +338,49 @@ void Application::initIpc() {
     return "ok\n"; // No active notification carries a default action; nothing to do.
   });
 
+  // The toast's buttons, reply field, and close button, for the newest notification that offers them.
+  const auto latestWithAction = [this](const std::string& key) -> const Notification* {
+    for (const auto& notification : std::views::reverse(m_notificationManager.all())) {
+      for (std::size_t i = 0; i + 1 < notification.actions.size(); i += 2) {
+        if (notification.actions[i] == key) {
+          return &notification;
+        }
+      }
+    }
+    return nullptr;
+  };
+  m_ipcService.bind(
+      noctalia::cli::msg::notificationActionLatest,
+      [this, latestWithAction](const std::string& args) -> std::string {
+        const std::string key = StringUtils::trim(args);
+        const Notification* notification = latestWithAction(key);
+        if (notification == nullptr) {
+          return "error: no active notification offers " + key + "\n";
+        }
+        return m_notificationManager.invokeAction(notification->id, key, true) ? "ok\n" : "error: invokeAction failed\n";
+      }
+  );
+  m_ipcService.bind(
+      noctalia::cli::msg::notificationReplyLatest,
+      [this, latestWithAction](const std::string& args) -> std::string {
+        const Notification* notification = latestWithAction("inline-reply");
+        if (notification == nullptr) {
+          return "error: no active notification takes a reply\n";
+        }
+        return m_notificationManager.invokeInlineReply(notification->id, StringUtils::trim(args), true)
+            ? "ok\n"
+            : "error: invokeInlineReply failed\n";
+      }
+  );
+  m_ipcService.bind(noctalia::cli::msg::notificationDismissLatest, [this](const std::string&) -> std::string {
+    const auto& notifications = m_notificationManager.all();
+    if (notifications.empty()) {
+      return "error: no active notification\n";
+    }
+    (void)m_notificationManager.close(notifications.back().id, CloseReason::Dismissed);
+    return "ok\n";
+  });
+
   m_ipcService.bind(noctalia::cli::msg::notificationClearHistory, [this](const std::string&) -> std::string {
     m_notificationManager.clearHistory();
     if (m_panelManager.isOpenPanel("control-center")) {

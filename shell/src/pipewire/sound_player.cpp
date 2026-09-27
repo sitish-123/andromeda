@@ -197,7 +197,8 @@ void SoundPlayer::setTheme(std::string theme) {
 
   std::unordered_map<std::string, std::shared_ptr<const SoundBuffer>> buffers;
   for (const std::string_view event :
-       {"message-new-instant", "audio-volume-change", "power-plug", "power-unplug", "screen-capture"}) {
+       {"message-new-instant", "audio-volume-change", "power-plug", "power-unplug", "screen-capture",
+        "alarm-clock-elapsed"}) {
     const auto result = findThemeSound(event, theme);
     if (result.state == ThemeSoundLookupState::Disabled) {
       kLog.info("sound theme '{}': event '{}' is disabled", theme, event);
@@ -283,8 +284,19 @@ void SoundPlayer::play(const std::string& name) {
   if (it == m_buffers.end()) {
     return;
   }
-  playBuffer(name, it->second);
+  playBuffer(name, it->second, uiGain());
 }
+
+void SoundPlayer::playAlert(const std::string& name) {
+  const auto it = m_buffers.find(name);
+  if (it == m_buffers.end()) {
+    kLog.warn("alert sound \"{}\" is not in the theme", name);
+    return;
+  }
+  playBuffer(name, it->second, 1.0F);
+}
+
+float SoundPlayer::uiGain() const { return std::pow(m_volume, kUiSoundGamma); }
 
 void SoundPlayer::playPluginSound(std::uint64_t ownerId, const std::string& name) {
   const auto ownerIt = m_pluginBuffers.find(ownerId);
@@ -298,11 +310,11 @@ void SoundPlayer::playPluginSound(std::uint64_t ownerId, const std::string& name
     kLog.warn("plugin sound \"{}\" is not loaded", name);
     return;
   }
-  playBuffer(name, soundIt->second);
+  playBuffer(name, soundIt->second, uiGain());
 }
 
-void SoundPlayer::playBuffer(const std::string& name, const std::shared_ptr<const SoundBuffer>& buffer) {
-  if (m_loop == nullptr || m_volume <= 0.0F || buffer->samples.empty()) {
+void SoundPlayer::playBuffer(const std::string& name, const std::shared_ptr<const SoundBuffer>& buffer, float gain) {
+  if (m_loop == nullptr || gain <= 0.0F || buffer->samples.empty()) {
     return;
   }
 
@@ -317,6 +329,7 @@ void SoundPlayer::playBuffer(const std::string& name, const std::shared_ptr<cons
   auto active = std::make_unique<ActiveStream>();
   active->owner = this;
   active->buffer = buffer;
+  active->gain = gain;
   active->listener = new spa_hook{};
   spa_zero(*active->listener);
 
@@ -418,7 +431,7 @@ void SoundPlayer::processStream(ActiveStream& streamState) {
   const std::size_t remaining =
       (streamState.cursor < sampleCount && !streamState.draining) ? (sampleCount - streamState.cursor) : 0;
   const std::size_t copySamples = std::min(capacitySamples, remaining);
-  const float playbackGain = std::pow(m_volume, kUiSoundGamma);
+  const float playbackGain = streamState.gain;
 
   for (std::size_t i = 0; i < copySamples; ++i) {
     dst[i] = src[streamState.cursor + i] * playbackGain;

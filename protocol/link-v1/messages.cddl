@@ -1,7 +1,9 @@
 ; Link v1 control messages. A frame is a big-endian u32 length, then one CBOR envelope of at most 64 KiB.
 ; Types marked "0-RTT" are idempotent and may be sent in QUIC early data.
 
-envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg
+envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
+  notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
+  media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -33,3 +35,60 @@ link-pattern = tstr .pcre "^[Hh][Tt][Tt][Pp][Ss]?://[^[:space:][:cntrl:]]+$"
 
 ; Sent when the share was handed to the receiver's surface.
 share-ack-msg = { type: "share-ack", id: uint, body: { of: uint } }  ; of: the share's envelope id
+
+; Phone to desktop. Sizes are bytes of UTF-8; not acknowledged.
+notification-id = tstr .size (1..256)
+notification-posted-msg = { type: "notification-posted", id: uint, body: notification-posted }
+notification-posted = {
+  "id": notification-id,
+  app: tstr .size (1..128),
+  title: tstr .size (0..512),
+  "text": tstr .size (0..4096),
+  ? icon: bstr .size (1..16384),   ; PNG
+  actions: [0*3 notification-button],
+}
+notification-button = { "id": tstr .size (1..64), label: tstr .size (1..64), reply: bool }
+notification-removed-msg = { type: "notification-removed", id: uint, body: { "id": notification-id } }
+
+; Desktop to phone. reply_text only for an action whose reply is true.
+notification-action-msg = { type: "notification-action", id: uint, body: notification-action }
+notification-action = { "id": notification-id, action: tstr .size (1..64), ? reply_text: tstr .size (1..4096) }
+notification-dismiss-msg = { type: "notification-dismiss", id: uint, body: { "id": notification-id } }
+
+; Either side, about its own players (media-player, media-gone) or the other's (media-command); not acknowledged.
+player-id = tstr .size (1..64)
+media-command-kind = "play" / "pause" / "play-pause" / "next" / "previous" / "seek" / "volume"
+media-player-msg = { type: "media-player", id: uint, body: media-player }
+media-player = {
+  player: player-id,
+  name: tstr .size (1..64),
+  state: "playing" / "paused" / "stopped",
+  title: tstr .size (0..512),
+  artist: tstr .size (0..512),
+  album: tstr .size (0..512),
+  ? length_ms: uint,
+  position_ms: uint,                  ; when sent; the receiver advances it while playing
+  ? volume: 0..100,
+  ? artwork: bstr .size (1..49152),   ; PNG or JPEG
+  can: [* media-command-kind],        ; each at most once
+}
+media-gone-msg = { type: "media-gone", id: uint, body: { player: player-id } }
+media-command-msg = { type: "media-command", id: uint, body: media-command }
+media-command = seek-command / volume-command / plain-command
+seek-command = { player: player-id, command: "seek", value: uint }   ; the absolute position in ms
+volume-command = { player: player-id, command: "volume", value: 0..100 }
+plain-command = { player: player-id, command: "play" / "pause" / "play-pause" / "next" / "previous" }
+
+; Either side. ring asks the receiver to start (true) or stop (false) ringing; ringing reports the sender's own.
+ring-msg = { type: "ring", id: uint, body: { on: bool } }
+ringing-msg = { type: "ringing", id: uint, body: { on: bool } }
+
+; Phone to desktop: the call state as Android reports it. number only with READ_CALL_LOG, name only for a contact.
+call-msg = { type: "call", id: uint, body: call-body }
+call-body = {
+  state: "ringing" / "active" / "idle",
+  ? "number": tstr .size (1..64),   ; quoted: number is a CDDL prelude type
+  ? name: tstr .size (1..128),
+}
+; Desktop to phone.
+call-action-msg = { type: "call-action", id: uint, body: { action: "mute" / "decline" } }

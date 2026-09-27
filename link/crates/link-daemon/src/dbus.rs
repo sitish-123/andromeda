@@ -1,7 +1,11 @@
 //! `org.umbriel.Link1` on the session bus; contract in `protocol/link-v1/org.umbriel.Link1.xml`.
+#![expect(clippy::too_many_arguments, reason = "the NotificationPosted signal's arguments are the D-Bus contract")]
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::{MAX_NAME_LEN, Share, ShareKind};
+use link_core::proto::message::{
+    CallAction, CallActionKind, MAX_NAME_LEN, Message, NotificationAction, NotificationDismiss, NotificationPosted,
+    Ring, Ringing, Share, ShareKind,
+};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
@@ -53,6 +57,39 @@ impl Link {
         session.share(share).await.map_err(|error| LinkError::Failed(error.to_string()))
     }
 
+    /// Runs a phone notification's action; `reply_text` is empty for an action that takes none.
+    async fn notification_action(
+        &self,
+        device_id: String,
+        id: String,
+        action: String,
+        reply_text: String,
+    ) -> Result<(), LinkError> {
+        let reply_text = Some(reply_text).filter(|text| !text.is_empty());
+        self.send(&device_id, Message::NotificationAction(NotificationAction { id, action, reply_text })).await
+    }
+
+    async fn notification_dismiss(&self, device_id: String, id: String) -> Result<(), LinkError> {
+        self.send(&device_id, Message::NotificationDismiss(NotificationDismiss { id })).await
+    }
+
+    /// Starts or stops ringing the phone.
+    async fn ring(&self, device_id: String, on: bool) -> Result<(), LinkError> {
+        self.send(&device_id, Message::Ring(Ring { on })).await
+    }
+
+    /// Reports this desktop's ringing, started or stopped by the shell, to the phone that asked for it.
+    async fn desktop_ringing(&self, device_id: String, on: bool) -> Result<(), LinkError> {
+        self.send(&device_id, Message::Ringing(Ringing { on })).await
+    }
+
+    /// `mute` silences the phone's ringer; `decline` ends its ringing call.
+    async fn call_action(&self, device_id: String, action: String) -> Result<(), LinkError> {
+        let action = CallActionKind::parse(&action)
+            .ok_or_else(|| LinkError::Rejected("action is mute or decline".to_owned()))?;
+        self.send(&device_id, Message::CallAction(CallAction { action })).await
+    }
+
     #[zbus(property)]
     fn devices(&self) -> Vec<(String, String, bool)> {
         self.snapshots.borrow().devices.clone()
@@ -71,6 +108,64 @@ impl Link {
 
     #[zbus(signal)]
     async fn received(emitter: &SignalEmitter<'_>, device_id: &str, kind: &str, text: &str) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn notification_posted(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        id: &str,
+        app: &str,
+        title: &str,
+        text: &str,
+        icon: &[u8],
+        actions: Vec<(String, String, bool)>,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn call(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        state: &str,
+        number: &str,
+        name: &str,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn ring_requested(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn notification_removed(emitter: &SignalEmitter<'_>, device_id: &str, id: &str) -> zbus::Result<()>;
+}
+
+impl Link {
+    /// Sends an unacknowledged message to a connected device.
+    async fn send(&self, device_id: &str, message: Message) -> Result<(), LinkError> {
+        let id = DeviceId::parse(device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        message.validate().map_err(|error| LinkError::Rejected(error.to_string()))?;
+        let Some(session) = self.hub.session(id.clone()).await else {
+            return Err(LinkError::NotConnected(format!("{id} is not connected")));
+        };
+        session.send(message).await.map_err(|error| LinkError::Failed(error.to_string()))
+    }
+}
+
+async fn emit_posted(emitter: &SignalEmitter<'_>, id: &DeviceId, posted: NotificationPosted) -> zbus::Result<()> {
+    let actions = posted.actions.into_iter().map(|action| (action.id, action.label, action.reply)).collect();
+    let icon = posted.icon.unwrap_or_default();
+    Link::notification_posted(
+        emitter,
+        id.as_str(),
+        &posted.id,
+        &posted.app,
+        &posted.title,
+        &posted.text,
+        &icon,
+        actions,
+    )
+    .await
 }
 
 pub async fn serve(bus: &zbus::Connection, hub: HubHandle, snapshots: watch::Receiver<Snapshot>) -> anyhow::Result<()> {
@@ -106,6 +201,16 @@ pub async fn forward(
                 Event::PairingFailed { reason } => Link::pairing_failed(emitter, &reason).await?,
                 Event::Received { id, share } => {
                     Link::received(emitter, id.as_str(), share.kind.as_str(), &share.text).await?;
+                }
+                Event::NotificationPosted { id, posted } => emit_posted(emitter, &id, posted).await?,
+                Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
+                Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
+                Event::Call { id, call } => {
+                    let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
+                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;
+                }
+                Event::NotificationRemoved { id, notification } => {
+                    Link::notification_removed(emitter, id.as_str(), &notification).await?;
                 }
             },
         }
