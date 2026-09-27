@@ -454,6 +454,26 @@ IconResolver::IconResolver(bool cacheMissing) : m_cacheMissing(cacheMissing) { r
 
 IconResolver::IconResolver() : IconResolver(false) {}
 
+std::vector<std::filesystem::path> IconResolver::themeInputDirs() {
+  std::vector<std::filesystem::path> dirs;
+  const std::string active = activeThemeName();
+  for (const auto& base : iconBaseDirs(xdgDataDirs())) {
+    dirs.emplace_back(base);
+    if (!active.empty()) {
+      dirs.emplace_back(fs::path(base) / active);
+    }
+  }
+  if (const char* home = std::getenv("HOME"); home != nullptr) {
+    const char* configHome = std::getenv("XDG_CONFIG_HOME");
+    const fs::path config = configHome != nullptr && *configHome != '\0' ? fs::path(configHome) : fs::path(home) / ".config";
+    dirs.emplace_back(config);
+    dirs.emplace_back(config / "gtk-3.0");
+    dirs.emplace_back(config / "gtk-4.0");
+    dirs.emplace_back(config / "dconf");
+  }
+  return dirs;
+}
+
 bool IconResolver::checkThemeChanged() {
   auto& state = iconThemeState();
   std::scoped_lock lock(state.mutex);

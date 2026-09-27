@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,6 +29,9 @@ public:
   void invalidateMissingCache();
 
   static bool checkThemeChanged();
+  // Directories whose changes can change the theme: the icon roots, the active theme in each, and where GTK settings
+  // and GSettings (dconf) are written.
+  [[nodiscard]] static std::vector<std::filesystem::path> themeInputDirs();
   static std::uint64_t themeGeneration();
   static std::string activeThemeName();
 
