@@ -15,7 +15,7 @@ int TimeService::pollTimeoutMs() const {
   using namespace std::chrono;
   const auto now = system_clock::now();
   const auto nextSecond = floor<seconds>(now) + seconds{1};
-  const auto remaining = duration_cast<milliseconds>(nextSecond - now).count();
+  const auto remaining = ceil<milliseconds>(nextSecond - now).count();
   return static_cast<int>(std::max<std::int64_t>(1, remaining));
 }
 
