@@ -1,8 +1,10 @@
-//! Link v1 wire protocol, sans-IO: messages, framing, and the pairing handshake. See `link/ARCHITECTURE.md`.
+//! Link v1 wire protocol, sans-IO: messages, framing, the pairing handshake, and the session rules. See
+//! `link/ARCHITECTURE.md`.
 
 pub mod frame;
 pub mod message;
 pub mod pairing;
+pub mod session;
 
 pub const ALPN: &[u8] = b"umbriel-link/1";
 pub const VERSION: u32 = 1;
