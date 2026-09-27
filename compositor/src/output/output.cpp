@@ -39,6 +39,9 @@ namespace umbriel {
   namespace {
     constexpr Logger kLog("output");
     constexpr int kFrameRetryDelayMs = 16;
+    // wlroots paces frame callbacks and picks buffer scale from every output a surface overlaps, so an off-layout
+    // output that keeps drawing (a mirror) must sit where no surface can reach it.
+    constexpr int kOffLayoutOrigin = -(1 << 24);
 
   } // namespace
 
@@ -617,6 +620,7 @@ namespace umbriel {
       wlr_scene_output_layout_add_output(m_server->sceneLayout(), layoutOutput, m_sceneOutput);
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
+      wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
     }
     markDirty(Dirty::LayerArrange | Dirty::Banner);
     if (m_server->sessionLocked()) {
@@ -644,6 +648,7 @@ namespace umbriel {
       wlr_scene_output_layout_add_output(m_server->sceneLayout(), layoutOutput, m_sceneOutput);
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
+      wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
     }
     handleExternalConfigChange();
     kLog.info(
