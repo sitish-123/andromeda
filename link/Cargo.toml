@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 link-proto = { path = "crates/link-proto" }
 link-core = { path = "crates/link-core" }
+link-quickshare = { path = "crates/link-quickshare" }
 aes = "0.8"
 anyhow = "1"
 base64 = "0.22"

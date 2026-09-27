@@ -38,4 +38,33 @@
       <arg name="text" type="s"/>
     </signal>
   </interface>
+  <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for
+       Accept or Decline (60 s, then declined). -->
+  <interface name="org.umbriel.Link1.QuickShare">
+    <property name="Visible" type="b" access="readwrite"/>
+    <!-- The name nearby devices see. -->
+    <property name="Name" type="s" access="read"/>
+    <method name="Accept">
+      <arg name="id" type="t" direction="in"/>
+    </method>
+    <method name="Decline">
+      <arg name="id" type="t" direction="in"/>
+    </method>
+    <!-- files: (name, size); texts: kinds of shared text (text, url, address, phone). -->
+    <signal name="Offer">
+      <arg name="id" type="t"/>
+      <arg name="sender" type="s"/>
+      <arg name="pin" type="s"/>
+      <arg name="files" type="a(sx)"/>
+      <arg name="texts" type="as"/>
+    </signal>
+    <!-- status: received, declined, cancelled, or failed; files: saved paths; texts: (kind, text). -->
+    <signal name="Finished">
+      <arg name="id" type="t"/>
+      <arg name="status" type="s"/>
+      <arg name="files" type="as"/>
+      <arg name="texts" type="a(ss)"/>
+      <arg name="error" type="s"/>
+    </signal>
+  </interface>
 </node>

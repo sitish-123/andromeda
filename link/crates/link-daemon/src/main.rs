@@ -4,6 +4,7 @@ mod dbus;
 mod hub;
 mod listener;
 mod paths;
+mod quickshare;
 
 use std::net::{Ipv6Addr, SocketAddr};
 
@@ -34,14 +35,19 @@ async fn run() -> anyhow::Result<()> {
     let name = dbus::device_name().await;
     log::info!("{} listening on port {port} as {:?}", identity.device_id(), name);
 
+    let state_dir = paths.identity.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
     let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths);
     dbus::serve(&bus, handle.clone(), snapshots.clone()).await?;
+    let (quick_share, qs_handle, qs_visible, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
+    quickshare::serve(&bus, qs_handle, qs_visible.clone(), name.clone()).await?;
     let listener = listener::Listener::new(endpoint.clone(), handle, identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
         result = hub.run() => result,
         result = listener.run() => result,
         result = dbus::forward(&bus, snapshots, events) => result,
+        result = quick_share.run() => result,
+        result = quickshare::forward(&bus, qs_visible, qs_events) => result,
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
     };
