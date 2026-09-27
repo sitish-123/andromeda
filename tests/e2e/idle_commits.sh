@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Counts compositor commits over 30 s of a static desktop: a headless Umbriel with the Noctalia fork showing a bar.
-# A static screen must commit at most once (the minute tick), so panel self-refresh stays on. Two bars are checked:
+# The window starts after a minute tick and ends before the next, so a static screen must not commit at all, and panel
+# self-refresh stays on. WINDOW is at most 57 s. Two bars are checked:
 # a clock-only top bar, and a left (vertical), fractionally scaled bar with the clock and a capsule group of
 # system-monitor gauges, the shape where gauges once fought their capsule's layout every second. The gauges show disk
 # usage, which does not move within the window. BAR_START adds widgets to the top bar for manual runs on an idle
@@ -10,6 +11,7 @@ OUT=${OUT:-$(pwd)/artifacts/idle-commits}
 BAR_START=${BAR_START-'"clock"'}
 WINDOW=${WINDOW:-30}
 source "$(dirname "$0")/lib.sh"
+mkdir -p "$OUT"
 : > "$OUT/commits.txt"
 
 measure() {
@@ -23,6 +25,8 @@ measure() {
     }
     sleep 5 # real time: the bar maps, paints, and takes its first samples
     grim "$OUT/'"$name"'.png"
+    # A window that ends before the next minute holds no clock tick, so the static screen owes zero commits.
+    while (( 10#$(date +%S) < 1 || 10#$(date +%S) + '"$WINDOW"' > 58 )); do sleep 0.5; done
     before=$(commits)
     sleep '"$WINDOW"' # real time: the measurement window
     echo "'"$name"' window_s='"$WINDOW"' commits=$(($(commits) - before))" | tee -a "$OUT/commits.txt"
@@ -74,7 +78,7 @@ show_value = false'
 failed=0
 while read -r name _ count; do
   count=${count#commits=}
-  ((count <= 1)) || { echo "FAIL: $name committed $count times on a static screen"; failed=1; }
+  ((count == 0)) || { echo "FAIL: $name committed $count times on a static screen"; failed=1; }
 done < "$OUT/commits.txt"
 ((failed == 0)) && echo "PASS; artifacts: $OUT"
 exit "$failed"
