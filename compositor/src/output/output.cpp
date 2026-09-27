@@ -421,6 +421,9 @@ namespace umbriel {
     if (!usedModeFallback) {
       m_modeFallbackWarned = false;
     }
+    if (enabled && m_mirrorSource != nullptr) {
+      scheduleFullFrame();
+    }
     if (enabled && scaleStaged) {
       m_appliedConfiguredScale = configuredScale.has_value();
     }
@@ -694,8 +697,8 @@ namespace umbriel {
       return false;
     }
     for (const auto& output : m_server->outputs()) {
-      if (output->m_mirrorSource == this && output->applyConfiguredState() && powered) {
-        output->scheduleFullFrame();
+      if (output->m_mirrorSource == this) {
+        (void)output->applyConfiguredState();
       }
     }
 
@@ -1001,6 +1004,7 @@ namespace umbriel {
       m_gammaDirty = true;
     }
     wlr_output_state_finish(&state);
+    m_mirrorDirty = true;
     markDirty(Dirty::LayerArrange | Dirty::Banner | Dirty::Backdrop);
     if (m_server->sessionLocked()) {
       m_server->updateLockBlank();

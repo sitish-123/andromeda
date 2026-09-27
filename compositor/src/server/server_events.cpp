@@ -3062,6 +3062,8 @@ namespace umbriel {
         // Mirrors are reported enabled: enabled keeps the mirror with its new mode, disabled ends it and powers off.
         if (entry.output->mirrorSource() != nullptr) {
           if (entry.head->state.enabled) {
+            // The commit above drew the mirror's own off-layout scene: redraw the source's frame into it.
+            entry.output->scheduleFullFrame();
             continue;
           }
           entry.output->setMirrorSource(nullptr, /*applyState=*/false);

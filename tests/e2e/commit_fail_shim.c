@@ -1,5 +1,6 @@
-// LD_PRELOAD into Umbriel: fails the next N buffer commits on output $FAIL_COMMIT_OUTPUT, N read from and counted
-// down in $FAIL_COMMIT_FILE, standing in for a DRM commit that returns EBUSY.
+// LD_PRELOAD into Umbriel: fails the next N frame commits (a buffer, no modeset) on output $FAIL_COMMIT_OUTPUT, N read
+// from and counted down in $FAIL_COMMIT_FILE, standing in for a DRM commit that returns EBUSY. Logs every other commit
+// it passes on to stderr as "commit-shim: <output> committed=<wlr_output_state_field mask>".
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdio.h>
@@ -14,7 +15,8 @@ bool wlr_output_commit_state(struct wlr_output* output, const struct wlr_output_
   }
   const char* name = getenv("FAIL_COMMIT_OUTPUT");
   const char* path = getenv("FAIL_COMMIT_FILE");
-  if (name != NULL && path != NULL && strcmp(output->name, name) == 0 && (state->committed & WLR_OUTPUT_STATE_BUFFER)) {
+  if (name != NULL && path != NULL && strcmp(output->name, name) == 0 && (state->committed & WLR_OUTPUT_STATE_BUFFER)
+      && !(state->committed & (WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_TRANSFORM))) {
     int pending = 0;
     FILE* file = fopen(path, "r");
     if (file != NULL) {
@@ -29,5 +31,6 @@ bool wlr_output_commit_state(struct wlr_output* output, const struct wlr_output_
       return false;
     }
   }
+  fprintf(stderr, "commit-shim: %s committed=%#x\n", output->name, state->committed);
   return real(output, state);
 }
