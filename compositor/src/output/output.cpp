@@ -1131,6 +1131,9 @@ namespace umbriel {
         m_mirrorDirty = !renderMirrorFrame(
             m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform
         );
+        if (m_mirrorDirty) {
+          armFrameRetry();
+        }
       }
       if (Ipc* ipc = m_server->ipc()) {
         ipc->notifyOutputFrame(*this);
