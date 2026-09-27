@@ -1,0 +1,56 @@
+# Screenshots of every screen of a paired phone, in ${THEME}: Home, the action orb open, the desktop's page, the app
+# filter, Media with the desktop's test player, and each page of the permission onboarding.
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Connected"
+    timeout: 20000
+- takeScreenshot: ${OUT}/${THEME}-home
+- scrollUntilVisible:
+    element: "Stay connected"
+- takeScreenshot: ${OUT}/${THEME}-home-scrolled
+- tapOn:
+    text: "Permissions"
+    index: 0
+    optional: true
+- extendedWaitUntil:
+    visible: "Notifications on your desktop"
+    timeout: 10000
+- takeScreenshot: ${OUT}/${THEME}-onboarding-1-notifications
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-2-dnd
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-3-post
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-4-battery
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-5-calls
+- tapOn: "Done"
+- extendedWaitUntil:
+    visible: "Features and pairing"
+    timeout: 10000
+- tapOn: "Features and pairing"
+- extendedWaitUntil:
+    visible: "Shared with this desktop"
+    timeout: 10000
+- takeScreenshot: ${OUT}/${THEME}-device
+- tapOn: "Apps to mirror"
+- extendedWaitUntil:
+    visible: "Every app is mirrored unless you turn it off here."
+    timeout: 10000
+- takeScreenshot: ${OUT}/${THEME}-app-filter
+- pressKey: Back
+- pressKey: Back
+- scrollUntilVisible:
+    element: "Desktop media"
+- tapOn: "Desktop media"
+- extendedWaitUntil:
+    visible: "Desk Session"
+    timeout: 15000
+- takeScreenshot: ${OUT}/${THEME}-media
+- pressKey: Back
+- tapOn:
+    point: "88%,93%"
+- takeScreenshot: ${OUT}/${THEME}-home-orb

@@ -1,61 +1,42 @@
 package org.umbriel.link.notifications
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.umbriel.link.R
+import org.umbriel.link.ui.components.Label
+import org.umbriel.link.ui.components.Screen
+import org.umbriel.link.ui.components.SoftCard
+import org.umbriel.link.ui.components.SwitchRow
+import org.umbriel.link.ui.theme.LinkTheme
+import org.umbriel.link.ui.theme.Space
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** Every launcher app with a switch; all are mirrored until the user turns one off. */
 @Composable
 fun AppFilterScreen(viewModel: AppFilterViewModel, onBack: () -> Unit) {
     val apps by viewModel.state.collectAsStateWithLifecycle()
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.mirror_apps_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+    Screen(title = stringResource(R.string.mirror_apps_title), onBack = onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = Space.page, vertical = Space.s8),
+            verticalArrangement = Arrangement.spacedBy(Space.s4),
+        ) {
+            item {
+                Label(stringResource(R.string.mirror_apps_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
+            }
+            item {
+                SoftCard(Modifier.fillMaxWidth(), padding = Space.s12) {
+                    apps.forEach { app ->
+                        SwitchRow(app.label, app.mirrored, { viewModel.setMirrored(app.packageName, it) })
                     }
-                },
-            )
-        },
-    ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-            items(apps, key = { it.packageName }) { app ->
-                Row(
-                    modifier = Modifier.fillMaxWidth()
-                        .toggleable(app.mirrored, role = Role.Switch) { viewModel.setMirrored(app.packageName, it) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(app.label, style = MaterialTheme.typography.titleMedium)
-                    }
-                    Switch(checked = app.mirrored, onCheckedChange = null)
                 }
             }
         }

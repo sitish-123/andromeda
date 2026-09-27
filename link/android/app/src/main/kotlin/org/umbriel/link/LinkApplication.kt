@@ -28,7 +28,7 @@ class LinkApplication : Application() {
 }
 
 /** Every long-lived object, built once; screens receive what they need through their ViewModel's constructor. */
-class AppContainer(private val application: Application) {
+class AppContainer(val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val notifier = ShareNotifier(application)
     val repository = LinkRepository(application, deviceName(application))

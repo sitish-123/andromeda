@@ -7,7 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.umbriel.link.ui.LinkApp
-import org.umbriel.link.ui.LinkTheme
+import org.umbriel.link.ui.theme.LinkTheme
 
 class MainActivity : ComponentActivity() {
     /** A pairing URI opened from the desktop's QR code, waiting for the user to confirm it. */

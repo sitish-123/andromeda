@@ -1,11 +1,10 @@
-# Turns "Stay connected" to ${STAY} from the Devices screen.
+# Turns "Stay connected" to ${STAY} from the Home screen, where it sits below the desktop's actions.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
-- extendedWaitUntil:
-    visible: "Stay connected"
-    timeout: 10000
+- scrollUntilVisible:
+    element: "Stay connected"
 - tapOn:
     text: "Stay connected"
 - takeScreenshot: ${OUT}/stay-connected-${STAY}
