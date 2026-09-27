@@ -23,6 +23,14 @@ namespace umbriel {
       wl_output_transform targetTransform
   );
 
+  // The layout region a device covering the whole target (a touchscreen) maps to so that the letterboxed image lands on
+  // `sourceBox`, the source's layout box; the bars fall outside it. When the image is rotated relative to the target's
+  // buffer no axis-aligned region fits, and this returns `sourceBox`. Empty for unconfigured outputs.
+  [[nodiscard]] wlr_box mirrorInputRegion(
+      const wlr_box& sourceBox, int sourceWidth, int sourceHeight, wl_output_transform sourceTransform, int targetWidth,
+      int targetHeight, wl_output_transform targetTransform
+  );
+
   // Renders `frame` onto `target` letterboxed on black and commits it. Returns false when rendering or the commit
   // fails.
   bool

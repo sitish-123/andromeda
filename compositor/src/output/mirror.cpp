@@ -51,6 +51,28 @@ namespace umbriel {
     return placement;
   }
 
+  wlr_box mirrorInputRegion(
+      const wlr_box& sourceBox, int sourceWidth, int sourceHeight, wl_output_transform sourceTransform, int targetWidth,
+      int targetHeight, wl_output_transform targetTransform
+  ) {
+    const MirrorPlacement placement =
+        mirrorPlacement(sourceWidth, sourceHeight, sourceTransform, targetWidth, targetHeight, targetTransform);
+    if (wlr_box_empty(&placement.dst) || wlr_box_empty(&sourceBox)) {
+      return {};
+    }
+    if (placement.transform != WL_OUTPUT_TRANSFORM_NORMAL) {
+      return sourceBox;
+    }
+    const double scaleX = static_cast<double>(sourceBox.width) / placement.dst.width;
+    const double scaleY = static_cast<double>(sourceBox.height) / placement.dst.height;
+    return {
+        .x = sourceBox.x - static_cast<int>(std::lround(placement.dst.x * scaleX)),
+        .y = sourceBox.y - static_cast<int>(std::lround(placement.dst.y * scaleY)),
+        .width = static_cast<int>(std::lround(targetWidth * scaleX)),
+        .height = static_cast<int>(std::lround(targetHeight * scaleY)),
+    };
+  }
+
   bool renderMirrorFrame(
       wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform
   ) {

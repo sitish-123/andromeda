@@ -354,6 +354,8 @@ namespace umbriel {
     // Recompute the mapping for every tablet: focused window, focused output, named output, or full layout. Called at
     // the start of every tablet event so dynamic targets reflect current focus without signal hooks.
     void remapTablets();
+    // Maps each touchscreen to its panel, or while the panel mirrors, to the source image it shows.
+    void remapTouch();
     // The tablet-v2 handle for a wlroots tablet, or nullptr when unknown.
     [[nodiscard]] wlr_tablet_v2_tablet* tabletV2FromWlr(const wlr_tablet* tablet) const;
 

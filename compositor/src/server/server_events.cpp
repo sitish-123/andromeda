@@ -13,6 +13,7 @@
 #include "lock/session_lock.h"
 #include "output/display_store.h"
 #include "output/identity.h"
+#include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
@@ -1673,6 +1674,7 @@ namespace umbriel {
     wl_signal_add(&device->events.destroy, &touch->destroy);
     m_cursor->attachInputDevice(device);
     m_touchDevices.push_back(std::move(touch));
+    remapTouch();
     kLog.info("input: added touch device '{}'", deviceName(device));
   }
 
@@ -1872,6 +1874,35 @@ namespace umbriel {
       }
       wlr_cursor_map_input_to_region(m_cursor->wlr(), tablet->device, &region);
       wlr_cursor_map_input_to_output(m_cursor->wlr(), tablet->device, output);
+    }
+  }
+
+  void Server::remapTouch() {
+    // libinput names the output only when udev tags the device; otherwise a touchscreen is taken to be the panel's.
+    const auto panelOf = [this](const wlr_touch* touch) -> Output* {
+      const auto panel = std::ranges::find_if(m_outputs, [touch](const std::unique_ptr<Output>& output) {
+        const std::string_view name = output->wlr()->name;
+        return touch->output_name != nullptr
+            ? name == touch->output_name
+            : name.starts_with("eDP") || name.starts_with("LVDS") || name.starts_with("DSI");
+      });
+      return panel != m_outputs.end() ? panel->get() : nullptr;
+    };
+    for (const auto& touch : m_touchDevices) {
+      Output* panel = panelOf(wlr_touch_from_input_device(touch->device));
+      wlr_box region{};
+      wlr_output* output = nullptr;
+      if (const Output* source = panel != nullptr ? panel->mirrorSource() : nullptr) {
+        const wlr_output* target = panel->wlr();
+        region = mirrorInputRegion(
+            source->layoutBox(), source->wlr()->width, source->wlr()->height, source->wlr()->transform, target->width,
+            target->height, target->transform
+        );
+      } else if (panel != nullptr && panel->onDesktop()) {
+        output = panel->wlr();
+      }
+      wlr_cursor_map_input_to_region(m_cursor->wlr(), touch->device, &region);
+      wlr_cursor_map_input_to_output(m_cursor->wlr(), touch->device, output);
     }
   }
 
@@ -2788,6 +2819,7 @@ namespace umbriel {
     Server* self;
     self = wl_container_of(listener, self, m_outputLayoutChange);
     self->markDirty(Dirty::Backdrop);
+    self->remapTouch();
     // A neighbour appearing, moving, or resizing changes where every output's content clip has to sit, and the clip is
     // refreshed from arrangeLayers.
     for (const auto& output : self->m_outputs) {
