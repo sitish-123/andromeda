@@ -8,7 +8,6 @@
     <string name="connected">Connected</string>
     <string name="not_connected">Not connected</string>
     <string name="connect">Connect</string>
-    <string name="disconnect">Disconnect</string>
     <string name="unpair">Unpair</string>
     <string name="pair_title">Pair with a desktop</string>
     <string name="pair_instructions">On your desktop, open Devices and choose Pair a phone. Scan the QR code with your camera, or type the 6-digit code here.</string>
@@ -20,7 +19,27 @@
     <string name="unpaired_from">Unpaired from %1$s</string>
     <string name="failure_wrong_code">The code didn\'t match. Start pairing again on the desktop.</string>
     <string name="failure_unpaired">The desktop removed this phone. Pair again to reconnect.</string>
-    <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network.</string>
+    <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Umbriel Link (on the desktop: sudo ufw allow \"Umbriel Link\").</string>
+    <string name="failure_rejected">Can\'t send this: %1$s</string>
     <string name="failure_other">Something went wrong: %1$s</string>
     <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
+    <string name="stay_connected">Stay connected</string>
+    <string name="stay_connected_hint">Keep desktops connected in the background, so they can send you links and text at any time.</string>
+    <string name="presence_title">Connected to your desktops</string>
+    <string name="presence_text">Stay connected is on</string>
+    <string name="channel_presence">Stay connected</string>
+    <string name="channel_shares">Shared from desktops</string>
+    <string name="share_link_from">Link from %1$s</string>
+    <string name="share_text_from">Text from %1$s</string>
+    <string name="share_open">Open</string>
+    <string name="share_copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="share_label">Send to desktop</string>
+    <string name="share_preparing">Preparing…</string>
+    <string name="share_sending">Sending to %1$s…</string>
+    <string name="share_choose">Send to which desktop?</string>
+    <string name="share_sent">Sent to %1$s</string>
+    <string name="share_no_desktop">Pair this phone with a desktop first.</string>
+    <string name="share_failed">Not sent. %1$s</string>
 </resources>

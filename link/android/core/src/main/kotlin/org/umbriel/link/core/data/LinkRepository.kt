@@ -2,33 +2,55 @@ package org.umbriel.link.core.data
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.IncomingShare
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.LinkFailureException
+import org.umbriel.link.core.domain.ShareKind
 import org.umbriel.link.ffi.LinkClient
+import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
 import org.umbriel.link.ffi.generateIdentity
 import org.umbriel.link.ffi.Desktop as FfiDesktop
+import org.umbriel.link.ffi.ShareKind as FfiShareKind
 
 /**
  * The phone side of Link over the Rust core. Every operation returns a [Result] whose failure is a
- * [LinkFailureException]; nothing throws into the UI.
+ * [LinkFailureException]; nothing throws into the UI. [desktops] follows the core's events, so its connected flags
+ * are live.
  */
 class LinkRepository(private val context: Context, private val deviceName: String) {
 
+    /** Lives as long as the process: it reads the core's events for every screen and service. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val clientLock = Mutex()
     private var client: LinkClient? = null
-    private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val presenceLock = Mutex()
+    private var present = false
+    private val multicast = context.applicationContext.getSystemService(WifiManager::class.java)
+        .createMulticastLock("umbriel-link")
+        .apply { setReferenceCounted(true) }
     private val _desktops = MutableStateFlow<List<Desktop>>(emptyList())
+    private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
+
+    /** Shares desktops sent, as they arrive. */
+    val incoming: SharedFlow<IncomingShare> = _incoming.asSharedFlow()
 
     suspend fun refresh(): Result<Unit> = call { client ->
         _desktops.value = client.desktops().map { it.toDomain() }
@@ -41,12 +63,26 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         callAndRefresh { it.pairCode(code, emptyList()).toDomain() }
     }
 
-    suspend fun connect(id: String): Result<Desktop> = withMulticast { callAndRefresh { it.connect(id).toDomain() } }
-
-    suspend fun disconnect(id: String): Result<Unit> = callAndRefresh { it.disconnect(id) }
+    suspend fun connect(id: String): Result<Unit> = withMulticast { callAndRefresh { it.connect(id) } }
 
     /** Succeeds with whether the desktop was told; it is forgotten on this phone either way. */
     suspend fun unpair(id: String): Result<Boolean> = callAndRefresh { it.unpair(id) }
+
+    /** Connects first if needed, and succeeds once the desktop acknowledged the share. */
+    suspend fun share(desktopId: String, kind: ShareKind, text: String): Result<Unit> = withMulticast {
+        call { it.share(desktopId, kind.toFfi(), text) }
+    }
+
+    /**
+     * While present, every paired desktop stays connected and is redialled when it drops; the multicast lock is held
+     * so the redial can fall back to mDNS.
+     */
+    suspend fun setPresent(present: Boolean): Result<Unit> = presenceLock.withLock {
+        if (present == this.present) return@withLock Result.success(Unit)
+        if (present) multicast.acquire() else multicast.release()
+        this.present = present
+        call { it.setPresent(present) }
+    }
 
     private suspend fun <T> callAndRefresh(block: suspend (LinkClient) -> T): Result<T> {
         val result = call(block)
@@ -64,25 +100,66 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         client ?: withContext(Dispatchers.IO) {
             val identity = IdentityStore(context.filesDir.resolve("identity.bin")).loadOrCreate(::generateIdentity)
             LinkClient(identity, context.filesDir.resolve("devices.json").absolutePath, deviceName)
-        }.also { client = it }
+        }.also {
+            client = it
+            scope.launch { follow(it) }
+        }
     }
 
+    private suspend fun follow(client: LinkClient) {
+        while (true) {
+            when (val event = client.nextEvent() ?: return) {
+                is LinkEvent.Connected -> markConnected(event.desktopId, true)
+                is LinkEvent.Disconnected -> markConnected(event.desktopId, false)
+                is LinkEvent.Received -> _incoming.emit(
+                    IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
+                )
+                is LinkEvent.Unpaired -> scope.launch { refresh() }
+            }
+        }
+    }
+
+    /** A desktop not listed yet was just paired; the list is reread outside the event loop, which must keep reading. */
+    private fun markConnected(id: String, connected: Boolean) {
+        if (_desktops.value.none { it.id == id }) {
+            scope.launch { refresh() }
+            return
+        }
+        _desktops.update { list -> list.map { if (it.id == id) it.copy(connected = connected) else it } }
+    }
+
+    private fun nameOf(id: String): String = _desktops.value.firstOrNull { it.id == id }?.name ?: id
+
     private suspend fun <T> withMulticast(block: suspend () -> T): T {
-        val lock = wifi.createMulticastLock("umbriel-link").apply { setReferenceCounted(false) }
-        lock.acquire()
+        multicast.acquire()
         try {
             return block()
         } finally {
-            lock.release()
+            multicast.release()
         }
+    }
+
+    private companion object {
+        const val INCOMING_BUFFER = 16
     }
 }
 
 private fun FfiDesktop.toDomain() = Desktop(id = id, name = name, connected = connected, lastSeen = lastSeen.toLong())
 
+private fun ShareKind.toFfi(): FfiShareKind = when (this) {
+    ShareKind.Text -> FfiShareKind.TEXT
+    ShareKind.Link -> FfiShareKind.LINK
+}
+
+private fun FfiShareKind.toDomain(): ShareKind = when (this) {
+    FfiShareKind.TEXT -> ShareKind.Text
+    FfiShareKind.LINK -> ShareKind.Link
+}
+
 private fun LinkException.toFailure(): LinkFailure = when (this) {
     is LinkException.WrongCode -> LinkFailure.WrongCode
     is LinkException.Unpaired -> LinkFailure.Unpaired
     is LinkException.Unreachable -> LinkFailure.Unreachable
+    is LinkException.Rejected -> LinkFailure.Rejected(reason)
     is LinkException.Failed -> LinkFailure.Other(reason)
 }

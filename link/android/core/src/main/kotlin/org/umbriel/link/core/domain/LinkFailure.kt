@@ -5,6 +5,8 @@ sealed interface LinkFailure {
     data object WrongCode : LinkFailure
     data object Unpaired : LinkFailure
     data object Unreachable : LinkFailure
+    /** The share breaks a rule (empty, too long, a link that is not http or https). */
+    data class Rejected(val reason: String) : LinkFailure
     data class Other(val message: String) : LinkFailure
 }
 

@@ -3,7 +3,14 @@ package org.umbriel.link
 import android.app.Application
 import android.os.Build
 import android.provider.Settings
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.umbriel.link.core.data.LinkRepository
+import org.umbriel.link.notifications.Channels
+import org.umbriel.link.notifications.ShareNotifier
+import org.umbriel.link.presence.Presence
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -12,12 +19,22 @@ class LinkApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        container.start()
     }
 }
 
 /** Every long-lived object, built once; screens receive what they need through their ViewModel's constructor. */
-class AppContainer(application: Application) {
+class AppContainer(private val application: Application) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val notifier = ShareNotifier(application)
     val repository = LinkRepository(application, deviceName(application))
+    val presence = Presence(application, repository, scope)
+
+    fun start() {
+        Channels.create(application)
+        presence.start()
+        scope.launch { repository.incoming.collect(notifier::post) }
+    }
 }
 
 /** The name desktops show; the protocol allows at most 64 characters. */

@@ -1,0 +1,13 @@
+# Unpairs the only desktop from the Devices screen.
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Unpair"
+    timeout: 10000
+- tapOn: "Unpair"
+- extendedWaitUntil:
+    visible: "No desktops yet"
+    timeout: 15000
+- takeScreenshot: ${OUT}/8-unpaired
