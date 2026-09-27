@@ -17,10 +17,11 @@ class SessionBus;
 typedef struct _GstElement GstElement;
 typedef struct _GstBus GstBus;
 
-// Records the screen to ~/Videos as H.264 MP4. The source is a ScreenCast portal stream (our portal's picker runs on
-// the first recording of a shell session; later ones reuse the choice), encoded on the GPU through VA-API with
-// GStreamer: pipewiresrc, vapostproc, vah264enc, mp4mux. NOCTALIA_RECORD_TEST_SOURCE swaps the portal for
-// videotestsrc so tests exercise encode and save without a portal.
+// Records the screen to ~/Videos as H.264 MP4 with the desktop's audio as AAC. The source is a ScreenCast portal
+// stream (our portal's picker runs on the first recording of a shell session; later ones reuse the choice), encoded on
+// the GPU through VA-API with GStreamer: pipewiresrc, vapostproc, vah264enc, mp4mux. Audio is the default output's
+// monitor through fdkaacenc; if PipeWire refuses it, the recording is video only. NOCTALIA_RECORD_TEST_SOURCE swaps
+// the portal for videotestsrc so tests exercise encode and save without a portal.
 class ScreenRecorder final : public PollSource {
 public:
   ScreenRecorder(SessionBus& bus, NotificationManager& notifications);
@@ -43,11 +44,16 @@ private:
   enum class State : std::uint8_t { Idle, Starting, Recording, Stopping };
   using Results = std::map<std::string, sdbus::Variant>;
 
-  void portalRequest(const std::string& method, std::function<void(std::uint32_t, const Results&)> onResponse,
-                     std::function<void(sdbus::IProxy&, Results)> call);
+  void portalRequest(
+      const std::string& method, std::function<void(std::uint32_t, const Results&)> onResponse,
+      std::function<void(sdbus::IProxy&, Results)> call
+  );
   void selectSources();
   void startCast();
-  void startPipeline(const std::string& source);
+  // source() returns a fresh gst-launch video source for each attempt.
+  void startPipeline(const std::function<std::string()>& source);
+  // Starts a pipeline from a gst-launch description; returns an error message, empty on success.
+  std::string launch(const std::string& description);
   void finish(const std::string& error);
   void closePortalSession();
 

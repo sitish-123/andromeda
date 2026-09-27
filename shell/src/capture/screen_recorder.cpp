@@ -13,6 +13,7 @@
 #include <format>
 #include <glib.h>
 #include <gst/gst.h>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -33,8 +34,12 @@ namespace {
   constexpr auto kStopTimeout = std::chrono::seconds(5);
 
   constexpr auto kEncode =
-      " ! queue ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah264enc ! h264parse ! mp4mux"
-      " ! filesink location=\"{}\"";
+      " ! queue ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah264enc ! h264parse ! queue ! mux."
+      " mp4mux name=mux ! filesink location=\"{}\"";
+  // The default output's monitor: what the user hears.
+  constexpr auto kDesktopAudio =
+      " pipewiresrc stream-properties=\"props,stream.capture.sink=true,node.name=noctalia-recorder\" do-timestamp=true"
+      " ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux.";
 
   std::filesystem::path videosDir() {
     const char* dir = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS);
@@ -87,7 +92,9 @@ std::string ScreenRecorder::toggle() {
   }
   m_state = State::Starting;
   if (std::getenv("NOCTALIA_RECORD_TEST_SOURCE") != nullptr) {
-    startPipeline("videotestsrc is-live=true ! video/x-raw,width=1280,height=720,framerate=30/1");
+    startPipeline([]() {
+      return std::string("videotestsrc is-live=true ! video/x-raw,width=1280,height=720,framerate=30/1");
+    });
     return m_state == State::Recording ? std::string{} : std::string("the recording pipeline did not start");
   }
 
@@ -135,13 +142,13 @@ void ScreenRecorder::portalRequest(
       m_bus.connection(), kPortalBusName,
       sdbus::ObjectPath{std::format("/org/freedesktop/portal/desktop/request/{}/{}", sender, token)}
   );
-  m_request->uponSignal("Response").onInterface(kRequest).call([this, onResponse, method](
-                                                                   std::uint32_t response, const Results& results
-                                                               ) {
-    kLog.debug("{} answered {}", method, response);
-    // The request proxy is running this handler; replace it only once the handler has returned.
-    DeferredCall::callLater([this, onResponse, response, results]() { onResponse(response, results); });
-  });
+  m_request->uponSignal("Response")
+      .onInterface(kRequest)
+      .call([this, onResponse, method](std::uint32_t response, const Results& results) {
+        kLog.debug("{} answered {}", method, response);
+        // The request proxy is running this handler; replace it only once the handler has returned.
+        DeferredCall::callLater([this, onResponse, response, results]() { onResponse(response, results); });
+      });
   call(*m_portal, Results{{"handle_token", sdbus::Variant{token}}});
 }
 
@@ -201,10 +208,12 @@ void ScreenRecorder::startCast() {
               .onInterface(kScreenCast)
               .withArguments(sdbus::ObjectPath{m_sessionHandle}, Results{})
               .storeResultsTo(fd);
-          // pipewiresrc owns the fd from here and closes it with its connection.
-          startPipeline(std::format(
-              "pipewiresrc fd={} path={} do-timestamp=true keepalive-time=1000", fd.release(), std::get<0>(list.front())
-          ));
+          // Each attempt's pipewiresrc owns and closes its own duplicate; the portal's fd closes when this returns.
+          startPipeline([&fd, node = std::get<0>(list.front())]() {
+            return std::format(
+                "pipewiresrc fd={} path={} do-timestamp=true keepalive-time=1000", ::dup(fd.get()), node
+            );
+          });
         } catch (const sdbus::Error& e) {
           finish(e.what());
         }
@@ -222,27 +231,47 @@ void ScreenRecorder::startCast() {
   );
 }
 
-void ScreenRecorder::startPipeline(const std::string& source) {
+void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
   m_path = recordingPath();
-  GError* error = nullptr;
-  m_pipeline = gst_parse_launch((source + std::format(kEncode, m_path)).c_str(), &error);
-  if (m_pipeline == nullptr) {
-    finish(error != nullptr ? error->message : "invalid pipeline");
-    g_clear_error(&error);
+  const auto video = [&]() { return source() + std::format(kEncode, m_path); };
+  std::string error = launch(video() + kDesktopAudio);
+  const bool withAudio = error.empty();
+  if (!withAudio) {
+    kLog.warn("recording without audio: {}", error);
+    error = launch(video());
+  }
+  if (!error.empty()) {
+    finish(error);
     return;
   }
+  m_state = State::Recording;
+  kLog.info("recording to {}{}", m_path, withAudio ? " with desktop audio" : "");
+  m_notifications.addInternal(
+      "Noctalia", withAudio ? "Recording started" : "Recording started without audio",
+      "Run screen-record-toggle again to stop and save"
+  );
+}
+
+std::string ScreenRecorder::launch(const std::string& description) {
+  GError* error = nullptr;
+  GstElement* pipeline = gst_parse_launch(description.c_str(), &error);
+  if (pipeline == nullptr) {
+    std::string text = error != nullptr ? error->message : "invalid pipeline";
+    g_clear_error(&error);
+    return text;
+  }
   g_clear_error(&error);
+  if (gst_element_set_state(pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(pipeline);
+    return "the encoder did not start";
+  }
+  m_pipeline = pipeline;
   m_gstBus = gst_element_get_bus(m_pipeline);
   GPollFD pollFd{};
   gst_bus_get_pollfd(m_gstBus, &pollFd);
   m_busFd = pollFd.fd;
-  if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-    finish("the encoder did not start");
-    return;
-  }
-  m_state = State::Recording;
-  kLog.info("recording to {}", m_path);
-  m_notifications.addInternal("Noctalia", "Recording started", "Run screen-record-toggle again to stop and save");
+  return {};
 }
 
 void ScreenRecorder::finish(const std::string& error) {
