@@ -31,7 +31,9 @@ namespace umbriel {
                                   : std::format("{}x{}", output.width, output.height)
         );
       }
-      table.insert("position", toml::array{output.x, output.y});
+      if (output.position) {
+        table.insert("position", toml::array{(*output.position)[0], (*output.position)[1]});
+      }
       table.insert("scale", output.scale);
       if (output.transform >= 0 && output.transform < static_cast<int>(kTransformNames.size())) {
         table.insert("transform", kTransformNames[static_cast<size_t>(output.transform)]);

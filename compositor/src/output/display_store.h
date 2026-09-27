@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -18,8 +19,8 @@ namespace umbriel {
     int width = 0;
     int height = 0;
     int refreshMHz = 0;
-    int x = 0;
-    int y = 0;
+    // Unset for a mirror, which keeps the position it last had on the desktop.
+    std::optional<std::array<int, 2>> position;
     double scale = 1.0;
     int transform = 0; // wl_output_transform
     bool adaptiveSync = false;

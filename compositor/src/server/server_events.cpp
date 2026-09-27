@@ -2828,12 +2828,18 @@ namespace umbriel {
       wlr_output_configuration_head_v1* head = nullptr;
       Output* output = nullptr;
       bool wasDesktopEnabled = false;
+      bool wasMirror = false;
     };
     std::vector<RequestedHead> requested;
     wlr_output_configuration_head_v1* head = nullptr;
     wl_list_for_each(head, &config->heads, link) {
       if (Output* output = outputFromWlr(head->state.output)) {
-        requested.push_back({.head = head, .output = output, .wasDesktopEnabled = output->desktopEnabled()});
+        requested.push_back({
+            .head = head,
+            .output = output,
+            .wasDesktopEnabled = output->desktopEnabled(),
+            .wasMirror = output->mirrorSource() != nullptr,
+        });
       }
     }
 
@@ -3129,8 +3135,7 @@ namespace umbriel {
             .width = state.mode != nullptr ? state.mode->width : state.custom_mode.width,
             .height = state.mode != nullptr ? state.mode->height : state.custom_mode.height,
             .refreshMHz = state.mode != nullptr ? state.mode->refresh : state.custom_mode.refresh,
-            .x = state.x,
-            .y = state.y,
+            .position = entry.wasMirror ? std::nullopt : std::optional(std::array{state.x, state.y}),
             .scale = state.scale,
             .transform = static_cast<int>(state.transform),
             .adaptiveSync = state.adaptive_sync_enabled,

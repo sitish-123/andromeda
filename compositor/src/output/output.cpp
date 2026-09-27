@@ -580,10 +580,28 @@ namespace umbriel {
 
   wlr_output_layout_output* Output::addToLayout() {
     const OutputRule* rule = findOutputRule(config(), identity());
-    if (rule != nullptr && rule->position) {
-      return wlr_output_layout_add(m_server->outputLayout(), m_output, (*rule->position)[0], (*rule->position)[1]);
+    wlr_output_layout* layout = m_server->outputLayout();
+    if (rule == nullptr || !rule->position) {
+      return wlr_output_layout_add_auto(layout, m_output);
     }
-    return wlr_output_layout_add_auto(m_server->outputLayout(), m_output);
+    wlr_box box{.x = (*rule->position)[0], .y = (*rule->position)[1], .width = 0, .height = 0};
+    wlr_output_effective_resolution(m_output, &box.width, &box.height);
+    // Joining on top of another output (a saved position shared with a former mirror source) would stack the two.
+    const bool joining = wlr_output_layout_get(layout, m_output) == nullptr;
+    const bool covered = std::ranges::any_of(m_server->outputs(), [&](const auto& other) {
+      wlr_box otherBox{};
+      wlr_box overlap{};
+      wlr_output_layout_get_box(layout, other->m_output, &otherBox);
+      return other.get() != this && !wlr_box_empty(&otherBox) && wlr_box_intersection(&overlap, &box, &otherBox);
+    });
+    if (joining && covered) {
+      kLog.info(
+          "output '{}': configured position {},{} overlaps another output, placing it automatically", m_output->name,
+          box.x, box.y
+      );
+      return wlr_output_layout_add_auto(layout, m_output);
+    }
+    return wlr_output_layout_add(layout, m_output, box.x, box.y);
   }
 
   void Output::applyOutputState() {
