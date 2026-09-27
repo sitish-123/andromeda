@@ -6,6 +6,10 @@
     <!-- connectedDevice also needs one of a set of permissions; core's CHANGE_WIFI_MULTICAST_STATE is one. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Development permission, granted only over adb: automatic phone-to-desktop clipboard (ClipboardWatcher). -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- "Display over other apps": the only way the watcher may bring up ClipboardReadActivity from the background. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".LinkApplication"
@@ -57,6 +61,45 @@
             android:name=".presence.PresenceService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <activity
+            android:name=".clipboard.ClipboardReadActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/clipboard_send"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".transfer.OfferActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <provider
+            android:name=".clipboard.ClipProvider"
+            android:authorities="org.umbriel.link.clip"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <service
+            android:name=".clipboard.ClipboardTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_send"
+            android:label="@string/clipboard_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".transfer.TransferService"

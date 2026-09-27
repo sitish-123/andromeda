@@ -1,4 +1,4 @@
-# A desktop's file offer is in the notification shade; its Accept action accepts it.
+# A desktop's file offer is in the notification shade; tapping it opens Accept and Decline, and Accept accepts it.
 appId: org.umbriel.link
 ---
 - swipe:
@@ -8,4 +8,8 @@ appId: org.umbriel.link
     visible: ".*wants to send.*"
     timeout: 20000
 - takeScreenshot: ${OUT}/7-offer
+- tapOn: ".*wants to send.*"
+- extendedWaitUntil:
+    visible: "Accept"
+    timeout: 10000
 - tapOn: "Accept"

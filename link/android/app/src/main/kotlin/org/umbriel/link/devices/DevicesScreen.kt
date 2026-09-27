@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.umbriel.link.R
+import org.umbriel.link.clipboard.ClipboardHint
 import org.umbriel.link.core.domain.Desktop
 import org.umbriel.link.ui.text
 
@@ -113,6 +114,7 @@ private fun EmptyDesktops(modifier: Modifier) {
 private fun DesktopList(state: DevicesState, viewModel: DevicesViewModel, content: PaddingValues, modifier: Modifier) {
     LazyColumn(modifier = modifier.fillMaxSize(), contentPadding = content, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "stay-connected") { StayConnected(state.stayConnected, viewModel::setStayConnected) }
+        item(key = "clipboard-hint") { ClipboardHint() }
         items(state.desktops, key = { it.id }) { desktop ->
             DesktopCard(desktop, busy = desktop.id in state.busy, viewModel)
         }

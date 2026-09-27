@@ -2,6 +2,7 @@ package org.umbriel.link
 
 import android.app.Application
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -11,6 +12,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.umbriel.link.clipboard.ClipboardSync
+import org.umbriel.link.clipboard.ClipboardWatcher
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.notifications.Channels
 import org.umbriel.link.notifications.ShareNotifier
@@ -36,17 +39,24 @@ class AppContainer(private val application: Application) {
     private val transferNotifier = TransferNotifier(application)
     val repository = LinkRepository(application, deviceName(application))
     val presence = Presence(application, repository, scope)
+    val clipboard = ClipboardSync(application, repository, scope)
+    val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
 
     fun start() {
         Channels.create(application)
         presence.start()
+        clipboard.start()
         scope.launch { repository.incoming.collect(notifier::post) }
         scope.launch { repository.transfers.collect(transferNotifier::post) }
         scope.launch {
             // Transfers start from the share target or a notification action, both of which may start the service.
             repository.activeTransfers.map { it.isNotEmpty() }.distinctUntilChanged().collect { active ->
                 val intent = Intent(application, TransferService::class.java)
-                if (active) ContextCompat.startForegroundService(application, intent) else application.stopService(intent)
+                if (!active) {
+                    application.stopService(intent)
+                } else if (runCatching { ContextCompat.startForegroundService(application, intent) }.isFailure) {
+                    Log.w("link", "a transfer started while in the background runs without its service")
+                }
             }
         }
     }

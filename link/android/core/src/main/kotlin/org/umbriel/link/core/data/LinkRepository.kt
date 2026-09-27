@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.IncomingClip
 import org.umbriel.link.core.domain.IncomingShare
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.LinkFailureException
@@ -56,6 +57,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _transfers = MutableSharedFlow<TransferEvent>(extraBufferCapacity = INCOMING_BUFFER)
     private val downloads = Downloads(context)
     private val _activeTransfers = MutableStateFlow<Set<String>>(emptySet())
+    private val _clips = MutableSharedFlow<IncomingClip>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -64,6 +66,16 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Offers, progress, and results of file transfers in both directions. */
     val transfers: SharedFlow<TransferEvent> = _transfers.asSharedFlow()
+
+    /** Desktop clipboards, as they change. */
+    val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
+
+    /** Offers text from this phone's clipboard to every connected desktop. */
+    suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
+
+    /** Writes one type of a desktop's clipboard into [fd], which the core takes over. */
+    suspend fun pullClip(desktopId: String, clipId: Long, mime: String, fd: Int): Result<Long> =
+        call { it.pullClip(desktopId, clipId.toULong(), mime, fd).toLong() }
 
     /** Transfers sent or accepted here that have not finished. */
     val activeTransfers: StateFlow<Set<String>> = _activeTransfers.asStateFlow()
@@ -162,6 +174,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 is LinkEvent.TransferProgress ->
                     _transfers.emit(TransferEvent.Progress(event.transferId, event.bytes.toLong(), event.total.toLong()))
                 is LinkEvent.TransferFinished -> scope.launch { finished(event) }
+                is LinkEvent.ClipOffered ->
+                    _clips.emit(IncomingClip(event.desktopId, event.clipId.toLong(), event.mimes, event.text))
             }
         }
     }

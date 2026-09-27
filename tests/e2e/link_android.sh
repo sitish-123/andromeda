@@ -5,8 +5,13 @@
 # Android through the share target arrive as D-Bus Received; text and a link sent with D-Bus Share post Android
 # notifications, and tapping the text's (its Copy PendingIntent) clears it; leaving the app ends presence (D-Bus shows it
 # disconnected) and returning restores it; "Stay connected" keeps it connected in the background with its
-# foreground-service notification, which goes away when turned off; unpairing in the app removes it on the desktop.
-# Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, linkd.log to $OUT
+# foreground-service notification, which goes away when turned off; a file shared from the Files app through the share
+# target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from the Android
+# notification lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and Display over
+# other apps granted over adb, a copy in Settings reaches the desktop with no tap, a desktop clip is set on the phone
+# (pasted back in Settings) without echoing, and "Send to desktop" (PROCESS_TEXT) sends a selection; unpairing in the
+# app removes it on the desktop.
+# Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, mediastore.txt, linkd.log to $OUT
 # (default ./artifacts/link-android). Needs the debug APK (./gradlew :app:assembleDebug) and a running emulator.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -75,6 +80,10 @@ adb shell cmd statusbar collapse
 adb shell input keyevent KEYCODE_HOME
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
+# The one-time grants that turn on automatic phone-to-desktop clipboard: READ_LOGS (a development permission) and
+# Display over other apps.
+adb shell pm grant "$PACKAGE" android.permission.READ_LOGS
+adb shell appops set "$PACKAGE" SYSTEM_ALERT_WINDOW allow
 record '{"step":"installed"}'
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/")
@@ -156,11 +165,55 @@ wait_for 20 "presence did not return with the app" connected
 record '{"step":"presence-follows-foreground"}'
 
 maestro -e STAY=on "$FLOWS/stay-connected.yaml"
+maestro "$FLOWS/allow-logs.yaml"
 wait_for 10 "no Stay connected notification" posted "Connected to your desktops"
 adb shell input keyevent KEYCODE_HOME
 sleep 5 # real time: longer than the foreground check above waited for a disconnect
 connected || fail "Stay connected did not keep the session in the background: $(devices)"
 screenshot 6-stay-connected-background
+
+# Automatic clipboard both ways while Stay connected runs, in Settings' device-name field: another app's copy.
+clip_offers() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
+COPIED=$(adb shell settings get global device_name | tr -d '\r')
+adb shell am start -W -a android.settings.DEVICE_NAME > /dev/null
+maestro "$FLOWS/device-name-field.yaml"
+maestro -e TEXT="$COPIED" "$FLOWS/field-shows.yaml"
+BEFORE=$(clip_offers)
+adb shell input keycombination 113 29 # Ctrl+A
+adb shell input keycombination 113 31 # Ctrl+C
+wait_for 20 "the copy in Settings never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
+PULLED=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" "text/plain;charset=utf-8") \
+  || fail "PullClipboard"
+[[ $PULLED == "$COPIED" ]] || fail "the desktop got \"$PULLED\", not \"$COPIED\""
+screenshot 8-copied-in-settings
+record "{\"step\":\"android-copy-reaches-desktop\",\"text\":\"$COPIED\",\"taps\":0}"
+
+OFFERS=$(clip_offers)
+python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" offer "text/plain;charset=utf-8" "from the desktop clipboard" \
+  || fail "OfferClipboard"
+sleep 3 # real time: the phone sets it, and any echo would come back by now
+[[ $(clip_offers) == "$OFFERS" ]] || fail "the phone echoed the desktop clip back"
+adb shell input keycombination 113 29 # Ctrl+A
+adb shell input keycombination 113 50 # Ctrl+V
+maestro -e TEXT="from the desktop clipboard" "$FLOWS/field-shows.yaml"
+screenshot 9-pasted-in-settings
+adb shell input keyevent KEYCODE_BACK
+adb shell input keyevent KEYCODE_BACK
+adb shell input keyevent KEYCODE_HOME
+record '{"step":"desktop-copy-reaches-android","pasted":"from the desktop clipboard","echo":false}'
+
+# The one-tap path without the grants: "Send to desktop" in the text-selection menu.
+BEFORE=$(clip_offers)
+adb shell am start -W -n "$PACKAGE/.clipboard.ClipboardReadActivity" -a android.intent.action.PROCESS_TEXT \
+  -t text/plain --es android.intent.extra.PROCESS_TEXT "'selected on the phone'" > /dev/null
+wait_for 20 "the selected text never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
+PULLED=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" "text/plain;charset=utf-8") \
+  || fail "PullClipboard for the selection"
+[[ $PULLED == "selected on the phone" ]] || fail "the selection arrived as \"$PULLED\""
+record '{"step":"process-text-reaches-desktop","text":"selected on the phone"}'
+
 maestro -e STAY=off "$FLOWS/stay-connected.yaml"
 wait_for 10 "the Stay connected notification outlived the toggle" gone "Connected to your desktops"
 record '{"step":"stay-connected-in-background","service_notification":"only while on"}'

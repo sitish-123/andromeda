@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import org.umbriel.link.R
 import org.umbriel.link.core.domain.TransferEvent
+import org.umbriel.link.transfer.OfferActivity
 
 /**
  * One notification per transfer, replaced as it moves on: the offer with Accept and Decline, then progress with
@@ -23,7 +24,10 @@ class TransferNotifier(private val context: Context) {
     fun post(event: TransferEvent) {
         if (!allowed()) return
         val id = event.transferId.hashCode()
-        val builder = NotificationCompat.Builder(context, Channels.TRANSFERS).setSmallIcon(android.R.drawable.stat_sys_download)
+        // A group of its own, so Android never folds an offer into a bundle that hides its Accept button.
+        val builder = NotificationCompat.Builder(context, Channels.TRANSFERS)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setGroup(TAG + event.transferId)
         when (event) {
             is TransferEvent.Offered -> offer(builder, event)
             is TransferEvent.Progress -> builder
@@ -45,8 +49,15 @@ class TransferNotifier(private val context: Context) {
         } else {
             context.getString(R.string.transfer_offer, event.desktopName, event.files.size, size(total))
         }
+        val open = Intent(context, OfferActivity::class.java)
+            .putExtra(OfferActivity.EXTRA_TRANSFER, event.transferId)
+            .putExtra(OfferActivity.EXTRA_TITLE, title)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         builder.setContentTitle(title)
             .setContentText(event.files.joinToString { it.name })
+            .setContentIntent(
+                PendingIntent.getActivity(context, event.transferId.hashCode(), open, PendingIntent.FLAG_IMMUTABLE),
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setTimeoutAfter(OFFER_TIMEOUT_MS)
             .addAction(0, context.getString(R.string.transfer_accept), action(TransferReceiver.ACCEPT, event.transferId))

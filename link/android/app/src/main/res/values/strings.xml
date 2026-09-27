@@ -52,5 +52,8 @@
     <string name="transfer_received">Received from %1$s</string>
     <string name="transfer_sent">Sent to %1$s</string>
     <string name="transfer_failed">Transfer with %1$s: %2$s</string>
+    <string name="clipboard_hint">To send what you copy to your desktop automatically, allow Display over other apps for Umbriel Link and run once on a computer: adb shell pm grant %1$s android.permission.READ_LOGS</string>
+    <string name="clipboard_send">Send to desktop</string>
+    <string name="clipboard_tile">Send clipboard</string>
     <string name="share_files_sending">Offered to %1$s</string>
 </resources>

@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import org.umbriel.link.LinkApplication
 import org.umbriel.link.MainActivity
 import org.umbriel.link.R
 import org.umbriel.link.notifications.Channels
@@ -38,7 +39,13 @@ class PresenceService : Service() {
             notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+        (application as LinkApplication).container.clipboardWatcher.start()
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        (application as LinkApplication).container.clipboardWatcher.stop()
+        super.onDestroy()
     }
 
     private companion object {

@@ -1,0 +1,8 @@
+# Android 13+ asks once each time an app with READ_LOGS starts reading the log, which Stay connected just did.
+appId: org.umbriel.link
+---
+- extendedWaitUntil:
+    visible: "Allow one-time access"
+    timeout: 15000
+- takeScreenshot: ${OUT}/log-access
+- tapOn: "Allow one-time access"
