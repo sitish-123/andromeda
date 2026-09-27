@@ -9,8 +9,9 @@ use std::net::{Ipv6Addr, SocketAddr};
 
 use anyhow::Context;
 use link_core::identity::Identity;
+use link_core::inbox::Inbox;
 use link_core::store::Store;
-use link_core::transport;
+use link_core::{transfer, transport};
 use tokio::signal::unix::{SignalKind, signal};
 
 fn main() -> anyhow::Result<()> {
@@ -34,12 +35,16 @@ async fn run() -> anyhow::Result<()> {
     let name = dbus::device_name().await;
     log::info!("{} listening on port {port} as {:?}", identity.device_id(), name);
 
-    let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths);
+    let inbox = Inbox::new(paths.downloads.clone(), &paths.state).context("opening the transfer state")?;
+    let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
+    let transfers = hub::Transfers { handle: transfers, events: transfer_events };
+    let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths, transfers);
     dbus::serve(&bus, handle.clone(), snapshots.clone()).await?;
     let listener = listener::Listener::new(endpoint.clone(), handle, identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
         result = hub.run() => result,
+        () = transfer_actor.run() => Ok(()),
         result = listener.run() => result,
         result = dbus::forward(&bus, snapshots, events) => result,
         _ = terminate.recv() => Ok(()),

@@ -21,8 +21,36 @@
       <arg name="kind" type="s" direction="in"/>
       <arg name="text" type="s" direction="in"/>
     </method>
+    <!-- Offers files to a connected device and returns the transfer id (32 hex digits) at once; the Transfer*
+         signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
+         Errors: .NotConnected without a live session, .Rejected for no files or a descriptor that is not a regular
+         file, .Failed otherwise. -->
+    <method name="SendFiles">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="files" type="a(hs)" direction="in"/>
+      <arg name="transfer_id" type="s" direction="out"/>
+    </method>
+    <!-- Consent for a TransferOffered; .Rejected once the offer no longer waits (answered, withdrawn, or 120 s
+         passed, which declines it). -->
+    <method name="AcceptTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <method name="DeclineTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <!-- Either direction; the device is told and partial files are deleted. -->
+    <method name="CancelTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <!-- Accept this device's offers without a TransferOffered. Off for a newly paired device. -->
+    <method name="SetAutoAccept">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="enabled" type="b" direction="in"/>
+    </method>
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
+    <!-- Devices whose offers are accepted without asking. -->
+    <property name="AutoAccept" type="as" access="read"/>
     <property name="Pairing" type="b" access="read"/>
     <signal name="PairingFinished">
       <arg name="device_id" type="s"/>
@@ -36,6 +64,25 @@
       <arg name="device_id" type="s"/>
       <arg name="kind" type="s"/>
       <arg name="text" type="s"/>
+    </signal>
+    <!-- A device offers files, each (sanitized name, size in bytes); answer with AcceptTransfer or DeclineTransfer. -->
+    <signal name="TransferOffered">
+      <arg name="transfer_id" type="s"/>
+      <arg name="device_id" type="s"/>
+      <arg name="files" type="a(st)"/>
+    </signal>
+    <!-- Bytes moved so far in either direction, at most 4 times a second per transfer. -->
+    <signal name="TransferProgress">
+      <arg name="transfer_id" type="s"/>
+      <arg name="bytes" type="t"/>
+      <arg name="total" type="t"/>
+    </signal>
+    <!-- status: done, failed, declined, no-space, too-large, busy, or cancelled. paths: what an incoming transfer
+         published in the download directory, each verified against its SHA-256. -->
+    <signal name="TransferFinished">
+      <arg name="transfer_id" type="s"/>
+      <arg name="status" type="s"/>
+      <arg name="paths" type="as"/>
     </signal>
   </interface>
 </node>

@@ -1,21 +1,32 @@
-//! The phone as the app runs it: a present session through `link_core::client`, and shares both ways.
+//! The phone as the app runs it: a present session through `link_core::client`, shares and files both ways.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
 use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
+use link_core::inbox::Inbox;
 use link_core::phone::Phone;
 use link_core::proto::message::{Message, Share, ShareKind};
 use link_core::reach::Via;
+use link_core::transfer::TransferEvent;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
 
-/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line
-/// `<text|link> <text>` is shared with the desktop.
-pub async fn hold(phone: Phone, id: DeviceId, seconds: Option<u64>) -> anyhow::Result<()> {
-    let (client, actor, mut events) = client::client(phone);
+use crate::{OnOffer, files};
+
+/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line is a share
+/// (`<text|link> <text>`) or a transfer command (`send <path>...`, `accept|decline|cancel <transfer>`).
+pub async fn hold(
+    phone: Phone,
+    inbox: Inbox,
+    id: DeviceId,
+    seconds: Option<u64>,
+    on_offer: OnOffer,
+) -> anyhow::Result<()> {
+    let (client, actor, mut events) = client::client(phone, inbox);
     let drive = async move {
         client.set_present(true).await?;
         let mut terminate = signal(SignalKind::terminate())?;
@@ -24,9 +35,12 @@ pub async fn hold(phone: Phone, id: DeviceId, seconds: Option<u64>) -> anyhow::R
         let deadline = seconds.map(|seconds| tokio::time::Instant::now() + Duration::from_secs(seconds));
         loop {
             tokio::select! {
-                Some(event) = events.recv() => println!("{}", describe(&event)),
+                Some(event) = events.recv() => {
+                    println!("{}", describe(&event));
+                    answer(&client, &event, on_offer).await;
+                }
                 line = lines.next_line(), if stdin_open => match line? {
-                    Some(line) => println!("{}", share_line(&client, &id, &line).await),
+                    Some(line) => println!("{}", command_line(&client, &id, &line).await),
                     None => stdin_open = false,
                 },
                 _ = terminate.recv() => break,
@@ -40,9 +54,21 @@ pub async fn hold(phone: Phone, id: DeviceId, seconds: Option<u64>) -> anyhow::R
     result
 }
 
+async fn answer(client: &Client, event: &ClientEvent, on_offer: OnOffer) {
+    let ClientEvent::Transfer(TransferEvent::Offered { id, .. }) = event else { return };
+    let accept = match on_offer {
+        OnOffer::Accept => true,
+        OnOffer::Decline => false,
+        OnOffer::Ask => return,
+    };
+    if let Err(error) = client.decide(*id, accept).await {
+        log::warn!("answering {id}: {error}");
+    }
+}
+
 /// Shares once on demand and prints the outcome.
-pub async fn share(phone: Phone, id: DeviceId, share: Share) -> anyhow::Result<()> {
-    let (client, actor, _events) = client::client(phone);
+pub async fn share(phone: Phone, inbox: Inbox, id: DeviceId, share: Share) -> anyhow::Result<()> {
+    let (client, actor, _events) = client::client(phone, inbox);
     let (kind, bytes) = (share.kind.as_str(), share.text.len());
     let send = async move { client.share(id, share).await };
     let ((), result) = tokio::join!(actor.run(), send);
@@ -66,8 +92,34 @@ pub async fn share_unchecked(mut phone: Phone, id: DeviceId, share: Share) -> an
     Ok(())
 }
 
-async fn share_line(client: &Client, id: &DeviceId, line: &str) -> Value {
-    let (kind, text) = line.split_once(' ').unwrap_or((line, ""));
+async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Value {
+    let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
+    let result = match verb {
+        "send" => send_line(client, id, rest).await,
+        "accept" | "decline" => match files::parse_transfer(rest) {
+            Ok(transfer) => client.decide(transfer, verb == "accept").await.map_err(Into::into),
+            Err(error) => Err(error),
+        }
+        .map(|answered| json!({ "event": verb, "answered": answered })),
+        "cancel" => match files::parse_transfer(rest) {
+            Ok(transfer) => client.cancel_transfer(transfer).await.map_err(Into::into),
+            Err(error) => Err(error),
+        }
+        .map(|cancelled| json!({ "event": "cancel", "cancelled": cancelled })),
+        _ => return share_line(client, id, verb, rest).await,
+    };
+    result.unwrap_or_else(|error| json!({ "event": format!("{verb}-failed"), "error": error.to_string() }))
+}
+
+async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result<Value> {
+    let paths: Vec<PathBuf> = rest.split_whitespace().map(PathBuf::from).collect();
+    let names = files::names(&paths, &[])?;
+    let sources = files::sources(&paths, names)?;
+    let transfer = client.send_files(id.clone(), sources).await?;
+    Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
+}
+
+async fn share_line(client: &Client, id: &DeviceId, kind: &str, text: &str) -> Value {
     let Some(kind) = ShareKind::parse(kind) else {
         return json!({ "event": "share-failed", "error": "a line is <text|link> <text>" });
     };
@@ -89,6 +141,7 @@ fn describe(event: &ClientEvent) -> Value {
             json!({ "event": "received", "desktop": from, "kind": share.kind.as_str(), "text": share.text })
         }
         ClientEvent::Unpaired { id } => json!({ "event": "unpaired", "desktop": id }),
+        ClientEvent::Transfer(event) => files::describe(event),
     }
 }
 

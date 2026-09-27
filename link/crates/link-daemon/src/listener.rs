@@ -120,8 +120,7 @@ async fn serve(
     context: &Context,
 ) -> Result<(), Error> {
     let id = peer.device_id();
-    let (handle, actor) =
-        start_session(connection.clone(), control, Role::Desktop, id.clone(), context.hub.session_events());
+    let (handle, actor) = start_session(connection.clone(), control, Role::Desktop, context.hub.route(id.clone()));
     context.hub.connected(id, hello.name, handle).await;
     actor.run().await
 }

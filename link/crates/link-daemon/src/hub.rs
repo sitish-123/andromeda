@@ -10,8 +10,9 @@ use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::Share;
 use link_core::proto::pairing::{Secret, Secrets};
-use link_core::session::{SessionEvent, SessionHandle};
+use link_core::session::{Route, SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
+use link_core::transfer::{TransferEvent, TransferHandle};
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -38,13 +39,25 @@ pub struct Snapshot {
     /// `(device_id, name, connected)`, the D-Bus `Devices` property.
     pub devices: Vec<(String, String, bool)>,
     pub pairing: bool,
+    /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
+    pub auto_accept: Vec<String>,
 }
 
 #[derive(Debug)]
 pub enum Event {
-    PairingFinished { id: DeviceId, name: String },
-    PairingFailed { reason: String },
-    Received { id: DeviceId, share: Share },
+    PairingFinished {
+        id: DeviceId,
+        name: String,
+    },
+    PairingFailed {
+        reason: String,
+    },
+    Received {
+        id: DeviceId,
+        share: Share,
+    },
+    /// Every transfer event but a `Busy` and an auto-accepted `Offered`.
+    Transfer(TransferEvent),
 }
 
 enum Command {
@@ -57,12 +70,14 @@ enum Command {
     Connected { id: DeviceId, name: String, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
+    SetAutoAccept { id: DeviceId, enabled: bool, reply: oneshot::Sender<bool> },
 }
 
 #[derive(Clone)]
 pub struct HubHandle {
     commands: mpsc::Sender<Command>,
     session_events: mpsc::Sender<SessionEvent>,
+    transfers: TransferHandle,
 }
 
 struct Window {
@@ -85,6 +100,14 @@ pub struct Hub {
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
     events: mpsc::Sender<Event>,
+    transfers: TransferHandle,
+    transfer_events: mpsc::UnboundedReceiver<TransferEvent>,
+}
+
+/// The transfer actor the hub consents for and attaches sessions to.
+pub struct Transfers {
+    pub handle: TransferHandle,
+    pub events: mpsc::UnboundedReceiver<TransferEvent>,
 }
 
 impl Hub {
@@ -92,6 +115,7 @@ impl Hub {
         own: Spki,
         store: Store,
         paths: Paths,
+        transfers: Transfers,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
@@ -109,9 +133,12 @@ impl Hub {
             session_events,
             snapshots,
             events,
+            transfers: transfers.handle.clone(),
+            transfer_events: transfers.events,
         };
         hub.refresh();
-        let handle = HubHandle { commands: commands_tx, session_events: session_events_tx };
+        let handle =
+            HubHandle { commands: commands_tx, session_events: session_events_tx, transfers: transfers.handle };
         (hub, handle, snapshots_rx, events_rx)
     }
 
@@ -124,6 +151,7 @@ impl Hub {
                     None => return Ok(()),
                 },
                 Some(event) = self.session_events.recv() => self.on_session_event(event).await,
+                Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
                 () = sleep_until(deadline) => {
                     log::info!("pairing window expired");
                     self.close_window();
@@ -144,8 +172,9 @@ impl Hub {
                     self.emit(Event::PairingFailed { reason }).await;
                 }
             }
-            Command::Connected { id, name, session } => self.connected(id, name, session),
+            Command::Connected { id, name, session } => self.connected(id, name, session).await,
             Command::Disconnected { id, stable_id } => {
+                self.transfers.detach(id.clone(), stable_id).await;
                 if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
                     self.sessions.remove(&id);
                     self.publish();
@@ -154,7 +183,33 @@ impl Hub {
             Command::Session { id, reply } => {
                 drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
             }
+            Command::SetAutoAccept { id, enabled, reply } => {
+                let Some(peer) = self.store.peer_mut(&id) else {
+                    let _ = reply.send(false);
+                    return;
+                };
+                peer.auto_accept = enabled;
+                self.save();
+                self.publish();
+                let _ = reply.send(true);
+            }
         }
+    }
+
+    /// Consent is the hub's: an offer from an auto-accept device is accepted here, any other goes to the shell.
+    async fn on_transfer(&mut self, event: TransferEvent) {
+        match &event {
+            TransferEvent::Busy { .. } => return,
+            TransferEvent::Offered { id, from, .. } if self.store.peer(from).is_some_and(|peer| peer.auto_accept) => {
+                log::info!("{from}: auto-accepting transfer {id}");
+                if let Err(error) = self.transfers.decide(*id, true).await {
+                    log::error!("accepting {id}: {error}");
+                }
+                return;
+            }
+            _ => {}
+        }
+        self.emit(Event::Transfer(event)).await;
     }
 
     async fn on_session_event(&mut self, event: SessionEvent) {
@@ -245,17 +300,18 @@ impl Hub {
     }
 
     /// One session per device: a newer one replaces the older, which a phone that changed networks leaves behind.
-    fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
+    async fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
         let Some(peer) = self.store.peer_mut(&id) else {
             return session.close(CloseCode::NotPaired);
         };
         peer.name = name;
         peer.touch();
         self.save();
-        if let Some(older) = self.sessions.insert(id, session) {
+        if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
         self.publish();
+        self.transfers.attach(id, session).await;
     }
 
     fn unpair(&mut self, id: &DeviceId) -> bool {
@@ -304,8 +360,10 @@ impl Hub {
             .iter()
             .map(|peer| (peer.id.to_string(), peer.name.clone(), self.sessions.contains_key(&peer.id)))
             .collect();
+        let auto_accept =
+            self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
         self.snapshots.send_if_modified(|current| {
-            let next = Snapshot { devices, pairing: self.window.is_some() };
+            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept };
             let changed = *current != next;
             *current = next;
             changed
@@ -398,9 +456,17 @@ impl HubHandle {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
     }
 
-    /// Where session actors report what their peers send.
-    pub fn session_events(&self) -> mpsc::Sender<SessionEvent> {
-        self.session_events.clone()
+    pub async fn set_auto_accept(&self, id: DeviceId, enabled: bool) -> bool {
+        self.request(|reply| Command::SetAutoAccept { id, enabled, reply }).await.unwrap_or(false)
+    }
+
+    pub fn transfers(&self) -> &TransferHandle {
+        &self.transfers
+    }
+
+    /// Where a session delivers what its peer sends.
+    pub fn route(&self, peer: DeviceId) -> Route {
+        Route { peer, events: self.session_events.clone(), transfers: self.transfers.clone() }
     }
 
     pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {

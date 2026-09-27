@@ -1017,6 +1017,7 @@ dependencies = [
  "mdns-sd",
  "quinn",
  "ring",
+ "rustix",
  "rustls",
  "serde",
  "serde_json",
@@ -1062,6 +1063,7 @@ dependencies = [
  "link-core",
  "log",
  "quinn",
+ "ring",
  "serde_json",
  "tokio",
 ]

@@ -1,7 +1,8 @@
 ; Link v1 control messages. A frame is a big-endian u32 length, then one CBOR envelope of at most 64 KiB.
 ; Types marked "0-RTT" are idempotent and may be sent in QUIC early data.
 
-envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg
+envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg / offer-msg /
+  offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -33,3 +34,35 @@ link-pattern = tstr .pcre "^[Hh][Tt][Tt][Pp][Ss]?://[^[:space:][:cntrl:]]+$"
 
 ; Sent when the share was handed to the receiver's surface.
 share-ack-msg = { type: "share-ack", id: uint, body: { of: uint } }  ; of: the share's envelope id
+
+; Files (link/ARCHITECTURE.md, Files). Either side sends; file ids are unique within an offer, and the offer fits one
+; frame. The receiver sanitizes each name before using it.
+transfer-id = bstr .size 16
+offer-msg = { type: "offer", id: uint, body: offer }
+offer = { transfer: transfer-id, files: [+ offered-file] }
+offered-file = {
+  id: uint,
+  name: tstr .size (1..4096),
+  size: uint,
+  mime: tstr .size (1..255),
+  sha256: bstr .size 32,
+}
+
+offer-reply-msg = { type: "offer-reply", id: uint, body: offer-reply }
+offer-reply = accepted-reply / refused-reply
+accepted-reply = { transfer: transfer-id, accepted: true }
+refused-reply = { transfer: transfer-id, accepted: false, reason: "declined" / "no-space" / "too-large" / "busy" }
+
+; Sent by the sender on a new session for each accepted, unfinished transfer.
+resume-msg = { type: "resume", id: uint, body: { transfer: transfer-id } }
+; Every unfinished file and where it continues; sent after a file-done for each finished one.
+resume-at-msg = { type: "resume-at", id: uint, body: { transfer: transfer-id, offsets: [* file-offset] } }
+file-offset = { file: uint, offset: uint }
+
+cancel-msg = { type: "cancel", id: uint, body: { transfer: transfer-id } }
+
+; The receiver's verdict on one file, after it verified the hash and published it (ok) or deleted it.
+file-done-msg = { type: "file-done", id: uint, body: { transfer: transfer-id, file: uint, ok: bool } }
+
+; The first frame of a file's unidirectional stream (envelope id 0); the bytes from offset to size follow.
+file-data-msg = { type: "file-data", id: uint, body: { transfer: transfer-id, file: uint, offset: uint } }

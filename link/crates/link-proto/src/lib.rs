@@ -5,6 +5,7 @@ pub mod frame;
 pub mod message;
 pub mod pairing;
 pub mod session;
+pub mod transfer;
 
 pub const ALPN: &[u8] = b"umbriel-link/1";
 pub const VERSION: u32 = 1;

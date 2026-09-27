@@ -23,6 +23,8 @@ pub enum Inbound {
     },
     /// The phone unpaired; only a desktop receives this.
     Unpair,
+    /// An `offer`, `offer-reply`, `resume`, `resume-at`, `cancel`, or `file-done`, for the transfer rules to judge.
+    Transfer(Message),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -55,6 +57,12 @@ impl SessionState {
             Message::ShareAck(ack) if self.outstanding.remove(&ack.of) => Ok(Inbound::Acked { of: ack.of }),
             Message::ShareAck(ack) => Err(SessionError::UnknownAck(ack.of)),
             Message::Unpair if self.role == Role::Desktop => Ok(Inbound::Unpair),
+            message @ (Message::Offer(_)
+            | Message::OfferReply(_)
+            | Message::Resume(_)
+            | Message::ResumeAt(_)
+            | Message::Cancel(_)
+            | Message::FileDone(_)) => Ok(Inbound::Transfer(message)),
             other => Err(SessionError::Unexpected(other.kind())),
         }
     }

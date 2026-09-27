@@ -28,6 +28,9 @@ pub struct Peer {
     /// Unix seconds.
     #[serde(default)]
     pub last_seen: u64,
+    /// Accept this device's file offers without asking; a desktop-side setting.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_accept: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -44,7 +47,14 @@ pub struct Store {
 
 impl Peer {
     pub fn new(spki: &Spki, name: String) -> Self {
-        Self { id: spki.device_id(), name, key: STANDARD.encode(spki.as_der()), addresses: Vec::new(), last_seen: 0 }
+        Self {
+            id: spki.device_id(),
+            name,
+            key: STANDARD.encode(spki.as_der()),
+            addresses: Vec::new(),
+            last_seen: 0,
+            auto_accept: false,
+        }
     }
 
     pub fn spki(&self) -> Result<Spki, Error> {

@@ -1,22 +1,24 @@
-//! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, and the events an app shows.
-//! Shared by the headless phone and the Android bindings.
+//! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, file transfers, and the events an
+//! app shows. Shared by the headless phone and the Android bindings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::Share;
+use link_proto::message::{Share, TransferId};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::identity::DeviceId;
+use crate::inbox::Inbox;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::Via;
-use crate::session::{self, SessionEvent, SessionHandle};
+use crate::session::{self, Route, SessionEvent, SessionHandle};
 use crate::store::Peer;
+use crate::transfer::{self, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -42,6 +44,8 @@ pub enum ClientEvent {
     Unpaired {
         id: DeviceId,
     },
+    /// Offers, progress, and results of file transfers in both directions.
+    Transfer(TransferEvent),
 }
 
 #[derive(Debug, Clone)]
@@ -56,11 +60,15 @@ enum Command {
     SetPresent { present: bool },
     Forget { id: DeviceId, reply: oneshot::Sender<Result<(), Error>> },
     Desktops { reply: oneshot::Sender<Vec<DesktopState>> },
+    Keep { id: DeviceId, keep: bool },
 }
 
 /// The handle apps hold; every method is answered by the [`ClientActor`].
 #[derive(Clone)]
-pub struct Client(mpsc::Sender<Command>);
+pub struct Client {
+    commands: mpsc::Sender<Command>,
+    transfers: TransferHandle,
+}
 
 pub struct ClientActor {
     phone: Phone,
@@ -70,7 +78,14 @@ pub struct ClientActor {
     running: JoinSet<Ended>,
     session_events_tx: mpsc::Sender<SessionEvent>,
     session_events: mpsc::Receiver<SessionEvent>,
+    transfers: TransferHandle,
+    transfer_actor: Option<TransferActor>,
+    transfer_events: mpsc::UnboundedReceiver<TransferEvent>,
     present: bool,
+    /// Desktops with an open transfer, kept connected like a present phone until it ends.
+    busy: HashSet<DeviceId>,
+    /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
+    keeping: HashSet<DeviceId>,
     retries: HashMap<DeviceId, Retry>,
 }
 
@@ -85,11 +100,12 @@ struct Retry {
     delay: Duration,
 }
 
-/// The caller runs the actor in a task it owns and reads the events.
-pub fn client(phone: Phone) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>) {
+/// The caller runs the actor in a task it owns and reads the events. Received files go to `inbox`.
+pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>) {
     let (commands_tx, commands) = mpsc::channel(16);
     let (events, events_rx) = mpsc::channel(64);
     let (session_events_tx, session_events) = mpsc::channel(16);
+    let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
     let actor = ClientActor {
         phone,
         commands,
@@ -98,10 +114,15 @@ pub fn client(phone: Phone) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>
         running: JoinSet::new(),
         session_events_tx,
         session_events,
+        transfers: transfers.clone(),
+        transfer_actor: Some(transfer_actor),
+        transfer_events,
         present: false,
+        busy: HashSet::new(),
+        keeping: HashSet::new(),
         retries: HashMap::new(),
     };
-    (Client(commands_tx), actor, events_rx)
+    (Client { commands: commands_tx, transfers }, actor, events_rx)
 }
 
 impl Client {
@@ -118,13 +139,33 @@ impl Client {
     /// While present, every paired desktop is kept connected with keep-alive and redialled when it drops; otherwise
     /// sessions are opened on demand and idle out.
     pub async fn set_present(&self, present: bool) -> Result<(), Error> {
-        self.0.send(Command::SetPresent { present }).await.map_err(|_| Error::Stopped)
+        self.commands.send(Command::SetPresent { present }).await.map_err(|_| Error::Stopped)
     }
 
     /// Sends `share`, connecting first if needed, and waits for the desktop's ack.
     pub async fn share(&self, id: DeviceId, share: Share) -> Result<(), Error> {
         share.check()?;
         self.session(id).await?.share(share).await
+    }
+
+    /// Offers files to the desktop, connecting with keep-alive first; the session stays until the transfer ends.
+    pub async fn send_files(&self, id: DeviceId, sources: Vec<Source>) -> Result<TransferId, Error> {
+        self.commands.send(Command::Keep { id: id.clone(), keep: true }).await.map_err(|_| Error::Stopped)?;
+        let sent = match self.session(id.clone()).await {
+            Ok(_) => self.transfers.send(id.clone(), sources).await,
+            Err(error) => Err(error),
+        };
+        self.commands.send(Command::Keep { id, keep: false }).await.map_err(|_| Error::Stopped)?;
+        sent
+    }
+
+    /// Answers a desktop's offer; false when it no longer waits.
+    pub async fn decide(&self, transfer: TransferId, accept: bool) -> Result<bool, Error> {
+        self.transfers.decide(transfer, accept).await
+    }
+
+    pub async fn cancel_transfer(&self, transfer: TransferId) -> Result<bool, Error> {
+        self.transfers.cancel(transfer).await
     }
 
     /// Tells the desktop, then forgets it. Returns whether the desktop was told; it is forgotten either way.
@@ -150,7 +191,7 @@ impl Client {
 
     async fn request<T>(&self, make: impl FnOnce(oneshot::Sender<T>) -> Command) -> Result<T, Error> {
         let (reply, response) = oneshot::channel();
-        self.0.send(make(reply)).await.map_err(|_| Error::Stopped)?;
+        self.commands.send(make(reply)).await.map_err(|_| Error::Stopped)?;
         response.await.map_err(|_| Error::Stopped)
     }
 }
@@ -158,25 +199,34 @@ impl Client {
 impl ClientActor {
     /// Runs until every [`Client`] is dropped, then closes the sessions and waits for the closes to be sent.
     pub async fn run(mut self) {
+        let Some(transfer_actor) = self.transfer_actor.take() else { return };
+        tokio::select! {
+            () = self.serve() => {}
+            () = transfer_actor.run() => log::error!("the transfer actor stopped"),
+        }
+        for handle in self.sessions.values() {
+            handle.close(CloseCode::Done);
+        }
+        self.phone.finish().await;
+    }
+
+    async fn serve(&mut self) {
         loop {
             let next_retry = self.retries.values().map(|retry| retry.at).min();
             tokio::select! {
                 command = self.commands.recv() => match command {
                     Some(command) => self.handle(command).await,
-                    None => break,
+                    None => return,
                 },
                 Some(joined) = self.running.join_next() => match joined {
                     Ok(ended) => self.ended(ended).await,
                     Err(join) => log::warn!("session task: {join}"),
                 },
                 Some(event) = self.session_events.recv() => self.relay(event).await,
+                Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
                 () = sleep_until(next_retry) => self.retry_due().await,
             }
         }
-        for handle in self.sessions.values() {
-            handle.close(CloseCode::Done);
-        }
-        self.phone.finish().await;
     }
 
     async fn handle(&mut self, command: Command) {
@@ -198,7 +248,31 @@ impl ClientActor {
                 drop(reply.send(self.phone.forget(&id)));
             }
             Command::Desktops { reply } => drop(reply.send(self.desktops())),
+            Command::Keep { id, keep } => {
+                if keep {
+                    self.keeping.insert(id);
+                } else {
+                    self.keeping.remove(&id);
+                }
+            }
         }
+    }
+
+    async fn on_transfer(&mut self, event: TransferEvent) {
+        if let TransferEvent::Busy { peer, busy } = &event {
+            if *busy {
+                self.busy.insert(peer.clone());
+            } else {
+                self.busy.remove(peer);
+                if !self.present
+                    && let Some(handle) = self.sessions.get(peer)
+                {
+                    handle.close(CloseCode::Done);
+                }
+            }
+            return;
+        }
+        self.emit(ClientEvent::Transfer(event)).await;
     }
 
     async fn pair(&mut self, target: PairTarget) -> Result<Peer, Error> {
@@ -216,6 +290,7 @@ impl ClientActor {
     }
 
     async fn open(&mut self, id: &DeviceId) -> Result<SessionHandle, Error> {
+        self.phone.set_present(self.present || self.is_busy(id));
         match self.phone.connect(id).await {
             Ok(session) => Ok(self.adopt(session).await),
             Err(error) => {
@@ -231,8 +306,9 @@ impl ClientActor {
     async fn adopt(&mut self, session: phone::Session) -> SessionHandle {
         let phone::Session { connection, control, desktop, addr, via, resumed } = session;
         let id = desktop.id.clone();
-        let events = self.session_events_tx.clone();
-        let (handle, actor) = session::session(connection, control, Role::Phone, id.clone(), events);
+        let route =
+            Route { peer: id.clone(), events: self.session_events_tx.clone(), transfers: self.transfers.clone() };
+        let (handle, actor) = session::session(connection, control, Role::Phone, route);
         let (task_id, stable_id) = (id.clone(), handle.stable_id());
         self.running.spawn(async move { Ended { id: task_id, stable_id, result: actor.run().await } });
         if let Some(old) = self.sessions.insert(id.clone(), handle.clone()) {
@@ -241,11 +317,13 @@ impl ClientActor {
         self.retries.remove(&id);
         log::info!("{id}: connected at {addr}");
         self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
+        self.transfers.attach(id, handle.clone()).await;
         handle
     }
 
     async fn ended(&mut self, ended: Ended) {
         let Ended { id, stable_id, result } = ended;
+        self.transfers.detach(id.clone(), stable_id).await;
         if self.sessions.get(&id).is_none_or(|handle| handle.stable_id() != stable_id) {
             return;
         }
@@ -291,11 +369,13 @@ impl ClientActor {
 
     fn set_present(&mut self, present: bool) {
         self.present = present;
-        self.phone.set_present(present);
         if !present {
-            self.retries.clear();
-            for handle in self.sessions.values() {
-                handle.close(CloseCode::Done);
+            let (busy, keeping) = (&self.busy, &self.keeping);
+            self.retries.retain(|id, _| busy.contains(id) || keeping.contains(id));
+            for (id, handle) in &self.sessions {
+                if !self.is_busy(id) {
+                    handle.close(CloseCode::Done);
+                }
             }
             return;
         }
@@ -307,9 +387,13 @@ impl ClientActor {
         }
     }
 
+    fn is_busy(&self, id: &DeviceId) -> bool {
+        self.busy.contains(id) || self.keeping.contains(id)
+    }
+
     /// Whether a lost session to `id` should be redialled.
     fn wants(&self, id: &DeviceId) -> bool {
-        self.present && self.phone.desktops().iter().any(|peer| peer.id == *id)
+        (self.present || self.is_busy(id)) && self.phone.desktops().iter().any(|peer| peer.id == *id)
     }
 
     async fn relay(&self, event: SessionEvent) {
