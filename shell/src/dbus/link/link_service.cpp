@@ -217,6 +217,23 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed Devices: {}", e.what());
     }
   }
+  if (const auto it = properties.find("LocalSendVisible"); it != properties.end()) {
+    try {
+      m_localSendVisible = it->second.get<bool>();
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed LocalSendVisible: {}", e.what());
+    }
+  }
+  if (const auto it = properties.find("Nearby"); it != properties.end()) {
+    try {
+      m_nearby.clear();
+      for (const auto& peer : it->second.get<std::vector<sdbus::Struct<std::string, std::string>>>()) {
+        m_nearby.push_back({.id = peer.get<0>(), .alias = peer.get<1>()});
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Nearby: {}", e.what());
+    }
+  }
   if (const auto it = properties.find("DeviceStatus"); it != properties.end()) {
     try {
       m_status.clear();
@@ -261,6 +278,7 @@ void LinkService::detach() {
   m_available = false;
   m_devices.clear();
   m_status.clear();
+  m_nearby.clear();
   m_pairing.reset();
   notify();
 }
@@ -464,8 +482,18 @@ void LinkService::callTransfer(const char* method, const std::string& transferId
 }
 
 std::string LinkService::deviceName(const std::string& deviceId) const {
-  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
-  return device != m_devices.end() ? device->name : deviceId;
+  if (const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id); device != m_devices.end()) {
+    return device->name;
+  }
+  const auto peer = std::ranges::find(m_nearby, deviceId, &LinkNearby::id);
+  return peer != m_nearby.end() ? peer->alias : deviceId;
+}
+
+void LinkService::setLocalSendVisible(bool visible) {
+  m_link->callMethodAsync("SetLocalSendVisible")
+      .onInterface(kLinkInterface)
+      .withArguments(visible)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetLocalSendVisible", error); });
 }
 
 void LinkService::onOffered(

@@ -35,6 +35,12 @@ struct LinkStatus {
   std::string network;
 };
 
+// A LocalSend device on the LAN, which takes files like a Link device does.
+struct LinkNearby {
+  std::string id;
+  std::string alias;
+};
+
 struct LinkPairing {
   std::string code;
   std::string uri;
@@ -79,6 +85,9 @@ public:
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
   [[nodiscard]] const std::vector<LinkDevice>& devices() const noexcept { return m_devices; }
+  void setLocalSendVisible(bool visible);
+  [[nodiscard]] bool localSendVisible() const noexcept { return m_localSendVisible; }
+  [[nodiscard]] const std::vector<LinkNearby>& nearby() const noexcept { return m_nearby; }
   // The device's status while it is connected and has reported one.
   [[nodiscard]] const LinkStatus* status(const std::string& deviceId) const;
   // Devices whose file offers are accepted without asking.
@@ -142,6 +151,8 @@ private:
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
   std::map<std::string, LinkStatus> m_status;
+  std::vector<LinkNearby> m_nearby;
+  bool m_localSendVisible = false;
   // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.
   std::size_t m_lastClipboardHash = 0;
   ChangeCallback m_changeCallback;

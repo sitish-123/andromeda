@@ -307,6 +307,8 @@
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
       "send-files": "Send a file",
+      "nearby": "Nearby",
+      "localsend-visible": "Visible to LocalSend",
       "status": "Connected, {battery}% battery, {network}",
       "status-charging": "Connected, {battery}% battery and charging, {network}",
       "grant-clipboard": "Sync the clipboard",

@@ -25,6 +25,8 @@ private:
   void syncCountdown();
   [[nodiscard]] std::string structureKey() const;
   [[nodiscard]] std::unique_ptr<Flex> makeSettings(const std::string& id, float scale);
+  [[nodiscard]] std::unique_ptr<Flex> makeNearby(float scale, float opacity);
+  void pickAndSend(const std::string& id);
 
   LinkService* m_link = nullptr;
   Flex* m_rootLayout = nullptr;

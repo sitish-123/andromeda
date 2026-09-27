@@ -196,7 +196,10 @@ std::string DevicesTab::structureKey() const {
   } else if (const auto& outcome = m_link->outcome()) {
     key += (outcome->paired ? "paired " : "failed ") + outcome->detail;
   }
-  key.push_back('\n');
+  key += m_link->localSendVisible() ? "\nlocalsend on\n" : "\nlocalsend off\n";
+  for (const auto& peer : m_link->nearby()) {
+    key += peer.id + " " + peer.alias + "\n";
+  }
   for (const auto& device : m_link->devices()) {
     key += device.id + (device.connected ? " 1 " : " 0 ") + device.name;
     if (const LinkStatus* status = m_link->status(device.id)) {
@@ -208,6 +211,67 @@ std::string DevicesTab::structureKey() const {
     key += std::ranges::contains(m_link->autoAccept(), device.id) ? " auto\n" : "\n";
   }
   return key;
+}
+
+std::unique_ptr<Flex> DevicesTab::makeNearby(float scale, float opacity) {
+  auto card = makeCard(scale, opacity);
+  card->addChild(makeCardHeaderRow(i18n::tr("control-center.devices.nearby"), scale));
+  card->addChild(
+      ui::row(
+          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+          makeCaption(i18n::tr("control-center.devices.localsend-visible"), scale), ui::box({.flexGrow = 1.0F}),
+          ui::toggle({
+              .checkedImmediate = m_link->localSendVisible(),
+              .toggleSize = ToggleSize::Small,
+              .scale = scale,
+              .onChange = [this](bool on) { m_link->setLocalSendVisible(on); },
+          })
+      )
+  );
+  for (const auto& peer : m_link->nearby()) {
+    card->addChild(
+        ui::row(
+            {.align = FlexAlign::Center,
+             .gap = Style::spaceSm * scale,
+             .paddingV = Style::spaceXs * scale,
+             .paddingH = Style::spaceMd * scale,
+             .fill = colorSpecFromRole(ColorRole::Surface),
+             .radius = Style::scaledRadiusMd(scale)},
+            ui::glyph({
+                .glyph = "device-mobile",
+                .glyphSize = Style::fontSizeBody * scale,
+                .color = colorSpecFromRole(ColorRole::OnSurface),
+            }),
+            ui::label({
+                .text = peer.alias,
+                .fontSize = Style::fontSizeBody * scale,
+                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .flexGrow = 1.0F,
+            }),
+            ui::button({
+                .glyph = "send",
+                .glyphSize = Style::fontSizeBody * scale,
+                .variant = ButtonVariant::Ghost,
+                .tooltip = i18n::tr("control-center.devices.send-files"),
+                .padding = Style::spaceXs * scale,
+                .radius = Style::scaledRadiusSm(scale),
+                .onClick = [this, id = peer.id]() { pickAndSend(id); },
+            })
+        )
+    );
+  }
+  return card;
+}
+
+void DevicesTab::pickAndSend(const std::string& id) {
+  FileDialogOptions options;
+  options.mode = FileDialogMode::Open;
+  options.title = i18n::tr("control-center.devices.send-files");
+  (void)FileDialog::open(std::move(options), [link = m_link, id](std::optional<std::filesystem::path> path) {
+    if (path.has_value()) {
+      (void)link->sendFiles(id, {path->string()});
+    }
+  });
 }
 
 std::unique_ptr<Flex> DevicesTab::makeSettings(const std::string& id, float scale) {
@@ -415,5 +479,6 @@ void DevicesTab::rebuild(Renderer& renderer) {
     devicesCard->addChild(makeSettings(device.id, scale));
   }
   m_list->addChild(std::move(devicesCard));
+  m_list->addChild(makeNearby(scale, opacity));
   m_list->layout(renderer);
 }
