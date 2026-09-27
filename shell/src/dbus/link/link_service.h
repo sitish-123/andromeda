@@ -27,6 +27,14 @@ struct LinkDevice {
   bool connected = false;
 };
 
+// What a connected phone reports about itself.
+struct LinkStatus {
+  std::uint32_t battery = 0;
+  bool charging = false;
+  // wifi, cellular, ethernet, none, or other.
+  std::string network;
+};
+
 struct LinkPairing {
   std::string code;
   std::string uri;
@@ -71,6 +79,8 @@ public:
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
   [[nodiscard]] const std::vector<LinkDevice>& devices() const noexcept { return m_devices; }
+  // The device's status while it is connected and has reported one.
+  [[nodiscard]] const LinkStatus* status(const std::string& deviceId) const;
   // Devices whose file offers are accepted without asking.
   [[nodiscard]] const std::vector<std::string>& autoAccept() const noexcept { return m_autoAccept; }
   // The window this shell opened, while the daemon keeps it open.
@@ -131,6 +141,7 @@ private:
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
+  std::map<std::string, LinkStatus> m_status;
   // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.
   std::size_t m_lastClipboardHash = 0;
   ChangeCallback m_changeCallback;

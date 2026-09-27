@@ -217,6 +217,17 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed Devices: {}", e.what());
     }
   }
+  if (const auto it = properties.find("DeviceStatus"); it != properties.end()) {
+    try {
+      m_status.clear();
+      for (const auto& [id, status] :
+           it->second.get<std::map<std::string, sdbus::Struct<std::uint32_t, bool, std::string>>>()) {
+        m_status[id] = LinkStatus{.battery = status.get<0>(), .charging = status.get<1>(), .network = status.get<2>()};
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed DeviceStatus: {}", e.what());
+    }
+  }
   if (const auto it = properties.find("Grants"); it != properties.end()) {
     try {
       m_grants = it->second.get<std::map<std::string, std::vector<std::string>>>();
@@ -249,6 +260,7 @@ void LinkService::detach() {
   }
   m_available = false;
   m_devices.clear();
+  m_status.clear();
   m_pairing.reset();
   notify();
 }
@@ -376,6 +388,11 @@ void LinkService::setGrant(const std::string& deviceId, const std::string& featu
       .onInterface(kLinkInterface)
       .withArguments(deviceId, feature, granted)
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetGrant", error); });
+}
+
+const LinkStatus* LinkService::status(const std::string& deviceId) const {
+  const auto it = m_status.find(deviceId);
+  return it != m_status.end() ? &it->second : nullptr;
 }
 
 bool LinkService::granted(const std::string& deviceId, std::string_view feature) const {

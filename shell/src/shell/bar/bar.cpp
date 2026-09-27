@@ -1442,6 +1442,7 @@ bool Bar::initialize(const BarServices& services) {
   m_nightLight = services.nightLight;
   m_themeService = services.theme;
   m_bluetooth = services.bluetooth;
+  m_link = services.link;
   m_brightness = services.brightness;
   m_lockKeys = services.lockKeys;
   m_clipboard = services.clipboard;
@@ -1495,6 +1496,7 @@ BarServices Bar::services() const {
       .nightLight = m_nightLight,
       .theme = m_themeService,
       .bluetooth = m_bluetooth,
+      .link = m_link,
       .brightness = m_brightness,
       .lockKeys = m_lockKeys,
       .clipboard = m_clipboard,

@@ -85,6 +85,14 @@
       "bluetooth": {
         "connected": "Connected"
       },
+      "phone": {
+        "charging": "charging",
+        "network-cellular": "mobile data",
+        "network-ethernet": "Ethernet",
+        "network-none": "offline",
+        "network-other": "online",
+        "network-wifi": "Wi-Fi"
+      },
       "brightness": {
         "brightness": "Brightness",
         "display": "Display",
@@ -299,6 +307,8 @@
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
       "send-files": "Send a file",
+      "status": "Connected, {battery}% battery, {network}",
+      "status-charging": "Connected, {battery}% battery and charging, {network}",
       "grant-clipboard": "Sync the clipboard",
       "grant-files": "Receive files",
       "grant-notifications": "Show its notifications",
@@ -4699,6 +4709,7 @@
         "bluetooth": "Bluetooth",
         "brightness": "Brightness",
         "caffeine": "Caffeine",
+        "phone": "Phone",
         "clipboard": "Clipboard",
         "clock": "Clock",
         "control-center": "Control Center",

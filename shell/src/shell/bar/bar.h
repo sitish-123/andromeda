@@ -29,6 +29,7 @@ class LockKeysService;
 class ModemManagerService;
 class MprisService;
 class BluetoothService;
+class LinkService;
 class BrightnessService;
 class ClipboardService;
 class EasyEffectsService;
@@ -189,6 +190,7 @@ private:
   GammaService* m_nightLight = nullptr;
   noctalia::theme::ThemeService* m_themeService = nullptr;
   BluetoothService* m_bluetooth = nullptr;
+  LinkService* m_link = nullptr;
   BrightnessService* m_brightness = nullptr;
   LockKeysService* m_lockKeys = nullptr;
   ClipboardService* m_clipboard = nullptr;

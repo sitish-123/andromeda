@@ -1669,6 +1669,7 @@ void Application::initSessionBusServices() {
     try {
       m_linkService = std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService);
       m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
+        m_bar.refresh();
         if (shouldRefreshControlCenter()) {
           m_panelManager.refresh();
         }

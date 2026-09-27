@@ -891,6 +891,7 @@ void Application::initBarDockAndLayout() {
       .nightLight = &m_gammaService,
       .theme = &m_themeService,
       .bluetooth = m_bluetoothService.get(),
+      .link = m_linkService.get(),
       .brightness = m_brightnessService.get(),
       .lockKeys = kLockKeysEnabled ? &m_lockKeysService : nullptr,
       .clipboard = &m_clipboardService,

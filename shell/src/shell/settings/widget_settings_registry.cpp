@@ -242,6 +242,7 @@ namespace settings {
         {.type = "network", .labelKey = "settings.widgets.types.network", .glyph = "wifi-off"},
         {.type = "nightlight", .labelKey = "settings.widgets.types.nightlight", .glyph = "nightlight-off"},
         {.type = "notifications", .labelKey = "settings.widgets.types.notifications", .glyph = "bell"},
+        {.type = "phone", .labelKey = "settings.widgets.types.phone", .glyph = "device-mobile"},
         {.type = "power_profile", .labelKey = "settings.widgets.types.power-profile", .glyph = "balanced"},
         {.type = "privacy", .labelKey = "settings.widgets.types.privacy", .glyph = "shield-lock"},
         {.type = "screenshot", .labelKey = "settings.widgets.types.screenshot", .glyph = "screenshot"},

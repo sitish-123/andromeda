@@ -1,6 +1,7 @@
 #pragma once
 
 class BluetoothService;
+class LinkService;
 class BrightnessService;
 class ClipboardService;
 class CompositorPlatform;
@@ -55,6 +56,7 @@ struct BarServices {
   GammaService* nightLight = nullptr;
   noctalia::theme::ThemeService* theme = nullptr;
   BluetoothService* bluetooth = nullptr;
+  LinkService* link = nullptr;
   BrightnessService* brightness = nullptr;
   LockKeysService* lockKeys = nullptr;
   ClipboardService* clipboard = nullptr;
