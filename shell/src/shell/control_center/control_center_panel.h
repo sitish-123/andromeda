@@ -6,6 +6,7 @@
 #include "shell/control_center/tabs/audio_tab.h"
 #include "shell/control_center/tabs/bluetooth_tab.h"
 #include "shell/control_center/tabs/calendar_tab.h"
+#include "shell/control_center/tabs/devices_tab.h"
 #include "shell/control_center/tabs/home_tab.h"
 #include "shell/control_center/tabs/media_tab.h"
 #include "shell/control_center/tabs/monitor_tab.h"
@@ -114,6 +115,7 @@ private:
     System,
     Network,
     Bluetooth,
+    Devices,
     Weather,
     Calendar,
     Notifications,
@@ -139,6 +141,7 @@ private:
       {TabId::Power, "power", "control-center.tabs.power", "battery-charging-2"},
       {TabId::Network, "network", "control-center.tabs.network", "wifi"},
       {TabId::Bluetooth, "bluetooth", "control-center.tabs.bluetooth", "bluetooth"},
+      {TabId::Devices, "devices", "control-center.tabs.devices", "devices"},
       {TabId::Weather, "weather", "control-center.tabs.weather", "weather-cloud-sun"},
       {TabId::Calendar, "calendar", "control-center.tabs.calendar", "calendar-event"},
       {TabId::Notifications, "notifications", "control-center.tabs.notifications", "bell"},
@@ -197,6 +200,7 @@ private:
   MprisService* m_mpris = nullptr;
   NotificationManager* m_notificationManager = nullptr;
   DependencyService* m_dependencies = nullptr;
+  LinkService* m_link = nullptr;
   bool m_compact = false;
   bool m_showSidebar = true;
   bool m_hasPowerServices = false;

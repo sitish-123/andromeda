@@ -284,6 +284,21 @@
       "today": "Today",
       "toggle-events-card": "Toggle events card"
     },
+    "devices": {
+      "cancel": "Cancel",
+      "connected": "Connected",
+      "expires": "Expires in {time}",
+      "none": "No paired phones yet.",
+      "not-connected": "Not connected",
+      "pair": "Pair",
+      "pair-hint": "Show a code to scan with Umbriel Link on your phone.",
+      "pair-title": "Pair a phone",
+      "paired": "Paired phones",
+      "paired-with": "Paired with {device}",
+      "pairing-failed": "Pairing failed: {reason}",
+      "scan": "Scan with Umbriel Link on your phone, or type this code:",
+      "unpair": "Unpair"
+    },
     "display": {
       "disabled": "Disabled",
       "no-displays": "No monitors available",
@@ -477,6 +492,7 @@
       "audio": "Audio",
       "bluetooth": "Bluetooth",
       "calendar": "Calendar",
+      "devices": "Devices",
       "home": "Home",
       "media": "Media",
       "monitor": "Monitor",

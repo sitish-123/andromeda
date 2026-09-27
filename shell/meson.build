@@ -98,6 +98,7 @@ md4c_dep            = dependency('md4c')
 nlohmann_dep        = dependency('nlohmann_json')
 tomlplusplus_dep    = dependency('tomlplusplus')
 libical_dep         = dependency('libical')
+qrencode_dep        = dependency('libqrencode')
 pam_dep             = cc.find_library('pam')
 dl_dep              = cpp.find_library('dl', required: false)
 
@@ -505,6 +506,7 @@ _noctalia_sources = files(
   'src/dbus/tray/fcitx_status.cpp',
   'src/dbus/tray/tray_service.cpp',
   'src/dbus/upower/upower_charge_limit_support.cpp',
+  'src/dbus/link/link_service.cpp',
   'src/dbus/network/nm_hotspot.cpp',
   'src/dbus/portal/global_shortcuts_portal.cpp',
   'src/dbus/portal/inhibit_portal.cpp',
@@ -663,6 +665,7 @@ _noctalia_sources = files(
   'src/shell/control_center/tabs/calendar_tab.cpp',
   'src/shell/control_center/tabs/audio_tab.cpp',
   'src/shell/control_center/tabs/bluetooth_tab.cpp',
+  'src/shell/control_center/tabs/devices_tab.cpp',
   'src/shell/control_center/control_center_panel.cpp',
   'src/shell/control_center/tabs/monitor_tab.cpp',
   'src/shell/control_center/tabs/media_tab.cpp',
@@ -1115,6 +1118,7 @@ _noctalia_system_dependencies = [
   libjxl_dep,
   libjxl_threads_dep,
   sndfile_dep,
+  qrencode_dep,
 ] + jemalloc_deps + (dl_dep.found() ? [dl_dep] : [])
 
 _noctalia_dependencies = _noctalia_system_dependencies + [

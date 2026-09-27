@@ -175,6 +175,9 @@ namespace noctalia::cli {
       Positional{"app-id", {}, {}, true, false, false},
       Positional{"shortcut-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array kMsgLinkUnpairPositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+  };
   inline constexpr std::array kMsgPanelTogglePositionals{
       Positional{"id", {}, {}, true, false, false},
       Positional{"context", {}, {}, false, false, false},
@@ -801,6 +804,25 @@ namespace noctalia::cli {
     };
     inline constexpr Command hotspotStatus{"hotspot-status", "Print Wi-Fi hotspot state", {}, {}, {}, {}, {}, false};
     inline constexpr Command hotspotToggle{"hotspot-toggle", "Toggle the Wi-Fi hotspot", {}, {}, {}, {}, {}, false};
+    inline constexpr Command linkDevices{
+        "link-devices", "Print paired phones: id, connected or disconnected, name", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command linkPair{
+        "link-pair", "Open a phone pairing window and show its code in the control center", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command linkPairing{
+        "link-pairing",
+        "Print the pairing state: open <code> <uri>, paired <name>, failed <reason>, or none",
+        {},
+        {},
+        {},
+        {},
+        {},
+        false
+    };
+    inline constexpr Command linkUnpair{
+        "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
+    };
     inline constexpr Command wifiToggle{"wifi-toggle", "Toggle Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command windowSwitcher{"window-switcher",
                                             "Open or close the window switcher overlay",
@@ -903,6 +925,10 @@ namespace noctalia::cli {
       msg::keyboardBacklightToggle,
       msg::keyboardBacklightUp,
       msg::keyboardLayoutCycle,
+      msg::linkDevices,
+      msg::linkPair,
+      msg::linkPairing,
+      msg::linkUnpair,
       msg::lockscreenWidgetsEdit,
       msg::lockscreenWidgetsExit,
       msg::lockscreenWidgetsToggleEdit,

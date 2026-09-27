@@ -15,6 +15,7 @@
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
+#include "dbus/link/link_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/modem/modem_manager_service.h"
 #include "dbus/mpris/mpris_service.h"
@@ -1663,6 +1664,17 @@ void Application::initSessionBusServices() {
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("inhibit or global shortcuts portal disabled: {}", e.what());
+    }
+
+    try {
+      m_linkService = std::make_unique<LinkService>(*m_bus);
+      m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
+        if (shouldRefreshControlCenter()) {
+          m_panelManager.refresh();
+        }
+      });
+    } catch (const sdbus::Error& e) {
+      kLog.warn("link client disabled: {}", e.what());
     }
 
     try {

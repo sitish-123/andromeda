@@ -17,6 +17,7 @@
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
+#include "dbus/link/link_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
@@ -606,6 +607,11 @@ void Application::initIpc() {
   }
   if (m_networkService != nullptr) {
     m_networkService->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
+  }
+  if (m_linkService != nullptr) {
+    m_linkService->registerIpc(m_ipcService, [this]() {
+      m_panelManager.openPanel("control-center", PanelOpenRequest{.context = "devices"});
+    });
   }
   if (m_bluetoothService != nullptr) {
     m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {
