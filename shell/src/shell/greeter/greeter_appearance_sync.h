@@ -44,7 +44,7 @@ namespace greeter {
   // an appearance-only payload through pkexec and --sync; older helpers retain the
   // administrator-authenticated positional mode and its session payload. Returns Busy
   // without touching staging while another sync runs. Legacy mode may return StagedOnly
-  // when no login session can host a Polkit prompt. onComplete runs on the worker thread
+  // when no login session can host a Polkit prompt. onComplete runs (on the main loop's thread)
   // only after a successfully launched helper exits.
   [[nodiscard]] GreeterSyncLaunch syncAppearanceToGreeterAsync(
       const ConfigService& config, std::string_view resolvedThemeMode, SyncCompletion onComplete = {},
