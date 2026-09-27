@@ -68,9 +68,14 @@ public:
 
   static constexpr int kHistorySize = 120;
 
+  // Enabled by config. The sampling thread runs only while a reference or a touchSampling() lease is held.
   [[nodiscard]] bool isRunning() const noexcept;
   void applyConfig(const SystemConfig::MonitorConfig& config);
   void setEnabled(bool enabled);
+  void retainSampling();
+  void releaseSampling();
+  // Keeps sampling for 10 s, for readers with no lifetime to tie a reference to.
+  void touchSampling();
   [[nodiscard]] SystemStats latest() const;
   [[nodiscard]] std::vector<SystemStats> history(int windowSize = kHistorySize) const;
   [[nodiscard]] std::chrono::steady_clock::duration historySampleInterval() const noexcept;
@@ -166,6 +171,9 @@ private:
   [[nodiscard]] SystemConfig::MonitorConfig pollConfig() const;
 
   std::atomic<bool> m_running{false};
+  bool m_enabled = false;
+  int m_samplingRefs = 0;                                  // guarded by m_wakeMutex
+  std::chrono::steady_clock::time_point m_samplingLeaseEnd; // guarded by m_wakeMutex
   std::atomic<int> m_cpuTempRefs{0};
   std::atomic<int> m_cpuCoreRefs{0};
   std::atomic<int> m_gpuTempRefs{0};

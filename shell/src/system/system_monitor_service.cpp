@@ -116,6 +116,7 @@ namespace {
   // Per-core CPU sampling cadence. Fixed rather than configurable: it is opt-in via
   // retainCpuCores(), and its only consumers want per-second resolution.
   constexpr std::chrono::steady_clock::duration kCpuCoreInterval = std::chrono::seconds(1);
+  constexpr auto kSamplingLease = std::chrono::seconds(10);
 
   // 0 disables a metric; any other value is clamped to the supported poll range.
   [[nodiscard]] float clampPollSeconds(float seconds) noexcept {
@@ -991,7 +992,7 @@ SystemMonitorService::SystemMonitorService(const SystemConfig::MonitorConfig& co
 
 SystemMonitorService::~SystemMonitorService() { stop(); }
 
-bool SystemMonitorService::isRunning() const noexcept { return m_running.load(); }
+bool SystemMonitorService::isRunning() const noexcept { return m_enabled; }
 
 SystemConfig::MonitorConfig SystemMonitorService::pollConfig() const {
   std::scoped_lock lock{m_configMutex};
@@ -1021,12 +1022,43 @@ void SystemMonitorService::applyConfig(const SystemConfig::MonitorConfig& config
 }
 
 void SystemMonitorService::setEnabled(bool enabled) {
-  if (enabled) {
-    if (!m_running.load()) {
-      start();
-    }
-  } else {
+  m_enabled = enabled;
+  if (!enabled) {
     stop();
+    return;
+  }
+  bool wanted = false;
+  {
+    std::scoped_lock wakeLock{m_wakeMutex};
+    wanted = m_samplingRefs > 0 || std::chrono::steady_clock::now() < m_samplingLeaseEnd;
+  }
+  if (wanted) {
+    start();
+  }
+}
+
+void SystemMonitorService::retainSampling() {
+  {
+    std::scoped_lock wakeLock{m_wakeMutex};
+    ++m_samplingRefs;
+  }
+  if (m_enabled) {
+    start();
+  }
+}
+
+void SystemMonitorService::releaseSampling() {
+  std::scoped_lock wakeLock{m_wakeMutex};
+  --m_samplingRefs;
+}
+
+void SystemMonitorService::touchSampling() {
+  {
+    std::scoped_lock wakeLock{m_wakeMutex};
+    m_samplingLeaseEnd = std::chrono::steady_clock::now() + kSamplingLease;
+  }
+  if (m_enabled) {
+    start();
   }
 }
 
@@ -1193,6 +1225,9 @@ std::vector<float> SystemMonitorService::diskHistory(const std::string& path, in
 void SystemMonitorService::start() {
   if (m_running.load()) {
     return;
+  }
+  if (m_thread.joinable()) {
+    m_thread.join();
   }
 
   logDetectedSources();
@@ -1569,6 +1604,11 @@ void SystemMonitorService::samplingLoop() {
     considerWake(historyEnabled, nextHistory);
 
     std::unique_lock wakeLock{m_wakeMutex};
+    // Decided under m_wakeMutex, which retainSampling() and touchSampling() take before checking m_running.
+    if (m_samplingRefs == 0 && Clock::now() >= m_samplingLeaseEnd) {
+      m_running = false;
+      return;
+    }
     m_wakeCv.wait_until(wakeLock, nextWake, [this, wakeGeneration]() {
       return !m_running.load() || m_wakeGeneration.load() != wakeGeneration;
     });

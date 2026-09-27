@@ -72,10 +72,7 @@ AsyncTextureCache::AsyncTextureCache() {
   const unsigned hc = std::thread::hardware_concurrency();
   const std::size_t suggested = hc == 0U ? kMinWorkers : std::max<std::size_t>(kMinWorkers, hc / 2U);
   const std::size_t workerCount = std::clamp<std::size_t>(suggested, kMinWorkers, kMaxWorkers);
-  m_workers.reserve(workerCount);
-  for (std::size_t i = 0; i < workerCount; ++i) {
-    m_workers.emplace_back([this]() { workerLoop(); });
-  }
+  m_workers = std::make_unique<IdleWorkerSlots>(workerCount);
 }
 
 AsyncTextureCache::~AsyncTextureCache() {
@@ -87,11 +84,7 @@ AsyncTextureCache::~AsyncTextureCache() {
     m_shutdown.store(true);
   }
   m_queueCv.notify_all();
-  for (auto& worker : m_workers) {
-    if (worker.joinable()) {
-      worker.join();
-    }
-  }
+  m_workers->joinAll();
 
   if (!m_entries.empty()) {
     makeCurrent();
@@ -155,6 +148,7 @@ TextureHandle AsyncTextureCache::acquire(const std::string& path, int targetSize
     if (!m_inFlight.contains(key)) {
       m_inFlight.insert(key);
       m_jobQueue.push_back(key);
+      m_workers->spawn([this](std::size_t slot) { workerLoop(slot); });
     }
   }
   m_queueCv.notify_one();
@@ -348,12 +342,17 @@ std::size_t AsyncTextureCache::RequestKeyHash::operator()(const RequestKey& key)
   return seed;
 }
 
-void AsyncTextureCache::workerLoop() {
+void AsyncTextureCache::workerLoop(std::size_t slot) {
   while (true) {
     RequestKey key;
     {
       std::unique_lock<std::mutex> lock(m_queueMutex);
-      m_queueCv.wait(lock, [this]() { return m_shutdown.load() || !m_jobQueue.empty(); });
+      if (!m_queueCv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this]() {
+            return m_shutdown.load() || !m_jobQueue.empty();
+          })) {
+        m_workers->exited(slot);
+        return;
+      }
       if (m_shutdown.load()) {
         return;
       }

@@ -32,6 +32,7 @@ namespace noctalia::theme {
     // been quiet for kRequestQuietWindow, and at the latest kMaxRequestDeferral after the
     // first request of the burst.
     constexpr auto kRequestQuietWindow = std::chrono::milliseconds(100);
+    constexpr auto kWorkerIdleExit = std::chrono::seconds(30);
     constexpr auto kMaxRequestDeferral = std::chrono::milliseconds(500);
 
     std::filesystem::path builtinTemplateConfigPath() { return paths::assetPath("templates/builtin.toml"); }
@@ -162,9 +163,7 @@ namespace noctalia::theme {
   } // namespace
 
   TemplateApplyService::TemplateApplyService(ConfigService& config)
-      : m_config(config), m_hookRunner(std::make_unique<HookRunner>()) {
-    m_worker = std::thread([this]() { workerLoop(); });
-  }
+      : m_config(config), m_hookRunner(std::make_unique<HookRunner>()) {}
 
   TemplateApplyService::~TemplateApplyService() {
     {
@@ -219,6 +218,13 @@ namespace noctalia::theme {
         m_lastAppliedRequest = request;
         m_pendingRequest = std::move(request);
         queued = true;
+        if (!m_workerRunning) {
+          if (m_worker.joinable()) {
+            m_worker.join();
+          }
+          m_worker = std::thread([this]() { workerLoop(); });
+          m_workerRunning = true;
+        }
       }
     }
 
@@ -460,14 +466,16 @@ namespace noctalia::theme {
     return resolved;
   }
 
-  void TemplateApplyService::workerLoop() {
+  void TemplateApplyService::workerLoop() const {
     while (true) {
       ApplyRequest request;
       {
         std::unique_lock lock(m_mutex);
 
-        // Wait for initial request
-        m_cv.wait(lock, [this]() { return m_shutdown || m_pendingRequest.has_value(); });
+        if (!m_cv.wait_for(lock, kWorkerIdleExit, [this]() { return m_shutdown || m_pendingRequest.has_value(); })) {
+          m_workerRunning = false;
+          return;
+        }
 
         if (m_shutdown) {
           return;

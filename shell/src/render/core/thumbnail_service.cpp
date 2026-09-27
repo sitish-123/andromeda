@@ -187,11 +187,7 @@ ThumbnailService::ThumbnailService() {
   const unsigned hc = std::thread::hardware_concurrency();
   const std::size_t suggested = (hc == 0) ? kMinWorkers : std::max<std::size_t>(kMinWorkers, hc / 2);
   const std::size_t n = std::clamp<std::size_t>(suggested, kMinWorkers, kMaxWorkers);
-  m_workers.reserve(n);
-  for (std::size_t i = 0; i < n; ++i) {
-    m_workers.emplace_back([this]() { workerLoop(); });
-  }
-  kLog.info("spawned {} decode worker(s)", n);
+  m_workers = std::make_unique<IdleWorkerSlots>(n);
 }
 
 ThumbnailService::~ThumbnailService() {
@@ -206,11 +202,7 @@ ThumbnailService::~ThumbnailService() {
     m_shutdown.store(true);
   }
   m_queueCv.notify_all();
-  for (auto& t : m_workers) {
-    if (t.joinable()) {
-      t.join();
-    }
-  }
+  m_workers->joinAll();
 
   deleteAllTextures();
 
@@ -332,6 +324,7 @@ void ThumbnailService::enqueueDecodeIfNeeded(const RequestKey& key) {
   }
   m_inFlight.insert(key);
   m_jobQueue.push_back(key);
+  m_workers->spawn([this](std::size_t slot) { workerLoop(slot); });
   m_queueCv.notify_one();
 }
 
@@ -506,12 +499,17 @@ void ThumbnailService::notifyReady(const RequestKey& key, TextureHandle handle) 
   }
 }
 
-void ThumbnailService::workerLoop() {
+void ThumbnailService::workerLoop(std::size_t slot) {
   while (true) {
     RequestKey key;
     {
       std::unique_lock<std::mutex> lock(m_queueMutex);
-      m_queueCv.wait(lock, [this]() { return m_shutdown.load() || !m_jobQueue.empty(); });
+      if (!m_queueCv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this]() {
+            return m_shutdown.load() || !m_jobQueue.empty();
+          })) {
+        m_workers->exited(slot);
+        return;
+      }
       if (m_shutdown.load()) {
         return;
       }

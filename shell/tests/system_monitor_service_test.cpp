@@ -64,6 +64,7 @@ int main() {
   config.diskPollSeconds = 1.0F;
 
   SystemMonitorService monitor(config);
+  monitor.retainSampling();
   testDiskSnapshot(monitor);
   testSampleTimestamp(monitor);
   return g_failures == 0 ? 0 : 1;

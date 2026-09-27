@@ -89,6 +89,7 @@ DesktopSysmonWidget::DesktopSysmonWidget(SystemMonitorService* monitor, Options 
       m_networkSpeedLabelStyle(options.networkSpeedLabelStyle), m_showLabel(options.showLabel),
       m_labelMinWidth(options.labelMinWidth), m_shadow(options.shadow) {
   if (m_monitor != nullptr) {
+    m_monitor->retainSampling();
     if (needsCpuTemp(m_stat))
       m_monitor->retainCpuTemp();
     if (needsGpuTemp(m_stat))
@@ -110,6 +111,7 @@ DesktopSysmonWidget::DesktopSysmonWidget(SystemMonitorService* monitor, Options 
 
 DesktopSysmonWidget::~DesktopSysmonWidget() {
   if (m_monitor != nullptr) {
+    m_monitor->releaseSampling();
     if (needsCpuTemp(m_stat))
       m_monitor->releaseCpuTemp();
     if (needsGpuTemp(m_stat))
