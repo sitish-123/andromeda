@@ -2,9 +2,10 @@
 # Quick Share through the shell against a real umbriel-linkd on the test bus: quickshare-visible turns it on; the
 # control center's Devices tab and Settings' Phone & Devices page show the switch; a file sent by our Quick Share sender
 # raises an offer notification with the sender and PIN, and nothing is saved until its Accept button is pressed; then
-# the file is in XDG_DOWNLOAD_DIR and a "Files from" notification offers Open and Show in folder. While visible the
+# the file is in XDG_DOWNLOAD_DIR and a "Files from" notification offers Open and Show in folder. Sending the other
+# way, quickshare-nearby finds a receiver and quickshare-send delivers a file to it with a "Sent to" notification. While visible the
 # daemon advertises on the host's LAN for the few seconds the test runs. Writes devices.png, settings.png, offer.png,
-# received.png, steps.txt, linkd.log, send.log to $OUT (default ./artifacts/quickshare-shell).
+# received.png, sent.png, steps.txt, linkd.log, send.log to $OUT (default ./artifacts/quickshare-shell).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/quickshare-shell}
 source "$(dirname "$0")/lib.sh"
@@ -68,6 +69,21 @@ with_noctalia '
   grim "$OUT/received.png"
   ocr "$OUT/received.png" | grep -q "Files from Test Phone" || fail "no received notification"
   step "accepted and saved; result notification shown"
+
+  mkdir -p "$RUNTIME/nearby-in"
+  "$BIN/umbriel-quickshare" --name "Nearby Phone" receive --dir "$RUNTIME/nearby-in" --port 47310 --consent accept \
+    > "$RUNTIME/nearby.jsonl" 2>> "$OUT/send.log" &
+  [[ $(msg quickshare-nearby on) == ok ]] || fail "quickshare-nearby on refused"
+  wait_for "the shell never listed the nearby receiver" eval "msg quickshare-nearby | grep -q \"Nearby Phone\""
+  PEER=$(msg quickshare-nearby | grep "Nearby Phone" | cut -d" " -f1)
+  [[ $(msg quickshare-send "$PEER" "$RUNTIME/photo.jpg") == ok ]] || fail "quickshare-send refused"
+  wait_for "the nearby phone did not get the file" test -f "$RUNTIME/nearby-in/photo.jpg"
+  cmp -s "$RUNTIME/photo.jpg" "$RUNTIME/nearby-in/photo.jpg" || fail "the sent file differs"
+  sleep 1 # real time: the sent toast maps and paints
+  grim "$OUT/sent.png"
+  ocr "$OUT/sent.png" | grep -q "Sent to Nearby Phone" || fail "no sent notification"
+  msg quickshare-nearby off > /dev/null
+  step "sent to a nearby receiver found by discovery; sent notification shown"
 '
 cat "$OUT/steps.txt"
 echo "PASS; artifacts: $OUT"

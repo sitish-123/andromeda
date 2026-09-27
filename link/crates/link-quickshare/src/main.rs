@@ -83,7 +83,12 @@ async fn main() -> anyhow::Result<()> {
                 (None, None) => anyhow::bail!("give --addr or --to"),
             };
             let hostile = send::Hostile { name: offer_as, extra_bytes };
-            let outcome = send::send(addr, &own, &files, &hostile, |pin| println!("{}", json!({ "pin": pin }))).await?;
+            let mut outgoing = Vec::new();
+            for path in &files {
+                outgoing.push(send::Outgoing::open(path).await?);
+            }
+            let outcome =
+                send::send(addr, &own, outgoing, &hostile, |pin| println!("{}", json!({ "pin": pin }))).await?;
             match outcome {
                 SendOutcome::Sent => println!("{}", json!({ "sent": files.len() })),
                 SendOutcome::Rejected(status) => println!("{}", json!({ "rejected": status })),

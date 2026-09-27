@@ -191,6 +191,14 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgQuickShareVisiblePositionals{
       Positional{"state", {}, kQuickShareVisibleChoices, false, false, false},
   };
+  inline constexpr std::array<std::string_view, 2> kQuickShareNearbyChoices{"on", "off"};
+  inline constexpr std::array kMsgQuickShareNearbyPositionals{
+      Positional{"state", {}, kQuickShareNearbyChoices, false, false, false},
+  };
+  inline constexpr std::array kMsgQuickShareSendPositionals{
+      Positional{"id", {}, {}, true, false, false},
+      Positional{"paths", {}, {}, true, true, false},
+  };
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
@@ -878,6 +886,14 @@ namespace noctalia::cli {
         "quickshare-visible", "Print or set whether nearby Android devices can find this desktop over Quick Share", {},
         {}, {}, kMsgQuickShareVisiblePositionals, {}, false
     };
+    inline constexpr Command quickShareNearby{
+        "quickshare-nearby", "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off",
+        {}, {}, {}, kMsgQuickShareNearbyPositionals, {}, false
+    };
+    inline constexpr Command quickShareSend{
+        "quickshare-send", "Send files to a nearby Quick Share receiver by its id from quickshare-nearby", {}, {}, {},
+        kMsgQuickShareSendPositionals, {}, false
+    };
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
@@ -1007,6 +1023,8 @@ namespace noctalia::cli {
       msg::linkShare,
       msg::linkUnpair,
       msg::quickShareVisible,
+      msg::quickShareNearby,
+      msg::quickShareSend,
       msg::lockscreenWidgetsEdit,
       msg::lockscreenWidgetsExit,
       msg::lockscreenWidgetsToggleEdit,

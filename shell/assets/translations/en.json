@@ -5428,6 +5428,15 @@
     "received-text": "Text from {device}",
     "open": "Open",
     "copy": "Copy",
-    "show-in-folder": "Show in folder"
+    "show-in-folder": "Show in folder",
+    "sending": "Sending to {device}",
+    "sending-pin": "PIN {pin}: check it matches on the other device.",
+    "sent": "Sent to {device}",
+    "declined": "{device} declined",
+    "send-failed": "Could not send",
+    "send-files": "Send a file",
+    "choose-device": "Choose a nearby device",
+    "looking": "Looking for nearby devices…",
+    "cancel": "Cancel"
   }
 }

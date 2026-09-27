@@ -1,7 +1,6 @@
 //! The sending side: connect to a receiver, show the PIN, introduce the files, and stream them once accepted.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 
 use prost::Message as _;
 use tokio::io::AsyncReadExt;
@@ -23,6 +22,19 @@ pub enum SendOutcome {
     Rejected(i32),
 }
 
+/// One file to send: already open, so a sandboxed caller can hand over a descriptor instead of a path.
+pub struct Outgoing {
+    pub name: String,
+    pub file: tokio::fs::File,
+}
+
+impl Outgoing {
+    pub async fn open(path: &std::path::Path) -> Result<Self> {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        Ok(Self { name, file: tokio::fs::File::open(path).await? })
+    }
+}
+
 /// Misbehaviour for protocol tests: offer every file under `name`, or stream `extra_bytes` past the announced size.
 #[derive(Debug, Default, Clone)]
 pub struct Hostile {
@@ -34,7 +46,7 @@ pub struct Hostile {
 pub async fn send(
     addr: SocketAddr,
     own: &Endpoint,
-    paths: &[PathBuf],
+    outgoing: Vec<Outgoing>,
     hostile: &Hostile,
     on_pin: impl FnOnce(&str),
 ) -> Result<SendOutcome> {
@@ -62,14 +74,9 @@ pub async fn send(
     let mut conn = Connection::new(stream, &handshake.keys);
     conn.send_sharing(&paired_key_encryption()?).await?;
     let mut files = Vec::new();
-    for path in paths {
-        let size =
-            i64::try_from(tokio::fs::metadata(path).await?.len()).map_err(|_| Error::Protocol("file too large"))?;
-        let name = hostile
-            .name
-            .clone()
-            .unwrap_or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-        files.push((random_id()?, path, name, size));
+    for Outgoing { name, file } in outgoing {
+        let size = i64::try_from(file.metadata().await?.len()).map_err(|_| Error::Protocol("file too large"))?;
+        files.push((random_id()?, file, hostile.name.clone().unwrap_or(name), size));
     }
     loop {
         let data = match conn.recv().await? {
@@ -94,8 +101,7 @@ pub async fn send(
         }
     }
 
-    for (id, path, _, size) in &files {
-        let mut file = tokio::fs::File::open(path).await?;
+    for (id, file, _, size) in &mut files {
         let mut offset = 0;
         let mut buf = vec![0; CHUNK];
         loop {
@@ -117,7 +123,7 @@ pub async fn send(
     Ok(SendOutcome::Sent)
 }
 
-fn introduction(files: &[(i64, &PathBuf, String, i64)]) -> sharing::Frame {
+fn introduction(files: &[(i64, tokio::fs::File, String, i64)]) -> sharing::Frame {
     sharing_frame(sharing::v1_frame::FrameType::Introduction, |v1| {
         v1.introduction = Some(IntroductionFrame {
             file_metadata: files

@@ -43,8 +43,8 @@ async fn run() -> anyhow::Result<()> {
     let (desktop_media, media_requests) = desktop_media::channel();
     let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths, desktop_media);
     dbus::serve(&bus, handle.clone(), snapshots.clone()).await?;
-    let (quick_share, qs_handle, qs_visible, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
-    quickshare::serve(&bus, qs_handle, qs_visible.clone(), name.clone()).await?;
+    let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
+    quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
     let listener = listener::Listener::new(endpoint.clone(), handle.clone(), identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
@@ -52,7 +52,7 @@ async fn run() -> anyhow::Result<()> {
         result = listener.run() => result,
         result = dbus::forward(&bus, snapshots, events) => result,
         result = quick_share.run() => result,
-        result = quickshare::forward(&bus, qs_visible, qs_events) => result,
+        result = quickshare::forward(&bus, qs_watches, qs_events) => result,
         result = desktop_media::run(bus.clone(), handle.clone(), media_requests) => result,
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),

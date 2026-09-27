@@ -114,6 +114,28 @@
     <method name="Decline">
       <arg name="id" type="t" direction="in"/>
     </method>
+    <!-- Browses for nearby receivers and sends the BLE hint Android needs, until StopDiscovery. -->
+    <method name="StartDiscovery"/>
+    <method name="StopDiscovery"/>
+    <!-- files: (descriptor, name); the daemon never opens paths. Returns the id SendPin and SendFinished carry. -->
+    <method name="Send">
+      <arg name="peer" type="s" direction="in"/>
+      <arg name="files" type="a(hs)" direction="in"/>
+      <arg name="id" type="t" direction="out"/>
+    </method>
+    <!-- (id, name) of receivers found since StartDiscovery. -->
+    <property name="Nearby" type="a(ss)" access="read"/>
+    <signal name="SendPin">
+      <arg name="id" type="t"/>
+      <arg name="peer" type="s"/>
+      <arg name="pin" type="s"/>
+    </signal>
+    <!-- status: sent, declined, or failed. -->
+    <signal name="SendFinished">
+      <arg name="id" type="t"/>
+      <arg name="status" type="s"/>
+      <arg name="error" type="s"/>
+    </signal>
     <!-- files: (name, size); texts: kinds of shared text (text, url, address, phone). -->
     <signal name="Offer">
       <arg name="id" type="t"/>

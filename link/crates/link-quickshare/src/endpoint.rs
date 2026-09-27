@@ -16,6 +16,7 @@ pub const DEVICE_LAPTOP: u8 = 3;
 const NAME_OFFSET: usize = 18;
 const MAX_NAME: usize = 255;
 
+#[derive(Clone)]
 pub struct Endpoint {
     /// Four alphanumeric characters, fresh per process.
     pub id: [u8; 4],

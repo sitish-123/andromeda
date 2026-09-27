@@ -31,12 +31,18 @@ public:
 
   void setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
   void setVisible(bool visible);
+  void setDiscovering(bool discovering);
+  // Opens the files here and hands their descriptors to the daemon, which cannot read the user's files.
+  void send(const std::string& peer, const std::vector<std::string>& paths);
   void registerIpc(IpcService& ipc);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
   [[nodiscard]] bool visible() const noexcept { return m_visible; }
   // The name nearby devices see.
   [[nodiscard]] const std::string& name() const noexcept { return m_name; }
+  [[nodiscard]] bool discovering() const noexcept { return m_discovering; }
+  // (id, name) of receivers found since discovery started.
+  [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& nearby() const noexcept { return m_nearby; }
 
 private:
   struct Pending {
@@ -59,6 +65,7 @@ private:
       const std::vector<std::pair<std::string, std::string>>& texts, const std::string& error
   );
   void onAction(std::uint32_t notification, const std::string& action, const std::string& activationToken);
+  void call(const std::string& method);
   void call(const std::string& method, std::uint64_t id);
   void notify();
 
@@ -72,7 +79,10 @@ private:
   std::map<std::uint64_t, Pending> m_offers;
   std::map<std::uint32_t, std::uint64_t> m_offerNotifications;
   std::map<std::uint32_t, Result> m_results;
+  std::map<std::uint64_t, std::string> m_sends;
+  std::vector<std::pair<std::string, std::string>> m_nearby;
   std::string m_name;
   bool m_available = false;
   bool m_visible = false;
+  bool m_discovering = false;
 };

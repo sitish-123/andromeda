@@ -11,6 +11,7 @@
 #include "wayland/clipboard_service.h"
 
 #include <array>
+#include <fcntl.h>
 #include <filesystem>
 #include <format>
 #include <glib.h>
@@ -110,6 +111,31 @@ QuickShareService::QuickShareService(SessionBus& bus, NotificationManager& notif
         }
         onFinished(id, status, files, list, error);
       });
+  m_proxy->uponSignal("SendPin")
+      .onInterface(kInterface)
+      .call([this](std::uint64_t id, const std::string& peer, const std::string& pin) {
+        m_sends[id] = peer;
+        m_notifications.addInternal(
+            i18n::tr("quick-share.app"), i18n::tr("quick-share.sending", "device", peer),
+            i18n::tr("quick-share.sending-pin", "pin", pin)
+        );
+      });
+  m_proxy->uponSignal("SendFinished")
+      .onInterface(kInterface)
+      .call([this](std::uint64_t id, const std::string& status, const std::string& error) {
+        const auto it = m_sends.find(id);
+        const std::string peer = it != m_sends.end() ? it->second : std::string{};
+        if (it != m_sends.end()) {
+          m_sends.erase(it);
+        }
+        if (status == "sent") {
+          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.sent", "device", peer), {});
+        } else if (status == "declined") {
+          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.declined", "device", peer), {});
+        } else {
+          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), error);
+        }
+      });
   m_fileManager = sdbus::createProxy(bus.connection(), kFileManagerName, kFileManagerPath);
   m_notifications.addInternalActionCallback(
       [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
@@ -151,6 +177,12 @@ void QuickShareService::apply(const std::map<std::string, sdbus::Variant>& prope
     if (const auto it = properties.find("Name"); it != properties.end()) {
       m_name = it->second.get<std::string>();
     }
+    if (const auto it = properties.find("Nearby"); it != properties.end()) {
+      m_nearby.clear();
+      for (const auto& peer : it->second.get<std::vector<sdbus::Struct<std::string, std::string>>>()) {
+        m_nearby.emplace_back(peer.get<0>(), peer.get<1>());
+      }
+    }
   } catch (const sdbus::Error& e) {
     kLog.warn("malformed quick share property: {}", e.what());
   }
@@ -171,6 +203,39 @@ void QuickShareService::setVisible(bool visible) {
         if (error.has_value()) {
           kLog.warn("setting quick share visibility failed: {}", error->what());
           m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.visible-failed"), error->getMessage());
+        }
+      });
+}
+
+void QuickShareService::setDiscovering(bool discovering) {
+  if (discovering == m_discovering) {
+    return;
+  }
+  m_discovering = discovering;
+  if (!discovering) {
+    m_nearby.clear();
+  }
+  call(discovering ? "StartDiscovery" : "StopDiscovery");
+  notify();
+}
+
+void QuickShareService::send(const std::string& peer, const std::vector<std::string>& paths) {
+  std::vector<sdbus::Struct<sdbus::UnixFd, std::string>> files;
+  files.reserve(paths.size());
+  for (const auto& path : paths) {
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+      m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), path);
+      return;
+    }
+    files.emplace_back(sdbus::UnixFd{fd, sdbus::adopt_fd}, std::filesystem::path(path).filename().string());
+  }
+  m_proxy->callMethodAsync("Send")
+      .onInterface(kInterface)
+      .withArguments(peer, files)
+      .uponReplyInvoke([this](std::optional<sdbus::Error> error, std::uint64_t /*id*/) {
+        if (error.has_value()) {
+          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), error->getMessage());
         }
       });
 }
@@ -302,6 +367,14 @@ void QuickShareService::onAction(std::uint32_t notification, const std::string& 
   }
 }
 
+void QuickShareService::call(const std::string& method) {
+  m_proxy->callMethodAsync(method).onInterface(kInterface).uponReplyInvoke([method](std::optional<sdbus::Error> error) {
+    if (error.has_value()) {
+      kLog.warn("{} failed: {}", method, error->what());
+    }
+  });
+}
+
 void QuickShareService::call(const std::string& method, std::uint64_t id) {
   m_proxy->callMethodAsync(method).onInterface(kInterface).withArguments(id).uponReplyInvoke(
       [method](std::optional<sdbus::Error> error) {
@@ -327,5 +400,29 @@ void QuickShareService::registerIpc(IpcService& ipc) {
       return "error: on, off, or toggle\n";
     }
     return m_visible ? "on\n" : "off\n";
+  });
+  ipc.bind(noctalia::cli::msg::quickShareNearby, [this](const std::string& args) -> std::string {
+    if (!m_available) {
+      return "error: umbriel-linkd is not running\n";
+    }
+    const std::string arg = StringUtils::trim(args);
+    if (arg == "on" || arg == "off") {
+      setDiscovering(arg == "on");
+      return "ok\n";
+    }
+    std::string out;
+    for (const auto& [id, name] : m_nearby) {
+      out += id + " " + name + "\n";
+    }
+    return out;
+  });
+  ipc.bind(noctalia::cli::msg::quickShareSend, [this](const std::string& args) -> std::string {
+    const std::string trimmed = StringUtils::trim(args);
+    const auto words = StringUtils::split(trimmed, ' ');
+    if (words.size() < 2) {
+      return "error: usage: quickshare-send <nearby id> <path...>\n";
+    }
+    send(std::string(words.front()), std::vector<std::string>(words.begin() + 1, words.end()));
+    return "ok\n";
   });
 }

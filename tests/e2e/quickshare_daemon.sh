@@ -3,8 +3,10 @@
 # namespace. Proves: hidden by default (no mDNS service); setting Visible advertises it; an offer reaches D-Bus as the
 # Offer signal with the sender, PIN, and files, and nothing is written before Accept; Accept saves the file in
 # XDG_DOWNLOAD_DIR and emits Finished with its path; Decline reaches the sender as a rejection; visibility survives a
-# daemon restart; Visible=false withdraws the service. Writes results.jsonl, signals.txt, linkd.log to $OUT (default
-# ./artifacts/quickshare-daemon).
+# daemon restart; Visible=false withdraws the service. Sending: StartDiscovery lists receivers in the other namespace
+# (never the desktop itself), Send with a file descriptor delivers the file intact with SendPin and SendFinished "sent",
+# a declining receiver ends as "declined", and StopDiscovery empties Nearby. Writes results.jsonl, signals.txt,
+# linkd.log to $OUT (default ./artifacts/quickshare-daemon).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${OUT:-$(pwd)/artifacts/quickshare-daemon}
@@ -51,7 +53,7 @@ for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 # The private bus stands in for the system bus too, so the BLE hint fails harmlessly instead of reaching BlueZ.
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 export HOME=$RUNTIME/home XDG_CONFIG_HOME=$RUNTIME/home/.config
-mkdir -p "$XDG_CONFIG_HOME" "$RUNTIME/home/Incoming" "$RUNTIME/files"
+mkdir -p "$XDG_CONFIG_HOME" "$RUNTIME/home/Incoming" "$RUNTIME/files" "$RUNTIME/phone-in"
 echo 'XDG_DOWNLOAD_DIR="$HOME/Incoming"' > "$XDG_CONFIG_HOME/user-dirs.dirs"
 DOWNLOADS=$RUNTIME/home/Incoming
 head -c 5000000 /dev/urandom > "$RUNTIME/files/photo.jpg"
@@ -110,6 +112,29 @@ grep -q '"rejected":2' "$RUNTIME/send2.jsonl" || fail "decline not reported to t
 [[ ! -e $DOWNLOADS/nope.txt ]] || fail "a declined file was saved"
 wait_signal "Finished (uint64 $ID, 'declined'"
 record "{\"step\":\"decline\",\"id\":$ID}"
+
+in_phone "$BIN/umbriel-quickshare" --name "Phone Receiver" receive --dir "$RUNTIME/phone-in" --port 47300 --consent accept \
+  > "$RUNTIME/phone-recv.jsonl" 2>> "$OUT/phone-recv.log" &
+in_phone "$BIN/umbriel-quickshare" --name "Picky Phone" receive --dir "$RUNTIME/phone-in" --port 47301 --consent decline \
+  > "$RUNTIME/phone-decline.jsonl" 2>> "$OUT/phone-recv.log" &
+qs StartDiscovery
+nearby_id() { prop Nearby | grep -o "('[^']*', '$1')" | cut -d"'" -f2; }
+for _ in $(seq 100); do [[ -n $(nearby_id "Phone Receiver") && -n $(nearby_id "Picky Phone") ]] && break; sleep 0.1; done
+PEER=$(nearby_id "Phone Receiver")
+[[ -n $PEER ]] || fail "discovery did not find the receiver: $(prop Nearby)"
+[[ -z $(nearby_id "$NAME") ]] || fail "the desktop lists itself as nearby"
+bus_call() { busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.umbriel.Link1 /org/umbriel/Link1 "$QS_IFACE" "$@"; }
+SEND=$(bus_call Send "sa(hs)" "$PEER" 1 3 photo.jpg 3< "$RUNTIME/files/photo.jpg" | awk '{print $2}')
+wait_signal "SendFinished (uint64 $SEND, 'sent'"
+grep -q "SendPin (uint64 $SEND, 'Phone Receiver'" "$OUT/signals.txt" || fail "no SendPin for send $SEND"
+cmp -s "$RUNTIME/files/photo.jpg" "$RUNTIME/phone-in/photo.jpg" || fail "the phone did not get the file intact"
+record "{\"step\":\"send-to-nearby\",\"id\":$SEND}"
+SEND=$(bus_call Send "sa(hs)" "$(nearby_id "Picky Phone")" 1 3 nope.txt 3< "$RUNTIME/files/nope.txt" | awk '{print $2}')
+wait_signal "SendFinished (uint64 $SEND, 'declined'"
+record "{\"step\":\"send-declined\",\"id\":$SEND}"
+qs StopDiscovery
+for _ in $(seq 50); do [[ $(prop Nearby) == "(<@a(ss) []>,)" ]] && break; sleep 0.1; done
+[[ $(prop Nearby) == "(<@a(ss) []>,)" ]] || fail "Nearby not cleared on StopDiscovery: $(prop Nearby)"
 
 kill "$LINKD"; wait "$LINKD" || true
 start_linkd

@@ -77,6 +77,60 @@ pub async fn browse(window: Duration, want: Option<&str>) -> Result<Vec<Found>> 
     Ok(found)
 }
 
+pub enum Nearby {
+    /// `id` is the mDNS instance name, stable while the device stays visible.
+    Found {
+        id: String,
+        name: String,
+        addresses: Vec<SocketAddr>,
+    },
+    Lost {
+        id: String,
+    },
+}
+
+/// Receivers as they appear and leave, for as long as it lives.
+pub struct Browser {
+    daemon: ServiceDaemon,
+    events: mdns_sd::Receiver<ServiceEvent>,
+}
+
+impl Browser {
+    pub fn start() -> Result<Self> {
+        let daemon = ServiceDaemon::new().map_err(mdns_error)?;
+        let events = daemon.browse(SERVICE_TYPE).map_err(mdns_error)?;
+        Ok(Self { daemon, events })
+    }
+
+    pub async fn next(&self) -> Option<Nearby> {
+        loop {
+            match self.events.recv_async().await.ok()? {
+                ServiceEvent::ServiceResolved(service) => {
+                    let Some(info) = service.get_property_val_str("n").and_then(decode_txt) else { continue };
+                    let Ok(peer) = endpoint::parse_info(&info) else { continue };
+                    let port = service.get_port();
+                    let addresses =
+                        service.get_addresses().iter().map(|ip| SocketAddr::new(ip.to_ip_addr(), port)).collect();
+                    let id = instance(service.get_fullname());
+                    return Some(Nearby::Found { id, name: peer.name, addresses });
+                }
+                ServiceEvent::ServiceRemoved(_, fullname) => return Some(Nearby::Lost { id: instance(&fullname) }),
+                _ => {}
+            }
+        }
+    }
+}
+
+impl Drop for Browser {
+    fn drop(&mut self) {
+        drop(self.daemon.shutdown());
+    }
+}
+
+fn instance(fullname: &str) -> String {
+    fullname.strip_suffix(SERVICE_TYPE).map_or(fullname, |name| name.trim_end_matches('.')).to_owned()
+}
+
 fn decode_txt(value: &str) -> Option<Vec<u8>> {
     use base64::Engine as _;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(value.trim_end_matches('=')).ok()
