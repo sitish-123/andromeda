@@ -68,7 +68,7 @@ namespace noctalia::theme {
     // Runs the undo hooks of request.undoBuiltinIds and returns the ids it resolved.
     [[nodiscard]] std::vector<std::string> undoBuiltinTemplates(const ApplyRequest& request) const;
     void applyRequest(const ApplyRequest& request) const;
-    void workerLoop();
+    void workerLoop() const;
     [[nodiscard]] bool requestSuperseded(std::uint64_t generation) const;
 
     ConfigService& m_config;
@@ -83,6 +83,7 @@ namespace noctalia::theme {
     mutable std::set<std::string> m_owedUndoBuiltinIds;
     mutable bool m_appliedBuiltinIdsLoaded = false;
     mutable std::thread m_worker;
+    mutable bool m_workerRunning = false; // guarded by m_mutex
     mutable std::uint64_t m_nextGeneration = 0;
     mutable bool m_shutdown = false;
     mutable bool m_inFlight = false;
