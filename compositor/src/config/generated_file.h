@@ -10,7 +10,7 @@
 
 namespace umbriel {
 
-  // A TOML file Umbriel writes on the user's behalf and the user's config includes (displays.toml, input.toml).
+  // A TOML file Umbriel writes on the user's behalf (displays.toml, settings.toml).
 
   // Parses `existing` (a damaged document starts empty), applies `edit`, and serializes it under `header`.
   [[nodiscard]] std::string

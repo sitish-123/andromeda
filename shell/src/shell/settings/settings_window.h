@@ -10,6 +10,7 @@
 #include "scripting/plugin_manager.h"
 #include "shell/settings/config_export_dialog_modal.h"
 #include "shell/settings/search_picker_popup.h"
+#include "shell/settings/settings_content_shortcuts.h"
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_modal_host.h"
 #include "shell/settings/settings_registry.h"
@@ -21,9 +22,9 @@
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
-#include "wayland/input_control.h"
 #include "wayland/mirror_control.h"
 #include "wayland/output_management.h"
+#include "wayland/settings_control.h"
 #include "wayland/toplevel_surface.h"
 
 #include <cstdint>
@@ -177,6 +178,9 @@ private:
   [[nodiscard]] bool tryPatchSettingsRegistryResetValues(const std::vector<std::vector<std::string>>& paths);
   void rebuildFilterRow(float scale);
   void requestSceneRebuild();
+  void requestResetPageConfirmation();
+  // Sends a compositor-owned path to the compositor's settings manager; false for a shell path. Empty clears it.
+  bool commitCompositorSetting(const std::vector<std::string>& path, const std::string& value);
   void
   requestContentRebuild(bool refreshRegistry = false, bool refreshFilterRow = false, bool rebuildEditorSheet = false);
   void scheduleDeferredRebuild();
@@ -185,7 +189,10 @@ private:
   void addDisplaysContent(float scale);
   void onDisplaysChanged();
   void addInputContent(float scale);
-  void onInputChanged();
+  void addShortcutsContent(float scale);
+  // Binds the compositor's settings manager for as long as Settings is open; a no-op when it is not advertised.
+  void ensureCompositorSettings();
+  void setCompositorSetting(const std::string& key, const std::string& value);
   void addDateTimeContent(float scale);
   void onDateTimeChanged();
   void addLanguageContent(float scale);
@@ -347,8 +354,12 @@ private:
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
   std::string m_displayError;
-  // Exists only while the Input section is showing.
-  std::unique_ptr<InputControl> m_inputControl;
+  // Exists while the window is open, on compositors that advertise dsk_settings_manager_v1.
+  std::unique_ptr<SettingsControl> m_compositorSettings;
+  std::string m_shownCompositorFailure;
+  bool m_compositorPagesShown = false;
+  settings::ShortcutDraft m_shortcutDraft;
+  std::string m_recordingShortcutRow;
   std::optional<xkb::Catalog> m_xkbCatalog;
   SystemBus* m_systemBus = nullptr;
   // Exists only while the Date & Time section is showing.
@@ -397,7 +408,6 @@ private:
   std::vector<std::vector<std::string>> m_pendingResetSettingPaths;
   bool m_forceEnTranslation = false;
   bool m_showAdvanced = false;
-  bool m_showOverriddenOnly = false;
   bool m_statusIsError = false;
   bool m_pendingEncryptedStorageReset = false;
   std::function<void()> m_openDesktopWidgetEditor;

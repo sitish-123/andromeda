@@ -66,7 +66,6 @@ namespace settings {
         .configService = ctx.configService,
         .scale = ctx.scale,
         .showAdvanced = ctx.showAdvanced,
-        .showOverriddenOnly = ctx.showOverriddenOnly,
         .batteryDeviceOptions = ctx.batteryDeviceOptions,
         .editingWidgetName = ctx.editingWidgetName,
         .editingCapsuleGroupId = ctx.editingCapsuleGroupId,
@@ -1274,11 +1273,6 @@ namespace settings {
       if (!isEntryVisible(entry)) {
         return false;
       }
-      if (ctx.showOverriddenOnly
-          && ctx.configService != nullptr
-          && !settingEntryHasEffectiveOverride(entry, *ctx.configService)) {
-        return false;
-      }
       return matchesNormalizedSettingQuery(entry, normalizedSearchQuery);
     };
 
@@ -1299,40 +1293,40 @@ namespace settings {
         }
       }
     }
-    const bool collapsibleGroups = ctx.searchQuery.empty() && !pageGroupKeys.empty();
-    std::unordered_set<std::string>* expandedGroups = nullptr;
-    if (collapsibleGroups) {
-      auto [pageIt, fresh] = ctx.expandedGroupsByPage.try_emplace(pageKey);
-      if (fresh) {
-        if (ctx.config.shell.settingsExpandAllGroups) {
-          pageIt->second.insert(pageGroupKeys.begin(), pageGroupKeys.end());
-        } else {
-          pageIt->second.insert(pageGroupKeys.front());
-        }
+    // A page with several groups shows them as tabs, one group at a time; the page's entry in expandedGroupsByPage
+    // holds the open tab. settings_expand_all_groups lays every group out as a titled card instead.
+    const bool tabbedGroups =
+        ctx.searchQuery.empty() && pageGroupKeys.size() > 1 && !ctx.config.shell.settingsExpandAllGroups;
+    std::string selectedGroup;
+    if (tabbedGroups) {
+      auto& openTab = ctx.expandedGroupsByPage[pageKey];
+      if (openTab.size() != 1 || !std::ranges::contains(pageGroupKeys, *openTab.begin())) {
+        openTab = {pageGroupKeys.front()};
       }
-      expandedGroups = &pageIt->second;
-    }
-
-    std::unordered_map<std::string, Button*> pillByGroup;
-    if (collapsibleGroups && ctx.groupJumpRow != nullptr) {
-      for (const auto& group : pageGroupKeys) {
-        Button* pill = nullptr;
-        ctx.groupJumpRow->addChild(
-            ui::button({
-                .out = &pill,
-                .text = groupLabel(group),
-                .fontSize = Style::fontSizeCaption * scale,
-                .variant = expandedGroups->contains(group) ? ButtonVariant::Primary : ButtonVariant::Default,
-                .radius = Style::scaledRadiusMd(scale),
-            })
-        );
-        pillByGroup.emplace(group, pill);
+      selectedGroup = *openTab.begin();
+      if (ctx.groupJumpRow != nullptr) {
+        for (const auto& group : pageGroupKeys) {
+          ctx.groupJumpRow->addChild(
+              ui::button({
+                  .text = groupLabel(group),
+                  .fontSize = Style::fontSizeCaption * scale,
+                  .variant = group == selectedGroup ? ButtonVariant::TabActive : ButtonVariant::Tab,
+                  .radius = Style::scaledRadiusMd(scale),
+                  .onClick = [&openTab, group, resetScroll = ctx.resetContentScroll,
+                              rebuild = ctx.requestContentRebuild]() {
+                    openTab = {group};
+                    resetScroll();
+                    rebuild();
+                  },
+              })
+          );
+        }
       }
     }
 
     for (const std::size_t entryIndex : entryOrder) {
       const auto& entry = registry[entryIndex];
-      if (!entryPassesFilters(entry)) {
+      if (!entryPassesFilters(entry) || (tabbedGroups && entry.group != selectedGroup)) {
         continue;
       }
       // Cap only once a genuinely-matching entry is about to be rendered, so the truncation hint never
@@ -1372,18 +1366,8 @@ namespace settings {
           activeGroupKey = entry.group;
           activeKeybindRow = nullptr;
           activeKeybindRowCount = 0;
-          if (collapsibleGroups && !entry.group.empty()) {
-            activeGroupBody = addSettingsGroupCard(
-                SettingsGroupCardProps{
-                    .parent = *activeSection,
-                    .group = entry.group,
-                    .title = groupLabel(entry.group),
-                    .scale = scale,
-                    .expandedGroups = *expandedGroups,
-                    .pill = pillByGroup[entry.group],
-                    .scrollToTop = ctx.scrollContentToTop,
-                }
-            );
+          if (tabbedGroups) {
+            activeGroupBody = addSettingsCard(*activeSection, {}, scale);
           } else if (!entry.group.empty()) {
             activeGroupBody = addSettingsCard(*activeSection, groupLabel(entry.group), scale);
           } else {
@@ -1462,6 +1446,7 @@ namespace settings {
         && ctx.selectedSection != "plugins"
         && ctx.selectedSection != "displays"
         && ctx.selectedSection != "input"
+        && ctx.selectedSection != "shortcuts"
         && ctx.selectedSection != "date-time"
         && ctx.selectedSection != "language"
         && ctx.selectedSection != "default-apps") {

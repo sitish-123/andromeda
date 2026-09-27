@@ -10,6 +10,7 @@
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
+#include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/server.h"
 #include "wlr.h"
@@ -313,8 +314,19 @@ namespace umbriel {
           quitConfirmConsumed = true;
         }
       }
+      // A settings app recording a chord takes the press before any bind can fire on it.
+      bool captured = false;
+      if (!quitConfirmConsumed && !modifierOnly && nsyms > 0) {
+        if (DesktopSettingsManager* settings = m_server->desktopSettingsManager();
+            settings != nullptr && settings->capturingChord()) {
+          m_consumedKeycodes.insert(event->keycode);
+          settings->captureChord(rawSym != XKB_KEY_NoSymbol ? rawSym : syms[0], modifiers);
+          handled = true;
+          captured = true;
+        }
+      }
       std::optional<Keybind> matched;
-      if (!quitConfirmConsumed) {
+      if (!quitConfirmConsumed && !captured) {
         for (int i = 0; i < nsyms; ++i) {
           // The action can move focus, and the enter it sends must already know
           // this press is consumed, or the incoming surface is handed a held key

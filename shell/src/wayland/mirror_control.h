@@ -3,12 +3,14 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 struct dsk_output_manager_v1;
 struct wl_registry;
 
-// Client of the desktop fork's dsk_output_manager_v1: which outputs mirror which, and requests to change that. Like
+// Client of the desktop fork's dsk_output_manager_v1: which outputs mirror which, the display properties
+// zwlr_output_manager_v1 does not carry (HDR, VRR mode, workspaces), and requests to change them. Like
 // OutputManagement it binds only while a caller needs it.
 class MirrorControl {
 public:
@@ -26,6 +28,11 @@ public:
   // Reason the compositor gave for the last rejected request, empty when none.
   [[nodiscard]] const std::string& lastFailure() const noexcept { return m_lastFailure; }
 
+  // Effective value of display property `key` ("hdr", "workspaces") on connector `target`; empty when unknown.
+  [[nodiscard]] std::string property(const std::string& target, std::string_view key) const;
+  // Empty value removes the saved property.
+  void setProperty(const std::string& target, const std::string& key, const std::string& value);
+
   void setMirror(const std::string& target, const std::string& source);
   void clearMirror(const std::string& target);
 
@@ -34,6 +41,8 @@ private:
 
   dsk_output_manager_v1* m_manager = nullptr;
   std::unordered_map<std::string, std::string> m_mirrors;
+  // Keyed "<connector>\n<key>".
+  std::unordered_map<std::string, std::string> m_properties;
   std::string m_lastFailure;
   bool m_ready = false;
   ChangeCallback m_onChange;

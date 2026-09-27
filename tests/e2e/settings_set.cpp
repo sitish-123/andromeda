@@ -1,6 +1,7 @@
-// Drives InputControl against a live compositor: sets one input setting and waits for it to come back as the
-// effective value. Prints one line per step and exits non-zero on the first mismatch.
-#include "wayland/input_control.h"
+// Drives SettingsControl against a live compositor: sets one setting and waits for the effective value, which is the
+// value itself unless a third argument names what should apply instead (clearing a key falls back to config.toml).
+// Prints one line per step and exits non-zero on any mismatch.
+#include "wayland/settings_control.h"
 #include "desktop-unstable-v1-client-protocol.h"
 
 #include <cstdint>
@@ -17,7 +18,7 @@ namespace {
   };
 
   void onGlobal(void* data, wl_registry*, std::uint32_t name, const char* interface, std::uint32_t version) {
-    if (std::strcmp(interface, "dsk_input_manager_v1") == 0) {
+    if (std::strcmp(interface, "dsk_settings_manager_v1") == 0) {
       *static_cast<Global*>(data) = {name, version};
     }
   }
@@ -44,12 +45,13 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 3) {
-    std::puts("usage: input_set <key> <value>");
+  if (argc != 3 && argc != 4) {
+    std::puts("usage: settings_set <key> <value> [expected]");
     return 1;
   }
   const std::string key = argv[1];
   const std::string value = argv[2];
+  const std::string expected = argc == 4 ? argv[3] : value;
 
   g_display = wl_display_connect(nullptr);
   if (g_display == nullptr) {
@@ -60,18 +62,22 @@ int main(int argc, char** argv) {
   wl_registry* registry = wl_display_get_registry(g_display);
   wl_registry_add_listener(registry, &kRegistry, &global);
   wl_display_roundtrip(g_display);
-  check(global.name != 0, "compositor advertises dsk_input_manager_v1");
+  check(global.name != 0, "compositor advertises dsk_settings_manager_v1");
   if (global.name == 0) {
     return 1;
   }
 
-  InputControl input(registry, global.name, global.version, {});
-  check(dispatchUntil([&] { return input.ready(); }), "initial state received");
+  SettingsControl settings(registry, global.name, global.version, {});
+  check(dispatchUntil([&] { return settings.ready(); }), "initial state received");
 
-  input.set(key, value);
-  check(dispatchUntil([&] { return input.value(key) == value || !input.lastFailure().empty(); }), "set " + key + "=" + value);
-  check(input.lastFailure().empty(), "no failure (" + input.lastFailure() + ")");
-  check(input.value(key) == value, "effective value is " + value);
+  settings.set(key, value);
+  check(
+      dispatchUntil([&] { return settings.value(key) == expected || !settings.lastFailure().empty(); }),
+      "set " + key + "=" + value
+  );
+  check(settings.lastFailure().empty(), "no failure (" + settings.lastFailure() + ")");
+  check(settings.value(key) == expected, "effective value is " + expected);
+  check(settings.customized(key) == !value.empty(), value.empty() ? "no longer customized" : "reported as customized");
 
   std::printf("%d failure(s)\n", g_failures);
   return g_failures == 0 ? 0 : 1;

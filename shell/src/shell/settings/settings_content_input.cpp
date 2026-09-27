@@ -82,28 +82,38 @@ namespace settings {
       return it != values.end() ? std::optional<std::size_t>(it - values.begin()) : std::nullopt;
     }
 
-    std::unique_ptr<Flex>
-    makeInputRow(std::string_view title, std::unique_ptr<Node> control, bool locked, float scale) {
+    // A row the settings file customises carries the same reset control as registry rows: it clears the key so
+    // config.toml or the built-in default applies again.
+    std::unique_ptr<Flex> makeInputRow(
+        std::string_view title, std::unique_ptr<Node> control, std::string_view key, const SettingsInputContext& ctx
+    ) {
+      const float scale = ctx.scale;
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
       row->addChild(
           makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
       );
-      if (locked) {
+      row->addChild(ui::spacer());
+      if (ctx.input->customized(key)) {
         row->addChild(
-            ui::glyph({
-                .glyph = "lock",
+            ui::button({
+                .glyph = "arrow-back-up",
                 .glyphSize = Style::fontSizeBody * scale,
-                .color = colorSpecFromRole(ColorRole::Secondary),
+                .variant = ButtonVariant::Ghost,
+                .tooltip = i18n::tr("settings.actions.reset-to-default"),
+                .minWidth = Style::controlHeightSm * scale,
+                .minHeight = Style::controlHeightSm * scale,
+                .padding = Style::spaceXs * scale,
+                .radius = Style::scaledRadiusMd(scale),
+                .onClick = [set = ctx.set, key = std::string(key)]() { set(key, ""); },
             })
         );
       }
-      row->addChild(ui::spacer());
       row->addChild(std::move(control));
       return row;
     }
 
     std::unique_ptr<Node> makeInputSelect(
-        std::vector<std::string> options, std::optional<std::size_t> selected, bool locked, float scale,
+        std::vector<std::string> options, std::optional<std::size_t> selected, float scale,
         std::function<void(std::size_t)> onSelect
     ) {
       return ui::select({
@@ -112,7 +122,6 @@ namespace settings {
           .fontSize = Style::fontSizeBody * scale,
           .controlHeight = Style::controlHeight * scale,
           .glyphSize = Style::fontSizeBody * scale,
-          .enabled = !locked,
           .width = kSelectWidth * scale,
           .height = Style::controlHeight * scale,
           .onSelectionChanged = [onSelect = std::move(onSelect)](std::size_t index, std::string_view) {
@@ -121,17 +130,16 @@ namespace settings {
       });
     }
 
-    std::unique_ptr<Node> makeInputToggle(bool checked, bool locked, float scale, std::function<void(bool)> onChange) {
+    std::unique_ptr<Node> makeInputToggle(bool checked, float scale, std::function<void(bool)> onChange) {
       return ui::toggle({
           .checked = checked,
-          .enabled = !locked,
           .scale = scale,
           .onChange = std::move(onChange),
       });
     }
 
     std::unique_ptr<Node> makeInputSlider(
-        double value, double minValue, double maxValue, double step, bool integerValue, bool locked, float scale,
+        double value, double minValue, double maxValue, double step, bool integerValue, float scale,
         std::function<void(double)> onCommit
     ) {
       return ui::slider({
@@ -139,7 +147,6 @@ namespace settings {
           .maxValue = maxValue,
           .step = step,
           .value = value,
-          .enabled = !locked,
           .width = kSliderWidth * scale,
           .onValueChanged = [onCommit = std::move(onCommit), integerValue](double v) {
             onCommit(integerValue ? std::round(v) : v);
@@ -149,12 +156,12 @@ namespace settings {
 
     void addKeyboardCard(Flex& content, const SettingsInputContext& ctx) {
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.keyboard"), ctx.scale);
-      const InputControl& input = *ctx.input;
+      const SettingsControl& input = *ctx.input;
       const xkb::Catalog& catalog = *ctx.catalog;
 
       const std::string currentLayout = input.value("input.keyboard.layout");
       const std::string currentVariant = input.value("input.keyboard.variant");
-      const bool layoutLocked = input.locked("input.keyboard.layout");
+      constexpr std::string_view layoutKey = "input.keyboard.layout";
 
       std::vector<std::string> layoutLabels;
       std::vector<std::string> layoutNames;
@@ -169,13 +176,13 @@ namespace settings {
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.layout"),
           makeInputSelect(
-              std::move(layoutLabels), layoutSelected, layoutLocked, ctx.scale,
+              std::move(layoutLabels), layoutSelected, ctx.scale,
               [set = ctx.set, layoutNames = std::move(layoutNames)](std::size_t index) {
                 set("input.keyboard.layout", layoutNames[index]);
                 set("input.keyboard.variant", "");
               }
           ),
-          layoutLocked, ctx.scale
+          layoutKey, ctx
       ));
 
       if (const xkb::Layout* layout = xkb::findLayout(catalog, currentLayout);
@@ -190,49 +197,47 @@ namespace settings {
           variantNames.push_back(variant.name);
           variantLabels.push_back(variant.description);
         }
-        const bool variantLocked = input.locked("input.keyboard.variant");
+        constexpr std::string_view variantKey = "input.keyboard.variant";
         body->addChild(makeInputRow(
             i18n::tr("settings.input.keyboard.variant"),
             makeInputSelect(
-                std::move(variantLabels), variantSelected, variantLocked, ctx.scale,
+                std::move(variantLabels), variantSelected, ctx.scale,
                 [set = ctx.set, variantNames = std::move(variantNames)](std::size_t index) {
                   set("input.keyboard.variant", variantNames[index]);
                 }
             ),
-            variantLocked, ctx.scale
+            variantKey, ctx
         ));
       }
 
-      const bool repeatRateLocked = input.locked("input.keyboard.repeat_rate");
+      constexpr std::string_view repeatRateKey = "input.keyboard.repeat_rate";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.repeat-rate"),
           makeInputSlider(
-              toDouble(input.value("input.keyboard.repeat_rate"), 25.0), 0.0, 1000.0, 1.0, true, repeatRateLocked,
-              ctx.scale,
+              toDouble(input.value("input.keyboard.repeat_rate"), 25.0), 0.0, 1000.0, 1.0, true, ctx.scale,
               [set = ctx.set](double v) { set("input.keyboard.repeat_rate", std::format("{}", static_cast<int>(v))); }
           ),
-          repeatRateLocked, ctx.scale
+          repeatRateKey, ctx
       ));
 
-      const bool repeatDelayLocked = input.locked("input.keyboard.repeat_delay");
+      constexpr std::string_view repeatDelayKey = "input.keyboard.repeat_delay";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.repeat-delay"),
           makeInputSlider(
-              toDouble(input.value("input.keyboard.repeat_delay"), 600.0), 0.0, 10000.0, 50.0, true, repeatDelayLocked,
-              ctx.scale,
+              toDouble(input.value("input.keyboard.repeat_delay"), 600.0), 0.0, 10000.0, 50.0, true, ctx.scale,
               [set = ctx.set](double v) { set("input.keyboard.repeat_delay", std::format("{}", static_cast<int>(v))); }
           ),
-          repeatDelayLocked, ctx.scale
+          repeatDelayKey, ctx
       ));
 
-      const bool numlockLocked = input.locked("input.keyboard.numlock_toggle");
+      constexpr std::string_view numlockKey = "input.keyboard.numlock_toggle";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.numlock"),
           makeInputToggle(
-              input.value("input.keyboard.numlock_toggle") == "true", numlockLocked, ctx.scale,
+              input.value("input.keyboard.numlock_toggle") == "true", ctx.scale,
               [set = ctx.set](bool checked) { set("input.keyboard.numlock_toggle", checked ? "true" : "false"); }
           ),
-          numlockLocked, ctx.scale
+          numlockKey, ctx
       ));
 
       // Caps Lock and Compose key behavior, from the two matching XKB option groups.
@@ -241,7 +246,7 @@ namespace settings {
         if (optionGroup == nullptr || optionGroup->options.empty()) {
           continue;
         }
-        const bool optionsLocked = input.locked("input.keyboard.options");
+        constexpr std::string_view optionsKey = "input.keyboard.options";
         const std::string current = groupOptionValue(input.value("input.keyboard.options"), group);
         std::vector<std::string> labels = {i18n::tr("settings.input.keyboard.option-none")};
         std::vector<std::string> values = {""};
@@ -256,19 +261,19 @@ namespace settings {
         body->addChild(makeInputRow(
             optionGroup->description,
             makeInputSelect(
-                std::move(labels), selected, optionsLocked, ctx.scale,
+                std::move(labels), selected, ctx.scale,
                 [set = ctx.set, group = std::string(group), values = std::move(values),
                  currentOptions = input.value("input.keyboard.options")](std::size_t index) {
                   set("input.keyboard.options", withGroupOption(currentOptions, group, values[index]));
                 }
             ),
-            optionsLocked, ctx.scale
+            optionsKey, ctx
         ));
       }
     }
 
     void addTouchpadCard(Flex& content, const SettingsInputContext& ctx) {
-      const InputControl& input = *ctx.input;
+      const SettingsControl& input = *ctx.input;
       const bool hasTouchpad = std::ranges::any_of(input.devices(), [](const InputDevice& d) {
         return d.kind == InputDeviceKind::Touchpad;
       });
@@ -278,14 +283,13 @@ namespace settings {
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.touchpad"), ctx.scale);
 
       const auto boolRow = [&](std::string_view titleKey, std::string_view key) {
-        const bool locked = input.locked(key);
         body->addChild(makeInputRow(
             i18n::tr(titleKey),
             makeInputToggle(
-                input.value(key) == "true", locked, ctx.scale,
+                input.value(key) == "true", ctx.scale,
                 [set = ctx.set, key = std::string(key)](bool checked) { set(key, checked ? "true" : "false"); }
             ),
-            locked, ctx.scale
+            key, ctx
         ));
       };
 
@@ -294,7 +298,7 @@ namespace settings {
       boolRow("settings.input.touchpad.disable-while-typing", "input.touchpad.disable_while_typing");
       boolRow("settings.input.touchpad.left-handed", "input.touchpad.left_handed");
 
-      const bool clickLocked = input.locked("input.touchpad.click_method");
+      constexpr std::string_view clickKey = "input.touchpad.click_method";
       const std::vector<std::string> clickValues = {"button_areas", "clickfinger"};
       const std::vector<std::string> clickLabels = {
           i18n::tr("settings.input.touchpad.click-method.button-areas"),
@@ -303,15 +307,15 @@ namespace settings {
       body->addChild(makeInputRow(
           i18n::tr("settings.input.touchpad.click-method"),
           makeInputSelect(
-              clickLabels, indexOf(clickValues, input.value("input.touchpad.click_method")), clickLocked, ctx.scale,
+              clickLabels, indexOf(clickValues, input.value("input.touchpad.click_method")), ctx.scale,
               [set = ctx.set, clickValues](std::size_t index) {
                 set("input.touchpad.click_method", clickValues[index]);
               }
           ),
-          clickLocked, ctx.scale
+          clickKey, ctx
       ));
 
-      const bool accelLocked = input.locked("input.touchpad.accel_profile");
+      constexpr std::string_view accelKey = "input.touchpad.accel_profile";
       const std::vector<std::string> accelValues = {"flat", "adaptive"};
       const std::vector<std::string> accelLabels = {
           i18n::tr("settings.input.accel.flat"), i18n::tr("settings.input.accel.adaptive")
@@ -319,27 +323,27 @@ namespace settings {
       body->addChild(makeInputRow(
           i18n::tr("settings.input.accel-profile"),
           makeInputSelect(
-              accelLabels, indexOf(accelValues, input.value("input.touchpad.accel_profile")), accelLocked, ctx.scale,
+              accelLabels, indexOf(accelValues, input.value("input.touchpad.accel_profile")), ctx.scale,
               [set = ctx.set, accelValues](std::size_t index) {
                 set("input.touchpad.accel_profile", accelValues[index]);
               }
           ),
-          accelLocked, ctx.scale
+          accelKey, ctx
       ));
 
-      const bool sensitivityLocked = input.locked("input.touchpad.sensitivity");
+      constexpr std::string_view sensitivityKey = "input.touchpad.sensitivity";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.speed"),
           makeInputSlider(
-              toDouble(input.value("input.touchpad.sensitivity"), 0.0), -1.0, 1.0, 0.05, false, sensitivityLocked,
-              ctx.scale, [set = ctx.set](double v) { set("input.touchpad.sensitivity", std::format("{:.2f}", v)); }
+              toDouble(input.value("input.touchpad.sensitivity"), 0.0), -1.0, 1.0, 0.05, false, ctx.scale,
+              [set = ctx.set](double v) { set("input.touchpad.sensitivity", std::format("{:.2f}", v)); }
           ),
-          sensitivityLocked, ctx.scale
+          sensitivityKey, ctx
       ));
     }
 
     void addMouseCard(Flex& content, const SettingsInputContext& ctx) {
-      const InputControl& input = *ctx.input;
+      const SettingsControl& input = *ctx.input;
       const bool hasMouse =
           std::ranges::any_of(input.devices(), [](const InputDevice& d) { return d.kind == InputDeviceKind::Mouse; });
       if (!hasMouse) {
@@ -347,27 +351,27 @@ namespace settings {
       }
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.mouse"), ctx.scale);
 
-      const bool naturalLocked = input.locked("input.mouse.natural_scroll");
+      constexpr std::string_view naturalKey = "input.mouse.natural_scroll";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.touchpad.natural-scroll"),
           makeInputToggle(
-              input.value("input.mouse.natural_scroll") == "true", naturalLocked, ctx.scale,
+              input.value("input.mouse.natural_scroll") == "true", ctx.scale,
               [set = ctx.set](bool checked) { set("input.mouse.natural_scroll", checked ? "true" : "false"); }
           ),
-          naturalLocked, ctx.scale
+          naturalKey, ctx
       ));
 
-      const bool leftHandedLocked = input.locked("input.mouse.left_handed");
+      constexpr std::string_view leftHandedKey = "input.mouse.left_handed";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.touchpad.left-handed"),
           makeInputToggle(
-              input.value("input.mouse.left_handed") == "true", leftHandedLocked, ctx.scale,
+              input.value("input.mouse.left_handed") == "true", ctx.scale,
               [set = ctx.set](bool checked) { set("input.mouse.left_handed", checked ? "true" : "false"); }
           ),
-          leftHandedLocked, ctx.scale
+          leftHandedKey, ctx
       ));
 
-      const bool accelLocked = input.locked("input.mouse.accel_profile");
+      constexpr std::string_view accelKey = "input.mouse.accel_profile";
       const std::vector<std::string> accelValues = {"flat", "adaptive"};
       const std::vector<std::string> accelLabels = {
           i18n::tr("settings.input.accel.flat"), i18n::tr("settings.input.accel.adaptive")
@@ -375,20 +379,20 @@ namespace settings {
       body->addChild(makeInputRow(
           i18n::tr("settings.input.accel-profile"),
           makeInputSelect(
-              accelLabels, indexOf(accelValues, input.value("input.mouse.accel_profile")), accelLocked, ctx.scale,
+              accelLabels, indexOf(accelValues, input.value("input.mouse.accel_profile")), ctx.scale,
               [set = ctx.set, accelValues](std::size_t index) { set("input.mouse.accel_profile", accelValues[index]); }
           ),
-          accelLocked, ctx.scale
+          accelKey, ctx
       ));
 
-      const bool sensitivityLocked = input.locked("input.mouse.sensitivity");
+      constexpr std::string_view sensitivityKey = "input.mouse.sensitivity";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.speed"),
           makeInputSlider(
-              toDouble(input.value("input.mouse.sensitivity"), 0.0), -1.0, 1.0, 0.05, false, sensitivityLocked,
-              ctx.scale, [set = ctx.set](double v) { set("input.mouse.sensitivity", std::format("{:.2f}", v)); }
+              toDouble(input.value("input.mouse.sensitivity"), 0.0), -1.0, 1.0, 0.05, false, ctx.scale,
+              [set = ctx.set](double v) { set("input.mouse.sensitivity", std::format("{:.2f}", v)); }
           ),
-          sensitivityLocked, ctx.scale
+          sensitivityKey, ctx
       ));
     }
 

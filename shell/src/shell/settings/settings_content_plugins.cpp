@@ -713,145 +713,122 @@ namespace settings {
 
     const std::string sourcesTitle = i18n::tr("settings.plugins.sources.title");
     const std::string pluginsTitle = i18n::tr("settings.plugins.plugins.title");
-    auto [pageIt, fresh] = ctx.expandedGroupsByPage.try_emplace("plugins");
-    if (fresh) {
-      pageIt->second.insert("plugins");
-      if (ctx.expandAllGroups) {
-        pageIt->second.insert("sources");
-      }
+    // Sources and Plugins are tabs like every registry page; settings_expand_all_groups shows both.
+    const bool tabbed = !ctx.searchActive && !ctx.expandAllGroups;
+    auto& openTab = ctx.expandedGroupsByPage["plugins"];
+    if (openTab.size() != 1 || (!openTab.contains("sources") && !openTab.contains("plugins"))) {
+      openTab = {"plugins"};
     }
-    auto& expandedGroups = pageIt->second;
-
-    Button* sourcesPill = nullptr;
-    Button* pluginsPill = nullptr;
-    if (ctx.groupJumpRow != nullptr && !ctx.searchActive) {
-      ctx.groupJumpRow->addChild(
-          ui::button({
-              .out = &sourcesPill,
-              .text = sourcesTitle,
-              .fontSize = Style::fontSizeCaption * scale,
-              .variant = expandedGroups.contains("sources") ? ButtonVariant::Primary : ButtonVariant::Default,
-              .radius = Style::scaledRadiusMd(scale),
-          })
-      );
-      ctx.groupJumpRow->addChild(
-          ui::button({
-              .out = &pluginsPill,
-              .text = pluginsTitle,
-              .fontSize = Style::fontSizeCaption * scale,
-              .variant = expandedGroups.contains("plugins") ? ButtonVariant::Primary : ButtonVariant::Default,
-              .radius = Style::scaledRadiusMd(scale),
-          })
-      );
+    const bool showSources = !tabbed || openTab.contains("sources");
+    const bool showPlugins = !tabbed || openTab.contains("plugins");
+    if (tabbed && ctx.groupJumpRow != nullptr) {
+      for (const auto& [group, title] : {std::pair{"plugins", pluginsTitle}, std::pair{"sources", sourcesTitle}}) {
+        ctx.groupJumpRow->addChild(
+            ui::button({
+                .text = title,
+                .fontSize = Style::fontSizeCaption * scale,
+                .variant = openTab.contains(group) ? ButtonVariant::TabActive : ButtonVariant::Tab,
+                .radius = Style::scaledRadiusMd(scale),
+                .onClick = [&openTab, tab = std::string(group), rebuild = ctx.requestContentRebuild]() {
+                  openTab = {tab};
+                  rebuild();
+                },
+            })
+        );
+      }
     }
 
     if (ctx.config != nullptr && ctx.config->shell.offlineMode) {
       section->addChild(makeOfflineModeNotice(scale, i18n::tr("settings.window.offline-mode-notice.plugins")));
     }
 
-    Flex* sourcesBody = addSettingsGroupCard(
-        SettingsGroupCardProps{
-            .parent = *section,
-            .group = "sources",
-            .title = sourcesTitle,
-            .scale = scale,
-            .expandedGroups = expandedGroups,
-            .pill = sourcesPill,
-            .scrollToTop = ctx.scrollContentToTop,
-        }
-    );
-
-    Flex* sourcesHeader = nullptr;
-    auto sourcesHeaderNode = ui::row({
-        .out = &sourcesHeader,
-        .align = FlexAlign::Center,
-        .gap = Style::spaceSm * scale,
-        .fillWidth = true,
-    });
-    sourcesHeader->addChild(ui::spacer());
-    sourcesHeader->addChild(
-        ui::button({
-            .text = i18n::tr("settings.plugins.sources.add"),
-            .glyph = "add",
-            .fontSize = Style::fontSizeCaption * scale,
-            .glyphSize = Style::fontSizeBody * scale,
-            .variant = ButtonVariant::Default,
-            .onClick = [cb = ctx.addSource]() {
-              if (cb) {
-                cb();
-              }
-            },
-        })
-    );
-    sourcesBody->addChild(std::move(sourcesHeaderNode));
-    if (ctx.sources.empty()) {
-      sourcesBody->addChild(makeLabel(
-          i18n::tr("settings.plugins.sources.empty"), Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant
-      ));
-    } else if (ctx.sources.size() > 1) {
-      sourcesBody->addChild(makeLabel(
-          i18n::tr("settings.plugins.sources.precedence-hint"), Style::fontSizeCaption * scale,
-          ColorRole::OnSurfaceVariant
-      ));
-    }
-    // Render in config order so the list mirrors the file. Precedence is last-wins
-    // (the same cascade as the rest of the config), so a source lower in the list
-    // overrides the ones above it for a shared plugin id.
-    for (const auto& source : ctx.sources) {
-      sourcesBody->addChild(sourceRow(source, ctx, scale));
-    }
-
-    const bool hasGitSource = std::ranges::any_of(ctx.sources, [](const PluginSourceConfig& s) {
-      return s.kind == PluginSourceKind::Git && s.enabled;
-    });
-    if (hasGitSource && ctx.setAutoUpdate) {
-      auto autoRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      auto autoInfo = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
-      autoInfo->addChild(makeLabel(
-          i18n::tr("settings.plugins.sources.auto-update"), Style::fontSizeBody * scale, ColorRole::OnSurface,
-          FontWeight::Medium
-      ));
-      autoInfo->addChild(makeLabel(
-          i18n::tr("settings.plugins.sources.auto-update-desc"), Style::fontSizeCaption * scale,
-          ColorRole::OnSurfaceVariant
-      ));
-      std::vector<ui::SegmentedOption> modeOptions;
-      modeOptions.reserve(std::size(kPluginAutoUpdateModes));
-      std::optional<std::size_t> selectedModeIndex;
-      for (const auto& opt : kPluginAutoUpdateModes) {
-        if (opt.value == ctx.autoUpdateMode) {
-          selectedModeIndex = modeOptions.size();
-        }
-        modeOptions.push_back(ui::SegmentedOption{.label = i18n::tr(opt.labelKey)});
-      }
-      autoRow->addChild(std::move(autoInfo));
-      autoRow->addChild(
-          ui::segmented({
-              .options = std::move(modeOptions),
-              .selectedIndex = selectedModeIndex,
-              .scale = scale,
-              .onChange = [cb = ctx.setAutoUpdate](std::size_t index) {
-                if (cb && index < std::size(kPluginAutoUpdateModes)) {
-                  cb(kPluginAutoUpdateModes[index].value);
+    Flex* sourcesBody =
+        showSources ? addSettingsCard(*section, tabbed ? std::string_view{} : sourcesTitle, scale) : nullptr;
+    if (sourcesBody != nullptr) {
+      Flex* sourcesHeader = nullptr;
+      auto sourcesHeaderNode = ui::row({
+          .out = &sourcesHeader,
+          .align = FlexAlign::Center,
+          .gap = Style::spaceSm * scale,
+          .fillWidth = true,
+      });
+      sourcesHeader->addChild(ui::spacer());
+      sourcesHeader->addChild(
+          ui::button({
+              .text = i18n::tr("settings.plugins.sources.add"),
+              .glyph = "add",
+              .fontSize = Style::fontSizeCaption * scale,
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Default,
+              .onClick = [cb = ctx.addSource]() {
+                if (cb) {
+                  cb();
                 }
               },
           })
       );
-      sourcesBody->addChild(std::move(autoRow));
+      sourcesBody->addChild(std::move(sourcesHeaderNode));
+      if (ctx.sources.empty()) {
+        sourcesBody->addChild(makeLabel(
+            i18n::tr("settings.plugins.sources.empty"), Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant
+        ));
+      } else if (ctx.sources.size() > 1) {
+        sourcesBody->addChild(makeLabel(
+            i18n::tr("settings.plugins.sources.precedence-hint"), Style::fontSizeCaption * scale,
+            ColorRole::OnSurfaceVariant
+        ));
+      }
+      // Render in config order so the list mirrors the file. Precedence is last-wins
+      // (the same cascade as the rest of the config), so a source lower in the list
+      // overrides the ones above it for a shared plugin id.
+      for (const auto& source : ctx.sources) {
+        sourcesBody->addChild(sourceRow(source, ctx, scale));
+      }
+
+      const bool hasGitSource = std::ranges::any_of(ctx.sources, [](const PluginSourceConfig& s) {
+        return s.kind == PluginSourceKind::Git && s.enabled;
+      });
+      if (hasGitSource && ctx.setAutoUpdate) {
+        auto autoRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+        auto autoInfo = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
+        autoInfo->addChild(makeLabel(
+            i18n::tr("settings.plugins.sources.auto-update"), Style::fontSizeBody * scale, ColorRole::OnSurface,
+            FontWeight::Medium
+        ));
+        autoInfo->addChild(makeLabel(
+            i18n::tr("settings.plugins.sources.auto-update-desc"), Style::fontSizeCaption * scale,
+            ColorRole::OnSurfaceVariant
+        ));
+        std::vector<ui::SegmentedOption> modeOptions;
+        modeOptions.reserve(std::size(kPluginAutoUpdateModes));
+        std::optional<std::size_t> selectedModeIndex;
+        for (const auto& opt : kPluginAutoUpdateModes) {
+          if (opt.value == ctx.autoUpdateMode) {
+            selectedModeIndex = modeOptions.size();
+          }
+          modeOptions.push_back(ui::SegmentedOption{.label = i18n::tr(opt.labelKey)});
+        }
+        autoRow->addChild(std::move(autoInfo));
+        autoRow->addChild(
+            ui::segmented({
+                .options = std::move(modeOptions),
+                .selectedIndex = selectedModeIndex,
+                .scale = scale,
+                .onChange = [cb = ctx.setAutoUpdate](std::size_t index) {
+                  if (cb && index < std::size(kPluginAutoUpdateModes)) {
+                    cb(kPluginAutoUpdateModes[index].value);
+                  }
+                },
+            })
+        );
+        sourcesBody->addChild(std::move(autoRow));
+      }
     }
 
-    // ── Plugins ──────────────────────────────────────────────────────────
-    Flex* pluginsBody = addSettingsGroupCard(
-        SettingsGroupCardProps{
-            .parent = *section,
-            .group = "plugins",
-            .title = pluginsTitle,
-            .scale = scale,
-            .expandedGroups = expandedGroups,
-            .pill = pluginsPill,
-            .scrollToTop = ctx.scrollContentToTop,
-        }
-    );
+    if (!showPlugins) {
+      return;
+    }
+    Flex* pluginsBody = addSettingsCard(*section, tabbed ? std::string_view{} : pluginsTitle, scale);
     std::vector<scripting::PluginStatus> plugins;
     plugins.reserve(ctx.plugins.size());
     for (const auto& plugin : ctx.plugins) {

@@ -1244,11 +1244,6 @@ namespace settings {
         if (knownKeys.contains(key)) {
           continue;
         }
-        const auto path = widgetSettingPath(std::string(widgetName), key);
-        const bool overridden = ctx.configService != nullptr && ctx.configService->hasEffectiveOverride(path);
-        if (ctx.showOverriddenOnly && !overridden) {
-          continue;
-        }
         rawKeys.push_back(key);
       }
 
@@ -1380,10 +1375,6 @@ namespace settings {
           continue;
         }
         const auto path = widgetSettingPath(widgetName, spec.schema.key);
-        const bool overridden = ctx.configService != nullptr && ctx.configService->hasEffectiveOverride(path);
-        if (ctx.showOverriddenOnly && !overridden) {
-          continue;
-        }
 
         if (spec.group != activeGroupKey) {
           // The actions group folds, and carries its title in the collapsible's own header.
@@ -3019,7 +3010,7 @@ namespace settings {
           {
               .align = FlexAlign::Center,
               .gap = Style::spaceXs * ctx.scale,
-              // Fixed height so lanes with an Override badge / Reset button line up with plain ones.
+              // Fixed height so lanes with a reset button line up with plain ones.
               .minHeight = Style::controlHeightSm * ctx.scale,
           },
           makeLabel(
@@ -3027,23 +3018,6 @@ namespace settings {
               FontWeight::Bold
           )
       );
-      if (overridden) {
-        laneHeader->addChild(
-            ui::row(
-                {
-                    .align = FlexAlign::Center,
-                    .paddingV = 0,
-                    .paddingH = Style::spaceXs * ctx.scale,
-                    .fill = colorSpecFromRole(ColorRole::Primary, 0.15F),
-                    .radius = Style::scaledRadiusSm(ctx.scale),
-                },
-                makeLabel(
-                    i18n::tr("settings.badges.override"), Style::fontSizeCaption * ctx.scale,
-                    colorSpecFromRole(ColorRole::Primary), FontWeight::Bold
-                )
-            )
-        );
-      }
       if (inherited) {
         laneHeader->addChild(
             ui::row(

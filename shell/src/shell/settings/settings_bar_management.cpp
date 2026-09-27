@@ -119,6 +119,44 @@ namespace settings {
       return banner;
     }
 
+    // One bar, many displays: pick which display's settings the page edits instead of listing each override in the
+    // sidebar. Rows a display customises carry a "Monitor" badge; the rest show "Inherited".
+    void addDisplayPicker(Flex& content, SettingsBarManagementContext& ctx) {
+      if (!ctx.searchQuery.empty() || ctx.selectedSection != "bar" || ctx.selectedBar == nullptr) {
+        return;
+      }
+      const float scale = ctx.scale;
+      const std::string barName = ctx.selectedBar->name;
+      const std::string_view selected =
+          ctx.selectedMonitorOverride != nullptr ? std::string_view{ctx.selectedMonitorOverride->match} : "";
+      auto row = ui::row({
+          .align = FlexAlign::Center,
+          .gap = Style::spaceSm * scale,
+          .fillWidth = true,
+          .configure = [scale](Flex& container) { container.setPadding(0.0F, Style::spaceLg * scale); },
+      });
+      row->addChild(makeLabel(
+          i18n::tr("settings.entities.monitor-override.picker"), Style::fontSizeBody * scale,
+          colorSpecFromRole(ColorRole::OnSurfaceVariant)
+      ));
+      const auto addChoice = [&](std::string label, std::string match) {
+        const bool active = selected == match;
+        row->addChild(makeManagementButton(
+            std::move(label), active ? ButtonVariant::Primary : ButtonVariant::Default, scale,
+            [select = ctx.selectMonitorOverride, match]() { select(match); }
+        ));
+      };
+      addChoice(i18n::tr("settings.entities.monitor-override.all-displays"), {});
+      for (const auto& monitorOverride : ctx.selectedBar->monitorOverrides) {
+        addChoice(monitorOverride.match, monitorOverride.match);
+      }
+      row->addChild(makeManagementButton(
+          i18n::tr("settings.entities.monitor-override.new"), ButtonVariant::Ghost, scale,
+          [create = ctx.createMonitorOverride, barName]() { create(barName); }, "add"
+      ));
+      content.addChild(std::move(row));
+    }
+
     void addMonitorManagement(Flex& content, SettingsBarManagementContext& ctx) {
       if (ctx.searchQuery.empty()
           && ctx.selectedSection == "bar"
@@ -444,6 +482,7 @@ namespace settings {
   } // namespace
 
   void addSettingsBarManagement(Flex& content, SettingsBarManagementContext ctx) {
+    addDisplayPicker(content, ctx);
     addMonitorManagement(content, ctx);
     addBarManagement(content, ctx);
   }

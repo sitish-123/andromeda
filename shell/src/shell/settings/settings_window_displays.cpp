@@ -89,6 +89,12 @@ void SettingsWindow::addDisplaysContent(float scale) {
                   m_mirrorControl->setMirror(target, source);
                 }
               },
+          .setProperty =
+              [this](std::string target, std::string key, std::string value) {
+                if (m_mirrorControl != nullptr) {
+                  m_mirrorControl->setProperty(target, key, value);
+                }
+              },
       }
   );
 }

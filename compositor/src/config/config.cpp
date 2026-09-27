@@ -3,6 +3,7 @@
 #include "config/config_diag.h"
 #include "config/config_merge.h"
 #include "config/keybind_parse.h"
+#include "config/managed_settings.h"
 #include "config/resolve.h"
 #include "config/section.h"
 #include "config/store.h"
@@ -25,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <initializer_list>
 #include <iterator>
 #include <limits>
@@ -1950,15 +1952,6 @@ namespace umbriel {
       }
 
       std::vector<Keybind> configured;
-      auto sameChord = [](const Keybind& left, const Keybind& right) {
-        return left.submap == right.submap
-            && left.modifiers == right.modifiers
-            && left.useMod == right.useMod
-            && left.modifierOnly == right.modifierOnly
-            && left.keysym == right.keysym
-            && left.wheel == right.wheel
-            && left.mouseButton == right.mouseButton;
-      };
       for (const auto& [key, entry] : *section) {
         const std::string chord(key.str());
         std::string actionStr;
@@ -2024,6 +2017,12 @@ namespace umbriel {
         binding.allowWhenLocked = allowWhenLocked;
         binding.allowWhenInhibited = allowWhenInhibited;
         binding.cooldownMs = cooldownMs;
+        // "none" removes whatever an earlier file or the built-in set binds to this chord.
+        if (actionStr == kUnboundAction) {
+          std::erase_if(configured, [&](const Keybind& existing) { return sameChord(existing, binding); });
+          std::erase_if(loaded.keybinds, [&](const Keybind& existing) { return sameChord(existing, binding); });
+          continue;
+        }
         if (!parseAction(actionStr, binding)) {
           warnAt(key.source(), "ignoring keybind '{}' (unknown action '{}')", chord, actionStr);
           continue;
@@ -2520,6 +2519,46 @@ namespace umbriel {
       Fatal,
     };
 
+    // The settings file carries what a settings app changed, so it merges over config.toml and its includes. A missing
+    // file is normal; a broken one fails the load like any other config error.
+    bool overlayManagedSettings(toml::table& merged, const std::filesystem::path& file) {
+      std::error_code error;
+      if (!std::filesystem::exists(file, error)) {
+        return true;
+      }
+      try {
+        configmerge::deepMerge(merged, toml::parse_file(file.string()));
+        return true;
+      } catch (const toml::parse_error& parseError) {
+        emitDiag(
+            ConfigDiagnostic::Severity::Error, nullptr,
+            std::format("cannot parse {}: {}", file.string(), parseError.description())
+        );
+        return false;
+      }
+    }
+
+    // input.toml was the settings file before every setting shared one; take it over when it is still ours.
+    void adoptLegacyInputSettings(const std::filesystem::path& configRoot) {
+      const std::filesystem::path legacy = configRoot.parent_path() / "input.toml";
+      const std::filesystem::path current = managedSettingsFile(configRoot);
+      std::error_code error;
+      if (std::filesystem::exists(current, error) || !std::filesystem::exists(legacy, error)) {
+        return;
+      }
+      std::ifstream in(legacy);
+      std::string firstLine;
+      std::getline(in, firstLine);
+      if (!firstLine.starts_with("# Written by Umbriel")) {
+        return;
+      }
+      in.close();
+      std::filesystem::rename(legacy, current, error);
+      if (error) {
+        kLog.warn("config: cannot move {} to {}: {}", legacy.string(), current.string(), error.message());
+      }
+    }
+
     bool hasRequestedDrmPolicy(const toml::table& root) {
       const toml::node* node = root.get("drm");
       if (node == nullptr) {
@@ -2535,8 +2574,11 @@ namespace umbriel {
       ConfigStore& store = configStore();
       store.beginLoad(watchPaths);
 
+      const std::filesystem::path settingsFile = managedSettingsFile(rootPath);
+      store.addWatchPath(settingsFile);
       const ConfigPathProbe root = probeConfigPath(rootPath);
-      if (root.kind == ConfigPathKind::Missing) {
+      std::error_code settingsError;
+      if (root.kind == ConfigPathKind::Missing && !std::filesystem::exists(settingsFile, settingsError)) {
         return ConfigParseOutcome::Missing;
       }
       if (root.kind == ConfigPathKind::Unavailable) {
@@ -2550,7 +2592,11 @@ namespace umbriel {
 
       bool drmPolicyRequested = false;
       try {
-        auto result = configmerge::mergeWithIncludes(rootPath);
+        auto result = root.kind == ConfigPathKind::Missing ? configmerge::MergeResult{}
+                                                           : configmerge::mergeWithIncludes(rootPath);
+        if (!overlayManagedSettings(result.merged, settingsFile)) {
+          result.hadError = true;
+        }
         drmPolicyRequested = hasRequestedDrmPolicy(result.merged);
         store.setMissingIncludes(result.missingIncludes);
         for (auto& diagnostic : result.diagnostics) {
@@ -2646,6 +2692,7 @@ namespace umbriel {
       selection = selectDefaultConfig(m_implicitCandidates);
     }
     setRootPath(selection.root, explicitPath != nullptr);
+    adoptLegacyInputSettings(selection.root);
 
     Config loaded;
     loaded.keybinds = defaultKeybinds();

@@ -9,6 +9,8 @@
 #include <fstream>
 #include <iterator>
 #include <string_view>
+#include <type_traits>
+#include <variant>
 
 namespace umbriel {
 
@@ -45,8 +47,12 @@ namespace umbriel {
     void mergeOutputs(toml::table& root, std::span<const SavedOutput> outputs) {
       for (const SavedOutput& output : outputs) {
         toml::table& table = generatedTable(root, {"output", output.name});
+        // zwlr_output_manager_v1 only knows on and off, so an apply keeps a VRR mode set through set_property.
+        const bool keepVrr = table["vrr"].value<std::string>() == "fullscreen";
         for (auto&& [key, value] : outputTable(output)) {
-          table.insert_or_assign(key, std::move(value));
+          if (!(keepVrr && key.str() == "vrr")) {
+            table.insert_or_assign(key, std::move(value));
+          }
         }
       }
     }
@@ -89,6 +95,24 @@ namespace umbriel {
 
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs) {
     return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { mergeOutputs(root, outputs); });
+  }
+
+  bool saveOutputProperty(
+      const std::filesystem::path& file, const std::string& name, std::string_view key, const SavedProperty& value
+  ) {
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+      toml::table& table = generatedTable(root, {"output", name});
+      std::visit(
+          [&]<typename T>(const T& stored) {
+            if constexpr (std::is_same_v<T, std::monostate>) {
+              table.erase(key);
+            } else {
+              table.insert_or_assign(key, stored);
+            }
+          },
+          value
+      );
+    });
   }
 
   bool

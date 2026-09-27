@@ -1,4 +1,4 @@
-#include "config/input_settings.h"
+#include "config/managed_settings.h"
 
 #include "check.h"
 #include "config/store.h"
@@ -11,18 +11,19 @@
 #include <unistd.h>
 
 using umbriel::documentSetsKey;
-using umbriel::editInputSetting;
-using umbriel::inputSettingKeys;
-using umbriel::inputSettingValue;
-using umbriel::InputSettingValue;
-using umbriel::parseInputSetting;
+using umbriel::editManagedSetting;
+using umbriel::managedSettingKeys;
+using umbriel::managedSettingValue;
+using umbriel::ManagedSettingValue;
+using umbriel::parseManagedSetting;
 
 namespace {
-  bool accepts(std::string_view key, std::string_view text) { return parseInputSetting(key, text).value.has_value(); }
+  bool accepts(std::string_view key, std::string_view text) { return parseManagedSetting(key, text).value.has_value(); }
 
   // Values chosen to differ from every default, so a round trip proves the write took effect.
-  constexpr std::array<std::string_view, 9> kSamples = {
-      "false", "37", "0.5", "flat", "pinned", "window", "clickfinger", "left_middle_right", "MouseMiddle",
+  constexpr std::array<std::string_view, 16> kSamples = {
+      "false",       "37",  "3",       "0.5",         "flat",  "pinned", "window",       "clickfinger",
+      "left_middle_right", "MouseMiddle", "dwindle", "on_overflow", "right", "zoom", "overview-toggle", "Alt",
   };
 
   // The config reader compiles the keymap, so XKB keys need names XKB knows.
@@ -40,7 +41,7 @@ namespace {
 UMBRIEL_TEST(unknownKeysAreRejected) {
   CHECK(!accepts("input.touchpad.nope", "true"));
   CHECK(!accepts("general.autostart", "x"));
-  CHECK(!parseInputSetting("input.nope", "").error.empty());
+  CHECK(!parseManagedSetting("input.nope", "").error.empty());
 }
 
 UMBRIEL_TEST(booleansAreStrict) {
@@ -81,18 +82,18 @@ UMBRIEL_TEST(layoutTextCannotBreakTheDocument) {
 }
 
 UMBRIEL_TEST(emptyValueRemovesTheKey) {
-  const auto parsed = parseInputSetting("input.touchpad.tap", "");
+  const auto parsed = parseManagedSetting("input.touchpad.tap", "");
   CHECK(parsed.value.has_value() && std::holds_alternative<std::monostate>(*parsed.value));
-  const std::string before = editInputSetting("", "input.touchpad.tap", InputSettingValue{false});
+  const std::string before = editManagedSetting("", "input.touchpad.tap", ManagedSettingValue{false});
   CHECK(documentSetsKey(before, "input.touchpad.tap"));
-  const std::string after = editInputSetting(before, "input.touchpad.tap", *parsed.value);
+  const std::string after = editManagedSetting(before, "input.touchpad.tap", *parsed.value);
   CHECK(!documentSetsKey(after, "input.touchpad.tap"));
 }
 
 UMBRIEL_TEST(editsKeepUnrelatedKeys) {
   std::string doc =
-      editInputSetting("[input.mouse]\nleft_handed = true\n", "input.touchpad.tap", InputSettingValue{false});
-  doc = editInputSetting(doc, "input.keyboard.layout", InputSettingValue{std::string("us")});
+      editManagedSetting("[input.mouse]\nleft_handed = true\n", "input.touchpad.tap", ManagedSettingValue{false});
+  doc = editManagedSetting(doc, "input.keyboard.layout", ManagedSettingValue{std::string("us")});
   CHECK(documentSetsKey(doc, "input.mouse.left_handed"));
   CHECK(documentSetsKey(doc, "input.touchpad.tap"));
   CHECK(documentSetsKey(doc, "input.keyboard.layout"));
@@ -100,9 +101,9 @@ UMBRIEL_TEST(editsKeepUnrelatedKeys) {
 
 UMBRIEL_TEST(unsetOptionalsReadBackEmpty) {
   const umbriel::Config defaults;
-  CHECK_EQ(inputSettingValue(defaults, "input.touchpad.natural_scroll"), std::string());
-  CHECK_EQ(inputSettingValue(defaults, "input.touchpad.tap"), std::string("true"));
-  CHECK_EQ(inputSettingValue(defaults, "input.nope"), std::string());
+  CHECK_EQ(managedSettingValue(defaults, "input.touchpad.natural_scroll"), std::string());
+  CHECK_EQ(managedSettingValue(defaults, "input.touchpad.tap"), std::string("true"));
+  CHECK_EQ(managedSettingValue(defaults, "input.nope"), std::string());
 }
 
 UMBRIEL_TEST(brokenDocumentsSetNothing) {
@@ -112,32 +113,32 @@ UMBRIEL_TEST(brokenDocumentsSetNothing) {
 
 UMBRIEL_TEST(everyKeyRoundTripsThroughTheConfigReader) {
   const std::filesystem::path path =
-      std::filesystem::temp_directory_path() / ("umbriel-input-settings-" + std::to_string(getpid()) + ".toml");
-  for (const std::string_view key : inputSettingKeys()) {
+      std::filesystem::temp_directory_path() / ("umbriel-managed-settings-" + std::to_string(getpid()) + ".toml");
+  for (const std::string_view key : managedSettingKeys()) {
     std::string_view sample = xkbSample(key);
-    InputSettingValue value;
+    ManagedSettingValue value;
     if (!sample.empty()) {
-      value = *parseInputSetting(key, sample).value;
+      value = *parseManagedSetting(key, sample).value;
     }
     for (const std::string_view candidate : kSamples) {
       if (!sample.empty()) {
         break;
       }
-      if (auto parsed = parseInputSetting(key, candidate); parsed.value) {
+      if (auto parsed = parseManagedSetting(key, candidate); parsed.value) {
         sample = candidate;
         value = *parsed.value;
         break;
       }
     }
     CHECK(!sample.empty());
-    std::ofstream(path) << editInputSetting("", key, value);
+    std::ofstream(path) << editManagedSetting("", key, value);
     umbriel::ConfigStore& store = umbriel::configStore();
     CHECK(store.load(path.c_str()));
     if (!store.diagnostics().empty()) {
       std::println(stderr, "{}: {}", key, store.diagnostics().front().message);
     }
     CHECK(store.diagnostics().empty());
-    CHECK_EQ(inputSettingValue(store.config(), key), std::string(sample));
+    CHECK_EQ(managedSettingValue(store.config(), key), std::string(sample));
   }
   std::filesystem::remove(path);
 }

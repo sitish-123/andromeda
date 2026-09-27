@@ -47,6 +47,9 @@ namespace noctalia::cli {
       false,
   };
 
+  inline constexpr std::array kConfigSettingsCountFlags{
+      Flag{"--list", {}, {}, "Print one line per control: section, group, config path", {}, {}, false, false},
+  };
   inline constexpr Command kConfigSettingsCountCmd{
       "settings-count",
       "Count Settings UI controls",
@@ -54,7 +57,7 @@ namespace noctalia::cli {
       "and pickers. Dropdown options and SettingsWindow-only action buttons are not\n"
       "counted separately.",
       {},
-      {},
+      kConfigSettingsCountFlags,
       {},
       {},
       false,

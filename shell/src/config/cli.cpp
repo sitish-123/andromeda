@@ -89,6 +89,14 @@ namespace noctalia::config {
       const Config& cfg = configService.config();
       settings::RegistryEnvironment env;
       std::vector<settings::SettingEntry> registry = settings::buildSettingsRegistry(cfg, nullptr, nullptr, env);
+      if (parsed->has("--list")) {
+        for (const auto& entry : registry) {
+          std::println(
+              "{}\t{}\t{}", settings::settingsSectionId(entry.section), entry.group, StringUtils::join(entry.path, ".")
+          );
+        }
+        return 0;
+      }
       const SettingsCountSet registryCounts = countSettingsEntries(registry, cfg);
 
       std::println("Settings controls");

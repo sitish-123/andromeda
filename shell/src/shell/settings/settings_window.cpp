@@ -387,8 +387,12 @@ std::optional<LayerPopupParentContext> SettingsWindow::popupParentContextForSurf
 void SettingsWindow::open(std::string context) {
   TooltipManager::instance().forceDestroy();
 
-  if (!context.empty()) {
-    m_selectedSection = std::move(context);
+  const bool navigate = !context.empty() && context != m_selectedSection;
+  if (context.starts_with("bar:")) {
+    m_selectedBarName = context.substr(4);
+    m_selectedSection = "bar";
+  } else if (!context.empty()) {
+    m_selectedSection = settings::canonicalSettingsSectionId(context);
   }
 
   if (m_wayland == nullptr || m_renderContext == nullptr || !m_wayland->hasXdgShell()) {
@@ -400,6 +404,12 @@ void SettingsWindow::open(std::string context) {
   }
 
   if (isOpen()) {
+    if (navigate) {
+      m_searchQuery.clear();
+      m_selectedMonitorOverride.clear();
+      m_contentScrollState.offset = 0.0F;
+      requestSceneRebuild();
+    }
     const auto refocus = [this]() {
       if (m_wayland != nullptr && m_surface != nullptr) {
         focusExistingSettingsWindow(*m_wayland, m_surface->wlSurface());
@@ -566,6 +576,9 @@ void SettingsWindow::destroyWindow() {
     m_mirrorControl.reset();
     m_displayEdits.clear();
   }
+  m_compositorSettings.reset();
+  m_compositorPagesShown = false;
+  m_recordingShortcutRow.clear();
   m_modalHost.closeAll();
   m_configExportDialogModal.reset();
   m_editorSheetModal.reset();
@@ -647,7 +660,6 @@ void SettingsWindow::destroyWindow() {
   m_pendingDeleteWidgetName.clear();
   m_pendingDeleteWidgetSettingPath.clear();
   m_renamingWidgetName.clear();
-  m_showOverriddenOnly = false;
   m_sidebarScrollState = {};
   m_contentScrollState = {};
   m_expandedSettingGroups.clear();

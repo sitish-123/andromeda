@@ -1032,7 +1032,8 @@
   "settings": {
     "actions": {
       "confirm-reset": "Confirm Reset",
-      "reset": "Reset"
+      "reset": "Reset",
+      "reset-to-default": "Reset to default"
     },
     "badges": {
       "advanced": "Advanced",
@@ -1040,8 +1041,7 @@
       "deprecated": "Deprecated",
       "inherited": "Inherited",
       "monitor": "Monitor",
-      "official": "Official",
-      "override": "Override"
+      "official": "Official"
     },
     "calendar-accounts": {
       "add-title": "Add Calendar Account",
@@ -1128,13 +1128,15 @@
         "delete-confirm-desc": "This GUI-created monitor override will be removed from settings.toml.",
         "delete-confirm-title": "Delete \"{name}\"?",
         "exists": "An override for this monitor already exists.",
-        "label": "Monitor: {name}",
-        "management": "Monitor Override",
+        "label": "Display: {name}",
+        "management": "Display customization",
         "match-placeholder": "Monitor match",
-        "new": "Monitor Override",
+        "new": "Customize for a display",
         "new-title": "New Monitor Override",
         "rename": "Rename",
-        "rename-save": "Save"
+        "rename-save": "Save",
+        "picker": "Display",
+        "all-displays": "All displays"
       },
       "widget": {
         "add": "Add Widget",
@@ -1360,7 +1362,7 @@
         "interface": "Interface",
         "keybinds": "Keybinds",
         "keyboard-layout": "Keyboard Layout",
-        "kinds": "Kinds",
+        "kinds": "OSD Kinds",
         "launcher": "Launcher",
         "layout": "Layout",
         "lifecycle": "Lifecycle",
@@ -1371,7 +1373,7 @@
         "monitor-polling": "Poll Intervals",
         "monitor-thresholds": "Highlight Thresholds",
         "monitors": "Monitors",
-        "motion": "Motion",
+        "motion": "Interface",
         "navigation": "Navigation",
         "network": "Network",
         "night-light": "Night Light",
@@ -1402,41 +1404,66 @@
         "weather": "Weather",
         "widget-list": "Widget List",
         "widgets": "Widgets",
-        "window-switcher": "Window Switcher"
+        "window-switcher": "Window Switcher",
+        "surfaces": "Surfaces",
+        "icons": "Icons",
+        "templates": "App Theming",
+        "text": "Text",
+        "window-borders": "Borders",
+        "window-shadow": "Shadow",
+        "window-blur": "Blur",
+        "window-decorations": "Decorations",
+        "window-motion": "Windows",
+        "dim-unfocused": "Dim Unfocused",
+        "workspaces": "Workspaces",
+        "focus": "Focus",
+        "modifier": "Modifier"
       },
       "sections": {
         "accessibility": "Accessibility",
-        "appearance": "Appearance",
+        "appearance": "Style",
         "backdrop": "Backdrop",
         "bar": "Bar",
         "calendar": "Calendar",
         "control-center": "Control Center",
-        "desktop": "Desktop",
+        "desktop": "Desktop Widgets",
         "dock": "Dock",
         "hooks": "Hooks",
-        "keybinds": "Keybinds",
+        "keybinds": "Panel Keys",
         "launcher": "Launcher",
         "location": "Location",
         "niri": "Niri",
-        "notifications": "Notifications",
-        "osd": "OSD",
-        "panels": "Panels",
+        "notifications": "Notifications & OSD",
+        "panels": "Panels & Popups",
         "plugins": "Plugins",
         "popups": "Popups",
         "power": "Power",
         "screenshot": "Screenshot",
         "security": "Security",
-        "services": "Services",
-        "shell": "Shell",
+        "services": "Sound & Brightness",
+        "shell": "General",
         "system": "System",
-        "templates": "Templates",
-        "umbriel": "Umbriel",
         "wallpaper": "Wallpaper",
         "displays": "Displays",
         "input": "Input",
         "date-time": "Date & Time",
         "language": "Language & Region",
-        "default-apps": "Default Applications"
+        "default-apps": "Default Applications",
+        "text-scale": "Text & Scale",
+        "motion": "Motion",
+        "windows": "Behavior",
+        "window-style": "Window Style",
+        "layout": "Layout",
+        "overview": "Overview",
+        "shortcuts": "Keyboard Shortcuts"
+      },
+      "categories": {
+        "appearance": "Appearance",
+        "desktop": "Desktop",
+        "windows": "Windows",
+        "devices": "Devices",
+        "system": "System",
+        "advanced": "Advanced"
       }
     },
     "notifications": {
@@ -3300,8 +3327,8 @@
           "label": "Skip Editor on Copy or Save"
         },
         "settings-expand-all-groups": {
-          "description": "Open every settings group expanded instead of only the first one on each page",
-          "label": "Expand All Settings Groups"
+          "description": "Show every group of a settings page on one scrolling page instead of as tabs",
+          "label": "Show All Groups Without Tabs"
         },
         "settings-window-translucent": {
           "description": "Make the Settings background translucent for compositor effects",
@@ -3461,6 +3488,305 @@
         "transitions": {
           "description": "Effects available when changing wallpaper (one is picked at random per change)",
           "label": "Transition Effects"
+        }
+      },
+      "umbriel": {
+        "appearance-border-width": {
+          "label": "Border Width",
+          "description": "Thickness of the border drawn around every window"
+        },
+        "appearance-corner-radius": {
+          "label": "Corner Radius",
+          "description": "Rounding of window corners"
+        },
+        "appearance-outer-border-width": {
+          "label": "Outer Border Width",
+          "description": "A second border outside the focus border, in the outer border color"
+        },
+        "appearance-shadow-enabled": {
+          "label": "Window Shadows",
+          "description": "Draw shadows behind tiled and floating windows"
+        },
+        "appearance-shadow-softness": {
+          "label": "Shadow Softness",
+          "description": "How far the shadow spreads and fades"
+        },
+        "appearance-shadow-offset-x": {
+          "label": "Horizontal Offset",
+          "description": "Shift the shadow left or right"
+        },
+        "appearance-shadow-offset-y": {
+          "label": "Vertical Offset",
+          "description": "Shift the shadow up or down"
+        },
+        "appearance-blur-enabled": {
+          "label": "Background Blur",
+          "description": "Master switch for blur; windows and panels opt in through window and layer rules, and blur shows only where they are transparent"
+        },
+        "appearance-blur-radius": {
+          "label": "Blur Strength",
+          "description": "Radius of each blur pass"
+        },
+        "appearance-blur-passes": {
+          "label": "Blur Quality",
+          "description": "More passes give a smoother blur at more GPU cost"
+        },
+        "appearance-blur-optimized": {
+          "label": "Optimized Blur",
+          "description": "Share one cached background blur across the windows on a screen; turn off so translucent windows blur whatever is directly behind them"
+        },
+        "appearance-blur-noise": {
+          "label": "Noise",
+          "description": "Grain added to blurred areas to hide banding"
+        },
+        "appearance-blur-brightness": {
+          "label": "Brightness",
+          "description": "Brightness of blurred areas"
+        },
+        "appearance-blur-contrast": {
+          "label": "Contrast",
+          "description": "Contrast of blurred areas"
+        },
+        "appearance-blur-saturation": {
+          "label": "Saturation",
+          "description": "Color saturation of blurred areas"
+        },
+        "appearance-prefer-no-csd": {
+          "label": "Prefer Server-Side Decorations",
+          "description": "Use Umbriel's borders instead of the title bars apps draw themselves; applies to apps opened afterwards"
+        },
+        "appearance-drag-opacity": {
+          "label": "Opacity While Dragging",
+          "description": "Window opacity while it is being moved"
+        },
+        "appearance-opaque-fullscreen": {
+          "label": "Opaque Fullscreen",
+          "description": "Fullscreen windows ignore window rule opacity and cover the desktop"
+        },
+        "animation-enabled": {
+          "label": "Window Animations",
+          "description": "Animate windows, workspaces, and the overview"
+        },
+        "animation-duration-ms": {
+          "label": "Duration",
+          "description": "Length of animations that are not springs"
+        },
+        "animation-windows-in-enabled": {
+          "label": "Open Animation",
+          "description": "Animate windows as they open"
+        },
+        "animation-windows-in-style": {
+          "label": "Open Style",
+          "description": "How opening windows appear",
+          "options": {
+            "popin": "Pop In",
+            "zoom": "Zoom",
+            "slide": "Slide",
+            "fade": "Fade",
+            "none": "None"
+          }
+        },
+        "animation-windows-out-enabled": {
+          "label": "Close Animation",
+          "description": "Animate windows as they close"
+        },
+        "animation-windows-out-style": {
+          "label": "Close Style",
+          "description": "How closing windows disappear",
+          "options": {
+            "fade": "Fade",
+            "slide": "Slide",
+            "popin": "Pop Out",
+            "zoom": "Zoom"
+          }
+        },
+        "animation-windows-move-enabled": {
+          "label": "Move and Resize",
+          "description": "Animate windows moving to a new position or size"
+        },
+        "animation-workspaces-enabled": {
+          "label": "Workspace Switch",
+          "description": "Animate switching between workspaces"
+        },
+        "animation-overview-enabled": {
+          "label": "Overview",
+          "description": "Animate opening and closing the overview"
+        },
+        "animation-scratchpad-enabled": {
+          "label": "Scratchpad",
+          "description": "Animate showing and hiding scratchpad windows"
+        },
+        "animation-border-enabled": {
+          "label": "Focus Border",
+          "description": "Fade the border color when focus moves"
+        },
+        "animation-layers-enabled": {
+          "label": "Panels",
+          "description": "Animate panels and other layer surfaces as they appear"
+        },
+        "animation-dim-unfocused-enabled": {
+          "label": "Dim Unfocused Windows",
+          "description": "Darken windows that do not have focus"
+        },
+        "animation-dim-unfocused-dim": {
+          "label": "Dim Amount",
+          "description": "How dark unfocused windows get"
+        },
+        "layout-mode": {
+          "label": "Layout",
+          "description": "How windows are arranged on a new workspace",
+          "options": {
+            "scrolling": "Scrolling",
+            "dwindle": "Dwindle",
+            "master": "Master"
+          }
+        },
+        "layout-gap": {
+          "label": "Gaps",
+          "description": "Space between windows and around the screen edge"
+        },
+        "layout-scrolling-center-focused": {
+          "label": "Center Focused Column",
+          "description": "When to scroll the focused column to the middle of the screen",
+          "options": {
+            "never": "Never",
+            "always": "Always",
+            "on-overflow": "When It Does Not Fit"
+          }
+        },
+        "layout-scrolling-center-underfull-strip": {
+          "label": "Center Columns",
+          "description": "Center the columns when they do not fill the screen"
+        },
+        "layout-dwindle-preserve-split": {
+          "label": "Keep Split Direction",
+          "description": "Keep each split horizontal or vertical when windows resize"
+        },
+        "layout-master-position": {
+          "label": "Master Position",
+          "description": "Where the master window sits",
+          "options": {
+            "left": "Left",
+            "right": "Right",
+            "center": "Center"
+          }
+        },
+        "layout-master-default-width-fraction": {
+          "label": "Master Width",
+          "description": "Share of the screen the master window takes"
+        },
+        "layout-master-new-on-top": {
+          "label": "New Windows on Top",
+          "description": "Add new windows at the top of the stack"
+        },
+        "layout-master-new-becomes-master": {
+          "label": "New Window Becomes Master",
+          "description": "Make each new window the master window"
+        },
+        "workspaces-back-and-forth": {
+          "label": "Back and Forth",
+          "description": "Choosing the current workspace again returns to the previous one"
+        },
+        "workspaces-empty-above": {
+          "label": "Empty Workspace Above",
+          "description": "Keep an empty workspace before the first one as well as after the last"
+        },
+        "overview-zoom": {
+          "label": "Zoom",
+          "description": "How small workspaces get in the overview"
+        },
+        "overview-background-blur": {
+          "label": "Blur Background",
+          "description": "Blur the wallpaper behind the overview"
+        },
+        "overview-workspace-wallpaper": {
+          "label": "Wallpaper in Previews",
+          "description": "Show the wallpaper inside each workspace preview"
+        },
+        "overview-shortcuts": {
+          "label": "Shortcut Badges",
+          "description": "Label windows with keys that focus them"
+        },
+        "input-focus-follows-mouse": {
+          "label": "Focus Follows Mouse",
+          "description": "Focus the window under the pointer"
+        },
+        "input-cursor-follows-focus": {
+          "label": "Cursor Follows Focus",
+          "description": "Move the pointer to a window when it gets focus from the keyboard"
+        },
+        "general-focus-on-activate": {
+          "label": "Focus on Activation",
+          "description": "Focus and reveal a window when an app asks for attention"
+        },
+        "general-show-cheatsheet": {
+          "label": "Shortcut Cheatsheet",
+          "description": "Show the keyboard shortcut cheatsheet when the session starts"
+        },
+        "hot-corners-top-left-enabled": {
+          "label": "Top Left Corner",
+          "description": "Run an action when the pointer rests in the top left corner"
+        },
+        "hot-corners-top-left-action": {
+          "label": "Top Left Action",
+          "description": "What the corner does"
+        },
+        "hot-corners-top-left-delay-ms": {
+          "label": "Top Left Delay",
+          "description": "How long the pointer rests in the corner first"
+        },
+        "hot-corners-top-right-enabled": {
+          "label": "Top Right Corner",
+          "description": "Run an action when the pointer rests in the top right corner"
+        },
+        "hot-corners-top-right-action": {
+          "label": "Top Right Action",
+          "description": "What the corner does"
+        },
+        "hot-corners-top-right-delay-ms": {
+          "label": "Top Right Delay",
+          "description": "How long the pointer rests in the corner first"
+        },
+        "hot-corners-bottom-left-enabled": {
+          "label": "Bottom Left Corner",
+          "description": "Run an action when the pointer rests in the bottom left corner"
+        },
+        "hot-corners-bottom-left-action": {
+          "label": "Bottom Left Action",
+          "description": "What the corner does"
+        },
+        "hot-corners-bottom-left-delay-ms": {
+          "label": "Bottom Left Delay",
+          "description": "How long the pointer rests in the corner first"
+        },
+        "hot-corners-bottom-right-enabled": {
+          "label": "Bottom Right Corner",
+          "description": "Run an action when the pointer rests in the bottom right corner"
+        },
+        "hot-corners-bottom-right-action": {
+          "label": "Bottom Right Action",
+          "description": "What the corner does"
+        },
+        "hot-corners-bottom-right-delay-ms": {
+          "label": "Bottom Right Delay",
+          "description": "How long the pointer rests in the corner first"
+        },
+        "hot-corner-actions": {
+          "launcher": "Launcher",
+          "control-center": "Control Center",
+          "window-switcher": "Window Switcher",
+          "overview": "Overview",
+          "cheatsheet": "Shortcut Cheatsheet"
+        },
+        "general-mod-key": {
+          "label": "Mod Key",
+          "description": "The key shortcuts written with Mod use",
+          "options": {
+            "Super": "Super",
+            "Alt": "Alt",
+            "Ctrl": "Ctrl",
+            "Shift": "Shift"
+          }
         }
       }
     },
@@ -4710,7 +5036,6 @@
     "window": {
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
-      "filter-overridden": "Overridden",
       "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Noctalia is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
       "native-title": "Noctalia Settings",
       "no-results": "No settings found",
@@ -4726,11 +5051,10 @@
         "plugins": "Plugin HTTP requests will not work. Git sources can still update.",
         "security": "External IP lookup and telemetry will not work.",
         "template-store": "Community template downloads will not work.",
-        "templates": "Community template downloads and updates will not work.",
         "title": "Offline Mode"
       },
-      "reset-page": "Reset Page",
-      "reset-page-confirm": "Confirm Reset",
+      "reset-page": "Reset page to defaults",
+      "reset-page-confirm": "Reset every setting on this page",
       "search-placeholder": "Search settings…",
       "search-truncated": "Showing the first {count} matches. Refine your search to narrow results.",
       "support-report": "Support Report",
@@ -4763,7 +5087,36 @@
       "unavailable": "This compositor does not support display configuration (wlr-output-management).",
       "refresh-default": "Default",
       "mirror": "Mirror",
-      "mirror-off": "Off"
+      "mirror-off": "Off",
+      "vrr": "Variable Refresh Rate",
+      "vrr-options": {
+        "disabled": "Off",
+        "always": "Always",
+        "fullscreen": "Fullscreen Only"
+      },
+      "hdr": "HDR",
+      "hdr-options": {
+        "off": "Off",
+        "on": "On",
+        "auto": "Automatic",
+        "fullscreen": "Fullscreen Only"
+      },
+      "sdr-white": "SDR Brightness in HDR (nits)",
+      "tearing": "Allow Tearing",
+      "workspaces": "Workspaces",
+      "workspaces-options": {
+        "dynamic": "Grow as Needed",
+        "fixed": "Fixed Number"
+      },
+      "workspaces-named": "Workspaces on this display are named in config.toml.",
+      "min-workspaces": "Minimum Workspaces",
+      "workspace-count": "Number of Workspaces",
+      "workspace-axis": "Workspace Direction",
+      "workspace-axis-options": {
+        "vertical": "Vertical",
+        "horizontal": "Horizontal"
+      },
+      "cyclic-workspaces": "Wrap Around Workspaces"
     },
     "input": {
       "unavailable": "This compositor does not support input configuration (dsk_input_manager_v1).",
@@ -4816,6 +5169,24 @@
       "video-player": "Video Player",
       "music-player": "Music Player",
       "pdf-viewer": "PDF Viewer"
+    },
+    "shortcuts": {
+      "press-keys": "Press keys… (Esc cancels)",
+      "set-keys": "Set keys",
+      "unbound": "Unbound; reset to restore it",
+      "remove": "Remove shortcut",
+      "add-title": "Add Shortcut",
+      "add": "Add",
+      "unavailable": "Loading shortcuts from the compositor…",
+      "groups": {
+        "apps": "Apps",
+        "windows": "Windows",
+        "workspaces": "Workspaces and Displays",
+        "overview": "Overview and Scratchpads",
+        "system": "System",
+        "other": "Other",
+        "disabled": "Removed Shortcuts"
+      }
     }
   },
   "setup-wizard": {

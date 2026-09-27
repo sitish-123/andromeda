@@ -1354,9 +1354,9 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
-  if (interfaceName == "dsk_input_manager_v1") {
-    m_desktopInputGlobalName = name;
-    m_desktopInputGlobalVersion = std::min(version, 1U);
+  if (interfaceName == "dsk_settings_manager_v1") {
+    m_desktopSettingsGlobalName = name;
+    m_desktopSettingsGlobalVersion = std::min(version, 1U);
     return;
   }
 

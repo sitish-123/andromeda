@@ -5,10 +5,10 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "ui/builders.h"
-#include "ui/controls/collapsible.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
+#include "wayland/settings_control.h"
 
 #include <cmath>
 #include <format>
@@ -155,7 +155,12 @@ namespace settings {
     return false;
   }
 
-  bool settingEntryHasEffectiveOverride(const SettingEntry& entry, const ConfigService& configService) {
+  bool settingEntryHasEffectiveOverride(
+      const SettingEntry& entry, const ConfigService& configService, const SettingsControl* compositor
+  ) {
+    if (const auto key = compositorSettingKey(entry.path)) {
+      return compositor != nullptr && compositor->customized(*key);
+    }
     if (configService.hasEffectiveOverride(entry.path)) {
       return true;
     }
@@ -180,17 +185,20 @@ namespace settings {
 
   Flex* addSettingsCard(Flex& parent, std::string_view title, float scale) {
     Flex* bodyRaw = nullptr;
-    auto card = ui::column(
-        {
-            .align = FlexAlign::Stretch,
-            .gap = Style::spaceSm * scale,
-            .configure =
-                [scale](Flex& container) {
-                  container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
-                  container.setCardStyle(scale, kCardFillOpacity);
-                },
+    auto card = ui::column({
+        .align = FlexAlign::Stretch,
+        .gap = Style::spaceSm * scale,
+        .configure = [scale](Flex& container) {
+          container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
+          container.setCardStyle(scale, kCardFillOpacity);
         },
-        makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold),
+    });
+    if (!title.empty()) {
+      card->addChild(
+          makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+      );
+    }
+    card->addChild(
         ui::column({
             .out = &bodyRaw,
             .align = FlexAlign::Stretch,
@@ -198,63 +206,6 @@ namespace settings {
         })
     );
     parent.addChild(std::move(card));
-    return bodyRaw;
-  }
-
-  Flex* addSettingsGroupCard(SettingsGroupCardProps props) {
-    auto card = ui::column({.align = FlexAlign::Stretch, .configure = [scale = props.scale](Flex& container) {
-                              container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
-                              container.setCardStyle(scale, kCardFillOpacity);
-                            }});
-    auto body = ui::column({
-        .align = FlexAlign::Stretch,
-        .gap = Style::spaceSm * props.scale,
-        .configure = [scale = props.scale](Flex& container) {
-          container.setPadding(Style::spaceSm * scale, 0.0F, 0.0F, 0.0F);
-        },
-    });
-    Flex* bodyRaw = body.get();
-    auto collapsible = std::make_unique<Collapsible>();
-    collapsible->setScale(props.scale);
-    collapsible->setHeaderPadding(Style::spaceXs, 0.0F);
-    collapsible->setHeader(makeLabel(
-        props.title, Style::fontSizeTitle * props.scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
-    ));
-    collapsible->setBody(std::move(body));
-    collapsible->setExpandedImmediate(props.expandedGroups.contains(props.group));
-
-    Collapsible* collapsibleRaw = collapsible.get();
-    std::unordered_set<std::string>* expandedGroups = &props.expandedGroups;
-    const std::string group = std::move(props.group);
-    if (props.pill != nullptr) {
-      props.pill->setOnClick([expandedGroups, group, pill = props.pill, collapsibleRaw,
-                              scrollToTop = props.scrollToTop]() {
-        if (expandedGroups->contains(group)) {
-          expandedGroups->erase(group);
-          pill->setVariant(ButtonVariant::Default);
-          collapsibleRaw->setExpanded(false);
-          return;
-        }
-        expandedGroups->insert(group);
-        pill->setVariant(ButtonVariant::Primary);
-        collapsibleRaw->setExpandedImmediate(true);
-        if (scrollToTop) {
-          scrollToTop(*collapsibleRaw);
-        }
-      });
-    }
-    collapsible->setOnToggle([expandedGroups, group, pill = props.pill](bool expanded) {
-      if (expanded) {
-        expandedGroups->insert(group);
-      } else {
-        expandedGroups->erase(group);
-      }
-      if (pill != nullptr) {
-        pill->setVariant(expanded ? ButtonVariant::Primary : ButtonVariant::Default);
-      }
-    });
-    card->addChild(std::move(collapsible));
-    props.parent.addChild(std::move(card));
     return bodyRaw;
   }
 
@@ -312,7 +263,6 @@ namespace settings {
   bool settingsSectionNeedsOfflineModeNotice(SettingsSection section) {
     switch (section) {
     case SettingsSection::Appearance:
-    case SettingsSection::Templates:
     case SettingsSection::Launcher:
     case SettingsSection::Security:
     case SettingsSection::Location:
@@ -325,15 +275,20 @@ namespace settings {
     case SettingsSection::Panels:
     case SettingsSection::ControlCenter:
     case SettingsSection::Notifications:
-    case SettingsSection::Osd:
+    case SettingsSection::TextScale:
+    case SettingsSection::Motion:
     case SettingsSection::Screenshot:
     case SettingsSection::Shell:
     case SettingsSection::Keybinds:
+    case SettingsSection::Shortcuts:
     case SettingsSection::System:
     case SettingsSection::Power:
     case SettingsSection::Hooks:
     case SettingsSection::Niri:
-    case SettingsSection::Umbriel:
+    case SettingsSection::Windows:
+    case SettingsSection::WindowStyle:
+    case SettingsSection::Layout:
+    case SettingsSection::Overview:
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
     case SettingsSection::Displays:
@@ -350,8 +305,6 @@ namespace settings {
     switch (section) {
     case SettingsSection::Appearance:
       return i18n::tr("settings.window.offline-mode-notice.appearance");
-    case SettingsSection::Templates:
-      return i18n::tr("settings.window.offline-mode-notice.templates");
     case SettingsSection::Launcher:
       return i18n::tr("settings.window.offline-mode-notice.launcher");
     case SettingsSection::Security:
@@ -367,15 +320,20 @@ namespace settings {
     case SettingsSection::Panels:
     case SettingsSection::ControlCenter:
     case SettingsSection::Notifications:
-    case SettingsSection::Osd:
+    case SettingsSection::TextScale:
+    case SettingsSection::Motion:
     case SettingsSection::Screenshot:
     case SettingsSection::Shell:
     case SettingsSection::Keybinds:
+    case SettingsSection::Shortcuts:
     case SettingsSection::System:
     case SettingsSection::Power:
     case SettingsSection::Hooks:
     case SettingsSection::Niri:
-    case SettingsSection::Umbriel:
+    case SettingsSection::Windows:
+    case SettingsSection::WindowStyle:
+    case SettingsSection::Layout:
+    case SettingsSection::Overview:
     case SettingsSection::Bar:
     case SettingsSection::Plugins:
     case SettingsSection::Displays:

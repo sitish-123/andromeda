@@ -56,6 +56,7 @@ namespace {
 
   constexpr std::int32_t kActionSupportReport = 1;
   constexpr std::int32_t kActionExportConfig = 2;
+  constexpr std::int32_t kActionResetPage = 3;
   constexpr std::string_view kCalendarDiscoveryOwner = "calendar_discovery";
 
   std::string calendarCredentialError(CalendarService::CredentialOperationResult result) {
@@ -327,6 +328,12 @@ void SettingsWindow::openActionsMenu() {
         }
         DeferredCall::callLater([this]() { openConfigExportDialog(); });
         break;
+      case kActionResetPage:
+        if (m_actionsMenuPopup != nullptr) {
+          m_actionsMenuPopup->close();
+        }
+        requestResetPageConfirmation();
+        break;
       default:
         break;
       }
@@ -348,6 +355,13 @@ void SettingsWindow::openActionsMenu() {
       {.id = kActionExportConfig,
        .label = i18n::tr("settings.window.export-config"),
        .enabled = true,
+       .separator = false,
+       .hasSubmenu = false}
+  );
+  entries.push_back(
+      {.id = kActionResetPage,
+       .label = i18n::tr("settings.window.reset-page"),
+       .enabled = !currentPageResetPaths().empty(),
        .separator = false,
        .hasSubmenu = false}
   );

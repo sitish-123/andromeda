@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # harness: outputs=2
-# One owner for output settings (gap 0.11), like input.toml: a wlr-output-management apply for an output config.toml
+# One owner for output settings (gap 0.11): a wlr-output-management apply for an output config.toml
 # does not mention is written to displays.toml as usual. Once config.toml gains an [output.<name>] table for that
 # output, a later apply still takes effect live, but is no longer persisted to displays.toml, and the reason is
-# logged, matching input.toml's refusal wording.
+# logged.
 set -euo pipefail
 
 readonly OUTPUT_MANAGEMENT=${UMBRIEL_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}

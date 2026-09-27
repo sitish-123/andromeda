@@ -19,6 +19,12 @@ struct MirrorControlListeners {
     }
   }
 
+  static void property(
+      void* data, dsk_output_manager_v1* /*manager*/, const char* target, const char* key, const char* value
+  ) {
+    self(data).m_properties.insert_or_assign(std::string(target) + '\n' + key, value);
+  }
+
   static void done(void* data, dsk_output_manager_v1* /*manager*/) {
     MirrorControl& control = self(data);
     control.m_ready = true;
@@ -35,7 +41,12 @@ struct MirrorControlListeners {
     }
   }
 
-  static constexpr dsk_output_manager_v1_listener kManager = {.mirror = mirror, .done = done, .failed = failed};
+  static constexpr dsk_output_manager_v1_listener kManager = {
+      .property = property,
+      .mirror = mirror,
+      .done = done,
+      .failed = failed,
+  };
 };
 
 MirrorControl::MirrorControl(
@@ -68,5 +79,17 @@ void MirrorControl::clearMirror(const std::string& target) {
   if (m_manager != nullptr) {
     m_lastFailure.clear();
     dsk_output_manager_v1_clear_mirror(m_manager, target.c_str());
+  }
+}
+
+std::string MirrorControl::property(const std::string& target, std::string_view key) const {
+  const auto it = m_properties.find(target + '\n' + std::string(key));
+  return it != m_properties.end() ? it->second : std::string();
+}
+
+void MirrorControl::setProperty(const std::string& target, const std::string& key, const std::string& value) {
+  if (m_manager != nullptr) {
+    m_lastFailure.clear();
+    dsk_output_manager_v1_set_property(m_manager, target.c_str(), key.c_str(), value.c_str());
   }
 }
