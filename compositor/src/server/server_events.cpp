@@ -736,7 +736,7 @@ namespace umbriel {
 
     bool sent = false;
     for (const auto& view : self->m_registry.all()) {
-      if (!view->mapped() || view->onActiveWorkspace() || !(view->wantsBackgroundFrames() || view->configurePending())) {
+      if (!view->mapped() || !view->hidden() || !(view->wantsBackgroundFrames() || view->configurePending())) {
         continue;
       }
       sent = true;
@@ -756,12 +756,18 @@ namespace umbriel {
     return 0;
   }
 
+  void Server::syncSuspendedViews() {
+    for (const auto& view : m_registry.all()) {
+      view->syncSuspended();
+    }
+  }
+
   void Server::updateBackgroundFrameTimer() {
     if (m_backgroundFrameTimer == nullptr) {
       return;
     }
     const bool wanted = std::ranges::any_of(m_registry.all(), [](const auto& view) {
-      return view->mapped() && !view->onActiveWorkspace() && (view->wantsBackgroundFrames() || view->configurePending());
+      return view->mapped() && view->hidden() && (view->wantsBackgroundFrames() || view->configurePending());
     });
     if (wanted == m_backgroundFramesArmed) {
       return;
@@ -1433,6 +1439,7 @@ namespace umbriel {
       m_cursor->clearConstraint();
       clearNormalFocus();
       updateIdleInhibit();
+      syncSuspendedViews();
     }
 
     updateLockBlank();
@@ -1443,6 +1450,7 @@ namespace umbriel {
   void Server::unlockSession() {
     m_sessionLocked = false;
     updateIdleInhibit();
+    syncSuspendedViews();
     setLockBlankEnabled(false);
     // The cursor need not sit on the output that had focus, so restore the
     // remembered one. refocus() then keeps that output's active workspace, which

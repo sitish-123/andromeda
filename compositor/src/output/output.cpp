@@ -715,6 +715,7 @@ namespace umbriel {
       wlr_output_schedule_frame(m_output);
       m_server->scheduleDisplacedViewRestore();
     }
+    m_server->syncSuspendedViews();
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputStateChanged(*this);
     }

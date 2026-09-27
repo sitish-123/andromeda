@@ -336,6 +336,8 @@ namespace umbriel {
     // Re-evaluate each output's policy after keyboard focus or a dynamic window rule changes.
     void refreshOutputPolicies();
     void updateBackgroundFrameTimer();
+    // Suspends every view out of sight (View::hidden) and resumes the rest; after a lock or output power change.
+    void syncSuspendedViews();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
     void applyConfiguredMirrors();
     // Start or, with a null source, stop a mirror at runtime; windows on the target move to the source, and the change

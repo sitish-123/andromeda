@@ -512,8 +512,16 @@ namespace umbriel {
     return m_contentType == ContentType::Game || resolvedRules().backgroundFrames.value_or(false);
   }
 
+  bool View::hidden() const {
+    if (!m_onActiveWorkspace || m_server->sessionLocked()) {
+      return true;
+    }
+    const Output* output = currentOutput();
+    return output != nullptr && output->dpmsOff();
+  }
+
   void View::syncSuspended() {
-    const bool suspended = m_mapped && !m_onActiveWorkspace && !wantsBackgroundFrames();
+    const bool suspended = m_mapped && hidden() && !wantsBackgroundFrames();
     if (m_toplevel->scheduled.suspended != suspended) {
       wlr_xdg_toplevel_set_suspended(m_toplevel, suspended);
     }

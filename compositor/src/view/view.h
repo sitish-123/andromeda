@@ -73,6 +73,8 @@ namespace umbriel {
     // Effective optional window-rule override used by tearing diagnostics.
     [[nodiscard]] std::optional<bool> tearingRuleOverride();
     [[nodiscard]] bool onActiveWorkspace() const { return m_onActiveWorkspace; }
+    // Out of sight: on an inactive workspace, behind the lock screen, or on an output that is powered off.
+    [[nodiscard]] bool hidden() const;
     // Whether frame callbacks keep flowing while this window is hidden, instead of it being suspended.
     [[nodiscard]] bool wantsBackgroundFrames();
     // A configure is scheduled, unacknowledged, or acknowledged without the commit that applies it.
