@@ -42,4 +42,15 @@
     <string name="share_sent">Sent to %1$s</string>
     <string name="share_no_desktop">Pair this phone with a desktop first.</string>
     <string name="share_failed">Not sent. %1$s</string>
+    <string name="channel_transfers">Files</string>
+    <string name="transfer_offer_one">%1$s wants to send %2$s (%3$s)</string>
+    <string name="transfer_offer">%1$s wants to send %2$d files (%3$s)</string>
+    <string name="transfer_accept">Accept</string>
+    <string name="transfer_decline">Decline</string>
+    <string name="transfer_progress">Transferring files</string>
+    <string name="transfer_bytes">%1$s of %2$s</string>
+    <string name="transfer_received">Received from %1$s</string>
+    <string name="transfer_sent">Sent to %1$s</string>
+    <string name="transfer_failed">Transfer with %1$s: %2$s</string>
+    <string name="share_files_sending">Offered to %1$s</string>
 </resources>

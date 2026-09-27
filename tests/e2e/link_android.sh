@@ -63,10 +63,12 @@ received() { grep -qF "string \"$1\"" "$OUT/signals.txt"; }
 posted() { notifications | grep -qF "$1"; }
 gone() { ! notifications | grep -qF "$1"; }
 
-XDG_STATE_HOME=$RUNTIME/desktop "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+DOWNLOADS=$RUNTIME/downloads
+mkdir -p "$DOWNLOADS"
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
 link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1',member='Received'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 adb shell cmd statusbar collapse
@@ -106,6 +108,46 @@ adb shell cmd statusbar collapse
 maestro "$FLOWS/copy.yaml"
 wait_for 10 "Copy did not clear the text notification" gone "hello from the desktop"
 record '{"step":"desktop-to-android","kinds":["text","link"],"copy":"content intent, the Copy PendingIntent"}'
+
+# A real file from the phone's Downloads through the share target, accepted on D-Bus.
+head -c 3145728 /dev/urandom > "$RUNTIME/phone.bin"
+adb shell rm -f /sdcard/Download/e2e-phone.bin /sdcard/Download/e2e-desk.bin
+media_id() {
+  adb shell content query --uri content://media/external/downloads --projection _id \
+    --where "\"_display_name='$1'\"" | grep -o '_id=[0-9]*' | head -1 | cut -d= -f2
+}
+# A Downloads entry, as a browser leaves it, shared from the Files app: the shell cannot grant MediaStore URIs itself.
+adb shell content insert --uri content://media/external/downloads --bind _display_name:s:e2e-phone.bin
+adb shell content write --uri "content://media/external/downloads/$(media_id e2e-phone.bin)" < "$RUNTIME/phone.bin"
+adb shell am start -W -a android.intent.action.VIEW -d content://com.android.providers.downloads.documents/root/downloads \
+  com.google.android.documentsui > /dev/null
+maestro "$FLOWS/share-file.yaml"
+wait_for 30 "no TransferOffered for the phone's file" grep -q "member=TransferOffered" "$OUT/signals.txt"
+OFFER=$(grep -A1 'member=TransferOffered' "$OUT/signals.txt" | grep -o '"[0-9a-f]\{32\}"' | head -1 | tr -d '"')
+link AcceptTransfer "'$OFFER'" > /dev/null || fail "AcceptTransfer"
+wait_for 60 "the phone's file never arrived" test -f "$DOWNLOADS/e2e-phone.bin"
+[[ $(sha256sum < "$RUNTIME/phone.bin") == $(sha256sum < "$DOWNLOADS/e2e-phone.bin") ]] || fail "the phone's file differs"
+record '{"step":"android-share-target-file","bytes":3145728,"sha256_match":true}'
+
+# A file from the desktop, accepted from the Android notification, published to Downloads once verified.
+head -c 2097152 /dev/urandom > "$RUNTIME/e2e-desk.bin"
+# Behind the Files app the phone is not present, so its session ends once the transfer does.
+wait_for 20 "the phone stayed connected behind the Files app" disconnected
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+wait_for 20 "the app is not connected before the desktop sends" connected
+python3 "$ROOT/tests/e2e/link_send_files.py" "$ID" "$RUNTIME/e2e-desk.bin" > /dev/null || fail "SendFiles"
+maestro "$FLOWS/accept.yaml"
+pending() {
+  adb shell content query --uri content://media/external/downloads --projection is_pending \
+    --where "\"_display_name='e2e-desk.bin'\"" | grep -o 'is_pending=[0-9]' | cut -d= -f2
+}
+wait_for 60 "the desktop's file never landed in Downloads" eval '[[ $(pending) == 0 ]]'
+adb shell content query --uri content://media/external/downloads --projection _display_name:is_pending:_size \
+  --where "\"_display_name='e2e-desk.bin'\"" > "$OUT/mediastore.txt"
+[[ $(adb shell sha256sum /sdcard/Download/e2e-desk.bin | cut -d' ' -f1) == $(sha256sum < "$RUNTIME/e2e-desk.bin" | cut -d' ' -f1) ]] \
+  || fail "the phone's Downloads copy differs"
+adb shell rm -f /sdcard/Download/e2e-desk.bin /sdcard/Download/e2e-phone.bin
+record '{"step":"desktop-file-to-android-downloads","bytes":2097152,"is_pending":0,"sha256_match":true}'
 
 adb shell input keyevent KEYCODE_HOME
 wait_for 15 "presence outlived the app leaving the foreground" disconnected

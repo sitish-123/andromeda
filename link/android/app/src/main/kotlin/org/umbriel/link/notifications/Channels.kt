@@ -8,6 +8,7 @@ import org.umbriel.link.R
 object Channels {
     const val PRESENCE = "presence"
     const val SHARES = "shares"
+    const val TRANSFERS = "transfers"
 
     fun create(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -16,6 +17,9 @@ object Channels {
         )
         manager.createNotificationChannel(
             NotificationChannel(SHARES, context.getString(R.string.channel_shares), NotificationManager.IMPORTANCE_HIGH),
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(TRANSFERS, context.getString(R.string.channel_transfers), NotificationManager.IMPORTANCE_HIGH),
         )
     }
 }

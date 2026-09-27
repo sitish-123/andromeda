@@ -1,0 +1,14 @@
+# The Files app shares a file from Downloads with the share target, as a user would.
+appId: com.google.android.documentsui
+---
+- extendedWaitUntil:
+    visible: "e2e-phone.bin"
+    timeout: 20000
+- longPressOn: "e2e-phone.bin"
+- tapOn:
+    id: "com.google.android.documentsui:id/action_menu_share"
+- extendedWaitUntil:
+    visible: "Send to desktop"
+    timeout: 15000
+- takeScreenshot: ${OUT}/7-share-sheet
+- tapOn: "Send to desktop"
