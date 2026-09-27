@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Link phase 0 across two network namespaces (desktop and phone) joined by a veth pair, inside an unprivileged user
 # namespace. Proves: an unpaired desktop is silent on mDNS; code pairing through mDNS; a relay terminating TLS on both
-# legs fails even with the right code; a wrong code fails and burns the window; with multicast dropped on the phone
-# side the phone still reconnects through its last-known address after a daemon restart, and the second reconnect
-# resumes the TLS session; QR pairing works without multicast; D-Bus shows live sessions; unpairing from either side
-# is honoured. Every control message the phone saw is validated against protocol/link-v1/messages.cddl.
+# legs fails even with the right code; a wrong code fails and burns the window; with multicast dropped on the phone side
+# the phone still reconnects through its last-known address after a daemon restart, and the second reconnect resumes the
+# TLS session; QR pairing works without multicast; D-Bus shows live sessions; unpairing from either side is honoured; a
+# pairing attempt that outlives its window cannot close the window that replaced it. Every control message the phone saw
+# is validated against protocol/link-v1/messages.cddl.
 # Writes results.jsonl, transcript.jsonl, relay.jsonl, linkd.log to $OUT (default ./artifacts/link-pair).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -65,6 +66,7 @@ phone() {
   local state=$1; shift
   in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/$state" --name "$state" --transcript "$OUT/transcript.jsonl" "$@"
 }
+pairing_open() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Pairing | grep -o 'true\|false'; }
 count_devices() { devices | grep -o "'[0-9a-f]\{32\}'" | wc -l; }
 
 start_linkd
@@ -93,6 +95,22 @@ if phone phone2 pair --code "$WRONG" --addr "10.77.0.1:$PORT" 2> /dev/null; then
 if phone phone2 pair --code "$CODE" --addr "10.77.0.1:$PORT" 2> /dev/null; then fail "window survived a failed attempt"; fi
 [[ $(count_devices) == 1 ]] || fail "failed attempts stored a key"
 record '{"step":"wrong-code-rejected","window_burned":true}'
+
+CODE=$(pairing 1)
+WRONG=$(printf '%06d' $(( (10#$CODE + 1) % 1000000 )))
+in_phone tc qdisc add dev p0 root netem delay 400ms
+phone phone4 pair --code "$WRONG" --addr "10.77.0.1:$PORT" 2> /dev/null &
+STALE=$!
+for _ in $(seq 100); do grep -q "pairing attempt on window 4" "$OUT/linkd.log" && break; sleep 0.05; done
+grep -q "pairing attempt on window 4" "$OUT/linkd.log" || fail "the delayed attempt never reached the daemon"
+CODE=$(pairing 1)
+if wait "$STALE"; then fail "wrong code paired on a replaced window"; fi
+in_phone tc qdisc del dev p0 root
+[[ $(pairing_open) == true ]] || fail "a stale attempt closed the newer window"
+OUTPUT=$(phone phone4 pair --code "$CODE" --addr "10.77.0.1:$PORT") || fail "the newer window did not pair"
+PHONE4_ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone4'" | cut -d"'" -f2)
+link Unpair "$PHONE4_ID" > /dev/null
+record "$(echo "$OUTPUT" | sed 's/^{/{"step":"stale-attempt-keeps-new-window",/')"
 
 in_phone nft -f - <<'NFT'
 table inet no_mdns {

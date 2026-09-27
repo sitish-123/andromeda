@@ -21,8 +21,14 @@ const WINDOW: Duration = Duration::from_secs(120);
 
 pub enum Admission {
     Session,
-    Pair(Arc<Secrets>),
+    Pair(Attempt),
     Reject(CloseCode),
+}
+
+/// One pairing attempt: the secrets of the window that admitted it, and that window's id.
+pub struct Attempt {
+    pub secrets: Arc<Secrets>,
+    pub window: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -43,8 +49,8 @@ enum Command {
     CancelPairing,
     Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
-    Paired { spki: Spki, name: String },
-    PairingFailed { reason: String },
+    Paired { spki: Spki, name: String, window: u64 },
+    PairingFailed { reason: String, window: u64 },
     Connected { id: DeviceId, name: String, connection: quinn::Connection },
     Disconnected { id: DeviceId, stable_id: usize },
     PeerUnpaired { id: DeviceId },
@@ -54,6 +60,7 @@ enum Command {
 pub struct HubHandle(mpsc::Sender<Command>);
 
 struct Window {
+    id: u64,
     secrets: Arc<Secrets>,
     deadline: Instant,
     taken: bool,
@@ -66,6 +73,7 @@ pub struct Hub {
     /// Present only while someone could be looking: a paired device or an open pairing window.
     advertiser: Option<Advertiser>,
     window: Option<Window>,
+    windows_opened: u64,
     sessions: HashMap<DeviceId, quinn::Connection>,
     commands: mpsc::Receiver<Command>,
     snapshots: watch::Sender<Snapshot>,
@@ -87,6 +95,7 @@ impl Hub {
             paths,
             advertiser: None,
             window: None,
+            windows_opened: 0,
             sessions: HashMap::new(),
             commands,
             snapshots,
@@ -118,10 +127,11 @@ impl Hub {
             Command::CancelPairing => self.close_window(),
             Command::Unpair { id, reply } => drop(reply.send(self.unpair(&id))),
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
-            Command::Paired { spki, name } => self.paired(&spki, name).await,
-            Command::PairingFailed { reason } => {
-                self.close_window();
-                self.emit(Event::PairingFailed { reason }).await;
+            Command::Paired { spki, name, window } => self.paired(&spki, name, window).await,
+            Command::PairingFailed { reason, window } => {
+                if self.close_window_if(window) {
+                    self.emit(Event::PairingFailed { reason }).await;
+                }
             }
             Command::Connected { id, name, connection } => self.connected(id, name, connection),
             Command::Disconnected { id, stable_id } => {
@@ -147,7 +157,13 @@ impl Hub {
             addresses: net::local_addresses(self.store.port),
         };
         let secrets = Secrets { code: Secret::new(code.clone().into_bytes()), qr: Secret::new(qr.to_vec()) };
-        self.window = Some(Window { secrets: Arc::new(secrets), deadline: Instant::now() + WINDOW, taken: false });
+        self.windows_opened += 1;
+        self.window = Some(Window {
+            id: self.windows_opened,
+            secrets: Arc::new(secrets),
+            deadline: Instant::now() + WINDOW,
+            taken: false,
+        });
         self.refresh();
         log::info!("pairing window open");
         Ok((code, uri.to_string()))
@@ -157,6 +173,15 @@ impl Hub {
         if self.window.take().is_some() {
             self.refresh();
         }
+    }
+
+    /// Closes the window only if it is still `id`, so an attempt on a replaced window leaves the new one open.
+    fn close_window_if(&mut self, id: u64) -> bool {
+        if self.window.as_ref().is_none_or(|window| window.id != id) {
+            return false;
+        }
+        self.close_window();
+        true
     }
 
     fn admit(&mut self, spki: &Spki) -> Admission {
@@ -172,22 +197,26 @@ impl Hub {
         match &mut self.window {
             Some(window) if window.taken => Admission::Reject(CloseCode::Busy),
             Some(window) => {
+                log::info!("{id}: pairing attempt on window {}", window.id);
                 window.taken = true;
-                Admission::Pair(window.secrets.clone())
+                Admission::Pair(Attempt { secrets: window.secrets.clone(), window: window.id })
             }
             None => Admission::Reject(CloseCode::NotPaired),
         }
     }
 
-    async fn paired(&mut self, spki: &Spki, name: String) {
+    async fn paired(&mut self, spki: &Spki, name: String, window: u64) {
         let mut peer = Peer::new(spki, name.clone());
         peer.touch();
         let id = peer.id.clone();
         self.store.upsert(peer);
         self.save();
-        self.close_window();
         log::info!("paired {id} ({name:?})");
-        self.emit(Event::PairingFinished { id, name }).await;
+        if self.close_window_if(window) {
+            self.emit(Event::PairingFinished { id, name }).await;
+        } else {
+            self.refresh();
+        }
     }
 
     fn connected(&mut self, id: DeviceId, name: String, connection: quinn::Connection) {
@@ -324,12 +353,12 @@ impl HubHandle {
         self.request(|reply| Command::Admit { spki, reply }).await.unwrap_or(Admission::Reject(CloseCode::Busy))
     }
 
-    pub async fn paired(&self, spki: Spki, name: String) {
-        self.tell(Command::Paired { spki, name }).await;
+    pub async fn paired(&self, spki: Spki, name: String, window: u64) {
+        self.tell(Command::Paired { spki, name, window }).await;
     }
 
-    pub async fn pairing_failed(&self, reason: String) {
-        self.tell(Command::PairingFailed { reason }).await;
+    pub async fn pairing_failed(&self, reason: String, window: u64) {
+        self.tell(Command::PairingFailed { reason, window }).await;
     }
 
     pub async fn connected(&self, id: DeviceId, name: String, connection: quinn::Connection) {

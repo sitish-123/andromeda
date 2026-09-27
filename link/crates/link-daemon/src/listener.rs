@@ -6,13 +6,12 @@ use link_core::control::Control;
 use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
 use link_core::proto::message::{Hello, Message};
-use link_core::proto::pairing::Secrets;
 use link_core::proto::{CloseCode, VERSION};
 use link_core::transport::CONNECT_TIMEOUT;
 use link_core::{Error, close, close_code_for, net, tls};
 use tokio::task::JoinSet;
 
-use crate::hub::{Admission, HubHandle};
+use crate::hub::{Admission, Attempt, HubHandle};
 
 pub struct Listener {
     endpoint: quinn::Endpoint,
@@ -67,7 +66,7 @@ async fn handle(incoming: quinn::Incoming, context: Arc<Context>) {
             return;
         }
         Admission::Session => session(&connection, &peer, &context).await,
-        Admission::Pair(secrets) => pairing(&connection, &peer, &secrets, &context).await,
+        Admission::Pair(attempt) => pairing(&connection, &peer, &attempt, &context).await,
     };
     let id = peer.device_id();
     context.hub.disconnected(id.clone(), connection.stable_id()).await;
@@ -83,22 +82,22 @@ async fn handle(incoming: quinn::Incoming, context: Arc<Context>) {
 async fn pairing(
     connection: &quinn::Connection,
     peer: &Spki,
-    secrets: &Secrets,
+    attempt: &Attempt,
     context: &Context,
 ) -> Result<(), Error> {
-    let attempt = async {
+    let handshake = async {
         let mut control = Control::accept(connection, None).await?;
         let hello = control.hello_as_server(context.hello()).await?;
-        pair_as_server(connection, &mut control, secrets, &context.own, peer).await?;
+        pair_as_server(connection, &mut control, &attempt.secrets, &context.own, peer).await?;
         Ok::<_, Error>((control, hello))
     };
-    match attempt.await {
+    match handshake.await {
         Ok((control, hello)) => {
-            context.hub.paired(peer.clone(), hello.name.clone()).await;
+            context.hub.paired(peer.clone(), hello.name.clone(), attempt.window).await;
             serve(connection, peer, control, hello, context).await
         }
         Err(error) => {
-            context.hub.pairing_failed(error.to_string()).await;
+            context.hub.pairing_failed(error.to_string(), attempt.window).await;
             Err(error)
         }
     }
