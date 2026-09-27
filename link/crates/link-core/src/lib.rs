@@ -1,5 +1,6 @@
 //! The Link engine shared by `umbriel-linkd`, the headless phone, and the Android app. See `link/ARCHITECTURE.md`.
 
+pub mod client;
 pub mod control;
 pub mod discovery;
 pub mod identity;
@@ -7,6 +8,7 @@ pub mod net;
 pub mod pairing;
 pub mod phone;
 pub mod reach;
+pub mod session;
 pub mod store;
 pub mod tls;
 pub mod transport;
@@ -15,8 +17,9 @@ pub mod uri;
 pub use link_proto as proto;
 use link_proto::CloseCode;
 use link_proto::frame::FrameTooLarge;
-use link_proto::message::DecodeError;
+use link_proto::message::{DecodeError, ShareRejected};
 use link_proto::pairing::PairingError;
+use link_proto::session::SessionError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -64,6 +67,14 @@ pub enum Error {
     ManyPairingDesktops,
     #[error("not paired with that device")]
     UnknownDevice,
+    #[error("not connected")]
+    NotConnected,
+    #[error("the link client stopped")]
+    Stopped,
+    #[error(transparent)]
+    Share(#[from] ShareRejected),
+    #[error(transparent)]
+    Session(#[from] SessionError),
 }
 
 impl From<quinn::ConnectionError> for Error {

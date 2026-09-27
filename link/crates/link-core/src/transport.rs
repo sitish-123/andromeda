@@ -14,6 +14,8 @@ use crate::tls::{self, ServerPin};
 
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// A present phone's PING interval; `link/ARCHITECTURE.md` (Session) says why a third of [`IDLE_TIMEOUT`].
+pub const KEEP_ALIVE: Duration = Duration::from_secs(10);
 
 /// A connection the phone dialled, handshake complete. `resumed` is set when the desktop accepted the TLS session
 /// ticket (0-RTT), skipping the full handshake. No application data rides in 0-RTT, so nothing can be replayed.
@@ -30,10 +32,11 @@ pub struct Dialer {
 }
 
 #[expect(clippy::expect_used, reason = "the constant idle timeout is far below QUIC's varint limit")]
-fn transport_config() -> Arc<quinn::TransportConfig> {
+fn transport_config(keep_alive: Option<Duration>) -> Arc<quinn::TransportConfig> {
     let mut config = quinn::TransportConfig::default();
     config.max_idle_timeout(Some(IDLE_TIMEOUT.try_into().expect("idle timeout fits a varint")));
     config.max_concurrent_uni_streams(0_u8.into());
+    config.keep_alive_interval(keep_alive);
     Arc::new(config)
 }
 
@@ -51,7 +54,7 @@ pub fn server_endpoint(identity: &Identity, addr: SocketAddr) -> Result<quinn::E
     crypto.max_early_data_size = u32::MAX;
     let crypto = QuicServerConfig::try_from(crypto).map_err(|_| Error::BadKey)?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    config.transport_config(transport_config());
+    config.transport_config(transport_config(None));
     Ok(quinn::Endpoint::server(config, addr)?)
 }
 
@@ -61,6 +64,14 @@ impl Dialer {
         let endpoint =
             quinn::Endpoint::client(dual_stack).or_else(|_| quinn::Endpoint::client(([0, 0, 0, 0], 0).into()))?;
         Ok(Self { endpoint, config: client_config(identity)? })
+    }
+
+    /// The same socket and TLS session cache, dialling with keep-alive so the connection outlives idle periods.
+    #[must_use]
+    pub fn present(&self) -> Self {
+        let mut config = self.config.clone();
+        config.transport_config(transport_config(Some(KEEP_ALIVE)));
+        Self { endpoint: self.endpoint.clone(), config }
     }
 
     /// Waits until every connection has sent its close; call before the process exits.
@@ -99,6 +110,6 @@ fn client_config(identity: &Identity) -> Result<quinn::ClientConfig, Error> {
     crypto.resumption = Resumption::store(Arc::new(ClientSessionMemoryCache::new(32)));
     let crypto = QuicClientConfig::try_from(crypto).map_err(|_| Error::BadKey)?;
     let mut config = quinn::ClientConfig::new(Arc::new(crypto));
-    config.transport_config(transport_config());
+    config.transport_config(transport_config(None));
     Ok(config)
 }

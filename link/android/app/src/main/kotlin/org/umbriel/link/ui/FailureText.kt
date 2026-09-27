@@ -8,5 +8,6 @@ fun LinkFailure.text(resources: Resources): String = when (this) {
     LinkFailure.WrongCode -> resources.getString(R.string.failure_wrong_code)
     LinkFailure.Unpaired -> resources.getString(R.string.failure_unpaired)
     LinkFailure.Unreachable -> resources.getString(R.string.failure_unreachable)
+    is LinkFailure.Rejected -> resources.getString(R.string.failure_rejected, reason)
     is LinkFailure.Other -> resources.getString(R.string.failure_other, message)
 }

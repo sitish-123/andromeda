@@ -23,7 +23,7 @@ private enum class Screen { Devices, Pairing }
 fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHandled: () -> Unit) {
     var screen by rememberSaveable { mutableStateOf(Screen.Devices) }
     val link by pairingLink.collectAsStateWithLifecycle()
-    val devices = viewModel { DevicesViewModel(container.repository) }
+    val devices = viewModel { DevicesViewModel(container.repository, container.presence) }
     val pairing = viewModel { PairingViewModel(container.repository) }
 
     LaunchedEffect(link) {

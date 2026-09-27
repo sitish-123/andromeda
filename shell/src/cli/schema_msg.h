@@ -181,6 +181,12 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array<std::string_view, 2> kMsgLinkShareKindChoices{"text", "link"};
+  inline constexpr std::array kMsgLinkSharePositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+      Positional{"kind", {}, kMsgLinkShareKindChoices, true, false, false},
+      Positional{"text", {}, {}, true, false, true},
+  };
   inline constexpr std::array kMsgPanelTogglePositionals{
       Positional{"id", {}, {}, true, false, false},
       Positional{"context", {}, {}, false, false, false},
@@ -830,6 +836,9 @@ namespace noctalia::cli {
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
+    inline constexpr Command linkShare{
+        "link-share", "Send text or a link to a connected phone", {}, {}, {}, kMsgLinkSharePositionals, {}, false
+    };
     inline constexpr Command wifiToggle{"wifi-toggle", "Toggle Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command windowSwitcher{"window-switcher",
                                             "Open or close the window switcher overlay",
@@ -935,6 +944,7 @@ namespace noctalia::cli {
       msg::linkDevices,
       msg::linkPair,
       msg::linkPairing,
+      msg::linkShare,
       msg::linkUnpair,
       msg::lockscreenWidgetsEdit,
       msg::lockscreenWidgetsExit,

@@ -275,41 +275,55 @@ void DevicesTab::rebuild(Renderer& renderer) {
             scale
         )
     );
-    devicesCard->addChild(
-        ui::row(
-            {.align = FlexAlign::Center,
-             .gap = Style::spaceSm * scale,
-             .paddingV = Style::spaceSm * scale,
-             .paddingH = Style::spaceMd * scale,
-             .fill = colorSpecFromRole(ColorRole::Surface),
-             .radius = Style::scaledRadiusMd(scale),
-             .minHeight = Style::controlHeightLg * scale},
-            ui::glyph({
-                .glyph = "device-mobile",
-                .glyphSize = Style::fontSizeTitle * scale,
+    auto row = ui::row(
+        {.align = FlexAlign::Center,
+         .gap = Style::spaceSm * scale,
+         .paddingV = Style::spaceSm * scale,
+         .paddingH = Style::spaceMd * scale,
+         .fill = colorSpecFromRole(ColorRole::Surface),
+         .radius = Style::scaledRadiusMd(scale),
+         .minHeight = Style::controlHeightLg * scale},
+        ui::glyph({
+            .glyph = "device-mobile",
+            .glyphSize = Style::fontSizeTitle * scale,
+            .color = colorSpecFromRole(ColorRole::OnSurface),
+        }),
+        ui::column(
+            {.align = FlexAlign::Start, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},
+            ui::label({
+                .text = device.name,
+                .fontSize = Style::fontSizeBody * scale,
+                .fontWeight = device.connected ? FontWeight::Bold : FontWeight::Normal,
                 .color = colorSpecFromRole(ColorRole::OnSurface),
             }),
-            ui::column(
-                {.align = FlexAlign::Start, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},
-                ui::label({
-                    .text = device.name,
-                    .fontSize = Style::fontSizeBody * scale,
-                    .fontWeight = device.connected ? FontWeight::Bold : FontWeight::Normal,
-                    .color = colorSpecFromRole(ColorRole::OnSurface),
-                }),
-                std::move(status)
-            ),
-            ui::button({
-                .glyph = "unlink",
-                .glyphSize = Style::fontSizeBody * scale,
-                .variant = ButtonVariant::Ghost,
-                .tooltip = i18n::tr("control-center.devices.unpair"),
-                .padding = Style::spaceXs * scale,
-                .radius = Style::scaledRadiusSm(scale),
-                .onClick = [this, id = device.id]() { m_link->unpair(id); },
-            })
+            std::move(status)
         )
     );
+    if (device.connected) {
+      row->addChild(
+          ui::button({
+              .glyph = "clipboard",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.send-clipboard"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() { m_link->shareClipboard(id); },
+          })
+      );
+    }
+    row->addChild(
+        ui::button({
+            .glyph = "unlink",
+            .glyphSize = Style::fontSizeBody * scale,
+            .variant = ButtonVariant::Ghost,
+            .tooltip = i18n::tr("control-center.devices.unpair"),
+            .padding = Style::spaceXs * scale,
+            .radius = Style::scaledRadiusSm(scale),
+            .onClick = [this, id = device.id]() { m_link->unpair(id); },
+        })
+    );
+    devicesCard->addChild(std::move(row));
   }
   m_list->addChild(std::move(devicesCard));
   m_list->layout(renderer);

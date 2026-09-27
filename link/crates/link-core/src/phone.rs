@@ -43,6 +43,8 @@ pub struct Phone {
     store_path: PathBuf,
     name: String,
     dialer: Dialer,
+    present_dialer: Dialer,
+    present: bool,
     tap: Option<Tap>,
 }
 
@@ -50,7 +52,17 @@ impl Phone {
     pub fn new(identity: Identity, store_path: PathBuf, name: String, tap: Option<Tap>) -> Result<Self, Error> {
         let store = Store::load(&store_path)?;
         let dialer = Dialer::new(&identity)?;
-        Ok(Self { identity, store, store_path, name, dialer, tap })
+        let present_dialer = dialer.present();
+        Ok(Self { identity, store, store_path, name, dialer, present_dialer, present: false, tap })
+    }
+
+    /// Whether connections opened from now on keep themselves alive.
+    pub fn set_present(&mut self, present: bool) {
+        self.present = present;
+    }
+
+    fn dialer(&self) -> &Dialer {
+        if self.present { &self.present_dialer } else { &self.dialer }
     }
 
     pub fn desktops(&self) -> &[Peer] {
@@ -70,7 +82,7 @@ impl Phone {
                 (uri.addresses, ServerPin::Key(uri.fingerprint), Secret::new(uri.secret.to_vec()), PairMethod::Qr)
             }
         };
-        let (dialed, addr) = reach::race(&self.dialer, &candidates, pin).await?;
+        let (dialed, addr) = reach::race(self.dialer(), &candidates, pin).await?;
         let connection = dialed.connection;
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
@@ -112,7 +124,7 @@ impl Phone {
     }
 
     async fn open_session(&mut self, peer: &Peer) -> Result<Session, Error> {
-        let reached = reach::reach(&self.dialer, peer).await?;
+        let reached = reach::reach(self.dialer(), peer).await?;
         let connection = reached.dialed.connection;
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
@@ -143,7 +155,7 @@ impl Phone {
         Ok(peer)
     }
 
-    fn forget(&mut self, id: &DeviceId) -> Result<(), Error> {
+    pub fn forget(&mut self, id: &DeviceId) -> Result<(), Error> {
         self.store.remove(id);
         self.store.save(&self.store_path)
     }

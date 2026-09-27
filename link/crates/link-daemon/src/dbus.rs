@@ -1,7 +1,7 @@
 //! `org.umbriel.Link1` on the session bus; contract in `protocol/link-v1/org.umbriel.Link1.xml`.
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::MAX_NAME_LEN;
+use link_core::proto::message::{MAX_NAME_LEN, Share, ShareKind};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
@@ -14,6 +14,16 @@ const NAME: &str = "org.umbriel.Link1";
 struct Link {
     hub: HubHandle,
     snapshots: watch::Receiver<Snapshot>,
+}
+
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.umbriel.Link1.Error")]
+enum LinkError {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    NotConnected(String),
+    Rejected(String),
+    Failed(String),
 }
 
 #[zbus::interface(name = "org.umbriel.Link1")]
@@ -31,6 +41,18 @@ impl Link {
         if self.hub.unpair(id).await { Ok(()) } else { Err(fdo::Error::InvalidArgs("unknown device".to_owned())) }
     }
 
+    /// Returns once the device acknowledged the share.
+    async fn share(&self, device_id: String, kind: String, text: String) -> Result<(), LinkError> {
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        let kind = ShareKind::parse(&kind).ok_or_else(|| LinkError::Rejected("kind is text or link".to_owned()))?;
+        let share = Share { kind, text };
+        share.check().map_err(|rejected| LinkError::Rejected(rejected.to_string()))?;
+        let Some(session) = self.hub.session(id.clone()).await else {
+            return Err(LinkError::NotConnected(format!("{id} is not connected")));
+        };
+        session.share(share).await.map_err(|error| LinkError::Failed(error.to_string()))
+    }
+
     #[zbus(property)]
     fn devices(&self) -> Vec<(String, String, bool)> {
         self.snapshots.borrow().devices.clone()
@@ -46,6 +68,9 @@ impl Link {
 
     #[zbus(signal)]
     async fn pairing_failed(emitter: &SignalEmitter<'_>, reason: &str) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn received(emitter: &SignalEmitter<'_>, device_id: &str, kind: &str, text: &str) -> zbus::Result<()>;
 }
 
 pub async fn serve(bus: &zbus::Connection, hub: HubHandle, snapshots: watch::Receiver<Snapshot>) -> anyhow::Result<()> {
@@ -79,6 +104,9 @@ pub async fn forward(
             Some(event) = events.recv() => match event {
                 Event::PairingFinished { id, name } => Link::pairing_finished(emitter, id.as_str(), &name).await?,
                 Event::PairingFailed { reason } => Link::pairing_failed(emitter, &reason).await?,
+                Event::Received { id, share } => {
+                    Link::received(emitter, id.as_str(), share.kind.as_str(), &share.text).await?;
+                }
             },
         }
     }

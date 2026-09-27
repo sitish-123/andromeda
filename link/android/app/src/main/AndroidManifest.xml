@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- connectedDevice also needs one of a set of permissions; core's CHANGE_WIFI_MULTICAST_STATE is one. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <application
         android:name=".LinkApplication"
         android:allowBackup="false"
@@ -26,5 +31,28 @@
                 <data android:scheme="umbriel-link" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".share.ShareActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/share_label"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".presence.PresenceService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <receiver
+            android:name=".notifications.CopyReceiver"
+            android:exported="false" />
     </application>
 </manifest>

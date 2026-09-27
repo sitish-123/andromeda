@@ -1,0 +1,16 @@
+# The pairing link is already open (the E2E script started it with adb): confirm, allow notifications, see Connected.
+appId: org.umbriel.link
+---
+- extendedWaitUntil:
+    visible: "Pair with this desktop\\?"
+    timeout: 15000
+- takeScreenshot: ${OUT}/1-confirm-pairing
+- tapOn: "Pair"
+- extendedWaitUntil:
+    visible: "Allow"
+    timeout: 20000
+- tapOn: "Allow"
+- extendedWaitUntil:
+    visible: "Connected"
+    timeout: 20000
+- takeScreenshot: ${OUT}/2-connected

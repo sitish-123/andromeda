@@ -1,7 +1,7 @@
 ; Link v1 control messages. A frame is a big-endian u32 length, then one CBOR envelope of at most 64 KiB.
 ; Types marked "0-RTT" are idempotent and may be sent in QUIC early data.
 
-envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg
+envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -20,3 +20,16 @@ pair-spake = {
 pair-confirm-msg = { type: "pair-confirm", id: uint, body: { mac: bstr .size 32 } }
 
 unpair-msg = { type: "unpair", id: uint, body: {} }
+
+; Either side, once the session runs. At most 61440 bytes of UTF-8, so a share fits one frame. A link is an absolute
+; http or https URL, scheme in any case, with no whitespace or control characters.
+share-msg = { type: "share", id: uint, body: share }
+share = text-share / link-share
+text-share = { kind: "text", "text": tstr .size (1..61440) }
+link-share = { kind: "link", "text": web-link }
+web-link = sized-link .and link-pattern
+sized-link = tstr .size (8..61440)
+link-pattern = tstr .pcre "^[Hh][Tt][Tt][Pp][Ss]?://[^[:space:][:cntrl:]]+$"
+
+; Sent when the share was handed to the receiver's surface.
+share-ack-msg = { type: "share-ack", id: uint, body: { of: uint } }  ; of: the share's envelope id

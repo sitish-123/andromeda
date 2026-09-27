@@ -50,8 +50,13 @@ async fn run() -> anyhow::Result<()> {
     result
 }
 
-/// Binds the stored port so last-known addresses survive restarts; a taken port falls back to a fresh one.
-fn bind(identity: &Identity, port: u16) -> anyhow::Result<quinn::Endpoint> {
+/// Unassigned at IANA; the ufw profile `Umbriel Link` opens it.
+const DEFAULT_PORT: u16 = 4717;
+
+/// Binds the stored port so last-known addresses survive restarts, or [`DEFAULT_PORT`] in a new store; a taken port
+/// falls back to a random one.
+fn bind(identity: &Identity, stored: u16) -> anyhow::Result<quinn::Endpoint> {
+    let port = if stored == 0 { DEFAULT_PORT } else { stored };
     let addr = |port| SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
     transport::server_endpoint(identity, addr(port))
         .or_else(|error| {
