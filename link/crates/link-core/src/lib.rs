@@ -5,6 +5,7 @@ pub mod discovery;
 pub mod identity;
 pub mod net;
 pub mod pairing;
+pub mod phone;
 pub mod reach;
 pub mod store;
 pub mod tls;
@@ -55,6 +56,14 @@ pub enum Error {
     Mdns(#[from] mdns_sd::Error),
     #[error("no address answered")]
     Unreachable,
+    #[error("the code is six digits")]
+    BadCode,
+    #[error("no desktop is pairing")]
+    NoPairingDesktop,
+    #[error("more than one desktop is pairing")]
+    ManyPairingDesktops,
+    #[error("not paired with that device")]
+    UnknownDevice,
 }
 
 impl From<quinn::ConnectionError> for Error {

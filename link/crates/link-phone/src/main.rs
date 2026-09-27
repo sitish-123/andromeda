@@ -6,21 +6,16 @@ mod transcript;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use link_core::control::{Control, Tap};
-use link_core::identity::{Identity, Spki};
-use link_core::pairing::pair_as_client;
-use link_core::proto::message::{Hello, Message, PairMethod};
-use link_core::proto::pairing::Secret;
-use link_core::proto::{CloseCode, VERSION};
-use link_core::reach::{self, Via};
-use link_core::store::{Peer, Store};
-use link_core::tls::{self, ServerPin};
-use link_core::transport::Dialer;
+use link_core::identity::{DeviceId, Identity};
+use link_core::phone::{PairTarget, Phone};
+use link_core::proto::CloseCode;
+use link_core::reach::Via;
 use link_core::uri::PairingUri;
-use link_core::{Error, close, discovery};
+use link_core::{Error, discovery};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -74,15 +69,6 @@ enum Command {
     },
 }
 
-struct Phone {
-    identity: Identity,
-    store: Store,
-    devices: PathBuf,
-    name: String,
-    dialer: Dialer,
-    tap: Option<Tap>,
-}
-
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cli = Cli::parse();
@@ -97,19 +83,26 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         _ => {}
     }
     let state = cli.state.context("--state is required for this command")?;
-    let mut phone = Phone::open(&state, cli.name, cli.transcript.as_deref())?;
+    let mut phone = open(&state, cli.name, cli.transcript.as_deref())?;
     let result = match cli.command {
-        Command::Pair { code, uri, addr } => phone.pair(code, uri, addr).await,
-        Command::Connect { times, hold } => phone.connect(times, hold).await,
-        Command::Unpair => phone.unpair().await,
+        Command::Pair { code, uri, addr } => pair(&mut phone, code, uri, addr).await,
+        Command::Connect { times, hold } => connect(&mut phone, times, hold).await,
+        Command::Unpair => unpair(&mut phone).await,
         _ => unreachable!("handled above"),
     };
-    phone.dialer.finish().await;
+    phone.finish().await;
     result
 }
 
+fn open(state: &Path, name: String, transcript: Option<&Path>) -> anyhow::Result<Phone> {
+    std::fs::create_dir_all(state)?;
+    let identity = Identity::load_or_create(&state.join("identity.pk8"))?;
+    let tap = transcript.map(transcript::tap).transpose()?;
+    Ok(Phone::new(identity, state.join("devices.json"), name, tap)?)
+}
+
 async fn discover(seconds: u64) -> anyhow::Result<()> {
-    for desktop in discovery::browse(std::time::Duration::from_secs(seconds), None).await? {
+    for desktop in discovery::browse(Duration::from_secs(seconds), None).await? {
         println!(
             "{}",
             json!({ "id": desktop.id.as_str(), "pairing": desktop.pairing, "addresses": desktop.addresses })
@@ -118,132 +111,60 @@ async fn discover(seconds: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-impl Phone {
-    fn open(state: &Path, name: String, transcript: Option<&Path>) -> anyhow::Result<Self> {
-        std::fs::create_dir_all(state)?;
-        let identity = Identity::load_or_create(&state.join("identity.pk8"))?;
-        let devices = state.join("devices.json");
-        let store = Store::load(&devices)?;
-        let dialer = Dialer::new(&identity)?;
-        let tap = transcript.map(transcript::tap).transpose()?;
-        Ok(Self { identity, store, devices, name, dialer, tap })
-    }
-
-    fn hello(&self) -> Hello {
-        Hello { version: VERSION, name: self.name.clone(), addresses: Vec::new() }
-    }
-
-    async fn pair(&mut self, code: Option<String>, uri: Option<String>, addr: Vec<SocketAddr>) -> anyhow::Result<()> {
-        let (candidates, pin, secret, method) = match (code, uri) {
-            (Some(code), None) => {
-                if code.len() != 6 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
-                    bail!("the code is six digits");
-                }
-                let candidates = if addr.is_empty() { pairing_desktops().await? } else { addr };
-                (candidates, ServerPin::Any, Secret::new(code.into_bytes()), PairMethod::Code)
-            }
-            (None, Some(uri)) => {
-                let uri = PairingUri::parse(&uri)?;
-                (uri.addresses, ServerPin::Key(uri.fingerprint), Secret::new(uri.secret.to_vec()), PairMethod::Qr)
-            }
-            _ => bail!("give --code or --uri"),
-        };
-        let (dialed, addr) = reach::race(&self.dialer, &candidates, pin).await.context("reaching the desktop")?;
-        let connection = dialed.connection;
-        let mut control = Control::open(&connection, self.tap.clone()).await?;
-        let hello = control.hello_as_client(self.hello()).await?;
-        pair_as_client(&connection, &mut control, &secret, method, self.identity.spki()).await?;
-        let desktop = tls::peer_spki(connection.peer_identity())?;
-        let id = self.remember(&desktop, &hello, addr)?;
-        close(&connection, CloseCode::Done);
-        println!("{}", json!({ "paired": id, "name": hello.name, "addr": addr }));
-        Ok(())
-    }
-
-    async fn connect(&mut self, times: u32, hold: u64) -> anyhow::Result<()> {
-        for attempt in 1..=times {
-            let peer = self.desktop()?.clone();
-            let reached = match reach::reach(&self.dialer, &peer).await {
-                Ok(reached) => reached,
-                Err(error) => return self.report_failure(&peer, &error),
-            };
-            let connection = reached.dialed.connection;
-            let mut control = Control::open(&connection, self.tap.clone()).await?;
-            let hello = match control.hello_as_client(self.hello()).await {
-                Ok(hello) => hello,
-                Err(error) => return self.report_failure(&peer, &error),
-            };
-            self.remember(&peer.spki()?, &hello, reached.addr)?;
-            let via = match reached.via {
-                Via::LastKnown => "last-known",
-                Via::Mdns => "mdns",
-            };
-            println!(
-                "{}",
-                json!({ "attempt": attempt, "connected": peer.id, "name": hello.name, "addr": reached.addr, "via": via, "resumed": reached.dialed.resumed })
-            );
-            tokio::time::sleep(std::time::Duration::from_secs(hold)).await;
-            close(&connection, CloseCode::Done);
-        }
-        Ok(())
-    }
-
-    async fn unpair(&mut self) -> anyhow::Result<()> {
-        let peer = self.desktop()?.clone();
-        let reached = reach::reach(&self.dialer, &peer).await?;
-        let connection = reached.dialed.connection;
-        let mut control = Control::open(&connection, self.tap.clone()).await?;
-        control.hello_as_client(self.hello()).await?;
-        control.send(Message::Unpair).await?;
-        let closed = connection.closed().await;
-        self.forget(&peer)?;
-        println!("{}", json!({ "unpaired": peer.id, "desktop_closed": closed.to_string() }));
-        Ok(())
-    }
-
-    /// A desktop that closed with `unpaired` is forgotten, as the protocol requires.
-    fn report_failure(&mut self, peer: &Peer, error: &Error) -> anyhow::Result<()> {
-        if matches!(error, Error::Closed(CloseCode::Unpaired)) {
-            self.forget(peer)?;
-            println!("{}", json!({ "forgotten": peer.id, "reason": "unpaired by the desktop" }));
-            return Ok(());
-        }
-        bail!("reaching {}: {error}", peer.id)
-    }
-
-    fn desktop(&self) -> anyhow::Result<&Peer> {
-        match self.store.peers.as_slice() {
-            [peer] => Ok(peer),
-            [] => bail!("not paired"),
-            _ => bail!("paired with more than one desktop"),
-        }
-    }
-
-    fn remember(&mut self, desktop: &Spki, hello: &Hello, addr: SocketAddr) -> anyhow::Result<String> {
-        let id = desktop.device_id();
-        let mut peer = self.store.peer(&id).cloned().unwrap_or_else(|| Peer::new(desktop, hello.name.clone()));
-        peer.name.clone_from(&hello.name);
-        peer.remember(addr);
-        peer.learn(hello.addresses.iter().filter_map(|text| text.parse().ok()));
-        peer.touch();
-        self.store.upsert(peer);
-        self.store.save(&self.devices)?;
-        Ok(id.to_string())
-    }
-
-    fn forget(&mut self, peer: &Peer) -> anyhow::Result<()> {
-        self.store.remove(&peer.id);
-        Ok(self.store.save(&self.devices)?)
-    }
+async fn pair(
+    phone: &mut Phone,
+    code: Option<String>,
+    uri: Option<String>,
+    addr: Vec<SocketAddr>,
+) -> anyhow::Result<()> {
+    let target = match (code, uri) {
+        (Some(code), None) => PairTarget::Code { code, candidates: addr },
+        (None, Some(uri)) => PairTarget::Uri(PairingUri::parse(&uri)?),
+        _ => bail!("give --code or --uri"),
+    };
+    let session = phone.pair(target).await.context("pairing")?;
+    session.close();
+    println!("{}", json!({ "paired": session.desktop.id, "name": session.desktop.name, "addr": session.addr }));
+    Ok(())
 }
 
-/// Addresses of the one desktop advertising an open pairing window.
-async fn pairing_desktops() -> anyhow::Result<Vec<SocketAddr>> {
-    let open: Vec<_> =
-        discovery::browse(reach::MDNS_WINDOW, None).await?.into_iter().filter(|desktop| desktop.pairing).collect();
-    match open.as_slice() {
-        [desktop] => Ok(desktop.addresses.clone()),
-        [] => bail!("no desktop is pairing"),
-        _ => bail!("more than one desktop is pairing; give --addr"),
+async fn connect(phone: &mut Phone, times: u32, hold: u64) -> anyhow::Result<()> {
+    let id = only_desktop(phone)?;
+    for attempt in 1..=times {
+        let session = match phone.connect(&id).await {
+            Ok(session) => session,
+            Err(Error::Closed(CloseCode::Unpaired)) => {
+                println!("{}", json!({ "forgotten": id, "reason": "unpaired by the desktop" }));
+                return Ok(());
+            }
+            Err(error) => bail!("reaching {id}: {error}"),
+        };
+        let via = match session.via {
+            Via::LastKnown => "last-known",
+            Via::Mdns => "mdns",
+        };
+        let line = json!({
+            "attempt": attempt, "connected": id, "name": session.desktop.name, "addr": session.addr, "via": via,
+            "resumed": session.resumed,
+        });
+        println!("{line}");
+        tokio::time::sleep(Duration::from_secs(hold)).await;
+        session.close();
+    }
+    Ok(())
+}
+
+async fn unpair(phone: &mut Phone) -> anyhow::Result<()> {
+    let id = only_desktop(phone)?;
+    let told = phone.unpair(&id).await?;
+    println!("{}", json!({ "unpaired": id, "desktop_told": told }));
+    Ok(())
+}
+
+fn only_desktop(phone: &Phone) -> anyhow::Result<DeviceId> {
+    match phone.desktops() {
+        [peer] => Ok(peer.id.clone()),
+        [] => bail!("not paired"),
+        _ => bail!("paired with more than one desktop"),
     }
 }
