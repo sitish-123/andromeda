@@ -27,7 +27,6 @@
 #include "wayland/toplevel_surface.h"
 
 #include <cstdint>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -55,6 +54,7 @@ class IdleManager;
 class Input;
 class Label;
 class RenderContext;
+class FileWatcher;
 class SystemBus;
 class ThumbnailService;
 class UPowerService;
@@ -122,6 +122,7 @@ public:
   }
   void setCalendarService(CalendarService* service) { m_calendarService = service; }
   void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
@@ -190,7 +191,6 @@ private:
   void addLanguageContent(float scale);
   void onLanguageChanged();
   void addDefaultAppsContent(float scale);
-  void refreshDefaultAppsIfChanged();
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
   void finishDisplayConfirm(bool keep);
@@ -353,8 +353,9 @@ private:
   std::unique_ptr<TimeDateService> m_timeDateService;
   // Exists only while the Language & Region section is showing (also uses m_xkbCatalog).
   std::unique_ptr<LocaleService> m_localeService;
-  // mtime of mimeapps.list as of the last Default Apps rebuild, for onSecondTick's live refresh.
-  std::optional<std::filesystem::file_time_type> m_mimeAppsListWritten;
+  FileWatcher* m_fileWatcher = nullptr;
+  // Live while the Default Apps section is showing.
+  std::uint64_t m_mimeAppsWatchId = 0;
   // Set by openToBarWidget (e.g. middle-click on a bar widget) / openToPlugin and consumed after
   // the Settings scene is available so the requested editor can be mounted into it.
   std::string m_pendingOpenWidgetInspectorName;

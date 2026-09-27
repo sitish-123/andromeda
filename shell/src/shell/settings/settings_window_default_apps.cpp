@@ -1,12 +1,22 @@
+#include "core/files/file_watcher.h"
 #include "shell/settings/settings_content_default_apps.h"
 #include "shell/settings/settings_window.h"
 #include "system/desktop_entry.h"
 
-#include <filesystem>
+#include <utility>
 
 void SettingsWindow::addDefaultAppsContent(float scale) {
   if (m_selectedSection != "default-apps") {
+    if (m_mimeAppsWatchId != 0) {
+      m_fileWatcher->unwatch(std::exchange(m_mimeAppsWatchId, 0));
+    }
     return;
+  }
+  if (m_mimeAppsWatchId == 0 && m_fileWatcher != nullptr) {
+    m_mimeAppsWatchId = m_fileWatcher->watch(
+        default_apps::mimeAppsListPath(), [this]() { requestContentRebuild(); },
+        FileWatcher::WatchTrigger::WriteCompleted
+    );
   }
   const auto entries = desktopEntriesSnapshot();
   settings::addSettingsDefaultApps(
@@ -24,19 +34,4 @@ void SettingsWindow::addDefaultAppsContent(float scale) {
               },
       }
   );
-}
-
-void SettingsWindow::refreshDefaultAppsIfChanged() {
-  if (m_selectedSection != "default-apps") {
-    return;
-  }
-  std::error_code error;
-  const auto written = std::filesystem::last_write_time(default_apps::mimeAppsListPath(), error);
-  if (error) {
-    return;
-  }
-  if (!m_mimeAppsListWritten.has_value() || *m_mimeAppsListWritten != written) {
-    m_mimeAppsListWritten = written;
-    requestContentRebuild();
-  }
 }

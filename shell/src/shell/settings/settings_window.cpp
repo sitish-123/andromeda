@@ -3,6 +3,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
+#include "core/files/file_watcher.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/key_symbols.h"
 #include "core/input/keybind_matcher.h"
@@ -569,6 +570,9 @@ void SettingsWindow::destroyWindow() {
   m_configExportDialogModal.reset();
   m_editorSheetModal.reset();
   m_modalHost.detach();
+  if (m_mimeAppsWatchId != 0) {
+    m_fileWatcher->unwatch(std::exchange(m_mimeAppsWatchId, 0));
+  }
   if (m_surface != nullptr) {
     // Drop stale pointer coords before tearing down the scene. Otherwise the next open
     // replays hover at the last click (often the close button) and paints it hovered.
@@ -1255,7 +1259,4 @@ void SettingsWindow::onIdleLiveStatusChanged() {
   m_surface->requestRedraw();
 }
 
-void SettingsWindow::onSecondTick() {
-  onIdleLiveStatusChanged();
-  refreshDefaultAppsIfChanged();
-}
+void SettingsWindow::onSecondTick() { onIdleLiveStatusChanged(); }

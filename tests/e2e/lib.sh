@@ -42,9 +42,9 @@ run() {
 
 # with_noctalia SCRIPT: run a bash script while Noctalia runs on a private bus, used as both session and system bus
 # so the test shell never reaches the real BlueZ, NetworkManager, or logind. The script sees $NOCTALIA, $OUT,
-# $UMBRIEL, and $DESKTOP_CLIENT, and Noctalia is answering IPC when it starts.
+# $UMBRIEL, $DESKTOP_CLIENT, and $RUNTIME, and Noctalia is answering IPC when it starts.
 with_noctalia() {
-  run env NOCTALIA="$NOCTALIA" OUT="$OUT" UMBRIEL="$UMBRIEL" DESKTOP_CLIENT="$DESKTOP_CLIENT" \
+  run env NOCTALIA="$NOCTALIA" OUT="$OUT" UMBRIEL="$UMBRIEL" DESKTOP_CLIENT="$DESKTOP_CLIENT" RUNTIME="$RUNTIME" \
     dbus-run-session --config-file="$RUNTIME/bus.conf" -- bash -c '
       set -euo pipefail
       export DBUS_SYSTEM_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS
