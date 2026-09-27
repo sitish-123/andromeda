@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Umbriel Link</string>
+    <string name="desktops_title">Desktops</string>
+    <string name="desktops_empty">No desktops yet</string>
+    <string name="desktops_empty_hint">Pair this phone with your desktop to share files, clipboard, and notifications.</string>
+    <string name="pair_action">Pair with a desktop</string>
+    <string name="connected">Connected</string>
+    <string name="not_connected">Not connected</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="unpair">Unpair</string>
+    <string name="pair_title">Pair with a desktop</string>
+    <string name="pair_instructions">On your desktop, open Devices and choose Pair a phone. Scan the QR code with your camera, or type the 6-digit code here.</string>
+    <string name="pair_code_label">6-digit code</string>
+    <string name="pair_button">Pair</string>
+    <string name="pair_link_title">Pair with this desktop?</string>
+    <string name="pair_link_body">A pairing code from a desktop was opened. Pair only if you just started pairing on your own desktop.</string>
+    <string name="paired_with">Paired with %1$s</string>
+    <string name="unpaired_from">Unpaired from %1$s</string>
+    <string name="failure_wrong_code">The code didn\'t match. Start pairing again on the desktop.</string>
+    <string name="failure_unpaired">The desktop removed this phone. Pair again to reconnect.</string>
+    <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network.</string>
+    <string name="failure_other">Something went wrong: %1$s</string>
+    <string name="back">Back</string>
+</resources>
