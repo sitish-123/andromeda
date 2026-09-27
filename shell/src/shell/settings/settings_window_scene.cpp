@@ -1096,6 +1096,7 @@ void SettingsWindow::rebuildSettingsContent() {
   addDateTimeContent(scale);
   addLanguageContent(scale);
   addDefaultAppsContent(scale);
+  addDevicesContent(scale);
 
   if (m_selectedSection == "plugins" && m_pluginManager != nullptr) {
     refreshPluginListIfNeeded();

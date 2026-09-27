@@ -16,6 +16,7 @@
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/modem/modem_manager_service.h"
 #include "dbus/mpris/mpris_service.h"
@@ -1672,6 +1673,14 @@ void Application::initSessionBusServices() {
         if (shouldRefreshControlCenter()) {
           m_panelManager.refresh();
         }
+        m_settingsWindow.onDevicesChanged();
+      });
+      m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);
+      m_quickShareService->setChangeCallback([this, shouldRefreshControlCenter]() {
+        if (shouldRefreshControlCenter()) {
+          m_panelManager.refresh();
+        }
+        m_settingsWindow.onDevicesChanged();
       });
     } catch (const sdbus::Error& e) {
       kLog.warn("link client disabled: {}", e.what());

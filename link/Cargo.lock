@@ -1101,6 +1101,7 @@ dependencies = [
  "anyhow",
  "env_logger",
  "link-core",
+ "link-quickshare",
  "log",
  "quinn",
  "ring",

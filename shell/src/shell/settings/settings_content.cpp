@@ -1449,7 +1449,8 @@ namespace settings {
         && ctx.selectedSection != "shortcuts"
         && ctx.selectedSection != "date-time"
         && ctx.selectedSection != "language"
-        && ctx.selectedSection != "default-apps") {
+        && ctx.selectedSection != "default-apps"
+        && ctx.selectedSection != "devices") {
       auto emptyState = ui::column(
           {.align = FlexAlign::Center,
            .justify = FlexJustify::Center,

@@ -44,6 +44,7 @@ namespace settings {
     Niri,
     Displays,
     Input,
+    Devices,
     Shortcuts,
     Keybinds,
     Services,

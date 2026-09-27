@@ -42,6 +42,7 @@ pub struct Offer {
     pub device_type: u8,
     pub pin: String,
     pub files: Vec<OfferedFile>,
+    /// Each text's kind and the sender's preview of it.
     pub texts: Vec<(TextKind, String)>,
 }
 
@@ -108,6 +109,7 @@ where
             Some(sharing::text_metadata::Type::PhoneNumber) => TextKind::Phone,
             _ => TextKind::Text,
         };
+        offer.texts.push((kind.clone(), text.text_title.clone().unwrap_or_default()));
         text_ids.insert(id, kind);
     }
     if slots.is_empty() && text_ids.is_empty() {

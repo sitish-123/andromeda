@@ -8,7 +8,7 @@ use zbus::object_server::SignalEmitter;
 
 use crate::hub::{Event, HubHandle, Snapshot};
 
-const PATH: &str = "/org/umbriel/Link1";
+pub const PATH: &str = "/org/umbriel/Link1";
 const NAME: &str = "org.umbriel.Link1";
 
 struct Link {

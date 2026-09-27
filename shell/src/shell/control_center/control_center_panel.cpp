@@ -68,7 +68,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::Network)] =
       std::make_unique<NetworkTab>(services.network, services.networkSecrets, services.externalIp, services.modem);
   m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
-  m_tabs[tabIndex(TabId::Devices)] = std::make_unique<DevicesTab>(services.link);
+  m_tabs[tabIndex(TabId::Devices)] = std::make_unique<DevicesTab>(services.link, services.quickShare);
   m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);

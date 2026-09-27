@@ -89,7 +89,7 @@ namespace settings {
       return defaultKeybindSet(action);
     }
 
-    constexpr std::array<SettingsSectionDescriptor, 33> kSettingsSections{{
+    constexpr std::array<SettingsSectionDescriptor, 34> kSettingsSections{{
         {SettingsSection::Appearance, SettingsCategory::Appearance, "appearance", "palette"},
         {SettingsSection::WindowStyle, SettingsCategory::Appearance, "window-style", "app-window"},
         {SettingsSection::Wallpaper, SettingsCategory::Appearance, "wallpaper", "paint"},
@@ -108,6 +108,7 @@ namespace settings {
         {SettingsSection::Niri, SettingsCategory::Windows, "niri", "niri"},
         {SettingsSection::Displays, SettingsCategory::Devices, "displays", "device-desktop", true, true},
         {SettingsSection::Input, SettingsCategory::Devices, "input", "keyboard", true, true},
+        {SettingsSection::Devices, SettingsCategory::Devices, "devices", "device-mobile", true, true},
         {SettingsSection::Shortcuts, SettingsCategory::Devices, "shortcuts", "command", true, true},
         {SettingsSection::Keybinds, SettingsCategory::Devices, "keybinds", "keyboard"},
         {SettingsSection::Services, SettingsCategory::Devices, "services", "volume"},
