@@ -13,6 +13,14 @@
     <method name="Unpair">
       <arg name="device_id" type="s" direction="in"/>
     </method>
+    <!-- Sends text or a link (kind "text" or "link") to a connected device; returns once it acknowledged.
+         Errors: org.umbriel.Link1.Error.NotConnected without a live session, .Rejected for a share that breaks
+         the rules in messages.cddl, .Failed when the device did not acknowledge it. -->
+    <method name="Share">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="kind" type="s" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+    </method>
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
     <property name="Pairing" type="b" access="read"/>
@@ -22,6 +30,12 @@
     </signal>
     <signal name="PairingFailed">
       <arg name="reason" type="s"/>
+    </signal>
+    <!-- A device shared text or a link, already checked against messages.cddl. -->
+    <signal name="Received">
+      <arg name="device_id" type="s"/>
+      <arg name="kind" type="s"/>
+      <arg name="text" type="s"/>
     </signal>
   </interface>
 </node>

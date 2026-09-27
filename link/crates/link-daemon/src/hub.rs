@@ -6,11 +6,13 @@ use std::time::Duration;
 
 use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
+use link_core::net;
 use link_core::proto::CloseCode;
+use link_core::proto::message::Share;
 use link_core::proto::pairing::{Secret, Secrets};
+use link_core::session::{SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
-use link_core::{close, net};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
@@ -42,6 +44,7 @@ pub struct Snapshot {
 pub enum Event {
     PairingFinished { id: DeviceId, name: String },
     PairingFailed { reason: String },
+    Received { id: DeviceId, share: Share },
 }
 
 enum Command {
@@ -51,13 +54,16 @@ enum Command {
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
     Paired { spki: Spki, name: String, window: u64 },
     PairingFailed { reason: String, window: u64 },
-    Connected { id: DeviceId, name: String, connection: quinn::Connection },
+    Connected { id: DeviceId, name: String, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
-    PeerUnpaired { id: DeviceId },
+    Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
 }
 
 #[derive(Clone)]
-pub struct HubHandle(mpsc::Sender<Command>);
+pub struct HubHandle {
+    commands: mpsc::Sender<Command>,
+    session_events: mpsc::Sender<SessionEvent>,
+}
 
 struct Window {
     id: u64,
@@ -74,8 +80,9 @@ pub struct Hub {
     advertiser: Option<Advertiser>,
     window: Option<Window>,
     windows_opened: u64,
-    sessions: HashMap<DeviceId, quinn::Connection>,
+    sessions: HashMap<DeviceId, SessionHandle>,
     commands: mpsc::Receiver<Command>,
+    session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
     events: mpsc::Sender<Event>,
 }
@@ -87,8 +94,9 @@ impl Hub {
         paths: Paths,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
+        let (session_events_tx, session_events) = mpsc::channel(16);
         let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
-        let (events, events_rx) = mpsc::channel(8);
+        let (events, events_rx) = mpsc::channel(16);
         let mut hub = Self {
             own,
             store,
@@ -98,11 +106,13 @@ impl Hub {
             windows_opened: 0,
             sessions: HashMap::new(),
             commands,
+            session_events,
             snapshots,
             events,
         };
         hub.refresh();
-        (hub, HubHandle(commands_tx), snapshots_rx, events_rx)
+        let handle = HubHandle { commands: commands_tx, session_events: session_events_tx };
+        (hub, handle, snapshots_rx, events_rx)
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
@@ -113,6 +123,7 @@ impl Hub {
                     Some(command) => self.handle(command).await,
                     None => return Ok(()),
                 },
+                Some(event) = self.session_events.recv() => self.on_session_event(event).await,
                 () = sleep_until(deadline) => {
                     log::info!("pairing window expired");
                     self.close_window();
@@ -133,16 +144,30 @@ impl Hub {
                     self.emit(Event::PairingFailed { reason }).await;
                 }
             }
-            Command::Connected { id, name, connection } => self.connected(id, name, connection),
+            Command::Connected { id, name, session } => self.connected(id, name, session),
             Command::Disconnected { id, stable_id } => {
                 if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
                     self.sessions.remove(&id);
                     self.publish();
                 }
             }
-            Command::PeerUnpaired { id } => {
-                log::info!("{id} unpaired itself");
-                self.store.remove(&id);
+            Command::Session { id, reply } => {
+                drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
+            }
+        }
+    }
+
+    async fn on_session_event(&mut self, event: SessionEvent) {
+        match event {
+            SessionEvent::Received { from, share } => {
+                if self.sessions.contains_key(&from) {
+                    self.emit(Event::Received { id: from, share }).await;
+                }
+            }
+            SessionEvent::Unpaired { from } => {
+                log::info!("{from} unpaired itself");
+                self.sessions.remove(&from);
+                self.store.remove(&from);
                 self.save();
                 self.refresh();
             }
@@ -219,14 +244,17 @@ impl Hub {
         }
     }
 
-    fn connected(&mut self, id: DeviceId, name: String, connection: quinn::Connection) {
+    /// One session per device: a newer one replaces the older, which a phone that changed networks leaves behind.
+    fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
         let Some(peer) = self.store.peer_mut(&id) else {
-            return close(&connection, CloseCode::NotPaired);
+            return session.close(CloseCode::NotPaired);
         };
         peer.name = name;
         peer.touch();
         self.save();
-        self.sessions.insert(id, connection);
+        if let Some(older) = self.sessions.insert(id, session) {
+            older.close(CloseCode::Done);
+        }
         self.publish();
     }
 
@@ -234,8 +262,8 @@ impl Hub {
         if self.store.remove(id).is_none() {
             return false;
         }
-        if let Some(connection) = self.sessions.remove(id) {
-            close(&connection, CloseCode::Unpaired);
+        if let Some(session) = self.sessions.remove(id) {
+            session.close(CloseCode::Unpaired);
         }
         self.store.revoked.push(id.clone());
         self.save();
@@ -325,12 +353,12 @@ fn generate_secrets() -> anyhow::Result<(String, [u8; QR_SECRET_LEN])> {
 impl HubHandle {
     async fn request<T>(&self, make: impl FnOnce(oneshot::Sender<T>) -> Command) -> Option<T> {
         let (reply, response) = oneshot::channel();
-        self.0.send(make(reply)).await.ok()?;
+        self.commands.send(make(reply)).await.ok()?;
         response.await.ok()
     }
 
     async fn tell(&self, command: Command) {
-        if self.0.send(command).await.is_err() {
+        if self.commands.send(command).await.is_err() {
             log::debug!("hub stopped");
         }
     }
@@ -361,15 +389,21 @@ impl HubHandle {
         self.tell(Command::PairingFailed { reason, window }).await;
     }
 
-    pub async fn connected(&self, id: DeviceId, name: String, connection: quinn::Connection) {
-        self.tell(Command::Connected { id, name, connection }).await;
+    pub async fn connected(&self, id: DeviceId, name: String, session: SessionHandle) {
+        self.tell(Command::Connected { id, name, session }).await;
+    }
+
+    /// The device's live session, if it has one.
+    pub async fn session(&self, id: DeviceId) -> Option<SessionHandle> {
+        self.request(|reply| Command::Session { id, reply }).await.flatten()
+    }
+
+    /// Where session actors report what their peers send.
+    pub fn session_events(&self) -> mpsc::Sender<SessionEvent> {
+        self.session_events.clone()
     }
 
     pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {
         self.tell(Command::Disconnected { id, stable_id }).await;
-    }
-
-    pub async fn peer_unpaired(&self, id: DeviceId) {
-        self.tell(Command::PeerUnpaired { id }).await;
     }
 }

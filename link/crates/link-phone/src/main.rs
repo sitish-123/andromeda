@@ -1,6 +1,7 @@
 //! `umbriel-link-phone`: a headless phone built on link-core, standing in for the Android app in E2E tests.
 //! Every command prints one JSON object per result on stdout.
 
+mod present;
 mod relay;
 mod transcript;
 
@@ -13,7 +14,7 @@ use clap::{Parser, Subcommand};
 use link_core::identity::{DeviceId, Identity};
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::reach::Via;
+use link_core::proto::message::{Share, ShareKind};
 use link_core::uri::PairingUri;
 use link_core::{Error, discovery};
 use serde_json::json;
@@ -51,6 +52,23 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         hold: u64,
     },
+    /// Stays present with the paired desktop, as the app does in the foreground: keep-alive, redial with backoff.
+    /// Prints every event as a JSON line; each stdin line `<text|link> <text>` is shared with the desktop.
+    Hold {
+        /// Stop after this long; otherwise at SIGTERM or SIGINT.
+        #[arg(long)]
+        seconds: Option<u64>,
+    },
+    /// Shares text or a link with the paired desktop, connecting on demand.
+    Share {
+        #[arg(long, value_parser = parse_kind)]
+        kind: ShareKind,
+        #[arg(long)]
+        text: String,
+        /// Skip the sender's checks, to prove the desktop enforces them.
+        #[arg(long)]
+        unchecked: bool,
+    },
     /// Tells the paired desktop this phone unpaired, then forgets it.
     Unpair,
     /// Lists desktops answering mDNS.
@@ -72,7 +90,11 @@ enum Command {
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cli = Cli::parse();
-    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(run(cli))
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let result = runtime.block_on(run(cli));
+    // `hold`'s stdin reader blocks in read(2) on a thread the runtime would otherwise wait for.
+    runtime.shutdown_background();
+    result
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
@@ -84,6 +106,21 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     let state = cli.state.context("--state is required for this command")?;
     let mut phone = open(&state, cli.name, cli.transcript.as_deref())?;
+    match cli.command {
+        Command::Hold { seconds } => {
+            let id = only_desktop(&phone)?;
+            return present::hold(phone, id, seconds).await;
+        }
+        Command::Share { kind, text, unchecked } => {
+            let id = only_desktop(&phone)?;
+            let share = Share { kind, text };
+            if unchecked {
+                return present::share_unchecked(phone, id, share).await;
+            }
+            return present::share(phone, id, share).await;
+        }
+        _ => {}
+    }
     let result = match cli.command {
         Command::Pair { code, uri, addr } => pair(&mut phone, code, uri, addr).await,
         Command::Connect { times, hold } => connect(&mut phone, times, hold).await,
@@ -139,10 +176,7 @@ async fn connect(phone: &mut Phone, times: u32, hold: u64) -> anyhow::Result<()>
             }
             Err(error) => bail!("reaching {id}: {error}"),
         };
-        let via = match session.via {
-            Via::LastKnown => "last-known",
-            Via::Mdns => "mdns",
-        };
+        let via = present::via_name(session.via);
         let line = json!({
             "attempt": attempt, "connected": id, "name": session.desktop.name, "addr": session.addr, "via": via,
             "resumed": session.resumed,
@@ -159,6 +193,10 @@ async fn unpair(phone: &mut Phone) -> anyhow::Result<()> {
     let told = phone.unpair(&id).await?;
     println!("{}", json!({ "unpaired": id, "desktop_told": told }));
     Ok(())
+}
+
+fn parse_kind(text: &str) -> Result<ShareKind, String> {
+    ShareKind::parse(text).ok_or_else(|| "text or link".to_owned())
 }
 
 fn only_desktop(phone: &Phone) -> anyhow::Result<DeviceId> {

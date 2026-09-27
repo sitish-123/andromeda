@@ -5,8 +5,10 @@ use std::sync::Arc;
 use link_core::control::Control;
 use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
-use link_core::proto::message::{Hello, Message};
+use link_core::proto::message::Hello;
+use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
+use link_core::session::session as start_session;
 use link_core::transport::CONNECT_TIMEOUT;
 use link_core::{Error, close, close_code_for, net, tls};
 use tokio::task::JoinSet;
@@ -109,24 +111,19 @@ async fn session(connection: &quinn::Connection, peer: &Spki, context: &Context)
     serve(connection, peer, control, hello, context).await
 }
 
-/// A live session: waits for control messages until the peer leaves or the connection idles out.
+/// A live session: this connection's task runs its session actor until the peer leaves or the connection idles out.
 async fn serve(
     connection: &quinn::Connection,
     peer: &Spki,
-    mut control: Control,
+    control: Control,
     hello: Hello,
     context: &Context,
 ) -> Result<(), Error> {
     let id = peer.device_id();
-    context.hub.connected(id.clone(), hello.name, connection.clone()).await;
-    match control.recv_idle().await? {
-        Message::Unpair => {
-            context.hub.peer_unpaired(id).await;
-            close(connection, CloseCode::Done);
-            Ok(())
-        }
-        other => Err(Error::Unexpected(other.kind())),
-    }
+    let (handle, actor) =
+        start_session(connection.clone(), control, Role::Desktop, id.clone(), context.hub.session_events());
+    context.hub.connected(id, hello.name, handle).await;
+    actor.run().await
 }
 
 impl Context {
