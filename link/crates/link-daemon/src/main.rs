@@ -3,6 +3,7 @@
 mod dbus;
 mod hub;
 mod listener;
+mod localsend;
 mod paths;
 
 use std::net::{Ipv6Addr, SocketAddr};
@@ -37,16 +38,20 @@ async fn run() -> anyhow::Result<()> {
 
     let inbox = Inbox::new(paths.downloads.clone(), &paths.state).context("opening the transfer state")?;
     let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
-    let transfers = hub::Transfers { handle: transfers, events: transfer_events };
+    let (signals, localsend_signals) = tokio::sync::mpsc::unbounded_channel();
+    let (localsend_actor, localsend, nearby) =
+        localsend::LocalSend::new(&paths.state, paths.downloads.clone(), name.clone(), signals)?;
+    let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
     let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths, transfers);
-    dbus::serve(&bus, handle.clone(), snapshots.clone()).await?;
+    dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
     let listener = listener::Listener::new(endpoint.clone(), handle, identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
         result = hub.run() => result,
         () = transfer_actor.run() => Ok(()),
         result = listener.run() => result,
-        result = dbus::forward(&bus, snapshots, events) => result,
+        result = dbus::forward(&bus, snapshots, events, nearby) => result,
+        () = localsend_actor.run() => Ok(()),
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
     };

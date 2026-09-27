@@ -235,6 +235,11 @@ impl Source {
     pub fn size(&self) -> u64 {
         self.size
     }
+
+    /// The file, its size, name, and type, for another backend to send.
+    pub fn into_parts(self) -> (File, u64, String, String) {
+        (self.file, self.size, self.name, self.mime)
+    }
 }
 
 impl TransferHandle {

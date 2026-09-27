@@ -8,12 +8,12 @@ use std::os::fd::OwnedFd;
 use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{MAX_NAME_LEN, MAX_SHARE_LEN, Share, ShareKind, TransferId, is_text_mime};
-use link_core::transfer::{LocalClip, Source, TransferEvent};
+use link_core::transfer::{LocalClip, Source};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
-use crate::hub::{Event, HubHandle, Snapshot};
+use crate::hub::{Event, HubHandle, Signal, Snapshot};
 
 const PATH: &str = "/org/umbriel/Link1";
 const NAME: &str = "org.umbriel.Link1";
@@ -23,6 +23,7 @@ const OCTET_STREAM: &str = "application/octet-stream";
 struct Link {
     hub: HubHandle,
     snapshots: watch::Receiver<Snapshot>,
+    nearby: watch::Receiver<Vec<(String, String)>>,
 }
 
 #[derive(Debug, zbus::DBusError)]
@@ -69,7 +70,9 @@ impl Link {
         device_id: String,
         files: Vec<(zbus::zvariant::OwnedFd, String)>,
     ) -> Result<String, LinkError> {
-        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        if device_id.strip_prefix(crate::localsend::PREFIX).is_none() && DeviceId::parse(&device_id).is_err() {
+            return Err(LinkError::Rejected("not a device id".to_owned()));
+        }
         if files.is_empty() {
             return Err(LinkError::Rejected("no files".to_owned()));
         }
@@ -78,9 +81,9 @@ impl Link {
             .map(|(fd, name)| Source::new(File::from(OwnedFd::from(fd)), name, OCTET_STREAM.to_owned()))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| LinkError::Rejected(error.to_string()))?;
-        match self.hub.transfers().send(id.clone(), sources).await {
+        match self.hub.send_files(device_id.clone(), sources).await {
             Ok(transfer) => Ok(transfer.to_hex()),
-            Err(Error::NotConnected) => Err(LinkError::NotConnected(format!("{id} is not connected"))),
+            Err(Error::NotConnected) => Err(LinkError::NotConnected(format!("{device_id} is not connected"))),
             Err(error) => Err(LinkError::Failed(error.to_string())),
         }
     }
@@ -95,10 +98,10 @@ impl Link {
 
     async fn cancel_transfer(&self, transfer_id: String) -> Result<(), LinkError> {
         let id = parse_transfer(&transfer_id)?;
-        match self.hub.transfers().cancel(id).await {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(LinkError::Rejected(format!("no open transfer {id}"))),
-            Err(error) => Err(LinkError::Failed(error.to_string())),
+        if self.hub.cancel_transfer(id).await {
+            Ok(())
+        } else {
+            Err(LinkError::Rejected(format!("no open transfer {id}")))
         }
     }
 
@@ -159,6 +162,22 @@ impl Link {
     #[zbus(property)]
     fn device_status(&self) -> HashMap<String, (u32, bool, String)> {
         self.snapshots.borrow().status.iter().cloned().collect()
+    }
+
+    /// Turns the LocalSend backend on or off; kept across restarts.
+    async fn set_local_send_visible(&self, visible: bool) {
+        self.hub.set_localsend(visible).await;
+    }
+
+    #[zbus(property)]
+    fn local_send_visible(&self) -> bool {
+        self.snapshots.borrow().localsend
+    }
+
+    /// LocalSend devices on the LAN, `(localsend:<fingerprint>, alias)`, while the backend is on.
+    #[zbus(property)]
+    fn nearby(&self) -> Vec<(String, String)> {
+        self.nearby.borrow().clone()
     }
 
     #[zbus(property)]
@@ -227,10 +246,10 @@ impl Link {
 impl Link {
     async fn decide(&self, transfer_id: &str, accept: bool) -> Result<(), LinkError> {
         let id = parse_transfer(transfer_id)?;
-        match self.hub.transfers().decide(id, accept).await {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(LinkError::Rejected(format!("transfer {id} is not waiting for an answer"))),
-            Err(error) => Err(LinkError::Failed(error.to_string())),
+        if self.hub.decide(id, accept).await {
+            Ok(())
+        } else {
+            Err(LinkError::Rejected(format!("transfer {id} is not waiting for an answer")))
         }
     }
 }
@@ -239,28 +258,24 @@ fn parse_transfer(text: &str) -> Result<TransferId, LinkError> {
     TransferId::parse_hex(text).ok_or_else(|| LinkError::Rejected("not a transfer id".to_owned()))
 }
 
-async fn forward_transfer(emitter: &SignalEmitter<'_>, event: TransferEvent) -> zbus::Result<()> {
-    match event {
-        TransferEvent::Offered { id, from, files } => {
-            let files = files.into_iter().map(|file| (file.name, file.size)).collect();
-            Link::transfer_offered(emitter, &id.to_hex(), from.as_str(), files).await
-        }
-        TransferEvent::Progress { id, bytes, total } => {
-            Link::transfer_progress(emitter, &id.to_hex(), bytes, total).await
-        }
-        TransferEvent::Finished { id, status, files, .. } => {
-            let paths = files.iter().map(|file| file.path.to_string_lossy().into_owned()).collect();
+async fn forward_transfer(emitter: &SignalEmitter<'_>, signal: Signal) -> zbus::Result<()> {
+    match signal {
+        Signal::Offered { id, device, files } => Link::transfer_offered(emitter, &id.to_hex(), &device, files).await,
+        Signal::Progress { id, bytes, total } => Link::transfer_progress(emitter, &id.to_hex(), bytes, total).await,
+        Signal::Finished { id, status, paths } => {
+            let paths = paths.iter().map(|path| path.to_string_lossy().into_owned()).collect();
             Link::transfer_finished(emitter, &id.to_hex(), status.as_str(), paths).await
         }
-        TransferEvent::ClipOffered { from, id, mimes, size, .. } => {
-            Link::clipboard_offered(emitter, from.as_str(), id, mimes, size).await
-        }
-        TransferEvent::Busy { .. } => Ok(()),
     }
 }
 
-pub async fn serve(bus: &zbus::Connection, hub: HubHandle, snapshots: watch::Receiver<Snapshot>) -> anyhow::Result<()> {
-    bus.object_server().at(PATH, Link { hub, snapshots }).await?;
+pub async fn serve(
+    bus: &zbus::Connection,
+    hub: HubHandle,
+    snapshots: watch::Receiver<Snapshot>,
+    nearby: watch::Receiver<Vec<(String, String)>>,
+) -> anyhow::Result<()> {
+    bus.object_server().at(PATH, Link { hub, snapshots, nearby }).await?;
     bus.request_name(NAME).await?;
     Ok(())
 }
@@ -270,6 +285,7 @@ pub async fn forward(
     bus: &zbus::Connection,
     mut snapshots: watch::Receiver<Snapshot>,
     mut events: mpsc::Receiver<Event>,
+    mut nearby: watch::Receiver<Vec<(String, String)>>,
 ) -> anyhow::Result<()> {
     let link = bus.object_server().interface::<_, Link>(PATH).await?;
     let emitter = link.signal_emitter();
@@ -294,7 +310,14 @@ pub async fn forward(
                 if next.status != last.status {
                     link.get().await.device_status_changed(emitter).await?;
                 }
+                if next.localsend != last.localsend {
+                    link.get().await.local_send_visible_changed(emitter).await?;
+                }
                 last = next;
+            }
+            changed = nearby.changed() => {
+                changed?;
+                link.get().await.nearby_changed(emitter).await?;
             }
             Some(event) = events.recv() => match event {
                 Event::PairingFinished { id, name } => Link::pairing_finished(emitter, id.as_str(), &name).await?,
@@ -302,7 +325,10 @@ pub async fn forward(
                 Event::Received { id, share } => {
                     Link::received(emitter, id.as_str(), share.kind.as_str(), &share.text).await?;
                 }
-                Event::Transfer(event) => forward_transfer(emitter, event).await?,
+                Event::Transfer(signal) => forward_transfer(emitter, signal).await?,
+                Event::ClipboardOffered { from, id, mimes, size } => {
+                    Link::clipboard_offered(emitter, from.as_str(), id, mimes, size).await?;
+                }
             },
         }
     }

@@ -21,8 +21,8 @@
       <arg name="kind" type="s" direction="in"/>
       <arg name="text" type="s" direction="in"/>
     </method>
-    <!-- Offers files to a connected device and returns the transfer id (32 hex digits) at once; the Transfer*
-         signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
+    <!-- Offers files to a connected device, or to a Nearby LocalSend device (localsend:<fingerprint>), and returns
+         the transfer id (32 hex digits) at once; the Transfer* signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
          Errors: .NotConnected without a live session, .Rejected for no files or a descriptor that is not a regular
          file, .Failed otherwise. -->
     <method name="SendFiles">
@@ -68,6 +68,14 @@
       <arg name="sink" type="h" direction="in"/>
       <arg name="bytes" type="t" direction="out"/>
     </method>
+    <!-- "Visible to LocalSend": answers LocalSend discovery and accepts LocalSend offers (with the same consent as
+         Link), and lists LocalSend devices in Nearby. Off until turned on; kept across restarts. -->
+    <method name="SetLocalSendVisible">
+      <arg name="visible" type="b" direction="in"/>
+    </method>
+    <property name="LocalSendVisible" type="b" access="read"/>
+    <!-- LocalSend devices on the LAN, (localsend:<fingerprint>, alias), while LocalSendVisible is on. -->
+    <property name="Nearby" type="a(ss)" access="read"/>
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
@@ -91,7 +99,8 @@
       <arg name="kind" type="s"/>
       <arg name="text" type="s"/>
     </signal>
-    <!-- A device offers files, each (sanitized name, size in bytes); answer with AcceptTransfer or DeclineTransfer. -->
+    <!-- A device offers files, each (sanitized name, size in bytes); answer with AcceptTransfer or DeclineTransfer.
+         device_id is a Link device or localsend:<fingerprint>. -->
     <signal name="TransferOffered">
       <arg name="transfer_id" type="s"/>
       <arg name="device_id" type="s"/>

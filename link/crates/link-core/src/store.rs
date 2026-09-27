@@ -82,6 +82,9 @@ pub struct Store {
     /// Keys unpaired here, told at their next contact.
     #[serde(default)]
     pub revoked: Vec<DeviceId>,
+    /// "Visible to `LocalSend`": the desktop's `LocalSend` backend listens only while this is on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub localsend: bool,
 }
 
 impl Peer {
