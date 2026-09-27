@@ -944,6 +944,12 @@ void Application::initWaylandCallbacks() {
     kLog.debug("shell action from compositor: {}", command);
     (void)m_ipcService.execute(command);
   });
+  m_wayland.setShellBellCallback([this](const std::string& appId) {
+    kLog.debug("system bell from '{}'", appId);
+    if (m_soundPlayer != nullptr) {
+      m_soundPlayer->play("bell");
+    }
+  });
   if constexpr (kLockKeysEnabled) {
     m_wayland.setCompositorLockKeysCallback([this]() {
       if (lockKeysConsumersEnabled(m_configService.config())) {

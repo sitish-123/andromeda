@@ -198,7 +198,7 @@ void SoundPlayer::setTheme(std::string theme) {
   std::unordered_map<std::string, std::shared_ptr<const SoundBuffer>> buffers;
   for (const std::string_view event :
        {"message-new-instant", "audio-volume-change", "power-plug", "power-unplug", "screen-capture",
-        "alarm-clock-elapsed"}) {
+        "alarm-clock-elapsed", "bell"}) {
     const auto result = findThemeSound(event, theme);
     if (result.state == ThemeSoundLookupState::Disabled) {
       kLog.info("sound theme '{}': event '{}' is disabled", theme, event);
