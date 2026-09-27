@@ -22,6 +22,7 @@
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
 #include "dbus/network/nm_hotspot.h"
+#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -105,6 +106,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -127,6 +129,22 @@ void Application::initIpc() {
   m_ipcService.bind(noctalia::cli::msg::airplaneToggle, [](const std::string&) -> std::string {
     const RfkillSwitchResult result = setAllRadiosSoftBlocked(!areAllRadiosSoftBlocked());
     return result.success ? "ok\n" : "error: " + result.detail + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::globalShortcut, [this](const std::string& args) -> std::string {
+    std::istringstream words(args);
+    std::string appId;
+    std::string shortcutId;
+    words >> appId >> shortcutId;
+    if (shortcutId.empty()) {
+      return "error: usage: global-shortcut <app-id> <shortcut-id>\n";
+    }
+    if (m_globalShortcutsPortal == nullptr || !m_globalShortcutsPortal->activate(appId, shortcutId)) {
+      return "error: " + appId + " has not bound " + shortcutId + "\n";
+    }
+    return "ok\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::globalShortcuts, [this](const std::string&) -> std::string {
+    return m_globalShortcutsPortal != nullptr ? m_globalShortcutsPortal->list() : std::string{};
   });
   m_ipcService.bind(noctalia::cli::msg::hotspotToggle, [this](const std::string&) -> std::string {
     if (m_hotspot == nullptr) {

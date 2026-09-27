@@ -30,6 +30,7 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
@@ -1654,11 +1655,12 @@ void Application::initSessionBusServices() {
 
     try {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
+      m_globalShortcutsPortal = std::make_unique<GlobalShortcutsPortal>(*m_bus);
       if (m_systemBus != nullptr) {
         m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
       }
     } catch (const sdbus::Error& e) {
-      kLog.warn("inhibit portal disabled: {}", e.what());
+      kLog.warn("inhibit or global shortcuts portal disabled: {}", e.what());
     }
 
     try {
