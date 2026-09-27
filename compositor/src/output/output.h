@@ -14,10 +14,12 @@ struct wlr_buffer;
 struct wlr_gamma_control_v1;
 struct wlr_output;
 struct wlr_output_layout_output;
+struct wlr_output_state;
 struct wlr_scene_output;
 struct wlr_scene_optimized_blur;
 struct wlr_scene_tree;
 struct wlr_surface;
+struct wlr_swapchain;
 
 extern "C" {
 #include <wlr/util/box.h>
@@ -55,6 +57,11 @@ namespace umbriel {
     // Full logical box at the live layout origin, or the last arranged origin while temporarily removed.
     [[nodiscard]] wlr_box layoutBox() const;
     [[nodiscard]] wlr_box usableArea() const;
+    // The screen magnifier: 1 is off; above it, the pointer's neighbourhood fills the output (normal transform only).
+    void setZoom(double factor);
+    [[nodiscard]] double zoom() const { return m_zoom; }
+    // What the magnifier shows, in output-local layout coordinates.
+    [[nodiscard]] wlr_fbox zoomView() const;
     [[nodiscard]] WorkspaceGroup* workspaceGroup() const { return m_workspaceGroup.get(); }
     // True from the moment any view starts entering fullscreen until its client
     // has committed the exit. Output-wide fullscreen policies such as HDR and
@@ -154,11 +161,14 @@ namespace umbriel {
     void attachMirrorTarget();
     void detachMirrorTarget();
     void keepFrameForMirrors(wlr_buffer* frame);
+    void applyZoom(wlr_output_state& state);
 
     Server* m_server = nullptr;
     wlr_output* m_output = nullptr;
     float m_defaultScale = 1.0F;
     wlr_scene_output* m_sceneOutput = nullptr;
+    double m_zoom = 1.0;
+    wlr_swapchain* m_zoomSwapchain = nullptr;
     wlr_scene_tree* m_layerTrees[kLayerCount]{};
     wlr_scene_tree* m_popupTree = nullptr;
     wlr_scene_tree* m_viewRoot = nullptr;

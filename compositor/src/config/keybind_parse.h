@@ -154,6 +154,9 @@ namespace umbriel {
     WindowFocusLast,
     WorkspaceFocusLast,
     Shell,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     Count,
   };
 

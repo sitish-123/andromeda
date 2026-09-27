@@ -12,6 +12,7 @@
 #include "output/hdr_format.h"
 #include "output/identity.h"
 #include "output/mirror.h"
+#include "output/zoom.h"
 #include "output/mode_selection.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
@@ -748,7 +749,55 @@ namespace umbriel {
     wlr_surface_set_preferred_buffer_scale(surface, static_cast<int32_t>(std::ceil(self->m_output->scale)));
   }
 
+  void Output::setZoom(double factor) {
+    constexpr double kMaxZoom = 16.0;
+    factor = std::clamp(factor, 1.0, kMaxZoom);
+    if (factor == m_zoom || m_output->transform != WL_OUTPUT_TRANSFORM_NORMAL) {
+      return;
+    }
+    const bool wasZoomed = m_zoom > 1.0;
+    m_zoom = factor;
+    const bool zoomed = m_zoom > 1.0;
+    if (zoomed != wasZoomed) {
+      // The cursor is drawn into the frame so it is magnified with everything under it.
+      wlr_output_lock_software_cursors(m_output, zoomed);
+      wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, !zoomed && configuredDirectScanoutEnabled());
+      if (!zoomed && m_zoomSwapchain != nullptr) {
+        wlr_swapchain_destroy(std::exchange(m_zoomSwapchain, nullptr));
+      }
+    }
+    wlr_damage_ring_add_whole(&m_sceneOutput->damage_ring);
+    wlr_output_schedule_frame(m_output);
+  }
+
+  wlr_fbox Output::zoomView() const {
+    const wlr_box box = layoutBox();
+    const wlr_cursor* cursor = m_server->cursor()->wlr();
+    return zoomBox(cursor->x - box.x, cursor->y - box.y, box.width, box.height, m_zoom);
+  }
+
+  void Output::applyZoom(wlr_output_state& state) {
+    if (m_output->swapchain == nullptr) {
+      return;
+    }
+    const int width = m_output->swapchain->width;
+    const int height = m_output->swapchain->height;
+    if (m_zoomSwapchain != nullptr && (m_zoomSwapchain->width != width || m_zoomSwapchain->height != height)) {
+      wlr_swapchain_destroy(std::exchange(m_zoomSwapchain, nullptr));
+    }
+    if (m_zoomSwapchain == nullptr) {
+      m_zoomSwapchain = wlr_swapchain_create(m_output->allocator, width, height, &m_output->swapchain->format);
+    }
+    if (m_zoomSwapchain == nullptr
+        || !renderZoom(m_server->renderer(), m_zoomSwapchain, state, zoomView(), m_output->scale)) {
+      kLog.warn("{}: the magnified frame could not be drawn; showing it unmagnified", m_output->name);
+    }
+  }
+
   Output::~Output() {
+    if (m_zoomSwapchain != nullptr) {
+      wlr_swapchain_destroy(m_zoomSwapchain);
+    }
     if (m_mirrorSource != nullptr) {
       m_mirrorSource->detachMirrorTarget();
     }
@@ -1222,6 +1271,9 @@ namespace umbriel {
           }
         }
 
+        if (m_zoom > 1.0) {
+          applyZoom(state);
+        }
         const bool hasBuffer = (state.committed & WLR_OUTPUT_STATE_BUFFER) != 0;
         bool commitTearing = requestTearing && hasBuffer;
         const bool recoveringFromFailedCommit = m_tearingRecovery.regularCommitPending();

@@ -612,6 +612,7 @@ core_sources = files(
   'src/server/server_outputs.cpp',
   'src/server/actions.cpp',
   'src/output/mirror.cpp',
+  'src/output/zoom.cpp',
   'src/output/output.cpp',
   'src/input/seat.cpp',
   'src/input/keyboard.cpp',

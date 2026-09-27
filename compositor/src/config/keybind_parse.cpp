@@ -384,6 +384,9 @@ namespace umbriel {
          KeybindAction::WorkspaceSwapActiveOutputUp},
         {"workspace-switch", "<workspace>[/<output>]", "Switch to the selected workspace",
          KeybindAction::WorkspaceSwitch, ActionArgKind::Workspace},
+        {"zoom-in", "", "Magnify the screen around the pointer", KeybindAction::ZoomIn},
+        {"zoom-out", "", "Magnify the screen less, down to off", KeybindAction::ZoomOut},
+        {"zoom-reset", "", "Turn the screen magnifier off", KeybindAction::ZoomReset},
     };
 
   } // namespace
@@ -684,6 +687,8 @@ namespace umbriel {
     add(KeybindAction::TogglePinned, XKB_KEY_p);
     // Holding the overview key would thrash open/close.
     add(KeybindAction::OverviewToggle, XKB_KEY_o).repeat = false;
+    add(KeybindAction::ZoomIn, XKB_KEY_equal, WLR_MODIFIER_ALT);
+    add(KeybindAction::ZoomOut, XKB_KEY_minus, WLR_MODIFIER_ALT);
 
     for (int index = 0; index < 9; ++index) {
       const uint32_t digit = XKB_KEY_1 + static_cast<uint32_t>(index);
