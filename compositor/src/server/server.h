@@ -124,6 +124,7 @@ namespace umbriel {
   class WorkspaceGroup;
   class ScratchpadManager;
   class ConfigBanner;
+  class FpsOverlay;
   class Cheatsheet;
   class QuitConfirm;
   class Ipc;
@@ -171,6 +172,7 @@ namespace umbriel {
     [[nodiscard]] wlr_scene_tree* overviewTree() const { return m_overviewTree; }
     [[nodiscard]] Overview* overview() const { return m_overview.get(); }
     [[nodiscard]] ConfigBanner* configBanner() const { return m_configBanner.get(); }
+    [[nodiscard]] FpsOverlay* fpsOverlay() const { return m_fpsOverlay.get(); }
     [[nodiscard]] Cheatsheet* cheatsheet() const { return m_cheatsheet.get(); }
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).
@@ -712,6 +714,7 @@ namespace umbriel {
 #endif
     wlr_scene_tree* m_bannerTree = nullptr;
     std::unique_ptr<ConfigBanner> m_configBanner;
+    std::unique_ptr<FpsOverlay> m_fpsOverlay;
     wlr_scene_tree* m_cheatsheetTree = nullptr;
     std::unique_ptr<Cheatsheet> m_cheatsheet;
     wlr_scene_tree* m_quitConfirmTree = nullptr;

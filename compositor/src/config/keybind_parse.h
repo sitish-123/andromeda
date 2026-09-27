@@ -89,6 +89,7 @@ namespace umbriel {
     CheatsheetToggle,
     CheatsheetOpen,
     CheatsheetClose,
+    FpsOverlayToggle,
     WindowMoveToScratchpad,
     ScratchpadToggle,
     WindowRestoreFromScratchpad,

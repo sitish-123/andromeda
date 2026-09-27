@@ -197,6 +197,7 @@ are described in [Overview](workspaces-overview.md).
 | `config-reload` | Reload the configuration file |
 | `dpms-off:[<output>]` | Power off one output, or every output when bare |
 | `dpms-on:[<output>]` | Power on one output, or every output when bare |
+| `fps-overlay-toggle` | Show or hide each output's refresh rate and presented frames |
 | `keyboard-layout-next` | Switch one keyboard to its next configured layout |
 | `session-quit:[skip-confirmation]` | Quit the session, confirming first unless told to skip |
 | `shell:<cmd>` | Run a desktop shell command without starting a process |

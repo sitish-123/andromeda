@@ -200,6 +200,8 @@ namespace umbriel {
          ActionArgKind::OptionalOutput},
         {"dpms-on", "[<output>]", "Power on one output, or every output when bare", KeybindAction::DpmsOn,
          ActionArgKind::OptionalOutput},
+        {"fps-overlay-toggle", "", "Show or hide each output's refresh rate and presented frames",
+         KeybindAction::FpsOverlayToggle},
         {"keyboard-layout-next", "", "Switch one keyboard to its next configured layout",
          KeybindAction::KeyboardLayoutNext},
         {"layout-master-count-decrease", "", "Demote the last master window to the stack",

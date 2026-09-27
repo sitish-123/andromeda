@@ -21,6 +21,7 @@
 #include "scene/cheatsheet.h"
 #include "scene/color.h"
 #include "scene/config_banner.h"
+#include "scene/fps_overlay.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
@@ -813,6 +814,7 @@ namespace umbriel {
     m_configWatcher =
         std::make_unique<ConfigWatcher>(wl_display_get_event_loop(m_display), [this] { handleConfigReload(); });
     m_configBanner = std::make_unique<ConfigBanner>(*this, m_bannerTree);
+    m_fpsOverlay = std::make_unique<FpsOverlay>(*this, m_bannerTree);
     m_configWatcher->watch(configWatchPaths());
     showConfigDiagnostics();
     m_cheatsheet = std::make_unique<Cheatsheet>(*this, m_cheatsheetTree);

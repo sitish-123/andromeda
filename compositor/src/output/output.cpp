@@ -16,6 +16,7 @@
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
 #include "scene/config_banner.h"
+#include "scene/fps_overlay.h"
 #include "scene/node.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_output_manager.h"
@@ -1303,6 +1304,9 @@ namespace umbriel {
     const auto* event = static_cast<const wlr_output_event_present*>(data);
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputPresent(*this, event->commit_seq, event->presented);
+    }
+    if (FpsOverlay* overlay = m_server->fpsOverlay(); overlay != nullptr && overlay->visible()) {
+      overlay->onPresent(m_output, *event);
     }
     if (!m_trackingPresentation || event->commit_seq != m_trackedPresentationCommitSeq) {
       return;

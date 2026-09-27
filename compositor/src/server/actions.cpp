@@ -10,6 +10,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
+#include "scene/fps_overlay.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_shell.h"
 #include "server/server.h"
@@ -1687,6 +1688,13 @@ namespace umbriel {
       return true;
     }
 
+    bool actionFpsOverlayToggle(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (FpsOverlay* overlay = server.fpsOverlay()) {
+        overlay->toggle();
+      }
+      return true;
+    }
+
     // Scratchpad
     bool actionMoveToScratchpad(Server& server, const Keybind& bind, std::string* error) {
       const auto name = scratchpadName(server, bind, error);
@@ -1813,6 +1821,7 @@ namespace umbriel {
         &actionCheatsheetToggle,
         &actionCheatsheetOpen,
         &actionCheatsheetClose,
+        &actionFpsOverlayToggle,
         &actionMoveToScratchpad,
         &actionScratchpadToggle,
         &actionRestoreFromScratchpad,
