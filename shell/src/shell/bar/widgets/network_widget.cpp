@@ -427,6 +427,7 @@ std::vector<TooltipRow> NetworkWidget::buildTooltipRows() const {
     }
 
     if (m_monitor != nullptr && m_monitor->isRunning()) {
+      m_monitor->touchSampling();
       const SystemStats stats = m_monitor->latest();
       rows.push_back(
           {i18n::tr("bar.widgets.network.download"), FormatUnits::formatDecimalBytesPerSecond(stats.netRxBytesPerSec)}

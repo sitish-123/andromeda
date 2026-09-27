@@ -193,6 +193,7 @@ SysmonWidget::SysmonWidget(SystemMonitorService* monitor, ConfigService& configS
       m_customImage(widget_custom_image::fromConfig(options.customImage, options.customImageColorize)),
       m_showUnits(options.showUnits), m_glyphPosition(options.glyphPosition) {
   if (m_monitor != nullptr) {
+    m_monitor->retainSampling();
     if (needsCpuTemp(m_stat)) {
       m_monitor->retainCpuTemp();
     }
@@ -213,6 +214,7 @@ SysmonWidget::SysmonWidget(SystemMonitorService* monitor, ConfigService& configS
 
 SysmonWidget::~SysmonWidget() {
   if (m_monitor != nullptr) {
+    m_monitor->releaseSampling();
     if (needsCpuTemp(m_stat)) {
       m_monitor->releaseCpuTemp();
     }

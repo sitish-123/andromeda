@@ -1902,6 +1902,7 @@ void LuauHost::ensureSystemStatsRetained() {
   if (monitor == nullptr) {
     return;
   }
+  monitor->retainSampling();
   monitor->retainCpuTemp();
   monitor->retainGpuTemp();
   monitor->retainGpuUsage();
@@ -1917,6 +1918,7 @@ void LuauHost::ensureCpuCoresRetained() {
   if (monitor == nullptr) {
     return;
   }
+  monitor->retainSampling();
   monitor->retainCpuCores();
   m_cpuCoresRetained = true;
 }
@@ -1934,6 +1936,7 @@ bool LuauHost::ensureDiskPathRetained(const std::string& path) {
     monitor->releaseDiskPath(path);
     return false;
   }
+  monitor->retainSampling();
   m_diskPathsRetained.insert(path);
   return true;
 }
@@ -1947,6 +1950,7 @@ LuauHost::~LuauHost() {
   stopAllHttpStreams();
   if (m_systemStatsRetained) {
     if (auto* monitor = m_api.systemMonitor(); monitor != nullptr) {
+      monitor->releaseSampling();
       monitor->releaseCpuTemp();
       monitor->releaseGpuTemp();
       monitor->releaseGpuUsage();
@@ -1957,6 +1961,7 @@ LuauHost::~LuauHost() {
   if (!m_diskPathsRetained.empty()) {
     if (auto* monitor = m_api.systemMonitor(); monitor != nullptr) {
       for (const auto& path : m_diskPathsRetained) {
+        monitor->releaseSampling();
         monitor->releaseDiskPath(path);
       }
     }
@@ -1966,6 +1971,7 @@ LuauHost::~LuauHost() {
     // Null once Application has torn the service down, which it does before the plugin hosts that
     // outlive it are destroyed.
     if (auto* monitor = m_api.systemMonitor(); monitor != nullptr) {
+      monitor->releaseSampling();
       monitor->releaseCpuCores();
     }
     m_cpuCoresRetained = false;

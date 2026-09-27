@@ -416,12 +416,14 @@ void SystemTab::retainStats(bool retain) {
   m_statsRetained = retain;
 
   if (retain) {
+    m_monitor->retainSampling();
     m_monitor->retainCpuTemp();
     m_monitor->retainGpuTemp();
     m_monitor->retainGpuUsage();
     m_monitor->retainGpuVram();
     return;
   }
+  m_monitor->releaseSampling();
   m_monitor->releaseCpuTemp();
   m_monitor->releaseGpuTemp();
   m_monitor->releaseGpuUsage();
