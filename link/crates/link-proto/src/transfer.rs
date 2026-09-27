@@ -246,6 +246,11 @@ impl Incoming {
 }
 
 impl Budget {
+    /// A budget for a whole stream of `size` bytes.
+    pub fn new(size: u64) -> Self {
+        Self { offset: 0, size }
+    }
+
     /// Counts `len` more bytes.
     pub fn take(&mut self, len: usize) -> Result<(), Overrun> {
         let len = u64::try_from(len).map_err(|_| Overrun::PastSize)?;

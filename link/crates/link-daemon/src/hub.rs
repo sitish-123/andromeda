@@ -41,6 +41,8 @@ pub struct Snapshot {
     pub pairing: bool,
     /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
     pub auto_accept: Vec<String>,
+    /// Device id to granted features, the D-Bus `Grants` property.
+    pub grants: Vec<(String, Vec<String>)>,
 }
 
 #[derive(Debug)]
@@ -71,6 +73,8 @@ enum Command {
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
     SetAutoAccept { id: DeviceId, enabled: bool, reply: oneshot::Sender<bool> },
+    SetGrant { id: DeviceId, feature: String, granted: bool, reply: oneshot::Sender<bool> },
+    ClipboardPeers { reply: oneshot::Sender<Vec<DeviceId>> },
 }
 
 #[derive(Clone)]
@@ -193,13 +197,40 @@ impl Hub {
                 self.publish();
                 let _ = reply.send(true);
             }
+            Command::SetGrant { id, feature, granted, reply } => {
+                let set = self.store.peer_mut(&id).is_some_and(|peer| peer.grants.set(&feature, granted));
+                if set {
+                    self.save();
+                    self.publish();
+                }
+                let _ = reply.send(set);
+            }
+            Command::ClipboardPeers { reply } => {
+                let granted = |id: &DeviceId| self.store.peer(id).is_some_and(|peer| peer.grants.clipboard);
+                let peers = self.sessions.iter().filter(|(id, session)| session.is_live() && granted(id));
+                drop(reply.send(peers.map(|(id, _)| id.clone()).collect()));
+            }
         }
     }
 
-    /// Consent is the hub's: an offer from an auto-accept device is accepted here, any other goes to the shell.
+    /// Consent and grants are the hub's: an offer from a device without the files grant is declined, one from an
+    /// auto-accept device accepted, any other goes to the shell; a clip from a device without the clipboard grant is
+    /// dropped.
     async fn on_transfer(&mut self, event: TransferEvent) {
+        let grants = |id: &DeviceId| self.store.peer(id).map(|peer| peer.grants).unwrap_or_default();
         match &event {
             TransferEvent::Busy { .. } => return,
+            TransferEvent::Offered { id, from, .. } if !grants(from).files => {
+                log::info!("{from}: declining transfer {id}: no files grant");
+                if let Err(error) = self.transfers.decide(*id, false).await {
+                    log::error!("declining {id}: {error}");
+                }
+                return;
+            }
+            TransferEvent::ClipOffered { from, .. } if !grants(from).clipboard => {
+                log::info!("{from}: dropping a clipboard offer: no clipboard grant");
+                return;
+            }
             TransferEvent::Offered { id, from, .. } if self.store.peer(from).is_some_and(|peer| peer.auto_accept) => {
                 log::info!("{from}: auto-accepting transfer {id}");
                 if let Err(error) = self.transfers.decide(*id, true).await {
@@ -362,8 +393,9 @@ impl Hub {
             .collect();
         let auto_accept =
             self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
+        let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
         self.snapshots.send_if_modified(|current| {
-            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept };
+            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants };
             let changed = *current != next;
             *current = next;
             changed
@@ -454,6 +486,15 @@ impl HubHandle {
     /// The device's live session, if it has one.
     pub async fn session(&self, id: DeviceId) -> Option<SessionHandle> {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
+    }
+
+    pub async fn set_grant(&self, id: DeviceId, feature: String, granted: bool) -> bool {
+        self.request(|reply| Command::SetGrant { id, feature, granted, reply }).await.unwrap_or(false)
+    }
+
+    /// Connected devices holding the clipboard grant.
+    pub async fn clipboard_peers(&self) -> Vec<DeviceId> {
+        self.request(|reply| Command::ClipboardPeers { reply }).await.unwrap_or_default()
     }
 
     pub async fn set_auto_accept(&self, id: DeviceId, enabled: bool) -> bool {

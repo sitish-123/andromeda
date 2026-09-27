@@ -84,6 +84,8 @@ pub enum Error {
     NotRegularFile,
     #[error("the peer sends faster than it is served")]
     Flooded,
+    #[error(transparent)]
+    ClipRefused(#[from] link_proto::clip::ClipRefused),
 }
 
 impl From<quinn::ConnectionError> for Error {

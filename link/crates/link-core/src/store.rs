@@ -31,6 +31,45 @@ pub struct Peer {
     /// Accept this device's file offers without asking; a desktop-side setting.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_accept: bool,
+    #[serde(default)]
+    pub grants: Grants,
+}
+
+/// What a device may do here. A store from before grants gets the defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct Grants {
+    pub clipboard: bool,
+    pub files: bool,
+    pub notifications: bool,
+}
+
+impl Default for Grants {
+    fn default() -> Self {
+        Self { clipboard: true, files: true, notifications: false }
+    }
+}
+
+impl Grants {
+    pub const FEATURES: [&str; 3] = ["clipboard", "files", "notifications"];
+
+    /// The granted features' names, as D-Bus lists them.
+    pub fn names(self) -> Vec<String> {
+        let flags = [self.clipboard, self.files, self.notifications];
+        Self::FEATURES.iter().zip(flags).filter(|(_, on)| *on).map(|(name, _)| (*name).to_owned()).collect()
+    }
+
+    /// Sets a feature by name; false for a name that is not a feature.
+    pub fn set(&mut self, feature: &str, granted: bool) -> bool {
+        let flag = match feature {
+            "clipboard" => &mut self.clipboard,
+            "files" => &mut self.files,
+            "notifications" => &mut self.notifications,
+            _ => return false,
+        };
+        *flag = granted;
+        true
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -54,6 +93,7 @@ impl Peer {
             addresses: Vec::new(),
             last_seen: 0,
             auto_accept: false,
+            grants: Grants::default(),
         }
     }
 

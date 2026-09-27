@@ -1,12 +1,14 @@
 //! `org.umbriel.Link1` on the session bus; contract in `protocol/link-v1/org.umbriel.Link1.xml`.
 
+use std::collections::HashMap;
 use std::fs::File;
+use std::io::Read as _;
 use std::os::fd::OwnedFd;
 
 use link_core::Error;
 use link_core::identity::DeviceId;
-use link_core::proto::message::{MAX_NAME_LEN, Share, ShareKind, TransferId};
-use link_core::transfer::{Source, TransferEvent};
+use link_core::proto::message::{MAX_NAME_LEN, MAX_SHARE_LEN, Share, ShareKind, TransferId, is_text_mime};
+use link_core::transfer::{LocalClip, Source, TransferEvent};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
@@ -109,6 +111,63 @@ impl Link {
         }
     }
 
+    async fn set_grant(&self, device_id: String, feature: String, granted: bool) -> fdo::Result<()> {
+        let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        if self.hub.set_grant(id, feature, granted).await {
+            Ok(())
+        } else {
+            Err(fdo::Error::InvalidArgs("unknown device or feature".to_owned()))
+        }
+    }
+
+    /// Offers the desktop's new clipboard to connected devices holding the clipboard grant. `data` holds the first
+    /// type's bytes; text is sent inline, anything else only when a device pulls it.
+    async fn offer_clipboard(&self, mimes: Vec<String>, data: zbus::zvariant::OwnedFd) -> Result<(), LinkError> {
+        let file = File::from(OwnedFd::from(data));
+        let size = file.metadata().map_err(|error| LinkError::Rejected(error.to_string()))?.len();
+        let text = if mimes.first().is_some_and(|mime| is_text_mime(mime)) && size <= MAX_SHARE_LEN as u64 {
+            let mut text = String::new();
+            (&file).read_to_string(&mut text).map_err(|error| LinkError::Rejected(error.to_string()))?;
+            Some(text).filter(|text| !text.is_empty())
+        } else {
+            None
+        };
+        let clip = LocalClip { mimes, text, data: Some(file) };
+        let peers = self.hub.clipboard_peers().await;
+        self.hub.transfers().offer_clip(peers, clip).await.map_err(|error| LinkError::Rejected(error.to_string()))
+    }
+
+    /// Writes a device's offered clip into `sink` (the write end a paste target reads) and returns the byte count.
+    async fn pull_clipboard(
+        &self,
+        device_id: String,
+        id: u64,
+        mime: String,
+        sink: zbus::zvariant::OwnedFd,
+    ) -> Result<u64, LinkError> {
+        let peer = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        let sink = File::from(OwnedFd::from(sink));
+        match self.hub.transfers().pull_clip(peer, id, mime, sink).await {
+            Ok(bytes) => Ok(bytes),
+            Err(Error::NotConnected) => Err(LinkError::NotConnected(format!("{device_id} is not connected"))),
+            Err(error) => Err(LinkError::Failed(error.to_string())),
+        }
+    }
+
+    #[zbus(property)]
+    fn grants(&self) -> HashMap<String, Vec<String>> {
+        self.snapshots.borrow().grants.iter().cloned().collect()
+    }
+
+    #[zbus(signal)]
+    async fn clipboard_offered(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        id: u64,
+        mimes: Vec<String>,
+        size: u64,
+    ) -> zbus::Result<()>;
+
     #[zbus(property)]
     fn auto_accept(&self) -> Vec<String> {
         self.snapshots.borrow().auto_accept.clone()
@@ -186,6 +245,9 @@ async fn forward_transfer(emitter: &SignalEmitter<'_>, event: TransferEvent) -> 
             let paths = files.iter().map(|file| file.path.to_string_lossy().into_owned()).collect();
             Link::transfer_finished(emitter, &id.to_hex(), status.as_str(), paths).await
         }
+        TransferEvent::ClipOffered { from, id, mimes, size, .. } => {
+            Link::clipboard_offered(emitter, from.as_str(), id, mimes, size).await
+        }
         TransferEvent::Busy { .. } => Ok(()),
     }
 }
@@ -218,6 +280,9 @@ pub async fn forward(
                 }
                 if next.auto_accept != last.auto_accept {
                     link.get().await.auto_accept_changed(emitter).await?;
+                }
+                if next.grants != last.grants {
+                    link.get().await.grants_changed(emitter).await?;
                 }
                 last = next;
             }

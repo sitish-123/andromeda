@@ -18,7 +18,7 @@ use crate::phone::{self, PairTarget, Phone};
 use crate::reach::Via;
 use crate::session::{self, Route, SessionEvent, SessionHandle};
 use crate::store::Peer;
-use crate::transfer::{self, Source, TransferActor, TransferEvent, TransferHandle};
+use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -157,6 +157,18 @@ impl Client {
         };
         self.commands.send(Command::Keep { id, keep: false }).await.map_err(|_| Error::Stopped)?;
         sent
+    }
+
+    /// Offers the phone's clipboard to every connected desktop.
+    pub async fn offer_clip(&self, clip: LocalClip) -> Result<(), Error> {
+        let desktops = self.desktops().await?;
+        let connected = desktops.into_iter().filter(|desktop| desktop.connected).map(|desktop| desktop.peer.id);
+        self.transfers.offer_clip(connected.collect(), clip).await
+    }
+
+    /// Writes `mime` of a desktop's clipboard offer into `sink`.
+    pub async fn pull_clip(&self, id: DeviceId, clip: u64, mime: String, sink: std::fs::File) -> Result<u64, Error> {
+        self.transfers.pull_clip(id, clip, mime, sink).await
     }
 
     /// Answers a desktop's offer; false when it no longer waits.

@@ -10,7 +10,7 @@ use link_core::inbox::Inbox;
 use link_core::phone::Phone;
 use link_core::proto::message::{Message, Share, ShareKind};
 use link_core::reach::Via;
-use link_core::transfer::TransferEvent;
+use link_core::transfer::{LocalClip, TransferEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
@@ -96,6 +96,8 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Value {
     let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
     let result = match verb {
         "send" => send_line(client, id, rest).await,
+        "clip" => clip_line(client, rest).await,
+        "pull" => pull_line(client, id, rest).await,
         "accept" | "decline" => match files::parse_transfer(rest) {
             Ok(transfer) => client.decide(transfer, verb == "accept").await.map_err(Into::into),
             Err(error) => Err(error),
@@ -117,6 +119,25 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     let sources = files::sources(&paths, names)?;
     let transfer = client.send_files(id.clone(), sources).await?;
     Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
+}
+
+/// `clip <path> <mime>...`: offers the file's bytes as the clipboard, never inline, so a pull is what moves them.
+async fn clip_line(client: &Client, rest: &str) -> anyhow::Result<Value> {
+    let mut words = rest.split_whitespace();
+    let path = words.next().context("clip <path> <mime>...")?;
+    let mimes: Vec<String> = words.map(str::to_owned).collect();
+    let data = std::fs::File::open(path).with_context(|| format!("opening {path}"))?;
+    client.offer_clip(LocalClip { mimes: mimes.clone(), text: None, data: Some(data) }).await?;
+    Ok(json!({ "event": "clip-sent", "mimes": mimes }))
+}
+
+/// `pull <clip> <mime> <path>`: writes the desktop's offered clip into a file.
+async fn pull_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result<Value> {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let [clip, mime, path] = words[..] else { bail!("pull <clip> <mime> <path>") };
+    let sink = std::fs::File::create(path).with_context(|| format!("creating {path}"))?;
+    let bytes = client.pull_clip(id.clone(), clip.parse()?, mime.to_owned(), sink).await?;
+    Ok(json!({ "event": "pulled", "clip": clip, "mime": mime, "bytes": bytes }))
 }
 
 async fn share_line(client: &Client, id: &DeviceId, kind: &str, text: &str) -> Value {

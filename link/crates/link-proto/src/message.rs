@@ -198,6 +198,43 @@ pub struct FileData {
     pub offset: u64,
 }
 
+pub const MAX_CLIP_MIMES: usize = 16;
+pub const MAX_CLIP_SIZE: u64 = 64 << 20;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClipOffer {
+    pub id: u64,
+    pub mimes: Vec<String>,
+    pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// The body of `clip-pull`, and of `clip-data`, the first frame of the stream that answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClipPull {
+    pub id: u64,
+    pub mime: String,
+}
+
+impl ClipOffer {
+    pub fn is_valid(&self) -> bool {
+        let mimes_ok = (1..=MAX_CLIP_MIMES).contains(&self.mimes.len())
+            && self.mimes.iter().all(|mime| (1..=MAX_MIME_LEN).contains(&mime.len()));
+        let text_ok = self.text.as_ref().is_none_or(|text| {
+            (1..=MAX_SHARE_LEN).contains(&text.len()) && self.mimes.iter().any(|mime| is_text_mime(mime))
+        });
+        mimes_ok && text_ok && self.size <= MAX_CLIP_SIZE
+    }
+}
+
+/// `text/plain`, with or without parameters.
+pub fn is_text_mime(mime: &str) -> bool {
+    mime.split(';').next().is_some_and(|base| base.trim().eq_ignore_ascii_case("text/plain"))
+}
+
 impl RefuseReason {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -304,6 +341,9 @@ pub enum Message {
     Cancel(TransferRef),
     FileDone(FileDone),
     FileData(FileData),
+    ClipOffer(ClipOffer),
+    ClipPull(ClipPull),
+    ClipData(ClipPull),
 }
 
 impl Message {
@@ -322,6 +362,9 @@ impl Message {
             Self::Cancel(_) => "cancel",
             Self::FileDone(_) => "file-done",
             Self::FileData(_) => "file-data",
+            Self::ClipOffer(_) => "clip-offer",
+            Self::ClipPull(_) => "clip-pull",
+            Self::ClipData(_) => "clip-data",
         }
     }
 
@@ -339,6 +382,8 @@ impl Message {
             Self::ResumeAt(body) => Value::serialized(body),
             Self::FileDone(body) => Value::serialized(body),
             Self::FileData(body) => Value::serialized(body),
+            Self::ClipOffer(body) => Value::serialized(body),
+            Self::ClipPull(body) | Self::ClipData(body) => Value::serialized(body),
         }
     }
 
@@ -360,6 +405,9 @@ impl Message {
             "cancel" => Self::Cancel(body.deserialized()?),
             "file-done" => Self::FileDone(body.deserialized()?),
             "file-data" => Self::FileData(body.deserialized()?),
+            "clip-offer" => Self::ClipOffer(body.deserialized()?),
+            "clip-pull" => Self::ClipPull(body.deserialized()?),
+            "clip-data" => Self::ClipData(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -377,6 +425,8 @@ impl Message {
             | Self::Cancel(_)
             | Self::FileDone(_)
             | Self::FileData(_) => true,
+            Self::ClipPull(pull) | Self::ClipData(pull) => (1..=MAX_MIME_LEN).contains(&pull.mime.len()),
+            Self::ClipOffer(offer) => offer.is_valid(),
             Self::Share(share) => share.check().is_ok(),
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),

@@ -15,7 +15,7 @@ use link_core::proto::CloseCode;
 use link_core::proto::message::{self, Share, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::Peer;
-use link_core::transfer::{Source, TransferEvent};
+use link_core::transfer::{LocalClip, Source, TransferEvent};
 use link_core::uri::PairingUri;
 use tokio::sync::{Mutex, mpsc};
 
@@ -86,6 +86,15 @@ pub enum LinkEvent {
         transfer_id: String,
         desktop_id: String,
         files: Vec<OfferedFile>,
+    },
+    /// A desktop's clipboard changed. Set `text` at once when present; pull other types with `pull_clip` when an app
+    /// reads them.
+    ClipOffered {
+        desktop_id: String,
+        clip_id: u64,
+        mimes: Vec<String>,
+        size: u64,
+        text: Option<String>,
     },
     /// At most every 250 ms per transfer.
     TransferProgress {
@@ -237,6 +246,25 @@ impl LinkClient {
         self.run(async move { client.send_files(id, sources).await }).await.map(TransferId::to_hex)
     }
 
+    /// Offers text from the phone's clipboard to every connected desktop, inline.
+    pub async fn offer_clip_text(&self, text: String) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        let clip = LocalClip { mimes: vec!["text/plain;charset=utf-8".to_owned()], text: Some(text), data: None };
+        self.run(async move { client.offer_clip(clip).await }).await
+    }
+
+    /// Writes `mime` of a desktop's clipboard offer into `fd`, which the client takes over (a pipe's write end a
+    /// content provider hands out), and returns the byte count.
+    pub async fn pull_clip(&self, desktop_id: String, clip_id: u64, mime: String, fd: i32) -> Result<u64, LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        if fd < 0 {
+            return Err(LinkError::Rejected { reason: "not a file descriptor".to_owned() });
+        }
+        // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
+        let sink = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        self.run(async move { client.pull_clip(id, clip_id, mime, sink).await }).await
+    }
+
     /// False when the offer no longer waits for an answer.
     pub async fn accept_transfer(&self, transfer_id: String) -> Result<bool, LinkError> {
         let (client, id) = (self.client.clone(), parse_transfer(&transfer_id)?);
@@ -294,6 +322,9 @@ fn transfer_event(event: TransferEvent) -> Option<LinkEvent> {
                 .map(|file| ReceivedFile { path: file.path.to_string_lossy().into_owned(), sha256: hex(&file.sha256) })
                 .collect(),
         },
+        TransferEvent::ClipOffered { from, id, mimes, size, text } => {
+            LinkEvent::ClipOffered { desktop_id: from.to_string(), clip_id: id, mimes, size, text }
+        }
         TransferEvent::Busy { .. } => return None,
     })
 }

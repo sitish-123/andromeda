@@ -12,8 +12,8 @@ use std::time::Duration;
 use link_proto::CloseCode;
 use link_proto::frame::MAX_FRAME;
 use link_proto::message::{
-    Envelope, FileData, FileDone, FileMeta, FileOffset, Message, Offer, OfferReply, RefuseReason, ResumeAt, TransferId,
-    TransferRef,
+    ClipPull, Envelope, FileData, FileDone, FileMeta, FileOffset, Message, Offer, OfferReply, RefuseReason, ResumeAt,
+    TransferId, TransferRef,
 };
 use link_proto::transfer::{Budget, Incoming, MAX_IN_FLIGHT, Outgoing, OutgoingPhase, Overrun};
 use ring::digest;
@@ -27,6 +27,11 @@ use crate::control::{STEP_TIMEOUT, read_frame, write_frame};
 use crate::identity::DeviceId;
 use crate::inbox::{self, Inbox, Part, Record, RecordFile};
 use crate::session::SessionHandle;
+
+mod clip;
+
+use clip::Clips;
+pub use clip::LocalClip;
 
 /// How long the receiver's user has to answer an offer.
 pub const CONSENT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -69,6 +74,8 @@ pub enum TransferEvent {
     Finished { id: TransferId, peer: DeviceId, incoming: bool, status: Status, files: Vec<ReceivedFile> },
     /// Whether any transfer with `peer` is open; a phone keeps its session alive while one is.
     Busy { peer: DeviceId, busy: bool },
+    /// A peer's clipboard changed; pull it with [`TransferHandle::pull_clip`]. `text` is inline, set at once.
+    ClipOffered { from: DeviceId, id: u64, mimes: Vec<String>, size: u64, text: Option<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +100,8 @@ enum Command {
     Send { peer: DeviceId, sources: Vec<Source>, reply: oneshot::Sender<Result<TransferId, Error>> },
     Decide { id: TransferId, accept: bool, reply: oneshot::Sender<bool> },
     Cancel { id: TransferId, reply: oneshot::Sender<bool> },
+    OfferClip { peers: Vec<DeviceId>, clip: LocalClip, reply: oneshot::Sender<Result<(), Error>> },
+    PullClip { peer: DeviceId, id: u64, mime: String, sink: File, reply: oneshot::Sender<Result<u64, Error>> },
 }
 
 #[derive(Clone)]
@@ -125,6 +134,8 @@ enum TaskEnd {
     Header { peer: DeviceId, recv: quinn::RecvStream, header: Result<Envelope, Error> },
     Received { id: TransferId, file: u64, seq: u64, end: Received },
     Sent { id: TransferId, file: u64, seq: u64, result: Result<(), Error> },
+    ClipServed { peer: DeviceId, result: Result<(), Error> },
+    ClipPulled { peer: DeviceId, header: ClipPull, result: Result<(u64, Vec<u8>), Error> },
 }
 
 enum Received {
@@ -162,6 +173,7 @@ pub struct TransferActor {
     ticks: mpsc::Receiver<Tick>,
     next_seq: u64,
     busy: HashSet<DeviceId>,
+    clips: Clips,
 }
 
 /// The caller runs the actor in a task it owns and reads the events.
@@ -181,6 +193,7 @@ pub fn transfers(inbox: Inbox) -> (TransferHandle, TransferActor, mpsc::Unbounde
         ticks,
         next_seq: 0,
         busy: HashSet::new(),
+        clips: Clips::default(),
     };
     actor.restore();
     (TransferHandle(commands_tx), actor, events_rx)
@@ -267,6 +280,17 @@ impl TransferHandle {
         self.request(|reply| Command::Decide { id, accept, reply }).await
     }
 
+    /// Offers `clip` to each of `peers` that has a live session, replacing the previous offer. Nothing is sent when
+    /// the clip is the one last applied from a peer, so a clip never echoes back.
+    pub async fn offer_clip(&self, peers: Vec<DeviceId>, clip: LocalClip) -> Result<(), Error> {
+        self.request(|reply| Command::OfferClip { peers, clip, reply }).await?
+    }
+
+    /// Writes `mime` of `peer`'s clipboard offer `id` into `sink` and returns the byte count.
+    pub async fn pull_clip(&self, peer: DeviceId, id: u64, mime: String, sink: File) -> Result<u64, Error> {
+        self.request(|reply| Command::PullClip { peer, id, mime, sink, reply }).await?
+    }
+
     /// Cancels an open transfer in either direction; false when there is none.
     pub async fn cancel(&self, id: TransferId) -> Result<bool, Error> {
         self.request(|reply| Command::Cancel { id, reply }).await
@@ -319,6 +343,8 @@ impl TransferActor {
             Command::Send { peer, sources, reply } => drop(reply.send(self.start_send(&peer, sources))),
             Command::Decide { id, accept, reply } => drop(reply.send(self.decide(id, accept).await)),
             Command::Cancel { id, reply } => drop(reply.send(self.cancel(id, true).await)),
+            Command::OfferClip { peers, clip, reply } => drop(reply.send(self.offer_clip(&peers, clip).await)),
+            Command::PullClip { peer, id, mime, sink, reply } => self.pull_clip(peer, id, mime, sink, reply).await,
         }
     }
 
@@ -423,6 +449,14 @@ impl TransferActor {
                 Ok(())
             }
             Message::FileDone(done) => self.on_file_done(peer, &done),
+            Message::ClipOffer(offer) => {
+                self.on_clip_offer(peer, offer);
+                Ok(())
+            }
+            Message::ClipPull(pull) => {
+                self.on_clip_pull(peer, &pull);
+                Ok(())
+            }
             other => Err(Error::Unexpected(other.kind())),
         }
     }
@@ -689,6 +723,12 @@ impl TransferActor {
             TaskEnd::Hashed { id, hashes } => self.hashed(id, hashes).await,
             TaskEnd::Header { peer, recv, header } => self.on_header(&peer, recv, header),
             TaskEnd::Received { id, file, seq, end } => self.on_received(id, file, seq, end).await,
+            TaskEnd::ClipServed { peer, result } => {
+                if let Err(error) = result {
+                    log::info!("{peer}: serving the clipboard: {error}");
+                }
+            }
+            TaskEnd::ClipPulled { peer, header, result } => self.clip_pulled(&peer, &header, result),
             TaskEnd::Sent { id, file, seq, result } => {
                 let Some(out) = self.outgoing.get_mut(&id) else { return };
                 if out.running.get(&file).is_some_and(|(_, running)| *running == seq) {
@@ -705,6 +745,7 @@ impl TransferActor {
     fn on_header(&mut self, peer: &DeviceId, mut recv: quinn::RecvStream, header: Result<Envelope, Error>) {
         let header = match header {
             Ok(Envelope { message: Message::FileData(header), .. }) => header,
+            Ok(Envelope { message: Message::ClipData(header), .. }) => return self.on_clip_data(peer, recv, header),
             Err(Error::Timeout) => {
                 drop(recv.stop(PROTOCOL_ERROR));
                 return;
@@ -856,11 +897,12 @@ impl TransferActor {
     fn next_deadline(&self) -> Option<Instant> {
         let incoming = self.incoming.values().filter_map(|incoming| incoming.deadline);
         let outgoing = self.outgoing.values().filter_map(|out| out.deadline);
-        incoming.chain(outgoing).min()
+        incoming.chain(outgoing).chain(self.clips.next_deadline()).min()
     }
 
     /// Unanswered offers: the receiver declines them, the sender gives up.
     async fn deadlines(&mut self) {
+        self.clip_deadlines();
         let now = Instant::now();
         let due = |deadline: Option<Instant>| deadline.is_some_and(|deadline| deadline <= now);
         let unanswered_in: Vec<(TransferId, DeviceId)> = self

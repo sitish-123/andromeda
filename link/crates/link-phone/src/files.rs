@@ -159,6 +159,9 @@ pub fn describe(event: &TransferEvent) -> Value {
             "paths": files.iter().map(|file| file.path.display().to_string()).collect::<Vec<_>>(),
         }),
         TransferEvent::Busy { peer, busy } => json!({ "event": "busy", "desktop": peer, "busy": busy }),
+        TransferEvent::ClipOffered { from, id, mimes, size, text } => json!({
+            "event": "clip-offered", "desktop": from, "clip": id, "mimes": mimes, "size": size, "text": text,
+        }),
     }
 }
 

@@ -23,7 +23,7 @@ pub enum Inbound {
     },
     /// The phone unpaired; only a desktop receives this.
     Unpair,
-    /// An `offer`, `offer-reply`, `resume`, `resume-at`, `cancel`, or `file-done`, for the transfer rules to judge.
+    /// A file transfer or clipboard message, for the transfer actor to judge.
     Transfer(Message),
 }
 
@@ -62,7 +62,9 @@ impl SessionState {
             | Message::Resume(_)
             | Message::ResumeAt(_)
             | Message::Cancel(_)
-            | Message::FileDone(_)) => Ok(Inbound::Transfer(message)),
+            | Message::FileDone(_)
+            | Message::ClipOffer(_)
+            | Message::ClipPull(_)) => Ok(Inbound::Transfer(message)),
             other => Err(SessionError::Unexpected(other.kind())),
         }
     }

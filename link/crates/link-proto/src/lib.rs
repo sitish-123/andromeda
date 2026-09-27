@@ -1,6 +1,7 @@
 //! Link v1 wire protocol, sans-IO: messages, framing, the pairing handshake, and the session rules. See
 //! `link/ARCHITECTURE.md`.
 
+pub mod clip;
 pub mod frame;
 pub mod message;
 pub mod pairing;
