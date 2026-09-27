@@ -11,8 +11,10 @@
 namespace noctalia::theme {
 
   // Runs template hooks concurrently with bounded parallelism. The runner owns no
-  // threads: each hook is spawned through process::runAsync and reports completion
-  // on that call's own thread, which keeps the shared state alive past destruction.
+  // threads: each hook is spawned through process::runAsync, which reports completion
+  // through process::AsyncProcessManager (the shell's main loop, or a caller's own
+  // thread via waitIdle()'s pump when no main loop is driving it). The shared state
+  // stays alive past destruction so a hook's callback always has somewhere to land.
   class HookRunner {
   public:
     static constexpr std::size_t kDefaultMaxConcurrent = 4;

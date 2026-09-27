@@ -3,6 +3,7 @@
 #include "app/deferred_call_poll_source.h"
 #include "app/timer_poll_source.h"
 #include "calendar/calendar_poll_source.h"
+#include "core/process/process_poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
 #include "calendar/calendar_reminder_poll_source.h"
 #include "calendar/calendar_service.h"
@@ -377,6 +378,7 @@ private:
   std::unique_ptr<SystemBusPollSource> m_systemBusPollSource;
   NotificationPollSource m_notificationPollSource{m_notificationManager};
   DeferredCallPollSource m_deferredCallPollSource;
+  ProcessPollSource m_processPollSource{process::AsyncProcessManager::instance()};
   TimePollSource m_timePollSource{m_timeService};
   ConfigPollSource m_configPollSource{m_configService};
   DesktopEntryPollSource m_desktopEntryPollSource;

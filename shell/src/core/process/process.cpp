@@ -1,6 +1,7 @@
 #include "core/process/process.h"
 
 #include "core/log.h"
+#include "core/process/async_process_manager.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
@@ -22,9 +23,9 @@
 #include <string>
 #include <string_view>
 #include <sys/poll.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <system_error>
-#include <thread>
 #include <unistd.h>
 
 namespace {
@@ -797,29 +798,256 @@ namespace process {
     return doubleForkExecDetached(args, nullptr, activationToken, workingDir);
   }
 
-  bool runAsync(const std::vector<std::string>& args, RunCallbacks callbacks, RunOptions options) {
+  struct AsyncProcessManager::Child {
+    pid_t pid = -1;
+    int pidfd = -1;
+    int outFd = -1;
+    int errFd = -1;
+    std::string out;
+    std::string err;
+    bool outTruncated = false;
+    bool errTruncated = false;
+    bool exited = false;
+    int exitCode = -1;
+    std::size_t maxOutputBytes = std::numeric_limits<std::size_t>::max();
+    std::shared_ptr<std::atomic<bool>> cancel;
+    RunCallbacks callbacks;
+    std::optional<std::chrono::steady_clock::time_point> deadline;
+    // Armed once SIGTERM is sent (timeout or cancel): SIGKILL follows if the child outlives it.
+    std::optional<std::chrono::steady_clock::time_point> killAt;
+    bool termSent = false;
+  };
+
+  AsyncProcessManager& AsyncProcessManager::instance() {
+    static AsyncProcessManager manager;
+    return manager;
+  }
+
+  AsyncProcessManager::~AsyncProcessManager() = default;
+
+  bool AsyncProcessManager::start(std::vector<std::string> args, RunCallbacks callbacks, RunOptions options) {
     if (args.empty() || args.front().empty() || !hasAnyCallback(callbacks)) {
       return false;
     }
+    if (!callbacks.onExit) {
+      options.maxOutputBytes = 0;
+    }
 
-    try {
-      std::thread([args, callbacks = std::move(callbacks), options]() mutable {
-        if (!callbacks.onExit) {
-          options.maxOutputBytes = 0;
-        }
-        RunResult result = runSyncProcess(args, options, &callbacks);
-        if (callbacks.onExit) {
-          try {
-            callbacks.onExit(std::move(result));
-          } catch (...) {
-          }
-        }
-      }).detach();
-    } catch (...) {
+    int outPipe[2] = {-1, -1};
+    int errPipe[2] = {-1, -1};
+    if (::pipe(outPipe) != 0) {
+      return false;
+    }
+    if (::pipe(errPipe) != 0) {
+      closePipe(outPipe);
       return false;
     }
 
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+      closePipe(outPipe);
+      closePipe(errPipe);
+      return false;
+    }
+
+    if (pid == 0) {
+      // Lead a new process group so a timeout or cancel can signal the whole tree, matching
+      // runSyncProcess.
+      ::setpgid(0, 0);
+      closeFd(outPipe[0]);
+      closeFd(errPipe[0]);
+      ::dup2(outPipe[1], STDOUT_FILENO);
+      ::dup2(errPipe[1], STDERR_FILENO);
+      closeFd(outPipe[1]);
+      closeFd(errPipe[1]);
+
+      applyEnvOverrides(options.env);
+      std::vector<char*> argv = makeArgv(args);
+
+      ::execvp(argv[0], argv.data());
+      ::_exit(127);
+    }
+
+    ::setpgid(pid, pid);
+    closeFd(outPipe[1]);
+    closeFd(errPipe[1]);
+    (void)setNonBlocking(outPipe[0]);
+    (void)setNonBlocking(errPipe[0]);
+
+    auto child = std::make_unique<Child>();
+    child->pid = pid;
+    // Raw syscall, not glibc's pidfd_open() wrapper: sys/pidfd.h declares it with no extern "C",
+    // so a C++ TU linking against it looks for a mangled symbol libc does not export.
+    // A failed pidfd_open (old kernel, pid already reaped) just falls back to the bounded poll
+    // interval pollTimeoutMs() advertises whenever a child has no pidfd.
+    child->pidfd = static_cast<int>(::syscall(SYS_pidfd_open, pid, 0U));
+    child->outFd = outPipe[0];
+    child->errFd = errPipe[0];
+    child->maxOutputBytes = options.maxOutputBytes;
+    child->cancel = options.cancel;
+    child->callbacks = std::move(callbacks);
+    if (options.timeout.has_value()) {
+      child->deadline = std::chrono::steady_clock::now() + std::max(*options.timeout, std::chrono::milliseconds(0));
+    }
+    {
+      std::scoped_lock lock(m_mutex);
+      m_children.push_back(std::move(child));
+    }
     return true;
+  }
+
+  int AsyncProcessManager::pollTimeoutMs() const {
+    std::scoped_lock lock(m_mutex);
+    if (m_children.empty()) {
+      return -1;
+    }
+
+    bool boundedPoll = false;
+    std::optional<std::chrono::steady_clock::time_point> earliest;
+    for (const auto& child : m_children) {
+      if (child->pidfd < 0) {
+        // No fd tells us when this one exits; must keep checking.
+        boundedPoll = true;
+      }
+      if (child->cancel) {
+        // The cancel flag has no fd either.
+        boundedPoll = true;
+      }
+      if (child->deadline.has_value() && (!earliest.has_value() || *child->deadline < *earliest)) {
+        earliest = child->deadline;
+      }
+      if (child->killAt.has_value() && (!earliest.has_value() || *child->killAt < *earliest)) {
+        earliest = child->killAt;
+      }
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (earliest.has_value()) {
+      if (now >= *earliest) {
+        return 0;
+      }
+      auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(*earliest - now);
+      if (boundedPoll) {
+        remaining = std::min(remaining, kProcessPollInterval);
+      }
+      return static_cast<int>(std::max(remaining, std::chrono::milliseconds(0)).count());
+    }
+    return boundedPoll ? static_cast<int>(kProcessPollInterval.count()) : -1;
+  }
+
+  void AsyncProcessManager::addPollFds(std::vector<pollfd>& fds) {
+    std::scoped_lock lock(m_mutex);
+    for (auto& child : m_children) {
+      if (child->pidfd >= 0) {
+        fds.push_back(pollfd{.fd = child->pidfd, .events = POLLIN, .revents = 0});
+      }
+      if (child->outFd >= 0) {
+        fds.push_back(pollfd{.fd = child->outFd, .events = POLLIN, .revents = 0});
+      }
+      if (child->errFd >= 0) {
+        fds.push_back(pollfd{.fd = child->errFd, .events = POLLIN, .revents = 0});
+      }
+    }
+  }
+
+  // Callbacks run with no lock held: onExit is arbitrary caller code and may itself call
+  // process::runAsync, which would deadlock re-entering m_mutex on this same thread.
+  void AsyncProcessManager::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*startIdx*/) {
+    struct FinishedChild {
+      RunCallbacks callbacks;
+      RunResult result;
+    };
+    std::vector<FinishedChild> finished;
+
+    {
+      std::scoped_lock lock(m_mutex);
+      const auto now = std::chrono::steady_clock::now();
+
+      for (auto it = m_children.begin(); it != m_children.end();) {
+        Child& child = **it;
+        const auto* stdOutCallback = &child.callbacks.stdOut;
+        const auto* stdErrCallback = &child.callbacks.stdErr;
+
+        // Safe to call even when nothing is ready: a non-blocking read just returns EAGAIN.
+        drainAvailable(child.outFd, child.out, child.maxOutputBytes, &child.outTruncated, stdOutCallback);
+        drainAvailable(child.errFd, child.err, child.maxOutputBytes, &child.errTruncated, stdErrCallback);
+
+        if (!child.exited) {
+          child.exited = waitNoHang(child.pid, child.exitCode);
+        }
+
+        bool timedOut = child.termSent;
+        if (!child.exited && !timedOut && child.deadline.has_value() && now >= *child.deadline) {
+          timedOut = true;
+        }
+        if (!child.exited && !timedOut && child.cancel != nullptr && child.cancel->load(std::memory_order_relaxed)) {
+          timedOut = true;
+        }
+
+        if (!child.exited && timedOut && !child.termSent) {
+          ::kill(-child.pid, SIGTERM);
+          ::kill(child.pid, SIGTERM);
+          child.termSent = true;
+          child.killAt = now + std::chrono::milliseconds(100);
+          child.exited = waitNoHang(child.pid, child.exitCode);
+        } else if (!child.exited && child.termSent && child.killAt.has_value() && now >= *child.killAt) {
+          ::kill(-child.pid, SIGKILL);
+          ::kill(child.pid, SIGKILL);
+          child.exited = waitNoHang(child.pid, child.exitCode);
+          if (!child.exited) {
+            // Still not reaped; give the kernel a little longer rather than spin.
+            child.killAt = now + std::chrono::milliseconds(50);
+          }
+        }
+
+        if (!child.exited) {
+          ++it;
+          continue;
+        }
+
+        // Final drain: the last bytes may have arrived exactly at exit.
+        drainAvailable(child.outFd, child.out, child.maxOutputBytes, &child.outTruncated, stdOutCallback);
+        drainAvailable(child.errFd, child.err, child.maxOutputBytes, &child.errTruncated, stdErrCallback);
+        closeFd(child.outFd);
+        closeFd(child.errFd);
+        closeFd(child.pidfd);
+
+        trimTrailingLineEndings(child.out);
+        trimTrailingLineEndings(child.err);
+        if (child.callbacks.onExit) {
+          finished.push_back(FinishedChild{
+              std::move(child.callbacks),
+              RunResult{
+                  child.exitCode, std::move(child.out), std::move(child.err), timedOut, child.outTruncated,
+                  child.errTruncated
+              }
+          });
+        }
+        it = m_children.erase(it);
+      }
+    }
+
+    for (auto& item : finished) {
+      try {
+        item.callbacks.onExit(std::move(item.result));
+      } catch (...) {
+      }
+    }
+  }
+
+  void AsyncProcessManager::pumpOnce(std::chrono::milliseconds timeout) {
+    std::vector<pollfd> fds;
+    addPollFds(fds);
+    int waitMs = pollTimeoutMs();
+    if (waitMs < 0 || waitMs > static_cast<int>(timeout.count())) {
+      waitMs = static_cast<int>(timeout.count());
+    }
+    ::poll(fds.empty() ? nullptr : fds.data(), fds.size(), waitMs);
+    dispatch(fds, 0);
+  }
+
+  bool runAsync(const std::vector<std::string>& args, RunCallbacks callbacks, RunOptions options) {
+    return AsyncProcessManager::instance().start(args, std::move(callbacks), std::move(options));
   }
 
   bool runAsync(std::initializer_list<const char*> args) {

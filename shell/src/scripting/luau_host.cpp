@@ -2374,8 +2374,8 @@ bool LuauHost::startStream(std::string command, int callbackRef) {
   auto buffer = std::make_shared<std::string>();
 
   process::RunCallbacks callbacks;
-  // Runs on the process worker thread: split chunks into lines and marshal each
-  // back to the runtime thread (the handler enqueues into the runtime mailbox).
+  // Runs on the main loop's thread (process::AsyncProcessManager): split chunks into lines and
+  // marshal each back to the runtime thread (the handler enqueues into the runtime mailbox).
   callbacks.stdOut = [hostId, callbackRef, handler, buffer](std::string_view chunk) {
     buffer->append(chunk);
     std::size_t pos = 0;

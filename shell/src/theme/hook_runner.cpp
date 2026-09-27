@@ -1,8 +1,10 @@
 #include "theme/hook_runner.h"
 
 #include "core/log.h"
+#include "core/process/async_process_manager.h"
 #include "core/process/process.h"
 
+#include <chrono>
 #include <utility>
 
 namespace noctalia::theme {
@@ -11,6 +13,23 @@ namespace noctalia::theme {
     constexpr Logger kLog("hook_runner");
     // Hook output is only read back for the failure warning.
     constexpr std::size_t kMaxHookOutputBytes = 8 * 1024;
+
+    // A hook's onExit only runs once something dispatches process::AsyncProcessManager: the app's
+    // main loop, if one is running, or this pump if a wait here has no main loop of its own to
+    // rely on (a test, or shutdown after the loop has stopped). Cheap and correct either way: if
+    // the main loop already reaped it, this is just an extra no-op lock/unlock pass.
+    template <typename Predicate>
+    void waitPumping(std::unique_lock<std::mutex>& lock, std::condition_variable& cv, Predicate predicate) {
+      while (!predicate()) {
+        lock.unlock();
+        process::AsyncProcessManager::instance().pumpOnce(std::chrono::milliseconds(20));
+        lock.lock();
+        if (predicate()) {
+          return;
+        }
+        cv.wait_for(lock, std::chrono::milliseconds(20));
+      }
+    }
   } // namespace
 
   HookRunner::HookRunner(std::size_t maxConcurrent) : m_state(std::make_shared<State>()) {
@@ -22,7 +41,7 @@ namespace noctalia::theme {
     std::unique_lock lock(m_state->mutex);
     // Hooks that already started own the shared state; wait them out instead of
     // killing a command halfway through rewriting an application's config.
-    m_state->idleCv.wait(lock, [this]() { return m_state->running == 0; });
+    waitPumping(lock, m_state->idleCv, [this]() { return m_state->running == 0; });
   }
 
   void HookRunner::requestShutdown() {
@@ -62,7 +81,7 @@ namespace noctalia::theme {
 
   void HookRunner::waitIdle() {
     std::unique_lock lock(m_state->mutex);
-    m_state->idleCv.wait(lock, [this]() {
+    waitPumping(lock, m_state->idleCv, [this]() {
       return m_state->shutdown || (m_state->queue.empty() && m_state->running == 0);
     });
   }

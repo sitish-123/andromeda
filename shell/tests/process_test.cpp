@@ -1,3 +1,4 @@
+#include "core/process/async_process_manager.h"
 #include "core/process/process.h"
 
 #include <chrono>
@@ -23,6 +24,22 @@ namespace {
       std::println(stderr, "process_test: {}", message);
     }
     return condition;
+  }
+
+  // This test has no main loop pumping process::AsyncProcessManager, so it has to spend its own
+  // thread's time doing that (the shell's main loop does this for every production caller).
+  template <typename Predicate>
+  bool waitPumping(std::unique_lock<std::mutex>& lock, std::chrono::milliseconds timeout, Predicate predicate) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!predicate()) {
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
+      }
+      lock.unlock();
+      process::AsyncProcessManager::instance().pumpOnce(std::chrono::milliseconds(20));
+      lock.lock();
+    }
+    return true;
   }
 
   std::string shellQuote(const std::string& value) {
@@ -74,7 +91,7 @@ namespace {
 
     std::unique_lock lock(mutex);
     bool ok = expect(
-        cv.wait_for(lock, std::chrono::seconds(5), [&] { return completed; }), "captured async command did not complete"
+        waitPumping(lock, std::chrono::seconds(5), [&] { return completed; }), "captured async command did not complete"
     );
     ok = expect(result.has_value(), "captured async command did not provide a result") && ok;
     ok = expect(stdOut == "abcdef", "stdout callback did not receive full output") && ok;
@@ -111,7 +128,7 @@ namespace {
 
     std::unique_lock lock(mutex);
     bool ok = expect(
-        cv.wait_for(lock, std::chrono::seconds(5), [&] { return completed; }),
+        waitPumping(lock, std::chrono::seconds(5), [&] { return completed; }),
         "completion-only async command did not complete"
     );
     ok = expect(result.has_value(), "completion-only async command did not provide a result") && ok;
