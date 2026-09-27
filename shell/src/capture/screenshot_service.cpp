@@ -855,6 +855,7 @@ void ScreenshotService::captureFullscreenInteractive(RenderContext& renderContex
 }
 
 void ScreenshotService::beginRegionCapture(RenderContext& renderContext, const OutputOptions& options) {
+  m_regionPick = {};
   if (!available()) {
     notifyError("Screen capture is not available on this compositor");
     return;
@@ -886,7 +887,25 @@ void ScreenshotService::beginRegionCapture(RenderContext& renderContext, const O
   startRegionOverlay(renderContext);
 }
 
+void ScreenshotService::pickRegion(
+    RenderContext& renderContext, std::function<void(std::optional<LogicalRect>)> onPicked
+) {
+  if (m_annotationOverlay != nullptr && m_annotationOverlay->isActive()) {
+    onPicked(std::nullopt);
+    return;
+  }
+  if (m_regionOverlay != nullptr && m_regionOverlay->isActive()) {
+    m_regionOverlay->cancel();
+  }
+  m_regionOutputOptions = {};
+  m_regionRenderContext = &renderContext;
+  m_regionFullscreenPick = false;
+  m_regionPick = std::move(onPicked);
+  startRegionOverlay(renderContext);
+}
+
 void ScreenshotService::beginFullscreenCapture(RenderContext& renderContext, const OutputOptions& options) {
+  m_regionPick = {};
   if (!available()) {
     notifyError("Screen capture is not available on this compositor");
     return;
@@ -939,6 +958,10 @@ void ScreenshotService::ensureRegionOverlay() {
 
   m_regionOverlay->setCompleteCallback(
       [this](std::optional<LogicalRect> region, wl_output* output, capture::ConfirmAction action) {
+        if (m_regionPick) {
+          std::exchange(m_regionPick, {})(region);
+          return;
+        }
         if (!region.has_value()) {
           if (m_regionOverlay != nullptr) {
             if (auto abandoned = m_regionOverlay->takeAbandonedRegion();

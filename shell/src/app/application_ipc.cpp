@@ -102,6 +102,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
 #include <malloc.h>
@@ -154,6 +155,35 @@ void Application::initIpc() {
     }
     const std::string error = m_screenRecorder->toggle();
     return error.empty() ? "ok\n" : "error: " + error + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::screenRecordRegion, [this](const std::string& args) -> std::string {
+    if (m_screenRecorder == nullptr) {
+      return "error: no session bus\n";
+    }
+    if (m_screenRecorder->active()) {
+      const std::string error = m_screenRecorder->toggle();
+      return error.empty() ? "ok\n" : "error: " + error + "\n";
+    }
+    if (const std::string geometry = StringUtils::trim(args); !geometry.empty()) {
+      LogicalRect region;
+      if (std::sscanf(geometry.c_str(), "%d,%d %dx%d", &region.x, &region.y, &region.width, &region.height) != 4
+          || region.width < 2
+          || region.height < 2) {
+        return "error: geometry must be \"X,Y WxH\"\n";
+      }
+      const std::string error = m_screenRecorder->toggle(region);
+      return error.empty() ? "ok\n" : "error: " + error + "\n";
+    }
+    auto* renderContext = PanelManager::instance().renderContext();
+    if (renderContext == nullptr) {
+      return "error: render context unavailable\n";
+    }
+    m_screenshotService.pickRegion(*renderContext, [this](std::optional<LogicalRect> region) {
+      if (region.has_value() && m_screenRecorder != nullptr && !m_screenRecorder->active()) {
+        m_screenRecorder->toggle(region);
+      }
+    });
+    return "ok\n";
   });
   m_ipcService.bind(noctalia::cli::msg::screenRecordStatus, [this](const std::string&) -> std::string {
     return m_screenRecorder != nullptr && m_screenRecorder->active() ? "on\n" : "off\n";

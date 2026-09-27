@@ -175,6 +175,9 @@ namespace noctalia::cli {
       Positional{"app-id", {}, {}, true, false, false},
       Positional{"shortcut-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array kMsgScreenRecordRegionPositionals{
+      Positional{"geometry", "X,Y WxH in global logical pixels", {}, false, false, true},
+  };
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
@@ -799,6 +802,10 @@ namespace noctalia::cli {
     inline constexpr Command screenRecordStatus{
         "screen-record-status", "Print whether a screen recording is running", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command screenRecordRegion{
+        "screen-record-region", "Record a region picked on screen, or given as \"X,Y WxH\"; stops a recording", {},
+        {}, {}, kMsgScreenRecordRegionPositionals, {}, false
+    };
     inline constexpr Command screenRecordToggle{
         "screen-record-toggle", "Start a screen recording to ~/Videos, or stop and save it", {}, {}, {}, {}, {}, false
     };
@@ -963,6 +970,7 @@ namespace noctalia::cli {
       msg::powerCycle,
       msg::powerSet,
       msg::screenRecordStatus,
+      msg::screenRecordRegion,
       msg::screenRecordToggle,
       msg::screenshotAnnotate,
       msg::screenshotFullscreen,

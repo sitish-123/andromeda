@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -36,10 +37,47 @@ namespace {
   constexpr auto kEncode =
       " ! queue ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah264enc ! h264parse ! queue ! mux."
       " mp4mux name=mux ! filesink location=\"{}\"";
+  // A region is cut out of a system-memory copy: vapostproc ignores crop metadata on VA surfaces.
+  constexpr auto kCrop = " ! queue ! vapostproc ! video/x-raw,format=NV12 ! videocrop name=crop";
+  constexpr int kTestSourceWidth = 1280;
+  constexpr int kTestSourceHeight = 720;
   // The default output's monitor: what the user hears.
   constexpr auto kDesktopAudio =
       " pipewiresrc stream-properties=\"props,stream.capture.sink=true,node.name=noctalia-recorder\" do-timestamp=true"
       " ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux.";
+
+  // Sets the crop in buffer pixels once the stream's size is known; data is the recorder's CropGeometry.
+  GstPadProbeReturn onCropCaps(GstPad* pad, GstPadProbeInfo* info, gpointer data) {
+    GstEvent* event = GST_PAD_PROBE_INFO_EVENT(info);
+    if (GST_EVENT_TYPE(event) != GST_EVENT_CAPS) {
+      return GST_PAD_PROBE_OK;
+    }
+    const auto& geometry = *static_cast<const CropGeometry*>(data);
+    GstCaps* caps = nullptr;
+    gst_event_parse_caps(event, &caps);
+    int width = 0;
+    int height = 0;
+    const GstStructure* structure = gst_caps_get_structure(caps, 0);
+    if (!gst_structure_get_int(structure, "width", &width)
+        || !gst_structure_get_int(structure, "height", &height)
+        || geometry.stream.width <= 0
+        || geometry.stream.height <= 0) {
+      return GST_PAD_PROBE_OK;
+    }
+    // Logical to buffer pixels, rounded to even: NV12 chroma is subsampled 2x2.
+    const double sx = static_cast<double>(width) / geometry.stream.width;
+    const double sy = static_cast<double>(height) / geometry.stream.height;
+    const auto even = [](double value) { return static_cast<int>(std::lround(value / 2.0)) * 2; };
+    const LogicalRect& r = geometry.region;
+    const int left = std::clamp(even(r.x * sx), 0, width - 2);
+    const int top = std::clamp(even(r.y * sy), 0, height - 2);
+    const int right = std::clamp(width - even((r.x + r.width) * sx), 0, width - left - 2);
+    const int bottom = std::clamp(height - even((r.y + r.height) * sy), 0, height - top - 2);
+    GstElement* crop = gst_pad_get_parent_element(pad);
+    g_object_set(crop, "left", left, "top", top, "right", right, "bottom", bottom, nullptr);
+    gst_object_unref(crop);
+    return GST_PAD_PROBE_OK;
+  }
 
   std::filesystem::path videosDir() {
     const char* dir = g_get_user_special_dir(G_USER_DIRECTORY_VIDEOS);
@@ -72,7 +110,7 @@ ScreenRecorder::~ScreenRecorder() {
   closePortalSession();
 }
 
-std::string ScreenRecorder::toggle() {
+std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
   switch (m_state) {
   case State::Starting:
     return "a recording is starting";
@@ -91,9 +129,14 @@ std::string ScreenRecorder::toggle() {
     gst_init(nullptr, nullptr);
   }
   m_state = State::Starting;
+  m_region = region;
   if (std::getenv("NOCTALIA_RECORD_TEST_SOURCE") != nullptr) {
+    m_crop.stream = {.x = 0, .y = 0, .width = kTestSourceWidth, .height = kTestSourceHeight};
     startPipeline([]() {
-      return std::string("videotestsrc is-live=true ! video/x-raw,width=1280,height=720,framerate=30/1");
+      return std::format(
+          "videotestsrc is-live=true pattern=smpte ! video/x-raw,width={},height={},framerate=30/1", kTestSourceWidth,
+          kTestSourceHeight
+      );
     });
     return m_state == State::Recording ? std::string{} : std::string("the recording pipeline did not start");
   }
@@ -202,6 +245,18 @@ void ScreenRecorder::startCast() {
           finish("the portal returned no stream");
           return;
         }
+        const Results& properties = std::get<1>(list.front());
+        m_crop.stream = {};
+        if (const auto size = properties.find("size"); size != properties.end()) {
+          const auto [width, height] = size->second.get<sdbus::Struct<std::int32_t, std::int32_t>>();
+          m_crop.stream.width = width;
+          m_crop.stream.height = height;
+        }
+        if (const auto position = properties.find("position"); position != properties.end()) {
+          const auto [x, y] = position->second.get<sdbus::Struct<std::int32_t, std::int32_t>>();
+          m_crop.stream.x = x;
+          m_crop.stream.y = y;
+        }
         try {
           sdbus::UnixFd fd;
           m_portal->callMethod("OpenPipeWireRemote")
@@ -232,8 +287,21 @@ void ScreenRecorder::startCast() {
 }
 
 void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
+  if (m_region.has_value()) {
+    const int left = std::max(m_region->x, m_crop.stream.x);
+    const int top = std::max(m_region->y, m_crop.stream.y);
+    const int right = std::min(m_region->x + m_region->width, m_crop.stream.x + m_crop.stream.width);
+    const int bottom = std::min(m_region->y + m_region->height, m_crop.stream.y + m_crop.stream.height);
+    if (right - left < 2 || bottom - top < 2) {
+      finish("the region is not on the recorded display");
+      return;
+    }
+    m_crop.region = {
+        .x = left - m_crop.stream.x, .y = top - m_crop.stream.y, .width = right - left, .height = bottom - top
+    };
+  }
   m_path = recordingPath();
-  const auto video = [&]() { return source() + std::format(kEncode, m_path); };
+  const auto video = [&]() { return source() + (m_region.has_value() ? kCrop : "") + std::format(kEncode, m_path); };
   std::string error = launch(video() + kDesktopAudio);
   const bool withAudio = error.empty();
   if (!withAudio) {
@@ -267,6 +335,12 @@ std::string ScreenRecorder::launch(const std::string& description) {
     return "the encoder did not start";
   }
   m_pipeline = pipeline;
+  if (GstElement* crop = gst_bin_get_by_name(GST_BIN(m_pipeline), "crop"); crop != nullptr) {
+    GstPad* pad = gst_element_get_static_pad(crop, "sink");
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, onCropCaps, &m_crop, nullptr);
+    gst_object_unref(pad);
+    gst_object_unref(crop);
+  }
   m_gstBus = gst_element_get_bus(m_pipeline);
   GPollFD pollFd{};
   gst_bus_get_pollfd(m_gstBus, &pollFd);

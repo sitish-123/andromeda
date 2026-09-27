@@ -53,6 +53,8 @@ public:
   void captureFullscreen(const OutputOptions& options, wl_output* output = nullptr);
   void captureFullscreenInteractive(RenderContext& renderContext, const OutputOptions& options);
   void beginRegionCapture(RenderContext& renderContext, const OutputOptions& options);
+  // The region overlay over the live desktop, for other features: onPicked gets the selection, or nothing if cancelled.
+  void pickRegion(RenderContext& renderContext, std::function<void(std::optional<LogicalRect>)> onPicked);
   void beginFullscreenCapture(RenderContext& renderContext, const OutputOptions& options);
   // freezeFirst selects the frozen annotator (screenshot-annotate); otherwise the overlay
   // starts transparent over the running desktop (annotate).
@@ -194,6 +196,7 @@ private:
   std::unique_ptr<AllOutputsBatch> m_allOutputsBatch;
   std::unique_ptr<GlobalRegionBatch> m_globalRegionBatch;
   OutputOptions m_regionOutputOptions{};
+  std::function<void(std::optional<LogicalRect>)> m_regionPick;
   RenderContext* m_regionRenderContext = nullptr;
   bool m_regionFullscreenPick = false;
   std::vector<capture::FrozenScreenshot> m_frozenScreenshots;

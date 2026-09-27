@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/poll_source.h"
+#include "capture/screencopy_capture.h"
 
 #include <chrono>
 #include <cstdint>
@@ -22,6 +23,12 @@ typedef struct _GstBus GstBus;
 // the GPU through VA-API with GStreamer: pipewiresrc, vapostproc, vah264enc, mp4mux. Audio is the default output's
 // monitor through fdkaacenc; if PipeWire refuses it, the recording is video only. NOCTALIA_RECORD_TEST_SOURCE swaps
 // the portal for videotestsrc so tests exercise encode and save without a portal.
+// A region recording's stream in the global logical space, and the region clipped to it, relative to it.
+struct CropGeometry {
+  LogicalRect stream;
+  LogicalRect region;
+};
+
 class ScreenRecorder final : public PollSource {
 public:
   ScreenRecorder(SessionBus& bus, NotificationManager& notifications);
@@ -31,8 +38,9 @@ public:
   ScreenRecorder& operator=(const ScreenRecorder&) = delete;
 
   [[nodiscard]] bool active() const { return m_state != State::Idle; }
-  // Starts a recording, or stops and saves the current one. Returns an error message, empty on success.
-  std::string toggle();
+  // Starts a recording of the whole display, or of region (global logical coordinates) on it, or stops and saves the
+  // current one. Returns an error message, empty on success.
+  std::string toggle(std::optional<LogicalRect> region = std::nullopt);
 
   [[nodiscard]] int pollTimeoutMs() const override;
   void dispatch(const std::vector<pollfd>& fds, std::size_t startIdx) override;
@@ -69,5 +77,7 @@ private:
   GstBus* m_gstBus = nullptr;
   int m_busFd = -1;
   std::string m_path;
+  std::optional<LogicalRect> m_region;
+  CropGeometry m_crop;
   std::optional<std::chrono::steady_clock::time_point> m_stopDeadline;
 };
