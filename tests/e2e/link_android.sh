@@ -5,7 +5,8 @@
 # Android through the share target arrive as D-Bus Received; text and a link sent with D-Bus Share post Android
 # notifications, and tapping the text's (its Copy PendingIntent) clears it; leaving the app ends presence (D-Bus shows it
 # disconnected) and returning restores it; "Stay connected" keeps it connected in the background with its
-# foreground-service notification, which goes away when turned off; a file shared from the Files app through the share
+# foreground-service notification, which goes away when turned off; `dumpsys battery set level 42` shows as 42% in
+# D-Bus DeviceStatus; a file shared from the Files app through the share
 # target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from the Android
 # notification lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and Display over
 # other apps granted over adb, a copy in Settings reaches the desktop with no tap, a desktop clip is set on the phone
@@ -94,6 +95,14 @@ wait_for 20 "D-Bus does not show the emulator connected: $(devices)" connected
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 NAME=$(devices | sed -E "s/.*'[0-9a-f]{32}', '([^']*)'.*/\1/")
 record "{\"step\":\"paired-and-connected\",\"device\":\"$ID\",\"name\":\"$NAME\"}"
+
+status() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 DeviceStatus; }
+wait_for 20 "the app never reported its status: $(status)" eval 'status | grep -q "$ID"'
+adb shell dumpsys battery unplug
+adb shell dumpsys battery set level 42
+wait_for 20 "DeviceStatus never showed 42%: $(status)" eval 'status | grep -qF "(uint32 42, false,"'
+adb shell dumpsys battery reset
+record "{\"step\":\"battery-status\",\"status\":\"$(status | grep -o "(uint32 [^)]*)")\"}"
 
 adb shell am start -W -n "$PACKAGE/.share.ShareActivity" -a android.intent.action.SEND -t text/plain \
   --es android.intent.extra.TEXT "'hello from android'" > /dev/null

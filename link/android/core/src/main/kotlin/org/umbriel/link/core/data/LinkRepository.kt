@@ -70,6 +70,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     /** Desktop clipboards, as they change. */
     val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
 
+    /** The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show. */
+    suspend fun setStatus(battery: Int, charging: Boolean, network: String): Result<Unit> =
+        call { it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network) }
+
     /** Offers text from this phone's clipboard to every connected desktop. */
     suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
 

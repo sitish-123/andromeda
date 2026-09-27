@@ -19,6 +19,7 @@ import org.umbriel.link.notifications.Channels
 import org.umbriel.link.notifications.ShareNotifier
 import org.umbriel.link.notifications.TransferNotifier
 import org.umbriel.link.presence.Presence
+import org.umbriel.link.presence.StatusReporter
 import org.umbriel.link.transfer.TransferService
 
 class LinkApplication : Application() {
@@ -41,11 +42,13 @@ class AppContainer(private val application: Application) {
     val presence = Presence(application, repository, scope)
     val clipboard = ClipboardSync(application, repository, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
+    private val status = StatusReporter(application, repository, scope)
 
     fun start() {
         Channels.create(application)
         presence.start()
         clipboard.start()
+        status.start()
         scope.launch { repository.incoming.collect(notifier::post) }
         scope.launch { repository.transfers.collect(transferNotifier::post) }
         scope.launch {
