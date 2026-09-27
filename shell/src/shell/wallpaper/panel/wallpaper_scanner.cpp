@@ -149,7 +149,6 @@ WallpaperScanner::WallpaperScanner() {
   if (m_eventFd < 0) {
     kLog.warn("failed to create eventfd; wallpaper scans will not wake the loop");
   }
-  m_worker = std::thread([this]() { workerLoop(); });
 }
 
 WallpaperScanner::~WallpaperScanner() {
@@ -158,9 +157,7 @@ WallpaperScanner::~WallpaperScanner() {
     m_shutdown.store(true);
   }
   m_queueCv.notify_all();
-  if (m_worker.joinable()) {
-    m_worker.join();
-  }
+  m_worker.joinAll();
   if (m_eventFd >= 0) {
     ::close(m_eventFd);
     m_eventFd = -1;
@@ -197,6 +194,7 @@ bool WallpaperScanner::requestScan(const std::filesystem::path& dir, bool flatte
   {
     std::scoped_lock lock(m_queueMutex);
     m_jobQueue.push_back(Job{.dir = key.dir, .flatten = flatten, .dirMtime = mtime});
+    m_worker.spawn([this](std::size_t slot) { workerLoop(slot); });
   }
   m_queueCv.notify_one();
   return false;
@@ -264,12 +262,17 @@ void WallpaperScanner::signalMain() {
   }
 }
 
-void WallpaperScanner::workerLoop() {
+void WallpaperScanner::workerLoop(std::size_t slot) {
   while (true) {
     Job job;
     {
       std::unique_lock<std::mutex> lock(m_queueMutex);
-      m_queueCv.wait(lock, [this]() { return m_shutdown.load() || !m_jobQueue.empty(); });
+      if (!m_queueCv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this]() {
+            return m_shutdown.load() || !m_jobQueue.empty();
+          })) {
+        m_worker.exited(slot);
+        return;
+      }
       if (m_shutdown.load()) {
         return;
       }

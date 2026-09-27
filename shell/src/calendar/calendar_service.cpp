@@ -10,6 +10,7 @@
 #include "calendar/vdir_reader.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
+#include "core/idle_worker_slots.h"
 #include "core/log.h"
 #include "i18n/i18n.h"
 #include "net/http_client.h"
@@ -27,6 +28,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <sodium.h>
+#include <stop_token>
 #include <thread>
 #include <unordered_set>
 
@@ -115,7 +117,7 @@ struct CalendarService::VdirWorker : std::enable_shared_from_this<CalendarServic
         callback;
   };
 
-  VdirWorker() : worker([this](std::stop_token stopToken) { workerLoop(stopToken); }) {}
+  VdirWorker() = default;
   ~VdirWorker() { stop(); }
 
   bool enqueue(Request request) {
@@ -125,6 +127,7 @@ struct CalendarService::VdirWorker : std::enable_shared_from_this<CalendarServic
         return false;
       }
       requests.push_back(std::move(request));
+      slots.spawn([this](std::size_t slot) { workerLoop(slot, stopSource.get_token()); });
     }
     cv.notify_one();
     return true;
@@ -146,16 +149,14 @@ struct CalendarService::VdirWorker : std::enable_shared_from_this<CalendarServic
   }
 
   void stop() {
-    worker.request_stop();
+    stopSource.request_stop();
     {
       std::scoped_lock lock(mutex);
       stopping = true;
       requests.clear();
     }
-    cv.notify_one();
-    if (worker.joinable()) {
-      worker.join();
-    }
+    cv.notify_all();
+    slots.joinAll();
   }
 
 private:
@@ -164,12 +165,17 @@ private:
     return !stopping;
   }
 
-  void workerLoop(std::stop_token stopToken) {
+  void workerLoop(std::size_t slot, std::stop_token stopToken) {
     while (true) {
       Request request;
       {
         std::unique_lock lock(mutex);
-        cv.wait(lock, [this, &stopToken]() { return stopping || stopToken.stop_requested() || !requests.empty(); });
+        if (!cv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this, &stopToken]() {
+              return stopping || stopToken.stop_requested() || !requests.empty();
+            })) {
+          slots.exited(slot);
+          return;
+        }
         if (stopping || stopToken.stop_requested()) {
           return;
         }
@@ -246,7 +252,8 @@ private:
   std::condition_variable cv;
   std::deque<Request> requests;
   bool stopping = false;
-  std::jthread worker;
+  std::stop_source stopSource;
+  IdleWorkerSlots slots{1};
 };
 
 CalendarService::CalendarService(

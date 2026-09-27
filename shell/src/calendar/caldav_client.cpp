@@ -2,6 +2,7 @@
 
 #include "calendar/ical_parser.h"
 #include "core/deferred_call.h"
+#include "core/idle_worker_slots.h"
 #include "core/log.h"
 #include "time/time_format.h"
 
@@ -11,7 +12,7 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <mutex>
-#include <thread>
+#include <stop_token>
 #include <utility>
 
 namespace calendar {
@@ -76,7 +77,7 @@ namespace calendar {
       EventCallback callback;
     };
 
-    State() : worker([this](std::stop_token stopToken) { workerLoop(stopToken); }) {}
+    State() = default;
 
     ~State() { stop(); }
 
@@ -87,6 +88,7 @@ namespace calendar {
           return false;
         }
         requests.push_back(std::move(request));
+        slots.spawn([this](std::size_t slot) { workerLoop(slot, stopSource.get_token()); });
       }
       cv.notify_one();
       return true;
@@ -104,16 +106,14 @@ namespace calendar {
     }
 
     void stop() {
-      worker.request_stop();
+      stopSource.request_stop();
       {
         std::scoped_lock lock(mutex);
         stopping = true;
         requests.clear();
       }
-      cv.notify_one();
-      if (worker.joinable()) {
-        worker.join();
-      }
+      cv.notify_all();
+      slots.joinAll();
     }
 
   private:
@@ -157,12 +157,15 @@ namespace calendar {
       return {true, std::move(events)};
     }
 
-    void workerLoop(std::stop_token stopToken) {
+    void workerLoop(std::size_t slot, std::stop_token stopToken) {
       while (true) {
         ParseRequest request;
         {
           std::unique_lock lock(mutex);
-          cv.wait(lock, [this]() { return stopping || !requests.empty(); });
+          if (!cv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this]() { return stopping || !requests.empty(); })) {
+            slots.exited(slot);
+            return;
+          }
           if (stopping) {
             return;
           }
@@ -182,7 +185,8 @@ namespace calendar {
     std::condition_variable cv;
     std::deque<ParseRequest> requests;
     bool stopping = false;
-    std::jthread worker;
+    std::stop_source stopSource;
+    IdleWorkerSlots slots{1};
   };
 
   CalDavClient::CalDavClient(HttpClient& http)

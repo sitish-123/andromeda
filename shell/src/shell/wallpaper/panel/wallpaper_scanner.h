@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/poll_source.h"
+#include "core/idle_worker_slots.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -10,7 +11,6 @@
 #include <functional>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -88,11 +88,11 @@ private:
     std::filesystem::file_time_type dirMtime;
   };
 
-  void workerLoop();
+  void workerLoop(std::size_t slot);
   void signalMain();
 
   int m_eventFd = -1;
-  std::thread m_worker;
+  IdleWorkerSlots m_worker{1};
   std::atomic<bool> m_shutdown{false};
 
   std::mutex m_queueMutex;
