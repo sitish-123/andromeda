@@ -42,6 +42,7 @@ void SettingsWindow::addDisplaysContent(float scale) {
       m_outputManagement.reset();
       m_mirrorControl.reset();
       m_displayEdits.clear();
+      m_displayBaseline.clear();
     }
     return;
   }
@@ -93,9 +94,20 @@ void SettingsWindow::addDisplaysContent(float scale) {
 }
 
 void SettingsWindow::onDisplaysChanged() {
+  std::vector<OutputHeadConfig> current = currentDisplayConfigs(*m_outputManagement);
   if (!m_outputManagement->ready() || !editsStillValid(m_displayEdits, *m_outputManagement)) {
-    m_displayEdits = currentDisplayConfigs(*m_outputManagement);
+    m_displayEdits = current;
+  } else {
+    // A head the user has not touched follows the server, which may apply one configuration over several events.
+    for (std::size_t i = 0; i < current.size(); ++i) {
+      if (i >= m_displayBaseline.size()
+          || m_displayBaseline[i].name != current[i].name
+          || m_displayEdits[i] == m_displayBaseline[i]) {
+        m_displayEdits[i] = current[i];
+      }
+    }
   }
+  m_displayBaseline = std::move(current);
   requestContentRebuild();
 }
 

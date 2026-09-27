@@ -341,6 +341,8 @@ private:
   std::unique_ptr<OutputManagement> m_outputManagement;
   std::unique_ptr<MirrorControl> m_mirrorControl;
   std::vector<OutputHeadConfig> m_displayEdits;
+  // The server state m_displayEdits was last reconciled with.
+  std::vector<OutputHeadConfig> m_displayBaseline;
   std::vector<OutputHeadConfig> m_displayRevertTo;
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
