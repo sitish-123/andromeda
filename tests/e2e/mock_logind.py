@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Owns org.freedesktop.login1 on the bus in DBUS_SYSTEM_BUS_ADDRESS and appends each power call to argv[1]."""
+"""Owns org.freedesktop.login1 on the bus in DBUS_SYSTEM_BUS_ADDRESS and appends each power call and inhibitor to argv[1]."""
 import os
 import sys
 
@@ -42,6 +42,24 @@ class Manager(dbus.service.Object):
     @dbus.service.method(MANAGER, in_signature="b")
     def SuspendThenHibernate(self, interactive):
         self.record("SuspendThenHibernate", interactive)
+
+    @dbus.service.method(MANAGER, in_signature="ssss", out_signature="h")
+    def Inhibit(self, what, who, why, mode):
+        self.record_line(f"Inhibit {what} {who} {mode}")
+        read_end, write_end = os.pipe()
+        GLib.io_add_watch(read_end, GLib.IO_HUP, lambda fd, _: self.release(fd, what, who))
+        fd = dbus.types.UnixFd(write_end)
+        os.close(write_end)
+        return fd
+
+    def release(self, fd, what, who):
+        self.record_line(f"Release {what} {who}")
+        os.close(fd)
+        return False
+
+    def record_line(self, line):
+        with open(self.log, "a") as out:
+            out.write(line + "\n")
 
     @dbus.service.method(MANAGER, out_signature="s")
     def CanHibernate(self):

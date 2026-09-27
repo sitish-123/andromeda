@@ -22,6 +22,7 @@
 #include "dbus/network/iwd_service.h"
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
+#include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -29,6 +30,7 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
@@ -1648,6 +1650,15 @@ void Application::initSessionBusServices() {
     } catch (const std::exception& e) {
       kLog.warn("debug service disabled: {}", e.what());
       m_debugService.reset();
+    }
+
+    try {
+      m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
+      if (m_systemBus != nullptr) {
+        m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("inhibit portal disabled: {}", e.what());
     }
 
     try {

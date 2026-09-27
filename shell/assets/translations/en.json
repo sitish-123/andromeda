@@ -423,6 +423,7 @@
     },
     "shortcuts": {
       "airplane": "Airplane mode",
+      "hotspot": "Hotspot",
       "audio": "Audio",
       "bluetooth": "Bluetooth",
       "caffeine": "Caffeine",

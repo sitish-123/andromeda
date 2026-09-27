@@ -18,6 +18,7 @@
 #include "shell/control_center/shortcut_services.h"
 #include "shell/keyboard_layout_label.h"
 #include "shell/panel/panel_manager.h"
+#include "dbus/network/nm_hotspot.h"
 #include "system/gamma_service.h"
 #include "system/rfkill_helper.h"
 #include "system/weather_service.h"
@@ -82,6 +83,25 @@ namespace {
     bool isToggle() const override { return true; }
     bool active() const override { return areAllRadiosSoftBlocked(); }
     void onClick() override { (void)setAllRadiosSoftBlocked(!areAllRadiosSoftBlocked()); }
+  };
+
+  class HotspotShortcut final : public Shortcut {
+  public:
+    explicit HotspotShortcut(NmHotspot* hotspot) : m_hotspot(hotspot) {}
+    std::string_view id() const override { return "hotspot"; }
+    std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.hotspot"); }
+    std::string_view iconOn() const override { return "access-point"; }
+    std::string_view iconOff() const override { return "access-point-off"; }
+    bool isToggle() const override { return true; }
+    bool active() const override { return m_hotspot != nullptr && m_hotspot->active(); }
+    void onClick() override {
+      if (m_hotspot != nullptr) {
+        (void)m_hotspot->setEnabled(!m_hotspot->active());
+      }
+    }
+
+  private:
+    NmHotspot* m_hotspot;
   };
 
   class BluetoothShortcut final : public Shortcut {
@@ -489,6 +509,10 @@ namespace {
       builtinShortcut<AirplaneShortcut>({
           .type = "airplane",
           .labelKey = "control-center.shortcuts.airplane",
+      }),
+      builtinShortcut<HotspotShortcut, &ShortcutServices::hotspot>({
+          .type = "hotspot",
+          .labelKey = "control-center.shortcuts.hotspot",
       }),
       builtinShortcut<BluetoothShortcut, &ShortcutServices::bluetooth>({
           .type = "bluetooth",

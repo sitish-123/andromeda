@@ -141,6 +141,8 @@ class SystemMonitorService;
 class TrayService;
 class UPowerService;
 class UDisksService;
+class InhibitPortal;
+class NmHotspot;
 class SettingsPortal;
 enum class BluetoothStateChangeOrigin : std::uint8_t;
 enum class NetworkChangeOrigin : std::uint8_t;
@@ -296,6 +298,8 @@ private:
   std::unique_ptr<UPowerService> m_upowerService;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
+  std::unique_ptr<InhibitPortal> m_inhibitPortal;
+  std::unique_ptr<NmHotspot> m_hotspot;
   std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
   std::unique_ptr<BluetoothService> m_bluetoothService;
   std::unique_ptr<BluetoothAgent> m_bluetoothAgent;

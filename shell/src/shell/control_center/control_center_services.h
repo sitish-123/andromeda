@@ -22,6 +22,7 @@ class IpcService;
 class ModemManagerService;
 class MprisService;
 class NetworkSecretAgent;
+class NmHotspot;
 class NotificationManager;
 class PipeWireService;
 class PipeWireSpectrum;
@@ -53,6 +54,7 @@ struct ControlCenterServices {
   UPowerService* upower = nullptr;
   PowerProfilesService* powerProfiles = nullptr;
   INetworkService* network = nullptr;
+  NmHotspot* hotspot = nullptr;
   ModemManagerService* modem = nullptr;
   NetworkSecretAgent* networkSecrets = nullptr;
   ExternalIpService* externalIp = nullptr;
@@ -79,6 +81,7 @@ struct ControlCenterServices {
   [[nodiscard]] ShortcutServices shortcutServices() const {
     return {
         .network = network,
+        .hotspot = hotspot,
         .bluetooth = bluetooth,
         .nightLight = nightLight,
         .theme = theme,

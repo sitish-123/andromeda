@@ -782,6 +782,8 @@ namespace noctalia::cli {
     inline constexpr Command airplaneToggle{
         "airplane-toggle", "Toggle airplane mode (every radio)", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command hotspotStatus{"hotspot-status", "Print Wi-Fi hotspot state", {}, {}, {}, {}, {}, false};
+    inline constexpr Command hotspotToggle{"hotspot-toggle", "Toggle the Wi-Fi hotspot", {}, {}, {}, {}, {}, false};
     inline constexpr Command wifiToggle{"wifi-toggle", "Toggle Wi-Fi", {}, {}, {}, {}, {}, false};
     inline constexpr Command windowSwitcher{"window-switcher",
                                             "Open or close the window switcher overlay",
@@ -874,6 +876,8 @@ namespace noctalia::cli {
       msg::dpmsOn,
       msg::effectsProfileSet,
       msg::greeterSync,
+      msg::hotspotStatus,
+      msg::hotspotToggle,
       msg::keyboardBacklightDown,
       msg::keyboardBacklightOsd,
       msg::keyboardBacklightSet,

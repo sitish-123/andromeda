@@ -606,6 +606,7 @@ void Application::initPanelManagerAndPanels() {
       .upower = m_upowerService.get(),
       .powerProfiles = m_powerProfilesService.get(),
       .network = m_networkService.get(),
+      .hotspot = m_hotspot.get(),
       .modem = m_modemManagerService.get(),
       .networkSecrets = m_networkSecretAgent.get(),
       .externalIp = &m_externalIpService,

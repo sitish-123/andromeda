@@ -21,6 +21,7 @@
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
+#include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -126,6 +127,16 @@ void Application::initIpc() {
   m_ipcService.bind(noctalia::cli::msg::airplaneToggle, [](const std::string&) -> std::string {
     const RfkillSwitchResult result = setAllRadiosSoftBlocked(!areAllRadiosSoftBlocked());
     return result.success ? "ok\n" : "error: " + result.detail + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::hotspotToggle, [this](const std::string&) -> std::string {
+    if (m_hotspot == nullptr) {
+      return "error: no system bus\n";
+    }
+    const std::string error = m_hotspot->setEnabled(!m_hotspot->active());
+    return error.empty() ? "ok\n" : "error: " + error + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::hotspotStatus, [this](const std::string&) -> std::string {
+    return m_hotspot != nullptr && m_hotspot->active() ? "on\n" : "off\n";
   });
   m_ipcService.bind(noctalia::cli::msg::airplaneStatus, [](const std::string&) -> std::string {
     return areAllRadiosSoftBlocked() ? "on\n" : "off\n";

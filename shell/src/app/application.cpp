@@ -35,6 +35,8 @@
 #include "dbus/system_bus.h"
 #include "dbus/system_bus_poll_source.h"
 #include "dbus/tray/tray_service.h"
+#include "dbus/network/nm_hotspot.h"
+#include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/udisks/udisks_service.h"
 #include "dbus/upower/upower_service.h"
