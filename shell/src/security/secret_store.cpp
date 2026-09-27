@@ -18,6 +18,7 @@ namespace security {
   namespace {
     constexpr Logger kLog("secret-store");
     constexpr auto kRepeatedErrorLogInterval = std::chrono::seconds(30);
+    constexpr auto kWorkerIdleExit = std::chrono::seconds(30);
 
     enum class OperationKind { Probe, Lookup, Store, Erase };
 
@@ -625,7 +626,6 @@ namespace security {
       if (m_eventFd < 0) {
         throw std::runtime_error("failed to create SecretStore eventfd");
       }
-      m_worker = std::thread([this]() { workerLoop(); });
     }
 
     ~Impl() {
@@ -663,6 +663,13 @@ namespace security {
           return SecretStoreOperation(cancellation);
         }
         m_requests.push_back(std::move(request));
+        if (!m_workerRunning) {
+          if (m_worker.joinable()) {
+            m_worker.join();
+          }
+          m_worker = std::thread([this]() { workerLoop(); });
+          m_workerRunning = true;
+        }
       }
       m_queueCv.notify_one();
       return SecretStoreOperation(cancellation);
@@ -706,7 +713,10 @@ namespace security {
         Request request;
         {
           std::unique_lock lock(m_queueMutex);
-          m_queueCv.wait(lock, [this]() { return m_shutdown || !m_requests.empty(); });
+          if (!m_queueCv.wait_for(lock, kWorkerIdleExit, [this]() { return m_shutdown || !m_requests.empty(); })) {
+            m_workerRunning = false;
+            return;
+          }
           if (m_shutdown) {
             return;
           }
@@ -825,6 +835,7 @@ namespace security {
     std::unique_ptr<SecretStoreBackend> m_backend;
     int m_eventFd = -1;
     std::thread m_worker;
+    bool m_workerRunning = false; // guarded by m_queueMutex
 
     mutable std::mutex m_queueMutex;
     std::condition_variable m_queueCv;

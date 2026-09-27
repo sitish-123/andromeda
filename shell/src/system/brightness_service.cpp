@@ -702,7 +702,6 @@ struct BrightnessService::Impl {
       : bus(systemBus), wayland(compositorPlatform.wayland()), platform(compositorPlatform),
         activeConfig(std::move(config)) {
     setupPollFds();
-    workerThread = std::thread([this]() { workerLoop(); });
   }
 
   ~Impl() {
@@ -970,6 +969,9 @@ struct BrightnessService::Impl {
     }
 
     warnedMissingDdcutil = false;
+    if (!workerThread.joinable()) {
+      workerThread = std::thread([this]() { workerLoop(); });
+    }
     std::scoped_lock lock(workerMutex);
     detectPending = true;
     detectGeneration = generation;
