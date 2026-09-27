@@ -1,6 +1,7 @@
 #include "app/main_loop.h"
 #include "application.h"
 #include "application_internal.h"
+#include "capture/screen_recorder.h"
 #include "compositors/compositor_detect.h"
 #include "config/config_export.h"
 #include "config/config_types.h"
@@ -1656,6 +1657,7 @@ void Application::initSessionBusServices() {
     try {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
       m_globalShortcutsPortal = std::make_unique<GlobalShortcutsPortal>(*m_bus);
+      m_screenRecorder = std::make_unique<ScreenRecorder>(*m_bus, m_notificationManager);
       if (m_systemBus != nullptr) {
         m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
       }

@@ -793,6 +793,12 @@ namespace noctalia::cli {
     inline constexpr Command globalShortcuts{
         "global-shortcuts", "List shortcuts apps registered through the GlobalShortcuts portal", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command screenRecordStatus{
+        "screen-record-status", "Print whether a screen recording is running", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command screenRecordToggle{
+        "screen-record-toggle", "Start a screen recording to ~/Videos, or stop and save it", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command hotspotStatus{"hotspot-status", "Print Wi-Fi hotspot state", {}, {}, {}, {}, {}, false};
     inline constexpr Command hotspotToggle{"hotspot-toggle", "Toggle the Wi-Fi hotspot", {}, {}, {}, {}, {}, false};
     inline constexpr Command wifiToggle{"wifi-toggle", "Toggle Wi-Fi", {}, {}, {}, {}, {}, false};
@@ -930,6 +936,8 @@ namespace noctalia::cli {
       msg::plugins,
       msg::powerCycle,
       msg::powerSet,
+      msg::screenRecordStatus,
+      msg::screenRecordToggle,
       msg::screenshotAnnotate,
       msg::screenshotFullscreen,
       msg::screenshotRegion,

@@ -1,5 +1,6 @@
 #include "application.h"
 #include "application_internal.h"
+#include "capture/screen_recorder.h"
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/polkit/polkit_poll_source.h"
@@ -27,6 +28,9 @@ std::vector<PollSource*> Application::currentPollSources() {
   sources.push_back(&m_secretStore);
   sources.push_back(&m_deferredCallPollSource);
   sources.push_back(&m_processPollSource);
+  if (m_screenRecorder != nullptr) {
+    sources.push_back(m_screenRecorder.get());
+  }
   sources.push_back(&m_timePollSource);
   sources.push_back(&m_configPollSource);
   sources.push_back(&m_desktopEntryPollSource);

@@ -1,6 +1,7 @@
 #include "app/main_loop.h"
 #include "application.h"
 #include "application_internal.h"
+#include "capture/screen_recorder.h"
 #include "cli/schema_msg.h"
 #include "compositors/compositor_detect.h"
 #include "config/config_types.h"
@@ -145,6 +146,16 @@ void Application::initIpc() {
   });
   m_ipcService.bind(noctalia::cli::msg::globalShortcuts, [this](const std::string&) -> std::string {
     return m_globalShortcutsPortal != nullptr ? m_globalShortcutsPortal->list() : std::string{};
+  });
+  m_ipcService.bind(noctalia::cli::msg::screenRecordToggle, [this](const std::string&) -> std::string {
+    if (m_screenRecorder == nullptr) {
+      return "error: no session bus\n";
+    }
+    const std::string error = m_screenRecorder->toggle();
+    return error.empty() ? "ok\n" : "error: " + error + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::screenRecordStatus, [this](const std::string&) -> std::string {
+    return m_screenRecorder != nullptr && m_screenRecorder->active() ? "on\n" : "off\n";
   });
   m_ipcService.bind(noctalia::cli::msg::hotspotToggle, [this](const std::string&) -> std::string {
     if (m_hotspot == nullptr) {

@@ -82,6 +82,7 @@ xkbcommon_dep       = dependency('xkbcommon')
 glib_dep            = dependency('glib-2.0')
 gobject_dep         = dependency('gobject-2.0')
 gio_dep             = dependency('gio-2.0')
+gstreamer_dep       = dependency('gstreamer-1.0')
 libsecret_dep       = dependency('libsecret-1', version: '>=0.20')
 libsodium_dep       = dependency('libsodium', version: '>=1.0.18')
 polkit_agent_dep    = dependency('polkit-agent-1')
@@ -878,6 +879,7 @@ _noctalia_sources = files(
   'src/capture/screencopy_util.cpp',
   'src/capture/screenshot_capture.cpp',
   'src/capture/screenshot_image.cpp',
+  'src/capture/screen_recorder.cpp',
   'src/capture/screenshot_service.cpp',
   'src/capture/screenshot_region_overlay.cpp',
   'src/capture/annotation_document.cpp',
@@ -1093,6 +1095,7 @@ _noctalia_system_dependencies = [
   glib_dep,
   gobject_dep,
   gio_dep,
+  gstreamer_dep,
   libsecret_dep,
   libsodium_dep,
   polkit_agent_dep,

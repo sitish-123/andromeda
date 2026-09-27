@@ -18,6 +18,7 @@
 #include "shell/control_center/shortcut_services.h"
 #include "shell/keyboard_layout_label.h"
 #include "shell/panel/panel_manager.h"
+#include "capture/screen_recorder.h"
 #include "dbus/network/nm_hotspot.h"
 #include "system/gamma_service.h"
 #include "system/rfkill_helper.h"
@@ -102,6 +103,25 @@ namespace {
 
   private:
     NmHotspot* m_hotspot;
+  };
+
+  class ScreenRecordShortcut final : public Shortcut {
+  public:
+    explicit ScreenRecordShortcut(ScreenRecorder* recorder) : m_recorder(recorder) {}
+    std::string_view id() const override { return "screen-record"; }
+    std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.screen-record"); }
+    std::string_view iconOn() const override { return "player-record"; }
+    std::string_view iconOff() const override { return "video"; }
+    bool isToggle() const override { return true; }
+    bool active() const override { return m_recorder != nullptr && m_recorder->active(); }
+    void onClick() override {
+      if (m_recorder != nullptr) {
+        (void)m_recorder->toggle();
+      }
+    }
+
+  private:
+    ScreenRecorder* m_recorder;
   };
 
   class BluetoothShortcut final : public Shortcut {
@@ -513,6 +533,10 @@ namespace {
       builtinShortcut<HotspotShortcut, &ShortcutServices::hotspot>({
           .type = "hotspot",
           .labelKey = "control-center.shortcuts.hotspot",
+      }),
+      builtinShortcut<ScreenRecordShortcut, &ShortcutServices::screenRecorder>({
+          .type = "screen-record",
+          .labelKey = "control-center.shortcuts.screen-record",
       }),
       builtinShortcut<BluetoothShortcut, &ShortcutServices::bluetooth>({
           .type = "bluetooth",

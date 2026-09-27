@@ -9,6 +9,7 @@ class IdleInhibitor;
 class INetworkService;
 class MprisService;
 class NmHotspot;
+class ScreenRecorder;
 class GammaService;
 class IpcService;
 class NotificationManager;
@@ -28,6 +29,7 @@ namespace scripting {
 struct ShortcutServices {
   INetworkService* network = nullptr;
   NmHotspot* hotspot = nullptr;
+  ScreenRecorder* screenRecorder = nullptr;
   BluetoothService* bluetooth = nullptr;
   GammaService* nightLight = nullptr;
   noctalia::theme::ThemeService* theme = nullptr;

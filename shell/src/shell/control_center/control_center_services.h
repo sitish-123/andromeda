@@ -23,6 +23,7 @@ class ModemManagerService;
 class MprisService;
 class NetworkSecretAgent;
 class NmHotspot;
+class ScreenRecorder;
 class NotificationManager;
 class PipeWireService;
 class PipeWireSpectrum;
@@ -55,6 +56,7 @@ struct ControlCenterServices {
   PowerProfilesService* powerProfiles = nullptr;
   INetworkService* network = nullptr;
   NmHotspot* hotspot = nullptr;
+  ScreenRecorder* screenRecorder = nullptr;
   ModemManagerService* modem = nullptr;
   NetworkSecretAgent* networkSecrets = nullptr;
   ExternalIpService* externalIp = nullptr;
@@ -82,6 +84,7 @@ struct ControlCenterServices {
     return {
         .network = network,
         .hotspot = hotspot,
+        .screenRecorder = screenRecorder,
         .bluetooth = bluetooth,
         .nightLight = nightLight,
         .theme = theme,

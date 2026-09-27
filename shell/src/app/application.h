@@ -143,6 +143,7 @@ class UPowerService;
 class UDisksService;
 class GlobalShortcutsPortal;
 class InhibitPortal;
+class ScreenRecorder;
 class NmHotspot;
 class SettingsPortal;
 enum class BluetoothStateChangeOrigin : std::uint8_t;
@@ -302,6 +303,7 @@ private:
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
   std::unique_ptr<GlobalShortcutsPortal> m_globalShortcutsPortal;
   std::unique_ptr<NmHotspot> m_hotspot;
+  std::unique_ptr<ScreenRecorder> m_screenRecorder;
   std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
   std::unique_ptr<BluetoothService> m_bluetoothService;
   std::unique_ptr<BluetoothAgent> m_bluetoothAgent;

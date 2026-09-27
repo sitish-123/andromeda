@@ -1,6 +1,7 @@
 #include "application.h"
 
 #include "app/main_loop.h"
+#include "capture/screen_recorder.h"
 #include "compositors/compositor_detect.h"
 #include "config/config_types.h"
 #include "core/build_info.h"
