@@ -16,7 +16,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import android.os.SystemClock
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.DesktopPlayer
+import org.umbriel.link.core.domain.MediaCommandKind
+import org.umbriel.link.core.domain.MediaPlayer
+import org.umbriel.link.core.domain.PhoneMediaCommand
+import org.umbriel.link.core.domain.PlaybackState
 import org.umbriel.link.core.domain.Feature
 import org.umbriel.link.core.domain.IncomingShare
 import org.umbriel.link.core.domain.LinkFailure
@@ -31,6 +37,9 @@ import org.umbriel.link.ffi.LinkException
 import org.umbriel.link.ffi.generateIdentity
 import org.umbriel.link.ffi.Desktop as FfiDesktop
 import org.umbriel.link.ffi.Feature as FfiFeature
+import org.umbriel.link.ffi.MediaCommandKind as FfiCommand
+import org.umbriel.link.ffi.MediaPlayer as FfiPlayer
+import org.umbriel.link.ffi.PlaybackState as FfiState
 import org.umbriel.link.ffi.NotificationButton as FfiNotificationButton
 import org.umbriel.link.ffi.PhoneNotification as FfiPhoneNotification
 import org.umbriel.link.ffi.ShareKind as FfiShareKind
@@ -55,6 +64,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
     private val _connections = MutableSharedFlow<String>(extraBufferCapacity = INCOMING_BUFFER)
     private val _notificationCommands = MutableSharedFlow<NotificationCommand>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _mediaCommands = MutableSharedFlow<PhoneMediaCommand>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _desktopPlayers = MutableStateFlow<List<DesktopPlayer>>(emptyList())
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -66,6 +77,21 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Actions and dismissals desktops ask of mirrored notifications. */
     val notificationCommands: SharedFlow<NotificationCommand> = _notificationCommands.asSharedFlow()
+
+    /** Commands desktops send this phone's player. */
+    val mediaCommands: SharedFlow<PhoneMediaCommand> = _mediaCommands.asSharedFlow()
+
+    /** Every connected desktop's players; a desktop's go when its session ends. */
+    val desktopPlayers: StateFlow<List<DesktopPlayer>> = _desktopPlayers.asStateFlow()
+
+    /** Succeeds with how many connected desktops took it. */
+    suspend fun publishPlayer(player: MediaPlayer): Result<Int> = call { it.publishPlayer(player.toFfi()).toInt() }
+
+    suspend fun playerGone(player: String): Result<Int> = call { it.playerGone(player).toInt() }
+
+    /** Connects first if needed. */
+    suspend fun mediaCommand(desktopId: String, player: String, command: MediaCommandKind, value: Long? = null): Result<Unit> =
+        call { it.mediaCommand(desktopId, player, command.toFfi(), value?.toULong()) }
 
     /** Succeeds with how many connected desktops took it; none are dialled. */
     suspend fun postNotification(notification: PhoneNotification): Result<Int> = call {
@@ -138,7 +164,23 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                     markConnected(event.desktopId, true)
                     _connections.emit(event.desktopId)
                 }
-                is LinkEvent.Disconnected -> markConnected(event.desktopId, false)
+                is LinkEvent.Disconnected -> {
+                    markConnected(event.desktopId, false)
+                    _desktopPlayers.update { list -> list.filter { it.desktopId != event.desktopId } }
+                }
+                is LinkEvent.PlayerChanged -> {
+                    val player = event.player.toDomain(SystemClock.elapsedRealtime())
+                    _desktopPlayers.update { list ->
+                        list.filterNot { it.desktopId == event.desktopId && it.player.player == player.player } +
+                            DesktopPlayer(event.desktopId, player)
+                    }
+                }
+                is LinkEvent.PlayerGone -> _desktopPlayers.update { list ->
+                    list.filterNot { it.desktopId == event.desktopId && it.player.player == event.player }
+                }
+                is LinkEvent.PlayerCommand -> _mediaCommands.emit(
+                    PhoneMediaCommand(event.desktopId, event.player, event.command.toDomain(), event.value?.toLong()),
+                )
                 is LinkEvent.Received -> _incoming.emit(
                     IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
                 )
@@ -183,6 +225,53 @@ private fun FfiDesktop.toDomain() = Desktop(
     connected = connected,
     lastSeen = lastSeen.toLong(),
     sharing = Sharing(sharing.notifications, sharing.media, sharing.ring, sharing.calls),
+)
+
+private fun MediaCommandKind.toFfi(): FfiCommand = when (this) {
+    MediaCommandKind.Play -> FfiCommand.PLAY
+    MediaCommandKind.Pause -> FfiCommand.PAUSE
+    MediaCommandKind.PlayPause -> FfiCommand.PLAY_PAUSE
+    MediaCommandKind.Next -> FfiCommand.NEXT
+    MediaCommandKind.Previous -> FfiCommand.PREVIOUS
+    MediaCommandKind.Seek -> FfiCommand.SEEK
+    MediaCommandKind.Volume -> FfiCommand.VOLUME
+}
+
+private fun FfiCommand.toDomain(): MediaCommandKind = MediaCommandKind.entries.first { it.toFfi() == this }
+
+private fun PlaybackState.toFfi(): FfiState = when (this) {
+    PlaybackState.Playing -> FfiState.PLAYING
+    PlaybackState.Paused -> FfiState.PAUSED
+    PlaybackState.Stopped -> FfiState.STOPPED
+}
+
+private fun MediaPlayer.toFfi() = FfiPlayer(
+    player = player,
+    name = name,
+    state = state.toFfi(),
+    title = title,
+    artist = artist,
+    album = album,
+    lengthMs = lengthMs?.toULong(),
+    positionMs = positionMs.toULong(),
+    volume = volume?.toUByte(),
+    artwork = artwork,
+    can = can.map { it.toFfi() },
+)
+
+private fun FfiPlayer.toDomain(receivedAt: Long) = MediaPlayer(
+    player = player,
+    name = name,
+    state = PlaybackState.entries.first { it.toFfi() == state },
+    title = title,
+    artist = artist,
+    album = album,
+    lengthMs = lengthMs?.toLong(),
+    positionMs = positionMs.toLong(),
+    volume = volume?.toInt(),
+    artwork = artwork,
+    can = can.map { it.toDomain() }.toSet(),
+    receivedAt = receivedAt,
 )
 
 private fun Feature.toFfi(): FfiFeature = when (this) {

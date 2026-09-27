@@ -8,7 +8,7 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::{Message, NotificationPosted, Share};
+use link_core::proto::message::{MediaPlayer, Message, NotificationPosted, Share};
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
@@ -17,6 +17,8 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use crate::desktop_media::DesktopMediaHandle;
+use crate::media::Media;
 use crate::notifications::{Change, Mirror};
 use crate::paths::Paths;
 
@@ -60,6 +62,8 @@ enum Command {
     Connected { id: DeviceId, name: String, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
+    DesktopPlayer { player: MediaPlayer },
+    DesktopPlayerGone { player: String },
 }
 
 #[derive(Clone)]
@@ -85,6 +89,9 @@ pub struct Hub {
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
     notifications: Mirror,
+    media: Media,
+    /// Its own handle, for the exported MPRIS players to reach sessions.
+    me: HubHandle,
     commands: mpsc::Receiver<Command>,
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
@@ -96,9 +103,12 @@ impl Hub {
         own: Spki,
         store: Store,
         paths: Paths,
+        desktop_media: DesktopMediaHandle,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
+        let handle = HubHandle { commands: commands_tx, session_events: session_events_tx };
+        let media = Media::new(desktop_media, paths.art.clone());
         let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
         let (events, events_rx) = mpsc::channel(16);
         let mut hub = Self {
@@ -110,13 +120,14 @@ impl Hub {
             windows_opened: 0,
             sessions: HashMap::new(),
             notifications: Mirror::default(),
+            media,
+            me: handle.clone(),
             commands,
             session_events,
             snapshots,
             events,
         };
         hub.refresh();
-        let handle = HubHandle { commands: commands_tx, session_events: session_events_tx };
         (hub, handle, snapshots_rx, events_rx)
     }
 
@@ -144,6 +155,7 @@ impl Hub {
             Command::Unpair { id, reply } => {
                 let unpaired = self.unpair(&id);
                 self.forget_notifications(&id).await;
+                self.media.disconnected(&id).await;
                 let _ = reply.send(unpaired);
             }
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
@@ -158,8 +170,11 @@ impl Hub {
                 if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
                     self.sessions.remove(&id);
                     self.publish();
+                    self.media.disconnected(&id).await;
                 }
             }
+            Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
+            Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
             Command::Session { id, reply } => {
                 drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
             }
@@ -180,6 +195,7 @@ impl Hub {
                 self.save();
                 self.refresh();
                 self.forget_notifications(&from).await;
+                self.media.disconnected(&from).await;
             }
             SessionEvent::Message { from, message } => {
                 if self.sessions.contains_key(&from) {
@@ -204,6 +220,10 @@ impl Hub {
                 if self.notifications.remove(&from, &removed.id) {
                     self.emit(Event::NotificationRemoved { id: from, notification: removed.id }).await;
                 }
+            }
+            media @ (Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_)) => {
+                let name = self.store.peer(&from).map(|peer| peer.name.clone()).unwrap_or_default();
+                self.media.on_phone_message(&self.me, &from, &name, media).await;
             }
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
         }
@@ -293,6 +313,7 @@ impl Hub {
         peer.name = name;
         peer.touch();
         self.save();
+        self.media.connected(&session);
         if let Some(older) = self.sessions.insert(id, session) {
             older.close(CloseCode::Done);
         }
@@ -442,6 +463,14 @@ impl HubHandle {
     /// Where session actors report what their peers send.
     pub fn session_events(&self) -> mpsc::Sender<SessionEvent> {
         self.session_events.clone()
+    }
+
+    pub async fn desktop_player(&self, player: MediaPlayer) {
+        self.tell(Command::DesktopPlayer { player }).await;
+    }
+
+    pub async fn desktop_player_gone(&self, player: String) {
+        self.tell(Command::DesktopPlayerGone { player }).await;
     }
 
     pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {

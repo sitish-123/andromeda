@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.umbriel.link.R
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.core.domain.NotificationButton
 import org.umbriel.link.core.domain.NotificationCommand
@@ -130,9 +131,13 @@ class NotificationMirror(
         val ranking = rankingMap?.let { map -> NotificationListenerService.Ranking().takeIf { map.getRanking(sbn.key, it) } }
         if (ranking != null && ranking.importance < NotificationManager.IMPORTANCE_DEFAULT) return null
         val shown = lockScreenVersion(notification, ranking) ?: return null
-        val title = shown.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val text = (shown.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
-            ?: shown.extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        val extras = shown.extras
+        val title = (extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
+            ?: extras.getCharSequence(Notification.EXTRA_TITLE))?.toString().orEmpty()
+        val text = messages(shown).ifEmpty {
+            (extras.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: extras.getCharSequence(Notification.EXTRA_TEXT))
+                ?.toString().orEmpty()
+        }
         if (title.isBlank() && text.isBlank()) return null
         val app = appInfo(notification)
         return PhoneNotification(
@@ -159,6 +164,18 @@ class NotificationMirror(
         return notification.publicVersion.takeIf { visibility == Notification.VISIBILITY_PRIVATE } ?: notification
     }
 
+    /** A conversation's latest messages, one `Sender: text` line each, as the shade shows them. */
+    @Suppress("DEPRECATION")
+    private fun messages(notification: Notification): String {
+        val bundles = notification.extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return ""
+        return Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
+            .takeLast(MESSAGES_SHOWN)
+            .joinToString("\n") { message ->
+                val sender = message.senderPerson?.name ?: context.getString(R.string.mirror_you)
+                "$sender: ${message.text}"
+            }
+    }
+
     /** Each action keeps its index as its id, so a command finds it again in the live notification. */
     private fun buttons(notification: Notification): List<NotificationButton> =
         notification.actions.orEmpty().withIndex()
@@ -174,7 +191,8 @@ class NotificationMirror(
 
     private fun run(command: NotificationCommand) {
         val service = listener ?: return
-        val sbn = runCatching { service.getActiveNotifications(arrayOf(command.id)) }.getOrNull()?.firstOrNull() ?: return
+        val sbn = runCatching { service.getActiveNotifications(arrayOf(command.id)) }.getOrNull()?.firstOrNull()
+            ?: return run { Log.i(TAG, "a desktop asked for ${command.id}, which is gone") }
         when (command) {
             is NotificationCommand.Dismiss -> service.cancelNotification(sbn.key)
             is NotificationCommand.Action -> {
@@ -229,6 +247,7 @@ class NotificationMirror(
         const val PREFS = "mirror"
         const val KEY_EXCLUDED = "excluded"
         const val ICON_PX = 64
+        const val MESSAGES_SHOWN = 5
         /** `Notification.EXTRA_BUILDER_APPLICATION_INFO`, hidden in the SDK: the posting app's info, which needs no package visibility. */
         const val EXTRA_APP_INFO = "android.appInfo"
     }

@@ -6,27 +6,38 @@ use std::collections::BTreeMap;
 use anyhow::{Context, anyhow, bail};
 use link_core::client::{Client, ClientEvent};
 use link_core::identity::DeviceId;
-use link_core::proto::message::{Message, NotificationButton, NotificationPosted, NotificationRemoved};
+use link_core::proto::message::{
+    MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message, NotificationButton, NotificationPosted,
+    NotificationRemoved, PlaybackState,
+};
 use serde_json::{Value, json};
 
 pub struct Held {
     client: Client,
+    desktop: DeviceId,
     notifications: BTreeMap<String, NotificationPosted>,
+    /// The phone's own players, which act on the desktop's commands as a real player would.
+    players: BTreeMap<String, MediaPlayer>,
 }
 
 impl Held {
-    pub fn new(client: Client) -> Self {
-        Self { client, notifications: BTreeMap::new() }
+    pub fn new(client: Client, desktop: DeviceId) -> Self {
+        Self { client, desktop, notifications: BTreeMap::new(), players: BTreeMap::new() }
     }
 
     /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
-    /// `reconnect` drops the session and dials again.
+    /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
+    /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
+    /// session and dials again.
     pub async fn command(&mut self, line: &str) -> Value {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
             "notify" => self.notify(rest).await,
             "unnotify" => self.unnotify(rest.trim()).await,
             "reconnect" => self.reconnect().await,
+            "media" => self.media(rest).await,
+            "media-gone" => self.media_gone(rest.trim()).await,
+            "media-command" => self.media_command(rest).await,
             _ => Err(anyhow!("unknown command")),
         };
         result.unwrap_or_else(|error| json!({ "event": "command-failed", "command": verb, "error": error.to_string() }))
@@ -38,7 +49,11 @@ impl Held {
                 for posted in self.notifications.values() {
                     self.broadcast(Message::NotificationPosted(posted.clone())).await;
                 }
+                for player in self.players.values() {
+                    self.broadcast(Message::MediaPlayer(player.clone())).await;
+                }
             }
+            ClientEvent::Message { message: Message::MediaCommand(command), .. } => self.obey(command).await,
             // As Android does: cancelling the notification removes it, and the listener reports the removal.
             ClientEvent::Message { message: Message::NotificationDismiss(dismiss), .. }
                 if self.notifications.remove(&dismiss.id).is_some() =>
@@ -64,6 +79,57 @@ impl Held {
         let sent =
             self.client.broadcast(Message::NotificationRemoved(NotificationRemoved { id: id.to_owned() })).await?;
         Ok(json!({ "event": "unnotified", "id": id, "desktops": sent }))
+    }
+
+    async fn media(&mut self, json: &str) -> anyhow::Result<Value> {
+        let mut value: Value = serde_json::from_str(json).context("media takes a json object")?;
+        let artwork = match value.as_object_mut().and_then(|object| object.remove("artwork_file")) {
+            Some(Value::String(path)) => Some(std::fs::read(&path).with_context(|| format!("reading {path}"))?),
+            _ => None,
+        };
+        let mut player: MediaPlayer = serde_json::from_value(value).context("not a media-player body")?;
+        player.artwork = artwork;
+        let sent = self.client.broadcast(Message::MediaPlayer(player.clone())).await?;
+        let id = player.player.clone();
+        self.players.insert(id.clone(), player);
+        Ok(json!({ "event": "playing", "player": id, "desktops": sent }))
+    }
+
+    async fn media_gone(&mut self, player: &str) -> anyhow::Result<Value> {
+        self.players.remove(player).with_context(|| format!("no player {player}"))?;
+        let sent = self.client.broadcast(Message::MediaGone(MediaGone { player: player.to_owned() })).await?;
+        Ok(json!({ "event": "media-gone", "player": player, "desktops": sent }))
+    }
+
+    async fn media_command(&self, json: &str) -> anyhow::Result<Value> {
+        let command: MediaCommand = serde_json::from_str(json).context("not a media-command body")?;
+        self.client.send(self.desktop.clone(), Message::MediaCommand(command.clone())).await?;
+        Ok(json!({ "event": "media-commanded", "player": command.player }))
+    }
+
+    /// Plays the desktop's command on its own player and reports the new state, as a phone's player would.
+    async fn obey(&mut self, command: &MediaCommand) {
+        let Some(player) = self.players.get_mut(&command.player) else { return };
+        if !player.can.contains(&command.command) {
+            return;
+        }
+        let value = command.value.unwrap_or(0);
+        match command.command {
+            MediaCommandKind::Play => player.state = PlaybackState::Playing,
+            MediaCommandKind::Pause => player.state = PlaybackState::Paused,
+            MediaCommandKind::PlayPause => {
+                player.state =
+                    if player.state == PlaybackState::Playing { PlaybackState::Paused } else { PlaybackState::Playing };
+            }
+            MediaCommandKind::Next | MediaCommandKind::Previous => {
+                player.title = format!("{} ({:?})", player.title, command.command);
+                player.position_ms = 0;
+            }
+            MediaCommandKind::Seek => player.position_ms = value,
+            MediaCommandKind::Volume => player.volume = u8::try_from(value).ok(),
+        }
+        let update = Message::MediaPlayer(player.clone());
+        self.broadcast(update).await;
     }
 
     /// Drops the session and dials again at once, as the app does when Android's default network changes.
@@ -119,6 +185,16 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
         Message::NotificationDismiss(dismiss) => {
             json!({ "event": "notification-dismiss", "desktop": from, "id": dismiss.id })
         }
+        Message::MediaPlayer(player) => json!({
+            "event": "media-player", "desktop": from, "player": player.player, "name": player.name,
+            "state": player.state, "title": player.title, "artist": player.artist, "position_ms": player.position_ms,
+            "volume": player.volume, "can": player.can, "artwork_bytes": player.artwork.as_ref().map(Vec::len),
+        }),
+        Message::MediaGone(gone) => json!({ "event": "media-gone", "desktop": from, "player": gone.player }),
+        Message::MediaCommand(command) => json!({
+            "event": "media-command", "desktop": from, "player": command.player, "command": command.command,
+            "value": command.value,
+        }),
         other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
     }
 }

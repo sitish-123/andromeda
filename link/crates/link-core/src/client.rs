@@ -420,6 +420,7 @@ fn feature_of(message: &Message) -> Option<Feature> {
         | Message::NotificationRemoved(_)
         | Message::NotificationAction(_)
         | Message::NotificationDismiss(_) => Some(Feature::Notifications),
+        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
         _ => None,
     }
 }

@@ -68,6 +68,7 @@ fn receives(role: Role, message: &Message) -> bool {
     match message {
         Message::NotificationPosted(_) | Message::NotificationRemoved(_) => role == Role::Desktop,
         Message::NotificationAction(_) | Message::NotificationDismiss(_) => role == Role::Phone,
+        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => true,
         _ => false,
     }
 }
@@ -78,9 +79,11 @@ mod tests {
 
     use super::*;
     use crate::message::{
-        DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ICON_LEN, MAX_NOTIFICATION_ID_LEN, MAX_SHARE_LEN,
-        MAX_TEXT_LEN, MAX_TITLE_LEN, NotificationAction, NotificationButton, NotificationDismiss, NotificationPosted,
-        NotificationRemoved, PairConfirm, PairSpake, ShareAck, ShareKind, ShareRejected,
+        DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ARTWORK_LEN, MAX_ICON_LEN, MAX_METADATA_LEN,
+        MAX_NOTIFICATION_ID_LEN, MAX_PLAYER_LEN, MAX_SHARE_LEN, MAX_TEXT_LEN, MAX_TITLE_LEN, MAX_VOLUME, MediaCommand,
+        MediaCommandKind, MediaGone, MediaPlayer, NotificationAction, NotificationButton, NotificationDismiss,
+        NotificationPosted, NotificationRemoved, PairConfirm, PairSpake, PlaybackState, ShareAck, ShareKind,
+        ShareRejected,
     };
 
     fn envelope(id: u64, message: Message) -> Envelope {
@@ -246,6 +249,74 @@ mod tests {
             post.actions = vec![post.actions[0].clone(); MAX_ACTIONS];
         });
         assert!(Envelope::from_cbor(&Envelope::new(1, full).to_cbor()).is_ok());
+    }
+
+    fn player() -> MediaPlayer {
+        MediaPlayer {
+            player: "spotify".to_owned(),
+            name: "Spotify".to_owned(),
+            state: PlaybackState::Playing,
+            title: "Song".to_owned(),
+            artist: "Artist".to_owned(),
+            album: String::new(),
+            length_ms: Some(180_000),
+            position_ms: 1_000,
+            volume: Some(50),
+            artwork: None,
+            can: vec![MediaCommandKind::PlayPause, MediaCommandKind::Seek],
+        }
+    }
+
+    #[test]
+    fn media_messages_travel_both_ways() {
+        let command = MediaCommand { player: "p".to_owned(), command: MediaCommandKind::Next, value: None };
+        let messages = [
+            Message::MediaPlayer(player()),
+            Message::MediaGone(MediaGone { player: "p".to_owned() }),
+            Message::MediaCommand(command),
+        ];
+        for role in [Role::Phone, Role::Desktop] {
+            for message in messages.clone() {
+                let result = SessionState::new(role).on_message(envelope(3, message.clone()));
+                assert_eq!(result, Ok(Inbound::Deliver(message)));
+            }
+        }
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "a cbor value always serializes into memory")]
+    fn media_breaking_the_rules_fails_to_decode() {
+        let with = |change: fn(&mut MediaPlayer)| {
+            let mut media = player();
+            change(&mut media);
+            Message::MediaPlayer(media)
+        };
+        let command = |command, value| Message::MediaCommand(MediaCommand { player: "p".to_owned(), command, value });
+        let cases = [
+            with(|media| media.player.clear()),
+            with(|media| media.name = "n".repeat(MAX_PLAYER_LEN + 1)),
+            with(|media| media.title = "t".repeat(MAX_METADATA_LEN + 1)),
+            with(|media| media.volume = Some(MAX_VOLUME + 1)),
+            with(|media| media.artwork = Some(vec![0; MAX_ARTWORK_LEN + 1])),
+            with(|media| media.artwork = Some(Vec::new())),
+            with(|media| media.can = vec![MediaCommandKind::Next, MediaCommandKind::Next]),
+            command(MediaCommandKind::Seek, None),
+            command(MediaCommandKind::Volume, Some(101)),
+            command(MediaCommandKind::Play, Some(1)),
+            Message::MediaGone(MediaGone { player: String::new() }),
+        ];
+        for message in cases {
+            let kind = message.kind();
+            let decoded = Envelope::from_cbor(&Envelope::new(1, message).to_cbor());
+            assert!(matches!(decoded, Err(DecodeError::Invalid(k)) if k == kind), "{kind} decoded as {decoded:?}");
+        }
+        let body = Value::Map(vec![("player".into(), "p".into()), ("command".into(), "rewind".into())]);
+        let raw =
+            Value::Map(vec![("type".into(), "media-command".into()), ("id".into(), 1.into()), ("body".into(), body)]);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&raw, &mut bytes).expect("cbor into memory");
+        assert!(matches!(Envelope::from_cbor(&bytes), Err(DecodeError::Cbor(_))));
+        assert!(Envelope::from_cbor(&Envelope::new(1, command(MediaCommandKind::Volume, Some(100))).to_cbor()).is_ok());
     }
 
     #[test]

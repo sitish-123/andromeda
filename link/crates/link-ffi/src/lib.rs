@@ -126,6 +126,60 @@ pub enum LinkEvent {
         desktop_id: String,
         id: String,
     },
+    /// A desktop player appeared or changed.
+    PlayerChanged {
+        desktop_id: String,
+        player: MediaPlayer,
+    },
+    PlayerGone {
+        desktop_id: String,
+        player: String,
+    },
+    /// A desktop commands this phone's player.
+    PlayerCommand {
+        desktop_id: String,
+        player: String,
+        command: MediaCommandKind,
+        value: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MediaCommandKind {
+    Play,
+    Pause,
+    PlayPause,
+    Next,
+    Previous,
+    /// The value is the absolute position in ms.
+    Seek,
+    /// The value is 0 to 100.
+    Volume,
+}
+
+/// A player on either side; the core checks the limits in `link/ARCHITECTURE.md` before sending one.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MediaPlayer {
+    pub player: String,
+    pub name: String,
+    pub state: PlaybackState,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub length_ms: Option<u64>,
+    /// When sent; advance it while playing.
+    pub position_ms: u64,
+    pub volume: Option<u8>,
+    /// PNG or JPEG.
+    pub artwork: Option<Vec<u8>>,
+    pub can: Vec<MediaCommandKind>,
 }
 
 /// A fresh Ed25519 key as PKCS#8; the app keeps it encrypted by an Android Keystore key.
@@ -238,6 +292,28 @@ impl LinkClient {
         self.broadcast(Message::NotificationRemoved(message::NotificationRemoved { id })).await
     }
 
+    /// Describes this phone's player to every connected desktop that takes media; returns how many.
+    pub async fn publish_player(&self, player: MediaPlayer) -> Result<u32, LinkError> {
+        self.broadcast(Message::MediaPlayer(player.into())).await
+    }
+
+    pub async fn player_gone(&self, player: String) -> Result<u32, LinkError> {
+        self.broadcast(Message::MediaGone(message::MediaGone { player })).await
+    }
+
+    /// Commands one of a desktop's players, connecting first if needed.
+    pub async fn media_command(
+        &self,
+        desktop_id: String,
+        player: String,
+        command: MediaCommandKind,
+        value: Option<u64>,
+    ) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let command = message::MediaCommand { player, command: command.into(), value };
+        self.run(async move { client.send(id, Message::MediaCommand(command)).await }).await
+    }
+
     /// The next event, waiting until there is one; `None` once the client has stopped.
     pub async fn next_event(&self) -> Option<LinkEvent> {
         let mut events = self.events.lock().await;
@@ -282,6 +358,14 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                 Message::NotificationDismiss(dismiss) => {
                     LinkEvent::NotificationDismissed { desktop_id, id: dismiss.id }
                 }
+                Message::MediaPlayer(player) => LinkEvent::PlayerChanged { desktop_id, player: player.into() },
+                Message::MediaGone(gone) => LinkEvent::PlayerGone { desktop_id, player: gone.player },
+                Message::MediaCommand(command) => LinkEvent::PlayerCommand {
+                    desktop_id,
+                    player: command.player,
+                    command: command.command.into(),
+                    value: command.value,
+                },
                 _ => return None,
             }
         }
@@ -317,4 +401,78 @@ fn parse_id(id: &str) -> Result<DeviceId, LinkError> {
 
 fn stopped() -> LinkError {
     LinkError::Failed { reason: "the link runtime stopped".to_owned() }
+}
+
+impl From<MediaCommandKind> for message::MediaCommandKind {
+    fn from(kind: MediaCommandKind) -> Self {
+        match kind {
+            MediaCommandKind::Play => Self::Play,
+            MediaCommandKind::Pause => Self::Pause,
+            MediaCommandKind::PlayPause => Self::PlayPause,
+            MediaCommandKind::Next => Self::Next,
+            MediaCommandKind::Previous => Self::Previous,
+            MediaCommandKind::Seek => Self::Seek,
+            MediaCommandKind::Volume => Self::Volume,
+        }
+    }
+}
+
+impl From<message::MediaCommandKind> for MediaCommandKind {
+    fn from(kind: message::MediaCommandKind) -> Self {
+        match kind {
+            message::MediaCommandKind::Play => Self::Play,
+            message::MediaCommandKind::Pause => Self::Pause,
+            message::MediaCommandKind::PlayPause => Self::PlayPause,
+            message::MediaCommandKind::Next => Self::Next,
+            message::MediaCommandKind::Previous => Self::Previous,
+            message::MediaCommandKind::Seek => Self::Seek,
+            message::MediaCommandKind::Volume => Self::Volume,
+        }
+    }
+}
+
+impl From<MediaPlayer> for message::MediaPlayer {
+    fn from(player: MediaPlayer) -> Self {
+        let state = match player.state {
+            PlaybackState::Playing => message::PlaybackState::Playing,
+            PlaybackState::Paused => message::PlaybackState::Paused,
+            PlaybackState::Stopped => message::PlaybackState::Stopped,
+        };
+        Self {
+            player: player.player,
+            name: player.name,
+            state,
+            title: player.title,
+            artist: player.artist,
+            album: player.album,
+            length_ms: player.length_ms,
+            position_ms: player.position_ms,
+            volume: player.volume,
+            artwork: player.artwork,
+            can: player.can.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<message::MediaPlayer> for MediaPlayer {
+    fn from(player: message::MediaPlayer) -> Self {
+        let state = match player.state {
+            message::PlaybackState::Playing => PlaybackState::Playing,
+            message::PlaybackState::Paused => PlaybackState::Paused,
+            message::PlaybackState::Stopped => PlaybackState::Stopped,
+        };
+        Self {
+            player: player.player,
+            name: player.name,
+            state,
+            title: player.title,
+            artist: player.artist,
+            album: player.album,
+            length_ms: player.length_ms,
+            position_ms: player.position_ms,
+            volume: player.volume,
+            artwork: player.artwork,
+            can: player.can.into_iter().map(Into::into).collect(),
+        }
+    }
 }

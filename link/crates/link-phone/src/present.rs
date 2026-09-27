@@ -21,7 +21,7 @@ pub async fn hold(phone: Phone, id: DeviceId, seconds: Option<u64>) -> anyhow::R
     let (client, actor, mut events) = client::client(phone);
     let drive = async move {
         client.set_present(true).await?;
-        let mut held = Held::new(client.clone());
+        let mut held = Held::new(client.clone(), id.clone());
         let mut terminate = signal(SignalKind::terminate())?;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         let mut stdin_open = true;

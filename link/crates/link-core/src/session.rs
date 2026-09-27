@@ -67,7 +67,7 @@ pub fn session(
     peer: DeviceId,
     events: mpsc::Sender<SessionEvent>,
 ) -> (SessionHandle, SessionActor) {
-    let (commands_tx, commands) = mpsc::channel(8);
+    let (commands_tx, commands) = mpsc::channel(32);
     let handle = SessionHandle { commands: commands_tx, connection: connection.clone() };
     let (reader, writer) = control.split();
     let live = Live { connection, writer, state: SessionState::new(role), peer, events, waiting: HashMap::new() };
@@ -89,6 +89,13 @@ impl SessionHandle {
         let (reply, sent) = oneshot::channel();
         self.commands.send(Command::Send { message, reply }).await.map_err(|_| Error::NotConnected)?;
         sent.await.map_err(|_| Error::NotConnected)?
+    }
+
+    /// Queues an unacknowledged message without waiting; false when it breaks the schema, the session ended, or its
+    /// queue is full.
+    pub fn post(&self, message: Message) -> bool {
+        let (reply, _) = oneshot::channel();
+        message.validate().is_ok() && self.commands.try_send(Command::Send { message, reply }).is_ok()
     }
 
     /// Tells the desktop this phone unpaired and waits for it to close the connection.

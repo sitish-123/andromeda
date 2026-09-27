@@ -2,8 +2,11 @@
 # Slice C on the Android emulator against a private umbriel-linkd (own dbus-daemon, own XDG_STATE_HOME). Proves:
 # with notification access granted, a notification posted with `cmd notification post` reaches D-Bus
 # NotificationPosted with its app name and icon, and a D-Bus dismissal cancels it on the phone and comes back as
-# NotificationRemoved; an SMS arriving in Google Messages is mirrored with its RemoteInput reply action, and a reply
-# sent with D-Bus NotificationAction is delivered through that RemoteInput (Messages records it as sent).
+# NotificationRemoved; a chat notification (the fixture app) is mirrored with its RemoteInput reply action, a reply sent
+# with D-Bus NotificationAction reaches the RemoteInput, and the updated conversation comes back to D-Bus. A media
+# session on the phone (the fixture app) becomes the MPRIS player umbriel_link_<device> with its title and artwork,
+# and playerctl's pause, next, and seek reach that session; a desktop MPRIS test player shows on the app's Media
+# screen, and its Pause button reaches it as PlayPause.
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, linkd.log to $OUT
 # (default ./artifacts/link-android-features). Needs the debug APK and a running emulator; run under
 # flock /tmp/link-emulator.lock, since the emulator is shared.
@@ -15,6 +18,7 @@ ADB=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 MAESTRO=${MAESTRO:-$HOME/.maestro/bin/maestro}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/link/android/app/build/outputs/apk/debug/app-debug.apk}
+FIXTURE_APK=${FIXTURE_APK:-$ROOT/link/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
 FLOWS=$ROOT/link/android/maestro
 PACKAGE=org.umbriel.link
 
@@ -23,7 +27,7 @@ mkdir -p "$OUT"
 # A fresh directory per run: dbus-daemon unlinks its socket path on exit, so a reused path would race the old one.
 RUNTIME=$(mktemp -d /tmp/link-android-features.XXXX)
 trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail() { echo "FAIL: $*" >&2; "$ADB" -s "$SERIAL" logcat -d > "$OUT/logcat.txt" 2>&1 || true; exit 1; }
 record() { printf '%s\n' "$1" >> "$OUT/results.jsonl"; }
 wait_for() {
   local tries=$(( $1 * 10 )) what=$2; shift 2
@@ -37,6 +41,7 @@ notifications() { adb shell dumpsys notification --noredact > "$OUT/notification
 
 [[ $(adb get-state 2>/dev/null) == device ]] || fail "no emulator at $SERIAL"
 [[ -s $APK ]] || fail "no APK at $APK"
+[[ -s $FIXTURE_APK ]] || fail "no fixture APK at $FIXTURE_APK"
 
 cat > "$RUNTIME/bus.conf" <<CONF
 <busconfig>
@@ -62,8 +67,6 @@ signal() { grep -F "org.umbriel.Link1.$1 " "$OUT/signals.txt" | grep -F -- "$2" 
 heard() { [[ -n $(signal "$1" "$2") ]]; }
 posted() { notifications | grep -qF "$1"; }
 gone() { ! notifications | grep -qF "$1"; }
-# Messages shows a sent reply in its notification, or at least stores it with the conversation.
-replied() { posted "$1" || adb shell content query --uri content://sms --projection body 2> /dev/null | grep -qF "$1"; }
 # The notification key and the first reply action of the latest NotificationPosted matching $1.
 posted_field() {
   signal NotificationPosted "$1" | python3 -c '
@@ -106,22 +109,52 @@ wait_for 10 "the dismissal did not cancel the phone notification" gone "All 42 c
 wait_for 10 "no NotificationRemoved after the dismissal" heard NotificationRemoved "$KEY"
 record '{"step":"dismissed-from-desktop","phone":"cancelled","dbus":"NotificationRemoved"}'
 
-adb emu sms send 5551234 "'Are you still coming tonight?'" > /dev/null
-wait_for 60 "no NotificationPosted for the SMS" heard NotificationPosted "Are you still coming tonight?"
-SMS_KEY=$(posted_field "Are you still coming tonight?" key)
-REPLY=$(posted_field "Are you still coming tonight?" reply)
-[[ -n $REPLY ]] || fail "the SMS notification carries no RemoteInput action: $(signal NotificationPosted "Are you still coming tonight?")"
+# A fresh install: replacing the package cancels its notifications late, racing the reply below.
+adb uninstall org.umbriel.link.fixture > /dev/null 2>&1 || true
+adb install "$FIXTURE_APK" > /dev/null || fail "installing $FIXTURE_APK"
+adb shell pm grant org.umbriel.link.fixture android.permission.POST_NOTIFICATIONS
+adb logcat -c
+adb shell am start -W -n org.umbriel.link.fixture/.MessageActivity > /dev/null
+# The key names the fresh install's uid, so a notification a previous run left behind cannot stand in for it.
+FIXTURE_KEY="0|org.umbriel.link.fixture|7|null|$(adb shell pm list packages -U org.umbriel.link.fixture | sed 's/.*uid://' | tr -d '\r')"
+wait_for 30 "no NotificationPosted for the chat message" heard NotificationPosted "$FIXTURE_KEY"
+CHAT_KEY=$(posted_field "$FIXTURE_KEY" key)
+REPLY=$(posted_field "$FIXTURE_KEY" reply)
+[[ $(signal NotificationPosted "$FIXTURE_KEY") == *"Are we still on for dinner?"* ]] || fail "the chat text did not arrive"
+[[ -n $REPLY ]] || fail "the chat notification carries no RemoteInput action: $(signal NotificationPosted "Are we still on for dinner?")"
+link NotificationAction "$ID" "$CHAT_KEY" "$REPLY" "'Yes, leaving now'" > /dev/null || fail "D-Bus NotificationAction reply"
+wait_for 20 "the RemoteInput did not receive the reply" eval 'adb logcat -d -s LinkFixture | grep -q "reply Yes, leaving now"'
+wait_for 20 "the replied conversation did not come back to the desktop" heard NotificationPosted "Yes, leaving now"
 adb shell cmd statusbar expand-notifications
 sleep 2 # real time: the shade animates open
-screenshot 1-sms-on-phone
+screenshot 1-reply-on-phone
 adb shell cmd statusbar collapse
-link NotificationAction "$ID" "$SMS_KEY" "$REPLY" "'Yes, leaving now'" > /dev/null || fail "D-Bus NotificationAction reply"
-wait_for 30 "Messages did not take the reply" replied "Yes, leaving now"
-adb shell cmd statusbar expand-notifications
-sleep 2 # real time: the shade animates open
-screenshot 2-sms-replied
-adb shell cmd statusbar collapse
-record "{\"step\":\"reply-through-remote-input\",\"app\":\"$(posted_field "Are you still coming tonight?" app)\",\"action\":\"$REPLY\"}"
+record "{\"step\":\"reply-through-remote-input\",\"action\":\"$REPLY\",\"text\":\"Yes, leaving now\"}"
+
+adb shell am start -W -n org.umbriel.link.fixture/.PlayerActivity > /dev/null
+PLAYER=umbriel_link_$ID
+pc() { playerctl -p "$PLAYER" "$@" 2> /dev/null || true; }
+fixture() { adb logcat -d -s LinkFixture | grep -q "$1"; }
+wait_for 30 "the phone's media session never reached MPRIS: $(playerctl -l 2>&1)" eval '[[ $(pc metadata title) == "Emulator Song" ]]'
+[[ $(pc metadata artist) == "The Emulators" && $(pc status) == Playing ]] || fail "MPRIS: $(pc metadata artist) $(pc status)"
+ART=$(pc metadata mpris:artUrl)
+[[ $ART == file://*.jpg && -s ${ART#file://} ]] || fail "no artwork file: $ART"
+pc pause
+wait_for 10 "the media session was not paused" fixture " pause"
+wait_for 10 "MPRIS does not show the phone paused: $(pc status)" eval '[[ $(pc status) == Paused ]]'
+pc next
+wait_for 10 "the media session did not skip" fixture " next"
+wait_for 10 "the next title did not reach MPRIS" eval '[[ $(pc metadata title) == "Emulator Song, part 2" ]]'
+pc position 90
+wait_for 10 "the media session was not seeked" fixture " seek 90000"
+record "{\"step\":\"phone-media-on-mpris\",\"player\":\"$PLAYER\",\"commands\":[\"pause\",\"next\",\"seek\"],\"art\":\"jpeg\"}"
+
+python3 "$ROOT/tests/e2e/mpris_test_player.py" "$OUT/player-calls.txt" &
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+maestro "$FLOWS/media.yaml"
+wait_for 10 "the app's Pause did not reach the desktop player" grep -qx PlayPause "$OUT/player-calls.txt"
+record '{"step":"desktop-media-on-phone","player":"E2E Player","command":"PlayPause"}'
+
 
 python3 - "$OUT" <<'PY'
 import json, os, sys

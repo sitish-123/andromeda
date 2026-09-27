@@ -14,12 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import org.umbriel.link.AppContainer
 import org.umbriel.link.devices.DevicesScreen
 import org.umbriel.link.devices.DevicesViewModel
+import org.umbriel.link.media.MediaScreen
+import org.umbriel.link.media.MediaViewModel
 import org.umbriel.link.notifications.AppFilterScreen
 import org.umbriel.link.notifications.AppFilterViewModel
 import org.umbriel.link.pairing.PairingScreen
 import org.umbriel.link.pairing.PairingViewModel
 
-private enum class Screen { Devices, Pairing, MirrorApps }
+private enum class Screen { Devices, Pairing, MirrorApps, Media }
 
 /** A few screens, so navigation is one piece of state rather than a navigation library. */
 @Composable
@@ -37,7 +39,11 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
         }
     }
     when (screen) {
-        Screen.Devices -> DevicesScreen(devices, onPair = { screen = Screen.Pairing }, onMirrorApps = { screen = Screen.MirrorApps })
+        Screen.Devices -> DevicesScreen(devices, onPair = { screen = Screen.Pairing }, onMirrorApps = { screen = Screen.MirrorApps }, onMedia = { screen = Screen.Media })
+        Screen.Media -> {
+            BackHandler { screen = Screen.Devices }
+            MediaScreen(viewModel { MediaViewModel(container.repository) }, onBack = { screen = Screen.Devices })
+        }
         Screen.MirrorApps -> {
             BackHandler { screen = Screen.Devices }
             val context = LocalContext.current

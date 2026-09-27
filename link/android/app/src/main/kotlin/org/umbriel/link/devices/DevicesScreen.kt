@@ -49,7 +49,7 @@ import org.umbriel.link.ui.text
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit, onMirrorApps: () -> Unit) {
+fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit, onMirrorApps: () -> Unit, onMedia: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -89,7 +89,7 @@ fun DevicesScreen(viewModel: DevicesViewModel, onPair: () -> Unit, onMirrorApps:
         if (state.desktops.isEmpty()) {
             EmptyDesktops(Modifier.padding(padding))
         } else {
-            DesktopList(state, viewModel, onMirrorApps, PaddingValues(16.dp), Modifier.padding(padding))
+            DesktopList(state, viewModel, onMirrorApps, onMedia, PaddingValues(16.dp), Modifier.padding(padding))
         }
     }
 }
@@ -116,6 +116,7 @@ private fun DesktopList(
     state: DevicesState,
     viewModel: DevicesViewModel,
     onMirrorApps: () -> Unit,
+    onMedia: () -> Unit,
     content: PaddingValues,
     modifier: Modifier,
 ) {
@@ -128,6 +129,13 @@ private fun DesktopList(
                 onAllow = { context.startActivity(viewModel.mirrorAccessSettings()) },
                 onApps = onMirrorApps,
             )
+        }
+        item(key = "media") {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                FilledTonalButton(onClick = onMedia, modifier = Modifier.padding(16.dp)) {
+                    Text(stringResource(R.string.media_title))
+                }
+            }
         }
         items(state.desktops, key = { it.id }) { desktop ->
             DesktopCard(desktop, busy = desktop.id in state.busy, viewModel)

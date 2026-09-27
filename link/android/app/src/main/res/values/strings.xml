@@ -48,4 +48,11 @@
     <string name="mirror_allow">Allow access</string>
     <string name="mirror_apps">Choose apps</string>
     <string name="mirror_apps_title">Apps to mirror</string>
+    <string name="mirror_you">You</string>
+    <string name="media_title">Desktop media</string>
+    <string name="media_empty">Nothing is playing on your desktops.</string>
+    <string name="media_play">Play</string>
+    <string name="media_pause">Pause</string>
+    <string name="media_next">Next</string>
+    <string name="media_previous">Previous</string>
 </resources>

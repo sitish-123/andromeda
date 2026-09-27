@@ -2,7 +2,8 @@
 ; Types marked "0-RTT" are idempotent and may be sent in QUIC early data.
 
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
-  notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg
+  notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
+  media-player-msg / media-gone-msg / media-command-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -53,3 +54,27 @@ notification-removed-msg = { type: "notification-removed", id: uint, body: { "id
 notification-action-msg = { type: "notification-action", id: uint, body: notification-action }
 notification-action = { "id": notification-id, action: tstr .size (1..64), ? reply_text: tstr .size (1..4096) }
 notification-dismiss-msg = { type: "notification-dismiss", id: uint, body: { "id": notification-id } }
+
+; Either side, about its own players (media-player, media-gone) or the other's (media-command); not acknowledged.
+player-id = tstr .size (1..64)
+media-command-kind = "play" / "pause" / "play-pause" / "next" / "previous" / "seek" / "volume"
+media-player-msg = { type: "media-player", id: uint, body: media-player }
+media-player = {
+  player: player-id,
+  name: tstr .size (1..64),
+  state: "playing" / "paused" / "stopped",
+  title: tstr .size (0..512),
+  artist: tstr .size (0..512),
+  album: tstr .size (0..512),
+  ? length_ms: uint,
+  position_ms: uint,                  ; when sent; the receiver advances it while playing
+  ? volume: 0..100,
+  ? artwork: bstr .size (1..49152),   ; PNG or JPEG
+  can: [* media-command-kind],        ; each at most once
+}
+media-gone-msg = { type: "media-gone", id: uint, body: { player: player-id } }
+media-command-msg = { type: "media-command", id: uint, body: media-command }
+media-command = seek-command / volume-command / plain-command
+seek-command = { player: player-id, command: "seek", value: uint }   ; the absolute position in ms
+volume-command = { player: player-id, command: "volume", value: 0..100 }
+plain-command = { player: player-id, command: "play" / "pause" / "play-pause" / "next" / "previous" }
