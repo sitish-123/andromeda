@@ -153,6 +153,11 @@ LinkService::LinkService(
                 const std::string& text, const std::vector<std::uint8_t>& icon,
                 const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
             ) { onNotificationPosted(deviceId, id, app, title, text, icon, actions); });
+  m_link->uponSignal("Call")
+      .onInterface(kLinkInterface)
+      .call([this](
+                const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
+            ) { onCall(deviceId, state, number, name); });
   m_link->uponSignal("RingRequested").onInterface(kLinkInterface).call([this](const std::string& deviceId, bool on) {
     onRingRequested(deviceId, on);
   });
@@ -408,6 +413,42 @@ void LinkService::onRingRequested(const std::string& deviceId, bool on) {
   notify();
 }
 
+void LinkService::onCall(
+    const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
+) {
+  const auto shown = m_callNotifications.find(deviceId);
+  if (state != "ringing") {
+    if (shown != m_callNotifications.end()) {
+      const std::uint32_t id = shown->second;
+      m_callNotifications.erase(shown);
+      m_callDevices.erase(id);
+      (void)m_notifications.close(id, CloseReason::ClosedByCall);
+    }
+    return;
+  }
+  const std::string caller =
+      !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
+  NotificationRequest request;
+  request.replacesId = shown != m_callNotifications.end() ? shown->second : 0;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr("notifications.internal.link-call-title", "caller", caller);
+  request.body = name.empty() || number.empty()
+      ? i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId))
+      : number + " · " + i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId));
+  request.origin = NotificationOrigin::Internal;
+  request.urgency = Urgency::Critical;
+  request.timeout = 0;
+  request.icon = std::string("noctalia-glyph:phone-call");
+  request.actions = {
+      "call:mute", i18n::tr("notifications.internal.link-call-mute"), "call:decline",
+      i18n::tr("notifications.internal.link-call-decline")
+  };
+  if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0) {
+    m_callNotifications[deviceId] = id;
+    m_callDevices[id] = deviceId;
+  }
+}
+
 void LinkService::stopRinging() {
   if (!m_ringingFor.has_value()) {
     return;
@@ -426,6 +467,11 @@ void LinkService::stopRinging() {
 }
 
 void LinkService::onNotificationClosed(std::uint32_t id, CloseReason reason) {
+  if (const auto call = m_callDevices.find(id); call != m_callDevices.end()) {
+    m_callNotifications.erase(call->second);
+    m_callDevices.erase(call);
+    return;
+  }
   if (id != 0 && id == m_ringNotification) {
     m_ringNotification = 0;
     stopRinging();
@@ -459,6 +505,13 @@ std::string LinkService::deviceName(const std::string& deviceId) const {
 }
 
 void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
+  if (const auto call = m_callDevices.find(id); call != m_callDevices.end() && action.starts_with("call:")) {
+    m_link->callMethodAsync("CallAction")
+        .onInterface(kLinkInterface)
+        .withArguments(call->second, action.substr(5))
+        .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
+    return;
+  }
   if (id != 0 && id == m_ringNotification) {
     m_ringNotification = 0;
     stopRinging();

@@ -1,6 +1,6 @@
 //! The hub actor: sole owner of the device store, the pairing window, and the set of live sessions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::{MediaPlayer, Message, NotificationPosted, Share};
+use link_core::proto::message::{Call, CallState, MediaPlayer, Message, NotificationPosted, Share};
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
@@ -17,7 +17,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
-use crate::desktop_media::DesktopMediaHandle;
+use crate::desktop_media::{DesktopMediaHandle, Request};
 use crate::media::Media;
 use crate::notifications::{Change, Mirror};
 use crate::paths::Paths;
@@ -73,6 +73,10 @@ pub enum Event {
         id: DeviceId,
         on: bool,
     },
+    Call {
+        id: DeviceId,
+        call: Call,
+    },
 }
 
 enum Command {
@@ -113,6 +117,8 @@ pub struct Hub {
     sessions: HashMap<DeviceId, SessionHandle>,
     notifications: Mirror,
     media: Media,
+    /// Phones with a call ringing or active, during which the desktop's players stay paused.
+    in_call: HashSet<DeviceId>,
     /// Its own handle, for the exported MPRIS players to reach sessions.
     me: HubHandle,
     commands: mpsc::Receiver<Command>,
@@ -144,6 +150,7 @@ impl Hub {
             sessions: HashMap::new(),
             notifications: Mirror::default(),
             media,
+            in_call: HashSet::new(),
             me: handle.clone(),
             commands,
             session_events,
@@ -194,6 +201,7 @@ impl Hub {
                     self.sessions.remove(&id);
                     self.publish();
                     self.media.disconnected(&id).await;
+                    self.set_in_call(&id, false).await;
                 }
             }
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
@@ -249,8 +257,27 @@ impl Hub {
                 self.media.on_phone_message(&self.me, &from, &name, media).await;
             }
             Message::Ring(ring) => self.emit(Event::RingRequested { id: from, on: ring.on }).await,
+            Message::Call(call) => {
+                self.set_in_call(&from, call.state != CallState::Idle).await;
+                self.emit(Event::Call { id: from, call }).await;
+            }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
+        }
+    }
+
+    /// Pauses the desktop's players when a first phone's call starts, and resumes them when the last one ends.
+    async fn set_in_call(&mut self, id: &DeviceId, calling: bool) {
+        let before = self.in_call.is_empty();
+        if calling {
+            self.in_call.insert(id.clone());
+        } else {
+            self.in_call.remove(id);
+        }
+        match (before, self.in_call.is_empty()) {
+            (true, false) => self.media.request(Request::PauseAll).await,
+            (false, true) => self.media.request(Request::ResumePaused).await,
+            _ => {}
         }
     }
 

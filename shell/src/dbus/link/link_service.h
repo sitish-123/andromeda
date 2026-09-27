@@ -46,7 +46,7 @@ struct LinkPairingOutcome {
 // Client of umbriel-linkd (org.umbriel.Link1): paired devices, the pairing window, shares, and phone notifications.
 // A received share becomes a notification whose action copies the text or opens the link. A phone notification is
 // shown with its actions and inline reply, which run on the phone; dismissing it here dismisses it there. A phone
-// looking for this desktop rings it until stopped. The daemon may start, stop, or restart at any time; available()
+// looking for this desktop rings it until stopped. An incoming call offers mute and decline. The daemon may start, stop, or restart at any time; available()
 // follows its bus name.
 class LinkService {
 public:
@@ -96,6 +96,7 @@ private:
   void onNotificationRemoved(const std::string& deviceId, const std::string& id);
   void onNotificationClosed(std::uint32_t id, CloseReason reason);
   void onRingRequested(const std::string& deviceId, bool on);
+  void onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
   void stopRinging();
   [[nodiscard]] std::uint32_t mirroredId(const std::string& deviceId, const std::string& id) const;
   [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
@@ -129,6 +130,9 @@ private:
   std::uint32_t m_ringNotification = 0;
   Timer m_ringRepeat;
   Timer m_ringLimit;
+  // Incoming-call notifications by phone, and their phone by notification id.
+  std::unordered_map<std::string, std::uint32_t> m_callNotifications;
+  std::unordered_map<std::uint32_t, std::string> m_callDevices;
   ChangeCallback m_changeCallback;
   std::vector<LinkDevice> m_devices;
   std::optional<LinkPairing> m_pairing;

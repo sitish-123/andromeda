@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.umbriel.link.calls.Calls
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.media.PhoneMedia
 import org.umbriel.link.notifications.Channels
@@ -35,6 +36,7 @@ class AppContainer(private val application: Application) {
     val mirror = NotificationMirror(application, repository, scope)
     val media = PhoneMedia(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
+    val calls = Calls(application, repository, scope)
 
     fun start() {
         Channels.create(application)
@@ -42,6 +44,7 @@ class AppContainer(private val application: Application) {
         mirror.start()
         media.start()
         ringer.start()
+        calls.start()
         scope.launch { repository.incoming.collect(notifier::post) }
     }
 }

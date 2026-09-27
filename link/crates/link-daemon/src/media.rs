@@ -52,6 +52,10 @@ impl Media {
         }
     }
 
+    pub async fn request(&self, request: Request) {
+        self.requests.request(request).await;
+    }
+
     pub async fn on_phone_message(&mut self, hub: &HubHandle, device: &DeviceId, device_name: &str, message: Message) {
         let phone = self.phones.entry(device.clone()).or_default();
         match message {

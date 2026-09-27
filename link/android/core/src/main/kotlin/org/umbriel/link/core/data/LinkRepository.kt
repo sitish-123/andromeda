@@ -17,6 +17,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.os.SystemClock
+import org.umbriel.link.core.domain.CallAction
+import org.umbriel.link.core.domain.CallState
 import org.umbriel.link.core.domain.Desktop
 import org.umbriel.link.core.domain.DesktopPlayer
 import org.umbriel.link.core.domain.MediaCommandKind
@@ -36,6 +38,8 @@ import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
 import org.umbriel.link.ffi.generateIdentity
 import org.umbriel.link.ffi.Desktop as FfiDesktop
+import org.umbriel.link.ffi.CallAction as FfiCallAction
+import org.umbriel.link.ffi.CallState as FfiCallState
 import org.umbriel.link.ffi.Feature as FfiFeature
 import org.umbriel.link.ffi.MediaCommandKind as FfiCommand
 import org.umbriel.link.ffi.MediaPlayer as FfiPlayer
@@ -68,6 +72,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _desktopPlayers = MutableStateFlow<List<DesktopPlayer>>(emptyList())
     private val _ringRequests = MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = INCOMING_BUFFER)
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
+    private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -91,6 +96,19 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Desktops ringing because this phone asked, as they report it. */
     val ringingDesktops: StateFlow<Set<String>> = _ringingDesktops.asStateFlow()
+
+    /** What desktops ask of a ringing call. */
+    val callActions: SharedFlow<CallAction> = _callActions.asSharedFlow()
+
+    /** Tells connected desktops that take calls; `number` and `name` only when known. */
+    suspend fun reportCall(state: CallState, number: String?, name: String?): Result<Int> = call {
+        val ffiState = when (state) {
+            CallState.Ringing -> FfiCallState.RINGING
+            CallState.Active -> FfiCallState.ACTIVE
+            CallState.Idle -> FfiCallState.IDLE
+        }
+        it.reportCall(ffiState, number, name).toInt()
+    }
 
     /** Connects first if needed. */
     suspend fun ringDesktop(desktopId: String, on: Boolean): Result<Unit> =
@@ -194,6 +212,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                     list.filterNot { it.desktopId == event.desktopId && it.player.player == event.player }
                 }
                 is LinkEvent.RingRequested -> _ringRequests.emit(event.desktopId to event.on)
+                is LinkEvent.CallActionRequested -> _callActions.emit(
+                    if (event.action == FfiCallAction.MUTE) CallAction.Mute else CallAction.Decline,
+                )
                 is LinkEvent.DesktopRinging -> _ringingDesktops.update {
                     if (event.on) it + event.desktopId else it - event.desktopId
                 }

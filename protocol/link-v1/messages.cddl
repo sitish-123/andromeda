@@ -3,7 +3,7 @@
 
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
-  media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg
+  media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -82,3 +82,13 @@ plain-command = { player: player-id, command: "play" / "pause" / "play-pause" / 
 ; Either side. ring asks the receiver to start (true) or stop (false) ringing; ringing reports the sender's own.
 ring-msg = { type: "ring", id: uint, body: { on: bool } }
 ringing-msg = { type: "ringing", id: uint, body: { on: bool } }
+
+; Phone to desktop: the call state as Android reports it. number only with READ_CALL_LOG, name only for a contact.
+call-msg = { type: "call", id: uint, body: call-body }
+call-body = {
+  state: "ringing" / "active" / "idle",
+  ? "number": tstr .size (1..64),   ; quoted: number is a CDDL prelude type
+  ? name: tstr .size (1..128),
+}
+; Desktop to phone.
+call-action-msg = { type: "call-action", id: uint, body: { action: "mute" / "decline" } }

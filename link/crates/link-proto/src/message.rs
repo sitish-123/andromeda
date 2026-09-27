@@ -273,6 +273,63 @@ pub struct Ringing {
     pub on: bool,
 }
 
+pub const MAX_NUMBER_LEN: usize = 64;
+pub const MAX_CALLER_LEN: usize = 128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallState {
+    Ringing,
+    Active,
+    Idle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Call {
+    pub state: CallState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    /// The contact's name, when the phone may read contacts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallActionKind {
+    /// Silences the ringer until the call ends.
+    Mute,
+    /// Ends the ringing call.
+    Decline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallAction {
+    pub action: CallActionKind,
+}
+
+impl CallState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ringing => "ringing",
+            Self::Active => "active",
+            Self::Idle => "idle",
+        }
+    }
+}
+
+impl CallActionKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "mute" => Some(Self::Mute),
+            "decline" => Some(Self::Decline),
+            _ => None,
+        }
+    }
+}
+
 fn player_id(player: &str) -> bool {
     sized(player, 1, MAX_PLAYER_LEN)
 }
@@ -321,6 +378,8 @@ pub enum Message {
     MediaCommand(MediaCommand),
     Ring(Ring),
     Ringing(Ringing),
+    Call(Call),
+    CallAction(CallAction),
 }
 
 impl Message {
@@ -341,6 +400,8 @@ impl Message {
             Self::MediaCommand(_) => "media-command",
             Self::Ring(_) => "ring",
             Self::Ringing(_) => "ringing",
+            Self::Call(_) => "call",
+            Self::CallAction(_) => "call-action",
         }
     }
 
@@ -361,6 +422,8 @@ impl Message {
             Self::MediaCommand(body) => Value::serialized(body),
             Self::Ring(body) => Value::serialized(body),
             Self::Ringing(body) => Value::serialized(body),
+            Self::Call(body) => Value::serialized(body),
+            Self::CallAction(body) => Value::serialized(body),
         }
     }
 
@@ -384,6 +447,8 @@ impl Message {
             "media-command" => Self::MediaCommand(body.deserialized()?),
             "ring" => Self::Ring(body.deserialized()?),
             "ringing" => Self::Ringing(body.deserialized()?),
+            "call" => Self::Call(body.deserialized()?),
+            "call-action" => Self::CallAction(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -396,7 +461,11 @@ impl Message {
             Self::Hello(hello) => (1..=MAX_NAME_LEN).contains(&hello.name.chars().count()),
             Self::PairSpake(spake) => spake.msg.len() == SPAKE_MSG_LEN,
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
-            Self::Unpair | Self::ShareAck(_) | Self::Ring(_) | Self::Ringing(_) => true,
+            Self::Unpair | Self::ShareAck(_) | Self::Ring(_) | Self::Ringing(_) | Self::CallAction(_) => true,
+            Self::Call(call) => {
+                call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
+                    && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
+            }
             Self::Share(share) => share.check().is_ok(),
             Self::NotificationPosted(posted) => posted.valid(),
             Self::NotificationRemoved(NotificationRemoved { id })

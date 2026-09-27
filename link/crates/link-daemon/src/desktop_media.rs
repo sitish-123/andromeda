@@ -29,6 +29,10 @@ pub struct DesktopMediaHandle(mpsc::Sender<Request>);
 
 pub enum Request {
     Command(MediaCommand),
+    /// Pauses every playing player and remembers which, for a phone call.
+    PauseAll,
+    /// Resumes the players `PauseAll` paused.
+    ResumePaused,
 }
 
 struct Watched {
@@ -56,6 +60,7 @@ struct DesktopMedia {
     hub: HubHandle,
     /// By bus name.
     players: HashMap<String, Watched>,
+    paused_for_call: Vec<String>,
 }
 
 pub async fn run(bus: zbus::Connection, hub: HubHandle, mut requests: mpsc::Receiver<Request>) -> anyhow::Result<()> {
@@ -77,7 +82,7 @@ pub async fn run(bus: zbus::Connection, hub: HubHandle, mut requests: mpsc::Rece
     let mut owners = MessageStream::for_match_rule(owners_rule, &bus, None).await?;
     let mut changes = MessageStream::for_match_rule(changes_rule, &bus, None).await?;
     let mut seeks = MessageStream::for_match_rule(seeks_rule, &bus, None).await?;
-    let mut media = DesktopMedia { bus: bus.clone(), hub, players: HashMap::new() };
+    let mut media = DesktopMedia { bus: bus.clone(), hub, players: HashMap::new(), paused_for_call: Vec::new() };
     for name in DBusProxy::new(&bus).await?.list_names().await? {
         media.appeared(name.as_str()).await;
     }
@@ -156,6 +161,24 @@ impl DesktopMedia {
     async fn handle(&mut self, request: Request) {
         match request {
             Request::Command(command) => self.command(command).await,
+            Request::PauseAll => {
+                let playing: Vec<String> = self
+                    .players
+                    .iter()
+                    .filter(|(_, watched)| watched.player.state == PlaybackState::Playing)
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                for name in &playing {
+                    self.call(name, "Pause", &()).await;
+                }
+                log::info!("paused {} players for a phone call", playing.len());
+                self.paused_for_call = playing;
+            }
+            Request::ResumePaused => {
+                for name in std::mem::take(&mut self.paused_for_call) {
+                    self.call(&name, "Play", &()).await;
+                }
+            }
         }
     }
 

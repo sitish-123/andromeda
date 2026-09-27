@@ -145,6 +145,11 @@ pub enum LinkEvent {
         desktop_id: String,
         on: bool,
     },
+    /// A desktop asks to mute the ringer or decline the ringing call.
+    CallActionRequested {
+        desktop_id: String,
+        action: CallAction,
+    },
     /// A desktop commands this phone's player.
     PlayerCommand {
         desktop_id: String,
@@ -152,6 +157,19 @@ pub enum LinkEvent {
         command: MediaCommandKind,
         value: Option<u64>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallState {
+    Ringing,
+    Active,
+    Idle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallAction {
+    Mute,
+    Decline,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -311,6 +329,21 @@ impl LinkClient {
         self.broadcast(Message::MediaGone(message::MediaGone { player })).await
     }
 
+    /// Reports the call state to every connected desktop that takes calls; `number` and `name` only when known.
+    pub async fn report_call(
+        &self,
+        state: CallState,
+        number: Option<String>,
+        name: Option<String>,
+    ) -> Result<u32, LinkError> {
+        let state = match state {
+            CallState::Ringing => message::CallState::Ringing,
+            CallState::Active => message::CallState::Active,
+            CallState::Idle => message::CallState::Idle,
+        };
+        self.broadcast(Message::Call(message::Call { state, number, name })).await
+    }
+
     /// Rings a desktop, or stops it, connecting first if needed.
     pub async fn ring_desktop(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
@@ -382,6 +415,13 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                 Message::MediaPlayer(player) => LinkEvent::PlayerChanged { desktop_id, player: player.into() },
                 Message::MediaGone(gone) => LinkEvent::PlayerGone { desktop_id, player: gone.player },
                 Message::Ring(ring) => LinkEvent::RingRequested { desktop_id, on: ring.on },
+                Message::CallAction(action) => LinkEvent::CallActionRequested {
+                    desktop_id,
+                    action: match action.action {
+                        message::CallActionKind::Mute => CallAction::Mute,
+                        message::CallActionKind::Decline => CallAction::Decline,
+                    },
+                },
                 Message::Ringing(ringing) => LinkEvent::DesktopRinging { desktop_id, on: ringing.on },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,

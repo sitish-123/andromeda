@@ -66,8 +66,10 @@ impl SessionState {
 /// Which feature messages each role may receive.
 fn receives(role: Role, message: &Message) -> bool {
     match message {
-        Message::NotificationPosted(_) | Message::NotificationRemoved(_) => role == Role::Desktop,
-        Message::NotificationAction(_) | Message::NotificationDismiss(_) => role == Role::Phone,
+        Message::NotificationPosted(_) | Message::NotificationRemoved(_) | Message::Call(_) => role == Role::Desktop,
+        Message::NotificationAction(_) | Message::NotificationDismiss(_) | Message::CallAction(_) => {
+            role == Role::Phone
+        }
         Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)
@@ -83,11 +85,11 @@ mod tests {
 
     use super::*;
     use crate::message::{
-        DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ARTWORK_LEN, MAX_ICON_LEN, MAX_METADATA_LEN,
-        MAX_NOTIFICATION_ID_LEN, MAX_PLAYER_LEN, MAX_SHARE_LEN, MAX_TEXT_LEN, MAX_TITLE_LEN, MAX_VOLUME, MediaCommand,
-        MediaCommandKind, MediaGone, MediaPlayer, NotificationAction, NotificationButton, NotificationDismiss,
-        NotificationPosted, NotificationRemoved, PairConfirm, PairSpake, PlaybackState, Ring, Ringing, ShareAck,
-        ShareKind, ShareRejected,
+        Call, CallAction, CallActionKind, CallState, DecodeError, Hello, MAX_ACTION_LEN, MAX_ACTIONS, MAX_ARTWORK_LEN,
+        MAX_CALLER_LEN, MAX_ICON_LEN, MAX_METADATA_LEN, MAX_NOTIFICATION_ID_LEN, MAX_NUMBER_LEN, MAX_PLAYER_LEN,
+        MAX_SHARE_LEN, MAX_TEXT_LEN, MAX_TITLE_LEN, MAX_VOLUME, MediaCommand, MediaCommandKind, MediaGone, MediaPlayer,
+        NotificationAction, NotificationButton, NotificationDismiss, NotificationPosted, NotificationRemoved,
+        PairConfirm, PairSpake, PlaybackState, Ring, Ringing, ShareAck, ShareKind, ShareRejected,
     };
 
     fn envelope(id: u64, message: Message) -> Envelope {
@@ -323,6 +325,44 @@ mod tests {
         ciborium::into_writer(&raw, &mut bytes).expect("cbor into memory");
         assert!(matches!(Envelope::from_cbor(&bytes), Err(DecodeError::Cbor(_))));
         assert!(Envelope::from_cbor(&Envelope::new(1, command(MediaCommandKind::Volume, Some(100))).to_cbor()).is_ok());
+    }
+
+    #[test]
+    fn call_messages_travel_one_way_within_their_limits() {
+        let call = |number: Option<&str>, name: Option<&str>| {
+            Message::Call(Call {
+                state: CallState::Ringing,
+                number: number.map(str::to_owned),
+                name: name.map(str::to_owned),
+            })
+        };
+        let action = Message::CallAction(CallAction { action: CallActionKind::Decline });
+        let ringing = call(Some("+15551234"), Some("Ada"));
+        assert_eq!(
+            SessionState::new(Role::Desktop).on_message(envelope(1, ringing.clone())),
+            Ok(Inbound::Deliver(ringing.clone()))
+        );
+        assert_eq!(
+            SessionState::new(Role::Phone).on_message(envelope(1, ringing)),
+            Err(SessionError::Unexpected("call"))
+        );
+        assert_eq!(
+            SessionState::new(Role::Phone).on_message(envelope(1, action.clone())),
+            Ok(Inbound::Deliver(action.clone()))
+        );
+        assert_eq!(
+            SessionState::new(Role::Desktop).on_message(envelope(1, action)),
+            Err(SessionError::Unexpected("call-action"))
+        );
+        let long_number = "5".repeat(MAX_NUMBER_LEN + 1);
+        let long_name = "n".repeat(MAX_CALLER_LEN + 1);
+        for message in [call(Some(""), None), call(Some(&long_number), None), call(None, Some(&long_name))] {
+            assert!(matches!(
+                Envelope::from_cbor(&Envelope::new(1, message).to_cbor()),
+                Err(DecodeError::Invalid("call"))
+            ));
+        }
+        assert!(Envelope::from_cbor(&Envelope::new(1, call(None, None)).to_cbor()).is_ok());
     }
 
     #[test]

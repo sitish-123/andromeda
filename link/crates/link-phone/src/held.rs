@@ -7,8 +7,8 @@ use anyhow::{Context, anyhow, bail};
 use link_core::client::{Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message, NotificationButton, NotificationPosted,
-    NotificationRemoved, PlaybackState, Ring, Ringing,
+    Call, CallActionKind, CallState, MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message,
+    NotificationButton, NotificationPosted, NotificationRemoved, PlaybackState, Ring, Ringing,
 };
 use serde_json::{Value, json};
 
@@ -30,7 +30,7 @@ impl Held {
     /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
     /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
     /// session and dials again; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
-    /// own ringing, as stopping it on the phone does.
+    /// own ringing, as stopping it on the phone does; `call <json>` reports a call (a `call` body).
     pub async fn command(&mut self, line: &str) -> Value {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
@@ -41,6 +41,7 @@ impl Held {
             "media-gone" => self.media_gone(rest.trim()).await,
             "media-command" => self.media_command(rest).await,
             "ring" => self.send_switch(rest, |on| Message::Ring(Ring { on })).await,
+            "call" => self.call(rest).await,
             "ringing" => {
                 self.ringing = rest.trim() == "on";
                 self.send_switch(rest, |on| Message::Ringing(Ringing { on })).await
@@ -61,6 +62,13 @@ impl Held {
                 }
             }
             ClientEvent::Message { message: Message::MediaCommand(command), .. } => self.obey(command).await,
+            // As Android does: a declined call ends, and the call state goes idle.
+            ClientEvent::Message { message: Message::CallAction(action), .. }
+                if action.action == CallActionKind::Decline =>
+            {
+                let idle = Message::Call(Call { state: CallState::Idle, number: None, name: None });
+                self.broadcast(idle).await;
+            }
             // As the app does: ring or stop, then report the state.
             ClientEvent::Message { from, message: Message::Ring(ring) } => {
                 self.ringing = ring.on;
@@ -120,6 +128,13 @@ impl Held {
         let command: MediaCommand = serde_json::from_str(json).context("not a media-command body")?;
         self.client.send(self.desktop.clone(), Message::MediaCommand(command.clone())).await?;
         Ok(json!({ "event": "media-commanded", "player": command.player }))
+    }
+
+    async fn call(&self, json: &str) -> anyhow::Result<Value> {
+        let call: Call = serde_json::from_str(json).context("not a call body")?;
+        let state = call.state.as_str();
+        let sent = self.client.broadcast(Message::Call(call)).await?;
+        Ok(json!({ "event": "call-reported", "state": state, "desktops": sent }))
     }
 
     async fn send_switch(&self, rest: &str, message: impl FnOnce(bool) -> Message) -> anyhow::Result<Value> {
@@ -219,6 +234,7 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
         }),
         Message::MediaGone(gone) => json!({ "event": "media-gone", "desktop": from, "player": gone.player }),
         Message::Ring(ring) => json!({ "event": "ring", "desktop": from, "on": ring.on }),
+        Message::CallAction(action) => json!({ "event": "call-action", "desktop": from, "action": action.action }),
         Message::Ringing(ringing) => json!({ "event": "desktop-ringing", "desktop": from, "on": ringing.on }),
         Message::MediaCommand(command) => json!({
             "event": "media-command", "desktop": from, "player": command.player, "command": command.command,

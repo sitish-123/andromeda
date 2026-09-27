@@ -3,7 +3,8 @@
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    MAX_NAME_LEN, Message, NotificationAction, NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind,
+    CallAction, CallActionKind, MAX_NAME_LEN, Message, NotificationAction, NotificationDismiss, NotificationPosted,
+    Ring, Ringing, Share, ShareKind,
 };
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
@@ -82,6 +83,13 @@ impl Link {
         self.send(&device_id, Message::Ringing(Ringing { on })).await
     }
 
+    /// `mute` silences the phone's ringer; `decline` ends its ringing call.
+    async fn call_action(&self, device_id: String, action: String) -> Result<(), LinkError> {
+        let action = CallActionKind::parse(&action)
+            .ok_or_else(|| LinkError::Rejected("action is mute or decline".to_owned()))?;
+        self.send(&device_id, Message::CallAction(CallAction { action })).await
+    }
+
     #[zbus(property)]
     fn devices(&self) -> Vec<(String, String, bool)> {
         self.snapshots.borrow().devices.clone()
@@ -111,6 +119,15 @@ impl Link {
         text: &str,
         icon: &[u8],
         actions: Vec<(String, String, bool)>,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn call(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        state: &str,
+        number: &str,
+        name: &str,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -188,6 +205,10 @@ pub async fn forward(
                 Event::NotificationPosted { id, posted } => emit_posted(emitter, &id, posted).await?,
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
+                Event::Call { id, call } => {
+                    let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
+                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;
+                }
                 Event::NotificationRemoved { id, notification } => {
                     Link::notification_removed(emitter, id.as_str(), &notification).await?;
                 }

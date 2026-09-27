@@ -8,7 +8,10 @@
 # and playerctl's pause, next, and seek reach that session; a desktop MPRIS test player shows on the app's Media
 # screen, and its Pause button reaches it as PlayPause. D-Bus Ring rings the phone on the alarm stream at full volume
 # while Do Not Disturb (priority, which lets alarms through) stays as the user set it, and a stop puts the volume back; the app's Ring desktop reaches D-Bus as
-# RingRequested, and once the desktop reports ringing, Stop ringing stops it.
+# RingRequested, and once the desktop reports ringing, Stop ringing stops it. `adb emu gsm call` from a contact reaches
+# D-Bus Call with the contact's name and number, pauses the desktop's playing player, D-Bus CallAction mutes the ringer
+# and declines the call, and the player resumes; a call from an unknown number carries only the number and goes idle
+# when the caller hangs up (`adb emu gsm cancel`).
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, linkd.log to $OUT
 # (default ./artifacts/link-android-features). Needs the debug APK and a running emulator; run under
 # flock /tmp/link-emulator.lock, since the emulator is shared.
@@ -193,6 +196,40 @@ link DesktopRinging "$ID" true > /dev/null || fail "D-Bus DesktopRinging"
 maestro "$FLOWS/stop-desktop.yaml"
 wait_for 10 "the phone did not stop the desktop" heard RingRequested "'$ID', false"
 record '{"step":"find-my-desktop","ring":"RingRequested true","stop":"RingRequested false"}'
+
+for permission in READ_PHONE_STATE READ_CALL_LOG READ_CONTACTS ANSWER_PHONE_CALLS; do
+  adb shell pm grant "$PACKAGE" "android.permission.$permission"
+done
+adb shell content insert --uri content://com.android.contacts/raw_contacts --bind account_type:n: --bind account_name:n:
+CONTACT=$(adb shell content query --uri content://com.android.contacts/raw_contacts --projection _id | sed -n 's/.*_id=\([0-9]*\).*/\1/p' | sort -n | tail -1)
+adb shell content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:"$CONTACT" \
+  --bind mimetype:s:vnd.android.cursor.item/name --bind data1:s:"'Ada Lovelace'"
+adb shell content insert --uri content://com.android.contacts/data --bind raw_contact_id:i:"$CONTACT" \
+  --bind mimetype:s:vnd.android.cursor.item/phone_v2 --bind data1:s:5551234 --bind data2:i:2
+playerctl -p e2e play
+wait_for 10 "the test player did not play again" eval '[[ $(grep -cx Play "$OUT/player-calls.txt") -ge 1 ]]'
+PLAYS=$(grep -cx Play "$OUT/player-calls.txt")
+PAUSES=$(grep -cx Pause "$OUT/player-calls.txt" || true)
+adb emu gsm call 5551234 > /dev/null
+wait_for 30 "no ringing Call on D-Bus" heard Call "'$ID', 'ringing'"
+wait_for 10 "the contact's name did not arrive: $(signal Call "'ringing'")" heard Call "'Ada Lovelace'"
+signal Call "'Ada Lovelace'" | grep -q "5551234" || fail "no number with the contact: $(signal Call "'Ada Lovelace'")"
+wait_for 10 "the desktop player was not paused for the call" eval '[[ $(grep -cx Pause "$OUT/player-calls.txt") -gt $PAUSES ]]'
+link CallAction "$ID" mute > /dev/null || fail "D-Bus CallAction mute"
+wait_for 10 "the ringer was not muted" eval 'adb shell dumpsys audio | grep -A2 "\- STREAM_RING:" | grep -q "Muted: true"'
+screenshot 6-incoming-call
+link CallAction "$ID" decline > /dev/null || fail "D-Bus CallAction decline"
+wait_for 20 "the call was not declined: $(adb emu gsm list 2>&1)" heard Call "'$ID', 'idle'"
+adb emu gsm list | grep -q 5551234 && fail "the declined call is still up"
+wait_for 10 "the desktop player was not resumed" eval '[[ $(grep -cx Play "$OUT/player-calls.txt") -gt $PLAYS ]]'
+wait_for 10 "the ringer stayed muted" eval 'adb shell dumpsys audio | grep -A2 "\- STREAM_RING:" | grep -q "Muted: false"'
+record '{"step":"call-from-contact","name":"Ada Lovelace","mute":"STREAM_RING muted","decline":"call ended","desktop_player":"paused, resumed"}'
+
+adb emu gsm call 5550000 > /dev/null
+wait_for 30 "no Call for an unknown number" heard Call "'5550000', ''"
+adb emu gsm cancel 5550000 > /dev/null
+wait_for 20 "no idle Call after the caller hung up" eval '[[ $(grep -c "org.umbriel.Link1.Call (.*idle" "$OUT/signals.txt") -ge 2 ]]'
+record '{"step":"call-from-number","name":"","cancel":"idle"}'
 
 python3 - "$OUT" <<'PY'
 import json, os, sys

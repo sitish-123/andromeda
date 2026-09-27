@@ -61,6 +61,20 @@
       <arg name="icon" type="ay"/>
       <arg name="actions" type="a(ssb)"/>
     </signal>
+    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing call). Returns once sent.
+         Errors: .NotConnected, .Rejected for another action. -->
+    <method name="CallAction">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+    </method>
+    <!-- The phone's call state changed: state is "ringing", "active", or "idle"; number and name are empty when the
+         phone may not read them. -->
+    <signal name="Call">
+      <arg name="device_id" type="s"/>
+      <arg name="state" type="s"/>
+      <arg name="number" type="s"/>
+      <arg name="name" type="s"/>
+    </signal>
     <!-- Starts (true) or stops ringing the phone. Returns once sent. Errors: .NotConnected. -->
     <method name="Ring">
       <arg name="device_id" type="s" direction="in"/>
