@@ -6,7 +6,7 @@ After=umbriel-session.target
 [Service]
 Type=dbus
 BusName=org.umbriel.Link1
-Slice=session.slice
+Slice=background.slice
 ExecStart=/usr/bin/umbriel-linkd
 Restart=on-failure
 StateDirectory=umbriel-link

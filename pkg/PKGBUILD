@@ -40,6 +40,8 @@ package_umbriel-desktop-git() {
   provides=(umbriel)
   conflicts=(umbriel)
   meson install -C build-compositor --destdir "$pkgdir"
+  install -Dm644 desktop/session/background.slice.d/umbriel-lp-e-cores.conf \
+    "$pkgdir/usr/lib/systemd/user/background.slice.d/umbriel-lp-e-cores.conf"
   install -Dm644 desktop/compositor/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
