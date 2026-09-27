@@ -2,10 +2,15 @@
 
 #include "core/log.h"
 #include "dbus/session_bus.h"
+#include "i18n/i18n.h"
 #include "ipc/ipc_service.h"
+#include "net/url_open.h"
+#include "notification/notification_manager.h"
 #include "util/string_utils.h"
+#include "wayland/clipboard_service.h"
 
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
@@ -35,7 +40,8 @@ namespace {
 
 } // namespace
 
-LinkService::LinkService(SessionBus& bus) {
+LinkService::LinkService(SessionBus& bus, NotificationManager& notifications, ClipboardService& clipboard)
+    : m_notifications(notifications), m_clipboard(clipboard) {
   m_daemon = sdbus::createProxy(bus.connection(), kDaemonBusName, kDaemonPath);
   m_daemon->uponSignal("NameOwnerChanged")
       .onInterface(kDaemonInterface)
@@ -76,6 +82,21 @@ LinkService::LinkService(SessionBus& bus) {
     m_pairing.reset();
     m_outcome = LinkPairingOutcome{.paired = false, .detail = reason};
     notify();
+  });
+  m_link->uponSignal("Received")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& deviceId, const std::string& kind, const std::string& text) {
+        onReceived(deviceId, kind, text);
+      });
+  m_notifications.addInternalActionCallback(
+      [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
+        onAction(id, action, activationToken);
+      }
+  );
+  m_notifications.addEventCallback([this](const Notification& notification, NotificationEvent event) {
+    if (event == NotificationEvent::Closed) {
+      m_received.erase(notification.id);
+    }
   });
 
   m_daemon->callMethodAsync("NameHasOwner")
@@ -179,6 +200,65 @@ void LinkService::unpair(const std::string& deviceId) {
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("Unpair", error); });
 }
 
+void LinkService::share(const std::string& deviceId, const std::string& kind, const std::string& text) {
+  m_link->callMethodAsync("Share")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, kind, text)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("Share", error); });
+}
+
+void LinkService::shareClipboard(const std::string& deviceId) {
+  const std::optional<std::string> text = m_clipboard.clipboardText();
+  if (!text.has_value() || text->empty()) {
+    kLog.info("no clipboard text to send");
+    return;
+  }
+  const std::string lower = StringUtils::toLower(text->substr(0, 8));
+  const bool link = (lower.starts_with("http://") || lower.starts_with("https://"))
+      && std::ranges::none_of(*text, [](unsigned char c) { return std::isspace(c) != 0; });
+  share(deviceId, link ? "link" : "text", *text);
+}
+
+void LinkService::onReceived(const std::string& deviceId, const std::string& kind, const std::string& text) {
+  const bool link = kind == "link";
+  if (!link && kind != "text") {
+    kLog.warn("Received with unknown kind {}", kind);
+    return;
+  }
+  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
+  const std::string name = device != m_devices.end() ? device->name : deviceId;
+  const std::string action = i18n::tr(link ? "notifications.internal.link-open" : "notifications.internal.link-copy");
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr(
+      link ? "notifications.internal.link-received-link" : "notifications.internal.link-received-text", "device", name
+  );
+  request.body = text;
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  // "default" makes a click on the toast do the same as the button.
+  request.actions = {"default", action, link ? "open" : "copy", action};
+  if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0) {
+    m_received[id] = ReceivedShare{.link = link, .text = text};
+  }
+}
+
+void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
+  const auto it = m_received.find(id);
+  if (it == m_received.end()) {
+    return;
+  }
+  const ReceivedShare received = std::move(it->second);
+  m_received.erase(it);
+  if (received.link && (action == "default" || action == "open")) {
+    if (!net::openInBrowser(received.text, activationToken)) {
+      kLog.warn("opening a received link failed");
+    }
+  } else if (!received.link && (action == "default" || action == "copy")) {
+    (void)m_clipboard.copyText(received.text);
+  }
+}
+
 void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing) {
   ipc.bind(noctalia::cli::msg::linkDevices, [this](const std::string&) -> std::string {
     if (!m_available) {
@@ -215,6 +295,28 @@ void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing
       return "error: no paired device " + id + "\n";
     }
     unpair(id);
+    return "ok\n";
+  });
+  ipc.bind(noctalia::cli::msg::linkShare, [this](const std::string& args) -> std::string {
+    const std::string trimmed = StringUtils::trim(args);
+    const auto firstSpace = trimmed.find(' ');
+    const auto secondSpace = firstSpace == std::string::npos ? firstSpace : trimmed.find(' ', firstSpace + 1);
+    if (secondSpace == std::string::npos) {
+      return "error: link-share <device-id> <text|link> <text>\n";
+    }
+    const std::string id = trimmed.substr(0, firstSpace);
+    const std::string kind = trimmed.substr(firstSpace + 1, secondSpace - firstSpace - 1);
+    const auto device = std::ranges::find(m_devices, id, &LinkDevice::id);
+    if (device == m_devices.end()) {
+      return "error: no paired device " + id + "\n";
+    }
+    if (!device->connected) {
+      return "error: " + device->name + " is not connected\n";
+    }
+    if (kind != "text" && kind != "link") {
+      return "error: kind is text or link\n";
+    }
+    share(id, kind, trimmed.substr(secondSpace + 1));
     return "ok\n";
   });
 }

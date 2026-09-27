@@ -297,6 +297,7 @@
       "paired-with": "Paired with {device}",
       "pairing-failed": "Pairing failed: {reason}",
       "scan": "Scan with Umbriel Link on your phone, or type this code:",
+      "send-clipboard": "Send clipboard",
       "unpair": "Unpair"
     },
     "display": {
@@ -859,6 +860,11 @@
       "drive-mounted": "{label} is ready",
       "drive-open": "Open",
       "drive-eject": "Eject",
+      "link": "Umbriel Link",
+      "link-copy": "Copy",
+      "link-open": "Open",
+      "link-received-link": "Link from {device}",
+      "link-received-text": "Text from {device}",
       "battery": "Battery",
       "battery-critical-body": "{device}: {percent}%; your computer will shut down soon",
       "battery-critical-title": "Battery critically low",
