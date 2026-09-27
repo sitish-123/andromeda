@@ -8,7 +8,7 @@ use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::inbox::Inbox;
 use link_core::phone::Phone;
-use link_core::proto::message::{Message, Share, ShareKind};
+use link_core::proto::message::{Message, NetworkKind, Share, ShareKind, Status};
 use link_core::reach::Via;
 use link_core::transfer::{LocalClip, TransferEvent};
 use serde_json::{Value, json};
@@ -19,15 +19,19 @@ use crate::{OnOffer, files};
 
 /// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line is a share
 /// (`<text|link> <text>`) or a transfer command (`send <path>...`, `accept|decline|cancel <transfer>`).
-pub async fn hold(
-    phone: Phone,
-    inbox: Inbox,
-    id: DeviceId,
-    seconds: Option<u64>,
-    on_offer: OnOffer,
-) -> anyhow::Result<()> {
+pub struct Options {
+    pub seconds: Option<u64>,
+    pub on_offer: OnOffer,
+    pub status: Option<Status>,
+}
+
+pub async fn hold(phone: Phone, inbox: Inbox, id: DeviceId, options: Options) -> anyhow::Result<()> {
+    let Options { seconds, on_offer, status } = options;
     let (client, actor, mut events) = client::client(phone, inbox);
     let drive = async move {
+        if let Some(status) = status {
+            client.set_status(status).await?;
+        }
         client.set_present(true).await?;
         let mut terminate = signal(SignalKind::terminate())?;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -97,6 +101,12 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Value {
     let result = match verb {
         "send" => send_line(client, id, rest).await,
         "clip" => clip_line(client, rest).await,
+        "status" => match parse_status(&rest.replace(' ', ",")) {
+            Ok(status) => {
+                client.set_status(status).await.map(|()| json!({ "event": "status-set" })).map_err(Into::into)
+            }
+            Err(error) => Err(error),
+        },
         "pull" => pull_line(client, id, rest).await,
         "accept" | "decline" => match files::parse_transfer(rest) {
             Ok(transfer) => client.decide(transfer, verb == "accept").await.map_err(Into::into),
@@ -119,6 +129,17 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     let sources = files::sources(&paths, names)?;
     let transfer = client.send_files(id.clone(), sources).await?;
     Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
+}
+
+/// `<battery>,<charging 0|1>,<network>`, as `--status` and a `status` line take it.
+pub fn parse_status(text: &str) -> anyhow::Result<Status> {
+    let parts: Vec<&str> = text.split(',').collect();
+    let [battery, charging, network] = parts[..] else { bail!("a status is <battery>,<charging 0|1>,<network>") };
+    Ok(Status {
+        battery: battery.parse().context("battery is 0 to 100")?,
+        charging: charging == "1",
+        network: NetworkKind::parse(network).context("network is wifi, cellular, ethernet, none, or other")?,
+    })
 }
 
 /// `clip <path> <mime>...`: offers the file's bytes as the clipboard, never inline, so a pull is what moves them.

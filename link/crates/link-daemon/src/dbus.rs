@@ -154,6 +154,13 @@ impl Link {
         }
     }
 
+    /// Connected device id to `(battery percent, charging, network)`; network is wifi, cellular, ethernet, none, or
+    /// other.
+    #[zbus(property)]
+    fn device_status(&self) -> HashMap<String, (u32, bool, String)> {
+        self.snapshots.borrow().status.iter().cloned().collect()
+    }
+
     #[zbus(property)]
     fn grants(&self) -> HashMap<String, Vec<String>> {
         self.snapshots.borrow().grants.iter().cloned().collect()
@@ -283,6 +290,9 @@ pub async fn forward(
                 }
                 if next.grants != last.grants {
                     link.get().await.grants_changed(emitter).await?;
+                }
+                if next.status != last.status {
+                    link.get().await.device_status_changed(emitter).await?;
                 }
                 last = next;
             }

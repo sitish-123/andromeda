@@ -246,6 +246,16 @@ impl LinkClient {
         self.run(async move { client.send_files(id, sources).await }).await.map(TransferId::to_hex)
     }
 
+    /// The phone's battery (percent) and network (wifi, cellular, ethernet, none, or other), sent to every desktop on
+    /// connect and, at most every 10 s, on change.
+    pub async fn set_status(&self, battery: u8, charging: bool, network: String) -> Result<(), LinkError> {
+        let network = message::NetworkKind::parse(&network)
+            .ok_or_else(|| LinkError::Rejected { reason: format!("unknown network {network}") })?;
+        let status = message::Status { battery: battery.min(100), charging, network };
+        let client = self.client.clone();
+        self.run(async move { client.set_status(status).await }).await
+    }
+
     /// Offers text from the phone's clipboard to every connected desktop, inline.
     pub async fn offer_clip_text(&self, text: String) -> Result<(), LinkError> {
         let client = self.client.clone();

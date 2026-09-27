@@ -198,6 +198,49 @@ pub struct FileData {
     pub offset: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NetworkKind {
+    Wifi,
+    Cellular,
+    Ethernet,
+    None,
+    Other,
+}
+
+/// The phone's battery and network, sent on connect and on change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Status {
+    /// Percent, 0 to 100.
+    pub battery: u8,
+    pub charging: bool,
+    pub network: NetworkKind,
+}
+
+impl NetworkKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Wifi => "wifi",
+            Self::Cellular => "cellular",
+            Self::Ethernet => "ethernet",
+            Self::None => "none",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "wifi" => Self::Wifi,
+            "cellular" => Self::Cellular,
+            "ethernet" => Self::Ethernet,
+            "none" => Self::None,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
+}
+
 pub const MAX_CLIP_MIMES: usize = 16;
 pub const MAX_CLIP_SIZE: u64 = 64 << 20;
 
@@ -344,6 +387,7 @@ pub enum Message {
     ClipOffer(ClipOffer),
     ClipPull(ClipPull),
     ClipData(ClipPull),
+    Status(Status),
 }
 
 impl Message {
@@ -365,6 +409,7 @@ impl Message {
             Self::ClipOffer(_) => "clip-offer",
             Self::ClipPull(_) => "clip-pull",
             Self::ClipData(_) => "clip-data",
+            Self::Status(_) => "status",
         }
     }
 
@@ -384,6 +429,7 @@ impl Message {
             Self::FileData(body) => Value::serialized(body),
             Self::ClipOffer(body) => Value::serialized(body),
             Self::ClipPull(body) | Self::ClipData(body) => Value::serialized(body),
+            Self::Status(body) => Value::serialized(body),
         }
     }
 
@@ -408,6 +454,7 @@ impl Message {
             "clip-offer" => Self::ClipOffer(body.deserialized()?),
             "clip-pull" => Self::ClipPull(body.deserialized()?),
             "clip-data" => Self::ClipData(body.deserialized()?),
+            "status" => Self::Status(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -427,6 +474,7 @@ impl Message {
             | Self::FileData(_) => true,
             Self::ClipPull(pull) | Self::ClipData(pull) => (1..=MAX_MIME_LEN).contains(&pull.mime.len()),
             Self::ClipOffer(offer) => offer.is_valid(),
+            Self::Status(status) => status.battery <= 100,
             Self::Share(share) => share.check().is_ok(),
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),

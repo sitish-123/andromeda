@@ -8,7 +8,7 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::Share;
+use link_core::proto::message::{Share, Status};
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store};
@@ -43,6 +43,8 @@ pub struct Snapshot {
     pub auto_accept: Vec<String>,
     /// Device id to granted features, the D-Bus `Grants` property.
     pub grants: Vec<(String, Vec<String>)>,
+    /// Connected device id to `(battery, charging, network)`, the D-Bus `DeviceStatus` property.
+    pub status: Vec<(String, (u32, bool, String))>,
 }
 
 #[derive(Debug)]
@@ -100,6 +102,7 @@ pub struct Hub {
     window: Option<Window>,
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
+    status: HashMap<DeviceId, Status>,
     commands: mpsc::Receiver<Command>,
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
@@ -133,6 +136,7 @@ impl Hub {
             window: None,
             windows_opened: 0,
             sessions: HashMap::new(),
+            status: HashMap::new(),
             commands,
             session_events,
             snapshots,
@@ -181,6 +185,7 @@ impl Hub {
                 self.transfers.detach(id.clone(), stable_id).await;
                 if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
                     self.sessions.remove(&id);
+                    self.status.remove(&id);
                     self.publish();
                 }
             }
@@ -248,6 +253,12 @@ impl Hub {
             SessionEvent::Received { from, share } => {
                 if self.sessions.contains_key(&from) {
                     self.emit(Event::Received { id: from, share }).await;
+                }
+            }
+            SessionEvent::Status { from, status } => {
+                if self.sessions.contains_key(&from) {
+                    self.status.insert(from, status);
+                    self.publish();
                 }
             }
             SessionEvent::Unpaired { from } => {
@@ -394,8 +405,17 @@ impl Hub {
         let auto_accept =
             self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
         let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
+        let mut status: Vec<_> = self
+            .status
+            .iter()
+            .map(|(id, status)| {
+                let value = (u32::from(status.battery), status.charging, status.network.as_str().to_owned());
+                (id.to_string(), value)
+            })
+            .collect();
+        status.sort();
         self.snapshots.send_if_modified(|current| {
-            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants };
+            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status };
             let changed = *current != next;
             *current = next;
             changed

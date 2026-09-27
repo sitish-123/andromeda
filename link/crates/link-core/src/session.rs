@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::pin::pin;
 
 use link_proto::CloseCode;
-use link_proto::message::{Envelope, Message, Share, ShareAck};
+use link_proto::limit::Limits;
+use link_proto::message::{Envelope, Message, OfferReply, RefuseReason, Share, ShareAck, Status};
 use link_proto::session::{Inbound, Role, SessionState};
 use tokio::sync::{mpsc, oneshot};
 
@@ -24,6 +25,11 @@ pub enum SessionEvent {
     /// The phone unpaired itself; only a desktop's sessions report this.
     Unpaired {
         from: DeviceId,
+    },
+    /// The phone's battery and network; only a desktop's sessions report this.
+    Status {
+        from: DeviceId,
+        status: Status,
     },
 }
 
@@ -58,6 +64,8 @@ struct Live {
     connection: quinn::Connection,
     writer: ControlWriter,
     state: SessionState,
+    /// Applied to what a phone sends a desktop.
+    limits: Option<Limits>,
     route: Route,
     waiting: HashMap<u64, oneshot::Sender<Result<(), Error>>>,
 }
@@ -72,7 +80,8 @@ pub fn session(
     let (commands_tx, commands) = mpsc::channel(8);
     let handle = SessionHandle { commands: commands_tx, connection: connection.clone(), tap: control.tap() };
     let (reader, writer) = control.split();
-    let live = Live { connection, writer, state: SessionState::new(role), route, waiting: HashMap::new() };
+    let limits = (role == Role::Desktop).then(Limits::default);
+    let live = Live { connection, writer, state: SessionState::new(role), limits, route, waiting: HashMap::new() };
     (handle, SessionActor { reader, commands, live })
 }
 
@@ -154,6 +163,17 @@ impl Live {
     /// Handles one message from the peer; true when the session is over.
     async fn on_envelope(&mut self, envelope: Envelope) -> Result<bool, Error> {
         let peer = &self.route.peer;
+        let now = std::time::Instant::now();
+        if let Some(limits) = &mut self.limits
+            && !limits.admit(&envelope.message, now)
+        {
+            log::warn!("{peer}: dropping a {} over its rate limit", envelope.message.kind());
+            if let Message::Offer(offer) = &envelope.message {
+                let reply = OfferReply { transfer: offer.transfer, accepted: false, reason: Some(RefuseReason::Busy) };
+                self.writer.send(Message::OfferReply(reply)).await?;
+            }
+            return Ok(false);
+        }
         match self.state.on_message(envelope)? {
             Inbound::Share { id, share } => {
                 log::info!("{peer}: received a {} share", share.kind.as_str());
@@ -169,6 +189,7 @@ impl Live {
                 self.emit(SessionEvent::Unpaired { from: peer.clone() }).await;
                 return Ok(true);
             }
+            Inbound::Status(status) => self.emit(SessionEvent::Status { from: peer.clone(), status }).await,
             Inbound::Transfer(message) => {
                 if !self.route.transfers.control(peer.clone(), message) {
                     return Err(Error::Flooded);

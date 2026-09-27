@@ -72,6 +72,9 @@
     <property name="Devices" type="a(ssb)" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
     <property name="AutoAccept" type="as" access="read"/>
+    <!-- Connected device id to (battery percent, charging, network); network is wifi, cellular, ethernet, none, or
+         other. A device appears once it reported, and leaves when it disconnects. -->
+    <property name="DeviceStatus" type="a{s(ubs)}" access="read"/>
     <!-- Device id to the features it holds. -->
     <property name="Grants" type="a{sas}" access="read"/>
     <property name="Pairing" type="b" access="read"/>

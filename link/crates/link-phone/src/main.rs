@@ -2,6 +2,7 @@
 //! Every command prints one JSON object per result on stdout.
 
 mod files;
+mod flood;
 mod present;
 mod relay;
 mod transcript;
@@ -67,6 +68,16 @@ enum Command {
         /// How to answer the desktop's file offers; `ask` waits for an `accept` or `decline` line.
         #[arg(long, value_enum, default_value_t = OnOffer::Ask)]
         on_offer: OnOffer,
+        /// The status to report, as `<battery>,<charging 0|1>,<network>`; a `status` line changes it.
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Hostile: sends `count` messages of one kind back to back and prints what the desktop answered.
+    Flood {
+        #[arg(long, value_enum)]
+        kind: flood::Kind,
+        #[arg(long, default_value_t = 50)]
+        count: u32,
     },
     /// Sends files to the paired desktop, connecting on demand, and waits for the result.
     SendFile {
@@ -127,9 +138,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let mut phone = open(&state, cli.name, cli.transcript.as_deref())?;
     let inbox = || Inbox::new(cli.downloads.clone().unwrap_or_else(|| state.join("Downloads")), &state);
     match cli.command {
-        Command::Hold { seconds, on_offer } => {
+        Command::Hold { seconds, on_offer, status } => {
             let id = only_desktop(&phone)?;
-            return present::hold(phone, inbox()?, id, seconds, on_offer).await;
+            let status = status.as_deref().map(present::parse_status).transpose()?;
+            return present::hold(phone, inbox()?, id, present::Options { seconds, on_offer, status }).await;
+        }
+        Command::Flood { kind, count } => {
+            let id = only_desktop(&phone)?;
+            return flood::flood(phone, id, kind, count).await;
         }
         Command::SendFile { paths, names, oversize } => {
             let id = only_desktop(&phone)?;

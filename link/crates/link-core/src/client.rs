@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::{Share, TransferId};
+use link_proto::message::{Message, Share, Status, TransferId};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -23,6 +23,8 @@ use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY: Duration = Duration::from_secs(30);
+/// The least time between two status messages; a desktop drops more than three in 30 s.
+const STATUS_EVERY: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
@@ -61,6 +63,7 @@ enum Command {
     Forget { id: DeviceId, reply: oneshot::Sender<Result<(), Error>> },
     Desktops { reply: oneshot::Sender<Vec<DesktopState>> },
     Keep { id: DeviceId, keep: bool },
+    SetStatus { status: Status },
 }
 
 /// The handle apps hold; every method is answered by the [`ClientActor`].
@@ -87,6 +90,10 @@ pub struct ClientActor {
     /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
     keeping: HashSet<DeviceId>,
     retries: HashMap<DeviceId, Retry>,
+    status: Option<Status>,
+    /// The status last sent, when, and whether a newer one waits for [`STATUS_EVERY`] to pass.
+    status_sent: Option<Instant>,
+    status_pending: bool,
 }
 
 struct Ended {
@@ -121,6 +128,9 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         busy: HashSet::new(),
         keeping: HashSet::new(),
         retries: HashMap::new(),
+        status: None,
+        status_sent: None,
+        status_pending: false,
     };
     (Client { commands: commands_tx, transfers }, actor, events_rx)
 }
@@ -169,6 +179,11 @@ impl Client {
     /// Writes `mime` of a desktop's clipboard offer into `sink`.
     pub async fn pull_clip(&self, id: DeviceId, clip: u64, mime: String, sink: std::fs::File) -> Result<u64, Error> {
         self.transfers.pull_clip(id, clip, mime, sink).await
+    }
+
+    /// The phone's battery and network: sent to every desktop on connect and, at most every 10 s, on change.
+    pub async fn set_status(&self, status: Status) -> Result<(), Error> {
+        self.commands.send(Command::SetStatus { status }).await.map_err(|_| Error::Stopped)
     }
 
     /// Answers a desktop's offer; false when it no longer waits.
@@ -225,6 +240,7 @@ impl ClientActor {
     async fn serve(&mut self) {
         loop {
             let next_retry = self.retries.values().map(|retry| retry.at).min();
+            let next_status = self.status_pending.then(|| self.status_sent.map(|sent| sent + STATUS_EVERY)).flatten();
             tokio::select! {
                 command = self.commands.recv() => match command {
                     Some(command) => self.handle(command).await,
@@ -237,6 +253,7 @@ impl ClientActor {
                 Some(event) = self.session_events.recv() => self.relay(event).await,
                 Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
                 () = sleep_until(next_retry) => self.retry_due().await,
+                () = sleep_until(next_status) => self.send_status().await,
             }
         }
     }
@@ -260,6 +277,15 @@ impl ClientActor {
                 drop(reply.send(self.phone.forget(&id)));
             }
             Command::Desktops { reply } => drop(reply.send(self.desktops())),
+            Command::SetStatus { status } => {
+                if self.status != Some(status) {
+                    self.status = Some(status);
+                    self.status_pending = true;
+                    if self.status_sent.is_none_or(|sent| sent.elapsed() >= STATUS_EVERY) {
+                        self.send_status().await;
+                    }
+                }
+            }
             Command::Keep { id, keep } => {
                 if keep {
                     self.keeping.insert(id);
@@ -328,6 +354,12 @@ impl ClientActor {
         }
         self.retries.remove(&id);
         log::info!("{id}: connected at {addr}");
+        if let Some(status) = self.status {
+            let (handle, status) = (handle.clone(), Message::Status(status));
+            if let Err(error) = handle.send(status).await {
+                log::info!("{id}: sending the status: {error}");
+            }
+        }
         self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
         self.transfers.attach(id, handle.clone()).await;
         handle
@@ -395,6 +427,18 @@ impl ClientActor {
         for peer in self.phone.desktops() {
             if !self.sessions.get(&peer.id).is_some_and(SessionHandle::is_live) {
                 self.retries.entry(peer.id.clone()).or_insert(Retry { at: now, delay: FIRST_RETRY });
+            }
+        }
+    }
+
+    /// Sends the latest status to every live session.
+    async fn send_status(&mut self) {
+        self.status_pending = false;
+        self.status_sent = Some(Instant::now());
+        let Some(status) = self.status else { return };
+        for (id, handle) in self.sessions.iter().filter(|(_, handle)| handle.is_live()) {
+            if let Err(error) = handle.send(Message::Status(status)).await {
+                log::info!("{id}: sending the status: {error}");
             }
         }
     }

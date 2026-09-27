@@ -3,7 +3,7 @@
 
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg / offer-msg /
   offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg / clip-offer-msg /
-  clip-pull-msg / clip-data-msg
+  clip-pull-msg / clip-data-msg / status-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -84,3 +84,11 @@ clip-pull-msg = { type: "clip-pull", id: uint, body: clip-ref }
 clip-data-msg = { type: "clip-data", id: uint, body: clip-ref }
 clip-ref = { id: uint, mime: media-type }
 media-type = tstr .size (1..255)
+
+; Phone to desktop, on connect and on change, at most every 10 s.
+status-msg = { type: "status", id: uint, body: status }
+status = {
+  battery: uint .le 100,    ; percent
+  charging: bool,
+  network: "wifi" / "cellular" / "ethernet" / "none" / "other",
+}

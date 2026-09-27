@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use crate::message::{Envelope, Message, Share};
+use crate::message::{Envelope, Message, Share, Status};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -25,6 +25,8 @@ pub enum Inbound {
     Unpair,
     /// A file transfer or clipboard message, for the transfer actor to judge.
     Transfer(Message),
+    /// The phone's battery and network; only a desktop receives this.
+    Status(Status),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -57,6 +59,7 @@ impl SessionState {
             Message::ShareAck(ack) if self.outstanding.remove(&ack.of) => Ok(Inbound::Acked { of: ack.of }),
             Message::ShareAck(ack) => Err(SessionError::UnknownAck(ack.of)),
             Message::Unpair if self.role == Role::Desktop => Ok(Inbound::Unpair),
+            Message::Status(status) if self.role == Role::Desktop => Ok(Inbound::Status(status)),
             message @ (Message::Offer(_)
             | Message::OfferReply(_)
             | Message::Resume(_)
@@ -160,6 +163,25 @@ mod tests {
         assert_eq!(share(ShareKind::Text, &"a".repeat(MAX_SHARE_LEN + 1)).check(), Err(ShareRejected::TooLong));
         assert_eq!(share(ShareKind::Link, "file:///etc/passwd").check(), Err(ShareRejected::NotWebLink));
         assert_eq!(share(ShareKind::Link, "http://10.0.0.1:8080/").check(), Ok(()));
+    }
+
+    #[test]
+    fn status_is_legal_only_towards_the_desktop_and_within_range() {
+        use crate::message::{NetworkKind, Status};
+        let status = Status { battery: 42, charging: true, network: NetworkKind::Cellular };
+        let desktop = SessionState::new(Role::Desktop).on_message(envelope(1, Message::Status(status)));
+        assert_eq!(desktop, Ok(Inbound::Status(status)));
+        let phone = SessionState::new(Role::Phone).on_message(envelope(1, Message::Status(status)));
+        assert_eq!(phone, Err(SessionError::Unexpected("status")));
+        let body = Value::Map(vec![
+            ("battery".into(), 101.into()),
+            ("charging".into(), false.into()),
+            ("network".into(), "wifi".into()),
+        ]);
+        let raw = Value::Map(vec![("type".into(), "status".into()), ("id".into(), 1.into()), ("body".into(), body)]);
+        let mut bytes = Vec::new();
+        assert!(ciborium::into_writer(&raw, &mut bytes).is_ok());
+        assert!(matches!(Envelope::from_cbor(&bytes), Err(DecodeError::Invalid("status"))));
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 pub mod clip;
 pub mod frame;
+pub mod limit;
 pub mod message;
 pub mod pairing;
 pub mod session;
