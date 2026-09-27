@@ -6,6 +6,7 @@
 #include "render/core/texture_manager.h"
 #include "shell/panel/panel_manager.h"
 #include "ui/builders.h"
+#include "ui/dialogs/file_dialog.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
@@ -13,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <qrencode.h>
@@ -309,6 +311,28 @@ void DevicesTab::rebuild(Renderer& renderer) {
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusSm(scale),
               .onClick = [this, id = device.id]() { m_link->shareClipboard(id); },
+          })
+      );
+      row->addChild(
+          ui::button({
+              .glyph = "send",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.send-files"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() {
+                FileDialogOptions options;
+                options.mode = FileDialogMode::Open;
+                options.title = i18n::tr("control-center.devices.send-files");
+                (void)FileDialog::open(
+                    std::move(options), [link = m_link, id](std::optional<std::filesystem::path> path) {
+                      if (path.has_value()) {
+                        (void)link->sendFiles(id, {path->string()});
+                      }
+                    }
+                );
+              },
           })
       );
     }

@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "dbus/session_bus.h"
 #include "i18n/i18n.h"
+#include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
@@ -10,7 +11,14 @@
 #include "wayland/clipboard_service.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <filesystem>
+#include <format>
+#include <glib.h>
 #include <map>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
@@ -36,6 +44,27 @@ namespace {
     if (error.has_value()) {
       kLog.warn("{} failed: {}", method, error->what());
     }
+  }
+
+  std::string formatBytes(std::uint64_t bytes) {
+    static constexpr std::array kUnits{"B", "KB", "MB", "GB", "TB"};
+    auto size = static_cast<double>(bytes);
+    std::size_t unit = 0;
+    while (size >= 1024.0 && unit + 1 < kUnits.size()) {
+      size /= 1024.0;
+      ++unit;
+    }
+    return unit == 0 ? std::format("{} {}", bytes, kUnits[0]) : std::format("{:.1f} {}", size, kUnits[unit]);
+  }
+
+  std::string fileUri(const std::filesystem::path& path) {
+    gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+    if (uri == nullptr) {
+      return {};
+    }
+    std::string out(uri);
+    g_free(uri);
+    return out;
   }
 
 } // namespace
@@ -88,14 +117,48 @@ LinkService::LinkService(SessionBus& bus, NotificationManager& notifications, Cl
       .call([this](const std::string& deviceId, const std::string& kind, const std::string& text) {
         onReceived(deviceId, kind, text);
       });
+  m_link->uponSignal("TransferOffered")
+      .onInterface(kLinkInterface)
+      .call([this](
+                const std::string& transferId, const std::string& deviceId,
+                const std::vector<sdbus::Struct<std::string, std::uint64_t>>& files
+            ) {
+        std::vector<std::pair<std::string, std::uint64_t>> offered;
+        offered.reserve(files.size());
+        for (const auto& file : files) {
+          offered.emplace_back(file.get<0>(), file.get<1>());
+        }
+        onOffered(transferId, deviceId, offered);
+      });
+  m_link->uponSignal("TransferProgress")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
+        onProgress(transferId, bytes, total);
+      });
+  m_link->uponSignal("TransferFinished")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& transferId, const std::string& status, const std::vector<std::string>& paths) {
+        onFinished(transferId, status, paths);
+      });
   m_notifications.addInternalActionCallback(
       [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
         onAction(id, action, activationToken);
       }
   );
   m_notifications.addEventCallback([this](const Notification& notification, NotificationEvent event) {
-    if (event == NotificationEvent::Closed) {
-      m_received.erase(notification.id);
+    if (event != NotificationEvent::Closed) {
+      return;
+    }
+    m_received.erase(notification.id);
+    m_transferActions.erase(notification.id);
+    for (auto& [id, transfer] : m_transfers) {
+      if (transfer.progressNotification == notification.id) {
+        transfer.progressNotification = 0;
+        transfer.progressDismissed = true;
+      }
+      if (transfer.offerNotification == notification.id) {
+        transfer.offerNotification = 0;
+      }
     }
   });
 
@@ -136,6 +199,13 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed Devices: {}", e.what());
+    }
+  }
+  if (const auto it = properties.find("AutoAccept"); it != properties.end()) {
+    try {
+      m_autoAccept = it->second.get<std::vector<std::string>>();
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed AutoAccept: {}", e.what());
     }
   }
   if (const auto it = properties.find("Pairing"); it != properties.end()) {
@@ -243,7 +313,202 @@ void LinkService::onReceived(const std::string& deviceId, const std::string& kin
   }
 }
 
+std::vector<std::string> LinkService::sendFiles(const std::string& deviceId, const std::vector<std::string>& paths) {
+  std::vector<sdbus::Struct<sdbus::UnixFd, std::string>> files;
+  std::vector<std::string> failed;
+  for (const auto& path : paths) {
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOCTTY);
+    if (fd < 0) {
+      kLog.warn("opening {} to send: {}", path, std::strerror(errno));
+      failed.push_back(path);
+      continue;
+    }
+    files.emplace_back(sdbus::UnixFd{fd, sdbus::adopt_fd}, std::filesystem::path(path).filename().string());
+  }
+  if (files.empty()) {
+    return failed;
+  }
+  m_link->callMethodAsync("SendFiles")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, files)
+      .uponReplyInvoke([this, deviceId](std::optional<sdbus::Error> error, std::string transferId) {
+        if (error.has_value()) {
+          logFailure("SendFiles", error);
+          return;
+        }
+        m_transfers[transferId] = Transfer{.deviceId = deviceId, .incoming = false};
+      });
+  return failed;
+}
+
+void LinkService::setAutoAccept(const std::string& deviceId, bool enabled) {
+  m_link->callMethodAsync("SetAutoAccept")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, enabled)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetAutoAccept", error); });
+}
+
+void LinkService::callTransfer(const char* method, const std::string& transferId) {
+  m_link->callMethodAsync(method)
+      .onInterface(kLinkInterface)
+      .withArguments(transferId)
+      .uponReplyInvoke([method](std::optional<sdbus::Error> error) { logFailure(method, error); });
+}
+
+std::string LinkService::deviceName(const std::string& deviceId) const {
+  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
+  return device != m_devices.end() ? device->name : deviceId;
+}
+
+void LinkService::onOffered(
+    const std::string& transferId, const std::string& deviceId,
+    const std::vector<std::pair<std::string, std::uint64_t>>& files
+) {
+  if (files.empty()) {
+    return;
+  }
+  std::uint64_t total = 0;
+  std::string body;
+  for (const auto& [name, size] : files) {
+    total += size;
+    body += (body.empty() ? "" : "\n") + name;
+  }
+  const std::string name = deviceName(deviceId);
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = files.size() == 1 ? i18n::tr(
+                                            "notifications.internal.link-offer-one", "device", name, "name",
+                                            files.front().first, "size", formatBytes(total)
+                                        )
+                                      : i18n::tr(
+                                            "notifications.internal.link-offer", "device", name, "count",
+                                            std::to_string(files.size()), "size", formatBytes(total)
+                                        );
+  request.body = body;
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  // The daemon declines after 120 s without an answer.
+  request.timeout = 120000;
+  request.actions = {
+      "accept", i18n::tr("notifications.internal.link-accept"), "decline",
+      i18n::tr("notifications.internal.link-decline")
+  };
+  const std::uint32_t id = m_notifications.addOrReplace(std::move(request));
+  m_transfers[transferId] = Transfer{.deviceId = deviceId, .incoming = true, .offerNotification = id};
+  if (id != 0) {
+    m_transferActions[id] = TransferAction{.transferId = transferId, .paths = {}};
+  }
+}
+
+void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
+  auto it = m_transfers.find(transferId);
+  if (it == m_transfers.end()) {
+    // An auto-accepted offer announces itself with its first progress.
+    it = m_transfers.emplace(transferId, Transfer{.deviceId = {}, .incoming = true}).first;
+  }
+  Transfer& transfer = it->second;
+  closeTransferNotification(transfer.offerNotification);
+  const std::string body =
+      i18n::tr("notifications.internal.link-progress", "done", formatBytes(bytes), "total", formatBytes(total));
+  if (transfer.progressDismissed) {
+    return;
+  }
+  if (transfer.progressNotification != 0 && m_notifications.updateBody(transfer.progressNotification, body)) {
+    return;
+  }
+  const std::string device =
+      transfer.deviceId.empty() ? i18n::tr("notifications.internal.link") : deviceName(transfer.deviceId);
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr(
+      transfer.incoming ? "notifications.internal.link-receiving" : "notifications.internal.link-sending", "device",
+      device
+  );
+  request.body = body;
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  request.timeout = 0;
+  request.transient = true;
+  request.actions = {"cancel", i18n::tr("notifications.internal.link-cancel")};
+  transfer.progressNotification = m_notifications.addOrReplace(std::move(request));
+  if (transfer.progressNotification != 0) {
+    m_transferActions[transfer.progressNotification] = TransferAction{.transferId = transferId, .paths = {}};
+  }
+}
+
+void LinkService::closeTransferNotification(std::uint32_t& id) {
+  if (id == 0) {
+    return;
+  }
+  const std::uint32_t closing = id;
+  id = 0;
+  m_transferActions.erase(closing);
+  (void)m_notifications.close(closing);
+}
+
+void LinkService::onFinished(
+    const std::string& transferId, const std::string& status, const std::vector<std::string>& paths
+) {
+  const auto it = m_transfers.find(transferId);
+  if (it == m_transfers.end()) {
+    return;
+  }
+  Transfer transfer = std::move(it->second);
+  m_transfers.erase(it);
+  closeTransferNotification(transfer.offerNotification);
+  closeTransferNotification(transfer.progressNotification);
+  const std::string device =
+      transfer.deviceId.empty() ? i18n::tr("notifications.internal.link") : deviceName(transfer.deviceId);
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  if (status == "done") {
+    request.summary = i18n::tr(
+        transfer.incoming ? "notifications.internal.link-received-files" : "notifications.internal.link-sent-files",
+        "device", device
+    );
+    for (const auto& path : paths) {
+      request.body += (request.body.empty() ? "" : "\n") + std::filesystem::path(path).filename().string();
+    }
+    if (!paths.empty()) {
+      const std::string open = i18n::tr("notifications.internal.link-open");
+      request.actions = {"default", open, "open", open, "folder", i18n::tr("notifications.internal.link-show-folder")};
+    }
+  } else {
+    const bool known = status == "declined"
+        || status == "no-space"
+        || status == "too-large"
+        || status == "busy"
+        || status == "cancelled";
+    request.summary = i18n::tr(
+        known ? "notifications.internal.link-transfer-" + status
+              : std::string("notifications.internal.link-transfer-failed"),
+        "device", device
+    );
+  }
+  if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0 && !paths.empty()) {
+    m_transferActions[id] = TransferAction{.transferId = transferId, .paths = paths};
+  }
+}
+
 void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
+  if (const auto transfer = m_transferActions.find(id); transfer != m_transferActions.end()) {
+    const TransferAction target = transfer->second;
+    m_transferActions.erase(transfer);
+    if (action == "accept") {
+      callTransfer("AcceptTransfer", target.transferId);
+    } else if (action == "decline") {
+      callTransfer("DeclineTransfer", target.transferId);
+    } else if (action == "cancel") {
+      callTransfer("CancelTransfer", target.transferId);
+    } else if ((action == "default" || action == "open") && !target.paths.empty()) {
+      (void)net::openInBrowser(fileUri(target.paths.front()), activationToken);
+    } else if (action == "folder" && !target.paths.empty()) {
+      (void)net::openInBrowser(fileUri(std::filesystem::path(target.paths.front()).parent_path()), activationToken);
+    }
+    return;
+  }
   const auto it = m_received.find(id);
   if (it == m_received.end()) {
     return;
@@ -295,6 +560,26 @@ void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing
       return "error: no paired device " + id + "\n";
     }
     unpair(id);
+    return "ok\n";
+  });
+  ipc.bind(noctalia::cli::msg::linkSendFile, [this](const std::string& args) -> std::string {
+    std::vector<std::string> words = noctalia::ipc::splitWords(args);
+    if (words.size() < 2) {
+      return "error: link-send-file <device-id> <path>...\n";
+    }
+    const std::string id = words.front();
+    const auto device = std::ranges::find(m_devices, id, &LinkDevice::id);
+    if (device == m_devices.end()) {
+      return "error: no paired device " + id + "\n";
+    }
+    if (!device->connected) {
+      return "error: " + device->name + " is not connected\n";
+    }
+    words.erase(words.begin());
+    const std::vector<std::string> failed = sendFiles(id, words);
+    if (!failed.empty()) {
+      return "error: cannot open " + failed.front() + "\n";
+    }
     return "ok\n";
   });
   ipc.bind(noctalia::cli::msg::linkShare, [this](const std::string& args) -> std::string {

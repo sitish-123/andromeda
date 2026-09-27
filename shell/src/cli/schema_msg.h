@@ -181,6 +181,13 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array kMsgLinkSendFilePositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+      Positional{"path", {}, {}, true, true, false},
+  };
+  inline constexpr std::array kMsgNotificationInvokeLatestPositionals{
+      Positional{"action", {}, {}, false, false, false},
+  };
   inline constexpr std::array<std::string_view, 2> kMsgLinkShareKindChoices{"text", "link"};
   inline constexpr std::array kMsgLinkSharePositionals{
       Positional{"device-id", {}, {}, true, false, false},
@@ -570,11 +577,11 @@ namespace noctalia::cli {
     };
     inline constexpr Command notificationInvokeLatest{
         "notification-invoke-latest",
-        "Invoke the default action of the most recent active notification",
+        "Invoke an action (default: the default action) of the most recent active notification that has it",
         {},
         {},
         {},
-        {},
+        kMsgNotificationInvokeLatestPositionals,
         {},
         false
     };
@@ -836,6 +843,9 @@ namespace noctalia::cli {
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
+    inline constexpr Command linkSendFile{
+        "link-send-file", "Send files to a connected phone", {}, {}, {}, kMsgLinkSendFilePositionals, {}, false
+    };
     inline constexpr Command linkShare{
         "link-share", "Send text or a link to a connected phone", {}, {}, {}, kMsgLinkSharePositionals, {}, false
     };
@@ -944,6 +954,7 @@ namespace noctalia::cli {
       msg::linkDevices,
       msg::linkPair,
       msg::linkPairing,
+      msg::linkSendFile,
       msg::linkShare,
       msg::linkUnpair,
       msg::lockscreenWidgetsEdit,

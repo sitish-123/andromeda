@@ -59,10 +59,16 @@ public:
   void share(const std::string& deviceId, const std::string& kind, const std::string& text);
   // The clipboard's text, as a link when it is one.
   void shareClipboard(const std::string& deviceId);
+  // Opens the files here and passes the descriptors, since the sandboxed daemon cannot read the user's files. Returns
+  // the paths that could not be opened.
+  std::vector<std::string> sendFiles(const std::string& deviceId, const std::vector<std::string>& paths);
+  void setAutoAccept(const std::string& deviceId, bool enabled);
   void registerIpc(IpcService& ipc, std::function<void()> showPairing);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
   [[nodiscard]] const std::vector<LinkDevice>& devices() const noexcept { return m_devices; }
+  // Devices whose file offers are accepted without asking.
+  [[nodiscard]] const std::vector<std::string>& autoAccept() const noexcept { return m_autoAccept; }
   // The window this shell opened, while the daemon keeps it open.
   [[nodiscard]] const std::optional<LinkPairing>& pairing() const noexcept { return m_pairing; }
   // How the last pairing attempt ended; cleared by the next startPairing().
@@ -75,10 +81,34 @@ private:
   void notify();
   void onReceived(const std::string& deviceId, const std::string& kind, const std::string& text);
   void onAction(std::uint32_t id, const std::string& action, const std::string& activationToken);
+  void onOffered(
+      const std::string& transferId, const std::string& deviceId,
+      const std::vector<std::pair<std::string, std::uint64_t>>& files
+  );
+  void onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total);
+  void onFinished(const std::string& transferId, const std::string& status, const std::vector<std::string>& paths);
+  void callTransfer(const char* method, const std::string& transferId);
+  void closeTransferNotification(std::uint32_t& id);
+  [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
 
   struct ReceivedShare {
     bool link = false;
     std::string text;
+  };
+
+  struct Transfer {
+    std::string deviceId;
+    bool incoming = false;
+    std::uint32_t offerNotification = 0;
+    std::uint32_t progressNotification = 0;
+    // The user closed the progress toast; it is not shown again.
+    bool progressDismissed = false;
+  };
+
+  // What a transfer notification's actions act on: the transfer, or the files it delivered.
+  struct TransferAction {
+    std::string transferId;
+    std::vector<std::string> paths;
   };
 
   std::unique_ptr<sdbus::IProxy> m_daemon;
@@ -87,6 +117,9 @@ private:
   ClipboardService& m_clipboard;
   // Received shares by the id of the notification that offers them, until it closes.
   std::unordered_map<std::uint32_t, ReceivedShare> m_received;
+  std::unordered_map<std::string, Transfer> m_transfers;
+  std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
+  std::vector<std::string> m_autoAccept;
   ChangeCallback m_changeCallback;
   std::vector<LinkDevice> m_devices;
   std::optional<LinkPairing> m_pairing;

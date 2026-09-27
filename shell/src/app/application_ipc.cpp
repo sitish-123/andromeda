@@ -24,7 +24,6 @@
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
 #include "dbus/network/nm_hotspot.h"
-#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -32,6 +31,7 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
@@ -311,15 +311,20 @@ void Application::initIpc() {
     return "ok\n";
   });
 
-  m_ipcService.bind(noctalia::cli::msg::notificationInvokeLatest, [this](const std::string&) -> std::string {
-    // Mirror the toast left-click behavior for the most recent active notification:
-    // invoke its "default" action so the source application raises/focuses its window.
+  m_ipcService.bind(noctalia::cli::msg::notificationInvokeLatest, [this](const std::string& args) -> std::string {
+    // Without an action this mirrors the toast left-click on the most recent active notification.
     // all() stores notifications oldest-first (push_back), so iterate in reverse for newest.
+    const std::string trimmed = StringUtils::trim(args);
+    const std::string action = trimmed.empty() ? "default" : trimmed;
     const auto& notifications = m_notificationManager.all();
     for (const auto& notification : std::views::reverse(notifications)) {
-      const auto& actions = notification.actions; // pairs: [key, label, ...]; "default" must be first.
-      if (actions.size() >= 2 && actions[0] == "default") {
-        if (!m_notificationManager.invokeAction(notification.id, "default", true)) {
+      const auto& actions = notification.actions; // pairs: [key, label, ...]
+      bool offers = false;
+      for (std::size_t i = 0; i + 1 < actions.size(); i += 2) {
+        offers = offers || actions[i] == action;
+      }
+      if (offers) {
+        if (!m_notificationManager.invokeAction(notification.id, action, true)) {
           return "error: invokeAction failed\n";
         }
         if (m_panelManager.isOpenPanel("control-center")) {
@@ -327,6 +332,9 @@ void Application::initIpc() {
         }
         return "ok\n";
       }
+    }
+    if (!trimmed.empty()) {
+      return "error: no active notification offers " + action + "\n";
     }
     return "ok\n"; // No active notification carries a default action; nothing to do.
   });
