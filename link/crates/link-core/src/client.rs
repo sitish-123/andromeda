@@ -6,7 +6,9 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::{FsRefusal, Hotspot, HotspotEnd, Message, NetworkKind, Share, Status, TransferId};
+use link_proto::message::{
+    FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, Message, NetworkKind, Punch, Share, Status, TransferId,
+};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -16,6 +18,7 @@ use crate::browse;
 use crate::hotspot::{self, UPGRADE_TIMEOUT};
 use crate::identity::DeviceId;
 use crate::inbox::Inbox;
+use crate::net;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::{self, Reached, Via};
 use crate::session::{self, Route, SessionEvent, SessionHandle};
@@ -23,6 +26,7 @@ use crate::store::{Feature, Peer, feature_of};
 use crate::stream::BLUETOOTH_FILE_LIMIT;
 use crate::tls::ServerPin;
 use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
+use crate::transport::Dialer;
 use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
@@ -531,7 +535,7 @@ impl ClientActor {
             log::info!("{id}: connected over Bluetooth");
             self.on_bluetooth.insert(id.clone());
             self.on_hotspot.remove(&id);
-            self.next_probe.get_or_insert_with(|| Instant::now() + PROBE_EVERY);
+            self.next_probe = Some(Instant::now());
         } else {
             log::info!("{id}: connected at {}", addr.map_or_else(String::new, |addr| addr.to_string()));
             self.on_bluetooth.remove(&id);
@@ -615,7 +619,9 @@ impl ClientActor {
                 .phone
                 .desktops()
                 .iter()
-                .filter(|peer| peer.bluetooth.is_some() && !self.on_bluetooth.contains(&peer.id) && self.wants(&peer.id))
+                .filter(|peer| {
+                    peer.bluetooth.is_some() && !self.on_bluetooth.contains(&peer.id) && self.wants(&peer.id)
+                })
                 .cloned()
                 .collect();
             for peer in over_wifi {
@@ -636,8 +642,13 @@ impl ClientActor {
         for id in &self.on_bluetooth {
             let Some(peer) = self.phone.desktops().iter().find(|peer| peer.id == *id).cloned() else { continue };
             let dialer = self.phone.dialer().clone();
-            let id = id.clone();
+            let (id, session) = (id.clone(), self.sessions.get(id).cloned());
             self.probes.spawn(async move {
+                if let (Some(session), Some(punch)) = (session, punch(&dialer))
+                    && let Err(error) = session.send(punch).await
+                {
+                    log::info!("{id}: asking for a punch: {error}");
+                }
                 let reached = reach::reach(&dialer, &peer).await;
                 (id, reached)
             });
@@ -905,4 +916,13 @@ async fn sleep_until(deadline: Option<Instant>) {
         Some(deadline) => tokio::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
+}
+
+/// The phone's addresses its dials leave from, IPv4 first, for the desktop to punch its firewall toward.
+fn punch(dialer: &Dialer) -> Option<Message> {
+    let mut addresses = net::local_addresses(dialer.port()?);
+    addresses.sort_by_key(SocketAddr::is_ipv6);
+    addresses.truncate(MAX_PUNCH_ADDRESSES);
+    let addresses = addresses.iter().map(ToString::to_string).collect::<Vec<_>>();
+    (!addresses.is_empty()).then_some(Message::Punch(Punch { addresses }))
 }

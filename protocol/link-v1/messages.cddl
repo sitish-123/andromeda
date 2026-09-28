@@ -4,7 +4,7 @@
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
-  hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg /
+  hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg / punch-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
@@ -164,6 +164,10 @@ hotspot-msg = { type: "hotspot", id: uint, body: {
 } }
 hotspot-joined-msg = { type: "hotspot-joined", id: uint, body: { address: tstr } }  ; host:port
 hotspot-end-msg = { type: "hotspot-end", id: uint, body: { ? reason: tstr .size (1..128) } }
+
+; Phone to desktop, before dialling it from a Bluetooth session: the phone's own host:port pairs, which the desktop
+; sends one UDP byte to so its firewall takes the dial for a reply.
+punch-msg = { type: "punch", id: uint, body: { addresses: [0*8 tstr] } }
 
 ; The desktop browses the phone's storage, read-only, while the phone's browse switch for it is on. A path is "/" for
 ; the roots, else "/<root>/<name>/..." with no empty, ".", or ".." component. req pairs each answer with its request.

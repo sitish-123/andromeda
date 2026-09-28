@@ -311,6 +311,15 @@ pub struct HotspotEnd {
     pub reason: Option<String>,
 }
 
+/// The phone's own addresses it is about to dial the desktop from, so the desktop can open its firewall to them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Punch {
+    pub addresses: Vec<String>,
+}
+
+pub const MAX_PUNCH_ADDRESSES: usize = 8;
+
 pub const MAX_SSID_LEN: usize = 32;
 pub const MAX_REASON_LEN: usize = 128;
 
@@ -804,6 +813,7 @@ pub enum Message {
     Hotspot(Hotspot),
     HotspotJoined(HotspotJoined),
     HotspotEnd(HotspotEnd),
+    Punch(Punch),
     FsList(FsList),
     FsEntries(FsEntries),
     FsRead(FsRead),
@@ -846,6 +856,7 @@ impl Message {
             Self::Hotspot(_) => "hotspot",
             Self::HotspotJoined(_) => "hotspot-joined",
             Self::HotspotEnd(_) => "hotspot-end",
+            Self::Punch(_) => "punch",
             Self::FsList(_) => "fs-list",
             Self::FsEntries(_) => "fs-entries",
             Self::FsRead(_) => "fs-read",
@@ -885,6 +896,7 @@ impl Message {
             Self::Hotspot(body) => Value::serialized(body),
             Self::HotspotJoined(body) => Value::serialized(body),
             Self::HotspotEnd(body) => Value::serialized(body),
+            Self::Punch(body) => Value::serialized(body),
             Self::FsList(body) => Value::serialized(body),
             Self::FsEntries(body) => Value::serialized(body),
             Self::FsRead(body) => Value::serialized(body),
@@ -933,6 +945,7 @@ impl Message {
             "hotspot" => Self::Hotspot(body.deserialized()?),
             "hotspot-joined" => Self::HotspotJoined(body.deserialized()?),
             "hotspot-end" => Self::HotspotEnd(body.deserialized()?),
+            "punch" => Self::Punch(body.deserialized()?),
             "fs-list" => Self::FsList(body.deserialized()?),
             "fs-entries" => Self::FsEntries(body.deserialized()?),
             "fs-read" => Self::FsRead(body.deserialized()?),
@@ -982,6 +995,10 @@ impl Message {
             Self::Hotspot(hotspot) => hotspot.valid(),
             Self::HotspotJoined(joined) => joined.address.parse::<std::net::SocketAddr>().is_ok(),
             Self::HotspotEnd(end) => end.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
+            Self::Punch(punch) => {
+                punch.addresses.len() <= MAX_PUNCH_ADDRESSES
+                    && punch.addresses.iter().all(|address| address.parse::<std::net::SocketAddr>().is_ok())
+            }
             Self::FsList(list) => fs_path_valid(&list.path),
             Self::FsEntries(page) => {
                 page.entries.len() <= MAX_FS_ENTRIES && page.entries.iter().all(|entry| fs_name_valid(&entry.name))

@@ -17,6 +17,7 @@ use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
 use link_core::store::{Peer, Store, feature_of};
 use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
+use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -205,6 +206,7 @@ pub struct Hub {
     /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
     browsing: browse::Browsing,
+    puncher: Puncher,
 }
 
 struct Waiting {
@@ -230,6 +232,7 @@ impl Hub {
         paths: Paths,
         desktop_media: DesktopMediaHandle,
         transfers: Transfers,
+        puncher: Puncher,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
@@ -264,6 +267,7 @@ impl Hub {
             joining: JoinSet::new(),
             waiting: Vec::new(),
             browsing: browse::Browsing::default(),
+            puncher,
         };
         hub.refresh();
         (hub, handle, snapshots_rx, events_rx)
@@ -506,6 +510,12 @@ impl Hub {
                 {
                     log::info!("{from}: asking for the next page of a listing failed");
                 }
+            }
+            SessionEvent::Message { from, message: Message::Punch(punch) } if self.sessions.contains_key(&from) => {
+                let addresses: Vec<std::net::SocketAddr> =
+                    punch.addresses.iter().filter_map(|text| text.parse().ok()).collect();
+                log::info!("{from}: punching toward {addresses:?}");
+                self.puncher.punch(&addresses);
             }
             SessionEvent::Message { from, message } => {
                 let granted = feature_of(&message)

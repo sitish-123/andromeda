@@ -83,6 +83,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::NotificationRemoved(_)
         | Message::Call(_)
         | Message::Hotspot(_)
+        | Message::Punch(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
         | Message::FsError(_) => role == Role::Desktop,

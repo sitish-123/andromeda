@@ -50,6 +50,11 @@ pub(crate) fn tls13_provider() -> Arc<rustls::crypto::CryptoProvider> {
 }
 
 pub fn server_endpoint(identity: &Identity, addr: SocketAddr) -> Result<quinn::Endpoint, Error> {
+    Ok(punchable_server_endpoint(identity, addr)?.0)
+}
+
+/// A server endpoint and a [`Puncher`] sending from its socket.
+pub fn punchable_server_endpoint(identity: &Identity, addr: SocketAddr) -> Result<(quinn::Endpoint, Puncher), Error> {
     let resolver = AlwaysResolvesServerRawPublicKeys::new(tls::certified_key(identity)?);
     let mut crypto = rustls::ServerConfig::builder_with_provider(tls13_provider())
         .with_protocol_versions(&[&rustls::version::TLS13])?
@@ -60,7 +65,32 @@ pub fn server_endpoint(identity: &Identity, addr: SocketAddr) -> Result<quinn::E
     let crypto = QuicServerConfig::try_from(crypto).map_err(|_| Error::BadKey)?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(transport_config(None));
-    Ok(quinn::Endpoint::server(config, addr)?)
+    let socket = std::net::UdpSocket::bind(addr)?;
+    let puncher = Puncher(Arc::new(socket.try_clone()?));
+    let runtime = quinn::default_runtime().ok_or_else(|| std::io::Error::other("no async runtime"))?;
+    let endpoint = quinn::Endpoint::new(quinn::EndpointConfig::default(), Some(config), socket, runtime)?;
+    Ok((endpoint, puncher))
+}
+
+/// Sends from the server's own socket, so a stateful firewall in front of it takes a peer's dial from an address it
+/// was sent to for a reply.
+#[derive(Clone)]
+pub struct Puncher(Arc<std::net::UdpSocket>);
+
+impl Puncher {
+    /// One byte to each address: not QUIC, so the peer's endpoint drops it.
+    pub fn punch(&self, addresses: &[SocketAddr]) {
+        let dual_stack = self.0.local_addr().is_ok_and(|local| local.is_ipv6());
+        for &addr in addresses {
+            let to = match addr {
+                SocketAddr::V4(v4) if dual_stack => SocketAddr::new(v4.ip().to_ipv6_mapped().into(), v4.port()),
+                addr => addr,
+            };
+            if let Err(error) = self.0.send_to(&[0], to) {
+                log::info!("punching toward {addr}: {error}");
+            }
+        }
+    }
 }
 
 impl Dialer {
@@ -82,6 +112,11 @@ impl Dialer {
     /// Waits until every connection has sent its close; call before the process exits.
     pub async fn finish(&self) {
         self.endpoint.wait_idle().await;
+    }
+
+    /// The UDP port every dial leaves from.
+    pub fn port(&self) -> Option<u16> {
+        self.endpoint.local_addr().ok().map(|addr| addr.port())
     }
 
     pub async fn dial(&self, addr: SocketAddr, pin: ServerPin) -> Result<Dialed, Error> {

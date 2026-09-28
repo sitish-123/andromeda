@@ -21,6 +21,7 @@ use link_core::identity::Identity;
 use link_core::inbox::Inbox;
 use link_core::store::Store;
 use link_core::stream::StreamAcceptor;
+use link_core::transport::Puncher;
 use link_core::{transfer, transport};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -35,7 +36,7 @@ async fn run() -> anyhow::Result<()> {
     let paths = paths::Paths::create()?;
     let identity = Identity::load_or_create(&paths.identity).context("loading the device key")?;
     let mut store = Store::load(&paths.devices).context("loading the device store")?;
-    let endpoint = bind(&identity, store.port)?;
+    let (endpoint, puncher) = bind(&identity)?;
     let port = endpoint.local_addr()?.port();
     if store.port != port {
         store.port = port;
@@ -54,7 +55,7 @@ async fn run() -> anyhow::Result<()> {
     let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
     let (desktop_media, media_requests) = desktop_media::channel();
     let (hub, handle, snapshots, events) =
-        hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers);
+        hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers, puncher);
     dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
     let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
     quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
@@ -83,15 +84,14 @@ async fn run() -> anyhow::Result<()> {
 /// Unassigned at IANA; the ufw profile `Umbriel Link` opens it.
 const DEFAULT_PORT: u16 = 4717;
 
-/// Binds the stored port so last-known addresses survive restarts, or [`DEFAULT_PORT`] in a new store; a taken port
-/// falls back to a random one.
-fn bind(identity: &Identity, stored: u16) -> anyhow::Result<quinn::Endpoint> {
-    let port = if stored == 0 { DEFAULT_PORT } else { stored };
+/// Binds [`DEFAULT_PORT`], the one the firewall opens; a taken port falls back to a random one for this run only, so
+/// the next start returns to the default.
+fn bind(identity: &Identity) -> anyhow::Result<(quinn::Endpoint, Puncher)> {
     let addr = |port| SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
-    transport::server_endpoint(identity, addr(port))
+    transport::punchable_server_endpoint(identity, addr(DEFAULT_PORT))
         .or_else(|error| {
-            log::warn!("port {port}: {error}; choosing another");
-            transport::server_endpoint(identity, addr(0))
+            log::warn!("port {DEFAULT_PORT}: {error}; choosing another");
+            transport::punchable_server_endpoint(identity, addr(0))
         })
         .context("binding the QUIC endpoint")
 }
