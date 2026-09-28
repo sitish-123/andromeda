@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,7 @@ class RovingListNavHost;
 
 namespace settings {
   enum class SettingsSection : std::uint8_t;
+  enum class SettingsCategory : std::uint8_t;
 
   struct SettingsSidebarContext {
     const Config& config;
@@ -28,6 +30,8 @@ namespace settings {
     std::string& selectedBarName;
     std::string& selectedMonitorOverride;
     std::string& creatingBarName;
+    std::optional<SettingsCategory>& expandedCategory;
+    std::string& expandedForSection;
 
     std::function<void()> clearTransientState;
     std::function<void()> clearSearchQuery;

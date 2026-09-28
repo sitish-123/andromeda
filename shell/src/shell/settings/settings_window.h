@@ -134,7 +134,7 @@ public:
     m_quickShareService = quickShare;
     m_openPairing = std::move(openPairing);
   }
-  // Rebuilds the Phone & Devices page when it is showing.
+  // Rebuilds the Phones page when it is showing.
   void onDevicesChanged();
   // Backs plugin-store thumbnails; trimmed when the window closes.
   void setAsyncTextureCache(AsyncTextureCache* cache) { m_asyncTextures = cache; }
@@ -415,6 +415,9 @@ private:
   std::string m_selectedBarName;
   std::string m_selectedMonitorOverride;
   std::string m_selectedSection;
+  std::optional<settings::SettingsCategory> m_expandedCategory;
+  // The page the sidebar last expanded a category for; selecting another page from outside re-expands.
+  std::string m_expandedForSection;
   std::string m_reopenAfterWidgetEditorSection;
   std::string m_statusMessage;
   std::string m_pendingResetPageScope;

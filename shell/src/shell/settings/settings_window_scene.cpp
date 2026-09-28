@@ -1448,6 +1448,8 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
           .selectedBarName = m_selectedBarName,
           .selectedMonitorOverride = m_selectedMonitorOverride,
           .creatingBarName = m_creatingBarName,
+          .expandedCategory = m_expandedCategory,
+          .expandedForSection = m_expandedForSection,
           .clearTransientState = clearTransientSettingsState,
           .clearSearchQuery = clearSearchQuery,
           .requestRebuild = requestRebuild,

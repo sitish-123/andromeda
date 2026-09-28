@@ -16,7 +16,7 @@ namespace {
       return false;
     }
     for (const Node* current = button; current != nullptr; current = current->parent()) {
-      if (!current->visible()) {
+      if (!current->visible() || (current != button && current->excludeSubtreeFromTabOrder())) {
         return false;
       }
     }

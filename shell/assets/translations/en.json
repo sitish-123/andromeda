@@ -1508,13 +1508,14 @@
         "layout": "Layout",
         "overview": "Overview",
         "shortcuts": "Keyboard Shortcuts",
-        "devices": "Phone & Devices"
+        "devices": "Phones"
       },
       "categories": {
         "appearance": "Appearance",
         "desktop": "Desktop",
         "windows": "Windows",
         "devices": "Devices",
+        "shortcuts": "Shortcuts",
         "system": "System",
         "advanced": "Advanced"
       }

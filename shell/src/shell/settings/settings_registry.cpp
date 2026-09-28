@@ -106,22 +106,22 @@ namespace settings {
         {SettingsSection::Overview, SettingsCategory::Windows, "overview", "layout-dashboard"},
         {SettingsSection::Windows, SettingsCategory::Windows, "windows", "pointer"},
         {SettingsSection::Niri, SettingsCategory::Windows, "niri", "niri"},
-        {SettingsSection::Displays, SettingsCategory::Devices, "displays", "device-desktop", true, true},
+        {SettingsSection::Displays, SettingsCategory::Pinned, "displays", "device-desktop", true, true},
         {SettingsSection::Input, SettingsCategory::Devices, "input", "keyboard", true, true},
         {SettingsSection::Devices, SettingsCategory::Devices, "devices", "device-mobile", true, true},
-        {SettingsSection::Shortcuts, SettingsCategory::Devices, "shortcuts", "command", true, true},
-        {SettingsSection::Keybinds, SettingsCategory::Devices, "keybinds", "keyboard"},
-        {SettingsSection::Services, SettingsCategory::Devices, "services", "volume"},
+        {SettingsSection::Shortcuts, SettingsCategory::Shortcuts, "shortcuts", "command", true, true},
+        {SettingsSection::Keybinds, SettingsCategory::Shortcuts, "keybinds", "keyboard"},
+        {SettingsSection::Services, SettingsCategory::Pinned, "services", "volume"},
         {SettingsSection::DateTime, SettingsCategory::System, "date-time", "clock", true, true},
         {SettingsSection::Language, SettingsCategory::System, "language", "language", true, true},
         {SettingsSection::DefaultApps, SettingsCategory::System, "default-apps", "apps", true, true},
-        {SettingsSection::Power, SettingsCategory::System, "power", "bolt"},
+        {SettingsSection::Power, SettingsCategory::Pinned, "power", "bolt"},
         {SettingsSection::Security, SettingsCategory::System, "security", "shield-lock"},
         {SettingsSection::Location, SettingsCategory::System, "location", "map-pin"},
         {SettingsSection::Calendar, SettingsCategory::System, "calendar", "calendar"},
         {SettingsSection::Screenshot, SettingsCategory::System, "screenshot", "screenshot"},
         {SettingsSection::System, SettingsCategory::System, "system", "activity-heartbeat"},
-        {SettingsSection::Shell, SettingsCategory::System, "shell", "settings"},
+        {SettingsSection::Shell, SettingsCategory::System, "shell", "adjustments-horizontal"},
         {SettingsSection::Hooks, SettingsCategory::Advanced, "hooks", "link"},
         {SettingsSection::Plugins, SettingsCategory::Advanced, "plugins", "puzzle", true, true},
     }};
@@ -132,11 +132,13 @@ namespace settings {
       std::string_view glyph;
     };
 
-    constexpr std::array<SettingsCategoryDescriptor, 6> kSettingsCategories{{
-        {SettingsCategory::Appearance, "appearance", "palette"},
-        {SettingsCategory::Desktop, "desktop", "layout-dashboard"},
-        {SettingsCategory::Windows, "windows", "app-window"},
+    constexpr std::array<SettingsCategoryDescriptor, 8> kSettingsCategories{{
+        {SettingsCategory::Pinned, "pinned", ""},
+        {SettingsCategory::Appearance, "appearance", "brush"},
+        {SettingsCategory::Desktop, "desktop", "layout-2"},
+        {SettingsCategory::Windows, "windows", "window"},
         {SettingsCategory::Devices, "devices", "devices"},
+        {SettingsCategory::Shortcuts, "shortcuts", "keyboard-show"},
         {SettingsCategory::System, "system", "settings"},
         {SettingsCategory::Advanced, "advanced", "tool"},
     }};

@@ -23,6 +23,8 @@ public:
   // the header has to line up with flush-left content around it.
   void setHeaderPadding(float vertical, float horizontal);
   // Fires when the header toggles the section, not when the state is set programmatically.
+  // Rotates `chevron`, a glyph inside the caller's header, in place of the built-in one.
+  void setChevron(Glyph* chevron);
   void setOnToggle(std::function<void(bool expanded)> callback);
 
   [[nodiscard]] bool expanded() const noexcept { return m_expanded; }

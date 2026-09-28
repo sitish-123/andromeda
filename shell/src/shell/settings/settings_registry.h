@@ -63,10 +63,13 @@ namespace settings {
   };
 
   enum class SettingsCategory : std::uint8_t {
+    // Everyday pages: top-level sidebar rows, never grouped.
+    Pinned,
     Appearance,
     Desktop,
     Windows,
     Devices,
+    Shortcuts,
     System,
     Advanced,
   };

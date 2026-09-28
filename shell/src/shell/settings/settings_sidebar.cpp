@@ -4,6 +4,8 @@
 #include "render/core/renderer.h"
 #include "shell/settings/settings_registry.h"
 #include "ui/builders.h"
+#include "ui/controls/collapsible.h"
+#include "ui/controls/glyph.h"
 #include "ui/controls/roving_list_nav.h"
 #include "ui/palette.h"
 #include "ui/style.h"
@@ -14,6 +16,7 @@
 #include <format>
 #include <functional>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -28,6 +31,12 @@ namespace settings {
     constexpr float kPrimaryNavGlyphSize = 18.0F;
     constexpr float kPrimaryNavGap = 6.0F;
     constexpr float kPrimaryNavPaddingH = 10.0F;
+    constexpr float kGuideWidth = 1.0F;
+    constexpr float kGuideGap = 4.0F;
+    // The guide line runs under the header glyph's centre; child glyphs line up with the header label.
+    constexpr float kGuideInset = kPrimaryNavPaddingH + kPrimaryNavGlyphSize / 2.0F - kGuideWidth / 2.0F;
+    constexpr float kChildPaddingLeft =
+        kPrimaryNavPaddingH + kPrimaryNavGlyphSize + kPrimaryNavGap - kGuideInset - kGuideWidth - kGuideGap;
 
     void addNavButton(RovingListNavHost& nav, std::unique_ptr<Button> button, std::function<void()> onClick) {
       Button* raw = button.get();
@@ -62,6 +71,18 @@ namespace settings {
       if (button.label() != nullptr) {
         button.label()->setFontWeight(FontWeight::Bold);
       }
+    }
+
+    // The header of the category holding the open page keeps the accent while collapsed.
+    Button::ButtonPalette currentCategoryPalette() {
+      const auto clear = clearColorSpec();
+      const auto primary = colorSpecFromRole(ColorRole::Primary);
+      return Button::ButtonPalette{
+          .normal = {.bg = clear, .border = clear, .label = primary},
+          .hover = {.bg = colorSpecFromRole(ColorRole::Hover), .border = clear, .label = colorSpecFromRole(ColorRole::OnHover)},
+          .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceVariant), .border = clear, .label = primary},
+          .disabled = {.bg = clear, .border = clear, .label = primary},
+      };
     }
 
     // Primary sidebar nav style: top-level section rows with a bolder label.
@@ -103,7 +124,7 @@ namespace settings {
           .paddingTop = Style::spaceXs * scale,
           .paddingRight = Style::spaceMd * scale,
           .paddingBottom = Style::spaceXs * scale,
-          .paddingLeft = Style::spaceLg * scale,
+          .paddingLeft = kChildPaddingLeft * scale,
           .gap = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = std::move(onClick),
@@ -174,7 +195,7 @@ namespace settings {
 
     auto sidebarNav = std::make_unique<RovingListNavHost>(RovingListNavController::Options{
         .axis = RovingListNavAxis::Vertical,
-        .mode = RovingListNavMode::FollowFocus,
+        .mode = RovingListNavMode::Roving,
         .keepItemsInTabOrder = false,
         .scrollIntoView = std::move(ctx.scrollSidebarNodeIntoView),
         .syncIndexFromSelection = {},
@@ -184,13 +205,20 @@ namespace settings {
     sidebarNav->setPadding(kSidebarPadding * scale);
     RovingListNavHost* nav = sidebarNav.get();
 
-    const auto selectedCategory = [&]() -> std::optional<SettingsCategory> {
-      if (*selectedSection == "bar") {
+    const auto categoryOf = [](std::string_view sectionId) -> std::optional<SettingsCategory> {
+      if (sectionId == "bar") {
         return SettingsCategory::Desktop;
       }
-      const auto section = settingsSectionFromId(*selectedSection);
+      const auto section = settingsSectionFromId(sectionId);
       return section.has_value() ? std::optional{settingsSectionCategory(*section)} : std::nullopt;
-    }();
+    };
+    const auto currentCategory = categoryOf(*selectedSection);
+    if (ctx.expandedForSection != *selectedSection) {
+      ctx.expandedForSection = *selectedSection;
+      if (currentCategory.has_value() && *currentCategory != SettingsCategory::Pinned) {
+        ctx.expandedCategory = currentCategory;
+      }
+    }
 
     const auto navigateTo = [selectedSection, selectedBarName, selectedMonitorOverride, scroll, searchActive,
                              clearTransientState, clearSearchQuery,
@@ -206,6 +234,16 @@ namespace settings {
       requestRebuild();
     };
 
+    // Opening or closing a category animates the groups in place; the page and the rest of the scene stay.
+    auto* expandedCategory = &ctx.expandedCategory;
+    auto groups = std::make_shared<std::vector<std::pair<SettingsCategory, Collapsible*>>>();
+    const auto toggleCategory = [expandedCategory, groups](SettingsCategory category) {
+      *expandedCategory = *expandedCategory == category ? std::nullopt : std::optional{category};
+      for (const auto& [groupCategory, group] : *groups) {
+        group->setExpanded(*expandedCategory == groupCategory);
+      }
+    };
+
     std::vector<SettingsCategory> categories;
     for (const auto section : ctx.sections) {
       if (!std::ranges::contains(categories, settingsSectionCategory(section))) {
@@ -217,44 +255,66 @@ namespace settings {
     }
     std::ranges::sort(categories);
 
+    const auto addPageRow = [&](SettingsSection section, std::string_view glyph, std::string label) {
+      const std::string sectionId(settingsSectionId(section));
+      const auto onClick = [navigateTo, sectionId]() { navigateTo(sectionId, {}); };
+      addNavButton(
+          *nav,
+          makePrimaryNavButton(glyph, std::move(label), scale, showActiveTab && sectionId == *selectedSection, onClick),
+          onClick
+      );
+    };
+
     for (const auto category : categories) {
       const bool desktop = category == SettingsCategory::Desktop;
       std::vector<SettingsSection> children;
       std::ranges::copy_if(ctx.sections, std::back_inserter(children), [category](SettingsSection section) {
         return settingsSectionCategory(section) == category;
       });
-      const bool expanded = selectedCategory == category;
-      // A category holding one page is that page: no child row repeating its name.
-      const bool singlePage = children.size() == 1 && (!desktop || ctx.availableBars.empty());
-      const auto onCategoryClick = [navigateTo, expanded, desktop, children, bars = ctx.availableBars]() {
-        if (expanded) {
-          return;
+
+      if (category == SettingsCategory::Pinned) {
+        for (const auto section : children) {
+          addPageRow(section, sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)));
         }
-        if (desktop && !bars.empty()) {
-          navigateTo("bar", bars.front());
-        } else if (!children.empty()) {
-          navigateTo(std::string(settingsSectionId(children.front())), {});
-        }
-      };
-      addNavButton(
-          *nav,
-          makePrimaryNavButton(
-              settingsCategoryGlyph(category),
-              i18n::tr("settings.navigation.categories." + std::string(settingsCategoryId(category))), scale,
-              singlePage && showActiveTab && expanded, onCategoryClick
-          ),
-          onCategoryClick
-      );
-      if (!expanded || singlePage) {
+        nav->addChild(ui::separator({.spacing = Style::spaceXs * scale}));
         continue;
       }
+
+      const std::string categoryLabel =
+          i18n::tr("settings.navigation.categories." + std::string(settingsCategoryId(category)));
+      // A category holding one page is that page: no child row repeating its name.
+      if (children.size() == 1 && (!desktop || ctx.availableBars.empty())) {
+        addPageRow(children.front(), settingsCategoryGlyph(category), categoryLabel);
+        continue;
+      }
+
+      const auto onHeaderClick = [toggleCategory, category]() { toggleCategory(category); };
+      auto header = makePrimaryNavButton(settingsCategoryGlyph(category), categoryLabel, scale, false, onHeaderClick);
+      if (currentCategory == category) {
+        header->setCustomPalette(currentCategoryPalette());
+      }
+      Glyph* chevron = nullptr;
+      header->addChild(ui::spacer());
+      header->addChild(ui::glyph({
+          .out = &chevron,
+          .glyph = "chevron-down",
+          .glyphSize = Style::fontSizeCaption * scale,
+          .color = colorSpecFromRole(currentCategory == category ? ColorRole::Primary : ColorRole::OnSurface),
+      }));
+      Button* headerButton = header.get();
+      nav->registerItem(headerButton, onHeaderClick);
+
+      auto items = ui::column({.align = FlexAlign::Stretch, .gap = kSidebarGap * scale, .flexGrow = 1.0F});
+      const auto addChildRow = [&](std::unique_ptr<Button> row, std::function<void()> onClick) {
+        nav->registerItem(row.get(), std::move(onClick));
+        items->addChild(std::move(row));
+      };
 
       if (desktop) {
         for (const auto& barName : ctx.availableBars) {
           const bool barSelected = showActiveTab && *selectedSection == "bar" && *selectedBarName == barName;
           const auto onBarClick = [navigateTo, barName]() { navigateTo("bar", barName); };
-          addNavButton(
-              *nav,
+          addChildRow(
               makeSecondaryNavButton(
                   sectionGlyph(SettingsSection::Bar), i18n::tr("settings.entities.bar.label", "name", barName), scale,
                   barSelected, onBarClick
@@ -267,41 +327,39 @@ namespace settings {
           *creatingBarName = nextBarName;
           requestRebuild();
         };
-        addNavButton(
-            *nav,
-            ui::button({
-                .text = i18n::tr("settings.entities.bar.new"),
-                .glyph = "add",
-                .fontSize = Style::fontSizeCaption * scale,
-                .glyphSize = Style::fontSizeCaption * scale,
-                .contentAlign = ButtonContentAlign::Start,
-                .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * scale,
-                .paddingTop = Style::spaceXs * scale,
-                .paddingRight = Style::spaceMd * scale,
-                .paddingBottom = Style::spaceXs * scale,
-                .paddingLeft = Style::spaceLg * scale,
-                .gap = Style::spaceXs * scale,
-                .radius = Style::scaledRadiusMd(scale),
-                .onClick = onNewBarClick,
-                .configure = [](Button& button) { button.setTabStop(false); },
-            }),
-            onNewBarClick
-        );
+        auto newBar = makeSecondaryNavButton("add", i18n::tr("settings.entities.bar.new"), scale, false, onNewBarClick);
+        newBar->setVariant(ButtonVariant::Ghost);
+        addChildRow(std::move(newBar), onNewBarClick);
       }
 
       for (const auto section : children) {
         const std::string sectionId(settingsSectionId(section));
         const bool selected = showActiveTab && sectionId == *selectedSection;
         const auto onClick = [navigateTo, sectionId]() { navigateTo(sectionId, {}); };
-        addNavButton(
-            *nav,
+        addChildRow(
             makeSecondaryNavButton(
                 sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)), scale, selected, onClick
             ),
             onClick
         );
       }
+
+      auto body = ui::row(
+          {.align = FlexAlign::Stretch, .gap = kGuideGap * scale},
+          ui::box({.fill = colorSpecFromRole(ColorRole::Outline), .width = kGuideWidth * scale}),
+          std::move(items)
+      );
+      body->setPadding(kSidebarGap * scale, 0.0F, Style::spaceXs * scale, kGuideInset * scale);
+
+      auto group = std::make_unique<Collapsible>();
+      group->setHeaderPadding(0.0F, 0.0F);
+      group->setHeader(std::move(header));
+      group->setBody(std::move(body));
+      group->setChevron(chevron);
+      group->setExpandedImmediate(*expandedCategory == category);
+      group->setOnToggle([toggleCategory, category](bool /*expanded*/) { toggleCategory(category); });
+      groups->emplace_back(category, group.get());
+      nav->addChild(std::move(group));
     }
 
     if (!creatingBarName->empty()) {

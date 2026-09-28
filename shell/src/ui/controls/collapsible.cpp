@@ -78,6 +78,12 @@ void Collapsible::setBody(std::unique_ptr<Node> body) {
   markLayoutDirty();
 }
 
+void Collapsible::setChevron(Glyph* chevron) {
+  m_chevron->setVisible(false);
+  m_chevron = chevron;
+  m_chevron->setRotation(m_expandProgress * std::numbers::pi_v<float>);
+}
+
 void Collapsible::setOnToggle(std::function<void(bool)> callback) { m_onToggle = std::move(callback); }
 
 void Collapsible::setExpanded(bool expanded) {
