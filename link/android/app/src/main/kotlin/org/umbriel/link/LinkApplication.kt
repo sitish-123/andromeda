@@ -14,13 +14,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.umbriel.link.clipboard.ClipboardSync
 import org.umbriel.link.clipboard.ClipboardWatcher
+import org.umbriel.link.calls.Calls
 import org.umbriel.link.core.data.LinkRepository
+import org.umbriel.link.media.PhoneMedia
 import org.umbriel.link.notifications.Channels
+import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.notifications.ShareNotifier
 import org.umbriel.link.notifications.TransferNotifier
 import org.umbriel.link.presence.Presence
 import org.umbriel.link.presence.StatusReporter
 import org.umbriel.link.transfer.TransferService
+import org.umbriel.link.ring.Ringer
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -34,7 +38,7 @@ class LinkApplication : Application() {
 }
 
 /** Every long-lived object, built once; screens receive what they need through their ViewModel's constructor. */
-class AppContainer(private val application: Application) {
+class AppContainer(val application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val notifier = ShareNotifier(application)
     private val transferNotifier = TransferNotifier(application)
@@ -43,12 +47,20 @@ class AppContainer(private val application: Application) {
     val clipboard = ClipboardSync(application, repository, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
     private val status = StatusReporter(application, repository, scope)
+    val mirror = NotificationMirror(application, repository, scope)
+    val media = PhoneMedia(application, repository, scope)
+    val ringer = Ringer(application, repository, scope)
+    val calls = Calls(application, repository, scope)
 
     fun start() {
         Channels.create(application)
         presence.start()
         clipboard.start()
         status.start()
+        mirror.start()
+        media.start()
+        ringer.start()
+        calls.start()
         scope.launch { repository.incoming.collect(notifier::post) }
         scope.launch { repository.transfers.collect(transferNotifier::post) }
         scope.launch {

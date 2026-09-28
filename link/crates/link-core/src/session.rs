@@ -26,6 +26,11 @@ pub enum SessionEvent {
     Unpaired {
         from: DeviceId,
     },
+    /// A feature message that is not acknowledged, already checked for its direction.
+    Message {
+        from: DeviceId,
+        message: Message,
+    },
     /// The phone's battery and network; only a desktop's sessions report this.
     Status {
         from: DeviceId,
@@ -77,7 +82,7 @@ pub fn session(
     role: Role,
     route: Route,
 ) -> (SessionHandle, SessionActor) {
-    let (commands_tx, commands) = mpsc::channel(8);
+    let (commands_tx, commands) = mpsc::channel(32);
     let handle = SessionHandle { commands: commands_tx, connection: connection.clone(), tap: control.tap() };
     let (reader, writer) = control.split();
     let limits = (role == Role::Desktop).then(Limits::default);
@@ -94,11 +99,19 @@ impl SessionHandle {
         tokio::time::timeout(STEP_TIMEOUT, acked).await?.map_err(|_| Error::NotConnected)?
     }
 
-    /// Sends a message that expects no ack.
+    /// Sends a message that is not acknowledged, and returns once it is written.
     pub async fn send(&self, message: Message) -> Result<(), Error> {
+        message.validate()?;
         let (reply, sent) = oneshot::channel();
         self.commands.send(Command::Send { message, reply }).await.map_err(|_| Error::NotConnected)?;
         sent.await.map_err(|_| Error::NotConnected)?
+    }
+
+    /// Queues an unacknowledged message without waiting; false when it breaks the schema, the session ended, or its
+    /// queue is full.
+    pub fn post(&self, message: Message) -> bool {
+        let (reply, _) = oneshot::channel();
+        message.validate().is_ok() && self.commands.try_send(Command::Send { message, reply }).is_ok()
     }
 
     /// Tells the desktop this phone unpaired and waits for it to close the connection.
@@ -189,6 +202,7 @@ impl Live {
                 self.emit(SessionEvent::Unpaired { from: peer.clone() }).await;
                 return Ok(true);
             }
+            Inbound::Deliver(message) => self.emit(SessionEvent::Message { from: peer.clone(), message }).await,
             Inbound::Status(status) => self.emit(SessionEvent::Status { from: peer.clone(), status }).await,
             Inbound::Transfer(message) => {
                 if !self.route.transfers.control(peer.clone(), message) {

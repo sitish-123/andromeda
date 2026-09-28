@@ -45,7 +45,7 @@ unit_tests = [
   ],
   ['drm-policy', ['unit/drm_policy.cpp'], []],
   ['config-watcher', ['unit/config_watcher.cpp'], [umbriel_core_dep]],
-  ['input-settings', ['unit/input_settings.cpp'], [umbriel_core_dep]],
+  ['managed-settings', ['unit/managed_settings.cpp'], [umbriel_core_dep]],
   ['action-registry', ['unit/action_registry.cpp'], [umbriel_core_dep]],
   ['ipc-commands', ['unit/ipc_commands.cpp'], [umbriel_core_dep]],
   ['config-resolve', ['unit/config_resolve.cpp'], []],

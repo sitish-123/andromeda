@@ -107,6 +107,9 @@ public:
   // Each handler ignores ids it did not create.
   void addInternalActionCallback(ActionInvokeCallback callback);
   void setCloseCallback(CloseCallback callback);
+  // In-process observers of the moment a notification is gone for the user, with the same reason and timing as
+  // the D-Bus NotificationClosed: an expired one with actions reports only once dismissed from history.
+  void addCloseObserver(CloseCallback callback);
   [[nodiscard]] bool hasPendingDBusClose(uint32_t id) const noexcept;
   [[nodiscard]] bool invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke = true);
   [[nodiscard]] bool
@@ -206,6 +209,7 @@ private:
   ActionInvokeCallback m_actionInvokeCallback;
   std::vector<ActionInvokeCallback> m_internalActionCallbacks;
   CloseCallback m_closeCallback;
+  std::vector<CloseCallback> m_closeObservers;
   StateCallback m_stateCallback;
   int m_nextCallbackToken{0};
   uint32_t m_nextId{1};

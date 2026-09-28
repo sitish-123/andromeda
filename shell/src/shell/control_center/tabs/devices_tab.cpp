@@ -1,6 +1,7 @@
 #include "shell/control_center/tabs/devices_tab.h"
 
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/core/texture_manager.h"
@@ -89,6 +90,9 @@ namespace {
       Feature{.name = "clipboard", .label = "control-center.devices.grant-clipboard"},
       Feature{.name = "files", .label = "control-center.devices.grant-files"},
       Feature{.name = "notifications", .label = "control-center.devices.grant-notifications"},
+      Feature{.name = "media", .label = "control-center.devices.grant-media"},
+      Feature{.name = "ring", .label = "control-center.devices.grant-ring"},
+      Feature{.name = "calls", .label = "control-center.devices.grant-calls"},
   };
 
   std::string statusText(const LinkDevice& device, const LinkStatus* status) {
@@ -114,7 +118,7 @@ namespace {
 
 } // namespace
 
-DevicesTab::DevicesTab(LinkService* link) : m_link(link) {}
+DevicesTab::DevicesTab(LinkService* link, QuickShareService* quickShare) : m_link(link), m_quickShare(quickShare) {}
 
 std::unique_ptr<Flex> DevicesTab::create() {
   const float scale = contentScale();
@@ -165,6 +169,10 @@ void DevicesTab::setActive(bool active) {
 
 void DevicesTab::onClose() {
   m_countdownTimer.stop();
+  if (!m_pendingSend.empty() && m_quickShare != nullptr) {
+    m_quickShare->setDiscovering(false);
+  }
+  m_pendingSend.clear();
   m_rootLayout = nullptr;
   m_listScroll = nullptr;
   m_list = nullptr;
@@ -201,7 +209,8 @@ std::string DevicesTab::structureKey() const {
     key += peer.id + " " + peer.alias + "\n";
   }
   for (const auto& device : m_link->devices()) {
-    key += device.id + (device.connected ? " 1 " : " 0 ") + device.name;
+    key +=
+        device.id + (device.connected ? " 1 " : " 0 ") + (m_link->phoneRinging(device.id) ? "r " : "- ") + device.name;
     if (const LinkStatus* status = m_link->status(device.id)) {
       key += std::format(" {} {} {}", status->battery, status->charging, status->network);
     }
@@ -210,57 +219,130 @@ std::string DevicesTab::structureKey() const {
     }
     key += std::ranges::contains(m_link->autoAccept(), device.id) ? " auto\n" : "\n";
   }
+  key += m_pendingSend + "\n";
+  if (m_quickShare != nullptr && m_quickShare->available()) {
+    key += m_quickShare->visible() ? "quick-share 1 " : "quick-share 0 ";
+    key += m_quickShare->name() + "\n";
+    for (const auto& [id, name] : m_quickShare->nearby()) {
+      key += id + " " + name + "\n";
+    }
+  }
   return key;
 }
 
+// Quick Share and LocalSend in one card: each transport's visibility switch, then one "Send a file" whose chooser lists
+// the peers of both, labeled by transport.
 std::unique_ptr<Flex> DevicesTab::makeNearby(float scale, float opacity) {
   auto card = makeCard(scale, opacity);
   card->addChild(makeCardHeaderRow(i18n::tr("control-center.devices.nearby"), scale));
-  card->addChild(
-      ui::row(
-          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-          makeCaption(i18n::tr("control-center.devices.localsend-visible"), scale), ui::box({.flexGrow = 1.0F}),
-          ui::toggle({
-              .checkedImmediate = m_link->localSendVisible(),
-              .toggleSize = ToggleSize::Small,
-              .scale = scale,
-              .onChange = [this](bool on) { m_link->setLocalSendVisible(on); },
-          })
-      )
-  );
-  for (const auto& peer : m_link->nearby()) {
+  const auto addSwitch = [&](std::string label, bool checked, std::function<void(bool)> onChange) {
     card->addChild(
         ui::row(
-            {.align = FlexAlign::Center,
-             .gap = Style::spaceSm * scale,
-             .paddingV = Style::spaceXs * scale,
-             .paddingH = Style::spaceMd * scale,
-             .fill = colorSpecFromRole(ColorRole::Surface),
-             .radius = Style::scaledRadiusMd(scale)},
-            ui::glyph({
-                .glyph = "device-mobile",
-                .glyphSize = Style::fontSizeBody * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
-            }),
+            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
             ui::label({
-                .text = peer.alias,
+                .text = std::move(label),
                 .fontSize = Style::fontSizeBody * scale,
                 .color = colorSpecFromRole(ColorRole::OnSurface),
                 .flexGrow = 1.0F,
             }),
-            ui::button({
-                .glyph = "send",
-                .glyphSize = Style::fontSizeBody * scale,
-                .variant = ButtonVariant::Ghost,
-                .tooltip = i18n::tr("control-center.devices.send-files"),
-                .padding = Style::spaceXs * scale,
-                .radius = Style::scaledRadiusSm(scale),
-                .onClick = [this, id = peer.id]() { pickAndSend(id); },
+            ui::toggle({
+                .checkedImmediate = checked,
+                .toggleSize = ToggleSize::Small,
+                .scale = scale,
+                .onChange = std::move(onChange),
             })
         )
     );
+  };
+  const bool quickShare = m_quickShare != nullptr && m_quickShare->available();
+  if (quickShare) {
+    addSwitch(i18n::tr("control-center.devices.quick-share"), m_quickShare->visible(), [this](bool visible) {
+      m_quickShare->setVisible(visible);
+    });
+    card->addChild(makeCaption(
+        m_quickShare->visible() ? i18n::tr("control-center.devices.quick-share-on", "name", m_quickShare->name())
+                                : i18n::tr("control-center.devices.quick-share-off"),
+        scale
+    ));
+  }
+  addSwitch(i18n::tr("control-center.devices.localsend-visible"), m_link->localSendVisible(), [this](bool on) {
+    m_link->setLocalSendVisible(on);
+  });
+
+  if (m_pendingSend.empty()) {
+    card->addChild(
+        ui::button({
+            .text = i18n::tr("quick-share.send-files"),
+            .glyph = "share",
+            .variant = ButtonVariant::Default,
+            .onClick = [this]() {
+              FileDialogOptions options;
+              options.title = i18n::tr("quick-share.send-files");
+              (void)FileDialog::open(std::move(options), [this](std::optional<std::filesystem::path> path) {
+                if (!path.has_value()) {
+                  return;
+                }
+                m_pendingSend = path->string();
+                if (m_quickShare != nullptr && m_quickShare->available()) {
+                  m_quickShare->setDiscovering(true);
+                }
+                PanelManager::instance().refresh();
+              });
+            },
+        })
+    );
+    return card;
+  }
+
+  auto chooser = makeCardHeaderRow(i18n::tr("quick-share.choose-device"), scale);
+  chooser->addChild(
+      ui::button({
+          .text = i18n::tr("quick-share.cancel"),
+          .variant = ButtonVariant::Ghost,
+          .onClick = [this]() { finishPendingSend(); },
+      })
+  );
+  card->addChild(std::move(chooser));
+  card->addChild(makeCaption(std::filesystem::path(m_pendingSend).filename().string(), scale));
+  const auto addPeer = [&](const std::string& name, const std::string& transport, std::function<void()> send) {
+    card->addChild(
+        ui::button({
+            .text = name + " · " + transport,
+            .glyph = "device-mobile",
+            .variant = ButtonVariant::Default,
+            .onClick = [this, send = std::move(send)]() {
+              send();
+              finishPendingSend();
+            },
+        })
+    );
+  };
+  bool any = false;
+  if (quickShare) {
+    for (const auto& [id, name] : m_quickShare->nearby()) {
+      any = true;
+      addPeer(name, i18n::tr("control-center.devices.quick-share"), [this, peer = id]() {
+        m_quickShare->send(peer, {m_pendingSend});
+      });
+    }
+  }
+  for (const auto& peer : m_link->nearby()) {
+    any = true;
+    addPeer(peer.alias, i18n::tr("control-center.devices.localsend"), [this, id = peer.id]() {
+      (void)m_link->sendFiles(id, {m_pendingSend});
+    });
+  }
+  if (!any) {
+    card->addChild(makeCaption(i18n::tr("quick-share.looking"), scale));
   }
   return card;
+}
+
+void DevicesTab::finishPendingSend() {
+  m_pendingSend.clear();
+  if (m_quickShare != nullptr && m_quickShare->available()) {
+    m_quickShare->setDiscovering(false);
+  }
 }
 
 void DevicesTab::pickAndSend(const std::string& id) {
@@ -430,6 +512,18 @@ void DevicesTab::rebuild(Renderer& renderer) {
         )
     );
     if (device.connected) {
+      const bool ringing = m_link->phoneRinging(device.id);
+      row->addChild(
+          ui::button({
+              .glyph = ringing ? "bell-off" : "bell-ringing",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ringing ? ButtonVariant::Default : ButtonVariant::Ghost,
+              .tooltip = i18n::tr(ringing ? "control-center.devices.stop-ring" : "control-center.devices.ring"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id, ringing]() { m_link->ring(id, !ringing); },
+          })
+      );
       row->addChild(
           ui::button({
               .glyph = "clipboard",

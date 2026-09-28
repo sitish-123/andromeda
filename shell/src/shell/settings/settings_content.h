@@ -17,6 +17,7 @@ class InputArea;
 class Label;
 class Node;
 class ConfigService;
+class SettingsControl;
 
 namespace settings {
 
@@ -40,13 +41,13 @@ namespace settings {
   struct SettingsContentContext {
     const Config& config;
     ConfigService* configService = nullptr;
+    const SettingsControl* compositorSettings = nullptr;
     float scale = 1.0F;
     std::string_view searchQuery;
     std::string_view selectedSection;
     const BarConfig* selectedBar = nullptr;
     const BarMonitorOverride* selectedMonitorOverride = nullptr;
     bool showAdvanced = false;
-    bool showOverriddenOnly = false;
     std::vector<SelectOption> batteryDeviceOptions;
 
     std::string& editingWidgetName;

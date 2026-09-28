@@ -34,6 +34,9 @@ namespace settings {
     std::function<void(std::string, int)> moveBar;
     std::function<void(std::string, std::string, std::string)> renameMonitorOverride;
     std::function<void(std::string, std::string)> deleteMonitorOverride;
+    // Empty match selects the bar's settings for all displays.
+    std::function<void(std::string)> selectMonitorOverride;
+    std::function<void(std::string)> createMonitorOverride;
   };
 
   void addSettingsBarManagement(Flex& content, SettingsBarManagementContext ctx);

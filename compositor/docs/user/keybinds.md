@@ -12,6 +12,19 @@ complete action list.
 "Mod+I" = "overview-toggle"
 ```
 
+User binds are added to the built-in set, and a bind for a chord the built-in
+set already uses replaces it. Bind a chord to `"none"` to remove it without
+binding anything else:
+
+```toml
+[keybinds]
+"Mod+F1" = "none"
+```
+
+A settings app edits these binds through Umbriel and saves them in
+`settings.toml`, which wins over `config.toml`; see
+[Configuration](configuration.md#settings-made-in-a-settings-app).
+
 ## Modifiers
 
 | Modifier | Notes |

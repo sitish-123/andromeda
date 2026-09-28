@@ -18,6 +18,7 @@
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
@@ -312,19 +313,20 @@ void Application::initIpc() {
   });
 
   m_ipcService.bind(noctalia::cli::msg::notificationInvokeLatest, [this](const std::string& args) -> std::string {
-    // Without an action this mirrors the toast left-click on the most recent active notification.
+    // Without an argument this mirrors a left-click on the newest toast: its "default" action raises the source app.
+    // With one, the newest notification offering that action key gets it, as if its button were pressed.
     // all() stores notifications oldest-first (push_back), so iterate in reverse for newest.
     const std::string trimmed = StringUtils::trim(args);
-    const std::string action = trimmed.empty() ? "default" : trimmed;
+    const std::string key = trimmed.empty() ? "default" : trimmed;
     const auto& notifications = m_notificationManager.all();
     for (const auto& notification : std::views::reverse(notifications)) {
       const auto& actions = notification.actions; // pairs: [key, label, ...]
       bool offers = false;
       for (std::size_t i = 0; i + 1 < actions.size(); i += 2) {
-        offers = offers || actions[i] == action;
+        offers = offers || actions[i] == key;
       }
       if (offers) {
-        if (!m_notificationManager.invokeAction(notification.id, action, true)) {
+        if (!m_notificationManager.invokeAction(notification.id, key, true)) {
           return "error: invokeAction failed\n";
         }
         if (m_panelManager.isOpenPanel("control-center")) {
@@ -334,9 +336,51 @@ void Application::initIpc() {
       }
     }
     if (!trimmed.empty()) {
-      return "error: no active notification offers " + action + "\n";
+      return "error: no active notification offers " + key + "\n";
     }
     return "ok\n"; // No active notification carries a default action; nothing to do.
+  });
+
+  // The toast's buttons, reply field, and close button, for the newest notification that offers them.
+  const auto latestWithAction = [this](const std::string& key) -> const Notification* {
+    for (const auto& notification : std::views::reverse(m_notificationManager.all())) {
+      for (std::size_t i = 0; i + 1 < notification.actions.size(); i += 2) {
+        if (notification.actions[i] == key) {
+          return &notification;
+        }
+      }
+    }
+    return nullptr;
+  };
+  m_ipcService.bind(
+      noctalia::cli::msg::notificationActionLatest, [this, latestWithAction](const std::string& args) -> std::string {
+        const std::string key = StringUtils::trim(args);
+        const Notification* notification = latestWithAction(key);
+        if (notification == nullptr) {
+          return "error: no active notification offers " + key + "\n";
+        }
+        return m_notificationManager.invokeAction(notification->id, key, true) ? "ok\n"
+                                                                               : "error: invokeAction failed\n";
+      }
+  );
+  m_ipcService.bind(
+      noctalia::cli::msg::notificationReplyLatest, [this, latestWithAction](const std::string& args) -> std::string {
+        const Notification* notification = latestWithAction("inline-reply");
+        if (notification == nullptr) {
+          return "error: no active notification takes a reply\n";
+        }
+        return m_notificationManager.invokeInlineReply(notification->id, StringUtils::trim(args), true)
+            ? "ok\n"
+            : "error: invokeInlineReply failed\n";
+      }
+  );
+  m_ipcService.bind(noctalia::cli::msg::notificationDismissLatest, [this](const std::string&) -> std::string {
+    const auto& notifications = m_notificationManager.all();
+    if (notifications.empty()) {
+      return "error: no active notification\n";
+    }
+    (void)m_notificationManager.close(notifications.back().id, CloseReason::Dismissed);
+    return "ok\n";
   });
 
   m_ipcService.bind(noctalia::cli::msg::notificationClearHistory, [this](const std::string&) -> std::string {
@@ -651,6 +695,10 @@ void Application::initIpc() {
       m_panelManager.openPanel("control-center", PanelOpenRequest{.context = "devices"});
     });
   }
+  if (m_quickShareService != nullptr) {
+    m_quickShareService->registerIpc(m_ipcService);
+  }
+  m_locationService.registerIpc(m_ipcService);
   if (m_bluetoothService != nullptr) {
     m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));

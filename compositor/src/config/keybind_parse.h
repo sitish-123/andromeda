@@ -154,6 +154,9 @@ namespace umbriel {
     WindowFocusLast,
     WorkspaceFocusLast,
     Shell,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     Count,
   };
 
@@ -296,6 +299,17 @@ namespace umbriel {
   // Only the trigger fields are written; the action is set separately by parseAction. Returns false and leaves `output`
   // default-constructed on any malformed input.
   bool parseChord(std::string_view chord, Keybind& output);
+
+  // The action text that unbinds a chord: [keybinds] "Mod+q" = "none" drops the built-in or an included bind.
+  inline constexpr std::string_view kUnboundAction = "none";
+
+  // True when two binds fire on the same trigger in the same submap.
+  [[nodiscard]] bool sameChord(const Keybind& left, const Keybind& right);
+
+  // The chord and action as parseChord and parseAction accept them, so a bind written back reads the same. Empty when
+  // the bind has no textual form (a keysym without a name, an action outside the spec table).
+  [[nodiscard]] std::string formatChord(const Keybind& bind);
+  [[nodiscard]] std::string formatAction(const Keybind& bind);
 
   // Parse an action such as "window-close", "spawn:foot", "window-set-primary-extent:0.5", or
   // "workspace-switch:2/DP-1", writing the action and its payload into `output` without touching the trigger fields.

@@ -1,0 +1,18 @@
+# Screenshots of the screens before pairing, in ${THEME}: the empty Home and the code entry with three digits typed.
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: "No desktops yet"
+    timeout: 15000
+- takeScreenshot: ${OUT}/${THEME}-home-empty
+- tapOn: "Pair with a desktop"
+- extendedWaitUntil:
+    visible: "Type the code"
+    timeout: 10000
+- tapOn: "6-digit code"
+- inputText: "482"
+- hideKeyboard
+- takeScreenshot: ${OUT}/${THEME}-pairing-code
+- pressKey: Back

@@ -1,10 +1,15 @@
 //! `umbriel-linkd`: the desktop side of Link. No UI; the shell drives it over D-Bus `org.umbriel.Link1`.
 
 mod dbus;
+mod desktop_media;
 mod hub;
 mod listener;
 mod localsend;
+mod media;
+mod mpris;
+mod notifications;
 mod paths;
+mod quickshare;
 
 use std::net::{Ipv6Addr, SocketAddr};
 
@@ -36,15 +41,20 @@ async fn run() -> anyhow::Result<()> {
     let name = dbus::device_name().await;
     log::info!("{} listening on port {port} as {:?}", identity.device_id(), name);
 
+    let state_dir = paths.state.clone();
     let inbox = Inbox::new(paths.downloads.clone(), &paths.state).context("opening the transfer state")?;
     let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
     let (signals, localsend_signals) = tokio::sync::mpsc::unbounded_channel();
     let (localsend_actor, localsend, nearby) =
         localsend::LocalSend::new(&paths.state, paths.downloads.clone(), name.clone(), signals)?;
     let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
-    let (hub, handle, snapshots, events) = hub::Hub::new(identity.spki().clone(), store, paths, transfers);
+    let (desktop_media, media_requests) = desktop_media::channel();
+    let (hub, handle, snapshots, events) =
+        hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers);
     dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
-    let listener = listener::Listener::new(endpoint.clone(), handle, identity.spki().clone(), name);
+    let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
+    quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
+    let listener = listener::Listener::new(endpoint.clone(), handle.clone(), identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
         result = hub.run() => result,
@@ -52,6 +62,9 @@ async fn run() -> anyhow::Result<()> {
         result = listener.run() => result,
         result = dbus::forward(&bus, snapshots, events, nearby) => result,
         () = localsend_actor.run() => Ok(()),
+        result = quick_share.run() => result,
+        result = quickshare::forward(&bus, qs_watches, qs_events) => result,
+        result = desktop_media::run(bus.clone(), handle.clone(), media_requests) => result,
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
     };

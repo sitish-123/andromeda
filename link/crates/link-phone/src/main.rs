@@ -3,6 +3,7 @@
 
 mod files;
 mod flood;
+mod held;
 mod present;
 mod relay;
 mod transcript;
@@ -17,7 +18,7 @@ use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{Share, ShareKind};
+use link_core::proto::message::{Message, Share, ShareKind};
 use link_core::uri::PairingUri;
 use link_core::{Error, discovery};
 use serde_json::json;
@@ -99,6 +100,12 @@ enum Command {
         #[arg(long)]
         unchecked: bool,
     },
+    /// Posts one notification without the sender's checks, as a hostile phone would, and reports whether the desktop
+    /// closed the connection within 10 s. The JSON is `hold`'s `notify` line.
+    NotifyUnchecked {
+        #[arg(long)]
+        json: String,
+    },
     /// Tells the paired desktop this phone unpaired, then forgets it.
     Unpair,
     /// Lists desktops answering mDNS.
@@ -162,6 +169,11 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 return present::share_unchecked(phone, id, share).await;
             }
             return present::share(phone, inbox()?, id, share).await;
+        }
+        Command::NotifyUnchecked { json } => {
+            let id = only_desktop(&phone)?;
+            let posted = held::notification(&serde_json::from_str(&json).context("--json")?)?;
+            return present::send_unchecked(phone, id, Message::NotificationPosted(posted)).await;
         }
         _ => {}
     }

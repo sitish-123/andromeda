@@ -15,6 +15,7 @@
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
+#include "dbus/link/link_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
@@ -154,6 +155,12 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setFileWatcher(&m_fileWatcher);
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setIpcService(&m_ipcService);
+  m_settingsWindow.setLinkServices(m_linkService.get(), m_quickShareService.get(), [this]() {
+    if (m_linkService != nullptr) {
+      m_linkService->startPairing();
+      m_panelManager.openPanel("control-center", PanelOpenRequest{.context = "devices"});
+    }
+  });
   m_settingsWindow.setAsyncTextureCache(&m_asyncTextureCache);
   m_settingsWindow.setOpenDesktopWidgetEditor([this]() {
     if (m_lockscreenWidgetsController.isEditing()) {
@@ -608,6 +615,7 @@ void Application::initPanelManagerAndPanels() {
       .network = m_networkService.get(),
       .hotspot = m_hotspot.get(),
       .link = m_linkService.get(),
+      .quickShare = m_quickShareService.get(),
       .screenRecorder = m_screenRecorder.get(),
       .modem = m_modemManagerService.get(),
       .networkSecrets = m_networkSecretAgent.get(),

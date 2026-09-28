@@ -9,7 +9,7 @@ license=(MIT)
 makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
-  libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo)
+  libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf)
 source=("desktop::git+file://$HOME/src/desktop")
 sha256sums=(SKIP)
 
@@ -72,6 +72,7 @@ package_umbriel-link-git() {
   pkgdesc='Umbriel Link daemon: phone and desktop continuity'
   depends=(glibc gcc-libs dbus)
   backup=(etc/ufw/applications.d/umbriel-link)
+  install=umbriel-link.install
   install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
   install -Dm644 desktop/session/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
   install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"

@@ -23,6 +23,9 @@ public:
   SoundPlayer& operator=(const SoundPlayer&) = delete;
 
   void play(const std::string& name);
+  // Plays at full volume whatever the UI-sound setting, for alerts that must be heard (a phone looking for this
+  // desktop).
+  void playAlert(const std::string& name);
   void setTheme(std::string theme);
   void setVolume(float volume);
 
@@ -50,10 +53,12 @@ private:
     std::size_t cursor = 0;
     bool draining = false;
     bool finished = false;
+    float gain = 1.0F;
   };
 
   [[nodiscard]] static std::optional<std::string> decode(const std::filesystem::path& path, SoundBuffer& out);
-  void playBuffer(const std::string& name, const std::shared_ptr<const SoundBuffer>& buffer);
+  void playBuffer(const std::string& name, const std::shared_ptr<const SoundBuffer>& buffer, float gain);
+  [[nodiscard]] float uiGain() const;
 
   void processStream(ActiveStream& streamState);
   void markFinished(ActiveStream& streamState);

@@ -185,12 +185,16 @@ namespace settings {
     const float scale = m_scale;
     const bool pendingConfirmation = ctx.isResetConfirmationPending && ctx.isResetConfirmationPending(paths);
     return ui::button({
-        .text = i18n::tr(pendingConfirmation ? "settings.actions.confirm-reset" : "settings.actions.reset"),
+        .text = pendingConfirmation ? std::optional{i18n::tr("settings.actions.confirm-reset")} : std::nullopt,
+        .glyph = "arrow-back-up",
         .fontSize = Style::fontSizeCaption * scale,
+        .glyphSize = Style::fontSizeBody * scale,
         .variant = pendingConfirmation ? ButtonVariant::Destructive : ButtonVariant::Ghost,
+        .tooltip = i18n::tr("settings.actions.reset-to-default"),
+        .minWidth = Style::controlHeightSm * scale,
         .minHeight = Style::controlHeightSm * scale,
         .paddingV = Style::spaceXs * scale,
-        .paddingH = Style::spaceSm * scale,
+        .paddingH = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
         .onClick = [clearOverrides = ctx.clearOverrides, requestConfirmation = ctx.requestResetConfirmation,
                     requestRebuild = ctx.requestRebuild, paths = std::move(paths), onConfirmed = std::move(onConfirmed),
@@ -224,13 +228,6 @@ namespace settings {
     );
   }
 
-  std::unique_ptr<Flex> SettingsControlFactory::makeOverrideBadge() {
-    return makeStatusBadge(
-        i18n::tr("settings.badges.override"), colorSpecFromRole(ColorRole::Primary, 0.15F),
-        colorSpecFromRole(ColorRole::Primary), false
-    );
-  }
-
   std::unique_ptr<Flex> SettingsControlFactory::makeAdvancedBadge() {
     return makeStatusBadge(
         i18n::tr("settings.badges.advanced"), colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.12F),
@@ -240,9 +237,7 @@ namespace settings {
 
   std::unique_ptr<Flex> SettingsControlFactory::makeOverrideResetActions(const std::vector<std::string>& path) {
     const float scale = m_scale;
-    return ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, makeOverrideBadge(), makeResetButton(path)
-    );
+    return ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, makeResetButton(path));
   }
 
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
@@ -252,7 +247,8 @@ namespace settings {
     // Range sliders own a second config path (high/critical); both reset and report "override" together.
     const auto* rangeSlider = std::get_if<RangeSliderSetting>(&entry.control);
     const auto* selectSetting = std::get_if<SelectSetting>(&entry.control);
-    const bool overridden = ctx.configService != nullptr && settingEntryHasEffectiveOverride(entry, *ctx.configService);
+    const bool overridden = ctx.configService != nullptr
+        && settingEntryHasEffectiveOverride(entry, *ctx.configService, ctx.compositorSettings);
     const bool redundantGuiOverride =
         ctx.configService != nullptr && ctx.configService->hasOverride(entry.path) && !overridden;
     const bool monitorSetting = isMonitorOverrideSettingPath(entry.path);
@@ -296,7 +292,6 @@ namespace settings {
 
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
     if (overridden) {
-      actions->addChild(makeOverrideBadge());
       if (rangeSlider != nullptr) {
         actions->addChild(
             makeGroupedResetButton(std::vector<std::vector<std::string>>{entry.path, rangeSlider->highPath})

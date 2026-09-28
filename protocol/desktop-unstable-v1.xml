@@ -52,6 +52,32 @@
       <arg name="target" type="string"/>
     </request>
 
+    <request name="set_property">
+      <description summary="change one display property">
+        Properties zwlr_output_manager_v1 does not carry, named by their
+        [output] config keys: "vrr" (disabled, always, fullscreen), "hdr" (off,
+        on, auto, fullscreen), "sdr_white" (80 to 1000), "tearing",
+        "workspaces" (dynamic or a count from 1 to 64), "min_workspaces",
+        "cyclic_workspaces", and "workspace_axis" (vertical, horizontal). An
+        empty value removes the saved key. Saved in displays.toml under the
+        display's descriptor. Answered by property events and done, or by
+        failed.
+      </description>
+      <arg name="target" type="string"/>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+
+    <event name="property">
+      <description summary="effective value of one display property">
+        Sent for every output and property on bind and after every
+        configuration change, followed by done.
+      </description>
+      <arg name="target" type="string"/>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </event>
+
     <event name="mirror">
       <description summary="mirror state of one output">
         Sent for every connected output on bind, and for an output whenever
@@ -74,12 +100,16 @@
       <arg name="reason" type="string"/>
     </event>
   </interface>
-  <interface name="dsk_input_manager_v1" version="1">
-    <description summary="input settings">
-      Input settings named by their config keys ("input.touchpad.tap"), with
+  <interface name="dsk_settings_manager_v1" version="1">
+    <description summary="compositor settings and input devices">
+      Every compositor setting a settings app may change: input, appearance,
+      animation, layout, workspaces, overview, and focus. Settings are named by
+      their config keys ("input.touchpad.tap", "appearance.border_width"), with
       values as plain text ("true", "0.3", "adaptive", "us,de"). An empty value
-      means unset, which restores the device or built-in default. The
-      compositor validates, applies, and persists every change.
+      means unset, which restores the value from the user's config files or the
+      built-in default. The compositor validates, applies, and persists every
+      change in its settings file, which it loads after the user's config files,
+      so a change made here always takes effect.
     </description>
 
     <enum name="kind">
@@ -100,6 +130,32 @@
       <arg name="value" type="string"/>
     </request>
 
+    <request name="bind">
+      <description summary="change one keybind">
+        Binds chord (as the config file writes it: "Mod+Shift+q",
+        "submap[resize],Escape") to action ("window-close", "spawn:foot"),
+        stored in the settings file. An empty action removes the settings
+        file's entry, so the user's config files or the built-in set apply
+        again; the action "none" unbinds the chord. Answered by keybind events
+        and done, or by failed with the chord as key.
+      </description>
+      <arg name="chord" type="string"/>
+      <arg name="action" type="string"/>
+    </request>
+
+    <request name="capture_chord">
+      <description summary="record the next chord">
+        The next key press, with its modifiers, is reported by chord_captured
+        instead of reaching keybinds or any client, so a chord that is already
+        bound can be recorded. Escape with no modifiers cancels. Ends when the
+        object is destroyed.
+      </description>
+    </request>
+
+    <request name="cancel_capture">
+      <description summary="stop recording a chord"/>
+    </request>
+
     <event name="device_added">
       <description summary="an input device is connected">
         Sent for every connected device on bind and whenever one connects.
@@ -115,12 +171,41 @@
     <event name="setting">
       <description summary="effective value of one setting">
         Sent for every setting on bind and after every configuration change.
-        locked is 1 when the user's own config file sets the key, which wins
-        over changes made here.
+        customized is 1 when the settings file holds a value for the key, so
+        setting it to the empty value changes what applies.
       </description>
       <arg name="key" type="string"/>
       <arg name="value" type="string"/>
-      <arg name="locked" type="uint"/>
+      <arg name="customized" type="uint"/>
+    </event>
+
+    <event name="keybind">
+      <description summary="one effective keybind">
+        Sent for every keybind on bind and after every configuration change,
+        in the syntax the bind request takes. customized is 1 when the
+        settings file sets the chord. A chord the settings file unbinds is
+        sent with the action "none".
+      </description>
+      <arg name="chord" type="string"/>
+      <arg name="action" type="string"/>
+      <arg name="customized" type="uint"/>
+    </event>
+
+    <event name="action_spec">
+      <description summary="an action keybinds can run">
+        Sent once per action on bind. param is empty for an action without an
+        argument, otherwise a hint such as "&lt;cmd&gt;".
+      </description>
+      <arg name="name" type="string"/>
+      <arg name="param" type="string"/>
+      <arg name="summary" type="string"/>
+    </event>
+
+    <event name="chord_captured">
+      <description summary="the recorded chord">
+        Answers capture_chord. Empty when the capture was cancelled.
+      </description>
+      <arg name="chord" type="string"/>
     </event>
 
     <event name="done">

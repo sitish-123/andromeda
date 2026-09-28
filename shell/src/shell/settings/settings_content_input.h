@@ -1,7 +1,7 @@
 #pragma once
 
 #include "system/xkb_layout_catalog.h"
-#include "wayland/input_control.h"
+#include "wayland/settings_control.h"
 
 #include <functional>
 #include <string>
@@ -12,7 +12,7 @@ namespace settings {
 
   struct SettingsInputContext {
     float scale = 1.0F;
-    const InputControl* input = nullptr;
+    const SettingsControl* input = nullptr;
     const xkb::Catalog* catalog = nullptr;
     std::function<void(std::string key, std::string value)> set;
   };

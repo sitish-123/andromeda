@@ -1,7 +1,7 @@
 [Umbriel Link]
 title=Umbriel Link
-description=Phone and desktop continuity: QUIC on the default Link port, and mDNS so phones find the desktop
-ports=4717/udp|5353/udp
+description=Phone and desktop continuity: QUIC on the default Link port, Quick Share over TCP, and mDNS so phones find the desktop
+ports=4717/udp|4718/tcp|5353/udp
 
 [Umbriel Link LocalSend]
 title=Umbriel Link LocalSend

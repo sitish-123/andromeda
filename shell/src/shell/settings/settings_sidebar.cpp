@@ -13,6 +13,8 @@
 #include <cctype>
 #include <format>
 #include <functional>
+#include <iterator>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -138,7 +140,6 @@ namespace settings {
   } // namespace
 
   std::unique_ptr<Flex> buildSettingsSidebar(SettingsSidebarContext ctx) {
-    const Config& cfg = ctx.config;
     std::vector<std::string> existingBarNames = ctx.availableBars;
     const std::string nextBarName = nextAvailableBarName(existingBarNames);
 
@@ -152,7 +153,6 @@ namespace settings {
     const auto clearSearchQuery = std::move(ctx.clearSearchQuery);
     const auto requestRebuild = std::move(ctx.requestRebuild);
     const auto createBar = std::move(ctx.createBar);
-    const auto openMonitorOverrideCreate = std::move(ctx.openMonitorOverrideCreate);
     const float scale = ctx.scale;
     const bool searchActive = ctx.globalSearchActive;
     const bool showActiveTab = !searchActive;
@@ -184,155 +184,125 @@ namespace settings {
     sidebarNav->setPadding(kSidebarPadding * scale);
     RovingListNavHost* nav = sidebarNav.get();
 
-    for (const auto& section : ctx.sections) {
-      const std::string sectionId(settingsSectionId(section));
-      const bool selected = showActiveTab && sectionId == *selectedSection;
-      const auto onClick = [selectedSection, scroll, sectionId, searchActive, clearTransientState, clearSearchQuery,
-                            requestRebuild]() {
-        if (searchActive || *selectedSection != sectionId) {
-          scroll->offset = 0.0F;
-        }
-        *selectedSection = sectionId;
-        clearSearchQuery();
-        clearTransientState();
-        requestRebuild();
-      };
-      addNavButton(
-          *nav,
-          makePrimaryNavButton(
-              sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)), scale, selected, onClick
-          ),
-          onClick
-      );
+    const auto selectedCategory = [&]() -> std::optional<SettingsCategory> {
+      if (*selectedSection == "bar") {
+        return SettingsCategory::Desktop;
+      }
+      const auto section = settingsSectionFromId(*selectedSection);
+      return section.has_value() ? std::optional{settingsSectionCategory(*section)} : std::nullopt;
+    }();
+
+    const auto navigateTo = [selectedSection, selectedBarName, selectedMonitorOverride, scroll, searchActive,
+                             clearTransientState, clearSearchQuery,
+                             requestRebuild](std::string sectionId, std::string barName) {
+      if (searchActive || *selectedSection != sectionId || *selectedBarName != barName) {
+        scroll->offset = 0.0F;
+      }
+      *selectedSection = std::move(sectionId);
+      *selectedBarName = std::move(barName);
+      selectedMonitorOverride->clear();
+      clearSearchQuery();
+      clearTransientState();
+      requestRebuild();
+    };
+
+    std::vector<SettingsCategory> categories;
+    for (const auto section : ctx.sections) {
+      if (!std::ranges::contains(categories, settingsSectionCategory(section))) {
+        categories.push_back(settingsSectionCategory(section));
+      }
     }
+    if (!ctx.availableBars.empty() && !std::ranges::contains(categories, SettingsCategory::Desktop)) {
+      categories.push_back(SettingsCategory::Desktop);
+    }
+    std::ranges::sort(categories);
 
-    for (const auto& barName : ctx.availableBars) {
-      const bool barSelected =
-          showActiveTab && *selectedSection == "bar" && *selectedBarName == barName && selectedMonitorOverride->empty();
-      const auto onBarClick = [selectedSection, selectedBarName, selectedMonitorOverride, scroll, barName, searchActive,
-                               clearTransientState, clearSearchQuery, requestRebuild]() {
-        if (searchActive
-            || *selectedSection != "bar"
-            || *selectedBarName != barName
-            || !selectedMonitorOverride->empty()) {
-          scroll->offset = 0.0F;
+    for (const auto category : categories) {
+      const bool desktop = category == SettingsCategory::Desktop;
+      std::vector<SettingsSection> children;
+      std::ranges::copy_if(ctx.sections, std::back_inserter(children), [category](SettingsSection section) {
+        return settingsSectionCategory(section) == category;
+      });
+      const bool expanded = selectedCategory == category;
+      // A category holding one page is that page: no child row repeating its name.
+      const bool singlePage = children.size() == 1 && (!desktop || ctx.availableBars.empty());
+      const auto onCategoryClick = [navigateTo, expanded, desktop, children, bars = ctx.availableBars]() {
+        if (expanded) {
+          return;
         }
-        *selectedSection = "bar";
-        *selectedBarName = barName;
-        selectedMonitorOverride->clear();
-        clearSearchQuery();
-        clearTransientState();
-        requestRebuild();
+        if (desktop && !bars.empty()) {
+          navigateTo("bar", bars.front());
+        } else if (!children.empty()) {
+          navigateTo(std::string(settingsSectionId(children.front())), {});
+        }
       };
       addNavButton(
           *nav,
           makePrimaryNavButton(
-              sectionGlyph(SettingsSection::Bar), i18n::tr("settings.entities.bar.label", "name", barName), scale,
-              barSelected, onBarClick
+              settingsCategoryGlyph(category),
+              i18n::tr("settings.navigation.categories." + std::string(settingsCategoryId(category))), scale,
+              singlePage && showActiveTab && expanded, onCategoryClick
           ),
-          onBarClick
+          onCategoryClick
       );
-
-      const auto* bar = settings::findBar(cfg, barName);
-      if (bar == nullptr) {
+      if (!expanded || singlePage) {
         continue;
       }
 
-      for (const auto& ovr : bar->monitorOverrides) {
-        const bool ovrSelected = showActiveTab
-            && *selectedSection == "bar"
-            && *selectedBarName == barName
-            && *selectedMonitorOverride == ovr.match;
-        auto match = ovr.match;
-        const auto onMonitorClick = [selectedSection, selectedBarName, selectedMonitorOverride, scroll, barName, match,
-                                     searchActive, clearTransientState, clearSearchQuery, requestRebuild]() {
-          if (searchActive
-              || *selectedSection != "bar"
-              || *selectedBarName != barName
-              || *selectedMonitorOverride != match) {
-            scroll->offset = 0.0F;
-          }
-          *selectedSection = "bar";
-          *selectedBarName = barName;
-          *selectedMonitorOverride = match;
-          clearSearchQuery();
+      if (desktop) {
+        for (const auto& barName : ctx.availableBars) {
+          const bool barSelected = showActiveTab && *selectedSection == "bar" && *selectedBarName == barName;
+          const auto onBarClick = [navigateTo, barName]() { navigateTo("bar", barName); };
+          addNavButton(
+              *nav,
+              makeSecondaryNavButton(
+                  sectionGlyph(SettingsSection::Bar), i18n::tr("settings.entities.bar.label", "name", barName), scale,
+                  barSelected, onBarClick
+              ),
+              onBarClick
+          );
+        }
+        const auto onNewBarClick = [creatingBarName, nextBarName, clearTransientState, requestRebuild]() {
           clearTransientState();
+          *creatingBarName = nextBarName;
           requestRebuild();
         };
         addNavButton(
             *nav,
-            makeSecondaryNavButton(
-                "device-desktop", i18n::tr("settings.entities.monitor-override.label", "name", ovr.match), scale,
-                ovrSelected, onMonitorClick
-            ),
-            onMonitorClick
+            ui::button({
+                .text = i18n::tr("settings.entities.bar.new"),
+                .glyph = "add",
+                .fontSize = Style::fontSizeCaption * scale,
+                .glyphSize = Style::fontSizeCaption * scale,
+                .contentAlign = ButtonContentAlign::Start,
+                .variant = ButtonVariant::Ghost,
+                .minHeight = Style::controlHeightSm * scale,
+                .paddingTop = Style::spaceXs * scale,
+                .paddingRight = Style::spaceMd * scale,
+                .paddingBottom = Style::spaceXs * scale,
+                .paddingLeft = Style::spaceLg * scale,
+                .gap = Style::spaceXs * scale,
+                .radius = Style::scaledRadiusMd(scale),
+                .onClick = onNewBarClick,
+                .configure = [](Button& button) { button.setTabStop(false); },
+            }),
+            onNewBarClick
         );
       }
 
-      if (*selectedSection != "bar" || *selectedBarName != barName) {
-        continue;
+      for (const auto section : children) {
+        const std::string sectionId(settingsSectionId(section));
+        const bool selected = showActiveTab && sectionId == *selectedSection;
+        const auto onClick = [navigateTo, sectionId]() { navigateTo(sectionId, {}); };
+        addNavButton(
+            *nav,
+            makeSecondaryNavButton(
+                sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)), scale, selected, onClick
+            ),
+            onClick
+        );
       }
-
-      // Secondary sidebar action style: same compact indentation as monitor rows. Opens the create
-      // flow in a modal (wide enough for the output picker) rather than expanding it inline here.
-      const auto onNewMonitorClick = [openMonitorOverrideCreate, barName, clearTransientState]() {
-        clearTransientState();
-        if (openMonitorOverrideCreate) {
-          openMonitorOverrideCreate(barName);
-        }
-      };
-      addNavButton(
-          *nav,
-          ui::button({
-              .text = i18n::tr("settings.entities.monitor-override.new"),
-              .glyph = "add",
-              .fontSize = Style::fontSizeCaption * scale,
-              .glyphSize = Style::fontSizeCaption * scale,
-              .contentAlign = ButtonContentAlign::Start,
-              .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * scale,
-              .paddingTop = Style::spaceXs * scale,
-              .paddingRight = Style::spaceMd * scale,
-              .paddingBottom = Style::spaceXs * scale,
-              .paddingLeft = Style::spaceLg * scale,
-              .gap = Style::spaceXs * scale,
-              .radius = Style::scaledRadiusMd(scale),
-              .onClick = onNewMonitorClick,
-              .configure = [](Button& button) { button.setTabStop(false); },
-          }),
-          onNewMonitorClick
-      );
     }
-
-    // Primary sidebar action style: same scale as top-level section rows.
-    const auto onNewBarClick = [creatingBarName, nextBarName, clearTransientState, requestRebuild]() {
-      clearTransientState();
-      *creatingBarName = nextBarName;
-      requestRebuild();
-    };
-    addNavButton(
-        *nav,
-        ui::button({
-            .text = i18n::tr("settings.entities.bar.new"),
-            .glyph = "add",
-            .fontSize = Style::fontSizeCaption * scale,
-            .glyphSize = kPrimaryNavGlyphSize * scale,
-            .contentAlign = ButtonContentAlign::Start,
-            .variant = ButtonVariant::Ghost,
-            .minHeight = Style::controlHeightSm * scale,
-            .paddingV = Style::spaceXs * scale,
-            .paddingH = kPrimaryNavPaddingH * scale,
-            .gap = kPrimaryNavGap * scale,
-            .radius = Style::scaledRadiusMd(scale),
-            .onClick = onNewBarClick,
-            .configure =
-                [](Button& button) {
-                  makeButtonLabelBold(button);
-                  button.setTabStop(false);
-                },
-        }),
-        onNewBarClick
-    );
 
     if (!creatingBarName->empty()) {
       auto createPanel = ui::column({

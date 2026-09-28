@@ -31,6 +31,8 @@ namespace settings {
     std::function<void()> revert;
     // An empty source stops mirroring.
     std::function<void(std::string target, std::string source)> setMirror;
+    // Display properties the compositor saves itself (MirrorControl::setProperty); applied at once, not by Apply.
+    std::function<void(std::string target, std::string key, std::string value)> setProperty;
   };
 
   void addSettingsDisplays(Flex& content, const SettingsDisplaysContext& ctx);

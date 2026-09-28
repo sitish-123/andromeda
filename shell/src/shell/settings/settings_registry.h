@@ -21,42 +21,59 @@
 #include <variant>
 #include <vector>
 
+class SettingsControl;
+
 namespace settings {
 
   enum class SettingsSection : std::uint8_t {
     Appearance,
-    Displays,
-    Input,
-    DateTime,
-    Language,
-    DefaultApps,
+    WindowStyle,
     Wallpaper,
-    Templates,
-    Desktop,
+    TextScale,
+    Motion,
+    Bar,
     Dock,
     Panels,
     Launcher,
     ControlCenter,
     Notifications,
-    Osd,
-    Screenshot,
-    Shell,
+    Desktop,
+    Layout,
+    Overview,
+    Windows,
+    Niri,
+    Displays,
+    Input,
+    Devices,
+    Shortcuts,
     Keybinds,
-    Security,
-    System,
     Services,
+    DateTime,
+    Language,
+    DefaultApps,
+    Power,
+    Security,
     Location,
     Calendar,
-    Power,
+    Screenshot,
+    System,
+    Shell,
     Hooks,
-    Niri,
-    Umbriel,
-    Bar,
     Plugins,
+  };
+
+  enum class SettingsCategory : std::uint8_t {
+    Appearance,
+    Desktop,
+    Windows,
+    Devices,
+    System,
+    Advanced,
   };
 
   struct SettingsSectionDescriptor {
     SettingsSection section;
+    SettingsCategory category;
     std::string_view id;
     std::string_view glyph;
     bool sidebar = true;
@@ -304,6 +321,8 @@ namespace settings {
 
   // Runtime conditions that gate optional sections (e.g. compositor-specific features).
   struct RegistryEnvironment {
+    // The compositor's own settings, once its settings manager has sent them; null leaves their pages out.
+    const SettingsControl* compositorSettings = nullptr;
     bool niriBackdropSupported = false;             // hide niri backdrop entries when false
     bool niriOverviewTypeToLaunchSupported = false; // show niri-only type-to-launch integration
     bool umbrielOverviewTypeToLaunchSupported = false;
@@ -345,6 +364,14 @@ namespace settings {
   [[nodiscard]] std::string settingsSectionLabelKey(SettingsSection section);
   [[nodiscard]] std::string_view sectionGlyph(SettingsSection section);
   [[nodiscard]] std::optional<SettingsSection> settingsSectionFromId(std::string_view id);
+  // Entries for compositor settings carry {"umbriel", <config key parts>...}; they commit through the compositor's
+  // settings manager instead of settings.toml. Returns the dotted compositor key, or nothing for a shell path.
+  [[nodiscard]] std::optional<std::string> compositorSettingKey(const std::vector<std::string>& path);
+  // Maps ids of merged sections (templates, osd, umbriel) to the page that now holds them.
+  [[nodiscard]] std::string canonicalSettingsSectionId(std::string_view id);
+  [[nodiscard]] SettingsCategory settingsSectionCategory(SettingsSection section);
+  [[nodiscard]] std::string_view settingsCategoryId(SettingsCategory category);
+  [[nodiscard]] std::string_view settingsCategoryGlyph(SettingsCategory category);
 
   // Returns a permutation of [0, count) that coalesces items sharing a group key so a group renders
   // exactly once, regardless of the order items were declared in. The first-appearance order of group

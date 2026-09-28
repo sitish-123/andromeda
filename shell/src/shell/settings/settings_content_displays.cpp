@@ -10,10 +10,14 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <format>
+#include <initializer_list>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -288,6 +292,116 @@ namespace settings {
       ));
     }
 
+    void addChoiceProperty(
+        Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx, std::string_view key,
+        std::string_view labelKey, std::initializer_list<std::string_view> values
+    ) {
+      const std::string current = ctx.mirrors->property(head.name, key);
+      std::vector<std::string> labels;
+      std::vector<std::string> choices;
+      std::optional<std::size_t> selected;
+      for (const std::string_view value : values) {
+        if (value == current) {
+          selected = choices.size();
+        }
+        choices.emplace_back(value);
+        labels.push_back(i18n::tr(std::string(labelKey) + "-options." + std::string(value)));
+      }
+      body.addChild(makeDisplayRow(
+          i18n::tr(labelKey),
+          makeDisplaySelect(
+              std::move(labels), selected, ctx.scale,
+              [setProperty = ctx.setProperty, target = head.name, key = std::string(key),
+               choices = std::move(choices)](std::size_t index) { setProperty(target, key, choices[index]); }
+          ),
+          ctx.scale
+      ));
+    }
+
+    void addToggleProperty(
+        Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx, std::string_view key,
+        std::string_view labelKey
+    ) {
+      body.addChild(makeDisplayRow(
+          i18n::tr(labelKey),
+          ui::toggle({
+              .checked = ctx.mirrors->property(head.name, key) == "true",
+              .scale = ctx.scale,
+              .onChange =
+                  [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](bool enabled) {
+                    setProperty(target, key, enabled ? "true" : "false");
+                  },
+          }),
+          ctx.scale
+      ));
+    }
+
+    void addStepperProperty(
+        Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx, std::string_view key,
+        std::string_view labelKey, int min, int max, int step, int fallback
+    ) {
+      const std::string current = ctx.mirrors->property(head.name, key);
+      int value = fallback;
+      std::from_chars(current.data(), current.data() + current.size(), value);
+      body.addChild(makeDisplayRow(
+          i18n::tr(labelKey),
+          ui::stepper({
+              .minValue = min,
+              .maxValue = max,
+              .step = step,
+              .value = value,
+              .scale = ctx.scale,
+              .onValueCommitted =
+                  [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](int committed) {
+                    setProperty(target, key, std::to_string(committed));
+                  },
+          }),
+          ctx.scale
+      ));
+    }
+
+    // What zwlr_output_manager_v1 cannot express: VRR only in fullscreen, HDR, tearing, and the display's workspaces.
+    void addPropertyRows(Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx) {
+      if (head.adaptiveSyncReported) {
+        addChoiceProperty(body, head, ctx, "vrr", "settings.displays.vrr", {"disabled", "always", "fullscreen"});
+      }
+      addChoiceProperty(body, head, ctx, "hdr", "settings.displays.hdr", {"off", "on", "auto", "fullscreen"});
+      if (ctx.mirrors->property(head.name, "hdr") != "off") {
+        addStepperProperty(body, head, ctx, "sdr_white", "settings.displays.sdr-white", 80, 1000, 10, 203);
+      }
+      addToggleProperty(body, head, ctx, "tearing", "settings.displays.tearing");
+
+      const std::string workspaces = ctx.mirrors->property(head.name, "workspaces");
+      if (workspaces == "named") {
+        body.addChild(makeSettingSubtitleLabel(i18n::tr("settings.displays.workspaces-named"), ctx.scale));
+      } else {
+        const bool dynamic = workspaces == "dynamic" || workspaces.empty();
+        body.addChild(makeDisplayRow(
+            i18n::tr("settings.displays.workspaces"),
+            makeDisplaySelect(
+                {i18n::tr("settings.displays.workspaces-options.dynamic"),
+                 i18n::tr("settings.displays.workspaces-options.fixed")},
+                dynamic ? 0U : 1U, ctx.scale,
+                [setProperty = ctx.setProperty, target = head.name, dynamic](std::size_t index) {
+                  if ((index == 0) != dynamic) {
+                    setProperty(target, "workspaces", index == 0 ? "dynamic" : "4");
+                  }
+                }
+            ),
+            ctx.scale
+        ));
+        if (dynamic) {
+          addStepperProperty(body, head, ctx, "min_workspaces", "settings.displays.min-workspaces", 1, 64, 1, 1);
+        } else {
+          addStepperProperty(body, head, ctx, "workspaces", "settings.displays.workspace-count", 1, 64, 1, 4);
+        }
+      }
+      addChoiceProperty(
+          body, head, ctx, "workspace_axis", "settings.displays.workspace-axis", {"vertical", "horizontal"}
+      );
+      addToggleProperty(body, head, ctx, "cyclic_workspaces", "settings.displays.cyclic-workspaces");
+    }
+
     void addDisplayCard(
         Flex& content, const OutputHead& head, const OutputHeadConfig& config, const SettingsDisplaysContext& ctx
     ) {
@@ -321,7 +435,9 @@ namespace settings {
       addScaleRow(*body, config, ctx);
       addRotationRow(*body, config, ctx);
       addPlacementRow(*body, head, config, ctx);
-      if (head.adaptiveSyncReported) {
+      if (ctx.mirrors != nullptr && ctx.mirrors->ready()) {
+        addPropertyRows(*body, head, ctx);
+      } else if (head.adaptiveSyncReported) {
         body->addChild(makeDisplayRow(
             i18n::tr("settings.displays.adaptive-sync"),
             ui::toggle({

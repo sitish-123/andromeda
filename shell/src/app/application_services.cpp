@@ -16,6 +16,7 @@
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/link/link_service.h"
+#include "dbus/link/quickshare_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/modem/modem_manager_service.h"
 #include "dbus/mpris/mpris_service.h"
@@ -1667,12 +1668,21 @@ void Application::initSessionBusServices() {
     }
 
     try {
-      m_linkService = std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService);
+      m_linkService =
+          std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService, m_soundPlayer);
       m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
         m_bar.refresh();
         if (shouldRefreshControlCenter()) {
           m_panelManager.refresh();
         }
+        m_settingsWindow.onDevicesChanged();
+      });
+      m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);
+      m_quickShareService->setChangeCallback([this, shouldRefreshControlCenter]() {
+        if (shouldRefreshControlCenter()) {
+          m_panelManager.refresh();
+        }
+        m_settingsWindow.onDevicesChanged();
       });
     } catch (const sdbus::Error& e) {
       kLog.warn("link client disabled: {}", e.what());
@@ -1719,6 +1729,7 @@ void Application::initSessionBusServices() {
     m_compositorPlatform.startKdeActiveWindow(*m_bus);
   }
 
+  m_locationService.setSystemBus(m_systemBus.get());
   m_locationService.initialize();
   m_weatherService.initialize();
   m_calendarService.initialize();

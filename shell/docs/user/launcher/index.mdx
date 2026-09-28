@@ -86,7 +86,7 @@ Open or close any panel Noctalia knows about, without memorizing its `noctalia m
 - **Source**: Every panel currently registered with Noctalia (built-in or from an enabled plugin), plus one row per visible Control Center tab (Audio, Network, Bluetooth, and so on).
 - **Functionality**: Fuzzy-matches against the panel's name. Activating a plain panel result toggles it; activating a tab result opens Control Center directly to that tab.
 - **Scoring**: Activation count boosts the score.
-- **Ignored panels**: `shell.launcher.panels.ignored` excludes specific panel ids from the list (defaulting to `polkit`, `setup-wizard`, `test`, and `launcher`) for panels that aren't meant to be opened on demand, or (for `launcher`) redundant to toggle from within the launcher itself. Editable under **Settings → Panels → Launcher → Providers**.
+- **Ignored panels**: `shell.launcher.panels.ignored` excludes specific panel ids from the list (defaulting to `polkit`, `setup-wizard`, `test`, and `launcher`) for panels that aren't meant to be opened on demand, or (for `launcher`) redundant to toggle from within the launcher itself. Editable under **Settings → Desktop → Launcher → Providers**.
 
 ### Wallpaper
 
@@ -219,7 +219,7 @@ While the launcher input is focused, readline-style shortcuts are available:
 The launcher itself is mostly automatic, but its behavior is influenced by other sections of your config:
 
 - **[Keybinds](/noctalia/configuration/shell/#keybinds)**: Customize navigation (`up`, `down`) and activation (`validate`, `cancel`).
-- **[Shell](/noctalia/configuration/shell/#shell-settings)**: `ui_scale` and `font_family` affect the launcher's appearance. `shell.launcher.categories` controls the category filters. `show_icons`, `show_app_origin_indicator`, `compact`, `app_grid`, `show_app_actions`, `sort_by_usage`, `pinned`, `fetch_exchange_rates`, and `auto_paste` adjust result layout, origin overlays, action search, ordering, pinning, currency rate refresh, and paste-after-copy (Settings → Launcher). `[shell.launcher.dmenu.entry.<id>]` adds custom dmenu-style providers backed by a shell command.
+- **[Shell](/noctalia/configuration/shell/#shell-settings)**: `ui_scale` and `font_family` affect the launcher's appearance. `shell.launcher.categories` controls the category filters. `show_icons`, `show_app_origin_indicator`, `compact`, `app_grid`, `show_app_actions`, `sort_by_usage`, `pinned`, `fetch_exchange_rates`, and `auto_paste` adjust result layout, origin overlays, action search, ordering, pinning, currency rate refresh, and paste-after-copy (Settings → Desktop → Launcher). `[shell.launcher.dmenu.entry.<id>]` adds custom dmenu-style providers backed by a shell command.
 - **[Wallpaper](/noctalia/desktop/wallpaper/)**: Defines the search paths for the Wallpaper provider.
 - **[Session actions](/noctalia/configuration/shell/#session-panel)**: Defines the actions shown by the Session provider.
 
@@ -242,7 +242,7 @@ See [Shell: Launcher settings](/noctalia/configuration/shell/#shell-settings) fo
 
 ### From the Settings UI
 
-The built-in providers can be configured without editing your config, under **Settings → Panels → Launcher → Providers**:
+The built-in providers can be configured without editing your config, under **Settings → Desktop → Launcher → Providers**:
 
 - **Common Prefix Character**: the shared `provider_prefix` (defaults to `/`).
 - **&lt;Provider&gt; Prefix**: the trigger word for each built-in provider (Calculator, Emoji, Panels, Session, Wallpaper, Windows). Leave blank to fall back to the built-in default.

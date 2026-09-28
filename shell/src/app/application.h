@@ -147,6 +147,7 @@ class InhibitPortal;
 class ScreenRecorder;
 class NmHotspot;
 class LinkService;
+class QuickShareService;
 class SettingsPortal;
 enum class BluetoothStateChangeOrigin : std::uint8_t;
 enum class NetworkChangeOrigin : std::uint8_t;
@@ -306,6 +307,7 @@ private:
   std::unique_ptr<GlobalShortcutsPortal> m_globalShortcutsPortal;
   std::unique_ptr<NmHotspot> m_hotspot;
   std::unique_ptr<LinkService> m_linkService;
+  std::unique_ptr<QuickShareService> m_quickShareService;
   std::unique_ptr<ScreenRecorder> m_screenRecorder;
   std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
   std::unique_ptr<BluetoothService> m_bluetoothService;

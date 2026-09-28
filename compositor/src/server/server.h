@@ -105,7 +105,7 @@ namespace umbriel {
   class FocusManager;
   class XwaylandSupervisor;
   class ConfigWatcher;
-  class DesktopInputManager;
+  class DesktopSettingsManager;
   class DesktopOutputManager;
   class DesktopShell;
   struct InputDeviceInfo;
@@ -343,6 +343,7 @@ namespace umbriel {
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
+    [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
     void inputDevicesChanged();
@@ -709,7 +710,7 @@ namespace umbriel {
     std::unique_ptr<HintRect> m_insertHint;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
-    std::unique_ptr<DesktopInputManager> m_desktopInputManager;
+    std::unique_ptr<DesktopSettingsManager> m_desktopSettingsManager;
     std::unique_ptr<DesktopShell> m_desktopShell;
     std::unique_ptr<Ipc> m_ipc;
 #ifdef UMBRIEL_TEST_IPC

@@ -25,7 +25,6 @@ namespace settings {
     ConfigService* configService = nullptr;
     float scale = 1.0F;
     bool showAdvanced = false;
-    bool showOverriddenOnly = false;
     std::vector<SelectOption> batteryDeviceOptions;
     std::string& editingWidgetName;
     std::string& editingCapsuleGroupId;

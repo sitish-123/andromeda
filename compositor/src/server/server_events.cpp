@@ -20,7 +20,8 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
-#include "server/desktop_input_manager.h"
+#include "server/desktop_output_manager.h"
+#include "server/desktop_settings_manager.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "view/popup.h"
@@ -701,8 +702,11 @@ namespace umbriel {
         m_overview->forceClose();
       }
       applyConfig(result.effects);
-      if (m_desktopInputManager != nullptr) {
-        m_desktopInputManager->settingsChanged();
+      if (m_desktopSettingsManager != nullptr) {
+        m_desktopSettingsManager->settingsChanged();
+      }
+      if (m_desktopOutputManager != nullptr) {
+        m_desktopOutputManager->propertiesChanged();
       }
       if ((result.change.colors || result.change.appearance) && m_ipc != nullptr) {
         m_ipc->notifyThemeChanged();
@@ -894,26 +898,26 @@ namespace umbriel {
       }
     };
     for (const auto& keyboard : m_keyboards) {
-      add(&keyboard->wlr()->base, DSK_INPUT_MANAGER_V1_KIND_KEYBOARD);
+      add(&keyboard->wlr()->base, DSK_SETTINGS_MANAGER_V1_KIND_KEYBOARD);
     }
     for (const auto& pointer : m_pointers) {
       libinput_device* handle =
           wlr_input_device_is_libinput(pointer->device) ? wlr_libinput_get_device_handle(pointer->device) : nullptr;
       const bool touchpad = handle != nullptr && libinput_device_config_tap_get_finger_count(handle) > 0;
-      add(pointer->device, touchpad ? DSK_INPUT_MANAGER_V1_KIND_TOUCHPAD : DSK_INPUT_MANAGER_V1_KIND_MOUSE);
+      add(pointer->device, touchpad ? DSK_SETTINGS_MANAGER_V1_KIND_TOUCHPAD : DSK_SETTINGS_MANAGER_V1_KIND_MOUSE);
     }
     for (const auto& touch : m_touchDevices) {
-      add(touch->device, DSK_INPUT_MANAGER_V1_KIND_TOUCH);
+      add(touch->device, DSK_SETTINGS_MANAGER_V1_KIND_TOUCH);
     }
     for (const auto& tablet : m_tabletDevices) {
-      add(tablet->device, DSK_INPUT_MANAGER_V1_KIND_TABLET);
+      add(tablet->device, DSK_SETTINGS_MANAGER_V1_KIND_TABLET);
     }
     return devices;
   }
 
   void Server::inputDevicesChanged() {
-    if (m_desktopInputManager != nullptr) {
-      m_desktopInputManager->devicesChanged();
+    if (m_desktopSettingsManager != nullptr) {
+      m_desktopSettingsManager->devicesChanged();
     }
   }
 

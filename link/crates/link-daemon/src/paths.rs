@@ -9,6 +9,8 @@ pub struct Paths {
     pub identity: PathBuf,
     pub devices: PathBuf,
     pub downloads: PathBuf,
+    /// Artwork of phone players, for their MPRIS `mpris:artUrl`; created on first use.
+    pub art: PathBuf,
 }
 
 impl Paths {
@@ -25,7 +27,13 @@ impl Paths {
         }
         fs::metadata(&dir).with_context(|| format!("state directory {}", dir.display()))?;
         let downloads = download_dir(home.as_deref()).context("no download directory: set HOME")?;
-        Ok(Self { identity: dir.join("identity.pk8"), devices: dir.join("devices.json"), state: dir, downloads })
+        Ok(Self {
+            identity: dir.join("identity.pk8"),
+            devices: dir.join("devices.json"),
+            art: dir.join("art"),
+            state: dir,
+            downloads,
+        })
     }
 }
 

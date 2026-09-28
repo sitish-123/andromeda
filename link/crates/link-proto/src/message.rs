@@ -114,6 +114,251 @@ fn is_web_link(text: &str) -> bool {
     rest.is_some_and(|rest| !rest.is_empty()) && !text.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
+pub const MAX_NOTIFICATION_ID_LEN: usize = 256;
+pub const MAX_APP_LEN: usize = 128;
+pub const MAX_TITLE_LEN: usize = 512;
+/// Also the longest reply.
+pub const MAX_TEXT_LEN: usize = 4096;
+pub const MAX_ICON_LEN: usize = 16 * 1024;
+pub const MAX_ACTIONS: usize = 3;
+pub const MAX_ACTION_LEN: usize = 64;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationButton {
+    pub id: String,
+    pub label: String,
+    /// Whether the action takes reply text (Android `RemoteInput`).
+    pub reply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationPosted {
+    pub id: String,
+    pub app: String,
+    pub title: String,
+    pub text: String,
+    /// PNG.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_bytes")]
+    pub icon: Option<Vec<u8>>,
+    pub actions: Vec<NotificationButton>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationRemoved {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationAction {
+    pub id: String,
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationDismiss {
+    pub id: String,
+}
+
+/// Byte length within `min..=max`, as CDDL's `.size` counts it.
+fn sized(text: &str, min: usize, max: usize) -> bool {
+    (min..=max).contains(&text.len())
+}
+
+fn notification_id(id: &str) -> bool {
+    sized(id, 1, MAX_NOTIFICATION_ID_LEN)
+}
+
+impl NotificationPosted {
+    fn valid(&self) -> bool {
+        notification_id(&self.id)
+            && sized(&self.app, 1, MAX_APP_LEN)
+            && sized(&self.title, 0, MAX_TITLE_LEN)
+            && sized(&self.text, 0, MAX_TEXT_LEN)
+            && self.icon.as_ref().is_none_or(|icon| (1..=MAX_ICON_LEN).contains(&icon.len()))
+            && self.actions.len() <= MAX_ACTIONS
+            && self
+                .actions
+                .iter()
+                .all(|action| sized(&action.id, 1, MAX_ACTION_LEN) && sized(&action.label, 1, MAX_ACTION_LEN))
+    }
+}
+
+impl NotificationAction {
+    fn valid(&self) -> bool {
+        notification_id(&self.id)
+            && sized(&self.action, 1, MAX_ACTION_LEN)
+            && self.reply_text.as_ref().is_none_or(|reply| sized(reply, 1, MAX_TEXT_LEN))
+    }
+}
+
+pub const MAX_PLAYER_LEN: usize = 64;
+pub const MAX_METADATA_LEN: usize = 512;
+pub const MAX_ARTWORK_LEN: usize = 48 * 1024;
+pub const MAX_VOLUME: u8 = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MediaCommandKind {
+    Play,
+    Pause,
+    PlayPause,
+    Next,
+    Previous,
+    /// `value` is the absolute position in ms.
+    Seek,
+    /// `value` is 0 to 100.
+    Volume,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaPlayer {
+    pub player: String,
+    pub name: String,
+    pub state: PlaybackState,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_ms: Option<u64>,
+    /// When sent; the receiver advances it while playing.
+    pub position_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<u8>,
+    /// PNG or JPEG.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_bytes")]
+    pub artwork: Option<Vec<u8>>,
+    pub can: Vec<MediaCommandKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaGone {
+    pub player: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaCommand {
+    pub player: String,
+    pub command: MediaCommandKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<u64>,
+}
+
+/// Asks the receiver to start or stop ringing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ring {
+    pub on: bool,
+}
+
+/// The sender's own ringing started or stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ringing {
+    pub on: bool,
+}
+
+pub const MAX_NUMBER_LEN: usize = 64;
+pub const MAX_CALLER_LEN: usize = 128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallState {
+    Ringing,
+    Active,
+    Idle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Call {
+    pub state: CallState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    /// The contact's name, when the phone may read contacts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallActionKind {
+    /// Silences the ringer until the call ends.
+    Mute,
+    /// Ends the ringing call.
+    Decline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallAction {
+    pub action: CallActionKind,
+}
+
+impl CallState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ringing => "ringing",
+            Self::Active => "active",
+            Self::Idle => "idle",
+        }
+    }
+}
+
+impl CallActionKind {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "mute" => Some(Self::Mute),
+            "decline" => Some(Self::Decline),
+            _ => None,
+        }
+    }
+}
+
+fn player_id(player: &str) -> bool {
+    sized(player, 1, MAX_PLAYER_LEN)
+}
+
+impl MediaPlayer {
+    fn valid(&self) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        player_id(&self.player)
+            && sized(&self.name, 1, MAX_PLAYER_LEN)
+            && [&self.title, &self.artist, &self.album].iter().all(|text| sized(text, 0, MAX_METADATA_LEN))
+            && self.volume.is_none_or(|volume| volume <= MAX_VOLUME)
+            && self.artwork.as_ref().is_none_or(|art| (1..=MAX_ARTWORK_LEN).contains(&art.len()))
+            && self.can.iter().all(|command| seen.insert(*command))
+    }
+}
+
+impl MediaCommand {
+    fn valid(&self) -> bool {
+        let value_ok = match self.command {
+            MediaCommandKind::Seek => self.value.is_some(),
+            MediaCommandKind::Volume => self.value.is_some_and(|volume| volume <= u64::from(MAX_VOLUME)),
+            _ => self.value.is_none(),
+        };
+        player_id(&self.player) && value_ok
+    }
+}
+
 /// A transfer's id: 16 random bytes chosen by the sender.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TransferId(pub [u8; TRANSFER_ID_LEN]);
@@ -377,6 +622,17 @@ pub enum Message {
     Unpair,
     Share(Share),
     ShareAck(ShareAck),
+    NotificationPosted(NotificationPosted),
+    NotificationRemoved(NotificationRemoved),
+    NotificationAction(NotificationAction),
+    NotificationDismiss(NotificationDismiss),
+    MediaPlayer(MediaPlayer),
+    MediaGone(MediaGone),
+    MediaCommand(MediaCommand),
+    Ring(Ring),
+    Ringing(Ringing),
+    Call(Call),
+    CallAction(CallAction),
     Offer(Offer),
     OfferReply(OfferReply),
     Resume(TransferRef),
@@ -399,6 +655,17 @@ impl Message {
             Self::Unpair => "unpair",
             Self::Share(_) => "share",
             Self::ShareAck(_) => "share-ack",
+            Self::NotificationPosted(_) => "notification-posted",
+            Self::NotificationRemoved(_) => "notification-removed",
+            Self::NotificationAction(_) => "notification-action",
+            Self::NotificationDismiss(_) => "notification-dismiss",
+            Self::MediaPlayer(_) => "media-player",
+            Self::MediaGone(_) => "media-gone",
+            Self::MediaCommand(_) => "media-command",
+            Self::Ring(_) => "ring",
+            Self::Ringing(_) => "ringing",
+            Self::Call(_) => "call",
+            Self::CallAction(_) => "call-action",
             Self::Offer(_) => "offer",
             Self::OfferReply(_) => "offer-reply",
             Self::Resume(_) => "resume",
@@ -421,6 +688,17 @@ impl Message {
             Self::Unpair => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
+            Self::NotificationPosted(body) => Value::serialized(body),
+            Self::NotificationRemoved(body) => Value::serialized(body),
+            Self::NotificationAction(body) => Value::serialized(body),
+            Self::NotificationDismiss(body) => Value::serialized(body),
+            Self::MediaPlayer(body) => Value::serialized(body),
+            Self::MediaGone(body) => Value::serialized(body),
+            Self::MediaCommand(body) => Value::serialized(body),
+            Self::Ring(body) => Value::serialized(body),
+            Self::Ringing(body) => Value::serialized(body),
+            Self::Call(body) => Value::serialized(body),
+            Self::CallAction(body) => Value::serialized(body),
             Self::Offer(body) => Value::serialized(body),
             Self::OfferReply(body) => Value::serialized(body),
             Self::Resume(body) | Self::Cancel(body) => Value::serialized(body),
@@ -444,6 +722,17 @@ impl Message {
             }
             "share" => Self::Share(body.deserialized()?),
             "share-ack" => Self::ShareAck(body.deserialized()?),
+            "notification-posted" => Self::NotificationPosted(body.deserialized()?),
+            "notification-removed" => Self::NotificationRemoved(body.deserialized()?),
+            "notification-action" => Self::NotificationAction(body.deserialized()?),
+            "notification-dismiss" => Self::NotificationDismiss(body.deserialized()?),
+            "media-player" => Self::MediaPlayer(body.deserialized()?),
+            "media-gone" => Self::MediaGone(body.deserialized()?),
+            "media-command" => Self::MediaCommand(body.deserialized()?),
+            "ring" => Self::Ring(body.deserialized()?),
+            "ringing" => Self::Ringing(body.deserialized()?),
+            "call" => Self::Call(body.deserialized()?),
+            "call-action" => Self::CallAction(body.deserialized()?),
             "offer" => Self::Offer(body.deserialized()?),
             "offer-reply" => Self::OfferReply(body.deserialized()?),
             "resume" => Self::Resume(body.deserialized()?),
@@ -461,21 +750,36 @@ impl Message {
         Ok(message)
     }
 
-    fn validate(&self) -> Result<(), DecodeError> {
+    /// The schema's rules, checked by the receiver while decoding and by senders before sending.
+    pub fn validate(&self) -> Result<(), DecodeError> {
         let valid = match self {
             Self::Hello(hello) => (1..=MAX_NAME_LEN).contains(&hello.name.chars().count()),
             Self::PairSpake(spake) => spake.msg.len() == SPAKE_MSG_LEN,
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
             Self::Unpair
             | Self::ShareAck(_)
+            | Self::Ring(_)
+            | Self::Ringing(_)
+            | Self::CallAction(_)
             | Self::Resume(_)
             | Self::Cancel(_)
             | Self::FileDone(_)
             | Self::FileData(_) => true,
+            Self::Call(call) => {
+                call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
+                    && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
+            }
+            Self::Share(share) => share.check().is_ok(),
+            Self::NotificationPosted(posted) => posted.valid(),
+            Self::NotificationRemoved(NotificationRemoved { id })
+            | Self::NotificationDismiss(NotificationDismiss { id }) => notification_id(id),
+            Self::NotificationAction(action) => action.valid(),
+            Self::MediaPlayer(player) => player.valid(),
+            Self::MediaGone(gone) => player_id(&gone.player),
+            Self::MediaCommand(command) => command.valid(),
             Self::ClipPull(pull) | Self::ClipData(pull) => (1..=MAX_MIME_LEN).contains(&pull.mime.len()),
             Self::ClipOffer(offer) => offer.is_valid(),
             Self::Status(status) => status.battery <= 100,
-            Self::Share(share) => share.check().is_ok(),
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),

@@ -3,15 +3,16 @@
 # the emulator's NAT at the host's LAN addresses in the pairing URI. Proves: QR pairing from the opened URI (Maestro
 # taps Pair and grants notifications), the app shows Connected and D-Bus Devices agrees; text and a link shared from
 # Android through the share target arrive as D-Bus Received; text and a link sent with D-Bus Share post Android
-# notifications, and tapping the text's (its Copy PendingIntent) clears it; leaving the app ends presence (D-Bus shows it
-# disconnected) and returning restores it; "Stay connected" keeps it connected in the background with its
-# foreground-service notification, which goes away when turned off; `dumpsys battery set level 42` shows as 42% in
-# D-Bus DeviceStatus; a file shared from the Files app through the share
-# target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from the Android
-# notification lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and Display over
-# other apps granted over adb, a copy in Settings reaches the desktop with no tap, a desktop clip is set on the phone
-# (pasted back in Settings) without echoing, and "Send to desktop" (PROCESS_TEXT) sends a selection; unpairing in the
-# app removes it on the desktop.
+# notifications, and tapping the text's (its Copy PendingIntent) clears it; pairing turned "Stay connected" on, so the
+# session lives in the background with its foreground-service notification, is connected again within 20 s of Wi-Fi
+# dropping and returning (on the emulator the path survives, so this does not force a redial),
+# and comes back after a reboot; turned off, the notification goes, leaving the app ends presence and returning
+# restores it; `dumpsys battery set level 42` shows as 42% in D-Bus DeviceStatus; a file shared from the Files app
+# through the share target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from
+# the Android notification lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and
+# Display over other apps granted over adb and Stay connected on, a copy in Settings reaches the desktop with no tap,
+# a desktop clip is set on the phone (pasted back in Settings) without echoing, and "Send to desktop" (PROCESS_TEXT)
+# sends a selection; unpairing in the app removes it on the desktop.
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, mediastore.txt, linkd.log to $OUT
 # (default ./artifacts/link-android). Needs the debug APK (./gradlew :app:assembleDebug) and a running emulator.
 set -euo pipefail
@@ -81,10 +82,6 @@ adb shell cmd statusbar collapse
 adb shell input keyevent KEYCODE_HOME
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
-# The one-time grants that turn on automatic phone-to-desktop clipboard: READ_LOGS (a development permission) and
-# Display over other apps.
-adb shell pm grant "$PACKAGE" android.permission.READ_LOGS
-adb shell appops set "$PACKAGE" SYSTEM_ALERT_WINDOW allow
 record '{"step":"installed"}'
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/")
@@ -127,6 +124,38 @@ maestro "$FLOWS/copy.yaml"
 wait_for 10 "Copy did not clear the text notification" gone "hello from the desktop"
 record '{"step":"desktop-to-android","kinds":["text","link"],"copy":"content intent, the Copy PendingIntent"}'
 
+# Pairing turned "Stay connected" on: the session lives in the background with its service notification.
+wait_for 10 "pairing did not turn Stay connected on" posted "Connected to your desktops"
+adb shell input keyevent KEYCODE_HOME
+sleep 5 # real time: longer than a foreground-only session takes to drop
+connected || fail "Stay connected did not keep the session in the background: $(devices)"
+screenshot 6-stay-connected-background
+record '{"step":"stay-connected-on-after-pairing"}'
+
+adb shell svc wifi disable
+sleep 3 # real time: the default network moves to mobile data
+START=$(date +%s)
+adb shell svc wifi enable
+wait_for 20 "no redial after the default network changed" connected
+record "{\"step\":\"connected-across-wifi-toggle\",\"seconds_to_connected\":$(( $(date +%s) - START ))}"
+
+adb reboot
+adb wait-for-device
+for _ in $(seq 120); do [[ $(adb shell getprop sys.boot_completed 2> /dev/null | tr -d '\r') == 1 ]] && break; sleep 1; done
+wait_for 60 "the service did not come back after a reboot" posted "Connected to your desktops"
+wait_for 60 "no session after a reboot" connected
+screenshot 7-after-reboot
+record '{"step":"stay-connected-survives-reboot"}'
+
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+maestro -e STAY=off "$FLOWS/stay-connected.yaml"
+wait_for 10 "the Stay connected notification outlived the toggle" gone "Connected to your desktops"
+adb shell input keyevent KEYCODE_HOME
+wait_for 15 "presence outlived the app leaving the foreground" disconnected
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+wait_for 20 "presence did not return with the app" connected
+record '{"step":"presence-follows-foreground-when-off"}'
+
 # A real file from the phone's Downloads through the share target, accepted on D-Bus.
 head -c 3145728 /dev/urandom > "$RUNTIME/phone.bin"
 adb shell rm -f /sdcard/Download/e2e-phone.bin /sdcard/Download/e2e-desk.bin
@@ -167,19 +196,14 @@ adb shell content query --uri content://media/external/downloads --projection _d
 adb shell rm -f /sdcard/Download/e2e-desk.bin /sdcard/Download/e2e-phone.bin
 record '{"step":"desktop-file-to-android-downloads","bytes":2097152,"is_pending":0,"sha256_match":true}'
 
-adb shell input keyevent KEYCODE_HOME
-wait_for 15 "presence outlived the app leaving the foreground" disconnected
-adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
-wait_for 20 "presence did not return with the app" connected
-record '{"step":"presence-follows-foreground"}'
-
+# The one-time grants that turn on automatic phone-to-desktop clipboard: READ_LOGS (a development permission) and
+# Display over other apps. The watcher checks them when Stay connected starts it.
+adb shell pm grant "$PACKAGE" android.permission.READ_LOGS
+adb shell appops set "$PACKAGE" SYSTEM_ALERT_WINDOW allow
 maestro -e STAY=on "$FLOWS/stay-connected.yaml"
 maestro "$FLOWS/allow-logs.yaml"
 wait_for 10 "no Stay connected notification" posted "Connected to your desktops"
 adb shell input keyevent KEYCODE_HOME
-sleep 5 # real time: longer than the foreground check above waited for a disconnect
-connected || fail "Stay connected did not keep the session in the background: $(devices)"
-screenshot 6-stay-connected-background
 
 # Automatic clipboard both ways while Stay connected runs, in Settings' device-name field: another app's copy.
 clip_offers() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
@@ -225,7 +249,6 @@ record '{"step":"process-text-reaches-desktop","text":"selected on the phone"}'
 
 maestro -e STAY=off "$FLOWS/stay-connected.yaml"
 wait_for 10 "the Stay connected notification outlived the toggle" gone "Connected to your desktops"
-record '{"step":"stay-connected-in-background","service_notification":"only while on"}'
 
 maestro "$FLOWS/unpair.yaml"
 wait_for 15 "desktop still lists the emulator after it unpaired: $(devices)" eval '! devices | grep -q "[0-9a-f]\{32\}"'

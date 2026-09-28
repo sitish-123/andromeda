@@ -164,6 +164,12 @@ namespace noctalia::cli {
       Positional{"summary", {}, {}, true, false, false},
       Positional{"body", {}, {}, true, false, true},
   };
+  inline constexpr std::array kMsgNotificationActionLatestPositionals{
+      Positional{"action", {}, {}, true, false, false},
+  };
+  inline constexpr std::array kMsgNotificationReplyLatestPositionals{
+      Positional{"text", {}, {}, true, false, true},
+  };
   inline constexpr std::array kMsgPanelClosePositionals{
       Positional{"id", {}, {}, false, false, false},
   };
@@ -178,6 +184,21 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgScreenRecordRegionPositionals{
       Positional{"geometry", "X,Y WxH in global logical pixels", {}, false, false, true},
   };
+  inline constexpr std::array kMsgNotificationInvokeLatestPositionals{
+      Positional{"action", {}, {}, false, false, false},
+  };
+  inline constexpr std::array<std::string_view, 3> kQuickShareVisibleChoices{"on", "off", "toggle"};
+  inline constexpr std::array kMsgQuickShareVisiblePositionals{
+      Positional{"state", {}, kQuickShareVisibleChoices, false, false, false},
+  };
+  inline constexpr std::array<std::string_view, 2> kQuickShareNearbyChoices{"on", "off"};
+  inline constexpr std::array kMsgQuickShareNearbyPositionals{
+      Positional{"state", {}, kQuickShareNearbyChoices, false, false, false},
+  };
+  inline constexpr std::array kMsgQuickShareSendPositionals{
+      Positional{"id", {}, {}, true, false, false},
+      Positional{"paths", {}, {}, true, true, false},
+  };
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
@@ -185,8 +206,10 @@ namespace noctalia::cli {
       Positional{"device-id", {}, {}, true, false, false},
       Positional{"path", {}, {}, true, true, false},
   };
-  inline constexpr std::array kMsgNotificationInvokeLatestPositionals{
-      Positional{"action", {}, {}, false, false, false},
+  inline constexpr std::array<std::string_view, 1> kMsgLinkRingModeChoices{"stop"};
+  inline constexpr std::array kMsgLinkRingPositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+      Positional{"mode", {}, kMsgLinkRingModeChoices, false, false, false},
   };
   inline constexpr std::array<std::string_view, 2> kMsgLinkShareKindChoices{"text", "link"};
   inline constexpr std::array kMsgLinkSharePositionals{
@@ -577,13 +600,36 @@ namespace noctalia::cli {
     };
     inline constexpr Command notificationInvokeLatest{
         "notification-invoke-latest",
-        "Invoke an action (default: the default action) of the most recent active notification that has it",
+        "Invoke the default action, or the given action key, of the most recent notification offering it",
         {},
         {},
         {},
         kMsgNotificationInvokeLatestPositionals,
         {},
         false
+    };
+    inline constexpr Command notificationActionLatest{
+        "notification-action-latest",
+        "Invoke an action of the most recent active notification that has it",
+        {},
+        {},
+        {},
+        kMsgNotificationActionLatestPositionals,
+        {},
+        false
+    };
+    inline constexpr Command notificationReplyLatest{
+        "notification-reply-latest",
+        "Send an inline reply through the most recent active notification that takes one",
+        {},
+        {},
+        {},
+        kMsgNotificationReplyLatestPositionals,
+        {},
+        false
+    };
+    inline constexpr Command notificationDismissLatest{
+        "notification-dismiss-latest", "Dismiss the most recent active notification", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command notificationShow{"notification-show",
                                               "Show an internal Noctalia notification",
@@ -840,11 +886,39 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command quickShareVisible{
+        "quickshare-visible", "Print or set whether nearby Android devices can find this desktop over Quick Share", {},
+        {}, {}, kMsgQuickShareVisiblePositionals, {}, false
+    };
+    inline constexpr Command quickShareNearby{
+        "quickshare-nearby", "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off",
+        {}, {}, {}, kMsgQuickShareNearbyPositionals, {}, false
+    };
+    inline constexpr Command quickShareSend{
+        "quickshare-send", "Send files to a nearby Quick Share receiver by its id from quickshare-nearby", {}, {}, {},
+        kMsgQuickShareSendPositionals, {}, false
+    };
+    inline constexpr Command locationStatus{
+        "location-status", "Print the resolved location: latitude, longitude, source, and name", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
     inline constexpr Command linkSendFile{
         "link-send-file", "Send files to a connected phone", {}, {}, {}, kMsgLinkSendFilePositionals, {}, false
+    };
+    inline constexpr Command linkRing{
+        "link-ring", "Ring a connected phone at full volume, or stop it", {}, {}, {}, kMsgLinkRingPositionals, {}, false
+    };
+    inline constexpr Command linkRinging{
+        "link-ringing",
+        "Print what rings: desktop <device-id> for a phone ringing this desktop, phone <device-id>, or none",
+        {},
+        {},
+        {},
+        {},
+        {},
+        false
     };
     inline constexpr Command linkShare{
         "link-share", "Send text or a link to a connected phone", {}, {}, {}, kMsgLinkSharePositionals, {}, false
@@ -955,8 +1029,14 @@ namespace noctalia::cli {
       msg::linkPair,
       msg::linkPairing,
       msg::linkSendFile,
+      msg::linkRing,
+      msg::linkRinging,
       msg::linkShare,
       msg::linkUnpair,
+      msg::quickShareVisible,
+      msg::locationStatus,
+      msg::quickShareNearby,
+      msg::quickShareSend,
       msg::lockscreenWidgetsEdit,
       msg::lockscreenWidgetsExit,
       msg::lockscreenWidgetsToggleEdit,
@@ -979,6 +1059,9 @@ namespace noctalia::cli {
       msg::notificationDndStatus,
       msg::notificationDndToggle,
       msg::notificationInvokeLatest,
+      msg::notificationActionLatest,
+      msg::notificationReplyLatest,
+      msg::notificationDismissLatest,
       msg::notificationShow,
       msg::osdDisable,
       msg::osdEnable,

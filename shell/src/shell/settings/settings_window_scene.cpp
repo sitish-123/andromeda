@@ -117,10 +117,12 @@ namespace {
     );
   }
 
-  std::vector<settings::SettingsSection> sectionKeys(const std::vector<settings::SettingEntry>& entries) {
+  // Shortcuts edits the compositor's keybinds, so it shows only where the compositor's settings manager is bound.
+  std::vector<settings::SettingsSection>
+  sectionKeys(const std::vector<settings::SettingEntry>& entries, bool compositorSettings) {
     std::vector<settings::SettingsSection> sections;
     for (const auto& descriptor : settings::settingsSectionDescriptors()) {
-      if (!descriptor.sidebar) {
+      if (!descriptor.sidebar || (descriptor.section == settings::SettingsSection::Shortcuts && !compositorSettings)) {
         continue;
       }
       const bool present = descriptor.alwaysShow
@@ -743,6 +745,9 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
   if (m_config != nullptr) {
     env.shellAvatarPath = shell::resolvedAvatarPath(m_accounts, m_config->config());
   }
+  if (m_compositorSettings != nullptr && m_compositorSettings->ready()) {
+    env.compositorSettings = m_compositorSettings.get();
+  }
   env.niriBackdropSupported = (m_wayland != nullptr && compositors::isNiri());
   env.screencopySupported = m_wayland != nullptr && m_wayland->hasScreencopy();
   env.niriOverviewTypeToLaunchSupported = (m_wayland != nullptr && compositors::isNiri());
@@ -897,13 +902,13 @@ settings::SettingsContentContext SettingsWindow::makeContentContext(
   return settings::SettingsContentContext{
       .config = cfg,
       .configService = m_config,
+      .compositorSettings = m_compositorSettings.get(),
       .scale = uiScale(),
       .searchQuery = m_searchQuery,
       .selectedSection = m_selectedSection,
       .selectedBar = selectedBar,
       .selectedMonitorOverride = selectedMonitorOverride,
       .showAdvanced = m_showAdvanced,
-      .showOverriddenOnly = m_showOverriddenOnly,
       .batteryDeviceOptions = batteryDeviceOptions(),
       .editingWidgetName = m_editingWidgetName,
       .editingCapsuleGroupId = m_editingCapsuleGroupId,
@@ -1066,6 +1071,13 @@ void SettingsWindow::rebuildSettingsContent() {
           .deleteMonitorOverride = [this](
                                        std::string barName, std::string match
                                    ) { deleteMonitorOverride(std::move(barName), std::move(match)); },
+          .selectMonitorOverride =
+              [this](std::string match) {
+                m_selectedMonitorOverride = std::move(match);
+                m_contentScrollState.offset = 0.0F;
+                requestSceneRebuild();
+              },
+          .createMonitorOverride = [this](std::string barName) { openMonitorOverrideCreateDialog(std::move(barName)); },
       }
   );
   logSettingsProfile("rebuildContent barManagement", phaseProfileWatch);
@@ -1080,9 +1092,11 @@ void SettingsWindow::rebuildSettingsContent() {
 
   addDisplaysContent(scale);
   addInputContent(scale);
+  addShortcutsContent(scale);
   addDateTimeContent(scale);
   addLanguageContent(scale);
   addDefaultAppsContent(scale);
+  addDevicesContent(scale);
 
   if (m_selectedSection == "plugins" && m_pluginManager != nullptr) {
     refreshPluginListIfNeeded();
@@ -1124,6 +1138,7 @@ void SettingsWindow::rebuildSettingsContent() {
                   requestSceneRebuild();
                 },
             .isEnabling = [this](const std::string& id) { return m_pluginManager->isEnabling(id); },
+            .requestContentRebuild = [this]() { requestContentRebuild(); },
             .addSource = [this]() { openPluginSourceCreateEditor(); },
             .setSourceEnabled =
                 [this](PluginSourceConfig source, bool enabled) {
@@ -1338,51 +1353,34 @@ std::unique_ptr<Flex> SettingsWindow::buildFilterRow(
       })
   );
 
-  auto overriddenLabel = makeLabel(
-      i18n::tr("settings.window.filter-overridden"), Style::fontSizeBody * scale,
-      colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
-  );
-  filters->addChild(std::move(overriddenLabel));
-
-  filters->addChild(
-      ui::toggle({
-          .checked = m_showOverriddenOnly,
-          .scale = scale,
-          .onChange = [this, requestRebuild](bool value) {
-            m_showOverriddenOnly = value;
-            const bool hadPendingReset = !m_pendingResetPageScope.empty() || !m_pendingResetSettingPaths.empty();
-            m_pendingResetPageScope.clear();
-            m_pendingResetSettingPaths.clear();
-            if (hadPendingReset) {
-              requestRebuild();
-            } else {
-              requestContentRebuild();
-            }
-          },
-      })
-  );
-
-  if (!resetPagePaths.empty()) {
-    const bool pendingReset = m_pendingResetPageScope == resetPageScope;
+  // Reset page starts from the ⋮ menu; the header only holds the confirmation it asks for.
+  if (!resetPagePaths.empty() && m_pendingResetPageScope == resetPageScope) {
     filters->addChild(
         ui::button({
-            .text =
-                pendingReset ? i18n::tr("settings.window.reset-page-confirm") : i18n::tr("settings.window.reset-page"),
+            .text = i18n::tr("settings.window.reset-page-confirm"),
             .fontSize = Style::fontSizeCaption * scale,
-            .variant = pendingReset ? ButtonVariant::Destructive : ButtonVariant::Ghost,
+            .variant = ButtonVariant::Destructive,
             .minHeight = Style::controlHeightSm * scale,
             .paddingV = Style::spaceXs * scale,
             .paddingH = Style::spaceSm * scale,
             .radius = Style::scaledRadiusMd(scale),
-            .onClick = [this, resetPageScope, resetPagePaths = std::move(resetPagePaths), clearOverrides,
-                        pendingReset]() mutable {
-              if (!pendingReset) {
-                m_pendingResetSettingPaths.clear();
-                m_pendingResetPageScope = resetPageScope;
-                requestContentRebuild(/*refreshRegistry=*/false, /*refreshFilterRow=*/true);
-                return;
-              }
+            .onClick = [resetPagePaths = std::move(resetPagePaths), clearOverrides]() mutable {
               clearOverrides(std::move(resetPagePaths));
+            },
+        })
+    );
+    filters->addChild(
+        ui::button({
+            .text = i18n::tr("common.actions.cancel"),
+            .fontSize = Style::fontSizeCaption * scale,
+            .variant = ButtonVariant::Ghost,
+            .minHeight = Style::controlHeightSm * scale,
+            .paddingV = Style::spaceXs * scale,
+            .paddingH = Style::spaceSm * scale,
+            .radius = Style::scaledRadiusMd(scale),
+            .onClick = [this]() {
+              m_pendingResetPageScope.clear();
+              requestContentRebuild(/*refreshRegistry=*/false, /*refreshFilterRow=*/true);
             },
         })
     );
@@ -1425,9 +1423,6 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
 ) {
   const auto requestRebuild = [this]() { requestSceneRebuild(); };
   const auto createBar = [this](std::string name) { this->createBar(std::move(name)); };
-  const auto openMonitorOverrideCreate = [this](std::string barName) {
-    openMonitorOverrideCreateDialog(std::move(barName));
-  };
   const auto clearTransientSettingsState = [this]() { this->clearTransientSettingsState(); };
   const auto clearSearchQuery = [this]() {
     m_searchQuery.clear();
@@ -1457,7 +1452,6 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
           .clearSearchQuery = clearSearchQuery,
           .requestRebuild = requestRebuild,
           .createBar = createBar,
-          .openMonitorOverrideCreate = openMonitorOverrideCreate,
           .scrollSidebarNodeIntoView = [this](const Node* node) { scrollSidebarNodeIntoView(node); },
           .outNav = &m_sidebarNav,
       }
@@ -1520,6 +1514,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
 }
 
 void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
+  ensureCompositorSettings();
   SettingsProfileWatch phaseProfileWatch;
 
   const auto env = buildRegistryEnvironment();
@@ -1530,7 +1525,7 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
   phaseProfileWatch.reset();
 
   for (auto& entry : m_settingsRegistry) {
-    if (entry.section != settings::SettingsSection::Templates || entry.group != "community") {
+    if (entry.section != settings::SettingsSection::Appearance || entry.group != "templates") {
       continue;
     }
     if (auto* button = std::get_if<settings::ButtonSetting>(&entry.control)) {
@@ -2037,7 +2032,11 @@ std::vector<std::vector<std::string>> SettingsWindow::currentPageResetPaths() co
     }
 
     const auto appendIfOverridden = [this, &resetPagePaths](const std::vector<std::string>& path) {
-      if (!path.empty() && m_config->hasEffectiveOverride(path) && !containsPath(resetPagePaths, path)) {
+      const auto compositorKey = settings::compositorSettingKey(path);
+      const bool overridden = compositorKey.has_value()
+          ? m_compositorSettings != nullptr && m_compositorSettings->customized(*compositorKey)
+          : m_config->hasEffectiveOverride(path);
+      if (!path.empty() && overridden && !containsPath(resetPagePaths, path)) {
         resetPagePaths.push_back(path);
       }
     };
@@ -2087,6 +2086,12 @@ bool SettingsWindow::tryPatchSettingsRegistryResetValues(const std::vector<std::
   }
   m_settingsRegistry = std::move(patchedRegistry);
   return true;
+}
+
+void SettingsWindow::requestResetPageConfirmation() {
+  m_pendingResetSettingPaths.clear();
+  m_pendingResetPageScope = pageScopeKey(m_selectedSection, m_selectedBarName, m_selectedMonitorOverride);
+  requestContentRebuild(/*refreshRegistry=*/false, /*refreshFilterRow=*/true);
 }
 
 void SettingsWindow::rebuildFilterRow(float scale) {
@@ -2142,7 +2147,7 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
   logSettingsProfile("buildScene refreshRegistry", phaseProfileWatch);
   phaseProfileWatch.reset();
 
-  const auto sections = sectionKeys(m_settingsRegistry);
+  const auto sections = sectionKeys(m_settingsRegistry, m_compositorSettings != nullptr);
   const auto containsSection = [&sections](settings::SettingsSection section) {
     return std::ranges::contains(sections, section);
   };
@@ -2150,7 +2155,9 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
     m_selectedSection.clear();
   } else if (m_selectedSection != "bar" && !m_selectedSection.empty()) {
     const auto selectedSection = settings::settingsSectionFromId(m_selectedSection);
-    if (!selectedSection.has_value() || !containsSection(*selectedSection)) {
+    // Compositor pages exist once its settings arrive; a request for one made before then waits for them.
+    const bool awaitingCompositor = m_compositorSettings != nullptr && !m_compositorSettings->ready();
+    if (!selectedSection.has_value() || (!containsSection(*selectedSection) && !awaitingCompositor)) {
       m_selectedSection.clear();
     }
   }

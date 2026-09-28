@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
+use link_core::Error;
 use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::inbox::Inbox;
@@ -15,10 +16,12 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
 
+use crate::held::{self, Held};
 use crate::{OnOffer, files};
 
-/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line is a share
-/// (`<text|link> <text>`) or a transfer command (`send <path>...`, `accept|decline|cancel <transfer>`).
+/// Stays present until SIGTERM, SIGINT, or `seconds`, printing every event as a JSON line. Each stdin line is a
+/// command: `<text|link> <text>` shares with the desktop, the transfer, clipboard, and status commands are in
+/// `command_line`, and the rest in [`Held::command`].
 pub struct Options {
     pub seconds: Option<u64>,
     pub on_offer: OnOffer,
@@ -33,6 +36,7 @@ pub async fn hold(phone: Phone, inbox: Inbox, id: DeviceId, options: Options) ->
             client.set_status(status).await?;
         }
         client.set_present(true).await?;
+        let mut held = Held::new(client.clone(), id.clone());
         let mut terminate = signal(SignalKind::terminate())?;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         let mut stdin_open = true;
@@ -42,9 +46,16 @@ pub async fn hold(phone: Phone, inbox: Inbox, id: DeviceId, options: Options) ->
                 Some(event) = events.recv() => {
                     println!("{}", describe(&event));
                     answer(&client, &event, on_offer).await;
+                    held.on_event(&event).await;
                 }
                 line = lines.next_line(), if stdin_open => match line? {
-                    Some(line) => println!("{}", command_line(&client, &id, &line).await),
+                    Some(line) if line.starts_with("text ") || line.starts_with("link ") => {
+                        println!("{}", share_line(&client, &id, &line).await);
+                    }
+                    Some(line) => match command_line(&client, &id, &line).await {
+                        Some(result) => println!("{result}"),
+                        None => println!("{}", held.command(&line).await),
+                    },
                     None => stdin_open = false,
                 },
                 _ = terminate.recv() => break,
@@ -96,7 +107,8 @@ pub async fn share_unchecked(mut phone: Phone, id: DeviceId, share: Share) -> an
     Ok(())
 }
 
-async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Value {
+/// The transfer, clipboard, and status commands; `None` for a line that is none of them.
+async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Option<Value> {
     let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
     let result = match verb {
         "send" => send_line(client, id, rest).await,
@@ -118,9 +130,9 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Value {
             Err(error) => Err(error),
         }
         .map(|cancelled| json!({ "event": "cancel", "cancelled": cancelled })),
-        _ => return share_line(client, id, verb, rest).await,
+        _ => return None,
     };
-    result.unwrap_or_else(|error| json!({ "event": format!("{verb}-failed"), "error": error.to_string() }))
+    Some(result.unwrap_or_else(|error| json!({ "event": format!("{verb}-failed"), "error": error.to_string() })))
 }
 
 async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result<Value> {
@@ -161,7 +173,24 @@ async fn pull_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     Ok(json!({ "event": "pulled", "clip": clip, "mime": mime, "bytes": bytes }))
 }
 
-async fn share_line(client: &Client, id: &DeviceId, kind: &str, text: &str) -> Value {
+/// Sends an unacknowledged message without checking it and prints whether the desktop closed the connection within
+/// the step timeout.
+pub async fn send_unchecked(mut phone: Phone, id: DeviceId, message: Message) -> anyhow::Result<()> {
+    let mut session = phone.connect(&id).await.context("connecting")?;
+    session.control.send(message).await?;
+    let line = match session.control.recv().await {
+        Err(Error::Timeout) => json!({ "accepted": true }),
+        Ok(other) => bail!("desktop answered {}", other.kind()),
+        Err(error) => json!({ "accepted": false, "error": error.to_string() }),
+    };
+    session.close();
+    phone.finish().await;
+    println!("{line}");
+    Ok(())
+}
+
+async fn share_line(client: &Client, id: &DeviceId, line: &str) -> Value {
+    let (kind, text) = line.split_once(' ').unwrap_or((line, ""));
     let Some(kind) = ShareKind::parse(kind) else {
         return json!({ "event": "share-failed", "error": "a line is <text|link> <text>" });
     };
@@ -184,6 +213,7 @@ fn describe(event: &ClientEvent) -> Value {
         }
         ClientEvent::Unpaired { id } => json!({ "event": "unpaired", "desktop": id }),
         ClientEvent::Transfer(event) => files::describe(event),
+        ClientEvent::Message { from, message } => held::describe(from, message),
     }
 }
 

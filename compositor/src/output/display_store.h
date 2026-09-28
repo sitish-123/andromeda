@@ -1,11 +1,13 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <variant>
 
 namespace umbriel {
 
@@ -41,6 +43,15 @@ namespace umbriel {
   // Returns false on any I/O error.
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs);
   bool saveMirror(const std::filesystem::path& file, const std::string& name, const std::optional<std::string>& source);
+
+  // A display property a settings app sets beyond what zwlr_output_manager_v1 carries ("hdr", "workspaces");
+  // std::monostate removes the key.
+  using SavedProperty = std::variant<std::monostate, bool, int64_t, double, std::string>;
+
+  // Sets or removes one key of output `name`'s saved table in `file`. Returns false on any I/O error.
+  bool saveOutputProperty(
+      const std::filesystem::path& file, const std::string& name, std::string_view key, const SavedProperty& value
+  );
 
   // True when `configRoot` (the user's own config.toml, without its includes) has a non-empty [output.<name>] table,
   // which wins over displays.toml for that output. A damaged or missing file reads as false.

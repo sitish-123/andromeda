@@ -220,9 +220,9 @@ public:
   [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> desktopOutputGlobal() const noexcept {
     return {m_desktopOutputGlobalName, m_desktopOutputGlobalVersion};
   }
-  /// Registry name and version of the desktop fork's dsk_input_manager_v1, 0 when the compositor lacks it.
-  [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> desktopInputGlobal() const noexcept {
-    return {m_desktopInputGlobalName, m_desktopInputGlobalVersion};
+  /// Registry name and version of the desktop fork's dsk_settings_manager_v1, 0 when the compositor lacks it.
+  [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> desktopSettingsGlobal() const noexcept {
+    return {m_desktopSettingsGlobalName, m_desktopSettingsGlobalVersion};
   }
   [[nodiscard]] std::string describeDisplayError(int operationErrno = 0) const;
   [[nodiscard]] wl_compositor* compositor() const noexcept;
@@ -361,8 +361,8 @@ private:
   std::uint32_t m_outputManagerGlobalVersion = 0;
   std::uint32_t m_desktopOutputGlobalName = 0;
   std::uint32_t m_desktopOutputGlobalVersion = 0;
-  std::uint32_t m_desktopInputGlobalName = 0;
-  std::uint32_t m_desktopInputGlobalVersion = 0;
+  std::uint32_t m_desktopSettingsGlobalName = 0;
+  std::uint32_t m_desktopSettingsGlobalVersion = 0;
   std::unordered_map<zwlr_output_head_v1*, WaylandOutputHeadInfo> m_outputHeads;
   std::unordered_set<zwlr_output_mode_v1*> m_outputModes;
   std::unique_ptr<FocusGrabService> m_focusGrabService;

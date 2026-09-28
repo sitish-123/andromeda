@@ -13,9 +13,13 @@ extern "C" {
 // clang-format on
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cstddef>
+#include <format>
+#include <iterator>
+#include <string>
 #include <system_error>
 #include <utility>
 
@@ -380,6 +384,9 @@ namespace umbriel {
          KeybindAction::WorkspaceSwapActiveOutputUp},
         {"workspace-switch", "<workspace>[/<output>]", "Switch to the selected workspace",
          KeybindAction::WorkspaceSwitch, ActionArgKind::Workspace},
+        {"zoom-in", "", "Magnify the screen around the pointer", KeybindAction::ZoomIn},
+        {"zoom-out", "", "Magnify the screen less, down to off", KeybindAction::ZoomOut},
+        {"zoom-reset", "", "Turn the screen magnifier off", KeybindAction::ZoomReset},
     };
 
   } // namespace
@@ -680,6 +687,8 @@ namespace umbriel {
     add(KeybindAction::TogglePinned, XKB_KEY_p);
     // Holding the overview key would thrash open/close.
     add(KeybindAction::OverviewToggle, XKB_KEY_o).repeat = false;
+    add(KeybindAction::ZoomIn, XKB_KEY_equal, WLR_MODIFIER_ALT);
+    add(KeybindAction::ZoomOut, XKB_KEY_minus, WLR_MODIFIER_ALT);
 
     for (int index = 0; index < 9; ++index) {
       const uint32_t digit = XKB_KEY_1 + static_cast<uint32_t>(index);
@@ -718,6 +727,151 @@ namespace umbriel {
     }
 
     return keybinds;
+  }
+
+  bool sameChord(const Keybind& left, const Keybind& right) {
+    return left.submap == right.submap
+        && left.modifiers == right.modifiers
+        && left.useMod == right.useMod
+        && left.modifierOnly == right.modifierOnly
+        && left.keysym == right.keysym
+        && left.wheel == right.wheel
+        && left.mouseButton == right.mouseButton;
+  }
+
+  std::string formatChord(const Keybind& bind) {
+    std::string chord = bind.submap.empty() ? std::string() : "submap[" + bind.submap + "],";
+    std::string trigger;
+    const auto append = [&trigger](std::string_view token) {
+      if (!trigger.empty()) {
+        trigger += '+';
+      }
+      trigger += token;
+    };
+    if (bind.useMod) {
+      append("Mod");
+    }
+    if ((bind.modifiers & WLR_MODIFIER_LOGO) != 0) {
+      append("Super");
+    }
+    if ((bind.modifiers & WLR_MODIFIER_CTRL) != 0) {
+      append("Ctrl");
+    }
+    if ((bind.modifiers & WLR_MODIFIER_ALT) != 0) {
+      append("Alt");
+    }
+    if ((bind.modifiers & WLR_MODIFIER_SHIFT) != 0) {
+      append("Shift");
+    }
+    if (bind.modifierOnly) {
+      return chord + trigger;
+    }
+    switch (bind.wheel) {
+    case WheelDirection::Up:
+      append("WheelUp");
+      return chord + trigger;
+    case WheelDirection::Down:
+      append("WheelDown");
+      return chord + trigger;
+    case WheelDirection::Left:
+      append("WheelLeft");
+      return chord + trigger;
+    case WheelDirection::Right:
+      append("WheelRight");
+      return chord + trigger;
+    case WheelDirection::None:
+      break;
+    }
+    if (const char* button = mouseButtonName(bind.mouseButton)) {
+      append(button);
+      return chord + trigger;
+    }
+    std::array<char, 64> name{};
+    if (xkb_keysym_get_name(bind.keysym, name.data(), name.size()) <= 0) {
+      return {};
+    }
+    append(name.data());
+    return chord + trigger;
+  }
+
+  std::string formatAction(const Keybind& bind) {
+    const auto spec = std::ranges::find(kActionSpecs, bind.action, &ActionSpec::action);
+    if (spec == std::end(kActionSpecs)) {
+      return {};
+    }
+    const std::string name(spec->name);
+    const auto withArg = [&name](std::string_view arg) { return arg.empty() ? name : name + ":" + std::string(arg); };
+    switch (spec->argKind) {
+    case ActionArgKind::None:
+      return name;
+    case ActionArgKind::Command:
+      if (const auto* submap = payloadIf<SubmapArg>(bind)) {
+        return withArg(submap->name);
+      }
+      if (const auto* spawn = payloadIf<SpawnArg>(bind)) {
+        return withArg(spawn->command);
+      }
+      return {};
+    case ActionArgKind::Fraction:
+    case ActionArgKind::FractionDelta:
+      if (const auto* fraction = payloadIf<FractionArg>(bind)) {
+        return spec->argKind == ActionArgKind::FractionDelta ? std::format("{}:{:+}", name, fraction->fraction)
+                                                             : std::format("{}:{}", name, fraction->fraction);
+      }
+      return {};
+    case ActionArgKind::Workspace:
+      if (const auto* workspace = payloadIf<WorkspaceArg>(bind)) {
+        std::string selector;
+        if (const auto* index = std::get_if<WorkspaceIndex>(&workspace->reference)) {
+          selector = std::to_string(index->value);
+        } else if (const auto* named = std::get_if<WorkspaceName>(&workspace->reference)) {
+          const bool numeric = std::ranges::all_of(named->value, [](char c) { return c >= '0' && c <= '9'; });
+          selector = numeric ? "\"" + named->value + "\"" : named->value;
+        }
+        if (!workspace->output.empty()) {
+          selector += "/" + workspace->output;
+        }
+        return withArg(selector);
+      }
+      return {};
+    case ActionArgKind::OptionalOutput:
+      if (const auto* output = payloadIf<OutputArg>(bind)) {
+        return withArg(output->output);
+      }
+      return name;
+    case ActionArgKind::OptionalScratchpad:
+      if (const auto* scratchpad = payloadIf<ScratchpadArg>(bind)) {
+        return withArg(scratchpad->name);
+      }
+      return name;
+    case ActionArgKind::WindowId:
+    case ActionArgKind::OptionalWindowId:
+      if (const auto* window = payloadIf<WindowIdArg>(bind)) {
+        return withArg(window->id);
+      }
+      return spec->argKind == ActionArgKind::OptionalWindowId ? name : std::string();
+    case ActionArgKind::SkipConfirmation:
+      if (const auto* quit = payloadIf<QuitArg>(bind); quit != nullptr && quit->skipConfirmation) {
+        return withArg("skip-confirmation");
+      }
+      return name;
+    case ActionArgKind::LayoutMode:
+      if (const auto* layout = payloadIf<LayoutModeArg>(bind)) {
+        if (!layout->mode.has_value()) {
+          return withArg("toggle");
+        }
+        switch (*layout->mode) {
+        case LayoutMode::Scrolling:
+          return withArg("scrolling");
+        case LayoutMode::Dwindle:
+          return withArg("dwindle");
+        case LayoutMode::Master:
+          return withArg("master");
+        }
+      }
+      return {};
+    }
+    return {};
   }
 
 } // namespace umbriel

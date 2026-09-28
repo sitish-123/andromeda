@@ -1,0 +1,16 @@
+# The pairing link is open: screenshots of its confirmation and of the attempt's working orb, in ${THEME}, then pairs.
+appId: org.umbriel.link
+---
+- extendedWaitUntil:
+    visible: "Pair with this desktop\\?"
+    timeout: 15000
+- takeScreenshot: ${OUT}/${THEME}-pairing-link
+- tapOn: "Pair"
+- takeScreenshot: ${OUT}/${THEME}-pairing-progress
+# Android asks for notifications only when it has not been answered yet.
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Connected"
+    timeout: 20000

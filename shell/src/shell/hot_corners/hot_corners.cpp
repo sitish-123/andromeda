@@ -1,15 +1,23 @@
 #include "shell/hot_corners/hot_corners.h"
 
 #include "app/application.h"
+#include "compositors/compositor_detect.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
+#include "core/deferred_call.h"
 #include "render/scene/input_area.h"
 #include "ui/builders.h"
+#include "wayland/settings_control.h"
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
+#include <format>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace {
   // Edge length (logical px) of each corner trigger surface. The cursor pins to the
@@ -42,6 +50,62 @@ void HotCorners::initialize(WaylandConnection& wayland, ConfigService* config, R
   m_wayland = &wayland;
   m_config = config;
   m_renderContext = renderContext;
+  const auto [name, version] = wayland.desktopSettingsGlobal();
+  if (compositors::isUmbriel() && name != 0 && config != nullptr && config->config().hotCorners.enabled) {
+    m_migration = std::make_unique<SettingsControl>(wayland.registry(), name, version, [this]() {
+      if (m_migration != nullptr && m_migration->ready() && !std::exchange(m_migrated, true)) {
+        migrateToCompositor();
+        DeferredCall::callLater([this]() { m_migration.reset(); });
+      }
+    });
+  }
+}
+
+bool HotCorners::active() const {
+  return m_config != nullptr && m_config->config().hotCorners.enabled && !compositors::isUmbriel();
+}
+
+void HotCorners::migrateToCompositor() {
+  if (m_migration == nullptr || m_config == nullptr) {
+    return;
+  }
+  SettingsControl& compositor = *m_migration;
+  const HotCornersConfig& config = m_config->config().hotCorners;
+  const std::array<std::pair<std::string_view, const HotCornersConfig::Corner*>, 4> corners{{
+      {"top_left", &config.topLeft},
+      {"top_right", &config.topRight},
+      {"bottom_left", &config.bottomLeft},
+      {"bottom_right", &config.bottomRight},
+  }};
+  const auto key = [](std::string_view corner, std::string_view field) {
+    return std::format("hot_corners.{}.{}", corner, field);
+  };
+  const bool compositorHasCorners = std::ranges::any_of(corners, [&](const auto& entry) {
+    return compositor.value(key(entry.first, "enabled")) == "true" || compositor.customized(key(entry.first, "action"));
+  });
+  if (!compositorHasCorners) {
+    for (const auto& [corner, settings] : corners) {
+      std::string action;
+      if (settings->action == "launcher") {
+        action = "shell:panel-toggle launcher";
+      } else if (settings->action == "control_center") {
+        action = "shell:panel-toggle control-center";
+      } else if (settings->action == "window_switcher") {
+        action = "shell:window-switcher";
+      } else if (settings->action == "overview") {
+        action = "overview-toggle";
+      } else if (settings->action == "command" && !settings->command.empty()) {
+        action = "spawn:" + settings->command;
+      }
+      if (action.empty()) {
+        continue;
+      }
+      compositor.set(key(corner, "action"), action);
+      compositor.set(key(corner, "delay_ms"), std::to_string(config.delayMs));
+      compositor.set(key(corner, "enabled"), "true");
+    }
+  }
+  (void)m_config->setOverride({"hot_corners", "enabled"}, ConfigOverrideValue{false});
 }
 
 void HotCorners::onConfigReload() {
@@ -49,10 +113,10 @@ void HotCorners::onConfigReload() {
     return;
   }
 
-  const auto& config = m_config->config().hotCorners;
-  // Recreate whenever enabled (not just on an enabled toggle): the resolved
-  // trigger layer follows the bar's layer, which a reload may have changed.
-  if (config.enabled || config.enabled != m_lastEnabled) {
+  // Recreate whenever active (not just on a toggle): the resolved trigger layer follows the bar's layer, which a
+  // reload may have changed.
+  const bool enabled = active();
+  if (enabled || enabled != m_lastEnabled) {
     onOutputChange();
   }
 }
@@ -61,12 +125,11 @@ void HotCorners::onOutputChange() {
   if (m_config == nullptr || m_wayland == nullptr) {
     return;
   }
-  const auto& config = m_config->config().hotCorners;
-  m_lastEnabled = config.enabled;
+  m_lastEnabled = active();
 
   destroySurfaces();
 
-  if (!config.enabled) {
+  if (!m_lastEnabled) {
     return;
   }
 

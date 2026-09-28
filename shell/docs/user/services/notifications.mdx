@@ -52,8 +52,8 @@ play_sound      = true
   `0` retains history indefinitely; accepted values are `0`–`8760`.
 - `collapse_on_dismiss = true` (default) causes remaining toasts to slide into a compact stack when one is dismissed. Set to `false` for stable-slot behavior where toasts keep their original positions.
 - `border = true` (default) draws an outline around toast cards. Set to `false` for a borderless look.
-- `history_retention_hours = 0` (default) keeps notification history entries forever. Set to a positive integer (1–8760) to automatically remove entries older than that many hours from control-center history. Active on-screen toasts are never removed. Configure in **Settings → Notifications → History**.
-- `max_visible = 0` (default) fills all available vertical screen space with notification toasts. Set to a positive integer (1–20) to limit how many toasts are visible at once; excess toasts are queued off-screen and promoted when slots free up. Configure in **Settings → Notifications → Toasts**.
+- `history_retention_hours = 0` (default) keeps notification history entries forever. Set to a positive integer (1–8760) to automatically remove entries older than that many hours from control-center history. Active on-screen toasts are never removed. Configure in **Settings → Desktop → Notifications & OSD → History**.
+- `max_visible = 0` (default) fills all available vertical screen space with notification toasts. Set to a positive integer (1–20) to limit how many toasts are visible at once; excess toasts are queued off-screen and promoted when slots free up. Configure in **Settings → Desktop → Notifications & OSD → Toasts**.
 
 ## Filtering
 
@@ -82,7 +82,7 @@ show_toast    = false
 play_sound    = false
 ```
 
-Configure filtering in **Settings → Notifications → Filtering**, or in the Noctalia TOML config stack.
+Configure filtering in **Settings → Desktop → Notifications & OSD → Filtering**, or in the Noctalia TOML config stack.
 
 ### Disable notification history
 

@@ -15,7 +15,7 @@ StateDirectoryMode=0700
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-# Received files land in Downloads; a download directory elsewhere needs its own ReadWritePaths.
+# Received files, from Link phones, Quick Share, and LocalSend, land here and nowhere else in home.
 ReadWritePaths=-%h/Downloads
 PrivateTmp=yes
 PrivateDevices=yes

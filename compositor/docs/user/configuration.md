@@ -79,6 +79,17 @@ If any included file defines `[drm]`, also declare `[drm]` in the main file.
 This prevents an incomplete GPU exclusion policy from loading when an include
 is unavailable.
 
+## Settings made in a settings app
+
+Changes made from a desktop settings app (Noctalia's Settings) are written to
+`settings.toml` next to `config.toml`. Umbriel loads it after `config.toml` and
+its includes, without an include line, so a value chosen in the app wins over
+the same key written by hand. Resetting a setting in the app removes it from
+`settings.toml`, and the hand-written value or the default applies again. Keys
+the app can change cover input, appearance, animation, layout, workspaces, the
+overview, and focus; the list is in the private protocol's
+`dsk_settings_manager_v1` documentation.
+
 ## General
 
 ```toml

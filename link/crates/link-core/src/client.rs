@@ -17,7 +17,7 @@ use crate::inbox::Inbox;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::Via;
 use crate::session::{self, Route, SessionEvent, SessionHandle};
-use crate::store::Peer;
+use crate::store::{Feature, Peer, feature_of};
 use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::{Error, close_code_for};
 
@@ -48,6 +48,11 @@ pub enum ClientEvent {
     },
     /// Offers, progress, and results of file transfers in both directions.
     Transfer(TransferEvent),
+    /// A feature message from a desktop whose switch for that feature is on.
+    Message {
+        from: DeviceId,
+        message: Message,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -57,13 +62,42 @@ pub struct DesktopState {
 }
 
 enum Command {
-    Pair { target: PairTarget, reply: oneshot::Sender<Result<Peer, Error>> },
-    Session { id: DeviceId, reply: oneshot::Sender<Result<SessionHandle, Error>> },
-    SetPresent { present: bool },
-    Forget { id: DeviceId, reply: oneshot::Sender<Result<(), Error>> },
-    Desktops { reply: oneshot::Sender<Vec<DesktopState>> },
-    Keep { id: DeviceId, keep: bool },
-    SetStatus { status: Status },
+    Keep {
+        id: DeviceId,
+        keep: bool,
+    },
+    SetStatus {
+        status: Status,
+    },
+    Pair {
+        target: PairTarget,
+        reply: oneshot::Sender<Result<Peer, Error>>,
+    },
+    Session {
+        id: DeviceId,
+        reply: oneshot::Sender<Result<SessionHandle, Error>>,
+    },
+    SetPresent {
+        present: bool,
+    },
+    Forget {
+        id: DeviceId,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
+    Desktops {
+        reply: oneshot::Sender<Vec<DesktopState>>,
+    },
+    SetSharing {
+        id: DeviceId,
+        feature: Feature,
+        on: bool,
+        reply: oneshot::Sender<Result<(), Error>>,
+    },
+    /// The live sessions of desktops whose switch for `feature` is on.
+    Sessions {
+        feature: Feature,
+        reply: oneshot::Sender<Vec<SessionHandle>>,
+    },
 }
 
 /// The handle apps hold; every method is answered by the [`ClientActor`].
@@ -169,10 +203,13 @@ impl Client {
         sent
     }
 
-    /// Offers the phone's clipboard to every connected desktop.
+    /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on.
     pub async fn offer_clip(&self, clip: LocalClip) -> Result<(), Error> {
         let desktops = self.desktops().await?;
-        let connected = desktops.into_iter().filter(|desktop| desktop.connected).map(|desktop| desktop.peer.id);
+        let connected = desktops
+            .into_iter()
+            .filter(|desktop| desktop.connected && desktop.peer.grants.clipboard)
+            .map(|desktop| desktop.peer.id);
         self.transfers.offer_clip(connected.collect(), clip).await
     }
 
@@ -210,6 +247,32 @@ impl Client {
 
     pub async fn desktops(&self) -> Result<Vec<DesktopState>, Error> {
         self.request(|reply| Command::Desktops { reply }).await
+    }
+
+    pub async fn set_sharing(&self, id: DeviceId, feature: Feature, on: bool) -> Result<(), Error> {
+        self.request(|reply| Command::SetSharing { id, feature, on, reply }).await?
+    }
+
+    /// Sends an unacknowledged message to every connected desktop whose switch for its feature is on, without
+    /// dialling; returns how many it was written to.
+    pub async fn broadcast(&self, message: Message) -> Result<usize, Error> {
+        message.validate()?;
+        let feature = feature_of(&message).ok_or(Error::Unexpected(message.kind()))?;
+        let sessions = self.request(|reply| Command::Sessions { feature, reply }).await?;
+        let mut sent = 0;
+        for session in sessions {
+            match session.send(message.clone()).await {
+                Ok(()) => sent += 1,
+                Err(error) => log::info!("broadcasting a {}: {error}", message.kind()),
+            }
+        }
+        Ok(sent)
+    }
+
+    /// Sends an unacknowledged message to one desktop, connecting first if needed.
+    pub async fn send(&self, id: DeviceId, message: Message) -> Result<(), Error> {
+        message.validate()?;
+        self.session(id).await?.send(message).await
     }
 
     async fn session(&self, id: DeviceId) -> Result<SessionHandle, Error> {
@@ -293,6 +356,19 @@ impl ClientActor {
                     self.keeping.remove(&id);
                 }
             }
+            Command::SetSharing { id, feature, on, reply } => {
+                drop(reply.send(self.phone.set_sharing(&id, feature, on)));
+            }
+            Command::Sessions { feature, reply } => {
+                let sessions = self
+                    .phone
+                    .desktops()
+                    .iter()
+                    .filter(|peer| peer.grants.allows(feature))
+                    .filter_map(|peer| self.sessions.get(&peer.id).filter(|handle| handle.is_live()).cloned())
+                    .collect();
+                drop(reply.send(sessions));
+            }
         }
     }
 
@@ -309,6 +385,23 @@ impl ClientActor {
                 }
             }
             return;
+        }
+        let allows = |id: &DeviceId, feature| {
+            self.phone.desktops().iter().any(|peer| peer.id == *id && peer.grants.allows(feature))
+        };
+        match &event {
+            TransferEvent::ClipOffered { from, .. } if !allows(from, Feature::Clipboard) => {
+                log::info!("{from}: dropped a clipboard offer its switch does not allow");
+                return;
+            }
+            TransferEvent::Offered { id, from, .. } if !allows(from, Feature::Files) => {
+                log::info!("{from}: declining transfer {id}: its files switch is off");
+                if let Err(error) = self.transfers.decide(*id, false).await {
+                    log::warn!("declining {id}: {error}");
+                }
+                return;
+            }
+            _ => {}
         }
         self.emit(ClientEvent::Transfer(event)).await;
     }
@@ -453,8 +546,19 @@ impl ClientActor {
     }
 
     async fn relay(&self, event: SessionEvent) {
-        if let SessionEvent::Received { from, share } = event {
-            self.emit(ClientEvent::Received { from, share }).await;
+        match event {
+            SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
+            SessionEvent::Message { from, message } => {
+                let allowed = feature_of(&message).is_some_and(|feature| {
+                    self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))
+                });
+                if allowed {
+                    self.emit(ClientEvent::Message { from, message }).await;
+                } else {
+                    log::info!("{from}: dropped a {} its switch does not allow", message.kind());
+                }
+            }
+            SessionEvent::Unpaired { .. } | SessionEvent::Status { .. } => {}
         }
     }
 

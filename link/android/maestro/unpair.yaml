@@ -1,11 +1,14 @@
-# Unpairs the only desktop from the Devices screen.
+# Unpairs the only desktop from its page, opened from the Home screen's hero.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
-- extendedWaitUntil:
-    visible: "Unpair"
-    timeout: 10000
+- scrollUntilVisible:
+    element: "Features and pairing"
+    direction: UP
+- tapOn: "Features and pairing"
+- scrollUntilVisible:
+    element: "Unpair"
 - tapOn: "Unpair"
 - extendedWaitUntil:
     visible: "No desktops yet"

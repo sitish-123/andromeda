@@ -5,9 +5,13 @@
 #include "shell/profile/avatar_path.h"
 #include "shell/settings/settings_window.h"
 #include "system/day_night_schedule.h"
+#include "wayland/settings_control.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <format>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -100,7 +104,40 @@ void SettingsWindow::showTransientStatus(std::string message, bool isError) {
   requestSceneRebuild();
 }
 
+namespace {
+
+  std::string compositorSettingText(const ConfigOverrideValue& value) {
+    return std::visit(
+        []<typename T>(const T& v) -> std::string {
+          if constexpr (std::is_same_v<T, bool>) {
+            return v ? "true" : "false";
+          } else if constexpr (std::is_same_v<T, std::int64_t> || std::is_same_v<T, double>) {
+            return std::format("{}", v);
+          } else if constexpr (std::is_same_v<T, std::string>) {
+            return v;
+          } else {
+            return {};
+          }
+        },
+        value
+    );
+  }
+
+} // namespace
+
+bool SettingsWindow::commitCompositorSetting(const std::vector<std::string>& path, const std::string& value) {
+  const auto key = settings::compositorSettingKey(path);
+  if (!key.has_value()) {
+    return false;
+  }
+  setCompositorSetting(*key, value);
+  return true;
+}
+
 void SettingsWindow::setSettingOverride(std::vector<std::string> path, ConfigOverrideValue value) {
+  if (commitCompositorSetting(path, compositorSettingText(value))) {
+    return;
+  }
   if (path.size() == 2 && path[0] == "shell" && path[1] == "font_family") {
     text::invalidateFontWeightCatalogCache();
   }
@@ -140,6 +177,9 @@ void SettingsWindow::setSettingOverride(std::vector<std::string> path, ConfigOve
 void SettingsWindow::setSettingOverrides(
     std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> overrides
 ) {
+  std::erase_if(overrides, [this](const auto& overrideEntry) {
+    return commitCompositorSetting(overrideEntry.first, compositorSettingText(overrideEntry.second));
+  });
   DeferredCall::callLater([this, overrides = std::move(overrides)]() mutable {
     if (m_config == nullptr) {
       return;
@@ -164,6 +204,9 @@ void SettingsWindow::setSettingOverrides(
 }
 
 void SettingsWindow::clearSettingOverride(std::vector<std::string> path) {
+  if (commitCompositorSetting(path, {})) {
+    return;
+  }
   DeferredCall::callLater([this, path = std::move(path)]() mutable {
     if (m_config == nullptr) {
       return;
@@ -185,6 +228,14 @@ void SettingsWindow::clearSettingOverride(std::vector<std::string> path) {
 }
 
 void SettingsWindow::clearSettingOverrides(std::vector<std::vector<std::string>> paths) {
+  const bool compositorOnly = !paths.empty()
+      && std::ranges::all_of(paths, [](const auto& path) { return settings::compositorSettingKey(path).has_value(); });
+  std::erase_if(paths, [this](const std::vector<std::string>& path) { return commitCompositorSetting(path, {}); });
+  if (compositorOnly) {
+    m_pendingResetPageScope.clear();
+    requestContentRebuild(/*refreshRegistry=*/false, /*refreshFilterRow=*/true);
+    return;
+  }
   DeferredCall::callLater([this, paths = std::move(paths)]() mutable {
     if (m_config == nullptr || paths.empty()) {
       return;

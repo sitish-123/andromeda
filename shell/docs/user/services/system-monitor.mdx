@@ -18,7 +18,7 @@ disk_poll_seconds = 10.0            # disk usage and swap usage
 
 When disabled, Noctalia keeps system-monitor UI available but stops the background sampling thread. Bar `sysmon` widgets, desktop `sysmon` widgets, and the Control Center System tab show unavailable values until the setting is enabled again.
 
-Poll intervals are configured globally under `[system.monitor]`, not per widget. Each value is the number of seconds between samples for that metric group. A non-zero value is clamped to `1` to `120` seconds; setting a value to `0` disables that metric group entirely - it is never sampled and schedules no wakeups. GPU probes run only while UI displays a GPU stat, so the default interval does not wake an otherwise unused discrete GPU. Set `gpu_poll_seconds = 0` to disable probing entirely. You can also adjust intervals in whole-second steps (down to `0`) in **Settings → Services → Advanced** when the system monitor is enabled.
+Poll intervals are configured globally under `[system.monitor]`, not per widget. Each value is the number of seconds between samples for that metric group. A non-zero value is clamped to `1` to `120` seconds; setting a value to `0` disables that metric group entirely - it is never sampled and schedules no wakeups. GPU probes run only while UI displays a GPU stat, so the default interval does not wake an otherwise unused discrete GPU. Set `gpu_poll_seconds = 0` to disable probing entirely. You can also adjust intervals in whole-second steps (down to `0`) in **Settings → System → System** (with **Advanced** on) when the system monitor is enabled.
 
 | Key | Default | Metrics |
 |-----|---------|---------|
@@ -171,4 +171,4 @@ The value's color is interpolated between the widget's regular foreground color 
 | `net_rx_activity_threshold` / `net_rx_critical_threshold` | `1` / `50` | MB/s | Network download |
 | `net_tx_activity_threshold` / `net_tx_critical_threshold` | `1` / `50` | MB/s | Network upload |
 
-The `ram_used` and `ram_pct` stats share the `ram_pct_*` thresholds, since both are driven by the same RAM usage percentage. You can also adjust every threshold in **Settings → Services** when the system monitor is enabled; each stat has a single dual-handle range slider - the left handle sets the activity threshold and the right handle the critical threshold, and the handles cannot cross, so the activity threshold can never exceed its critical threshold.
+The `ram_used` and `ram_pct` stats share the `ram_pct_*` thresholds, since both are driven by the same RAM usage percentage. You can also adjust every threshold in **Settings → System → System** when the system monitor is enabled; each stat has a single dual-handle range slider - the left handle sets the activity threshold and the right handle the critical threshold, and the handles cannot cross, so the activity threshold can never exceed its critical threshold.

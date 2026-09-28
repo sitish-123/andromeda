@@ -203,6 +203,9 @@ are described in [Overview](workspaces-overview.md).
 | `shell:<cmd>` | Run a desktop shell command without starting a process |
 | `shortcuts-inhibit-toggle` | Toggle shortcuts inhibition for the focused surface |
 | `submap:<name>` | Enter a submap layer, or leave one with 'reset' |
+| `zoom-in` | Magnify the screen around the pointer |
+| `zoom-out` | Magnify the screen less, down to off |
+| `zoom-reset` | Turn the screen magnifier off |
 
 ## Layout differences
 

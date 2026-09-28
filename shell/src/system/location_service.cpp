@@ -1,8 +1,11 @@
 #include "system/location_service.h"
 
+#include "cli/schema_msg.h"
 #include "config/config_service.h"
 #include "core/log.h"
+#include "dbus/system_bus.h"
 #include "i18n/i18n.h"
+#include "ipc/ipc_service.h"
 #include "net/http_client.h"
 #include "util/string_utils.h"
 
@@ -10,7 +13,10 @@
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <map>
 #include <nlohmann/json.hpp>
+#include <sdbus-c++/IProxy.h>
+#include <sdbus-c++/Types.h>
 #include <stdexcept>
 #include <system_error>
 
@@ -25,6 +31,16 @@ namespace {
   constexpr auto kRetryInterval = std::chrono::minutes(5);
   // Address geocoding is stable once resolved; idle until the address changes.
   constexpr auto kIdleInterval = std::chrono::hours(24 * 30);
+
+  const sdbus::ServiceName kGeoclueName{"org.freedesktop.GeoClue2"};
+  const sdbus::ObjectPath kGeoclueManagerPath{"/org/freedesktop/GeoClue2/Manager"};
+  constexpr auto kGeoclueManager = "org.freedesktop.GeoClue2.Manager";
+  constexpr auto kGeoclueClient = "org.freedesktop.GeoClue2.Client";
+  constexpr auto kGeoclueLocation = "org.freedesktop.GeoClue2.Location";
+  constexpr auto kProperties = "org.freedesktop.DBus.Properties";
+  // GeoClue lets a client through by the desktop file it names; weather and night light need no more than a city.
+  constexpr auto kGeoclueDesktopId = "dev.noctalia.Noctalia";
+  constexpr std::uint32_t kGeoclueAccuracyCity = 4;
 
   double readNumber(const nlohmann::json& json, const char* key) {
     const auto it = json.find(key);
@@ -154,6 +170,9 @@ void LocationService::onConfigReload() {
   m_config = next;
 
   if (resolutionInputsChanged) {
+    if (!m_config.autoLocate) {
+      stopGeoclue();
+    }
     m_error.clear();
     if (networkResolutionConfigured()) {
       requestRefresh();
@@ -177,7 +196,113 @@ void LocationService::requestRefresh() {
   m_nextRefreshAt = Clock::time_point{};
 }
 
+LocationService::~LocationService() { stopGeoclue(); }
+
+void LocationService::startGeoclue() {
+  if (m_geoclueClient != nullptr) {
+    return;
+  }
+  try {
+    auto manager = sdbus::createProxy(m_systemBus->connection(), kGeoclueName, kGeoclueManagerPath);
+    sdbus::ObjectPath clientPath;
+    manager->callMethod("GetClient").onInterface(kGeoclueManager).storeResultsTo(clientPath);
+    m_geoclueClient = sdbus::createProxy(m_systemBus->connection(), kGeoclueName, clientPath);
+    m_geoclueClient->setProperty("DesktopId").onInterface(kGeoclueClient).toValue(std::string{kGeoclueDesktopId});
+    m_geoclueClient->setProperty("RequestedAccuracyLevel").onInterface(kGeoclueClient).toValue(kGeoclueAccuracyCity);
+    m_geoclueClient->uponSignal("LocationUpdated")
+        .onInterface(kGeoclueClient)
+        .call([this](const sdbus::ObjectPath& /*old*/, const sdbus::ObjectPath& location) {
+          onGeoclueLocation(location);
+        });
+    m_geoclueClient->callMethodAsync("Start").onInterface(kGeoclueClient).uponReplyInvoke(
+        [this](std::optional<sdbus::Error> error) {
+          if (error.has_value()) {
+            kLog.warn("GeoClue refused to locate: {}", error->what());
+            m_error = i18n::tr("location.errors.ip-geolocation-failed");
+            scheduleRetryAfterFailure();
+            notifyChanged();
+          }
+        }
+    );
+    m_requestKind = RequestKind::Geolocate;
+  } catch (const sdbus::Error& e) {
+    kLog.warn("GeoClue unavailable: {}", e.what());
+    m_geoclueClient.reset();
+    scheduleRetryAfterFailure();
+  }
+}
+
+void LocationService::stopGeoclue() {
+  if (m_geoclueClient == nullptr) {
+    return;
+  }
+  try {
+    m_geoclueClient->callMethod("Stop").onInterface(kGeoclueClient).dontExpectReply();
+  } catch (const sdbus::Error& e) {
+    kLog.debug("stopping GeoClue: {}", e.what());
+  }
+  m_geoclueLocation.reset();
+  m_geoclueClient.reset();
+}
+
+void LocationService::onGeoclueLocation(const std::string& path) {
+  m_geoclueLocation = sdbus::createProxy(m_systemBus->connection(), kGeoclueName, sdbus::ObjectPath{path});
+  m_geoclueLocation->callMethodAsync("GetAll")
+      .onInterface(kProperties)
+      .withArguments(std::string{kGeoclueLocation})
+      .uponReplyInvoke([this](std::optional<sdbus::Error> error, std::map<std::string, sdbus::Variant> properties) {
+        m_requestKind = RequestKind::None;
+        if (error.has_value()) {
+          kLog.warn("reading the GeoClue location failed: {}", error->what());
+          return;
+        }
+        try {
+          const double latitude = properties.at("Latitude").get<double>();
+          const double longitude = properties.at("Longitude").get<double>();
+          if (!coordinatesValid(latitude, longitude)) {
+            return;
+          }
+          const auto description = properties.find("Description");
+          m_latitude = latitude;
+          m_longitude = longitude;
+          m_name = description != properties.end() ? description->second.get<std::string>() : std::string{};
+          if (m_name.empty()) {
+            m_name = i18n::tr("location.locations.current");
+          }
+        } catch (const std::exception& e) {
+          kLog.warn("malformed GeoClue location: {}", e.what());
+          return;
+        }
+        m_resolved = true;
+        m_resolvedAutoLocate = true;
+        m_resolvedAddress = m_config.address;
+        m_sourceLabel = i18n::tr("location.source.system");
+        m_error.clear();
+        // GeoClue pushes every later move itself.
+        m_nextRefreshAt = Clock::now() + kIdleInterval;
+        kLog.info("location resolved by GeoClue");
+        saveCache();
+        notifyChanged();
+      });
+}
+
+void LocationService::registerIpc(IpcService& ipc) {
+  ipc.bind(noctalia::cli::msg::locationStatus, [this](const std::string&) -> std::string {
+    const auto location = resolvedLocation();
+    if (!location.has_value()) {
+      return m_error.empty() ? "none\n" : "error: " + m_error + "\n";
+    }
+    return std::format(
+        "{:.4f} {:.4f} {}: {}\n", location->latitude, location->longitude, location->sourceLabel, location->name
+    );
+  });
+}
+
 void LocationService::startGeolocate() {
+  if (m_systemBus != nullptr && m_systemBus->nameHasOwner(std::string{kGeoclueName})) {
+    startGeoclue();
+    return;
+  }
   std::error_code ec;
   std::filesystem::create_directories(transportCacheDir(), ec);
   const auto path = transportCacheDir() / "geolocate.json";

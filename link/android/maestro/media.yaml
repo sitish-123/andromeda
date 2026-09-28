@@ -1,0 +1,13 @@
+# Opens the Media screen, where the desktop's test player shows, and pauses it.
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- scrollUntilVisible:
+    element: "Desktop media"
+- tapOn: "Desktop media"
+- extendedWaitUntil:
+    visible: "Desk Session"
+    timeout: 15000
+- takeScreenshot: ${OUT}/3-desktop-media
+- tapOn: "Pause"

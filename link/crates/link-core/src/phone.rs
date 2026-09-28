@@ -12,7 +12,7 @@ use crate::control::{Control, Tap};
 use crate::identity::{DeviceId, Identity};
 use crate::pairing::pair_as_client;
 use crate::reach::{self, Via};
-use crate::store::{Peer, Store};
+use crate::store::{Feature, Peer, Store};
 use crate::tls::{self, ServerPin};
 use crate::transport::Dialer;
 use crate::uri::PairingUri;
@@ -153,6 +153,12 @@ impl Phone {
         self.store.upsert(peer.clone());
         self.store.save(&self.store_path)?;
         Ok(peer)
+    }
+
+    pub fn set_sharing(&mut self, id: &DeviceId, feature: Feature, on: bool) -> Result<(), Error> {
+        let peer = self.store.peer_mut(id).ok_or(Error::UnknownDevice)?;
+        peer.grants.set(feature, on);
+        self.store.save(&self.store_path)
     }
 
     pub fn forget(&mut self, id: &DeviceId) -> Result<(), Error> {

@@ -13,6 +13,7 @@
 #include <vector>
 
 class ConfigService;
+class SettingsControl;
 class Button;
 class Flex;
 class Node;
@@ -40,19 +41,7 @@ namespace settings {
   [[nodiscard]] bool settingsSectionNeedsOfflineModeNotice(SettingsSection section);
   [[nodiscard]] std::string offlineModeNoticeMessage(SettingsSection section);
 
-  struct SettingsGroupCardProps {
-    Flex& parent;
-    std::string group;
-    std::string title;
-    float scale = 1.0F;
-    std::unordered_set<std::string>& expandedGroups;
-    Button* pill = nullptr;
-    std::function<void(const Node&)> scrollToTop;
-  };
-
-  [[nodiscard]] Flex* addSettingsGroupCard(SettingsGroupCardProps props);
-  // Same card as addSettingsGroupCard without the collapsible header, for transient groupings
-  // (search results) that must never start hidden and hold no expanded state.
+  // A group card; an empty title leaves the heading to the page tab that selects it.
   [[nodiscard]] Flex* addSettingsCard(Flex& parent, std::string_view title, float scale);
 
   [[nodiscard]] std::optional<std::size_t>
@@ -63,7 +52,9 @@ namespace settings {
 
   [[nodiscard]] bool isMonitorOverrideSettingPath(const std::vector<std::string>& path);
   [[nodiscard]] bool monitorOverrideHasExplicitValue(const Config& cfg, const std::vector<std::string>& path);
-  [[nodiscard]] bool settingEntryHasEffectiveOverride(const SettingEntry& entry, const ConfigService& configService);
+  [[nodiscard]] bool settingEntryHasEffectiveOverride(
+      const SettingEntry& entry, const ConfigService& configService, const SettingsControl* compositor = nullptr
+  );
 
   [[nodiscard]] bool isBlankInput(std::string_view text);
   [[nodiscard]] std::string formatSliderValue(double value, bool integerValue);

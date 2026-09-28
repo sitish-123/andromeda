@@ -441,6 +441,19 @@ namespace umbriel {
     return nlohmann::json{{"ok", layers}};
   }
 
+  nlohmann::json IpcCommands::zoom(Server& server, std::string_view /*arg*/) {
+    nlohmann::json outputs = nlohmann::json::array();
+    for (const auto& output : server.outputs()) {
+      const wlr_fbox view = output->zoomView();
+      outputs.push_back({
+          {"name", output->wlr()->name},
+          {"factor", output->zoom()},
+          {"view", {{"x", view.x}, {"y", view.y}, {"width", view.width}, {"height", view.height}}},
+      });
+    }
+    return nlohmann::json{{"ok", std::move(outputs)}};
+  }
+
   nlohmann::json IpcCommands::color(Server& server, std::string_view /*arg*/) {
     nlohmann::json outputs = nlohmann::json::array();
     for (const auto& output : server.outputs()) {
@@ -662,6 +675,7 @@ namespace umbriel {
       {"submap", "", "show the active keybind submap", false, &IpcCommands::submap, &printSubmap},
       {"layers", "", "list layer-shell surfaces", false, &IpcCommands::layers, &printLayers},
       {"color", "", "show color-management state", false, &IpcCommands::color, &printColor},
+      {"zoom", "", "show the screen magnifier's factor and view per output", false, &IpcCommands::zoom, nullptr},
       {"tearing", "", "show tearing-control state", false, &IpcCommands::tearing, &printTearing},
       {"keyboard-layouts", "", "list keyboard layouts", false, &IpcCommands::keyboardLayouts, &printKeyboardLayouts},
 #ifdef UMBRIEL_TEST_IPC

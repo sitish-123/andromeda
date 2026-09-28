@@ -6,20 +6,21 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,8 +31,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.umbriel.link.LinkApplication
 import org.umbriel.link.R
-import org.umbriel.link.ui.LinkTheme
+import org.umbriel.link.ui.components.ConnectionOrb
+import org.umbriel.link.ui.components.Label
+import org.umbriel.link.ui.components.PillButton
+import org.umbriel.link.ui.components.PillKind
+import org.umbriel.link.ui.components.SoftCard
 import org.umbriel.link.ui.text
+import org.umbriel.link.ui.theme.LinkTheme
+import org.umbriel.link.ui.theme.Space
 
 /** The share target for text, links, and files from any app. It shows only a chooser or progress, then a toast. */
 class ShareActivity : ComponentActivity() {
@@ -86,37 +93,36 @@ private fun ShareScreen(viewModel: ShareViewModel, onDone: (String?) -> Unit) {
             )
         }
     }
-    when (val current = state) {
-        ShareState.Loading -> Progress(stringResource(R.string.share_preparing))
-        is ShareState.Sending -> Progress(stringResource(R.string.share_sending, current.desktop.name))
-        is ShareState.Choose -> AlertDialog(
-            onDismissRequest = viewModel::cancel,
-            title = { Text(stringResource(R.string.share_choose)) },
-            text = {
-                Column {
-                    current.desktops.forEach { desktop ->
-                        TextButton(onClick = { viewModel.send(desktop) }) { Text(desktop.name) }
+    val colors = LinkTheme.colors
+    Box(
+        Modifier.fillMaxSize().background(colors.surfaceOverlay)
+            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = viewModel::cancel),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        // The card takes its own taps, so only the scrim around it cancels.
+        val card = remember { MutableInteractionSource() }
+        SoftCard(Modifier.fillMaxWidth().navigationBarsPadding().padding(Space.s12).clickable(card, indication = null) {}) {
+            when (val current = state) {
+                ShareState.Loading -> Progress(stringResource(R.string.share_preparing))
+                is ShareState.Sending -> Progress(stringResource(R.string.share_sending, current.desktop.name))
+                is ShareState.Choose -> {
+                    Label(stringResource(R.string.share_choose), LinkTheme.type.headlineMedium)
+                    Column(Modifier.padding(top = Space.s16), verticalArrangement = Arrangement.spacedBy(Space.s8)) {
+                        current.desktops.forEach { desktop ->
+                            PillButton(desktop.name, { viewModel.send(desktop) }, Modifier.fillMaxWidth(), PillKind.Tonal)
+                        }
+                        PillButton(stringResource(R.string.cancel), viewModel::cancel, Modifier.fillMaxWidth(), PillKind.Quiet)
                     }
                 }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = viewModel::cancel) { Text(stringResource(R.string.cancel)) } },
-        )
+            }
+        }
     }
 }
 
 @Composable
 private fun Progress(label: String) {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator()
-                Text(label)
-            }
-        }
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.s16), verticalAlignment = Alignment.CenterVertically) {
+        ConnectionOrb(active = true, working = true, size = 48.dp)
+        Label(label, LinkTheme.type.titleLarge)
     }
 }

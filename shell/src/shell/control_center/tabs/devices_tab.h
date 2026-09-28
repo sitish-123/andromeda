@@ -8,11 +8,12 @@
 class Flex;
 class Label;
 class LinkService;
+class QuickShareService;
 class ScrollView;
 
 class DevicesTab : public Tab {
 public:
-  explicit DevicesTab(LinkService* link);
+  DevicesTab(LinkService* link, QuickShareService* quickShare);
 
   std::unique_ptr<Flex> create() override;
   void onClose() override;
@@ -27,8 +28,12 @@ private:
   [[nodiscard]] std::unique_ptr<Flex> makeSettings(const std::string& id, float scale);
   [[nodiscard]] std::unique_ptr<Flex> makeNearby(float scale, float opacity);
   void pickAndSend(const std::string& id);
+  void finishPendingSend();
 
   LinkService* m_link = nullptr;
+  QuickShareService* m_quickShare = nullptr;
+  // A file picked to send, waiting for the user to choose a Quick Share or LocalSend device.
+  std::string m_pendingSend;
   Flex* m_rootLayout = nullptr;
   ScrollView* m_listScroll = nullptr;
   Flex* m_list = nullptr;

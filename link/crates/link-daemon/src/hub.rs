@@ -1,6 +1,6 @@
 //! The hub actor: sole owner of the device store, the pairing window, and the set of live sessions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,19 +9,20 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::TransferId;
-use link_core::proto::message::{Share, Status};
+use link_core::proto::message::{Call, CallState, MediaPlayer, Message, NotificationPosted, Share, Status, TransferId};
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
-use link_core::store::{Peer, Store};
+use link_core::store::{Peer, Store, feature_of};
 use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
-
-use crate::localsend::LocalSendHandle;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use crate::desktop_media::{DesktopMediaHandle, Request};
+use crate::localsend::LocalSendHandle;
+use crate::media::Media;
+use crate::notifications::{Change, Mirror};
 use crate::paths::Paths;
 
 const WINDOW: Duration = Duration::from_secs(120);
@@ -74,6 +75,27 @@ pub enum Event {
         mimes: Vec<String>,
         size: u64,
     },
+    NotificationPosted {
+        id: DeviceId,
+        posted: NotificationPosted,
+    },
+    NotificationRemoved {
+        id: DeviceId,
+        notification: String,
+    },
+    /// The phone asks this desktop to ring, or to stop.
+    RingRequested {
+        id: DeviceId,
+        on: bool,
+    },
+    PhoneRinging {
+        id: DeviceId,
+        on: bool,
+    },
+    Call {
+        id: DeviceId,
+        call: Call,
+    },
 }
 
 /// What any transfer backend reports, as the shell sees it: the Link transfer actor and LocalSend alike.
@@ -120,6 +142,8 @@ enum Command {
     CancelTransfer { id: TransferId, reply: oneshot::Sender<bool> },
     SetLocalSend { visible: bool },
     ClipboardPeers { reply: oneshot::Sender<Vec<DeviceId>> },
+    DesktopPlayer { player: MediaPlayer },
+    DesktopPlayerGone { player: String },
 }
 
 #[derive(Clone)]
@@ -146,6 +170,12 @@ pub struct Hub {
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
     status: HashMap<DeviceId, Status>,
+    notifications: Mirror,
+    media: Media,
+    /// Phones with a call ringing or active, during which the desktop's players stay paused.
+    in_call: HashSet<DeviceId>,
+    /// Its own handle, for the exported MPRIS players to reach sessions.
+    me: HubHandle,
     commands: mpsc::Receiver<Command>,
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
@@ -172,10 +202,14 @@ impl Hub {
         own: Spki,
         store: Store,
         paths: Paths,
+        desktop_media: DesktopMediaHandle,
         transfers: Transfers,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
+        let handle =
+            HubHandle { commands: commands_tx, session_events: session_events_tx, transfers: transfers.handle.clone() };
+        let media = Media::new(desktop_media, paths.art.clone());
         let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
         let (events, events_rx) = mpsc::channel(16);
         let mut hub = Self {
@@ -187,6 +221,10 @@ impl Hub {
             windows_opened: 0,
             sessions: HashMap::new(),
             status: HashMap::new(),
+            notifications: Mirror::default(),
+            media,
+            in_call: HashSet::new(),
+            me: handle.clone(),
             commands,
             session_events,
             snapshots,
@@ -198,8 +236,6 @@ impl Hub {
             open: HashMap::new(),
         };
         hub.refresh();
-        let handle =
-            HubHandle { commands: commands_tx, session_events: session_events_tx, transfers: transfers.handle };
         (hub, handle, snapshots_rx, events_rx)
     }
 
@@ -229,7 +265,12 @@ impl Hub {
         match command {
             Command::StartPairing { reply } => drop(reply.send(self.start_pairing())),
             Command::CancelPairing => self.close_window(),
-            Command::Unpair { id, reply } => drop(reply.send(self.unpair(&id))),
+            Command::Unpair { id, reply } => {
+                let unpaired = self.unpair(&id);
+                self.forget_notifications(&id).await;
+                self.media.disconnected(&id).await;
+                let _ = reply.send(unpaired);
+            }
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
             Command::Paired { spki, name, window } => self.paired(&spki, name, window).await,
             Command::PairingFailed { reason, window } => {
@@ -244,8 +285,12 @@ impl Hub {
                     self.sessions.remove(&id);
                     self.status.remove(&id);
                     self.publish();
+                    self.media.disconnected(&id).await;
+                    self.set_in_call(&id, false).await;
                 }
             }
+            Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
+            Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
             Command::Session { id, reply } => {
                 drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
             }
@@ -260,7 +305,14 @@ impl Hub {
                 let _ = reply.send(true);
             }
             Command::SetGrant { id, feature, granted, reply } => {
-                let set = self.store.peer_mut(&id).is_some_and(|peer| peer.grants.set(&feature, granted));
+                let feature = link_core::store::Feature::parse(&feature);
+                let set = match (self.store.peer_mut(&id), feature) {
+                    (Some(peer), Some(feature)) => {
+                        peer.grants.set(feature, granted);
+                        true
+                    }
+                    _ => false,
+                };
                 if set {
                     self.save();
                     self.publish();
@@ -391,7 +443,69 @@ impl Hub {
                 self.store.remove(&from);
                 self.save();
                 self.refresh();
+                self.forget_notifications(&from).await;
+                self.media.disconnected(&from).await;
             }
+            SessionEvent::Message { from, message } => {
+                let granted = feature_of(&message)
+                    .is_some_and(|feature| self.store.peer(&from).is_some_and(|peer| peer.grants.allows(feature)));
+                if !granted {
+                    log::info!("{from}: dropped a {} its grant does not allow", message.kind());
+                } else if self.sessions.contains_key(&from) {
+                    self.on_message(from, message).await;
+                }
+            }
+        }
+    }
+
+    async fn on_message(&mut self, from: DeviceId, message: Message) {
+        match message {
+            Message::NotificationPosted(posted) => {
+                for change in self.notifications.post(&from, posted) {
+                    let event = match change {
+                        Change::Posted(posted) => Event::NotificationPosted { id: from.clone(), posted },
+                        Change::Removed(notification) => Event::NotificationRemoved { id: from.clone(), notification },
+                    };
+                    self.emit(event).await;
+                }
+            }
+            Message::NotificationRemoved(removed) => {
+                if self.notifications.remove(&from, &removed.id) {
+                    self.emit(Event::NotificationRemoved { id: from, notification: removed.id }).await;
+                }
+            }
+            media @ (Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_)) => {
+                let name = self.store.peer(&from).map(|peer| peer.name.clone()).unwrap_or_default();
+                self.media.on_phone_message(&self.me, &from, &name, media).await;
+            }
+            Message::Ring(ring) => self.emit(Event::RingRequested { id: from, on: ring.on }).await,
+            Message::Call(call) => {
+                self.set_in_call(&from, call.state != CallState::Idle).await;
+                self.emit(Event::Call { id: from, call }).await;
+            }
+            Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
+            other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
+        }
+    }
+
+    /// Pauses the desktop's players when a first phone's call starts, and resumes them when the last one ends.
+    async fn set_in_call(&mut self, id: &DeviceId, calling: bool) {
+        let before = self.in_call.is_empty();
+        if calling {
+            self.in_call.insert(id.clone());
+        } else {
+            self.in_call.remove(id);
+        }
+        match (before, self.in_call.is_empty()) {
+            (true, false) => self.media.request(Request::PauseAll).await,
+            (false, true) => self.media.request(Request::ResumePaused).await,
+            _ => {}
+        }
+    }
+
+    async fn forget_notifications(&mut self, id: &DeviceId) {
+        for notification in self.notifications.forget(id) {
+            self.emit(Event::NotificationRemoved { id: id.clone(), notification }).await;
         }
     }
 
@@ -473,6 +587,7 @@ impl Hub {
         peer.name = name;
         peer.touch();
         self.save();
+        self.media.connected(&session);
         if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
@@ -673,6 +788,14 @@ impl HubHandle {
     /// Where a session delivers what its peer sends.
     pub fn route(&self, peer: DeviceId) -> Route {
         Route { peer, events: self.session_events.clone(), transfers: self.transfers.clone() }
+    }
+
+    pub async fn desktop_player(&self, player: MediaPlayer) {
+        self.tell(Command::DesktopPlayer { player }).await;
+    }
+
+    pub async fn desktop_player_gone(&self, player: String) {
+        self.tell(Command::DesktopPlayerGone { player }).await;
     }
 
     pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {

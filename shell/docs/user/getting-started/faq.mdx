@@ -310,7 +310,7 @@ For dock pins, match the desktop entry ID, `StartupWMClass`, display name, or fu
 
 <FaqItem question="Why are weather or Night Light not working?">
 
-Weather and Night Light both use **Settings → Location**. Set **Auto locate** or enter an **Address** there first.
+Weather and Night Light both use **Settings → System → Location**. Set **Auto locate** or enter an **Address** there first.
 
 For Weather, also enable **Location → Weather**. The bar `weather` widget requires the weather service to be enabled.
 
@@ -338,7 +338,7 @@ If you changed your PAM stack for fingerprint, security key, or other authentica
 
 By default yes, when the lock screen is enabled. Noctalia holds a logind sleep delay inhibitor and locks the session on `PrepareForSleep` before allowing suspend or hibernate to proceed (including lid-close sleep). You do not need a separate idle daemon for lock-before-sleep.
 
-To suspend without locking (for example lid close or `systemctl suspend`), set `[lockscreen].lock_before_suspend = false` in Settings → Security → Lock Screen, or in TOML. Explicit **Lock and Suspend** session/idle actions still lock first.
+To suspend without locking (for example lid close or `systemctl suspend`), set `[lockscreen].lock_before_suspend = false` in Settings → System → Security → Lock Screen, or in TOML. Explicit **Lock and Suspend** session/idle actions still lock first.
 
 </FaqItem>
 

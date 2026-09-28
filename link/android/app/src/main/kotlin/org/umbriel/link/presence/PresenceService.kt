@@ -32,6 +32,9 @@ class PresenceService : Service() {
             .setContentText(getString(R.string.presence_text))
             .setContentIntent(open)
             .setOngoing(true)
+            // Its own group, so Android does not bundle it with incoming shares and hide their actions.
+            .setGroup(GROUP)
+            .setSilent(true)
             .build()
         ServiceCompat.startForeground(
             this,
@@ -50,5 +53,6 @@ class PresenceService : Service() {
 
     private companion object {
         const val NOTIFICATION_ID = 1
+        const val GROUP = "presence"
     }
 }

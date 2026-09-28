@@ -44,7 +44,7 @@ with_noctalia '
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
   GRANTS=$(gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Grants)
-  [[ $GRANTS == *"clipboard"*"files"* && $GRANTS != *notifications* ]] || fail "default grants: $GRANTS"
+  [[ $GRANTS == *clipboard*files*notifications*media*ring*calls* ]] || fail "default grants: $GRANTS"
   step "default grants: $GRANTS"
 
   mkfifo "$RUNTIME/phone.in"

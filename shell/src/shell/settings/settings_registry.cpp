@@ -22,14 +22,17 @@
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
+#include "wayland/settings_control.h"
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <format>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -86,36 +89,62 @@ namespace settings {
       return defaultKeybindSet(action);
     }
 
-    constexpr std::array<SettingsSectionDescriptor, 29> kSettingsSections{{
-        {SettingsSection::Appearance, "appearance", "adjustments-horizontal"},
-        {SettingsSection::Displays, "displays", "device-desktop", true, true},
-        {SettingsSection::Input, "input", "keyboard", true, true},
-        {SettingsSection::DateTime, "date-time", "clock", true, true},
-        {SettingsSection::Language, "language", "language", true, true},
-        {SettingsSection::DefaultApps, "default-apps", "apps", true, true},
-        {SettingsSection::Wallpaper, "wallpaper", "paint"},
-        {SettingsSection::Templates, "templates", "color-swatch"},
-        {SettingsSection::Desktop, "desktop", "layout-board"},
-        {SettingsSection::Dock, "dock", "layout-bottombar-inactive"},
-        {SettingsSection::Panels, "panels", "layout-bottombar"},
-        {SettingsSection::Launcher, "launcher", "rocket"},
-        {SettingsSection::ControlCenter, "control-center", "adjustments"},
-        {SettingsSection::Notifications, "notifications", "bell"},
-        {SettingsSection::Osd, "osd", "message-circle"},
-        {SettingsSection::Screenshot, "screenshot", "screenshot"},
-        {SettingsSection::Shell, "shell", "app-window"},
-        {SettingsSection::Keybinds, "keybinds", "keyboard"},
-        {SettingsSection::Security, "security", "shield-lock"},
-        {SettingsSection::System, "system", "activity-heartbeat"},
-        {SettingsSection::Services, "services", "stack-2"},
-        {SettingsSection::Location, "location", "map-pin"},
-        {SettingsSection::Calendar, "calendar", "calendar"},
-        {SettingsSection::Power, "power", "bolt"},
-        {SettingsSection::Hooks, "hooks", "link"},
-        {SettingsSection::Niri, "niri", "niri"},
-        {SettingsSection::Umbriel, "umbriel", "umbriel"},
-        {SettingsSection::Bar, "bar", "crop-3-2", false},
-        {SettingsSection::Plugins, "plugins", "puzzle", true, true},
+    constexpr std::array<SettingsSectionDescriptor, 34> kSettingsSections{{
+        {SettingsSection::Appearance, SettingsCategory::Appearance, "appearance", "palette"},
+        {SettingsSection::WindowStyle, SettingsCategory::Appearance, "window-style", "app-window"},
+        {SettingsSection::Wallpaper, SettingsCategory::Appearance, "wallpaper", "paint"},
+        {SettingsSection::TextScale, SettingsCategory::Appearance, "text-scale", "typography"},
+        {SettingsSection::Motion, SettingsCategory::Appearance, "motion", "sparkles"},
+        {SettingsSection::Bar, SettingsCategory::Desktop, "bar", "crop-3-2", false},
+        {SettingsSection::Dock, SettingsCategory::Desktop, "dock", "layout-bottombar-inactive"},
+        {SettingsSection::Panels, SettingsCategory::Desktop, "panels", "layout-bottombar"},
+        {SettingsSection::Launcher, SettingsCategory::Desktop, "launcher", "rocket"},
+        {SettingsSection::ControlCenter, SettingsCategory::Desktop, "control-center", "adjustments"},
+        {SettingsSection::Notifications, SettingsCategory::Desktop, "notifications", "bell"},
+        {SettingsSection::Desktop, SettingsCategory::Desktop, "desktop", "layout-board"},
+        {SettingsSection::Layout, SettingsCategory::Windows, "layout", "layout-grid"},
+        {SettingsSection::Overview, SettingsCategory::Windows, "overview", "layout-dashboard"},
+        {SettingsSection::Windows, SettingsCategory::Windows, "windows", "pointer"},
+        {SettingsSection::Niri, SettingsCategory::Windows, "niri", "niri"},
+        {SettingsSection::Displays, SettingsCategory::Devices, "displays", "device-desktop", true, true},
+        {SettingsSection::Input, SettingsCategory::Devices, "input", "keyboard", true, true},
+        {SettingsSection::Devices, SettingsCategory::Devices, "devices", "device-mobile", true, true},
+        {SettingsSection::Shortcuts, SettingsCategory::Devices, "shortcuts", "command", true, true},
+        {SettingsSection::Keybinds, SettingsCategory::Devices, "keybinds", "keyboard"},
+        {SettingsSection::Services, SettingsCategory::Devices, "services", "volume"},
+        {SettingsSection::DateTime, SettingsCategory::System, "date-time", "clock", true, true},
+        {SettingsSection::Language, SettingsCategory::System, "language", "language", true, true},
+        {SettingsSection::DefaultApps, SettingsCategory::System, "default-apps", "apps", true, true},
+        {SettingsSection::Power, SettingsCategory::System, "power", "bolt"},
+        {SettingsSection::Security, SettingsCategory::System, "security", "shield-lock"},
+        {SettingsSection::Location, SettingsCategory::System, "location", "map-pin"},
+        {SettingsSection::Calendar, SettingsCategory::System, "calendar", "calendar"},
+        {SettingsSection::Screenshot, SettingsCategory::System, "screenshot", "screenshot"},
+        {SettingsSection::System, SettingsCategory::System, "system", "activity-heartbeat"},
+        {SettingsSection::Shell, SettingsCategory::System, "shell", "settings"},
+        {SettingsSection::Hooks, SettingsCategory::Advanced, "hooks", "link"},
+        {SettingsSection::Plugins, SettingsCategory::Advanced, "plugins", "puzzle", true, true},
+    }};
+
+    struct SettingsCategoryDescriptor {
+      SettingsCategory category;
+      std::string_view id;
+      std::string_view glyph;
+    };
+
+    constexpr std::array<SettingsCategoryDescriptor, 6> kSettingsCategories{{
+        {SettingsCategory::Appearance, "appearance", "palette"},
+        {SettingsCategory::Desktop, "desktop", "layout-dashboard"},
+        {SettingsCategory::Windows, "windows", "app-window"},
+        {SettingsCategory::Devices, "devices", "devices"},
+        {SettingsCategory::System, "system", "settings"},
+        {SettingsCategory::Advanced, "advanced", "tool"},
+    }};
+
+    constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kMergedSectionIds{{
+        {"templates", "appearance"},
+        {"osd", "notifications"},
+        {"umbriel", "overview"},
     }};
 
     const SettingsSectionDescriptor& descriptorFor(SettingsSection section) {
@@ -453,6 +482,234 @@ namespace settings {
     return it->section;
   }
 
+  std::string canonicalSettingsSectionId(std::string_view id) {
+    const auto it = std::ranges::find(kMergedSectionIds, id, &std::pair<std::string_view, std::string_view>::first);
+    return std::string(it != kMergedSectionIds.end() ? it->second : id);
+  }
+
+  SettingsCategory settingsSectionCategory(SettingsSection section) { return descriptorFor(section).category; }
+
+  std::string_view settingsCategoryId(SettingsCategory category) {
+    return std::ranges::find(kSettingsCategories, category, &SettingsCategoryDescriptor::category)->id;
+  }
+
+  std::string_view settingsCategoryGlyph(SettingsCategory category) {
+    return std::ranges::find(kSettingsCategories, category, &SettingsCategoryDescriptor::category)->glyph;
+  }
+
+  namespace {
+
+    constexpr std::string_view kCompositorPathRoot = "umbriel";
+
+    std::vector<std::string> compositorPath(std::string_view key) {
+      std::vector<std::string> path{std::string(kCompositorPathRoot)};
+      for (const auto part : std::views::split(key, '.')) {
+        path.emplace_back(std::string_view(part));
+      }
+      return path;
+    }
+
+    // "appearance.blur.radius" -> "settings.schema.umbriel.appearance-blur-radius"
+    std::string compositorLabelKey(std::string_view key) {
+      std::string id(key);
+      std::ranges::replace(id, '.', '-');
+      std::ranges::replace(id, '_', '-');
+      return "settings.schema.umbriel." + id;
+    }
+
+    double compositorNumber(const SettingsControl& compositor, std::string_view key) {
+      const std::string text = compositor.value(key);
+      double value = 0.0;
+      std::from_chars(text.data(), text.data() + text.size(), value);
+      return value;
+    }
+
+    // Compositor settings, shown only once the compositor's settings manager has reported them. Options that only
+    // apply in one mode (a layout's own options, blur strength with blur off) are left out until they apply; the
+    // registry rebuilds whenever the compositor reports a change.
+    void addCompositorEntries(std::vector<SettingEntry>& entries, const SettingsControl& compositor) {
+      using i18n::tr;
+      const auto isOn = [&](std::string_view key) { return compositor.value(key) == "true"; };
+      const auto add = [&](SettingsSection section, std::string_view group, std::string_view key,
+                           SettingControl control, std::string tags, bool advanced = false) {
+        const std::string labelKey = compositorLabelKey(key);
+        entries.push_back(makeEntry(
+            section, std::string(group), tr(labelKey + ".label"), tr(labelKey + ".description"), compositorPath(key),
+            std::move(control), std::move(tags), advanced
+        ));
+      };
+      const auto toggle = [&](SettingsSection section, std::string_view group, std::string_view key, std::string tags,
+                              bool advanced = false) {
+        add(section, group, key, ToggleSetting{isOn(key)}, std::move(tags), advanced);
+      };
+      const auto slider = [&](SettingsSection section, std::string_view group, std::string_view key, double min,
+                              double max, double step, bool integer, std::string tags, bool advanced = false) {
+        add(section, group, key, SliderSetting(compositorNumber(compositor, key), min, max, step, integer),
+            std::move(tags), advanced);
+      };
+      const auto stepper = [&](SettingsSection section, std::string_view group, std::string_view key, int min, int max,
+                               int step, std::string suffix, std::string tags, bool advanced = false) {
+        add(section, group, key,
+            StepperSetting{
+                .value = static_cast<int>(compositorNumber(compositor, key)),
+                .minValue = min,
+                .maxValue = max,
+                .step = step,
+                .valueSuffix = std::move(suffix),
+            },
+            std::move(tags), advanced);
+      };
+      const auto choice = [&](SettingsSection section, std::string_view group, std::string_view key,
+                              std::initializer_list<std::string_view> values, bool segmented, std::string tags) {
+        const std::string labelKey = compositorLabelKey(key);
+        std::vector<SelectOption> options;
+        for (const std::string_view value : values) {
+          std::string optionId(value);
+          std::ranges::replace(optionId, '_', '-');
+          options.push_back(SelectOption{std::string(value), tr(labelKey + ".options." + optionId)});
+        }
+        SelectSetting select{std::move(options), compositor.value(key)};
+        select.segmented = segmented;
+        add(section, group, key, std::move(select), std::move(tags));
+      };
+
+      using enum SettingsSection;
+      stepper(WindowStyle, "window-borders", "appearance.border_width", 0, 100, 1, "px", "window border width outline");
+      stepper(WindowStyle, "window-borders", "appearance.corner_radius", 0, 100, 1, "px", "window rounded corners");
+      stepper(
+          WindowStyle, "window-borders", "appearance.outer_border_width", 0, 100, 1, "px", "window outer border", true
+      );
+      toggle(WindowStyle, "window-shadow", "appearance.shadow.enabled", "window drop shadow");
+      if (isOn("appearance.shadow.enabled")) {
+        slider(WindowStyle, "window-shadow", "appearance.shadow.softness", 0, 200, 1, true, "window shadow blur size");
+        stepper(
+            WindowStyle, "window-shadow", "appearance.shadow.offset_x", -200, 200, 1, "px", "window shadow offset", true
+        );
+        stepper(
+            WindowStyle, "window-shadow", "appearance.shadow.offset_y", -200, 200, 1, "px", "window shadow offset", true
+        );
+      }
+      toggle(WindowStyle, "window-blur", "appearance.blur.enabled", "window background blur transparency");
+      if (isOn("appearance.blur.enabled")) {
+        slider(WindowStyle, "window-blur", "appearance.blur.radius", 0, 100, 1, true, "blur strength radius");
+        slider(WindowStyle, "window-blur", "appearance.blur.passes", 0, 8, 1, true, "blur quality passes");
+        toggle(WindowStyle, "window-blur", "appearance.blur.optimized", "blur optimized performance", true);
+        slider(WindowStyle, "window-blur", "appearance.blur.noise", 0.0, 1.0, 0.01, false, "blur noise grain", true);
+        slider(
+            WindowStyle, "window-blur", "appearance.blur.brightness", 0.0, 2.0, 0.05, false, "blur brightness", true
+        );
+        slider(WindowStyle, "window-blur", "appearance.blur.contrast", 0.0, 2.0, 0.05, false, "blur contrast", true);
+        slider(
+            WindowStyle, "window-blur", "appearance.blur.saturation", 0.0, 2.0, 0.05, false, "blur saturation", true
+        );
+      }
+      toggle(WindowStyle, "window-decorations", "appearance.prefer_no_csd", "client side decorations title bar csd");
+      slider(
+          WindowStyle, "window-decorations", "appearance.drag_opacity", 0.0, 1.0, 0.05, false,
+          "window drag move opacity transparency"
+      );
+      toggle(WindowStyle, "window-decorations", "appearance.opaque_fullscreen", "fullscreen opaque transparency", true);
+
+      toggle(Motion, "window-motion", "animation.enabled", "window animations compositor");
+      if (isOn("animation.enabled")) {
+        stepper(Motion, "window-motion", "animation.duration_ms", 1, 10000, 25, "ms", "animation duration speed");
+        toggle(Motion, "window-motion", "animation.windows_in.enabled", "window open animation");
+        if (isOn("animation.windows_in.enabled")) {
+          choice(
+              Motion, "window-motion", "animation.windows_in.style", {"popin", "zoom", "slide", "fade", "none"}, false,
+              "window open animation style"
+          );
+        }
+        toggle(Motion, "window-motion", "animation.windows_out.enabled", "window close animation");
+        if (isOn("animation.windows_out.enabled")) {
+          choice(
+              Motion, "window-motion", "animation.windows_out.style", {"fade", "slide", "popin", "zoom"}, false,
+              "window close animation style"
+          );
+        }
+        toggle(Motion, "window-motion", "animation.windows_move.enabled", "window move resize animation");
+        toggle(Motion, "window-motion", "animation.workspaces.enabled", "workspace switch animation");
+        toggle(Motion, "window-motion", "animation.overview.enabled", "overview animation");
+        toggle(Motion, "window-motion", "animation.scratchpad.enabled", "scratchpad animation");
+        toggle(Motion, "window-motion", "animation.border.enabled", "border focus color animation");
+        toggle(Motion, "window-motion", "animation.layers.enabled", "panel layer surface animation", true);
+      }
+      toggle(Motion, "dim-unfocused", "animation.dim_unfocused.enabled", "dim inactive unfocused windows");
+      if (isOn("animation.dim_unfocused.enabled")) {
+        slider(Motion, "dim-unfocused", "animation.dim_unfocused.dim", 0.0, 1.0, 0.05, false, "dim amount");
+      }
+
+      const std::string mode = compositor.value("layout.mode");
+      choice(Layout, "layout", "layout.mode", {"scrolling", "dwindle", "master"}, true, "tiling layout mode");
+      stepper(Layout, "layout", "layout.gap", 0, 500, 1, "px", "gaps spacing between windows");
+      if (mode == "scrolling") {
+        choice(
+            Layout, "layout", "layout.scrolling.center_focused", {"never", "always", "on_overflow"}, false,
+            "center focused column"
+        );
+        toggle(Layout, "layout", "layout.scrolling.center_underfull_strip", "center columns");
+      } else if (mode == "dwindle") {
+        toggle(Layout, "layout", "layout.dwindle.preserve_split", "split direction");
+      } else if (mode == "master") {
+        choice(Layout, "layout", "layout.master.position", {"left", "right", "center"}, true, "master stack position");
+        slider(Layout, "layout", "layout.master.default_width_fraction", 0.1, 0.9, 0.05, false, "master width ratio");
+        toggle(Layout, "layout", "layout.master.new_on_top", "new window stack order");
+        toggle(Layout, "layout", "layout.master.new_becomes_master", "new window master");
+      }
+      toggle(Layout, "workspaces", "workspaces.back_and_forth", "workspace back and forth previous");
+      toggle(Layout, "workspaces", "workspaces.empty_above", "workspace empty");
+
+      slider(Overview, "overview", "overview.zoom", 0.1, 0.75, 0.05, false, "overview zoom scale size");
+      toggle(Overview, "overview", "overview.background_blur", "overview blur wallpaper");
+      toggle(Overview, "overview", "overview.workspace_wallpaper", "overview wallpaper preview");
+      toggle(Overview, "overview", "overview.shortcuts", "overview keyboard shortcut badges");
+
+      toggle(Windows, "focus", "input.focus.follows_mouse", "focus follows mouse hover pointer");
+      toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");
+      toggle(Windows, "focus", "general.focus_on_activate", "focus activation request urgent");
+      toggle(Windows, "focus", "general.show_cheatsheet", "keybind cheatsheet startup help");
+
+      choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
+
+      // Hot corners run a compositor action; the shell's own panels are reached through shell: actions.
+      constexpr std::array<std::pair<std::string_view, std::string_view>, 5> kCornerActions{{
+          {"shell:panel-toggle launcher", "launcher"},
+          {"shell:panel-toggle control-center", "control-center"},
+          {"shell:window-switcher", "window-switcher"},
+          {"overview-toggle", "overview"},
+          {"cheatsheet-toggle", "cheatsheet"},
+      }};
+      for (const std::string_view corner : {"top_left", "top_right", "bottom_left", "bottom_right"}) {
+        const std::string prefix = "hot_corners." + std::string(corner);
+        toggle(Windows, "hot-corners", prefix + ".enabled", "hot corner screen edge pointer " + std::string(corner));
+        if (!isOn(prefix + ".enabled")) {
+          continue;
+        }
+        const std::string actionKey = prefix + ".action";
+        const std::string current = compositor.value(actionKey);
+        std::vector<SelectOption> options;
+        for (const auto& [value, id] : kCornerActions) {
+          options.push_back(
+              SelectOption{std::string(value), tr("settings.schema.umbriel.hot-corner-actions." + std::string(id))}
+          );
+        }
+        if (!current.empty() && std::ranges::none_of(kCornerActions, [&](const auto& a) { return a.first == current; })) {
+          options.push_back(SelectOption{current, current});
+        }
+        add(Windows, "hot-corners", actionKey, SelectSetting{std::move(options), current}, "hot corner action");
+        stepper(Windows, "hot-corners", prefix + ".delay_ms", 0, 10000, 50, "ms", "hot corner delay");
+      }
+    }
+
+  } // namespace
+
+  std::optional<std::string> compositorSettingKey(const std::vector<std::string>& path) {
+    if (path.size() < 2 || path.front() != kCompositorPathRoot) {
+      return std::nullopt;
+    }
+    return StringUtils::join(std::vector<std::string>(path.begin() + 1, path.end()), ".");
+  }
+
   std::vector<SettingEntry> buildSettingsRegistry(
       const Config& cfg, const BarConfig* selectedBar, const BarMonitorOverride* selectedMonitorOverride,
       const RegistryEnvironment& env
@@ -553,24 +810,24 @@ namespace settings {
         };
       }
       entries.push_back(makeEntry(
-          SettingsSection::Appearance, "interface", tr("settings.schema.appearance.font-family.label"),
+          SettingsSection::TextScale, "text", tr("settings.schema.appearance.font-family.label"),
           tr("settings.schema.appearance.font-family.description"), {"shell", "font_family"},
           std::move(fontFamilyControl), "typeface"
       ));
     }
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "interface", tr("settings.schema.appearance.language.label"),
+        SettingsSection::TextScale, "text", tr("settings.schema.appearance.language.label"),
         tr("settings.schema.appearance.language.description"), {"shell", "lang"}, languageSelect(cfg.shell.lang),
         "locale translation", true
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "interface", tr("settings.schema.appearance.corner-roundness.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.corner-roundness.label"),
         tr("settings.schema.appearance.corner-roundness.description"), {"shell", "corner_radius_scale"},
         sliderFor(cfg.shell.cornerRadiusScale, noctalia::config::schema::kCornerRadiusScaleRange, false),
         "rounded corners radius"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "interface", tr("settings.schema.appearance.app-icon-colorize.label"),
+        SettingsSection::Appearance, "icons", tr("settings.schema.appearance.app-icon-colorize.label"),
         tr("settings.schema.appearance.app-icon-colorize.description"), {"shell", "app_icon_colorize"},
         ToggleSetting{cfg.shell.appIconColorize}, "tint all application icons"
     ));
@@ -581,7 +838,7 @@ namespace settings {
       const ColorSpec pickerColor =
           cfg.shell.appIconColor.value_or(*effectiveShellAppIconColorizationTint(colorizeShell));
       auto e = makeEntry(
-          SettingsSection::Appearance, "interface", tr("settings.schema.appearance.app-icon-color.label"),
+          SettingsSection::Appearance, "icons", tr("settings.schema.appearance.app-icon-color.label"),
           tr("settings.schema.appearance.app-icon-color.description"), {"shell", "app_icon_color"},
           colorSpecPicker(pickerColor), "color role dock tray application icons"
       );
@@ -589,62 +846,65 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "accessibility", tr("settings.schema.appearance.ui-scale.label"),
+        SettingsSection::TextScale, "accessibility", tr("settings.schema.appearance.ui-scale.label"),
         tr("settings.schema.appearance.ui-scale.description"), {"accessibility", "ui_scale"},
         sliderFor(cfg.accessibility.uiScale, noctalia::config::schema::kScaleRange, false), "size scale text panels"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "accessibility", tr("settings.schema.accessibility.high-contrast.label"),
+        SettingsSection::TextScale, "accessibility", tr("settings.schema.accessibility.high-contrast.label"),
         tr("settings.schema.accessibility.high-contrast.description"), {"accessibility", "high_contrast"},
         ToggleSetting{cfg.accessibility.highContrast}, "accessibility high contrast visually impaired"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "motion", tr("settings.schema.appearance.animations.label"),
+        SettingsSection::Motion, "motion", tr("settings.schema.appearance.animations.label"),
         tr("settings.schema.appearance.animations.description"), {"shell", "animation", "enabled"},
         ToggleSetting{cfg.shell.animation.enabled}, "motion"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "motion", tr("settings.schema.appearance.animation-speed.label"),
+        SettingsSection::Motion, "motion", tr("settings.schema.appearance.animation-speed.label"),
         tr("settings.schema.appearance.animation-speed.description"), {"shell", "animation", "speed"},
         sliderFor(cfg.shell.animation.speed, noctalia::config::schema::kAnimationSpeedRange, false), "motion"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "borders", tr("settings.schema.appearance.button-borders.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.button-borders.label"),
         tr("settings.schema.appearance.button-borders.description"), {"shell", "button_borders"},
         ToggleSetting{cfg.shell.buttonBorders}, "button outline border flat minimal"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "borders", tr("settings.schema.appearance.input-borders.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.input-borders.label"),
         tr("settings.schema.appearance.input-borders.description"), {"shell", "input_borders"},
         ToggleSetting{cfg.shell.inputBorders}, "input text box field outline border flat minimal"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "borders", tr("settings.schema.appearance.popup-borders.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.popup-borders.label"),
         tr("settings.schema.appearance.popup-borders.description"), {"shell", "popup_borders"},
         ToggleSetting{cfg.shell.popupBorders}, "popup menu dropdown outline border flat minimal"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "borders", tr("settings.schema.appearance.card-borders.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.card-borders.label"),
         tr("settings.schema.appearance.card-borders.description"), {"shell", "card_borders"},
         ToggleSetting{cfg.shell.cardBorders}, "card section outline border flat minimal"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "effects", tr("settings.schema.shared.shadow-direction.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.shared.shadow-direction.label"),
         tr("settings.schema.appearance.global-shadow-direction.description"), {"shell", "shadow", "direction"},
         enumSelect(kShadowDirections, cfg.shell.shadow.direction), "shadow direction"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "effects", tr("settings.schema.shared.shadow-alpha.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.shared.shadow-alpha.label"),
         tr("settings.schema.appearance.global-shadow-alpha.description"), {"shell", "shadow", "alpha"},
         sliderFor(cfg.shell.shadow.alpha, noctalia::config::schema::kUnitRange, false), "shadow opacity", true
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Appearance, "effects", tr("settings.schema.appearance.popup-shadows.label"),
+        SettingsSection::Appearance, "surfaces", tr("settings.schema.appearance.popup-shadows.label"),
         tr("settings.schema.appearance.popup-shadows.description"), {"shell", "popup_shadows"},
         ToggleSetting{cfg.shell.popupShadows}, "popup menu dropdown drop shadow depth"
     ));
 
     // Wallpaper
+    if (env.compositorSettings != nullptr) {
+      addCompositorEntries(entries, *env.compositorSettings);
+    }
     entries.push_back(makeEntry(
         SettingsSection::Wallpaper, "general", tr("settings.schema.shared.enabled.label"),
         tr("settings.schema.wallpaper.enabled.description"), {"wallpaper", "enabled"},
@@ -844,7 +1104,7 @@ namespace settings {
     const auto communityTemplatesOn =
         SettingVisibility{[](const Config& c) { return c.theme.templates.enableCommunityTemplates; }};
     entries.push_back(makeEntry(
-        SettingsSection::Templates, "built-in", tr("settings.schema.templates.enable-builtins.label"),
+        SettingsSection::Appearance, "templates", tr("settings.schema.templates.enable-builtins.label"),
         tr("settings.schema.templates.enable-builtins.description"), {"theme", "templates", "enable_builtin_templates"},
         ToggleSetting{cfg.theme.templates.enableBuiltinTemplates}, "theme templates"
     ));
@@ -863,7 +1123,7 @@ namespace settings {
         );
       }
       auto e = makeEntry(
-          SettingsSection::Templates, "built-in", tr("settings.schema.templates.builtin-ids.label"),
+          SettingsSection::Appearance, "templates", tr("settings.schema.templates.builtin-ids.label"),
           tr("settings.schema.templates.builtin-ids.description"), {"theme", "templates", "builtin_ids"},
           TemplateGridSetting{
               .options = std::move(templateOptions),
@@ -876,7 +1136,7 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     entries.push_back(makeEntry(
-        SettingsSection::Templates, "community", tr("settings.schema.templates.enable-community-templates.label"),
+        SettingsSection::Appearance, "templates", tr("settings.schema.templates.enable-community-templates.label"),
         tr("settings.schema.templates.enable-community-templates.description"),
         {"theme", "templates", "enable_community_templates"},
         ToggleSetting{cfg.theme.templates.enableCommunityTemplates}, "theme templates community"
@@ -884,7 +1144,7 @@ namespace settings {
     {
       const std::size_t enabledCount = cfg.theme.templates.communityIds.size();
       auto e = makeEntry(
-          SettingsSection::Templates, "community", tr("settings.schema.templates.community-ids.label"),
+          SettingsSection::Appearance, "templates", tr("settings.schema.templates.community-ids.label"),
           enabledCount == 0 ? tr("settings.schema.templates.community-ids.description")
                             : tr("settings.templates.store.enabled-count", "count", std::to_string(enabledCount)),
           {},
@@ -1229,18 +1489,18 @@ namespace settings {
     };
 
     entries.push_back(makeEntry(
-        SettingsSection::Launcher, "launcher", tr("settings.schema.panels.placement-launcher.label"),
+        SettingsSection::Panels, "launcher", tr("settings.schema.panels.placement-launcher.label"),
         tr("settings.schema.panels.placement-launcher.description"), {"shell", "panel", "launcher_placement"},
         asSegmented(enumSelect(kPanelPlacements, cfg.shell.panel.launcherPlacement)),
         "attached floating bar panel position"
     ));
     entries.push_back(panelPositionEntry(
-        SettingsSection::Launcher, "launcher", "launcher", "settings.schema.panels.position-launcher.label",
+        SettingsSection::Panels, "launcher", "launcher", "settings.schema.panels.position-launcher.label",
         "settings.schema.panels.position-launcher.description", cfg.shell.panel.launcherPosition,
         &ShellConfig::PanelConfig::launcherPlacement
     ));
     entries.push_back(panelBarAlignmentEntry(
-        SettingsSection::Launcher, "launcher", "launcher", "settings.schema.panels.open-near-click-launcher.label",
+        SettingsSection::Panels, "launcher", "launcher", "settings.schema.panels.open-near-click-launcher.label",
         "settings.schema.panels.open-near-click-launcher.description", cfg.shell.panel.openNearClickLauncher,
         &ShellConfig::PanelConfig::launcherPlacement, &ShellConfig::PanelConfig::launcherPosition
     ));
@@ -1385,20 +1645,20 @@ namespace settings {
 
     // Control Center
     entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "layout", tr("settings.schema.panels.placement-control-center.label"),
+        SettingsSection::Panels, "control-center", tr("settings.schema.panels.placement-control-center.label"),
         tr("settings.schema.panels.placement-control-center.description"),
         {"shell", "panel", "control_center_placement"},
         asSegmented(enumSelect(kPanelPlacements, cfg.shell.panel.controlCenterPlacement)),
         "attached floating bar panel position"
     ));
     entries.push_back(panelPositionEntry(
-        SettingsSection::ControlCenter, "layout", "control_center",
+        SettingsSection::Panels, "control-center", "control_center",
         "settings.schema.panels.position-control-center.label",
         "settings.schema.panels.position-control-center.description", cfg.shell.panel.controlCenterPosition,
         &ShellConfig::PanelConfig::controlCenterPlacement
     ));
     entries.push_back(panelBarAlignmentEntry(
-        SettingsSection::ControlCenter, "layout", "control_center",
+        SettingsSection::Panels, "control-center", "control_center",
         "settings.schema.panels.open-near-click-control-center.label",
         "settings.schema.panels.open-near-click-control-center.description", cfg.shell.panel.openNearClickControlCenter,
         &ShellConfig::PanelConfig::controlCenterPlacement, &ShellConfig::PanelConfig::controlCenterPosition
@@ -1480,85 +1740,88 @@ namespace settings {
         "screen corners radius"
     ));
 
-    entries.push_back(makeEntry(
-        SettingsSection::Desktop, "hot-corners", tr("settings.schema.desktop.hot-corners-enabled.label"),
-        tr("settings.schema.desktop.hot-corners-enabled.description"), {"hot_corners", "enabled"},
-        ToggleSetting{cfg.hotCorners.enabled}, "hot corners trigger mouse edge screen"
-    ));
-    {
-      auto delay = sliderFor(
-          static_cast<std::int64_t>(cfg.hotCorners.delayMs), noctalia::config::schema::kHotCornersDelayMsRange, true
-      );
-      delay.valueSuffix = "ms";
-      SettingEntry e = makeEntry(
-          SettingsSection::Desktop, "hot-corners", tr("settings.schema.desktop.hot-corners-delay-ms.label"),
-          tr("settings.schema.desktop.hot-corners-delay-ms.description"), {"hot_corners", "delay_ms"}, std::move(delay),
-          "hot corners delay hold ms timeout"
-      );
-      e.visibleWhen = [](const Config& conf) { return conf.hotCorners.enabled; };
-      entries.push_back(std::move(e));
-    }
+    // On Umbriel the compositor owns hot corners; the shell's were moved to it (HotCorners::migrateToCompositor).
+    if (env.compositorSettings == nullptr) {
+      entries.push_back(makeEntry(
+          SettingsSection::Windows, "hot-corners", tr("settings.schema.desktop.hot-corners-enabled.label"),
+          tr("settings.schema.desktop.hot-corners-enabled.description"), {"hot_corners", "enabled"},
+          ToggleSetting{cfg.hotCorners.enabled}, "hot corners trigger mouse edge screen"
+      ));
+      {
+        auto delay = sliderFor(
+            static_cast<std::int64_t>(cfg.hotCorners.delayMs), noctalia::config::schema::kHotCornersDelayMsRange, true
+        );
+        delay.valueSuffix = "ms";
+        SettingEntry e = makeEntry(
+            SettingsSection::Windows, "hot-corners", tr("settings.schema.desktop.hot-corners-delay-ms.label"),
+            tr("settings.schema.desktop.hot-corners-delay-ms.description"), {"hot_corners", "delay_ms"}, std::move(delay),
+            "hot corners delay hold ms timeout"
+        );
+        e.visibleWhen = [](const Config& conf) { return conf.hotCorners.enabled; };
+        entries.push_back(std::move(e));
+      }
 
-    auto hotCornerActionSelect = [](const std::string& current) {
-      return plainSelect(
-          {{"none", "settings.options.hot-corners.none"},
-           {"launcher", "settings.options.hot-corners.launcher"},
-           {"control_center", "settings.options.hot-corners.control-center"},
-           {"window_switcher", "settings.options.hot-corners.window-switcher"},
-           {"command", "settings.options.hot-corners.command"}},
-          current
-      );
-    };
-
-    auto addCornerEntry = [&](const std::string& key, const std::string& labelKey, const std::string& currentAction,
-                              const std::string& currentCommand) {
-      SettingEntry e = makeEntry(
-          SettingsSection::Desktop, "hot-corners", tr(labelKey + ".label"), tr(labelKey + ".description"),
-          {"hot_corners", key, "action"}, hotCornerActionSelect(currentAction), "hot corners " + key
-      );
-      e.visibleWhen = [](const Config& conf) { return conf.hotCorners.enabled; };
-      entries.push_back(std::move(e));
-
-      SettingEntry c = makeEntry(
-          SettingsSection::Desktop, "hot-corners", tr(labelKey + "-command.label"),
-          tr(labelKey + "-command.description"), {"hot_corners", key, "command"},
-          TextSetting{.value = currentCommand, .placeholder = "Run command..."}, "hot corners command execute " + key
-      );
-      c.visibleWhen = [key](const Config& conf) {
-        if (!conf.hotCorners.enabled) {
-          return false;
-        }
-        const HotCornersConfig::Corner* corner = nullptr;
-        if (key == "top_left") {
-          corner = &conf.hotCorners.topLeft;
-        } else if (key == "top_right") {
-          corner = &conf.hotCorners.topRight;
-        } else if (key == "bottom_left") {
-          corner = &conf.hotCorners.bottomLeft;
-        } else if (key == "bottom_right") {
-          corner = &conf.hotCorners.bottomRight;
-        }
-        return corner != nullptr && corner->action == "command";
+      auto hotCornerActionSelect = [](const std::string& current) {
+        return plainSelect(
+            {{"none", "settings.options.hot-corners.none"},
+             {"launcher", "settings.options.hot-corners.launcher"},
+             {"control_center", "settings.options.hot-corners.control-center"},
+             {"window_switcher", "settings.options.hot-corners.window-switcher"},
+             {"command", "settings.options.hot-corners.command"}},
+            current
+        );
       };
-      entries.push_back(std::move(c));
-    };
 
-    addCornerEntry(
-        "top_left", "settings.schema.desktop.hot-corners-top-left", cfg.hotCorners.topLeft.action,
-        cfg.hotCorners.topLeft.command
-    );
-    addCornerEntry(
-        "top_right", "settings.schema.desktop.hot-corners-top-right", cfg.hotCorners.topRight.action,
-        cfg.hotCorners.topRight.command
-    );
-    addCornerEntry(
-        "bottom_left", "settings.schema.desktop.hot-corners-bottom-left", cfg.hotCorners.bottomLeft.action,
-        cfg.hotCorners.bottomLeft.command
-    );
-    addCornerEntry(
-        "bottom_right", "settings.schema.desktop.hot-corners-bottom-right", cfg.hotCorners.bottomRight.action,
-        cfg.hotCorners.bottomRight.command
-    );
+      auto addCornerEntry = [&](const std::string& key, const std::string& labelKey, const std::string& currentAction,
+                                const std::string& currentCommand) {
+        SettingEntry e = makeEntry(
+            SettingsSection::Windows, "hot-corners", tr(labelKey + ".label"), tr(labelKey + ".description"),
+            {"hot_corners", key, "action"}, hotCornerActionSelect(currentAction), "hot corners " + key
+        );
+        e.visibleWhen = [](const Config& conf) { return conf.hotCorners.enabled; };
+        entries.push_back(std::move(e));
+
+        SettingEntry c = makeEntry(
+            SettingsSection::Windows, "hot-corners", tr(labelKey + "-command.label"),
+            tr(labelKey + "-command.description"), {"hot_corners", key, "command"},
+            TextSetting{.value = currentCommand, .placeholder = "Run command..."}, "hot corners command execute " + key
+        );
+        c.visibleWhen = [key](const Config& conf) {
+          if (!conf.hotCorners.enabled) {
+            return false;
+          }
+          const HotCornersConfig::Corner* corner = nullptr;
+          if (key == "top_left") {
+            corner = &conf.hotCorners.topLeft;
+          } else if (key == "top_right") {
+            corner = &conf.hotCorners.topRight;
+          } else if (key == "bottom_left") {
+            corner = &conf.hotCorners.bottomLeft;
+          } else if (key == "bottom_right") {
+            corner = &conf.hotCorners.bottomRight;
+          }
+          return corner != nullptr && corner->action == "command";
+        };
+        entries.push_back(std::move(c));
+      };
+
+      addCornerEntry(
+          "top_left", "settings.schema.desktop.hot-corners-top-left", cfg.hotCorners.topLeft.action,
+          cfg.hotCorners.topLeft.command
+      );
+      addCornerEntry(
+          "top_right", "settings.schema.desktop.hot-corners-top-right", cfg.hotCorners.topRight.action,
+          cfg.hotCorners.topRight.command
+      );
+      addCornerEntry(
+          "bottom_left", "settings.schema.desktop.hot-corners-bottom-left", cfg.hotCorners.bottomLeft.action,
+          cfg.hotCorners.bottomLeft.command
+      );
+      addCornerEntry(
+          "bottom_right", "settings.schema.desktop.hot-corners-bottom-right", cfg.hotCorners.bottomRight.action,
+          cfg.hotCorners.bottomRight.command
+      );
+    }
 
     // Security
     entries.push_back(makeEntry(
@@ -2011,213 +2274,39 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-style.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-style.label"),
         tr("settings.schema.shell.window-switcher-style.description"), {"shell", "window_switcher", "style"},
         enumSelect(ShellConfig::kWindowSwitcherStyles, cfg.shell.windowSwitcher.style),
         "window switcher alt tab style carousel compact"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-mru.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-mru.label"),
         tr("settings.schema.shell.window-switcher-mru.description"), {"shell", "window_switcher", "mru"},
         ToggleSetting{cfg.shell.windowSwitcher.mru}, "window switcher alt tab mru most recently used"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-show-caption.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-show-caption.label"),
         tr("settings.schema.shell.window-switcher-show-caption.description"),
         {"shell", "window_switcher", "show_caption"}, ToggleSetting{cfg.shell.windowSwitcher.showCaption},
         "window switcher alt tab caption title application name"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-show-count.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-show-count.label"),
         tr("settings.schema.shell.window-switcher-show-count.description"), {"shell", "window_switcher", "show_count"},
         ToggleSetting{cfg.shell.windowSwitcher.showCount}, "window switcher alt tab count position total"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-show-app-icon.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-show-app-icon.label"),
         tr("settings.schema.shell.window-switcher-show-app-icon.description"),
         {"shell", "window_switcher", "show_app_icon"}, ToggleSetting{cfg.shell.windowSwitcher.showAppIcon},
         "window switcher alt tab application app icon"
     ));
     entries.push_back(makeEntry(
-        SettingsSection::Shell, "window-switcher", tr("settings.schema.shell.window-switcher-show-all-outputs.label"),
+        SettingsSection::Windows, "window-switcher", tr("settings.schema.shell.window-switcher-show-all-outputs.label"),
         tr("settings.schema.shell.window-switcher-show-all-outputs.description"),
         {"shell", "window_switcher", "show_all_outputs"}, ToggleSetting{cfg.shell.windowSwitcher.showAllOutputs},
         "window switcher alt tab monitor display output screen all current"
     ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-enabled.label"),
-        tr("settings.schema.shell.osd-enabled.description"), {"osd", "enabled"}, ToggleSetting{cfg.osd.enabled},
-        "hud overlay master enable disable all"
-    ));
-    const std::size_t osdGatedStart = entries.size();
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-orientation.label"),
-        tr("settings.schema.shell.osd-orientation.description"), {"osd", "orientation"},
-        asSegmented(plainSelect(
-            {{"horizontal", "settings.options.orientation.horizontal"},
-             {"vertical", "settings.options.orientation.vertical"}},
-            cfg.osd.orientation
-        )),
-        "hud overlay volume brightness vertical"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-position.label"),
-        tr("settings.schema.shell.osd-position.description"), {"osd", "position"},
-        plainSelect(
-            {{"top_right", "settings.options.screen-position.top-right"},
-             {"top_left", "settings.options.screen-position.top-left"},
-             {"top_center", "settings.options.screen-position.top-center"},
-             {"bottom_right", "settings.options.screen-position.bottom-right"},
-             {"bottom_left", "settings.options.screen-position.bottom-left"},
-             {"bottom_center", "settings.options.screen-position.bottom-center"},
-             {"center_right", "settings.options.screen-position.center-right"},
-             {"center_left", "settings.options.screen-position.center-left"}},
-            cfg.osd.position
-        ),
-        "hud overlay volume brightness horizontal text"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-position-vertical.label"),
-        tr("settings.schema.shell.osd-position-vertical.description"), {"osd", "position_vertical"},
-        plainSelect(
-            {{"top_right", "settings.options.screen-position.top-right"},
-             {"top_left", "settings.options.screen-position.top-left"},
-             {"top_center", "settings.options.screen-position.top-center"},
-             {"bottom_right", "settings.options.screen-position.bottom-right"},
-             {"bottom_left", "settings.options.screen-position.bottom-left"},
-             {"bottom_center", "settings.options.screen-position.bottom-center"},
-             {"center_right", "settings.options.screen-position.center-right"},
-             {"center_left", "settings.options.screen-position.center-left"}},
-            cfg.osd.positionVertical
-        ),
-        "hud overlay volume brightness vertical slider"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-scale.label"),
-        tr("settings.schema.shell.osd-scale.description"), {"osd", "scale"},
-        sliderFor(cfg.osd.scale, noctalia::config::schema::kScaleRange, false),
-        "hud overlay volume brightness size scale multiplier"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-offset-x.label"),
-        tr("settings.schema.shell.osd-offset-x.description"), {"osd", "offset_x"},
-        StepperSetting{.value = cfg.osd.offsetX, .minValue = 0, .maxValue = 200, .step = 1, .valueSuffix = "px"},
-        "hud overlay horizontal margin"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-offset-y.label"),
-        tr("settings.schema.shell.osd-offset-y.description"), {"osd", "offset_y"},
-        StepperSetting{.value = cfg.osd.offsetY, .minValue = 0, .maxValue = 200, .step = 1, .valueSuffix = "px"},
-        "hud overlay vertical margin"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-background-opacity.label"),
-        tr("settings.schema.shell.osd-background-opacity.description"), {"osd", "background_opacity"},
-        sliderFor(cfg.osd.backgroundOpacity, noctalia::config::schema::kUnitRange, false), "hud overlay popup opacity"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-border.label"),
-        tr("settings.schema.shell.osd-border.description"), {"osd", "border"}, ToggleSetting{cfg.osd.border},
-        "outline border"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "osd", tr("settings.schema.shell.osd-monitors.label"),
-        tr("settings.schema.shell.osd-monitors.description"), {"osd", "monitors"},
-        ListSetting{.items = cfg.osd.monitors, .suggestedOptions = env.availableOutputs},
-        "monitor output display screen hud overlay"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-volume.label"),
-        tr("settings.schema.shell.osd-kinds-volume.description"), {"osd", "kinds", "volume"},
-        ToggleSetting{cfg.osd.kinds.volume}, "hud overlay audio output input microphone"
-    ));
-    {
-      const SettingVisibility volumeOn = [](const Config& c) { return c.osd.kinds.volume; };
-      SettingEntry outputEntry = makeEntry(
-          SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-volume-output.label"),
-          tr("settings.schema.shell.osd-kinds-volume-output.description"), {"osd", "kinds", "volume_output"},
-          ToggleSetting{cfg.osd.kinds.volumeOutput}, "hud overlay audio speaker sink output"
-      );
-      outputEntry.advanced = true;
-      outputEntry.visibleWhen = volumeOn;
-      entries.push_back(std::move(outputEntry));
-      SettingEntry inputEntry = makeEntry(
-          SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-volume-input.label"),
-          tr("settings.schema.shell.osd-kinds-volume-input.description"), {"osd", "kinds", "volume_input"},
-          ToggleSetting{cfg.osd.kinds.volumeInput}, "hud overlay audio microphone source input"
-      );
-      inputEntry.advanced = true;
-      inputEntry.visibleWhen = volumeOn;
-      entries.push_back(std::move(inputEntry));
-    }
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-brightness.label"),
-        tr("settings.schema.shell.osd-kinds-brightness.description"), {"osd", "kinds", "brightness"},
-        ToggleSetting{cfg.osd.kinds.brightness}, "hud overlay display backlight"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-wifi.label"),
-        tr("settings.schema.shell.osd-kinds-wifi.description"), {"osd", "kinds", "wifi"},
-        ToggleSetting{cfg.osd.kinds.wifi}, "hud overlay wireless network"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-bluetooth.label"),
-        tr("settings.schema.shell.osd-kinds-bluetooth.description"), {"osd", "kinds", "bluetooth"},
-        ToggleSetting{cfg.osd.kinds.bluetooth}, "hud overlay bt"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-power-profile.label"),
-        tr("settings.schema.shell.osd-kinds-power-profile.description"), {"osd", "kinds", "power_profile"},
-        ToggleSetting{cfg.osd.kinds.powerProfile}, "hud overlay balanced performance power saver"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-caffeine.label"),
-        tr("settings.schema.shell.osd-kinds-caffeine.description"), {"osd", "kinds", "caffeine"},
-        ToggleSetting{cfg.osd.kinds.caffeine}, "hud overlay idle inhibitor"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-nightlight.label"),
-        tr("settings.schema.shell.osd-kinds-nightlight.description"), {"osd", "kinds", "nightlight"},
-        ToggleSetting{cfg.osd.kinds.nightlight}, "hud overlay night light gamma"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-dnd.label"),
-        tr("settings.schema.shell.osd-kinds-dnd.description"), {"osd", "kinds", "dnd"},
-        ToggleSetting{cfg.osd.kinds.dnd}, "hud overlay do not disturb notifications"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-lock-keys.label"),
-        tr("settings.schema.shell.osd-kinds-lock-keys.description"), {"osd", "kinds", "lock_keys"},
-        ToggleSetting{cfg.osd.kinds.lockKeys}, "hud overlay caps num scroll keyboard"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-keyboard-layout.label"),
-        tr("settings.schema.shell.osd-kinds-keyboard-layout.description"), {"osd", "kinds", "keyboard_layout"},
-        ToggleSetting{cfg.osd.kinds.keyboardLayout}, "hud overlay xkb input language layout switch"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-media.label"),
-        tr("settings.schema.shell.osd-kinds-media.description"), {"osd", "kinds", "media"},
-        ToggleSetting{cfg.osd.kinds.media}, "hud overlay mpris audio music"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-privacy.label"),
-        tr("settings.schema.shell.osd-kinds-privacy.description"), {"osd", "kinds", "privacy"},
-        ToggleSetting{cfg.osd.kinds.privacy}, "hud overlay microphone camera screen share recording"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Osd, "kinds", tr("settings.schema.shell.osd-kinds-keyboard-backlight.label"),
-        tr("settings.schema.shell.osd-kinds-keyboard-backlight.description"), {"osd", "kinds", "keyboard_backlight"},
-        ToggleSetting{cfg.osd.kinds.keyboardBacklight}, "hud overlay keyboard backlight kbd"
-    ));
-    // Gate every OSD entry after the master toggle on osd.enabled, preserving any per-entry visibility.
-    for (std::size_t i = osdGatedStart; i < entries.size(); ++i) {
-      SettingVisibility prev = std::move(entries[i].visibleWhen);
-      entries[i].visibleWhen = prev
-          ? SettingVisibility{[prev = std::move(prev)](const Config& c) { return c.osd.enabled && prev(c); }}
-          : SettingVisibility{[](const Config& c) { return c.osd.enabled; }};
-    }
-
     // Keybinds
     entries.push_back(makeEntry(
         SettingsSection::Keybinds, "keybinds", tr("settings.schema.keybinds.validate.label"),
@@ -2324,7 +2413,7 @@ namespace settings {
     // Umbriel-specific integrations
     if (env.umbrielOverviewTypeToLaunchSupported) {
       entries.push_back(makeEntry(
-          SettingsSection::Umbriel, "overview", tr("settings.schema.shell.umbriel-overview-type-to-launch.label"),
+          SettingsSection::Overview, "overview", tr("settings.schema.shell.umbriel-overview-type-to-launch.label"),
           tr("settings.schema.shell.umbriel-overview-type-to-launch.description"),
           {"shell", "umbriel_overview_type_to_launch_enabled"},
           ToggleSetting{cfg.shell.umbrielOverviewTypeToLaunchEnabled},
@@ -2878,18 +2967,18 @@ namespace settings {
 
     // Power
     entries.push_back(makeEntry(
-        SettingsSection::Power, "session-panel", tr("settings.schema.panels.placement-session.label"),
+        SettingsSection::Panels, "session-panel", tr("settings.schema.panels.placement-session.label"),
         tr("settings.schema.panels.placement-session.description"), {"shell", "panel", "session_placement"},
         asSegmented(enumSelect(kPanelPlacements, cfg.shell.panel.sessionPlacement)),
         "attached floating bar panel power menu position"
     ));
     entries.push_back(panelPositionEntry(
-        SettingsSection::Power, "session-panel", "session", "settings.schema.panels.position-session.label",
+        SettingsSection::Panels, "session-panel", "session", "settings.schema.panels.position-session.label",
         "settings.schema.panels.position-session.description", cfg.shell.panel.sessionPosition,
         &ShellConfig::PanelConfig::sessionPlacement
     ));
     entries.push_back(panelBarAlignmentEntry(
-        SettingsSection::Power, "session-panel", "session", "settings.schema.panels.open-near-click-session.label",
+        SettingsSection::Panels, "session-panel", "session", "settings.schema.panels.open-near-click-session.label",
         "settings.schema.panels.open-near-click-session.description", cfg.shell.panel.openNearClickSession,
         &ShellConfig::PanelConfig::sessionPlacement, &ShellConfig::PanelConfig::sessionPosition
     ));
@@ -3140,6 +3229,180 @@ namespace settings {
         "filter blacklist suppress toast history sound dnd bypass do not disturb app name desktop entry category "
         "urgency"
     ));
+
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-enabled.label"),
+        tr("settings.schema.shell.osd-enabled.description"), {"osd", "enabled"}, ToggleSetting{cfg.osd.enabled},
+        "hud overlay master enable disable all"
+    ));
+    const std::size_t osdGatedStart = entries.size();
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-orientation.label"),
+        tr("settings.schema.shell.osd-orientation.description"), {"osd", "orientation"},
+        asSegmented(plainSelect(
+            {{"horizontal", "settings.options.orientation.horizontal"},
+             {"vertical", "settings.options.orientation.vertical"}},
+            cfg.osd.orientation
+        )),
+        "hud overlay volume brightness vertical"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-position.label"),
+        tr("settings.schema.shell.osd-position.description"), {"osd", "position"},
+        plainSelect(
+            {{"top_right", "settings.options.screen-position.top-right"},
+             {"top_left", "settings.options.screen-position.top-left"},
+             {"top_center", "settings.options.screen-position.top-center"},
+             {"bottom_right", "settings.options.screen-position.bottom-right"},
+             {"bottom_left", "settings.options.screen-position.bottom-left"},
+             {"bottom_center", "settings.options.screen-position.bottom-center"},
+             {"center_right", "settings.options.screen-position.center-right"},
+             {"center_left", "settings.options.screen-position.center-left"}},
+            cfg.osd.position
+        ),
+        "hud overlay volume brightness horizontal text"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-position-vertical.label"),
+        tr("settings.schema.shell.osd-position-vertical.description"), {"osd", "position_vertical"},
+        plainSelect(
+            {{"top_right", "settings.options.screen-position.top-right"},
+             {"top_left", "settings.options.screen-position.top-left"},
+             {"top_center", "settings.options.screen-position.top-center"},
+             {"bottom_right", "settings.options.screen-position.bottom-right"},
+             {"bottom_left", "settings.options.screen-position.bottom-left"},
+             {"bottom_center", "settings.options.screen-position.bottom-center"},
+             {"center_right", "settings.options.screen-position.center-right"},
+             {"center_left", "settings.options.screen-position.center-left"}},
+            cfg.osd.positionVertical
+        ),
+        "hud overlay volume brightness vertical slider"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-scale.label"),
+        tr("settings.schema.shell.osd-scale.description"), {"osd", "scale"},
+        sliderFor(cfg.osd.scale, noctalia::config::schema::kScaleRange, false),
+        "hud overlay volume brightness size scale multiplier"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-offset-x.label"),
+        tr("settings.schema.shell.osd-offset-x.description"), {"osd", "offset_x"},
+        StepperSetting{.value = cfg.osd.offsetX, .minValue = 0, .maxValue = 200, .step = 1, .valueSuffix = "px"},
+        "hud overlay horizontal margin"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-offset-y.label"),
+        tr("settings.schema.shell.osd-offset-y.description"), {"osd", "offset_y"},
+        StepperSetting{.value = cfg.osd.offsetY, .minValue = 0, .maxValue = 200, .step = 1, .valueSuffix = "px"},
+        "hud overlay vertical margin"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-background-opacity.label"),
+        tr("settings.schema.shell.osd-background-opacity.description"), {"osd", "background_opacity"},
+        sliderFor(cfg.osd.backgroundOpacity, noctalia::config::schema::kUnitRange, false), "hud overlay popup opacity"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-border.label"),
+        tr("settings.schema.shell.osd-border.description"), {"osd", "border"}, ToggleSetting{cfg.osd.border},
+        "outline border"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "osd", tr("settings.schema.shell.osd-monitors.label"),
+        tr("settings.schema.shell.osd-monitors.description"), {"osd", "monitors"},
+        ListSetting{.items = cfg.osd.monitors, .suggestedOptions = env.availableOutputs},
+        "monitor output display screen hud overlay"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-volume.label"),
+        tr("settings.schema.shell.osd-kinds-volume.description"), {"osd", "kinds", "volume"},
+        ToggleSetting{cfg.osd.kinds.volume}, "hud overlay audio output input microphone"
+    ));
+    {
+      const SettingVisibility volumeOn = [](const Config& c) { return c.osd.kinds.volume; };
+      SettingEntry outputEntry = makeEntry(
+          SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-volume-output.label"),
+          tr("settings.schema.shell.osd-kinds-volume-output.description"), {"osd", "kinds", "volume_output"},
+          ToggleSetting{cfg.osd.kinds.volumeOutput}, "hud overlay audio speaker sink output"
+      );
+      outputEntry.advanced = true;
+      outputEntry.visibleWhen = volumeOn;
+      entries.push_back(std::move(outputEntry));
+      SettingEntry inputEntry = makeEntry(
+          SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-volume-input.label"),
+          tr("settings.schema.shell.osd-kinds-volume-input.description"), {"osd", "kinds", "volume_input"},
+          ToggleSetting{cfg.osd.kinds.volumeInput}, "hud overlay audio microphone source input"
+      );
+      inputEntry.advanced = true;
+      inputEntry.visibleWhen = volumeOn;
+      entries.push_back(std::move(inputEntry));
+    }
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-brightness.label"),
+        tr("settings.schema.shell.osd-kinds-brightness.description"), {"osd", "kinds", "brightness"},
+        ToggleSetting{cfg.osd.kinds.brightness}, "hud overlay display backlight"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-wifi.label"),
+        tr("settings.schema.shell.osd-kinds-wifi.description"), {"osd", "kinds", "wifi"},
+        ToggleSetting{cfg.osd.kinds.wifi}, "hud overlay wireless network"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-bluetooth.label"),
+        tr("settings.schema.shell.osd-kinds-bluetooth.description"), {"osd", "kinds", "bluetooth"},
+        ToggleSetting{cfg.osd.kinds.bluetooth}, "hud overlay bt"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-power-profile.label"),
+        tr("settings.schema.shell.osd-kinds-power-profile.description"), {"osd", "kinds", "power_profile"},
+        ToggleSetting{cfg.osd.kinds.powerProfile}, "hud overlay balanced performance power saver"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-caffeine.label"),
+        tr("settings.schema.shell.osd-kinds-caffeine.description"), {"osd", "kinds", "caffeine"},
+        ToggleSetting{cfg.osd.kinds.caffeine}, "hud overlay idle inhibitor"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-nightlight.label"),
+        tr("settings.schema.shell.osd-kinds-nightlight.description"), {"osd", "kinds", "nightlight"},
+        ToggleSetting{cfg.osd.kinds.nightlight}, "hud overlay night light gamma"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-dnd.label"),
+        tr("settings.schema.shell.osd-kinds-dnd.description"), {"osd", "kinds", "dnd"},
+        ToggleSetting{cfg.osd.kinds.dnd}, "hud overlay do not disturb notifications"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-lock-keys.label"),
+        tr("settings.schema.shell.osd-kinds-lock-keys.description"), {"osd", "kinds", "lock_keys"},
+        ToggleSetting{cfg.osd.kinds.lockKeys}, "hud overlay caps num scroll keyboard"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-keyboard-layout.label"),
+        tr("settings.schema.shell.osd-kinds-keyboard-layout.description"), {"osd", "kinds", "keyboard_layout"},
+        ToggleSetting{cfg.osd.kinds.keyboardLayout}, "hud overlay xkb input language layout switch"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-media.label"),
+        tr("settings.schema.shell.osd-kinds-media.description"), {"osd", "kinds", "media"},
+        ToggleSetting{cfg.osd.kinds.media}, "hud overlay mpris audio music"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-privacy.label"),
+        tr("settings.schema.shell.osd-kinds-privacy.description"), {"osd", "kinds", "privacy"},
+        ToggleSetting{cfg.osd.kinds.privacy}, "hud overlay microphone camera screen share recording"
+    ));
+    entries.push_back(makeEntry(
+        SettingsSection::Notifications, "kinds", tr("settings.schema.shell.osd-kinds-keyboard-backlight.label"),
+        tr("settings.schema.shell.osd-kinds-keyboard-backlight.description"), {"osd", "kinds", "keyboard_backlight"},
+        ToggleSetting{cfg.osd.kinds.keyboardBacklight}, "hud overlay keyboard backlight kbd"
+    ));
+    // Gate every OSD entry after the master toggle on osd.enabled, preserving any per-entry visibility.
+    for (std::size_t i = osdGatedStart; i < entries.size(); ++i) {
+      SettingVisibility prev = std::move(entries[i].visibleWhen);
+      entries[i].visibleWhen = prev
+          ? SettingVisibility{[prev = std::move(prev)](const Config& c) { return c.osd.enabled && prev(c); }}
+          : SettingVisibility{[](const Config& c) { return c.osd.enabled; }};
+    }
 
     // Bar: register every configured bar so global search can surface settings from all of them.
     for (const auto& bar : cfg.bars) {

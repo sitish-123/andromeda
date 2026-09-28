@@ -25,8 +25,8 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
-#include "server/desktop_input_manager.h"
 #include "server/desktop_output_manager.h"
+#include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/ipc.h"
 #include "server/wine_color_manager.h"
@@ -541,7 +541,7 @@ namespace umbriel {
     // Advertising a full configuration on bind currently takes down the desktop shell from this flake.
     m_outputManager = wlr_output_manager_v1_create(m_display);
     m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
-    m_desktopInputManager = std::make_unique<DesktopInputManager>(*this);
+    m_desktopSettingsManager = std::make_unique<DesktopSettingsManager>(*this);
     m_desktopShell = std::make_unique<DesktopShell>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
@@ -653,7 +653,7 @@ namespace umbriel {
       }
     }
     // Their globals must go before wl_display_destroy frees every global.
-    m_desktopInputManager.reset();
+    m_desktopSettingsManager.reset();
     m_desktopOutputManager.reset();
     m_desktopShell.reset();
     wl_display_destroy_clients(m_display);

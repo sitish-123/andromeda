@@ -1688,6 +1688,23 @@ namespace umbriel {
       return true;
     }
 
+    // +1 magnifies the output under the pointer one step, -1 shrinks it one step, 0 turns the magnifier off.
+    template <int Direction> bool actionZoom(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      constexpr double kStep = 1.25;
+      Output* output = server.outputFromWlr(server.preferredOutput());
+      if (output == nullptr) {
+        return false;
+      }
+      if constexpr (Direction > 0) {
+        output->setZoom(output->zoom() * kStep);
+      } else if constexpr (Direction < 0) {
+        output->setZoom(output->zoom() / kStep < 1.01 ? 1.0 : output->zoom() / kStep);
+      } else {
+        output->setZoom(1.0);
+      }
+      return true;
+    }
+
     bool actionFpsOverlayToggle(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (FpsOverlay* overlay = server.fpsOverlay()) {
         overlay->toggle();
@@ -1886,6 +1903,9 @@ namespace umbriel {
         &actionWindowFocusLast,
         &actionWorkspaceFocusLast,
         &actionShell,
+        &actionZoom<1>,
+        &actionZoom<-1>,
+        &actionZoom<0>,
     };
 
     consteval bool everyActionHasHandler() {
