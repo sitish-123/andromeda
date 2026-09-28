@@ -1,5 +1,6 @@
 pkgbase=desktop-git
-pkgname=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git umbriel-power-git)
+pkgname=(andromeda umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
+  umbriel-power-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r0
@@ -11,7 +12,9 @@ makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
   gstreamer gst-plugins-base-libs)
-source=("desktop::git+file://$HOME/src/desktop")
+url=https://github.com/sitish-kumar/andromeda
+# `just package` and the release workflow build a local checkout; anyone else builds the published repository.
+source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}")
 sha256sums=(SKIP)
 
 pkgver() {
@@ -33,6 +36,14 @@ build() {
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
   CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror
+}
+
+package_andromeda() {
+  pkgdesc='Andromeda desktop: the Umbriel compositor, Noctalia shell, portal, and Link phone continuity'
+  depends=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git)
+  optdepends=('umbriel-power-git: static kernel power policy for laptops'
+    'scrcpy: phone apps in their own windows'
+    'android-tools: adb for phone apps in windows')
 }
 
 package_umbriel-desktop-git() {

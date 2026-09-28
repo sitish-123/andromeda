@@ -1,0 +1,92 @@
+# A tag v* builds the Arch packages and the signed Android app, and publishes them as a GitHub release. The release's
+# assets are also a pacman repository: pacman.conf points at releases/latest/download (see README.md).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed git
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build user
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          git config --system --add safe.directory '*'
+          chown -R builder: "$GITHUB_WORKSPACE"
+      - name: Packages
+        working-directory: pkg
+        run: sudo -u builder env ANDROMEDA_SOURCE="git+file://$GITHUB_WORKSPACE" makepkg --syncdeps --noconfirm --force
+      - name: Repository
+        run: |
+          mkdir repo
+          # GitHub rewrites ':' in asset names, which would break the epoch's filenames; pacman reads the version
+          # from inside the package, not its name.
+          for package in pkg/*.pkg.tar.zst; do
+            name=$(basename "$package")
+            cp "$package" "repo/${name//:/.}"
+          done
+          repo-add repo/andromeda.db.tar.gz repo/*.pkg.tar.zst
+          # Release assets cannot be symlinks.
+          for link in andromeda.db andromeda.files; do cp --remove-destination "$(readlink -f "repo/$link")" "repo/$link"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repo
+          path: repo/
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: NDK
+        run: sdkmanager --install "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+      - name: Rust
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo install --locked cargo-ndk
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.LINK_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/link-release.jks"
+      - name: App
+        working-directory: link/android
+        env:
+          LINK_KEYSTORE: ${{ runner.temp }}/link-release.jks
+          LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}
+          LINK_VERSION_CODE: ${{ github.run_number }}
+          LINK_VERSION_NAME: ${{ github.ref_name }}
+        run: |
+          ./gradlew --no-daemon :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/andromeda-link.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: andromeda-link.apk
+
+  release:
+    needs: [packages, android]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* android/andromeda-link.apk

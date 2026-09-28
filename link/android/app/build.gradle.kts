@@ -11,13 +11,27 @@ android {
         applicationId = "org.umbriel.link"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // The release workflow sets these from the tag and run number.
+        versionCode = System.getenv("LINK_VERSION_CODE")?.toInt() ?: 1
+        versionName = System.getenv("LINK_VERSION_NAME") ?: "0.1.0"
+    }
+    // The key lives outside the repository; without LINK_KEYSTORE a release build is left unsigned.
+    val keystore = System.getenv("LINK_KEYSTORE")
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("LINK_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("LINK_KEY_ALIAS") ?: "link"
+                keyPassword = System.getenv("LINK_KEY_PASSWORD") ?: System.getenv("LINK_KEYSTORE_PASSWORD")
+            }
+        }
     }
     buildTypes {
         release {
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
