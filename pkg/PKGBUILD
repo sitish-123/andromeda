@@ -30,7 +30,8 @@ build() {
   meson compile -C build-shell
   meson compile -C build-portal
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
-  CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon
+  CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
+    -p link-mount
 }
 
 package_umbriel-desktop-git() {
@@ -72,13 +73,19 @@ package_xdg-desktop-portal-umbriel-git() {
 
 package_umbriel-link-git() {
   pkgdesc='Umbriel Link daemon: phone and desktop continuity'
-  depends=(glibc gcc-libs dbus)
+  depends=(glibc gcc-libs dbus fuse3)
+  optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
+    'networkmanager: joining the phone'"'"'s hotspot for large transfers away from Wi-Fi')
   backup=(etc/ufw/applications.d/umbriel-link)
   install=umbriel-link.install
   install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
   install -Dm644 desktop/session/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
   install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
   ln -s ../umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-linkd.service"
+  install -Dm755 desktop/link/target/release/umbriel-link-mount "$pkgdir/usr/bin/umbriel-link-mount"
+  install -Dm644 desktop/session/umbriel-link-mount.service "$pkgdir/usr/lib/systemd/user/umbriel-link-mount.service"
+  ln -s ../umbriel-link-mount.service \
+    "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-link-mount.service"
   install -Dm644 desktop/session/org.umbriel.Link1.service "$pkgdir/usr/share/dbus-1/services/org.umbriel.Link1.service"
   install -Dm644 desktop/protocol/link-v1/org.umbriel.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.umbriel.Link1.xml"
   install -Dm644 desktop/session/umbriel-link.ufw "$pkgdir/etc/ufw/applications.d/umbriel-link"

@@ -221,6 +221,8 @@ pub fn via_name(via: Via) -> &'static str {
     match via {
         Via::LastKnown => "last-known",
         Via::Mdns => "mdns",
+        Via::Bluetooth => "bluetooth",
+        Via::Hotspot => "hotspot",
     }
 }
 

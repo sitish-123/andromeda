@@ -79,11 +79,22 @@ impl SessionState {
 /// Which feature messages each role may receive.
 fn receives(role: Role, message: &Message) -> bool {
     match message {
-        Message::NotificationPosted(_) | Message::NotificationRemoved(_) | Message::Call(_) => role == Role::Desktop,
-        Message::NotificationAction(_) | Message::NotificationDismiss(_) | Message::CallAction(_) => {
-            role == Role::Phone
-        }
-        Message::MediaPlayer(_)
+        Message::NotificationPosted(_)
+        | Message::NotificationRemoved(_)
+        | Message::Call(_)
+        | Message::Hotspot(_)
+        | Message::FsEntries(_)
+        | Message::FsData(_)
+        | Message::FsError(_) => role == Role::Desktop,
+        Message::NotificationAction(_)
+        | Message::NotificationDismiss(_)
+        | Message::CallAction(_)
+        | Message::HotspotRequest
+        | Message::HotspotJoined(_)
+        | Message::FsList(_)
+        | Message::FsRead(_) => role == Role::Phone,
+        Message::HotspotEnd(_)
+        | Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)
         | Message::Ring(_)

@@ -9,6 +9,7 @@ use link_proto::message::{Envelope, Hello, Message};
 use tokio::sync::mpsc;
 
 use crate::Error;
+use crate::wire::{Connection, RecvStream, SendStream};
 
 /// How long a peer may take for one handshake step before the attempt is abandoned.
 pub const STEP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -28,28 +29,28 @@ pub struct Control {
 }
 
 pub struct ControlWriter {
-    send: quinn::SendStream,
+    send: SendStream,
     next_id: u64,
     tap: Option<Tap>,
 }
 
 pub struct ControlReader {
-    recv: quinn::RecvStream,
+    recv: RecvStream,
     tap: Option<Tap>,
 }
 
 impl Control {
-    pub async fn open(connection: &quinn::Connection, tap: Option<Tap>) -> Result<Self, Error> {
+    pub async fn open(connection: &Connection, tap: Option<Tap>) -> Result<Self, Error> {
         let (send, recv) = connection.open_bi().await?;
         Ok(Self::new(send, recv, tap))
     }
 
-    pub async fn accept(connection: &quinn::Connection, tap: Option<Tap>) -> Result<Self, Error> {
+    pub async fn accept(connection: &Connection, tap: Option<Tap>) -> Result<Self, Error> {
         let (send, recv) = tokio::time::timeout(STEP_TIMEOUT, connection.accept_bi()).await??;
         Ok(Self::new(send, recv, tap))
     }
 
-    fn new(send: quinn::SendStream, recv: quinn::RecvStream, tap: Option<Tap>) -> Self {
+    fn new(send: SendStream, recv: RecvStream, tap: Option<Tap>) -> Self {
         Self { writer: ControlWriter { send, next_id: 0, tap: tap.clone() }, reader: ControlReader { recv, tap } }
     }
 
@@ -114,7 +115,7 @@ impl ControlReader {
 }
 
 /// Reads one frame: the next control message, or the header that opens a bulk stream.
-pub async fn read_frame(recv: &mut quinn::RecvStream, tap: Option<&Tap>) -> Result<Envelope, Error> {
+pub async fn read_frame(recv: &mut RecvStream, tap: Option<&Tap>) -> Result<Envelope, Error> {
     let mut header = [0; HEADER_LEN];
     recv.read_exact(&mut header).await?;
     let mut body = vec![0; frame::body_len(header)?];
@@ -124,7 +125,7 @@ pub async fn read_frame(recv: &mut quinn::RecvStream, tap: Option<&Tap>) -> Resu
 }
 
 /// Writes the frame that opens a bulk stream; its envelope id is always 0.
-pub async fn write_frame(send: &mut quinn::SendStream, message: Message, tap: Option<&Tap>) -> Result<(), Error> {
+pub async fn write_frame(send: &mut SendStream, message: Message, tap: Option<&Tap>) -> Result<(), Error> {
     let bytes = frame::encode(&Envelope::new(0, message));
     observe(tap, Direction::Sent, &bytes[HEADER_LEN..]);
     send.write_all(&bytes).await?;

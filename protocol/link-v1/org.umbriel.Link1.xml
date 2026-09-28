@@ -24,11 +24,32 @@
     <!-- Offers files to a connected device, or to a Nearby LocalSend device (localsend:<fingerprint>), and returns
          the transfer id (32 hex digits) at once; the Transfer* signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
          Errors: .NotConnected without a live session, .Rejected for no files or a descriptor that is not a regular
-         file, .Failed otherwise. -->
+         file, .Failed otherwise, including "too large to send over Bluetooth" and "hotspot: <reason>" when the device
+         is on Bluetooth and its hotspot could not carry the files. Over Bluetooth, files past 20 MiB wait up to 60 s
+         for the session to move to the phone's hotspot before this returns. -->
     <method name="SendFiles">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="files" type="a(hs)" direction="in"/>
       <arg name="transfer_id" type="s" direction="out"/>
+    </method>
+    <!-- Lists a folder on a connected phone whose browse switch for this desktop is on: "/" for its roots, else
+         "/<root>/...". Each entry is (name, is_folder, size, mtime in Unix seconds), in name order, hidden entries
+         left out. Errors: .Refused with the phone's reason (not-found, not-allowed, denied, not-a-folder,
+         not-a-file, busy, io), .NotConnected, .Rejected for a malformed path, .Failed when the phone does not
+         answer within 15 s. -->
+    <method name="ListFiles">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="entries" type="a(sbtt)" direction="out"/>
+    </method>
+    <!-- Up to length bytes (1 byte to 1 MiB) of a file on a connected phone from offset; fewer at its end, none
+         past it. Errors as ListFiles. -->
+    <method name="ReadFile">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="offset" type="t" direction="in"/>
+      <arg name="length" type="u" direction="in"/>
+      <arg name="data" type="ay" direction="out"/>
     </method>
     <!-- Consent for a TransferOffered; .Rejected once the offer no longer waits (answered, withdrawn, or 120 s
          passed, which declines it). -->
@@ -126,6 +147,7 @@
       <arg name="id" type="t"/>
       <arg name="mimes" type="as"/>
       <arg name="size" type="t"/>
+    </signal>
     <!-- Runs a phone notification's action; reply_text is empty for an action that takes none. Returns once sent,
          unacknowledged. Errors: .NotConnected, .Rejected for arguments over the limits in messages.cddl. -->
     <method name="NotificationAction">
@@ -178,6 +200,12 @@
     <signal name="RingRequested">
       <arg name="device_id" type="s"/>
       <arg name="on" type="b"/>
+    </signal>
+    <!-- This desktop joined the phone's hotspot ssid to move a transfer off Bluetooth, which takes it off its own
+         Wi-Fi; an empty ssid means it left and NetworkManager is bringing the usual network back. -->
+    <signal name="Hotspot">
+      <arg name="device_id" type="s"/>
+      <arg name="ssid" type="s"/>
     </signal>
     <!-- The phone's own ringing started or stopped, for any reason. -->
     <signal name="PhoneRinging">

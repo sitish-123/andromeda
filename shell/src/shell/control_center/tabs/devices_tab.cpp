@@ -557,6 +557,17 @@ void DevicesTab::rebuild(Renderer& renderer) {
               },
           })
       );
+      row->addChild(
+          ui::button({
+              .glyph = "folder",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.browse"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() { m_link->browse(id); },
+          })
+      );
     }
     row->addChild(
         ui::button({

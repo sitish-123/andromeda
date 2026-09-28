@@ -19,6 +19,9 @@ pub const MDNS_WINDOW: Duration = Duration::from_secs(3);
 pub enum Via {
     LastKnown,
     Mdns,
+    Bluetooth,
+    /// The phone's own hotspot, at the address the desktop reported after joining it.
+    Hotspot,
 }
 
 pub struct Reached {

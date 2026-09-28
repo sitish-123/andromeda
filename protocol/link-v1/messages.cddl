@@ -4,6 +4,8 @@
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
+  hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg /
+  fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -12,7 +14,8 @@ hello-msg = { type: "hello", id: uint, body: hello }
 hello = {
   version: uint,
   name: tstr .size (1..64),
-  ? addresses: [* tstr],    ; host:port the desktop can be reached at; sent by the desktop only
+  ? addresses: [* tstr],    ; host:port the desktop can be reached at, and "bt:AA:BB:CC:DD:EE:FF" for its
+                            ; Bluetooth adapter; sent by the desktop only
 }
 
 pair-spake-msg = { type: "pair-spake", id: uint, body: pair-spake }
@@ -150,3 +153,31 @@ call-body = {
 }
 ; Desktop to phone.
 call-action-msg = { type: "call-action", id: uint, body: { action: "mute" / "decline" } }
+
+; Over Bluetooth, to move a session to full speed. The desktop asks (hotspot-request); the phone starts a local-only
+; hotspot and sends its credentials (hotspot); the desktop joins and says where it listens (hotspot-joined); either
+; side ends it, with a reason when it failed (hotspot-end).
+hotspot-request-msg = { type: "hotspot-request", id: uint, body: {} }
+hotspot-msg = { type: "hotspot", id: uint, body: {
+  ssid: tstr .size (1..32),
+  passphrase: tstr .size (8..63),  ; printable ASCII
+} }
+hotspot-joined-msg = { type: "hotspot-joined", id: uint, body: { address: tstr } }  ; host:port
+hotspot-end-msg = { type: "hotspot-end", id: uint, body: { ? reason: tstr .size (1..128) } }
+
+; The desktop browses the phone's storage, read-only, while the phone's browse switch for it is on. A path is "/" for
+; the roots, else "/<root>/<name>/..." with no empty, ".", or ".." component. req pairs each answer with its request.
+fs-path = tstr .size (1..4096)
+fs-name = tstr .size (1..255)
+fs-list-msg = { type: "fs-list", id: uint, body: { req: uint, path: fs-path, ? cursor: uint } }
+fs-entries-msg = { type: "fs-entries", id: uint, body: {
+  req: uint,
+  entries: [* { name: fs-name, dir: bool, size: uint, mtime: uint }],  ; at most 128
+  ? next: uint,
+} }
+fs-read-msg = { type: "fs-read", id: uint, body: { req: uint, path: fs-path, offset: uint, len: 1..1048576 } }
+fs-data-msg = { type: "fs-data", id: uint, body: { req: uint, offset: uint, data: bstr .size (0..49152), ? last: true } }
+fs-error-msg = { type: "fs-error", id: uint, body: {
+  req: uint,
+  reason: "not-found" / "denied" / "not-allowed" / "not-a-folder" / "not-a-file" / "busy" / "io",
+} }

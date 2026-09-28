@@ -7,7 +7,7 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use link_core::client::{self, Client, ClientEvent, DesktopState};
+use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
@@ -57,6 +57,8 @@ pub struct Desktop {
     /// Unix seconds.
     pub last_seen: u64,
     pub connected: bool,
+    /// Connected over Bluetooth, since no IP path answered.
+    pub bluetooth: bool,
     pub sharing: Sharing,
 }
 
@@ -70,6 +72,8 @@ pub struct Sharing {
     pub media: bool,
     pub ring: bool,
     pub calls: bool,
+    /// The desktop may browse this phone's storage; off after pairing.
+    pub browse: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -80,6 +84,7 @@ pub enum Feature {
     Media,
     Ring,
     Calls,
+    Browse,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -287,6 +292,61 @@ pub struct LinkClient {
     events: Mutex<mpsc::Receiver<ClientEvent>>,
 }
 
+/// How the app reaches a desktop over Bluetooth: connect RFCOMM to `address` at Link's service UUID and return one
+/// end of a socket pair the app pumps that connection through, detached. -1 when it cannot connect. Called off the
+/// main thread, and may block.
+#[uniffi::export(with_foreign)]
+pub trait BluetoothLink: Send + Sync {
+    fn open(&self, address: String) -> i32;
+}
+
+struct Opener(Arc<dyn BluetoothLink>);
+
+impl link_core::stream::BluetoothOpener for Opener {
+    fn open(&self, address: &str) -> std::io::Result<OwnedFd> {
+        let fd = self.0.open(address.to_owned());
+        if fd < 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Bluetooth did not connect"));
+        }
+        // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BrowseRoot {
+    pub name: String,
+    pub path: String,
+}
+
+/// A local-only hotspot's credentials, from [`PhoneHotspot::start`].
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HotspotCredentials {
+    pub ssid: String,
+    pub passphrase: String,
+}
+
+/// How the app starts and stops a local-only hotspot when a transfer is too large for Bluetooth. `start` blocks until
+/// the hotspot is up and returns None when Android refused it. Called off the main thread.
+#[uniffi::export(with_foreign)]
+pub trait PhoneHotspot: Send + Sync {
+    fn start(&self) -> Option<HotspotCredentials>;
+    fn stop(&self);
+}
+
+struct Hotspots(Arc<dyn PhoneHotspot>);
+
+impl link_core::hotspot::HotspotProvider for Hotspots {
+    fn start(&self) -> std::io::Result<link_core::proto::message::Hotspot> {
+        let started = self.0.start().ok_or_else(|| std::io::Error::other("Android did not start the hotspot"))?;
+        Ok(link_core::proto::message::Hotspot { ssid: started.ssid, passphrase: started.passphrase })
+    }
+
+    fn stop(&self) {
+        self.0.stop();
+    }
+}
+
 #[uniffi::export]
 impl LinkClient {
     /// `identity` is PKCS#8 from [`generate_identity`]; `store_path` is where paired desktops are kept, and transfer
@@ -297,6 +357,8 @@ impl LinkClient {
         store_path: String,
         name: String,
         incoming_dir: String,
+        bluetooth: Option<Arc<dyn BluetoothLink>>,
+        hotspot: Option<Arc<dyn PhoneHotspot>>,
     ) -> Result<Arc<Self>, LinkError> {
         let store_path = PathBuf::from(store_path);
         let state = store_path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -309,18 +371,35 @@ impl LinkClient {
             .map_err(|error| LinkError::Failed { reason: error.to_string() })?;
         let phone = {
             let _entered = runtime.enter();
-            Phone::new(Identity::from_pkcs8(identity)?, store_path, name, None)?
+            let mut phone = Phone::new(Identity::from_pkcs8(identity)?, store_path, name, None)?;
+            if let Some(link) = bluetooth {
+                phone.set_bluetooth(Arc::new(Opener(link)));
+            }
+            if let Some(hotspot) = hotspot {
+                phone.set_hotspot(Arc::new(Hotspots(hotspot)));
+            }
+            phone
         };
         let (client, actor, events) = client::client(phone, inbox);
         runtime.spawn(actor.run());
         Ok(Arc::new(Self { runtime, client, events: Mutex::new(events) }))
     }
 
+    /// The folders a desktop whose browse switch is on sees, by name (`Storage`, `Photos`); an empty list while the
+    /// app lacks All files access.
+    pub async fn set_browse_roots(&self, roots: Vec<BrowseRoot>) -> Result<(), LinkError> {
+        let roots = link_core::browse::Roots::new(
+            roots.into_iter().map(|root| (root.name, PathBuf::from(root.path))).collect(),
+        );
+        let client = self.client.clone();
+        self.run(async move { client.set_browse_roots(roots).await }).await
+    }
+
     /// Pairs from the QR code's URI and keeps the session open.
     pub async fn pair_uri(&self, uri: String) -> Result<Desktop, LinkError> {
         let target = PairTarget::Uri(PairingUri::parse(&uri)?);
         let client = self.client.clone();
-        self.run(async move { client.pair(target).await }).await.map(|peer| describe(&peer, true))
+        self.run(async move { client.pair(target).await }).await.map(|peer| describe(&peer, true, false))
     }
 
     /// Pairs with a typed code. `addresses` may be empty: the core then finds the pairing desktop by mDNS.
@@ -328,7 +407,7 @@ impl LinkClient {
         let candidates = addresses.iter().filter_map(|text| text.parse().ok()).collect();
         let target = PairTarget::Code { code, candidates };
         let client = self.client.clone();
-        self.run(async move { client.pair(target).await }).await.map(|peer| describe(&peer, true))
+        self.run(async move { client.pair(target).await }).await.map(|peer| describe(&peer, true, false))
     }
 
     /// Opens a session now unless one is live.
@@ -362,7 +441,7 @@ impl LinkClient {
     pub async fn desktops(&self) -> Result<Vec<Desktop>, LinkError> {
         let client = self.client.clone();
         let states = self.run(async move { client.desktops().await }).await?;
-        Ok(states.iter().map(|DesktopState { peer, connected }| describe(peer, *connected)).collect())
+        Ok(states.iter().map(|state| describe(&state.peer, state.connected, state.bluetooth)).collect())
     }
 
     pub async fn set_sharing(&self, desktop_id: String, feature: Feature, on: bool) -> Result<(), LinkError> {
@@ -374,6 +453,7 @@ impl LinkClient {
             Feature::Media => store::Feature::Media,
             Feature::Ring => store::Feature::Ring,
             Feature::Calls => store::Feature::Calls,
+            Feature::Browse => store::Feature::Browse,
         };
         self.run(async move { client.set_sharing(id, feature, on).await }).await
     }
@@ -627,15 +707,16 @@ impl LinkClient {
     }
 }
 
-fn describe(peer: &Peer, connected: bool) -> Desktop {
-    let store::Grants { clipboard, files, notifications, media, ring, calls } = peer.grants;
+fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
+    let store::Grants { clipboard, files, notifications, media, ring, calls, browse } = peer.grants;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
         addresses: peer.addresses.iter().map(ToString::to_string).collect(),
         last_seen: peer.last_seen,
         connected,
-        sharing: Sharing { clipboard, files, notifications, media, ring, calls },
+        bluetooth,
+        sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse },
     }
 }
 

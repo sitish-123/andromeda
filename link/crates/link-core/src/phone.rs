@@ -3,20 +3,25 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use link_proto::message::{Hello, Message, PairMethod};
+use link_proto::message::{Hello, Message, PairMethod, bluetooth_address};
 use link_proto::pairing::Secret;
 use link_proto::{CloseCode, VERSION};
 
+use crate::browse::Roots;
 use crate::control::{Control, Tap};
+use crate::hotspot::HotspotProvider;
 use crate::identity::{DeviceId, Identity};
 use crate::pairing::pair_as_client;
-use crate::reach::{self, Via};
+use crate::reach::{self, Reached, Via};
 use crate::store::{Feature, Peer, Store};
+use crate::stream::{BluetoothOpener, FdStream, StreamDialer};
 use crate::tls::{self, ServerPin};
-use crate::transport::Dialer;
+use crate::transport::{Dialer, KEEP_ALIVE};
 use crate::uri::PairingUri;
-use crate::{Error, close, discovery};
+use crate::wire::Connection;
+use crate::{Error, discovery};
 
 pub enum PairTarget {
     /// The typed code, and where to find the desktop (empty: the one desktop advertising an open window).
@@ -29,10 +34,11 @@ pub enum PairTarget {
 
 /// A live connection to a desktop, after both hellos.
 pub struct Session {
-    pub connection: quinn::Connection,
+    pub connection: Connection,
     pub control: Control,
     pub desktop: Peer,
-    pub addr: SocketAddr,
+    /// None over Bluetooth.
+    pub addr: Option<SocketAddr>,
     pub via: Via,
     pub resumed: bool,
 }
@@ -44,6 +50,10 @@ pub struct Phone {
     name: String,
     dialer: Dialer,
     present_dialer: Dialer,
+    stream_dialer: StreamDialer,
+    bluetooth: Option<Arc<dyn BluetoothOpener>>,
+    hotspot: Option<Arc<dyn HotspotProvider>>,
+    browse_roots: Roots,
     present: bool,
     tap: Option<Tap>,
 }
@@ -53,7 +63,21 @@ impl Phone {
         let store = Store::load(&store_path)?;
         let dialer = Dialer::new(&identity)?;
         let present_dialer = dialer.present();
-        Ok(Self { identity, store, store_path, name, dialer, present_dialer, present: false, tap })
+        let stream_dialer = StreamDialer::new(&identity)?;
+        Ok(Self {
+            identity,
+            store,
+            store_path,
+            name,
+            dialer,
+            present_dialer,
+            stream_dialer,
+            bluetooth: None,
+            hotspot: None,
+            browse_roots: Roots::default(),
+            present: false,
+            tap,
+        })
     }
 
     /// Whether connections opened from now on keep themselves alive.
@@ -61,7 +85,31 @@ impl Phone {
         self.present = present;
     }
 
-    fn dialer(&self) -> &Dialer {
+    /// Lets sessions fall back to Bluetooth when no IP path answers.
+    pub fn set_bluetooth(&mut self, opener: Arc<dyn BluetoothOpener>) {
+        self.bluetooth = Some(opener);
+    }
+
+    /// Lets a Bluetooth session move to this phone's hotspot for transfers too large for Bluetooth.
+    pub fn set_hotspot(&mut self, provider: Arc<dyn HotspotProvider>) {
+        self.hotspot = Some(provider);
+    }
+
+    pub fn hotspot(&self) -> Option<Arc<dyn HotspotProvider>> {
+        self.hotspot.clone()
+    }
+
+    /// The folders a desktop with the browse switch on sees at `/`.
+    pub fn set_browse_roots(&mut self, roots: Roots) {
+        self.browse_roots = roots;
+    }
+
+    pub fn browse_roots(&self) -> &Roots {
+        &self.browse_roots
+    }
+
+    /// The dialer sessions opened now use, for a caller that reaches a desktop off the actor.
+    pub fn dialer(&self) -> &Dialer {
         if self.present { &self.present_dialer } else { &self.dialer }
     }
 
@@ -83,12 +131,13 @@ impl Phone {
             }
         };
         let (dialed, addr) = reach::race(self.dialer(), &candidates, pin).await?;
-        let connection = dialed.connection;
+        let quic = dialed.connection;
+        let connection = Connection::from(quic.clone());
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
-        pair_as_client(&connection, &mut control, &secret, method, self.identity.spki()).await?;
-        let desktop = self.remember(&tls::peer_spki(connection.peer_identity())?, &hello, addr)?;
-        Ok(Session { connection, control, desktop, addr, via: Via::LastKnown, resumed: false })
+        pair_as_client(&quic, &mut control, &secret, method, self.identity.spki()).await?;
+        let desktop = self.remember(&tls::peer_spki(quic.peer_identity())?, &hello, Some(addr))?;
+        Ok(Session { connection, control, desktop, addr: Some(addr), via: Via::LastKnown, resumed: false })
     }
 
     /// Reaches a paired desktop. A desktop that answers `unpaired` is forgotten, as the protocol requires.
@@ -106,7 +155,7 @@ impl Phone {
         let told = match self.connect(id).await {
             Ok(mut session) => {
                 session.control.send(Message::Unpair).await?;
-                session.connection.closed().await;
+                drop(session.connection.closed().await);
                 true
             }
             Err(error) => {
@@ -123,17 +172,46 @@ impl Phone {
         self.dialer.finish().await;
     }
 
+    /// Over IP when any address answers, else over Bluetooth when the desktop has an adapter and the platform can
+    /// open one.
     async fn open_session(&mut self, peer: &Peer) -> Result<Session, Error> {
-        let reached = reach::reach(self.dialer(), peer).await?;
-        let connection = reached.dialed.connection;
+        let ip = match reach::reach(self.dialer(), peer).await {
+            Ok(reached) => return self.adopt_reached(peer, reached).await,
+            Err(error) => error,
+        };
+        let (Some(address), Some(opener)) = (peer.bluetooth.clone(), self.bluetooth.clone()) else { return Err(ip) };
+        log::info!("{}: no IP path ({ip}); trying Bluetooth", peer.id);
+        let fd = tokio::task::spawn_blocking(move || opener.open(&address)).await.map_err(|_| Error::Stopped)??;
+        let keep_alive = self.present.then_some(KEEP_ALIVE);
+        let (mux, desktop) =
+            self.stream_dialer.connect(FdStream::new(fd)?, peer.spki()?.fingerprint(), keep_alive).await?;
+        if desktop.device_id() != peer.id {
+            return Err(Error::BadKey);
+        }
+        let connection = Connection::Stream(mux);
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
-        let desktop = self.remember(&peer.spki()?, &hello, reached.addr)?;
+        let desktop = self.remember(&desktop, &hello, None)?;
+        Ok(Session { connection, control, desktop, addr: None, via: Via::Bluetooth, resumed: false })
+    }
+
+    /// Finishes a session to a desktop reached over IP, by this phone or by a probe running beside it.
+    pub async fn adopt_reached(&mut self, peer: &Peer, reached: Reached) -> Result<Session, Error> {
+        let connection = Connection::from(reached.dialed.connection);
+        let mut control = Control::open(&connection, self.tap.clone()).await?;
+        let hello = control.hello_as_client(self.hello()).await?;
+        let desktop = if reached.via == Via::Hotspot {
+            // The phone's own hotspot is gone once it stops: neither the address it reached nor the ones the desktop
+            // announces on it are worth dialling later.
+            self.remember(&peer.spki()?, &Hello { addresses: Vec::new(), ..hello }, None)?
+        } else {
+            self.remember(&peer.spki()?, &hello, Some(reached.addr))?
+        };
         Ok(Session {
             connection,
             control,
             desktop,
-            addr: reached.addr,
+            addr: Some(reached.addr),
             via: reached.via,
             resumed: reached.dialed.resumed,
         })
@@ -143,12 +221,22 @@ impl Phone {
         Hello { version: VERSION, name: self.name.clone(), addresses: Vec::new() }
     }
 
-    fn remember(&mut self, desktop: &crate::identity::Spki, hello: &Hello, addr: SocketAddr) -> Result<Peer, Error> {
+    fn remember(
+        &mut self,
+        desktop: &crate::identity::Spki,
+        hello: &Hello,
+        addr: Option<SocketAddr>,
+    ) -> Result<Peer, Error> {
         let id = desktop.device_id();
         let mut peer = self.store.peer(&id).cloned().unwrap_or_else(|| Peer::new(desktop, hello.name.clone()));
         peer.name.clone_from(&hello.name);
-        peer.remember(addr);
+        if let Some(addr) = addr {
+            peer.remember(addr);
+        }
         peer.learn(hello.addresses.iter().filter_map(|text| text.parse().ok()));
+        if let Some(bluetooth) = hello.addresses.iter().find_map(|text| bluetooth_address(text)) {
+            peer.bluetooth = Some(bluetooth);
+        }
         peer.touch();
         self.store.upsert(peer.clone());
         self.store.save(&self.store_path)?;
@@ -169,7 +257,7 @@ impl Phone {
 
 impl Session {
     pub fn close(&self) {
-        close(&self.connection, CloseCode::Done);
+        self.connection.close(CloseCode::Done);
     }
 }
 

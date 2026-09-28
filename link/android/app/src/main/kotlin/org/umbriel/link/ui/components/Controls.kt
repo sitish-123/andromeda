@@ -1,6 +1,5 @@
 package org.umbriel.link.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -9,10 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -36,7 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -44,7 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.drawscope.rotate as turned
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -98,30 +92,6 @@ fun PillButton(
     ) {
         if (icon != null) Glyph(icon, content, Size.iconSmall + 2.dp)
         Label(text, LinkTheme.type.titleMedium, content, maxLines = 1)
-    }
-}
-
-/** A 32 dp pill that is on or off: tertiary at rest, accent when selected. */
-@Composable
-fun SelectablePill(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
-    val colors = LinkTheme.colors
-    val fill by animateColorAsState(if (selected) colors.accent else colors.surfaceTertiary, tween(Motion.FAST), label = "chip")
-    val content = if (selected) colors.onAccent else colors.textPrimary
-    Row(
-        modifier = modifier
-            .heightIn(min = Size.touch)
-            .selectable(selected, role = Role.Checkbox, onClick = onClick)
-            .padding(vertical = Space.s8),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            Modifier.height(Size.chip).clip(Radius.pill).background(fill).padding(horizontal = Space.s12),
-            horizontalArrangement = Arrangement.spacedBy(Space.s6),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) Glyph(icon, content, Size.iconSmall)
-            Label(label, LinkTheme.type.labelLarge, content, maxLines = 1)
-        }
     }
 }
 
@@ -190,6 +160,25 @@ fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modi
     }
 }
 
+/** A title, an optional line under it, and a chevron; the whole row opens something. */
+@Composable
+fun NavRow(title: String, subtitle: String?, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().heightIn(min = Size.touchLarge).clip(Radius.list)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = Space.s8),
+        horizontalArrangement = Arrangement.spacedBy(Space.s12),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconChip(icon)
+        Column(Modifier.weight(1f)) {
+            Label(title, LinkTheme.type.titleMedium)
+            if (subtitle != null) Label(subtitle, LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
+        }
+        Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.textTertiary)
+    }
+}
+
 /** A 40 dp rounded square holding a glyph, the design system's icon container. */
 @Composable
 fun IconChip(icon: ImageVector, tint: Color = LinkTheme.colors.accentText, fill: Color = LinkTheme.colors.accent.copy(alpha = 0.14f)) {
@@ -236,92 +225,6 @@ fun ConnectionOrb(active: Boolean, modifier: Modifier = Modifier, size: Dp = 64.
                     size = androidx.compose.ui.geometry.Size(radius * 1.6f, radius * 1.6f),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = radius * 0.08f, cap = androidx.compose.ui.graphics.StrokeCap.Round),
                 )
-            }
-        }
-    }
-}
-
-data class OrbAction(val label: String, val icon: ImageVector, val onClick: () -> Unit)
-
-/** The expanding action orb: a 56 dp accent orb that opens a column of quick actions above it. */
-@Composable
-fun ActionOrb(expanded: Boolean, onToggle: () -> Unit, actions: List<OrbAction>, modifier: Modifier = Modifier) {
-    val colors = LinkTheme.colors
-    val turn by animateFloatAsState(if (expanded) 45f else 0f, tween(Motion.MORPH, easing = Motion.smoothEnter), label = "turn")
-    Column(modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Space.s12)) {
-        AnimatedVisibility(
-            expanded,
-            enter = fadeIn(tween(Motion.FAST)) + expandVertically(tween(Motion.MORPH, easing = Motion.smoothEnter), Alignment.Bottom),
-            exit = fadeOut(tween(Motion.FADE_OUT)) + shrinkVertically(tween(Motion.MEDIUM_FAST, easing = Motion.exit), Alignment.Bottom),
-        ) {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Space.s10)) {
-                actions.forEach { action ->
-                    Row(
-                        Modifier.softShadow(Radius.pill, Elevation.SoftLift, colors.shadow, colors.dark)
-                            .clip(Radius.pill)
-                            .background(if (colors.dark) colors.surfaceElevated else colors.surfacePrimary)
-                            .clickable(role = Role.Button, onClick = action.onClick)
-                            .padding(horizontal = Space.s16, vertical = Space.s12),
-                        horizontalArrangement = Arrangement.spacedBy(Space.s8),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Glyph(action.icon, colors.accentText, Size.iconSmall + 2.dp)
-                        Label(action.label, LinkTheme.type.titleMedium, maxLines = 1)
-                    }
-                }
-            }
-        }
-        Box(
-            Modifier.size(Size.orb)
-                .softShadow(Radius.pill, Elevation.SoftLiftElevated, colors.shadow, colors.dark)
-                .clip(Radius.pill)
-                .background(colors.accent)
-                .clickable(role = Role.Button, onClick = onToggle),
-            contentAlignment = Alignment.Center,
-        ) {
-            Glyph(Icons.Filled.Add, colors.onAccent, Size.icon, Modifier.rotate(turn))
-        }
-    }
-}
-
-/** A bento tile: an icon chip, a title, and a hint, in a soft card. */
-@Composable
-fun BentoTile(title: String, hint: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, highlighted: Boolean = false) {
-    val colors = LinkTheme.colors
-    SoftCard(modifier, onClick = onClick, padding = Space.s16) {
-        IconChip(
-            icon,
-            tint = if (highlighted) colors.onAccent else colors.accentText,
-            fill = if (highlighted) colors.accent else colors.accent.copy(alpha = 0.14f),
-        )
-        Label(title, LinkTheme.type.titleLarge, modifier = Modifier.padding(top = Space.s12), maxLines = 2)
-        Label(hint, LinkTheme.type.bodySmall, colors.textSecondary, Modifier.padding(top = Space.s2), maxLines = 2)
-    }
-}
-
-/** A two-column bento grid: [tiles] fill rows left to right; a tile marked wide takes a whole row. */
-@Composable
-fun BentoGrid(tiles: List<Pair<Boolean, @Composable (Modifier) -> Unit>>, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.block)) {
-        var row = mutableListOf<@Composable (Modifier) -> Unit>()
-        val rows = mutableListOf<List<@Composable (Modifier) -> Unit>>()
-        tiles.forEach { (wide, tile) ->
-            if (wide) {
-                if (row.isNotEmpty()) rows += row
-                rows += listOf(tile)
-                row = mutableListOf()
-            } else {
-                row += tile
-                if (row.size == 2) {
-                    rows += row
-                    row = mutableListOf()
-                }
-            }
-        }
-        if (row.isNotEmpty()) rows += row
-        rows.forEach { cells ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.block)) {
-                cells.forEach { cell -> cell(Modifier.weight(1f)) }
             }
         }
     }

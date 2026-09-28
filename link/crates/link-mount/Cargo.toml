@@ -1,0 +1,22 @@
+[package]
+name = "link-mount"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "umbriel-link-mount"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+env_logger.workspace = true
+fuser.workspace = true
+log.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+
+[lints]
+workspace = true

@@ -45,6 +45,8 @@ pub struct Limits {
     offers: Bucket,
     clips: Bucket,
     statuses: Bucket,
+    /// Each one makes the desktop join a network.
+    hotspots: Bucket,
 }
 
 impl Default for Limits {
@@ -54,6 +56,7 @@ impl Default for Limits {
             offers: Bucket::new(5, Duration::from_secs(6)),
             clips: Bucket::new(20, Duration::from_secs(1)),
             statuses: Bucket::new(3, Duration::from_secs(10)),
+            hotspots: Bucket::new(2, Duration::from_secs(30)),
         }
     }
 }
@@ -66,6 +69,7 @@ impl Limits {
             Message::Offer(_) => &mut self.offers,
             Message::ClipOffer(_) => &mut self.clips,
             Message::Status(_) => &mut self.statuses,
+            Message::Hotspot(_) => &mut self.hotspots,
             _ => return true,
         };
         bucket.take(now)

@@ -247,6 +247,41 @@ PULLED=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" 
 [[ $PULLED == "selected on the phone" ]] || fail "the selection arrived as \"$PULLED\""
 record '{"step":"process-text-reaches-desktop","text":"selected on the phone"}'
 
+# Fixture photos for the in-app picker: two distinct PNGs in Pictures, scanned into MediaStore, with the media grants
+# and All files access a user would give.
+fixture_photos() {
+  python3 - "$RUNTIME" <<'PY'
+import os, struct, sys, zlib
+def png(path, seed):
+    rows = b"".join(b"\0" + bytes((x * seed + y) % 256 for x in range(3 * 64)) for y in range(64))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+for name, seed in (("e2e-pick-a.png", 3), ("e2e-pick-b.png", 7)):
+    png(os.path.join(sys.argv[1], name), seed)
+PY
+  adb shell mkdir -p /sdcard/Pictures
+  for name in e2e-pick-a.png e2e-pick-b.png; do adb push "$RUNTIME/$name" "/sdcard/Pictures/$name" > /dev/null; done
+  adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+  adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_IMAGES
+  adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_VIDEO
+  adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
+}
+fixture_photos
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+wait_for 20 "the app is not connected before picking" connected
+OFFERS=$(grep -c 'member=TransferOffered' "$OUT/signals.txt")
+maestro "$FLOWS/pick-send.yaml"
+wait_for 30 "no TransferOffered for the picked photos" eval '(( $(grep -c "member=TransferOffered" "$OUT/signals.txt") > OFFERS ))'
+OFFER=$(grep -A1 'member=TransferOffered' "$OUT/signals.txt" | grep -o '"[0-9a-f]\{32\}"' | tail -1 | tr -d '"')
+link AcceptTransfer "'$OFFER'" > /dev/null || fail "AcceptTransfer for the picked photos"
+for name in e2e-pick-a.png e2e-pick-b.png; do
+  wait_for 30 "$name never arrived" test -f "$DOWNLOADS/$name"
+  [[ $(sha256sum < "$RUNTIME/$name") == $(sha256sum < "$DOWNLOADS/$name") ]] || fail "$name differs"
+done
+adb shell rm -f /sdcard/Pictures/e2e-pick-a.png /sdcard/Pictures/e2e-pick-b.png
+record '{"step":"in-app-picker-sends-photos","files":2,"sha256_match":true}'
+
 maestro -e STAY=off "$FLOWS/stay-connected.yaml"
 wait_for 10 "the Stay connected notification outlived the toggle" gone "Connected to your desktops"
 

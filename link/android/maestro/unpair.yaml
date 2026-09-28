@@ -1,12 +1,12 @@
-# Unpairs the only desktop from its page, opened from the Home screen's hero.
+# Unpairs the only desktop from its page, opened from the gear beside its name on Home.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
 - scrollUntilVisible:
-    element: "Features and pairing"
+    element: "Desktop settings"
     direction: UP
-- tapOn: "Features and pairing"
+- tapOn: "Desktop settings"
 - scrollUntilVisible:
     element: "Unpair"
 - tapOn: "Unpair"

@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import java.io.File
 import java.security.MessageDigest
 
@@ -61,7 +62,7 @@ internal class Downloads(private val context: Context) {
             descriptor.close()
             throw IllegalArgumentException("$name is not a regular file")
         }
-        return Opened(descriptor.detachFd(), name, size, resolver.getType(uri) ?: OCTET_STREAM)
+        return Opened(descriptor.detachFd(), name, size, resolver.getType(uri) ?: mimeTypeOf(name))
     }
 
     data class Opened(val fd: Int, val name: String, val size: Long, val mime: String)
@@ -71,3 +72,8 @@ internal class Downloads(private val context: Context) {
         const val OCTET_STREAM = "application/octet-stream"
     }
 }
+
+/** The MIME type a file name's extension implies, or `application/octet-stream`. */
+fun mimeTypeOf(name: String): String =
+    MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
+        ?: "application/octet-stream"

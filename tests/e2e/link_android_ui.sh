@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Screenshots of every screen of the Android app, in the light and the dark theme, on the emulator against a private
 # umbriel-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty and paired (scrolled,
-# and with the action orb open), code entry, the QR link confirmation and its working orb, the desktop's page, the
+# and with a photo picked), the picker's Photos, Videos, and Files tabs, code entry, the QR link confirmation and its working orb, the desktop's page, the
 # per-app filter, Media, and the five onboarding pages. Proves the screens render and are reachable by their labels;
 # the images are the artifact to judge them by. Writes <theme>-<screen>.png, results.json, linkd.log, maestro.log to
 # $OUT (default ./artifacts/link-android-ui). Run under flock /tmp/link-emulator.lock.
@@ -55,6 +55,28 @@ adb shell cmd statusbar collapse
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
 adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
+fixture_photos
+
+# Fixture photos for the in-app picker: two distinct PNGs in Pictures, scanned into MediaStore, with the media grants
+# and All files access a user would give.
+fixture_photos() {
+  python3 - "$RUNTIME" <<'PY'
+import os, struct, sys, zlib
+def png(path, seed):
+    rows = b"".join(b"\0" + bytes((x * seed + y) % 256 for x in range(3 * 64)) for y in range(64))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+for name, seed in (("e2e-pick-a.png", 3), ("e2e-pick-b.png", 7)):
+    png(os.path.join(sys.argv[1], name), seed)
+PY
+  adb shell mkdir -p /sdcard/Pictures
+  for name in e2e-pick-a.png e2e-pick-b.png; do adb push "$RUNTIME/$name" "/sdcard/Pictures/$name" > /dev/null; done
+  adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null
+  adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_IMAGES
+  adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_VIDEO
+  adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
+}
 
 pair() {
   local uri

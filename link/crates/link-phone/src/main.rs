@@ -18,7 +18,7 @@ use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{Message, Share, ShareKind};
+use link_core::proto::message::{Hotspot, Message, Share, ShareKind};
 use link_core::uri::PairingUri;
 use link_core::{Error, discovery};
 use serde_json::json;
@@ -37,6 +37,16 @@ struct Cli {
     /// Where received files go; default `<state>/Downloads`.
     #[arg(long)]
     downloads: Option<PathBuf>,
+    /// Stands in for RFCOMM: when no IP path answers, reach the desktop's Bluetooth side through this Unix socket
+    /// (the daemon's `UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET`).
+    #[arg(long)]
+    bluetooth_socket: Option<PathBuf>,
+    /// Stands in for the phone's local-only hotspot: `<ssid>:<passphrase>` is what starting it returns.
+    #[arg(long)]
+    hotspot: Option<String>,
+    /// A folder a desktop with the browse switch on sees, as `<name>=<path>`; repeatable.
+    #[arg(long = "browse-root")]
+    browse_roots: Vec<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -143,6 +153,21 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     let state = cli.state.context("--state is required for this command")?;
     let mut phone = open(&state, cli.name, cli.transcript.as_deref())?;
+    if let Some(socket) = cli.bluetooth_socket {
+        phone.set_bluetooth(std::sync::Arc::new(SocketOpener(socket)));
+    }
+    let roots = cli
+        .browse_roots
+        .iter()
+        .map(|root| root.split_once('=').map(|(name, path)| (name.to_owned(), PathBuf::from(path))))
+        .collect::<Option<Vec<_>>>()
+        .context("--browse-root is <name>=<path>")?;
+    phone.set_browse_roots(link_core::browse::Roots::new(roots));
+    if let Some(hotspot) = cli.hotspot {
+        let (ssid, passphrase) = hotspot.split_once(':').context("--hotspot is <ssid>:<passphrase>")?;
+        let hotspot = Hotspot { ssid: ssid.to_owned(), passphrase: passphrase.to_owned() };
+        phone.set_hotspot(std::sync::Arc::new(FixedHotspot(hotspot)));
+    }
     let inbox = || Inbox::new(cli.downloads.clone().unwrap_or_else(|| state.join("Downloads")), &state);
     match cli.command {
         Command::Hold { seconds, on_offer, status } => {
@@ -192,6 +217,29 @@ fn open(state: &Path, name: String, transcript: Option<&Path>) -> anyhow::Result
     let identity = Identity::load_or_create(&state.join("identity.pk8"))?;
     let tap = transcript.map(transcript::tap).transpose()?;
     Ok(Phone::new(identity, state.join("devices.json"), name, tap)?)
+}
+
+/// Connects the stand-in for a desktop's RFCOMM channel, whatever the address.
+struct SocketOpener(PathBuf);
+
+impl link_core::stream::BluetoothOpener for SocketOpener {
+    fn open(&self, _address: &str) -> std::io::Result<std::os::fd::OwnedFd> {
+        Ok(std::os::unix::net::UnixStream::connect(&self.0)?.into())
+    }
+}
+
+/// A hotspot that is always up with the given credentials; starting and stopping it are logged for the E2E.
+struct FixedHotspot(Hotspot);
+
+impl link_core::hotspot::HotspotProvider for FixedHotspot {
+    fn start(&self) -> std::io::Result<Hotspot> {
+        log::info!("hotspot started");
+        Ok(self.0.clone())
+    }
+
+    fn stop(&self) {
+        log::info!("hotspot stopped");
+    }
 }
 
 async fn discover(seconds: u64) -> anyhow::Result<()> {

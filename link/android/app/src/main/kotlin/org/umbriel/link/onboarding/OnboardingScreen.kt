@@ -1,6 +1,11 @@
 package org.umbriel.link.onboarding
 
 import android.content.Intent
+import org.umbriel.link.ui.theme.Size
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.text.font.FontFamily
+import android.content.ClipboardManager
+import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -17,6 +22,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
@@ -30,7 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,13 +64,15 @@ private val PAGES = listOf(
     Page(Grant.PostNotifications, R.string.onboarding_post_title, R.string.onboarding_post_body, Icons.Filled.Notifications),
     Page(Grant.Battery, R.string.onboarding_battery_title, R.string.onboarding_battery_body, Icons.Filled.Favorite),
     Page(Grant.Calls, R.string.onboarding_calls_title, R.string.onboarding_calls_body, Icons.Filled.Call),
+    Page(Grant.Bluetooth, R.string.onboarding_bluetooth_title, R.string.onboarding_bluetooth_body, Icons.Filled.Share),
+    Page(Grant.AutoClipboard, R.string.onboarding_clipboard_title, R.string.onboarding_clipboard_body, Icons.Filled.Edit),
 )
 
 /** A short paged flow through the grants, each explained before Android's own screen asks. */
 @Composable
-fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, onDone: () -> Unit) {
+fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, start: Grant?, onDone: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val pager = rememberPagerState { PAGES.size }
+    val pager = rememberPagerState(PAGES.indexOfFirst { it.grant == start }.coerceAtLeast(0)) { PAGES.size }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -78,7 +86,9 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, onD
     Screen(title = stringResource(R.string.setup_title), onBack = onDone) {
         HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()) { index ->
             val page = PAGES[index]
-            PageContent(page, granted = page.grant in state.granted) {
+            PageContent(page, granted = page.grant in state.granted, extra = {
+                if (page.grant == Grant.AutoClipboard && page.grant !in state.granted) AdbStep(viewModel)
+            }) {
                 val permissions = viewModel.permissions(page.grant)
                 if (permissions.isNotEmpty()) request.launch(permissions) else viewModel.settings(page.grant, mirrorSettings)?.let(context::startActivity)
             }
@@ -98,7 +108,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, onD
 }
 
 @Composable
-private fun PageContent(page: Page, granted: Boolean, onAllow: () -> Unit) {
+private fun PageContent(page: Page, granted: Boolean, extra: @Composable () -> Unit, onAllow: () -> Unit) {
     val colors = LinkTheme.colors
     Column(
         Modifier.fillMaxSize().padding(horizontal = Space.page),
@@ -121,8 +131,41 @@ private fun PageContent(page: Page, granted: Boolean, onAllow: () -> Unit) {
         )
         if (granted) {
             PillButton(stringResource(R.string.onboarding_granted), onClick = {}, kind = PillKind.Tonal, icon = Icons.Filled.Check, enabled = false)
-        } else {
+        } else if (page.grant != Grant.AutoClipboard) {
             PillButton(stringResource(R.string.onboarding_allow), onAllow)
+        } else {
+            extra()
+            PillButton(stringResource(R.string.onboarding_clipboard_overlay), onAllow, kind = PillKind.Tonal)
         }
+    }
+}
+
+/** Where each half of automatic clipboard stands, and the adb command, copyable, for the half a computer gives. */
+@Composable
+private fun AdbStep(viewModel: OnboardingViewModel) {
+    val colors = LinkTheme.colors
+    val context = LocalContext.current
+    val command = viewModel.adbCommand()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.s8)) {
+        Step(stringResource(R.string.onboarding_clipboard_step_overlay), viewModel.overlayAllowed())
+        Step(stringResource(R.string.onboarding_clipboard_step_logs), viewModel.logsAllowed())
+        Label(
+            command,
+            LinkTheme.type.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            colors.textPrimary,
+            Modifier.fillMaxWidth().clip(Radius.list).background(colors.surfaceTertiary).padding(Space.s12),
+        )
+        PillButton(stringResource(R.string.onboarding_clipboard_copy), onClick = {
+            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("adb", command))
+        }, modifier = Modifier.fillMaxWidth(), kind = PillKind.Quiet)
+    }
+}
+
+@Composable
+private fun Step(label: String, done: Boolean) {
+    val colors = LinkTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
+        Glyph(if (done) Icons.Filled.Check else Icons.Filled.Warning, if (done) colors.success else colors.warning, Size.iconSmall + 2.dp)
+        Label(label, LinkTheme.type.titleMedium)
     }
 }

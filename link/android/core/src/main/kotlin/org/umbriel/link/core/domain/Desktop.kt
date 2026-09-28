@@ -4,12 +4,14 @@ data class Desktop(
     val id: String,
     val name: String,
     val connected: Boolean,
+    /** Connected over Bluetooth, since no Wi-Fi path answered. */
+    val bluetooth: Boolean = false,
     /** Unix seconds. */
     val lastSeen: Long,
     val sharing: Sharing = Sharing(),
 )
 
-/** This phone's switches for one desktop; all on after pairing. */
+/** This phone's switches for one desktop; all but browsing on after pairing. */
 data class Sharing(
     val clipboard: Boolean = true,
     val files: Boolean = true,
@@ -17,6 +19,7 @@ data class Sharing(
     val media: Boolean = true,
     val ring: Boolean = true,
     val calls: Boolean = true,
+    val browse: Boolean = false,
 ) {
     fun allows(feature: Feature): Boolean = when (feature) {
         Feature.Clipboard -> clipboard
@@ -25,7 +28,8 @@ data class Sharing(
         Feature.Media -> media
         Feature.Ring -> ring
         Feature.Calls -> calls
+        Feature.Browse -> browse
     }
 }
 
-enum class Feature { Clipboard, Files, Notifications, Media, Ring, Calls }
+enum class Feature { Clipboard, Files, Notifications, Media, Ring, Calls, Browse }

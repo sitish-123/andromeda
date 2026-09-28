@@ -130,11 +130,11 @@ pub async fn send_oversize(
         anyhow::Ok(())
     };
     let write_error = written.await.err().map(|error| error.to_string());
-    let stopped = tokio::time::timeout(CONSENT_TIMEOUT, send.stopped()).await?.ok().flatten();
+    let stopped = tokio::time::timeout(CONSENT_TIMEOUT, send.stopped()).await?;
     let done = session.control.recv().await?;
     let line = match done {
         Message::FileDone(done) => json!({
-            "stopped_with": stopped.map(quinn::VarInt::into_inner), "write_error": write_error, "ok": done.ok,
+            "stopped_with": stopped, "write_error": write_error, "ok": done.ok,
         }),
         other => bail!("desktop answered {}", other.kind()),
     };

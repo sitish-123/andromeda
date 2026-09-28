@@ -1,4 +1,4 @@
-# Taps "Ring desktop" on the Devices screen, leaving the Media screen the previous flow opened.
+# Taps "Ring" on the Devices screen, leaving the Media screen the previous flow opened.
 appId: org.umbriel.link
 ---
 - launchApp:
@@ -7,5 +7,5 @@ appId: org.umbriel.link
 - launchApp:
     stopApp: false
 - scrollUntilVisible:
-    element: "Ring desktop"
-- tapOn: "Ring desktop"
+    element: "Ring"
+- tapOn: "Ring"

@@ -5,11 +5,14 @@ pub mod clip;
 pub mod frame;
 pub mod limit;
 pub mod message;
+pub mod mux;
 pub mod pairing;
 pub mod session;
 pub mod transfer;
 
 pub const ALPN: &[u8] = b"umbriel-link/1";
+/// ALPN of the TLS session over a byte stream, which carries [`mux`] frames.
+pub const STREAM_ALPN: &[u8] = b"umbriel-link-stream/1";
 pub const VERSION: u32 = 1;
 
 /// QUIC application close codes; see `link/ARCHITECTURE.md`.

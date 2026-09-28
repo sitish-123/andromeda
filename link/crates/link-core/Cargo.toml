@@ -14,12 +14,13 @@ log.workspace = true
 mdns-sd.workspace = true
 quinn.workspace = true
 ring.workspace = true
-rustix.workspace = true
+rustix = { workspace = true, features = ["net"] }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,21 @@
+[Unit]
+Description=Umbriel Link, connected phones' files at ~/Phone
+PartOf=umbriel-session.target
+After=umbriel-session.target umbriel-linkd.service
+Wants=umbriel-linkd.service
+
+[Service]
+Slice=background.slice
+ExecStart=/usr/bin/umbriel-link-mount
+Restart=on-failure
+# Outside umbriel-linkd's sandbox, since it mounts where the user sees it and fusermount3 is setuid; it parses no
+# network input, only the daemon's D-Bus answers.
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=umbriel-session.target

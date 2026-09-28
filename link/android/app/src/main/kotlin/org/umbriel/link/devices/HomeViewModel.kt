@@ -14,7 +14,6 @@ import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.core.domain.Desktop
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.linkFailure
-import org.umbriel.link.core.domain.shareKindOf
 import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.presence.Presence
 
@@ -33,7 +32,9 @@ data class HomeState(
 sealed interface HomeMessage {
     data class Paired(val name: String) : HomeMessage
     data class Sent(val name: String) : HomeMessage
+    data class FilesSending(val name: String) : HomeMessage
     data object ClipboardEmpty : HomeMessage
+    data class ClipboardSent(val name: String) : HomeMessage
     data class Failed(val failure: LinkFailure) : HomeMessage
 }
 
@@ -83,8 +84,12 @@ class HomeViewModel(
             _message.value = HomeMessage.ClipboardEmpty
             return
         }
-        val kind = shareKindOf(text.trim())
-        act(HomeMessage.Sent(desktop.name)) { repository.share(desktop.id, kind, text) }
+        // A clipboard offer, not a share: the desktop puts it on its own clipboard instead of in a notification.
+        act(HomeMessage.ClipboardSent(desktop.name)) { repository.offerClipText(text) }
+    }
+
+    fun sendFiles(desktop: Desktop, uris: List<String>) {
+        if (uris.isNotEmpty()) act(HomeMessage.FilesSending(desktop.name)) { repository.sendFiles(desktop.id, uris) }
     }
 
     fun announce(desktop: Desktop) {

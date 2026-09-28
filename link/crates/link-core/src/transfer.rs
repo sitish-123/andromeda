@@ -27,6 +27,7 @@ use crate::control::{STEP_TIMEOUT, read_frame, write_frame};
 use crate::identity::DeviceId;
 use crate::inbox::{self, Inbox, Part, Record, RecordFile};
 use crate::session::SessionHandle;
+use crate::wire::{RecvStream, SendStream};
 
 mod clip;
 
@@ -41,8 +42,8 @@ const MAX_OPEN_PER_PEER: usize = 8;
 const CHUNK: usize = 256 * 1024;
 const SYNC_EVERY: u64 = 8 << 20;
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
-const PROTOCOL_ERROR: quinn::VarInt = quinn::VarInt::from_u32(CloseCode::ProtocolError as u32);
-const CANCELLED: quinn::VarInt = quinn::VarInt::from_u32(0);
+const PROTOCOL_ERROR: u32 = CloseCode::ProtocolError as u32;
+const CANCELLED: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -96,7 +97,7 @@ enum Command {
     Attach { peer: DeviceId, session: SessionHandle },
     Detach { peer: DeviceId, stable_id: usize },
     Control { peer: DeviceId, message: Message },
-    Stream { peer: DeviceId, recv: quinn::RecvStream },
+    Stream { peer: DeviceId, recv: RecvStream },
     Send { peer: DeviceId, sources: Vec<Source>, reply: oneshot::Sender<Result<TransferId, Error>> },
     Decide { id: TransferId, accept: bool, reply: oneshot::Sender<bool> },
     Cancel { id: TransferId, reply: oneshot::Sender<bool> },
@@ -131,7 +132,7 @@ struct In {
 
 enum TaskEnd {
     Hashed { id: TransferId, hashes: Result<Vec<Vec<u8>>, Error> },
-    Header { peer: DeviceId, recv: quinn::RecvStream, header: Result<Envelope, Error> },
+    Header { peer: DeviceId, recv: RecvStream, header: Result<Envelope, Error> },
     Received { id: TransferId, file: u64, seq: u64, end: Received },
     Sent { id: TransferId, file: u64, seq: u64, result: Result<(), Error> },
     ClipServed { peer: DeviceId, result: Result<(), Error> },
@@ -270,7 +271,7 @@ impl TransferHandle {
         self.0.try_send(Command::Control { peer, message }).is_ok()
     }
 
-    pub(crate) fn stream(&self, peer: DeviceId, recv: quinn::RecvStream) -> bool {
+    pub(crate) fn stream(&self, peer: DeviceId, recv: RecvStream) -> bool {
         self.0.try_send(Command::Stream { peer, recv }).is_ok()
     }
 
@@ -747,12 +748,12 @@ impl TransferActor {
         }
     }
 
-    fn on_header(&mut self, peer: &DeviceId, mut recv: quinn::RecvStream, header: Result<Envelope, Error>) {
+    fn on_header(&mut self, peer: &DeviceId, mut recv: RecvStream, header: Result<Envelope, Error>) {
         let header = match header {
             Ok(Envelope { message: Message::FileData(header), .. }) => header,
             Ok(Envelope { message: Message::ClipData(header), .. }) => return self.on_clip_data(peer, recv, header),
             Err(Error::Timeout) => {
-                drop(recv.stop(PROTOCOL_ERROR));
+                recv.stop(PROTOCOL_ERROR);
                 return;
             }
             Ok(Envelope { message, .. }) => return self.violation(peer, &Error::Unexpected(message.kind())),
@@ -768,7 +769,7 @@ impl TransferActor {
             Ok(admitted) => admitted,
             Err(refused) => {
                 log::warn!("{peer}: stream for {} file {} refused: {refused}", header.transfer, header.file);
-                drop(recv.stop(PROTOCOL_ERROR));
+                recv.stop(PROTOCOL_ERROR);
                 return;
             }
         };
@@ -1043,17 +1044,17 @@ impl Ticker {
     }
 }
 
-/// Resets the stream when dropped unfinished, since quinn finishes a dropped stream and the receiver would take a
+/// Resets the stream when dropped unfinished, since a dropped stream finishes and the receiver would take a
 /// cancelled file for a short one.
 struct Outbound {
-    stream: quinn::SendStream,
+    stream: SendStream,
     finished: bool,
 }
 
 impl Drop for Outbound {
     fn drop(&mut self) {
         if !self.finished {
-            drop(self.stream.reset(CANCELLED));
+            self.stream.reset(CANCELLED);
         }
     }
 }
@@ -1066,7 +1067,7 @@ async fn send_file(
     ticker: &Ticker,
 ) -> Result<(), Error> {
     let mut offset = header.offset;
-    let stream = session.connection().open_uni().await.map_err(Error::from)?;
+    let stream = session.connection().open_uni().await?;
     let mut out = Outbound { stream, finished: false };
     write_frame(&mut out.stream, Message::FileData(header), session.tap()).await?;
     let mut buf = vec![0; CHUNK];
@@ -1086,7 +1087,7 @@ async fn send_file(
 }
 
 async fn receive(
-    mut recv: quinn::RecvStream,
+    mut recv: RecvStream,
     part: &std::path::Path,
     mut budget: Budget,
     expected: &[u8],
@@ -1095,23 +1096,23 @@ async fn receive(
     let mut part = match Part::open(part, budget.offset()).await {
         Ok(part) => part,
         Err(error) => {
-            drop(recv.stop(PROTOCOL_ERROR));
+            recv.stop(PROTOCOL_ERROR);
             return Received::Failed(error);
         }
     };
     let mut synced = part.offset();
     loop {
-        let chunk = match recv.read_chunk(CHUNK, true).await {
+        let chunk = match recv.read_chunk(CHUNK).await {
             Ok(Some(chunk)) => chunk,
             Ok(None) => break,
             Err(_) => return Received::Paused { durable: part.sync().unwrap_or(synced) },
         };
-        if let Err(overrun) = budget.take(chunk.bytes.len()) {
-            drop(recv.stop(PROTOCOL_ERROR));
+        if let Err(overrun) = budget.take(chunk.len()) {
+            recv.stop(PROTOCOL_ERROR);
             return Received::Overrun(overrun);
         }
-        if let Err(error) = part.write(&chunk.bytes) {
-            drop(recv.stop(PROTOCOL_ERROR));
+        if let Err(error) = part.write(&chunk) {
+            recv.stop(PROTOCOL_ERROR);
             return Received::Failed(error);
         }
         if part.offset() - synced >= SYNC_EVERY {

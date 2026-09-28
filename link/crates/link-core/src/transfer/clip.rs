@@ -21,6 +21,7 @@ use crate::Error;
 use crate::control::{STEP_TIMEOUT, write_frame};
 use crate::identity::DeviceId;
 use crate::session::SessionHandle;
+use crate::wire::RecvStream;
 
 /// What this side offers: the types in order of preference, and the first type's bytes, inline as text or in a file.
 pub struct LocalClip {
@@ -200,12 +201,12 @@ impl TransferActor {
         }
     }
 
-    pub(super) fn on_clip_data(&mut self, peer: &DeviceId, mut recv: quinn::RecvStream, header: ClipPull) {
+    pub(super) fn on_clip_data(&mut self, peer: &DeviceId, mut recv: RecvStream, header: ClipPull) {
         let pending = self.clips.pulls.iter_mut().find(|pull| pull.peer == *peer && pull.header == header);
         let admitted = self.clips.peers.get_mut(peer).map(|state| state.on_data(&header));
         let (Some(pull), Some(Ok(budget))) = (pending, admitted) else {
             log::warn!("{peer}: a clip-data stream nobody pulled");
-            drop(recv.stop(PROTOCOL_ERROR));
+            recv.stop(PROTOCOL_ERROR);
             return;
         };
         let Some(sink) = pull.sink.take() else { return };
@@ -240,12 +241,12 @@ impl TransferActor {
 }
 
 async fn serve(session: &SessionHandle, header: ClipPull, content: Option<Content>) -> Result<(), Error> {
-    let stream = session.connection().open_uni().await.map_err(Error::from)?;
+    let stream = session.connection().open_uni().await?;
     let mut out = Outbound { stream, finished: false };
     write_frame(&mut out.stream, Message::ClipData(header), session.tap()).await?;
     match content {
         None => {
-            drop(out.stream.reset(CANCELLED));
+            out.stream.reset(CANCELLED);
             out.finished = true;
             return Ok(());
         }
@@ -297,18 +298,18 @@ async fn write_sink(sink: File, bytes: &[u8]) -> Result<(), Error> {
 }
 
 /// Copies a `clip-data` stream into the sink within its budget, returning the byte count and hash.
-async fn copy(mut recv: quinn::RecvStream, sink: File, mut budget: Budget) -> Result<(u64, Vec<u8>), Error> {
+async fn copy(mut recv: RecvStream, sink: File, mut budget: Budget) -> Result<(u64, Vec<u8>), Error> {
     let mut sink = Sink::new(sink)?;
     let mut context = digest::Context::new(&digest::SHA256);
     loop {
-        let chunk = tokio::time::timeout(STEP_TIMEOUT, recv.read_chunk(CHUNK, true)).await?;
+        let chunk = tokio::time::timeout(STEP_TIMEOUT, recv.read_chunk(CHUNK)).await?;
         let Some(chunk) = chunk.map_err(|_| Error::StreamEnded)? else { break };
-        if budget.take(chunk.bytes.len()).is_err() {
-            drop(recv.stop(PROTOCOL_ERROR));
+        if budget.take(chunk.len()).is_err() {
+            recv.stop(PROTOCOL_ERROR);
             return Err(Error::Unexpected("clipboard bytes past the offered size"));
         }
-        sink.write_all(&chunk.bytes).await?;
-        context.update(&chunk.bytes);
+        sink.write_all(&chunk).await?;
+        context.update(&chunk);
     }
     Ok((budget.offset(), context.finish().as_ref().to_vec()))
 }

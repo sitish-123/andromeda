@@ -239,6 +239,9 @@ LinkService::LinkService(
     }
     notify();
   });
+  m_link->uponSignal("Hotspot")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& deviceId, const std::string& ssid) { onHotspot(deviceId, ssid); });
   m_link->uponSignal("NotificationRemoved")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& id) { onNotificationRemoved(deviceId, id); });
@@ -424,6 +427,24 @@ void LinkService::shareClipboard(const std::string& deviceId) {
   share(deviceId, link ? "link" : "text", *text);
 }
 
+// Joining a phone's hotspot takes the laptop off its Wi-Fi, so it is said while it lasts, and when it ends.
+void LinkService::onHotspot(const std::string& deviceId, const std::string& ssid) {
+  const bool joined = !ssid.empty();
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr(
+      joined ? "notifications.internal.link-hotspot-joined" : "notifications.internal.link-hotspot-left", "device",
+      deviceName(deviceId)
+  );
+  request.body = joined ? i18n::tr("notifications.internal.link-hotspot-joined-body") : std::string();
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  request.replacesId = m_hotspotNotice;
+  request.timeout = joined ? 0 : 5000;
+  const std::uint32_t shown = m_notifications.addOrReplace(std::move(request));
+  m_hotspotNotice = joined ? shown : 0;
+}
+
 void LinkService::onReceived(const std::string& deviceId, const std::string& kind, const std::string& text) {
   const bool link = kind == "link";
   if (!link && kind != "text") {
@@ -569,6 +590,19 @@ std::string LinkService::deviceName(const std::string& deviceId) const {
   }
   const auto peer = std::ranges::find(m_nearby, deviceId, &LinkNearby::id);
   return peer != m_nearby.end() ? peer->alias : deviceId;
+}
+
+void LinkService::browse(const std::string& deviceId) {
+  const char* home = std::getenv("HOME");
+  if (home == nullptr) {
+    return;
+  }
+  // umbriel-link-mount names a phone's folder after it, with any slash swapped for U+2215 (∕).
+  std::string name = deviceName(deviceId);
+  for (std::size_t at = 0; (at = name.find('/', at)) != std::string::npos;) {
+    name.replace(at, 1, "\u2215");
+  }
+  (void)net::openInBrowser(fileUri(std::filesystem::path(home) / "Phone" / name));
 }
 
 void LinkService::setLocalSendVisible(bool visible) {

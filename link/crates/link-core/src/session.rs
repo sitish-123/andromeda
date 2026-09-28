@@ -10,10 +10,11 @@ use link_proto::message::{Envelope, Message, OfferReply, RefuseReason, Share, Sh
 use link_proto::session::{Inbound, Role, SessionState};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::Error;
 use crate::control::{Control, ControlReader, ControlWriter, STEP_TIMEOUT, Tap};
 use crate::identity::DeviceId;
 use crate::transfer::TransferHandle;
-use crate::{Error, close};
+use crate::wire::Connection;
 
 /// What a session hands to its owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +56,7 @@ enum Command {
 #[derive(Clone)]
 pub struct SessionHandle {
     commands: mpsc::Sender<Command>,
-    connection: quinn::Connection,
+    connection: Connection,
     tap: Option<Tap>,
 }
 
@@ -66,7 +67,7 @@ pub struct SessionActor {
 }
 
 struct Live {
-    connection: quinn::Connection,
+    connection: Connection,
     writer: ControlWriter,
     state: SessionState,
     /// Applied to what a phone sends a desktop.
@@ -76,12 +77,7 @@ struct Live {
 }
 
 /// Spawns nothing: the caller runs the actor in a task it owns and keeps the handle.
-pub fn session(
-    connection: quinn::Connection,
-    control: Control,
-    role: Role,
-    route: Route,
-) -> (SessionHandle, SessionActor) {
+pub fn session(connection: Connection, control: Control, role: Role, route: Route) -> (SessionHandle, SessionActor) {
     let (commands_tx, commands) = mpsc::channel(32);
     let handle = SessionHandle { commands: commands_tx, connection: connection.clone(), tap: control.tap() };
     let (reader, writer) = control.split();
@@ -119,23 +115,23 @@ impl SessionHandle {
         let (reply, sent) = oneshot::channel();
         self.commands.send(Command::Unpair { reply }).await.map_err(|_| Error::NotConnected)?;
         sent.await.map_err(|_| Error::NotConnected)??;
-        tokio::time::timeout(STEP_TIMEOUT, self.connection.closed()).await?;
+        drop(tokio::time::timeout(STEP_TIMEOUT, self.connection.closed()).await?);
         Ok(())
     }
 
     pub fn close(&self, code: CloseCode) {
-        close(&self.connection, code);
+        self.connection.close(code);
     }
 
     pub fn is_live(&self) -> bool {
-        self.connection.close_reason().is_none()
+        self.connection.is_live()
     }
 
     pub fn stable_id(&self) -> usize {
         self.connection.stable_id()
     }
 
-    pub fn connection(&self) -> &quinn::Connection {
+    pub fn connection(&self) -> &Connection {
         &self.connection
     }
 
@@ -157,7 +153,7 @@ impl SessionActor {
                 ended = &mut reading => return ended.and(Err(Error::StreamEnded)),
                 Some(envelope) = inbox.recv() => {
                     if live.on_envelope(envelope).await? {
-                        close(&live.connection, CloseCode::Done);
+                        live.connection.close(CloseCode::Done);
                         return Ok(());
                     }
                 }

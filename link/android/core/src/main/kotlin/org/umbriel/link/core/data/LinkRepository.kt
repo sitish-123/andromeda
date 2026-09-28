@@ -40,6 +40,7 @@ import org.umbriel.link.core.domain.SavedFile
 import org.umbriel.link.core.domain.ShareKind
 import org.umbriel.link.core.domain.Sharing
 import org.umbriel.link.core.domain.TransferEvent
+import org.umbriel.link.ffi.BrowseRoot
 import org.umbriel.link.ffi.LinkClient
 import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
@@ -168,6 +169,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     suspend fun setSharing(desktopId: String, feature: Feature, on: Boolean): Result<Unit> =
         callAndRefresh { it.setSharing(desktopId, feature.toFfi(), on) }
 
+    /** The folders a desktop with this phone's browse switch on sees, by name; empty without All files access. */
+    suspend fun setBrowseRoots(roots: Map<String, String>): Result<Unit> =
+        call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }) }
+
     suspend fun refresh(): Result<Unit> = call { client ->
         _desktops.value = client.desktops().map { it.toDomain() }
     }
@@ -240,7 +245,14 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         client ?: withContext(Dispatchers.IO) {
             val identity = IdentityStore(context.filesDir.resolve("identity.bin")).loadOrCreate(::generateIdentity)
             val incoming = context.noBackupFilesDir.resolve("incoming").apply { mkdirs() }
-            LinkClient(identity, context.filesDir.resolve("devices.json").absolutePath, deviceName, incoming.absolutePath)
+            LinkClient(
+                identity,
+                context.filesDir.resolve("devices.json").absolutePath,
+                deviceName,
+                incoming.absolutePath,
+                RfcommLink(context),
+                LocalHotspot(context),
+            )
         }.also {
             client = it
             scope.launch { follow(it) }
@@ -251,7 +263,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         while (true) {
             when (val event = client.nextEvent() ?: return) {
                 is LinkEvent.Connected -> {
-                    markConnected(event.desktopId, true)
+                    // The desktop list, not the event, says whether it came over Bluetooth.
+                    refresh()
                     _connections.emit(event.desktopId)
                 }
                 is LinkEvent.Disconnected -> {
@@ -345,8 +358,17 @@ private fun FfiDesktop.toDomain() = Desktop(
     id = id,
     name = name,
     connected = connected,
+    bluetooth = bluetooth,
     lastSeen = lastSeen.toLong(),
-    sharing = Sharing(sharing.clipboard, sharing.files, sharing.notifications, sharing.media, sharing.ring, sharing.calls),
+    sharing = Sharing(
+        sharing.clipboard,
+        sharing.files,
+        sharing.notifications,
+        sharing.media,
+        sharing.ring,
+        sharing.calls,
+        sharing.browse,
+    ),
 )
 
 private fun MediaCommandKind.toFfi(): FfiCommand = when (this) {
@@ -403,6 +425,7 @@ private fun Feature.toFfi(): FfiFeature = when (this) {
     Feature.Media -> FfiFeature.MEDIA
     Feature.Ring -> FfiFeature.RING
     Feature.Calls -> FfiFeature.CALLS
+    Feature.Browse -> FfiFeature.BROWSE
 }
 
 private fun PhoneNotification.toFfi() = FfiPhoneNotification(

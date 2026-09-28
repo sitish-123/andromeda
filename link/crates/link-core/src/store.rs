@@ -37,6 +37,9 @@ pub struct Peer {
     /// with that desktop. Named `sharing` in phone stores from before files and clipboard.
     #[serde(default, alias = "sharing")]
     pub grants: Grants,
+    /// The desktop's Bluetooth adapter, from its hello; the phone dials it when no IP path answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bluetooth: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,9 +50,11 @@ pub enum Feature {
     Media,
     Ring,
     Calls,
+    /// The desktop may list and read the phone's shared storage; a phone-side switch, off after pairing.
+    Browse,
 }
 
-/// One switch per feature and paired device, all on after pairing. A store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse`. A store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -60,17 +65,18 @@ pub struct Grants {
     pub media: bool,
     pub ring: bool,
     pub calls: bool,
+    pub browse: bool,
 }
 
 impl Default for Grants {
     fn default() -> Self {
-        Self { clipboard: true, files: true, notifications: true, media: true, ring: true, calls: true }
+        Self { clipboard: true, files: true, notifications: true, media: true, ring: true, calls: true, browse: false }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 6] =
-        [Self::Clipboard, Self::Files, Self::Notifications, Self::Media, Self::Ring, Self::Calls];
+    pub const ALL: [Self; 7] =
+        [Self::Clipboard, Self::Files, Self::Notifications, Self::Media, Self::Ring, Self::Calls, Self::Browse];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -80,6 +86,7 @@ impl Feature {
             Self::Media => "media",
             Self::Ring => "ring",
             Self::Calls => "calls",
+            Self::Browse => "browse",
         }
     }
 
@@ -99,7 +106,11 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
         Message::Call(_) | Message::CallAction(_) => Some(Feature::Calls),
         Message::ClipOffer(_) | Message::ClipPull(_) | Message::ClipData(_) => Some(Feature::Clipboard),
-        Message::Offer(_) => Some(Feature::Files),
+        Message::Offer(_)
+        | Message::HotspotRequest
+        | Message::Hotspot(_)
+        | Message::HotspotJoined(_)
+        | Message::HotspotEnd(_) => Some(Feature::Files),
         _ => None,
     }
 }
@@ -113,6 +124,7 @@ impl Grants {
             Feature::Media => self.media,
             Feature::Ring => self.ring,
             Feature::Calls => self.calls,
+            Feature::Browse => self.browse,
         }
     }
 
@@ -124,6 +136,7 @@ impl Grants {
             Feature::Media => &mut self.media,
             Feature::Ring => &mut self.ring,
             Feature::Calls => &mut self.calls,
+            Feature::Browse => &mut self.browse,
         };
         *flag = on;
     }
@@ -163,6 +176,7 @@ impl Peer {
             last_seen: 0,
             auto_accept: false,
             grants: Grants::default(),
+            bluetooth: None,
         }
     }
 

@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,7 @@ import org.umbriel.link.devices.DeviceScreen
 import org.umbriel.link.devices.DeviceViewModel
 import org.umbriel.link.devices.HomeScreen
 import org.umbriel.link.devices.HomeViewModel
+import org.umbriel.link.files.PickerViewModel
 import org.umbriel.link.media.MediaScreen
 import org.umbriel.link.media.MediaViewModel
 import org.umbriel.link.notifications.AppFilterScreen
@@ -41,12 +43,19 @@ private enum class Screen { Home, Device, Pairing, Setup, Media, MirrorApps }
 fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHandled: () -> Unit) {
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
     var desktopId by rememberSaveable { mutableStateOf<String?>(null) }
+    var setupStart by rememberSaveable { mutableStateOf<Grant?>(null) }
     val link by pairingLink.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val home = viewModel { HomeViewModel(container.repository, container.presence, container.mirror) }
     val pairing = viewModel { PairingViewModel(container.repository) }
+    val picker = viewModel { PickerViewModel(container.files) }
     val onboarding = viewModel { OnboardingViewModel(container.application, container.mirror, container.ringer) }
     val setup by onboarding.state.collectAsStateWithLifecycle()
+    // Grants change in Settings and over adb, so they are rechecked whenever the app returns.
+    LifecycleResumeEffect(Unit) {
+        onboarding.refresh()
+        onPauseOrDispose {}
+    }
 
     LaunchedEffect(link) {
         link?.let {
@@ -70,7 +79,9 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
         when (current) {
             Screen.Home -> HomeScreen(
                 viewModel = home,
+                picker = picker,
                 setupNeeded = !setup.complete,
+                autoClipboard = Grant.AutoClipboard in setup.granted,
                 onPair = { screen = Screen.Pairing },
                 onDesktop = { desktopId = it.id; screen = Screen.Device },
                 onMedia = { screen = Screen.Media },
@@ -82,7 +93,14 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
                         screen = Screen.Setup
                     }
                 },
-                onSetup = { screen = Screen.Setup },
+                onSetup = {
+                    setupStart = null
+                    screen = Screen.Setup
+                },
+                onClipboardSetup = {
+                    setupStart = Grant.AutoClipboard
+                    screen = Screen.Setup
+                },
             )
             Screen.Device -> desktopId?.let { id ->
                 DeviceScreen(
@@ -100,7 +118,12 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
                     screen = Screen.Home
                 },
             )
-            Screen.Setup -> OnboardingScreen(onboarding, container.mirror.accessSettings(), onDone = { screen = Screen.Home })
+            Screen.Setup -> OnboardingScreen(
+                onboarding,
+                container.mirror.accessSettings(),
+                start = setupStart,
+                onDone = { screen = Screen.Home },
+            )
             Screen.Media -> MediaScreen(viewModel { MediaViewModel(container.repository) }, onBack = { screen = Screen.Home })
             Screen.MirrorApps -> AppFilterScreen(
                 viewModel { AppFilterViewModel(container.mirror, context.packageManager) },

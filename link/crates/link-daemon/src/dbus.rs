@@ -17,6 +17,7 @@ use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
+use crate::browse;
 use crate::hub::{Event, HubHandle, Signal, Snapshot};
 
 pub const PATH: &str = "/org/umbriel/Link1";
@@ -38,6 +39,8 @@ enum LinkError {
     NotConnected(String),
     Rejected(String),
     Failed(String),
+    /// The phone refused a browse request; the message is its reason (`not-found`, `not-allowed`, ...).
+    Refused(String),
 }
 
 #[zbus::interface(name = "org.umbriel.Link1")]
@@ -243,6 +246,33 @@ impl Link {
         self.send(&device_id, Message::NotificationDismiss(NotificationDismiss { id })).await
     }
 
+    /// Lists a folder on a connected phone whose browse switch for this desktop is on: `/` for its roots, else
+    /// `/<root>/...`. Each entry is (name, whether a folder, size, mtime in Unix seconds).
+    async fn list_files(&self, device_id: String, path: String) -> Result<Vec<(String, bool, u64, u64)>, LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path) {
+            return Err(LinkError::Rejected("not a browse path".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::List { path }).await? {
+            browse::Answer::Entries(entries) => {
+                Ok(entries.into_iter().map(|entry| (entry.name, entry.dir, entry.size, entry.mtime)).collect())
+            }
+            browse::Answer::Data(_) => Err(LinkError::Failed("the phone answered a listing with data".to_owned())),
+        }
+    }
+
+    /// Up to `length` bytes (at most 1 MiB) of a file on a connected phone, from `offset`; fewer at its end.
+    async fn read_file(&self, device_id: String, path: String, offset: u64, length: u32) -> Result<Vec<u8>, LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path)
+            || !(1..=link_core::proto::message::MAX_FS_READ).contains(&length)
+        {
+            return Err(LinkError::Rejected("not a browse path, or a length outside 1 byte to 1 MiB".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::Read { path, offset, len: length }).await? {
+            browse::Answer::Data(data) => Ok(data),
+            browse::Answer::Entries(_) => Err(LinkError::Failed("the phone answered a read with a listing".to_owned())),
+        }
+    }
+
     /// Starts or stops ringing the phone.
     async fn ring(&self, device_id: String, on: bool) -> Result<(), LinkError> {
         self.send(&device_id, Message::Ring(Ring { on })).await
@@ -306,12 +336,26 @@ impl Link {
     #[zbus(signal)]
     async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
 
+    /// The desktop joined the phone's hotspot `ssid` to move a transfer off Bluetooth; an empty `ssid` means it left.
+    #[zbus(signal)]
+    async fn hotspot(emitter: &SignalEmitter<'_>, device_id: &str, ssid: &str) -> zbus::Result<()>;
+
     #[zbus(signal)]
     async fn notification_removed(emitter: &SignalEmitter<'_>, device_id: &str, id: &str) -> zbus::Result<()>;
 }
 
 impl Link {
     /// Sends an unacknowledged message to a connected device.
+    async fn browse(&self, device_id: &str, request: browse::Request) -> Result<browse::Answer, LinkError> {
+        let id = DeviceId::parse(device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        self.hub.browse(id, request).await.map_err(|failure| match failure {
+            browse::Failure::Refused(reason) => LinkError::Refused(reason.as_str().to_owned()),
+            browse::Failure::NotConnected => LinkError::NotConnected(format!("{device_id} is not connected")),
+            browse::Failure::TimedOut => LinkError::Failed("the phone did not answer in time".to_owned()),
+            browse::Failure::Malformed => LinkError::Failed("the phone's answer broke the protocol".to_owned()),
+        })
+    }
+
     async fn send(&self, device_id: &str, message: Message) -> Result<(), LinkError> {
         let id = DeviceId::parse(device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
         message.validate().map_err(|error| LinkError::Rejected(error.to_string()))?;
@@ -427,6 +471,7 @@ pub async fn forward(
                 Event::NotificationPosted { id, posted } => emit_posted(emitter, &id, posted).await?,
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
+                Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
                     Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;

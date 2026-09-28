@@ -45,7 +45,7 @@ fn transport_config(keep_alive: Option<Duration>) -> Arc<quinn::TransportConfig>
     Arc::new(config)
 }
 
-fn tls13_provider() -> Arc<rustls::crypto::CryptoProvider> {
+pub(crate) fn tls13_provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(provider::default_provider())
 }
 

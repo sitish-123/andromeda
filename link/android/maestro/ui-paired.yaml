@@ -1,5 +1,5 @@
-# Screenshots of every screen of a paired phone, in ${THEME}: Home, the action orb open, the desktop's page, the app
-# filter, Media with the desktop's test player, and each page of the permission onboarding.
+# Screenshots of every screen of a paired phone, in ${THEME}: Home, the picker's three tabs, the desktop's page, the
+# app filter, Media with the desktop's test player, and each page of the permission onboarding.
 appId: org.umbriel.link
 ---
 - launchApp:
@@ -27,16 +27,20 @@ appId: org.umbriel.link
 - takeScreenshot: ${OUT}/${THEME}-onboarding-4-battery
 - tapOn: "Next"
 - takeScreenshot: ${OUT}/${THEME}-onboarding-5-calls
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-6-bluetooth
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-7-clipboard
 - tapOn: "Done"
 - extendedWaitUntil:
-    visible: "Features and pairing"
+    visible: "Desktop settings"
     timeout: 10000
-- tapOn: "Features and pairing"
+- tapOn: "Desktop settings"
 - extendedWaitUntil:
     visible: "Shared with this desktop"
     timeout: 10000
 - takeScreenshot: ${OUT}/${THEME}-device
-- tapOn: "Apps to mirror"
+- tapOn: "Choose which apps"
 - extendedWaitUntil:
     visible: "Every app is mirrored unless you turn it off here."
     timeout: 10000
@@ -44,13 +48,29 @@ appId: org.umbriel.link
 - pressKey: Back
 - pressKey: Back
 - scrollUntilVisible:
-    element: "Desktop media"
-- tapOn: "Desktop media"
+    element: "Media"
+- tapOn: "Media"
 - extendedWaitUntil:
     visible: "Desk Session"
     timeout: 15000
 - takeScreenshot: ${OUT}/${THEME}-media
 - pressKey: Back
-- tapOn:
-    point: "88%,93%"
-- takeScreenshot: ${OUT}/${THEME}-home-orb
+- scrollUntilVisible:
+    element: "Photos"
+    direction: UP
+- tapOn: "Photos"
+- extendedWaitUntil:
+    visible: "e2e-pick-a.png"
+    timeout: 10000
+- tapOn: "e2e-pick-a.png"
+- takeScreenshot: ${OUT}/${THEME}-picker-photos
+- tapOn: "Videos"
+- takeScreenshot: ${OUT}/${THEME}-picker-videos
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible: "Pictures"
+    timeout: 10000
+- takeScreenshot: ${OUT}/${THEME}-picker-files
+- pressKey: Back
+- takeScreenshot: ${OUT}/${THEME}-home-selected
+- tapOn: "e2e-pick-a.png"

@@ -4,8 +4,8 @@ appId: org.umbriel.link
 - launchApp:
     stopApp: false
 - scrollUntilVisible:
-    element: "Desktop media"
-- tapOn: "Desktop media"
+    element: "Media"
+- tapOn: "Media"
 - extendedWaitUntil:
     visible: "Desk Session"
     timeout: 15000

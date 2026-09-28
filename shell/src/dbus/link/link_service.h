@@ -84,6 +84,8 @@ public:
   void share(const std::string& deviceId, const std::string& kind, const std::string& text);
   // The clipboard's text, as a link when it is one.
   void shareClipboard(const std::string& deviceId);
+  /// Opens the phone's folder under ~/Phone, which umbriel-link-mount serves while the phone allows browsing.
+  void browse(const std::string& deviceId);
   // Opens the files here and passes the descriptors, since the sandboxed daemon cannot read the user's files. Returns
   // the paths that could not be opened.
   std::vector<std::string> sendFiles(const std::string& deviceId, const std::vector<std::string>& paths);
@@ -139,6 +141,7 @@ private:
   void onNotificationRemoved(const std::string& deviceId, const std::string& id);
   void onNotificationClosed(std::uint32_t id, CloseReason reason);
   void onRingRequested(const std::string& deviceId, bool on);
+  void onHotspot(const std::string& deviceId, const std::string& ssid);
   void
   onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
   void stopRinging();
@@ -193,6 +196,8 @@ private:
   std::unordered_map<std::uint32_t, MirroredNotification> m_mirrored;
   std::weak_ptr<SoundPlayer> m_sounds;
   std::set<std::string> m_phonesRinging;
+  /// The notice shown while the laptop is on a phone's hotspot, replaced when it leaves.
+  std::uint32_t m_hotspotNotice = 0;
   // The phone this desktop rings for, the notification that offers Stop, and the ring's timers.
   std::optional<std::string> m_ringingFor;
   std::uint32_t m_ringNotification = 0;

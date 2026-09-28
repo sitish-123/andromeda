@@ -1,0 +1,16 @@
+# Picks the two fixture photos in the in-app picker and sends them to the desktop.
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- scrollUntilVisible:
+    element: "Photos"
+    direction: UP
+- tapOn: "Photos"
+- extendedWaitUntil:
+    visible: "e2e-pick-a.png"
+    timeout: 10000
+- tapOn: "e2e-pick-a.png"
+- tapOn: "e2e-pick-b.png"
+- takeScreenshot: ${OUT}/9-picker-selected
+- tapOn: "Send 2 items.*"

@@ -18,6 +18,19 @@ pub struct Hello {
     pub addresses: Vec<String>,
 }
 
+/// A Bluetooth address among a hello's `addresses`: `bt:` then six colon-separated hex octets. Phones from before
+/// Bluetooth skip it, since it is not a socket address.
+pub const BLUETOOTH_SCHEME: &str = "bt:";
+
+/// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
+pub fn bluetooth_address(entry: &str) -> Option<String> {
+    let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
+    let octets: Vec<&str> = address.split(':').collect();
+    let valid = octets.len() == 6
+        && octets.iter().all(|octet| octet.len() == 2 && octet.bytes().all(|b| b.is_ascii_hexdigit()));
+    valid.then(|| address.to_ascii_uppercase())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PairMethod {
@@ -273,6 +286,149 @@ pub struct Ring {
 #[serde(deny_unknown_fields)]
 pub struct Ringing {
     pub on: bool,
+}
+
+/// The phone's own hotspot, offered over Bluetooth so the desktop can join it for full speed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hotspot {
+    pub ssid: String,
+    pub passphrase: String,
+}
+
+/// Where the desktop listens on the phone's hotspot, once it joined.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HotspotJoined {
+    pub address: String,
+}
+
+/// Either side is done with the hotspot, or could not start or join it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HotspotEnd {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub const MAX_SSID_LEN: usize = 32;
+pub const MAX_REASON_LEN: usize = 128;
+
+impl Hotspot {
+    /// WPA2-PSK rules: an SSID of 1 to 32 bytes, a passphrase of 8 to 63 printable ASCII characters.
+    fn valid(&self) -> bool {
+        (1..=MAX_SSID_LEN).contains(&self.ssid.len())
+            && (8..=63).contains(&self.passphrase.len())
+            && self.passphrase.bytes().all(|byte| (0x20..0x7f).contains(&byte))
+    }
+}
+
+/// Lists a folder on the phone. `path` is `/` for the phone's roots, else `/<root>/<name>/...`; `cursor` continues a
+/// listing from its `next`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsList {
+    pub req: u64,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsEntry {
+    pub name: String,
+    pub dir: bool,
+    pub size: u64,
+    /// Unix seconds.
+    pub mtime: u64,
+}
+
+/// One page of a listing; `next` is the cursor for the rest, when there is more.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsEntries {
+    pub req: u64,
+    pub entries: Vec<FsEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u32>,
+}
+
+/// Reads `len` bytes of a file from `offset`; answered by `fs-data` frames in order, the last one marked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsRead {
+    pub req: u64,
+    pub path: String,
+    pub offset: u64,
+    pub len: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsData {
+    pub req: u64,
+    pub offset: u64,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+    /// The read is complete: all it asked for, or the end of the file.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub last: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FsRefusal {
+    NotFound,
+    /// Android does not let the app read it, or the path leaves its root.
+    Denied,
+    /// The phone's browse switch for this desktop is off.
+    NotAllowed,
+    NotAFolder,
+    NotAFile,
+    Busy,
+    Io,
+}
+
+impl FsRefusal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not-found",
+            Self::Denied => "denied",
+            Self::NotAllowed => "not-allowed",
+            Self::NotAFolder => "not-a-folder",
+            Self::NotAFile => "not-a-file",
+            Self::Busy => "busy",
+            Self::Io => "io",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsError {
+    pub req: u64,
+    pub reason: FsRefusal,
+}
+
+pub const MAX_FS_PATH: usize = 4096;
+pub const MAX_FS_NAME: usize = 255;
+/// Entries per `fs-entries`, so a page of the longest names still fits a control frame.
+pub const MAX_FS_ENTRIES: usize = 128;
+pub const MAX_FS_READ: u32 = 1024 * 1024;
+/// Bytes per `fs-data`, so a read never holds the control stream for long.
+pub const MAX_FS_CHUNK: usize = 48 * 1024;
+
+/// A browse path: `/`, or `/` then components that are not empty, `.`, or `..`, with no NUL.
+pub fn fs_path_valid(path: &str) -> bool {
+    path.len() <= MAX_FS_PATH
+        && !path.contains('\0')
+        && (path == "/"
+            || path.strip_prefix('/').is_some_and(|rest| rest.split('/').all(|part| !matches!(part, "" | "." | ".."))))
+}
+
+fn fs_name_valid(name: &str) -> bool {
+    sized(name, 1, MAX_FS_NAME) && !name.contains('/') && !name.contains('\0') && name != "." && name != ".."
 }
 
 pub const MAX_NUMBER_LEN: usize = 64;
@@ -644,6 +800,15 @@ pub enum Message {
     ClipPull(ClipPull),
     ClipData(ClipPull),
     Status(Status),
+    HotspotRequest,
+    Hotspot(Hotspot),
+    HotspotJoined(HotspotJoined),
+    HotspotEnd(HotspotEnd),
+    FsList(FsList),
+    FsEntries(FsEntries),
+    FsRead(FsRead),
+    FsData(FsData),
+    FsError(FsError),
 }
 
 impl Message {
@@ -677,6 +842,15 @@ impl Message {
             Self::ClipPull(_) => "clip-pull",
             Self::ClipData(_) => "clip-data",
             Self::Status(_) => "status",
+            Self::HotspotRequest => "hotspot-request",
+            Self::Hotspot(_) => "hotspot",
+            Self::HotspotJoined(_) => "hotspot-joined",
+            Self::HotspotEnd(_) => "hotspot-end",
+            Self::FsList(_) => "fs-list",
+            Self::FsEntries(_) => "fs-entries",
+            Self::FsRead(_) => "fs-read",
+            Self::FsData(_) => "fs-data",
+            Self::FsError(_) => "fs-error",
         }
     }
 
@@ -685,7 +859,7 @@ impl Message {
             Self::Hello(body) => Value::serialized(body),
             Self::PairSpake(body) => Value::serialized(body),
             Self::PairConfirm(body) => Value::serialized(body),
-            Self::Unpair => Value::serialized(&Empty {}),
+            Self::Unpair | Self::HotspotRequest => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
@@ -708,6 +882,14 @@ impl Message {
             Self::ClipOffer(body) => Value::serialized(body),
             Self::ClipPull(body) | Self::ClipData(body) => Value::serialized(body),
             Self::Status(body) => Value::serialized(body),
+            Self::Hotspot(body) => Value::serialized(body),
+            Self::HotspotJoined(body) => Value::serialized(body),
+            Self::HotspotEnd(body) => Value::serialized(body),
+            Self::FsList(body) => Value::serialized(body),
+            Self::FsEntries(body) => Value::serialized(body),
+            Self::FsRead(body) => Value::serialized(body),
+            Self::FsData(body) => Value::serialized(body),
+            Self::FsError(body) => Value::serialized(body),
         }
     }
 
@@ -744,6 +926,18 @@ impl Message {
             "clip-pull" => Self::ClipPull(body.deserialized()?),
             "clip-data" => Self::ClipData(body.deserialized()?),
             "status" => Self::Status(body.deserialized()?),
+            "hotspot-request" => {
+                body.deserialized::<Empty>()?;
+                Self::HotspotRequest
+            }
+            "hotspot" => Self::Hotspot(body.deserialized()?),
+            "hotspot-joined" => Self::HotspotJoined(body.deserialized()?),
+            "hotspot-end" => Self::HotspotEnd(body.deserialized()?),
+            "fs-list" => Self::FsList(body.deserialized()?),
+            "fs-entries" => Self::FsEntries(body.deserialized()?),
+            "fs-read" => Self::FsRead(body.deserialized()?),
+            "fs-data" => Self::FsData(body.deserialized()?),
+            "fs-error" => Self::FsError(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -757,6 +951,7 @@ impl Message {
             Self::PairSpake(spake) => spake.msg.len() == SPAKE_MSG_LEN,
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
             Self::Unpair
+            | Self::HotspotRequest
             | Self::ShareAck(_)
             | Self::Ring(_)
             | Self::Ringing(_)
@@ -764,7 +959,8 @@ impl Message {
             | Self::Resume(_)
             | Self::Cancel(_)
             | Self::FileDone(_)
-            | Self::FileData(_) => true,
+            | Self::FileData(_)
+            | Self::FsError(_) => true,
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
@@ -783,6 +979,15 @@ impl Message {
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),
+            Self::Hotspot(hotspot) => hotspot.valid(),
+            Self::HotspotJoined(joined) => joined.address.parse::<std::net::SocketAddr>().is_ok(),
+            Self::HotspotEnd(end) => end.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
+            Self::FsList(list) => fs_path_valid(&list.path),
+            Self::FsEntries(page) => {
+                page.entries.len() <= MAX_FS_ENTRIES && page.entries.iter().all(|entry| fs_name_valid(&entry.name))
+            }
+            Self::FsRead(read) => fs_path_valid(&read.path) && (1..=MAX_FS_READ).contains(&read.len),
+            Self::FsData(data) => data.data.len() <= MAX_FS_CHUNK,
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

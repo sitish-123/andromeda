@@ -1,9 +1,9 @@
 package org.umbriel.link.devices
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,42 +14,40 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.umbriel.link.R
 import org.umbriel.link.core.domain.Feature
-import org.umbriel.link.ui.components.ConnectionOrb
 import org.umbriel.link.ui.components.Eyebrow
 import org.umbriel.link.ui.components.Glyph
-import org.umbriel.link.ui.components.HeroSurface
-import org.umbriel.link.ui.components.IconChip
 import org.umbriel.link.ui.components.Label
 import org.umbriel.link.ui.components.PillButton
 import org.umbriel.link.ui.components.PillKind
 import org.umbriel.link.ui.components.Screen
-import org.umbriel.link.ui.components.SelectablePill
 import org.umbriel.link.ui.components.SoftCard
+import org.umbriel.link.ui.components.SwitchRow
 import org.umbriel.link.ui.text
 import org.umbriel.link.ui.theme.LinkTheme
+import org.umbriel.link.ui.theme.Radius
+import org.umbriel.link.ui.theme.Size
 import org.umbriel.link.ui.theme.Space
 
-/** One desktop: what this phone shares with it, as selectable pills, the per-app filter, and unpairing. */
-@OptIn(ExperimentalLayoutApi::class)
+/** One desktop: what this phone shares with it, the per-app notification filter, and unpairing. */
 @Composable
 fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -67,58 +65,45 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.page),
             verticalArrangement = Arrangement.spacedBy(Space.section),
         ) {
-            HeroSurface(Modifier.fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s16)) {
-                    ConnectionOrb(active = desktop.connected, working = state.busy, size = 56.dp)
-                    Column(Modifier.weight(1f)) {
-                        val status = if (desktop.connected) R.string.connected else R.string.not_connected
-                        Label(stringResource(status), LinkTheme.type.headlineMedium)
-                        Label(stringResource(R.string.device_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
-                    }
-                }
-                if (!desktop.connected) {
-                    PillButton(
-                        stringResource(R.string.connect),
-                        viewModel::connect,
-                        enabled = !state.busy,
-                        modifier = Modifier.padding(top = Space.s16),
-                    )
-                }
+            Status(desktop)
+            if (!desktop.connected) {
+                PillButton(stringResource(R.string.connect), viewModel::connect, Modifier.fillMaxWidth(), enabled = !state.busy)
             }
-            SoftCard(Modifier.fillMaxWidth()) {
+            SoftCard(Modifier.fillMaxWidth(), padding = Space.s16) {
                 Eyebrow(stringResource(R.string.sharing_title))
-                Label(stringResource(R.string.sharing_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
-                FlowRow(
-                    Modifier.padding(top = Space.s8),
-                    horizontalArrangement = Arrangement.spacedBy(Space.s8),
-                ) {
-                    val sharing = desktop.sharing
-                    listOf(
-                        Triple(Feature.Clipboard, R.string.feature_clipboard, Icons.Filled.Edit),
-                        Triple(Feature.Files, R.string.feature_files, Icons.Filled.Share),
-                        Triple(Feature.Notifications, R.string.feature_notifications, Icons.Filled.Notifications),
-                        Triple(Feature.Media, R.string.feature_media, Icons.Filled.PlayArrow),
-                        Triple(Feature.Ring, R.string.feature_ring, Icons.Filled.Phone),
-                        Triple(Feature.Calls, R.string.feature_calls, Icons.Filled.Call),
-                    ).forEach { (feature, label, icon) ->
-                        val on = sharing.allows(feature)
-                        SelectablePill(
-                            stringResource(label),
-                            selected = on,
-                            onClick = { viewModel.setSharing(feature, !on) },
-                            icon = if (on) Icons.Filled.Check else icon,
-                        )
+                Label(
+                    stringResource(R.string.device_hint),
+                    LinkTheme.type.bodyMedium,
+                    LinkTheme.colors.textSecondary,
+                    Modifier.padding(bottom = Space.s4),
+                )
+                val sharing = desktop.sharing
+                listOf(
+                    FeatureRow(Feature.Clipboard, R.string.feature_clipboard, R.string.feature_clipboard_hint, Icons.Filled.Edit),
+                    FeatureRow(Feature.Files, R.string.feature_files, R.string.feature_files_hint, Icons.Filled.Share),
+                    FeatureRow(Feature.Notifications, R.string.feature_notifications, R.string.feature_notifications_hint, Icons.Filled.Notifications),
+                    FeatureRow(Feature.Media, R.string.feature_media, R.string.feature_media_hint, Icons.Filled.PlayArrow),
+                    FeatureRow(Feature.Ring, R.string.feature_ring, R.string.feature_ring_hint, Icons.Filled.Phone),
+                    FeatureRow(Feature.Calls, R.string.feature_calls, R.string.feature_calls_hint, Icons.Filled.Call),
+                    FeatureRow(Feature.Browse, R.string.feature_browse, R.string.feature_browse_hint, Icons.Filled.Search),
+                ).forEach { row ->
+                    SwitchRow(
+                        title = stringResource(row.label),
+                        subtitle = stringResource(row.hint),
+                        checked = sharing.allows(row.feature),
+                        onChange = { viewModel.setSharing(row.feature, it) },
+                        icon = row.icon,
+                    )
+                    if (row.feature == Feature.Notifications && sharing.allows(Feature.Notifications)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(Radius.list).clickable(onClick = onMirrorApps)
+                                .padding(start = Size.iconContainer + Space.s12, top = Space.s4, bottom = Space.s8),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Label(stringResource(R.string.mirror_apps_choose), LinkTheme.type.titleSmall, LinkTheme.colors.accentText, Modifier.weight(1f))
+                            Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.accentText)
+                        }
                     }
-                }
-            }
-            SoftCard(Modifier.fillMaxWidth(), onClick = onMirrorApps, padding = Space.s16) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s12)) {
-                    IconChip(Icons.AutoMirrored.Filled.List)
-                    Column(Modifier.weight(1f)) {
-                        Label(stringResource(R.string.mirror_apps_title), LinkTheme.type.titleLarge)
-                        Label(stringResource(R.string.mirror_apps_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
-                    }
-                    Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.textTertiary)
                 }
             }
             PillButton(
@@ -132,3 +117,5 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
         }
     }
 }
+
+private data class FeatureRow(val feature: Feature, @param:StringRes val label: Int, @param:StringRes val hint: Int, val icon: ImageVector)

@@ -1,7 +1,10 @@
 //! `umbriel-linkd`: the desktop side of Link. No UI; the shell drives it over D-Bus `org.umbriel.Link1`.
 
+mod bluetooth;
+mod browse;
 mod dbus;
 mod desktop_media;
+mod hotspot;
 mod hub;
 mod listener;
 mod localsend;
@@ -17,6 +20,7 @@ use anyhow::Context;
 use link_core::identity::Identity;
 use link_core::inbox::Inbox;
 use link_core::store::Store;
+use link_core::stream::StreamAcceptor;
 use link_core::{transfer, transport};
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -54,7 +58,10 @@ async fn run() -> anyhow::Result<()> {
     dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
     let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
     quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
-    let listener = listener::Listener::new(endpoint.clone(), handle.clone(), identity.spki().clone(), name);
+    let bluetooth = bluetooth::Bluetooth::start().await;
+    let acceptor = StreamAcceptor::new(&identity)?;
+    let listener =
+        listener::Listener::new(endpoint.clone(), bluetooth, acceptor, handle.clone(), identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
     let result = tokio::select! {
         result = hub.run() => result,

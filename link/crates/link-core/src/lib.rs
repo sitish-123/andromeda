@@ -1,20 +1,25 @@
 //! The Link engine shared by `umbriel-linkd`, the headless phone, and the Android app. See `link/ARCHITECTURE.md`.
 
+pub mod browse;
 pub mod client;
 pub mod control;
 pub mod discovery;
+pub mod hotspot;
 pub mod identity;
 pub mod inbox;
+pub mod mux;
 pub mod net;
 pub mod pairing;
 pub mod phone;
 pub mod reach;
 pub mod session;
 pub mod store;
+pub mod stream;
 pub mod tls;
 pub mod transfer;
 pub mod transport;
 pub mod uri;
+pub mod wire;
 
 pub use link_proto as proto;
 use link_proto::CloseCode;
@@ -86,6 +91,12 @@ pub enum Error {
     Flooded,
     #[error(transparent)]
     ClipRefused(#[from] link_proto::clip::ClipRefused),
+    #[error(transparent)]
+    Mux(#[from] link_proto::mux::MuxError),
+    #[error("too large to send over Bluetooth")]
+    TooLargeForBluetooth,
+    #[error("hotspot: {0}")]
+    Hotspot(String),
 }
 
 impl From<quinn::ConnectionError> for Error {
@@ -128,11 +139,6 @@ impl From<tokio::time::error::Elapsed> for Error {
     fn from(_: tokio::time::error::Elapsed) -> Self {
         Self::Timeout
     }
-}
-
-/// Closes `connection` with a protocol close code.
-pub fn close(connection: &quinn::Connection, code: CloseCode) {
-    connection.close(quinn::VarInt::from_u32(code as u32), code.reason().as_bytes());
 }
 
 /// The close code an error should end its connection with, when the error is ours to report.
