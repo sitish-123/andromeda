@@ -40,10 +40,10 @@ build() {
 
 package_andromeda() {
   pkgdesc='Andromeda desktop: the Umbriel compositor, Noctalia shell, portal, and Link phone continuity'
-  depends=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git)
-  optdepends=('umbriel-power-git: static kernel power policy for laptops'
-    'scrcpy: phone apps in their own windows'
-    'android-tools: adb for phone apps in windows')
+  # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
+  depends=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
+    scrcpy android-tools gst-plugin-va gst-libav)
+  optdepends=('umbriel-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
 }
 
 package_umbriel-desktop-git() {

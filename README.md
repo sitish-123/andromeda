@@ -29,8 +29,9 @@ Then install, log out, and choose **Umbriel** on the login screen:
 sudo pacman -Sy andromeda
 ```
 
-Optional: `umbriel-power-git` (laptop power policy), `scrcpy` and `android-tools` (phone apps in windows),
-`gst-plugin-va` (hardware decoding of the phone's screen). Every dependency comes from the official Arch repositories.
+That is the whole desktop, phone features included. One opt-in extra, `sudo pacman -S umbriel-power-git`, turns on
+laptop power saving (PCIe ASPM, runtime power management, USB autosuspend); it changes kernel defaults and can upset
+some USB devices, so it is not installed by default. Every dependency comes from the official Arch repositories.
 Packages are not signed yet, hence `SigLevel`; they are served over HTTPS from this repository's releases.
 
 Updates arrive with `sudo pacman -Syu`.
