@@ -8,14 +8,8 @@ Wants=umbriel-linkd.service
 Slice=background.slice
 ExecStart=/usr/bin/umbriel-link-mount
 Restart=on-failure
-# Outside umbriel-linkd's sandbox, since it mounts where the user sees it and fusermount3 is setuid; it parses no
-# network input, only the daemon's D-Bus answers.
-PrivateTmp=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-RestrictRealtime=yes
-LockPersonality=yes
+# No sandboxing: in a user unit it implies NoNewPrivileges and a private mount namespace, so the setuid fusermount3
+# could not mount and nothing it mounted would be seen. It parses no network input, only the daemon's D-Bus answers.
 
 [Install]
 WantedBy=umbriel-session.target

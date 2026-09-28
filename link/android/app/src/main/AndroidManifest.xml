@@ -80,7 +80,7 @@
             android:excludeFromRecents="true"
             android:label="@string/share_label"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:theme="@style/ClipboardRead">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

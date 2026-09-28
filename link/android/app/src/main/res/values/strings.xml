@@ -160,7 +160,7 @@
     <string name="onboarding_bluetooth_body">When your phone and desktop aren\'t on the same Wi-Fi, Link talks over Bluetooth instead: messages, the clipboard, notifications, and calls. For bigger files it starts a private hotspot the desktop joins for a moment; it uses no mobile data. Android asks once for nearby devices.</string>
     <string name="clipboard_sent">On %1$s\'s clipboard</string>
     <string name="onboarding_clipboard_title">Copy here, paste there</string>
-    <string name="onboarding_clipboard_body">Optional. Android lets only a few apps notice what you copy. With these two allowances, anything you copy on this phone lands on your desktop\'s clipboard by itself. Without them, the Clipboard button on Home sends it in one tap.</string>
+    <string name="onboarding_clipboard_body">Optional. Android lets only a few apps notice what you copy. With these two allowances, anything you copy on this phone lands on your desktop\'s clipboard by itself. Without them, the Clipboard button on Home sends it in one tap. Once both are given, Android asks to allow access to device logs: tap Allow. On OnePlus, OPPO, and realme, turn on Disable permission monitoring in Developer options before running the command.</string>
     <string name="onboarding_clipboard_step_overlay">Display over other apps</string>
     <string name="onboarding_clipboard_step_logs">Log access, given once from a computer</string>
     <string name="onboarding_clipboard_copy">Copy the command</string>

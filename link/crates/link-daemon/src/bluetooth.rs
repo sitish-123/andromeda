@@ -10,6 +10,22 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 /// The Link service in SDP, which the phone looks up to find the RFCOMM channel.
 pub const SERVICE_UUID: &str = "5c3b1e5a-7d2f-4a8e-9b61-3f0c2d4e8a17";
 const PROFILE_PATH: &str = "/org/umbriel/Link1/Bluetooth";
+/// The RFCOMM channel the service record names; fixed, since the record must name the channel it listens on.
+const CHANNEL: u16 = 22;
+/// The SDP record: `BlueZ`'s own for a custom UUID lacks what Android needs to accept it ("Bad Service Class ID list
+/// attribute"), so the phone would never find the channel.
+const SERVICE_RECORD: &str = r#"<?xml version="1.0" encoding="UTF-8" ?>
+<record>
+  <attribute id="0x0001"><sequence><uuid value="5c3b1e5a-7d2f-4a8e-9b61-3f0c2d4e8a17" /></sequence></attribute>
+  <attribute id="0x0004">
+    <sequence>
+      <sequence><uuid value="0x0100" /></sequence>
+      <sequence><uuid value="0x0003" /><uint8 value="0x16" /></sequence>
+    </sequence>
+  </attribute>
+  <attribute id="0x0005"><sequence><uuid value="0x1002" /></sequence></attribute>
+  <attribute id="0x0100"><text value="Umbriel Link" /></attribute>
+</record>"#;
 const ADAPTER: &str = "/org/bluez/hci0";
 /// E2E only: a Unix socket stands in for RFCOMM, so the stream path runs without radios.
 const TEST_SOCKET: &str = "UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET";
@@ -63,6 +79,8 @@ async fn register(tx: mpsc::Sender<OwnedFd>) -> zbus::Result<(zbus::Connection, 
         ("RequireAuthentication", Value::from(false)),
         ("RequireAuthorization", Value::from(false)),
         ("AutoConnect", Value::from(false)),
+        ("Channel", Value::from(CHANNEL)),
+        ("ServiceRecord", Value::from(SERVICE_RECORD)),
     ]);
     let path = zbus::zvariant::ObjectPath::try_from(PROFILE_PATH)?;
     manager.call::<_, _, ()>("RegisterProfile", &(path, SERVICE_UUID, options)).await?;

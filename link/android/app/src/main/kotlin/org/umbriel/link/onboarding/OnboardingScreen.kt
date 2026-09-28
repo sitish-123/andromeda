@@ -9,6 +9,10 @@ import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -110,32 +114,36 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, sta
 @Composable
 private fun PageContent(page: Page, granted: Boolean, extra: @Composable () -> Unit, onAllow: () -> Unit) {
     val colors = LinkTheme.colors
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = Space.page),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Space.s20, Alignment.CenterVertically),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            ConnectionOrb(active = granted, size = 180.dp)
-            Box(Modifier.size(56.dp).clip(Radius.pill).background(colors.surfacePrimary.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
-                Glyph(if (granted) Icons.Filled.Check else page.icon, colors.accentText, 28.dp)
+    // Centred when it fits; a page with more to say, like the clipboard one, scrolls instead of clipping its button.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+                .padding(horizontal = Space.page, vertical = Space.s16),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Space.s20, Alignment.CenterVertically),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                ConnectionOrb(active = granted, size = if (page.grant == Grant.AutoClipboard) 120.dp else 180.dp)
+                Box(Modifier.size(56.dp).clip(Radius.pill).background(colors.surfacePrimary.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
+                    Glyph(if (granted) Icons.Filled.Check else page.icon, colors.accentText, 28.dp)
+                }
             }
-        }
-        Label(stringResource(page.title), LinkTheme.type.displaySmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-        Label(
-            stringResource(page.body),
-            LinkTheme.type.bodyLarge,
-            colors.textSecondary,
-            Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-        if (granted) {
-            PillButton(stringResource(R.string.onboarding_granted), onClick = {}, kind = PillKind.Tonal, icon = Icons.Filled.Check, enabled = false)
-        } else if (page.grant != Grant.AutoClipboard) {
-            PillButton(stringResource(R.string.onboarding_allow), onAllow)
-        } else {
-            extra()
-            PillButton(stringResource(R.string.onboarding_clipboard_overlay), onAllow, kind = PillKind.Tonal)
+            Label(stringResource(page.title), LinkTheme.type.displaySmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Label(
+                stringResource(page.body),
+                LinkTheme.type.bodyLarge,
+                colors.textSecondary,
+                Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            if (granted) {
+                PillButton(stringResource(R.string.onboarding_granted), onClick = {}, kind = PillKind.Tonal, icon = Icons.Filled.Check, enabled = false)
+            } else if (page.grant != Grant.AutoClipboard) {
+                PillButton(stringResource(R.string.onboarding_allow), onAllow)
+            } else {
+                extra()
+                PillButton(stringResource(R.string.onboarding_clipboard_overlay), onAllow, kind = PillKind.Tonal)
+            }
         }
     }
 }

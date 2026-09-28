@@ -16,7 +16,6 @@ use link_core::stream::{FdStream, StreamAcceptor};
 use link_core::transport::CONNECT_TIMEOUT;
 use link_core::wire::Connection;
 use link_core::{Error, close_code_for, net, tls};
-use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use crate::bluetooth::Bluetooth;
@@ -25,7 +24,8 @@ use crate::hub::{Admission, Attempt, HubHandle};
 
 pub struct Listener {
     endpoint: quinn::Endpoint,
-    bluetooth: mpsc::Receiver<OwnedFd>,
+    /// Held whole: the RFCOMM profile lives as long as its system bus connection inside.
+    bluetooth: Bluetooth,
     acceptor: StreamAcceptor,
     context: Arc<Context>,
 }
@@ -49,7 +49,7 @@ impl Listener {
     ) -> Self {
         let port = endpoint.local_addr().map_or(0, |addr| addr.port());
         let context = Arc::new(Context { hub, own, name, port, bluetooth: bluetooth.address.clone() });
-        Self { endpoint, bluetooth: bluetooth.incoming, acceptor, context }
+        Self { endpoint, bluetooth, acceptor, context }
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
@@ -60,7 +60,7 @@ impl Listener {
                     let Some(incoming) = incoming else { return Ok(()) };
                     connections.spawn(handle(incoming, self.context.clone()));
                 }
-                Some(fd) = self.bluetooth.recv() => {
+                Some(fd) = self.bluetooth.incoming.recv() => {
                     connections.spawn(handle_stream(fd, self.acceptor.clone(), self.context.clone()));
                 }
                 Some(joined) = connections.join_next() => {

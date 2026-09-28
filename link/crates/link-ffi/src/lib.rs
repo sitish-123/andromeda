@@ -360,6 +360,11 @@ impl LinkClient {
         bluetooth: Option<Arc<dyn BluetoothLink>>,
         hotspot: Option<Arc<dyn PhoneHotspot>>,
     ) -> Result<Arc<Self>, LinkError> {
+        // The core's logs, which are otherwise lost on Android, go to logcat under "link".
+        #[cfg(target_os = "android")]
+        android_logger::init_once(
+            android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("link"),
+        );
         let store_path = PathBuf::from(store_path);
         let state = store_path.parent().map(Path::to_path_buf).unwrap_or_default();
         let inbox = Inbox::new(PathBuf::from(incoming_dir), &state)?;

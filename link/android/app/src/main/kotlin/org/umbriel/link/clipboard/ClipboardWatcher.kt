@@ -28,11 +28,23 @@ class ClipboardWatcher(
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {}
     private var job: Job? = null
     private var process: Process? = null
+    /** Whether logcat has shown this watcher any line; `-T 1` shows the newest at once when it may read them. */
+    @Volatile private var sees = false
 
     fun start() {
         if (job != null || !granted(context)) return
         clipboard.addPrimaryClipChangedListener(listener)
         job = scope.launch(Dispatchers.IO) { follow() }
+    }
+
+    /**
+     * Restarts a watcher that has seen nothing: Android 13+ asks before an app reads other apps' log lines, and a
+     * watcher started in the background is refused without a prompt. Called when the app comes to the foreground.
+     */
+    fun restartIfBlind() {
+        if (job != null && sees) return
+        stop()
+        start()
     }
 
     fun stop() {
@@ -46,10 +58,12 @@ class ClipboardWatcher(
         // -T 1 starts at the newest line, so only denials from now on count.
         val logcat = ProcessBuilder("logcat", "-T", "1", "-v", "brief", "ClipboardService:E", "*:S").start()
         process = logcat
+        sees = false
         val denial = "Denying clipboard access to ${context.packageName}"
         logcat.inputStream.bufferedReader().useLines { lines ->
             for (line in lines) {
                 if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
+                sees = true
                 if (denial in line) {
                     sync.changedLocally()
                     context.startActivity(

@@ -16,7 +16,9 @@ use tokio::signal::unix::{SignalKind, signal};
 const STALE_MOUNT: i32 = 107;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).format_timestamp(None).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"))
+        .format_timestamp(None)
+        .init();
     let mountpoint = match std::env::args_os().nth(1) {
         Some(path) => PathBuf::from(path),
         None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?).join("Phone"),

@@ -1,7 +1,9 @@
 package org.umbriel.link.core.data
 
 import android.Manifest
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -28,12 +30,9 @@ class RfcommLink(private val context: Context) : BluetoothLink {
         if (!allowed()) return NOT_CONNECTED
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return NOT_CONNECTED
         if (!adapter.isEnabled) return NOT_CONNECTED
+        val device = adapter.getRemoteDevice(address)
         val socket = try {
-            // Insecure: Link's TLS authenticates both ends with the paired keys, so no Bluetooth bond is needed.
-            adapter.getRemoteDevice(address).createInsecureRfcommSocketToServiceRecord(SERVICE).apply { connect() }
-        } catch (error: IOException) {
-            Log.i(TAG, "RFCOMM to $address: ${error.message}")
-            return NOT_CONNECTED
+            connect(device) ?: return NOT_CONNECTED
         } catch (error: SecurityException) {
             Log.w(TAG, "RFCOMM to $address: ${error.message}")
             return NOT_CONNECTED
@@ -48,6 +47,33 @@ class RfcommLink(private val context: Context) : BluetoothLink {
         }
         pump("rfcomm-out", FileInputStream(ours.fileDescriptor), socket.outputStream, closeAll)
         return theirs.detachFd()
+    }
+
+    /**
+     * The encrypted socket first when the phone and desktop are already paired, since Android may refuse an
+     * unencrypted one to a bonded device; else the unencrypted one, which needs no pairing because Link's TLS
+     * authenticates both ends. A failure refreshes the desktop's service list, which Android caches from pairing and
+     * which predates Link's profile.
+     */
+    private fun connect(device: BluetoothDevice): BluetoothSocket? {
+        val bonded = device.bondState == BluetoothDevice.BOND_BONDED
+        val attempts = if (bonded) listOf(true, false) else listOf(false)
+        for (secure in attempts) {
+            val socket = if (secure) {
+                device.createRfcommSocketToServiceRecord(SERVICE)
+            } else {
+                device.createInsecureRfcommSocketToServiceRecord(SERVICE)
+            }
+            try {
+                socket.connect()
+                return socket
+            } catch (error: IOException) {
+                Log.i(TAG, "RFCOMM to ${device.address} (${if (secure) "encrypted" else "unencrypted"}): ${error.message}")
+                runCatching { socket.close() }
+            }
+        }
+        device.fetchUuidsWithSdp()
+        return null
     }
 
     private fun allowed(): Boolean =

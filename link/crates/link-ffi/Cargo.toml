@@ -17,6 +17,9 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 uniffi = { workspace = true, features = ["tokio"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = { version = "0.15", default-features = false }
+
 # The UniFFI scaffolding is generated unsafe code, so this crate cannot inherit `unsafe_code = "forbid"`.
 [lints.rust]
 unsafe_code = "allow"
