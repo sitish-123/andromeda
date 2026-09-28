@@ -210,7 +210,7 @@ void WindowSwitcherTile::setShowAppIcon(bool show) {
 
 void WindowSwitcherTile::bind(
     Renderer& renderer, const WindowSwitcherEntry& entry, WindowSwitcherTileDepth depth, bool showCaption,
-    bool wideCaption, WindowSwitcherIconPlacement iconPlacement
+    bool wideCaption, WindowSwitcherHorizontalPlacement iconPlacement, WindowSwitcherHorizontalPlacement closePlacement
 ) {
   m_hasEntry = true;
   m_depth = depth;
@@ -218,6 +218,7 @@ void WindowSwitcherTile::bind(
   m_captionVisible = showCaption;
   m_wideCaption = wideCaption;
   m_iconPlacement = iconPlacement;
+  m_closePlacement = closePlacement;
   m_title->setText(entry.title.empty() ? entry.appLabel : entry.title);
   m_subtitle->setText(entry.appLabel.empty() ? entry.appId : entry.appLabel);
 
@@ -350,9 +351,9 @@ void WindowSwitcherTile::layoutContent(Renderer& renderer) {
   }
   const float overlayInset = Style::spaceSm * m_contentScale;
   float iconX = (innerW - iconSize) * 0.5F;
-  if (hasThumbnail && m_iconPlacement == WindowSwitcherIconPlacement::Left) {
+  if (hasThumbnail && m_iconPlacement == WindowSwitcherHorizontalPlacement::Left) {
     iconX = overlayInset;
-  } else if (hasThumbnail && m_iconPlacement == WindowSwitcherIconPlacement::Right) {
+  } else if (hasThumbnail && m_iconPlacement == WindowSwitcherHorizontalPlacement::Right) {
     iconX = innerW - iconSize - overlayInset;
   }
   const float iconY = hasThumbnail ? previewH - iconSize - overlayInset : (previewH - iconSize) * 0.5F;
@@ -367,7 +368,9 @@ void WindowSwitcherTile::layoutContent(Renderer& renderer) {
 
   const float closeSize = (Style::controlHeightSm - Style::spaceSm) * m_contentScale;
   const float closeInset = Style::spaceXs * m_contentScale;
-  m_close->setPosition(std::round(innerW - closeSize - closeInset), std::round(closeInset));
+  const float closeX =
+      m_closePlacement == WindowSwitcherHorizontalPlacement::Left ? closeInset : innerW - closeSize - closeInset;
+  m_close->setPosition(std::round(closeX), std::round(closeInset));
   m_close->setSize(closeSize, closeSize);
 
   if (m_captionBadge != nullptr && m_captionVisible && m_showCaption) {

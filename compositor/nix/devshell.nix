@@ -5,6 +5,13 @@
 pkgs.mkShell {
   inputsFrom = [ umbriel ];
 
+  # glibc rejects _FORTIFY_SOURCE at the debug profile's -O0, and werror
+  # promotes that diagnostic to a build failure.
+  hardeningDisable = [
+    "fortify"
+    "fortify3"
+  ];
+
   nativeBuildInputs = with pkgs; [
     just
     lefthook

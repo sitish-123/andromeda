@@ -3415,6 +3415,10 @@
           "description": "Open the launcher when typing in umbriel overview; uses a tiny keyboard-focus surface while overview is open",
           "label": "Type to Launch"
         },
+        "window-switcher-current-workspace-only": {
+          "description": "List only windows on the active workspace; turn off to include windows from every workspace",
+          "label": "Current Workspace Only"
+        },
         "window-switcher-mru": {
           "description": "Order windows in the switcher by most recently used rather than workspace and screen layout",
           "label": "Most Recently Used Order"
@@ -5448,7 +5452,7 @@
     "count": "{count} window",
     "count-plural": "{count} windows",
     "empty": "No open windows",
-    "hint": "Tab · Shift+Tab · Arrow keys · Release Alt to switch · Esc to cancel",
+    "hint": "Tab · Shift+Tab · Arrow keys · Release the shortcut modifier to switch · Esc to cancel",
     "title": "Windows"
   },
   "display-mode": {

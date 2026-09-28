@@ -87,7 +87,8 @@
       },
       "brightness": {
         "brightness": "亮度",
-        "display": "屏幕"
+        "display": "屏幕",
+        "unavailable": "亮度控制不可用"
       },
       "lock-keys": {
         "caps": "大写",
@@ -3257,6 +3258,10 @@
           "description": "在区域选择界面中直接复制或保存；按下 Enter 或 Space 键仍会打开编辑器",
           "label": "复制或保存时跳过编辑器"
         },
+        "settings-expand-all-groups": {
+          "description": "展开每个设置组，而不是只展开每页的第一个",
+          "label": "展开所有设置组"
+        },
         "settings-window-translucent": {
           "description": "将设置窗口背景设为半透明，以增强合成器效果",
           "label": "设置窗口半透明背景"
@@ -3282,9 +3287,17 @@
           "description": "在 umbriel 概览中键入时打开启动器；进入概览后，将通过一个极小的输入界面接收键盘输入",
           "label": "键入启动"
         },
+        "window-switcher-current-workspace-only": {
+          "description": "仅列出活动工作区中的窗口；关闭后包含所有工作区的窗口",
+          "label": "仅当前工作区"
+        },
         "window-switcher-mru": {
-          "description": "按最近使用顺序排列窗口，而非按工作区和屏幕布局排列",
+          "description": "按最近使用顺序排列窗口，而不是按工作区和屏幕布局排列",
           "label": "最近使用顺序"
+        },
+        "window-switcher-show-all-outputs": {
+          "description": "列出每个显示器上的窗口；关闭后仅列出显示切换器的显示器上的窗口",
+          "label": "显示所有显示器"
         },
         "window-switcher-show-app-icon": {
           "description": "在各窗口预览上显示对应的应用图标",
@@ -4097,7 +4110,7 @@
           "workspaces-description": "小组件胶囊和工作区胶囊的圆角半径；设为 0 时显示为直角"
         },
         "centered": {
-          "description": "居中显示频谱条，而非边缘对齐",
+          "description": "居中显示频谱条，而不是边缘对齐",
           "label": "居中"
         },
         "change-color-on-hover": {
@@ -4510,6 +4523,10 @@
           "description": "显示当前气温文字",
           "label": "显示气温"
         },
+        "show-tooltip": {
+          "description": "当工作区的胶囊标签尚未显示其全名时，悬停以显示工作区的全名",
+          "label": "显示名称提示"
+        },
         "show-unlock-hint": {
           "description": "在登录框上方显示状态卡片，提示解锁和身份验证；关闭后仍会显示错误信息和大写锁定提示",
           "label": "解锁提示"
@@ -4525,6 +4542,10 @@
         "show-when-idle": {
           "description": "未播放媒体时保持可视化显示",
           "label": "空闲时显示"
+        },
+        "show-when-unavailable": {
+          "description": "当此显示器无亮度控制时，保持亮度小部件可见",
+          "label": "不可用时显示"
         },
         "show-window-title": {
           "description": "在图标旁显示窗口标题（仅适用于水平状态栏）",
@@ -4810,7 +4831,9 @@
       "choose-color": "选择壁纸颜色",
       "close": "关闭壁纸面板",
       "color-title": "壁纸颜色",
+      "favorite-add": "添加到收藏夹",
       "favorite-current": "将当前壁纸添加到收藏",
+      "favorite-remove": "从收藏夹中移除",
       "filter-placeholder": "筛选…",
       "flatten": "平铺显示",
       "loading": "正在加载壁纸…",

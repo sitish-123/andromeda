@@ -1,0 +1,45 @@
+name: CI (musl)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build and test with musl
+        run: |
+          docker run --rm \
+            --env CI_GID="$(id -g)" \
+            --env CI_UID="$(id -u)" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            alpine:edge \
+            /bin/sh -eu -c '
+              apk add --no-cache \
+                bash build-base just meson pkgconf samurai su-exec \
+                cairo-dev nlohmann-json pango-dev tomlplusplus-dev \
+                wayland-dev wayland-protocols wlroots0.20-dev
+              mkdir -p /tmp/umbriel-ci-home
+              chown "$CI_UID:$CI_GID" /tmp/umbriel-ci-home
+              export HOME=/tmp/umbriel-ci-home
+              su-exec "$CI_UID:$CI_GID" just build
+              su-exec "$CI_UID:$CI_GID" just test
+            '

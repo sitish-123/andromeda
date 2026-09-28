@@ -28,13 +28,22 @@ namespace umbriel {
 #ifdef UMBRIEL_TEST_IPC
     static nlohmann::json rendererRecover(Server& server, std::string_view arg);
     static nlohmann::json outputCommits(Server& server, std::string_view arg);
+    static nlohmann::json effectFrames(Server& server, std::string_view arg);
 #endif
+  };
+
+  // The `umbriel --help` section that lists a command.
+  enum class IpcCommandGroup {
+    Control,
+    Inspect,
+    Harness,
   };
 
   struct IpcCommandSpec {
     std::string_view name;
     std::string_view argSpec;
     std::string_view description;
+    IpcCommandGroup group;
     bool takesArg;
     nlohmann::json (*handle)(Server& server, std::string_view arg);
     void (*printHuman)(const nlohmann::json& ok);

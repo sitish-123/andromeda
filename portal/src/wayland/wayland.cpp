@@ -1088,6 +1088,7 @@ namespace xdpu {
       for (const OutputInfo& output : m_impl->outputs) {
         request["outputs"].push_back({
             {"name", output.name},
+            {"title", output.name},
             {"description", output.description},
             {"width", output.width},
             {"height", output.height},

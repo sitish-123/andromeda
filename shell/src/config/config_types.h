@@ -1119,6 +1119,7 @@ struct ShellConfig {
     bool showCount = true;
     bool showAppIcon = true;
     bool showAllOutputs = true;
+    bool currentWorkspaceOnly = false;
 
     bool operator==(const WindowSwitcherConfig&) const = default;
   };
@@ -1328,7 +1329,7 @@ struct SystemConfig {
 
 struct AudioConfig {
   bool enableOverdrive = false;
-  bool enableSounds = false;
+  bool enableSounds = true;
   float soundVolume = 0.5F;
   std::string soundTheme = "freedesktop";
   bool autoSwitchHdmi = true;

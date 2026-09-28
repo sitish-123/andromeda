@@ -22,6 +22,7 @@
 #include "scene/color.h"
 #include "scene/config_banner.h"
 #include "scene/fps_overlay.h"
+#include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
@@ -40,7 +41,7 @@
 #include "xwayland/supervisor.h"
 
 extern "C" {
-#include <umbrielfx/render/animation.h>
+#include <umbrielfx/render/effect.h>
 }
 
 #include <algorithm>
@@ -243,6 +244,148 @@ namespace umbriel {
 
   } // namespace
 
+  void Server::setScreenCastActive(bool active) {
+    if (m_screenCastActive == active) {
+      return;
+    }
+    m_screenCastActive = active;
+    m_screenCastDynamicConfirmed = false;
+    m_pendingScreenCastCommand.reset();
+    if (m_quitConfirm != nullptr
+        && m_quitConfirm->visible()
+        && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
+      m_quitConfirm->hide();
+    }
+  }
+
+  void Server::clearScreenCastTarget() {
+    if (m_quitConfirm != nullptr
+        && m_quitConfirm->visible()
+        && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
+      dismissConfirmation();
+    }
+    m_screenCastCommand.kind = ScreenCastCommandKind::Clear;
+    m_screenCastCommand.value.clear();
+    ++m_screenCastCommand.serial;
+    if (m_ipc != nullptr) {
+      m_ipc->notifyScreenCastChanged();
+    }
+  }
+
+  bool Server::requestScreenCastCommand(ScreenCastCommandKind kind, std::string value, std::string* error) {
+    if (!m_screenCastActive) {
+      if (error != nullptr) {
+        *error = "no active screencast";
+      }
+      return false;
+    }
+
+    ScreenCastCommand requested{.kind = kind, .value = std::move(value)};
+    if (config().screenCast.disableDynamicConfirmation || m_screenCastDynamicConfirmed) {
+      if (m_quitConfirm != nullptr
+          && m_quitConfirm->visible()
+          && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
+        dismissConfirmation();
+      }
+      m_screenCastCommand.kind = requested.kind;
+      m_screenCastCommand.value = std::move(requested.value);
+      ++m_screenCastCommand.serial;
+      if (m_ipc != nullptr) {
+        m_ipc->notifyScreenCastChanged();
+      }
+      return true;
+    }
+
+    if (m_quitConfirm == nullptr || sessionLocked()) {
+      if (error != nullptr) {
+        *error = "screencast target change confirmation is unavailable";
+      }
+      return false;
+    }
+    if (m_quitConfirm->visible()) {
+      if (m_quitConfirm->kind() != QuitConfirm::Kind::ScreenCastDynamic) {
+        if (error != nullptr) {
+          *error = "another confirmation is active";
+        }
+        return false;
+      }
+      m_pendingScreenCastCommand = std::move(requested);
+      confirmScreenCastDynamic();
+      return true;
+    }
+
+    m_pendingScreenCastCommand = std::move(requested);
+    m_quitConfirm->show(QuitConfirm::Kind::ScreenCastDynamic);
+    return true;
+  }
+
+  bool Server::setScreenCastOutput(const Output& output, std::string* error) {
+    return requestScreenCastCommand(ScreenCastCommandKind::SetOutput, output.wlr()->name, error);
+  }
+
+  bool Server::setScreenCastWindow(const View& view, std::string* error) {
+    const char* identifier = view.extForeignIdentifier();
+    if (identifier == nullptr) {
+      if (error != nullptr) {
+        *error = "window has no capture identifier";
+      }
+      return false;
+    }
+    return requestScreenCastCommand(ScreenCastCommandKind::SetWindow, identifier, error);
+  }
+
+  bool Server::followScreenCastWindow(std::string* error) {
+    return requestScreenCastCommand(ScreenCastCommandKind::FollowWindow, {}, error);
+  }
+
+  bool Server::followScreenCastOutput(std::string* error) {
+    return requestScreenCastCommand(ScreenCastCommandKind::FollowOutput, {}, error);
+  }
+
+  void Server::confirmScreenCastDynamic() {
+    if (!m_screenCastActive || !m_pendingScreenCastCommand) {
+      dismissConfirmation();
+      return;
+    }
+    ScreenCastCommand requested = std::move(*m_pendingScreenCastCommand);
+    m_pendingScreenCastCommand.reset();
+    m_screenCastDynamicConfirmed = true;
+    if (m_quitConfirm != nullptr) {
+      m_quitConfirm->hide();
+    }
+    m_screenCastCommand.kind = requested.kind;
+    m_screenCastCommand.value = std::move(requested.value);
+    ++m_screenCastCommand.serial;
+    if (m_ipc != nullptr) {
+      m_ipc->notifyScreenCastChanged();
+    }
+  }
+
+  void Server::dismissConfirmation() {
+    if (m_quitConfirm != nullptr
+        && m_quitConfirm->visible()
+        && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
+      m_pendingScreenCastCommand.reset();
+    }
+    if (m_quitConfirm != nullptr) {
+      m_quitConfirm->hide();
+    }
+  }
+
+  void Server::stopFollowingScreenCast() {
+    if (m_quitConfirm != nullptr
+        && m_quitConfirm->visible()
+        && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
+      dismissConfirmation();
+    }
+    m_screenCastCommand.kind = ScreenCastCommandKind::FollowStop;
+    m_screenCastCommand.value.clear();
+    ++m_screenCastCommand.serial;
+    if (m_ipc != nullptr) {
+      m_ipc->notifyScreenCastChanged();
+    }
+  }
+
   const wlr_security_context_v1_state* Server::clientSecurityContext(const wl_client* client) const {
     if (m_securityContextManager == nullptr) {
       return nullptr;
@@ -284,7 +427,7 @@ namespace umbriel {
     return pid > 0 && pid == m_xwayland->pid();
   }
 
-  Server::Server() {
+  Server::Server() : m_effects(*this) {
     m_nested = std::getenv("WAYLAND_DISPLAY") != nullptr
         || std::getenv("WAYLAND_SOCKET") != nullptr
         || std::getenv("DISPLAY") != nullptr;
@@ -346,7 +489,7 @@ namespace umbriel {
       throw std::runtime_error("renderer or allocator opened an excluded GPU");
     }
 
-    prepareAnimationShaders(m_renderer);
+    effectRegistry().prepare(m_renderer);
     m_compositor = wlr_compositor_create(m_display, 5, m_renderer);
     wlr_subcompositor_create(m_display);
     wlr_data_device_manager_create(m_display);
@@ -474,6 +617,7 @@ namespace umbriel {
     wlr_scene_node_set_enabled(&m_lockBlank->node, false);
     wlr_scene_node_set_enabled(&m_lockTree->node, false);
     wlr_scene_node_lower_to_bottom(&m_backdrop->node);
+    m_effects.syncLightLayer();
 
     m_gammaManager = wlr_gamma_control_manager_v1_create(m_display);
     m_setGamma.notify = onSetGamma;
@@ -570,7 +714,13 @@ namespace umbriel {
     wlr_screencopy_manager_v1_create(m_display);
     m_exportDmabufManager = wlr_export_dmabuf_manager_v1_create(m_display);
     wlr_ext_output_image_capture_source_manager_v1_create(m_display, 1);
-    wlr_ext_image_copy_capture_manager_v1_create(m_display, 1);
+    wlr_ext_image_copy_capture_manager_v1* imageCopyManager =
+        wlr_ext_image_copy_capture_manager_v1_create(m_display, 1);
+    if (imageCopyManager == nullptr) {
+      throw std::runtime_error("failed to create image-copy-capture manager");
+    }
+    m_newImageCopySession.notify = onNewImageCopySession;
+    wl_signal_add(&imageCopyManager->events.new_session, &m_newImageCopySession);
 
     // Create the manager so apply/test listeners stay wired, but leave heads empty (see updateOutputManagerConfig).
     // Advertising a full configuration on bind currently takes down the desktop shell from this flake.
@@ -586,8 +736,6 @@ namespace umbriel {
     wl_signal_add(&outputPower->events.set_mode, &m_outputPowerSetMode);
     m_outputManagerTest.notify = onOutputManagerTest;
     wl_signal_add(&m_outputManager->events.test, &m_outputManagerTest);
-    m_outputLayoutChange.notify = onOutputLayoutChange;
-    wl_signal_add(&m_outputLayout->events.change, &m_outputLayoutChange);
 
     m_xdgActivation = wlr_xdg_activation_v1_create(m_display);
     m_newActivationToken.notify = onNewActivationToken;
@@ -596,6 +744,9 @@ namespace umbriel {
     wl_signal_add(&m_xdgActivation->events.request_activate, &m_requestActivate);
 
     m_cursor = std::make_unique<Cursor>(*this);
+    // Registered after the cursor attaches to the layout: wlr_cursor's own listener clamps the pointer first.
+    m_outputLayoutChange.notify = onOutputLayoutChange;
+    wl_signal_add(&m_outputLayout->events.change, &m_outputLayoutChange);
     m_seat = std::make_unique<Seat>(*this);
     m_padKeyboardFocusChange.notify = onPadKeyboardFocusChange;
     wl_signal_add(&m_seat->wlr()->keyboard_state.events.focus_change, &m_padKeyboardFocusChange);
@@ -615,6 +766,10 @@ namespace umbriel {
 
   Server::~Server() {
     m_stopping = true;
+    if (m_lidStateReconcileIdle != nullptr) {
+      wl_event_source_remove(m_lidStateReconcileIdle);
+      m_lidStateReconcileIdle = nullptr;
+    }
     if (m_rendererRecoveryIdle != nullptr) {
       wl_event_source_remove(m_rendererRecoveryIdle);
       m_rendererRecoveryIdle = nullptr;
@@ -639,6 +794,7 @@ namespace umbriel {
     wl_list_remove(&m_newVirtualPointer.link);
     wl_list_remove(&m_newIdleInhibitor.link);
     wl_list_remove(&m_newShortcutsInhibitor.link);
+    wl_list_remove(&m_newImageCopySession.link);
     wl_list_remove(&m_newActivationToken.link);
     wl_list_remove(&m_requestActivate.link);
     wl_list_remove(&m_workspaceCommit.link);
@@ -707,7 +863,7 @@ namespace umbriel {
     m_scratchpadManager.reset();
     wlr_scene_node_destroy(&m_scene->tree.node);
     wlr_allocator_destroy(m_allocator);
-    clearAnimationShaderCache();
+    effectRegistry().clear();
     wlr_renderer_destroy(m_renderer);
     m_backendManager.reset();
     m_backend = nullptr;
@@ -843,6 +999,12 @@ namespace umbriel {
     }
     applyConfiguredEnvironment();
 
+    // Initial libinput switch events are dispatched synchronously inside
+    // wlr_backend_start(). Publish their settled aggregate only after IPC and
+    // the configured child environment are ready.
+    m_lidState.setReady();
+    reconcileLidState();
+
     m_startTime = std::chrono::steady_clock::now();
     m_startupRulesTimer = wl_event_loop_add_timer(loop, onStartupRulesTimer, this);
     if (m_startupRulesTimer != nullptr) {
@@ -967,6 +1129,19 @@ namespace umbriel {
   void Server::hideInsertHint() {
     if (m_insertHint != nullptr) {
       m_insertHint->hideImmediate();
+    }
+  }
+
+  void Server::setEffectLightLayer(bool present) {
+    if (present && m_effectLightTree == nullptr && m_dragIconTree != nullptr) {
+      // Ring illumination stays below panels and pinned content, above dragged windows.
+      m_effectLightTree = wlr_scene_tree_create(&m_scene->tree);
+      wlr_scene_node_place_above(&m_effectLightTree->node, &m_dragIconTree->node);
+      wlr_scene_set_effect_light_layer(m_scene, m_effectLightTree);
+    } else if (!present && m_effectLightTree != nullptr) {
+      wlr_scene_set_effect_light_layer(m_scene, nullptr);
+      wlr_scene_node_destroy(&m_effectLightTree->node);
+      m_effectLightTree = nullptr;
     }
   }
 
@@ -1131,7 +1306,7 @@ namespace umbriel {
     m_alpha.snap(1.0);
     m_alpha.retarget(0.0, durationMs, curve);
 
-    if (animationShader(server.renderer(), event) == nullptr) {
+    if (effectRegistry().animationEffect(event) == nullptr) {
       if (style == "slide") {
         m_slide.snap(0.0);
         m_slide.retarget(80.0, durationMs, curve);
@@ -1166,9 +1341,13 @@ namespace umbriel {
     const int innerWidth = static_cast<int>(std::lround(captured.innerWidth * ringScale));
     const int outerWidth = static_cast<int>(std::lround(captured.outerWidth * ringScale));
     const int radius = static_cast<int>(std::lround(captured.cornerRadius * ringScale));
-    const BorderRing ring = makeBorderRing(width, height, radius, innerWidth, outerWidth);
+    const int padding = static_cast<int>(std::lround(captured.padding * ringScale));
+    const BorderRing ring = makeBorderRing(width, height, radius, innerWidth, outerWidth, padding);
     const bool ringVisible = innerWidth + outerWidth > 0;
-    const wlr_box treeClip = m_borders.empty() || !ringVisible ? wlr_box{0, 0, width, height} : ring.box;
+    wlr_box treeClip = m_borders.empty() || !ringVisible ? wlr_box{0, 0, width, height} : ring.box;
+    // A frozen drag deformation draws past the box by its slot's expand.
+    const int expand = wlr_scene_node_animation_expand(&m_tree->node);
+    treeClip = {treeClip.x - expand, treeClip.y - expand, treeClip.width + 2 * expand, treeClip.height + 2 * expand};
     wlr_scene_tree_set_clip(m_tree, &treeClip);
 
     if (m_content != nullptr && m_captured.width > 0 && m_captured.height > 0) {
@@ -1261,7 +1440,7 @@ namespace umbriel {
   bool Server::CloseSnapshot::tickAnimations(uint64_t nowMsec) {
     const bool movedAlpha = m_alpha.tick(nowMsec);
     const bool movedSlide = m_slide.tick(nowMsec);
-    updateAnimationShader(&m_tree->node, m_server->renderer(), m_event, m_alpha, -1.0F);
+    bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
 
     if (!movedAlpha && !movedSlide) {
       return false;
@@ -1269,7 +1448,7 @@ namespace umbriel {
     // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
     const float rawAlpha = std::clamp(static_cast<float>(m_alpha.current()), 0.0F, 1.0F);
     // A lifecycle shader fades the whole snapshot at once, so its buffers and borders stay opaque under it.
-    const bool composited = lifecycleShader(m_server->renderer(), m_event) != nullptr;
+    const bool composited = effectRegistry().lifecycleEffect(m_event) != nullptr;
     const bool builtInSlide = !composited && m_slide.target() != m_slide.from();
     // Keep the moving snapshot visible long enough for slide to read as motion. Fade keeps the configured timeline.
     const float alpha = composited ? 1.0F : (builtInSlide ? std::sqrt(rawAlpha) : rawAlpha);
@@ -1381,6 +1560,12 @@ namespace umbriel {
     if (!m_frozenAnimationClockMsec) {
       m_frozenAnimationClockMsec = animationClockMsec();
     }
+    // The frozen instant may equal the last tick's; ticking it once more lets views re-sync their effects'
+    // clockAdvancing on the next frame instead of skipping it as a repeat.
+    m_lastAnimTickMsec = 0;
+    for (const auto& output : m_outputs) {
+      wlr_output_schedule_frame(output->wlr());
+    }
   }
 
   bool Server::advanceAnimationClock(uint64_t ms) {
@@ -1409,6 +1594,9 @@ namespace umbriel {
       m_animationClockOffsetMsec =
           static_cast<int64_t>(*m_frozenAnimationClockMsec) - static_cast<int64_t>(monotonicClockMsec());
       m_frozenAnimationClockMsec.reset();
+    }
+    for (const auto& output : m_outputs) {
+      wlr_output_schedule_frame(output->wlr());
     }
   }
 

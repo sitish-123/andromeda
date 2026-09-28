@@ -107,9 +107,7 @@ namespace umbriel {
       }
     }
 
-#ifdef UMBRIEL_TEST_IPC
     void printOutputName(const nlohmann::json& ok) { std::println("{}", ok.get<std::string>()); }
-#endif
 
     std::string fourccName(uint32_t format) {
       if (format == DRM_FORMAT_INVALID) {
@@ -275,9 +273,28 @@ namespace umbriel {
             output.value("render_format", "invalid"), output.value("transfer_function", "none"),
             output.value("primaries", "none"), output.value("sdr_white", 0.0)
         );
+
         if (!fallback.empty()) {
           std::println("  fallback: {}", fallback);
         }
+
+        const int configuredDepth = output.value("bit_depth", 8);
+        const std::string format = output.value("render_format", "invalid");
+        const std::string_view activeDepth = !output.value("enabled", false) ? "none"
+            : format == "XR30" || format == "XB30"                           ? "10"
+            : format == "XR24" || format == "XB24"                           ? "8"
+                                                                             : "unknown";
+        std::println("  bit depth: {} (configured {})", activeDepth, configuredDepth);
+
+        if (output.value("enabled", false) && configuredDepth != 8) {
+          const std::string bitFallback = output.value("bit_depth_fallback_reason", "");
+          if (!bitFallback.empty()) {
+            std::println("  10-bit SDR unavailable: {}", bitFallback);
+          } else if (output.value("bit_depth_active", false)) {
+            std::println("  10-bit SDR: active");
+          }
+        }
+
         std::println(
             "  supported transfer functions: {}; primaries: {}", joinNames(output.at("supported_transfer_functions")),
             joinNames(output.at("supported_primaries"))
@@ -464,6 +481,7 @@ namespace umbriel {
       const wlr_output_image_description* description = wlrOutput->image_description;
       outputs.push_back({
           {"name", wlrOutput->name},
+          {"enabled", wlrOutput->enabled},
           {"hdr_mode", hdrModeName(output->hdrMode())},
           {"hdr_requested", output->hdrRequested()},
           {"hdr_active", output->hdrActive()},
@@ -472,6 +490,9 @@ namespace umbriel {
           {"transfer_function", description != nullptr ? transferFunctionName(description->transfer_function) : "none"},
           {"primaries", description != nullptr ? primariesName(description->primaries) : "none"},
           {"sdr_white", output->configuredSdrWhite()},
+          {"bit_depth", output->configuredBitDepth()},
+          {"bit_depth_active", output->bitDepthActive()},
+          {"bit_depth_fallback_reason", output->bitDepthFallbackReason()},
           {"supported_transfer_functions", supportedTransferFunctions(wlrOutput->supported_transfer_functions)},
           {"supported_primaries", supportedPrimaries(wlrOutput->supported_primaries)},
       });
@@ -669,33 +690,55 @@ namespace umbriel {
     }
     return nlohmann::json{{"ok", std::move(commits)}};
   }
+
+  nlohmann::json IpcCommands::effectFrames(Server& server, std::string_view /*arg*/) {
+    nlohmann::json outputs = nlohmann::json::array();
+    for (const auto& output : server.outputs()) {
+      outputs.push_back({
+          {"name", output->wlr()->name},
+          {"effect_frames", output->effectFrames()},
+          {"eligible", output->effectEligible()},
+      });
+    }
+    return nlohmann::json{{"ok", {{"outputs", std::move(outputs)}}}};
+  }
 #endif
 
   static constexpr IpcCommandSpec kIpcCommands[] = {
-      {"msg", "<action> [args...]", "send an action to the compositor", true, &IpcCommands::msg, nullptr},
-      {"windows", "", "list windows (app id and title)", false, &IpcCommands::windows, &printWindows},
-      {"workspaces", "", "list workspaces and their layouts", false, &IpcCommands::workspaces, &printWorkspaces},
-      {"submap", "", "show the active keybind submap", false, &IpcCommands::submap, &printSubmap},
-      {"layers", "", "list layer-shell surfaces", false, &IpcCommands::layers, &printLayers},
-      {"color", "", "show color-management state", false, &IpcCommands::color, &printColor},
-      {"zoom", "", "show the screen magnifier's factor and view per output", false, &IpcCommands::zoom, nullptr},
-      {"tearing", "", "show tearing-control state", false, &IpcCommands::tearing, &printTearing},
-      {"keyboard-layouts", "", "list keyboard layouts", false, &IpcCommands::keyboardLayouts, &printKeyboardLayouts},
-#ifdef UMBRIEL_TEST_IPC
-      {"output-create", "<name>", "create a headless output (headless sessions only)", true, &IpcCommands::outputCreate,
+      {"msg", "<action> [args...]", "send an action to the compositor", IpcCommandGroup::Control, true,
+       &IpcCommands::msg, nullptr},
+      {"output-create", "<name>", "create a virtual output", IpcCommandGroup::Control, true, &IpcCommands::outputCreate,
        &printOutputName},
-      {"output-destroy", "<name>", "destroy an output (headless sessions only)", true, &IpcCommands::outputDestroy,
-       nullptr},
-      {"settle", "", "wait until no layout or animation is pending and every output has drawn a frame", false,
-       &IpcCommands::settle, nullptr, 35},
-      {"clock-freeze", "", "stop animation time", false, &IpcCommands::clockFreeze, nullptr},
-      {"clock-advance", "<ms>", "move frozen animation time forward and wait until every output has drawn it", true,
-       &IpcCommands::clockAdvance, nullptr, 35},
-      {"clock-resume", "", "let animation time follow the monotonic clock again, from where it stopped", false,
-       &IpcCommands::clockResume, nullptr},
-      {"renderer-recover", "", "emit renderer loss and exercise recovery", false, &IpcCommands::rendererRecover,
-       nullptr},
-      {"output-commits", "", "committed frame count per output", false, &IpcCommands::outputCommits, nullptr},
+      {"output-destroy", "<name>", "destroy a virtual output", IpcCommandGroup::Control, true,
+       &IpcCommands::outputDestroy, nullptr},
+      {"windows", "", "list windows (app id and title)", IpcCommandGroup::Inspect, false, &IpcCommands::windows,
+       &printWindows},
+      {"workspaces", "", "list workspaces and their layouts", IpcCommandGroup::Inspect, false, &IpcCommands::workspaces,
+       &printWorkspaces},
+      {"submap", "", "show the active keybind submap", IpcCommandGroup::Inspect, false, &IpcCommands::submap,
+       &printSubmap},
+      {"layers", "", "list layer-shell surfaces", IpcCommandGroup::Inspect, false, &IpcCommands::layers, &printLayers},
+      {"color", "", "show color-management state", IpcCommandGroup::Inspect, false, &IpcCommands::color, &printColor},
+      {"tearing", "", "show tearing-control state", IpcCommandGroup::Inspect, false, &IpcCommands::tearing,
+       &printTearing},
+      {"zoom", "", "show the screen magnifier's factor and view per output", IpcCommandGroup::Inspect, false,
+       &IpcCommands::zoom, nullptr},
+      {"keyboard-layouts", "", "list keyboard layouts", IpcCommandGroup::Inspect, false, &IpcCommands::keyboardLayouts,
+       &printKeyboardLayouts},
+#ifdef UMBRIEL_TEST_IPC
+      {"settle", "", "wait until no layout or animation is pending and every output has drawn a frame",
+       IpcCommandGroup::Harness, false, &IpcCommands::settle, nullptr, 35},
+      {"clock-freeze", "", "stop animation time", IpcCommandGroup::Harness, false, &IpcCommands::clockFreeze, nullptr},
+      {"clock-advance", "<ms>", "move frozen animation time forward and wait until every output has drawn it",
+       IpcCommandGroup::Harness, true, &IpcCommands::clockAdvance, nullptr, 35},
+      {"clock-resume", "", "let animation time follow the monotonic clock again, from where it stopped",
+       IpcCommandGroup::Harness, false, &IpcCommands::clockResume, nullptr},
+      {"renderer-recover", "", "emit renderer loss and exercise recovery", IpcCommandGroup::Harness, false,
+       &IpcCommands::rendererRecover, nullptr},
+      {"effect-frames", "", "count frames drawn for persistent effects per output", IpcCommandGroup::Harness, false,
+       &IpcCommands::effectFrames, nullptr},
+      {"output-commits", "", "committed frame count per output", IpcCommandGroup::Harness, false,
+       &IpcCommands::outputCommits, nullptr},
 #endif
   };
 

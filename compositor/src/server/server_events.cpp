@@ -17,6 +17,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
+#include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
@@ -34,8 +35,10 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace umbriel {
@@ -549,6 +552,27 @@ namespace umbriel {
                                                        : "input.mouse.sensitivity"
       );
     }
+
+    // A touchscreen is a physical panel, so with no map_to_output it follows the output the device reports, or else
+    // the only enabled built-in panel. Two built-in panels are ambiguous and leave the device on the full layout.
+    Output* defaultTouchOutput(std::span<const std::unique_ptr<Output>> outputs, const char* reported) {
+      Output* builtin = nullptr;
+      bool ambiguous = false;
+      for (const auto& output : outputs) {
+        if (!output->wlr()->enabled) {
+          continue;
+        }
+        const std::string_view name = output->wlr()->name;
+        if (reported != nullptr && name == reported) {
+          return output.get();
+        }
+        if (name.starts_with("eDP-") || name.starts_with("LVDS-") || name.starts_with("DSI-")) {
+          ambiguous = builtin != nullptr;
+          builtin = output.get();
+        }
+      }
+      return ambiguous ? nullptr : builtin;
+    }
   } // namespace
   void Server::applyConfig(const ConfigEffects& effects) {
     if (!effects.any()) {
@@ -565,8 +589,16 @@ namespace umbriel {
         }
       }
     }
-    if (effects.animation) {
-      prepareAnimationShaders(m_renderer);
+    if (effects.animation || effects.effects) {
+      effectRegistry().prepare(m_renderer);
+    }
+    if (effects.effects) {
+      // The next frame re-arms the effect timer from the new max_fps.
+      for (const auto& output : m_outputs) {
+        if (output->effectEligible() > 0) {
+          output->scheduleEffectFrame();
+        }
+      }
     }
 
     if (effects.sceneBlur) {
@@ -594,6 +626,9 @@ namespace umbriel {
       for (const auto& tablet : m_tabletDevices) {
         applyTabletConfig(*tablet);
       }
+      for (const auto& touch : m_touchDevices) {
+        applyTouchConfig(*touch);
+      }
       for (const auto& pad : m_tabletPads) {
         applyTabletPadConfig(*pad);
       }
@@ -607,10 +642,14 @@ namespace umbriel {
       markDirty(Dirty::Cheatsheet);
     }
     if (effects.outputState) {
+      // A successful output-policy reload is the explicit boundary for
+      // temporary output-management choices, including overrides retained for
+      // a currently disconnected monitor.
+      m_outputEnableOverrides.clear();
       applyConfiguredMirrors();
       m_deferOutputManagerConfig = true;
       for (const auto& output : m_outputs) {
-        output->applyOutputState();
+        (void)output->applyOutputState();
       }
       m_deferOutputManagerConfig = false;
       for (const auto& output : m_outputs) {
@@ -667,9 +706,18 @@ namespace umbriel {
       }
       // The view refresh cleared every focus ring; put the active one back.
       refocus();
+      // Screen and cursor presets take their palette from [colors] too.
+      m_effects.applyOutputEffects();
       markDirty(Dirty::Backdrop);
       if (m_sessionLocked) {
         updateLockBlank();
+      }
+    }
+    if (effects.effects && !effects.viewChrome) {
+      for (const auto& view : m_registry.all()) {
+        if (view->mapped()) {
+          view->applyDynamicRules();
+        }
       }
     }
     if (effects.animation && m_scratchpadManager != nullptr) {
@@ -726,10 +774,7 @@ namespace umbriel {
     }
   }
 
-  // Slow tick that keeps hidden-workspace toplevels driving their game/network loops (see kBackgroundFrameIntervalMs).
-  // wlr_scene_output_send_frame_done walks only enabled scene nodes, so a view whose workspace has been deactivated
-  // stops receiving wl_surface.frame callbacks entirely; any client that gates advance-work on the callback stalls
-  // until it is shown again.
+  // Sends frame callbacks to hidden-workspace toplevels (see kBackgroundFrameIntervalMs).
   int Server::onBackgroundFrameTimer(void* data) {
     auto* self = static_cast<Server*>(data);
     timespec now{};
@@ -785,10 +830,9 @@ namespace umbriel {
     return 0;
   }
 
-  // Fires when the underlying GL context is invalidated (GPU reset, VRAM lost after suspend, driver-detected hang).
-  // Without this, the renderer keeps issuing GL calls into a dead context: Mesa's context_lost_nop_handler no-ops each
-  // one and spams "[GLES2] GL_CONTEXT_LOST in context lost" ~40k lines/sec, and the desktop never comes back. Defer
-  // rebuilding until this signal and the failed render call have both unwound.
+  // Fires when the underlying GL context is invalidated (GPU reset, VRAM lost after suspend, driver-detected hang); the
+  // renderer must be rebuilt, since GL calls into a dead context do nothing. Defer rebuilding until this signal and the
+  // failed render call have both unwound.
   void Server::onRendererLost(wl_listener* listener, void* /*data*/) {
     Server* self;
     self = wl_container_of(listener, self, m_rendererLost);
@@ -845,7 +889,7 @@ namespace umbriel {
 
     m_renderer = newRenderer;
     m_allocator = newAllocator;
-    prepareAnimationShaders(m_renderer);
+    effectRegistry().prepare(m_renderer);
 
     // Point the compositor at the new renderer so clients' shm/dma-buf textures get
     // re-imported on next attach.
@@ -1101,9 +1145,7 @@ namespace umbriel {
     wl_resource_add_destroy_listener(vpointer->resource, &device->destroy);
 
     // Attach to the cursor exactly like a physical pointer (see addPointer), so a virtual pointer runs the same Cursor
-    // pipeline: hover, click-to-focus, mouse binds, and interactive move and resize. Hand-wiring these signals instead
-    // only warped the cursor and forwarded buttons to the seat, so a virtual pointer could move the cursor but never
-    // focus or drag anything.
+    // pipeline: hover, click-to-focus, mouse binds, and interactive move and resize.
     self->m_cursor->attachInputDevice(&vpointer->pointer.base);
 
     self->m_virtualPointers.push_back(std::move(device));
@@ -1139,6 +1181,28 @@ namespace umbriel {
     delete watch;
     server->updateIdleInhibit();
     kLog.debug("idle inhibitor removed");
+  }
+
+  void Server::onNewImageCopySession(wl_listener* listener, void* data) {
+    Server* self;
+    self = wl_container_of(listener, self, m_newImageCopySession);
+    auto* session = static_cast<wlr_ext_image_copy_capture_session_v1*>(data);
+    auto* watch = new ImageCopySessionWatch();
+    watch->server = self;
+    watch->destroy.notify = onImageCopySessionDestroy;
+    wl_signal_add(&session->events.destroy, &watch->destroy);
+  }
+
+  // The session's render lock is released after this signal; the frame it schedules runs from an idle, without it.
+  void Server::onImageCopySessionDestroy(wl_listener* listener, void* /*data*/) {
+    ImageCopySessionWatch* watch;
+    watch = wl_container_of(listener, watch, destroy);
+    Server* server = watch->server;
+    wl_list_remove(&watch->destroy.link);
+    delete watch;
+    for (const auto& output : server->m_outputs) {
+      output->scheduleEffectCaptureRelease();
+    }
   }
 
   void Server::onNewShortcutsInhibitor(wl_listener* listener, void* data) {
@@ -1448,6 +1512,8 @@ namespace umbriel {
       }
 
       m_sessionLocked = true;
+      m_effects.setSuspended(true);
+      m_effects.applyOutputEffects();
       cancelModifierTap();
       m_overview->forceClose();
       if (m_cheatsheet != nullptr) {
@@ -1470,6 +1536,13 @@ namespace umbriel {
 
   void Server::unlockSession() {
     m_sessionLocked = false;
+    m_effects.setSuspended(false);
+    m_effects.applyOutputEffects();
+    for (const auto& output : m_outputs) {
+      if (output->effectEligible() > 0) {
+        output->scheduleEffectFrame();
+      }
+    }
     updateIdleInhibit();
     syncSuspendedViews();
     setLockBlankEnabled(false);
@@ -1706,8 +1779,9 @@ namespace umbriel {
     touch->destroy.notify = onTouchDestroy;
     wl_signal_add(&device->events.destroy, &touch->destroy);
     m_cursor->attachInputDevice(device);
+    applyTouchConfig(*touch);
     m_touchDevices.push_back(std::move(touch));
-    remapTouch();
+    remapTouches();
     kLog.info("input: added touch device '{}'", deviceName(device));
   }
 
@@ -1726,11 +1800,24 @@ namespace umbriel {
     auto entry = std::make_unique<SwitchDevice>();
     entry->server = this;
     entry->device = device;
+    if (wlr_input_device_is_libinput(device) != 0) {
+      if (libinput_device* handle = wlr_libinput_get_device_handle(device);
+          handle != nullptr && libinput_device_switch_has_switch(handle, LIBINPUT_SWITCH_LID) == 1) {
+        // libinput defines OFF as the initial logical state and emits no event
+        // to confirm it. Its queued initial ON event, when present, is handled
+        // before the event loop reaches the reconciliation idle callback.
+        entry->lidSource = m_lidState.addSource(LidState::Open);
+      }
+    }
     entry->destroy.notify = onSwitchDestroy;
     wl_signal_add(&device->events.destroy, &entry->destroy);
     entry->toggle.notify = onSwitchToggle;
     wl_signal_add(&wlr_switch_from_input_device(device)->events.toggle, &entry->toggle);
+    const bool tracksLid = entry->lidSource.has_value();
     m_switchDevices.push_back(std::move(entry));
+    if (tracksLid) {
+      scheduleLidStateReconcile();
+    }
     kLog.info("input: added switch device '{}'", deviceName(device));
   }
 
@@ -1740,6 +1827,10 @@ namespace umbriel {
     Server* server = watch->server;
     wl_list_remove(&watch->destroy.link);
     wl_list_remove(&watch->toggle.link);
+    if (watch->lidSource) {
+      server->m_lidState.removeSource(*watch->lidSource);
+      server->scheduleLidStateReconcile();
+    }
     std::erase_if(server->m_switchDevices, [watch](const std::unique_ptr<SwitchDevice>& entry) {
       return entry.get() == watch;
     });
@@ -1753,15 +1844,48 @@ namespace umbriel {
       return;
     }
     Server* server = watch->server;
-    if (event->switch_state == WLR_SWITCH_STATE_ON) {
+    const LidState state = event->switch_state == WLR_SWITCH_STATE_ON ? LidState::Closed : LidState::Open;
+    if (watch->lidSource) {
+      server->m_lidState.updateSource(*watch->lidSource, state);
+    } else {
+      // Non-libinput switch devices have no capability query. Their first LID
+      // event proves that they are a logical lid source.
+      watch->lidSource = server->m_lidState.addSource(state);
+    }
+    server->scheduleLidStateReconcile();
+  }
+
+  void Server::scheduleLidStateReconcile() {
+    if (m_stopping || m_lidStateReconcileIdle != nullptr) {
+      return;
+    }
+    m_lidStateReconcileIdle =
+        wl_event_loop_add_idle(wl_display_get_event_loop(m_display), onLidStateReconcileIdle, this);
+    if (m_lidStateReconcileIdle == nullptr) {
+      kLog.error("failed to register lid-state reconciliation idle source");
+    }
+  }
+
+  void Server::onLidStateReconcileIdle(void* data) {
+    auto* server = static_cast<Server*>(data);
+    server->m_lidStateReconcileIdle = nullptr;
+    server->reconcileLidState();
+  }
+
+  void Server::reconcileLidState() {
+    const std::optional<LidState> transition = m_lidState.takeTransition();
+    if (!transition) {
+      return;
+    }
+    if (*transition == LidState::Closed) {
       kLog.info("lid closed");
       if (!config().events.lidClose.empty()) {
-        server->spawn(config().events.lidClose.c_str(), "events.lid_close");
+        spawn(config().events.lidClose.c_str(), "events.lid_close");
       }
     } else {
       kLog.info("lid opened");
       if (!config().events.lidOpen.empty()) {
-        server->spawn(config().events.lidOpen.c_str(), "events.lid_open");
+        spawn(config().events.lidOpen.c_str(), "events.lid_open");
       }
     }
   }
@@ -1812,6 +1936,25 @@ namespace umbriel {
       }
     }
     remapTablets();
+  }
+
+  void Server::applyTouchConfig(TouchDevice& touch) {
+    if (wlr_input_device_is_libinput(touch.device) == 0) {
+      kLog.debug("input: touch device '{}' is not a libinput device; touch settings skipped", deviceName(touch.device));
+      return;
+    }
+    libinput_device* libinputDevice = wlr_libinput_get_device_handle(touch.device);
+    if (libinputDevice == nullptr) {
+      return;
+    }
+    const Config::Input::Touch& cfg = config().input.touch;
+    if ((libinput_device_config_send_events_get_modes(libinputDevice) & LIBINPUT_CONFIG_SEND_EVENTS_DISABLED) != 0) {
+      libinput_device_config_send_events_set_mode(
+          libinputDevice, cfg.enabled ? LIBINPUT_CONFIG_SEND_EVENTS_ENABLED : LIBINPUT_CONFIG_SEND_EVENTS_DISABLED
+      );
+    } else if (!cfg.enabled) {
+      kLog.warn("input: '{}' cannot be disabled", deviceName(touch.device));
+    }
   }
 
   void Server::addTabletPad(wlr_input_device* device) {
@@ -1910,19 +2053,12 @@ namespace umbriel {
     }
   }
 
-  void Server::remapTouch() {
-    // libinput names the output only when udev tags the device; otherwise a touchscreen is taken to be the panel's.
-    const auto panelOf = [this](const wlr_touch* touch) -> Output* {
-      const auto panel = std::ranges::find_if(m_outputs, [touch](const std::unique_ptr<Output>& output) {
-        const std::string_view name = output->wlr()->name;
-        return touch->output_name != nullptr
-            ? name == touch->output_name
-            : name.starts_with("eDP") || name.starts_with("LVDS") || name.starts_with("DSI");
-      });
-      return panel != m_outputs.end() ? panel->get() : nullptr;
-    };
+  void Server::remapTouches() {
+    const Config::Input::Touch& cfg = config().input.touch;
     for (const auto& touch : m_touchDevices) {
-      Output* panel = panelOf(wlr_touch_from_input_device(touch->device));
+      Output* panel = !cfg.mapToOutput.empty()
+          ? outputFromName(cfg.mapToOutput)
+          : defaultTouchOutput(outputs(), wlr_touch_from_input_device(touch->device)->output_name);
       wlr_box region{};
       wlr_output* output = nullptr;
       if (const Output* source = panel != nullptr ? panel->mirrorSource() : nullptr) {
@@ -2064,6 +2200,7 @@ namespace umbriel {
     if (!m_cursor->isPassthrough()) {
       m_cursor->resetMode();
     }
+    m_effects.removeOutput(output);
     if (m_insertHint != nullptr && m_insertHint->output() == output) {
       m_insertHint->hideImmediate();
     }
@@ -2769,6 +2906,9 @@ namespace umbriel {
       }
       // Detach wlroots' later destroy listener so it cannot clear the replacement.
       wlr_seat_set_keyboard(seat, replacement);
+      // Publish the replacement keymap before its masks, or neutralize the
+      // pointer-only client before removing the final keyboard capability.
+      m_seat->notifyPointerModifiers(replacement == nullptr);
     }
     if (sourceRemoved) {
       m_keyboardLayoutSource = nullptr;
@@ -2852,7 +2992,7 @@ namespace umbriel {
     Server* self;
     self = wl_container_of(listener, self, m_outputLayoutChange);
     self->markDirty(Dirty::Backdrop);
-    self->remapTouch();
+    self->remapTouches();
     // A neighbour appearing, moving, or resizing changes where every output's content clip has to sit, and the clip is
     // refreshed from arrangeLayers.
     for (const auto& output : self->m_outputs) {
@@ -2861,6 +3001,7 @@ namespace umbriel {
     if (!self->m_deferOutputManagerConfig) {
       self->updateOutputManagerConfig();
     }
+    self->m_cursor->handleOutputLayoutChange();
   }
 
   void Server::updateOutputManagerConfig() {
@@ -2881,13 +3022,40 @@ namespace umbriel {
     wlr_output_manager_v1_set_configuration(m_outputManager, cfg);
   }
 
-  void Server::applyOutputManagerConfig(wlr_output_configuration_v1* config, bool testOnly) {
+  bool Server::initialOutputEnabled(const Output& output) {
+    if (const std::optional<bool> override = m_outputEnableOverrides.resolve(output.identity())) {
+      return *override;
+    }
+    return output.configuredEnabled();
+  }
+
+  void Server::rememberOutputEnableOverride(const Output& output, bool enabled) {
+    m_outputEnableOverrides.remember(output.identity(), enabled);
+  }
+
+  bool Server::commitOutputEnabled(Output& target, bool enabled) {
+    wlr_output_configuration_v1* config = wlr_output_configuration_v1_create();
+    for (const auto& output : m_outputs) {
+      wlr_output_configuration_head_v1* head = wlr_output_configuration_head_v1_create(config, output->wlr());
+      head->state.enabled = output.get() == &target ? enabled : output->desktopEnabled();
+      const wlr_box box = output->layoutBox();
+      head->state.x = box.x;
+      head->state.y = box.y;
+    }
+    return applyOutputManagerConfig(config, false);
+  }
+
+  bool Server::setOutputEnabled(Output& output, bool enabled) {
+    return output.desktopEnabled() == enabled || commitOutputEnabled(output, enabled);
+  }
+
+  bool Server::applyOutputManagerConfig(wlr_output_configuration_v1* config, bool testOnly) {
     size_t statesLen = 0;
     wlr_backend_output_state* states = wlr_output_configuration_v1_build_state(config, &statesLen);
     if (states == nullptr) {
       wlr_output_configuration_v1_send_failed(config);
       wlr_output_configuration_v1_destroy(config);
-      return;
+      return false;
     }
 
     struct RequestedHead {
@@ -3125,6 +3293,7 @@ namespace umbriel {
       // Make logical enablement authoritative before any callback can refresh
       // configured output policy and accidentally revive a disabled head.
       for (const RequestedHead& entry : requested) {
+        rememberOutputEnableOverride(*entry.output, entry.head->state.enabled);
         // Mirrors are reported enabled: enabled keeps the mirror with its new mode, disabled ends it and powers off.
         if (entry.output->mirrorSource() != nullptr) {
           if (entry.head->state.enabled) {
@@ -3237,6 +3406,7 @@ namespace umbriel {
     if (commitAttempted) {
       updateOutputManagerConfig();
     }
+    return ok;
   }
 
   void Server::onToplevelCaptureRequest(wl_listener* listener, void* data) {

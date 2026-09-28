@@ -34,12 +34,12 @@ else
 endif
 
 umbriel_data_dir = get_option('prefix') / get_option('datadir')
-umbriel_build_config = configuration_data()
-umbriel_build_config.set_quoted('UMBRIEL_DATA_DIR', umbriel_data_dir)
+umbriel_data_dir_config = configuration_data()
+umbriel_data_dir_config.set_quoted('UMBRIEL_DATA_DIR', umbriel_data_dir)
 configure_file(
-  input: 'src/config/build_config.h.in',
-  output: 'umbriel_build_config.h',
-  configuration: umbriel_build_config,
+  input: 'src/config/data_dir.h.in',
+  output: 'umbriel_data_dir.h',
+  configuration: umbriel_data_dir_config,
 )
 add_project_arguments(
   '-DWLR_USE_UNSTABLE',
@@ -241,6 +241,19 @@ xdg_shell_client_c = custom_target(
   'xdg-shell-client-protocol.c',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/xdg-shell/xdg-shell.xml',
   output: 'xdg-shell-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+text_input_client_h = custom_target(
+  'text-input-unstable-v3-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/text-input/text-input-unstable-v3.xml',
+  output: 'text-input-unstable-v3-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+text_input_client_c = custom_target(
+  'text-input-unstable-v3-client-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/text-input/text-input-unstable-v3.xml',
+  output: 'text-input-unstable-v3-client-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
@@ -559,7 +572,9 @@ ext_workspace_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
-# Logic with no dependency on the compositor: string parsing and layout geometry. Built once and linked by both the compositor and the tests, so a test never recompiles a translation unit and two tests cannot drift in what they cover. Keep this list free of anything needing umbrielfx, pango, or a running server; that is what makes these tests cheap and the coverage honest.
+# Logic with no dependency on the compositor: string parsing and layout geometry. Built once and linked by both the
+# compositor and the tests, so a test never recompiles a translation unit. Keep this list free of anything needing
+# umbrielfx, pango, or a running server.
 pure_sources = files(
   'src/config/change.cpp',
   'src/config/resolve.cpp',
@@ -568,7 +583,8 @@ pure_sources = files(
   'src/config/keybind_parse.cpp',
   'src/config/value_parse.cpp',
   'src/config/section.cpp',
-  'src/config/animation_shader.cpp',
+  'src/config/effects.cpp',
+  'src/input/lid_state.cpp',
   'src/input/modifier_tap.cpp',
   'src/input/swipe_tracker.cpp',
   'src/input/keyboard_layout.cpp',
@@ -582,12 +598,16 @@ pure_sources = files(
   'src/output/direction.cpp',
   'src/output/display_store.cpp',
   'src/output/identity.cpp',
+  'src/output/enable_overrides.cpp',
+  'src/output/format_sequence.cpp',
   'src/output/mode_selection.cpp',
   'src/server/drm_policy.cpp',
   'src/scene/cheatsheet_rows.cpp',
   'src/overview/shortcut_labels.cpp',
   'src/view/border_ring.cpp',
+  'src/view/effects_rules.cpp',
   'src/view/floating.cpp',
+  'src/view/drag_physics.cpp',
 )
 
 umbriel_pure_deps = [
@@ -618,13 +638,24 @@ umbriel_pure_dep = declare_dependency(
 core_sources = files(
   'src/core/animation.cpp',
   'src/core/application_scope.cpp',
-  'src/scene/animation_shader.cpp',
+  'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',
   'src/core/log.cpp',
   'src/config/config.cpp',
+  'src/config/fields.cpp',
+  'src/config/fields_animation.cpp',
+  'src/config/fields_drm.cpp',
+  'src/config/fields_effects.cpp',
+  'src/config/fields_general.cpp',
+  'src/config/fields_input.cpp',
+  'src/config/fields_keybinds.cpp',
+  'src/config/fields_layout.cpp',
+  'src/config/fields_output.cpp',
+  'src/config/fields_rules.cpp',
   'src/config/store.cpp',
   'src/config/config_merge.cpp',
   'src/config/config_watcher.cpp',
+  'src/config/schema.cpp',
   'src/layout/drop_target.cpp',
   'src/server/wine_color_manager.cpp',
   'src/server/backend_manager.cpp',
@@ -650,12 +681,14 @@ core_sources = files(
   'src/input/cursor_constraint.cpp',
   'src/view/view.cpp',
   'src/view/decoration.cpp',
+  'src/view/effects.cpp',
   'src/view/presentation.cpp',
   'src/view/resize_crossfade.cpp',
   'src/view/registry.cpp',
   'src/server/focus.cpp',
   'src/xwayland/supervisor.cpp',
   'src/core/process.cpp',
+  'src/core/process_syscall.cpp',
   'src/view/view_foreign.cpp',
   'src/view/popup.cpp',
   'src/layer/layer_surface.cpp',
@@ -787,8 +820,13 @@ install_data(
   'examples/config.toml',
   install_dir: get_option('datadir') / 'umbriel',
 )
-install_data(
-  'examples/shaders/reveal.glsl',
-  'examples/shaders/squash.glsl',
-  install_dir: get_option('datadir') / 'umbriel' / 'shaders',
-)
+# Bundled effect presets: each directory holds the preset's shader and an
+# effect.toml that defines it without selecting it. Users include the TOML and
+# select the name.
+foreach effect : ['animation/reveal', 'animation/squash', 'border/pulse', 'window/scanlines', 'screen/vignette', 'cursor/glow']
+  install_data(
+    'examples/effects' / effect / 'shader.glsl',
+    'examples/effects' / effect / 'effect.toml',
+    install_dir: get_option('datadir') / 'umbriel' / 'effects' / effect,
+  )
+endforeach

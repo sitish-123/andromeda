@@ -8,6 +8,8 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+extern "C" int umbrielCloseRange(unsigned int first, unsigned int last, int flags);
+
 namespace umbriel {
 
   void resetChildSignalState() {
@@ -22,7 +24,7 @@ namespace umbriel {
 
   bool closeChildFileDescriptors() {
     constexpr int kFirstDescriptor = STDERR_FILENO + 1;
-    if (close_range(kFirstDescriptor, UINT_MAX, 0) == 0) {
+    if (umbrielCloseRange(kFirstDescriptor, UINT_MAX, 0) == 0) {
       return true;
     }
 

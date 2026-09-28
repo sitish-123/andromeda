@@ -87,7 +87,8 @@
       },
       "brightness": {
         "brightness": "Brilho",
-        "display": "Tela"
+        "display": "Tela",
+        "unavailable": "Controle de brilho não disponível"
       },
       "lock-keys": {
         "caps": "Caps",
@@ -3257,6 +3258,10 @@
           "description": "Copia e Salva na região do overlay é entregue imediatamente; Enter ou Espaço continuam abrindo o editor",
           "label": "Ignora o Editor ao Copiar ou Salvar"
         },
+        "settings-expand-all-groups": {
+          "description": "Abrir cada grupo de configuração expandido ao invés de somente o primeiro em cada página",
+          "label": "Expandir Todos os Grupos de Configuração"
+        },
         "settings-window-translucent": {
           "description": "Torne o fundo das Configurações transparente para efeitos dos compositores",
           "label": "Fundo Transparente das Configurações"
@@ -3282,9 +3287,17 @@
           "description": "Abrir o Launcher enquanto digite na Overveiw do Umbriel; utiliza uma pequena superfície de foco de teclado enquanto a Overview está aberta",
           "label": "Digitar para Abrir Launcher"
         },
+        "window-switcher-current-workspace-only": {
+          "description": "Listar somente janelas no espaço de trabalho ativo; desligue para incluir janelas de todos espaços de trabalho",
+          "label": "Espaço de Trabalho Atual Somente"
+        },
         "window-switcher-mru": {
           "description": "Organizar janelas no alternador por mais recentemente usadas ao invés de espaço de trabalho e layout de tela",
           "label": "Ordem Mais Recentemente Usada"
+        },
+        "window-switcher-show-all-outputs": {
+          "description": "Listar janelas de cada monitor; desligar para listar somente janelas no monitor onde o alternador está sendo mostrado",
+          "label": "Mostrar Todos Monitores"
         },
         "window-switcher-show-app-icon": {
           "description": "Mostrar ícone de cada aplicação sobre sua janela de pré-visualização",
@@ -4510,6 +4523,10 @@
           "description": "Mostrar texto com temperatura atual",
           "label": "Exibir Temperatura"
         },
+        "show-tooltip": {
+          "description": "Mostrar o nome completo de um espaço de trabalho ao passar o ponteiro do mouse sobre, quando a pílula não estiver mostrando",
+          "label": "Mostrar Dica do Nome"
+        },
         "show-unlock-hint": {
           "description": "Exibir o cartão de status acima da caixa de login para dicas de desbloqueio e caixas de diálogo de autenticação; Erros e avisos de Caps Lock ainda aparecem quando isto está desligado",
           "label": "Dica de Desbloqueio"
@@ -4525,6 +4542,10 @@
         "show-when-idle": {
           "description": "Mantenha o visualizador visível mesmo quando nenhum conteúdo estiver sendo reproduzido",
           "label": "Exibir Quando Inativo"
+        },
+        "show-when-unavailable": {
+          "description": "Manter o widget de brilho visível quando este monitor não tiver controle de brilho",
+          "label": "Mostrar Quando Indisponível"
         },
         "show-window-title": {
           "description": "Exibir o título da janela ao lado do ícone (somente em barras horizontais)",
@@ -4810,7 +4831,9 @@
       "choose-color": "Escolher cor de papel de parede",
       "close": "Fechar painel de papel de parede",
       "color-title": "Cor do papel de parede",
+      "favorite-add": "Adicionar aos favoritos",
       "favorite-current": "Adicionar o papel de parede atual aos favoritos",
+      "favorite-remove": "Remover dos favoritos",
       "filter-placeholder": "Filtrar...",
       "flatten": "Achatar",
       "loading": "Carregando papéis de parede...",

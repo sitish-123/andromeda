@@ -498,7 +498,7 @@ UMBRIEL_TEST(workspaceAxisSelectsTheStripDirectionPerOutput) {
   );
 }
 
-// A workspace rule can no longer restore the removed strip direction.
+// A workspace rule cannot override the resolved strip direction.
 UMBRIEL_TEST(workspaceRulesCannotOverrideTheResolvedStripDirection) {
   Config config;
 
@@ -650,6 +650,23 @@ UMBRIEL_TEST(windowRuleDecorationOverridesMergePerField) {
   CHECK(appOnly.borderWidth && *appOnly.borderWidth == 0);
   CHECK(appOnly.shadow && !*appOnly.shadow);
   CHECK(!appOnly.cornerRadius);
+}
+
+UMBRIEL_TEST(windowRuleEffectOverridesUseLastWriterWins) {
+  umbriel::Config config;
+  umbriel::WindowRule first;
+  first.appIdPattern = "foot";
+  first.appIdRegex = std::regex("foot");
+  first.borderEffect = "pulse";
+  first.windowEffect = "lines";
+  umbriel::WindowRule second = first;
+  second.borderEffect = "off";
+  second.windowEffect.reset();
+  config.windowRules = {first, second};
+  const auto resolved =
+      umbriel::resolveWindowRules(config, "foot", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(resolved.borderEffect == "off");
+  CHECK(resolved.windowEffect == "lines");
 }
 
 UMBRIEL_TEST(windowRulesMergeWorkspaceTargetsAcrossSelectorKinds) {

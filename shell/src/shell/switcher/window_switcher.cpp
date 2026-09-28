@@ -22,6 +22,7 @@
 #include "shell/surface/shadow.h"
 #include "shell/switcher/window_switcher_carousel_style.h"
 #include "shell/switcher/window_switcher_compact_style.h"
+#include "shell/switcher/window_switcher_membership.h"
 #include "shell/switcher/window_switcher_tile.h"
 #include "system/app_identity.h"
 #include "system/desktop_entry.h"
@@ -41,6 +42,8 @@
 #include <limits>
 #include <linux/input-event-codes.h>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -50,6 +53,7 @@ namespace {
   constexpr Logger kLog("window-switcher");
   constexpr std::size_t kVisibleCards = 5;
   constexpr float kVisibleOpacityThreshold = 0.01F;
+  constexpr std::uint32_t kShortcutModifierMask = KeyMod::Ctrl | KeyMod::Alt | KeyMod::Super;
 
   [[nodiscard]] WindowSwitcherStyleLayout computeSwitcherLayout(
       float screenWidth, float screenHeight, float scale, std::size_t windowCount, std::size_t selectedIndex,
@@ -108,8 +112,6 @@ namespace {
   [[nodiscard]] float shellUiScale(const ConfigService* config) noexcept {
     return config != nullptr ? config->config().accessibility.uiScale : 1.0F;
   }
-
-  [[nodiscard]] bool isAltModifier(std::uint32_t sym) noexcept { return sym == XKB_KEY_Alt_L || sym == XKB_KEY_Alt_R; }
 
   [[nodiscard]] const WaylandOutput* findOutput(const WaylandConnection& wayland, wl_output* output) {
     for (const auto& entry : wayland.outputs()) {
@@ -355,22 +357,100 @@ namespace {
     return keys;
   }
 
+  [[nodiscard]] std::optional<std::string>
+  focusedWindowAssignmentKey(const CompositorPlatform& platform, wl_output* output) {
+    const auto focusedId = platform.focusedCompositorWindowId();
+    if (!focusedId.has_value() || focusedId->empty()) {
+      return std::nullopt;
+    }
+    const std::string focusedKey = canonicalWindowId(*focusedId);
+    const std::string focusedRaw = focusedKey.empty() ? *focusedId : focusedKey;
+    for (const auto& assignment : platform.workspaceWindowAssignments(output)) {
+      if (assignment.workspaceKey.empty() || assignment.windowId.empty()) {
+        continue;
+      }
+      const std::string key = canonicalWindowId(assignment.windowId);
+      if (key == focusedRaw || (compositors::isHyprland() && compositors::hyprland::windowIdsEqual(key, focusedRaw))) {
+        return assignment.workspaceKey;
+      }
+    }
+    return std::nullopt;
+  }
+
+  [[nodiscard]] switcher_membership::OutputMembership
+  buildOutputMembership(const CompositorPlatform& platform, wl_output* output) {
+    switcher_membership::OutputMembership membership;
+    membership.workspaces = platform.workspaces(output);
+    membership.overlayKeys = platform.openOverlayWorkspaceKeys(output);
+    membership.assignments = platform.workspaceWindowAssignments(output);
+    const bool hasActive =
+        std::ranges::any_of(membership.workspaces, [](const Workspace& workspace) { return workspace.active; });
+    // Without an active workspace the focus is the only hint of what the user sees.
+    if (!hasActive) {
+      membership.focusedKey = focusedWindowAssignmentKey(platform, output).value_or(std::string{});
+    }
+    return membership;
+  }
+
+  [[nodiscard]] std::vector<switcher_membership::OutputMembership> collectOutputMemberships(
+      const CompositorPlatform& platform, const WaylandConnection& wayland, wl_output* outputFilter
+  ) {
+    std::vector<switcher_membership::OutputMembership> memberships;
+    const auto appendForOutput = [&](wl_output* output) {
+      if (output != nullptr) {
+        memberships.push_back(buildOutputMembership(platform, output));
+      }
+    };
+
+    if (outputFilter != nullptr) {
+      appendForOutput(outputFilter);
+      return memberships;
+    }
+    memberships.reserve(wayland.outputs().size());
+    for (const auto& output : wayland.outputs()) {
+      appendForOutput(output.output);
+    }
+    return memberships;
+  }
+
+  [[nodiscard]] std::vector<WorkspaceWindowAssignment> collectSwitcherAssignments(
+      const CompositorPlatform& platform, const WaylandConnection& wayland, wl_output* outputFilter,
+      bool currentWorkspaceOnly, bool& membershipFilterApplied
+  ) {
+    membershipFilterApplied = false;
+    if (!currentWorkspaceOnly) {
+      return platform.workspaceWindowAssignments(outputFilter);
+    }
+
+    const std::vector<switcher_membership::OutputMembership> memberships =
+        collectOutputMemberships(platform, wayland, outputFilter);
+    // No output reports assignments: turning the filter on would then hide every window,
+    // since the switcher drops the toplevels it has no assignment for. Better unfiltered.
+    if (!switcher_membership::hasWorkspaceMembershipData(memberships)) {
+      return platform.workspaceWindowAssignments(outputFilter);
+    }
+
+    membershipFilterApplied = true;
+    return switcher_membership::assignmentsOnVisibleWorkspaces(memberships);
+  }
+
   void buildWindowEntries(
       const CompositorPlatform& platform, const WaylandConnection& wayland, IconResolver& iconResolver, int iconSize,
       wl_output* outputFilter, std::vector<WindowSwitcherEntry>& out, const std::optional<std::string>& focusedId,
-      const std::deque<std::string>* mruKeys
+      const std::deque<std::string>* mruKeys, bool currentWorkspaceOnly
   ) {
+    bool membershipFilterApplied = false;
+    const std::vector<WorkspaceWindowAssignment> assignments =
+        collectSwitcherAssignments(platform, wayland, outputFilter, currentWorkspaceOnly, membershipFilterApplied);
+
     std::unordered_map<std::string, WorkspaceWindowAssignment> assignmentById;
-    assignmentById.reserve(32);
-    for (const auto& assignment : platform.workspaceWindowAssignments(outputFilter)) {
-      if (assignment.windowId.empty()) {
-        continue;
-      }
+    assignmentById.reserve(assignments.size());
+    for (const auto& assignment : assignments) {
       const std::string key = canonicalWindowId(assignment.windowId);
       if (key.empty()) {
         continue;
       }
-      assignmentById[key] = assignment;
+      assignmentById.try_emplace(key, assignment);
     }
 
     std::unordered_map<std::string, ToplevelInfo> liveToplevelById;
@@ -421,6 +501,9 @@ namespace {
 
     for (const auto& [key, info] : liveToplevelById) {
       if (seenKeys.contains(key)) {
+        continue;
+      }
+      if (membershipFilterApplied) {
         continue;
       }
       WindowSwitcherCandidate candidate;
@@ -545,7 +628,8 @@ void WindowSwitcher::registerIpc(IpcService& ipc) {
     if (output == nullptr) {
       return "error: no output available\n";
     }
-    show(output);
+    const std::uint32_t modifiers = m_active && m_wayland != nullptr ? m_wayland->keyboardModifiers() : 0;
+    showFromShortcut(output, modifiers);
     return "ok\n";
   });
 }
@@ -618,7 +702,18 @@ void WindowSwitcher::onToplevelChange() {
   requestSceneUpdate();
 }
 
-void WindowSwitcher::show(wl_output* output) {
+void WindowSwitcher::show(wl_output* output) { showWithDirection(output, 1); }
+
+void WindowSwitcher::showFromShortcut(wl_output* output, std::uint32_t modifiers) {
+  showWithDirection(output, (modifiers & KeyMod::Shift) != 0 ? -1 : 1);
+  if (!m_active) {
+    return;
+  }
+  m_shortcutSession = true;
+  captureShortcutModifiers(modifiers);
+}
+
+void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
   if (m_wayland == nullptr || m_renderContext == nullptr || m_platform == nullptr || output == nullptr) {
     return;
   }
@@ -627,14 +722,28 @@ void WindowSwitcher::show(wl_output* output) {
   const bool outputChanged = output != m_output;
   if (!wasActive) {
     recordFocusedWindow();
+    m_shortcutModifiers = 0;
+    m_shortcutSession = false;
   }
   m_output = output;
+  const auto focusedId = m_platform->focusedCompositorWindowId();
   refreshWindows();
 
   if (wasActive) {
-    cycleSelection(1);
+    cycleSelection(direction);
   } else {
-    m_selectedIndex = m_windows.size() > 1 ? 1 : 0;
+    bool focusedListedFirst = false;
+    if (focusedId.has_value() && !m_windows.empty()) {
+      const std::string frontKey = identityKeyForEntry(m_windows.front());
+      const std::string focusedKey = canonicalWindowId(*focusedId);
+      const std::string focusedCompare = focusedKey.empty() ? *focusedId : focusedKey;
+      focusedListedFirst = frontKey == focusedCompare
+          || (compositors::isHyprland() && compositors::hyprland::windowIdsEqual(frontKey, focusedCompare));
+    }
+    m_selectedIndex = 0;
+    if (m_windows.size() > 1 && focusedListedFirst) {
+      m_selectedIndex = direction < 0 ? m_windows.size() - 1 : 1;
+    }
   }
   m_active = true;
 
@@ -649,6 +758,12 @@ void WindowSwitcher::show(wl_output* output) {
   }
 }
 
+void WindowSwitcher::captureShortcutModifiers(std::uint32_t modifiers) {
+  if (m_shortcutModifiers == 0) {
+    m_shortcutModifiers = modifiers & kShortcutModifierMask;
+  }
+}
+
 void WindowSwitcher::hide() {
   if (!m_active && m_instance == nullptr) {
     return;
@@ -658,6 +773,8 @@ void WindowSwitcher::hide() {
   m_output = nullptr;
   m_windows.clear();
   m_selectedIndex = 0;
+  m_shortcutModifiers = 0;
+  m_shortcutSession = false;
   cancelThumbnailCaptures();
   destroySurface();
 }
@@ -687,9 +804,10 @@ void WindowSwitcher::refreshWindows() {
 
   const int iconSize = static_cast<int>(std::round((Style::controlHeightLg + Style::spaceLg) * shellUiScale(m_config)));
   const bool allOutputs = m_config == nullptr || m_config->config().shell.windowSwitcher.showAllOutputs;
+  const bool currentWorkspaceOnly = m_config != nullptr && m_config->config().shell.windowSwitcher.currentWorkspaceOnly;
   buildWindowEntries(
       *m_platform, *m_wayland, m_iconResolver, iconSize, allOutputs ? nullptr : m_output, m_windows,
-      m_platform->focusedCompositorWindowId(), mruEnabled() ? &m_mruKeys : nullptr
+      m_platform->focusedCompositorWindowId(), mruEnabled() ? &m_mruKeys : nullptr, currentWorkspaceOnly
   );
 
   for (auto& entry : m_windows) {
@@ -969,7 +1087,8 @@ void WindowSwitcher::syncSelection(bool animate) {
 
     if (target.visible) {
       tile->bind(
-          renderer, m_windows[windowIndex], target.depth, target.showCaption, target.wideCaption, target.iconPlacement
+          renderer, m_windows[windowIndex], target.depth, target.showCaption, target.wideCaption, target.iconPlacement,
+          target.closePlacement
       );
       tile->setCardSize(target.width, target.height);
       tile->setZIndex(target.zIndex);
@@ -1113,17 +1232,18 @@ bool WindowSwitcher::matchesTrigger(const KeyboardEvent& event) const noexcept {
   if (m_config == nullptr) {
     return false;
   }
-  if ((event.modifiers & KeyMod::Alt) == 0 || (event.modifiers & KeyMod::Super) != 0) {
+  const std::uint32_t shortcutModifiers = event.modifiers & kShortcutModifierMask;
+  if (shortcutModifiers == 0) {
     return false;
   }
 
-  const std::uint32_t normalizedModifiers = event.modifiers & ~(KeyMod::Alt | KeyMod::Super);
+  const std::uint32_t normalizedModifiers = event.modifiers & ~shortcutModifiers;
   return m_config->matchesKeybind(KeybindAction::TabNext, event.sym, normalizedModifiers)
       || m_config->matchesKeybind(KeybindAction::TabPrevious, event.sym, normalizedModifiers);
 }
 
 bool WindowSwitcher::isModifierRelease(const KeyboardEvent& event) const noexcept {
-  return !event.pressed && (isAltModifier(event.sym) || event.sym == XKB_KEY_Super_L || event.sym == XKB_KEY_Super_R);
+  return !event.pressed && (KeySymbol::modifierMask(event.sym) & m_shortcutModifiers) != 0;
 }
 
 bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
@@ -1144,10 +1264,17 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
       if (output == nullptr) {
         return false;
       }
-      show(output);
+      showFromShortcut(output, event.modifiers);
       return true;
     }
     return false;
+  }
+
+  if (m_shortcutSession) {
+    captureShortcutModifiers(event.modifiers);
+    if (!event.pressed) {
+      captureShortcutModifiers(KeySymbol::modifierMask(event.sym));
+    }
   }
 
   if (isModifierRelease(event)) {
@@ -1160,7 +1287,7 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
     return true;
   }
 
-  const std::uint32_t normalizedModifiers = event.modifiers & ~(KeyMod::Alt | KeyMod::Super);
+  const std::uint32_t normalizedModifiers = event.modifiers & ~m_shortcutModifiers;
   auto matchesAction = [&](KeybindAction action) {
     if (m_config != nullptr) {
       return m_config->matchesKeybind(action, event.sym, normalizedModifiers);

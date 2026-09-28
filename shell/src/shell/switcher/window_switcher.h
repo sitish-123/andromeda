@@ -20,7 +20,7 @@ class ToplevelThumbnailCapture;
 class WaylandConnection;
 struct wl_output;
 
-// Fullscreen Alt+Tab switcher with selectable preview presentations.
+// Fullscreen keyboard-driven switcher with selectable preview presentations.
 class WindowSwitcher {
 public:
   WindowSwitcher();
@@ -66,6 +66,9 @@ private:
   [[nodiscard]] bool mruEnabled() const;
   void recordFocusedWindow();
   void promoteMruKey(const std::string& key);
+  void showFromShortcut(wl_output* output, std::uint32_t modifiers);
+  void showWithDirection(wl_output* output, int direction);
+  void captureShortcutModifiers(std::uint32_t modifiers);
 
   WaylandConnection* m_wayland = nullptr;
   RenderContext* m_renderContext = nullptr;
@@ -85,5 +88,7 @@ private:
   std::deque<std::string> m_mruKeys;
   std::size_t m_selectedIndex = 0;
   wl_output* m_output = nullptr;
+  std::uint32_t m_shortcutModifiers = 0;
   bool m_active = false;
+  bool m_shortcutSession = false;
 };

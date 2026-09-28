@@ -3,11 +3,13 @@
 # Boots one contained headless Umbriel per check in checks/, runs the check, kills everything it spawned, and asserts
 # that instance exited cleanly. One instance per check is what makes a failure local: a check starts from the default
 # config with no windows, no overview, and workspace 1 focused, so it asserts behaviour instead of maintaining hygiene
-# for whatever runs next. Boot plus teardown measures about 80ms, under 4% of the suite, and it buys back the
-# config-restore reloads and window-drain loops that shared-instance checks had to carry.
-# Containment matters. A stock Umbriel start runs its built-in autostarts, and `dbus-update-activation-environment --systemd` would repoint the *caller's* session-wide WAYLAND_DISPLAY and UMBRIEL_SOCKET at this throwaway instance. Unsetting DBUS_SESSION_BUS_ADDRESS makes both autostarts fail harmlessly.
+# for whatever runs next.
+# Containment matters. A stock Umbriel start runs its built-in autostarts, and
+# `dbus-update-activation-environment --systemd` would repoint the *caller's* session-wide WAYLAND_DISPLAY and
+# UMBRIEL_SOCKET at this throwaway instance. Unsetting DBUS_SESSION_BUS_ADDRESS makes both autostarts fail harmlessly.
 # Usage: check.sh <path-to-umbriel-binary> [name-fragment ...] [-j N|--jobs N] [-v|--verbose] [-l|--list]
-# Each name fragment selects every check whose name contains it, so several fragments run several checks. Without a
+# A check's name is its path under checks/ without `.sh`, such as `overview/wheel`. Each name fragment selects every
+# check whose name contains it, so `overview/` selects a topic and several fragments run several checks. Without a
 # fragment the whole suite runs. A failing check keeps its runtime directory (compositor and client logs) and prints it.
 # Checks are independent instances, so they run several at a time. `-j` or CHECK_JOBS sets how many; the default is
 # the core count.
@@ -58,9 +60,10 @@ if ((JOBS == 0)); then
 fi
 
 HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# CHECK_DIR substitutes another directory of checks. Checks find repository files relative to their own location, so
-# it must sit beside checks/.
+# CHECK_DIR substitutes another directory of checks. Checks reach repository files through UMBRIEL_REPO.
 CHECKS_DIR=${CHECK_DIR:-$HARNESS_DIR/checks}
+export UMBRIEL_REPO
+UMBRIEL_REPO=$(cd "$HARNESS_DIR/../.." && pwd)
 
 # A check that never returns would otherwise hang the suite with no output. The
 # cap is per check and generous: the slowest checks drive two-second animations.
@@ -79,15 +82,16 @@ else
   TTY=0
   C_OFF='' C_DIM='' C_BOLD='' C_PASS='' C_FAIL='' C_RUN=''
 fi
-readonly NAME_WIDTH=34
+readonly NAME_WIDTH=40
 COLUMNS_MAX=${COLUMNS:-100}
 [[ $COLUMNS_MAX -lt 60 ]] && COLUMNS_MAX=60
 
 all_checks() {
   local check
-  for check in "$CHECKS_DIR"/*.sh; do
-    basename "$check" .sh
-  done
+  while IFS= read -r check; do
+    check=${check#"$CHECKS_DIR"/}
+    echo "${check%.sh}"
+  done < <(find "$CHECKS_DIR" -name '*.sh' -type f | LC_ALL=C sort)
 }
 
 selects() {
@@ -153,6 +157,7 @@ fi
 # recipe having to export a matching set of paths.
 CLIENT_DIR=$BINARY_DIR/tests
 export UMBRIEL_POINTER_CLIENT="$CLIENT_DIR/pointer-client"
+export UMBRIEL_POINTER_MODIFIERS_CLIENT="$CLIENT_DIR/pointer-modifiers-client"
 export UMBRIEL_KEYBOARD_KEYMAP_CLIENT="$CLIENT_DIR/keyboard-keymap-client"
 export UMBRIEL_INPUT_METHOD_CLIENT="$CLIENT_DIR/input-method-client"
 export UMBRIEL_DRAG_CLIENT="$CLIENT_DIR/drag-client"
@@ -229,10 +234,9 @@ child_pgid() {
 }
 
 # Everything a check spawns lives in the check's own process group, so one
-# signal reaches clients the check lost track of. Killing by group is what lets
-# checks stop bookkeeping pids: capturing `$!` from a shell function yields the
-# forked subshell, not the client, and that mistake used to leak mapped windows
-# into every later check.
+# signal reaches clients the check lost track of. Capturing `$!` from a shell
+# function yields the forked subshell, not the client, so checks kill by group
+# instead of tracking pids.
 kill_check_group() {
   [[ -z $CHECK_PGID ]] && return 0
   if [[ $CHECK_PGID != "$OWN_PGID" ]] && ((CHECK_PGID > 1)); then
@@ -659,6 +663,9 @@ suite_cleanup() {
 trap suite_cleanup EXIT
 
 RESULT_DIR=$(mktemp -d /tmp/umv-results.XXXXXXXX)
+for name in "${SELECTED[@]}"; do
+  mkdir -p "$(dirname "$RESULT_DIR/$name")"
+done
 declare -A WORKER_PID=()
 DISPATCHED=0
 REPORTED=0

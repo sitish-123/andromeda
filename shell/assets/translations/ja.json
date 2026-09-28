@@ -28,6 +28,7 @@
   },
   "bar": {
     "annotate": {
+      "capture-new-region": "新しい範囲を撮影（現在の編集内容は破棄されます）",
       "close": "送信せず閉じる (Esc)",
       "color-black": "黒",
       "color-blue": "青",
@@ -39,7 +40,28 @@
       "color-yellow": "黄色",
       "copy": "注釈付きの画像をコピーする（Ctrl+C）",
       "cursor": "ポインターが写っている画面を映す（p）",
-      "done": "スクリーンショットの設定を適用（Enter）"
+      "cursor-capture-failed": "ポインターの切替を利用できません。コンポジターからポインターの画像を個別に取得できませんでした",
+      "cursor-live": "撮影するポインターを変更するには、先に画面を固定してください（F）",
+      "cursor-not-captured": "ポインターの切替を利用できません。このコンポジターはポインターの個別撮影に対応していません",
+      "done": "スクリーンショットの設定を適用（Enter）",
+      "fill-off": "図形の塗りつぶし：オフ",
+      "fill-on": "図形の塗りつぶし：オン",
+      "freeze": "描画の下にある画面を固定（f）",
+      "move-toolbar": "ドラッグしてツールバーを移動",
+      "redo": "やり直す（Ctrl+Shift+Z）",
+      "save": "注釈付き画像を保存（Ctrl+S）",
+      "size-advanced": "サイズを細かく調整",
+      "size-decrease": "細くする（[）",
+      "size-increase": "太くする（]）",
+      "size-large": "大",
+      "size-medium": "中",
+      "size-small": "小",
+      "tool-arrow": "矢印（a）・Shiftキーを押しながら角度を固定",
+      "tool-blur": "範囲をぼかす（u）",
+      "tool-brush": "ブラシ（b）",
+      "tool-circle": "楕円（o）・Shiftキーを押しながら円を描画",
+      "tool-crop": "書き出し範囲を切り抜く（c）",
+      "tool-eraser": "消しゴム（e）"
     },
     "screenshot": {
       "choose-display": "画面を選択",
@@ -458,33 +480,165 @@
   },
   "desktop-widgets": {
     "editor": {
+      "actions": {
+        "add": "追加",
+        "clone": "複製（Ctrl+C、Ctrl+Vでコピー／貼り付け）",
+        "done": "完了",
+        "flip-horizontal": "左右反転",
+        "flip-vertical": "上下反転",
+        "hide": "非表示",
+        "settings": "設定",
+        "show": "表示",
+        "stack-back": "背面へ移動",
+        "stack-front": "前面へ移動",
+        "trash": "削除"
+      },
+      "dialogs": {
+        "select-sticker-image": "ステッカー画像を選択"
+      },
       "settings": {
+        "aspect-ratio": "縦横比",
+        "background": "背景",
+        "background-color": "色",
+        "background-opacity": "不透明度",
+        "background-padding": "内側余白",
+        "background-radius": "角丸半径",
+        "background-section": "背景",
+        "bands": "帯",
+        "bar-width": "バーの幅",
+        "bloom-intensity": "光彩",
+        "center-password-text": "パスワード文字を中央揃え",
+        "center-text": "文字を中央揃え",
+        "centered": "中央",
+        "change-image": "変更…",
+        "circle": "円形",
+        "clock-style": "時計の形式",
+        "clock-style-analog": "アナログ",
+        "clock-style-digital": "デジタル",
+        "color": "色",
+        "color-1": "色１",
+        "color-2": "色２",
+        "color2": "色２",
+        "command": "コマンド",
+        "custom-color": "カスタム",
+        "description": "説明",
+        "device": "デバイス",
         "display": "ディスプレイ",
+        "display-gauge": "ゲージ",
+        "display-graph": "グラフ",
+        "fade-when-idle": "待機時にフェード",
+        "fill-color": "塗りつぶし色",
+        "font-family": "フォント",
         "font-family-default": "システム既定",
         "forecast-days": "予報日数",
+        "format": "書式",
+        "gauge-layout": "ゲージの配置",
+        "glyph": "アイコン",
         "hide-when-no-media": "メディアが無い時には非表示",
+        "highlight-color": "強調色",
+        "horizontal": "横向き",
+        "hover-background": "ホバー時の背景色",
+        "hover-foreground": "ホバー時の背景色",
+        "image-path": "画像",
+        "inner-diameter": "内径",
+        "input-opacity": "入力欄の不透明度",
+        "input-radius": "入力欄の角丸半径",
+        "interface": "表示形式",
+        "label": "ラベル",
+        "label-min-width": "ラベルの最小幅",
+        "layout": "配置",
+        "mirrored": "鏡像",
         "network-speed-compact": "コンパクトなネットワーク速度",
         "network-speed-unit": "ネットワーク速度の単位",
         "network-speed-unit-auto": "自動",
         "network-speed-unit-kilobytes": "kB/s",
         "network-speed-unit-megabytes": "MB/s",
+        "opacity": "不透明度",
+        "primary-color": "主要色",
+        "reset-defaults": "既定値に戻す",
+        "reversed": "反転",
+        "ring-opacity": "リングの不透明度",
+        "rotation-speed": "回転速度",
+        "scroll-step": "スクロール量",
+        "secondary-color": "補助色",
+        "sensitivity": "感度",
+        "shadow": "影",
+        "show-caps-lock": "Caps Lock警告",
+        "show-device": "デバイスを表示",
+        "show-events": "予定を表示",
+        "show-forecast": "予報を表示",
+        "show-keyboard-layout": "キーボード配列",
+        "show-label": "ラベルを表示",
+        "show-login-button": "ログインボタン",
+        "show-media": "メディア",
+        "show-password-hint": "パスワードのヒント",
         "show-session-buttons": "セッションボタン",
+        "show-unlock-hint": "ロック解除のヒント",
+        "show-vpn-label": "VPNラベルを表示",
         "show-weather": "天気",
+        "show-week-numbers": "週番号を表示",
+        "show-when-idle": "待機時に表示",
+        "stat": "統計",
+        "stat-cpu-freq": "CPU周波数",
         "stat-cpu-temp": "CPU温度",
         "stat-cpu-usage": "CPU使用率",
         "stat-gpu-temp": "GPU温度",
         "stat-gpu-usage": "GPU使用率",
-        "stat-gpu-vram-used": "GPU VRAM使用率"
+        "stat-gpu-vram": "VRAM使用量",
+        "stat-gpu-vram-used": "GPU VRAM使用率",
+        "stat-net-rx": "ネットワーク受信",
+        "stat-net-tx": "ネットワーク送信",
+        "stat-none": "なし",
+        "stat-ram-pct": "RAM使用率",
+        "stat-swap-pct": "スワップ使用率",
+        "stat2": "統計2",
+        "title": "タイトル",
+        "track-color": "トラックの色",
+        "variant": "スタイル",
+        "variant-default": "既定",
+        "variant-destructive": "危険",
+        "variant-ghost": "ゴースト\\",
+        "variant-outline": "枠線",
+        "variant-primary": "主要",
+        "variant-secondary": "補助",
+        "vertical": "縦向き",
+        "visualization-mode": "モード",
+        "visualization-mode-all": "すべて",
+        "visualization-mode-bars": "バー",
+        "visualization-mode-bars-rings": "バー＋リング",
+        "visualization-mode-rings": "リング",
+        "visualization-mode-wave": "波形",
+        "visualization-mode-wave-rings": "波形＋リング",
+        "wave-thickness": "波形の太さ",
+        "widget-section": "ウィジェット"
       },
+      "state": {
+        "grid": "グリッド"
+      },
+      "title": "デスクトップウィジェット",
       "title-lockscreen": "ロック画面ウィジェット",
       "types": {
         "audio-visualizer": "音声ビジュアライザー",
+        "button": "ボタン",
         "calendar": "カレンダー",
+        "clock": "時計",
         "fancy-audio-visualizer": "高機能音声ビジュアライザー",
+        "label": "ラベル",
+        "login-box": "ログイン欄",
         "media-player": "メディアプレーヤー",
+        "sticker": "ステッカー",
         "system-monitor": "システム監視",
+        "volume": "音量",
         "weather": "天気"
       }
+    },
+    "media": {
+      "nothing-playing": "何も再生していません"
+    },
+    "volume": {
+      "mic": "マイク",
+      "muted": "ミュート",
+      "volume": "音量"
     },
     "weather": {
       "error": "エラー",
@@ -995,6 +1149,10 @@
       "shell": {
         "panel-placement": {
           "attached": "バーに固定"
+        },
+        "window-switcher-style": {
+          "carousel": "カルーセル",
+          "compact": "コンパクト"
         }
       },
       "theme": {
@@ -1174,6 +1332,14 @@
           "description": "境目を隠すため、固定パネルをバー端に重ねる幅（ピクセル）。線や隙間が見える場合は調整"
         }
       },
+      "desktop": {
+        "widgets": {
+          "label": "デスクトップウィジェット"
+        },
+        "widgets-editor": {
+          "description": "デスクトップウィジェットを追加、移動、サイズ変更"
+        }
+      },
       "dock": {
         "active-icon-opacity": {
           "description": "選択中のドックアイコンの不透明度",
@@ -1244,6 +1410,10 @@
           "description": "非選択時のドックアイコンの拡大率",
           "label": "ドック項目間の間隔"
         },
+        "item-spacing": {
+          "description": "ドック項目間の間隔",
+          "label": "項目間隔"
+        },
         "launcher-custom-image": {
           "description": "ドックのランチャーボタンに、アイコンの代わりに画像を表示",
           "label": "ランチャー独自の画像",
@@ -1261,9 +1431,49 @@
           "description": "ドックの先頭または末尾にランチャーボタンを表示",
           "label": "ランチャーボタン"
         },
+        "layer": {
+          "description": "オーバーレイを使用して全画面アプリの上にドックを表示",
+          "label": "Waylandレイヤー"
+        },
+        "magnification": {
+          "description": "ポインター付近のドックアイコンをmacOS風に拡大",
+          "label": "拡大"
+        },
+        "magnification-scale": {
+          "description": "ポインター中央でのアイコン最大拡大倍率（1.0で拡大を無効）",
+          "label": "拡大倍率"
+        },
+        "main-axis-padding": {
+          "description": "アイコン列の両端の内側余白（最初のアイコンの前と最後のアイコンの後）"
+        },
         "monitors": {
           "description": "ドックを表示する画面を選択します（空欄の場合はすべての画面に表示）。使用中の画面のみを対象とする設定は、ここで選択した画面内で適用されます。",
           "label": "画面"
+        },
+        "pinned-apps": {
+          "description": "ドックにピン留めしたアプリのデスクトップエントリID",
+          "label": "ピン留めしたアプリ"
+        },
+        "position": {
+          "description": "ドックを配置する画面端"
+        },
+        "reserve-space": {
+          "description": "ウィンドウがドックに重ならないようにする"
+        },
+        "shadow": {
+          "description": "ドックに全体の影を表示"
+        },
+        "show-dots": {
+          "description": "実行中のウィンドウを示す点をドックアイコンの下に表示",
+          "label": "ドットを表示"
+        },
+        "show-instance-count": {
+          "description": "開いているインスタンス数をバッジで表示",
+          "label": "インスタンス数を表示"
+        },
+        "show-running": {
+          "description": "ピン留めされていない実行中のアプリを表示",
+          "label": "実行中のアプリを表示"
         }
       },
       "hooks": {
@@ -1597,6 +1807,9 @@
           "description": "バーウィジェットをクリックして開いたときの壁紙選択画面の位置",
           "label": "バーに沿って表示"
         },
+        "panel-anchor-bar": {
+          "description": "パネルを開いたときに固定するバー。空欄の場合は、パネルを開いたウィジェット、ショートカット、またはドックに従います"
+        },
         "placement-clipboard": {
           "description": "クリップボードをバーに固定するか、画面上の指定位置に浮かせて表示するかを選択",
           "label": "配置方法"
@@ -1608,6 +1821,9 @@
         "placement-launcher": {
           "description": "ランチャーをバーに固定するか、画面上の指定位置に浮かせて表示するかを選択",
           "label": "配置方法"
+        },
+        "placement-polkit": {
+          "description": "polkitの認証画面をバーに固定するか、画面上の指定位置に浮かせて表示するかを選択"
         },
         "placement-session": {
           "description": "セッションパネルをバーに固定するか、画面上の指定位置に浮かせて表示するかを選択",
@@ -1747,6 +1963,11 @@
         },
         "notification-sound": {
           "description": "通知音に使用する音声ファイル"
+        },
+        "sound-theme": {
+          "default": "既定",
+          "description": "シェルの効果音に使用するサウンドテーマ",
+          "label": "サウンドテーマ"
         },
         "sunrise": {
           "description": "位置情報未設定時に使用する日の出時刻（HH:MM形式）"
@@ -2032,9 +2253,33 @@
           "description": "Umbrielのオーバービューで入力するとランチャーを開きます。オーバービュー表示中は、キーボードフォーカス用の小さな領域を使用します",
           "label": "入力でランチャーを開く"
         },
+        "window-switcher-current-workspace-only": {
+          "description": "現在のワークスペースにあるウィンドウのみ表示。無効にすると、すべてのワークスペースのウィンドウを表示します",
+          "label": "現在のワークスペースのみ"
+        },
         "window-switcher-mru": {
           "description": "スイッチャー内のウィンドウを、ワークスペースや画面レイアウトではなく、直近の使用順に並べ替えます",
           "label": "最近使用した順番"
+        },
+        "window-switcher-show-all-outputs": {
+          "description": "すべての画面のウィンドウを表示。無効にすると、スイッチャーを表示している画面のウィンドウのみ表示します",
+          "label": "すべての画面を表示"
+        },
+        "window-switcher-show-app-icon": {
+          "description": "各アプリのアイコンをウィンドウのプレビュー上に表示",
+          "label": "アプリアイコンを表示"
+        },
+        "window-switcher-show-caption": {
+          "description": "ウィンドウのタイトルとアプリ名をプレビューの下に表示",
+          "label": "ウィンドウ情報を表示"
+        },
+        "window-switcher-show-count": {
+          "description": "現在の位置とウィンドウ総数をプレビューの上に表示",
+          "label": "ウィンドウ数を表示"
+        },
+        "window-switcher-style": {
+          "description": "立体的なカルーセル表示または枠付きのコンパクト表示を選択",
+          "label": "スイッチャーの表示形式"
         }
       },
       "system": {
@@ -2215,14 +2460,45 @@
           "color-scheme-set": {
             "description": "settings.tomlで配色の取得元と選択内容を設定（builtin名、wallpaper生成方式、community ID、またはcustom配色フォルダー名）"
           },
+          "desktop-widgets-edit": {
+            "description": "デスクトップウィジェット編集を開く",
+            "label": "デスクトップウィジェットを編集"
+          },
+          "desktop-widgets-exit": {
+            "description": "デスクトップウィジェット編集を閉じる",
+            "label": "デスクトップウィジェット編集を終了"
+          },
           "desktop-widgets-hide": {
-            "description": "デスクトップウィジェットを一時的に非表示（実行中のみ。保存設定は変更しません）"
+            "description": "デスクトップウィジェットを一時的に非表示（実行中のみ。保存設定は変更しません）",
+            "label": "デスクトップウィジェットを非表示"
           },
           "desktop-widgets-show": {
-            "description": "デスクトップウィジェットを一時的に表示（実行中のみ。保存設定は変更しません）"
+            "description": "デスクトップウィジェットを一時的に表示（実行中のみ。保存設定は変更しません）",
+            "label": "デスクトップウィジェットを表示"
           },
           "desktop-widgets-toggle": {
-            "description": "デスクトップウィジェットの表示・非表示を切替（実行中のみ。保存設定は変更しません）\n"
+            "description": "デスクトップウィジェットの表示・非表示を切替（実行中のみ。保存設定は変更しません）\n",
+            "label": "デスクトップウィジェットの表示・非表示を切替"
+          },
+          "desktop-widgets-toggle-edit": {
+            "description": "デスクトップウィジェットの編集モードを切替",
+            "label": "デスクトップウィジェット編集を開閉"
+          },
+          "dock-hide": {
+            "description": "ドックを非表示（上書き設定を保持）",
+            "label": "ドックを非表示"
+          },
+          "dock-reload": {
+            "description": "ドック設定を再読み込み",
+            "label": "ドックを再読み込み"
+          },
+          "dock-show": {
+            "description": "ドックを表示（上書き設定を保持）",
+            "label": "ドックを表示"
+          },
+          "dock-toggle": {
+            "description": "ドックの表示・非表示を切替（上書き設定を保持）",
+            "label": "ドックの表示・非表示を切替"
           },
           "dpms-off": {
             "description": "画面の電源を切る",
@@ -2590,7 +2866,9 @@
       "choose-color": "壁紙の色を選択",
       "close": "壁紙パネルを閉じる",
       "color-title": "壁紙の色",
+      "favorite-add": "お気に入りに追加",
       "favorite-current": "現在の壁紙をお気に入りに追加",
+      "favorite-remove": "お気に入りから外す",
       "filter-placeholder": "絞り込み…",
       "flatten": "階層をまとめて表示",
       "loading": "壁紙を読み込み中…",
@@ -2640,6 +2918,8 @@
     }
   },
   "window-switcher": {
+    "count": "{count}個のウィンドウ",
+    "count-plural": "{count}個のウィンドウ",
     "empty": "ウィンドウが開いていません",
     "hint": "Tab · Shift+Tab · 矢印キー · Altキーを離すと切り替わります · Escキーでキャンセル",
     "title": "ウィンドウ"

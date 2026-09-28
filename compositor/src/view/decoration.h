@@ -15,14 +15,10 @@ struct wlr_surface;
 
 namespace umbriel {
 
-  // Everything drawn around a view's surface: the inner border ring, the outer ring, the blur sampled behind the
-  // surface, and the drop shadow. The shadow container is a child of the view's frame, below its content, so it follows
-  // the frame's parent, stacking order, position, and visibility. The one exception is a tile: its container is lent to
-  // the workspace's tile shadow layer, so tiles never shadow each other. This class holds no reference back to its
-  // View. Everything that varies per view (content size, corner radius, fade alpha, focus) arrives as an argument,
-  // because those are questions only the View can answer (a fullscreen window keeps its border tree but draws square,
-  // and a size animation presents a size the committed geometry has not caught up with yet). Appearance settings are
-  // read from the config directly, as the other scene classes do.
+  // Everything drawn around a view's surface: inner and outer border rings, blur behind the surface, and drop shadow.
+  // The shadow container is a child of the view's frame, below its content; a tile's container is instead lent to the
+  // workspace's tile shadow layer, so tiles never shadow each other. Holds no reference back to its View: per-view
+  // state (content size, corner radius, fade alpha, focus) arrives as arguments.
   class ViewDecoration {
   public:
     // The single node resolves inner and outer colors from one shared curve.
@@ -43,6 +39,9 @@ namespace umbriel {
     [[nodiscard]] int outerBorderWidth() const { return m_outerBorderWidth; }
     [[nodiscard]] int cornerRadius() const { return m_cornerRadius; }
     [[nodiscard]] int totalBorderWidth() const { return m_borderWidth + m_outerBorderWidth; }
+    // Transparent margin a border effect paints into. True when it changed.
+    bool setBorderPadding(int padding);
+    [[nodiscard]] int borderPadding() const { return m_borderPadding; }
     // True when the drawn ring no longer matches the given content size, i.e. a
     // client commit changed geometry behind the layout's back.
     [[nodiscard]] bool borderGeometryStale(int contentWidth, int contentHeight) const;
@@ -96,6 +95,7 @@ namespace umbriel {
     int m_borderWidth = config().appearance.borderWidth;
     int m_outerBorderWidth = config().appearance.outerBorderWidth;
     int m_cornerRadius = config().appearance.cornerRadius;
+    int m_borderPadding = 0;
     std::optional<bool> m_ruleShadow;
     SurfaceBlur m_blur;
     SurfaceBlurOptions m_blurOptions;

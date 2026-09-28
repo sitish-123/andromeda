@@ -8,7 +8,7 @@ sidebar:
 ```toml
 [audio]
 enable_overdrive     = false  # allow volume sliders above 100% (up to 150%)
-enable_sounds        = false  # master toggle for UI sounds
+enable_sounds        = true   # master toggle for UI sounds
 sound_volume         = 0.5    # global sound volume (0.0 - 1.0)
 sound_theme          = "freedesktop"
 auto_switch_hdmi     = true   # switch output to a newly plugged HDMI / DisplayPort sink
@@ -25,6 +25,9 @@ auto_switch_hdmi     = true   # switch output to a newly plugged HDMI / DisplayP
   again sticks until the display is plugged in again; on unplug WirePlumber falls back to the previous output.
 - `sound_theme` selects an installed sound theme. Themes inherit from their declared parents and fall back
   to `freedesktop`; shell sounds are loaded from each theme's `stereo` directory.
+  Premade themes are available on [Pling](https://www.pling.me/browse?cat=316&ord=rating); install them under
+  `~/.local/share/sounds/<theme-name>/`. To create your own, follow the
+  [freedesktop Sound Theme Specification](https://specifications.freedesktop.org/sound-theme/0.2/).
 - Shell sounds use these theme events: `message-new-instant` (notifications), `audio-volume-change` (volume
   changes), `power-plug` / `power-unplug` (laptop charger connected or removed), and `screen-capture`
   (screenshots). If a theme lacks the exact event, its trailing dash components are stripped (e.g.

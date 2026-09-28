@@ -76,6 +76,12 @@ namespace umbriel {
     WindowMoveToWorkspaceNext,
     WindowMoveToWorkspacePrevious,
     ConfigReload,
+    ScreenCastClear,
+    ScreenCastSetOutput,
+    ScreenCastSetWindow,
+    ScreenCastFollowWindow,
+    ScreenCastFollowOutput,
+    ScreenCastFollowStop,
     KeyboardLayoutNext,
     ShortcutsInhibitToggle,
     LayoutScrollDrag,
@@ -131,6 +137,9 @@ namespace umbriel {
     WorkspaceSetLayout,
     DpmsOff,
     DpmsOn,
+    OutputDisable,
+    OutputEnable,
+    OutputToggle,
     WorkspaceMoveDown,
     WorkspaceMoveUp,
     ColumnCenter,
@@ -160,9 +169,7 @@ namespace umbriel {
     Count,
   };
 
-  // Action payloads. Exactly one is valid for a given action, so they live in a variant rather than as sibling fields:
-  // a spawn command and a workspace selector can no longer be set at the same time, and the submap name no longer
-  // shares storage with the spawn command.
+  // Action payloads. Exactly one is valid for a given action, so they live in a variant.
   struct SpawnArg {
     std::string command;
     bool operator==(const SpawnArg&) const = default;
@@ -269,6 +276,7 @@ namespace umbriel {
     Command,
     Fraction,
     Workspace,
+    Output,
     OptionalOutput,
     OptionalScratchpad,
     WindowId,

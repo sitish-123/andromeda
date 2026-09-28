@@ -8,6 +8,7 @@ Configure keyboard, pointer, touchpad, tablet, cursor, and focus behavior under
 ```toml
 [input]
 middle_click_paste = false
+client_window_drag = true
 window_drag_toggle = "none"
 ```
 
@@ -15,6 +16,11 @@ window_drag_toggle = "none"
 Shift+Insert. The regular Ctrl+C and Ctrl+V clipboard is unaffected.
 Applications started while primary selection is disabled must be restarted
 after it is re-enabled.
+
+`client_window_drag = false` ignores move requests from applications, such as
+dragging a client-side title bar or the empty tab strip of Chromium, Firefox,
+or Electron apps. Windows then move only with Mod+drag or keybinds.
+Resizing from client-side borders is unaffected.
 
 `window_drag_toggle` controls what pressing the other main mouse button does
 during a window drag:
@@ -216,8 +222,24 @@ calibration_matrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 | `calibration_matrix` | Pass a six-number calibration matrix to libinput. |
 
 Focused-window mapping takes precedence over focused-output mapping, which
-takes precedence over `map_to_output`. When the selected target is unavailable,
-the next configured mapping is used.
+takes precedence over `map_to_output`.
+
+### Touch
+
+```toml
+[input.touch]
+enabled = true
+map_to_output = "eDP-1"
+```
+
+| Key | Description |
+| --- | --- |
+| `enabled` | Enable or disable touch input. |
+| `map_to_output` | Confine touch input to a connector or monitor name. |
+
+Without `map_to_output`, a touchscreen maps to the output its device reports,
+or else to the built-in panel (`eDP-`, `LVDS-`, or `DSI-`) when exactly one is
+enabled. Otherwise it spans the whole output layout.
 
 ### Cursor
 

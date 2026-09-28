@@ -104,7 +104,10 @@ WindowSwitcherStyleLayout computeWindowSwitcherCarouselLayout(const WindowSwitch
     target.visible = true;
     target.showCaption = context.showCaption && distance == 0;
     target.wideCaption = target.showCaption;
-    target.iconPlacement = relativeSlot > 0 ? WindowSwitcherIconPlacement::Right : WindowSwitcherIconPlacement::Left;
+    target.iconPlacement =
+        relativeSlot > 0 ? WindowSwitcherHorizontalPlacement::Right : WindowSwitcherHorizontalPlacement::Left;
+    target.closePlacement =
+        relativeSlot < 0 ? WindowSwitcherHorizontalPlacement::Left : WindowSwitcherHorizontalPlacement::Right;
     target.depth = distance == 0 ? WindowSwitcherTileDepth::Selected
                                  : (distance == 1 ? WindowSwitcherTileDepth::Near : WindowSwitcherTileDepth::Far);
     target.direction = relativeSlot < 0 ? -1.0F : (relativeSlot > 0 ? 1.0F : 0.0F);

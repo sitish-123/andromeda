@@ -177,6 +177,18 @@ namespace {
       const auto modified = fs::last_write_time(path, ec);
       signature += ec ? "missing" : std::format("{}", modified);
       signature += '\n';
+
+      std::vector<std::string> entries;
+      for (fs::directory_iterator it(path, ec), end; !ec && it != end; it.increment(ec)) {
+        entries.push_back(it->path().filename().string());
+      }
+      std::ranges::sort(entries);
+      for (const auto& entry : entries) {
+        signature += std::to_string(entry.size());
+        signature += ':';
+        signature += entry;
+      }
+      signature += '\n';
     };
     for (const auto& root : plan.baseDirs) {
       appendPath("root:", root);

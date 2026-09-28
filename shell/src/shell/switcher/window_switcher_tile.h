@@ -47,7 +47,8 @@ public:
   void setOnClose(std::function<void()> callback) { m_onClose = std::move(callback); }
   void bind(
       Renderer& renderer, const WindowSwitcherEntry& entry, WindowSwitcherTileDepth depth, bool showCaption,
-      bool wideCaption, WindowSwitcherIconPlacement iconPlacement
+      bool wideCaption, WindowSwitcherHorizontalPlacement iconPlacement,
+      WindowSwitcherHorizontalPlacement closePlacement
   );
 
 private:
@@ -84,7 +85,8 @@ protected:
   bool m_captionVisible = false;
   bool m_wideCaption = false;
   bool m_showAppIcon = true;
-  WindowSwitcherIconPlacement m_iconPlacement = WindowSwitcherIconPlacement::Left;
+  WindowSwitcherHorizontalPlacement m_iconPlacement = WindowSwitcherHorizontalPlacement::Left;
+  WindowSwitcherHorizontalPlacement m_closePlacement = WindowSwitcherHorizontalPlacement::Right;
   WindowSwitcherTileDepth m_depth = WindowSwitcherTileDepth::Far;
   RoundedRectStyle m_shadowStyle;
   std::string m_iconPath;

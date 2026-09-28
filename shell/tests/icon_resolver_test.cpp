@@ -82,6 +82,7 @@ int main() {
   }
 
   IconResolver resolver(true);
+  const auto initialIconDirModified = fs::last_write_time(iconDir);
 
   std::fflush(stderr);
   (void)::dup2(savedStderr, STDERR_FILENO);
@@ -129,6 +130,8 @@ int main() {
   const fs::path polledIcon = iconDir / "polled-icon.svg";
   ok = expect(resolver.resolve("polled-icon", 32).empty(), "second initial icon miss should be cached") && ok;
   std::ofstream(polledIcon) << "<svg/>";
+  // Some filesystems do not expose a distinct directory mtime for rapid changes.
+  fs::last_write_time(iconDir, initialIconDirModified);
   ok = expect(IconResolver::checkThemeChanged(), "theme poll should detect icon directory changes") && ok;
   ok = expect(
            resolver.resolve("polled-icon", 32) == polledIcon.string(),

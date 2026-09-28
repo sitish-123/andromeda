@@ -2309,6 +2309,14 @@ namespace settings {
         {"shell", "window_switcher", "show_all_outputs"}, ToggleSetting{cfg.shell.windowSwitcher.showAllOutputs},
         "window switcher alt tab monitor display output screen all current"
     ));
+    entries.push_back(makeEntry(
+        SettingsSection::Shell, "window-switcher",
+        tr("settings.schema.shell.window-switcher-current-workspace-only.label"),
+        tr("settings.schema.shell.window-switcher-current-workspace-only.description"),
+        {"shell", "window_switcher", "current_workspace_only"},
+        ToggleSetting{cfg.shell.windowSwitcher.currentWorkspaceOnly},
+        "window switcher alt tab workspace current only filter"
+    ));
     // Keybinds
     entries.push_back(makeEntry(
         SettingsSection::Keybinds, "keybinds", tr("settings.schema.keybinds.validate.label"),

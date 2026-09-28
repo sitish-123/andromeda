@@ -103,8 +103,8 @@ default_scratchpad = "terminal"
 ```
 
 With no named definitions, use `"default"`. A hidden scratchpad keeps the new
-window hidden. Output, workspace, and floating rules determine where and how it
-returns when restored.
+window hidden unless `default_focused = true` is also set. Output, workspace,
+and floating rules determine where and how it returns when restored.
 
 ## Workspace placement
 
@@ -160,6 +160,8 @@ and sets its extent.
 | `outer_border_width` | Override `appearance.outer_border_width`, 0 to 100. |
 | `corner_radius` | Override `appearance.corner_radius`, 0 to 100. |
 | `shadow` | Override `appearance.shadow.enabled`. |
+| `border_effect` | Replace `effects.border` by name, or `"off"` to disable it. |
+| `window_effect` | Replace `effects.window` by name, or `"off"` to disable it. |
 
 These values refresh when matching identity or state changes. Fullscreen
 bypasses rule opacity unless
@@ -196,6 +198,18 @@ border_width = 0
 corner_radius = 0
 shadow = false
 ```
+
+### Effects
+
+```toml
+[[window_rule]]
+match.app_id = "^mpv$"
+border_effect = "off"
+window_effect = "scanlines"
+```
+
+Names refer to `[effects.preset.<name>]` tables of the matching kind. See
+[Effects](effects.md#turn-a-default-off-for-one-window-or-output).
 
 ## The only window in the workspace
 

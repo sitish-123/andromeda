@@ -35,14 +35,14 @@ namespace {
   bool gForceCloseRangeFailure = false;
 }
 
-extern "C" int __real_close_range(unsigned int first, unsigned int last, int flags);
+extern "C" int __real_umbrielCloseRange(unsigned int first, unsigned int last, int flags);
 
-extern "C" int __wrap_close_range(unsigned int first, unsigned int last, int flags) {
+extern "C" int __wrap_umbrielCloseRange(unsigned int first, unsigned int last, int flags) {
   if (gForceCloseRangeFailure) {
     errno = ENOSYS;
     return -1;
   }
-  return __real_close_range(first, last, flags);
+  return __real_umbrielCloseRange(first, last, flags);
 }
 
 namespace {

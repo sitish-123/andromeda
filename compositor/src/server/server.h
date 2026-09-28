@@ -2,10 +2,12 @@
 #include "core/animation.h"
 #include "core/application_scope.h"
 #include "core/dirty.h"
+#include "input/lid_state.h"
 #include "input/modifier_tap.h"
 #include "input/surface_layouts.h"
-#include "scene/animation_shader.h"
+#include "output/enable_overrides.h"
 #include "scene/border_rect.h"
+#include "scene/effect_registry.h"
 #include "scene/surface_shadow.h"
 #include "server/focus.h"
 #include "view/registry.h"
@@ -85,6 +87,21 @@ struct wlr_virtual_pointer_v1;
 namespace umbriel {
   enum class ContentType;
   struct ConfigEffects;
+
+  enum class ScreenCastCommandKind : uint8_t {
+    Clear,
+    SetOutput,
+    SetWindow,
+    FollowWindow,
+    FollowOutput,
+    FollowStop,
+  };
+
+  struct ScreenCastCommand {
+    ScreenCastCommandKind kind = ScreenCastCommandKind::Clear;
+    std::string value;
+    uint64_t serial = 0;
+  };
 
   // Slow tick that ferries wl_surface.frame callbacks to hidden toplevels that want them (View::wantsBackgroundFrames).
   // wlroots' scene helper only walks enabled scene nodes, so a hidden view otherwise never receives another frame_done
@@ -182,6 +199,8 @@ namespace umbriel {
     [[nodiscard]] wlr_scene_tree* dragTree() const { return m_dragTree; }
     // Parent for wl_data_device drag icons; moved to the cursor while a drag is active.
     [[nodiscard]] wlr_scene_tree* dragIconTree() const { return m_dragIconTree; }
+    // Creates the border light layer once the scene exists, or destroys it and unregisters it from the scene.
+    void setEffectLightLayer(bool present);
     // Above top panels, below overlay/lock (fullscreen xdg views).
     [[nodiscard]] wlr_scene_tree* fullscreenTree() const { return m_fullscreenTree; }
     [[nodiscard]] wlr_scene_tree* pinnedTree() const { return m_pinnedTree; }
@@ -193,6 +212,8 @@ namespace umbriel {
     [[nodiscard]] InputMethodRelay* inputMethodRelay() const { return m_inputMethodRelay.get(); }
     [[nodiscard]] Seat* seat() const { return m_seat.get(); }
     [[nodiscard]] Cursor* cursor() const { return m_cursor.get(); }
+    [[nodiscard]] EffectRegistry& effects() { return m_effects; }
+    [[nodiscard]] const EffectRegistry& effects() const { return m_effects; }
     // Central animation tick: advances every registered owner once per msec and
     // reports whether anything is still animating.
     bool tickAnimations(uint64_t nowMsec);
@@ -215,6 +236,16 @@ namespace umbriel {
     void emitRendererLostForTest();
 #endif
     [[nodiscard]] Ipc* ipc() const { return m_ipc.get(); }
+    [[nodiscard]] const ScreenCastCommand& screenCastCommand() const { return m_screenCastCommand; }
+    void setScreenCastActive(bool active);
+    void clearScreenCastTarget();
+    bool setScreenCastOutput(const Output& output, std::string* error = nullptr);
+    bool setScreenCastWindow(const View& view, std::string* error = nullptr);
+    bool followScreenCastWindow(std::string* error = nullptr);
+    bool followScreenCastOutput(std::string* error = nullptr);
+    void stopFollowingScreenCast();
+    void confirmScreenCastDynamic();
+    void dismissConfirmation();
     // Owners register themselves for the frame tick. The registry is kept in phase order, so the three traversals above
     // never re-state which owners exist or in what order they run.
     void registerAnimatable(Animatable* animatable);
@@ -319,8 +350,9 @@ namespace umbriel {
     // The bind this press would fire, without running it. Null when nothing
     // matches (locked sessions match nothing, matching handleKeybind).
     [[nodiscard]] const Keybind* matchKeybind(uint32_t keysym, uint32_t rawKeysym, uint32_t modifiers) const;
-    // Combined state across keyboard devices. Media and brightness keys are
-    // commonly exposed by a separate device from the held modifier keys.
+    // Combined state across independent keyboard devices. Media and brightness
+    // keys commonly come from a device separate from held modifiers. An input
+    // method's mirrored keyboard is not independent and is excluded.
     [[nodiscard]] uint32_t keyboardModifiers() const;
     [[nodiscard]] bool keyboardShortcutsInhibited() const;
     bool toggleKeyboardShortcutsInhibit();
@@ -359,11 +391,16 @@ namespace umbriel {
     [[nodiscard]] Output* outputFromName(const std::string& name) const;
     [[nodiscard]] wlr_box usableAreaAt(double lx, double ly) const;
     void updateOutputManagerConfig();
+    // Change logical desktop membership through the same atomic transaction as
+    // wlr-output-management. Unlike DPMS, this displaces and restores views.
+    bool setOutputEnabled(Output& output, bool enabled);
     // Recompute the mapping for every tablet: focused window, focused output, named output, or full layout. Called at
     // the start of every tablet event so dynamic targets reflect current focus without signal hooks.
     void remapTablets();
-    // Maps each touchscreen to its panel, or while the panel mirrors, to the source image it shows.
-    void remapTouch();
+    // Maps each touchscreen to its output (input.touch.map_to_output, else its panel), or while that output mirrors
+    // another, to the source image it shows. Also called on every touch down, so a reconfigured target applies to the
+    // next touch sequence.
+    void remapTouches();
     // The tablet-v2 handle for a wlroots tablet, or nullptr when unknown.
     [[nodiscard]] wlr_tablet_v2_tablet* tabletV2FromWlr(const wlr_tablet* tablet) const;
 
@@ -422,7 +459,11 @@ namespace umbriel {
     [[nodiscard]] bool closeSnapshotAlive(CloseSnapshotId id) const;
 
   private:
+    friend class Output;
+
     enum class SpawnClass { Application, SessionHelper };
+
+    bool requestScreenCastCommand(ScreenCastCommandKind kind, std::string value, std::string* error);
 
     static void
     onProtocolMessage(void* data, wl_protocol_logger_type direction, const wl_protocol_logger_message* message);
@@ -446,6 +487,8 @@ namespace umbriel {
     static void onIdleInhibitorDestroy(wl_listener* listener, void* data);
     static void onNewShortcutsInhibitor(wl_listener* listener, void* data);
     static void onShortcutsInhibitorDestroy(wl_listener* listener, void* data);
+    static void onNewImageCopySession(wl_listener* listener, void* data);
+    static void onImageCopySessionDestroy(wl_listener* listener, void* data);
     static void onNewActivationToken(wl_listener* listener, void* data);
     static void onActivationTokenDestroy(wl_listener* listener, void* data);
     static void onRequestActivate(wl_listener* listener, void* data);
@@ -517,10 +560,14 @@ namespace umbriel {
     struct SwitchDevice {
       Server* server = nullptr;
       wlr_input_device* device = nullptr;
+      std::optional<LidStateCoordinator::SourceId> lidSource;
       wl_listener destroy{};
       wl_listener toggle{};
     };
     void addSwitch(wlr_input_device* device);
+    void scheduleLidStateReconcile();
+    void reconcileLidState();
+    static void onLidStateReconcileIdle(void* data);
     void applyTabletConfig(TabletDevice& tablet);
     void applyTabletPadConfig(TabletPadDevice& pad);
     void pairTabletPads();
@@ -536,7 +583,10 @@ namespace umbriel {
     void setLockBlankEnabled(bool enabled);
     void handleWorkspaceCommit(void* data);
     [[nodiscard]] Workspace* workspaceFromHandle(wlr_ext_workspace_handle_v1* handle) const;
-    void applyOutputManagerConfig(wlr_output_configuration_v1* config, bool testOnly);
+    bool applyOutputManagerConfig(wlr_output_configuration_v1* config, bool testOnly);
+    bool commitOutputEnabled(Output& output, bool enabled);
+    [[nodiscard]] bool initialOutputEnabled(const Output& output);
+    void rememberOutputEnableOverride(const Output& output, bool enabled);
     void restoreDisplacedViews();
     [[nodiscard]] WorkspaceGroup* workspaceGroupFromHandle(wlr_ext_workspace_group_handle_v1* handle) const;
 
@@ -549,6 +599,10 @@ namespace umbriel {
       wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = nullptr;
       wl_listener destroy{};
     };
+    struct ImageCopySessionWatch {
+      Server* server = nullptr;
+      wl_listener destroy{};
+    };
     struct PointerDevice {
       Server* server = nullptr;
       wlr_input_device* device = nullptr;
@@ -559,6 +613,7 @@ namespace umbriel {
       wlr_input_device* device = nullptr;
       wl_listener destroy{};
     };
+    void applyTouchConfig(TouchDevice& touch);
     struct VirtualPointerDevice {
       Server* server = nullptr;
       wlr_virtual_pointer_v1* vpointer = nullptr;
@@ -585,6 +640,7 @@ namespace umbriel {
     wlr_content_type_manager_v1* m_contentTypeManager = nullptr;
     wlr_security_context_manager_v1* m_securityContextManager = nullptr;
     std::unique_ptr<WineColorManager> m_wineColorManager;
+    EffectRegistry m_effects;
     wlr_scene_output_layout* m_sceneLayout = nullptr;
     wlr_xdg_shell* m_xdgShell = nullptr;
     wlr_xdg_toplevel_tag_manager_v1* m_xdgToplevelTagManager = nullptr;
@@ -620,6 +676,7 @@ namespace umbriel {
     wlr_scene_tree* m_overviewTree = nullptr;
     wlr_scene_tree* m_dragTree = nullptr;
     wlr_scene_tree* m_dragIconTree = nullptr;
+    wlr_scene_tree* m_effectLightTree = nullptr;
     wlr_scene_tree* m_fullscreenTree = nullptr;
     wlr_scene_tree* m_pinnedTree = nullptr;
     wlr_scene_tree* m_imPopupTree = nullptr;
@@ -725,6 +782,10 @@ namespace umbriel {
     std::unique_ptr<CommitTimingManager> m_commitTimingManager;
     std::unique_ptr<ToplevelDragManager> m_toplevelDragManager;
     std::unique_ptr<Ipc> m_ipc;
+    ScreenCastCommand m_screenCastCommand;
+    std::optional<ScreenCastCommand> m_pendingScreenCastCommand;
+    bool m_screenCastActive = false;
+    bool m_screenCastDynamicConfirmed = false;
 #ifdef UMBRIEL_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;
     int64_t m_animationClockOffsetMsec = 0;
@@ -757,6 +818,7 @@ namespace umbriel {
     // removes itself when it runs, so a non-null pointer means "already queued".
     wl_event_source* m_ipcWindowsIdle = nullptr;
     wl_event_source* m_ipcWorkspacesIdle = nullptr;
+    wl_event_source* m_lidStateReconcileIdle = nullptr;
     wl_event_source* m_displacedRestoreIdle = nullptr;
     // Coalesces renderer-loss notifications until their signal dispatch and
     // active render calls have unwound.
@@ -792,6 +854,7 @@ namespace umbriel {
     wl_listener m_newVirtualPointer{};
     wl_listener m_newIdleInhibitor{};
     wl_listener m_newShortcutsInhibitor{};
+    wl_listener m_newImageCopySession{};
     wl_listener m_newActivationToken{};
     wl_listener m_requestActivate{};
     wl_listener m_workspaceCommit{};
@@ -814,8 +877,14 @@ namespace umbriel {
     std::vector<std::unique_ptr<TouchDevice>> m_touchDevices;
     std::vector<std::unique_ptr<TabletDevice>> m_tabletDevices;
     std::vector<std::unique_ptr<TabletPadDevice>> m_tabletPads;
+    LidStateCoordinator m_lidState;
     std::vector<std::unique_ptr<SwitchDevice>> m_switchDevices;
     std::vector<std::unique_ptr<VirtualPointerDevice>> m_virtualPointers;
+    // Output-management choices are session state. Preserve them across
+    // backend object recreation, without transferring a choice between
+    // different identified monitors. An output-policy config reload clears
+    // them.
+    OutputEnableOverrides m_outputEnableOverrides;
     Dirty m_dirty = Dirty::None;
     ViewRegistry m_registry;
     FocusManager m_focus{*this};

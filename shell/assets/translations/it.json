@@ -87,7 +87,8 @@
       },
       "brightness": {
         "brightness": "Luminosità",
-        "display": "Schermo"
+        "display": "Schermo",
+        "unavailable": "Controllo della luminosità non disponibile"
       },
       "lock-keys": {
         "caps": "Caps",
@@ -3257,6 +3258,10 @@
           "description": "Copia e salva nella zona di sovrapposizione, il salvataggio avviene immediatamente; Invio e Spazio aprono comunque l'editor.",
           "label": "Salta l'editor quando copi o salvi"
         },
+        "settings-expand-all-groups": {
+          "description": "Espandi tutti i gruppi di impostazioni anziché solo il primo in ogni pagina",
+          "label": "Espandi tutti i gruppi di impostazioni"
+        },
         "settings-window-translucent": {
           "description": "Rendi traslucido lo sfondo delle Impostazioni per gli effetti del compositor",
           "label": "Impostazioni Sfondo traslucido"
@@ -3282,9 +3287,17 @@
           "description": "Apri il launcher mentre digiti in nella Overview di Umbriel; utilizza una piccola area di focus della tastiera mentre l'Overview è aperta",
           "label": "Digita per avviare"
         },
+        "window-switcher-current-workspace-only": {
+          "description": "Elenca solo le finestre dell'area di lavoro attiva; disattiva questa opzione per includere le finestre di tutte le aree di lavoro",
+          "label": "Solo l'area di lavoro corrente"
+        },
         "window-switcher-mru": {
           "description": "Nello switcher di finestre queste vengono ordinate in base all'utilizzo più recente, anziché in base all'area di lavoro e al layout dello schermo.",
           "label": "Ordina per più recenti"
+        },
+        "window-switcher-show-all-outputs": {
+          "description": "Elenca le finestre di tutti i monitor; disattiva questa opzione per visualizzare solo le finestre sul monitor che mostra lo switcher",
+          "label": "Mostra tutti i monitor"
         },
         "window-switcher-show-app-icon": {
           "description": "Mostra l'icona di ciascuna applicazione sopra l'anteprima della finestra.",
@@ -4510,6 +4523,10 @@
           "description": "Mostra valore attuale della temperatura",
           "label": "Mostra temperatura"
         },
+        "show-tooltip": {
+          "description": "Mostra il nome completo di un'area di lavoro al passaggio del mouse quando il suo riquadro non lo visualizza già",
+          "label": "Mostra nome nel suggerimento"
+        },
         "show-unlock-hint": {
           "description": "Mostra la scheda di stato sopra la casella di accesso per avvisi di sblocco e prompt di autenticazione; errori e avviso di capslock attivo verranno comunque visualizzati quando questo è disattivato",
           "label": "Sblocca avvisi"
@@ -4525,6 +4542,10 @@
         "show-when-idle": {
           "description": "Mantiene visibile il visualizzatore anche quando nessun media è in riproduzione",
           "label": "Mostra quando inattivo"
+        },
+        "show-when-unavailable": {
+          "description": "Mantieni visibile il widget di regolazione della luminosità quando questo monitor non dispone di un controllo della luminosità.",
+          "label": "Mostra quando non disponibile"
         },
         "show-window-title": {
           "description": "Mostra il titolo della finestra accanto alla sua icona (solo su barre orizzontali)",
@@ -4810,7 +4831,9 @@
       "choose-color": "Scegli il colore dello sfondo",
       "close": "Chiudi il pannello sfondi",
       "color-title": "Colore sfondo",
+      "favorite-add": "Aggiungi ai preferiti",
       "favorite-current": "Aggiungi lo sfondo corrente ai preferiti",
+      "favorite-remove": "Rimuovi dai preferiti",
       "filter-placeholder": "Filtra...",
       "flatten": "Appiattisci",
       "loading": "Caricamento sfondi...",

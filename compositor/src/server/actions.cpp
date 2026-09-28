@@ -502,7 +502,7 @@ namespace umbriel {
       // While locked the dialog would be hidden behind the lock surface, so quit
       // directly; the lock client's own UI is the confirmation there.
       if (!skip && !server.sessionLocked() && confirm != nullptr && !confirm->visible()) {
-        confirm->show();
+        confirm->show(QuitConfirm::Kind::SessionQuit);
         return true;
       }
       server.stop();
@@ -545,6 +545,51 @@ namespace umbriel {
       return true;
     }
 
+    enum class OutputEnableAction {
+      Disable,
+      Enable,
+      Toggle,
+    };
+
+    template <OutputEnableAction Action>
+    bool actionOutputEnablement(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<OutputArg>(bind);
+      if (arg == nullptr || arg->output.empty()) {
+        return reject(error, "output name is required");
+      }
+
+      Output* target = nullptr;
+      OutputNameMatch targetMatch = OutputNameMatch::None;
+      for (const auto& output : server.outputs()) {
+        const OutputNameMatch match = outputNameMatch(output->identity(), arg->output);
+        if (match == OutputNameMatch::None) {
+          continue;
+        }
+        if (match == OutputNameMatch::Connector) {
+          target = output.get();
+          targetMatch = match;
+          break;
+        }
+        if (target != nullptr && targetMatch == OutputNameMatch::Descriptor) {
+          return reject(error, "output descriptor is ambiguous: " + arg->output);
+        }
+        target = output.get();
+        targetMatch = match;
+      }
+      if (target == nullptr) {
+        return reject(error, "unknown output: " + arg->output);
+      }
+
+      bool enabled = Action == OutputEnableAction::Enable;
+      if constexpr (Action == OutputEnableAction::Toggle) {
+        enabled = !target->desktopEnabled();
+      }
+      if (!server.setOutputEnabled(*target, enabled)) {
+        return reject(error, "failed to change logical output state: " + arg->output);
+      }
+      return true;
+    }
+
     bool actionKeyboardLayoutNext(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       return server.cycleKeyboardLayout();
     }
@@ -572,6 +617,11 @@ namespace umbriel {
       return true;
     }
 
+    bool actionScreenCastClear(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      server.clearScreenCastTarget();
+      return true;
+    }
+
     // Window IDs are ext-foreign-toplevel identifiers, the same strings
     // clients receive from the protocol and the IPC surface reuses.
     View* viewByForeignIdentifier(Server& server, std::string_view id) {
@@ -585,6 +635,50 @@ namespace umbriel {
         }
       }
       return nullptr;
+    }
+
+    bool actionScreenCastSetWindow(Server& server, const Keybind& bind, std::string* error) {
+      View* view = nullptr;
+      if (const auto* arg = payloadIf<WindowIdArg>(bind); arg != nullptr && !arg->id.empty()) {
+        view = viewByForeignIdentifier(server, arg->id);
+        if (view == nullptr) {
+          return reject(error, "unknown window: " + arg->id);
+        }
+      } else {
+        view = focusedWindow(server);
+        if (view == nullptr) {
+          return reject(error, "no focused window");
+        }
+      }
+      if (view->extForeignIdentifier() == nullptr) {
+        return reject(error, "window has no capture identifier");
+      }
+      return server.setScreenCastWindow(*view, error);
+    }
+
+    bool actionScreenCastSetOutput(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<OutputArg>(bind);
+      Output* output = arg != nullptr && !arg->output.empty() ? server.outputFromName(arg->output)
+                                                              : server.outputFromWlr(server.preferredOutput());
+      if (output == nullptr) {
+        return reject(
+            error, arg != nullptr && !arg->output.empty() ? "unknown output: " + arg->output : "no focused output"
+        );
+      }
+      return server.setScreenCastOutput(*output, error);
+    }
+
+    bool actionScreenCastFollowWindow(Server& server, const Keybind& /*bind*/, std::string* error) {
+      return server.followScreenCastWindow(error);
+    }
+
+    bool actionScreenCastFollowOutput(Server& server, const Keybind& /*bind*/, std::string* error) {
+      return server.followScreenCastOutput(error);
+    }
+
+    bool actionScreenCastFollowStop(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      server.stopFollowingScreenCast();
+      return true;
     }
 
     bool warpCursorToWindow(Server& server, View& view) { return server.cursor()->warpToView(view); }
@@ -1745,10 +1839,7 @@ namespace umbriel {
       return scratchpad != nullptr && scratchpad->restoreFocused(*name);
     }
 
-    // Toggles the focused window's scratchpad membership: if the focused
-    // window is currently the scratchpad's focused entry, restore it (same as
-    // actionRestoreFromScratchpad); otherwise move it into the scratchpad
-    // (same as actionMoveToScratchpad).
+    // Restores the focused window if it is the scratchpad's focused entry, otherwise moves it into the scratchpad.
     bool actionToggleScratchpad(Server& server, const Keybind& bind, std::string* error) {
       const auto name = scratchpadName(server, bind, error);
       Output* output = server.outputFromWlr(server.preferredOutput());
@@ -1825,6 +1916,12 @@ namespace umbriel {
         &actionWindowMoveToWorkspaceAdjacent<1, true>,
         &actionWindowMoveToWorkspaceAdjacent<-1, true>,
         &actionConfigReload,
+        &actionScreenCastClear,
+        &actionScreenCastSetOutput,
+        &actionScreenCastSetWindow,
+        &actionScreenCastFollowWindow,
+        &actionScreenCastFollowOutput,
+        &actionScreenCastFollowStop,
         &actionKeyboardLayoutNext,
         &actionShortcutsInhibitToggle,
         &actionLayoutScrollDrag,
@@ -1880,6 +1977,9 @@ namespace umbriel {
         &actionWorkspaceSetLayout,
         &actionDpms<false>,
         &actionDpms<true>,
+        &actionOutputEnablement<OutputEnableAction::Disable>,
+        &actionOutputEnablement<OutputEnableAction::Enable>,
+        &actionOutputEnablement<OutputEnableAction::Toggle>,
         &actionWorkspaceMove<1>,
         &actionWorkspaceMove<-1>,
         &actionColumnCenter,
