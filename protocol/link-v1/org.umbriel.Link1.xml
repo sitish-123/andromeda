@@ -25,8 +25,9 @@
          the transfer id (32 hex digits) at once; the Transfer* signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
          Errors: .NotConnected without a live session, .Rejected for no files or a descriptor that is not a regular
          file, .Failed otherwise, including "too large to send over Bluetooth" and "hotspot: <reason>" when the device
-         is on Bluetooth and its hotspot could not carry the files. Over Bluetooth, files past 20 MiB wait up to 60 s
-         for the session to move to the phone's hotspot before this returns. -->
+         is on Bluetooth and its hotspot could not carry files past 20 MiB. Over Bluetooth, files past 1 MiB wait up to
+         60 s for the session to move to the phone's hotspot before this returns; up to 20 MiB they go over Bluetooth
+         when the hotspot fails. -->
     <method name="SendFiles">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="files" type="a(hs)" direction="in"/>

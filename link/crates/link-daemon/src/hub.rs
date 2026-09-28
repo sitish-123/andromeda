@@ -287,7 +287,7 @@ impl Hub {
                     Ok((id, ssid, joined)) => self.hotspot_joined(id, ssid, joined).await,
                     Err(join) => log::warn!("hotspot join task: {join}"),
                 },
-                () = sleep_until(give_up) => self.expire_waiting(),
+                () = sleep_until(give_up) => self.expire_waiting().await,
                 command = self.commands.recv() => match command {
                     Some(command) => self.handle(command).await,
                     None => return Ok(()),
@@ -559,7 +559,7 @@ impl Hub {
             Message::HotspotEnd(end) => {
                 log::info!("{from}: the phone ended its hotspot: {:?}", end.reason);
                 let reason = end.reason.unwrap_or_else(|| "the phone ended its hotspot".to_owned());
-                self.fail_waiting(&from, &reason);
+                self.fail_waiting(&from, &reason).await;
                 self.leave_hotspot(&from).await;
             }
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
@@ -680,12 +680,11 @@ impl Hub {
         }
     }
 
-    /// The Link device a send is for, when its session runs over Bluetooth and the files exceed what that carries.
+    /// The Link device a send is for, when its session runs over Bluetooth and the files are worth the hotspot.
     fn needs_hotspot(&self, device: &str, sources: &[Source]) -> Option<DeviceId> {
         let peer = DeviceId::parse(device).ok()?;
-        let total: u64 = sources.iter().map(Source::size).sum();
         let on_bluetooth = self.sessions.get(&peer)?.connection().quic().is_none();
-        (on_bluetooth && total > link_core::stream::BLUETOOTH_FILE_LIMIT).then_some(peer)
+        (on_bluetooth && total_size(sources) > link_core::stream::BLUETOOTH_UPGRADE_ABOVE).then_some(peer)
     }
 
     /// Asks the phone for its hotspot and parks the send until the session moves there.
@@ -717,23 +716,34 @@ impl Hub {
         }
     }
 
-    fn fail_waiting(&mut self, id: &DeviceId, reason: &str) {
+    async fn fail_waiting(&mut self, id: &DeviceId, reason: &str) {
         let (failed, rest) = std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.peer == *id);
         self.waiting = rest;
-        for Waiting { reply, .. } in failed {
-            drop(reply.send(Err(link_core::Error::Hotspot(reason.to_owned()))));
+        for waiting in failed {
+            self.send_without_hotspot(waiting, link_core::Error::Hotspot(reason.to_owned())).await;
         }
     }
 
-    fn expire_waiting(&mut self) {
+    async fn expire_waiting(&mut self) {
         let now = Instant::now();
         let (expired, rest) =
             std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.deadline <= now);
         self.waiting = rest;
-        for Waiting { peer, reply, .. } in expired {
-            log::info!("{peer}: the session did not move to the phone's hotspot in time");
-            drop(reply.send(Err(link_core::Error::TooLargeForBluetooth)));
+        for waiting in expired {
+            log::info!("{}: the session did not move to the phone's hotspot in time", waiting.peer);
+            self.send_without_hotspot(waiting, link_core::Error::TooLargeForBluetooth).await;
         }
+    }
+
+    /// Sends over Bluetooth what fits there, and fails the rest with `error`.
+    async fn send_without_hotspot(&mut self, waiting: Waiting, error: link_core::Error) {
+        let Waiting { peer, sources, reply, .. } = waiting;
+        if total_size(&sources) > link_core::stream::BLUETOOTH_FILE_LIMIT {
+            return drop(reply.send(Err(error)));
+        }
+        log::info!("{peer}: sending over Bluetooth: {error}");
+        let sent = self.send_files(peer.as_str(), sources).await;
+        drop(reply.send(sent));
     }
 
     /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one.
@@ -766,7 +776,7 @@ impl Hub {
             }
             Err(reason) => {
                 log::info!("{id}: joining the hotspot failed: {reason}");
-                self.fail_waiting(&id, &reason);
+                self.fail_waiting(&id, &reason).await;
                 let reason = reason.chars().take(link_core::proto::message::MAX_REASON_LEN).collect();
                 Message::HotspotEnd(HotspotEnd { reason: Some(reason) })
             }
@@ -861,6 +871,10 @@ fn log_mdns(result: Result<(), link_core::Error>) {
     if let Err(error) = result {
         log::warn!("mdns: {error}");
     }
+}
+
+fn total_size(sources: &[Source]) -> u64 {
+    sources.iter().map(Source::size).sum()
 }
 
 async fn sleep_until(deadline: Option<Instant>) {

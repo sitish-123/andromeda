@@ -25,6 +25,10 @@ use crate::transport::tls13_provider;
 /// Files are offered over Bluetooth only up to this total; a larger offer waits for Wi-Fi or the hotspot.
 pub const BLUETOOTH_FILE_LIMIT: u64 = 20 * 1024 * 1024;
 
+/// A send past this total asks for the phone's hotspot first, since it takes longer over Bluetooth than joining it; a
+/// smaller one, or one within [`BLUETOOTH_FILE_LIMIT`] whose hotspot fails, goes over Bluetooth.
+pub const BLUETOOTH_UPGRADE_ABOVE: u64 = 1024 * 1024;
+
 /// A Bluetooth handshake crosses a slower link than Wi-Fi, so it gets longer than QUIC's.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 

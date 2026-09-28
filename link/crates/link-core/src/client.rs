@@ -23,7 +23,7 @@ use crate::phone::{self, PairTarget, Phone};
 use crate::reach::{self, Reached, Via};
 use crate::session::{self, Route, SessionEvent, SessionHandle};
 use crate::store::{Feature, Peer, feature_of};
-use crate::stream::BLUETOOTH_FILE_LIMIT;
+use crate::stream::{BLUETOOTH_FILE_LIMIT, BLUETOOTH_UPGRADE_ABOVE};
 use crate::tls::ServerPin;
 use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::transport::Dialer;
@@ -241,9 +241,13 @@ impl Client {
         self.commands.send(Command::Keep { id: id.clone(), keep: true }).await.map_err(|_| Error::Stopped)?;
         let total: u64 = sources.iter().map(Source::size).sum();
         let sent = match self.session(id.clone()).await {
-            Ok(handle) if handle.connection().quic().is_none() && total > BLUETOOTH_FILE_LIMIT => {
+            Ok(handle) if handle.connection().quic().is_none() && total > BLUETOOTH_UPGRADE_ABOVE => {
                 match self.upgrade(id.clone()).await {
                     Ok(()) => self.transfers.send(id.clone(), sources).await,
+                    Err(error) if total <= BLUETOOTH_FILE_LIMIT => {
+                        log::info!("{id}: sending over Bluetooth: {error}");
+                        self.transfers.send(id.clone(), sources).await
+                    }
                     Err(error) => Err(error),
                 }
             }

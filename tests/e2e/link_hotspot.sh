@@ -12,8 +12,9 @@
 #    Hotspot with an empty SSID, and the phone is back on Bluetooth within seconds, not after the idle timeout.
 # 3. A desktop SendFiles over the limit asks the phone for its hotspot, waits for the move, then sends; 24 MiB
 #    arrives with a matching SHA-256.
-# 4. A join NetworkManager fails ends the attempt on both sides with its reason; the phone's send fails with it and
-#    nothing is sent.
+# 4. A join NetworkManager fails ends the attempt on both sides with its reason; the phone's send over the Bluetooth
+#    limit fails with it and nothing is sent, while a 2 MiB send (past the 1 MiB upgrade threshold, within the limit)
+#    asks for the hotspot, then goes over Bluetooth when the join fails, in both directions. A 512 KiB send never asks for it.
 # 5. The hotspot's address is not stored as a last-known address.
 # Every control message is validated against protocol/link-v1/messages.cddl.
 # Writes results.jsonl, hold.jsonl, nm.jsonl, signals.txt, transcript.jsonl, linkd.log to $OUT (default
@@ -150,6 +151,31 @@ grep '"event":"send-failed"' "$OUT/hold.jsonl" | tail -1 | grep -q 'NetworkManag
   || fail "the failed send does not carry NetworkManager's reason"
 grep -q '"fails": true' "$OUT/nm.jsonl" || fail "the desktop did not try the failing join"
 record '{"step":"failed-join-ends-both-sides","reason":"NetworkManager could not join it"}'
+
+head -c 2097152 /dev/urandom > "$RUNTIME/src/small.bin"
+JOINS=$(nm_calls add-and-activate)
+say "send $RUNTIME/src/small.bin"
+wait_for 60 "a 2 MiB send whose hotspot failed never arrived over Bluetooth" test -f "$DOWNLOADS/small.bin"
+[[ $(sha "$RUNTIME/src/small.bin") == $(sha "$DOWNLOADS/small.bin") ]] || fail "the 2 MiB file differs on the desktop"
+(( $(nm_calls add-and-activate) > JOINS )) || fail "a 2 MiB send over Bluetooth did not ask for the hotspot"
+[[ $(last_via) == bluetooth ]] || fail "the 2 MiB fallback did not stay on Bluetooth"
+record '{"step":"small-send-tries-hotspot-then-bluetooth","bytes":2097152,"sha256_match":true}'
+FALLBACKS=$(grep -c "hub\] .*sending over Bluetooth: hotspot" "$OUT/linkd.log" || true)
+python3 "$ROOT/tests/e2e/link_send_files.py" "$ID" "$RUNTIME/src/small.bin" > /dev/null \
+  || fail "a desktop 2 MiB SendFiles whose hotspot failed was refused"
+wait_for 60 "the desktop's 2 MiB never reached the phone over Bluetooth" test -f "$PHONE_DL/small.bin"
+[[ $(sha "$RUNTIME/src/small.bin") == $(sha "$PHONE_DL/small.bin") ]] || fail "the desktop's 2 MiB differs on the phone"
+(( $(grep -c "hub\] .*sending over Bluetooth: hotspot" "$OUT/linkd.log") > FALLBACKS )) \
+  || fail "a desktop 2 MiB send over Bluetooth did not ask for the hotspot first"
+record '{"step":"desktop-small-send-tries-hotspot-then-bluetooth","bytes":2097152,"sha256_match":true}'
+
+head -c 524288 /dev/urandom > "$RUNTIME/src/tiny.bin"
+JOINS=$(nm_calls add-and-activate)
+say "send $RUNTIME/src/tiny.bin"
+wait_for 30 "a 512 KiB send never arrived over Bluetooth" test -f "$DOWNLOADS/tiny.bin"
+[[ $(sha "$RUNTIME/src/tiny.bin") == $(sha "$DOWNLOADS/tiny.bin") ]] || fail "the 512 KiB file differs on the desktop"
+(( $(nm_calls add-and-activate) == JOINS )) || fail "a 512 KiB send asked for the hotspot"
+record '{"step":"tiny-send-stays-on-bluetooth","bytes":524288,"sha256_match":true}'
 
 STORED=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["peers"][0]["addresses"]))' "$RUNTIME/phone/devices.json")
 [[ $STORED != *10.80.0.* ]] || fail "the hotspot's address was stored: $STORED"

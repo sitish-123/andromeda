@@ -6,7 +6,7 @@ use std::pin::pin;
 
 use link_proto::CloseCode;
 use link_proto::limit::Limits;
-use link_proto::message::{Envelope, Message, OfferReply, RefuseReason, Share, ShareAck, Status};
+use link_proto::message::{Envelope, HotspotEnd, Message, OfferReply, RefuseReason, Share, ShareAck, Status};
 use link_proto::session::{Inbound, Role, SessionState};
 use tokio::sync::{mpsc, oneshot};
 
@@ -180,6 +180,13 @@ impl Live {
             if let Message::Offer(offer) = &envelope.message {
                 let reply = OfferReply { transfer: offer.transfer, accepted: false, reason: Some(RefuseReason::Busy) };
                 self.writer.send(Message::OfferReply(reply)).await?;
+            }
+            // Ends the attempt on both sides, so neither waits out the upgrade timeout for it.
+            if let Message::Hotspot(_) = &envelope.message {
+                let end = HotspotEnd { reason: Some("too many hotspots in a short time".to_owned()) };
+                self.writer.send(Message::HotspotEnd(end.clone())).await?;
+                let from = peer.clone();
+                self.emit(SessionEvent::Message { from, message: Message::HotspotEnd(end) }).await;
             }
             return Ok(false);
         }
