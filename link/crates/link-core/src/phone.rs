@@ -157,7 +157,7 @@ impl Phone {
 
     pub fn set_sharing(&mut self, id: &DeviceId, feature: Feature, on: bool) -> Result<(), Error> {
         let peer = self.store.peer_mut(id).ok_or(Error::UnknownDevice)?;
-        peer.sharing.set(feature, on);
+        peer.grants.set(feature, on);
         self.store.save(&self.store_path)
     }
 

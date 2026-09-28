@@ -4,6 +4,7 @@ pub mod client;
 pub mod control;
 pub mod discovery;
 pub mod identity;
+pub mod inbox;
 pub mod net;
 pub mod pairing;
 pub mod phone;
@@ -11,6 +12,7 @@ pub mod reach;
 pub mod session;
 pub mod store;
 pub mod tls;
+pub mod transfer;
 pub mod transport;
 pub mod uri;
 
@@ -20,6 +22,7 @@ use link_proto::frame::FrameTooLarge;
 use link_proto::message::{DecodeError, ShareRejected};
 use link_proto::pairing::PairingError;
 use link_proto::session::SessionError;
+use link_proto::transfer::TransferError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -75,6 +78,14 @@ pub enum Error {
     Share(#[from] ShareRejected),
     #[error(transparent)]
     Session(#[from] SessionError),
+    #[error(transparent)]
+    Transfer(#[from] TransferError),
+    #[error("not a regular file")]
+    NotRegularFile,
+    #[error("the peer sends faster than it is served")]
+    Flooded,
+    #[error(transparent)]
+    ClipRefused(#[from] link_proto::clip::ClipRefused),
 }
 
 impl From<quinn::ConnectionError> for Error {

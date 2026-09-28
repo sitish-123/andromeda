@@ -40,6 +40,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.umbriel.link.R
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.clipboard.ClipboardHint
 import org.umbriel.link.ui.components.ActionOrb
 import org.umbriel.link.ui.components.BentoGrid
 import org.umbriel.link.ui.components.BentoTile
@@ -134,6 +135,7 @@ fun HomeScreen(
                             checked = state.stayConnected,
                             onChange = viewModel::setStayConnected,
                         )
+                        ClipboardHint()
                     }
                     if (state.others.isNotEmpty()) {
                         Column {

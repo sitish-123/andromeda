@@ -25,7 +25,6 @@
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
 #include "dbus/network/nm_hotspot.h"
-#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -33,6 +32,7 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/global_shortcuts_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
@@ -335,6 +335,9 @@ void Application::initIpc() {
         return "ok\n";
       }
     }
+    if (!trimmed.empty()) {
+      return "error: no active notification offers " + key + "\n";
+    }
     return "ok\n"; // No active notification carries a default action; nothing to do.
   });
 
@@ -350,19 +353,18 @@ void Application::initIpc() {
     return nullptr;
   };
   m_ipcService.bind(
-      noctalia::cli::msg::notificationActionLatest,
-      [this, latestWithAction](const std::string& args) -> std::string {
+      noctalia::cli::msg::notificationActionLatest, [this, latestWithAction](const std::string& args) -> std::string {
         const std::string key = StringUtils::trim(args);
         const Notification* notification = latestWithAction(key);
         if (notification == nullptr) {
           return "error: no active notification offers " + key + "\n";
         }
-        return m_notificationManager.invokeAction(notification->id, key, true) ? "ok\n" : "error: invokeAction failed\n";
+        return m_notificationManager.invokeAction(notification->id, key, true) ? "ok\n"
+                                                                               : "error: invokeAction failed\n";
       }
   );
   m_ipcService.bind(
-      noctalia::cli::msg::notificationReplyLatest,
-      [this, latestWithAction](const std::string& args) -> std::string {
+      noctalia::cli::msg::notificationReplyLatest, [this, latestWithAction](const std::string& args) -> std::string {
         const Notification* notification = latestWithAction("inline-reply");
         if (notification == nullptr) {
           return "error: no active notification takes a reply\n";

@@ -21,8 +21,70 @@
       <arg name="kind" type="s" direction="in"/>
       <arg name="text" type="s" direction="in"/>
     </method>
+    <!-- Offers files to a connected device, or to a Nearby LocalSend device (localsend:<fingerprint>), and returns
+         the transfer id (32 hex digits) at once; the Transfer* signals report the rest. Each entry is an open descriptor of a regular file and the name the device sees.
+         Errors: .NotConnected without a live session, .Rejected for no files or a descriptor that is not a regular
+         file, .Failed otherwise. -->
+    <method name="SendFiles">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="files" type="a(hs)" direction="in"/>
+      <arg name="transfer_id" type="s" direction="out"/>
+    </method>
+    <!-- Consent for a TransferOffered; .Rejected once the offer no longer waits (answered, withdrawn, or 120 s
+         passed, which declines it). -->
+    <method name="AcceptTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <method name="DeclineTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <!-- Either direction; the device is told and partial files are deleted. -->
+    <method name="CancelTransfer">
+      <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <!-- Accept this device's offers without a TransferOffered. Off for a newly paired device. -->
+    <method name="SetAutoAccept">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="enabled" type="b" direction="in"/>
+    </method>
+    <!-- feature: clipboard, files, or notifications. A paired device starts with clipboard and files. -->
+    <method name="SetGrant">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="feature" type="s" direction="in"/>
+      <arg name="granted" type="b" direction="in"/>
+    </method>
+    <!-- The desktop's clipboard changed: offers it to connected devices holding the clipboard grant. data holds the
+         first type's bytes (a memfd); text goes inline, anything else only when a device pulls it. -->
+    <method name="OfferClipboard">
+      <arg name="mimes" type="as" direction="in"/>
+      <arg name="data" type="h" direction="in"/>
+    </method>
+    <!-- Writes type mime of a device's ClipboardOffered clip into sink (a paste target's pipe) and returns the byte
+         count. Errors: .NotConnected, .Failed (a stale offer, a timeout, bytes past the offered size). -->
+    <method name="PullClipboard">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="id" type="t" direction="in"/>
+      <arg name="mime" type="s" direction="in"/>
+      <arg name="sink" type="h" direction="in"/>
+      <arg name="bytes" type="t" direction="out"/>
+    </method>
+    <!-- "Visible to LocalSend": answers LocalSend discovery and accepts LocalSend offers (with the same consent as
+         Link), and lists LocalSend devices in Nearby. Off until turned on; kept across restarts. -->
+    <method name="SetLocalSendVisible">
+      <arg name="visible" type="b" direction="in"/>
+    </method>
+    <property name="LocalSendVisible" type="b" access="read"/>
+    <!-- LocalSend devices on the LAN, (localsend:<fingerprint>, alias), while LocalSendVisible is on. -->
+    <property name="Nearby" type="a(ss)" access="read"/>
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
+    <!-- Devices whose offers are accepted without asking. -->
+    <property name="AutoAccept" type="as" access="read"/>
+    <!-- Connected device id to (battery percent, charging, network); network is wifi, cellular, ethernet, none, or
+         other. A device appears once it reported, and leaves when it disconnects. -->
+    <property name="DeviceStatus" type="a{s(ubs)}" access="read"/>
+    <!-- Device id to the features it holds. -->
+    <property name="Grants" type="a{sas}" access="read"/>
     <property name="Pairing" type="b" access="read"/>
     <signal name="PairingFinished">
       <arg name="device_id" type="s"/>
@@ -37,6 +99,33 @@
       <arg name="kind" type="s"/>
       <arg name="text" type="s"/>
     </signal>
+    <!-- A device offers files, each (sanitized name, size in bytes); answer with AcceptTransfer or DeclineTransfer.
+         device_id is a Link device or localsend:<fingerprint>. -->
+    <signal name="TransferOffered">
+      <arg name="transfer_id" type="s"/>
+      <arg name="device_id" type="s"/>
+      <arg name="files" type="a(st)"/>
+    </signal>
+    <!-- Bytes moved so far in either direction, at most 4 times a second per transfer. -->
+    <signal name="TransferProgress">
+      <arg name="transfer_id" type="s"/>
+      <arg name="bytes" type="t"/>
+      <arg name="total" type="t"/>
+    </signal>
+    <!-- status: done, failed, declined, no-space, too-large, busy, or cancelled. paths: what an incoming transfer
+         published in the download directory, each verified against its SHA-256. -->
+    <signal name="TransferFinished">
+      <arg name="transfer_id" type="s"/>
+      <arg name="status" type="s"/>
+      <arg name="paths" type="as"/>
+    </signal>
+    <!-- A device's clipboard changed; offer it as a selection and pull a type with PullClipboard on paste. size is the
+         first type's length. -->
+    <signal name="ClipboardOffered">
+      <arg name="device_id" type="s"/>
+      <arg name="id" type="t"/>
+      <arg name="mimes" type="as"/>
+      <arg name="size" type="t"/>
     <!-- Runs a phone notification's action; reply_text is empty for an action that takes none. Returns once sent,
          unacknowledged. Errors: .NotConnected, .Rejected for arguments over the limits in messages.cddl. -->
     <method name="NotificationAction">

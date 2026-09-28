@@ -10,6 +10,7 @@
 #include "shell/bar/widgets/battery_widget.h"
 #include "shell/bar/widgets/battery_widget_definition.h"
 #include "shell/bar/widgets/bluetooth_widget.h"
+#include "shell/bar/widgets/phone_widget.h"
 #include "shell/bar/widgets/bluetooth_widget_definition.h"
 #include "shell/bar/widgets/brightness_widget.h"
 #include "shell/bar/widgets/brightness_widget_definition.h"
@@ -103,6 +104,7 @@ WidgetFactory::WidgetFactory(const BarServices& services)
       m_externalIp(services.externalIp), m_idleInhibitor(services.idleInhibitor), m_mpris(services.mpris),
       m_audioSpectrum(services.audioSpectrum), m_httpClient(services.httpClient), m_weather(services.weather),
       m_nightLight(services.nightLight), m_themeService(services.theme), m_bluetooth(services.bluetooth),
+      m_link(services.link),
       m_brightness(services.brightness), m_lockKeys(services.lockKeys), m_clipboard(services.clipboard),
       m_fileWatcher(services.fileWatcher), m_screenshots(services.screenshots), m_renderContext(services.renderContext),
       m_scriptApi(services.scriptApi) {
@@ -261,6 +263,9 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 context.contentScale, f.m_notifications, context.output,
                 notificationWidgetDefinition().resolve(context.config, context.settingContext)
             );
+          }},
+      {"phone", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            return createWidget<PhoneWidget>(context.contentScale, f.m_link);
           }},
       {"power_profile", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<PowerProfileWidget>(context.contentScale, f.m_powerProfiles);

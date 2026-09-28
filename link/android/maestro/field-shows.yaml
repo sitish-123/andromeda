@@ -1,0 +1,6 @@
+# Settings' device-name field holds TEXT: the name before a copy, or what a paste put there.
+appId: com.android.settings
+---
+- extendedWaitUntil:
+    visible: ${TEXT}
+    timeout: 10000

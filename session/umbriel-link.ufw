@@ -2,3 +2,8 @@
 title=Umbriel Link
 description=Phone and desktop continuity: QUIC on the default Link port, Quick Share over TCP, and mDNS so phones find the desktop
 ports=4717/udp|4718/tcp|5353/udp
+
+[Umbriel Link LocalSend]
+title=Umbriel Link LocalSend
+description=LocalSend compatibility, only while Visible to LocalSend is on: HTTPS and multicast discovery
+ports=53317/tcp|53317/udp

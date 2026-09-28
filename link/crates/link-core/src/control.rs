@@ -78,6 +78,10 @@ impl Control {
     pub fn split(self) -> (ControlReader, ControlWriter) {
         (self.reader, self.writer)
     }
+
+    pub fn tap(&self) -> Option<Tap> {
+        self.reader.tap.clone()
+    }
 }
 
 impl ControlWriter {
@@ -94,12 +98,7 @@ impl ControlWriter {
 impl ControlReader {
     /// The next envelope, waiting as long as the connection lives. Not cancel-safe: a frame read halfway is lost.
     pub async fn recv(&mut self) -> Result<Envelope, Error> {
-        let mut header = [0; HEADER_LEN];
-        self.recv.read_exact(&mut header).await?;
-        let mut body = vec![0; frame::body_len(header)?];
-        self.recv.read_exact(&mut body).await?;
-        observe(self.tap.as_ref(), Direction::Received, &body);
-        Ok(Envelope::from_cbor(&body)?)
+        read_frame(&mut self.recv, self.tap.as_ref()).await
     }
 
     /// Reads envelopes into `inbox` until the stream fails; a closed inbox ends it too. Polled as one future, so a
@@ -112,6 +111,24 @@ impl ControlReader {
             }
         }
     }
+}
+
+/// Reads one frame: the next control message, or the header that opens a bulk stream.
+pub async fn read_frame(recv: &mut quinn::RecvStream, tap: Option<&Tap>) -> Result<Envelope, Error> {
+    let mut header = [0; HEADER_LEN];
+    recv.read_exact(&mut header).await?;
+    let mut body = vec![0; frame::body_len(header)?];
+    recv.read_exact(&mut body).await?;
+    observe(tap, Direction::Received, &body);
+    Ok(Envelope::from_cbor(&body)?)
+}
+
+/// Writes the frame that opens a bulk stream; its envelope id is always 0.
+pub async fn write_frame(send: &mut quinn::SendStream, message: Message, tap: Option<&Tap>) -> Result<(), Error> {
+    let bytes = frame::encode(&Envelope::new(0, message));
+    observe(tap, Direction::Sent, &bytes[HEADER_LEN..]);
+    send.write_all(&bytes).await?;
+    Ok(())
 }
 
 fn observe(tap: Option<&Tap>, direction: Direction, body: &[u8]) {

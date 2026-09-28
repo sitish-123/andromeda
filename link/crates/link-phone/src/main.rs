@@ -1,6 +1,8 @@
 //! `umbriel-link-phone`: a headless phone built on link-core, standing in for the Android app in E2E tests.
 //! Every command prints one JSON object per result on stdout.
 
+mod files;
+mod flood;
 mod held;
 mod present;
 mod relay;
@@ -11,8 +13,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use link_core::identity::{DeviceId, Identity};
+use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
 use link_core::proto::message::{Message, Share, ShareKind};
@@ -31,6 +34,9 @@ struct Cli {
     /// Appends every control message as a JSON line with its CBOR in hex.
     #[arg(long)]
     transcript: Option<PathBuf>,
+    /// Where received files go; default `<state>/Downloads`.
+    #[arg(long)]
+    downloads: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -55,10 +61,34 @@ enum Command {
     },
     /// Stays present with the paired desktop, as the app does in the foreground: keep-alive, redial with backoff.
     /// Prints every event as a JSON line; each stdin line `<text|link> <text>` is shared with the desktop.
+    /// Other stdin lines: `send <path>...`, `accept <transfer>`, `decline <transfer>`, `cancel <transfer>`.
     Hold {
         /// Stop after this long; otherwise at SIGTERM or SIGINT.
         #[arg(long)]
         seconds: Option<u64>,
+        /// How to answer the desktop's file offers; `ask` waits for an `accept` or `decline` line.
+        #[arg(long, value_enum, default_value_t = OnOffer::Ask)]
+        on_offer: OnOffer,
+        /// The status to report, as `<battery>,<charging 0|1>,<network>`; a `status` line changes it.
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Hostile: sends `count` messages of one kind back to back and prints what the desktop answered.
+    Flood {
+        #[arg(long, value_enum)]
+        kind: flood::Kind,
+        #[arg(long, default_value_t = 50)]
+        count: u32,
+    },
+    /// Sends files to the paired desktop, connecting on demand, and waits for the result.
+    SendFile {
+        paths: Vec<PathBuf>,
+        /// The name the desktop sees, per path in order; `%XX` escapes a byte, so `%00` is NUL.
+        #[arg(long = "as-name")]
+        names: Vec<String>,
+        /// Hostile: send this many bytes past the announced size of the first path (the desktop must auto-accept).
+        #[arg(long)]
+        oversize: Option<u64>,
     },
     /// Shares text or a link with the paired desktop, connecting on demand.
     Share {
@@ -113,10 +143,24 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     }
     let state = cli.state.context("--state is required for this command")?;
     let mut phone = open(&state, cli.name, cli.transcript.as_deref())?;
+    let inbox = || Inbox::new(cli.downloads.clone().unwrap_or_else(|| state.join("Downloads")), &state);
     match cli.command {
-        Command::Hold { seconds } => {
+        Command::Hold { seconds, on_offer, status } => {
             let id = only_desktop(&phone)?;
-            return present::hold(phone, id, seconds).await;
+            let status = status.as_deref().map(present::parse_status).transpose()?;
+            return present::hold(phone, inbox()?, id, present::Options { seconds, on_offer, status }).await;
+        }
+        Command::Flood { kind, count } => {
+            let id = only_desktop(&phone)?;
+            return flood::flood(phone, id, kind, count).await;
+        }
+        Command::SendFile { paths, names, oversize } => {
+            let id = only_desktop(&phone)?;
+            let names = files::names(&paths, &names)?;
+            if let Some(extra) = oversize {
+                return files::send_oversize(phone, id, &paths, &names, extra).await;
+            }
+            return files::send(phone, inbox()?, id, &paths, names).await;
         }
         Command::Share { kind, text, unchecked } => {
             let id = only_desktop(&phone)?;
@@ -124,7 +168,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             if unchecked {
                 return present::share_unchecked(phone, id, share).await;
             }
-            return present::share(phone, id, share).await;
+            return present::share(phone, inbox()?, id, share).await;
         }
         Command::NotifyUnchecked { json } => {
             let id = only_desktop(&phone)?;
@@ -205,6 +249,13 @@ async fn unpair(phone: &mut Phone) -> anyhow::Result<()> {
     let told = phone.unpair(&id).await?;
     println!("{}", json!({ "unpaired": id, "desktop_told": told }));
     Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OnOffer {
+    Accept,
+    Decline,
+    Ask,
 }
 
 fn parse_kind(text: &str) -> Result<ShareKind, String> {

@@ -2,11 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The network type desktops show (StatusReporter). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- connectedDevice also needs one of a set of permissions; core's CHANGE_WIFI_MULTICAST_STATE is one. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Development permission, granted only over adb: automatic phone-to-desktop clipboard (ClipboardWatcher). -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- "Display over other apps": the only way the watcher may bring up ClipboardReadActivity from the background. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Find my phone rings through Do Not Disturb once the user grants this in Settings. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <!-- Calls: the state, the caller's number, the contact's name, and declining. Each is asked for in onboarding. -->
@@ -63,12 +71,62 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
 
         <service
             android:name=".presence.PresenceService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <activity
+            android:name=".clipboard.ClipboardReadActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/clipboard_send"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".transfer.OfferActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <provider
+            android:name=".clipboard.ClipProvider"
+            android:authorities="org.umbriel.link.clip"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <service
+            android:name=".clipboard.ClipboardTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_send"
+            android:label="@string/clipboard_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".transfer.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".notifications.MirrorService"
@@ -95,6 +153,10 @@
 
         <receiver
             android:name=".notifications.CopyReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notifications.TransferReceiver"
             android:exported="false" />
 
         <receiver

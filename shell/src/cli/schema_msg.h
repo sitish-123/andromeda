@@ -202,6 +202,10 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgLinkUnpairPositionals{
       Positional{"device-id", {}, {}, true, false, false},
   };
+  inline constexpr std::array kMsgLinkSendFilePositionals{
+      Positional{"device-id", {}, {}, true, false, false},
+      Positional{"path", {}, {}, true, true, false},
+  };
   inline constexpr std::array<std::string_view, 1> kMsgLinkRingModeChoices{"stop"};
   inline constexpr std::array kMsgLinkRingPositionals{
       Positional{"device-id", {}, {}, true, false, false},
@@ -900,6 +904,9 @@ namespace noctalia::cli {
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
+    inline constexpr Command linkSendFile{
+        "link-send-file", "Send files to a connected phone", {}, {}, {}, kMsgLinkSendFilePositionals, {}, false
+    };
     inline constexpr Command linkRing{
         "link-ring", "Ring a connected phone at full volume, or stop it", {}, {}, {}, kMsgLinkRingPositionals, {}, false
     };
@@ -1021,6 +1028,7 @@ namespace noctalia::cli {
       msg::linkDevices,
       msg::linkPair,
       msg::linkPairing,
+      msg::linkSendFile,
       msg::linkRing,
       msg::linkRinging,
       msg::linkShare,

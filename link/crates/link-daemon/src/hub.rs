@@ -1,6 +1,7 @@
 //! The hub actor: sole owner of the device store, the pairing window, and the set of live sessions.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,16 +9,18 @@ use link_core::discovery::Advertiser;
 use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
-use link_core::proto::message::{Call, CallState, MediaPlayer, Message, NotificationPosted, Share};
+use link_core::proto::message::{Call, CallState, MediaPlayer, Message, NotificationPosted, Share, Status, TransferId};
 use link_core::proto::pairing::{Secret, Secrets};
-use link_core::session::{SessionEvent, SessionHandle};
-use link_core::store::{Peer, Store};
+use link_core::session::{Route, SessionEvent, SessionHandle};
+use link_core::store::{Peer, Store, feature_of};
+use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 use crate::desktop_media::{DesktopMediaHandle, Request};
+use crate::localsend::LocalSendHandle;
 use crate::media::Media;
 use crate::notifications::{Change, Mirror};
 use crate::paths::Paths;
@@ -41,6 +44,14 @@ pub struct Snapshot {
     /// `(device_id, name, connected)`, the D-Bus `Devices` property.
     pub devices: Vec<(String, String, bool)>,
     pub pairing: bool,
+    /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
+    pub auto_accept: Vec<String>,
+    /// Device id to granted features, the D-Bus `Grants` property.
+    pub grants: Vec<(String, Vec<String>)>,
+    /// Connected device id to `(battery, charging, network)`, the D-Bus `DeviceStatus` property.
+    pub status: Vec<(String, (u32, bool, String))>,
+    /// "Visible to LocalSend", the D-Bus `LocalSendVisible` property.
+    pub localsend: bool,
 }
 
 #[derive(Debug)]
@@ -55,6 +66,14 @@ pub enum Event {
     Received {
         id: DeviceId,
         share: Share,
+    },
+    /// A transfer in either direction, from any backend.
+    Transfer(Signal),
+    ClipboardOffered {
+        from: DeviceId,
+        id: u64,
+        mimes: Vec<String>,
+        size: u64,
     },
     NotificationPosted {
         id: DeviceId,
@@ -79,6 +98,33 @@ pub enum Event {
     },
 }
 
+/// What any transfer backend reports, as the shell sees it: the Link transfer actor and LocalSend alike.
+#[derive(Debug, Clone)]
+pub enum Signal {
+    /// An offer waiting for consent; `device` is a Link device id or `localsend:<fingerprint>`.
+    Offered {
+        id: TransferId,
+        device: String,
+        files: Vec<(String, u64)>,
+    },
+    Progress {
+        id: TransferId,
+        bytes: u64,
+        total: u64,
+    },
+    Finished {
+        id: TransferId,
+        status: TransferStatus,
+        paths: Vec<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Link,
+    LocalSend,
+}
+
 enum Command {
     StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
     CancelPairing,
@@ -89,6 +135,13 @@ enum Command {
     Connected { id: DeviceId, name: String, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
+    SetAutoAccept { id: DeviceId, enabled: bool, reply: oneshot::Sender<bool> },
+    SetGrant { id: DeviceId, feature: String, granted: bool, reply: oneshot::Sender<bool> },
+    SendFiles { device: String, sources: Vec<Source>, reply: oneshot::Sender<Result<TransferId, link_core::Error>> },
+    Decide { id: TransferId, accept: bool, reply: oneshot::Sender<bool> },
+    CancelTransfer { id: TransferId, reply: oneshot::Sender<bool> },
+    SetLocalSend { visible: bool },
+    ClipboardPeers { reply: oneshot::Sender<Vec<DeviceId>> },
     DesktopPlayer { player: MediaPlayer },
     DesktopPlayerGone { player: String },
 }
@@ -97,6 +150,7 @@ enum Command {
 pub struct HubHandle {
     commands: mpsc::Sender<Command>,
     session_events: mpsc::Sender<SessionEvent>,
+    transfers: TransferHandle,
 }
 
 struct Window {
@@ -115,6 +169,7 @@ pub struct Hub {
     window: Option<Window>,
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
+    status: HashMap<DeviceId, Status>,
     notifications: Mirror,
     media: Media,
     /// Phones with a call ringing or active, during which the desktop's players stay paused.
@@ -125,6 +180,21 @@ pub struct Hub {
     session_events: mpsc::Receiver<SessionEvent>,
     snapshots: watch::Sender<Snapshot>,
     events: mpsc::Sender<Event>,
+    transfers: TransferHandle,
+    transfer_events: mpsc::UnboundedReceiver<TransferEvent>,
+    localsend: LocalSendHandle,
+    localsend_signals: mpsc::UnboundedReceiver<Signal>,
+    /// Which backend each open transfer belongs to, for consent and cancelling.
+    open: HashMap<TransferId, Backend>,
+}
+
+/// The transfer backends the hub consents for: the Link transfer actor, which it also attaches sessions to, and
+/// LocalSend.
+pub struct Transfers {
+    pub handle: TransferHandle,
+    pub events: mpsc::UnboundedReceiver<TransferEvent>,
+    pub localsend: LocalSendHandle,
+    pub localsend_signals: mpsc::UnboundedReceiver<Signal>,
 }
 
 impl Hub {
@@ -133,10 +203,12 @@ impl Hub {
         store: Store,
         paths: Paths,
         desktop_media: DesktopMediaHandle,
+        transfers: Transfers,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
-        let handle = HubHandle { commands: commands_tx, session_events: session_events_tx };
+        let handle =
+            HubHandle { commands: commands_tx, session_events: session_events_tx, transfers: transfers.handle.clone() };
         let media = Media::new(desktop_media, paths.art.clone());
         let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
         let (events, events_rx) = mpsc::channel(16);
@@ -148,6 +220,7 @@ impl Hub {
             window: None,
             windows_opened: 0,
             sessions: HashMap::new(),
+            status: HashMap::new(),
             notifications: Mirror::default(),
             media,
             in_call: HashSet::new(),
@@ -156,12 +229,20 @@ impl Hub {
             session_events,
             snapshots,
             events,
+            transfers: transfers.handle.clone(),
+            transfer_events: transfers.events,
+            localsend: transfers.localsend,
+            localsend_signals: transfers.localsend_signals,
+            open: HashMap::new(),
         };
         hub.refresh();
         (hub, handle, snapshots_rx, events_rx)
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
+        if self.store.localsend {
+            self.localsend.set_visible(true).await;
+        }
         loop {
             let deadline = self.window.as_ref().map(|window| window.deadline);
             tokio::select! {
@@ -170,6 +251,8 @@ impl Hub {
                     None => return Ok(()),
                 },
                 Some(event) = self.session_events.recv() => self.on_session_event(event).await,
+                Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
+                Some(signal) = self.localsend_signals.recv() => self.on_signal(Backend::LocalSend, signal).await,
                 () = sleep_until(deadline) => {
                     log::info!("pairing window expired");
                     self.close_window();
@@ -195,10 +278,12 @@ impl Hub {
                     self.emit(Event::PairingFailed { reason }).await;
                 }
             }
-            Command::Connected { id, name, session } => self.connected(id, name, session),
+            Command::Connected { id, name, session } => self.connected(id, name, session).await,
             Command::Disconnected { id, stable_id } => {
+                self.transfers.detach(id.clone(), stable_id).await;
                 if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
                     self.sessions.remove(&id);
+                    self.status.remove(&id);
                     self.publish();
                     self.media.disconnected(&id).await;
                     self.set_in_call(&id, false).await;
@@ -209,7 +294,134 @@ impl Hub {
             Command::Session { id, reply } => {
                 drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
             }
+            Command::SetAutoAccept { id, enabled, reply } => {
+                let Some(peer) = self.store.peer_mut(&id) else {
+                    let _ = reply.send(false);
+                    return;
+                };
+                peer.auto_accept = enabled;
+                self.save();
+                self.publish();
+                let _ = reply.send(true);
+            }
+            Command::SetGrant { id, feature, granted, reply } => {
+                let feature = link_core::store::Feature::parse(&feature);
+                let set = match (self.store.peer_mut(&id), feature) {
+                    (Some(peer), Some(feature)) => {
+                        peer.grants.set(feature, granted);
+                        true
+                    }
+                    _ => false,
+                };
+                if set {
+                    self.save();
+                    self.publish();
+                }
+                let _ = reply.send(set);
+            }
+            Command::SendFiles { device, sources, reply } => {
+                let sent = self.send_files(&device, sources).await;
+                drop(reply.send(sent));
+            }
+            Command::Decide { id, accept, reply } => {
+                let answered = match self.open.get(&id) {
+                    Some(Backend::LocalSend) => self.localsend.decide(id, accept).await,
+                    _ => self.transfers.decide(id, accept).await.unwrap_or(false),
+                };
+                let _ = reply.send(answered);
+            }
+            Command::CancelTransfer { id, reply } => {
+                let cancelled = match self.open.get(&id) {
+                    Some(Backend::LocalSend) => self.localsend.cancel(id).await,
+                    _ => self.transfers.cancel(id).await.unwrap_or(false),
+                };
+                let _ = reply.send(cancelled);
+            }
+            Command::SetLocalSend { visible } => {
+                self.store.localsend = visible;
+                self.save();
+                self.publish();
+                self.localsend.set_visible(visible).await;
+            }
+            Command::ClipboardPeers { reply } => {
+                let granted = |id: &DeviceId| self.store.peer(id).is_some_and(|peer| peer.grants.clipboard);
+                let peers = self.sessions.iter().filter(|(id, session)| session.is_live() && granted(id));
+                drop(reply.send(peers.map(|(id, _)| id.clone()).collect()));
+            }
         }
+    }
+
+    /// Consent and grants are the hub's: an offer from a device without the files grant is declined, one from an
+    /// auto-accept device accepted, any other goes to the shell; a clip from a device without the clipboard grant is
+    /// dropped.
+    async fn on_transfer(&mut self, event: TransferEvent) {
+        let grants = |id: &DeviceId| self.store.peer(id).map(|peer| peer.grants).unwrap_or_default();
+        match &event {
+            TransferEvent::Busy { .. } => return,
+            TransferEvent::Offered { id, from, .. } if !grants(from).files => {
+                log::info!("{from}: declining transfer {id}: no files grant");
+                if let Err(error) = self.transfers.decide(*id, false).await {
+                    log::error!("declining {id}: {error}");
+                }
+                return;
+            }
+            TransferEvent::ClipOffered { from, .. } if !grants(from).clipboard => {
+                log::info!("{from}: dropping a clipboard offer: no clipboard grant");
+                return;
+            }
+            TransferEvent::Offered { id, from, .. } if self.store.peer(from).is_some_and(|peer| peer.auto_accept) => {
+                log::info!("{from}: auto-accepting transfer {id}");
+                if let Err(error) = self.transfers.decide(*id, true).await {
+                    log::error!("accepting {id}: {error}");
+                }
+                return;
+            }
+            _ => {}
+        }
+        let signal = match event {
+            TransferEvent::Offered { id, from, files } => {
+                let files = files.into_iter().map(|file| (file.name, file.size)).collect();
+                Signal::Offered { id, device: from.to_string(), files }
+            }
+            TransferEvent::Progress { id, bytes, total } => Signal::Progress { id, bytes, total },
+            TransferEvent::Finished { id, status, files, .. } => {
+                Signal::Finished { id, status, paths: files.into_iter().map(|file| file.path).collect() }
+            }
+            TransferEvent::ClipOffered { from, id, mimes, size, .. } => {
+                return self.emit(Event::ClipboardOffered { from, id, mimes, size }).await;
+            }
+            TransferEvent::Busy { .. } => return,
+        };
+        self.on_signal(Backend::Link, signal).await;
+    }
+
+    /// Tracks which backend owns each open transfer and passes the signal to D-Bus.
+    async fn on_signal(&mut self, backend: Backend, signal: Signal) {
+        match &signal {
+            Signal::Offered { id, .. } | Signal::Progress { id, .. } => {
+                self.open.entry(*id).or_insert(backend);
+            }
+            Signal::Finished { id, .. } => {
+                self.open.remove(id);
+            }
+        }
+        self.emit(Event::Transfer(signal)).await;
+    }
+
+    /// A `localsend:<fingerprint>` device goes to LocalSend, anything else to Link.
+    async fn send_files(&mut self, device: &str, sources: Vec<Source>) -> Result<TransferId, link_core::Error> {
+        if let Some(fingerprint) = device.strip_prefix(crate::localsend::PREFIX) {
+            let id = self
+                .localsend
+                .send(fingerprint.to_owned(), sources)
+                .await
+                .map_err(|_| link_core::Error::NotConnected)?;
+            self.open.insert(id, Backend::LocalSend);
+            return Ok(id);
+        }
+        let id = self.transfers.send(DeviceId::parse(device)?, sources).await?;
+        self.open.insert(id, Backend::Link);
+        Ok(id)
     }
 
     async fn on_session_event(&mut self, event: SessionEvent) {
@@ -217,6 +429,12 @@ impl Hub {
             SessionEvent::Received { from, share } => {
                 if self.sessions.contains_key(&from) {
                     self.emit(Event::Received { id: from, share }).await;
+                }
+            }
+            SessionEvent::Status { from, status } => {
+                if self.sessions.contains_key(&from) {
+                    self.status.insert(from, status);
+                    self.publish();
                 }
             }
             SessionEvent::Unpaired { from } => {
@@ -229,7 +447,11 @@ impl Hub {
                 self.media.disconnected(&from).await;
             }
             SessionEvent::Message { from, message } => {
-                if self.sessions.contains_key(&from) {
+                let granted = feature_of(&message)
+                    .is_some_and(|feature| self.store.peer(&from).is_some_and(|peer| peer.grants.allows(feature)));
+                if !granted {
+                    log::info!("{from}: dropped a {} its grant does not allow", message.kind());
+                } else if self.sessions.contains_key(&from) {
                     self.on_message(from, message).await;
                 }
             }
@@ -358,7 +580,7 @@ impl Hub {
     }
 
     /// One session per device: a newer one replaces the older, which a phone that changed networks leaves behind.
-    fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
+    async fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
         let Some(peer) = self.store.peer_mut(&id) else {
             return session.close(CloseCode::NotPaired);
         };
@@ -366,10 +588,11 @@ impl Hub {
         peer.touch();
         self.save();
         self.media.connected(&session);
-        if let Some(older) = self.sessions.insert(id, session) {
+        if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
         self.publish();
+        self.transfers.attach(id, session).await;
     }
 
     fn unpair(&mut self, id: &DeviceId) -> bool {
@@ -418,8 +641,21 @@ impl Hub {
             .iter()
             .map(|peer| (peer.id.to_string(), peer.name.clone(), self.sessions.contains_key(&peer.id)))
             .collect();
+        let auto_accept =
+            self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
+        let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
+        let mut status: Vec<_> = self
+            .status
+            .iter()
+            .map(|(id, status)| {
+                let value = (u32::from(status.battery), status.charging, status.network.as_str().to_owned());
+                (id.to_string(), value)
+            })
+            .collect();
+        status.sort();
         self.snapshots.send_if_modified(|current| {
-            let next = Snapshot { devices, pairing: self.window.is_some() };
+            let localsend = self.store.localsend;
+            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend };
             let changed = *current != next;
             *current = next;
             changed
@@ -512,9 +748,46 @@ impl HubHandle {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
     }
 
-    /// Where session actors report what their peers send.
-    pub fn session_events(&self) -> mpsc::Sender<SessionEvent> {
-        self.session_events.clone()
+    pub async fn set_grant(&self, id: DeviceId, feature: String, granted: bool) -> bool {
+        self.request(|reply| Command::SetGrant { id, feature, granted, reply }).await.unwrap_or(false)
+    }
+
+    /// Connected devices holding the clipboard grant.
+    pub async fn clipboard_peers(&self) -> Vec<DeviceId> {
+        self.request(|reply| Command::ClipboardPeers { reply }).await.unwrap_or_default()
+    }
+
+    /// Offers files to a Link device or a `localsend:<fingerprint>` peer.
+    pub async fn send_files(&self, device: String, sources: Vec<Source>) -> Result<TransferId, link_core::Error> {
+        self.request(|reply| Command::SendFiles { device, sources, reply })
+            .await
+            .unwrap_or(Err(link_core::Error::Stopped))
+    }
+
+    /// Answers an offer from any backend; false when it no longer waits.
+    pub async fn decide(&self, id: TransferId, accept: bool) -> bool {
+        self.request(|reply| Command::Decide { id, accept, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn cancel_transfer(&self, id: TransferId) -> bool {
+        self.request(|reply| Command::CancelTransfer { id, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn set_localsend(&self, visible: bool) {
+        self.tell(Command::SetLocalSend { visible }).await;
+    }
+
+    pub async fn set_auto_accept(&self, id: DeviceId, enabled: bool) -> bool {
+        self.request(|reply| Command::SetAutoAccept { id, enabled, reply }).await.unwrap_or(false)
+    }
+
+    pub fn transfers(&self) -> &TransferHandle {
+        &self.transfers
+    }
+
+    /// Where a session delivers what its peer sends.
+    pub fn route(&self, peer: DeviceId) -> Route {
+        Route { peer, events: self.session_events.clone(), transfers: self.transfers.clone() }
     }
 
     pub async fn desktop_player(&self, player: MediaPlayer) {

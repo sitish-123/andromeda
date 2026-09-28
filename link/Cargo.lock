@@ -947,6 +947,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "httparse"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1087,6 +1093,7 @@ dependencies = [
  "mdns-sd",
  "quinn",
  "ring",
+ "rustix",
  "rustls",
  "serde",
  "serde_json",
@@ -1102,13 +1109,17 @@ dependencies = [
  "env_logger",
  "futures-util",
  "hex",
+ "httparse",
  "link-core",
  "link-quickshare",
  "log",
  "quinn",
  "ring",
+ "rustls",
  "serde",
+ "serde_json",
  "tokio",
+ "tokio-rustls",
  "zbus",
 ]
 
@@ -1136,6 +1147,7 @@ dependencies = [
  "link-core",
  "log",
  "quinn",
+ "ring",
  "serde_json",
  "tokio",
 ]
@@ -2115,6 +2127,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.26.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
+dependencies = [
+ "rustls",
+ "tokio",
 ]
 
 [[package]]

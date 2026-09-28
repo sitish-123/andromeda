@@ -1,26 +1,30 @@
-//! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, and the events an app shows.
-//! Shared by the headless phone and the Android bindings.
+//! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, file transfers, and the events an
+//! app shows. Shared by the headless phone and the Android bindings.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::{Message, Share};
+use link_proto::message::{Message, Share, Status, TransferId};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::identity::DeviceId;
+use crate::inbox::Inbox;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::Via;
-use crate::session::{self, SessionEvent, SessionHandle};
-use crate::store::{Feature, Peer};
+use crate::session::{self, Route, SessionEvent, SessionHandle};
+use crate::store::{Feature, Peer, feature_of};
+use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::{Error, close_code_for};
 
 const FIRST_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY: Duration = Duration::from_secs(30);
+/// The least time between two status messages; a desktop drops more than three in 30 s.
+const STATUS_EVERY: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
@@ -42,6 +46,8 @@ pub enum ClientEvent {
     Unpaired {
         id: DeviceId,
     },
+    /// Offers, progress, and results of file transfers in both directions.
+    Transfer(TransferEvent),
     /// A feature message from a desktop whose switch for that feature is on.
     Message {
         from: DeviceId,
@@ -56,6 +62,13 @@ pub struct DesktopState {
 }
 
 enum Command {
+    Keep {
+        id: DeviceId,
+        keep: bool,
+    },
+    SetStatus {
+        status: Status,
+    },
     Pair {
         target: PairTarget,
         reply: oneshot::Sender<Result<Peer, Error>>,
@@ -89,7 +102,10 @@ enum Command {
 
 /// The handle apps hold; every method is answered by the [`ClientActor`].
 #[derive(Clone)]
-pub struct Client(mpsc::Sender<Command>);
+pub struct Client {
+    commands: mpsc::Sender<Command>,
+    transfers: TransferHandle,
+}
 
 pub struct ClientActor {
     phone: Phone,
@@ -99,8 +115,19 @@ pub struct ClientActor {
     running: JoinSet<Ended>,
     session_events_tx: mpsc::Sender<SessionEvent>,
     session_events: mpsc::Receiver<SessionEvent>,
+    transfers: TransferHandle,
+    transfer_actor: Option<TransferActor>,
+    transfer_events: mpsc::UnboundedReceiver<TransferEvent>,
     present: bool,
+    /// Desktops with an open transfer, kept connected like a present phone until it ends.
+    busy: HashSet<DeviceId>,
+    /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
+    keeping: HashSet<DeviceId>,
     retries: HashMap<DeviceId, Retry>,
+    status: Option<Status>,
+    /// The status last sent, when, and whether a newer one waits for [`STATUS_EVERY`] to pass.
+    status_sent: Option<Instant>,
+    status_pending: bool,
 }
 
 struct Ended {
@@ -114,11 +141,12 @@ struct Retry {
     delay: Duration,
 }
 
-/// The caller runs the actor in a task it owns and reads the events.
-pub fn client(phone: Phone) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>) {
+/// The caller runs the actor in a task it owns and reads the events. Received files go to `inbox`.
+pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>) {
     let (commands_tx, commands) = mpsc::channel(16);
     let (events, events_rx) = mpsc::channel(64);
     let (session_events_tx, session_events) = mpsc::channel(16);
+    let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
     let actor = ClientActor {
         phone,
         commands,
@@ -127,10 +155,18 @@ pub fn client(phone: Phone) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>
         running: JoinSet::new(),
         session_events_tx,
         session_events,
+        transfers: transfers.clone(),
+        transfer_actor: Some(transfer_actor),
+        transfer_events,
         present: false,
+        busy: HashSet::new(),
+        keeping: HashSet::new(),
         retries: HashMap::new(),
+        status: None,
+        status_sent: None,
+        status_pending: false,
     };
-    (Client(commands_tx), actor, events_rx)
+    (Client { commands: commands_tx, transfers }, actor, events_rx)
 }
 
 impl Client {
@@ -147,13 +183,53 @@ impl Client {
     /// While present, every paired desktop is kept connected with keep-alive and redialled when it drops; otherwise
     /// sessions are opened on demand and idle out.
     pub async fn set_present(&self, present: bool) -> Result<(), Error> {
-        self.0.send(Command::SetPresent { present }).await.map_err(|_| Error::Stopped)
+        self.commands.send(Command::SetPresent { present }).await.map_err(|_| Error::Stopped)
     }
 
     /// Sends `share`, connecting first if needed, and waits for the desktop's ack.
     pub async fn share(&self, id: DeviceId, share: Share) -> Result<(), Error> {
         share.check()?;
         self.session(id).await?.share(share).await
+    }
+
+    /// Offers files to the desktop, connecting with keep-alive first; the session stays until the transfer ends.
+    pub async fn send_files(&self, id: DeviceId, sources: Vec<Source>) -> Result<TransferId, Error> {
+        self.commands.send(Command::Keep { id: id.clone(), keep: true }).await.map_err(|_| Error::Stopped)?;
+        let sent = match self.session(id.clone()).await {
+            Ok(_) => self.transfers.send(id.clone(), sources).await,
+            Err(error) => Err(error),
+        };
+        self.commands.send(Command::Keep { id, keep: false }).await.map_err(|_| Error::Stopped)?;
+        sent
+    }
+
+    /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on.
+    pub async fn offer_clip(&self, clip: LocalClip) -> Result<(), Error> {
+        let desktops = self.desktops().await?;
+        let connected = desktops
+            .into_iter()
+            .filter(|desktop| desktop.connected && desktop.peer.grants.clipboard)
+            .map(|desktop| desktop.peer.id);
+        self.transfers.offer_clip(connected.collect(), clip).await
+    }
+
+    /// Writes `mime` of a desktop's clipboard offer into `sink`.
+    pub async fn pull_clip(&self, id: DeviceId, clip: u64, mime: String, sink: std::fs::File) -> Result<u64, Error> {
+        self.transfers.pull_clip(id, clip, mime, sink).await
+    }
+
+    /// The phone's battery and network: sent to every desktop on connect and, at most every 10 s, on change.
+    pub async fn set_status(&self, status: Status) -> Result<(), Error> {
+        self.commands.send(Command::SetStatus { status }).await.map_err(|_| Error::Stopped)
+    }
+
+    /// Answers a desktop's offer; false when it no longer waits.
+    pub async fn decide(&self, transfer: TransferId, accept: bool) -> Result<bool, Error> {
+        self.transfers.decide(transfer, accept).await
+    }
+
+    pub async fn cancel_transfer(&self, transfer: TransferId) -> Result<bool, Error> {
+        self.transfers.cancel(transfer).await
     }
 
     /// Tells the desktop, then forgets it. Returns whether the desktop was told; it is forgotten either way.
@@ -205,7 +281,7 @@ impl Client {
 
     async fn request<T>(&self, make: impl FnOnce(oneshot::Sender<T>) -> Command) -> Result<T, Error> {
         let (reply, response) = oneshot::channel();
-        self.0.send(make(reply)).await.map_err(|_| Error::Stopped)?;
+        self.commands.send(make(reply)).await.map_err(|_| Error::Stopped)?;
         response.await.map_err(|_| Error::Stopped)
     }
 }
@@ -213,25 +289,36 @@ impl Client {
 impl ClientActor {
     /// Runs until every [`Client`] is dropped, then closes the sessions and waits for the closes to be sent.
     pub async fn run(mut self) {
+        let Some(transfer_actor) = self.transfer_actor.take() else { return };
+        tokio::select! {
+            () = self.serve() => {}
+            () = transfer_actor.run() => log::error!("the transfer actor stopped"),
+        }
+        for handle in self.sessions.values() {
+            handle.close(CloseCode::Done);
+        }
+        self.phone.finish().await;
+    }
+
+    async fn serve(&mut self) {
         loop {
             let next_retry = self.retries.values().map(|retry| retry.at).min();
+            let next_status = self.status_pending.then(|| self.status_sent.map(|sent| sent + STATUS_EVERY)).flatten();
             tokio::select! {
                 command = self.commands.recv() => match command {
                     Some(command) => self.handle(command).await,
-                    None => break,
+                    None => return,
                 },
                 Some(joined) = self.running.join_next() => match joined {
                     Ok(ended) => self.ended(ended).await,
                     Err(join) => log::warn!("session task: {join}"),
                 },
                 Some(event) = self.session_events.recv() => self.relay(event).await,
+                Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
                 () = sleep_until(next_retry) => self.retry_due().await,
+                () = sleep_until(next_status) => self.send_status().await,
             }
         }
-        for handle in self.sessions.values() {
-            handle.close(CloseCode::Done);
-        }
-        self.phone.finish().await;
     }
 
     async fn handle(&mut self, command: Command) {
@@ -253,6 +340,22 @@ impl ClientActor {
                 drop(reply.send(self.phone.forget(&id)));
             }
             Command::Desktops { reply } => drop(reply.send(self.desktops())),
+            Command::SetStatus { status } => {
+                if self.status != Some(status) {
+                    self.status = Some(status);
+                    self.status_pending = true;
+                    if self.status_sent.is_none_or(|sent| sent.elapsed() >= STATUS_EVERY) {
+                        self.send_status().await;
+                    }
+                }
+            }
+            Command::Keep { id, keep } => {
+                if keep {
+                    self.keeping.insert(id);
+                } else {
+                    self.keeping.remove(&id);
+                }
+            }
             Command::SetSharing { id, feature, on, reply } => {
                 drop(reply.send(self.phone.set_sharing(&id, feature, on)));
             }
@@ -261,12 +364,46 @@ impl ClientActor {
                     .phone
                     .desktops()
                     .iter()
-                    .filter(|peer| peer.sharing.allows(feature))
+                    .filter(|peer| peer.grants.allows(feature))
                     .filter_map(|peer| self.sessions.get(&peer.id).filter(|handle| handle.is_live()).cloned())
                     .collect();
                 drop(reply.send(sessions));
             }
         }
+    }
+
+    async fn on_transfer(&mut self, event: TransferEvent) {
+        if let TransferEvent::Busy { peer, busy } = &event {
+            if *busy {
+                self.busy.insert(peer.clone());
+            } else {
+                self.busy.remove(peer);
+                if !self.present
+                    && let Some(handle) = self.sessions.get(peer)
+                {
+                    handle.close(CloseCode::Done);
+                }
+            }
+            return;
+        }
+        let allows = |id: &DeviceId, feature| {
+            self.phone.desktops().iter().any(|peer| peer.id == *id && peer.grants.allows(feature))
+        };
+        match &event {
+            TransferEvent::ClipOffered { from, .. } if !allows(from, Feature::Clipboard) => {
+                log::info!("{from}: dropped a clipboard offer its switch does not allow");
+                return;
+            }
+            TransferEvent::Offered { id, from, .. } if !allows(from, Feature::Files) => {
+                log::info!("{from}: declining transfer {id}: its files switch is off");
+                if let Err(error) = self.transfers.decide(*id, false).await {
+                    log::warn!("declining {id}: {error}");
+                }
+                return;
+            }
+            _ => {}
+        }
+        self.emit(ClientEvent::Transfer(event)).await;
     }
 
     async fn pair(&mut self, target: PairTarget) -> Result<Peer, Error> {
@@ -284,6 +421,7 @@ impl ClientActor {
     }
 
     async fn open(&mut self, id: &DeviceId) -> Result<SessionHandle, Error> {
+        self.phone.set_present(self.present || self.is_busy(id));
         match self.phone.connect(id).await {
             Ok(session) => Ok(self.adopt(session).await),
             Err(error) => {
@@ -299,8 +437,9 @@ impl ClientActor {
     async fn adopt(&mut self, session: phone::Session) -> SessionHandle {
         let phone::Session { connection, control, desktop, addr, via, resumed } = session;
         let id = desktop.id.clone();
-        let events = self.session_events_tx.clone();
-        let (handle, actor) = session::session(connection, control, Role::Phone, id.clone(), events);
+        let route =
+            Route { peer: id.clone(), events: self.session_events_tx.clone(), transfers: self.transfers.clone() };
+        let (handle, actor) = session::session(connection, control, Role::Phone, route);
         let (task_id, stable_id) = (id.clone(), handle.stable_id());
         self.running.spawn(async move { Ended { id: task_id, stable_id, result: actor.run().await } });
         if let Some(old) = self.sessions.insert(id.clone(), handle.clone()) {
@@ -308,12 +447,20 @@ impl ClientActor {
         }
         self.retries.remove(&id);
         log::info!("{id}: connected at {addr}");
+        if let Some(status) = self.status {
+            let (handle, status) = (handle.clone(), Message::Status(status));
+            if let Err(error) = handle.send(status).await {
+                log::info!("{id}: sending the status: {error}");
+            }
+        }
         self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
+        self.transfers.attach(id, handle.clone()).await;
         handle
     }
 
     async fn ended(&mut self, ended: Ended) {
         let Ended { id, stable_id, result } = ended;
+        self.transfers.detach(id.clone(), stable_id).await;
         if self.sessions.get(&id).is_none_or(|handle| handle.stable_id() != stable_id) {
             return;
         }
@@ -359,11 +506,13 @@ impl ClientActor {
 
     fn set_present(&mut self, present: bool) {
         self.present = present;
-        self.phone.set_present(present);
         if !present {
-            self.retries.clear();
-            for handle in self.sessions.values() {
-                handle.close(CloseCode::Done);
+            let (busy, keeping) = (&self.busy, &self.keeping);
+            self.retries.retain(|id, _| busy.contains(id) || keeping.contains(id));
+            for (id, handle) in &self.sessions {
+                if !self.is_busy(id) {
+                    handle.close(CloseCode::Done);
+                }
             }
             return;
         }
@@ -375,9 +524,25 @@ impl ClientActor {
         }
     }
 
+    /// Sends the latest status to every live session.
+    async fn send_status(&mut self) {
+        self.status_pending = false;
+        self.status_sent = Some(Instant::now());
+        let Some(status) = self.status else { return };
+        for (id, handle) in self.sessions.iter().filter(|(_, handle)| handle.is_live()) {
+            if let Err(error) = handle.send(Message::Status(status)).await {
+                log::info!("{id}: sending the status: {error}");
+            }
+        }
+    }
+
+    fn is_busy(&self, id: &DeviceId) -> bool {
+        self.busy.contains(id) || self.keeping.contains(id)
+    }
+
     /// Whether a lost session to `id` should be redialled.
     fn wants(&self, id: &DeviceId) -> bool {
-        self.present && self.phone.desktops().iter().any(|peer| peer.id == *id)
+        (self.present || self.is_busy(id)) && self.phone.desktops().iter().any(|peer| peer.id == *id)
     }
 
     async fn relay(&self, event: SessionEvent) {
@@ -385,7 +550,7 @@ impl ClientActor {
             SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
             SessionEvent::Message { from, message } => {
                 let allowed = feature_of(&message).is_some_and(|feature| {
-                    self.phone.desktops().iter().any(|peer| peer.id == from && peer.sharing.allows(feature))
+                    self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))
                 });
                 if allowed {
                     self.emit(ClientEvent::Message { from, message }).await;
@@ -393,7 +558,7 @@ impl ClientActor {
                     log::info!("{from}: dropped a {} its switch does not allow", message.kind());
                 }
             }
-            SessionEvent::Unpaired { .. } => {}
+            SessionEvent::Unpaired { .. } | SessionEvent::Status { .. } => {}
         }
     }
 
@@ -410,20 +575,6 @@ impl ClientActor {
         if self.events.send(event).await.is_err() {
             log::debug!("nobody reads client events");
         }
-    }
-}
-
-/// The per-desktop switch that governs a feature message.
-fn feature_of(message: &Message) -> Option<Feature> {
-    match message {
-        Message::NotificationPosted(_)
-        | Message::NotificationRemoved(_)
-        | Message::NotificationAction(_)
-        | Message::NotificationDismiss(_) => Some(Feature::Notifications),
-        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
-        Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
-        Message::Call(_) | Message::CallAction(_) => Some(Feature::Calls),
-        _ => None,
     }
 }
 

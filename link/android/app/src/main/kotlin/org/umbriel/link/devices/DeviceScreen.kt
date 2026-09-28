@@ -15,6 +15,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
@@ -92,6 +94,8 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
                 ) {
                     val sharing = desktop.sharing
                     listOf(
+                        Triple(Feature.Clipboard, R.string.feature_clipboard, Icons.Filled.Edit),
+                        Triple(Feature.Files, R.string.feature_files, Icons.Filled.Share),
                         Triple(Feature.Notifications, R.string.feature_notifications, Icons.Filled.Notifications),
                         Triple(Feature.Media, R.string.feature_media, Icons.Filled.PlayArrow),
                         Triple(Feature.Ring, R.string.feature_ring, Icons.Filled.Phone),

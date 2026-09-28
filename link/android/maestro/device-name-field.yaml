@@ -1,0 +1,10 @@
+# Settings' device-name dialog: a text field in another app, focused, holding the device name.
+appId: com.android.settings
+---
+- tapOn: "Device name"
+- extendedWaitUntil:
+    visible:
+      id: "android:id/edit"
+    timeout: 10000
+- tapOn:
+    id: "android:id/edit"

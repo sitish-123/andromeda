@@ -3,7 +3,9 @@
 
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
-  media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg
+  media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
+  offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
+  clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
 ; 0-RTT. The first message on the control stream from each side.
 hello-msg = { type: "hello", id: uint, body: hello }
@@ -36,6 +38,62 @@ link-pattern = tstr .pcre "^[Hh][Tt][Tt][Pp][Ss]?://[^[:space:][:cntrl:]]+$"
 ; Sent when the share was handed to the receiver's surface.
 share-ack-msg = { type: "share-ack", id: uint, body: { of: uint } }  ; of: the share's envelope id
 
+; Files (link/ARCHITECTURE.md, Files). Either side sends; file ids are unique within an offer, and the offer fits one
+; frame. The receiver sanitizes each name before using it.
+transfer-id = bstr .size 16
+offer-msg = { type: "offer", id: uint, body: offer }
+offer = { transfer: transfer-id, files: [+ offered-file] }
+offered-file = {
+  id: uint,
+  name: tstr .size (1..4096),
+  size: uint,
+  mime: tstr .size (1..255),
+  sha256: bstr .size 32,
+}
+
+offer-reply-msg = { type: "offer-reply", id: uint, body: offer-reply }
+offer-reply = accepted-reply / refused-reply
+accepted-reply = { transfer: transfer-id, accepted: true }
+refused-reply = { transfer: transfer-id, accepted: false, reason: "declined" / "no-space" / "too-large" / "busy" }
+
+; Sent by the sender on a new session for each accepted, unfinished transfer.
+resume-msg = { type: "resume", id: uint, body: { transfer: transfer-id } }
+; Every unfinished file and where it continues; sent after a file-done for each finished one.
+resume-at-msg = { type: "resume-at", id: uint, body: { transfer: transfer-id, offsets: [* file-offset] } }
+file-offset = { file: uint, offset: uint }
+
+cancel-msg = { type: "cancel", id: uint, body: { transfer: transfer-id } }
+
+; The receiver's verdict on one file, after it verified the hash and published it (ok) or deleted it.
+file-done-msg = { type: "file-done", id: uint, body: { transfer: transfer-id, file: uint, ok: bool } }
+
+; The first frame of a file's unidirectional stream (envelope id 0); the bytes from offset to size follow.
+file-data-msg = { type: "file-data", id: uint, body: { transfer: transfer-id, file: uint, offset: uint } }
+
+; Clipboard (link/ARCHITECTURE.md, Clipboard). Either side; a new offer replaces the previous one. size is the length
+; of the first type, at most 64 MiB; text is inline only when a text/plain type is offered.
+clip-offer-msg = { type: "clip-offer", id: uint, body: clip-offer }
+clip-offer = {
+  id: uint,
+  mimes: [1*16 media-type],
+  size: uint .le 67108864,
+  ? "text": tstr .size (1..61440),
+}
+
+; Asks for one type of the latest offer; answered by a unidirectional stream opened with clip-data (envelope id 0),
+; then the bytes, or reset at once for a stale offer.
+clip-pull-msg = { type: "clip-pull", id: uint, body: clip-ref }
+clip-data-msg = { type: "clip-data", id: uint, body: clip-ref }
+clip-ref = { id: uint, mime: media-type }
+media-type = tstr .size (1..255)
+
+; Phone to desktop, on connect and on change, at most every 10 s.
+status-msg = { type: "status", id: uint, body: status }
+status = {
+  battery: uint .le 100,    ; percent
+  charging: bool,
+  network: "wifi" / "cellular" / "ethernet" / "none" / "other",
+}
 ; Phone to desktop. Sizes are bytes of UTF-8; not acknowledged.
 notification-id = tstr .size (1..256)
 notification-posted-msg = { type: "notification-posted", id: uint, body: notification-posted }

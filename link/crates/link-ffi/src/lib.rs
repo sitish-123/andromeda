@@ -1,16 +1,21 @@
 //! Kotlin bindings of the phone role for the Android app (`UniFFI`). One `LinkClient` owns a single-worker tokio
 //! runtime running `link_core::client`'s actor; every method is a suspend function in Kotlin whose work runs there.
 
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::fs::File;
+use std::os::fd::{FromRawFd, OwnedFd};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use link_core::client::{self, Client, ClientEvent, DesktopState};
 use link_core::identity::{DeviceId, Identity};
+use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Message, Share};
+use link_core::proto::message::{self, Message, Share, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::{self, Peer};
+use link_core::transfer::{LocalClip, Source, TransferEvent};
 use link_core::uri::PairingUri;
 use tokio::sync::{Mutex, mpsc};
 
@@ -59,6 +64,8 @@ pub struct Desktop {
 #[derive(Debug, Clone, Copy, uniffi::Record)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
 pub struct Sharing {
+    pub clipboard: bool,
+    pub files: bool,
     pub notifications: bool,
     pub media: bool,
     pub ring: bool,
@@ -67,6 +74,8 @@ pub struct Sharing {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum Feature {
+    Clipboard,
+    Files,
     Notifications,
     Media,
     Ring,
@@ -115,6 +124,36 @@ pub enum LinkEvent {
     Unpaired {
         desktop_id: String,
     },
+    /// The desktop offers files; answer with `accept_transfer` or `decline_transfer` within 120 s.
+    TransferOffered {
+        transfer_id: String,
+        desktop_id: String,
+        files: Vec<OfferedFile>,
+    },
+    /// A desktop's clipboard changed. Set `text` at once when present; pull other types with `pull_clip` when an app
+    /// reads them.
+    ClipOffered {
+        desktop_id: String,
+        clip_id: u64,
+        mimes: Vec<String>,
+        size: u64,
+        text: Option<String>,
+    },
+    /// At most every 250 ms per transfer.
+    TransferProgress {
+        transfer_id: String,
+        bytes: u64,
+        total: u64,
+    },
+    /// `status` is done, failed, declined, no-space, too-large, busy, or cancelled; `files` holds what an incoming
+    /// transfer published, already verified against its hash.
+    TransferFinished {
+        transfer_id: String,
+        desktop_id: String,
+        incoming: bool,
+        status: String,
+        files: Vec<ReceivedFile>,
+    },
     /// Run a mirrored notification's action; `reply_text` only for one that takes `RemoteInput`.
     NotificationAction {
         desktop_id: String,
@@ -157,6 +196,29 @@ pub enum LinkEvent {
         command: MediaCommandKind,
         value: Option<u64>,
     },
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OfferedFile {
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ReceivedFile {
+    pub path: String,
+    /// Lowercase hex.
+    pub sha256: String,
+}
+
+/// A file to send: a descriptor the client takes ownership of, which must be a regular file of `size` bytes.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OutgoingFile {
+    pub fd: i32,
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -227,9 +289,18 @@ pub struct LinkClient {
 
 #[uniffi::export]
 impl LinkClient {
-    /// `identity` is PKCS#8 from [`generate_identity`]; `store_path` is where paired desktops are kept.
+    /// `identity` is PKCS#8 from [`generate_identity`]; `store_path` is where paired desktops are kept, and transfer
+    /// state beside it; received files are written to `incoming_dir` before the app publishes them.
     #[uniffi::constructor]
-    pub fn new(identity: Vec<u8>, store_path: String, name: String) -> Result<Arc<Self>, LinkError> {
+    pub fn new(
+        identity: Vec<u8>,
+        store_path: String,
+        name: String,
+        incoming_dir: String,
+    ) -> Result<Arc<Self>, LinkError> {
+        let store_path = PathBuf::from(store_path);
+        let state = store_path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let inbox = Inbox::new(PathBuf::from(incoming_dir), &state)?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .thread_name("link")
@@ -238,9 +309,9 @@ impl LinkClient {
             .map_err(|error| LinkError::Failed { reason: error.to_string() })?;
         let phone = {
             let _entered = runtime.enter();
-            Phone::new(Identity::from_pkcs8(identity)?, PathBuf::from(store_path), name, None)?
+            Phone::new(Identity::from_pkcs8(identity)?, store_path, name, None)?
         };
-        let (client, actor, events) = client::client(phone);
+        let (client, actor, events) = client::client(phone, inbox);
         runtime.spawn(actor.run());
         Ok(Arc::new(Self { runtime, client, events: Mutex::new(events) }))
     }
@@ -297,6 +368,8 @@ impl LinkClient {
     pub async fn set_sharing(&self, desktop_id: String, feature: Feature, on: bool) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
         let feature = match feature {
+            Feature::Clipboard => store::Feature::Clipboard,
+            Feature::Files => store::Feature::Files,
             Feature::Notifications => store::Feature::Notifications,
             Feature::Media => store::Feature::Media,
             Feature::Ring => store::Feature::Ring,
@@ -377,6 +450,113 @@ impl LinkClient {
             }
         }
     }
+
+    /// Offers files to the desktop, connecting first if needed; returns the transfer id once the offer is on its way.
+    pub async fn send_files(&self, desktop_id: String, files: Vec<OutgoingFile>) -> Result<String, LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let sources = files.into_iter().map(source).collect::<Result<Vec<_>, _>>()?;
+        self.run(async move { client.send_files(id, sources).await }).await.map(TransferId::to_hex)
+    }
+
+    /// The phone's battery (percent) and network (wifi, cellular, ethernet, none, or other), sent to every desktop on
+    /// connect and, at most every 10 s, on change.
+    pub async fn set_status(&self, battery: u8, charging: bool, network: String) -> Result<(), LinkError> {
+        let network = message::NetworkKind::parse(&network)
+            .ok_or_else(|| LinkError::Rejected { reason: format!("unknown network {network}") })?;
+        let status = message::Status { battery: battery.min(100), charging, network };
+        let client = self.client.clone();
+        self.run(async move { client.set_status(status).await }).await
+    }
+
+    /// Offers text from the phone's clipboard to every connected desktop, inline.
+    pub async fn offer_clip_text(&self, text: String) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        let clip = LocalClip { mimes: vec!["text/plain;charset=utf-8".to_owned()], text: Some(text), data: None };
+        self.run(async move { client.offer_clip(clip).await }).await
+    }
+
+    /// Writes `mime` of a desktop's clipboard offer into `fd`, which the client takes over (a pipe's write end a
+    /// content provider hands out), and returns the byte count.
+    pub async fn pull_clip(&self, desktop_id: String, clip_id: u64, mime: String, fd: i32) -> Result<u64, LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        if fd < 0 {
+            return Err(LinkError::Rejected { reason: "not a file descriptor".to_owned() });
+        }
+        // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
+        let sink = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        self.run(async move { client.pull_clip(id, clip_id, mime, sink).await }).await
+    }
+
+    /// False when the offer no longer waits for an answer.
+    pub async fn accept_transfer(&self, transfer_id: String) -> Result<bool, LinkError> {
+        let (client, id) = (self.client.clone(), parse_transfer(&transfer_id)?);
+        self.run(async move { client.decide(id, true).await }).await
+    }
+
+    pub async fn decline_transfer(&self, transfer_id: String) -> Result<bool, LinkError> {
+        let (client, id) = (self.client.clone(), parse_transfer(&transfer_id)?);
+        self.run(async move { client.decide(id, false).await }).await
+    }
+
+    pub async fn cancel_transfer(&self, transfer_id: String) -> Result<bool, LinkError> {
+        let (client, id) = (self.client.clone(), parse_transfer(&transfer_id)?);
+        self.run(async move { client.cancel_transfer(id).await }).await
+    }
+}
+
+fn transfer_event(event: TransferEvent) -> Option<LinkEvent> {
+    Some(match event {
+        TransferEvent::Offered { id, from, files } => LinkEvent::TransferOffered {
+            transfer_id: id.to_hex(),
+            desktop_id: from.to_string(),
+            files: files
+                .into_iter()
+                .map(|file| OfferedFile { name: file.name, size: file.size, mime: file.mime })
+                .collect(),
+        },
+        TransferEvent::Progress { id, bytes, total } => {
+            LinkEvent::TransferProgress { transfer_id: id.to_hex(), bytes, total }
+        }
+        TransferEvent::Finished { id, peer, incoming, status, files } => LinkEvent::TransferFinished {
+            transfer_id: id.to_hex(),
+            desktop_id: peer.to_string(),
+            incoming,
+            status: status.as_str().to_owned(),
+            files: files
+                .into_iter()
+                .map(|file| ReceivedFile { path: file.path.to_string_lossy().into_owned(), sha256: hex(&file.sha256) })
+                .collect(),
+        },
+        TransferEvent::ClipOffered { from, id, mimes, size, text } => {
+            LinkEvent::ClipOffered { desktop_id: from.to_string(), clip_id: id, mimes, size, text }
+        }
+        TransferEvent::Busy { .. } => return None,
+    })
+}
+
+/// Takes ownership of the app's descriptor, which the app detached from its `ParcelFileDescriptor`.
+fn source(file: OutgoingFile) -> Result<Source, LinkError> {
+    if file.fd < 0 {
+        return Err(LinkError::Rejected { reason: "not a file descriptor".to_owned() });
+    }
+    // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
+    let owned = unsafe { OwnedFd::from_raw_fd(file.fd) };
+    let source = Source::new(File::from(owned), file.name, file.mime)?;
+    if source.size() != file.size {
+        return Err(LinkError::Rejected { reason: "the file's size is not what the app reported".to_owned() });
+    }
+    Ok(source)
+}
+
+fn parse_transfer(id: &str) -> Result<TransferId, LinkError> {
+    TransferId::parse_hex(id).ok_or_else(|| LinkError::Rejected { reason: "not a transfer id".to_owned() })
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::with_capacity(2 * bytes.len()), |mut hex, byte| {
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    })
 }
 
 impl LinkClient {
@@ -400,6 +580,7 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
             text: share.text,
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Transfer(event) => return transfer_event(event),
         ClientEvent::Message { from, message } => {
             let desktop_id = from.to_string();
             match message {
@@ -447,14 +628,14 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool) -> Desktop {
-    let store::Sharing { notifications, media, ring, calls } = peer.sharing;
+    let store::Grants { clipboard, files, notifications, media, ring, calls } = peer.grants;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
         addresses: peer.addresses.iter().map(ToString::to_string).collect(),
         last_seen: peer.last_seen,
         connected,
-        sharing: Sharing { notifications, media, ring, calls },
+        sharing: Sharing { clipboard, files, notifications, media, ring, calls },
     }
 }
 

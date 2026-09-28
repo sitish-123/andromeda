@@ -11,6 +11,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 
+use link_proto::message::Message;
+
 use crate::Error;
 use crate::identity::{DeviceId, Spki};
 
@@ -28,43 +30,85 @@ pub struct Peer {
     /// Unix seconds.
     #[serde(default)]
     pub last_seen: u64,
-    #[serde(default, skip_serializing_if = "Sharing::is_default")]
-    pub sharing: Sharing,
-}
-
-/// The phone's switches per desktop: what it mirrors to that desktop and lets it do. All on after pairing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, default)]
-#[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
-pub struct Sharing {
-    pub notifications: bool,
-    pub media: bool,
-    pub ring: bool,
-    pub calls: bool,
+    /// Accept this device's file offers without asking; a desktop-side setting.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_accept: bool,
+    /// What this device may do with the other: on a desktop, what the phone may send it; on a phone, what it shares
+    /// with that desktop. Named `sharing` in phone stores from before files and clipboard.
+    #[serde(default, alias = "sharing")]
+    pub grants: Grants,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Feature {
+    Clipboard,
+    Files,
     Notifications,
     Media,
     Ring,
     Calls,
 }
 
-impl Default for Sharing {
+/// One switch per feature and paired device, all on after pairing. A store from before a feature gets it on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+#[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
+pub struct Grants {
+    pub clipboard: bool,
+    pub files: bool,
+    pub notifications: bool,
+    pub media: bool,
+    pub ring: bool,
+    pub calls: bool,
+}
+
+impl Default for Grants {
     fn default() -> Self {
-        Self { notifications: true, media: true, ring: true, calls: true }
+        Self { clipboard: true, files: true, notifications: true, media: true, ring: true, calls: true }
     }
 }
 
-impl Sharing {
-    #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's skip_serializing_if passes a reference")]
-    fn is_default(&self) -> bool {
-        *self == Self::default()
+impl Feature {
+    pub const ALL: [Self; 6] =
+        [Self::Clipboard, Self::Files, Self::Notifications, Self::Media, Self::Ring, Self::Calls];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Clipboard => "clipboard",
+            Self::Files => "files",
+            Self::Notifications => "notifications",
+            Self::Media => "media",
+            Self::Ring => "ring",
+            Self::Calls => "calls",
+        }
     }
 
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|feature| feature.as_str() == name)
+    }
+}
+
+/// The grant that governs a message; `None` for the ones every paired device may send.
+pub fn feature_of(message: &Message) -> Option<Feature> {
+    match message {
+        Message::NotificationPosted(_)
+        | Message::NotificationRemoved(_)
+        | Message::NotificationAction(_)
+        | Message::NotificationDismiss(_) => Some(Feature::Notifications),
+        Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
+        Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
+        Message::Call(_) | Message::CallAction(_) => Some(Feature::Calls),
+        Message::ClipOffer(_) | Message::ClipPull(_) | Message::ClipData(_) => Some(Feature::Clipboard),
+        Message::Offer(_) => Some(Feature::Files),
+        _ => None,
+    }
+}
+
+impl Grants {
     pub fn allows(self, feature: Feature) -> bool {
         match feature {
+            Feature::Clipboard => self.clipboard,
+            Feature::Files => self.files,
             Feature::Notifications => self.notifications,
             Feature::Media => self.media,
             Feature::Ring => self.ring,
@@ -73,12 +117,24 @@ impl Sharing {
     }
 
     pub fn set(&mut self, feature: Feature, on: bool) {
-        match feature {
-            Feature::Notifications => self.notifications = on,
-            Feature::Media => self.media = on,
-            Feature::Ring => self.ring = on,
-            Feature::Calls => self.calls = on,
-        }
+        let flag = match feature {
+            Feature::Clipboard => &mut self.clipboard,
+            Feature::Files => &mut self.files,
+            Feature::Notifications => &mut self.notifications,
+            Feature::Media => &mut self.media,
+            Feature::Ring => &mut self.ring,
+            Feature::Calls => &mut self.calls,
+        };
+        *flag = on;
+    }
+
+    /// The granted features' names, as D-Bus lists them.
+    pub fn names(self) -> Vec<String> {
+        Feature::ALL
+            .into_iter()
+            .filter(|feature| self.allows(*feature))
+            .map(|feature| feature.as_str().to_owned())
+            .collect()
     }
 }
 
@@ -92,6 +148,9 @@ pub struct Store {
     /// Keys unpaired here, told at their next contact.
     #[serde(default)]
     pub revoked: Vec<DeviceId>,
+    /// "Visible to `LocalSend`": the desktop's `LocalSend` backend listens only while this is on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub localsend: bool,
 }
 
 impl Peer {
@@ -102,7 +161,8 @@ impl Peer {
             key: STANDARD.encode(spki.as_der()),
             addresses: Vec::new(),
             last_seen: 0,
-            sharing: Sharing::default(),
+            auto_accept: false,
+            grants: Grants::default(),
         }
     }
 
