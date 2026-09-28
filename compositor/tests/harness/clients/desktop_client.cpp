@@ -2,6 +2,8 @@
 //   desktop-client state                     print "TARGET SOURCE" per output (SOURCE "-" when not mirroring)
 //   desktop-client mirror TARGET SOURCE      exit 1 and print the reason if the compositor rejects it
 //   desktop-client clear TARGET
+//   desktop-client properties-state          print "TARGET KEY=VALUE" per output and display property
+//   desktop-client property-set TARGET KEY VALUE  exit 1 and print the reason if the compositor rejects it
 //   desktop-client settings-state            print "KEY=VALUE" per managed setting, with " customized" when the
 //                                            settings file holds it
 //   desktop-client settings-set KEY VALUE    exit 1 and print the reason if the compositor rejects it
@@ -27,6 +29,7 @@ namespace {
     bool done = false;
     std::string failure;
     bool print = false;
+    bool printProperties = false;
   };
 
   void onMirror(void* data, dsk_output_manager_v1*, const char* target, const char* source) {
@@ -38,7 +41,11 @@ namespace {
   void onFailed(void* data, dsk_output_manager_v1*, const char*, const char* reason) {
     static_cast<State*>(data)->failure = reason;
   }
-  void onProperty(void*, dsk_output_manager_v1*, const char*, const char*, const char*) {}
+  void onProperty(void* data, dsk_output_manager_v1*, const char* target, const char* key, const char* value) {
+    if (static_cast<State*>(data)->printProperties) {
+      std::println("{} {}={}", target, key, value);
+    }
+  }
   const dsk_output_manager_v1_listener kManager = {
       .property = onProperty,
       .mirror = onMirror,
@@ -103,13 +110,16 @@ int main(int argc, char** argv) {
   if (!(command == "state" && argc == 2)
       && !(command == "mirror" && argc == 4)
       && !(command == "clear" && argc == 3)
+      && !(command == "properties-state" && argc == 2)
+      && !(command == "property-set" && argc == 5)
       && !(command == "settings-state" && argc == 2)
       && !(command == "settings-set" && argc == 4)
       && !(command == "keybinds-state" && argc == 2)
       && !(command == "keybind-set" && argc == 4)) {
     std::println(
         stderr,
-        "usage: desktop-client state | mirror TARGET SOURCE | clear TARGET | settings-state | settings-set KEY VALUE "
+        "usage: desktop-client state | mirror TARGET SOURCE | clear TARGET | properties-state | property-set TARGET KEY "
+        "VALUE | settings-state | settings-set KEY VALUE "
         "| keybinds-state | keybind-set CHORD ACTION"
     );
     return 2;
@@ -121,6 +131,7 @@ int main(int argc, char** argv) {
   }
   State state;
   state.print = command == "state";
+  state.printProperties = command == "properties-state";
   state.printInput = command == "settings-state";
   state.printKeybinds = command == "keybinds-state";
   wl_registry* registry = wl_display_get_registry(display);
@@ -157,6 +168,8 @@ int main(int argc, char** argv) {
     dsk_output_manager_v1_set_mirror(state.manager, argv[2], argv[3]);
   } else if (command == "clear") {
     dsk_output_manager_v1_clear_mirror(state.manager, argv[2]);
+  } else if (command == "property-set") {
+    dsk_output_manager_v1_set_property(state.manager, argv[2], argv[3], argv[4]);
   }
   // A rejection arrives before the roundtrip's callback.
   wl_display_roundtrip(display);
