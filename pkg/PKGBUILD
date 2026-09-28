@@ -1,5 +1,5 @@
 pkgbase=desktop-git
-pkgname=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git)
+pkgname=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git umbriel-power-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r0
@@ -83,4 +83,12 @@ package_umbriel-link-git() {
   install -Dm644 desktop/protocol/link-v1/org.umbriel.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.umbriel.Link1.xml"
   install -Dm644 desktop/session/umbriel-link.ufw "$pkgdir/etc/ufw/applications.d/umbriel-link"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_umbriel-power-git() {
+  pkgdesc='Umbriel static kernel power policy: PCIe ASPM, runtime PM, USB autosuspend, HDA power save'
+  depends=(systemd)
+  install -Dm644 desktop/session/power/umbriel-power.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/umbriel-power.conf"
+  install -Dm644 desktop/session/power/60-umbriel-power.rules "$pkgdir/usr/lib/udev/rules.d/60-umbriel-power.rules"
+  install -Dm644 desktop/session/power/umbriel-power.modprobe "$pkgdir/usr/lib/modprobe.d/umbriel-power.conf"
 }
