@@ -1,11 +1,15 @@
-# Every pull request and push to main: Link's gate and its network E2E tests, and the whole desktop built with the
-# compositor's tests, in an Arch container with the same dependencies the packages use.
+# Every push to main: Link's gate and its network E2E tests, and the whole desktop built with the compositor's tests,
+# in an Arch container with the same dependencies the packages use. Other branches and pull requests are checked
+# locally (CONTRIBUTING.md); a newer push to main cancels the run before it.
 name: check
 
 on:
-  pull_request:
   push:
     branches: [main]
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   link:
