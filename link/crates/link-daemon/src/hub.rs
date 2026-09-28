@@ -667,6 +667,10 @@ impl Hub {
         self.save();
         self.media.connected(&session);
         let on_ip = session.connection().quic().is_some();
+        match session.connection().quic() {
+            Some(quic) => log::info!("{id}: connected over IP from {}", quic.remote_address()),
+            None => log::info!("{id}: connected over Bluetooth"),
+        }
         if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
