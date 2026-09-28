@@ -1,0 +1,72 @@
+# Every pull request and push to main: Link's gate and its network E2E tests, and the whole desktop built with the
+# compositor's tests, in an Arch container with the same dependencies the packages use.
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          rustup component add clippy rustfmt
+      - uses: taiki-e/install-action@cargo-deny
+      - name: Gate
+        working-directory: link
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo deny check
+
+  link-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            dbus libglib2.0-bin python3-gi iproute2 nftables
+          # The tests put the phone and the desktop in their own user and network namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build
+        working-directory: link
+        run: cargo build
+      - name: Tests
+        run: |
+          for test in link_pair link_share link_status link_files link_firewall link_bluetooth link_hotspot \
+            link_wifi_direct link_tailnet quickshare_daemon; do
+            echo "::group::$test"
+            bash "tests/e2e/$test.sh"
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: link-e2e-artifacts
+          path: artifacts/
+
+  desktop:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Dependencies
+        run: pacman -Syu --noconfirm --needed git just
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: |
+          source pkg/PKGBUILD
+          pacman -S --noconfirm --needed "${makedepends[@]}"
+      - name: Build
+        run: just build
+      - name: Compositor tests
+        working-directory: compositor
+        run: just test
