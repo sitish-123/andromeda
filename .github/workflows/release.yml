@@ -28,7 +28,7 @@ jobs:
           chown -R builder: "$GITHUB_WORKSPACE"
       - name: Packages
         working-directory: pkg
-        run: sudo -u builder env ANDROMEDA_SOURCE="git+file://$GITHUB_WORKSPACE" makepkg --syncdeps --noconfirm --force
+        run: sudo -u builder env ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE" makepkg --syncdeps --noconfirm --force
       - name: Repository
         run: |
           mkdir repo
@@ -50,13 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      # The runner image ships the SDK; only the NDK and platform the app pins are added.
       - name: NDK
-        run: sdkmanager --install "ndk;28.2.13676358" "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" "platforms;android-36"
       - name: Rust
         run: |
           rustup target add aarch64-linux-android x86_64-linux-android
