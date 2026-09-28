@@ -7,6 +7,8 @@ pkgver=r0
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
+# Arch's default makepkg.conf adds a debug package of every binary's symbols, several times the desktop's size.
+options=(!debug)
 makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
