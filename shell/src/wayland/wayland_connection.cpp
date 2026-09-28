@@ -77,6 +77,7 @@ namespace {
   constexpr std::uint32_t kTextInputManagerVersion = 2;
   constexpr std::uint32_t kVirtualKeyboardManagerVersion = 1;
   constexpr std::uint32_t kGammaControlManagerVersion = 1;
+  constexpr std::uint32_t kDesktopShellVersion = 2;
   constexpr std::uint32_t kScreencopyManagerVersion = 3;
   constexpr std::uint32_t kImageCopyCaptureManagerVersion = 1;
   constexpr std::uint32_t kOutputImageCaptureSourceManagerVersion = 1;
@@ -693,13 +694,32 @@ namespace {
     self->onCompositorLockKeys({.capsLock = caps != 0, .numLock = num != 0, .scrollLock = scroll != 0});
   }
 
-  constexpr dsk_shell_v1_listener kShellListener = {.action = shellAction, .lock_keys = shellLockKeys};
+  void shellBell(void* data, dsk_shell_v1* /*shell*/, const char* appId) {
+    auto* self = static_cast<WaylandConnection*>(data);
+    self->onShellBell(appId);
+  }
+
+  constexpr dsk_shell_v1_listener kShellListener = {
+      .action = shellAction,
+      .lock_keys = shellLockKeys,
+      .bell = shellBell,
+  };
 
 } // namespace
 
 void WaylandConnection::onShellAction(const std::string& command) {
   if (m_shellActionCallback) {
     m_shellActionCallback(command);
+  }
+}
+
+void WaylandConnection::setShellBellCallback(std::function<void(const std::string& appId)> callback) {
+  m_shellBellCallback = std::move(callback);
+}
+
+void WaylandConnection::onShellBell(const std::string& appId) {
+  if (m_shellBellCallback) {
+    m_shellBellCallback(appId);
   }
 }
 
@@ -1304,7 +1324,9 @@ void WaylandConnection::bindGlobal(
   }
 
   if (interfaceName == dsk_shell_v1_interface.name) {
-    m_desktopShell = static_cast<dsk_shell_v1*>(wl_registry_bind(registry, name, &dsk_shell_v1_interface, 1));
+    m_desktopShell = static_cast<dsk_shell_v1*>(
+        wl_registry_bind(registry, name, &dsk_shell_v1_interface, std::min(version, kDesktopShellVersion))
+    );
     dsk_shell_v1_add_listener(m_desktopShell, &kShellListener, this);
     return;
   }

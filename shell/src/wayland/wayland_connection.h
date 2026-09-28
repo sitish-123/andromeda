@@ -158,12 +158,14 @@ public:
   void setPointerEventCallback(WaylandSeat::PointerEventCallback callback);
   void setKeyboardEventCallback(WaylandSeat::KeyboardEventCallback callback);
   void setLockKeysChangeCallback(WaylandSeat::LockKeysChangeCallback callback);
-  // dsk_shell_v1: keybind actions and lock-key state from the compositor.
+  // dsk_shell_v1: keybind actions, lock-key state, and system bells from the compositor.
   void setShellActionCallback(std::function<void(const std::string& command)> callback);
+  void setShellBellCallback(std::function<void(const std::string& appId)> callback);
   void setCompositorLockKeysCallback(ChangeCallback callback);
   [[nodiscard]] bool hasCompositorLockKeys() const noexcept { return m_hasCompositorLockKeys; }
   [[nodiscard]] WaylandSeat::LockKeysState compositorLockKeys() const noexcept { return m_compositorLockKeys; }
   void onShellAction(const std::string& command);
+  void onShellBell(const std::string& appId);
   void onCompositorLockKeys(const WaylandSeat::LockKeysState& state);
   /// Fired when both `ext_idle_notifier_v1` and `wl_seat` are bound (including late registry globals).
   void setIdleCapabilitiesReadyCallback(ChangeCallback callback);
@@ -349,6 +351,7 @@ private:
   zwlr_output_power_manager_v1* m_outputPowerManager = nullptr;
   dsk_shell_v1* m_desktopShell = nullptr;
   std::function<void(const std::string&)> m_shellActionCallback;
+  std::function<void(const std::string&)> m_shellBellCallback;
   ChangeCallback m_compositorLockKeysCallback;
   WaylandSeat::LockKeysState m_compositorLockKeys;
   bool m_hasCompositorLockKeys = false;

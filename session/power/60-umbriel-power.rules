@@ -1,0 +1,12 @@
+# Static kernel power policy for the desktop; see docs/power.md, program step 6.
+
+# Runtime PM for every PCI device, so idle devices (the SOF audio DSP among them) suspend. The drivers on TLP's
+# deny list stay powered.
+ACTION=="add|bind", SUBSYSTEM=="pci", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="bind", SUBSYSTEM=="pci", DRIVER=="nouveau|radeon|mei_me", ATTR{power/control}="on"
+
+# USB autosuspend, except devices with a HID interface: a keyboard or mouse that sleeps drops or delays its first
+# input. A device is added before its interfaces, so the HID rule runs second and wins.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", TEST=="power/control", ATTR{power/control}="auto"
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", \
+  RUN+="/usr/bin/sh -c 'echo on > /sys%p/../power/control'"

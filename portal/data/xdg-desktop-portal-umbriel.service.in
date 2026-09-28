@@ -11,3 +11,5 @@ BusName=org.freedesktop.impl.portal.desktop.umbriel
 ExecStart=@libexecdir@/xdg-desktop-portal-umbriel
 Restart=on-failure
 RestartSec=5s
+# The LP-E cores' slice, with the desktop's other background daemons (docs/power.md, program step 7).
+Slice=background.slice

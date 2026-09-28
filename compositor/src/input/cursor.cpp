@@ -15,6 +15,7 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/server.h"
+#include "server/toplevel_drag.h"
 #include "view/view.h"
 #include "view/xdg_size.h"
 // clang-format off
@@ -1498,6 +1499,9 @@ namespace umbriel {
       wlr_scene_node_set_position(
           &m_server->dragIconTree()->node, static_cast<int>(m_cursor->x), static_cast<int>(m_cursor->y)
       );
+    }
+    if (seat->drag != nullptr && m_server->toplevelDragManager() != nullptr) {
+      m_server->toplevelDragManager()->pointerMoved(m_cursor->x, m_cursor->y);
     }
 
     updateConstraintForSurface(surface);

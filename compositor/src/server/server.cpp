@@ -25,10 +25,13 @@
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
 #include "server/backend_manager.h"
+#include "server/commit_timing.h"
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
+#include "server/fifo.h"
 #include "server/ipc.h"
+#include "server/toplevel_drag.h"
 #include "server/wine_color_manager.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -65,7 +68,7 @@ namespace umbriel {
     // Security-context clients only receive reviewed, ordinary application
     // protocols. New globals stay unavailable until they are classified here.
     // [[security_context_rule]] widens the set for matching clients.
-    constexpr std::array<std::string_view, 30> kAllowedSecurityContextGlobals{
+    constexpr std::array<std::string_view, 38> kAllowedSecurityContextGlobals{
         "wl_shm",
         "wl_drm",
         "zwp_linux_dmabuf_v1",
@@ -79,10 +82,18 @@ namespace umbriel {
         "wp_presentation",
         "wp_tearing_control_manager_v1",
         "wp_content_type_manager_v1",
+        "wp_single_pixel_buffer_manager_v1",
+        "wp_alpha_modifier_v1",
+        "wp_fifo_manager_v1",
+        "wp_commit_timing_manager_v1",
         "wl_output",
         "wp_color_manager_v1",
         "xdg_wm_base",
         "xdg_toplevel_tag_manager_v1",
+        "xdg_wm_dialog_v1",
+        "xdg_toplevel_icon_manager_v1",
+        "xdg_system_bell_v1",
+        "xdg_toplevel_drag_manager_v1",
         "zxdg_exporter_v2",
         "zxdg_decoration_manager_v1",
         "org_kde_kwin_server_decoration_manager",
@@ -354,6 +365,14 @@ namespace umbriel {
     if (m_tearingControlManager == nullptr) {
       throw std::runtime_error("failed to create tearing-control manager");
     }
+    m_fifoManager = std::make_unique<FifoManager>(m_display);
+    m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
+    if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
+      throw std::runtime_error("failed to create single-pixel-buffer manager");
+    }
+    if (wlr_alpha_modifier_v1_create(m_display) == nullptr) {
+      throw std::runtime_error("failed to create alpha-modifier global");
+    }
     m_contentTypeManager = wlr_content_type_manager_v1_create(m_display, 1);
     if (m_contentTypeManager == nullptr) {
       throw std::runtime_error("failed to create content-type manager");
@@ -481,6 +500,22 @@ namespace umbriel {
     m_setXdgToplevelTag.notify = onSetXdgToplevelTag;
     wl_signal_add(&m_xdgToplevelTagManager->events.set_tag, &m_setXdgToplevelTag);
 
+    if (wlr_xdg_wm_dialog_v1_create(m_display, 1) == nullptr) {
+      throw std::runtime_error("failed to create xdg-dialog global");
+    }
+    wlr_xdg_toplevel_icon_manager_v1* iconManager = wlr_xdg_toplevel_icon_manager_v1_create(m_display, 1);
+    if (iconManager == nullptr) {
+      throw std::runtime_error("failed to create xdg-toplevel-icon manager");
+    }
+    m_setXdgToplevelIcon.notify = onSetXdgToplevelIcon;
+    wl_signal_add(&iconManager->events.set_icon, &m_setXdgToplevelIcon);
+    wlr_xdg_system_bell_v1* systemBell = wlr_xdg_system_bell_v1_create(m_display, 1);
+    if (systemBell == nullptr) {
+      throw std::runtime_error("failed to create xdg-system-bell global");
+    }
+    m_systemBellRing.notify = onSystemBellRing;
+    wl_signal_add(&systemBell->events.ring, &m_systemBellRing);
+
     m_xdgDecorationManager = wlr_xdg_decoration_manager_v1_create(m_display);
     m_newXdgDecoration.notify = onNewXdgDecoration;
     wl_signal_add(&m_xdgDecorationManager->events.new_toplevel_decoration, &m_newXdgDecoration);
@@ -543,6 +578,7 @@ namespace umbriel {
     m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
     m_desktopSettingsManager = std::make_unique<DesktopSettingsManager>(*this);
     m_desktopShell = std::make_unique<DesktopShell>(*this);
+    m_toplevelDragManager = std::make_unique<ToplevelDragManager>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
     wlr_output_power_manager_v1* outputPower = wlr_output_power_manager_v1_create(m_display);
@@ -592,6 +628,8 @@ namespace umbriel {
     wl_list_remove(&m_newInput.link);
     wl_list_remove(&m_newXdgToplevel.link);
     wl_list_remove(&m_setXdgToplevelTag.link);
+    wl_list_remove(&m_setXdgToplevelIcon.link);
+    wl_list_remove(&m_systemBellRing.link);
     wl_list_remove(&m_newXdgPopup.link);
     wl_list_remove(&m_newXdgDecoration.link);
     wl_list_remove(&m_newLayerSurface.link);
@@ -657,6 +695,9 @@ namespace umbriel {
     m_desktopOutputManager.reset();
     m_desktopShell.reset();
     wl_display_destroy_clients(m_display);
+    m_fifoManager.reset();
+    m_commitTimingManager.reset();
+    m_toplevelDragManager.reset();
     m_wineColorManager.reset();
     // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise
     // the destructor body frees the nodes and the member destructors touch already-freed memory.

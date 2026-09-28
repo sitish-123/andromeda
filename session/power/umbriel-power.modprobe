@@ -1,0 +1,4 @@
+# Static kernel power policy for the desktop; see docs/power.md, program step 6.
+# HDA codecs and their controller power down after 1 s of silence. SOF machines need nothing here: their DSP follows
+# PCI runtime PM, which 60-umbriel-power.rules enables.
+options snd_hda_intel power_save=1 power_save_controller=Y

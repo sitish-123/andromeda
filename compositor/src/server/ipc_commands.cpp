@@ -356,6 +356,9 @@ namespace umbriel {
       entry["title"] = v->toplevel()->title != nullptr ? v->toplevel()->title : "";
       entry["xdg_tag"] = v->xdgTag().value_or("");
       entry["content_type"] = contentTypeName(v->contentType());
+      entry["icon_name"] = v->iconName();
+      const wlr_xdg_dialog_v1* dialog = wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel(v->toplevel());
+      entry["modal"] = dialog != nullptr && dialog->modal;
       entry["floating"] = v->floating();
       // Workspace-local remembered focus. Seat-global activation is reported
       // separately by `active`; scratchpad windows have no workspace focus.

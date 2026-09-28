@@ -21,6 +21,7 @@
 #include "scene/node.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_output_manager.h"
+#include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "server/wine_color_manager.h"
@@ -716,6 +717,7 @@ namespace umbriel {
       wlr_output_schedule_frame(m_output);
       m_server->scheduleDisplacedViewRestore();
     }
+    m_server->syncSuspendedViews();
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputStateChanged(*this);
     }
@@ -1357,6 +1359,11 @@ namespace umbriel {
 
     if (Ipc* ipc = m_server->ipc()) {
       ipc->notifyOutputFrame(*this);
+    }
+
+    // After the commit, so an update a barrier held is latched no earlier than the next frame.
+    if (FifoManager* fifo = m_server->fifoManager()) {
+      fifo->latched(m_output);
     }
 
     // Unconditional: see comment above. Never gate this on commit success.

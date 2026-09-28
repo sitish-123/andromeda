@@ -107,7 +107,10 @@ namespace umbriel {
   class ConfigWatcher;
   class DesktopSettingsManager;
   class DesktopOutputManager;
+  class CommitTimingManager;
   class DesktopShell;
+  class FifoManager;
+  class ToplevelDragManager;
   struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
@@ -336,6 +339,8 @@ namespace umbriel {
     // Re-evaluate each output's policy after keyboard focus or a dynamic window rule changes.
     void refreshOutputPolicies();
     void updateBackgroundFrameTimer();
+    // Suspends every view out of sight (View::hidden) and resumes the rest; after a lock or output power change.
+    void syncSuspendedViews();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
     void applyConfiguredMirrors();
     // Start or, with a null source, stop a mirror at runtime; windows on the target move to the source, and the change
@@ -343,6 +348,8 @@ namespace umbriel {
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
+    [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
+    [[nodiscard]] ToplevelDragManager* toplevelDragManager() const { return m_toplevelDragManager.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
@@ -423,6 +430,8 @@ namespace umbriel {
     static void onNewInput(wl_listener* listener, void* data);
     static void onNewXdgToplevel(wl_listener* listener, void* data);
     static void onSetXdgToplevelTag(wl_listener* listener, void* data);
+    static void onSetXdgToplevelIcon(wl_listener* listener, void* data);
+    static void onSystemBellRing(wl_listener* listener, void* data);
     static void onNewXdgPopup(wl_listener* listener, void* data);
     static void onNewXdgDecoration(wl_listener* listener, void* data);
     static void onNewLayerSurface(wl_listener* listener, void* data);
@@ -712,6 +721,9 @@ namespace umbriel {
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
     std::unique_ptr<DesktopSettingsManager> m_desktopSettingsManager;
     std::unique_ptr<DesktopShell> m_desktopShell;
+    std::unique_ptr<FifoManager> m_fifoManager;
+    std::unique_ptr<CommitTimingManager> m_commitTimingManager;
+    std::unique_ptr<ToplevelDragManager> m_toplevelDragManager;
     std::unique_ptr<Ipc> m_ipc;
 #ifdef UMBRIEL_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;
@@ -769,6 +781,8 @@ namespace umbriel {
     wl_listener m_newInput{};
     wl_listener m_newXdgToplevel{};
     wl_listener m_setXdgToplevelTag{};
+    wl_listener m_setXdgToplevelIcon{};
+    wl_listener m_systemBellRing{};
     wl_listener m_newXdgPopup{};
     wl_listener m_newXdgDecoration{};
     wl_listener m_newLayerSurface{};

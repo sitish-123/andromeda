@@ -512,8 +512,16 @@ namespace umbriel {
     return m_contentType == ContentType::Game || resolvedRules().backgroundFrames.value_or(false);
   }
 
+  bool View::hidden() const {
+    if (!m_onActiveWorkspace || m_server->sessionLocked()) {
+      return true;
+    }
+    const Output* output = currentOutput();
+    return output != nullptr && output->dpmsOff();
+  }
+
   void View::syncSuspended() {
-    const bool suspended = m_mapped && !m_onActiveWorkspace && !wantsBackgroundFrames();
+    const bool suspended = m_mapped && hidden() && !wantsBackgroundFrames();
     if (m_toplevel->scheduled.suspended != suspended) {
       wlr_xdg_toplevel_set_suspended(m_toplevel, suspended);
     }
@@ -3218,6 +3226,27 @@ namespace umbriel {
     if (m_mapped) {
       applyDynamicRules();
     }
+  }
+
+  void View::setIconName(std::string_view name) {
+    if (m_iconName == name) {
+      return;
+    }
+    m_iconName = std::string(name);
+    m_server->scheduleIpcWindowsEvent();
+  }
+
+  View* View::modalChild() const {
+    for (const auto& view : m_server->registry().all()) {
+      if (!view->mapped() || view->xdgParent() != this) {
+        continue;
+      }
+      if (const wlr_xdg_dialog_v1* dialog = wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel(view->toplevel());
+          dialog != nullptr && dialog->modal) {
+        return view.get();
+      }
+    }
+    return nullptr;
   }
 
   void View::syncContentType(wlr_surface* committedSurface) {

@@ -335,6 +335,31 @@ tearing_control_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+# Staging protocols the compositor serves itself, since wlroots has no helper for them yet.
+staging_server_sources = []
+foreach name : ['fifo', 'commit-timing', 'xdg-toplevel-drag']
+  xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging' / name / name + '-v1.xml'
+  staging_server_sources += custom_target(
+    name + '-v1-protocol.h',
+    input: xml,
+    output: name + '-v1-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+  )
+  staging_server_sources += custom_target(
+    name + '-v1-protocol.c',
+    input: xml,
+    output: name + '-v1-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  )
+endforeach
+# xdg-toplevel-drag refers to xdg_toplevel_interface, which wlroots does not export.
+staging_server_sources += custom_target(
+  'xdg-shell-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/xdg-shell/xdg-shell.xml',
+  output: 'xdg-shell-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 desktop_client_h = custom_target(
   'desktop-unstable-v1-client-protocol.h',
   input: 'protocols/desktop-unstable-v1.xml',
@@ -606,6 +631,9 @@ core_sources = files(
   'src/server/desktop_settings_manager.cpp',
   'src/server/desktop_output_manager.cpp',
   'src/server/desktop_shell.cpp',
+  'src/server/fifo.cpp',
+  'src/server/commit_timing.cpp',
+  'src/server/toplevel_drag.cpp',
   'src/server/server.cpp',
   'src/server/server_events.cpp',
   'src/server/server_keybinds.cpp',
@@ -677,7 +705,7 @@ umbriel_core = static_library(
     color_management_server_c,
     desktop_server_h,
     desktop_server_c,
-  ],
+  ] + staging_server_sources,
   include_directories: include_directories('src'),
   link_with: umbriel_pure,
   dependencies: umbriel_core_deps,

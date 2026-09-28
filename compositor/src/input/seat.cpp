@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "input/cursor.h"
 #include "server/server.h"
+#include "server/toplevel_drag.h"
 #include "wlr.h"
 
 namespace umbriel {
@@ -179,6 +180,9 @@ namespace umbriel {
 
   void Seat::handleStartDrag(void* data) {
     auto* drag = static_cast<wlr_drag*>(data);
+    if (ToplevelDragManager* toplevelDrags = m_server->toplevelDragManager()) {
+      toplevelDrags->dragStarted(drag);
+    }
     if (m_dragDestroy.link.next != nullptr) {
       wl_list_remove(&m_dragDestroy.link);
     }

@@ -13,7 +13,7 @@ namespace umbriel {
 
   class Server;
 
-  // Serves dsk_shell_v1: keybind actions and lock-key state for the desktop shell.
+  // Serves dsk_shell_v1: keybind actions, lock-key state, and system bells for the desktop shell.
   class DesktopShell {
   public:
     explicit DesktopShell(Server& server);
@@ -24,6 +24,8 @@ namespace umbriel {
 
     // False when no shell is bound.
     bool sendAction(std::string_view command);
+    // False when no bound shell speaks version 2.
+    bool sendBell(std::string_view appId);
     void setLockKeys(bool capsLock, bool numLock, bool scrollLock);
 
   private:

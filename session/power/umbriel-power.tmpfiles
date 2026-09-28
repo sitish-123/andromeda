@@ -1,0 +1,4 @@
+# Static kernel power policy for the desktop; see docs/power.md, program step 6.
+# PCIe ASPM with L1 substates. The kernel refuses the write, which tmpfiles then ignores, when the firmware kept ASPM
+# control or the machine booted with pcie_aspm=off, and its per-device quirks still exclude links known to break.
+w- /sys/module/pcie_aspm/parameters/policy - - - - powersupersave
