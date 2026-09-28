@@ -9,8 +9,8 @@ use std::os::fd::OwnedFd;
 use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    CallAction, CallActionKind, MAX_NAME_LEN, MAX_SHARE_LEN, Message, NotificationAction, NotificationDismiss,
-    NotificationPosted, Ring, Ringing, Share, ShareKind, TransferId, is_text_mime,
+    CallAction, CallActionKind, MAX_NAME_LEN, MAX_SHARE_LEN, Message, MirrorAction, MirrorInput, NotificationAction,
+    NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind, TransferId, is_text_mime,
 };
 use link_core::transfer::{LocalClip, Source};
 use tokio::sync::{mpsc, watch};
@@ -271,6 +271,50 @@ impl Link {
             browse::Answer::Data(data) => Ok(data),
             browse::Answer::Entries(_) => Err(LinkError::Failed("the phone answered a read with a listing".to_owned())),
         }
+    }
+
+    /// Asks the phone to mirror its screen and returns the viewer's end of the video, with its size, once the user
+    /// allowed it there (up to 60 s). The socket carries the phone's access units in the stream's framing.
+    async fn open_mirror(&self, device_id: String) -> Result<(zbus::zvariant::OwnedFd, u32, u32), LinkError> {
+        use crate::mirror::Failure;
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        match self.hub.open_mirror(id).await {
+            Ok(opened) => Ok((opened.stream.into(), opened.width, opened.height)),
+            Err(Failure::NotConnected) => Err(LinkError::NotConnected(format!("{device_id} is not connected"))),
+            Err(Failure::NeedsWifi) => Err(LinkError::Failed("mirroring needs Wi-Fi, not Bluetooth".to_owned())),
+            Err(Failure::Busy) => Err(LinkError::Failed("that phone is already mirroring".to_owned())),
+            Err(Failure::Refused(reason)) => Err(LinkError::Refused(reason)),
+            Err(Failure::TimedOut) => Err(LinkError::Failed("nobody allowed it on the phone in time".to_owned())),
+            Err(Failure::Failed(reason)) => Err(LinkError::Failed(reason)),
+        }
+    }
+
+    /// Input on the mirrored screen: `action` is tap, long-press, swipe, scroll, back, home, recents, or text;
+    /// `args` holds x, y, x2, y2, ms (i/u) and text (s) as `mirror-input` takes them.
+    async fn mirror_input(
+        &self,
+        device_id: String,
+        action: String,
+        args: HashMap<String, zbus::zvariant::OwnedValue>,
+    ) -> Result<(), LinkError> {
+        let action: MirrorAction = serde_json::from_value(serde_json::Value::String(action))
+            .map_err(|_| LinkError::Rejected("not a mirror action".to_owned()))?;
+        let int = |key: &str| args.get(key).and_then(|value| i32::try_from(value.clone()).ok());
+        let input = MirrorInput {
+            action,
+            x: int("x"),
+            y: int("y"),
+            x2: int("x2"),
+            y2: int("y2"),
+            ms: args.get("ms").and_then(|value| u32::try_from(value.clone()).ok()),
+            text: args.get("text").and_then(|value| String::try_from(value.clone()).ok()),
+        };
+        self.send(&device_id, Message::MirrorInput(input)).await
+    }
+
+    /// Asks the phone for a keyframe, after the viewer lost one.
+    async fn mirror_keyframe(&self, device_id: String) -> Result<(), LinkError> {
+        self.send(&device_id, Message::MirrorKeyframe).await
     }
 
     /// Starts or stops ringing the phone.

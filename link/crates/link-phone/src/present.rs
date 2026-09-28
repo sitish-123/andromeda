@@ -26,17 +26,18 @@ pub struct Options {
     pub seconds: Option<u64>,
     pub on_offer: OnOffer,
     pub status: Option<Status>,
+    pub mirror: Option<crate::mirror::Source>,
 }
 
 pub async fn hold(phone: Phone, inbox: Inbox, id: DeviceId, options: Options) -> anyhow::Result<()> {
-    let Options { seconds, on_offer, status } = options;
+    let Options { seconds, on_offer, status, mirror } = options;
     let (client, actor, mut events) = client::client(phone, inbox);
     let drive = async move {
         if let Some(status) = status {
             client.set_status(status).await?;
         }
         client.set_present(true).await?;
-        let mut held = Held::new(client.clone(), id.clone());
+        let mut held = Held::new(client.clone(), id.clone(), mirror);
         let mut terminate = signal(SignalKind::terminate())?;
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         let mut stdin_open = true;
@@ -223,6 +224,7 @@ pub fn via_name(via: Via) -> &'static str {
         Via::Mdns => "mdns",
         Via::Bluetooth => "bluetooth",
         Via::Hotspot => "hotspot",
+        Via::WifiDirect => "wifi-direct",
     }
 }
 

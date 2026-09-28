@@ -77,6 +77,8 @@ pub enum TransferEvent {
     Busy { peer: DeviceId, busy: bool },
     /// A peer's clipboard changed; pull it with [`TransferHandle::pull_clip`]. `text` is inline, set at once.
     ClipOffered { from: DeviceId, id: u64, mimes: Vec<String>, size: u64, text: Option<String> },
+    /// A peer opened its screen's video stream; the handler takes it or drops it.
+    Mirror { from: DeviceId, stream: crate::mirror::MirrorStream },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -752,6 +754,10 @@ impl TransferActor {
         let header = match header {
             Ok(Envelope { message: Message::FileData(header), .. }) => header,
             Ok(Envelope { message: Message::ClipData(header), .. }) => return self.on_clip_data(peer, recv, header),
+            Ok(Envelope { message: Message::MirrorData(header), .. }) => {
+                let stream = crate::mirror::MirrorStream::new(crate::mirror::MirrorReceiver::new(recv, &header));
+                return self.emit(TransferEvent::Mirror { from: peer.clone(), stream });
+            }
             Err(Error::Timeout) => {
                 recv.stop(PROTOCOL_ERROR);
                 return;

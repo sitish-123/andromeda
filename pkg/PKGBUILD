@@ -9,7 +9,8 @@ license=(MIT)
 makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
-  libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf)
+  libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
+  gstreamer gst-plugins-base-libs)
 source=("desktop::git+file://$HOME/src/desktop")
 sha256sums=(SKIP)
 
@@ -31,7 +32,7 @@ build() {
   meson compile -C build-portal
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
   CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
-    -p link-mount
+    -p link-mount -p link-mirror
 }
 
 package_umbriel-desktop-git() {
@@ -73,9 +74,13 @@ package_xdg-desktop-portal-umbriel-git() {
 
 package_umbriel-link-git() {
   pkgdesc='Umbriel Link daemon: phone and desktop continuity'
-  depends=(glibc gcc-libs dbus fuse3)
+  depends=(glibc gcc-libs dbus fuse3 gtk4 gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4)
   optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
-    'networkmanager: joining the phone'"'"'s hotspot for large transfers away from Wi-Fi')
+    'networkmanager: joining the phone'"'"'s hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi'
+    'gst-plugin-va: hardware decoding of the mirrored phone screen'
+    'gst-libav: software decoding of the mirrored phone screen without VA-API'
+    'scrcpy: phone apps in their own windows (umbriel-link-apps)'
+    'android-tools: adb for umbriel-link-apps')
   backup=(etc/ufw/applications.d/umbriel-link)
   install=umbriel-link.install
   install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
@@ -83,6 +88,8 @@ package_umbriel-link-git() {
   install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
   ln -s ../umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-linkd.service"
   install -Dm755 desktop/link/target/release/umbriel-link-mount "$pkgdir/usr/bin/umbriel-link-mount"
+  install -Dm755 desktop/link/target/release/umbriel-link-mirror "$pkgdir/usr/bin/umbriel-link-mirror"
+  install -Dm755 desktop/link/target/release/umbriel-link-apps "$pkgdir/usr/bin/umbriel-link-apps"
   install -Dm644 desktop/session/umbriel-link-mount.service "$pkgdir/usr/lib/systemd/user/umbriel-link-mount.service"
   ln -s ../umbriel-link-mount.service \
     "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-link-mount.service"

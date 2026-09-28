@@ -162,6 +162,7 @@ pub fn describe(event: &TransferEvent) -> Value {
         TransferEvent::ClipOffered { from, id, mimes, size, text } => json!({
             "event": "clip-offered", "desktop": from, "clip": id, "mimes": mimes, "size": size, "text": text,
         }),
+        TransferEvent::Mirror { from, .. } => json!({ "event": "mirror-stream", "desktop": from }),
     }
 }
 

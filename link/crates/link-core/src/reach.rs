@@ -22,6 +22,8 @@ pub enum Via {
     Bluetooth,
     /// The phone's own hotspot, at the address the desktop reported after joining it.
     Hotspot,
+    /// The phone's Wi-Fi Direct group, likewise.
+    WifiDirect,
 }
 
 pub struct Reached {

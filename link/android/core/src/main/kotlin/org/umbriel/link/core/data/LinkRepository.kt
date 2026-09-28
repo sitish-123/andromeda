@@ -31,6 +31,9 @@ import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.LinkFailureException
 import org.umbriel.link.core.domain.MediaCommandKind
 import org.umbriel.link.core.domain.MediaPlayer
+import org.umbriel.link.core.domain.MirrorAction
+import org.umbriel.link.core.domain.MirrorCommand
+import org.umbriel.link.core.domain.MirrorStream
 import org.umbriel.link.core.domain.NotificationCommand
 import org.umbriel.link.core.domain.OfferedFile
 import org.umbriel.link.core.domain.PhoneMediaCommand
@@ -44,6 +47,8 @@ import org.umbriel.link.ffi.BrowseRoot
 import org.umbriel.link.ffi.LinkClient
 import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
+import org.umbriel.link.ffi.MirrorSession
+import org.umbriel.link.ffi.MirrorAction as FfiMirrorAction
 import org.umbriel.link.ffi.OutgoingFile
 import org.umbriel.link.ffi.generateIdentity
 import org.umbriel.link.ffi.Desktop as FfiDesktop
@@ -86,6 +91,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _ringRequests = MutableSharedFlow<Pair<String, Boolean>>(extraBufferCapacity = INCOMING_BUFFER)
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -123,6 +129,16 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Every connected desktop's players; a desktop's go when its session ends. */
     val desktopPlayers: StateFlow<List<DesktopPlayer>> = _desktopPlayers.asStateFlow()
+
+    /** Requests, input, and stops from desktops mirroring this phone's screen. */
+    val mirrorCommands: SharedFlow<MirrorCommand> = _mirrorCommands.asSharedFlow()
+
+    /** Tells the desktop that asked the video's size and opens the stream to it. */
+    suspend fun startMirror(desktopId: String, width: Int, height: Int): Result<MirrorStream> =
+        call { FfiMirror(it.startMirror(desktopId, width.toUInt(), height.toUInt())) }
+
+    /** Ends mirroring, or refuses a request, with why. */
+    suspend fun stopMirror(desktopId: String, reason: String?): Result<Unit> = call { it.stopMirror(desktopId, reason) }
 
     /** A desktop asks this phone to ring (true) or stop, as (desktop id, on). */
     val ringRequests: SharedFlow<Pair<String, Boolean>> = _ringRequests.asSharedFlow()
@@ -252,6 +268,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 incoming.absolutePath,
                 RfcommLink(context),
                 LocalHotspot(context),
+                WifiDirectGroup(context),
             )
         }.also {
             client = it
@@ -308,6 +325,21 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 )
                 is LinkEvent.NotificationDismissed ->
                     _notificationCommands.emit(NotificationCommand.Dismiss(event.desktopId, event.id))
+                is LinkEvent.MirrorRequested -> _mirrorCommands.emit(MirrorCommand.Requested(event.desktopId))
+                is LinkEvent.MirrorInput -> _mirrorCommands.emit(
+                    MirrorCommand.Input(
+                        event.desktopId,
+                        event.action.toDomain(),
+                        event.x,
+                        event.y,
+                        event.x2,
+                        event.y2,
+                        event.ms?.toInt(),
+                        event.text,
+                    ),
+                )
+                is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
+                is LinkEvent.MirrorStopped -> _mirrorCommands.emit(MirrorCommand.Stopped(event.desktopId, event.reason))
             }
         }
     }
@@ -351,6 +383,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     private companion object {
         const val INCOMING_BUFFER = 16
+        // Input comes in bursts while a finger drags.
+        const val MIRROR_BUFFER = 64
     }
 }
 
@@ -368,6 +402,7 @@ private fun FfiDesktop.toDomain() = Desktop(
         sharing.ring,
         sharing.calls,
         sharing.browse,
+        sharing.screen,
     ),
 )
 
@@ -418,6 +453,34 @@ private fun FfiPlayer.toDomain(receivedAt: Long) = MediaPlayer(
     receivedAt = receivedAt,
 )
 
+private fun FfiMirrorAction.toDomain(): MirrorAction = when (this) {
+    FfiMirrorAction.TAP -> MirrorAction.Tap
+    FfiMirrorAction.LONG_PRESS -> MirrorAction.LongPress
+    FfiMirrorAction.SWIPE -> MirrorAction.Swipe
+    FfiMirrorAction.SCROLL -> MirrorAction.Scroll
+    FfiMirrorAction.BACK -> MirrorAction.Back
+    FfiMirrorAction.HOME -> MirrorAction.Home
+    FfiMirrorAction.RECENTS -> MirrorAction.Recents
+    FfiMirrorAction.TEXT -> MirrorAction.Text
+}
+
+private class FfiMirror(private val session: MirrorSession) : MirrorStream {
+    override suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit> = try {
+        val flags = (if (keyframe) MIRROR_KEYFRAME else 0) or (if (config) MIRROR_CONFIG else 0)
+        session.sendUnit(ptsUs.toULong(), flags.toUByte(), data)
+        Result.success(Unit)
+    } catch (error: LinkException) {
+        Result.failure(LinkFailureException(error.toFailure()))
+    }
+
+    override suspend fun finish() = session.finish()
+
+    private companion object {
+        const val MIRROR_KEYFRAME = 1
+        const val MIRROR_CONFIG = 2
+    }
+}
+
 private fun Feature.toFfi(): FfiFeature = when (this) {
     Feature.Clipboard -> FfiFeature.CLIPBOARD
     Feature.Files -> FfiFeature.FILES
@@ -426,6 +489,7 @@ private fun Feature.toFfi(): FfiFeature = when (this) {
     Feature.Ring -> FfiFeature.RING
     Feature.Calls -> FfiFeature.CALLS
     Feature.Browse -> FfiFeature.BROWSE
+    Feature.Screen -> FfiFeature.SCREEN
 }
 
 private fun PhoneNotification.toFfi() = FfiPhoneNotification(

@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Notifications
@@ -29,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.provider.Settings
+import org.umbriel.link.screen.ScreenInput
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.umbriel.link.R
@@ -86,6 +90,7 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
                     FeatureRow(Feature.Ring, R.string.feature_ring, R.string.feature_ring_hint, Icons.Filled.Phone),
                     FeatureRow(Feature.Calls, R.string.feature_calls, R.string.feature_calls_hint, Icons.Filled.Call),
                     FeatureRow(Feature.Browse, R.string.feature_browse, R.string.feature_browse_hint, Icons.Filled.Search),
+                    FeatureRow(Feature.Screen, R.string.feature_screen, R.string.feature_screen_hint, Icons.Filled.Face),
                 ).forEach { row ->
                     SwitchRow(
                         title = stringResource(row.label),
@@ -94,6 +99,18 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
                         onChange = { viewModel.setSharing(row.feature, it) },
                         icon = row.icon,
                     )
+                    if (row.feature == Feature.Screen && sharing.allows(Feature.Screen) && !ScreenInput.enabled) {
+                        val context = LocalContext.current
+                        Row(
+                            Modifier.fillMaxWidth().clip(Radius.list)
+                                .clickable { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                                .padding(start = Size.iconContainer + Space.s12, top = Space.s4, bottom = Space.s8),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Label(stringResource(R.string.screen_control_off), LinkTheme.type.titleSmall, LinkTheme.colors.accentText, Modifier.weight(1f))
+                            Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.accentText)
+                        }
+                    }
                     if (row.feature == Feature.Notifications && sharing.allows(Feature.Notifications)) {
                         Row(
                             Modifier.fillMaxWidth().clip(Radius.list).clickable(onClick = onMirrorApps)

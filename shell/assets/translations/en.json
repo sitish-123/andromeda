@@ -310,6 +310,8 @@
       "send-clipboard": "Send clipboard",
       "send-files": "Send a file",
       "browse": "Browse its files (allow it in Umbriel Link on the phone)",
+      "mirror": "Show its screen (allow Screen in Umbriel Link on the phone)",
+      "apps": "Open its apps in windows (needs wireless debugging on the phone)",
       "nearby": "Nearby",
       "localsend-visible": "Visible to LocalSend",
       "status": "Connected, {battery}% battery, {network}",

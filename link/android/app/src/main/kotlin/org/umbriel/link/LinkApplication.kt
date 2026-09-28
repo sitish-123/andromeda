@@ -29,6 +29,7 @@ import org.umbriel.link.presence.Presence
 import org.umbriel.link.presence.StatusReporter
 import org.umbriel.link.transfer.TransferService
 import org.umbriel.link.ring.Ringer
+import org.umbriel.link.screen.ScreenMirror
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -54,6 +55,7 @@ class AppContainer(val application: Application) {
     val mirror = NotificationMirror(application, repository, scope)
     val media = PhoneMedia(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
+    val screen = ScreenMirror(application, repository, scope)
     val calls = Calls(application, repository, scope)
     val files = PhoneFiles(application)
 
@@ -65,6 +67,7 @@ class AppContainer(val application: Application) {
         mirror.start()
         media.start()
         ringer.start()
+        screen.start()
         calls.start()
         // All files access is granted in Settings, so the roots are rechecked whenever the app comes back.
         ProcessLifecycleOwner.get().lifecycle.addObserver(

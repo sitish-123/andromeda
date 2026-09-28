@@ -4,6 +4,7 @@
 mod files;
 mod flood;
 mod held;
+mod mirror;
 mod present;
 mod relay;
 mod transcript;
@@ -44,6 +45,15 @@ struct Cli {
     /// Stands in for the phone's local-only hotspot: `<ssid>:<passphrase>` is what starting it returns.
     #[arg(long)]
     hotspot: Option<String>,
+    /// Stands in for screen capture: an Annex B H.264 file with access unit delimiters, streamed when a desktop asks.
+    #[arg(long)]
+    mirror_file: Option<PathBuf>,
+    /// The size `--mirror-file` is encoded at, as `<width>x<height>`.
+    #[arg(long, default_value = "720x1280")]
+    mirror_size: String,
+    /// Stands in for Wi-Fi Direct: the name this phone shows; forming a group always succeeds on the phone's side.
+    #[arg(long)]
+    wifi_direct: Option<String>,
     /// A folder a desktop with the browse switch on sees, as `<name>=<path>`; repeatable.
     #[arg(long = "browse-root")]
     browse_roots: Vec<String>,
@@ -168,12 +178,23 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let hotspot = Hotspot { ssid: ssid.to_owned(), passphrase: passphrase.to_owned() };
         phone.set_hotspot(std::sync::Arc::new(FixedHotspot(hotspot)));
     }
+    if let Some(name) = cli.wifi_direct {
+        phone.set_wifi_direct(std::sync::Arc::new(FixedWifiDirect(name)));
+    }
     let inbox = || Inbox::new(cli.downloads.clone().unwrap_or_else(|| state.join("Downloads")), &state);
     match cli.command {
         Command::Hold { seconds, on_offer, status } => {
             let id = only_desktop(&phone)?;
             let status = status.as_deref().map(present::parse_status).transpose()?;
-            return present::hold(phone, inbox()?, id, present::Options { seconds, on_offer, status }).await;
+            let mirror = match cli.mirror_file.clone() {
+                Some(file) => {
+                    let (width, height) =
+                        cli.mirror_size.split_once('x').context("--mirror-size is <width>x<height>")?;
+                    Some(mirror::Source { file, width: width.parse()?, height: height.parse()? })
+                }
+                None => None,
+            };
+            return present::hold(phone, inbox()?, id, present::Options { seconds, on_offer, status, mirror }).await;
         }
         Command::Flood { kind, count } => {
             let id = only_desktop(&phone)?;
@@ -239,6 +260,24 @@ impl link_core::hotspot::HotspotProvider for FixedHotspot {
 
     fn stop(&self) {
         log::info!("hotspot stopped");
+    }
+}
+
+/// A Wi-Fi Direct group the phone's side always forms; the desktop's join decides. Logged for the E2E.
+struct FixedWifiDirect(String);
+
+impl link_core::hotspot::WifiDirectProvider for FixedWifiDirect {
+    fn name(&self) -> std::io::Result<String> {
+        Ok(self.0.clone())
+    }
+
+    fn connect(&self, peer: &str) -> std::io::Result<()> {
+        log::info!("wifi-direct group formed with {peer}");
+        Ok(())
+    }
+
+    fn stop(&self) {
+        log::info!("wifi-direct stopped");
     }
 }
 

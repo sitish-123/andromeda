@@ -11,7 +11,7 @@ use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
     Call, CallState, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted, Share, Status,
-    TransferId,
+    TransferId, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -158,6 +158,7 @@ enum Command {
     DesktopPlayer { player: MediaPlayer },
     DesktopPlayerGone { player: String },
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
+    OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
 }
 
 #[derive(Clone)]
@@ -202,10 +203,14 @@ pub struct Hub {
     open: HashMap<TransferId, Backend>,
     /// Phones whose hotspot this desktop joined, and the `NetworkManager` connection it joined with.
     hotspots: HashMap<DeviceId, OwnedObjectPath>,
-    joining: JoinSet<(DeviceId, String, Result<hotspot::Joined, String>)>,
+    /// Each join's phone, the hotspot's SSID (None for a Wi-Fi Direct group), and the outcome.
+    joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
+    /// The name this desktop shows over Wi-Fi Direct, when it can join a group.
+    wifi_direct_name: Option<String>,
     /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
     browsing: browse::Browsing,
+    mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
 }
 
@@ -265,8 +270,10 @@ impl Hub {
             open: HashMap::new(),
             hotspots: HashMap::new(),
             joining: JoinSet::new(),
+            wifi_direct_name: None,
             waiting: Vec::new(),
             browsing: browse::Browsing::default(),
+            mirrors: crate::mirror::Mirrors::default(),
             puncher,
         };
         hub.refresh();
@@ -274,6 +281,7 @@ impl Hub {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
+        self.wifi_direct_name = crate::wifi_direct::local_name().await;
         if self.store.localsend {
             self.localsend.set_visible(true).await;
         }
@@ -281,7 +289,14 @@ impl Hub {
             let deadline = self.window.as_ref().map(|window| window.deadline);
             let give_up = self.waiting.iter().map(|waiting| waiting.deadline).min();
             let browse_deadline = self.browsing.deadline();
+            let mirror_deadline = self.mirrors.deadline();
             tokio::select! {
+                () = sleep_until(mirror_deadline) => {
+                    for id in self.mirrors.expire() {
+                        self.tell_mirror_stop(&id, "nobody allowed it on the phone in time").await;
+                    }
+                }
+                Some(id) = self.mirrors.ended() => self.tell_mirror_stop(&id, "the viewer closed").await,
                 () = sleep_until(browse_deadline) => self.browsing.expire(),
                 Some(joined) = self.joining.join_next() => match joined {
                     Ok((id, ssid, joined)) => self.hotspot_joined(id, ssid, joined).await,
@@ -321,18 +336,7 @@ impl Hub {
                 }
             }
             Command::Connected { id, name, session } => self.connected(id, name, session).await,
-            Command::Disconnected { id, stable_id } => {
-                self.transfers.detach(id.clone(), stable_id).await;
-                if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
-                    self.sessions.remove(&id);
-                    self.browsing.disconnected(&id);
-                    self.leave_hotspot(&id).await;
-                    self.status.remove(&id);
-                    self.publish();
-                    self.media.disconnected(&id).await;
-                    self.set_in_call(&id, false).await;
-                }
-            }
+            Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
             Command::Browse { id, request, reply } => {
                 let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
                     return drop(reply.send(Err(browse::Failure::NotConnected)));
@@ -342,6 +346,7 @@ impl Hub {
                     self.browsing.fail(req, browse::Failure::NotConnected);
                 }
             }
+            Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
             Command::Session { id, reply } => {
@@ -444,6 +449,7 @@ impl Hub {
                 return self.emit(Event::ClipboardOffered { from, id, mimes, size }).await;
             }
             TransferEvent::Busy { .. } => return,
+            TransferEvent::Mirror { from, stream } => return self.mirrors.stream(from, &stream),
         };
         self.on_signal(Backend::Link, signal).await;
     }
@@ -511,6 +517,14 @@ impl Hub {
                     log::info!("{from}: asking for the next page of a listing failed");
                 }
             }
+            // Answers to this desktop's own mirror request, which needs no grant of the phone's here.
+            SessionEvent::Message { from, message: Message::MirrorStarted(started) } => {
+                log::info!("{from}: the phone allowed mirroring at {}x{}", started.width, started.height);
+            }
+            SessionEvent::Message { from, message: Message::MirrorStop(stop) } => {
+                log::info!("{from}: the phone stopped mirroring: {:?}", stop.reason);
+                self.mirrors.stopped(&from, stop.reason);
+            }
             SessionEvent::Message { from, message: Message::Punch(punch) } if self.sessions.contains_key(&from) => {
                 let addresses: Vec<std::net::SocketAddr> =
                     punch.addresses.iter().filter_map(|text| text.parse().ok()).collect();
@@ -556,6 +570,7 @@ impl Hub {
             }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
             Message::Hotspot(offered) => self.join_hotspot(from, offered),
+            Message::WifiDirect(group) => self.join_wifi_direct(from, group),
             Message::HotspotEnd(end) => {
                 log::info!("{from}: the phone ended its hotspot: {:?}", end.reason);
                 let reason = end.reason.unwrap_or_else(|| "the phone ended its hotspot".to_owned());
@@ -675,7 +690,13 @@ impl Hub {
             older.close(CloseCode::Done);
         }
         self.publish();
-        self.transfers.attach(id.clone(), session).await;
+        self.transfers.attach(id.clone(), session.clone()).await;
+        if !on_ip
+            && let Some(name) = self.wifi_direct_name.clone()
+            && let Err(error) = session.send(Message::WifiDirectReady(WifiDirectReady { name })).await
+        {
+            log::info!("{id}: offering Wi-Fi Direct: {error}");
+        }
         if on_ip {
             self.send_waiting(&id).await;
         } else {
@@ -750,6 +771,62 @@ impl Hub {
         drop(reply.send(sent));
     }
 
+    /// A session ended; what hung on it goes only if no newer session replaced it.
+    async fn disconnected(&mut self, id: DeviceId, stable_id: usize) {
+        self.transfers.detach(id.clone(), stable_id).await;
+        if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
+            self.sessions.remove(&id);
+            self.browsing.disconnected(&id);
+            self.mirrors.fail(&id, crate::mirror::Failure::NotConnected);
+            self.leave_hotspot(&id).await;
+            self.status.remove(&id);
+            self.publish();
+            self.media.disconnected(&id).await;
+            self.set_in_call(&id, false).await;
+        }
+    }
+
+    /// Asks the phone to mirror, only over IP: video does not fit through Bluetooth.
+    async fn open_mirror(&mut self, id: DeviceId, reply: crate::mirror::Reply) {
+        use crate::mirror::Failure;
+        let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
+            return drop(reply.send(Err(Failure::NotConnected)));
+        };
+        if session.connection().quic().is_none() {
+            return drop(reply.send(Err(Failure::NeedsWifi)));
+        }
+        if self.mirrors.busy(&id) {
+            return drop(reply.send(Err(Failure::Busy)));
+        }
+        log::info!("{id}: asking the phone to mirror its screen");
+        match session.send(Message::MirrorRequest).await {
+            Ok(()) => self.mirrors.wait(id, reply),
+            Err(error) => drop(reply.send(Err(Failure::Failed(error.to_string())))),
+        }
+    }
+
+    async fn tell_mirror_stop(&self, id: &DeviceId, reason: &str) {
+        let stop = Message::MirrorStop(link_core::proto::message::MirrorStop { reason: Some(reason.to_owned()) });
+        if let Some(session) = self.sessions.get(id)
+            && let Err(error) = session.send(stop).await
+        {
+            log::info!("{id}: telling the phone to stop mirroring: {error}");
+        }
+    }
+
+    /// Joins the phone's Wi-Fi Direct group off the actor, like a hotspot.
+    fn join_wifi_direct(&mut self, id: DeviceId, group: WifiDirect) {
+        let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
+        if !on_bluetooth || self.hotspots.contains_key(&id) || self.wifi_direct_name.is_none() {
+            return log::info!("{id}: ignoring a Wi-Fi Direct group this session does not need");
+        }
+        log::info!("{id}: joining the phone's Wi-Fi Direct group as {:?}", group.name);
+        self.joining.spawn(async move {
+            let joined = crate::wifi_direct::join(&group.name).await;
+            (id, None, joined)
+        });
+    }
+
     /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one.
     fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
@@ -759,11 +836,13 @@ impl Hub {
         log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
         self.joining.spawn(async move {
             let joined = hotspot::join(&offered.ssid, &offered.passphrase).await;
-            (id, offered.ssid, joined)
+            (id, Some(offered.ssid), joined)
         });
     }
 
-    async fn hotspot_joined(&mut self, id: DeviceId, ssid: String, joined: Result<hotspot::Joined, String>) {
+    /// Answers the phone with where the desktop listens on its hotspot or group. A failed hotspot fails the sends
+    /// waiting for it; a failed group does not, since the phone falls back to its hotspot.
+    async fn hotspot_joined(&mut self, id: DeviceId, ssid: Option<String>, joined: Result<hotspot::Joined, String>) {
         let Some(session) = self.sessions.get(&id).cloned() else {
             if let Ok(joined) = joined {
                 hotspot::leave(&joined.active).await;
@@ -775,12 +854,16 @@ impl Hub {
                 let address = std::net::SocketAddr::new(joined.address, self.store.port).to_string();
                 log::info!("{id}: joined the hotspot at {address}");
                 self.hotspots.insert(id.clone(), joined.active);
-                self.emit(Event::Hotspot { id: id.clone(), ssid: Some(ssid) }).await;
+                if ssid.is_some() {
+                    self.emit(Event::Hotspot { id: id.clone(), ssid }).await;
+                }
                 Message::HotspotJoined(HotspotJoined { address })
             }
             Err(reason) => {
                 log::info!("{id}: joining the hotspot failed: {reason}");
-                self.fail_waiting(&id, &reason).await;
+                if ssid.is_some() {
+                    self.fail_waiting(&id, &reason).await;
+                }
                 let reason = reason.chars().take(link_core::proto::message::MAX_REASON_LEN).collect();
                 Message::HotspotEnd(HotspotEnd { reason: Some(reason) })
             }
@@ -947,6 +1030,15 @@ impl HubHandle {
 
     pub async fn connected(&self, id: DeviceId, name: String, session: SessionHandle) {
         self.tell(Command::Connected { id, name, session }).await;
+    }
+
+    /// Asks the phone to mirror its screen; answered once the user allowed it there and the video stream arrived.
+    pub async fn open_mirror(&self, id: DeviceId) -> Result<crate::mirror::Opened, crate::mirror::Failure> {
+        let (reply, answer) = oneshot::channel();
+        if self.commands.send(Command::OpenMirror { id, reply }).await.is_err() {
+            return Err(crate::mirror::Failure::NotConnected);
+        }
+        answer.await.unwrap_or(Err(crate::mirror::Failure::NotConnected))
     }
 
     /// The device's live session, if it has one.

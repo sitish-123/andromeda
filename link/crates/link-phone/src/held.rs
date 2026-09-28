@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 pub struct Held {
     client: Client,
     desktop: DeviceId,
+    mirror: Option<crate::mirror::Source>,
+    mirroring: Option<tokio::task::JoinHandle<()>>,
     notifications: BTreeMap<String, NotificationPosted>,
     /// The phone's own players, which act on the desktop's commands as a real player would.
     players: BTreeMap<String, MediaPlayer>,
@@ -22,8 +24,16 @@ pub struct Held {
 }
 
 impl Held {
-    pub fn new(client: Client, desktop: DeviceId) -> Self {
-        Self { client, desktop, notifications: BTreeMap::new(), players: BTreeMap::new(), ringing: false }
+    pub fn new(client: Client, desktop: DeviceId, mirror: Option<crate::mirror::Source>) -> Self {
+        Self {
+            client,
+            desktop,
+            mirror,
+            mirroring: None,
+            notifications: BTreeMap::new(),
+            players: BTreeMap::new(),
+            ringing: false,
+        }
     }
 
     /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
@@ -75,6 +85,30 @@ impl Held {
                 let report = Message::Ringing(Ringing { on: self.ringing });
                 if let Err(error) = self.client.send(from.clone(), report).await {
                     log::warn!("reporting the ring: {error}");
+                }
+            }
+            // As the app does once the user allows capture: stream until the desktop stops it.
+            ClientEvent::Message { from, message: Message::MirrorRequest } => {
+                let Some(source) = self.mirror.clone() else {
+                    let refused = self.client.stop_mirror(from.clone(), Some("this phone cannot capture".to_owned()));
+                    if let Err(error) = refused.await {
+                        log::warn!("refusing to mirror: {error}");
+                    }
+                    return;
+                };
+                let (client, desktop) = (self.client.clone(), from.clone());
+                if let Some(old) = self.mirroring.replace(tokio::spawn(async move {
+                    if let Err(error) = crate::mirror::stream(client, desktop, source).await {
+                        log::info!("mirroring ended: {error:#}");
+                    }
+                })) {
+                    old.abort();
+                }
+            }
+            ClientEvent::Message { message: Message::MirrorStop(_), .. } => {
+                if let Some(running) = self.mirroring.take() {
+                    running.abort();
+                    log::info!("mirroring stopped by the desktop");
                 }
             }
             // As Android does: cancelling the notification removes it, and the listener reports the removal.
@@ -240,6 +274,11 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
             "event": "media-command", "desktop": from, "player": command.player, "command": command.command,
             "value": command.value,
         }),
+        Message::MirrorInput(input) => json!({
+            "event": "mirror-input", "desktop": from, "action": input.action, "x": input.x, "y": input.y,
+            "x2": input.x2, "y2": input.y2, "ms": input.ms, "text": input.text,
+        }),
+        Message::MirrorStop(stop) => json!({ "event": "mirror-stop", "desktop": from, "reason": stop.reason }),
         other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
     }
 }

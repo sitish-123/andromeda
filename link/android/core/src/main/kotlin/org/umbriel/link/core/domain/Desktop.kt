@@ -11,7 +11,7 @@ data class Desktop(
     val sharing: Sharing = Sharing(),
 )
 
-/** This phone's switches for one desktop; all but browsing on after pairing. */
+/** This phone's switches for one desktop; all but browsing and the screen on after pairing. */
 data class Sharing(
     val clipboard: Boolean = true,
     val files: Boolean = true,
@@ -20,6 +20,7 @@ data class Sharing(
     val ring: Boolean = true,
     val calls: Boolean = true,
     val browse: Boolean = false,
+    val screen: Boolean = false,
 ) {
     fun allows(feature: Feature): Boolean = when (feature) {
         Feature.Clipboard -> clipboard
@@ -29,7 +30,8 @@ data class Sharing(
         Feature.Ring -> ring
         Feature.Calls -> calls
         Feature.Browse -> browse
+        Feature.Screen -> screen
     }
 }
 
-enum class Feature { Clipboard, Files, Notifications, Media, Ring, Calls, Browse }
+enum class Feature { Clipboard, Files, Notifications, Media, Ring, Calls, Browse, Screen }

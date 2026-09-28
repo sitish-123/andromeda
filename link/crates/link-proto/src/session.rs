@@ -84,6 +84,8 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::Call(_)
         | Message::Hotspot(_)
         | Message::Punch(_)
+        | Message::WifiDirect(_)
+        | Message::MirrorStarted(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
         | Message::FsError(_) => role == Role::Desktop,
@@ -92,9 +94,14 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::CallAction(_)
         | Message::HotspotRequest
         | Message::HotspotJoined(_)
+        | Message::WifiDirectReady(_)
+        | Message::MirrorRequest
+        | Message::MirrorInput(_)
+        | Message::MirrorKeyframe
         | Message::FsList(_)
         | Message::FsRead(_) => role == Role::Phone,
         Message::HotspotEnd(_)
+        | Message::MirrorStop(_)
         | Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)

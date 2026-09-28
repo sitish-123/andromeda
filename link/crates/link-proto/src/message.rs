@@ -311,6 +311,117 @@ pub struct HotspotEnd {
     pub reason: Option<String>,
 }
 
+/// Desktop to phone: it can join a Wi-Fi Direct group as a client, and shows as `name` while looking for one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WifiDirectReady {
+    pub name: String,
+}
+
+/// Phone to desktop, instead of the hotspot: the phone, shown as `name`, is forming a Wi-Fi Direct group with the
+/// desktop as its client. The desktop answers like a hotspot: `hotspot-joined` or `hotspot-end`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WifiDirect {
+    pub name: String,
+}
+
+/// Phone to desktop, once the user allowed capture: the video that follows on a `mirror-data` stream is this size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MirrorStarted {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Either side ends mirroring, with a reason when it failed or was refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MirrorStop {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MirrorAction {
+    Tap,
+    LongPress,
+    /// From (x, y) to (x2, y2) over `ms`.
+    Swipe,
+    /// A wheel turn at (x, y): (x2, y2) is the direction and length, like a swipe that starts where the pointer is.
+    Scroll,
+    Back,
+    Home,
+    Recents,
+    /// `text` into the focused field.
+    Text,
+}
+
+/// Desktop to phone: input on the mirrored screen. Coordinates are fractions of the video's width and height in
+/// units of 1/[`MIRROR_UNIT`]; a scroll's (x2, y2) is a signed delta in the same units.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MirrorInput {
+    pub action: MirrorAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x2: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y2: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// The header of the phone's video stream: H.264 access units follow, each a big-endian u32 length, a big-endian u64
+/// presentation time in microseconds, a flags byte ([`MIRROR_KEYFRAME`], [`MIRROR_CONFIG`]), then the Annex B bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MirrorData {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The whole width or height in [`MirrorInput`] coordinates.
+pub const MIRROR_UNIT: i32 = 10_000;
+pub const MIRROR_KEYFRAME: u8 = 1;
+/// Codec configuration (SPS and PPS), sent before the first frame and again after a size change.
+pub const MIRROR_CONFIG: u8 = 2;
+/// A 1080p access unit stays well under this.
+pub const MAX_MIRROR_UNIT: usize = 4 * 1024 * 1024;
+pub const MAX_MIRROR_SIDE: u32 = 4096;
+pub const MAX_MIRROR_TEXT_LEN: usize = 4096;
+/// A swipe or long press held longer than this is refused.
+pub const MAX_GESTURE_MS: u32 = 10_000;
+
+impl MirrorInput {
+    fn valid(&self) -> bool {
+        let fraction = |value: Option<i32>| value.is_some_and(|value| (0..=MIRROR_UNIT).contains(&value));
+        let point = fraction(self.x) && fraction(self.y);
+        let delta = |value: Option<i32>| value.is_some_and(|value| (-MIRROR_UNIT..=MIRROR_UNIT).contains(&value));
+        let held = self.ms.is_none_or(|ms| ms <= MAX_GESTURE_MS);
+        held && match self.action {
+            MirrorAction::Tap | MirrorAction::LongPress => point,
+            MirrorAction::Swipe => point && fraction(self.x2) && fraction(self.y2),
+            MirrorAction::Scroll => point && delta(self.x2) && delta(self.y2),
+            MirrorAction::Back | MirrorAction::Home | MirrorAction::Recents => true,
+            MirrorAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+        }
+    }
+}
+
+fn mirror_size_valid(width: u32, height: u32) -> bool {
+    (1..=MAX_MIRROR_SIDE).contains(&width) && (1..=MAX_MIRROR_SIDE).contains(&height)
+}
+
+/// A Wi-Fi Direct device name, as the P2P device info attribute carries it.
+pub const MAX_P2P_NAME_LEN: usize = 32;
+
 /// The phone's own addresses it is about to dial the desktop from, so the desktop can open its firewall to them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -814,6 +925,14 @@ pub enum Message {
     HotspotJoined(HotspotJoined),
     HotspotEnd(HotspotEnd),
     Punch(Punch),
+    WifiDirectReady(WifiDirectReady),
+    WifiDirect(WifiDirect),
+    MirrorRequest,
+    MirrorStarted(MirrorStarted),
+    MirrorStop(MirrorStop),
+    MirrorInput(MirrorInput),
+    MirrorKeyframe,
+    MirrorData(MirrorData),
     FsList(FsList),
     FsEntries(FsEntries),
     FsRead(FsRead),
@@ -857,6 +976,14 @@ impl Message {
             Self::HotspotJoined(_) => "hotspot-joined",
             Self::HotspotEnd(_) => "hotspot-end",
             Self::Punch(_) => "punch",
+            Self::WifiDirectReady(_) => "wifi-direct-ready",
+            Self::WifiDirect(_) => "wifi-direct",
+            Self::MirrorRequest => "mirror-request",
+            Self::MirrorStarted(_) => "mirror-started",
+            Self::MirrorStop(_) => "mirror-stop",
+            Self::MirrorInput(_) => "mirror-input",
+            Self::MirrorKeyframe => "mirror-keyframe",
+            Self::MirrorData(_) => "mirror-data",
             Self::FsList(_) => "fs-list",
             Self::FsEntries(_) => "fs-entries",
             Self::FsRead(_) => "fs-read",
@@ -870,7 +997,9 @@ impl Message {
             Self::Hello(body) => Value::serialized(body),
             Self::PairSpake(body) => Value::serialized(body),
             Self::PairConfirm(body) => Value::serialized(body),
-            Self::Unpair | Self::HotspotRequest => Value::serialized(&Empty {}),
+            Self::Unpair | Self::HotspotRequest | Self::MirrorRequest | Self::MirrorKeyframe => {
+                Value::serialized(&Empty {})
+            }
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
@@ -897,6 +1026,12 @@ impl Message {
             Self::HotspotJoined(body) => Value::serialized(body),
             Self::HotspotEnd(body) => Value::serialized(body),
             Self::Punch(body) => Value::serialized(body),
+            Self::WifiDirectReady(body) => Value::serialized(body),
+            Self::WifiDirect(body) => Value::serialized(body),
+            Self::MirrorStarted(body) => Value::serialized(body),
+            Self::MirrorStop(body) => Value::serialized(body),
+            Self::MirrorInput(body) => Value::serialized(body),
+            Self::MirrorData(body) => Value::serialized(body),
             Self::FsList(body) => Value::serialized(body),
             Self::FsEntries(body) => Value::serialized(body),
             Self::FsRead(body) => Value::serialized(body),
@@ -942,10 +1077,24 @@ impl Message {
                 body.deserialized::<Empty>()?;
                 Self::HotspotRequest
             }
+            "mirror-request" => {
+                body.deserialized::<Empty>()?;
+                Self::MirrorRequest
+            }
+            "mirror-keyframe" => {
+                body.deserialized::<Empty>()?;
+                Self::MirrorKeyframe
+            }
             "hotspot" => Self::Hotspot(body.deserialized()?),
             "hotspot-joined" => Self::HotspotJoined(body.deserialized()?),
             "hotspot-end" => Self::HotspotEnd(body.deserialized()?),
             "punch" => Self::Punch(body.deserialized()?),
+            "wifi-direct-ready" => Self::WifiDirectReady(body.deserialized()?),
+            "wifi-direct" => Self::WifiDirect(body.deserialized()?),
+            "mirror-started" => Self::MirrorStarted(body.deserialized()?),
+            "mirror-stop" => Self::MirrorStop(body.deserialized()?),
+            "mirror-input" => Self::MirrorInput(body.deserialized()?),
+            "mirror-data" => Self::MirrorData(body.deserialized()?),
             "fs-list" => Self::FsList(body.deserialized()?),
             "fs-entries" => Self::FsEntries(body.deserialized()?),
             "fs-read" => Self::FsRead(body.deserialized()?),
@@ -965,6 +1114,8 @@ impl Message {
             Self::PairConfirm(confirm) => confirm.mac.len() == MAC_LEN,
             Self::Unpair
             | Self::HotspotRequest
+            | Self::MirrorRequest
+            | Self::MirrorKeyframe
             | Self::ShareAck(_)
             | Self::Ring(_)
             | Self::Ringing(_)
@@ -998,6 +1149,14 @@ impl Message {
             Self::Punch(punch) => {
                 punch.addresses.len() <= MAX_PUNCH_ADDRESSES
                     && punch.addresses.iter().all(|address| address.parse::<std::net::SocketAddr>().is_ok())
+            }
+            Self::MirrorStarted(MirrorStarted { width, height }) | Self::MirrorData(MirrorData { width, height }) => {
+                mirror_size_valid(*width, *height)
+            }
+            Self::MirrorStop(stop) => stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
+            Self::MirrorInput(input) => input.valid(),
+            Self::WifiDirectReady(WifiDirectReady { name }) | Self::WifiDirect(WifiDirect { name }) => {
+                sized(name, 1, MAX_P2P_NAME_LEN)
             }
             Self::FsList(list) => fs_path_valid(&list.path),
             Self::FsEntries(page) => {

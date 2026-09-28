@@ -9,10 +9,12 @@ mod hub;
 mod listener;
 mod localsend;
 mod media;
+mod mirror;
 mod mpris;
 mod notifications;
 mod paths;
 mod quickshare;
+mod wifi_direct;
 
 use std::net::{Ipv6Addr, SocketAddr};
 

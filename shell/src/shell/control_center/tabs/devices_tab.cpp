@@ -568,6 +568,28 @@ void DevicesTab::rebuild(Renderer& renderer) {
               .onClick = [this, id = device.id]() { m_link->browse(id); },
           })
       );
+      row->addChild(
+          ui::button({
+              .glyph = "screen-share",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.mirror"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() { m_link->mirror(id); },
+          })
+      );
+      row->addChild(
+          ui::button({
+              .glyph = "apps",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.apps"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() { m_link->apps(id); },
+          })
+      );
     }
     row->addChild(
         ui::button({

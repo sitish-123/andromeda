@@ -74,6 +74,8 @@ pub struct Sharing {
     pub calls: bool,
     /// The desktop may browse this phone's storage; off after pairing.
     pub browse: bool,
+    /// The desktop may ask to mirror this phone's screen and control it; off after pairing.
+    pub screen: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -85,6 +87,7 @@ pub enum Feature {
     Ring,
     Calls,
     Browse,
+    Screen,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -116,6 +119,32 @@ pub enum ShareKind {
 pub enum LinkEvent {
     Connected {
         desktop_id: String,
+    },
+    /// The desktop asks to mirror the screen: show Android's capture prompt, then [`LinkClient::start_mirror`], or
+    /// refuse with [`LinkClient::stop_mirror`].
+    MirrorRequested {
+        desktop_id: String,
+    },
+    /// Input on the mirrored screen; coordinates are fractions of the video in units of 1/10000, a scroll's x2 and
+    /// y2 a signed delta.
+    MirrorInput {
+        desktop_id: String,
+        action: MirrorAction,
+        x: Option<i32>,
+        y: Option<i32>,
+        x2: Option<i32>,
+        y2: Option<i32>,
+        ms: Option<u32>,
+        text: Option<String>,
+    },
+    /// The desktop lost a frame: encode a keyframe next.
+    MirrorKeyframeRequested {
+        desktop_id: String,
+    },
+    /// The desktop ended mirroring.
+    MirrorStopped {
+        desktop_id: String,
+        reason: Option<String>,
     },
     Disconnected {
         desktop_id: String,
@@ -283,6 +312,67 @@ pub fn generate_identity() -> Result<Vec<u8>, LinkError> {
     Ok(Identity::generate()?.pkcs8().to_vec())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MirrorAction {
+    Tap,
+    LongPress,
+    Swipe,
+    Scroll,
+    Back,
+    Home,
+    Recents,
+    Text,
+}
+
+impl From<message::MirrorAction> for MirrorAction {
+    fn from(action: message::MirrorAction) -> Self {
+        match action {
+            message::MirrorAction::Tap => Self::Tap,
+            message::MirrorAction::LongPress => Self::LongPress,
+            message::MirrorAction::Swipe => Self::Swipe,
+            message::MirrorAction::Scroll => Self::Scroll,
+            message::MirrorAction::Back => Self::Back,
+            message::MirrorAction::Home => Self::Home,
+            message::MirrorAction::Recents => Self::Recents,
+            message::MirrorAction::Text => Self::Text,
+        }
+    }
+}
+
+/// The video stream to one desktop, from [`LinkClient::start_mirror`].
+#[derive(uniffi::Object)]
+pub struct MirrorSession {
+    runtime: tokio::runtime::Handle,
+    sender: Arc<tokio::sync::Mutex<Option<link_core::mirror::MirrorSender>>>,
+}
+
+#[uniffi::export]
+impl MirrorSession {
+    /// One H.264 access unit in Annex B form; `flags` is 1 for a keyframe, 2 for codec configuration. Returns once
+    /// the bytes are queued, so a slow network holds the encoder back; fails once the desktop is gone.
+    pub async fn send_unit(&self, pts_us: u64, flags: u8, data: Vec<u8>) -> Result<(), LinkError> {
+        let unit = link_core::mirror::Unit { pts_us, flags, data };
+        let sender = self.sender.clone();
+        let sent = self
+            .runtime
+            .spawn(async move {
+                match sender.lock().await.as_mut() {
+                    Some(stream) => stream.send(&unit).await,
+                    None => Err(link_core::Error::Stopped),
+                }
+            })
+            .await
+            .map_err(|_| stopped())?;
+        Ok(sent?)
+    }
+
+    pub async fn finish(&self) {
+        if let Some(sender) = self.sender.lock().await.take() {
+            sender.finish();
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct LinkClient {
     /// Owns the worker thread the actor runs on; dropping the client stops both.
@@ -347,6 +437,37 @@ impl link_core::hotspot::HotspotProvider for Hotspots {
     }
 }
 
+/// How the app forms a Wi-Fi Direct group with a desktop as its client, tried before the hotspot so the desktop keeps
+/// its own network. Blocking, called off the main thread: `name` is what peers see (None without the Nearby devices
+/// permission); `connect` finds the peer shown as `peer`, forms the group with this phone as owner, and returns
+/// whether it came up.
+#[uniffi::export(with_foreign)]
+pub trait PhoneWifiDirect: Send + Sync {
+    fn name(&self) -> Option<String>;
+    fn connect(&self, peer: String) -> bool;
+    fn stop(&self);
+}
+
+struct WifiDirects(Arc<dyn PhoneWifiDirect>);
+
+impl link_core::hotspot::WifiDirectProvider for WifiDirects {
+    fn name(&self) -> std::io::Result<String> {
+        self.0.name().ok_or_else(|| std::io::Error::other("no Wi-Fi Direct name"))
+    }
+
+    fn connect(&self, peer: &str) -> std::io::Result<()> {
+        if self.0.connect(peer.to_owned()) {
+            Ok(())
+        } else {
+            Err(std::io::Error::other("Android did not form the group"))
+        }
+    }
+
+    fn stop(&self) {
+        self.0.stop();
+    }
+}
+
 #[uniffi::export]
 impl LinkClient {
     /// `identity` is PKCS#8 from [`generate_identity`]; `store_path` is where paired desktops are kept, and transfer
@@ -359,6 +480,7 @@ impl LinkClient {
         incoming_dir: String,
         bluetooth: Option<Arc<dyn BluetoothLink>>,
         hotspot: Option<Arc<dyn PhoneHotspot>>,
+        wifi_direct: Option<Arc<dyn PhoneWifiDirect>>,
     ) -> Result<Arc<Self>, LinkError> {
         // The core's logs, which are otherwise lost on Android, go to logcat under "link".
         #[cfg(target_os = "android")]
@@ -382,6 +504,9 @@ impl LinkClient {
             }
             if let Some(hotspot) = hotspot {
                 phone.set_hotspot(Arc::new(Hotspots(hotspot)));
+            }
+            if let Some(wifi_direct) = wifi_direct {
+                phone.set_wifi_direct(Arc::new(WifiDirects(wifi_direct)));
             }
             phone
         };
@@ -459,6 +584,7 @@ impl LinkClient {
             Feature::Ring => store::Feature::Ring,
             Feature::Calls => store::Feature::Calls,
             Feature::Browse => store::Feature::Browse,
+            Feature::Screen => store::Feature::Screen,
         };
         self.run(async move { client.set_sharing(id, feature, on).await }).await
     }
@@ -511,6 +637,27 @@ impl LinkClient {
     /// Reports this phone's ringing to every connected desktop that may ring it.
     pub async fn report_ringing(&self, on: bool) -> Result<u32, LinkError> {
         self.broadcast(Message::Ringing(message::Ringing { on })).await
+    }
+
+    /// Opens the video stream to the desktop that asked for mirroring, after telling it the size.
+    pub async fn start_mirror(
+        &self,
+        desktop_id: String,
+        width: u32,
+        height: u32,
+    ) -> Result<Arc<MirrorSession>, LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let sender = self.run(async move { client.start_mirror(id, width, height).await }).await?;
+        Ok(Arc::new(MirrorSession {
+            runtime: self.runtime.handle().clone(),
+            sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
+        }))
+    }
+
+    /// Ends mirroring, or refuses the desktop's request, with a reason when it failed.
+    pub async fn stop_mirror(&self, desktop_id: String, reason: Option<String>) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.stop_mirror(id, reason).await }).await
     }
 
     /// Commands one of a desktop's players, connecting first if needed.
@@ -615,7 +762,7 @@ fn transfer_event(event: TransferEvent) -> Option<LinkEvent> {
         TransferEvent::ClipOffered { from, id, mimes, size, text } => {
             LinkEvent::ClipOffered { desktop_id: from.to_string(), clip_id: id, mimes, size, text }
         }
-        TransferEvent::Busy { .. } => return None,
+        TransferEvent::Busy { .. } | TransferEvent::Mirror { .. } => return None,
     })
 }
 
@@ -689,6 +836,19 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                     },
                 },
                 Message::Ringing(ringing) => LinkEvent::DesktopRinging { desktop_id, on: ringing.on },
+                Message::MirrorRequest => LinkEvent::MirrorRequested { desktop_id },
+                Message::MirrorInput(input) => LinkEvent::MirrorInput {
+                    desktop_id,
+                    action: input.action.into(),
+                    x: input.x,
+                    y: input.y,
+                    x2: input.x2,
+                    y2: input.y2,
+                    ms: input.ms,
+                    text: input.text,
+                },
+                Message::MirrorKeyframe => LinkEvent::MirrorKeyframeRequested { desktop_id },
+                Message::MirrorStop(stop) => LinkEvent::MirrorStopped { desktop_id, reason: stop.reason },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,
                     player: command.player,
@@ -713,7 +873,7 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
-    let store::Grants { clipboard, files, notifications, media, ring, calls, browse } = peer.grants;
+    let store::Grants { clipboard, files, notifications, media, ring, calls, browse, screen } = peer.grants;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
@@ -721,7 +881,7 @@ fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
         last_seen: peer.last_seen,
         connected,
         bluetooth,
-        sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse },
+        sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse, screen },
     }
 }
 

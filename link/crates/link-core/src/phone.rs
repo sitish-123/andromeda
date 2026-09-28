@@ -11,7 +11,7 @@ use link_proto::{CloseCode, VERSION};
 
 use crate::browse::Roots;
 use crate::control::{Control, Tap};
-use crate::hotspot::HotspotProvider;
+use crate::hotspot::{HotspotProvider, WifiDirectProvider};
 use crate::identity::{DeviceId, Identity};
 use crate::pairing::pair_as_client;
 use crate::reach::{self, Reached, Via};
@@ -53,6 +53,7 @@ pub struct Phone {
     stream_dialer: StreamDialer,
     bluetooth: Option<Arc<dyn BluetoothOpener>>,
     hotspot: Option<Arc<dyn HotspotProvider>>,
+    wifi_direct: Option<Arc<dyn WifiDirectProvider>>,
     browse_roots: Roots,
     present: bool,
     tap: Option<Tap>,
@@ -74,6 +75,7 @@ impl Phone {
             stream_dialer,
             bluetooth: None,
             hotspot: None,
+            wifi_direct: None,
             browse_roots: Roots::default(),
             present: false,
             tap,
@@ -97,6 +99,15 @@ impl Phone {
 
     pub fn hotspot(&self) -> Option<Arc<dyn HotspotProvider>> {
         self.hotspot.clone()
+    }
+
+    /// Lets a Bluetooth session try a Wi-Fi Direct group before the hotspot, with desktops that can join one.
+    pub fn set_wifi_direct(&mut self, provider: Arc<dyn WifiDirectProvider>) {
+        self.wifi_direct = Some(provider);
+    }
+
+    pub fn wifi_direct(&self) -> Option<Arc<dyn WifiDirectProvider>> {
+        self.wifi_direct.clone()
     }
 
     /// The folders a desktop with the browse switch on sees at `/`.
@@ -210,8 +221,8 @@ impl Phone {
         let connection = Connection::from(reached.dialed.connection);
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
-        let desktop = if reached.via == Via::Hotspot {
-            // The phone's own hotspot is gone once it stops: neither the address it reached nor the ones the desktop
+        let desktop = if matches!(reached.via, Via::Hotspot | Via::WifiDirect) {
+            // The phone's own hotspot or group is gone once it stops: neither the address it reached nor the ones the desktop
             // announces on it are worth dialling later.
             self.remember(&peer.spki()?, &Hello { addresses: Vec::new(), ..hello }, None)?
         } else {

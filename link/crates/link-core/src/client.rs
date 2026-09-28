@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, Message, NetworkKind, Punch, Share, Status, TransferId,
+    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, Message, MirrorStarted, MirrorStop,
+    NetworkKind, Punch, Share, Status, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -18,6 +19,7 @@ use crate::browse;
 use crate::hotspot::{self, UPGRADE_TIMEOUT};
 use crate::identity::DeviceId;
 use crate::inbox::Inbox;
+use crate::mirror::MirrorSender;
 use crate::net;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::{self, Reached, Via};
@@ -161,6 +163,13 @@ pub struct ClientActor {
     /// When the hotspot stops unless a transfer starts first.
     hotspot_idle_at: Option<Instant>,
     upgrades: HashMap<DeviceId, Vec<oneshot::Sender<Result<(), Error>>>>,
+    /// Desktops' Wi-Fi Direct names, from their `wifi-direct-ready`; dropped for the session once a group fails.
+    wifi_direct_names: HashMap<DeviceId, String>,
+    /// Whether the hotspot slot holds a Wi-Fi Direct group rather than the hotspot.
+    slot_is_group: bool,
+    /// While that group is forming: when it gives up for the hotspot.
+    wifi_direct_until: Option<Instant>,
+    wifi_direct_started: JoinSet<(DeviceId, Result<(), String>)>,
     /// Browse requests being answered, at most [`browse::MAX_IN_FLIGHT`].
     browsing: JoinSet<()>,
 }
@@ -208,6 +217,10 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         hotspot_started: JoinSet::new(),
         hotspot_idle_at: None,
         upgrades: HashMap::new(),
+        wifi_direct_names: HashMap::new(),
+        slot_is_group: false,
+        wifi_direct_until: None,
+        wifi_direct_started: JoinSet::new(),
         browsing: JoinSet::new(),
     };
     (Client { commands: commands_tx, transfers }, actor, events_rx)
@@ -256,6 +269,19 @@ impl Client {
         };
         self.commands.send(Command::Keep { id, keep: false }).await.map_err(|_| Error::Stopped)?;
         sent
+    }
+
+    /// Tells the desktop that asked for mirroring the video's size, then opens the stream the access units go on.
+    pub async fn start_mirror(&self, id: DeviceId, width: u32, height: u32) -> Result<MirrorSender, Error> {
+        let session = self.session(id).await?;
+        session.send(Message::MirrorStarted(MirrorStarted { width, height })).await?;
+        MirrorSender::open(&session, width, height).await
+    }
+
+    /// Ends mirroring, or refuses a request, with a reason when it failed.
+    pub async fn stop_mirror(&self, id: DeviceId, reason: Option<String>) -> Result<(), Error> {
+        let reason = reason.map(|reason| reason.chars().take(link_proto::message::MAX_REASON_LEN).collect());
+        self.send(id, Message::MirrorStop(MirrorStop { reason })).await
     }
 
     /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on.
@@ -390,6 +416,16 @@ impl ClientActor {
                     Ok((id, started)) => self.hotspot_up(id, started).await,
                     Err(join) => log::warn!("hotspot task: {join}"),
                 },
+                () = sleep_until(self.wifi_direct_until) => {
+                    self.fall_back_to_hotspot("the Wi-Fi Direct group did not form in time").await;
+                }
+                Some(joined) = self.wifi_direct_started.join_next() => match joined {
+                    Ok((id, Err(reason))) if self.hotspot_for.as_ref() == Some(&id) => {
+                        self.fall_back_to_hotspot(&reason).await;
+                    }
+                    Ok(_) => {}
+                    Err(join) => log::warn!("Wi-Fi Direct task: {join}"),
+                },
                 Some(joined) = self.probes.join_next() => match joined {
                     Ok((id, reached)) => self.probed(id, reached).await,
                     Err(join) => log::warn!("probe task: {join}"),
@@ -459,6 +495,13 @@ impl ClientActor {
     }
 
     async fn on_transfer(&mut self, event: TransferEvent) {
+        if let TransferEvent::Mirror { from, stream } = &event {
+            log::info!("{from}: refusing a mirror stream from a desktop");
+            if let Some(mut receiver) = stream.take() {
+                receiver.stop();
+            }
+            return;
+        }
         if let TransferEvent::Busy { peer, busy } = &event {
             if self.hotspot_for.as_ref() == Some(peer) {
                 self.hotspot_idle_at = (!*busy).then(|| Instant::now() + hotspot::IDLE);
@@ -543,7 +586,10 @@ impl ClientActor {
         } else {
             log::info!("{id}: connected at {}", addr.map_or_else(String::new, |addr| addr.to_string()));
             self.on_bluetooth.remove(&id);
-            if via == Via::Hotspot {
+            if via == Via::WifiDirect {
+                self.wifi_direct_until = None;
+            }
+            if matches!(via, Via::Hotspot | Via::WifiDirect) {
                 self.on_hotspot.insert(id.clone());
             } else {
                 self.on_hotspot.remove(&id);
@@ -643,6 +689,11 @@ impl ClientActor {
     /// Looks for an IP path to every desktop on Bluetooth, off the actor, since reaching one can take seconds.
     fn probe(&mut self) {
         self.next_probe = (!self.on_bluetooth.is_empty()).then(|| Instant::now() + PROBE_EVERY);
+        // On mobile data the only IP path is an overlay such as Tailscale, which would move a Bluetooth session, and
+        // its transfers, onto the data plan.
+        if self.status.is_some_and(|status| status.network == NetworkKind::Cellular) {
+            return;
+        }
         for id in &self.on_bluetooth {
             let Some(peer) = self.phone.desktops().iter().find(|peer| peer.id == *id).cloned() else { continue };
             let dialer = self.phone.dialer().clone();
@@ -685,11 +736,12 @@ impl ClientActor {
             return;
         }
         let files = self.phone.desktops().iter().any(|peer| peer.id == id && peer.grants.files);
-        let refusal = match (&self.hotspot_for, self.phone.hotspot()) {
+        let refusal = match (self.hotspot_for.is_some(), self.phone.hotspot()) {
             _ if !files => Some("its files switch is off"),
-            (Some(_), _) => Some("the hotspot serves another desktop"),
-            (None, None) => Some("this phone cannot start a hotspot"),
-            (None, Some(provider)) => {
+            (true, _) => Some("the hotspot serves another desktop"),
+            (false, _) if self.try_wifi_direct(&id) => None,
+            (false, None) => Some("this phone cannot start a hotspot"),
+            (false, Some(provider)) => {
                 self.hotspot_for = Some(id.clone());
                 let for_id = id.clone();
                 self.hotspot_started.spawn_blocking(move || (for_id, provider.start()));
@@ -700,6 +752,48 @@ impl ClientActor {
             self.tell_hotspot_end(&id, Some(reason)).await;
             self.finish_upgrades(&id, &Err(Error::TooLargeForBluetooth));
         }
+    }
+
+    /// Takes the hotspot slot for a Wi-Fi Direct group with `id`, when both sides can form one: the phone's name goes
+    /// out first so the desktop looks for it while the phone connects.
+    fn try_wifi_direct(&mut self, id: &DeviceId) -> bool {
+        let (Some(provider), Some(desktop), Some(handle)) =
+            (self.phone.wifi_direct(), self.wifi_direct_names.get(id).cloned(), self.sessions.get(id).cloned())
+        else {
+            return false;
+        };
+        log::info!("{id}: forming a Wi-Fi Direct group with {desktop:?}");
+        self.hotspot_for = Some(id.clone());
+        self.slot_is_group = true;
+        self.wifi_direct_until = Some(Instant::now() + hotspot::WIFI_DIRECT_TIMEOUT);
+        let id = id.clone();
+        self.wifi_direct_started.spawn(async move {
+            let formed = async {
+                let named = provider.clone();
+                let name = tokio::task::spawn_blocking(move || named.name()).await.map_err(text)?.map_err(text)?;
+                if name.is_empty() || name.len() > MAX_P2P_NAME_LEN {
+                    return Err(format!("the phone's Wi-Fi Direct name {name:?} does not fit"));
+                }
+                handle.send(Message::WifiDirect(WifiDirect { name })).await.map_err(text)?;
+                tokio::task::spawn_blocking(move || provider.connect(&desktop)).await.map_err(text)?.map_err(text)
+            };
+            (id, formed.await)
+        });
+        true
+    }
+
+    /// The Wi-Fi Direct group failed: the slot goes to the hotspot, and this session does not try a group again.
+    async fn fall_back_to_hotspot(&mut self, reason: &str) {
+        let Some(id) = self.hotspot_for.clone() else { return };
+        if self.wifi_direct_until.take().is_none() {
+            return;
+        }
+        log::info!("{id}: Wi-Fi Direct failed, trying the hotspot: {reason}");
+        self.slot_is_group = false;
+        self.stop_wifi_direct_provider();
+        self.wifi_direct_names.remove(&id);
+        self.hotspot_for = None;
+        self.start_hotspot(id).await;
     }
 
     async fn hotspot_up(&mut self, id: DeviceId, started: std::io::Result<Hotspot>) {
@@ -737,12 +831,20 @@ impl ClientActor {
         if self.hotspot_for.as_ref() != Some(&id) {
             return;
         }
+        let via = if self.slot_is_group { Via::WifiDirect } else { Via::Hotspot };
         let dialer = self.phone.dialer().clone();
+        let session = self.sessions.get(&id).cloned();
         self.probes.spawn(async move {
+            // The desktop's firewall takes the dial for a reply once it has sent toward the phone's new address.
+            if let (Some(session), Some(punch)) = (session, punch(&dialer))
+                && let Err(error) = session.send(punch).await
+            {
+                log::info!("{id}: asking for a punch: {error}");
+            }
             let reached = async {
                 let pin = ServerPin::Key(peer.spki()?.fingerprint());
                 let (connection, addr) = reach::race(&dialer, &[addr], pin).await?;
-                Ok(Reached { dialed: connection, addr, via: Via::Hotspot })
+                Ok(Reached { dialed: connection, addr, via })
             };
             (id, reached.await)
         });
@@ -768,8 +870,13 @@ impl ClientActor {
     /// instead of after the idle timeout.
     fn stop_hotspot(&mut self) {
         self.hotspot_idle_at = None;
+        self.wifi_direct_until = None;
         let Some(id) = self.hotspot_for.take() else { return };
-        self.stop_hotspot_provider();
+        if std::mem::take(&mut self.slot_is_group) {
+            self.stop_wifi_direct_provider();
+        } else {
+            self.stop_hotspot_provider();
+        }
         if self.on_hotspot.contains(&id)
             && let Some(handle) = self.sessions.get(&id)
         {
@@ -779,6 +886,12 @@ impl ClientActor {
 
     fn stop_hotspot_provider(&self) {
         if let Some(provider) = self.phone.hotspot() {
+            drop(tokio::task::spawn_blocking(move || provider.stop()));
+        }
+    }
+
+    fn stop_wifi_direct_provider(&self) {
+        if let Some(provider) = self.phone.wifi_direct() {
             drop(tokio::task::spawn_blocking(move || provider.stop()));
         }
     }
@@ -872,6 +985,26 @@ impl ClientActor {
             SessionEvent::Message { from, message: Message::HotspotJoined(joined) } => {
                 self.hotspot_joined(from, &joined);
             }
+            SessionEvent::Message { from, message: Message::MirrorRequest }
+                if !self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.screen) =>
+            {
+                log::info!("{from}: refusing to mirror: the screen switch is off");
+                if let Some(handle) = self.sessions.get(&from) {
+                    let reason = Some("the phone's screen switch for this desktop is off".to_owned());
+                    if let Err(error) = handle.send(Message::MirrorStop(MirrorStop { reason })).await {
+                        log::info!("{from}: refusing to mirror: {error}");
+                    }
+                }
+            }
+            SessionEvent::Message { from, message: Message::WifiDirectReady(ready) } => {
+                self.wifi_direct_names.insert(from, ready.name);
+            }
+            SessionEvent::Message { from, message: Message::HotspotEnd(end) }
+                if self.hotspot_for.as_ref() == Some(&from) && self.wifi_direct_until.is_some() =>
+            {
+                self.fall_back_to_hotspot(end.reason.as_deref().unwrap_or("the desktop could not join the group"))
+                    .await;
+            }
             SessionEvent::Message { from, message: Message::HotspotEnd(end) } => {
                 if self.hotspot_for.as_ref() == Some(&from) {
                     log::info!("{from}: the desktop ended the hotspot: {:?}", end.reason);
@@ -929,4 +1062,8 @@ fn punch(dialer: &Dialer) -> Option<Message> {
     addresses.truncate(MAX_PUNCH_ADDRESSES);
     let addresses = addresses.iter().map(ToString::to_string).collect::<Vec<_>>();
     (!addresses.is_empty()).then_some(Message::Punch(Punch { addresses }))
+}
+
+fn text(error: impl std::fmt::Display) -> String {
+    error.to_string()
 }

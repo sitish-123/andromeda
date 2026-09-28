@@ -52,9 +52,11 @@ pub enum Feature {
     Calls,
     /// The desktop may list and read the phone's shared storage; a phone-side switch, off after pairing.
     Browse,
+    /// The desktop may ask to mirror the phone's screen and send it input; a phone-side switch, off after pairing.
+    Screen,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse`. A store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse` and `screen`. A store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -66,17 +68,35 @@ pub struct Grants {
     pub ring: bool,
     pub calls: bool,
     pub browse: bool,
+    pub screen: bool,
 }
 
 impl Default for Grants {
     fn default() -> Self {
-        Self { clipboard: true, files: true, notifications: true, media: true, ring: true, calls: true, browse: false }
+        Self {
+            clipboard: true,
+            files: true,
+            notifications: true,
+            media: true,
+            ring: true,
+            calls: true,
+            browse: false,
+            screen: false,
+        }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 7] =
-        [Self::Clipboard, Self::Files, Self::Notifications, Self::Media, Self::Ring, Self::Calls, Self::Browse];
+    pub const ALL: [Self; 8] = [
+        Self::Clipboard,
+        Self::Files,
+        Self::Notifications,
+        Self::Media,
+        Self::Ring,
+        Self::Calls,
+        Self::Browse,
+        Self::Screen,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -87,6 +107,7 @@ impl Feature {
             Self::Ring => "ring",
             Self::Calls => "calls",
             Self::Browse => "browse",
+            Self::Screen => "screen",
         }
     }
 
@@ -110,7 +131,14 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::HotspotRequest
         | Message::Hotspot(_)
         | Message::HotspotJoined(_)
-        | Message::HotspotEnd(_) => Some(Feature::Files),
+        | Message::HotspotEnd(_)
+        | Message::WifiDirectReady(_)
+        | Message::WifiDirect(_) => Some(Feature::Files),
+        Message::MirrorRequest
+        | Message::MirrorStarted(_)
+        | Message::MirrorStop(_)
+        | Message::MirrorInput(_)
+        | Message::MirrorKeyframe => Some(Feature::Screen),
         _ => None,
     }
 }
@@ -125,6 +153,7 @@ impl Grants {
             Feature::Ring => self.ring,
             Feature::Calls => self.calls,
             Feature::Browse => self.browse,
+            Feature::Screen => self.screen,
         }
     }
 
@@ -137,6 +166,7 @@ impl Grants {
             Feature::Ring => &mut self.ring,
             Feature::Calls => &mut self.calls,
             Feature::Browse => &mut self.browse,
+            Feature::Screen => &mut self.screen,
         };
         *flag = on;
     }
@@ -191,9 +221,12 @@ impl Peer {
         self.addresses.truncate(MAX_ADDRESSES);
     }
 
-    /// Adds addresses the peer announced, after the ones already proven.
+    /// Puts the addresses the peer announced right after the one that last worked, ahead of older ones, so a full list
+    /// still takes a new network's addresses.
     pub fn learn(&mut self, announced: impl IntoIterator<Item = SocketAddr>) {
-        for addr in announced {
+        let older = std::mem::take(&mut self.addresses);
+        let proven = older.first().copied();
+        for addr in proven.into_iter().chain(announced).chain(older) {
             if !self.addresses.contains(&addr) && self.addresses.len() < MAX_ADDRESSES {
                 self.addresses.push(addr);
             }

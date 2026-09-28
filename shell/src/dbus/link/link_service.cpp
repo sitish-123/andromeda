@@ -1,6 +1,7 @@
 #include "dbus/link/link_service.h"
 
 #include "core/log.h"
+#include "core/process/process.h"
 #include "dbus/session_bus.h"
 #include "i18n/i18n.h"
 #include "ipc/ipc_arg_parse.h"
@@ -603,6 +604,18 @@ void LinkService::browse(const std::string& deviceId) {
     name.replace(at, 1, "\u2215");
   }
   (void)net::openInBrowser(fileUri(std::filesystem::path(home) / "Phone" / name));
+}
+
+void LinkService::mirror(const std::string& deviceId) {
+  if (!process::runAsync(std::vector<std::string>{"umbriel-link-mirror", deviceId, "--name", deviceName(deviceId)})) {
+    kLog.warn("could not start umbriel-link-mirror");
+  }
+}
+
+void LinkService::apps(const std::string& deviceId) {
+  if (!process::runAsync(std::vector<std::string>{"umbriel-link-apps", deviceName(deviceId)})) {
+    kLog.warn("could not start umbriel-link-apps");
+  }
 }
 
 void LinkService::setLocalSendVisible(bool visible) {

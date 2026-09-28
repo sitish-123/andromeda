@@ -52,6 +52,30 @@
       <arg name="length" type="u" direction="in"/>
       <arg name="data" type="ay" direction="out"/>
     </method>
+    <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
+         phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
+         u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration), then Annex B bytes;
+         closing it tells the phone to stop. Errors: .NotConnected, .Refused with the phone's reason (its screen switch
+         is off, declined on the phone), .Failed for a session on Bluetooth ("mirroring needs Wi-Fi"), a phone already
+         mirroring, or no answer in time. -->
+    <method name="OpenMirror">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="stream" type="h" direction="out"/>
+      <arg name="width" type="u" direction="out"/>
+      <arg name="height" type="u" direction="out"/>
+    </method>
+    <!-- Input on the mirrored screen. action: tap, long-press (x, y, ms?), swipe (x, y, x2, y2, ms?), scroll (x, y and
+         a signed delta x2, y2), back, home, recents, text (text; U+0008 deletes, "\n" presses Enter). Coordinates are
+         int32 in 1/10000 of the video's width and height; ms is uint32. Errors: .Rejected for anything out of range. -->
+    <method name="MirrorInput">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+      <arg name="args" type="a{sv}" direction="in"/>
+    </method>
+    <!-- Asks the phone for a keyframe. -->
+    <method name="MirrorKeyframe">
+      <arg name="device_id" type="s" direction="in"/>
+    </method>
     <!-- Consent for a TransferOffered; .Rejected once the offer no longer waits (answered, withdrawn, or 120 s
          passed, which declines it). -->
     <method name="AcceptTransfer">

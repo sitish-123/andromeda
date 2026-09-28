@@ -7,6 +7,7 @@ pub mod discovery;
 pub mod hotspot;
 pub mod identity;
 pub mod inbox;
+pub mod mirror;
 pub mod mux;
 pub mod net;
 pub mod pairing;

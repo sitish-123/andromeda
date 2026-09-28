@@ -182,7 +182,7 @@ impl Live {
                 self.writer.send(Message::OfferReply(reply)).await?;
             }
             // Ends the attempt on both sides, so neither waits out the upgrade timeout for it.
-            if let Message::Hotspot(_) = &envelope.message {
+            if let Message::Hotspot(_) | Message::WifiDirect(_) = &envelope.message {
                 let end = HotspotEnd { reason: Some("too many hotspots in a short time".to_owned()) };
                 self.writer.send(Message::HotspotEnd(end.clone())).await?;
                 let from = peer.clone();

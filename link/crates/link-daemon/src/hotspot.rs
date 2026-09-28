@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 
-const NM: &str = "org.freedesktop.NetworkManager";
-const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+pub const NM: &str = "org.freedesktop.NetworkManager";
+pub const NM_PATH: &str = "/org/freedesktop/NetworkManager";
 /// Joining includes the Wi-Fi scan and DHCP.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
 const ACTIVATED: u32 = 2;
@@ -49,7 +49,12 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
     let options: HashMap<&str, Value<'_>> = HashMap::from([("persist", Value::from("volatile"))]);
     let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedValue>) =
         manager.call("AddAndActivateConnection2", &(settings, &root, &root, options)).await.map_err(text)?;
-    let connection = zbus::Proxy::new(&bus, NM, active.as_str(), "org.freedesktop.NetworkManager.Connection.Active")
+    activated(&bus, active).await
+}
+
+/// Waits for `active` to come up and reads the address the desktop got on it; shared with Wi-Fi Direct.
+pub async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Result<Joined, String> {
+    let connection = zbus::Proxy::new(bus, NM, active.as_str(), "org.freedesktop.NetworkManager.Connection.Active")
         .await
         .map_err(text)?;
     let activated = async {
@@ -64,7 +69,7 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
     tokio::time::timeout(JOIN_TIMEOUT, activated).await.map_err(|_| "joining timed out".to_owned())??;
     let config: OwnedObjectPath = connection.get_property("Ip4Config").await.map_err(text)?;
     let ip4 =
-        zbus::Proxy::new(&bus, NM, config.as_str(), "org.freedesktop.NetworkManager.IP4Config").await.map_err(text)?;
+        zbus::Proxy::new(bus, NM, config.as_str(), "org.freedesktop.NetworkManager.IP4Config").await.map_err(text)?;
     let addresses: Vec<HashMap<String, OwnedValue>> = ip4.get_property("AddressData").await.map_err(text)?;
     let address = addresses
         .iter()
@@ -85,6 +90,6 @@ pub async fn leave(active: &OwnedObjectPath) {
     }
 }
 
-fn text(error: impl std::fmt::Display) -> String {
+pub fn text(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

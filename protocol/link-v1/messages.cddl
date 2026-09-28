@@ -5,6 +5,8 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
   hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg / punch-msg /
+  wifi-direct-ready-msg / wifi-direct-msg /
+  mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
@@ -164,6 +166,32 @@ hotspot-msg = { type: "hotspot", id: uint, body: {
 } }
 hotspot-joined-msg = { type: "hotspot-joined", id: uint, body: { address: tstr } }  ; host:port
 hotspot-end-msg = { type: "hotspot-end", id: uint, body: { ? reason: tstr .size (1..128) } }
+
+; Wi-Fi Direct, tried before the hotspot so the desktop keeps its own network. On connect, a desktop that can join a
+; group as a client says so with the name it shows while looking (wifi-direct-ready). The phone forms the group with
+; the desktop as client and sends its own name (wifi-direct) in place of hotspot credentials; the desktop answers as
+; for a hotspot, with hotspot-joined or hotspot-end, and a failed group falls back to the hotspot.
+wifi-direct-ready-msg = { type: "wifi-direct-ready", id: uint, body: { name: tstr .size (1..32) } }
+wifi-direct-msg = { type: "wifi-direct", id: uint, body: { name: tstr .size (1..32) } }
+
+; Mirroring the phone's screen, while the phone's screen switch for the desktop is on. The desktop asks
+; (mirror-request, 0-RTT); the phone shows Android's capture prompt, then says the size (mirror-started) and opens a
+; unidirectional stream whose header is mirror-data, followed by H.264 access units: u32 length, u64 presentation
+; time in microseconds, a flags byte (1 keyframe, 2 codec configuration), then Annex B bytes of at most 4 MiB. The
+; desktop sends input (coordinates in 1/10000 of the width and height; a scroll's x2, y2 is a signed delta) and asks
+; for a keyframe after a loss (mirror-keyframe, 0-RTT). Either side ends it (mirror-stop).
+mirror-request-msg = { type: "mirror-request", id: uint, body: {} }
+mirror-started-msg = { type: "mirror-started", id: uint, body: { width: 1..4096, height: 1..4096 } }
+mirror-stop-msg = { type: "mirror-stop", id: uint, body: { ? reason: tstr .size (1..128) } }
+mirror-input-msg = { type: "mirror-input", id: uint, body: {
+  action: "tap" / "long-press" / "swipe" / "scroll" / "back" / "home" / "recents" / "text",
+  ? x: 0..10000, ? y: 0..10000,
+  ? x2: -10000..10000, ? y2: -10000..10000,
+  ? ms: 0..10000,
+  ? text: tstr .size (1..4096),
+} }
+mirror-keyframe-msg = { type: "mirror-keyframe", id: uint, body: {} }
+mirror-data-msg = { type: "mirror-data", id: uint, body: { width: 1..4096, height: 1..4096 } }
 
 ; Phone to desktop, before dialling it from a Bluetooth session: the phone's own host:port pairs, which the desktop
 ; sends one UDP byte to so its firewall takes the dial for a reply.
