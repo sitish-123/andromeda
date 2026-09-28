@@ -27,7 +27,7 @@ class PresenceService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(this, Channels.PRESENCE)
-            .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
+            .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle(getString(R.string.presence_title))
             .setContentText(getString(R.string.presence_text))
             .setContentIntent(open)

@@ -26,7 +26,7 @@ class ShareNotifier(private val context: Context) {
         val action = if (link) open(id, share.text) else copy(id, share.text)
         val title = if (link) R.string.share_link_from else R.string.share_text_from
         val notification = NotificationCompat.Builder(context, Channels.SHARES)
-            .setSmallIcon(android.R.drawable.ic_menu_share)
+            .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle(context.getString(title, share.desktopName))
             .setContentText(share.text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(share.text))
