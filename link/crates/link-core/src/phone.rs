@@ -179,8 +179,18 @@ impl Phone {
             Ok(reached) => return self.adopt_reached(peer, reached).await,
             Err(error) => error,
         };
-        let (Some(address), Some(opener)) = (peer.bluetooth.clone(), self.bluetooth.clone()) else { return Err(ip) };
+        if peer.bluetooth.is_none() || self.bluetooth.is_none() {
+            return Err(ip);
+        }
         log::info!("{}: no IP path ({ip}); trying Bluetooth", peer.id);
+        self.connect_bluetooth(peer).await
+    }
+
+    /// A session over Bluetooth now, without trying IP first: the phone just lost Wi-Fi.
+    pub async fn connect_bluetooth(&mut self, peer: &Peer) -> Result<Session, Error> {
+        let (Some(address), Some(opener)) = (peer.bluetooth.clone(), self.bluetooth.clone()) else {
+            return Err(Error::Unreachable);
+        };
         let fd = tokio::task::spawn_blocking(move || opener.open(&address)).await.map_err(|_| Error::Stopped)??;
         let keep_alive = self.present.then_some(KEEP_ALIVE);
         let (mux, desktop) =

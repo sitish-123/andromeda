@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use link_proto::CloseCode;
-use link_proto::message::{FsRefusal, Hotspot, HotspotEnd, Message, Share, Status, TransferId};
+use link_proto::message::{FsRefusal, Hotspot, HotspotEnd, Message, NetworkKind, Share, Status, TransferId};
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -410,6 +410,10 @@ impl ClientActor {
             }
             Command::Desktops { reply } => drop(reply.send(self.desktops())),
             Command::SetStatus { status } => {
+                let before = self.status.map(|status| status.network);
+                if before != Some(status.network) {
+                    self.network_changed(before, status.network).await;
+                }
                 if self.status != Some(status) {
                     self.status = Some(status);
                     self.status_pending = true;
@@ -600,6 +604,29 @@ impl ClientActor {
                 log::info!("{id}: redial failed: {error}; next in {} s", delay.as_secs());
                 self.retries.insert(id, Retry { at: Instant::now() + delay, delay });
             }
+        }
+    }
+
+    /// Wi-Fi going away moves every session over it to Bluetooth at once, instead of after the idle timeout and a
+    /// round of redials; Wi-Fi coming back looks for an IP path at once, instead of at the next probe.
+    async fn network_changed(&mut self, before: Option<NetworkKind>, now: NetworkKind) {
+        if before == Some(NetworkKind::Wifi) && now != NetworkKind::Wifi {
+            let over_wifi: Vec<Peer> = self
+                .phone
+                .desktops()
+                .iter()
+                .filter(|peer| peer.bluetooth.is_some() && !self.on_bluetooth.contains(&peer.id) && self.wants(&peer.id))
+                .cloned()
+                .collect();
+            for peer in over_wifi {
+                log::info!("{}: Wi-Fi is gone; moving to Bluetooth", peer.id);
+                match self.phone.connect_bluetooth(&peer).await {
+                    Ok(session) => drop(self.adopt(session).await),
+                    Err(error) => log::info!("{}: Bluetooth right after Wi-Fi: {error}", peer.id),
+                }
+            }
+        } else if now == NetworkKind::Wifi && !self.on_bluetooth.is_empty() {
+            self.next_probe = Some(Instant::now());
         }
     }
 
