@@ -6,7 +6,9 @@ pam_gaze (sequential) then pam_unix:
   face     info "Look at the camera", then success once the info is acknowledged
   noface   info, a 2 s face check, info "Face not detected...", then a secret "Password:" prompt
   plain    a secret "Password:" prompt at once (nothing enrolled)
-The password "right" succeeds; anything else is an auth_error. start_session and cancel_session always succeed.
+  race     pam_gaze simultaneous for a marker host: GAZE_MSG_LOOK_OR_PASSWORD, then the prompt at once
+The password "right" succeeds, and in race so does GAZE_CONFIRMED (the host saw gazed's match); anything else is an
+auth_error. start_session and cancel_session always succeed.
 """
 import json
 import os
@@ -47,6 +49,8 @@ def steps(name):
     """The replies of one PAM run: each is sent after the previous request, a callable judges the password."""
     if name == "face":
         return [info("Look at the camera"), SUCCESS]
+    if name == "race":
+        return [info("GAZE_MSG_LOOK_OR_PASSWORD"), SECRET, "password-or-confirmed"]
     if name == "noface":
         return [info("Look at the camera"), ("sleep", 2.0), info("Face not detected. Enter your password."), SECRET,
                 "password"]
@@ -69,9 +73,9 @@ def run(conn):
         elif kind == "start_session":
             send(conn, SUCCESS)
             continue
-        elif kind == "post_auth_message_response" and queue and queue[0] == "password":
-            queue.pop(0)
-            if request.get("response") == "right":
+        elif kind == "post_auth_message_response" and queue and isinstance(queue[0], str):
+            accepted = {"right", "GAZE_CONFIRMED"} if queue.pop(0) == "password-or-confirmed" else {"right"}
+            if request.get("response") in accepted:
                 send(conn, SUCCESS)
             else:
                 send(conn, {"type": "error", "error_type": "auth_error", "description": "Authentication failed"})

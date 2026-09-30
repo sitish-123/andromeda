@@ -48,6 +48,34 @@
 #include <wayland-client.h>
 
 namespace {
+  // pam_gaze's marker texts for hosts on gazed's PamInternal list; an unknown marker maps to no text.
+  std::string gazeMarkerText(std::string_view marker) {
+    if (marker == "GAZE_MSG_LOOK_CAMERA" || marker == "GAZE_MSG_LOOK_OR_PASSWORD") {
+      return "Look at the camera, or type your password";
+    }
+    if (marker == "GAZE_MSG_FACE_VERIFIED") {
+      return "Face verified";
+    }
+    if (marker == "GAZE_MSG_FACE_NOT_RECOGNIZED") {
+      return "Face not recognized. Type your password";
+    }
+    if (marker == "GAZE_MSG_FACE_NOT_DETECTED") {
+      return "No face seen. Type your password";
+    }
+    if (marker == "GAZE_MSG_FACE_TOO_DARK") {
+      return "Too dark for face login. Type your password";
+    }
+    if (marker == "GAZE_MSG_FACE_TIMED_OUT") {
+      return "Face check timed out. Type your password";
+    }
+    if (marker == "GAZE_MSG_FACE_UNAVAILABLE") {
+      return "Face login is unavailable. Type your password";
+    }
+    return {};
+  }
+
+  constexpr std::string_view kGazeConfirmed = "GAZE_CONFIRMED";
+
   constexpr Logger kLog("greeter-surface");
   constexpr float kHeaderUserIconBase = 64.0f;
   constexpr float kHeaderAvatarBorderScale = 2.0f;
@@ -719,8 +747,42 @@ void GreeterSurface::openSessionEarly() {
   }
   m_authSessionStarted = true;
   m_earlySession = true;
+  m_faceMatched = false;
+  m_faceLooking = false;
   m_pendingReplies.push_back(AuthRequest::CreateSession);
   syncAuthInteractivity();
+}
+
+void GreeterSurface::onFaceMatched() {
+  if (!m_authSessionStarted) {
+    return;
+  }
+  m_faceMatched = true;
+  updateStatus("Face verified", false);
+  if (m_secretPromptWaiting && !m_hasPendingResponse && !awaitingReply()) {
+    kLog.info("face matched; answering the open prompt with the confirmation");
+    m_secretPromptWaiting = false;
+    postAuthResponse(std::string(kGazeConfirmed));
+  }
+  commitImmediateFrame(false);
+}
+
+void GreeterSurface::onFaceStatus(const std::string& status) {
+  if (!m_authSessionStarted || !m_faceLooking || m_faceMatched || !m_password.empty()) {
+    return;
+  }
+  if (status == "no-face") {
+    updateStatus("Look at the camera, or type your password", false);
+  } else if (status == "too-dark") {
+    updateStatus("Too dark for face login", false);
+  } else if (status == "clipped" || status == "too-close") {
+    updateStatus("Move back a little", false);
+  } else if (status == "ready" || status == "usable") {
+    updateStatus("Hold still", false);
+  } else {
+    return;
+  }
+  commitImmediateFrame(false);
 }
 
 bool GreeterSurface::ownsInputArea(const InputArea* area) const {
@@ -1544,7 +1606,12 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
 
   if (message.type == GreetdAuthMessageType::Info || message.type == GreetdAuthMessageType::Error) {
     const bool isError = message.type == GreetdAuthMessageType::Error;
-    if (!message.message.empty()) {
+    if (message.message.starts_with("GAZE_")) {
+      m_faceLooking = message.message.starts_with("GAZE_MSG_LOOK");
+      if (const std::string text = gazeMarkerText(message.message); !text.empty()) {
+        updateStatus(text, false);
+      }
+    } else if (!message.message.empty()) {
       updateStatus(message.message, isError);
     }
     if (isError) {
@@ -1566,6 +1633,10 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
   // Secret / Visible prompt. Answer with already-submitted input if we have it
   // (empty is allowed), otherwise surface the prompt and wait for the user.
   m_earlySession = false;
+  if (m_faceMatched && !m_hasPendingResponse) {
+    postAuthResponse(std::string(kGazeConfirmed));
+    return;
+  }
   if (m_hasPendingResponse) {
     const std::string response = m_pendingResponse;
     m_hasPendingResponse = false;
@@ -1575,7 +1646,8 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
   }
 
   m_secretPromptWaiting = true;
-  if (!message.message.empty()) {
+  // While the face check runs beside this prompt, its status line stays; "Password:" adds nothing.
+  if (!message.message.empty() && !m_faceLooking) {
     updateStatus(message.message, false);
   }
   syncAuthInteractivity();

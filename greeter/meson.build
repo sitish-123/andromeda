@@ -162,6 +162,7 @@ _greeter_sources = files(
   'src/greeter/greeter_config_io.cpp',
   'src/greeter/greeter_preferences.cpp',
   'src/greeter/greeter_sessions.cpp',
+  'src/greeter/gaze_host.cpp',
   'src/greeter/greeter_surface.cpp',
   'src/greeter/greeter_window.cpp',
   'src/greeter/logind_resume.cpp',

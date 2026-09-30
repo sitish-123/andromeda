@@ -237,6 +237,12 @@ private:
   [[nodiscard]] bool awaitingReply() const noexcept { return !m_pendingReplies.empty(); }
   void openSessionEarly();
 
+public:
+  // gazed's verdict and progress for this login (docs/face.md, Greeter).
+  void onFaceMatched();
+  void onFaceStatus(const std::string& status);
+
+private:
   std::string m_username;
   std::string m_password;
   std::string m_status;
@@ -248,6 +254,8 @@ private:
   // The session was opened before any input so pam_gaze can run; ends at the first prompt or reply that ends it.
   bool m_earlySession = false;
   bool m_reopenAfterCancel = false;
+  bool m_faceMatched = false;
+  bool m_faceLooking = false;
   bool m_secretPromptWaiting = false; // greetd wants secret input from the user
   bool m_hasPendingResponse = false;  // user-supplied input armed for next prompt
   std::string m_pendingResponse;

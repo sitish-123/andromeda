@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Greeter face login (docs/face.md G1-G5) against mock_greetd.py. The greeter opens the PAM session as soon as the
+# Greeter face login (docs/face.md G1-G7) against mock_greetd.py, with mock_gaze.py on a private system bus. The greeter opens the PAM session as soon as the
 # user is shown: a face match starts the session with no password posted; a password submitted during the face check
 # is posted the moment the secret prompt opens; a wrong password clears the field and starts a new session at once;
-# with nothing enrolled it waits for the password; a face that gives up shows the reason and posts nothing. Writes
+# with nothing enrolled it waits for the password; a face that gives up shows the reason and posts nothing. With the
+# patched Gaze the greeter registers gdm-face as a marker host; gazed's match answers the open prompt with
+# GAZE_CONFIRMED, and a password typed at once is posted at once. Writes
 # requests-*.jsonl and greeter-*.log to $OUT (default ./artifacts/face-greeter).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/face-greeter}
@@ -20,6 +22,17 @@ atleast() { [[ $(count "$1") -ge $2 ]]; }
 posted_atleast() { [[ $(posted "$1") -ge $2 ]]; }
 run wtype -s 3600000 > /dev/null 2>&1 &
 
+# A private system bus, so the greeter registers with the mock and never with the machine's gazed.
+dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork --print-address=3 3> "$RUNTIME/system-bus" &
+wait_for "no private system bus" test -s "$RUNTIME/system-bus"
+export DBUS_SYSTEM_BUS_ADDRESS=$(head -1 "$RUNTIME/system-bus")
+python3 "$ROOT/tests/e2e/mock_gaze.py" "$OUT/gaze-calls.txt" > "$OUT/mock-gaze.log" 2>&1 &
+wait_for "the gazed mock did not start" grep -q ready "$OUT/mock-gaze.log"
+gaze_match() {
+  busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" call com.gundulabs.Gaze /com/gundulabs/Gaze dsk.test.Gaze Finish sssb \
+    verify-match usable usable true > /dev/null
+}
+
 # start CASE SCENARIOS: a mock greetd playing SCENARIOS and a greeter for the current user.
 start() {
   case=$1
@@ -27,7 +40,8 @@ start() {
   MOCK_SCENARIOS=$2 python3 "$MOCK" "$sock" "$OUT/requests-$case.jsonl" > "$OUT/mock-$case.log" 2>&1 &
   mock=$!
   wait_for "$case: the mock did not start" grep -q ready "$OUT/mock-$case.log"
-  run env NOCTALIA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
+  mkdir -p "$RUNTIME/greeter-state"
+  run env NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" NOCTALIA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
   greeter=$!
   wait_for "$case: no session opened on start" atleast create_session 1
   sleep 1.6 # real time: the entry animation drops typed keys until it ends
@@ -70,4 +84,19 @@ sleep 0.5
 [[ $(posted right) == 0 && $(count start_session) == 0 ]] || fail "G5: logged in without the user"
 stop
 
-echo "PASS: greeter face login G1-G5 against a mock greetd; artifacts: $OUT"
+start G6 race
+wait_for "G6: the greeter did not register as marker host" grep -q "^AddPamInternal gdm-face" "$OUT/gaze-calls.txt"
+wait_for "G6: the prompt was not left open" grep -q "open prompt\|PAM secret message" "$OUT/greeter-G6.log"
+gaze_match
+wait_for "G6: the match did not answer the prompt" posted_atleast GAZE_CONFIRMED 1
+wait_for "G6: no session after the match" atleast start_session 1
+stop
+
+start G7 race
+run wtype right
+run wtype -k Return
+wait_for "G7: the password was not posted at once" posted_atleast right 1
+wait_for "G7: no session after the password" atleast start_session 1
+stop
+
+echo "PASS: greeter face login G1-G7 against a mock greetd; artifacts: $OUT"

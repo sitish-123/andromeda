@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "greeter/appearance_config.h"
+#include "greeter/gaze_host.h"
 #include "greeter/greeter_config_store.h"
 #include "greeter/greeter_preferences.h"
 #include "greeter/greeter_surface.h"
@@ -20,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <poll.h>
+#include <vector>
 #include <wayland-client.h>
 
 namespace {
@@ -151,6 +153,22 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
   if (std::getenv("GREETD_SOCK") != nullptr) {
     (void)resumeMonitor.start([this]() { m_exitRequested = true; });
   }
+  GazeHost gaze;
+  if (std::getenv("GREETD_SOCK") != nullptr) {
+    const auto authSurface = [this]() { return m_authSurface != nullptr ? m_authSurface : m_activeSurface; };
+    gaze.start(
+        [authSurface](const std::string& status) {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceStatus(status);
+          }
+        },
+        [authSurface]() {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceMatched();
+          }
+        }
+    );
+  }
 
   while (!m_exitRequested && !shutdownRequested.load(std::memory_order_relaxed)) {
     client.repeatTick();
@@ -171,42 +189,43 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
       }
     }
 
-    GPollFD glibPoll{};
-    int glibPriority = 0;
+    // glib's default context carries D-Bus: logind's PrepareForSleep and gazed's replies and signals.
+    GMainContext* glibContext = g_main_context_default();
+    const bool glibOwned = g_main_context_acquire(glibContext) != FALSE;
+    gint glibPriority = G_PRIORITY_DEFAULT;
+    std::vector<GPollFD> glibFds;
     int pollTimeout = timeoutMs;
-    if (resumeMonitor.active()) {
-      resumeMonitor.prepareDispatch(glibPriority, glibPoll, pollTimeout);
+    if (glibOwned) {
+      const bool ready = g_main_context_prepare(glibContext, &glibPriority) != FALSE;
+      gint glibTimeout = -1;
+      glibFds.resize(
+          static_cast<std::size_t>(g_main_context_query(glibContext, glibPriority, &glibTimeout, nullptr, 0))
+      );
+      g_main_context_query(glibContext, glibPriority, &glibTimeout, glibFds.data(), static_cast<gint>(glibFds.size()));
+      if (ready) {
+        glibTimeout = 0;
+      }
+      if (glibTimeout >= 0 && (pollTimeout < 0 || glibTimeout < pollTimeout)) {
+        pollTimeout = glibTimeout;
+      }
     }
 
-    pollfd pfds[3]{};
-    pfds[0].fd = wl_display_get_fd(display);
-    pfds[0].events = POLLIN;
-    int pollCount = 1;
-
-    int glibIndex = -1;
-    if (glibPoll.fd >= 0) {
-      glibIndex = pollCount;
-      pfds[pollCount].fd = glibPoll.fd;
-      pfds[pollCount].events = static_cast<short>(glibPoll.events);
-      glibPoll.revents = 0;
-      ++pollCount;
-    }
+    std::vector<pollfd> pfds;
+    pfds.push_back({.fd = wl_display_get_fd(display), .events = POLLIN, .revents = 0});
 
     int greetdIndex = -1;
     const int greetdFd = m_greetdClient.fd();
     if (greetdFd >= 0) {
-      greetdIndex = pollCount;
-      pfds[pollCount].fd = greetdFd;
-      pfds[pollCount].events = POLLIN;
-      ++pollCount;
+      greetdIndex = static_cast<int>(pfds.size());
+      pfds.push_back({.fd = greetdFd, .events = POLLIN, .revents = 0});
+    }
+    const std::size_t glibStart = pfds.size();
+    for (const GPollFD& fd : glibFds) {
+      pfds.push_back({.fd = fd.fd, .events = static_cast<short>(fd.events), .revents = 0});
     }
 
-    const int pollResult = poll(pfds, static_cast<nfds_t>(pollCount), pollTimeout);
+    const int pollResult = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), pollTimeout);
     if (pollResult > 0) {
-      if (glibIndex >= 0 && pfds[glibIndex].revents != 0) {
-        glibPoll.revents = pfds[glibIndex].revents;
-        resumeMonitor.checkDispatch(glibPriority, glibPoll);
-      }
       if ((pfds[0].revents & POLLIN) != 0) {
         wl_display_read_events(display);
       } else {
@@ -217,6 +236,15 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
       }
     } else {
       wl_display_cancel_read(display);
+    }
+    if (glibOwned) {
+      for (std::size_t i = 0; i < glibFds.size(); ++i) {
+        glibFds[i].revents = static_cast<gushort>(pollResult > 0 ? pfds[glibStart + i].revents : 0);
+      }
+      if (g_main_context_check(glibContext, glibPriority, glibFds.data(), static_cast<gint>(glibFds.size()))) {
+        g_main_context_dispatch(glibContext);
+      }
+      g_main_context_release(glibContext);
     }
 
     // A readable reply at the deadline wins because it was drained above and

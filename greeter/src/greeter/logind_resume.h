@@ -18,8 +18,6 @@ public:
   void stop();
 
   [[nodiscard]] bool active() const noexcept;
-  void prepareDispatch(int& maxPriority, GPollFD& pollFd, int& timeoutMs);
-  void checkDispatch(int maxPriority, GPollFD& pollFd);
 
 private:
   static void onPrepareForSleep(
@@ -31,6 +29,5 @@ private:
 
   Callback m_onResume;
   void* m_connection = nullptr;
-  void* m_context = nullptr;
   unsigned int m_subscription = 0;
 };
