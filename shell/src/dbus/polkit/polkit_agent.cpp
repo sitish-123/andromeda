@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/system_bus.h"
 #include "i18n/i18n.h"
 
 #include <algorithm>
@@ -25,6 +26,11 @@
 #define POLKIT_AGENT_I_KNOW_API_IS_SUBJECT_TO_CHANGE
 #include <polkit/polkit.h>
 #include <polkitagent/polkitagent.h>
+#include <sdbus-c++/Error.h>
+#include <sdbus-c++/IConnection.h>
+#include <sdbus-c++/IProxy.h>
+#include <sdbus-c++/Types.h>
+#include <string_view>
 
 namespace {
 
@@ -116,6 +122,50 @@ namespace {
   private:
     PolkitIdentity* m_identity = nullptr;
   };
+
+  // pam_gaze sends these instead of English text to services on gazed's PamInternal list.
+  constexpr std::string_view kGazeConfirmRequest = "GAZE_REQUIRE_CONFIRMATION";
+  constexpr std::string_view kGazeConfirmed = "GAZE_CONFIRMED";
+
+  struct GazeMarker {
+    PolkitFaceState state = PolkitFaceState::None;
+    std::string text;
+  };
+
+  // nullopt when the text is not a marker; an unknown marker maps to no text so it is never shown raw.
+  std::optional<GazeMarker> parseGazeMarker(std::string_view text) {
+    if (!text.starts_with("GAZE_")) {
+      return std::nullopt;
+    }
+    kLog.info("face prompt {}", text);
+    using S = PolkitFaceState;
+    if (text == "GAZE_MSG_LOOK_CAMERA" || text == "GAZE_MSG_LOOK_OR_PASSWORD") {
+      return GazeMarker{S::Looking, i18n::tr("auth.face.polkit-look")};
+    }
+    if (text == "GAZE_MSG_FACE_VERIFIED") {
+      return GazeMarker{S::Verified, i18n::tr("auth.face.verified")};
+    }
+    if (text == kGazeConfirmRequest) {
+      return GazeMarker{S::Verified, i18n::tr("auth.face.verified-confirm")};
+    }
+    if (text == "GAZE_MSG_FACE_NOT_RECOGNIZED") {
+      return GazeMarker{S::Failed, i18n::tr("auth.face.no-match")};
+    }
+    if (text == "GAZE_MSG_FACE_NOT_DETECTED") {
+      return GazeMarker{S::Failed, i18n::tr("auth.face.no-face")};
+    }
+    if (text == "GAZE_MSG_FACE_TOO_DARK") {
+      return GazeMarker{S::Failed, i18n::tr("auth.face.too-dark")};
+    }
+    if (text == "GAZE_MSG_FACE_TIMED_OUT") {
+      return GazeMarker{S::Failed, i18n::tr("auth.face.timed-out")};
+    }
+    if (text == "GAZE_MSG_FACE_UNAVAILABLE") {
+      return GazeMarker{S::Failed, i18n::tr("auth.face.unavailable")};
+    }
+    kLog.debug("ignoring unknown gaze marker {}", text);
+    return GazeMarker{};
+  }
 
   struct InternalAuthRequest {
     std::string actionId;
@@ -289,6 +339,9 @@ struct PolkitAgent::Impl {
   std::string inputPrompt;
   std::string supplementaryMessage;
   bool supplementaryError = false;
+  PolkitFaceState face = PolkitFaceState::None;
+  bool faceConfirm = false;
+  bool faceConfirmIsPrompt = false;
 
   mutable std::vector<GPollFD> glibPollFds;
   mutable gint glibMaxPriority = G_PRIORITY_DEFAULT;
@@ -338,6 +391,13 @@ struct PolkitAgent::Impl {
     // enter GLib's global worker pool before returning.
     const char* sessionId = std::getenv("XDG_SESSION_ID");
     registerCancellable = g_cancellable_new();
+    // E2E only: serve one process, so a test pkexec reaches this agent while the user's own agent keeps the session.
+    if (const char* testPid = std::getenv("NOCTALIA_POLKIT_TEST_PROCESS"); testPid != nullptr && testPid[0] != '\0') {
+      beginRegisterSubject(
+          polkit_unix_process_new_for_owner(static_cast<gint>(std::strtol(testPid, nullptr, 10)), 0, -1), nullptr
+      );
+      return;
+    }
     if (sessionId != nullptr && sessionId[0] != '\0') {
       PolkitSubject* subject = polkit_unix_session_new(sessionId);
       beginRegisterSubject(subject, nullptr);
@@ -479,6 +539,9 @@ struct PolkitAgent::Impl {
   }
 
   void clearConversationState() {
+    face = PolkitFaceState::None;
+    faceConfirm = false;
+    faceConfirmIsPrompt = false;
     responseRequired = false;
     responseVisible = false;
     inputPrompt.clear();
@@ -523,6 +586,7 @@ struct PolkitAgent::Impl {
     }
 
     pending = std::move(request);
+    kLog.info("authentication request for \"{}\"", pending->actionId);
     clearConversationState();
     if (!startSession()) {
       kLog.warn("polkit session startup failed for action \"{}\"", pending->actionId);
@@ -580,6 +644,18 @@ struct PolkitAgent::Impl {
   }
 
   void handleRequest(const std::string& prompt, bool echoOn) {
+    if (prompt == kGazeConfirmRequest) {
+      kLog.info("face prompt {}", prompt);
+      face = PolkitFaceState::Verified;
+      faceConfirm = true;
+      faceConfirmIsPrompt = true;
+      inputPrompt = i18n::tr("auth.face.verified-confirm");
+      responseVisible = false;
+      responseRequired = true;
+      emitStateChanged();
+      return;
+    }
+    faceConfirmIsPrompt = false;
     inputPrompt = prompt.empty() ? i18n::tr("auth.polkit.default-message") : prompt;
     responseVisible = echoOn;
     responseRequired = true;
@@ -587,8 +663,34 @@ struct PolkitAgent::Impl {
   }
 
   void setSupplementary(const std::string& text, bool isError) {
+    if (const auto marker = parseGazeMarker(text); marker.has_value()) {
+      if (marker->text.empty()) {
+        return;
+      }
+      face = marker->state;
+      // Sent as info while the password prompt is still open: the next answer decides.
+      faceConfirm = text == kGazeConfirmRequest;
+      supplementaryMessage = marker->text;
+      supplementaryError = false;
+      emitStateChanged();
+      return;
+    }
     supplementaryMessage = text;
     supplementaryError = isError;
+    emitStateChanged();
+  }
+
+  void confirmFace() {
+    if (pending == nullptr || session == nullptr || !responseRequired || !faceConfirm) {
+      return;
+    }
+    faceConfirm = false;
+    faceConfirmIsPrompt = false;
+    polkit_agent_session_response(session, std::string(kGazeConfirmed).c_str());
+    responseRequired = false;
+    inputPrompt.clear();
+    supplementaryMessage = i18n::tr("auth.polkit.authenticating");
+    supplementaryError = false;
     emitStateChanged();
   }
 
@@ -617,6 +719,9 @@ struct PolkitAgent::Impl {
 
     responseRequired = false;
     responseVisible = false;
+    face = PolkitFaceState::None;
+    faceConfirm = false;
+    faceConfirmIsPrompt = false;
     inputPrompt.clear();
     supplementaryMessage = i18n::tr("auth.polkit.invalid-password");
     supplementaryError = true;
@@ -645,6 +750,8 @@ struct PolkitAgent::Impl {
       return;
     }
     polkit_agent_session_response(session, response.c_str());
+    faceConfirm = false;
+    faceConfirmIsPrompt = false;
     responseRequired = false;
     inputPrompt.clear();
     supplementaryMessage = i18n::tr("auth.polkit.authenticating");
@@ -744,7 +851,46 @@ struct PolkitAgent::Impl {
   }
 };
 
-PolkitAgent::PolkitAgent(SystemBus& /*bus*/) : m_impl(std::make_unique<Impl>()) {}
+PolkitAgent::PolkitAgent(SystemBus& bus) : m_impl(std::make_unique<Impl>()), m_bus(bus) { registerWithGaze(); }
+
+void PolkitAgent::registerWithGaze() {
+  const sdbus::ServiceName gazeName{"com.gundulabs.Gaze"};
+  const auto add = [this]() {
+    try {
+      m_gaze->callMethodAsync("AddPamInternal")
+          .onInterface("com.gundulabs.Gaze")
+          .withArguments(std::string{"polkit-1"})
+          .uponReplyInvoke([](std::optional<sdbus::Error> e) {
+            if (e.has_value()) {
+              kLog.debug("gazed did not take polkit-1: {}", e->what());
+              return;
+            }
+            kLog.info("gazed sends face prompts to this agent");
+          });
+    } catch (const sdbus::Error& e) {
+      kLog.debug("could not reach gazed: {}", e.what());
+    }
+  };
+  try {
+    m_gaze = sdbus::createProxy(m_bus.connection(), gazeName, sdbus::ObjectPath{"/com/gundulabs/Gaze"});
+    m_dbus = sdbus::createProxy(
+        m_bus.connection(), sdbus::ServiceName{"org.freedesktop.DBus"}, sdbus::ObjectPath{"/org/freedesktop/DBus"}
+    );
+    // gazed keeps the list in memory, so a restarted gazed needs it again.
+    m_dbus->uponSignal("NameOwnerChanged")
+        .onInterface("org.freedesktop.DBus")
+        .call([add, gazeName](const std::string& name, const std::string& /*oldOwner*/, const std::string& newOwner) {
+          if (name == gazeName && !newOwner.empty()) {
+            add();
+          }
+        });
+    if (m_bus.nameHasOwner(gazeName)) {
+      add();
+    }
+  } catch (const std::exception& e) {
+    kLog.debug("face prompts off: {}", e.what());
+  }
+}
 
 PolkitAgent::~PolkitAgent() = default;
 
@@ -769,6 +915,12 @@ void PolkitAgent::setReadyCallback(ReadyCallback callback) {
 void PolkitAgent::submitResponse(const std::string& response) {
   if (m_impl != nullptr) {
     m_impl->submitResponse(response);
+  }
+}
+
+void PolkitAgent::confirmFace() {
+  if (m_impl != nullptr) {
+    m_impl->confirmFace();
   }
 }
 
@@ -815,3 +967,13 @@ std::string PolkitAgent::supplementaryMessage() const {
 }
 
 bool PolkitAgent::supplementaryIsError() const noexcept { return m_impl != nullptr && m_impl->supplementaryError; }
+
+PolkitFaceState PolkitAgent::faceState() const noexcept {
+  return m_impl != nullptr ? m_impl->face : PolkitFaceState::None;
+}
+
+bool PolkitAgent::faceConfirmPending() const noexcept {
+  return m_impl != nullptr && m_impl->faceConfirm && m_impl->responseRequired;
+}
+
+bool PolkitAgent::faceConfirmIsPrompt() const noexcept { return m_impl != nullptr && m_impl->faceConfirmIsPrompt; }

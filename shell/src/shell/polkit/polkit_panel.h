@@ -52,6 +52,7 @@ private:
   Label* m_titleLabel = nullptr;
   Label* m_messageLabel = nullptr;
   Label* m_promptLabel = nullptr;
+  Glyph* m_faceGlyph = nullptr;
   Label* m_supplementaryLabel = nullptr;
   Input* m_input = nullptr;
   Button* m_submitButton = nullptr;

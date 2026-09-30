@@ -1,15 +1,21 @@
 {
   "auth": {
     "face": {
+      "confirm": "Confirm",
       "hold-still": "Hold still…",
       "look": "Look at the camera to unlock",
       "move-back": "Move back a little",
+      "no-face": "No face seen",
       "no-face-retry": "No face seen. Press any key to try again",
       "no-match": "Face not recognized",
+      "polkit-look": "Look at the camera…",
+      "timed-out": "Face check timed out",
       "too-dark": "Too dark for face unlock",
       "too-dark-retry": "Too dark for face unlock. Press any key to try again",
       "too-many-attempts": "Face unlock off (too many attempts). Use your password",
-      "unavailable": "Face unlock is unavailable"
+      "unavailable": "Face unlock is unavailable",
+      "verified": "Face verified",
+      "verified-confirm": "Face verified. Press Enter to continue, or type your password"
     },
     "fingerprint": {
       "disconnected": "Fingerprint reader disconnected",

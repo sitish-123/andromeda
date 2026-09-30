@@ -200,12 +200,23 @@ void PolkitPanel::create() {
 
   auto bottomContent = ui::column(
       {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale},
-      ui::label({
-          .out = &m_promptLabel,
-          .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
-          .maxLines = 3,
-      }),
+      ui::row(
+          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+          ui::glyph({
+              .out = &m_faceGlyph,
+              .glyph = "face-id",
+              .glyphSize = Style::fontSizeTitle * scale,
+              .color = colorSpecFromRole(ColorRole::Primary),
+              .visible = false,
+          }),
+          ui::label({
+              .out = &m_promptLabel,
+              .fontSize = Style::fontSizeBody * scale,
+              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .maxLines = 3,
+              .flexGrow = 1.0F,
+          })
+      ),
       ui::input({
           .out = &m_input,
           .placeholder = i18n::tr("auth.polkit.password-placeholder"),
@@ -214,7 +225,9 @@ void PolkitPanel::create() {
           .onChange =
               [this](const std::string& value) {
                 if (m_submitButton != nullptr) {
-                  m_submitButton->setEnabled(m_lastResponseRequired && !value.empty());
+                  PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
+                  const bool faceConfirm = agent != nullptr && agent->faceConfirmPending();
+                  m_submitButton->setEnabled(m_lastResponseRequired && (faceConfirm || !value.empty()));
                 }
               },
           .onSubmit = [this](const std::string& value) { submit(value); },
@@ -291,6 +304,7 @@ void PolkitPanel::onClose() {
   m_titleLabel = nullptr;
   m_messageLabel = nullptr;
   m_promptLabel = nullptr;
+  m_faceGlyph = nullptr;
   m_supplementaryLabel = nullptr;
   m_input = nullptr;
   m_submitButton = nullptr;
@@ -375,6 +389,10 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
     promptText = supplementaryText;
     supplementaryText.clear();
   }
+  if (agent->faceConfirmPending()) {
+    promptText = i18n::tr("auth.face.verified-confirm");
+    supplementaryText.clear();
+  }
   m_messageLabel->setText(wrapLongRuns(request.message.empty() ? request.actionId : request.message));
   m_promptLabel->setText(promptText);
   m_promptLabel->setColor(
@@ -384,9 +402,17 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
   m_supplementaryLabel->setText(supplementaryText);
   m_supplementaryLabel->setVisible(!supplementaryText.empty());
   m_supplementaryLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
-  m_input->setVisible(needsInput);
+  const PolkitFaceState face = agent->faceState();
+  const bool faceConfirm = agent->faceConfirmPending();
+  if (m_faceGlyph != nullptr) {
+    m_faceGlyph->setVisible(face != PolkitFaceState::None);
+    m_faceGlyph->setGlyph(face == PolkitFaceState::Failed ? "face-id-error" : "face-id");
+    m_faceGlyph->setColor(colorSpecFromRole(face == PolkitFaceState::Failed ? ColorRole::Error : ColorRole::Primary));
+  }
+  m_input->setVisible(needsInput && !agent->faceConfirmIsPrompt());
   m_submitButton->setVisible(needsInput);
-  m_submitButton->setEnabled(needsInput && !m_input->value().empty());
+  m_submitButton->setText(i18n::tr(faceConfirm ? "auth.face.confirm" : "auth.polkit.authenticate"));
+  m_submitButton->setEnabled(needsInput && (faceConfirm || !m_input->value().empty()));
   if (needsInput != m_lastResponseRequired) {
     if (auto* manager = PanelManager::current(); manager != nullptr && manager->isOpenPanel("polkit")) {
       manager->relayoutActivePanelPreferredSize();
@@ -442,6 +468,9 @@ void PolkitPanel::submit(std::string_view response) {
   }
   const std::string password = response.empty() ? m_input->value() : std::string(response);
   if (password.empty()) {
+    if (agent->faceConfirmPending()) {
+      agent->confirmFace();
+    }
     return;
   }
   agent->submitResponse(password);
