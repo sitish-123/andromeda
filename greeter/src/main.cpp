@@ -1,5 +1,6 @@
 #include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/resource_paths.h"
 #include "greeter/greeter.h"
 #include "greeter/greeter_preferences.h"
 #include "greeter/greeter_sessions.h"
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <fontconfig/fontconfig.h>
 #include <grp.h>
 #include <sstream>
 #include <string_view>
@@ -79,6 +81,9 @@ namespace {
 } // namespace
 
 int main(int argc, char* argv[]) {
+  // Before any text is laid out, so Pango's font map sees it: the Ryoku look's typeface.
+  FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8*>(paths::assetPath("fonts/Outfit-Black.ttf").c_str()));
+
   if (argc >= 2 && std::strcmp(argv[1], "passwordless-sync") == 0) {
     return greeter::passwordless_sync::runCommand(argc - 2, argv + 2);
   }

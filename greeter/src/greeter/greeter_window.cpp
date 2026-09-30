@@ -302,6 +302,7 @@ void GreeterWindow::handleFrameDone(void* data, wl_callback* callback, std::uint
     return;
   }
 
+  self->m_greeterSurface.onFrame();
   const bool dirty = self->m_redrawNeeded
       || self->m_layoutNeeded
       || self->m_greeterSurface.sceneRoot()->paintDirty()

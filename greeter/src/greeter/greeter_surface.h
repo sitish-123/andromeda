@@ -4,6 +4,7 @@
 #include "greetd/greetd_client.h"
 #include "greeter/appearance_config.h"
 #include "greeter/greeter_sessions.h"
+#include "greeter/ryoku_scene.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/color.h"
 #include "render/core/texture_handle.h"
@@ -86,6 +87,8 @@ public:
   void clearOutputViewport();
 
   [[nodiscard]] Node* sceneRoot() noexcept { return &m_root; }
+  // Called on every frame callback, before the window decides whether to paint.
+  void onFrame();
 
 private:
   void notifyStateChanged();
@@ -255,6 +258,7 @@ private:
   bool m_earlySession = false;
   bool m_reopenAfterCancel = false;
   bool m_faceMatched = false;
+  std::unique_ptr<RyokuScene> m_ryoku;
   bool m_faceLooking = false;
   bool m_secretPromptWaiting = false; // greetd wants secret input from the user
   bool m_hasPendingResponse = false;  // user-supplied input armed for next prompt
@@ -334,4 +338,5 @@ private:
   void loadUsers();
   void loadSessions();
   void refreshSelectionLabels();
+  void layoutRyoku(float ox, float oy, float sw, float sh);
 };

@@ -332,7 +332,12 @@ void GreeterSurface::initialize(RenderContext* context) {
   pwField->setPlaceholder("Type password");
   pwField->setPasswordMode(true);
   pwField->setControlHeight(Style::controlHeight());
-  pwField->setOnChange([this](const std::string& value) { m_password = value; });
+  pwField->setOnChange([this](const std::string& value) {
+    m_password = value;
+    if (m_ryoku != nullptr) {
+      requestLayout();
+    }
+  });
   pwField->setOnSubmit([this](const std::string&) { tryAuthenticate(); });
   m_passwordField = pwField.get();
   m_passwordField->setZIndex(6);
@@ -666,6 +671,18 @@ void GreeterSurface::initialize(RenderContext* context) {
   }
 
   requestLayout();
+
+  m_ryoku = std::make_unique<RyokuScene>();
+  m_ryoku->build(m_root);
+  m_ryoku->setOnSession([this]() {
+    if (m_sessions.size() > 1) {
+      m_selectedSession = (m_selectedSession + 1) % m_sessions.size();
+      refreshSelectionLabels();
+      requestLayout();
+    }
+  });
+  m_ryoku->setOnReboot([]() { power::reboot(); });
+  m_ryoku->setOnShutdown([]() { power::powerOff(); });
 }
 
 void GreeterSurface::applyInitialUserSelection() {
@@ -1428,6 +1445,10 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_statusLabel->setPosition((contentLeft), (statusY));
   } else {
     m_statusLabel->setVisible(false);
+  }
+
+  if (m_ryoku != nullptr && m_passwordVisible) {
+    layoutRyoku(ox, oy, sw, sh);
   }
 
   rebuildUserMenu();
@@ -3667,4 +3688,43 @@ void GreeterSurface::rebuildSchemeMenu() {
       /*rightAlign=*/true, /*zBase=*/60, m_schemeMenuPanel, m_schemeMenuRows, m_schemeMenuLabels, m_schemeMenuAreas,
       [this](std::size_t i) { selectScheme(i); }
   );
+}
+
+void GreeterSurface::onFrame() {
+  if (m_ryoku != nullptr && m_passwordVisible && m_ryoku->tick()) {
+    requestLayout();
+  }
+}
+
+// Ryoku replaces the card: the stock chrome hides, the real password field sits invisibly over the mask row so input,
+// focus, and submit stay as they are.
+void GreeterSurface::layoutRyoku(float ox, float oy, float sw, float sh) {
+  for (Node* node : std::initializer_list<Node*>{
+           m_wallpaper,          m_backdrop,           m_bottomBrandLogo,    m_headerUserGlyph,  m_headerUserAvatar,
+           m_formSubtitleLabel,  m_brandTitleLabel,    m_brandSubtitleLabel, m_panelDivider,     m_loginPanel,
+           m_loginButton,        m_backButton,         m_statusLabel,        m_sessionSelectBox, m_sessionSelectIcon,
+           m_sessionSelectLabel, m_sessionSelectGlyph, m_sessionSelectArea,  m_schemeSelectBox,  m_schemeSelectIcon,
+           m_schemeSelectLabel,  m_schemeSelectGlyph,  m_schemeSelectArea,   m_shutdownButton,   m_rebootButton,
+           m_firmwareButton
+       }) {
+    if (node != nullptr) {
+      node->setVisible(false);
+    }
+  }
+
+  if (m_selectedUser < m_users.size()) {
+    m_ryoku->setUserName(m_users[m_selectedUser]);
+  }
+  // PAM's bare "Password:" prompt says nothing the mask row does not.
+  const bool plainPrompt = m_status.empty() || m_status == "Password:" || m_status == "Password: ";
+  m_ryoku->setHint(plainPrompt ? "Look \u2726 or type your key" : m_status, m_statusIsError);
+  m_ryoku->setPasswordLength(m_password.size());
+  m_ryoku->setSessionName(m_selectedSession < m_sessions.size() ? m_sessions[m_selectedSession].name : "Session");
+  m_ryoku->layout(*m_renderContext, ox, oy, sw, sh);
+
+  const RyokuScene::Rect row = m_ryoku->passwordRow();
+  m_passwordField->setOpacity(0.0f);
+  m_passwordField->setSize(row.w, 0.0f);
+  m_passwordField->setPosition(row.x, row.y);
+  m_passwordField->layout(*m_renderContext);
 }
