@@ -1,5 +1,16 @@
 {
   "auth": {
+    "face": {
+      "hold-still": "Hold still…",
+      "look": "Look at the camera to unlock",
+      "move-back": "Move back a little",
+      "no-face-retry": "No face seen. Press any key to try again",
+      "no-match": "Face not recognized",
+      "too-dark": "Too dark for face unlock",
+      "too-dark-retry": "Too dark for face unlock. Press any key to try again",
+      "too-many-attempts": "Face unlock off (too many attempts). Use your password",
+      "unavailable": "Face unlock is unavailable"
+    },
     "fingerprint": {
       "disconnected": "Fingerprint reader disconnected",
       "error": "Fingerprint authentication error",
@@ -2463,6 +2474,10 @@
         "enabled": {
           "description": "Enable session lock, logind integration, and lock actions",
           "label": "Lock Screen"
+        },
+        "face": {
+          "description": "Unlock by looking at the camera through Gaze, alongside password entry",
+          "label": "Face Unlock"
         },
         "fingerprint": {
           "description": "Unlock with a fingerprint reader via fprintd, alongside password entry",

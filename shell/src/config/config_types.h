@@ -551,6 +551,7 @@ struct LockscreenConfig {
   // Distinct from idle/session lock_and_suspend actions.
   bool lockBeforeSuspend = true;
   bool fingerprint = true;
+  bool face = true;
   bool allowEmptyPassword = false;
   bool blurredDesktop = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade, LockscreenTransition::Wipe,
