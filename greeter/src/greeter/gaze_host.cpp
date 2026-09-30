@@ -52,10 +52,27 @@ void GazeHost::start(StatusCallback onStatus, MatchCallback onMatch, MissCallbac
       connection, "org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged", "/org/freedesktop/DBus",
       kGazeBusName, G_DBUS_SIGNAL_FLAGS_NONE, callback, this, nullptr
   );
-  registerService();
+  registerService(true);
 }
 
-void GazeHost::registerService() {
+// The first registration blocks (up to a second) so the session the greeter opens next already races face against the
+// password and gets the keyring hand-off; re-registrations after a gazed restart do not.
+void GazeHost::registerService(bool wait) {
+  if (wait) {
+    GError* error = nullptr;
+    GVariant* reply = g_dbus_connection_call_sync(
+        m_connection, kGazeBusName, kGazePath, kGazeInterface, "AddPamInternal", g_variant_new("(s)", kLoginService),
+        nullptr, G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, nullptr, &error
+    );
+    if (reply == nullptr) {
+      kLog.info("face login prompts off: {}", error != nullptr ? error->message : "no reply");
+      g_clear_error(&error);
+      return;
+    }
+    g_variant_unref(reply);
+    kLog.info("gazed sends face prompts for {} to the greeter", kLoginService);
+    return;
+  }
   g_dbus_connection_call(
       m_connection, kGazeBusName, kGazePath, kGazeInterface, "AddPamInternal", g_variant_new("(s)", kLoginService),
       nullptr, G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, nullptr,
@@ -85,7 +102,7 @@ void GazeHost::onSignal(
     const char* newOwner = nullptr;
     g_variant_get(params, "(&s&s&s)", nullptr, nullptr, &newOwner);
     if (newOwner != nullptr && newOwner[0] != '\0') {
-      self->registerService();
+      self->registerService(false);
     }
     return;
   }

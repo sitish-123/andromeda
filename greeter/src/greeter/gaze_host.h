@@ -27,7 +27,7 @@ private:
       GDBusConnection* connection, const char* sender, const char* objectPath, const char* interfaceName,
       const char* signalName, GVariant* parameters, void* userData
   );
-  void registerService();
+  void registerService(bool wait);
 
   StatusCallback m_onStatus;
   MatchCallback m_onMatch;

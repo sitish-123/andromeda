@@ -93,6 +93,27 @@ bool Greeter::initialize(WaylandClient& client) {
   }
 
   connectGreetd();
+  // Before any window: the first session opened must already find the greeter registered as gazed's marker host.
+  if (std::getenv("GREETD_SOCK") != nullptr) {
+    const auto authSurface = [this]() { return m_authSurface != nullptr ? m_authSurface : m_activeSurface; };
+    m_gaze.start(
+        [authSurface](const std::string& status) {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceStatus(status);
+          }
+        },
+        [authSurface]() {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceMatched();
+          }
+        },
+        [authSurface](const std::string& rgbStatus) {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceMissed(rgbStatus);
+          }
+        }
+    );
+  }
 
   client.setOutputsChangedCallback([this, configured = prefs.output]() {
     if (m_initializing) {
@@ -152,27 +173,6 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
   LogindResumeMonitor resumeMonitor;
   if (std::getenv("GREETD_SOCK") != nullptr) {
     (void)resumeMonitor.start([this]() { m_exitRequested = true; });
-  }
-  GazeHost gaze;
-  if (std::getenv("GREETD_SOCK") != nullptr) {
-    const auto authSurface = [this]() { return m_authSurface != nullptr ? m_authSurface : m_activeSurface; };
-    gaze.start(
-        [authSurface](const std::string& status) {
-          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
-            surface->onFaceStatus(status);
-          }
-        },
-        [authSurface]() {
-          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
-            surface->onFaceMatched();
-          }
-        },
-        [authSurface](const std::string& rgbStatus) {
-          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
-            surface->onFaceMissed(rgbStatus);
-          }
-        }
-    );
   }
 
   while (!m_exitRequested && !shutdownRequested.load(std::memory_order_relaxed)) {

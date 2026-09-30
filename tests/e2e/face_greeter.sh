@@ -95,6 +95,10 @@ stop
 
 start G6 race
 wait_for "G6: the greeter did not register as marker host" grep -q "^AddPamInternal gdm-face" "$OUT/gaze-calls.txt"
+# Registered first, or the first session runs as an unregistered host: no race, no keyring hand-off.
+registered=$(grep -n "gazed sends face prompts" "$OUT/greeter-G6.log" | head -1 | cut -d: -f1)
+opened=$(grep -n "create_session for" "$OUT/greeter-G6.log" | head -1 | cut -d: -f1)
+[[ -n $registered && $registered -lt $opened ]] || fail "G6: the session opened before the greeter registered with gazed"
 wait_for "G6: the prompt was not left open" grep -q "open prompt\|PAM secret message" "$OUT/greeter-G6.log"
 gaze_match
 wait_for "G6: the match did not answer the prompt" posted_atleast GAZE_CONFIRMED 1

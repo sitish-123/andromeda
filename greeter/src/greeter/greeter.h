@@ -1,6 +1,7 @@
 #pragma once
 
 #include "greetd/greetd_client.h"
+#include "greeter/gaze_host.h"
 #include "render/gl_shared_context.h"
 
 #include <atomic>
@@ -61,6 +62,7 @@ private:
   std::unique_ptr<RenderContext> m_renderContext;
   std::vector<View> m_views;
   GreetdClient m_greetdClient;
+  GazeHost m_gaze;
   GreeterSurface* m_activeSurface = nullptr;
   GreeterSurface* m_authSurface = nullptr;
 
