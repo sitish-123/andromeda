@@ -15,6 +15,8 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 newest=$(ls -t "$ROOT"/pkg/andromeda-1:*.pkg.tar.zst | head -1)
 version=$(basename "$newest" | sed -E 's/^andromeda-1:([^-]+)-.*/\1/')
 mapfile -t packages < <(ls "$ROOT"/pkg/*-"1:$version"-*.pkg.tar.zst)
+# The power policy changes kernel defaults and stays opt-in: only an installed one is upgraded.
+pacman -Q umbriel-power-git > /dev/null 2>&1 || mapfile -t packages < <(printf '%s\n' "${packages[@]}" | grep -v /umbriel-power-git-)
 [[ ${#packages[@]} -gt 0 ]] || { echo "no packages for $version in pkg/; run just package" >&2; exit 1; }
 pacman -U --needed --noconfirm "${packages[@]}"
 
