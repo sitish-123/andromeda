@@ -1,0 +1,2763 @@
+#define _POSIX_C_SOURCE 200809L
+
+#include "compositor/system_keyboard_config.h"
+#include "config/output_identity.h"
+#include "greeter/greeter_config_io.h"
+
+#include <ctype.h>
+#include <libinput.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/timerfd.h>
+#include <sys/wait.h>
+#include <syslog.h>
+#include <time.h>
+#include <unistd.h>
+#include <wayland-server-core.h>
+#include <wayland-server-protocol.h>
+#include <wlr/backend.h>
+#include <wlr/backend/libinput.h>
+#include <wlr/backend/session.h>
+#include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/render/allocator.h>
+#include <wlr/render/pass.h>
+#include <wlr/render/wlr_renderer.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_cursor.h>
+#include <wlr/types/wlr_data_device.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
+#include <wlr/types/wlr_input_device.h>
+#include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_output.h>
+#include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_pointer.h>
+#include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_seat.h>
+#include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_switch.h>
+#include <wlr/types/wlr_touch.h>
+#include <wlr/types/wlr_viewporter.h>
+#include <wlr/types/wlr_xcursor_manager.h>
+#include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/util/log.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
+#include <xkbcommon/xkbcommon-names.h>
+#include <xkbcommon/xkbcommon.h>
+
+#ifndef NOCTALIA_GREETER_INSTALLED_BINDIR
+#define NOCTALIA_GREETER_INSTALLED_BINDIR "/usr/local/bin"
+#endif
+
+static bool compositor_syslog_enabled = false;
+
+static int syslog_priority_for_wlr_importance(enum wlr_log_importance importance) {
+  switch (importance) {
+  case WLR_ERROR:
+    return LOG_ERR;
+  case WLR_DEBUG:
+    return LOG_DEBUG;
+  case WLR_INFO:
+  default:
+    return LOG_INFO;
+  }
+}
+
+static void compositor_vsyslog(int priority, const char* format, va_list args) {
+  char message[2048];
+  va_list syslog_args;
+  va_copy(syslog_args, args);
+  vsnprintf(message, sizeof(message), format, syslog_args);
+  va_end(syslog_args);
+  syslog(priority, "%s", message);
+}
+
+static void compositor_log_stderr(int priority, const char* format, ...) {
+  va_list args;
+  va_start(args, format);
+
+  va_list stderr_args;
+  va_copy(stderr_args, args);
+  if (compositor_syslog_enabled) {
+    compositor_vsyslog(priority, format, args);
+  }
+  va_end(args);
+
+  vfprintf(stderr, format, stderr_args);
+  va_end(stderr_args);
+  fflush(stderr);
+}
+
+static void compositor_wlr_log(enum wlr_log_importance importance, const char* format, va_list args) {
+  // wlroots delegates verbosity filtering to custom log callbacks.
+  if (importance > wlr_log_get_verbosity()) {
+    return;
+  }
+
+  va_list stderr_args;
+  va_copy(stderr_args, args);
+  if (compositor_syslog_enabled) {
+    compositor_vsyslog(syslog_priority_for_wlr_importance(importance), format, args);
+  }
+
+  fputs("[wlr] ", stderr);
+  vfprintf(stderr, format, stderr_args);
+  fputc('\n', stderr);
+  fflush(stderr);
+  va_end(stderr_args);
+}
+
+static void compositor_init_logging(void) {
+  compositor_syslog_enabled = getenv("GREETD_SOCK") != NULL || getenv("XDG_VTNR") != NULL;
+  if (compositor_syslog_enabled) {
+    openlog("noctalia-greeter-compositor", LOG_PID | LOG_NDELAY, LOG_DAEMON);
+  }
+}
+
+static enum wlr_log_importance compositor_wlr_log_importance(void) {
+  const char* configured = getenv("WLR_LOG");
+  if (configured == NULL || configured[0] == '\0') {
+    return WLR_INFO;
+  }
+  if (strcmp(configured, "silent") == 0) {
+    return WLR_SILENT;
+  }
+  if (strcmp(configured, "error") == 0) {
+    return WLR_ERROR;
+  }
+  if (strcmp(configured, "info") == 0) {
+    return WLR_INFO;
+  }
+  if (strcmp(configured, "debug") == 0) {
+    return WLR_DEBUG;
+  }
+
+  compositor_log_stderr(LOG_WARNING, "unrecognized WLR_LOG=%s; using info\n", configured);
+  return WLR_INFO;
+}
+
+static void configure_direct_scanout(void) {
+  const char* configured = getenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT");
+  if (configured != NULL) {
+    wlr_log(WLR_INFO, "honoring WLR_SCENE_DISABLE_DIRECT_SCANOUT=%s", configured);
+    return;
+  }
+
+  // A greeter favors reliable presentation over bypassing one composition
+  // pass. In particular, wlroots 0.20 direct scan-out tests can destabilize
+  // otherwise working multi-output DRM configurations on some drivers.
+  if (setenv("WLR_SCENE_DISABLE_DIRECT_SCANOUT", "1", 0) != 0) {
+    wlr_log(WLR_ERROR, "failed to disable direct scan-out by default");
+    return;
+  }
+  wlr_log(WLR_INFO, "direct scan-out disabled by default");
+}
+
+struct greeter_server;
+
+struct greeter_output {
+  struct wl_list link;
+  struct greeter_server* server;
+  struct wlr_output* wlr_output;
+  struct wlr_scene_output* scene_output;
+  struct wlr_output_layout_output* layout_output;
+  struct wl_listener frame;
+  struct wl_listener request_state;
+  struct wl_listener destroy;
+  struct greeter_view* view;
+  bool active;
+  bool render_initialized;
+  bool lid_suppressed;
+};
+
+struct greeter_keyboard {
+  struct wl_list link;
+  struct greeter_server* server;
+  struct wlr_keyboard* wlr_keyboard;
+  struct wl_listener modifiers;
+  struct wl_listener key;
+  struct wl_listener destroy;
+};
+
+struct greeter_switch {
+  struct wl_list link;
+  struct greeter_server* server;
+  struct wlr_switch* wlr_switch;
+  struct wl_listener toggle;
+  struct wl_listener destroy;
+  bool lid_closed;
+};
+
+struct greeter_touch_point {
+  struct wl_list link;
+  int32_t touch_id;
+  double ref_lx;
+  double ref_ly;
+  double ref_sx;
+  double ref_sy;
+};
+
+struct greeter_view {
+  struct greeter_server* server;
+  struct greeter_output* output;
+  struct wlr_xdg_toplevel* toplevel;
+  struct wlr_scene_tree* scene_tree;
+  struct wl_listener map;
+  struct wl_listener unmap;
+  struct wl_listener destroy;
+  struct wl_listener commit;
+  bool mapped;
+};
+
+struct greeter_output_placement {
+  char name[512];
+  int x;
+  int y;
+};
+
+struct greeter_output_transform {
+  char name[512];
+  enum wl_output_transform transform;
+};
+
+struct greeter_output_scale {
+  char name[512];
+  float scale;
+};
+
+struct greeter_output_refresh_rate {
+  char identifier[512];
+  int refresh_mhz;
+};
+
+struct greeter_server {
+  struct wl_display* display;
+  struct wlr_backend* backend;
+  struct wlr_session* session;
+  struct wlr_renderer* renderer;
+  struct wlr_allocator* allocator;
+  struct wlr_scene* scene;
+  struct wlr_output_layout* output_layout;
+  struct wlr_scene_output_layout* scene_output_layout;
+  struct wlr_xdg_shell* xdg_shell;
+  struct wlr_cursor* cursor;
+  struct wlr_xcursor_manager* cursor_mgr;
+  struct wlr_seat* seat;
+  struct wl_list outputs;
+  struct wl_list keyboards;
+  struct wl_list switches;
+  struct wl_list touch_points;
+  struct wl_listener new_output;
+  struct wl_listener new_input;
+  struct wl_listener new_toplevel;
+  struct wl_listener cursor_motion;
+  struct wl_listener cursor_motion_absolute;
+  struct wl_listener cursor_button;
+  struct wl_listener cursor_axis;
+  struct wl_listener cursor_frame;
+  struct wl_listener cursor_touch_down;
+  struct wl_listener cursor_touch_up;
+  struct wl_listener cursor_touch_motion;
+  struct wl_listener cursor_touch_cancel;
+  struct wl_listener cursor_touch_frame;
+  struct wl_listener request_set_cursor;
+  struct wl_listener request_set_selection;
+  struct wl_listener session_active;
+  struct wl_event_source* sigchld_source;
+  struct wl_event_source* launch_timer;
+  pid_t child_pid;
+  bool child_launched;
+  int child_argc;
+  char** child_argv_ptr;
+  char preferred_output[512];
+  float manual_scale;
+  int manual_mode_width;
+  int manual_mode_height;
+  int manual_mode_refresh_mhz;
+  struct greeter_output_transform output_transforms[16];
+  size_t output_transform_count;
+  struct greeter_output_scale output_scales[16];
+  size_t output_scale_count;
+  struct greeter_output_refresh_rate output_refresh_rates[16];
+  size_t output_refresh_rate_count;
+  int idle_timeout_sec;
+  struct timespec last_activity;
+  int idle_timerfd;
+  struct wl_event_source* idle_timerfd_source;
+  bool screens_blanked;
+  char cursor_theme[128];
+  int cursor_size;
+  char cursor_path[512];
+  char keyboard_layout[128];
+  char keyboard_variant[128];
+  char keyboard_options[256];
+  int keyboard_numlock;
+  struct greeter_output_placement output_placements[16];
+  size_t output_placement_count;
+  struct wlr_fractional_scale_manager_v1* fractional_scale;
+  bool shutting_down;
+};
+
+static char* trim(char* value) {
+  while (isspace((unsigned char)*value)) {
+    value++;
+  }
+  char* end = value + strlen(value);
+  while (end > value && isspace((unsigned char)end[-1])) {
+    *--end = '\0';
+  }
+  if ((*value == '"' || *value == '\'') && end > value + 1 && end[-1] == *value) {
+    value++;
+    *--end = '\0';
+  }
+  return value;
+}
+
+static float clamp_scale(float value) {
+  if (value < 1.0f) {
+    return 1.0f;
+  }
+  if (value > 2.0f) {
+    return 2.0f;
+  }
+  return value;
+}
+
+// Configured/synced scales may exceed the auto-scale UI cap; keep them faithful to the session.
+static float clamp_configured_scale(float value) {
+  if (value < 1.0f) {
+    return 1.0f;
+  }
+  if (value > 10.0f) {
+    return 10.0f;
+  }
+  return value;
+}
+
+static float dpi_from_axis(int pixels, int phys_mm) {
+  if (pixels <= 0 || phys_mm <= 0) {
+    return 0.0f;
+  }
+  return (float)pixels / ((float)phys_mm / 25.4f);
+}
+
+// Before the first modeset, wlr_output->width/height are often 0; use the selected
+// mode size so cold boot and post-logout auto scale match.
+static float effective_dpi(const struct wlr_output* output, int mode_width, int mode_height) {
+  const int width = mode_width > 0 ? mode_width : output->width;
+  const int height = mode_height > 0 ? mode_height : output->height;
+  const float dpi_x = dpi_from_axis(width, output->phys_width);
+  const float dpi_y = dpi_from_axis(height, output->phys_height);
+  if (dpi_x > 0.0f && dpi_y > 0.0f) {
+    return (dpi_x + dpi_y) * 0.5f;
+  }
+  if (dpi_x > 0.0f) {
+    return dpi_x;
+  }
+  if (dpi_y > 0.0f) {
+    return dpi_y;
+  }
+  return 0.0f;
+}
+
+static float fallback_scale_for_resolution(int mode_width, int mode_height) {
+  if (mode_width >= 3840 || mode_height >= 2160) {
+    return 1.5f;
+  }
+  if (mode_width >= 2560) {
+    return 1.25f;
+  }
+  return 1.0f;
+}
+
+static bool output_matches_identifier(const struct wlr_output* output, const char* identifier);
+
+static bool output_has_configured_layout(const struct greeter_server* server, const struct wlr_output* output) {
+  if (output == NULL) {
+    return false;
+  }
+  for (size_t i = 0; i < server->output_placement_count; ++i) {
+    if (output_matches_identifier(output, server->output_placements[i].name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static float
+output_ui_scale(const struct greeter_server* server, const struct wlr_output* output, int mode_width, int mode_height) {
+  // greeter.toml [output].scale (all outputs) wins over per-output scales from sync/config.
+  if (server->manual_scale >= 1.0f) {
+    return clamp_configured_scale(server->manual_scale);
+  }
+  if (output != NULL && output->name != NULL) {
+    for (size_t i = 0; i < server->output_scale_count; ++i) {
+      if (output_matches_identifier(output, server->output_scales[i].name)) {
+        return clamp_configured_scale(server->output_scales[i].scale);
+      }
+    }
+  }
+  // A configured position was recorded in session-logical coordinates. Keep
+  // the conservative legacy scale when its matching scale is unavailable.
+  // Outputs omitted from the layout are appended using their actual logical
+  // width, so automatic scaling is safe for newly connected displays.
+  if (output_has_configured_layout(server, output)) {
+    wlr_log(WLR_INFO, "output %s has a configured layout but no matching scale; using 1.0", output->name);
+    return 1.0f;
+  }
+
+  const float dpi = effective_dpi(output, mode_width, mode_height);
+  if (dpi > 96.0f) {
+    return clamp_scale(dpi / 96.0f);
+  }
+  const int width = mode_width > 0 ? mode_width : output->width;
+  const int height = mode_height > 0 ? mode_height : output->height;
+  return clamp_scale(fallback_scale_for_resolution(width, height));
+}
+
+static bool parse_output_layout_entry(const char* token, struct greeter_output_placement* out) {
+  char buf[1024];
+  const int token_len = snprintf(buf, sizeof(buf), "%s", token);
+  if (token_len < 0 || (size_t)token_len >= sizeof(buf)) {
+    return false;
+  }
+  char* colon = strrchr(buf, ':');
+  if (colon == NULL || colon == buf) {
+    return false;
+  }
+  *colon = '\0';
+  char* name = trim(buf);
+  char* coords = trim(colon + 1);
+  char* comma = strchr(coords, ',');
+  if (comma == NULL || name[0] == '\0' || coords[0] == '\0') {
+    return false;
+  }
+  *comma = '\0';
+  char* end = NULL;
+  const long x = strtol(coords, &end, 10);
+  if (end == coords) {
+    return false;
+  }
+  const long y = strtol(comma + 1, &end, 10);
+  if (end == comma + 1) {
+    return false;
+  }
+  const int name_len = snprintf(out->name, sizeof(out->name), "%s", name);
+  if (name_len < 0 || (size_t)name_len >= sizeof(out->name)) {
+    return false;
+  }
+  out->x = (int)x;
+  out->y = (int)y;
+  return true;
+}
+
+static void parse_output_layout_value(struct greeter_server* server, char* value) {
+  server->output_placement_count = 0;
+  const char* delimiters = strchr(value, ';') != NULL ? ";" : " \t";
+
+  char* saveptr = NULL;
+  for (char* token = strtok_r(value, delimiters, &saveptr); token != NULL;
+       token = strtok_r(NULL, delimiters, &saveptr)) {
+    token = trim(token);
+    if (server->output_placement_count >= sizeof(server->output_placements) / sizeof(server->output_placements[0])) {
+      wlr_log(
+          WLR_ERROR, "output_layout: too many entries (max %zu)",
+          sizeof(server->output_placements) / sizeof(server->output_placements[0])
+      );
+      break;
+    }
+    struct greeter_output_placement entry;
+    if (!parse_output_layout_entry(token, &entry)) {
+      wlr_log(WLR_ERROR, "output_layout: invalid entry '%s'", token);
+      continue;
+    }
+    server->output_placements[server->output_placement_count++] = entry;
+  }
+}
+
+static bool parse_transform_token(const char* token, enum wl_output_transform* out) {
+  if (token == NULL || token[0] == '\0' || out == NULL) {
+    return false;
+  }
+  if (strcmp(token, "normal") == 0 || strcmp(token, "0") == 0 || strcmp(token, "none") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_NORMAL;
+    return true;
+  }
+  if (strcmp(token, "90") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_90;
+    return true;
+  }
+  if (strcmp(token, "180") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_180;
+    return true;
+  }
+  if (strcmp(token, "270") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_270;
+    return true;
+  }
+  if (strcmp(token, "flipped") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_FLIPPED;
+    return true;
+  }
+  if (strcmp(token, "flipped-90") == 0 || strcmp(token, "flipped_90") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_FLIPPED_90;
+    return true;
+  }
+  if (strcmp(token, "flipped-180") == 0 || strcmp(token, "flipped_180") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_FLIPPED_180;
+    return true;
+  }
+  if (strcmp(token, "flipped-270") == 0 || strcmp(token, "flipped_270") == 0) {
+    *out = WL_OUTPUT_TRANSFORM_FLIPPED_270;
+    return true;
+  }
+  return false;
+}
+
+static bool parse_output_transform_entry(const char* token, struct greeter_output_transform* out) {
+  char buf[1024];
+  if (token == NULL || out == NULL) {
+    return false;
+  }
+  const int token_len = snprintf(buf, sizeof(buf), "%s", token);
+  if (token_len < 0 || (size_t)token_len >= sizeof(buf)) {
+    return false;
+  }
+  char* colon = strrchr(buf, ':');
+  if (colon == NULL || colon == buf) {
+    return false;
+  }
+  *colon = '\0';
+  char* name = trim(buf);
+  char* transform_raw = trim(colon + 1);
+  if (name[0] == '\0' || transform_raw[0] == '\0') {
+    return false;
+  }
+  enum wl_output_transform transform = WL_OUTPUT_TRANSFORM_NORMAL;
+  if (!parse_transform_token(transform_raw, &transform)) {
+    return false;
+  }
+  const int name_len = snprintf(out->name, sizeof(out->name), "%s", name);
+  if (name_len < 0 || (size_t)name_len >= sizeof(out->name)) {
+    return false;
+  }
+  out->transform = transform;
+  return true;
+}
+
+static void parse_output_transforms_value(struct greeter_server* server, char* value) {
+  server->output_transform_count = 0;
+  const char* delimiters = strchr(value, ';') != NULL ? ";" : " \t";
+
+  char* saveptr = NULL;
+  for (char* token = strtok_r(value, delimiters, &saveptr); token != NULL;
+       token = strtok_r(NULL, delimiters, &saveptr)) {
+    token = trim(token);
+    if (server->output_transform_count >= sizeof(server->output_transforms) / sizeof(server->output_transforms[0])) {
+      wlr_log(
+          WLR_ERROR, "output_transforms: too many entries (max %zu)",
+          sizeof(server->output_transforms) / sizeof(server->output_transforms[0])
+      );
+      break;
+    }
+    struct greeter_output_transform entry;
+    if (!parse_output_transform_entry(token, &entry)) {
+      wlr_log(WLR_ERROR, "output_transforms: invalid entry '%s' (use NAME:90)", token);
+      continue;
+    }
+    server->output_transforms[server->output_transform_count++] = entry;
+    wlr_log(WLR_INFO, "output transform: %s -> %d", entry.name, (int)entry.transform);
+  }
+}
+
+static enum wl_output_transform
+transform_for_output(const struct greeter_server* server, const struct wlr_output* output) {
+  if (output == NULL) {
+    return WL_OUTPUT_TRANSFORM_NORMAL;
+  }
+  for (size_t i = 0; i < server->output_transform_count; ++i) {
+    if (output_matches_identifier(output, server->output_transforms[i].name)) {
+      return server->output_transforms[i].transform;
+    }
+  }
+  return WL_OUTPUT_TRANSFORM_NORMAL;
+}
+
+static bool parse_output_scale_entry(const char* token, struct greeter_output_scale* out) {
+  char buf[1024];
+  const int token_len = snprintf(buf, sizeof(buf), "%s", token);
+  if (token_len < 0 || (size_t)token_len >= sizeof(buf)) {
+    return false;
+  }
+  char* colon = strrchr(buf, ':');
+  if (colon == NULL || colon == buf) {
+    return false;
+  }
+  *colon = '\0';
+  char* name = trim(buf);
+  char* scale_raw = trim(colon + 1);
+  if (name[0] == '\0' || scale_raw[0] == '\0') {
+    return false;
+  }
+  char* end = NULL;
+  const float scale = strtof(scale_raw, &end);
+  if (end == scale_raw || *end != '\0' || scale < 1.0f) {
+    return false;
+  }
+  const int name_len = snprintf(out->name, sizeof(out->name), "%s", name);
+  if (name_len < 0 || (size_t)name_len >= sizeof(out->name)) {
+    return false;
+  }
+  out->scale = scale;
+  return true;
+}
+
+static void parse_output_scales_value(struct greeter_server* server, char* value) {
+  server->output_scale_count = 0;
+  const char* delimiters = strchr(value, ';') != NULL ? ";" : " \t";
+
+  char* saveptr = NULL;
+  for (char* token = strtok_r(value, delimiters, &saveptr); token != NULL;
+       token = strtok_r(NULL, delimiters, &saveptr)) {
+    token = trim(token);
+    if (server->output_scale_count >= sizeof(server->output_scales) / sizeof(server->output_scales[0])) {
+      wlr_log(
+          WLR_ERROR, "output_scales: too many entries (max %zu)",
+          sizeof(server->output_scales) / sizeof(server->output_scales[0])
+      );
+      break;
+    }
+    struct greeter_output_scale entry;
+    if (!parse_output_scale_entry(token, &entry)) {
+      wlr_log(WLR_ERROR, "output_scales: invalid entry '%s' (use NAME:1.25)", token);
+      continue;
+    }
+    server->output_scales[server->output_scale_count++] = entry;
+    wlr_log(WLR_INFO, "output scale: %s -> %.3f", entry.name, entry.scale);
+  }
+}
+
+static bool parse_output_refresh_rate_entry(char* token, struct greeter_output_refresh_rate* out) {
+  char* colon = strrchr(token, ':');
+  if (colon == NULL || colon == token) {
+    return false;
+  }
+  *colon = '\0';
+  char* identifier = trim(token);
+  char* refresh_raw = trim(colon + 1);
+  if (identifier[0] == '\0' || refresh_raw[0] == '\0') {
+    return false;
+  }
+
+  char* end = NULL;
+  const float refresh_hz = strtof(refresh_raw, &end);
+  if (end == refresh_raw || *end != '\0' || !(refresh_hz > 0.0f && refresh_hz <= 1000.0f)) {
+    return false;
+  }
+  snprintf(out->identifier, sizeof(out->identifier), "%s", identifier);
+  out->refresh_mhz = (int)(refresh_hz * 1000.0f + 0.5f);
+  return true;
+}
+
+static void parse_output_refresh_rate_map(struct greeter_server* server, char* value) {
+  server->output_refresh_rate_count = 0;
+  char* saveptr = NULL;
+  for (char* token = strtok_r(value, ";", &saveptr); token != NULL; token = strtok_r(NULL, ";", &saveptr)) {
+    if (server->output_refresh_rate_count
+        >= sizeof(server->output_refresh_rates) / sizeof(server->output_refresh_rates[0])) {
+      wlr_log(
+          WLR_ERROR, "output.refresh_rate: too many entries (max %zu)",
+          sizeof(server->output_refresh_rates) / sizeof(server->output_refresh_rates[0])
+      );
+      break;
+    }
+    struct greeter_output_refresh_rate entry;
+    if (!parse_output_refresh_rate_entry(token, &entry)) {
+      wlr_log(WLR_ERROR, "output.refresh_rate: invalid entry '%s' (use IDENTIFIER:120)", token);
+      continue;
+    }
+    server->output_refresh_rates[server->output_refresh_rate_count++] = entry;
+    wlr_log(WLR_INFO, "output refresh rate: %s -> %.3f Hz", entry.identifier, entry.refresh_mhz / 1000.0);
+  }
+}
+
+static void read_greeter_config(struct greeter_server* server) {
+  server->preferred_output[0] = '\0';
+  server->manual_scale = 0.0f;
+  server->manual_mode_width = 0;
+  server->manual_mode_height = 0;
+  server->manual_mode_refresh_mhz = 0;
+  server->output_transform_count = 0;
+  server->output_scale_count = 0;
+  server->output_refresh_rate_count = 0;
+  server->idle_timeout_sec = 0;
+  server->cursor_theme[0] = '\0';
+  server->cursor_size = 0;
+  server->cursor_path[0] = '\0';
+  server->keyboard_layout[0] = '\0';
+  server->keyboard_variant[0] = '\0';
+  server->keyboard_options[0] = '\0';
+  server->output_placement_count = 0;
+
+  const char* state_dir = getenv("NOCTALIA_GREETER_STATE_DIR");
+  struct greeter_compositor_config config;
+  greeter_compositor_config_load(state_dir, &config);
+
+  if (config.preferred_output[0] != '\0') {
+    snprintf(server->preferred_output, sizeof(server->preferred_output), "%s", config.preferred_output);
+  }
+  if (config.manual_scale >= 1.0f) {
+    server->manual_scale = config.manual_scale;
+  }
+  if (config.manual_mode_width > 0) {
+    server->manual_mode_width = config.manual_mode_width;
+  }
+  if (config.manual_mode_height > 0) {
+    server->manual_mode_height = config.manual_mode_height;
+  }
+  if (config.manual_mode_refresh_mhz > 0) {
+    server->manual_mode_refresh_mhz = config.manual_mode_refresh_mhz;
+  }
+  if (config.idle_timeout_sec > 0) {
+    server->idle_timeout_sec = config.idle_timeout_sec;
+  }
+  const char* env_idle = getenv("NOCTALIA_GREETER_IDLE_TIMEOUT");
+  if (env_idle != NULL && env_idle[0] != '\0') {
+    const char* cursor = env_idle;
+    while (isspace((unsigned char)*cursor)) {
+      cursor++;
+    }
+    char* end = NULL;
+    const long parsed = strtol(cursor, &end, 10);
+    if (end != cursor) {
+      while (isspace((unsigned char)*end)) {
+        end++;
+      }
+    }
+    if (end != cursor && *end == '\0' && parsed >= 0 && parsed <= 86400) {
+      server->idle_timeout_sec = (int)parsed;
+    } else {
+      wlr_log(WLR_ERROR, "invalid NOCTALIA_GREETER_IDLE_TIMEOUT='%s' (expected 0..86400)", env_idle);
+    }
+  }
+  if (server->idle_timeout_sec > 0) {
+    wlr_log(WLR_INFO, "idle blanking enabled: %ds", server->idle_timeout_sec);
+  }
+  if (config.cursor_theme[0] != '\0') {
+    snprintf(server->cursor_theme, sizeof(server->cursor_theme), "%s", config.cursor_theme);
+  }
+  if (config.cursor_size > 0) {
+    server->cursor_size = config.cursor_size;
+  }
+  if (config.cursor_path[0] != '\0') {
+    snprintf(server->cursor_path, sizeof(server->cursor_path), "%s", config.cursor_path);
+  }
+  if (config.keyboard_layout[0] != '\0') {
+    snprintf(server->keyboard_layout, sizeof(server->keyboard_layout), "%s", config.keyboard_layout);
+  }
+  if (config.keyboard_variant[0] != '\0') {
+    snprintf(server->keyboard_variant, sizeof(server->keyboard_variant), "%s", config.keyboard_variant);
+  }
+  if (config.keyboard_options[0] != '\0') {
+    snprintf(server->keyboard_options, sizeof(server->keyboard_options), "%s", config.keyboard_options);
+  }
+  server->keyboard_numlock = config.keyboard_numlock;
+  if (config.output_layout[0] != '\0' && server->output_placement_count == 0) {
+    char layout[2048];
+    snprintf(layout, sizeof(layout), "%s", config.output_layout);
+    parse_output_layout_value(server, layout);
+  }
+  if (config.output_transforms[0] != '\0') {
+    char transforms[2048];
+    snprintf(transforms, sizeof(transforms), "%s", config.output_transforms);
+    parse_output_transforms_value(server, transforms);
+  }
+  if (config.output_scales[0] != '\0') {
+    char scales[2048];
+    snprintf(scales, sizeof(scales), "%s", config.output_scales);
+    parse_output_scales_value(server, scales);
+  }
+  if (config.output_refresh_rate_map[0] != '\0') {
+    char refresh_rate_map[4096];
+    snprintf(refresh_rate_map, sizeof(refresh_rate_map), "%s", config.output_refresh_rate_map);
+    parse_output_refresh_rate_map(server, refresh_rate_map);
+  }
+}
+
+static struct xkb_keymap* compose_keyboard_keymap(struct xkb_context* context, const struct greeter_server* server) {
+  if (server->keyboard_layout[0] == '\0') {
+    const char* environment_layout = getenv("XKB_DEFAULT_LAYOUT");
+    if (environment_layout != NULL && environment_layout[0] != '\0') {
+      wlr_log(WLR_INFO, "keyboard: using XKB_DEFAULT_* environment configuration");
+      return xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    }
+
+    struct system_keyboard_config system_config;
+    char source_path[PATH_MAX];
+    if (system_keyboard_config_load(&system_config, source_path, sizeof(source_path))) {
+      const char* environment_model = getenv("XKB_DEFAULT_MODEL");
+      const char* environment_variant = getenv("XKB_DEFAULT_VARIANT");
+      const char* environment_options = getenv("XKB_DEFAULT_OPTIONS");
+      struct xkb_rule_names system_names = {0};
+      system_names.model = environment_model != NULL && environment_model[0] != '\0'
+          ? environment_model
+          : (system_config.model[0] != '\0' ? system_config.model : NULL);
+      system_names.layout = system_config.layout;
+      system_names.variant = environment_variant != NULL && environment_variant[0] != '\0'
+          ? environment_variant
+          : (system_config.variant[0] != '\0' ? system_config.variant : NULL);
+      system_names.options = environment_options != NULL && environment_options[0] != '\0'
+          ? environment_options
+          : (system_config.options[0] != '\0' ? system_config.options : NULL);
+      struct xkb_keymap* system_keymap = xkb_keymap_new_from_names(context, &system_names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+      if (system_keymap != NULL) {
+        wlr_log(
+            WLR_INFO, "keyboard: loaded system XKB config from %s (model=%s layout=%s variant=%s options=%s)",
+            source_path, system_names.model != NULL ? system_names.model : "(default)", system_names.layout,
+            system_names.variant != NULL ? system_names.variant : "(default)",
+            system_names.options != NULL ? system_names.options : "(none)"
+        );
+        return system_keymap;
+      }
+      wlr_log(WLR_ERROR, "keyboard: failed to compile system XKB config from %s", source_path);
+    }
+
+    return xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+  }
+
+  struct xkb_rule_names names = {0};
+  names.layout = server->keyboard_layout;
+  if (server->keyboard_variant[0] != '\0') {
+    names.variant = server->keyboard_variant;
+  }
+  if (server->keyboard_options[0] != '\0') {
+    names.options = server->keyboard_options;
+  }
+
+  struct xkb_keymap* keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+  if (keymap == NULL) {
+    wlr_log(
+        WLR_ERROR, "keyboard: failed to compile keymap (layout=%s variant=%s options=%s); using system default",
+        names.layout, names.variant != NULL ? names.variant : "", names.options != NULL ? names.options : ""
+    );
+    return xkb_keymap_new_from_names(context, NULL, XKB_KEYMAP_COMPILE_NO_FLAGS);
+  }
+
+  wlr_log(
+      WLR_INFO, "keyboard: layout=%s variant=%s options=%s", names.layout,
+      names.variant != NULL ? names.variant : "(default)", names.options != NULL ? names.options : "(none)"
+  );
+  return keymap;
+}
+
+static void
+notify_surface_scale(struct greeter_server* server, struct wlr_surface* surface, const struct greeter_output* output) {
+  if (server->fractional_scale == NULL || surface == NULL || output == NULL || !output->active) {
+    return;
+  }
+  wlr_fractional_scale_v1_notify_scale(surface, output->wlr_output->scale);
+}
+
+static bool use_all_outputs(const struct greeter_server* server) { return server->preferred_output[0] == '\0'; }
+
+static bool output_matches_identifier(const struct wlr_output* output, const char* identifier) {
+  return greeter_output_identifier_matches(
+      output->name, output->make, output->model, output->serial, output->description, identifier
+  );
+}
+
+static struct greeter_output* output_by_identifier(struct greeter_server* server, const char* identifier) {
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output_matches_identifier(output->wlr_output, identifier)) {
+      return output;
+    }
+  }
+  return NULL;
+}
+
+static int output_refresh_rate(const struct greeter_server* server, const struct wlr_output* output) {
+  for (size_t i = 0; i < server->output_refresh_rate_count; ++i) {
+    if (output_matches_identifier(output, server->output_refresh_rates[i].identifier)) {
+      return server->output_refresh_rates[i].refresh_mhz;
+    }
+  }
+  return server->manual_mode_refresh_mhz;
+}
+
+static bool any_output_active(const struct greeter_server* server) {
+  const struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->active) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool any_lid_closed(const struct greeter_server* server) {
+  const struct greeter_switch* device;
+  wl_list_for_each(device, &server->switches, link) {
+    if (device->lid_closed) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool any_external_output_connected(const struct greeter_server* server) {
+  const struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (!greeter_output_name_is_internal(output->wlr_output->name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool any_external_output_active(const struct greeter_server* server) {
+  const struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->active && !greeter_output_name_is_internal(output->wlr_output->name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool omit_output_for_lid(const struct greeter_output* output, bool suppress_internal) {
+  return suppress_internal && greeter_output_name_is_internal(output->wlr_output->name);
+}
+
+static int compare_greeter_output_ptr(const void* a, const void* b) {
+  const struct greeter_output* const* oa = a;
+  const struct greeter_output* const* ob = b;
+  return strcmp((*oa)->wlr_output->name, (*ob)->wlr_output->name);
+}
+
+static const struct greeter_server* g_layout_sort_server;
+
+static int configured_output_index(const struct greeter_server* server, const struct wlr_output* output) {
+  for (size_t i = 0; i < server->output_placement_count; ++i) {
+    if (output_matches_identifier(output, server->output_placements[i].name)) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static int compare_greeter_output_by_config(const void* a, const void* b) {
+  const struct greeter_output* const* oa = a;
+  const struct greeter_output* const* ob = b;
+  const int ia = configured_output_index(g_layout_sort_server, (*oa)->wlr_output);
+  const int ib = configured_output_index(g_layout_sort_server, (*ob)->wlr_output);
+  if (ia >= 0 && ib >= 0) {
+    return ia - ib;
+  }
+  if (ia >= 0) {
+    return -1;
+  }
+  if (ib >= 0) {
+    return 1;
+  }
+  return strcmp((*oa)->wlr_output->name, (*ob)->wlr_output->name);
+}
+
+static size_t collect_outputs(struct greeter_server* server, struct greeter_output** out, size_t out_cap) {
+  size_t count = 0;
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (count >= out_cap) {
+      break;
+    }
+    out[count++] = output;
+  }
+  if (count > 1) {
+    if (server->output_placement_count > 0) {
+      g_layout_sort_server = server;
+      qsort(out, count, sizeof(out[0]), compare_greeter_output_by_config);
+      g_layout_sort_server = NULL;
+    } else {
+      qsort(out, count, sizeof(out[0]), compare_greeter_output_ptr);
+    }
+  }
+  return count;
+}
+
+static int configured_layout_extents_max_x(struct greeter_server* server, bool suppress_internal) {
+  int max_x = 0;
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (!output->active
+        || omit_output_for_lid(output, suppress_internal)
+        || configured_output_index(server, output->wlr_output) < 0) {
+      continue;
+    }
+    struct wlr_box box;
+    wlr_output_layout_get_box(server->output_layout, output->wlr_output, &box);
+    if (box.width > 0) {
+      const int right = box.x + box.width;
+      if (right > max_x) {
+        max_x = right;
+      }
+    }
+  }
+  return max_x;
+}
+
+static bool layout_output_at(struct greeter_output* output, int layout_x, int layout_y);
+
+static void layout_outputs_from_config(struct greeter_server* server, bool suppress_internal) {
+  for (size_t i = 0; i < server->output_placement_count; ++i) {
+    const struct greeter_output_placement* cfg = &server->output_placements[i];
+    struct greeter_output* output = output_by_identifier(server, cfg->name);
+    if (output == NULL) {
+      wlr_log(WLR_INFO, "output_layout: '%s' not connected", cfg->name);
+      continue;
+    }
+    if (omit_output_for_lid(output, suppress_internal)) {
+      continue;
+    }
+    if (!layout_output_at(output, cfg->x, cfg->y)) {
+      continue;
+    }
+
+    int effective_width = 0;
+    int effective_height = 0;
+    wlr_output_effective_resolution(output->wlr_output, &effective_width, &effective_height);
+    wlr_log(
+        WLR_INFO, "greeter output: %s at (%d,%d) (effective %dx%d)", cfg->name, cfg->x, cfg->y, effective_width,
+        effective_height
+    );
+  }
+
+  int fallback_x = configured_layout_extents_max_x(server, suppress_internal);
+  struct greeter_output* outputs[16];
+  const size_t output_count = collect_outputs(server, outputs, 16);
+  for (size_t i = 0; i < output_count; ++i) {
+    struct greeter_output* output = outputs[i];
+    if (omit_output_for_lid(output, suppress_internal)) {
+      continue;
+    }
+    if (configured_output_index(server, output->wlr_output) >= 0) {
+      continue;
+    }
+    if (layout_output_at(output, fallback_x, 0)) {
+      wlr_log(WLR_INFO, "output_layout: '%s' not listed; placed at (%d,0)", output->wlr_output->name, fallback_x);
+      int width = 0;
+      int height = 0;
+      wlr_output_effective_resolution(output->wlr_output, &width, &height);
+      if (width > 0) {
+        fallback_x += width;
+      }
+    }
+  }
+}
+
+static struct greeter_output* output_for_next_view(struct greeter_server* server) {
+  struct greeter_output* outputs[16];
+  const size_t count = collect_outputs(server, outputs, 16);
+  for (size_t i = 0; i < count; ++i) {
+    if (outputs[i]->active && outputs[i]->view == NULL) {
+      return outputs[i];
+    }
+  }
+  return NULL;
+}
+
+static void configure_view(struct greeter_view* view);
+static void choose_outputs(struct greeter_server* server);
+
+static void focus_view(struct greeter_view* view) {
+  if (view == NULL || !view->mapped) {
+    return;
+  }
+
+  struct greeter_server* server = view->server;
+  struct wlr_keyboard* keyboard = wlr_seat_get_keyboard(server->seat);
+  wlr_xdg_toplevel_set_activated(view->toplevel, true);
+  if (keyboard != NULL) {
+    wlr_seat_keyboard_notify_enter(
+        server->seat, view->toplevel->base->surface, keyboard->keycodes, keyboard->num_keycodes, &keyboard->modifiers
+    );
+  }
+}
+
+// No session (rare) is treated as always active. When logind pauses the seat,
+// session->active is false and DRM commits fail with EINVAL until resume.
+static bool session_is_active(const struct greeter_server* server) {
+  return server->session == NULL || server->session->active;
+}
+
+static void schedule_output_frames(struct greeter_server* server) {
+  if (!session_is_active(server)) {
+    return;
+  }
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->active && output->wlr_output->enabled) {
+      wlr_output_schedule_frame(output->wlr_output);
+    }
+  }
+}
+
+static void handle_output_frame(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_output* output = wl_container_of(listener, output, frame);
+  struct greeter_server* server = output->server;
+  struct wlr_scene_output* scene_output = output->scene_output;
+
+  // Skip while logind has paused the DRM FD (logout / VT switch). Continuing
+  // to commit produces Atomic commit failed / Failed to disable CRTC noise and
+  // can race choose_outputs() against a half-torn-down seat.
+  if (!session_is_active(server) || !output->wlr_output->enabled || scene_output == NULL) {
+    return;
+  }
+  if (!wlr_scene_output_commit(scene_output, NULL)) {
+    wlr_log(WLR_ERROR, "failed to commit output %s", output->wlr_output->name);
+    return;
+  }
+
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  wlr_scene_output_send_frame_done(scene_output, &now);
+
+  // Keep the greeter compositor repainting so scanout recovers cleanly after
+  // idle or output power transitions even when the scene itself is static.
+  schedule_output_frames(server);
+}
+
+static void handle_output_request_state(struct wl_listener* listener, void* data) {
+  struct greeter_output* output = wl_container_of(listener, output, request_state);
+  struct greeter_server* server = output->server;
+  if (!session_is_active(server)) {
+    wlr_log(WLR_DEBUG, "ignoring request_state for %s while session inactive", output->wlr_output->name);
+    return;
+  }
+
+  const struct wlr_output_event_request_state* event = data;
+  const bool was_enabled = output->wlr_output->enabled;
+  if (!wlr_output_commit_state(output->wlr_output, event->state)) {
+    wlr_log(WLR_ERROR, "failed to commit requested state for output %s", output->wlr_output->name);
+    return;
+  }
+
+  const bool is_enabled = output->wlr_output->enabled;
+  if (was_enabled != is_enabled) {
+    wlr_log(
+        WLR_INFO, "output %s state changed via request_state: %s -> %s", output->wlr_output->name,
+        was_enabled ? "enabled" : "disabled", is_enabled ? "enabled" : "disabled"
+    );
+  }
+
+  // Backend power-state transitions can flip enabled outside our explicit
+  // choose_outputs() path; keep runtime state in sync and rebuild layout.
+  if (!is_enabled && output->active) {
+    if (output->layout_output != NULL) {
+      wlr_output_layout_remove(server->output_layout, output->wlr_output);
+      output->layout_output = NULL;
+    }
+    if (output->scene_output != NULL) {
+      wlr_scene_output_destroy(output->scene_output);
+      output->scene_output = NULL;
+    }
+    output->active = false;
+  }
+
+  choose_outputs(server);
+}
+
+enum { IDLE_POLL_MS = 2000 };
+
+static bool any_active_enabled_output(const struct greeter_server* server) {
+  const struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->active && output->wlr_output->enabled) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void set_outputs_power(struct greeter_server* server, bool on) {
+  if (!session_is_active(server)) {
+    return;
+  }
+  bool toggled = false;
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (!output->active || on == output->wlr_output->enabled) {
+      continue;
+    }
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, on);
+    if (!wlr_output_commit_state(output->wlr_output, &state)) {
+      wlr_log(WLR_ERROR, "failed to %s output %s", on ? "enable" : "disable", output->wlr_output->name);
+    } else {
+      toggled = true;
+      if (on && output->scene_output != NULL) {
+        wlr_output_schedule_frame(output->wlr_output);
+      }
+    }
+    wlr_output_state_finish(&state);
+  }
+  if (toggled) {
+    server->screens_blanked = !on;
+    if (on) {
+      schedule_output_frames(server);
+    }
+    return;
+  }
+  // Nothing to disable (already off / no active outputs): still mark blanked so idle poll stops.
+  if (!on && !any_active_enabled_output(server)) {
+    server->screens_blanked = true;
+  }
+}
+
+static void note_activity(struct greeter_server* server) {
+  clock_gettime(CLOCK_MONOTONIC, &server->last_activity);
+  if (server->screens_blanked) {
+    set_outputs_power(server, true);
+  }
+}
+
+// Pointer/scroll noise must not reset the idle timer — only wake after blank.
+static void note_pointer_activity(struct greeter_server* server) {
+  if (server->screens_blanked) {
+    note_activity(server);
+  }
+}
+
+static void check_idle_timeout(struct greeter_server* server) {
+  if (server->idle_timeout_sec <= 0 || server->screens_blanked) {
+    return;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  const time_t idle_sec = now.tv_sec - server->last_activity.tv_sec;
+  if (idle_sec < server->idle_timeout_sec) {
+    return;
+  }
+  if (!any_active_enabled_output(server)) {
+    // Already dark / no active outputs: stop retrying until a wake event.
+    server->screens_blanked = true;
+    return;
+  }
+  wlr_log(WLR_INFO, "idle timeout reached (%lds idle), blanking outputs", (long)idle_sec);
+  set_outputs_power(server, false);
+}
+
+// wl_event_loop_add_timer has not fired reliably on some greetd/NVIDIA stacks; timerfd does.
+static int handle_idle_timerfd(int fd, uint32_t mask, void* data) {
+  struct greeter_server* server = data;
+  (void)mask;
+  uint64_t ticks;
+  if (read(fd, &ticks, sizeof(ticks)) != (ssize_t)sizeof(ticks)) {
+    return 0;
+  }
+  check_idle_timeout(server);
+  return 0;
+}
+
+static bool initialize_output_render(struct greeter_output* output) {
+  if (output->render_initialized) {
+    return true;
+  }
+
+  struct greeter_server* server = output->server;
+  if (!wlr_output_init_render(output->wlr_output, server->allocator, server->renderer)) {
+    wlr_log(WLR_ERROR, "failed to initialize renderer for %s", output->wlr_output->name);
+    return false;
+  }
+  output->render_initialized = true;
+  return true;
+}
+
+static bool render_output_black(struct greeter_output* output, struct wlr_output_state* state) {
+  struct wlr_render_pass* pass = wlr_output_begin_render_pass(output->wlr_output, state, NULL);
+  if (pass == NULL) {
+    wlr_log(WLR_ERROR, "failed to begin black frame for output %s", output->wlr_output->name);
+    return false;
+  }
+
+  wlr_render_pass_add_rect(
+      pass,
+      &(struct wlr_render_rect_options){
+          .box = {.width = state->buffer->width, .height = state->buffer->height},
+          .color = {0.0f, 0.0f, 0.0f, 1.0f},
+          .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+      }
+  );
+  if (!wlr_render_pass_submit(pass)) {
+    wlr_log(WLR_ERROR, "failed to render black frame for output %s", output->wlr_output->name);
+    return false;
+  }
+  return true;
+}
+
+static bool clear_enabled_output(struct greeter_output* output) {
+  if (!output->wlr_output->enabled) {
+    return true;
+  }
+  if (!initialize_output_render(output)) {
+    return false;
+  }
+
+  struct wlr_output_state state;
+  wlr_output_state_init(&state);
+  const bool rendered = render_output_black(output, &state);
+  const bool committed = rendered && wlr_output_commit_state(output->wlr_output, &state);
+  wlr_output_state_finish(&state);
+  if (!committed) {
+    wlr_log(WLR_ERROR, "failed to clear output %s", output->wlr_output->name);
+    return false;
+  }
+
+  wlr_log(WLR_INFO, "cleared output %s before disable", output->wlr_output->name);
+  return true;
+}
+
+static void clear_output_before_disable(struct greeter_output* output) {
+  if (output->wlr_output->enabled) {
+    clear_enabled_output(output);
+  }
+}
+
+static void disable_output(struct greeter_output* output) {
+  // Disabling the CRTC does not overwrite its framebuffer, and some displays
+  // keep showing that last scanout after signal loss. Replace it with black
+  // first, but still attempt the disable if rendering fails.
+  clear_output_before_disable(output);
+
+  if (!output->active && !output->wlr_output->enabled) {
+    return;
+  }
+
+  if (output->wlr_output->enabled) {
+    struct wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, false);
+    const bool disabled = wlr_output_commit_state(output->wlr_output, &state);
+    wlr_output_state_finish(&state);
+    if (!disabled) {
+      wlr_log(WLR_ERROR, "failed to disable output %s", output->wlr_output->name);
+      return;
+    }
+  }
+
+  if (output->layout_output != NULL) {
+    wlr_output_layout_remove(output->server->output_layout, output->wlr_output);
+    output->layout_output = NULL;
+  }
+  if (output->scene_output != NULL) {
+    wlr_scene_output_destroy(output->scene_output);
+    output->scene_output = NULL;
+  }
+  output->active = false;
+  if (output->view != NULL) {
+    struct greeter_view* view = output->view;
+    output->view = NULL;
+    view->output = NULL;
+    wlr_xdg_toplevel_send_close(view->toplevel);
+  }
+}
+
+static void suppress_output_for_lid(struct greeter_output* output) {
+  if (output->lid_suppressed && !output->active) {
+    return;
+  }
+  disable_output(output);
+  if (output->active) {
+    wlr_log(WLR_ERROR, "could not suppress internal output %s after lid close", output->wlr_output->name);
+    return;
+  }
+  if (output->wlr_output->global != NULL) {
+    wlr_output_destroy_global(output->wlr_output);
+  }
+  output->lid_suppressed = true;
+  wlr_log(WLR_INFO, "lid closed: suppressed internal output %s", output->wlr_output->name);
+}
+
+static void restore_lid_suppressed_output(struct greeter_output* output) {
+  if (!output->lid_suppressed) {
+    return;
+  }
+  if (output->wlr_output->global == NULL) {
+    wlr_output_create_global(output->wlr_output, output->server->display);
+  }
+  output->lid_suppressed = false;
+  wlr_log(WLR_INFO, "restored internal output %s", output->wlr_output->name);
+}
+
+static struct wlr_output_mode*
+select_mode_at_size(struct wlr_output* wlr_output, int width, int height, int refresh_mhz) {
+  struct wlr_output_mode* highest = NULL;
+  struct wlr_output_mode* closest = NULL;
+  int64_t closest_delta = INT64_MAX;
+  struct wlr_output_mode* mode;
+  wl_list_for_each(mode, &wlr_output->modes, link) {
+    if (mode->width != width || mode->height != height) {
+      continue;
+    }
+    if (highest == NULL || mode->refresh > highest->refresh) {
+      highest = mode;
+    }
+    if (refresh_mhz > 0) {
+      const int64_t delta = llabs((int64_t)mode->refresh - refresh_mhz);
+      if (closest == NULL || delta < closest_delta) {
+        closest = mode;
+        closest_delta = delta;
+      }
+    }
+  }
+
+  // DRM modes commonly advertise fractional rates such as 119.998 Hz. Treat
+  // values within 1 Hz as the configured nominal refresh rate.
+  if (closest != NULL && closest_delta <= 1000) {
+    return closest;
+  }
+  if (refresh_mhz > 0 && highest != NULL) {
+    wlr_log(
+        WLR_INFO, "no mode %dx%d near %.3f Hz for %s; using highest refresh %.3f Hz", width, height,
+        refresh_mhz / 1000.0, wlr_output->name, highest->refresh / 1000.0
+    );
+  }
+  return highest;
+}
+
+static struct wlr_output_mode*
+select_output_mode(struct wlr_output* wlr_output, int manual_width, int manual_height, int refresh_mhz) {
+  if ((manual_width > 0) != (manual_height > 0)) {
+    wlr_log(WLR_INFO, "output width/height require both values; ignoring partial manual mode for %s", wlr_output->name);
+  }
+  if (manual_width > 0 && manual_height > 0) {
+    struct wlr_output_mode* best = select_mode_at_size(wlr_output, manual_width, manual_height, refresh_mhz);
+    if (best != NULL) {
+      return best;
+    }
+    wlr_log(WLR_INFO, "no mode %dx%d for %s; falling back to preferred", manual_width, manual_height, wlr_output->name);
+  }
+
+  struct wlr_output_mode* preferred = wlr_output_preferred_mode(wlr_output);
+  if (preferred == NULL) {
+    return NULL;
+  }
+
+  // Preserve the complete EDID-preferred mode by default. Choosing a higher
+  // refresh at the same resolution can exceed a dock or MST link's bandwidth.
+  if (refresh_mhz <= 0) {
+    return preferred;
+  }
+
+  // An explicit refresh-rate override applies at the preferred resolution.
+  return select_mode_at_size(wlr_output, preferred->width, preferred->height, refresh_mhz);
+}
+
+static bool commit_output_enabled(struct greeter_output* output) {
+  struct greeter_server* server = output->server;
+  if (!initialize_output_render(output)) {
+    return false;
+  }
+
+  struct wlr_output_state state;
+  wlr_output_state_init(&state);
+  wlr_output_state_set_enabled(&state, true);
+  const int refresh_mhz = output_refresh_rate(server, output->wlr_output);
+  struct wlr_output_mode* mode =
+      select_output_mode(output->wlr_output, server->manual_mode_width, server->manual_mode_height, refresh_mhz);
+  if (mode != NULL) {
+    wlr_output_state_set_mode(&state, mode);
+    wlr_log(WLR_INFO, "selected output mode: %dx%d @ %.3f Hz", mode->width, mode->height, mode->refresh / 1000.0);
+  }
+  const enum wl_output_transform transform = transform_for_output(server, output->wlr_output);
+  wlr_output_state_set_transform(&state, transform);
+  const int mode_width = mode != NULL ? mode->width : 0;
+  const int mode_height = mode != NULL ? mode->height : 0;
+  const float scale = output_ui_scale(server, output->wlr_output, mode_width, mode_height);
+  wlr_output_state_set_scale(&state, scale);
+  const bool rendered = render_output_black(output, &state);
+  const bool ok = rendered && wlr_output_commit_state(output->wlr_output, &state);
+  wlr_output_state_finish(&state);
+  if (!ok) {
+    wlr_log(WLR_ERROR, "failed to enable output %s", output->wlr_output->name);
+    return false;
+  }
+
+  wlr_log(WLR_INFO, "cleared output %s on enable", output->wlr_output->name);
+  wlr_log(WLR_INFO, "output %s scale=%.2f transform=%d", output->wlr_output->name, scale, (int)transform);
+  return true;
+}
+
+static bool enable_layout_output(struct greeter_output* output, int layout_x, int layout_y);
+
+static void load_cursor_theme_for_scale(struct greeter_server* server, float scale) {
+  if (!wlr_xcursor_manager_load(server->cursor_mgr, scale)) {
+    wlr_log(WLR_ERROR, "failed to load cursor theme at scale %.2f", scale);
+    return;
+  }
+
+  if (server->cursor_mgr->name == NULL) {
+    return;
+  }
+
+  struct wlr_xcursor_manager_theme* loaded;
+  wl_list_for_each(loaded, &server->cursor_mgr->scaled_themes, link) {
+    if (loaded->scale != scale) {
+      continue;
+    }
+    // wlroots renames the loaded theme to "default" when it silently falls
+    // back to its built-in cursor data.
+    if (loaded->theme != NULL
+        && loaded->theme->name != NULL
+        && strcmp(loaded->theme->name, server->cursor_mgr->name) != 0) {
+      const char* cursor_path = getenv("XCURSOR_PATH");
+      if (cursor_path != NULL && cursor_path[0] != '\0') {
+        wlr_log(
+            WLR_ERROR,
+            "cursor theme '%s' was not found in XCURSOR_PATH='%s'; using the wlroots built-in fallback, "
+            "which may appear small on scaled outputs (use the exact cursor theme directory name)",
+            server->cursor_mgr->name, cursor_path
+        );
+      } else {
+        wlr_log(
+            WLR_ERROR,
+            "cursor theme '%s' was not found in the default XCursor paths; using the wlroots built-in "
+            "fallback, which may appear small on scaled outputs (use the exact cursor theme directory name)",
+            server->cursor_mgr->name
+        );
+      }
+    }
+    return;
+  }
+}
+
+static bool layout_output_at(struct greeter_output* output, int layout_x, int layout_y) {
+  if (output->active) {
+    struct greeter_server* server = output->server;
+    if (output->layout_output != NULL) {
+      wlr_output_layout_remove(server->output_layout, output->wlr_output);
+      output->layout_output = NULL;
+    }
+    output->layout_output = wlr_output_layout_add(server->output_layout, output->wlr_output, layout_x, layout_y);
+    if (output->layout_output == NULL) {
+      wlr_log(WLR_ERROR, "failed to reposition output %s in layout", output->wlr_output->name);
+      return false;
+    }
+    if (output->scene_output != NULL) {
+      wlr_scene_output_layout_add_output(server->scene_output_layout, output->layout_output, output->scene_output);
+    }
+    if (output->view != NULL && output->view->mapped) {
+      configure_view(output->view);
+    }
+    restore_lid_suppressed_output(output);
+    wlr_output_schedule_frame(output->wlr_output);
+    return true;
+  }
+
+  return enable_layout_output(output, layout_x, layout_y);
+}
+
+static bool enable_layout_output(struct greeter_output* output, int layout_x, int layout_y) {
+  struct greeter_server* server = output->server;
+  if (!commit_output_enabled(output)) {
+    return false;
+  }
+
+  output->layout_output = wlr_output_layout_add(server->output_layout, output->wlr_output, layout_x, layout_y);
+  if (output->layout_output == NULL) {
+    wlr_log(WLR_ERROR, "failed to add output %s to layout", output->wlr_output->name);
+    return false;
+  }
+
+  output->scene_output = wlr_scene_output_create(server->scene, output->wlr_output);
+  if (output->scene_output == NULL) {
+    wlr_log(WLR_ERROR, "failed to create scene output for %s", output->wlr_output->name);
+    return false;
+  }
+  wlr_scene_output_layout_add_output(server->scene_output_layout, output->layout_output, output->scene_output);
+
+  output->active = true;
+  restore_lid_suppressed_output(output);
+  load_cursor_theme_for_scale(server, output->wlr_output->scale);
+  wlr_output_schedule_frame(output->wlr_output);
+  return true;
+}
+
+static void warp_cursor_to_output_center(struct greeter_server* server, struct greeter_output* output) {
+  if (output == NULL || !output->active) {
+    return;
+  }
+
+  struct wlr_box box;
+  wlr_output_layout_get_box(server->output_layout, output->wlr_output, &box);
+  if (box.width <= 0 || box.height <= 0) {
+    return;
+  }
+
+  const double x = box.x + box.width * 0.5;
+  const double y = box.y + box.height * 0.5;
+  wlr_cursor_warp(server->cursor, NULL, x, y);
+  wlr_log(WLR_INFO, "warped cursor to center of %s (%.0f, %.0f)", output->wlr_output->name, x, y);
+}
+
+static void warp_cursor_to_initial_position(struct greeter_server* server) {
+  if (!use_all_outputs(server)) {
+    struct greeter_output* pinned = output_by_identifier(server, server->preferred_output);
+    if (pinned != NULL && pinned->active) {
+      warp_cursor_to_output_center(server, pinned);
+      return;
+    }
+  }
+
+  struct greeter_output* outputs[16];
+  const size_t count = collect_outputs(server, outputs, 16);
+  for (size_t i = 0; i < count; ++i) {
+    if (outputs[i]->active) {
+      warp_cursor_to_output_center(server, outputs[i]);
+      return;
+    }
+  }
+}
+
+static void configure_view(struct greeter_view* view) {
+  if (view == NULL || !view->mapped || view->output == NULL || !view->output->active) {
+    return;
+  }
+
+  struct greeter_server* server = view->server;
+  struct greeter_output* output = view->output;
+  struct wlr_box layout_box;
+  wlr_output_layout_get_box(server->output_layout, output->wlr_output, &layout_box);
+  wlr_scene_node_set_position(&view->scene_tree->node, layout_box.x, layout_box.y);
+
+  int width = 0;
+  int height = 0;
+  wlr_output_effective_resolution(output->wlr_output, &width, &height);
+  if (width > 0 && height > 0) {
+    wlr_xdg_toplevel_set_size(view->toplevel, width, height);
+  }
+  notify_surface_scale(server, view->toplevel->base->surface, output);
+  focus_view(view);
+  schedule_output_frames(server);
+}
+
+static void try_launch_greeter(void* data);
+static bool start_child(struct greeter_server* server, char** argv, bool free_argv);
+
+static bool all_outputs_active(struct greeter_server* server) {
+  if (wl_list_empty(&server->outputs)) {
+    return false;
+  }
+
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (!output->active) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static int launch_timer_fired(void* data) {
+  struct greeter_server* server = data;
+  try_launch_greeter(server);
+  return 0;
+}
+
+static void schedule_launch(struct greeter_server* server) {
+  if (server->child_launched) {
+    return;
+  }
+
+  if (use_all_outputs(server)) {
+    if (!all_outputs_active(server) && !any_output_active(server)) {
+      return;
+    }
+  } else if (!any_output_active(server)) {
+    return;
+  }
+
+  struct wl_event_loop* loop = wl_display_get_event_loop(server->display);
+  if (server->launch_timer != NULL) {
+    wl_event_source_timer_update(server->launch_timer, 100);
+    return;
+  }
+
+  server->launch_timer = wl_event_loop_add_timer(loop, launch_timer_fired, server);
+  if (server->launch_timer != NULL) {
+    wl_event_source_timer_update(server->launch_timer, 100);
+  }
+}
+
+static void layout_all_outputs(struct greeter_server* server, bool suppress_internal) {
+  if (server->output_placement_count > 0) {
+    layout_outputs_from_config(server, suppress_internal);
+    return;
+  }
+
+  struct greeter_output* outputs[16];
+  const size_t count = collect_outputs(server, outputs, 16);
+  int layout_x = 0;
+  for (size_t i = 0; i < count; ++i) {
+    if (omit_output_for_lid(outputs[i], suppress_internal)) {
+      continue;
+    }
+    if (!layout_output_at(outputs[i], layout_x, 0)) {
+      continue;
+    }
+    wlr_log(WLR_INFO, "greeter output: %s at (%d,0)", outputs[i]->wlr_output->name, layout_x);
+    int width = 0;
+    int height = 0;
+    wlr_output_effective_resolution(outputs[i]->wlr_output, &width, &height);
+    if (width > 0) {
+      layout_x += width;
+    }
+  }
+}
+
+static void choose_outputs(struct greeter_server* server) {
+  if (server->shutting_down || !session_is_active(server)) {
+    return;
+  }
+
+  bool use_all = use_all_outputs(server);
+  struct greeter_output* pinned = NULL;
+  if (!use_all) {
+    pinned = output_by_identifier(server, server->preferred_output);
+    if (pinned == NULL) {
+      wlr_log(WLR_INFO, "output '%s' not connected; using all outputs", server->preferred_output);
+      use_all = true;
+    }
+  }
+
+  // Release inherited scanouts before enabling selected outputs so they can
+  // borrow any freed CRTCs.
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    const bool want = use_all || pinned == NULL || output == pinned;
+    if (!want && output->wlr_output->enabled) {
+      disable_output(output);
+    }
+  }
+
+  wl_list_for_each(output, &server->outputs, link) {
+    const bool want = use_all || pinned == NULL || output == pinned;
+    // Clear inherited scanouts, but leave already-disabled connectors off.
+    // Enabling one just to clear it can make a monitor report a fresh hotplug,
+    // repeatedly cycling the connector between enabled and disabled.
+    if (!want) {
+      disable_output(output);
+    }
+  }
+
+  if (use_all) {
+    const bool suppress_internal = any_lid_closed(server) && any_external_output_connected(server);
+    layout_all_outputs(server, suppress_internal);
+    if (suppress_internal && any_external_output_active(server)) {
+      wl_list_for_each(output, &server->outputs, link) {
+        if (greeter_output_name_is_internal(output->wlr_output->name)) {
+          suppress_output_for_lid(output);
+        }
+      }
+    } else if (suppress_internal) {
+      wlr_log(WLR_ERROR, "lid closed but no external output could be enabled; keeping internal output available");
+      layout_all_outputs(server, false);
+    }
+  } else if (pinned != NULL) {
+    if ((!pinned->active && enable_layout_output(pinned, 0, 0)) || pinned->active) {
+      restore_lid_suppressed_output(pinned);
+      wlr_log(WLR_INFO, "greeter pinned output: %s", pinned->wlr_output->name);
+    }
+  }
+
+  // Mapping also lets wlroots apply the output transform to absolute input
+  // events before they reach the cursor listeners. Re-evaluate on hotplug.
+  wlr_cursor_map_to_output(server->cursor, pinned != NULL && pinned->active ? pinned->wlr_output : NULL);
+
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->view != NULL && output->view->mapped) {
+      configure_view(output->view);
+    }
+  }
+
+  if (server->child_launched
+      && any_output_active(server)
+      && wlr_output_layout_output_at(server->output_layout, server->cursor->x, server->cursor->y) == NULL) {
+    warp_cursor_to_initial_position(server);
+  }
+  schedule_launch(server);
+  schedule_output_frames(server);
+}
+
+static void handle_output_destroy(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_output* output = wl_container_of(listener, output, destroy);
+  struct greeter_server* server = output->server;
+
+  wl_list_remove(&output->frame.link);
+  wl_list_remove(&output->request_state.link);
+  wl_list_remove(&output->destroy.link);
+  wl_list_remove(&output->link);
+  free(output);
+  if (!server->shutting_down) {
+    choose_outputs(server);
+  }
+}
+
+static void handle_new_output(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, new_output);
+  struct wlr_output* wlr_output = data;
+
+  struct greeter_output* output = calloc(1, sizeof(*output));
+  if (output == NULL) {
+    return;
+  }
+  output->server = server;
+  output->wlr_output = wlr_output;
+
+  output->frame.notify = handle_output_frame;
+  wl_signal_add(&wlr_output->events.frame, &output->frame);
+  output->request_state.notify = handle_output_request_state;
+  wl_signal_add(&wlr_output->events.request_state, &output->request_state);
+  output->destroy.notify = handle_output_destroy;
+  wl_signal_add(&wlr_output->events.destroy, &output->destroy);
+  wl_list_insert(&server->outputs, &output->link);
+
+  choose_outputs(server);
+}
+
+static void pointer_focus(struct greeter_server* server, double lx, double ly) {
+  double sx = lx;
+  double sy = ly;
+  struct wlr_scene_node* node = wlr_scene_node_at(&server->scene->tree.node, lx, ly, &sx, &sy);
+  struct wlr_surface* surface = NULL;
+  if (node != NULL && node->type == WLR_SCENE_NODE_BUFFER) {
+    struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+    struct wlr_scene_surface* scene_surface = wlr_scene_surface_try_from_buffer(buffer);
+    if (scene_surface != NULL) {
+      surface = scene_surface->surface;
+    }
+  }
+  struct wlr_surface* prev = server->seat->pointer_state.focused_surface;
+  if (surface != NULL) {
+    if (surface != prev) {
+      wlr_seat_pointer_notify_enter(server->seat, surface, sx, sy);
+    } else {
+      wlr_seat_pointer_notify_motion(server->seat, 0, sx, sy);
+    }
+  } else if (prev != NULL) {
+    wlr_seat_pointer_notify_clear_focus(server->seat);
+  }
+}
+
+static struct wlr_surface* surface_at(struct greeter_server* server, double lx, double ly, double* sx, double* sy) {
+  *sx = lx;
+  *sy = ly;
+  struct wlr_scene_node* node = wlr_scene_node_at(&server->scene->tree.node, lx, ly, sx, sy);
+  if (node == NULL || node->type != WLR_SCENE_NODE_BUFFER) {
+    return NULL;
+  }
+  struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+  struct wlr_scene_surface* scene_surface = wlr_scene_surface_try_from_buffer(buffer);
+  return scene_surface != NULL ? scene_surface->surface : NULL;
+}
+
+static struct greeter_touch_point* touch_point_for_id(struct greeter_server* server, int32_t touch_id) {
+  struct greeter_touch_point* point;
+  wl_list_for_each(point, &server->touch_points, link) {
+    if (point->touch_id == touch_id) {
+      return point;
+    }
+  }
+  return NULL;
+}
+
+static void handle_cursor_touch_down(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_touch_down);
+  struct wlr_touch_down_event* event = data;
+  // Touch-down is press-equivalent: reset idle and wake blanked outputs even with no surface hit.
+  note_activity(server);
+  double lx;
+  double ly;
+  wlr_cursor_absolute_to_layout_coords(server->cursor, &event->touch->base, event->x, event->y, &lx, &ly);
+
+  double sx;
+  double sy;
+  struct wlr_surface* surface = surface_at(server, lx, ly, &sx, &sy);
+  if (surface == NULL) {
+    return;
+  }
+
+  wlr_seat_touch_notify_down(server->seat, surface, event->time_msec, event->touch_id, sx, sy);
+  if (wlr_seat_touch_get_point(server->seat, event->touch_id) == NULL) {
+    return;
+  }
+
+  struct greeter_touch_point* point = calloc(1, sizeof(*point));
+  if (point == NULL) {
+    wlr_seat_touch_notify_up(server->seat, event->time_msec, event->touch_id);
+    return;
+  }
+  point->touch_id = event->touch_id;
+  point->ref_lx = lx;
+  point->ref_ly = ly;
+  point->ref_sx = sx;
+  point->ref_sy = sy;
+  wl_list_insert(&server->touch_points, &point->link);
+}
+
+static void handle_cursor_touch_up(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_touch_up);
+  struct wlr_touch_up_event* event = data;
+  struct greeter_touch_point* point = touch_point_for_id(server, event->touch_id);
+  if (point == NULL) {
+    return;
+  }
+  wlr_seat_touch_notify_up(server->seat, event->time_msec, event->touch_id);
+  wl_list_remove(&point->link);
+  free(point);
+}
+
+static void handle_cursor_touch_motion(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_touch_motion);
+  struct wlr_touch_motion_event* event = data;
+  struct greeter_touch_point* point = touch_point_for_id(server, event->touch_id);
+  if (point == NULL) {
+    return;
+  }
+
+  double lx;
+  double ly;
+  wlr_cursor_absolute_to_layout_coords(server->cursor, &event->touch->base, event->x, event->y, &lx, &ly);
+  const double sx = point->ref_sx + lx - point->ref_lx;
+  const double sy = point->ref_sy + ly - point->ref_ly;
+  wlr_seat_touch_notify_motion(server->seat, event->time_msec, event->touch_id, sx, sy);
+}
+
+static void handle_cursor_touch_cancel(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_touch_cancel);
+  struct wlr_touch_cancel_event* event = data;
+  struct wlr_touch_point* seat_point = wlr_seat_touch_get_point(server->seat, event->touch_id);
+  if (seat_point != NULL && seat_point->client != NULL) {
+    wlr_seat_touch_notify_cancel(server->seat, seat_point->client);
+  }
+
+  struct greeter_touch_point* point;
+  struct greeter_touch_point* tmp;
+  wl_list_for_each_safe(point, tmp, &server->touch_points, link) {
+    wl_list_remove(&point->link);
+    free(point);
+  }
+}
+
+static void handle_cursor_touch_frame(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_server* server = wl_container_of(listener, server, cursor_touch_frame);
+  wlr_seat_touch_notify_frame(server->seat);
+}
+
+static void handle_cursor_motion(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_motion);
+  struct wlr_pointer_motion_event* event = data;
+  note_pointer_activity(server);
+  wlr_cursor_move(server->cursor, &event->pointer->base, event->delta_x, event->delta_y);
+  pointer_focus(server, server->cursor->x, server->cursor->y);
+}
+
+static void handle_cursor_motion_absolute(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_motion_absolute);
+  struct wlr_pointer_motion_absolute_event* event = data;
+  note_pointer_activity(server);
+  wlr_cursor_warp_absolute(server->cursor, &event->pointer->base, event->x, event->y);
+  pointer_focus(server, server->cursor->x, server->cursor->y);
+}
+
+static void handle_cursor_button(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_button);
+  struct wlr_pointer_button_event* event = data;
+  if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    note_activity(server);
+  }
+  pointer_focus(server, server->cursor->x, server->cursor->y);
+  wlr_seat_pointer_notify_button(server->seat, event->time_msec, event->button, event->state);
+}
+
+static void handle_cursor_axis(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, cursor_axis);
+  struct wlr_pointer_axis_event* event = data;
+  note_pointer_activity(server);
+  wlr_seat_pointer_notify_axis(
+      server->seat, event->time_msec, event->orientation, event->delta, event->delta_discrete, event->source,
+      event->relative_direction
+  );
+}
+
+static void handle_cursor_frame(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_server* server = wl_container_of(listener, server, cursor_frame);
+  wlr_seat_pointer_notify_frame(server->seat);
+}
+
+static void handle_request_set_cursor(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, request_set_cursor);
+  struct wlr_seat_pointer_request_set_cursor_event* event = data;
+  struct wlr_seat_client* focused = server->seat->pointer_state.focused_client;
+  if (focused == event->seat_client) {
+    wlr_cursor_set_surface(server->cursor, event->surface, event->hotspot_x, event->hotspot_y);
+  }
+}
+
+static struct greeter_keyboard* first_keyboard(struct greeter_server* server) {
+  struct greeter_keyboard* keyboard;
+  wl_list_for_each(keyboard, &server->keyboards, link) { return keyboard; }
+  return NULL;
+}
+
+static void update_seat_keyboard(struct greeter_server* server) {
+  if (server->shutting_down || server->seat == NULL) {
+    return;
+  }
+  struct greeter_keyboard* keyboard = first_keyboard(server);
+  wlr_seat_set_keyboard(server->seat, keyboard != NULL ? keyboard->wlr_keyboard : NULL);
+}
+
+static void recompute_keyboard_capability(struct greeter_server* server) {
+  if (server->shutting_down || server->seat == NULL) {
+    return;
+  }
+  uint32_t caps = server->seat->capabilities;
+  if (wl_list_empty(&server->keyboards)) {
+    caps &= ~(uint32_t)WL_SEAT_CAPABILITY_KEYBOARD;
+  } else {
+    caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+  }
+  wlr_seat_set_capabilities(server->seat, caps);
+}
+
+static void focus_mapped_views(struct greeter_server* server) {
+  if (server->shutting_down) {
+    return;
+  }
+  struct greeter_output* output;
+  wl_list_for_each(output, &server->outputs, link) {
+    if (output->view != NULL && output->view->mapped) {
+      focus_view(output->view);
+    }
+  }
+}
+
+static void handle_keyboard_modifiers(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_keyboard* keyboard = wl_container_of(listener, keyboard, modifiers);
+  struct greeter_server* server = keyboard->server;
+  if (server->shutting_down || server->seat == NULL) {
+    return;
+  }
+  wlr_seat_set_keyboard(server->seat, keyboard->wlr_keyboard);
+  wlr_seat_keyboard_notify_modifiers(server->seat, &keyboard->wlr_keyboard->modifiers);
+}
+
+static void handle_keyboard_key(struct wl_listener* listener, void* data) {
+  struct greeter_keyboard* keyboard = wl_container_of(listener, keyboard, key);
+  struct greeter_server* server = keyboard->server;
+  struct wlr_keyboard_key_event* event = data;
+
+  if (server->shutting_down || server->seat == NULL) {
+    return;
+  }
+
+  if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED && server->session != NULL) {
+    const xkb_keysym_t* syms;
+    int nsyms = xkb_state_key_get_syms(keyboard->wlr_keyboard->xkb_state, event->keycode + 8, &syms);
+    for (int i = 0; i < nsyms; i++) {
+      xkb_keysym_t sym = syms[i];
+      if (sym >= (xkb_keysym_t)XKB_KEY_XF86Switch_VT_1 && sym <= (xkb_keysym_t)XKB_KEY_XF86Switch_VT_12) {
+        unsigned vt = (unsigned)(sym - (xkb_keysym_t)XKB_KEY_XF86Switch_VT_1 + 1);
+        wlr_session_change_vt(server->session, vt);
+        return;
+      }
+    }
+  }
+
+  if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+    note_activity(server);
+  }
+  wlr_seat_set_keyboard(server->seat, keyboard->wlr_keyboard);
+  wlr_seat_keyboard_notify_key(server->seat, event->time_msec, event->keycode, event->state);
+}
+
+static void handle_keyboard_destroy(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_keyboard* keyboard = wl_container_of(listener, keyboard, destroy);
+  struct greeter_server* server = keyboard->server;
+  const bool was_seat_keyboard =
+      !server->shutting_down && server->seat != NULL && wlr_seat_get_keyboard(server->seat) == keyboard->wlr_keyboard;
+
+  wl_list_remove(&keyboard->modifiers.link);
+  wl_list_remove(&keyboard->key.link);
+  wl_list_remove(&keyboard->destroy.link);
+  wl_list_remove(&keyboard->link);
+  free(keyboard);
+
+  // During wl_display_destroy the seat is already being torn down; updating
+  // capabilities here segfaults in wlr_seat_set_capabilities.
+  if (server->shutting_down) {
+    return;
+  }
+
+  if (was_seat_keyboard) {
+    update_seat_keyboard(server);
+  }
+  recompute_keyboard_capability(server);
+  focus_mapped_views(server);
+}
+
+static void configure_libinput_touchpad(struct wlr_input_device* device) {
+  if (!wlr_input_device_is_libinput(device)) {
+    return;
+  }
+
+  struct libinput_device* libinput_dev = wlr_libinput_get_device_handle(device);
+  if (libinput_dev == NULL) {
+    return;
+  }
+  if (libinput_device_config_tap_get_finger_count(libinput_dev) == 0) {
+    return;
+  }
+
+  if (libinput_device_config_tap_set_enabled(libinput_dev, LIBINPUT_CONFIG_TAP_ENABLED) != 0) {
+    wlr_log(WLR_INFO, "touchpad: failed to enable tap-to-click for %s", device->name);
+    return;
+  }
+
+  libinput_device_config_tap_set_button_map(libinput_dev, LIBINPUT_CONFIG_TAP_MAP_LRM);
+  libinput_device_config_tap_set_drag_enabled(libinput_dev, LIBINPUT_CONFIG_DRAG_ENABLED);
+  wlr_log(WLR_INFO, "touchpad: enabled tap-to-click for %s", device->name);
+}
+
+static void configure_libinput_pointer(struct wlr_input_device* device) {
+  if (!wlr_input_device_is_libinput(device)) {
+    return;
+  }
+
+  struct libinput_device* libinput_dev = wlr_libinput_get_device_handle(device);
+  if (libinput_dev == NULL) {
+    return;
+  }
+
+  if (libinput_device_config_accel_is_available(libinput_dev)) {
+    libinput_device_config_accel_set_profile(libinput_dev, LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT);
+    wlr_log(WLR_INFO, "pointer: disabled acceleration for %s", device->name);
+  }
+}
+
+static void add_keyboard(struct greeter_server* server, struct wlr_input_device* device) {
+  struct greeter_keyboard* keyboard = calloc(1, sizeof(*keyboard));
+  if (keyboard == NULL) {
+    return;
+  }
+  keyboard->server = server;
+  keyboard->wlr_keyboard = wlr_keyboard_from_input_device(device);
+
+  struct xkb_context* context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  struct xkb_keymap* keymap = compose_keyboard_keymap(context, server);
+  wlr_keyboard_set_keymap(keyboard->wlr_keyboard, keymap);
+  xkb_keymap_unref(keymap);
+  xkb_context_unref(context);
+
+  // Enable Num Lock only when explicitly requested in greeter.toml.
+  if (server->keyboard_numlock > 0) {
+    xkb_mod_index_t num_mod = xkb_keymap_mod_get_index(keyboard->wlr_keyboard->keymap, XKB_MOD_NAME_NUM);
+    if (num_mod != XKB_MOD_INVALID) {
+      xkb_mod_mask_t locked = keyboard->wlr_keyboard->modifiers.locked | ((xkb_mod_mask_t)1 << num_mod);
+      wlr_keyboard_notify_modifiers(
+          keyboard->wlr_keyboard, keyboard->wlr_keyboard->modifiers.depressed,
+          keyboard->wlr_keyboard->modifiers.latched, locked, keyboard->wlr_keyboard->modifiers.group
+      );
+    }
+  }
+  wlr_keyboard_set_repeat_info(keyboard->wlr_keyboard, 25, 600);
+
+  keyboard->modifiers.notify = handle_keyboard_modifiers;
+  wl_signal_add(&keyboard->wlr_keyboard->events.modifiers, &keyboard->modifiers);
+  keyboard->key.notify = handle_keyboard_key;
+  wl_signal_add(&keyboard->wlr_keyboard->events.key, &keyboard->key);
+  keyboard->destroy.notify = handle_keyboard_destroy;
+  wl_signal_add(&device->events.destroy, &keyboard->destroy);
+  wl_list_insert(&server->keyboards, &keyboard->link);
+
+  wlr_seat_set_keyboard(server->seat, keyboard->wlr_keyboard);
+  wlr_log(WLR_INFO, "keyboard: added %s", device->name);
+  focus_mapped_views(server);
+}
+
+static void handle_switch_toggle(struct wl_listener* listener, void* data) {
+  struct greeter_switch* device = wl_container_of(listener, device, toggle);
+  struct wlr_switch_toggle_event* event = data;
+  if (event->switch_type != WLR_SWITCH_TYPE_LID) {
+    return;
+  }
+
+  const bool closed = event->switch_state == WLR_SWITCH_STATE_ON;
+  if (device->lid_closed == closed) {
+    return;
+  }
+  device->lid_closed = closed;
+  wlr_log(WLR_INFO, "lid switch: %s", closed ? "closed" : "open");
+  choose_outputs(device->server);
+}
+
+static void handle_switch_destroy(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_switch* device = wl_container_of(listener, device, destroy);
+  struct greeter_server* server = device->server;
+  const bool was_closed = device->lid_closed;
+  wl_list_remove(&device->toggle.link);
+  wl_list_remove(&device->destroy.link);
+  wl_list_remove(&device->link);
+  free(device);
+  if (was_closed && !server->shutting_down) {
+    choose_outputs(server);
+  }
+}
+
+static void add_switch(struct greeter_server* server, struct wlr_input_device* input) {
+  struct greeter_switch* device = calloc(1, sizeof(*device));
+  if (device == NULL) {
+    return;
+  }
+  device->server = server;
+  device->wlr_switch = wlr_switch_from_input_device(input);
+  device->toggle.notify = handle_switch_toggle;
+  wl_signal_add(&device->wlr_switch->events.toggle, &device->toggle);
+  device->destroy.notify = handle_switch_destroy;
+  wl_signal_add(&input->events.destroy, &device->destroy);
+  wl_list_insert(&server->switches, &device->link);
+  wlr_log(WLR_INFO, "switch: added %s", input->name);
+}
+
+static void handle_new_input(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, new_input);
+  if (server->shutting_down) {
+    return;
+  }
+  struct wlr_input_device* device = data;
+  uint32_t caps = server->seat->capabilities;
+
+  switch (device->type) {
+  case WLR_INPUT_DEVICE_KEYBOARD:
+    add_keyboard(server, device);
+    recompute_keyboard_capability(server);
+    return;
+  case WLR_INPUT_DEVICE_POINTER:
+    configure_libinput_touchpad(device);
+    configure_libinput_pointer(device);
+    wlr_cursor_attach_input_device(server->cursor, device);
+    caps |= WL_SEAT_CAPABILITY_POINTER;
+    break;
+  case WLR_INPUT_DEVICE_TOUCH:
+    wlr_cursor_attach_input_device(server->cursor, device);
+    caps |= WL_SEAT_CAPABILITY_TOUCH;
+    break;
+  case WLR_INPUT_DEVICE_TABLET:
+    wlr_cursor_attach_input_device(server->cursor, device);
+    caps |= WL_SEAT_CAPABILITY_POINTER;
+    break;
+  case WLR_INPUT_DEVICE_SWITCH:
+    add_switch(server, device);
+    break;
+  default:
+    break;
+  }
+
+  wlr_seat_set_capabilities(server->seat, caps);
+}
+
+static void handle_session_active(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_server* server = wl_container_of(listener, server, session_active);
+  if (server->shutting_down || server->session == NULL) {
+    return;
+  }
+
+  if (!server->session->active) {
+    wlr_log(WLR_INFO, "session inactive; pausing output commits");
+    return;
+  }
+
+  wlr_log(WLR_INFO, "session active; restoring outputs and keyboard focus");
+  choose_outputs(server);
+  update_seat_keyboard(server);
+  recompute_keyboard_capability(server);
+  focus_mapped_views(server);
+  schedule_output_frames(server);
+}
+
+static void handle_xdg_commit(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_view* view = wl_container_of(listener, view, commit);
+  struct wlr_xdg_surface* xdg = view->toplevel->base;
+  if (xdg->initial_commit) {
+    wlr_xdg_surface_schedule_configure(xdg);
+    return;
+  }
+  schedule_output_frames(view->server);
+}
+
+static void handle_view_map(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_view* view = wl_container_of(listener, view, map);
+  view->mapped = true;
+  wlr_log(WLR_INFO, "greeter surface mapped on %s", view->output != NULL ? view->output->wlr_output->name : "unknown");
+  if (view->output != NULL) {
+    notify_surface_scale(view->server, view->toplevel->base->surface, view->output);
+  }
+  configure_view(view);
+}
+
+static void handle_view_unmap(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_view* view = wl_container_of(listener, view, unmap);
+  view->mapped = false;
+}
+
+static void handle_view_destroy(struct wl_listener* listener, void* data) {
+  (void)data;
+  struct greeter_view* view = wl_container_of(listener, view, destroy);
+  if (view->output != NULL) {
+    view->output->view = NULL;
+    view->output = NULL;
+  }
+  wl_list_remove(&view->map.link);
+  wl_list_remove(&view->unmap.link);
+  wl_list_remove(&view->destroy.link);
+  wl_list_remove(&view->commit.link);
+  free(view);
+}
+
+static void handle_new_toplevel(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, new_toplevel);
+  struct wlr_xdg_toplevel* toplevel = data;
+
+  struct greeter_output* output = output_for_next_view(server);
+  if (output == NULL) {
+    wlr_log(WLR_INFO, "closing unassigned toplevel (no free output)");
+    wlr_xdg_toplevel_send_close(toplevel);
+    return;
+  }
+  wlr_log(WLR_INFO, "assigning toplevel to output %s", output->wlr_output->name);
+
+  struct greeter_view* view = calloc(1, sizeof(*view));
+  if (view == NULL) {
+    wlr_xdg_toplevel_send_close(toplevel);
+    return;
+  }
+  view->server = server;
+  view->output = output;
+  output->view = view;
+  view->toplevel = toplevel;
+  view->scene_tree = wlr_scene_xdg_surface_create(&server->scene->tree, toplevel->base);
+  view->scene_tree->node.data = view;
+
+  view->map.notify = handle_view_map;
+  wl_signal_add(&toplevel->base->surface->events.map, &view->map);
+  view->unmap.notify = handle_view_unmap;
+  wl_signal_add(&toplevel->base->surface->events.unmap, &view->unmap);
+  view->commit.notify = handle_xdg_commit;
+  wl_signal_add(&toplevel->base->surface->events.commit, &view->commit);
+  view->destroy.notify = handle_view_destroy;
+  wl_signal_add(&toplevel->events.destroy, &view->destroy);
+}
+
+static void handle_request_set_selection(struct wl_listener* listener, void* data) {
+  struct greeter_server* server = wl_container_of(listener, server, request_set_selection);
+  struct wlr_seat_request_set_selection_event* event = data;
+  wlr_seat_set_selection(server->seat, event->source, event->serial);
+}
+
+static int handle_sigchld(int signal, void* data) {
+  (void)signal;
+  struct greeter_server* server = data;
+  int status = 0;
+  pid_t pid;
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    if (pid == server->child_pid) {
+      if (WIFEXITED(status)) {
+        wlr_log(WLR_INFO, "greeter exited with status %d", WEXITSTATUS(status));
+      } else if (WIFSIGNALED(status)) {
+        wlr_log(WLR_INFO, "greeter exited on signal %d", WTERMSIG(status));
+      } else {
+        wlr_log(WLR_INFO, "greeter exited");
+      }
+      wl_display_terminate(server->display);
+    }
+  }
+  return 0;
+}
+
+static char** child_argv(int argc, char** argv) {
+  const char* greeter_bin = getenv("GREETER_BIN");
+  if (greeter_bin == NULL || greeter_bin[0] == '\0') {
+    greeter_bin = NOCTALIA_GREETER_INSTALLED_BINDIR "/noctalia-greeter";
+  }
+
+  if (argc > 1 && strcmp(argv[1], "--") == 0) {
+    char** child = calloc((size_t)argc + 1, sizeof(char*));
+    if (child == NULL) {
+      return NULL;
+    }
+    child[0] = (char*)greeter_bin;
+    for (int i = 2; i < argc; ++i) {
+      child[i - 1] = argv[i];
+    }
+    child[argc - 1] = NULL;
+    return child;
+  }
+
+  if (argc > 1) {
+    return &argv[1];
+  }
+
+  char** child = calloc(2, sizeof(char*));
+  if (child == NULL) {
+    return NULL;
+  }
+  child[0] = (char*)greeter_bin;
+  child[1] = NULL;
+  return child;
+}
+
+static void try_launch_greeter(void* data) {
+  struct greeter_server* server = data;
+
+  if (server->child_launched) {
+    return;
+  }
+  if (use_all_outputs(server)) {
+    if (!all_outputs_active(server)) {
+      if (!any_output_active(server)) {
+        schedule_launch(server);
+        return;
+      }
+    }
+  } else if (!any_output_active(server)) {
+    return;
+  }
+
+  warp_cursor_to_initial_position(server);
+
+  char** argv = child_argv(server->child_argc, server->child_argv_ptr);
+  bool free_argv = server->child_argc <= 1 || (server->child_argc > 1 && strcmp(server->child_argv_ptr[1], "--") == 0);
+  if (argv == NULL || !start_child(server, argv, free_argv)) {
+    wlr_log(WLR_ERROR, "failed to start greeter client");
+    wl_display_terminate(server->display);
+    return;
+  }
+
+  server->child_launched = true;
+  const char* greeter_bin = getenv("GREETER_BIN");
+  if (greeter_bin == NULL || greeter_bin[0] == '\0') {
+    greeter_bin = NOCTALIA_GREETER_INSTALLED_BINDIR "/noctalia-greeter";
+  }
+  wlr_log(WLR_INFO, "started greeter: %s", greeter_bin);
+}
+
+static bool start_child(struct greeter_server* server, char** argv, bool free_argv) {
+  server->child_pid = fork();
+  if (server->child_pid < 0) {
+    wlr_log(WLR_ERROR, "fork failed: %s", strerror(errno));
+    if (free_argv) {
+      free(argv);
+    }
+    return false;
+  }
+  if (server->child_pid == 0) {
+    execvp(argv[0], argv);
+    compositor_log_stderr(LOG_ERR, "exec %s failed: %s\n", argv[0], strerror(errno));
+    _exit(127);
+  }
+  if (free_argv) {
+    free(argv);
+  }
+  return true;
+}
+
+static void remove_listener_if_set(struct wl_listener* listener) {
+  if (listener->notify != NULL) {
+    wl_list_remove(&listener->link);
+    listener->notify = NULL;
+  }
+}
+
+static void cleanup_server_listeners(struct greeter_server* server) {
+  server->shutting_down = true;
+  // wlr_keyboard_finish synthesizes releases for held keys during backend
+  // teardown. Detach the seat keyboard before teardown; the event handlers
+  // above also ignore those late events.
+  if (server->seat != NULL) {
+    wlr_seat_set_keyboard(server->seat, NULL);
+  }
+  remove_listener_if_set(&server->new_output);
+  remove_listener_if_set(&server->new_input);
+  remove_listener_if_set(&server->new_toplevel);
+  remove_listener_if_set(&server->cursor_motion);
+  remove_listener_if_set(&server->cursor_motion_absolute);
+  remove_listener_if_set(&server->cursor_button);
+  remove_listener_if_set(&server->cursor_axis);
+  remove_listener_if_set(&server->cursor_frame);
+  remove_listener_if_set(&server->cursor_touch_down);
+  remove_listener_if_set(&server->cursor_touch_up);
+  remove_listener_if_set(&server->cursor_touch_motion);
+  remove_listener_if_set(&server->cursor_touch_cancel);
+  remove_listener_if_set(&server->cursor_touch_frame);
+  remove_listener_if_set(&server->request_set_cursor);
+  remove_listener_if_set(&server->request_set_selection);
+  remove_listener_if_set(&server->session_active);
+
+  struct greeter_touch_point* point;
+  struct greeter_touch_point* tmp;
+  wl_list_for_each_safe(point, tmp, &server->touch_points, link) {
+    wl_list_remove(&point->link);
+    free(point);
+  }
+}
+
+static void cleanup_server_resources(struct greeter_server* server) {
+  if (server->display == NULL) {
+    return;
+  }
+
+  if (server->sigchld_source != NULL) {
+    wl_event_source_remove(server->sigchld_source);
+    server->sigchld_source = NULL;
+  }
+  if (server->launch_timer != NULL) {
+    wl_event_source_remove(server->launch_timer);
+    server->launch_timer = NULL;
+  }
+  if (server->idle_timerfd_source != NULL) {
+    wl_event_source_remove(server->idle_timerfd_source);
+    server->idle_timerfd_source = NULL;
+  }
+  if (server->idle_timerfd >= 0) {
+    close(server->idle_timerfd);
+    server->idle_timerfd = -1;
+  }
+
+  cleanup_server_listeners(server);
+  if (server->display != NULL) {
+    wl_display_destroy_clients(server->display);
+  }
+  if (server->scene != NULL) {
+    wlr_scene_node_destroy(&server->scene->tree.node);
+    server->scene = NULL;
+  }
+  if (server->cursor_mgr != NULL) {
+    wlr_xcursor_manager_destroy(server->cursor_mgr);
+    server->cursor_mgr = NULL;
+  }
+  if (server->cursor != NULL) {
+    wlr_cursor_destroy(server->cursor);
+    server->cursor = NULL;
+  }
+  if (server->output_layout != NULL) {
+    wlr_output_layout_destroy(server->output_layout);
+    server->output_layout = NULL;
+  }
+  if (server->allocator != NULL) {
+    wlr_allocator_destroy(server->allocator);
+    server->allocator = NULL;
+  }
+  if (server->renderer != NULL) {
+    wlr_renderer_destroy(server->renderer);
+    server->renderer = NULL;
+  }
+  if (server->backend != NULL) {
+    wlr_backend_destroy(server->backend);
+    server->backend = NULL;
+  }
+  if (server->display != NULL) {
+    wl_display_destroy(server->display);
+    server->display = NULL;
+  }
+}
+
+int main(int argc, char** argv) {
+  compositor_init_logging();
+  wlr_log_init(compositor_wlr_log_importance(), compositor_wlr_log);
+  configure_direct_scanout();
+
+  struct greeter_server server = {0};
+  server.idle_timerfd = -1;
+  wl_list_init(&server.outputs);
+  wl_list_init(&server.keyboards);
+  wl_list_init(&server.switches);
+  wl_list_init(&server.touch_points);
+  read_greeter_config(&server);
+  clock_gettime(CLOCK_MONOTONIC, &server.last_activity);
+
+  server.display = wl_display_create();
+  if (server.display == NULL) {
+    compositor_log_stderr(LOG_ERR, "failed to create Wayland display\n");
+    return 1;
+  }
+
+  server.backend = wlr_backend_autocreate(wl_display_get_event_loop(server.display), &server.session);
+  if (server.backend == NULL) {
+    compositor_log_stderr(LOG_ERR, "failed to create wlroots backend\n");
+    cleanup_server_resources(&server);
+    return 1;
+  }
+  server.renderer = wlr_renderer_autocreate(server.backend);
+  if (server.renderer == NULL || !wlr_renderer_init_wl_display(server.renderer, server.display)) {
+    compositor_log_stderr(LOG_ERR, "failed to create wlroots renderer\n");
+    cleanup_server_resources(&server);
+    return 1;
+  }
+  server.allocator = wlr_allocator_autocreate(server.backend, server.renderer);
+  if (server.allocator == NULL) {
+    compositor_log_stderr(LOG_ERR, "failed to create wlroots allocator\n");
+    cleanup_server_resources(&server);
+    return 1;
+  }
+
+  wlr_compositor_create(server.display, 6, server.renderer);
+  wlr_subcompositor_create(server.display);
+  wlr_data_device_manager_create(server.display);
+  wlr_viewporter_create(server.display);
+  server.fractional_scale = wlr_fractional_scale_manager_v1_create(server.display, 1);
+  server.output_layout = wlr_output_layout_create(server.display);
+  server.scene = wlr_scene_create();
+  server.scene_output_layout = wlr_scene_attach_output_layout(server.scene, server.output_layout);
+  server.xdg_shell = wlr_xdg_shell_create(server.display, 6);
+  server.seat = wlr_seat_create(server.display, "seat0");
+  server.cursor = wlr_cursor_create();
+
+  const char* cursor_theme = NULL;
+  if (server.cursor_theme[0] != '\0') {
+    cursor_theme = server.cursor_theme;
+  } else {
+    const char* env_theme = getenv("XCURSOR_THEME");
+    if (env_theme != NULL && env_theme[0] != '\0') {
+      cursor_theme = env_theme;
+    }
+  }
+
+  uint32_t cursor_size = 24;
+  if (server.cursor_size > 0) {
+    cursor_size = (uint32_t)server.cursor_size;
+  } else {
+    const char* env_size = getenv("XCURSOR_SIZE");
+    if (env_size != NULL && env_size[0] != '\0') {
+      const long parsed = strtol(env_size, NULL, 10);
+      if (parsed > 0 && parsed <= 1024) {
+        cursor_size = (uint32_t)parsed;
+      }
+    }
+  }
+
+  if (server.cursor_path[0] != '\0') {
+    setenv("XCURSOR_PATH", server.cursor_path, 1);
+  }
+
+  server.cursor_mgr = wlr_xcursor_manager_create(cursor_theme, cursor_size);
+  wlr_cursor_attach_output_layout(server.cursor, server.output_layout);
+  wlr_cursor_set_xcursor(server.cursor, server.cursor_mgr, "default");
+
+  server.new_output.notify = handle_new_output;
+  wl_signal_add(&server.backend->events.new_output, &server.new_output);
+  server.new_input.notify = handle_new_input;
+  wl_signal_add(&server.backend->events.new_input, &server.new_input);
+  server.new_toplevel.notify = handle_new_toplevel;
+  wl_signal_add(&server.xdg_shell->events.new_toplevel, &server.new_toplevel);
+
+  server.cursor_motion.notify = handle_cursor_motion;
+  wl_signal_add(&server.cursor->events.motion, &server.cursor_motion);
+  server.cursor_motion_absolute.notify = handle_cursor_motion_absolute;
+  wl_signal_add(&server.cursor->events.motion_absolute, &server.cursor_motion_absolute);
+  server.cursor_button.notify = handle_cursor_button;
+  wl_signal_add(&server.cursor->events.button, &server.cursor_button);
+  server.cursor_axis.notify = handle_cursor_axis;
+  wl_signal_add(&server.cursor->events.axis, &server.cursor_axis);
+  server.cursor_frame.notify = handle_cursor_frame;
+  wl_signal_add(&server.cursor->events.frame, &server.cursor_frame);
+  server.cursor_touch_down.notify = handle_cursor_touch_down;
+  wl_signal_add(&server.cursor->events.touch_down, &server.cursor_touch_down);
+  server.cursor_touch_up.notify = handle_cursor_touch_up;
+  wl_signal_add(&server.cursor->events.touch_up, &server.cursor_touch_up);
+  server.cursor_touch_motion.notify = handle_cursor_touch_motion;
+  wl_signal_add(&server.cursor->events.touch_motion, &server.cursor_touch_motion);
+  server.cursor_touch_cancel.notify = handle_cursor_touch_cancel;
+  wl_signal_add(&server.cursor->events.touch_cancel, &server.cursor_touch_cancel);
+  server.cursor_touch_frame.notify = handle_cursor_touch_frame;
+  wl_signal_add(&server.cursor->events.touch_frame, &server.cursor_touch_frame);
+  server.request_set_cursor.notify = handle_request_set_cursor;
+  wl_signal_add(&server.seat->events.request_set_cursor, &server.request_set_cursor);
+  server.request_set_selection.notify = handle_request_set_selection;
+  wl_signal_add(&server.seat->events.request_set_selection, &server.request_set_selection);
+
+  const char* socket = wl_display_add_socket_auto(server.display);
+  if (socket == NULL) {
+    compositor_log_stderr(LOG_ERR, "failed to create Wayland socket\n");
+    cleanup_server_resources(&server);
+    return 1;
+  }
+  setenv("WAYLAND_DISPLAY", socket, 1);
+  unsetenv("DISPLAY");
+
+  if (!wlr_backend_start(server.backend)) {
+    compositor_log_stderr(LOG_ERR, "failed to start wlroots backend\n");
+    cleanup_server_resources(&server);
+    return 1;
+  }
+
+  if (server.session != NULL) {
+    server.session_active.notify = handle_session_active;
+    wl_signal_add(&server.session->events.active, &server.session_active);
+  }
+
+  struct wl_event_loop* loop = wl_display_get_event_loop(server.display);
+  server.sigchld_source = wl_event_loop_add_signal(loop, SIGCHLD, handle_sigchld, &server);
+  if (server.idle_timeout_sec > 0) {
+    server.idle_timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (server.idle_timerfd < 0) {
+      wlr_log(WLR_ERROR, "idle timerfd create failed");
+    } else {
+      const struct itimerspec interval = {
+          .it_interval = {.tv_sec = IDLE_POLL_MS / 1000, .tv_nsec = (IDLE_POLL_MS % 1000) * 1000000L},
+          .it_value = {.tv_sec = IDLE_POLL_MS / 1000, .tv_nsec = (IDLE_POLL_MS % 1000) * 1000000L},
+      };
+      if (timerfd_settime(server.idle_timerfd, 0, &interval, NULL) != 0) {
+        wlr_log(WLR_ERROR, "idle timerfd settime failed");
+        close(server.idle_timerfd);
+        server.idle_timerfd = -1;
+      } else {
+        server.idle_timerfd_source =
+            wl_event_loop_add_fd(loop, server.idle_timerfd, WL_EVENT_READABLE, handle_idle_timerfd, &server);
+        if (server.idle_timerfd_source == NULL) {
+          wlr_log(WLR_ERROR, "idle timerfd event source failed");
+          close(server.idle_timerfd);
+          server.idle_timerfd = -1;
+        }
+      }
+    }
+  }
+  server.child_argc = argc;
+  server.child_argv_ptr = argv;
+  schedule_launch(&server);
+
+  wlr_log(WLR_INFO, "running on WAYLAND_DISPLAY=%s", socket);
+  wl_display_run(server.display);
+
+  if (server.child_pid > 0) {
+    kill(server.child_pid, SIGTERM);
+  }
+  cleanup_server_resources(&server);
+  return 0;
+}

@@ -1,0 +1,12 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{cpp,h,hpp,c}"
+      run: clang-format -i {staged_files}
+      stage_fixed: true
+
+pre-push:
+  commands:
+    build:
+      run: meson setup build --reconfigure && meson compile -C build
