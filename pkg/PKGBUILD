@@ -1,6 +1,6 @@
 pkgbase=desktop-git
 pkgname=(andromeda umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
-  umbriel-power-git)
+  umbriel-power-git noctalia-greeter-desktop-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r0
@@ -32,9 +32,11 @@ build() {
   arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true
   arch-meson desktop/shell build-shell -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true
   arch-meson desktop/portal build-portal -Dcpp_std=c++23
+  arch-meson desktop/greeter build-greeter -Dcpp_std=c++23 -Db_lto=true
   meson compile -C build-compositor
   meson compile -C build-shell
   meson compile -C build-portal
+  meson compile -C build-greeter
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
   CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror
@@ -44,7 +46,7 @@ package_andromeda() {
   pkgdesc='Andromeda desktop: the Umbriel compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
   depends=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
-    scrcpy android-tools gst-plugin-va gst-libav)
+    noctalia-greeter-desktop-git scrcpy android-tools gst-plugin-va gst-libav)
   optdepends=('umbriel-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
 }
 
@@ -120,4 +122,18 @@ package_umbriel-power-git() {
   install -Dm644 desktop/session/power/umbriel-power.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/umbriel-power.conf"
   install -Dm644 desktop/session/power/60-umbriel-power.rules "$pkgdir/usr/lib/udev/rules.d/60-umbriel-power.rules"
   install -Dm644 desktop/session/power/umbriel-power.modprobe "$pkgdir/usr/lib/modprobe.d/umbriel-power.conf"
+}
+
+package_noctalia-greeter-desktop-git() {
+  pkgdesc='Noctalia greeter fork for greetd: the Ryoku login, face first through Gaze, the password always open'
+  depends=(greetd wlroots0.20 libinput libxkbcommon cairo pango librsvg libxml2 glib2 fontconfig freetype2)
+  optdepends=('gaze-bin: face login; needs the marker-host change until it is upstream (tools/gaze-patched.sh)')
+  provides=(noctalia-greeter)
+  conflicts=(noctalia-greeter)
+  meson install -C build-greeter --destdir "$pkgdir"
+  install -Dm644 desktop/session/pam.d/gdm-face "$pkgdir/etc/pam.d/gdm-face"
+  # greetd owns /etc/greetd/config.toml; tools/greeter-switch.sh puts this one in place.
+  install -Dm644 desktop/session/greetd/config.toml "$pkgdir/usr/share/noctalia-greeter/greetd.toml"
+  install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
 }
