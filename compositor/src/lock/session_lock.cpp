@@ -85,7 +85,13 @@ namespace umbriel {
     int width = 0;
     int height = 0;
     wlr_output_effective_resolution(output, &width, &height);
-    wlr_session_lock_surface_v1_configure(m_lockSurface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    // Output commits land here every frame; configuring on each one made the lock client redraw, commit, and so
+    // configure again, a 60 Hz loop for as long as the screen stayed locked.
+    if (width != m_configuredWidth || height != m_configuredHeight) {
+      m_configuredWidth = width;
+      m_configuredHeight = height;
+      wlr_session_lock_surface_v1_configure(m_lockSurface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    }
 
     if (m_sceneTree != nullptr) {
       wlr_box layoutBox{};
