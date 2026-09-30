@@ -31,14 +31,18 @@ public:
   bool tick(bool smooth);
 
   void setUsers(const std::vector<std::string>& users, std::size_t selected);
+  void setSessions(const std::vector<std::string>& sessions, std::size_t selected);
   void setHint(const std::string& text, bool isError);
   void setScanning(bool scanning);
   void setPasswordLength(std::size_t length);
-  void setSessionName(const std::string& name);
-  void setOnSession(std::function<void()> callback);
   void setOnReboot(std::function<void()> callback);
   void setOnShutdown(std::function<void()> callback);
   void setOnUserPicked(std::function<void(std::size_t)> callback);
+  void setOnSessionPicked(std::function<void(std::size_t)> callback);
+  // Called when a menu opens or closes; a face match waits while one is open so the pick can land first.
+  void setOnMenuChanged(std::function<void()> callback);
+  void closeMenus();
+  [[nodiscard]] bool menuOpen() const noexcept { return m_userMenu.open || m_sessionMenu.open; }
 
   // A rejected password: the hint turns red and the password row shakes.
   void playRejected();
@@ -60,10 +64,23 @@ private:
 
   void buildRing(Ring& ring, float tickLong, float tickShort, float numberSize);
   void layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, float numberInset);
-  void layoutUserMenu(Renderer& renderer, float right, float bottom);
+  struct Menu {
+    Node* group = nullptr;
+    Label* opener = nullptr;
+    std::vector<Label*> items;
+    std::vector<std::string> names;
+    std::size_t selected = 0;
+    bool open = false;
+    bool below = false;
+    float reveal = 0.0f;
+    std::function<void(std::size_t)> onPick;
+  };
+
+  void layoutMenu(Renderer& renderer, Menu& menu, float right, float anchorY);
+  void toggleMenu(Menu& menu);
+  void setMenuItems(Menu& menu, const std::vector<std::string>& names, std::size_t selected);
   void spotlight(Ring& ring, float ringAngle);
   void fadeColor(Label* label, bool lit);
-  void toggleUserMenu();
 
   AnimationManager* m_animations = nullptr;
   float m_s = 1.0f;
@@ -85,6 +102,9 @@ private:
   Label* m_weekday = nullptr;
   Label* m_user = nullptr;
   Label* m_userMark = nullptr;
+  Menu m_userMenu;
+  Menu m_sessionMenu;
+  std::function<void()> m_onMenuChanged;
   Label* m_hint = nullptr;
   Label* m_mask = nullptr;
   Label* m_waiting = nullptr;
@@ -92,13 +112,6 @@ private:
   Label* m_reboot = nullptr;
   Label* m_shutdown = nullptr;
   RectNode* m_needle = nullptr;
-  Node* m_userMenu = nullptr;
-  std::vector<Label*> m_userItems;
-  std::vector<std::string> m_users;
-  std::size_t m_selectedUser = 0;
-  bool m_userMenuOpen = false;
-  float m_userMenuReveal = 0.0f;
-  std::function<void(std::size_t)> m_onUserPicked;
   Rect m_passwordRow;
   std::string m_hourText;
   std::string m_dateText;

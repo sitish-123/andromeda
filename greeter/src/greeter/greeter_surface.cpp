@@ -685,12 +685,19 @@ void GreeterSurface::initialize(RenderContext* context) {
     setUsername(m_users.front());
     m_passwordVisible = true;
   }
-  m_ryoku->setOnSession([this]() {
-    if (m_sessions.size() > 1) {
-      m_selectedSession = (m_selectedSession + 1) % m_sessions.size();
-      refreshSelectionLabels();
-      requestLayout();
+  m_ryoku->setOnSessionPicked([this](std::size_t index) {
+    m_selectedSession = index;
+    refreshSelectionLabels();
+    requestLayout();
+  });
+  // A face match that lands while a menu is open waits for it to close, so a pick is never overtaken by the login.
+  m_ryoku->setOnMenuChanged([this]() {
+    markLive();
+    if (!m_ryoku->menuOpen() && m_faceMatched && m_secretPromptWaiting && !m_hasPendingResponse && !awaitingReply()) {
+      m_secretPromptWaiting = false;
+      postAuthResponse(std::string(kGazeConfirmed));
     }
+    requestLayout();
   });
   m_ryoku->setOnReboot([]() { power::reboot(); });
   m_ryoku->setOnShutdown([]() { power::powerOff(); });
@@ -787,10 +794,30 @@ void GreeterSurface::onFaceMatched() {
   }
   m_faceMatched = true;
   updateStatus("Face verified", false);
-  if (m_secretPromptWaiting && !m_hasPendingResponse && !awaitingReply()) {
+  if (m_secretPromptWaiting
+      && !m_hasPendingResponse
+      && !awaitingReply()
+      && !(m_ryoku != nullptr && m_ryoku->menuOpen())) {
     kLog.info("face matched; answering the open prompt with the confirmation");
     m_secretPromptWaiting = false;
     postAuthResponse(std::string(kGazeConfirmed));
+  }
+  commitImmediateFrame(false);
+}
+
+// The face check ended without a match; the password prompt stays open, so say so instead of asking for the camera.
+void GreeterSurface::onFaceMissed(const std::string& rgbStatus) {
+  if (!m_authSessionStarted) {
+    return;
+  }
+  m_faceLooking = false;
+  kLog.info("face check ended without a match ({}); the password prompt stays open", rgbStatus);
+  if (rgbStatus == "no-face") {
+    updateStatus("No face seen. Type your password", false);
+  } else if (rgbStatus == "too-dark") {
+    updateStatus("Too dark for face login. Type your password", false);
+  } else {
+    updateStatus("Face not recognized. Type your password", false);
   }
   commitImmediateFrame(false);
 }
@@ -1005,6 +1032,17 @@ void GreeterSurface::onKeyEvent(
   if (!pressed)
     return;
   reconcileKeyboardFocus();
+  // Under Ryoku nothing else takes text: whatever was tapped, keys land in the password field (Escape closes a menu).
+  if (m_ryoku != nullptr
+      && m_passwordVisible
+      && m_passwordField != nullptr
+      && m_passwordField->inputArea() != nullptr) {
+    if (m_ryoku->menuOpen() && KeySymbol::isEscape(sym)) {
+      m_ryoku->closeMenus();
+      return;
+    }
+    m_inputDispatcher.setFocus(m_passwordField->inputArea());
+  }
   m_inInputDispatch = true;
   if (!handleNavigationKey(sym, utf32, modifiers)) {
     m_inputDispatcher.keyEvent(sym, utf32, modifiers, pressed, preedit);
@@ -1505,6 +1543,10 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 }
 
 void GreeterSurface::tryAuthenticate() {
+  // An empty answer to the open prompt is a failed password to PAM (and to faillock); Ryoku never sends one.
+  if (m_ryoku != nullptr && m_password.empty()) {
+    return;
+  }
   // A password submitted while the face check holds the session answers the password prompt when it opens.
   if (m_earlySession && !m_secretPromptWaiting && !m_password.empty()) {
     m_pendingResponse = m_password;
@@ -1672,7 +1714,7 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
   // Secret / Visible prompt. Answer with already-submitted input if we have it
   // (empty is allowed), otherwise surface the prompt and wait for the user.
   m_earlySession = false;
-  if (m_faceMatched && !m_hasPendingResponse) {
+  if (m_faceMatched && !m_hasPendingResponse && !(m_ryoku != nullptr && m_ryoku->menuOpen())) {
     postAuthResponse(std::string(kGazeConfirmed));
     return;
   }
@@ -2248,6 +2290,9 @@ void GreeterSurface::loadPreferences() {
     if (const auto index = greeter::findSessionIndex(m_sessions, *initialSession)) {
       m_selectedSession = *index;
     }
+  } else if (const auto umbriel = greeter::findSessionIndex(m_sessions, "Umbriel")) {
+    // Nothing chosen yet: this desktop's own session, not whichever .desktop file sorts first.
+    m_selectedSession = *umbriel;
   }
 
   if (prefs.scheme.has_value()) {
@@ -3781,7 +3826,12 @@ void GreeterSurface::layoutRyoku(float ox, float oy, float sw, float sh) {
   const bool plainPrompt = m_status.empty() || m_status == "Password:" || m_status == "Password: ";
   m_ryoku->setHint(plainPrompt ? "Look \u2726 or type your key" : m_status, m_statusIsError);
   m_ryoku->setPasswordLength(m_password.size());
-  m_ryoku->setSessionName(m_selectedSession < m_sessions.size() ? m_sessions[m_selectedSession].name : "Session");
+  std::vector<std::string> sessionNames;
+  sessionNames.reserve(m_sessions.size());
+  for (const auto& session : m_sessions) {
+    sessionNames.push_back(session.name);
+  }
+  m_ryoku->setSessions(sessionNames, m_selectedSession);
   m_ryoku->layout(*m_renderContext, ox, oy, sw, sh);
 
   const RyokuScene::Rect row = m_ryoku->passwordRow();

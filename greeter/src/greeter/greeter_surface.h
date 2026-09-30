@@ -246,6 +246,7 @@ private:
 public:
   // gazed's verdict and progress for this login (docs/face.md, Greeter).
   void onFaceMatched();
+  void onFaceMissed(const std::string& rgbStatus);
   void onFaceStatus(const std::string& status);
 
 private:

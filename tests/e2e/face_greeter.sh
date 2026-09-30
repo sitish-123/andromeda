@@ -4,7 +4,9 @@
 # is posted the moment the secret prompt opens; a wrong password clears the field and starts a new session at once;
 # with nothing enrolled it waits for the password; a face that gives up shows the reason and posts nothing. With the
 # patched Gaze the greeter registers gdm-face as a marker host; gazed's match answers the open prompt with
-# GAZE_CONFIRMED, and a password typed at once is posted at once. Writes
+# GAZE_CONFIRMED, and a password typed at once is posted at once. Under Ryoku (G8-G12): keys reach the password field
+# after taps anywhere, Enter on an empty field sends nothing, the session list picks the session that starts (Umbriel
+# when nothing was chosen), a match waits while a list is open, and a face that gives up says so. Writes
 # requests-*.jsonl and greeter-*.log to $OUT (default ./artifacts/face-greeter).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/face-greeter}
@@ -28,6 +30,13 @@ wait_for "no private system bus" test -s "$RUNTIME/system-bus"
 export DBUS_SYSTEM_BUS_ADDRESS=$(head -1 "$RUNTIME/system-bus")
 python3 "$ROOT/tests/e2e/mock_gaze.py" "$OUT/gaze-calls.txt" > "$OUT/mock-gaze.log" 2>&1 &
 wait_for "the gazed mock did not start" grep -q ready "$OUT/mock-gaze.log"
+P=$ROOT/compositor/build-debug/tests/pointer-client
+click() { run "$P" 1280 720 move "$1" "$2" click 272 > /dev/null 2>&1; sleep 0.5; }
+started_with() { requests | grep '"type": "start_session"' | grep -qi "$1"; }
+gaze_miss() {
+  busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" call com.gundulabs.Gaze /com/gundulabs/Gaze dsk.test.Gaze Finish sssb \
+    verify-no-match no-face no-face false > /dev/null
+}
 gaze_match() {
   busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" call com.gundulabs.Gaze /com/gundulabs/Gaze dsk.test.Gaze Finish sssb \
     verify-match usable usable true > /dev/null
@@ -99,4 +108,48 @@ wait_for "G7: the password was not posted at once" posted_atleast right 1
 wait_for "G7: no session after the password" atleast start_session 1
 stop
 
-echo "PASS: greeter face login G1-G7 against a mock greetd; artifacts: $OUT"
+# Coordinates are for the 1280x720 headless output: the session name at the top right, its list below it, the hint
+# line at the bottom right, and an empty spot in the middle.
+start G8 race
+click 700 400
+click 1150 560
+run wtype right
+run wtype -k Return
+wait_for "G8: typing after taps did not reach the password" posted_atleast right 1
+wait_for "G8: no session after the password" atleast start_session 1
+started_with umbriel || fail "G8: the default session was not Umbriel ($(requests | grep start_session))"
+stop
+
+start G9 race
+run wtype -k Return
+sleep 0.5
+[[ $(requests | grep -c '"response": ""') == 0 ]] || fail "G9: Enter on an empty field sent an empty password"
+run wtype right
+run wtype -k Return
+wait_for "G9: the password after an empty Enter was not posted" posted_atleast right 1
+stop
+
+start G10 race
+click 1000 63
+click 1000 111
+run wtype right
+run wtype -k Return
+wait_for "G10: no session after picking one" atleast start_session 1
+started_with umbriel && fail "G10: the picked session did not start ($(requests | grep start_session))"
+stop
+
+start G11 race
+click 1000 63
+gaze_match
+sleep 1
+[[ $(posted GAZE_CONFIRMED) == 0 ]] || fail "G11: a match logged in while the session list was open"
+click 1000 63
+wait_for "G11: the match did not log in once the list closed" posted_atleast GAZE_CONFIRMED 1
+stop
+
+start G12 race
+gaze_miss
+wait_for "G12: the give-up was not shown" grep -q "face check ended without a match (no-face)" "$OUT/greeter-G12.log"
+stop
+
+echo "PASS: greeter face login G1-G12 against a mock greetd; artifacts: $OUT"

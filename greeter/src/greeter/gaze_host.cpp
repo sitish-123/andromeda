@@ -29,7 +29,7 @@ GazeHost::~GazeHost() {
   g_object_unref(connection);
 }
 
-void GazeHost::start(StatusCallback onStatus, MatchCallback onMatch) {
+void GazeHost::start(StatusCallback onStatus, MatchCallback onMatch, MissCallback onMiss) {
   GError* error = nullptr;
   auto* connection = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
   if (connection == nullptr) {
@@ -40,6 +40,7 @@ void GazeHost::start(StatusCallback onStatus, MatchCallback onMatch) {
   m_connection = connection;
   m_onStatus = std::move(onStatus);
   m_onMatch = std::move(onMatch);
+  m_onMiss = std::move(onMiss);
 
   const GDBusSignalCallback callback = &GazeHost::onSignal;
   m_gazeSubscription = g_dbus_connection_signal_subscribe(
@@ -103,6 +104,11 @@ void GazeHost::onSignal(
     kLog.info("gazed verdict: {}", matched ? "match" : "no match");
     if (matched && self->m_onMatch) {
       self->m_onMatch();
+    } else if (!matched && self->m_onMiss && g_variant_n_children(params) >= 3) {
+      GVariant* rgb = g_variant_get_child_value(params, 2);
+      const std::string rgbStatus = g_variant_get_string(rgb, nullptr);
+      g_variant_unref(rgb);
+      self->m_onMiss(rgbStatus);
     }
   }
 }

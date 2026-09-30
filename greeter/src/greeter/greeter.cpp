@@ -166,6 +166,11 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
           if (GreeterSurface* surface = authSurface(); surface != nullptr) {
             surface->onFaceMatched();
           }
+        },
+        [authSurface](const std::string& rgbStatus) {
+          if (GreeterSurface* surface = authSurface(); surface != nullptr) {
+            surface->onFaceMissed(rgbStatus);
+          }
         }
     );
   }

@@ -100,7 +100,10 @@ void RyokuScene::build(Node& root, AnimationManager& animations) {
   m_animations = &animations;
   m_background = addRect(root, RoundedRectStyle{.fill = rgba(0.0f, 0.0f, 0.0f, 1.0f)}, 0);
 
+  // The hit test takes the first node containing the point, whatever its z-order, so no group here has a size that
+  // would swallow taps meant for its labels; the dial holds nothing to tap.
   m_blast = addGroup(root, 1);
+  m_blast->setHitTestVisible(false);
   buildRing(m_minutes, 18.0f, 10.0f, 22.0f);
   buildRing(m_seconds, 13.0f, 8.0f, 16.0f);
   // Below the rings, so the lit minute and second show inside the pill.
@@ -119,19 +122,29 @@ void RyokuScene::build(Node& root, AnimationManager& animations) {
   for (Label* action : {m_session, m_reboot, m_shutdown}) {
     action->setHitTestVisible(true);
     action->setOnEnter([this, action](const auto&) { fadeColor(action, true); });
-    action->setOnLeave([this, action]() { fadeColor(action, false); });
+    action->setOnLeave([this, action]() {
+      if (action != m_session || !m_sessionMenu.open) {
+        fadeColor(action, false);
+      }
+    });
   }
 
+  m_sessionMenu.group = addGroup(*m_hud, 3);
+  m_sessionMenu.opener = m_session;
+  m_sessionMenu.below = true;
+  m_session->setOnClick([this](const auto&) { toggleMenu(m_sessionMenu); });
+
   m_column = addGroup(*m_hud, 1);
-  m_userMenu = addGroup(*m_column, 2);
+  m_userMenu.group = addGroup(*m_column, 2);
   m_user = addLabel(*m_column, 18.0f, kDim, 1);
+  m_userMenu.opener = m_user;
   m_user->setOnEnter([this](const auto&) { fadeColor(m_user, true); });
   m_user->setOnLeave([this]() {
-    if (!m_userMenuOpen) {
+    if (!m_userMenu.open) {
       fadeColor(m_user, false);
     }
   });
-  m_user->setOnClick([this](const auto&) { toggleUserMenu(); });
+  m_user->setOnClick([this](const auto&) { toggleMenu(m_userMenu); });
   m_userMark = addLabel(*m_column, 12.0f, kWhite, 1);
   m_userMark->setText(std::string(kStar));
   m_userMark->setOpacity(0.0f);
@@ -225,7 +238,6 @@ void RyokuScene::layout(Renderer& renderer, float ox, float oy, float sw, float 
   m_weekday->setPosition(dateX, cy - dateBlock * 0.5f + m_date->height() + 5.0f * s);
 
   m_hud->setPosition(ox, oy);
-  m_hud->setSize(sw, sh);
   const float right = sw - 80.0f * s;
   float hudX = right;
   for (Label* action : {m_shutdown, m_reboot, m_session}) {
@@ -236,7 +248,6 @@ void RyokuScene::layout(Renderer& renderer, float ox, float oy, float sw, float 
     hudX -= 25.0f * s;
   }
 
-  m_column->setSize(sw, sh);
   const float columnBottom = sh - 80.0f * s;
   std::string stars;
   for (std::size_t i = 0; i < m_passwordLength; ++i) {
@@ -267,7 +278,12 @@ void RyokuScene::layout(Renderer& renderer, float ox, float oy, float sw, float 
   m_userMark->setFontSize(12.0f * s);
   m_userMark->measure(renderer);
   m_userMark->setPosition(right + 8.0f * s, m_user->y() + (m_user->height() - m_userMark->height()) * 0.5f);
-  layoutUserMenu(renderer, right, m_user->y() - 15.0f * s);
+  m_user->setHitTestVisible(m_userMenu.names.size() > 1);
+  layoutMenu(renderer, m_userMenu, right, m_user->y() - 15.0f * s);
+  m_session->setHitTestVisible(m_sessionMenu.names.size() > 1);
+  layoutMenu(
+      renderer, m_sessionMenu, m_session->x() + m_session->width(), m_session->y() + m_session->height() + 14.0f * s
+  );
 }
 
 void RyokuScene::layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, float numberInset) {
@@ -295,20 +311,6 @@ void RyokuScene::layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, 
   }
 }
 
-void RyokuScene::layoutUserMenu(Renderer& renderer, float right, float bottom) {
-  const bool several = m_users.size() > 1;
-  m_user->setHitTestVisible(several);
-  float y = bottom;
-  for (std::size_t i = m_userItems.size(); i-- > 0;) {
-    Label* item = m_userItems[i];
-    item->setFontSize(13.0f * m_s);
-    item->measure(renderer);
-    y -= item->height() + 6.0f * m_s;
-    item->setPosition(right - 10.0f * m_s - item->width(), y);
-  }
-  m_userMenu->setVisible(several && m_userMenuReveal > 0.0f);
-}
-
 bool RyokuScene::tick(bool smooth) {
   const float ms = smooth ? msOfDay() : std::floor(msOfDay() / 1000.0f) * 1000.0f;
   const float secAngle = -std::fmod(ms, 60000.0f) / 60000.0f * 2.0f * kPi + m_introOffset * 1.6f;
@@ -324,9 +326,11 @@ bool RyokuScene::tick(bool smooth) {
   m_hint->setOpacity(m_scanning ? 0.725f + 0.275f * std::cos(t * 2.0f * kPi / 1.2f) : 1.0f);
   m_needle->setOpacity(0.55f + 0.45f * std::cos(t * 2.0f * kPi / 0.9f));
   m_column->setPosition(m_shake * 10.0f * m_s * std::sin(t * 60.0f), 0.0f);
-  m_userMenu->setOpacity(m_userMenuReveal);
-
-  m_userMenu->setPosition(0.0f, (1.0f - m_userMenuReveal) * 12.0f * m_s);
+  for (Menu* menu : {&m_userMenu, &m_sessionMenu}) {
+    menu->group->setOpacity(menu->reveal);
+    const float slide = (1.0f - menu->reveal) * 12.0f * m_s;
+    menu->group->setPosition(0.0f, menu->below ? -slide : slide);
+  }
 
   const std::time_t now = std::time(nullptr);
   std::tm local{};
@@ -385,56 +389,6 @@ void RyokuScene::fadeColor(Label* label, bool lit) {
   }
 }
 
-void RyokuScene::toggleUserMenu() {
-  if (m_users.size() < 2) {
-    return;
-  }
-  m_userMenuOpen = !m_userMenuOpen;
-  m_userMenu->setVisible(true);
-  m_animations->cancelForOwner(&m_userMenuReveal);
-  m_animations->animate(
-      m_userMenuReveal, m_userMenuOpen ? 1.0f : 0.0f, 400.0f, Easing::EaseOutCubic,
-      [this](float v) { m_userMenuReveal = v; }, [this]() { m_userMenu->setVisible(m_userMenuReveal > 0.0f); },
-      &m_userMenuReveal
-  );
-  fadeColor(m_user, m_userMenuOpen);
-}
-
-void RyokuScene::setUsers(const std::vector<std::string>& users, std::size_t selected) {
-  m_selectedUser = selected;
-  if (selected < users.size()) {
-    m_user->setText(tracked(upper(users[selected]), kThin));
-  }
-  if (users != m_users) {
-    m_users = users;
-    for (Label* item : m_userItems) {
-      m_animations->cancelForOwner(item);
-      (void)m_userMenu->removeChild(item);
-    }
-    m_userItems.clear();
-    for (std::size_t i = 0; i < m_users.size(); ++i) {
-      Label* item = addLabel(*m_userMenu, 13.0f, kInactive, 0);
-      item->setText(tracked(upper(m_users[i]), kHair));
-      item->setHitTestVisible(true);
-      item->setOnEnter([this, item](const auto&) { fadeColor(item, true); });
-      item->setOnLeave([this, item, i]() {
-        m_animations->cancelForOwner(item);
-        item->setColor(i == m_selectedUser ? kWhite : kInactive);
-      });
-      item->setOnClick([this, i](const auto&) {
-        toggleUserMenu();
-        if (m_onUserPicked && i != m_selectedUser) {
-          m_onUserPicked(i);
-        }
-      });
-      m_userItems.push_back(item);
-    }
-  }
-  for (std::size_t i = 0; i < m_userItems.size(); ++i) {
-    m_userItems[i]->setColor(i == m_selectedUser ? kWhite : kInactive);
-  }
-}
-
 void RyokuScene::setHint(const std::string& text, bool isError) {
   m_hint->setText(tracked(upper(text), kHair));
   m_hint->setColor(isError ? kError : (m_scanning ? kWhite : kDim));
@@ -457,12 +411,6 @@ void RyokuScene::setPasswordLength(std::size_t length) {
   );
 }
 
-void RyokuScene::setSessionName(const std::string& name) { m_session->setText(tracked(upper(name), kHair)); }
-
-void RyokuScene::setOnSession(std::function<void()> callback) {
-  m_session->setOnClick([cb = std::move(callback)](const auto&) { cb(); });
-}
-
 void RyokuScene::setOnReboot(std::function<void()> callback) {
   m_reboot->setOnClick([cb = std::move(callback)](const auto&) { cb(); });
 }
@@ -470,8 +418,6 @@ void RyokuScene::setOnReboot(std::function<void()> callback) {
 void RyokuScene::setOnShutdown(std::function<void()> callback) {
   m_shutdown->setOnClick([cb = std::move(callback)](const auto&) { cb(); });
 }
-
-void RyokuScene::setOnUserPicked(std::function<void(std::size_t)> callback) { m_onUserPicked = std::move(callback); }
 
 void RyokuScene::playRejected() {
   m_animations->cancelForOwner(&m_shake);
@@ -492,4 +438,110 @@ void RyokuScene::playGranted(std::function<void()> onDone) {
         }
       }
   );
+}
+
+void RyokuScene::layoutMenu(Renderer& renderer, Menu& menu, float right, float anchorY) {
+  float y = anchorY;
+  const auto place = [&](Label* item) {
+    item->setFontSize(13.0f * m_s);
+    item->measure(renderer);
+    if (!menu.below) {
+      y -= item->height() + 6.0f * m_s;
+    }
+    item->setPosition(right - item->width(), y);
+    if (menu.below) {
+      y += item->height() + 6.0f * m_s;
+    }
+  };
+  if (menu.below) {
+    for (Label* item : menu.items) {
+      place(item);
+    }
+  } else {
+    for (auto it = menu.items.rbegin(); it != menu.items.rend(); ++it) {
+      place(*it);
+    }
+  }
+  menu.group->setVisible(menu.names.size() > 1 && menu.reveal > 0.0f);
+}
+
+void RyokuScene::toggleMenu(Menu& menu) {
+  if (menu.names.size() < 2) {
+    return;
+  }
+  Menu& other = &menu == &m_userMenu ? m_sessionMenu : m_userMenu;
+  if (!menu.open && other.open) {
+    toggleMenu(other);
+  }
+  menu.open = !menu.open;
+  menu.group->setVisible(true);
+  m_animations->cancelForOwner(&menu.reveal);
+  m_animations->animate(
+      menu.reveal, menu.open ? 1.0f : 0.0f, 400.0f, Easing::EaseOutCubic, [&menu](float v) { menu.reveal = v; },
+      [&menu]() { menu.group->setVisible(menu.reveal > 0.0f); }, &menu.reveal
+  );
+  fadeColor(menu.opener, menu.open);
+  if (m_onMenuChanged) {
+    m_onMenuChanged();
+  }
+}
+
+void RyokuScene::setMenuItems(Menu& menu, const std::vector<std::string>& names, std::size_t selected) {
+  menu.selected = selected;
+  if (names != menu.names) {
+    menu.names = names;
+    for (Label* item : menu.items) {
+      m_animations->cancelForOwner(item);
+      (void)menu.group->removeChild(item);
+    }
+    menu.items.clear();
+    for (std::size_t i = 0; i < menu.names.size(); ++i) {
+      Label* item = addLabel(*menu.group, 13.0f, kInactive, 0);
+      item->setText(tracked(upper(menu.names[i]), kHair));
+      item->setHitTestVisible(true);
+      item->setOnEnter([this, item](const auto&) { fadeColor(item, true); });
+      item->setOnLeave([this, item, i, &menu]() {
+        m_animations->cancelForOwner(item);
+        item->setColor(i == menu.selected ? kWhite : kInactive);
+      });
+      item->setOnClick([this, i, &menu](const auto&) {
+        toggleMenu(menu);
+        if (menu.onPick && i != menu.selected) {
+          menu.onPick(i);
+        }
+      });
+      menu.items.push_back(item);
+    }
+  }
+  for (std::size_t i = 0; i < menu.items.size(); ++i) {
+    menu.items[i]->setColor(i == menu.selected ? kWhite : kInactive);
+  }
+}
+
+void RyokuScene::setUsers(const std::vector<std::string>& users, std::size_t selected) {
+  if (selected < users.size()) {
+    m_user->setText(tracked(upper(users[selected]), kThin));
+  }
+  setMenuItems(m_userMenu, users, selected);
+}
+
+void RyokuScene::setSessions(const std::vector<std::string>& sessions, std::size_t selected) {
+  m_session->setText(tracked(upper(selected < sessions.size() ? sessions[selected] : "Session"), kHair));
+  setMenuItems(m_sessionMenu, sessions, selected);
+}
+
+void RyokuScene::setOnUserPicked(std::function<void(std::size_t)> callback) { m_userMenu.onPick = std::move(callback); }
+
+void RyokuScene::setOnSessionPicked(std::function<void(std::size_t)> callback) {
+  m_sessionMenu.onPick = std::move(callback);
+}
+
+void RyokuScene::setOnMenuChanged(std::function<void()> callback) { m_onMenuChanged = std::move(callback); }
+
+void RyokuScene::closeMenus() {
+  for (Menu* menu : {&m_userMenu, &m_sessionMenu}) {
+    if (menu->open) {
+      toggleMenu(*menu);
+    }
+  }
 }

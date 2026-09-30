@@ -11,6 +11,8 @@ class GazeHost {
 public:
   using StatusCallback = std::function<void(const std::string& status)>;
   using MatchCallback = std::function<void()>;
+  // A verdict without a match: the camera state ("no-face", "too-dark", "usable" when a face was judged).
+  using MissCallback = std::function<void(const std::string& rgbStatus)>;
 
   GazeHost() = default;
   ~GazeHost();
@@ -18,7 +20,7 @@ public:
   GazeHost(const GazeHost&) = delete;
   GazeHost& operator=(const GazeHost&) = delete;
 
-  void start(StatusCallback onStatus, MatchCallback onMatch);
+  void start(StatusCallback onStatus, MatchCallback onMatch, MissCallback onMiss);
 
 private:
   static void onSignal(
@@ -29,6 +31,7 @@ private:
 
   StatusCallback m_onStatus;
   MatchCallback m_onMatch;
+  MissCallback m_onMiss;
   GDBusConnection* m_connection = nullptr;
   unsigned int m_gazeSubscription = 0;
   unsigned int m_ownerSubscription = 0;
