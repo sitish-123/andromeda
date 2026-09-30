@@ -677,6 +677,7 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   m_ryoku = std::make_unique<RyokuScene>();
   m_ryoku->build(m_root, m_animations);
+  markLive();
   m_ryoku->setOnUserPicked([this](std::size_t index) { enterPasswordStep(index); });
   // Ryoku picks users from its own menu, so there is always a password step.
   if (!m_passwordVisible && !m_users.empty()) {
@@ -929,6 +930,7 @@ void GreeterSurface::onPointerLeave() {
 }
 
 void GreeterSurface::onPointerEvent(float x, float y, std::uint32_t button, bool pressed) {
+  markLive();
   if (!pointerInViewport(x, y)) {
     return;
   }
@@ -964,6 +966,7 @@ void GreeterSurface::onPointerEvent(float x, float y, std::uint32_t button, bool
 }
 
 void GreeterSurface::onPointerMotion(float x, float y) {
+  markLive();
   if (!pointerInViewport(x, y)) {
     return;
   }
@@ -980,6 +983,7 @@ void GreeterSurface::onPointerMotion(float x, float y) {
 }
 
 void GreeterSurface::onPointerAxis(float x, float y, std::uint32_t axis, float axisLines) {
+  markLive();
   if (!pointerInViewport(x, y) || axisLines == 0.0f || axis != WL_POINTER_AXIS_VERTICAL_SCROLL) {
     return;
   }
@@ -997,6 +1001,7 @@ void GreeterSurface::onPointerAxis(float x, float y, std::uint32_t axis, float a
 void GreeterSurface::onKeyEvent(
     std::uint32_t sym, std::uint32_t utf32, std::uint32_t modifiers, bool pressed, bool preedit
 ) {
+  markLive();
   if (!pressed)
     return;
   reconcileKeyboardFocus();
@@ -3720,9 +3725,37 @@ void GreeterSurface::rebuildSchemeMenu() {
   );
 }
 
+// The dial sweeps smoothly for 20 s after the screen appears or any input, then steps once a second: a login screen
+// left alone draws one frame a second instead of sixty.
+constexpr auto kLiveWindow = std::chrono::seconds(20);
+
+void GreeterSurface::markLive() { m_liveUntil = std::chrono::steady_clock::now() + kLiveWindow; }
+
+bool GreeterSurface::live() const { return std::chrono::steady_clock::now() < m_liveUntil; }
+
 void GreeterSurface::onFrame() {
-  if (m_ryoku != nullptr && m_passwordVisible && m_ryoku->tick()) {
+  if (m_ryoku != nullptr && m_passwordVisible && live() && m_ryoku->tick(true)) {
     requestLayout();
+  }
+}
+
+int GreeterSurface::clockTimeoutMs() const {
+  if (m_ryoku == nullptr || !m_passwordVisible || live()) {
+    return -1;
+  }
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  return 1000 - static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count() % 1000);
+}
+
+void GreeterSurface::onClockTimer() {
+  if (clockTimeoutMs() < 0) {
+    return;
+  }
+  // Other wakeups land here too; only a second that moved the dial draws.
+  if (m_ryoku->tick(false)) {
+    requestLayout();
+  } else if (m_root.paintDirty()) {
+    requestRedraw();
   }
 }
 

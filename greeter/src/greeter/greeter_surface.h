@@ -89,6 +89,9 @@ public:
   [[nodiscard]] Node* sceneRoot() noexcept { return &m_root; }
   // Called on every frame callback, before the window decides whether to paint.
   void onFrame();
+  // The Ryoku idle clock: -1 while frames drive the dial, else ms until the next whole second.
+  [[nodiscard]] int clockTimeoutMs() const;
+  void onClockTimer();
 
 private:
   void notifyStateChanged();
@@ -260,6 +263,9 @@ private:
   bool m_faceMatched = false;
   std::unique_ptr<RyokuScene> m_ryoku;
   bool m_grantedShowing = false;
+  std::chrono::steady_clock::time_point m_liveUntil{};
+  void markLive();
+  [[nodiscard]] bool live() const;
   bool m_exitAfterGranted = false;
   bool m_faceLooking = false;
   bool m_secretPromptWaiting = false; // greetd wants secret input from the user

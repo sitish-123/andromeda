@@ -26,9 +26,9 @@ public:
 
   void build(Node& root, AnimationManager& animations);
   void layout(Renderer& renderer, float ox, float oy, float sw, float sh);
-  // Turns the rings to the current time and runs the looping effects; true when the hour or date text changed and
-  // needs a layout.
-  bool tick();
+  // Turns the rings to the current time: a smooth sweep when smooth, else whole seconds (the idle clock, drawn once
+  // a second). True when the hour or date text changed and needs a layout.
+  bool tick(bool smooth);
 
   void setUsers(const std::vector<std::string>& users, std::size_t selected);
   void setHint(const std::string& text, bool isError);
@@ -67,6 +67,9 @@ private:
 
   AnimationManager* m_animations = nullptr;
   float m_s = 1.0f;
+  float m_ringCx = 0.0f;
+  float m_ringCy = 0.0f;
+  float m_viewH = 0.0f;
   Node* m_root = nullptr;
   RectNode* m_background = nullptr;
   Node* m_blast = nullptr;

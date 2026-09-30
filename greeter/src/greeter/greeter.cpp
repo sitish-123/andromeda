@@ -180,7 +180,12 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
 
     const int repeatMs = client.repeatPollTimeoutMs();
     const int requestMs = m_greetdClient.requestPollTimeoutMs();
-    const int timeoutMs = repeatMs < 0 ? requestMs : requestMs < 0 ? repeatMs : std::min(repeatMs, requestMs);
+    int timeoutMs = repeatMs < 0 ? requestMs : requestMs < 0 ? repeatMs : std::min(repeatMs, requestMs);
+    for (const auto& view : m_views) {
+      if (const int clockMs = view.surface->clockTimeoutMs(); clockMs >= 0) {
+        timeoutMs = timeoutMs < 0 ? clockMs : std::min(timeoutMs, clockMs);
+      }
+    }
 
     while (wl_display_prepare_read(display) != 0) {
       if (wl_display_dispatch_pending(display) < 0) {
@@ -245,6 +250,10 @@ int Greeter::run(WaylandClient& client, const std::atomic<bool>& shutdownRequest
         g_main_context_dispatch(glibContext);
       }
       g_main_context_release(glibContext);
+    }
+
+    for (auto& view : m_views) {
+      view.surface->onClockTimer();
     }
 
     // A readable reply at the deadline wins because it was drained above and

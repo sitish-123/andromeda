@@ -185,6 +185,9 @@ void RyokuScene::layout(Renderer& renderer, float ox, float oy, float sw, float 
   m_blast->setSize(800.0f * s, sh);
   const float cx = 40.0f * s;
   const float cy = sh * 0.5f;
+  m_ringCx = cx;
+  m_ringCy = cy;
+  m_viewH = sh;
   m_minutes.radius = 320.0f * s;
   m_seconds.radius = 480.0f * s;
   layoutRing(renderer, m_minutes, cx, cy, 35.0f * s);
@@ -207,7 +210,7 @@ void RyokuScene::layout(Renderer& renderer, float ox, float oy, float sw, float 
   m_pillLine->setPosition(pillX + 170.0f * s, cy - 17.5f * s);
   m_pillLine->setSize(std::max(1.0f, s), 35.0f * s);
 
-  (void)tick();
+  (void)tick(true);
   m_hour->setFontSize(110.0f * s);
   m_hour->setText(m_hourText);
   m_hour->measure(renderer);
@@ -306,8 +309,8 @@ void RyokuScene::layoutUserMenu(Renderer& renderer, float right, float bottom) {
   m_userMenu->setVisible(several && m_userMenuReveal > 0.0f);
 }
 
-bool RyokuScene::tick() {
-  const float ms = msOfDay();
+bool RyokuScene::tick(bool smooth) {
+  const float ms = smooth ? msOfDay() : std::floor(msOfDay() / 1000.0f) * 1000.0f;
   const float secAngle = -std::fmod(ms, 60000.0f) / 60000.0f * 2.0f * kPi + m_introOffset * 1.6f;
   const float minAngle = -std::fmod(ms, 3600000.0f) / 3600000.0f * 2.0f * kPi + m_introOffset;
   m_seconds.container->setRotation(secAngle);
@@ -315,7 +318,8 @@ bool RyokuScene::tick() {
   spotlight(m_seconds, secAngle);
   spotlight(m_minutes, minAngle);
 
-  const float t = steadySeconds();
+  // The looping effects need every frame; the idle clock draws once a second and holds them still.
+  const float t = smooth ? steadySeconds() : 0.0f;
   // Ryoku's sensor pulse: 1.0 to 0.45 and back over 1.2 s while the face check listens.
   m_hint->setOpacity(m_scanning ? 0.725f + 0.275f * std::cos(t * 2.0f * kPi / 1.2f) : 1.0f);
   m_needle->setOpacity(0.55f + 0.45f * std::cos(t * 2.0f * kPi / 0.9f));
@@ -346,13 +350,24 @@ bool RyokuScene::tick() {
 
 // The tick facing the pill (display angle 0) is lit; neighbours fade over 4 degrees, as in Ryoku.
 void RyokuScene::spotlight(Ring& ring, float ringAngle) {
+  // The dial is centred off the left edge, so about half of it is off screen; hidden nodes are not drawn.
+  const float margin = 30.0f * m_s;
+  const auto onScreen = [&](float angle, float radius) {
+    const float x = m_ringCx + radius * std::cos(angle);
+    const float y = m_ringCy + radius * std::sin(angle);
+    return x > -margin && y > -margin && y < m_viewH + margin;
+  };
   for (std::size_t i = 0; i < ring.ticks.size(); ++i) {
-    const float rel = std::remainder(static_cast<float>(i) * 6.0f + ringAngle * 180.0f / kPi, 360.0f);
+    const float angle = static_cast<float>(i) * 6.0f * kPi / 180.0f + ringAngle;
+    const float rel = std::remainder(angle * 180.0f / kPi, 360.0f);
     const float light = std::max(0.0f, 1.0f - std::abs(rel) / 4.0f);
     const bool major = i % 5 == 0;
+    ring.ticks[i]->setVisible(onScreen(angle, ring.radius));
     ring.ticks[i]->setOpacity(light > 0.0f ? 1.0f : (major ? 0.3f : 0.15f));
     if (major) {
-      ring.numbers[i / 5]->setOpacity(light > 0.0f ? 0.4f + light * 0.6f : 0.25f);
+      Label* number = ring.numbers[i / 5];
+      number->setVisible(onScreen(angle, ring.radius - 35.0f * m_s));
+      number->setOpacity(light > 0.0f ? 0.4f + light * 0.6f : 0.25f);
     }
   }
 }
