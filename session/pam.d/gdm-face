@@ -1,0 +1,20 @@
+#%PAM-1.0
+# greetd's login stack (docs/face.md, Greeter). A face match (pam_gaze, sequential) skips the password; either way
+# pam_gnome_keyring receives PAM_AUTHTOK: the typed password, or the one Gaze unseals from the TPM after the match.
+auth       required                    pam_shells.so
+auth       requisite                   pam_nologin.so
+auth       required                    pam_faillock.so       preauth
+auth       [success=2 default=ignore]  pam_gaze.so
+auth       [success=1 default=bad]     pam_unix.so           try_first_pass nullok
+auth       [default=die]               pam_faillock.so       authfail
+auth       required                    pam_env.so
+auth       required                    pam_faillock.so       authsucc
+auth       optional                    pam_gnome_keyring.so  use_authtok
+
+account    include                     system-login
+
+password   include                     system-login
+password   optional                    pam_gnome_keyring.so  use_authtok
+
+session    include                     system-login
+session    optional                    pam_gnome_keyring.so  auto_start
