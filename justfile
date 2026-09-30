@@ -4,6 +4,7 @@ build:
     cd compositor && just build
     cd shell && just build
     cd portal && just build
+    cd greeter && just build
     cd link && cargo build
 
 # Link's gate: format, pedantic clippy, the proto tests, and the supply-chain policy.

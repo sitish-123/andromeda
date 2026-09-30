@@ -692,7 +692,35 @@ void GreeterSurface::setKeyboardOwner(const bool owner) noexcept {
   m_isKeyboardOwner = owner;
   if (owner) {
     reconcileKeyboardFocus();
+    openSessionEarly();
   }
+}
+
+void GreeterSurface::openSessionEarly() {
+  if (!m_isKeyboardOwner
+      || !m_passwordVisible
+      || m_username.empty()
+      || m_greetdClient == nullptr
+      || m_greetdUnavailable
+      || m_sharedAuthBlocked
+      || m_authSessionStarted
+      || awaitingReply()) {
+    return;
+  }
+  if (m_onAuthBeginRequested && !m_onAuthBeginRequested(this)) {
+    return;
+  }
+  kLog.info("greetd: create_session for '{}' before input, so face auth can run", m_username);
+  if (!m_greetdClient->requestCreateSession(m_username)) {
+    reportGreetdTransportError(
+        m_greetdClient->lastError().value_or(GreetdError{GreetdErrorType::Error, "failed to send request"})
+    );
+    return;
+  }
+  m_authSessionStarted = true;
+  m_earlySession = true;
+  m_pendingReplies.push_back(AuthRequest::CreateSession);
+  syncAuthInteractivity();
 }
 
 bool GreeterSurface::ownsInputArea(const InputArea* area) const {
@@ -1017,6 +1045,15 @@ void GreeterSurface::enterPasswordStep(std::size_t userIndex) {
     m_inputDispatcher.setFocus(m_passwordField->inputArea());
   }
   refreshSelectionLabels();
+  if (m_authSessionStarted) {
+    m_reopenAfterCancel = true;
+    if (!awaitingReply()) {
+      m_earlySession = false;
+      (void)resetAuthSession();
+    }
+  } else {
+    openSessionEarly();
+  }
   notifyStateChanged();
   commitImmediateFrame(true);
 }
@@ -1370,6 +1407,15 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 }
 
 void GreeterSurface::tryAuthenticate() {
+  // A password submitted while the face check holds the session answers the password prompt when it opens.
+  if (m_earlySession && !m_secretPromptWaiting && !m_password.empty()) {
+    m_pendingResponse = m_password;
+    m_hasPendingResponse = true;
+    clearPasswordInput();
+    updateStatus("Checking your face first. Your password is next", false);
+    commitImmediateFrame(false);
+    return;
+  }
   // Ignore re-submits while a request is already in flight.
   if (m_greetdClient == nullptr || m_greetdUnavailable || m_sharedAuthBlocked || awaitingReply()) {
     return;
@@ -1448,8 +1494,22 @@ void GreeterSurface::handleGreetdResponse(const GreetdResponse& response) {
     if (m_onAuthEnded) {
       m_onAuthEnded(this);
     }
+    if (m_reopenAfterCancel) {
+      m_reopenAfterCancel = false;
+      openSessionEarly();
+    }
     syncAuthInteractivity();
     commitImmediateFrame(false);
+    return;
+  }
+
+  // A user switch during the face check waited for this reply; drop that session now.
+  if (m_reopenAfterCancel && response.type != GreetdResponseType::Success) {
+    m_earlySession = false;
+    m_hasPendingResponse = false;
+    m_pendingResponse.clear();
+    m_secretPromptWaiting = false;
+    (void)resetAuthSession();
     return;
   }
 
@@ -1461,6 +1521,7 @@ void GreeterSurface::handleGreetdResponse(const GreetdResponse& response) {
     handleAuthMessage(response.authMessage);
     return;
   case GreetdResponseType::Success:
+    m_earlySession = false;
     if (expected == AuthRequest::StartSession) {
       kLog.info("session start confirmed, exiting greeter");
       if (m_onExitRequested) {
@@ -1504,6 +1565,7 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
 
   // Secret / Visible prompt. Answer with already-submitted input if we have it
   // (empty is allowed), otherwise surface the prompt and wait for the user.
+  m_earlySession = false;
   if (m_hasPendingResponse) {
     const std::string response = m_pendingResponse;
     m_hasPendingResponse = false;
@@ -1536,7 +1598,7 @@ void GreeterSurface::postAuthResponse(const std::string& data) {
 }
 
 void GreeterSurface::syncAuthInteractivity() {
-  const bool busy = m_greetdUnavailable || m_sharedAuthBlocked || awaitingReply();
+  const bool busy = m_greetdUnavailable || m_sharedAuthBlocked || (awaitingReply() && !m_earlySession);
   if (m_passwordField != nullptr) {
     m_passwordField->setEnabled(!busy);
   }
@@ -1558,6 +1620,8 @@ void GreeterSurface::setGreetdUnavailable(const std::string_view reason) {
   m_greetdUnavailable = true;
   m_authenticating = false;
   m_authSessionStarted = false;
+  m_earlySession = false;
+  m_reopenAfterCancel = false;
   m_secretPromptWaiting = false;
   m_hasPendingResponse = false;
   m_pendingResponse.clear();
@@ -1657,6 +1721,8 @@ void GreeterSurface::clearPasswordInput() {
 }
 
 void GreeterSurface::onAuthError(const GreetdError& error) {
+  m_earlySession = false;
+  m_reopenAfterCancel = true;
   m_authenticating = false;
   m_secretPromptWaiting = false;
   m_hasPendingResponse = false;

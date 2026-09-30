@@ -235,6 +235,7 @@ private:
   };
 
   [[nodiscard]] bool awaitingReply() const noexcept { return !m_pendingReplies.empty(); }
+  void openSessionEarly();
 
   std::string m_username;
   std::string m_password;
@@ -244,6 +245,9 @@ private:
   bool m_greetdUnavailable = false;
   bool m_sharedAuthBlocked = false;
   bool m_authSessionStarted = false;
+  // The session was opened before any input so pam_gaze can run; ends at the first prompt or reply that ends it.
+  bool m_earlySession = false;
+  bool m_reopenAfterCancel = false;
   bool m_secretPromptWaiting = false; // greetd wants secret input from the user
   bool m_hasPendingResponse = false;  // user-supplied input armed for next prompt
   std::string m_pendingResponse;
