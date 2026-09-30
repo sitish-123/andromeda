@@ -101,6 +101,7 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::lockBeforeSuspend, "lock_before_suspend"),
         field(&LockscreenConfig::fingerprint, "fingerprint"),
         field(&LockscreenConfig::face, "face"),
+        field(&LockscreenConfig::style, "style"),
         field(&LockscreenConfig::allowEmptyPassword, "allow_empty_password"),
         field(&LockscreenConfig::blurredDesktop, "blurred_desktop"),
         enumArrayField(

@@ -703,6 +703,7 @@ _noctalia_sources = files(
   'src/shell/profile/avatar_path.cpp',
   'src/shell/greeter/greeter_appearance_sync.cpp',
   'src/shell/lockscreen/lock_screen.cpp',
+  'src/shell/lockscreen/lock_ryoku_scene.cpp',
   'src/shell/lockscreen/lock_surface.cpp',
   'src/shell/notification/notification_toast.cpp',
   'src/shell/osd/audio_osd.cpp',

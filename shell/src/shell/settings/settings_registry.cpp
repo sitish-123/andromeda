@@ -695,7 +695,8 @@ namespace settings {
               SelectOption{std::string(value), tr("settings.schema.umbriel.hot-corner-actions." + std::string(id))}
           );
         }
-        if (!current.empty() && std::ranges::none_of(kCornerActions, [&](const auto& a) { return a.first == current; })) {
+        if (!current.empty()
+            && std::ranges::none_of(kCornerActions, [&](const auto& a) { return a.first == current; })) {
           options.push_back(SelectOption{current, current});
         }
         add(Windows, "hot-corners", actionKey, SelectSetting{std::move(options), current}, "hot corner action");
@@ -1756,8 +1757,8 @@ namespace settings {
         delay.valueSuffix = "ms";
         SettingEntry e = makeEntry(
             SettingsSection::Windows, "hot-corners", tr("settings.schema.desktop.hot-corners-delay-ms.label"),
-            tr("settings.schema.desktop.hot-corners-delay-ms.description"), {"hot_corners", "delay_ms"}, std::move(delay),
-            "hot corners delay hold ms timeout"
+            tr("settings.schema.desktop.hot-corners-delay-ms.description"), {"hot_corners", "delay_ms"},
+            std::move(delay), "hot corners delay hold ms timeout"
         );
         e.visibleWhen = [](const Config& conf) { return conf.hotCorners.enabled; };
         entries.push_back(std::move(e));
@@ -1881,8 +1882,23 @@ namespace settings {
     {
       auto e = makeEntry(
           SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.face.label"),
-          tr("settings.schema.lockscreen.face.description"), {"lockscreen", "face"},
-          ToggleSetting{cfg.lockscreen.face}, "lock screen face unlock camera gaze biometric"
+          tr("settings.schema.lockscreen.face.description"), {"lockscreen", "face"}, ToggleSetting{cfg.lockscreen.face},
+          "lock screen face unlock camera gaze biometric"
+      );
+      e.visibleWhen = lockscreenOn;
+      entries.push_back(std::move(e));
+    }
+    {
+      SelectSetting style{
+          {SelectOption{.value = "ryoku", .label = tr("settings.schema.lockscreen.style.ryoku")},
+           SelectOption{.value = "classic", .label = tr("settings.schema.lockscreen.style.classic")}},
+          cfg.lockscreen.style
+      };
+      style.segmented = true;
+      auto e = makeEntry(
+          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.style.label"),
+          tr("settings.schema.lockscreen.style.description"), {"lockscreen", "style"}, std::move(style),
+          "lock screen style ryoku classic look theme"
       );
       e.visibleWhen = lockscreenOn;
       entries.push_back(std::move(e));

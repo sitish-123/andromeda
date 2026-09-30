@@ -890,6 +890,11 @@
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
     "ready": "Type your password and press Enter.",
+    "ryoku": {
+      "checking": "Checking your key",
+      "look": "Look ✦ or type your key",
+      "type": "Type your key"
+    },
     "unlocked": "Unlocked",
     "waiting": "Waiting for lock confirmation…"
   },
@@ -2496,6 +2501,12 @@
         "monitors": {
           "description": "Choose which monitors show the lock screen; leave empty to show on all monitors",
           "label": "Monitors"
+        },
+        "style": {
+          "classic": "Classic",
+          "description": "Ryoku matches the login screen: a turning dial clock on black. Classic is the widget lock screen",
+          "label": "Lock Screen Style",
+          "ryoku": "Ryoku"
         },
         "tint-intensity": {
           "description": "Surface-color tint over the lock screen background",

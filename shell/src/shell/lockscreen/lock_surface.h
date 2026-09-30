@@ -2,6 +2,7 @@
 
 #include "capture/screencopy_capture.h"
 #include "config/config_service.h"
+#include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/blur_cache.h"
 #include "render/core/color.h"
@@ -9,6 +10,7 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "shell/lockscreen/lock_ryoku_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "wayland/surface.h"
 
@@ -143,6 +145,9 @@ private:
   void rebuildSessionButtons();
   void ensureLayoutChipInPasswordRow();
   [[nodiscard]] std::vector<SessionPanelActionConfig> resolveSessionActions() const;
+  void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
+  void startRyokuLive();
+  void startRyokuIdleClock();
   [[nodiscard]] lockscreen_login_box::LoginBoxStyle resolveLoginStyle() const;
   [[nodiscard]] bool isLoginBoxEnabled() const;
   [[nodiscard]] std::string resolveStatusText(const lockscreen_login_box::LoginBoxStyle& style, bool& isError) const;
@@ -183,6 +188,12 @@ private:
   Flex* m_loginContentRow = nullptr;
   Input* m_passwordField = nullptr;
   Button* m_loginButton = nullptr;
+  std::unique_ptr<LockRyokuScene> m_ryoku;
+  Timer m_ryokuClock;
+  AnimationManager::Id m_ryokuLive = 0;
+  bool m_ryokuShownError = false;
+  std::uint32_t m_configuredWidth = 0;
+  std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;
   Flex* m_sessionRow = nullptr;
   std::vector<Button*> m_sessionButtons;

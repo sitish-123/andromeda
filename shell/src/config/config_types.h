@@ -552,6 +552,8 @@ struct LockscreenConfig {
   bool lockBeforeSuspend = true;
   bool fingerprint = true;
   bool face = true;
+  // "ryoku" (the greeter's Ryoku look, so login and unlock match) or "classic".
+  std::string style = "ryoku";
   bool allowEmptyPassword = false;
   bool blurredDesktop = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade, LockscreenTransition::Wipe,

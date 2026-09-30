@@ -1,6 +1,7 @@
 #include "shell/lockscreen/lock_surface.h"
 
 #include "capture/screencopy_capture.h"
+#include "core/files/resource_paths.h"
 #include "core/ui_phase.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
@@ -11,6 +12,7 @@
 #include "render/core/shared_texture_cache.h"
 #include "render/render_context.h"
 #include "render/scene/wallpaper_node.h"
+#include "render/text/font_registry.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "shell/lockscreen/lockscreen_widgets_host.h"
 #include "shell/session/session_action_meta.h"
@@ -549,9 +551,65 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   setSceneRoot(&m_root);
   setAnimationManager(&m_animations);
   m_root.setAnimationManager(&m_animations);
-  setConfigureCallback([this](std::uint32_t /*width*/, std::uint32_t /*height*/) { requestLayout(); });
+  // A configure that repeats the current size changes nothing; laying out on each one redrew the lock at 60 Hz when a
+  // compositor configured on every output commit.
+  setConfigureCallback([this](std::uint32_t width, std::uint32_t height) {
+    if (width != m_configuredWidth || height != m_configuredHeight) {
+      m_configuredWidth = width;
+      m_configuredHeight = height;
+      requestLayout();
+    }
+  });
   setPrepareFrameCallback([this](bool needsUpdate, bool needsLayout) { prepareFrame(needsUpdate, needsLayout); });
+
+  if (m_config != nullptr && m_config->config().lockscreen.style == "ryoku") {
+    (void)text::registerFontFile(paths::assetPath("fonts/Outfit-Black.ttf"));
+    m_ryoku = std::make_unique<LockRyokuScene>();
+    m_ryoku->build(m_root, m_animations);
+    startRyokuLive();
+  }
   requestUpdate();
+}
+
+// The dial sweeps smoothly for 20 s after the lock appears or any input, then steps once a second: a lock screen left
+// on the desk draws one frame a second instead of sixty.
+void LockSurface::startRyokuLive() {
+  if (m_ryoku == nullptr) {
+    return;
+  }
+  m_ryokuClock.stop();
+  if (m_ryokuLive != 0) {
+    m_animations.cancel(m_ryokuLive);
+  }
+  m_ryokuLive = m_animations.animateTimer(
+      0.0F, 1.0F, 20000.0F, Easing::Linear,
+      [this](float /*progress*/) {
+        if (m_ryoku->tick(true)) {
+          requestLayout();
+        }
+      },
+      [this]() {
+        m_ryokuLive = 0;
+        startRyokuIdleClock();
+      },
+      this
+  );
+}
+
+void LockSurface::startRyokuIdleClock() {
+  const auto step = [this]() {
+    if (m_ryoku->tick(false)) {
+      requestLayout();
+    } else {
+      requestRedraw();
+    }
+  };
+  const auto sinceEpoch = std::chrono::system_clock::now().time_since_epoch();
+  const auto intoSecond = std::chrono::duration_cast<std::chrono::milliseconds>(sinceEpoch).count() % 1000;
+  m_ryokuClock.start(std::chrono::milliseconds(1000 - intoSecond), [this, step]() {
+    step();
+    m_ryokuClock.startRepeating(std::chrono::seconds(1), step);
+  });
 }
 
 LockSurface::~LockSurface() {
@@ -768,7 +826,11 @@ void LockSurface::configureTransition(
   m_transitionProgress = 1.0F;
   m_enterTransitionRequested = false;
 
-  if (!transition.has_value() || m_blackout || !m_desktopCapture.has_value() || m_desktopCapture->rgba.empty()) {
+  if (m_ryoku != nullptr
+      || !transition.has_value()
+      || m_blackout
+      || !m_desktopCapture.has_value()
+      || m_desktopCapture->rgba.empty()) {
     m_transitionPhase = TransitionPhase::Disabled;
     syncTransitionCover();
     return;
@@ -793,6 +855,16 @@ void LockSurface::startExitTransition() {
   if (m_transitionPhase == TransitionPhase::ExitComplete
       || m_transitionPhase == TransitionPhase::ExitEndpoint
       || m_transitionPhase == TransitionPhase::Exiting) {
+    return;
+  }
+
+  if (m_ryoku != nullptr && !m_blackout) {
+    m_transitionPhase = TransitionPhase::Exiting;
+    m_ryoku->playGranted([this]() {
+      m_transitionPhase = TransitionPhase::ExitComplete;
+      notifyTransitionStateChanged();
+    });
+    requestRedraw();
     return;
   }
 
@@ -898,6 +970,9 @@ void LockSurface::clearPasswordSelection() {
 }
 
 void LockSurface::onPointerEvent(const PointerEvent& event) {
+  if (m_ryoku != nullptr && m_ryokuLive == 0) {
+    startRyokuLive();
+  }
   if (m_blackout) {
     return;
   }
@@ -949,6 +1024,9 @@ void LockSurface::onThemeChanged() {
 }
 
 void LockSurface::onKeyboardEvent(const KeyboardEvent& event) {
+  if (m_ryoku != nullptr && m_ryokuLive == 0) {
+    startRyokuLive();
+  }
   if (m_blackout) {
     return;
   }
@@ -1484,8 +1562,51 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
       m_authPanel->arrange(renderer, LayoutRect{authX, authY, authW, authH});
     }
   }
+  if (m_ryoku != nullptr) {
+    layoutRyoku(renderer, sw, sh, loginStyle);
+  }
   layoutTransitionCover();
   syncTransitionCover();
+}
+
+// Ryoku replaces the chrome: the stock layers hide and the login panel stays laid out but draws nothing, so the
+// password field keeps focus and input while Ryoku's column shows the mask.
+void LockSurface::layoutRyoku(
+    Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style
+) {
+  m_backgroundLayer->setVisible(false);
+  m_widgetLayer->setVisible(false);
+  m_loginPanel->setOpacity(0.0F);
+  if (m_authPanel != nullptr) {
+    m_authPanel->setVisible(false);
+  }
+
+  bool statusError = false;
+  std::string status = resolveStatusText(style, statusError);
+  if (m_authenticating) {
+    status = i18n::tr("lockscreen.ryoku.checking");
+  }
+  const bool idle = status.empty() || status == i18n::tr("lockscreen.ready");
+  const bool faceOn = m_config == nullptr || m_config->config().lockscreen.face;
+  const std::string idleHint = i18n::tr(faceOn ? "lockscreen.ryoku.look" : "lockscreen.ryoku.type");
+  m_ryoku->setUser(m_user);
+  m_ryoku->setHint(idle ? idleHint : status, statusError, !statusError && m_password.empty() && !m_authenticating);
+  if (statusError && !m_ryokuShownError) {
+    m_ryoku->playRejected();
+  }
+  m_ryokuShownError = statusError;
+  m_ryoku->setPasswordLength(m_password.size());
+
+  std::vector<LockRyokuScene::Action> actions;
+  if (m_sessionActions != nullptr) {
+    for (const auto& cfg : resolveSessionActions()) {
+      const std::string label =
+          cfg.label.has_value() && !cfg.label->empty() ? *cfg.label : i18n::tr(session_action::labelKey(cfg.action));
+      actions.push_back({label, [this, cfg]() { m_sessionActions->invoke(cfg); }});
+    }
+  }
+  m_ryoku->setActions(std::move(actions));
+  m_ryoku->layout(renderer, sw, sh);
 }
 
 void LockSurface::updateCopy() {
