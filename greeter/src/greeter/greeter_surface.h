@@ -259,6 +259,8 @@ private:
   bool m_reopenAfterCancel = false;
   bool m_faceMatched = false;
   std::unique_ptr<RyokuScene> m_ryoku;
+  bool m_grantedShowing = false;
+  bool m_exitAfterGranted = false;
   bool m_faceLooking = false;
   bool m_secretPromptWaiting = false; // greetd wants secret input from the user
   bool m_hasPendingResponse = false;  // user-supplied input armed for next prompt

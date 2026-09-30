@@ -265,6 +265,9 @@ void GreeterWindow::paintFrame() {
   m_layoutNeeded = false;
   m_redrawNeeded = false;
 
+  // Before the swap: a frame callback arms on the commit it precedes, so asking after the swap left it waiting for the
+  // next input-driven commit and animations only advanced on key presses.
+  requestNextFrame();
   m_renderContext.renderScene(m_renderTarget, m_greeterSurface.sceneRoot());
   m_greeterSurface.sceneRoot()->clearDirty();
 

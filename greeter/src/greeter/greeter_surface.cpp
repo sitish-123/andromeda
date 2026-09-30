@@ -334,6 +334,9 @@ void GreeterSurface::initialize(RenderContext* context) {
   pwField->setControlHeight(Style::controlHeight());
   pwField->setOnChange([this](const std::string& value) {
     m_password = value;
+    if (m_statusIsError && !value.empty()) {
+      updateStatus("", false);
+    }
     if (m_ryoku != nullptr) {
       requestLayout();
     }
@@ -673,7 +676,14 @@ void GreeterSurface::initialize(RenderContext* context) {
   requestLayout();
 
   m_ryoku = std::make_unique<RyokuScene>();
-  m_ryoku->build(m_root);
+  m_ryoku->build(m_root, m_animations);
+  m_ryoku->setOnUserPicked([this](std::size_t index) { enterPasswordStep(index); });
+  // Ryoku picks users from its own menu, so there is always a password step.
+  if (!m_passwordVisible && !m_users.empty()) {
+    m_selectedUser = 0;
+    setUsername(m_users.front());
+    m_passwordVisible = true;
+  }
   m_ryoku->setOnSession([this]() {
     if (m_sessions.size() > 1) {
       m_selectedSession = (m_selectedSession + 1) % m_sessions.size();
@@ -1607,7 +1617,10 @@ void GreeterSurface::handleGreetdResponse(const GreetdResponse& response) {
     m_earlySession = false;
     if (expected == AuthRequest::StartSession) {
       kLog.info("session start confirmed, exiting greeter");
-      if (m_onExitRequested) {
+      // The granted flash is 190 ms; the greeter leaves when it has played.
+      if (m_grantedShowing) {
+        m_exitAfterGranted = true;
+      } else if (m_onExitRequested) {
         m_onExitRequested();
       }
     } else {
@@ -1668,7 +1681,8 @@ void GreeterSurface::handleAuthMessage(const GreetdAuthMessage& message) {
 
   m_secretPromptWaiting = true;
   // While the face check runs beside this prompt, its status line stays; "Password:" adds nothing.
-  if (!message.message.empty() && !m_faceLooking) {
+  // A rejection stays up until the user types again.
+  if (!message.message.empty() && !m_faceLooking && !m_statusIsError) {
     updateStatus(message.message, false);
   }
   syncAuthInteractivity();
@@ -1694,6 +1708,10 @@ void GreeterSurface::syncAuthInteractivity() {
   const bool busy = m_greetdUnavailable || m_sharedAuthBlocked || (awaitingReply() && !m_earlySession);
   if (m_passwordField != nullptr) {
     m_passwordField->setEnabled(!busy);
+    // setEnabled resets the opacity; under Ryoku the field only takes input and draws nothing.
+    if (m_ryoku != nullptr) {
+      m_passwordField->setOpacity(0.0f);
+    }
   }
   if (m_loginButton != nullptr) {
     m_loginButton->setEnabled(!busy);
@@ -1727,6 +1745,15 @@ void GreeterSurface::setGreetdUnavailable(const std::string_view reason) {
 
 void GreeterSurface::beginSessionStart() {
   kLog.info("authentication successful");
+  if (m_ryoku != nullptr) {
+    m_grantedShowing = true;
+    m_ryoku->playGranted([this]() {
+      m_grantedShowing = false;
+      if (m_exitAfterGranted && m_onExitRequested) {
+        m_onExitRequested();
+      }
+    });
+  }
 
   savePreferences();
 
@@ -1814,6 +1841,9 @@ void GreeterSurface::clearPasswordInput() {
 }
 
 void GreeterSurface::onAuthError(const GreetdError& error) {
+  if (m_ryoku != nullptr) {
+    m_ryoku->playRejected();
+  }
   m_earlySession = false;
   m_reopenAfterCancel = true;
   m_authenticating = false;
@@ -3712,9 +3742,8 @@ void GreeterSurface::layoutRyoku(float ox, float oy, float sw, float sh) {
     }
   }
 
-  if (m_selectedUser < m_users.size()) {
-    m_ryoku->setUserName(m_users[m_selectedUser]);
-  }
+  m_ryoku->setUsers(m_users, m_selectedUser);
+  m_ryoku->setScanning(m_faceLooking && !m_faceMatched && m_password.empty());
   // PAM's bare "Password:" prompt says nothing the mask row does not.
   const bool plainPrompt = m_status.empty() || m_status == "Password:" || m_status == "Password: ";
   m_ryoku->setHint(plainPrompt ? "Look \u2726 or type your key" : m_status, m_statusIsError);

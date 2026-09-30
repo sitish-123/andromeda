@@ -1,9 +1,12 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
+class AnimationManager;
 class Label;
 class Node;
 class RectNode;
@@ -11,7 +14,7 @@ class Renderer;
 
 // The Ryoku look (ported from the Ryoku SDDM theme): black, a half-visible dial of minute and second rings turning
 // with the time, the hour in Outfit Black beside a pill, the date, and a login column at the bottom right. The surface
-// keeps its own password field (invisible, over the mask row) and state; this class only draws.
+// keeps its own password field (invisible, over the mask row) and state; this class only draws and animates.
 class RyokuScene {
 public:
   struct Rect {
@@ -21,18 +24,26 @@ public:
     float h = 0.0f;
   };
 
-  void build(Node& root);
+  void build(Node& root, AnimationManager& animations);
   void layout(Renderer& renderer, float ox, float oy, float sw, float sh);
-  // Turns the rings to the current time; true when the hour or date text changed and needs a layout.
+  // Turns the rings to the current time and runs the looping effects; true when the hour or date text changed and
+  // needs a layout.
   bool tick();
 
-  void setUserName(const std::string& name);
+  void setUsers(const std::vector<std::string>& users, std::size_t selected);
   void setHint(const std::string& text, bool isError);
+  void setScanning(bool scanning);
   void setPasswordLength(std::size_t length);
   void setSessionName(const std::string& name);
   void setOnSession(std::function<void()> callback);
   void setOnReboot(std::function<void()> callback);
   void setOnShutdown(std::function<void()> callback);
+  void setOnUserPicked(std::function<void(std::size_t)> callback);
+
+  // A rejected password: the hint turns red and the password row shakes.
+  void playRejected();
+  // Access granted: the dial blasts outward under a white flash, then onDone.
+  void playGranted(std::function<void()> onDone);
 
   [[nodiscard]] Rect passwordRow() const noexcept { return m_passwordRow; }
 
@@ -49,11 +60,19 @@ private:
 
   void buildRing(Ring& ring, float tickLong, float tickShort, float numberSize);
   void layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, float numberInset);
+  void layoutUserMenu(Renderer& renderer, float right, float bottom);
   void spotlight(Ring& ring, float ringAngle);
+  void fadeColor(Label* label, bool lit);
+  void toggleUserMenu();
 
+  AnimationManager* m_animations = nullptr;
   float m_s = 1.0f;
   Node* m_root = nullptr;
   RectNode* m_background = nullptr;
+  Node* m_blast = nullptr;
+  Node* m_hud = nullptr;
+  Node* m_column = nullptr;
+  RectNode* m_flash = nullptr;
   Ring m_minutes;
   Ring m_seconds;
   RectNode* m_pill = nullptr;
@@ -62,6 +81,7 @@ private:
   Label* m_date = nullptr;
   Label* m_weekday = nullptr;
   Label* m_user = nullptr;
+  Label* m_userMark = nullptr;
   Label* m_hint = nullptr;
   Label* m_mask = nullptr;
   Label* m_waiting = nullptr;
@@ -69,12 +89,21 @@ private:
   Label* m_reboot = nullptr;
   Label* m_shutdown = nullptr;
   RectNode* m_needle = nullptr;
+  Node* m_userMenu = nullptr;
+  std::vector<Label*> m_userItems;
+  std::vector<std::string> m_users;
+  std::size_t m_selectedUser = 0;
+  bool m_userMenuOpen = false;
+  float m_userMenuReveal = 0.0f;
+  std::function<void(std::size_t)> m_onUserPicked;
   Rect m_passwordRow;
   std::string m_hourText;
   std::string m_dateText;
   std::size_t m_passwordLength = 0;
-  float m_ox = 0.0f;
-  float m_oy = 0.0f;
-  float m_sw = 0.0f;
-  float m_sh = 0.0f;
+  bool m_scanning = false;
+  float m_introOffset = 0.9f;
+  float m_shake = 0.0f;
+  float m_waitingOpacity = 0.4f;
+  std::uint64_t m_waitingAnim = 0;
+  float m_right = 0.0f;
 };
