@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
@@ -26,12 +27,13 @@ import org.umbriel.link.ffi.BluetoothLink
  * streams, so two threads pump it through a socket pair and the core gets the other end.
  */
 class RfcommLink(private val context: Context) : BluetoothLink {
-    override fun open(address: String): Int {
+    override fun open(address: String, pair: Boolean): Int {
         if (!allowed()) return NOT_CONNECTED
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return NOT_CONNECTED
         if (!adapter.isEnabled) return NOT_CONNECTED
         val device = adapter.getRemoteDevice(address)
         val socket = try {
+            if (pair && !bonded(device)) return NOT_CONNECTED
             connect(device) ?: return NOT_CONNECTED
         } catch (error: SecurityException) {
             Log.w(TAG, "RFCOMM to $address: ${error.message}")
@@ -76,6 +78,24 @@ class RfcommLink(private val context: Context) : BluetoothLink {
         return null
     }
 
+    /**
+     * Pairs with [device] unless already paired, and waits for the user to confirm it on both screens: the desktop
+     * accepts connections only from devices it is paired with.
+     */
+    private fun bonded(device: BluetoothDevice): Boolean {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) return true
+        if (device.bondState == BluetoothDevice.BOND_NONE && !device.createBond()) {
+            Log.i(TAG, "Android did not start pairing with ${device.address}")
+            return false
+        }
+        val deadline = SystemClock.elapsedRealtime() + BOND_TIMEOUT_MS
+        while (device.bondState == BluetoothDevice.BOND_BONDING && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(POLL_MS)
+        }
+        Log.i(TAG, "pairing with ${device.address}: ${if (device.bondState == BluetoothDevice.BOND_BONDED) "paired" else "not paired"}")
+        return device.bondState == BluetoothDevice.BOND_BONDED
+    }
+
     private fun allowed(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
@@ -100,6 +120,9 @@ class RfcommLink(private val context: Context) : BluetoothLink {
 
     private companion object {
         const val TAG = "RfcommLink"
+        /** Long enough for the user to read the code on both screens and confirm. */
+        const val BOND_TIMEOUT_MS = 60_000L
+        const val POLL_MS = 250L
         const val NOT_CONNECTED = -1
         const val BUFFER = 16 * 1024
         /** The desktop's `bluetooth::SERVICE_UUID`. */

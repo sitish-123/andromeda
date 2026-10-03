@@ -22,6 +22,15 @@ pub struct Hello {
 /// Bluetooth skip it, since it is not a socket address.
 pub const BLUETOOTH_SCHEME: &str = "bt:";
 
+/// A phone's hello carries this among its `addresses` when it finds a desktop over Wi-Fi Direct by the `address` of a
+/// `wifi-direct-ready`; a desktop sends that field only then, since older phones close a session on an unknown field.
+/// Older desktops ignore a phone's addresses.
+pub const WIFI_DIRECT_BY_ADDRESS: &str = "feature:wifi-direct-address";
+
+/// A desktop's hello carries this among its `addresses` when it takes `bt-pairing`; older desktops close a session on
+/// the unknown type, and phones skip entries that are not socket addresses.
+pub const BT_PAIRING: &str = "feature:bt-pairing";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -180,6 +189,14 @@ pub struct NotificationDismiss {
 }
 
 /// Byte length within `min..=max`, as CDDL's `.size` counts it.
+/// `aa:bb:cc:dd:ee:ff`, lower-case, the form Android prints.
+fn hardware_address(address: &str) -> bool {
+    address.len() == 17
+        && address
+            .split(':')
+            .all(|octet| octet.len() == 2 && octet.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)))
+}
+
 fn sized(text: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&text.len())
 }
@@ -311,11 +328,25 @@ pub struct HotspotEnd {
     pub reason: Option<String>,
 }
 
-/// Desktop to phone: it can join a Wi-Fi Direct group as a client, and shows as `name` while looking for one.
+/// Desktop to phone: it can join a Wi-Fi Direct group, and shows as `name` while looking for one. `address` is its
+/// P2P device address, which the phone matches on since `wpa_supplicant` leaves the name blank unless configured.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WifiDirectReady {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+}
+
+/// Phone to desktop, around Android pairing Bluetooth with it. Without `passkey`, first: the desktop starts accepting
+/// connections from unpaired devices, which it otherwise refuses before pairing can begin. With it, the six-digit
+/// code Android shows, which the desktop's pairing agent confirms against its own instead of asking, since only a
+/// phone with a Link session can send it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BtPairing {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passkey: Option<u32>,
 }
 
 /// Phone to desktop, instead of the hotspot: the phone, shown as `name`, is forming a Wi-Fi Direct group with the
@@ -927,6 +958,7 @@ pub enum Message {
     Punch(Punch),
     WifiDirectReady(WifiDirectReady),
     WifiDirect(WifiDirect),
+    BtPairing(BtPairing),
     MirrorRequest,
     MirrorStarted(MirrorStarted),
     MirrorStop(MirrorStop),
@@ -978,6 +1010,7 @@ impl Message {
             Self::Punch(_) => "punch",
             Self::WifiDirectReady(_) => "wifi-direct-ready",
             Self::WifiDirect(_) => "wifi-direct",
+            Self::BtPairing(_) => "bt-pairing",
             Self::MirrorRequest => "mirror-request",
             Self::MirrorStarted(_) => "mirror-started",
             Self::MirrorStop(_) => "mirror-stop",
@@ -1028,6 +1061,7 @@ impl Message {
             Self::Punch(body) => Value::serialized(body),
             Self::WifiDirectReady(body) => Value::serialized(body),
             Self::WifiDirect(body) => Value::serialized(body),
+            Self::BtPairing(body) => Value::serialized(body),
             Self::MirrorStarted(body) => Value::serialized(body),
             Self::MirrorStop(body) => Value::serialized(body),
             Self::MirrorInput(body) => Value::serialized(body),
@@ -1091,6 +1125,7 @@ impl Message {
             "punch" => Self::Punch(body.deserialized()?),
             "wifi-direct-ready" => Self::WifiDirectReady(body.deserialized()?),
             "wifi-direct" => Self::WifiDirect(body.deserialized()?),
+            "bt-pairing" => Self::BtPairing(body.deserialized()?),
             "mirror-started" => Self::MirrorStarted(body.deserialized()?),
             "mirror-stop" => Self::MirrorStop(body.deserialized()?),
             "mirror-input" => Self::MirrorInput(body.deserialized()?),
@@ -1155,9 +1190,11 @@ impl Message {
             }
             Self::MirrorStop(stop) => stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
             Self::MirrorInput(input) => input.valid(),
-            Self::WifiDirectReady(WifiDirectReady { name }) | Self::WifiDirect(WifiDirect { name }) => {
-                sized(name, 1, MAX_P2P_NAME_LEN)
+            Self::WifiDirectReady(WifiDirectReady { name, address }) => {
+                sized(name, 1, MAX_P2P_NAME_LEN) && address.as_ref().is_none_or(|address| hardware_address(address))
             }
+            Self::WifiDirect(WifiDirect { name }) => sized(name, 1, MAX_P2P_NAME_LEN),
+            Self::BtPairing(BtPairing { passkey }) => passkey.is_none_or(|passkey| passkey <= 999_999),
             Self::FsList(list) => fs_path_valid(&list.path),
             Self::FsEntries(page) => {
                 page.entries.len() <= MAX_FS_ENTRIES && page.entries.iter().all(|entry| fs_name_valid(&entry.name))

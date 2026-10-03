@@ -56,12 +56,15 @@ async fn run() -> anyhow::Result<()> {
         localsend::LocalSend::new(&paths.state, paths.downloads.clone(), name.clone(), signals)?;
     let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
     let (desktop_media, media_requests) = desktop_media::channel();
-    let (hub, handle, snapshots, events) =
+    let (mut hub, handle, snapshots, events) =
         hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers, puncher);
+    let bluetooth = bluetooth::Bluetooth::start().await;
+    if let Some(address) = &bluetooth.address {
+        hub.set_bluetooth(address.clone(), bluetooth.pairing_window());
+    }
     dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
     let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
     quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
-    let bluetooth = bluetooth::Bluetooth::start().await;
     let acceptor = StreamAcceptor::new(&identity)?;
     let listener =
         listener::Listener::new(endpoint.clone(), bluetooth, acceptor, handle.clone(), identity.spki().clone(), name);

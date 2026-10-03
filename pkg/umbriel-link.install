@@ -1,7 +1,11 @@
 # Phones reach the daemon only through the firewall; open it where ufw is running, as the profile describes.
 post_install() {
-  if command -v ufw > /dev/null && ufw status 2> /dev/null | grep -q '^Status: active'; then
-    ufw allow 'Umbriel Link' > /dev/null && echo ':: ufw: allowed Umbriel Link (4717/udp, 4718/tcp, 5353/udp)'
+  command -v ufw > /dev/null || return 0
+  ufw status 2> /dev/null | grep -q '^Status: active' || return 0
+  if ufw allow 'Umbriel Link' > /dev/null 2>&1; then
+    echo ':: ufw: allowed Umbriel Link (4717/udp, 4718/tcp, 5353/udp)'
+  else
+    echo ":: ufw: could not allow Umbriel Link; phones cannot pair until you run: sudo ufw allow 'Umbriel Link'"
   fi
 }
 

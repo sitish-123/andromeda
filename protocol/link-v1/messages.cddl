@@ -5,7 +5,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
   hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg / punch-msg /
-  wifi-direct-ready-msg / wifi-direct-msg /
+  wifi-direct-ready-msg / wifi-direct-msg / bt-pairing-msg /
   mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
@@ -16,8 +16,8 @@ hello-msg = { type: "hello", id: uint, body: hello }
 hello = {
   version: uint,
   name: tstr .size (1..64),
-  ? addresses: [* tstr],    ; host:port the desktop can be reached at, and "bt:AA:BB:CC:DD:EE:FF" for its
-                            ; Bluetooth adapter; sent by the desktop only
+  ? addresses: [* tstr],    ; desktop: host:port it can be reached at, and "bt:AA:BB:CC:DD:EE:FF" for its
+                            ; Bluetooth adapter; phone: "feature:..." entries, which older desktops ignore
 }
 
 pair-spake-msg = { type: "pair-spake", id: uint, body: pair-spake }
@@ -168,11 +168,22 @@ hotspot-joined-msg = { type: "hotspot-joined", id: uint, body: { address: tstr }
 hotspot-end-msg = { type: "hotspot-end", id: uint, body: { ? reason: tstr .size (1..128) } }
 
 ; Wi-Fi Direct, tried before the hotspot so the desktop keeps its own network. On connect, a desktop that can join a
-; group as a client says so with the name it shows while looking (wifi-direct-ready). The phone forms the group with
-; the desktop as client and sends its own name (wifi-direct) in place of hotspot credentials; the desktop answers as
-; for a hotspot, with hotspot-joined or hotspot-end, and a failed group falls back to the hotspot.
-wifi-direct-ready-msg = { type: "wifi-direct-ready", id: uint, body: { name: tstr .size (1..32) } }
+; group says so with the name it shows while looking (wifi-direct-ready), and its P2P device address for a phone whose
+; hello listed "feature:wifi-direct-address" (wpa_supplicant shows no name by default; older phones close a session on
+; the unknown field). The phone forms the group, in either role, and sends its own name (wifi-direct) in place of
+; hotspot credentials; the desktop answers as for a hotspot, with hotspot-joined (its own address on the group) or
+; hotspot-end, and a failed group falls back to the hotspot.
+wifi-direct-ready-msg = {
+  type: "wifi-direct-ready", id: uint,
+  body: { name: tstr .size (1..32), ? address: tstr .regexp "[0-9a-f]{2}(:[0-9a-f]{2}){5}" },
+}
 wifi-direct-msg = { type: "wifi-direct", id: uint, body: { name: tstr .size (1..32) } }
+
+; Pairing Bluetooth, which the desktop needs before it accepts a phone's connections over it. Phone to desktop,
+; only when the desktop's hello listed "feature:bt-pairing": without passkey before Android starts pairing, so the
+; desktop accepts the unpaired connection; with the six-digit code Android shows, which the desktop's pairing agent
+; confirms against its own instead of asking.
+bt-pairing-msg = { type: "bt-pairing", id: uint, body: { ? passkey: uint .le 999999 } }
 
 ; Mirroring the phone's screen, while the phone's screen switch for the desktop is on. The desktop asks
 ; (mirror-request, 0-RTT); the phone shows Android's capture prompt, then says the size (mirror-started) and opens a

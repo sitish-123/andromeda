@@ -163,7 +163,8 @@ pub struct ClientActor {
     /// When the hotspot stops unless a transfer starts first.
     hotspot_idle_at: Option<Instant>,
     upgrades: HashMap<DeviceId, Vec<oneshot::Sender<Result<(), Error>>>>,
-    /// Desktops' Wi-Fi Direct names, from their `wifi-direct-ready`; dropped for the session once a group fails.
+    /// How each desktop shows over Wi-Fi Direct (its device address, else its name), from its `wifi-direct-ready`;
+    /// dropped for the session once a group fails.
     wifi_direct_names: HashMap<DeviceId, String>,
     /// Whether the hotspot slot holds a Wi-Fi Direct group rather than the hotspot.
     slot_is_group: bool,
@@ -577,6 +578,8 @@ impl ClientActor {
         if let Some(old) = self.sessions.insert(id.clone(), handle.clone()) {
             old.close(CloseCode::Done);
         }
+        // Before finish_upgrades wakes the sends waiting on this move, so none goes out on the closing session.
+        self.transfers.attach(id.clone(), handle.clone()).await;
         self.retries.remove(&id);
         if via == Via::Bluetooth {
             log::info!("{id}: connected over Bluetooth");
@@ -606,7 +609,6 @@ impl ClientActor {
             }
         }
         self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
-        self.transfers.attach(id, handle.clone()).await;
         handle
     }
 
@@ -997,7 +999,8 @@ impl ClientActor {
                 }
             }
             SessionEvent::Message { from, message: Message::WifiDirectReady(ready) } => {
-                self.wifi_direct_names.insert(from, ready.name);
+                // The address finds the desktop even when it shows no name, as wpa_supplicant does by default.
+                self.wifi_direct_names.insert(from, ready.address.unwrap_or(ready.name));
             }
             SessionEvent::Message { from, message: Message::HotspotEnd(end) }
                 if self.hotspot_for.as_ref() == Some(&from) && self.wifi_direct_until.is_some() =>

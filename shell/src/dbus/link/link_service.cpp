@@ -396,6 +396,16 @@ void LinkService::startPairing() {
       });
 }
 
+void LinkService::confirmBluetoothPairing(std::uint32_t passkey, std::function<void(bool)> done) {
+  m_link->callMethodAsync("ConfirmBluetoothPairing")
+      .onInterface(kLinkInterface)
+      .withArguments(passkey)
+      .uponReplyInvoke([done = std::move(done)](std::optional<sdbus::Error> error, bool confirmed) {
+        logFailure("ConfirmBluetoothPairing", error);
+        done(!error.has_value() && confirmed);
+      });
+}
+
 void LinkService::cancelPairing() {
   m_link->callMethodAsync("CancelPairing")
       .onInterface(kLinkInterface)

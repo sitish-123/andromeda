@@ -110,6 +110,7 @@ RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$R
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(last_via) == bluetooth ]]'
 
 HOST=$(cat /proc/sys/kernel/hostname)
+DESKTOP_P2P=02:00:00:00:00:4c
 hex() { printf %s "$1" | od -An -tx1 | tr -d ' \n'; }
 # The transcript holds each envelope as CBOR hex; both texts show up verbatim inside it.
 wait_for 10 "the desktop did not offer Wi-Fi Direct over Bluetooth" \
@@ -121,7 +122,8 @@ say "send $RUNTIME/src/group.bin"
 wait_for 40 "the session never moved to the Wi-Fi Direct group" eval '[[ $(last_via) == wifi-direct ]]'
 wait_for 60 "the 8 MiB never reached the desktop over the group" test -f "$DOWNLOADS/group.bin"
 [[ $(sha "$RUNTIME/src/group.bin") == $(sha "$DOWNLOADS/group.bin") ]] || fail "the file differs on the desktop"
-grep -q "wifi-direct group formed with $HOST" "$OUT/hold.log" || fail "the phone did not form its half with $HOST"
+# The phone advertised that it matches by address, so it got the desktop's (the mock Wi-Fi device's) and used it.
+grep -q "wifi-direct group formed with $DESKTOP_P2P" "$OUT/hold.log" || fail "the phone did not form its half with $DESKTOP_P2P"
 ! grep -q "hotspot started" "$OUT/hold.log" || fail "the phone started its hotspot too"
 python3 - "$OUT/nm.jsonl" <<'PY' || fail "the desktop joined the group with other settings: $(cat "$OUT/nm.jsonl")"
 import json, sys

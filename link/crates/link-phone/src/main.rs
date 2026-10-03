@@ -244,7 +244,7 @@ fn open(state: &Path, name: String, transcript: Option<&Path>) -> anyhow::Result
 struct SocketOpener(PathBuf);
 
 impl link_core::stream::BluetoothOpener for SocketOpener {
-    fn open(&self, _address: &str) -> std::io::Result<std::os::fd::OwnedFd> {
+    fn open(&self, _address: &str, _pair: bool) -> std::io::Result<std::os::fd::OwnedFd> {
         Ok(std::os::unix::net::UnixStream::connect(&self.0)?.into())
     }
 }

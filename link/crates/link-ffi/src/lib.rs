@@ -60,6 +60,10 @@ pub struct Desktop {
     /// Connected over Bluetooth, since no IP path answered.
     pub bluetooth: bool,
     pub sharing: Sharing,
+    /// The desktop's Bluetooth adapter, upper-case, which the app pairs with so Bluetooth can carry a session.
+    pub bluetooth_address: Option<String>,
+    /// The desktop confirms that pairing by the code [`LinkClient::report_bt_pairing`] sends, without asking.
+    pub bt_pairing: bool,
 }
 
 /// The phone's switches for one desktop.
@@ -383,18 +387,19 @@ pub struct LinkClient {
 }
 
 /// How the app reaches a desktop over Bluetooth: connect RFCOMM to `address` at Link's service UUID and return one
-/// end of a socket pair the app pumps that connection through, detached. -1 when it cannot connect. Called off the
+/// end of a socket pair the app pumps that connection through, detached. -1 when it cannot connect. With `pair`, it
+/// first pairs Bluetooth with the desktop if they are not paired, which Link pairing alone asks for. Called off the
 /// main thread, and may block.
 #[uniffi::export(with_foreign)]
 pub trait BluetoothLink: Send + Sync {
-    fn open(&self, address: String) -> i32;
+    fn open(&self, address: String, pair: bool) -> i32;
 }
 
 struct Opener(Arc<dyn BluetoothLink>);
 
 impl link_core::stream::BluetoothOpener for Opener {
-    fn open(&self, address: &str) -> std::io::Result<OwnedFd> {
-        let fd = self.0.open(address.to_owned());
+    fn open(&self, address: &str, pair: bool) -> std::io::Result<OwnedFd> {
+        let fd = self.0.open(address.to_owned(), pair);
         if fd < 0 {
             return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Bluetooth did not connect"));
         }
@@ -439,7 +444,7 @@ impl link_core::hotspot::HotspotProvider for Hotspots {
 
 /// How the app forms a Wi-Fi Direct group with a desktop as its client, tried before the hotspot so the desktop keeps
 /// its own network. Blocking, called off the main thread: `name` is what peers see (None without the Nearby devices
-/// permission); `connect` finds the peer shown as `peer`, forms the group with this phone as owner, and returns
+/// permission); `connect` finds `peer` (a device address, else a name), forms the group in either role, and returns
 /// whether it came up.
 #[uniffi::export(with_foreign)]
 pub trait PhoneWifiDirect: Send + Sync {
@@ -628,6 +633,13 @@ impl LinkClient {
         self.broadcast(Message::Call(message::Call { state, number, name })).await
     }
 
+    /// Tells the desktop Android is about to pair Bluetooth with it (no `passkey`), so it accepts the connection; then
+    /// the code Android shows, so the desktop confirms it unasked.
+    pub async fn report_bt_pairing(&self, desktop_id: String, passkey: Option<u32>) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::BtPairing(message::BtPairing { passkey })).await }).await
+    }
+
     /// Rings a desktop, or stops it, connecting first if needed.
     pub async fn ring_desktop(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
@@ -704,6 +716,15 @@ impl LinkClient {
     pub async fn offer_clip_text(&self, text: String) -> Result<(), LinkError> {
         let client = self.client.clone();
         let clip = LocalClip { mimes: vec!["text/plain;charset=utf-8".to_owned()], text: Some(text), data: None };
+        self.run(async move { client.offer_clip(clip).await }).await
+    }
+
+    /// Offers a private snapshot of a phone clipboard URI. The file stays open for later pulls, so the app may
+    /// unlink its snapshot once this returns.
+    pub async fn offer_clip_file(&self, mime: String, path: String) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        let data = File::open(path).map_err(link_core::Error::from)?;
+        let clip = LocalClip { mimes: vec![mime], text: None, data: Some(data) };
         self.run(async move { client.offer_clip(clip).await }).await
     }
 
@@ -882,6 +903,8 @@ fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
         connected,
         bluetooth,
         sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse, screen },
+        bluetooth_address: peer.bluetooth.clone(),
+        bt_pairing: peer.bt_pairing,
     }
 }
 

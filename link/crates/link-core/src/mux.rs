@@ -2,6 +2,7 @@
 //! [`link_proto::mux`] frames between them, a credit window per stream, and keep-alive with the same idle timeout as
 //! QUIC. The API mirrors the part of quinn the session and transfers use, so [`crate::wire`] can hold either.
 
+use link_proto::pairing::EXPORTER_LEN;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -126,6 +127,8 @@ impl Inner {
 pub struct MuxConnection {
     inner: Arc<Inner>,
     _last: Arc<CloseOnDrop>,
+    /// Keying material exported from the TLS handshake underneath, which pairing binds its transcript to.
+    exporter: Option<[u8; EXPORTER_LEN]>,
 }
 
 struct CloseOnDrop(Arc<Inner>);
@@ -170,7 +173,16 @@ impl MuxConnection {
         if let Some(every) = keep_alive {
             tokio::spawn(ping_loop(every, Arc::downgrade(&inner)));
         }
-        Self { _last: Arc::new(CloseOnDrop(inner.clone())), inner }
+        Self { _last: Arc::new(CloseOnDrop(inner.clone())), inner, exporter: None }
+    }
+
+    #[must_use]
+    pub fn with_exporter(self, exporter: [u8; EXPORTER_LEN]) -> Self {
+        Self { exporter: Some(exporter), ..self }
+    }
+
+    pub fn exporter(&self) -> Option<[u8; EXPORTER_LEN]> {
+        self.exporter
     }
 
     pub fn open_bi(&self) -> Result<(MuxSend, MuxRecv), StreamError> {

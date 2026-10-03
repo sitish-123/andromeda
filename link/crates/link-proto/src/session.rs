@@ -85,6 +85,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::Hotspot(_)
         | Message::Punch(_)
         | Message::WifiDirect(_)
+        | Message::BtPairing(_)
         | Message::MirrorStarted(_)
         | Message::FsEntries(_)
         | Message::FsData(_)

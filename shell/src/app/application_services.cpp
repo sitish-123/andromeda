@@ -1499,10 +1499,25 @@ void Application::initSystemBusServices() {
       try {
         m_bluetoothAgent = std::make_unique<BluetoothAgent>(*m_systemBus);
         m_bluetoothAgent->setRequestCallback([this,
-                                              shouldRefreshControlCenter](const BluetoothPairingRequest& /*request*/) {
-          if (shouldRefreshControlCenter()) {
-            m_panelManager.refresh();
+                                              shouldRefreshControlCenter](const BluetoothPairingRequest& request) {
+          const auto show = [this, shouldRefreshControlCenter]() {
+            if (shouldRefreshControlCenter()) {
+              m_panelManager.refresh();
+            }
+          };
+          kLog.info("bluetooth pairing request: kind {} for {}", static_cast<int>(request.kind), request.devicePath);
+          // A phone that reported this code over its Link session is confirmed without asking.
+          if (request.kind == BluetoothPairingKind::Confirm && m_linkService != nullptr) {
+            m_linkService->confirmBluetoothPairing(request.passkey, [this, show](bool confirmed) {
+              if (confirmed && m_bluetoothAgent != nullptr) {
+                m_bluetoothAgent->acceptConfirm();
+              } else {
+                show();
+              }
+            });
+            return;
           }
+          show();
         });
       } catch (const std::exception& e) {
         kLog.warn("bluetooth agent disabled: {}", e.what());

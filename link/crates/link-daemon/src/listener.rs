@@ -1,5 +1,4 @@
-//! Accepts QUIC connections and runs each one as a pairing attempt or a session, as the hub admits it; Bluetooth
-//! connections run as sessions only, since pairing binds to the QUIC handshake.
+//! Accepts QUIC and Bluetooth connections and runs each one as a pairing attempt or a session, as the hub admits it.
 
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
@@ -7,8 +6,8 @@ use std::sync::Arc;
 use link_core::control::Control;
 use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
-use link_core::proto::message::BLUETOOTH_SCHEME;
 use link_core::proto::message::Hello;
+use link_core::proto::message::{BLUETOOTH_SCHEME, BT_PAIRING};
 use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
 use link_core::session::session as start_session;
@@ -92,7 +91,7 @@ async fn handle(incoming: quinn::Incoming, context: Arc<Context>) {
             return;
         }
         Admission::Session => session(&connection, &peer, &context).await,
-        Admission::Pair(attempt) => pairing(&quic, &connection, &peer, &attempt, &context).await,
+        Admission::Pair(attempt) => pairing(&connection, &peer, &attempt, &context).await,
     };
     ended(&connection, &peer, result, &context).await;
 }
@@ -114,10 +113,7 @@ async fn handle_stream(fd: OwnedFd, acceptor: StreamAcceptor, context: Arc<Conte
             log::info!("Bluetooth: {} rejected: {}", peer.device_id(), code.reason());
             return connection.close(code);
         }
-        Admission::Pair(_) => {
-            log::info!("Bluetooth: {} tried to pair, which needs Wi-Fi", peer.device_id());
-            return connection.close(CloseCode::NotPaired);
-        }
+        Admission::Pair(attempt) => pairing(&connection, &peer, &attempt, &context).await,
     };
     ended(&connection, &peer, result, &context).await;
 }
@@ -134,17 +130,11 @@ async fn ended(connection: &Connection, peer: &Spki, result: Result<(), Error>, 
     }
 }
 
-async fn pairing(
-    quic: &quinn::Connection,
-    connection: &Connection,
-    peer: &Spki,
-    attempt: &Attempt,
-    context: &Context,
-) -> Result<(), Error> {
+async fn pairing(connection: &Connection, peer: &Spki, attempt: &Attempt, context: &Context) -> Result<(), Error> {
     let handshake = async {
         let mut control = Control::accept(connection, None).await?;
         let hello = control.hello_as_server(context.hello()).await?;
-        pair_as_server(quic, &mut control, &attempt.secrets, &context.own, peer).await?;
+        pair_as_server(connection, &mut control, &attempt.secrets, &context.own, peer).await?;
         Ok::<_, Error>((control, hello))
     };
     match handshake.await {
@@ -175,7 +165,7 @@ async fn serve(
 ) -> Result<(), Error> {
     let id = peer.device_id();
     let (handle, actor) = start_session(connection.clone(), control, Role::Desktop, context.hub.route(id.clone()));
-    context.hub.connected(id, hello.name, handle).await;
+    context.hub.connected(id, hello, handle).await;
     actor.run().await
 }
 
@@ -183,6 +173,9 @@ impl Context {
     fn hello(&self) -> Hello {
         let mut addresses: Vec<String> = net::local_addresses(self.port).iter().map(ToString::to_string).collect();
         addresses.extend(self.bluetooth.iter().map(|address| format!("{BLUETOOTH_SCHEME}{address}")));
+        if self.bluetooth.is_some() {
+            addresses.push(BT_PAIRING.to_owned());
+        }
         Hello { version: VERSION, name: self.name.clone(), addresses }
     }
 }

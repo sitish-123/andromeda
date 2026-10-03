@@ -117,10 +117,16 @@ wait_for 30 "the session never moved to the hotspot" eval '[[ $(last_via) == hot
 grep -q "hotspot started" "$OUT/hold.log" || fail "the phone did not start its hotspot"
 python3 - "$OUT/nm.jsonl" <<'PY' || fail "the desktop joined with other settings: $(cat "$OUT/nm.jsonl")"
 import json, sys
-join = [json.loads(line) for line in open(sys.argv[1])][0]
-del join["t"]
-assert join == {"call": "add-and-activate", "ssid": "UmbrielTest", "psk": "secret pass 1", "key_mgmt": "wpa-psk",
-                "autoconnect": False, "persist": "volatile", "fails": False}, join
+calls = [json.loads(line) for line in open(sys.argv[1])]
+for call in calls:
+    del call["t"]
+# iwd joins only what its last scan saw, so the desktop scans for the hotspot first and joins that access point.
+assert calls[0] == {"call": "request-scan", "ssid": "UmbrielTest"}, calls[0]
+join = next(call for call in calls if call["call"] == "add-and-activate")
+assert join == {"call": "add-and-activate", "device": "/org/freedesktop/NetworkManager/Devices/2",
+                "specific": "/org/freedesktop/NetworkManager/AccessPoint/1", "ssid": "UmbrielTest",
+                "psk": "secret pass 1", "key_mgmt": "wpa-psk", "autoconnect": False, "persist": "volatile",
+                "fails": False}, join
 PY
 wait_for 60 "the phone's 32 MiB never reached the desktop" test -f "$DOWNLOADS/up.bin"
 [[ $(sha "$RUNTIME/src/up.bin") == $(sha "$DOWNLOADS/up.bin") ]] || fail "the phone's file differs on the desktop"

@@ -12,14 +12,30 @@ const P2P_IFACE: &str = "org.freedesktop.NetworkManager.Device.WifiP2P";
 const DEVICE_TYPE_WIFI_P2P: u32 = 30;
 /// The phone starts looking for the desktop at the same time; finding each other takes a few scan rounds.
 const FIND_TIMEOUT: Duration = Duration::from_secs(20);
+/// Lets the phone's own connect go out first. Its request then waits on ours, so Android needs no confirmation and
+/// the phone's higher intent makes it the owner, serving DHCP; a request of ours that arrives first finds Android
+/// idle, which answers the app's connect with BUSY, prompts, and leaves the desktop owning a group whose DHCP a host
+/// firewall drops.
+const PHONE_FIRST: Duration = Duration::from_secs(3);
 
-/// The name this desktop shows while looking for peers, when `NetworkManager` has a Wi-Fi P2P device. Both iwd and
-/// `wpa_supplicant` default it to the host name.
-pub async fn local_name() -> Option<String> {
+/// How phones find this desktop over Wi-Fi Direct, when `NetworkManager` has a Wi-Fi P2P device: the host name iwd
+/// shows, and the device address a phone matches when `wpa_supplicant` shows no name. `NetworkManager` leaves the P2P
+/// device's own address empty; drivers with a P2P-device interface, iwlwifi among them, give it the card's permanent
+/// address, which the Wi-Fi device reports.
+pub async fn local_peer() -> Option<link_core::proto::message::WifiDirectReady> {
     let bus = zbus::Connection::system().await.ok()?;
     p2p_device(&bus).await.ok()??;
     let name = std::fs::read_to_string("/proc/sys/kernel/hostname").ok()?.trim().to_owned();
-    (1..=link_core::proto::message::MAX_P2P_NAME_LEN).contains(&name.len()).then_some(name)
+    if !(1..=link_core::proto::message::MAX_P2P_NAME_LEN).contains(&name.len()) {
+        return None;
+    }
+    let address = async {
+        let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.ok()?;
+        let wifi = hotspot::wifi_device(&bus, &manager).await.ok()?;
+        let wireless = zbus::Proxy::new(&bus, NM, wifi.as_str(), hotspot::WIRELESS).await.ok()?;
+        wireless.get_property::<String>("PermHwAddress").await.ok().map(|address| address.to_lowercase())
+    };
+    Some(link_core::proto::message::WifiDirectReady { name, address: address.await })
 }
 
 /// Finds the phone shown as `peer_name` and joins its group.
@@ -34,6 +50,7 @@ pub async fn join(peer_name: &str) -> Result<Joined, String> {
         log::debug!("stopping the Wi-Fi Direct find: {error}");
     }
     let (peer, hwaddr) = found?;
+    tokio::time::sleep(PHONE_FIRST).await;
     let user = std::env::var("USER").unwrap_or_default();
     let settings: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::from([
         (

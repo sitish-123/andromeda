@@ -79,6 +79,8 @@ public:
   void setChangeCallback(ChangeCallback callback);
   void startPairing();
   void cancelPairing();
+  // Whether a phone with a Link session reported this code for the Bluetooth pairing under way; `done` runs once.
+  void confirmBluetoothPairing(std::uint32_t passkey, std::function<void(bool)> done);
   void unpair(const std::string& deviceId);
   // kind is "text" or "link"; the daemon checks the rest and failures are logged.
   void share(const std::string& deviceId, const std::string& kind, const std::string& text);

@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +46,7 @@ import org.umbriel.link.core.domain.SavedFile
 import org.umbriel.link.core.domain.ShareKind
 import org.umbriel.link.core.domain.Sharing
 import org.umbriel.link.core.domain.TransferEvent
+import org.umbriel.link.core.domain.TransferRecord
 import org.umbriel.link.ffi.BrowseRoot
 import org.umbriel.link.ffi.LinkClient
 import org.umbriel.link.ffi.LinkEvent
@@ -83,6 +87,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _transfers = MutableSharedFlow<TransferEvent>(extraBufferCapacity = INCOMING_BUFFER)
     private val downloads = Downloads(context)
     private val _activeTransfers = MutableStateFlow<Set<String>>(emptySet())
+    private val activityStore = ActivityStore(context.filesDir.resolve("activity.json"))
+    /** One writer at a time, in update order. */
+    private val activityWriter = Dispatchers.IO.limitedParallelism(1)
+    private val _transferActivity = MutableStateFlow(activityStore.load())
     private val _clips = MutableSharedFlow<IncomingClip>(extraBufferCapacity = INCOMING_BUFFER)
     private val _connections = MutableSharedFlow<String>(extraBufferCapacity = INCOMING_BUFFER)
     private val _notificationCommands = MutableSharedFlow<NotificationCommand>(extraBufferCapacity = INCOMING_BUFFER)
@@ -111,12 +119,49 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     /** Offers text from this phone's clipboard to every connected desktop. */
     suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
 
+    /** Snapshots a clipboard URI while Android's temporary read grant is valid, including providers backed by pipes. */
+    suspend fun offerClipUri(uri: Uri, fallbackMime: String?): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val mime = context.contentResolver.getType(uri)?.takeUnless { '*' in it }
+                ?: fallbackMime?.takeUnless { '*' in it }
+                ?: throw IOException("The clipboard URI has no concrete MIME type")
+            val snapshot = File.createTempFile("clipboard-", ".bin", context.cacheDir)
+            try {
+                val input = context.contentResolver.openInputStream(uri)
+                    ?: throw IOException("The clipboard URI cannot be opened")
+                input.use {
+                    snapshot.outputStream().use { output ->
+                        val buffer = ByteArray(256 * 1024)
+                        var size = 0L
+                        while (true) {
+                            val read = it.read(buffer)
+                            if (read < 0) break
+                            size += read
+                            if (size > MAX_CLIP_SIZE) throw IOException("The clipboard exceeds 64 MiB")
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
+                call { it.offerClipFile(mime, snapshot.absolutePath) }
+            } finally {
+                if (!snapshot.delete()) Log.w("link", "Could not remove the clipboard snapshot")
+            }
+        } catch (error: IOException) {
+            Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
+        } catch (error: SecurityException) {
+            Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
+        }
+    }
+
     /** Writes one type of a desktop's clipboard into [fd], which the core takes over. */
     suspend fun pullClip(desktopId: String, clipId: Long, mime: String, fd: Int): Result<Long> =
         call { it.pullClip(desktopId, clipId.toULong(), mime, fd).toLong() }
 
     /** Transfers sent or accepted here that have not finished. */
     val activeTransfers: StateFlow<Set<String>> = _activeTransfers.asStateFlow()
+
+    /** The latest 30 transfers observed during this app process, newest first. */
+    val transferActivity: StateFlow<List<TransferRecord>> = _transferActivity.asStateFlow()
 
     /** The id of each desktop as a session to it opens. */
     val connections: SharedFlow<String> = _connections.asSharedFlow()
@@ -160,6 +205,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     }
 
     /** Connects first if needed. */
+    /** Without [passkey] the desktop starts accepting the pairing connection; with it, it confirms that code. */
+    suspend fun reportBtPairing(desktopId: String, passkey: Int?): Result<Unit> =
+        call { it.reportBtPairing(desktopId, passkey?.toUInt()) }
+
     suspend fun ringDesktop(desktopId: String, on: Boolean): Result<Unit> =
         withMulticast { call { it.ringDesktop(desktopId, on) } }
 
@@ -224,11 +273,28 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
             return@withMulticast Result.failure(LinkFailureException(LinkFailure.Rejected(failure.message.orEmpty())))
         }
         val files = opened.map { OutgoingFile(it.fd, it.name, it.size.toULong(), it.mime) }
-        call { it.sendFiles(desktopId, files) }.onSuccess { id -> _activeTransfers.update { it + id } }
+        call { it.sendFiles(desktopId, files) }.onSuccess { id ->
+            _activeTransfers.update { it + id }
+            updateTransfer(id) { existing ->
+                (existing ?: TransferRecord(id)).copy(
+                    desktopName = nameOf(desktopId), incoming = false,
+                    files = opened.zip(uris) { file, uri -> OfferedFile(file.name, file.size, uri) },
+                    total = opened.sumOf { it.size },
+                )
+            }
+        }
     }
 
     suspend fun acceptTransfer(transferId: String): Result<Boolean> = call { it.acceptTransfer(transferId) }
-        .onSuccess { accepted -> if (accepted) _activeTransfers.update { it + transferId } }
+        .onSuccess { accepted ->
+            if (accepted) {
+                _activeTransfers.update { it + transferId }
+                updateTransfer(transferId) { existing ->
+                    val record = existing ?: TransferRecord(transferId)
+                    if (record.status == "offered") record.copy(status = "transferring") else record
+                }
+            }
+        }
 
     suspend fun declineTransfer(transferId: String): Result<Boolean> = call { it.declineTransfer(transferId) }
 
@@ -268,7 +334,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 incoming.absolutePath,
                 RfcommLink(context),
                 LocalHotspot(context),
-                WifiDirectGroup(context),
+                // Android keeps a group after the process that formed it dies, and this one cannot idle it out.
+                WifiDirectGroup(context).also(WifiDirectGroup::stop),
             )
         }.also {
             client = it
@@ -312,11 +379,11 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                     IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
                 )
                 is LinkEvent.Unpaired -> scope.launch { refresh() }
-                is LinkEvent.TransferOffered -> _transfers.emit(
+                is LinkEvent.TransferOffered -> emitTransfer(
                     TransferEvent.Offered(event.transferId, nameOf(event.desktopId), event.files.map { OfferedFile(it.name, it.size.toLong()) }),
                 )
                 is LinkEvent.TransferProgress ->
-                    _transfers.emit(TransferEvent.Progress(event.transferId, event.bytes.toLong(), event.total.toLong()))
+                    emitTransfer(TransferEvent.Progress(event.transferId, event.bytes.toLong(), event.total.toLong()))
                 is LinkEvent.TransferFinished -> scope.launch { finished(event) }
                 is LinkEvent.ClipOffered ->
                     _clips.emit(IncomingClip(event.desktopId, event.clipId.toLong(), event.mimes, event.text))
@@ -356,9 +423,37 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         }
         _activeTransfers.update { it - event.transferId }
         val status = if (saved.any { it == null }) "failed" else event.status
-        _transfers.emit(
+        emitTransfer(
             TransferEvent.Finished(event.transferId, nameOf(event.desktopId), event.incoming, status, saved.filterNotNull()),
         )
+    }
+
+    private fun updateTransfer(id: String, transform: (TransferRecord?) -> TransferRecord) {
+        val records = _transferActivity.updateAndGet { records ->
+            val record = transform(records.firstOrNull { it.transferId == id })
+            (listOf(record) + records.filterNot { it.transferId == id }).take(ACTIVITY_LIMIT)
+        }
+        // Progress ticks many times a second and a restart turns a running transfer into a failed one anyway.
+        if (records.first().status != "transferring" || records.first().bytes == 0L) {
+            scope.launch(activityWriter) { activityStore.save(records) }
+        }
+    }
+
+    private suspend fun emitTransfer(event: TransferEvent) {
+        updateTransfer(event.transferId) { existing ->
+            val record = existing ?: TransferRecord(event.transferId)
+            when (event) {
+                is TransferEvent.Offered -> record.copy(
+                    desktopName = event.desktopName, incoming = true, files = event.files,
+                    total = event.files.sumOf { it.size }, status = "offered",
+                )
+                is TransferEvent.Progress -> record.copy(bytes = event.bytes, total = event.total, status = "transferring")
+                is TransferEvent.Finished -> record.copy(
+                    desktopName = event.desktopName, incoming = event.incoming, status = event.status, saved = event.saved,
+                )
+            }
+        }
+        _transfers.emit(event)
     }
 
     /** A desktop not listed yet was just paired; the list is reread outside the event loop, which must keep reading. */
@@ -383,6 +478,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     private companion object {
         const val INCOMING_BUFFER = 16
+        const val MAX_CLIP_SIZE = 64L shl 20
+        const val ACTIVITY_LIMIT = 200
         // Input comes in bursts while a finger drags.
         const val MIRROR_BUFFER = 64
     }
@@ -404,6 +501,8 @@ private fun FfiDesktop.toDomain() = Desktop(
         sharing.browse,
         sharing.screen,
     ),
+    bluetoothAddress = bluetoothAddress,
+    btPairing = btPairing,
 )
 
 private fun MediaCommandKind.toFfi(): FfiCommand = when (this) {

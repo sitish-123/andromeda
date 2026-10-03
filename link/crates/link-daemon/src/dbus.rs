@@ -43,6 +43,9 @@ enum LinkError {
     Refused(String),
 }
 
+/// How long the pairing agent's question waits for the phone's report of the same code.
+const BT_REPORT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[zbus::interface(name = "org.umbriel.Link1")]
 impl Link {
     async fn start_pairing(&self) -> fdo::Result<(String, String)> {
@@ -56,6 +59,24 @@ impl Link {
     async fn unpair(&self, device_id: String) -> fdo::Result<()> {
         let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
         if self.hub.unpair(id).await { Ok(()) } else { Err(fdo::Error::InvalidArgs("unknown device".to_owned())) }
+    }
+
+    /// True when a phone with a Link session reported `passkey` for the Bluetooth pairing under way, so the desktop's
+    /// pairing agent confirms without asking. Answers true once per report. `BlueZ` asks the agent at about the moment
+    /// Android hands the phone the code, so the report may still be on its way: this waits up to 10 s for it.
+    async fn confirm_bluetooth_pairing(&self, passkey: u32) -> bool {
+        let deadline = tokio::time::Instant::now() + BT_REPORT_WAIT;
+        loop {
+            if self.hub.confirm_bt_pairing(passkey).await {
+                log::info!("Bluetooth: confirmed pairing code reported over Link");
+                return true;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                log::info!("Bluetooth: no Link phone reported this pairing code");
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
     }
 
     /// Returns once the device acknowledged the share.

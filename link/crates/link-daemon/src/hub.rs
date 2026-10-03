@@ -10,8 +10,8 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    Call, CallState, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted, Share, Status,
-    TransferId, WifiDirect, WifiDirectReady,
+    Call, CallState, Hello, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted, Share,
+    Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -21,6 +21,9 @@ use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
+
+/// Android shows its pairing code for 30 s; the window covers it and the user's tap.
+const BT_PAIRING_WINDOW: Duration = Duration::from_secs(60);
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use zbus::zvariant::OwnedObjectPath;
@@ -142,10 +145,11 @@ enum Command {
     StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
     CancelPairing,
     Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
+    ConfirmBtPairing { passkey: u32, reply: oneshot::Sender<bool> },
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
     Paired { spki: Spki, name: String, window: u64 },
     PairingFailed { reason: String, window: u64 },
-    Connected { id: DeviceId, name: String, session: SessionHandle },
+    Connected { id: DeviceId, hello: Hello, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
     SetAutoAccept { id: DeviceId, enabled: bool, reply: oneshot::Sender<bool> },
@@ -205,8 +209,12 @@ pub struct Hub {
     hotspots: HashMap<DeviceId, OwnedObjectPath>,
     /// Each join's phone, the hotspot's SSID (None for a Wi-Fi Direct group), and the outcome.
     joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
-    /// The name this desktop shows over Wi-Fi Direct, when it can join a group.
-    wifi_direct_name: Option<String>,
+    /// How phones find this desktop over Wi-Fi Direct, when it can join a group.
+    wifi_direct_peer: Option<WifiDirectReady>,
+    /// The code a phone with a session reported while Android pairs Bluetooth with it, until when it counts.
+    bt_pairing: Option<(u32, Instant)>,
+    /// This desktop's Bluetooth adapter, named in the QR code, and the deadline that keeps it open to pairing.
+    bluetooth: Option<(String, watch::Sender<Option<Instant>>)>,
     /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
     browsing: browse::Browsing,
@@ -270,7 +278,9 @@ impl Hub {
             open: HashMap::new(),
             hotspots: HashMap::new(),
             joining: JoinSet::new(),
-            wifi_direct_name: None,
+            wifi_direct_peer: None,
+            bt_pairing: None,
+            bluetooth: None,
             waiting: Vec::new(),
             browsing: browse::Browsing::default(),
             mirrors: crate::mirror::Mirrors::default(),
@@ -281,7 +291,7 @@ impl Hub {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        self.wifi_direct_name = crate::wifi_direct::local_name().await;
+        self.wifi_direct_peer = crate::wifi_direct::local_peer().await;
         if self.store.localsend {
             self.localsend.set_visible(true).await;
         }
@@ -322,6 +332,11 @@ impl Hub {
         match command {
             Command::StartPairing { reply } => drop(reply.send(self.start_pairing())),
             Command::CancelPairing => self.close_window(),
+            Command::ConfirmBtPairing { passkey, reply } => {
+                let confirmed =
+                    self.bt_pairing.take().is_some_and(|(code, until)| code == passkey && Instant::now() < until);
+                let _ = reply.send(confirmed);
+            }
             Command::Unpair { id, reply } => {
                 let unpaired = self.unpair(&id);
                 self.forget_notifications(&id).await;
@@ -335,7 +350,7 @@ impl Hub {
                     self.emit(Event::PairingFailed { reason }).await;
                 }
             }
-            Command::Connected { id, name, session } => self.connected(id, name, session).await,
+            Command::Connected { id, hello, session } => self.connected(id, hello, session).await,
             Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
             Command::Browse { id, request, reply } => {
                 let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
@@ -531,6 +546,17 @@ impl Hub {
                 log::info!("{from}: punching toward {addresses:?}");
                 self.puncher.punch(&addresses);
             }
+            // Connection housekeeping, not a shared feature: any paired phone with a session may pair Bluetooth.
+            SessionEvent::Message { from, message: Message::BtPairing(pairing) }
+                if self.sessions.contains_key(&from) =>
+            {
+                log::info!("{from}: pairing Bluetooth");
+                let until = Instant::now() + BT_PAIRING_WINDOW;
+                self.open_bluetooth_until(until);
+                if let Some(passkey) = pairing.passkey {
+                    self.bt_pairing = Some((passkey, until));
+                }
+            }
             SessionEvent::Message { from, message } => {
                 let granted = feature_of(&message)
                     .is_some_and(|feature| self.store.peer(&from).is_some_and(|peer| peer.grants.allows(feature)));
@@ -602,13 +628,27 @@ impl Hub {
         }
     }
 
+    /// Names the adapter in pairing QR codes and opens it to pairing during each window; before [`Self::run`].
+    pub fn set_bluetooth(&mut self, address: String, open: watch::Sender<Option<Instant>>) {
+        self.bluetooth = Some((address, open));
+    }
+
+    /// Keeps the adapter accepting unpaired devices until at least `until`.
+    fn open_bluetooth_until(&self, until: Instant) {
+        if let Some((_, open)) = &self.bluetooth {
+            open.send_modify(|deadline| *deadline = Some(deadline.map_or(until, |deadline| deadline.max(until))));
+        }
+    }
+
     fn start_pairing(&mut self) -> anyhow::Result<(String, String)> {
         let (code, qr) = generate_secrets()?;
         let uri = PairingUri {
             fingerprint: self.own.fingerprint(),
             secret: qr,
             addresses: net::local_addresses(self.store.port),
+            bluetooth: self.bluetooth.as_ref().map(|(address, _)| address.clone()),
         };
+        self.open_bluetooth_until(Instant::now() + WINDOW);
         let secrets = Secrets { code: Secret::new(code.clone().into_bytes()), qr: Secret::new(qr.to_vec()) };
         self.windows_opened += 1;
         self.window = Some(Window {
@@ -673,11 +713,11 @@ impl Hub {
     }
 
     /// One session per device: a newer one replaces the older, which a phone that changed networks leaves behind.
-    async fn connected(&mut self, id: DeviceId, name: String, session: SessionHandle) {
+    async fn connected(&mut self, id: DeviceId, hello: Hello, session: SessionHandle) {
         let Some(peer) = self.store.peer_mut(&id) else {
             return session.close(CloseCode::NotPaired);
         };
-        peer.name = name;
+        peer.name = hello.name;
         peer.touch();
         self.save();
         self.media.connected(&session);
@@ -691,9 +731,14 @@ impl Hub {
         }
         self.publish();
         self.transfers.attach(id.clone(), session.clone()).await;
+        let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
+        let ready = self
+            .wifi_direct_peer
+            .clone()
+            .map(|peer| WifiDirectReady { address: peer.address.filter(|_| by_address), ..peer });
         if !on_ip
-            && let Some(name) = self.wifi_direct_name.clone()
-            && let Err(error) = session.send(Message::WifiDirectReady(WifiDirectReady { name })).await
+            && let Some(ready) = ready
+            && let Err(error) = session.send(Message::WifiDirectReady(ready)).await
         {
             log::info!("{id}: offering Wi-Fi Direct: {error}");
         }
@@ -817,7 +862,7 @@ impl Hub {
     /// Joins the phone's Wi-Fi Direct group off the actor, like a hotspot.
     fn join_wifi_direct(&mut self, id: DeviceId, group: WifiDirect) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
-        if !on_bluetooth || self.hotspots.contains_key(&id) || self.wifi_direct_name.is_none() {
+        if !on_bluetooth || self.hotspots.contains_key(&id) || self.wifi_direct_peer.is_none() {
             return log::info!("{id}: ignoring a Wi-Fi Direct group this session does not need");
         }
         log::info!("{id}: joining the phone's Wi-Fi Direct group as {:?}", group.name);
@@ -830,11 +875,16 @@ impl Hub {
     /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one.
     fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
-        if !on_bluetooth || self.hotspots.contains_key(&id) {
+        if !on_bluetooth {
             return log::info!("{id}: ignoring a hotspot this session does not need");
         }
+        // The phone offers its hotspot only after giving up on a group, which this desktop may have joined anyway.
+        let abandoned = self.hotspots.remove(&id);
         log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
         self.joining.spawn(async move {
+            if let Some(group) = abandoned {
+                hotspot::leave(&group).await;
+            }
             let joined = hotspot::join(&offered.ssid, &offered.passphrase).await;
             (id, Some(offered.ssid), joined)
         });
@@ -1012,6 +1062,11 @@ impl HubHandle {
         self.tell(Command::CancelPairing).await;
     }
 
+    /// Whether a phone with a session just reported `passkey` for the Bluetooth pairing under way; it counts once.
+    pub async fn confirm_bt_pairing(&self, passkey: u32) -> bool {
+        self.request(|reply| Command::ConfirmBtPairing { passkey, reply }).await.unwrap_or(false)
+    }
+
     pub async fn unpair(&self, id: DeviceId) -> bool {
         self.request(|reply| Command::Unpair { id, reply }).await.unwrap_or(false)
     }
@@ -1028,8 +1083,8 @@ impl HubHandle {
         self.tell(Command::PairingFailed { reason, window }).await;
     }
 
-    pub async fn connected(&self, id: DeviceId, name: String, session: SessionHandle) {
-        self.tell(Command::Connected { id, name, session }).await;
+    pub async fn connected(&self, id: DeviceId, hello: Hello, session: SessionHandle) {
+        self.tell(Command::Connected { id, hello, session }).await;
     }
 
     /// Asks the phone to mirror its screen; answered once the user allowed it there and the video stream arrived.

@@ -9,6 +9,10 @@ data class Desktop(
     /** Unix seconds. */
     val lastSeen: Long,
     val sharing: Sharing = Sharing(),
+    /** The desktop's Bluetooth adapter, which the phone pairs with so Bluetooth can carry a session. */
+    val bluetoothAddress: String? = null,
+    /** The desktop confirms that pairing by the code the phone reports, without asking. */
+    val btPairing: Boolean = false,
 )
 
 /** This phone's switches for one desktop; all but browsing and the screen on after pairing. */

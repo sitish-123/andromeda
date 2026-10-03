@@ -2,7 +2,8 @@
 """A stand-in for NetworkManager on the test's system bus: the calls umbriel-linkd makes to join and leave a phone's
 hotspot or Wi-Fi Direct group, recorded as JSON lines. Joining runs JOIN_CMD (the E2E brings up the link there);
 leaving runs LEAVE_CMD. While the file FAIL_FLAG exists, a hotspot join ends deactivated, as a wrong passphrase would;
-FAIL_FLAG-p2p does the same for a group. With P2P_PEER ("<name>=<hwaddr>"), a Wi-Fi P2P device is present and a find
+FAIL_FLAG-p2p does the same for a group. A Wi-Fi device lists an access point only for an SSID a scan asked for, as
+iwd joins only what its last scan saw. With P2P_PEER ("<name>=<hwaddr>"), a Wi-Fi P2P device is present and a find
 turns up that peer.
 
 Usage: nm_mock.py LOG JOIN_CMD LEAVE_CMD FAIL_FLAG [P2P_PEER]
@@ -56,6 +57,18 @@ XML = f"""
     <property name="Name" type="s" access="read"/>
     <property name="HwAddress" type="s" access="read"/>
   </interface>
+  <interface name="{NM}.Device.Wireless">
+    <method name="RequestScan">
+      <arg direction="in" type="a{{sv}}" name="options"/>
+    </method>
+    <method name="GetAllAccessPoints">
+      <arg direction="out" type="ao" name="access_points"/>
+    </method>
+    <property name="PermHwAddress" type="s" access="read"/>
+  </interface>
+  <interface name="{NM}.AccessPoint">
+    <property name="Ssid" type="ay" access="read"/>
+  </interface>
 </node>
 """
 
@@ -65,8 +78,9 @@ def main() -> int:
     p2p_peer = sys.argv[5].split("=", 1) if len(sys.argv) > 5 else None
     info = Gio.DBusNodeInfo.new_for_xml(XML)
     bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
-    state = {"count": 0, "active": {}, "finding": False}
+    state = {"count": 0, "active": {}, "finding": False, "scanned": None}
     device, peer = f"{ROOT}/Devices/1", f"{ROOT}/P2PPeers/1"
+    wifi, access_point = f"{ROOT}/Devices/2", f"{ROOT}/AccessPoint/1"
 
     def log(entry):
         with open(log_path, "a") as out:
@@ -103,6 +117,8 @@ def main() -> int:
             else:
                 log({
                     "call": "add-and-activate",
+                    "device": _device,
+                    "specific": _specific,
                     "ssid": bytes(settings["802-11-wireless"]["ssid"]).decode(),
                     "psk": settings["802-11-wireless-security"]["psk"],
                     "key_mgmt": settings["802-11-wireless-security"]["key-mgmt"],
@@ -124,13 +140,20 @@ def main() -> int:
                 subprocess.run(leave_cmd, shell=True, check=False)
             state["active"][active] = DEACTIVATED
             invocation.return_value(None)
+        elif method == "RequestScan":
+            ssids = params.unpack()[0].get("ssids", [])
+            state["scanned"] = bytes(ssids[0]) if ssids else None
+            log({"call": "request-scan", "ssid": state["scanned"].decode() if state["scanned"] else None})
+            invocation.return_value(None)
+        elif method == "GetAllAccessPoints":
+            invocation.return_value(GLib.Variant("(ao)", ([access_point] if state["scanned"] else [],)))
         elif method in ("StartFind", "StopFind"):
             state["finding"] = method == "StartFind"
             log({"call": method})
             invocation.return_value(None)
 
     def root_property(_conn, _sender, _path, _iface, _name):
-        return GLib.Variant("ao", [device] if p2p_peer else [])
+        return GLib.Variant("ao", [wifi, device] if p2p_peer else [wifi])
 
     def device_property(_conn, _sender, _path, iface, name):
         if name == "DeviceType":
@@ -140,7 +163,16 @@ def main() -> int:
     def peer_property(_conn, _sender, _path, _iface, name):
         return GLib.Variant("s", p2p_peer[0] if name == "Name" else p2p_peer[1])
 
+    def wifi_property(_conn, _sender, _path, _iface, name):
+        return GLib.Variant("u", 2) if name == "DeviceType" else GLib.Variant("s", "02:00:00:00:00:4c")
+
+    def access_point_property(_conn, _sender, _path, _iface, _name):
+        return GLib.Variant("ay", state["scanned"] or b"")
+
     bus.register_object(ROOT, info.interfaces[0], call, root_property, None)
+    bus.register_object(wifi, info.interfaces[3], None, wifi_property, None)
+    bus.register_object(wifi, info.interfaces[6], call, wifi_property, None)
+    bus.register_object(access_point, info.interfaces[7], None, access_point_property, None)
     if p2p_peer:
         bus.register_object(device, info.interfaces[3], None, device_property, None)
         bus.register_object(device, info.interfaces[4], call, device_property, None)

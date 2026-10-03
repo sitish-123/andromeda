@@ -4,6 +4,7 @@
 use std::ops::Deref;
 
 use link_proto::CloseCode;
+use link_proto::pairing::{EXPORTER_LABEL, EXPORTER_LEN};
 
 use crate::Error;
 use crate::mux::{Closed, MuxConnection, MuxRecv, MuxSend, StreamError};
@@ -12,6 +13,20 @@ use crate::mux::{Closed, MuxConnection, MuxRecv, MuxSend, StreamError};
 pub enum Connection {
     Quic(quinn::Connection),
     Stream(MuxConnection),
+}
+
+impl Connection {
+    /// Keying material from the handshake, which pairing binds its transcript to; the same label over either path.
+    pub fn exporter(&self) -> Result<[u8; EXPORTER_LEN], Error> {
+        match self {
+            Self::Quic(quic) => {
+                let mut out = [0; EXPORTER_LEN];
+                quic.export_keying_material(&mut out, EXPORTER_LABEL, &[]).map_err(|_| Error::BadKey)?;
+                Ok(out)
+            }
+            Self::Stream(mux) => mux.exporter().ok_or(Error::BadKey),
+        }
+    }
 }
 
 pub enum SendStream {

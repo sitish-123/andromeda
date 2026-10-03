@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::os::fd::OwnedFd;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
+use tokio::time::Instant;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 /// The Link service in SDP, which the phone looks up to find the RFCOMM channel.
@@ -37,30 +38,35 @@ const BACKLOG: usize = 4;
 pub struct Bluetooth {
     pub address: Option<String>,
     pub incoming: mpsc::Receiver<OwnedFd>,
-    /// The profile lives as long as this connection to the system bus.
-    _bus: Option<zbus::Connection>,
+    /// The profile lives as long as this connection to the system bus; None for the test socket.
+    bus: Option<zbus::Connection>,
 }
 
 impl Bluetooth {
+    /// Opens the adapter to pairing during each window; the test socket needs no radio.
+    pub fn pairing_window(&self) -> watch::Sender<Option<Instant>> {
+        if self.bus.is_some() { open_for_pairing() } else { watch::channel(None).0 }
+    }
+
     pub async fn start() -> Self {
         let (tx, incoming) = mpsc::channel(BACKLOG);
         if let Some(path) = std::env::var_os(TEST_SOCKET) {
             return match test_socket(path.as_ref(), tx) {
-                Ok(()) => Self { address: Some(TEST_ADDRESS.to_owned()), incoming, _bus: None },
+                Ok(()) => Self { address: Some(TEST_ADDRESS.to_owned()), incoming, bus: None },
                 Err(error) => {
                     log::error!("the test Bluetooth socket: {error}");
-                    Self { address: None, incoming, _bus: None }
+                    Self { address: None, incoming, bus: None }
                 }
             };
         }
         match register(tx).await {
             Ok((bus, address)) => {
                 log::info!("Bluetooth: listening on {address}");
-                Self { address: Some(address), incoming, _bus: Some(bus) }
+                Self { address: Some(address), incoming, bus: Some(bus) }
             }
             Err(error) => {
                 log::info!("Bluetooth unavailable: {error}");
-                Self { address: None, incoming, _bus: None }
+                Self { address: None, incoming, bus: None }
             }
         }
     }
@@ -115,6 +121,52 @@ impl Profile {
     fn request_disconnection(&self, device: OwnedObjectPath) {
         log::info!("BlueZ asks to disconnect {}", device.as_str());
     }
+}
+
+/// Keeps the adapter accepting connections from devices it is not paired with while a pairing window is open, so a
+/// phone with no IP path can pair over Bluetooth; `BlueZ` otherwise accepts only paired devices. Each send is the
+/// latest window's deadline. Restores the setting only if it was the one to change it.
+pub fn open_for_pairing() -> watch::Sender<Option<Instant>> {
+    let (tx, mut rx) = watch::channel(None::<Instant>);
+    tokio::spawn(async move {
+        let mut opened = false;
+        loop {
+            let until = *rx.borrow_and_update();
+            if let Some(until) = until.filter(|until| Instant::now() < *until) {
+                if !opened {
+                    opened = connectable(true).await.is_ok_and(|was| !was);
+                }
+                tokio::select! {
+                    () = tokio::time::sleep_until(until) => {}
+                    changed = rx.changed() => if changed.is_err() { break },
+                }
+                continue;
+            }
+            if opened {
+                drop(connectable(false).await);
+                opened = false;
+            }
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+    tx
+}
+
+/// Sets whether the adapter accepts new connections and returns what it was.
+async fn connectable(on: bool) -> zbus::Result<bool> {
+    let bus = zbus::Connection::system().await?;
+    let adapter = zbus::Proxy::new(&bus, "org.bluez", ADAPTER, "org.bluez.Adapter1").await?;
+    let was: bool = adapter.get_property("Connectable").await?;
+    if was != on {
+        adapter.set_property("Connectable", on).await.map_err(zbus::Error::from)?;
+        log::info!(
+            "Bluetooth: {} connections from unpaired devices",
+            if on { "accepting" } else { "no longer accepting" }
+        );
+    }
+    Ok(was)
 }
 
 fn test_socket(path: &std::path::Path, tx: mpsc::Sender<OwnedFd>) -> std::io::Result<()> {

@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use link_proto::message::{Hello, Message, PairMethod, bluetooth_address};
+use link_proto::message::{BT_PAIRING, Hello, Message, PairMethod, WIFI_DIRECT_BY_ADDRESS, bluetooth_address};
 use link_proto::pairing::Secret;
 use link_proto::{CloseCode, VERSION};
 
@@ -128,27 +128,49 @@ impl Phone {
         &self.store.peers
     }
 
+    /// Pairs over IP when any address answers, else over Bluetooth when the QR code names the desktop's adapter.
     pub async fn pair(&mut self, target: PairTarget) -> Result<Session, Error> {
-        let (candidates, pin, secret, method) = match target {
+        let (candidates, pin, secret, method, bluetooth) = match target {
             PairTarget::Code { code, candidates } => {
                 if code.len() != 6 || !code.bytes().all(|byte| byte.is_ascii_digit()) {
                     return Err(Error::BadCode);
                 }
                 let candidates = if candidates.is_empty() { pairing_desktop().await? } else { candidates };
-                (candidates, ServerPin::Any, Secret::new(code.into_bytes()), PairMethod::Code)
+                (candidates, ServerPin::Any, Secret::new(code.into_bytes()), PairMethod::Code, None)
             }
-            PairTarget::Uri(uri) => {
-                (uri.addresses, ServerPin::Key(uri.fingerprint), Secret::new(uri.secret.to_vec()), PairMethod::Qr)
+            PairTarget::Uri(uri) => (
+                uri.addresses,
+                ServerPin::Key(uri.fingerprint),
+                Secret::new(uri.secret.to_vec()),
+                PairMethod::Qr,
+                uri.bluetooth,
+            ),
+        };
+        let (connection, server, addr) = match reach::race(self.dialer(), &candidates, pin).await {
+            Ok((dialed, addr)) => {
+                let server = tls::peer_spki(dialed.connection.peer_identity())?;
+                (Connection::from(dialed.connection), server, Some(addr))
+            }
+            Err(ip) => {
+                let (Some(address), Some(opener), ServerPin::Key(fingerprint)) =
+                    (bluetooth, self.bluetooth.clone(), pin)
+                else {
+                    return Err(ip);
+                };
+                log::info!("pairing: no IP path ({ip}); trying Bluetooth");
+                let fd = tokio::task::spawn_blocking(move || opener.open(&address, true))
+                    .await
+                    .map_err(|_| Error::Stopped)??;
+                let (mux, server) = self.stream_dialer.connect(FdStream::new(fd)?, fingerprint, None).await?;
+                (Connection::Stream(mux), server, None)
             }
         };
-        let (dialed, addr) = reach::race(self.dialer(), &candidates, pin).await?;
-        let quic = dialed.connection;
-        let connection = Connection::from(quic.clone());
         let mut control = Control::open(&connection, self.tap.clone()).await?;
         let hello = control.hello_as_client(self.hello()).await?;
-        pair_as_client(&quic, &mut control, &secret, method, self.identity.spki()).await?;
-        let desktop = self.remember(&tls::peer_spki(quic.peer_identity())?, &hello, Some(addr))?;
-        Ok(Session { connection, control, desktop, addr: Some(addr), via: Via::LastKnown, resumed: false })
+        pair_as_client(&connection, &server, &mut control, &secret, method, self.identity.spki()).await?;
+        let desktop = self.remember(&server, &hello, addr)?;
+        let via = if addr.is_some() { Via::LastKnown } else { Via::Bluetooth };
+        Ok(Session { connection, control, desktop, addr, via, resumed: false })
     }
 
     /// Reaches a paired desktop. A desktop that answers `unpaired` is forgotten, as the protocol requires.
@@ -202,7 +224,8 @@ impl Phone {
         let (Some(address), Some(opener)) = (peer.bluetooth.clone(), self.bluetooth.clone()) else {
             return Err(Error::Unreachable);
         };
-        let fd = tokio::task::spawn_blocking(move || opener.open(&address)).await.map_err(|_| Error::Stopped)??;
+        let fd =
+            tokio::task::spawn_blocking(move || opener.open(&address, false)).await.map_err(|_| Error::Stopped)??;
         let keep_alive = self.present.then_some(KEEP_ALIVE);
         let (mux, desktop) =
             self.stream_dialer.connect(FdStream::new(fd)?, peer.spki()?.fingerprint(), keep_alive).await?;
@@ -239,7 +262,7 @@ impl Phone {
     }
 
     fn hello(&self) -> Hello {
-        Hello { version: VERSION, name: self.name.clone(), addresses: Vec::new() }
+        Hello { version: VERSION, name: self.name.clone(), addresses: vec![WIFI_DIRECT_BY_ADDRESS.to_owned()] }
     }
 
     fn remember(
@@ -258,6 +281,7 @@ impl Phone {
         if let Some(bluetooth) = hello.addresses.iter().find_map(|text| bluetooth_address(text)) {
             peer.bluetooth = Some(bluetooth);
         }
+        peer.bt_pairing = hello.addresses.iter().any(|entry| entry == BT_PAIRING);
         peer.touch();
         self.store.upsert(peer.clone());
         self.store.save(&self.store_path)?;

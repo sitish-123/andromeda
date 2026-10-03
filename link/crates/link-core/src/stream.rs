@@ -1,6 +1,7 @@
 //! Link over a byte stream (Bluetooth RFCOMM): TLS 1.3 with the same raw public keys and verifiers as QUIC, ALPN
 //! [`STREAM_ALPN`], then [`MuxConnection`] on top. Pairing needs the QUIC exporter, so only paired devices use it.
 
+use link_proto::pairing::{EXPORTER_LABEL, EXPORTER_LEN};
 use std::io;
 use std::os::fd::{AsFd, OwnedFd};
 use std::pin::Pin;
@@ -70,7 +71,8 @@ impl StreamDialer {
         let name = ServerName::try_from(ServerPin::Key(pin).server_name()).map_err(|_| Error::BadKey)?;
         let tls = tokio::time::timeout(HANDSHAKE_TIMEOUT, self.connector.connect(name, io)).await??;
         let peer = spki(tls.get_ref().1.peer_certificates())?;
-        Ok((MuxConnection::new(tls, true, keep_alive), peer))
+        let exporter = exporter(tls.get_ref().1)?;
+        Ok((MuxConnection::new(tls, true, keep_alive).with_exporter(exporter), peer))
     }
 }
 
@@ -92,8 +94,14 @@ impl StreamAcceptor {
     {
         let tls = tokio::time::timeout(HANDSHAKE_TIMEOUT, self.acceptor.accept(io)).await??;
         let peer = spki(tls.get_ref().1.peer_certificates())?;
-        Ok((MuxConnection::new(tls, false, None), peer))
+        let exporter = exporter(tls.get_ref().1)?;
+        Ok((MuxConnection::new(tls, false, None).with_exporter(exporter), peer))
     }
+}
+
+/// The same keying material QUIC exports, so pairing runs over Bluetooth as it does over Wi-Fi.
+fn exporter<Data>(tls: &rustls::ConnectionCommon<Data>) -> Result<[u8; EXPORTER_LEN], Error> {
+    tls.export_keying_material([0; EXPORTER_LEN], EXPORTER_LABEL, Some(&[])).map_err(|_| Error::BadKey)
 }
 
 fn spki(certs: Option<&[CertificateDer<'_>]>) -> Result<Spki, Error> {
@@ -101,9 +109,10 @@ fn spki(certs: Option<&[CertificateDer<'_>]>) -> Result<Spki, Error> {
 }
 
 /// Opens a byte stream to a desktop's Bluetooth adapter (`AA:BB:CC:DD:EE:FF`). Blocking, since the platforms connect
-/// RFCOMM synchronously; the phone calls it off the runtime.
+/// RFCOMM synchronously; the phone calls it off the runtime. With `pair`, the platform first pairs Bluetooth with the
+/// desktop when it is not paired yet, which the user confirms on both screens; only Link pairing asks for that.
 pub trait BluetoothOpener: Send + Sync {
-    fn open(&self, address: &str) -> io::Result<OwnedFd>;
+    fn open(&self, address: &str, pair: bool) -> io::Result<OwnedFd>;
 }
 
 /// A connected stream socket handed over as a descriptor (`BlueZ`'s RFCOMM socket, one end of the Android app's socket
