@@ -57,4 +57,8 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.material.icons)
     implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.zxing.core)
 }

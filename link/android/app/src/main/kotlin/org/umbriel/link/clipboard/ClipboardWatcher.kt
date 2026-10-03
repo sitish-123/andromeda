@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,19 +61,23 @@ class ClipboardWatcher(
         process = logcat
         sees = false
         val denial = "Denying clipboard access to ${context.packageName}"
-        logcat.inputStream.bufferedReader().useLines { lines ->
-            for (line in lines) {
-                if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
-                sees = true
-                if (denial in line) {
-                    sync.changedLocally()
-                    context.startActivity(
-                        Intent(context, ClipboardReadActivity::class.java).addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION,
-                        ),
-                    )
+        try {
+            logcat.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
+                    sees = true
+                    if (denial in line) {
+                        sync.changedLocally()
+                        context.startActivity(
+                            Intent(context, ClipboardReadActivity::class.java).addFlags(
+                                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION,
+                            ),
+                        )
+                    }
                 }
             }
+        } catch (_: IOException) {
+            // stop() destroys logcat under a blocked read, which is how this ends.
         }
     }
 

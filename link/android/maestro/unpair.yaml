@@ -3,14 +3,19 @@ appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
+- tapOn: "Home tab"
 - scrollUntilVisible:
-    element: "Desktop settings"
+    element: "Features and pairing"
     direction: UP
-- tapOn: "Desktop settings"
+- tapOn: "Features and pairing"
 - scrollUntilVisible:
     element: "Unpair"
 - tapOn: "Unpair"
 - extendedWaitUntil:
-    visible: "No desktops yet"
+    visible: "Unpair desktop\\?"
+    timeout: 5000
+- tapOn: "Unpair"
+- extendedWaitUntil:
+    visible: "Scan your desktop"
     timeout: 15000
 - takeScreenshot: ${OUT}/8-unpaired

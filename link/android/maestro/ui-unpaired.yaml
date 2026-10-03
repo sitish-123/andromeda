@@ -1,13 +1,18 @@
-# Screenshots of the screens before pairing, in ${THEME}: the empty Home and the code entry with three digits typed.
+# Screenshots of the screens before pairing, in ${THEME}: the empty Home, the scanner, and the code entry with three digits typed.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: true
 - extendedWaitUntil:
-    visible: "No desktops yet"
+    visible: "Scan your desktop"
     timeout: 15000
 - takeScreenshot: ${OUT}/${THEME}-home-empty
-- tapOn: "Pair with a desktop"
+- tapOn: "Scan QR code"
+- extendedWaitUntil:
+    visible: "Type the 6-digit code instead"
+    timeout: 10000
+- takeScreenshot: ${OUT}/${THEME}-pairing-scan
+- tapOn: "Type the 6-digit code instead"
 - extendedWaitUntil:
     visible: "Type the code"
     timeout: 10000

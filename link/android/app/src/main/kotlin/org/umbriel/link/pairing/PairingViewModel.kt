@@ -36,6 +36,12 @@ class PairingViewModel(private val repository: LinkRepository) : ViewModel() {
 
     fun offerLink(uri: String) = _state.update { PairingState(link = uri) }
 
+    /** A code scanned inside the app was chosen by the user, so it pairs without the confirmation an outside link gets. */
+    fun pairScanned(uri: String) {
+        _state.update { PairingState() }
+        pair { repository.pairUri(uri) }
+    }
+
     fun dismissLink() = _state.update { it.copy(link = null, failure = null) }
 
     fun updateCode(input: String) = _state.update {

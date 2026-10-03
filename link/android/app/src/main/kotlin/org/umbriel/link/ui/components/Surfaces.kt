@@ -58,7 +58,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import org.umbriel.link.ui.theme.Elevation
 import org.umbriel.link.ui.theme.LinkTheme
 import org.umbriel.link.ui.theme.Motion
 import org.umbriel.link.ui.theme.Radius
@@ -83,25 +82,6 @@ fun Glyph(icon: ImageVector, tint: Color = LinkTheme.colors.textPrimary, size: D
     Image(rememberVectorPainter(icon), contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
 }
 
-/**
- * A soft shadow drawn as the design system specifies it (blur and offset, one color), which elevation shadows cannot
- * match. Dark mode uses the dark offsets; many dark surfaces carry none and separate by color instead.
- */
-fun Modifier.softShadow(shape: Shape, elevation: Elevation, color: Color, dark: Boolean): Modifier = drawBehind {
-    val blur = (if (dark) elevation.darkBlur else elevation.blur).dp.toPx()
-    val offset = (if (dark) elevation.darkOffset else elevation.lightOffset).dp.toPx()
-    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawBehind)) }
-    drawIntoCanvas { canvas ->
-        val paint = Paint()
-        // A translucent shadow color keeps its own alpha on a transparent paint, so only the shadow shows.
-        paint.asFrameworkPaint().apply {
-            this.color = android.graphics.Color.TRANSPARENT
-            setShadowLayer(blur, 0f, offset, color.toArgb())
-        }
-        canvas.drawPath(path, paint)
-    }
-}
-
 /** A press shrinks the surface slightly, as the soft-tech card does. */
 @Composable
 private fun Modifier.pressScale(source: MutableInteractionSource, scale: Float = 0.99f): Modifier {
@@ -110,10 +90,7 @@ private fun Modifier.pressScale(source: MutableInteractionSource, scale: Float =
     return graphicsLayer { scaleX = current; scaleY = current }
 }
 
-/**
- * The canonical container: 28 dp corners, 20 dp padding; in light a 2 dp white rim over the page and a soft lift,
- * in dark one surface step up and no shadow.
- */
+/** The canonical container: a hairline outline on the page itself, so structure comes from line, not lift. */
 @Composable
 fun SoftCard(
     modifier: Modifier = Modifier,
@@ -123,36 +100,24 @@ fun SoftCard(
 ) {
     val colors = LinkTheme.colors
     val source = remember { MutableInteractionSource() }
-    val shape = Radius.softTech
-    val surface = if (colors.dark) colors.surfaceSecondary else colors.surfacePrimary
+    val shape = Radius.hero
     Column(
         modifier = modifier
             .then(if (onClick != null) Modifier.pressScale(source) else Modifier)
-            .then(if (colors.dark) Modifier else Modifier.softShadow(shape, Elevation.SoftLift, colors.shadow, dark = false))
             .clip(shape)
-            .background(surface)
-            .border(Size.cardRim, colors.cardRim, shape)
+            .border(1.dp, colors.borderPrimary, shape)
             .then(if (onClick != null) Modifier.clickable(source, indication = LocalIndication.current, onClick = onClick) else Modifier)
             .padding(padding),
         content = content,
     )
 }
 
-/** The 20 dp hero surface: the screen's one lead element, washed with the accent. */
+/** The screen's one lead element: outlined in the accent, the only colored outline on a screen. */
 @Composable
 fun HeroSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val colors = LinkTheme.colors
     val shape = Radius.hero
-    val wash = Brush.linearGradient(
-        listOf(colors.accent.copy(alpha = if (colors.dark) 0.28f else 0.22f), colors.surfaceTertiary.copy(alpha = 0.4f)),
-    )
     Column(
-        modifier = modifier
-            .softShadow(shape, Elevation.SoftLift, colors.shadow, colors.dark)
-            .clip(shape)
-            .background(if (colors.dark) colors.surfaceSecondary else colors.surfacePrimary)
-            .background(wash)
-            .padding(Space.s24),
+        modifier = modifier.clip(shape).border(1.5.dp, LinkTheme.colors.accent, shape).padding(Space.s24),
         content = content,
     )
 }
@@ -169,10 +134,11 @@ fun Screen(
     onToastShown: () -> Unit = {},
     actions: @Composable () -> Unit = {},
     overlay: @Composable BoxScope.() -> Unit = {},
+    background: Color = LinkTheme.colors.surfacePrimary,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = LinkTheme.colors
-    Box(Modifier.fillMaxSize().background(colors.surfacePrimary)) {
+    Box(Modifier.fillMaxSize().background(background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.s8, vertical = Space.s8),
@@ -187,7 +153,7 @@ fun Screen(
                 } else {
                     Box(Modifier.size(Space.s12))
                 }
-                Label(title, LinkTheme.type.headlineLarge, modifier = Modifier.weight(1f).padding(horizontal = Space.s4))
+                Label(title, LinkTheme.type.displaySmall, modifier = Modifier.weight(1f).padding(horizontal = Space.s4), maxLines = 1)
                 actions()
             }
             Column(Modifier.weight(1f).fillMaxWidth(), content = content)
@@ -214,12 +180,10 @@ private fun ToastHost(message: String?, onShown: () -> Unit, modifier: Modifier)
     ) {
         val colors = LinkTheme.colors
         Box(
-            Modifier.softShadow(Radius.pill, Elevation.Medium, colors.shadow, colors.dark)
-                .clip(Radius.pill)
-                .background(if (colors.dark) colors.surfaceElevated else colors.textPrimary)
+            Modifier.clip(Radius.pill).background(colors.textPrimary)
                 .padding(horizontal = Space.s20, vertical = Space.s14),
         ) {
-            Label(message.orEmpty(), LinkTheme.type.titleMedium, if (colors.dark) colors.textPrimary else colors.textInverse)
+            Label(message.orEmpty(), LinkTheme.type.titleMedium, colors.textInverse)
         }
     }
 }

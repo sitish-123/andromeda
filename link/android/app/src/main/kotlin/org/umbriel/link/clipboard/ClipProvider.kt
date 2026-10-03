@@ -42,6 +42,8 @@ class ClipProvider : ContentProvider() {
     companion object {
         private const val AUTHORITY = "org.umbriel.link.clip"
 
+        fun owns(uri: Uri): Boolean = uri.scheme == "content" && uri.authority == AUTHORITY
+
         fun uri(desktopId: String, clipId: Long, mime: String): Uri =
             Uri.Builder().scheme("content").authority(AUTHORITY).appendPath(desktopId).appendPath(clipId.toString())
                 .appendPath(mime).build()

@@ -1,0 +1,15 @@
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- tapOn: "Activity tab"
+- extendedWaitUntil:
+    visible: "Waiting for your approval"
+    timeout: 15000
+- takeScreenshot: ${OUT}/7-offer-in-activity
+- tapOn: "Accept"
+- extendedWaitUntil:
+    visible: "Completed"
+    timeout: 30000
+- takeScreenshot: ${OUT}/7-received-in-activity
+- tapOn: "Home tab"

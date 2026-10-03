@@ -1,16 +1,23 @@
-# Screenshots of every screen of a paired phone, in ${THEME}: Home, the picker's three tabs, the desktop's page, the
+# Screenshots of every screen of a paired phone, in ${THEME}: Home, Activity, Settings, the picker's three tabs, the desktop's page, the
 # app filter, Media with the desktop's test player, and each page of the permission onboarding.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
 - extendedWaitUntil:
-    visible: "Connected"
+    visible: "WI-FI · ENCRYPTED"
     timeout: 20000
 - takeScreenshot: ${OUT}/${THEME}-home
+- tapOn: "Activity tab"
+- takeScreenshot: ${OUT}/${THEME}-activity-empty
+- tapOn: "Settings tab"
+- takeScreenshot: ${OUT}/${THEME}-settings
 - scrollUntilVisible:
-    element: "Stay connected"
-- takeScreenshot: ${OUT}/${THEME}-home-scrolled
+    element: "Appearance"
+- takeScreenshot: ${OUT}/${THEME}-settings-appearance
+- scrollUntilVisible:
+    element: "Permissions"
+    direction: UP
 - tapOn:
     text: "Permissions"
     index: 0
@@ -32,14 +39,21 @@ appId: org.umbriel.link
 - tapOn: "Next"
 - takeScreenshot: ${OUT}/${THEME}-onboarding-7-clipboard
 - tapOn: "Done"
+- tapOn: "Home tab"
 - extendedWaitUntil:
-    visible: "Desktop settings"
+    visible: "Features and pairing"
     timeout: 10000
-- tapOn: "Desktop settings"
+- tapOn: "Features and pairing"
 - extendedWaitUntil:
     visible: "Shared with this desktop"
     timeout: 10000
 - takeScreenshot: ${OUT}/${THEME}-device
+- scrollUntilVisible:
+    element: "Screen & storage access"
+- takeScreenshot: ${OUT}/${THEME}-device-advanced
+- scrollUntilVisible:
+    element: "Choose which apps"
+    direction: UP
 - tapOn: "Choose which apps"
 - extendedWaitUntil:
     visible: "Every app is mirrored unless you turn it off here."
@@ -57,7 +71,7 @@ appId: org.umbriel.link
 - pressKey: Back
 - scrollUntilVisible:
     element: "Photos"
-    direction: UP
+    direction: DOWN
 - tapOn: "Photos"
 - extendedWaitUntil:
     visible: "e2e-pick-a.png"
@@ -67,9 +81,8 @@ appId: org.umbriel.link
 - tapOn: "Videos"
 - takeScreenshot: ${OUT}/${THEME}-picker-videos
 - tapOn: "Files"
-- extendedWaitUntil:
-    visible: "Pictures"
-    timeout: 10000
+- scrollUntilVisible:
+    element: "Pictures"
 - takeScreenshot: ${OUT}/${THEME}-picker-files
 - pressKey: Back
 - takeScreenshot: ${OUT}/${THEME}-home-selected

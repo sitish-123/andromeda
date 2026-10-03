@@ -9,10 +9,11 @@
 # and comes back after a reboot; turned off, the notification goes, leaving the app ends presence and returning
 # restores it; `dumpsys battery set level 42` shows as 42% in D-Bus DeviceStatus; a file shared from the Files app
 # through the share target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from
-# the Android notification lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and
+# Activity lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and
 # Display over other apps granted over adb and Stay connected on, a copy in Settings reaches the desktop with no tap,
 # a desktop clip is set on the phone (pasted back in Settings) without echoing, and "Send to desktop" (PROCESS_TEXT)
-# sends a selection; unpairing in the app removes it on the desktop.
+# sends a selection; a PNG copied by another app through a pipe-backed content URI reaches the desktop byte for byte,
+# even after its source is deleted; unpairing in the app removes it on the desktop.
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, mediastore.txt, linkd.log to $OUT
 # (default ./artifacts/link-android). Needs the debug APK (./gradlew :app:assembleDebug) and a running emulator.
 set -euo pipefail
@@ -23,6 +24,7 @@ ADB=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 MAESTRO=${MAESTRO:-$HOME/.maestro/bin/maestro}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/link/android/app/build/outputs/apk/debug/app-debug.apk}
+FIXTURE_APK=${FIXTURE_APK:-$ROOT/link/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
 FLOWS=$ROOT/link/android/maestro
 PACKAGE=org.umbriel.link
 
@@ -45,6 +47,7 @@ notifications() { adb shell dumpsys notification --noredact > "$OUT/notification
 
 [[ $(adb get-state 2>/dev/null) == device ]] || fail "no emulator at $SERIAL"
 [[ -s $APK ]] || fail "no APK at $APK"
+[[ -s $FIXTURE_APK ]] || fail "no fixture APK at $FIXTURE_APK (build :fixture:assembleDebug)"
 
 cat > "$RUNTIME/bus.conf" <<CONF
 <busconfig>
@@ -82,6 +85,7 @@ adb shell cmd statusbar collapse
 adb shell input keyevent KEYCODE_HOME
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
+adb shell pm revoke "$PACKAGE" android.permission.READ_LOGS
 record '{"step":"installed"}'
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/")
@@ -183,7 +187,7 @@ wait_for 20 "the phone stayed connected behind the Files app" disconnected
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 wait_for 20 "the app is not connected before the desktop sends" connected
 python3 "$ROOT/tests/e2e/link_send_files.py" "$ID" "$RUNTIME/e2e-desk.bin" > /dev/null || fail "SendFiles"
-maestro "$FLOWS/accept.yaml"
+maestro "$FLOWS/activity-accept.yaml"
 pending() {
   adb shell content query --uri content://media/external/downloads --projection is_pending \
     --where "\"_display_name='e2e-desk.bin'\"" | grep -o 'is_pending=[0-9]' | cut -d= -f2
@@ -268,6 +272,21 @@ PY
   adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
 }
 fixture_photos
+
+# Another app's image copy must offer image/png, not the text of its content URI. The provider uses a pipe and the
+# source is deleted before the desktop pastes, so the phone must have kept a seekable snapshot while focused.
+adb install -r "$FIXTURE_APK" > /dev/null || fail "installing the clipboard fixture"
+BEFORE=$(clip_offers)
+adb shell am start -W -n org.umbriel.link.fixture/.ImageClipboardActivity > /dev/null
+wait_for 20 "the copied PNG never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
+adb exec-out run-as org.umbriel.link.fixture cat files/clipboard.png > "$RUNTIME/clipboard-source.png"
+adb shell run-as org.umbriel.link.fixture rm files/clipboard.png
+python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" image/png > "$RUNTIME/clipboard-pasted.png" \
+  || fail "PullClipboard for the screenshot"
+cmp -s "$RUNTIME/clipboard-source.png" "$RUNTIME/clipboard-pasted.png" || fail "the clipboard PNG differs"
+record '{"step":"android-image-copy-reaches-desktop","mime":"image/png","pipe_provider":true,"source_deleted":true,"bytes_match":true}'
+
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 wait_for 20 "the app is not connected before picking" connected
 OFFERS=$(grep -c 'member=TransferOffered' "$OUT/signals.txt")

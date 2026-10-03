@@ -11,6 +11,6 @@ appId: org.umbriel.link
     timeout: 20000
 - tapOn: "Allow"
 - extendedWaitUntil:
-    visible: "Connected"
+    visible: "WI-FI · ENCRYPTED"
     timeout: 20000
 - takeScreenshot: ${OUT}/2-connected

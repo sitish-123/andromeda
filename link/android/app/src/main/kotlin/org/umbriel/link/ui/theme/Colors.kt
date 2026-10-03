@@ -31,74 +31,63 @@ data class LinkColors(
     val warning: Color,
     val error: Color,
     val info: Color,
-    /** Light cards carry a 2 dp white rim; dark ones separate by surface alone. */
-    val cardRim: Color,
-    /** Every shadow is this color; only blur and offset differ. */
-    val shadow: Color,
 )
 
 private object Palette {
-    val electricBlue = Color(0xFF00D7FF)
-    val accessibleBlue = Color(0xFF0088BB)
-    val brightenedBlue = Color(0xFF22B8DA)
-    val charcoal = Color(0xFF323232)
-    val stone = Color(0xFFF0F0F0)
-    val darkSurface = Color(0xFF0A0A0A)
-    val white = Color(0xFFFFFFFF)
+    val signal = Color(0xFF00D7FF)
+    val signalOnPaper = Color(0xFF00789C)
+    val ink = Color(0xFF0D1012)
+    val paper = Color(0xFFF3F1EC)
 }
 
 val LightColors = LinkColors(
     dark = false,
-    surfacePrimary = Palette.white,
-    surfaceSecondary = Palette.white,
-    surfaceTertiary = Color(0xFFF5F5F5),
-    surfaceElevated = Palette.white,
-    surfaceInput = Color(0xFFF5F5F5),
-    surfaceOverlay = Color(0x80000000),
-    surfaceHighlight = Color(0x0A000000),
-    textPrimary = Palette.charcoal,
-    textSecondary = Color(0xFF616161),
-    textTertiary = Color(0xFF737373),
-    textInverse = Palette.white,
-    textDisabled = Color(0xFFBDBDBD),
-    accent = Palette.electricBlue,
-    accentText = Palette.accessibleBlue,
-    onAccent = Palette.charcoal,
-    borderPrimary = Color(0xFFE0E0E0),
-    borderSecondary = Palette.stone,
-    divider = Color(0xFFE0E0E0),
-    success = Color(0xFF43A047),
-    warning = Color(0xFFFF9800),
-    error = Color(0xFFE53935),
-    info = Color(0xFF2196F3),
-    cardRim = Palette.white,
-    shadow = Color(0x1A000000),
+    surfacePrimary = Palette.paper,
+    surfaceSecondary = Palette.paper,
+    surfaceTertiary = Color(0xFFEAE7E0),
+    surfaceElevated = Color(0xFFFAF9F6),
+    surfaceInput = Color(0xFFE8E5DE),
+    surfaceOverlay = Color(0x99000000),
+    surfaceHighlight = Color(0x0D000000),
+    textPrimary = Color(0xFF15191B),
+    textSecondary = Color(0xFF555B5E),
+    textTertiary = Color(0xFF7C8184),
+    textInverse = Palette.paper,
+    textDisabled = Color(0xFFB4B3AE),
+    accent = Palette.signalOnPaper,
+    accentText = Palette.signalOnPaper,
+    onAccent = Palette.paper,
+    borderPrimary = Color(0xFFD5D1C8),
+    borderSecondary = Color(0xFFE2DED6),
+    divider = Color(0xFFD5D1C8),
+    success = Color(0xFF2E7D4F),
+    warning = Color(0xFFC77700),
+    error = Color(0xFFC62828),
+    info = Palette.signalOnPaper,
 )
 
 val DarkColors = LinkColors(
     dark = true,
-    surfacePrimary = Palette.darkSurface,
-    surfaceSecondary = Color(0xFF121212),
-    surfaceTertiary = Color(0xFF2A2A2A),
-    surfaceElevated = Color(0xFF1E1E1E),
-    surfaceInput = Color(0xFF1E1E1E),
+    surfacePrimary = Palette.ink,
+    surfaceSecondary = Palette.ink,
+    surfaceTertiary = Color(0xFF161B1E),
+    surfaceElevated = Color(0xFF161A1D),
+    surfaceInput = Color(0xFF161A1D),
     surfaceOverlay = Color(0xB3000000),
-    surfaceHighlight = Color(0x0AFFFFFF),
-    textPrimary = Palette.stone,
-    textSecondary = Color(0xFFBDBDBD),
-    textTertiary = Color(0xFFB0B0B0),
-    textInverse = Palette.charcoal,
-    textDisabled = Color(0xFF757575),
-    accent = Palette.electricBlue,
-    accentText = Palette.brightenedBlue,
-    onAccent = Palette.charcoal,
-    borderPrimary = Color(0xFF333333),
-    borderSecondary = Color(0xFF2A2A2A),
-    divider = Color(0xFF333333),
-    success = Color(0xFF43A047),
-    warning = Color(0xFFFF9800),
-    error = Color(0xFFE53935),
-    info = Color(0xFF2196F3),
-    cardRim = Color.Transparent,
-    shadow = Color(0x66000000),
+    surfaceHighlight = Color(0x0FFFFFFF),
+    textPrimary = Color(0xFFEDEFEF),
+    textSecondary = Color(0xFFA3AAAD),
+    textTertiary = Color(0xFF6E777B),
+    textInverse = Palette.ink,
+    textDisabled = Color(0xFF4A5154),
+    accent = Palette.signal,
+    accentText = Palette.signal,
+    onAccent = Palette.ink,
+    borderPrimary = Color(0xFF262D31),
+    borderSecondary = Color(0xFF1E2427),
+    divider = Color(0xFF262D31),
+    success = Color(0xFF4CC38A),
+    warning = Color(0xFFFFB13B),
+    error = Color(0xFFFF6B6B),
+    info = Palette.signal,
 )

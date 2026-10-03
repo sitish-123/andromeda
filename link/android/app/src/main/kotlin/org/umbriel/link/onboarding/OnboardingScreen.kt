@@ -9,6 +9,16 @@ import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import android.net.Uri
+import android.provider.Settings
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import org.umbriel.link.ui.components.DashboardCard
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
@@ -49,10 +59,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.umbriel.link.R
-import org.umbriel.link.ui.components.ConnectionOrb
 import org.umbriel.link.ui.components.Glyph
 import org.umbriel.link.ui.components.Label
-import org.umbriel.link.ui.components.PageDots
+import org.umbriel.link.ui.components.Readout
+import org.umbriel.link.ui.components.StopTrack
 import org.umbriel.link.ui.components.PillButton
 import org.umbriel.link.ui.components.PillKind
 import org.umbriel.link.ui.components.Screen
@@ -87,11 +97,28 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, sta
     }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
     val last = pager.currentPage == PAGES.lastIndex
+    // A grant given on its page moves on by itself, once the user has seen it turn granted.
+    val currentGranted = PAGES[pager.currentPage].grant in state.granted
+    var seenUngranted by remember(pager.currentPage) { mutableStateOf(!currentGranted) }
+    LaunchedEffect(pager.currentPage, currentGranted) {
+        if (!currentGranted) seenUngranted = true
+        else if (seenUngranted && !last) {
+            delay(ADVANCE_MS)
+            pager.animateScrollToPage(pager.currentPage + 1)
+        }
+    }
     Screen(title = stringResource(R.string.setup_title), onBack = onDone) {
+        StopTrack(
+            PAGES.size, pager.currentPage, { PAGES[it].grant in state.granted },
+            { scope.launch { pager.animateScrollToPage(it) } },
+            Modifier.padding(horizontal = Space.s8),
+        )
         HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()) { index ->
             val page = PAGES[index]
-            PageContent(page, granted = page.grant in state.granted, extra = {
-                if (page.grant == Grant.AutoClipboard && page.grant !in state.granted) AdbStep(viewModel)
+            PageContent(page, index, granted = page.grant in state.granted, extra = {
+                if (page.grant == Grant.AutoClipboard && page.grant !in state.granted) {
+                    ClipboardSteps(viewModel) { viewModel.settings(Grant.AutoClipboard, mirrorSettings)?.let(context::startActivity) }
+                }
             }) {
                 val permissions = viewModel.permissions(page.grant)
                 if (permissions.isNotEmpty()) request.launch(permissions) else viewModel.settings(page.grant, mirrorSettings)?.let(context::startActivity)
@@ -101,7 +128,10 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, sta
             Modifier.fillMaxWidth().navigationBarsPadding().padding(Space.page),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PageDots(PAGES.size, pager.currentPage, Modifier.weight(1f))
+            Readout(
+                stringResource(R.string.onboarding_count, state.granted.count { grant -> PAGES.any { it.grant == grant } }, PAGES.size),
+                modifier = Modifier.weight(1f),
+            )
             PillButton(
                 stringResource(if (last) R.string.onboarding_done else R.string.onboarding_next),
                 onClick = { if (last) onDone() else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
@@ -112,68 +142,95 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, mirrorSettings: Intent, sta
 }
 
 @Composable
-private fun PageContent(page: Page, granted: Boolean, extra: @Composable () -> Unit, onAllow: () -> Unit) {
+private fun PageContent(page: Page, index: Int, granted: Boolean, extra: @Composable () -> Unit, onAllow: () -> Unit) {
     val colors = LinkTheme.colors
-    // Centred when it fits; a page with more to say, like the clipboard one, scrolls instead of clipping its button.
+    // Set low on the page when it fits; a page with more to say, like the clipboard one, scrolls instead of clipping.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
                 .padding(horizontal = Space.page, vertical = Space.s16),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Space.s20, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(Space.s16, Alignment.CenterVertically),
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                ConnectionOrb(active = granted, size = if (page.grant == Grant.AutoClipboard) 120.dp else 180.dp)
-                Box(Modifier.size(56.dp).clip(Radius.pill).background(colors.surfacePrimary.copy(alpha = 0.85f)), contentAlignment = Alignment.Center) {
-                    Glyph(if (granted) Icons.Filled.Check else page.icon, colors.accentText, 28.dp)
-                }
-            }
-            Label(stringResource(page.title), LinkTheme.type.displaySmall, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            Label(
-                stringResource(page.body),
-                LinkTheme.type.bodyLarge,
-                colors.textSecondary,
-                Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
+            Box(
+                Modifier.size(72.dp).clip(Radius.pill)
+                    .background(if (granted) colors.accent else colors.surfacePrimary)
+                    .border(1.5.dp, if (granted) colors.accent else colors.borderPrimary, Radius.pill),
+                contentAlignment = Alignment.Center,
+            ) { Glyph(if (granted) Icons.Filled.Check else page.icon, if (granted) colors.onAccent else colors.textPrimary, 30.dp) }
+            Readout(
+                stringResource(if (granted) R.string.onboarding_step_granted else R.string.onboarding_step, index + 1, PAGES.size),
+                if (granted) colors.accentText else colors.textTertiary,
+                Modifier.padding(top = Space.s8),
             )
-            if (granted) {
-                PillButton(stringResource(R.string.onboarding_granted), onClick = {}, kind = PillKind.Tonal, icon = Icons.Filled.Check, enabled = false)
-            } else if (page.grant != Grant.AutoClipboard) {
-                PillButton(stringResource(R.string.onboarding_allow), onAllow)
+            Label(stringResource(page.title), LinkTheme.type.displayLarge, modifier = Modifier.fillMaxWidth())
+            Label(stringResource(page.body), LinkTheme.type.bodyLarge, colors.textSecondary, Modifier.fillMaxWidth())
+            if (granted) return@Column
+            if (page.grant != Grant.AutoClipboard) {
+                PillButton(stringResource(R.string.onboarding_allow), onAllow, Modifier.padding(top = Space.s8).fillMaxWidth())
             } else {
                 extra()
-                PillButton(stringResource(R.string.onboarding_clipboard_overlay), onAllow, kind = PillKind.Tonal)
             }
         }
     }
 }
 
-/** Where each half of automatic clipboard stands, and the adb command, copyable, for the half a computer gives. */
+private const val ADVANCE_MS = 700L
+
+/**
+ * Automatic clipboard's two grants as two steps, each with its own way to give it: the overlay in Settings, and log
+ * access from a computer. Rechecked on every return to the app, since both are given outside it.
+ */
 @Composable
-private fun AdbStep(viewModel: OnboardingViewModel) {
+private fun ClipboardSteps(viewModel: OnboardingViewModel, onOverlay: () -> Unit) {
     val colors = LinkTheme.colors
     val context = LocalContext.current
     val command = viewModel.adbCommand()
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.s8)) {
-        Step(stringResource(R.string.onboarding_clipboard_step_overlay), viewModel.overlayAllowed())
-        Step(stringResource(R.string.onboarding_clipboard_step_logs), viewModel.logsAllowed())
-        Label(
-            command,
-            LinkTheme.type.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-            colors.textPrimary,
-            Modifier.fillMaxWidth().clip(Radius.list).background(colors.surfaceTertiary).padding(Space.s12),
-        )
-        PillButton(stringResource(R.string.onboarding_clipboard_copy), onClick = {
-            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("adb", command))
-        }, modifier = Modifier.fillMaxWidth(), kind = PillKind.Quiet)
+    var overlay by remember { mutableStateOf(viewModel.overlayAllowed()) }
+    var logs by remember { mutableStateOf(viewModel.logsAllowed()) }
+    LifecycleResumeEffect(Unit) {
+        overlay = viewModel.overlayAllowed()
+        logs = viewModel.logsAllowed()
+        onPauseOrDispose {}
+    }
+    DashboardCard(Modifier.fillMaxWidth()) {
+        Step(stringResource(R.string.onboarding_clipboard_step_overlay), overlay) {
+            PillButton(stringResource(R.string.onboarding_clipboard_open), onOverlay)
+        }
+        if (!overlay) {
+            Label(stringResource(R.string.onboarding_clipboard_restricted), LinkTheme.type.bodySmall, colors.textSecondary)
+            PillButton(stringResource(R.string.onboarding_clipboard_app_info), {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }, kind = PillKind.Quiet)
+        }
+        Step(stringResource(R.string.onboarding_clipboard_step_logs), logs) {}
+        if (!logs) {
+            Label(
+                command,
+                LinkTheme.type.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                colors.textPrimary,
+                Modifier.fillMaxWidth().clip(Radius.list).background(colors.surfacePrimary).padding(Space.s12),
+            )
+            PillButton(stringResource(R.string.onboarding_clipboard_copy), onClick = {
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("adb", command))
+            }, kind = PillKind.Quiet)
+        }
     }
 }
 
+/** One grant: done or not, and while not, the [action] that gives it. */
 @Composable
-private fun Step(label: String, done: Boolean) {
+private fun Step(label: String, done: Boolean, action: @Composable () -> Unit) {
     val colors = LinkTheme.colors
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
-        Glyph(if (done) Icons.Filled.Check else Icons.Filled.Warning, if (done) colors.success else colors.warning, Size.iconSmall + 2.dp)
-        Label(label, LinkTheme.type.titleMedium)
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = Space.s8),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.s12),
+    ) {
+        Glyph(if (done) Icons.Filled.Check else Icons.Filled.Warning, if (done) colors.success else colors.warning, Size.icon - 4.dp)
+        Label(label, LinkTheme.type.titleMedium, modifier = Modifier.weight(1f))
+        if (!done) action()
     }
 }

@@ -41,7 +41,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.rotate as turned
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,7 +48,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import org.umbriel.link.ui.theme.Elevation
 import org.umbriel.link.ui.theme.LinkTheme
 import org.umbriel.link.ui.theme.Motion
 import org.umbriel.link.ui.theme.Radius
@@ -102,14 +100,13 @@ fun PillButton(
 fun SlidingPillControl(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val colors = LinkTheme.colors
     BoxWithConstraints(
-        modifier.fillMaxWidth().height(Size.pill).clip(Radius.pill).background(colors.surfaceTertiary).padding(Space.s4),
+        modifier.fillMaxWidth().height(Size.pill).clip(Radius.pill).border(1.dp, colors.borderPrimary, Radius.pill).padding(Space.s4),
     ) {
         val segment = maxWidth / options.size
         val x by animateDpAsState(segment * selected, tween(Motion.MORPH, easing = Motion.smoothEnter), label = "segment")
         Box(
             Modifier.offset(x = x).width(segment).fillMaxHeight()
-                .softShadow(Radius.pill, Elevation.Small, colors.shadow, colors.dark)
-                .clip(Radius.pill).background(if (colors.dark) colors.surfaceElevated else colors.surfacePrimary),
+                .clip(Radius.pill).background(colors.surfacePrimary).border(1.dp, colors.borderPrimary, Radius.pill),
         )
         Row(Modifier.fillMaxWidth().fillMaxHeight()) {
             options.forEachIndexed { index, option ->
@@ -130,23 +127,25 @@ fun SlidingPillControl(options: List<String>, selected: Int, onSelect: (Int) -> 
 @Composable
 fun PillSwitch(checked: Boolean, modifier: Modifier = Modifier) {
     val colors = LinkTheme.colors
-    val track by animateColorAsState(if (checked) colors.accent else colors.surfaceTertiary, tween(Motion.FAST), label = "track")
+    val track by animateColorAsState(if (checked) colors.accent else colors.surfacePrimary, tween(Motion.FAST), label = "track")
     val knob by animateDpAsState(if (checked) 20.dp else 0.dp, tween(Motion.MEDIUM_FAST, easing = Motion.smoothEnter), label = "knob")
-    Box(modifier.width(48.dp).height(28.dp).clip(Radius.pill).background(track).padding(Space.s4)) {
+    Box(
+        modifier.width(48.dp).height(28.dp).clip(Radius.pill).background(track)
+            .border(1.dp, if (checked) colors.accent else colors.borderPrimary, Radius.pill).padding(Space.s4),
+    ) {
         Box(
             Modifier.offset(x = knob).size(20.dp)
-                .softShadow(Radius.pill, Elevation.Small, colors.shadow, colors.dark)
-                .clip(Radius.pill).background(if (checked) colors.onAccent else colors.surfacePrimary),
+                .clip(Radius.pill).background(if (checked) colors.onAccent else colors.textTertiary),
         )
     }
 }
 
 /** A title, an optional line under it, and a switch; the whole row toggles. */
 @Composable
-fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String? = null, icon: ImageVector? = null) {
+fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, subtitle: String? = null, icon: ImageVector? = null, enabled: Boolean = true) {
     Row(
         modifier = modifier.fillMaxWidth().heightIn(min = Size.touchLarge).clip(Radius.list)
-            .toggleable(checked, role = Role.Switch, onValueChange = onChange)
+            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
             .padding(vertical = Space.s8),
         horizontalArrangement = Arrangement.spacedBy(Space.s12),
         verticalAlignment = Alignment.CenterVertically,
@@ -179,19 +178,15 @@ fun NavRow(title: String, subtitle: String?, icon: ImageVector, onClick: () -> U
     }
 }
 
-/** A 40 dp rounded square holding a glyph, the design system's icon container. */
+/** A 36 dp disc holding a glyph, lifted off its group by the page color. */
 @Composable
-fun IconChip(icon: ImageVector, tint: Color = LinkTheme.colors.accentText, fill: Color = LinkTheme.colors.accent.copy(alpha = 0.14f)) {
-    Box(Modifier.size(Size.iconContainer).clip(RoundedSquare).background(fill), contentAlignment = Alignment.Center) {
-        Glyph(icon, tint, Size.icon - 2.dp)
+fun IconChip(icon: ImageVector, tint: Color = LinkTheme.colors.textPrimary, fill: Color = LinkTheme.colors.surfacePrimary) {
+    Box(Modifier.size(36.dp).clip(Radius.pill).background(fill), contentAlignment = Alignment.Center) {
+        Glyph(icon, tint, Size.icon - 4.dp)
     }
 }
 
-private val RoundedSquare = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-
-/**
- * The connection orb: an accent sphere that breathes while connected or working, a still grey one otherwise.
- */
+/** The connection node: a dot in a ring that sends out a ripple while connected or working, still and grey otherwise. */
 @Composable
 fun ConnectionOrb(active: Boolean, modifier: Modifier = Modifier, size: Dp = 64.dp, working: Boolean = false) {
     val colors = LinkTheme.colors
@@ -206,14 +201,8 @@ fun ConnectionOrb(active: Boolean, modifier: Modifier = Modifier, size: Dp = 64.
         if (lit) {
             drawCircle(core.copy(alpha = 0.35f * (1f - phase)), radius * (0.62f + 0.38f * phase))
         }
-        drawCircle(
-            Brush.radialGradient(
-                listOf(Color.White.copy(alpha = if (lit) 0.85f else 0.4f), core, core.copy(alpha = 0.85f)),
-                center = Offset(center.x - radius * 0.18f, center.y - radius * 0.22f),
-                radius = radius * 0.62f,
-            ),
-            radius * 0.5f,
-        )
+        drawCircle(core, radius * 0.22f)
+        drawCircle(core, radius * 0.5f, style = androidx.compose.ui.graphics.drawscope.Stroke(radius * 0.04f))
         if (working) {
             turned(spin) {
                 drawArc(
@@ -233,19 +222,7 @@ fun ConnectionOrb(active: Boolean, modifier: Modifier = Modifier, size: Dp = 64.
 /** A small uppercase eyebrow over a section. */
 @Composable
 fun Eyebrow(text: String, modifier: Modifier = Modifier) {
-    Label(text.uppercase(), LinkTheme.type.labelMedium, LinkTheme.colors.textTertiary, modifier.padding(bottom = Space.s8), maxLines = 1)
-}
-
-/** Dots for a paged flow: the current page is a wider accent pill. */
-@Composable
-fun PageDots(count: Int, current: Int, modifier: Modifier = Modifier) {
-    val colors = LinkTheme.colors
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(Space.s6), verticalAlignment = Alignment.CenterVertically) {
-        repeat(count) { index ->
-            val width by animateDpAsState(if (index == current) 24.dp else 8.dp, tween(Motion.NORMAL, easing = Motion.smoothEnter), label = "dot")
-            Box(Modifier.height(8.dp).width(width).clip(Radius.pill).background(if (index == current) colors.accent else colors.surfaceTertiary))
-        }
-    }
+    Label(text.uppercase(), LinkTheme.type.mono, LinkTheme.colors.textTertiary, modifier.padding(bottom = Space.s8), maxLines = 1)
 }
 
 /** Centered text blocks for empty states and explanations. */

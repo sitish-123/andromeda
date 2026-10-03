@@ -11,6 +11,10 @@ appId: org.umbriel.link
 - tapOn:
     text: "Allow"
     optional: true
+# Clipboard watching asks for device logs, which this run keeps revoked.
+- tapOn:
+    text: "Don.t allow"
+    optional: true
 - extendedWaitUntil:
-    visible: "Connected"
+    visible: "WI-FI · ENCRYPTED"
     timeout: 20000

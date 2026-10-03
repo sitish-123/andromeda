@@ -10,6 +10,14 @@
             android:name=".MessageActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".ImageClipboardActivity"
+            android:exported="true" />
+        <provider
+            android:name=".ImageClipboardProvider"
+            android:authorities="org.umbriel.link.fixture.clip"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <receiver
             android:name=".ReplyReceiver"
             android:exported="false" />

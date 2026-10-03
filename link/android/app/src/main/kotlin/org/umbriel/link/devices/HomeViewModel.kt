@@ -1,5 +1,6 @@
 package org.umbriel.link.devices
 
+import android.content.ClipData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.umbriel.link.core.data.LinkRepository
+import org.umbriel.link.clipboard.ClipboardSync
 import org.umbriel.link.core.domain.Desktop
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.linkFailure
@@ -23,10 +25,12 @@ data class HomeState(
     val ringing: Set<String> = emptySet(),
     val mirrorGranted: Boolean = false,
     val refreshing: Boolean = false,
+    val selectedDesktopId: String? = null,
+    val activeTransfers: Int = 0,
 ) {
     /** The desktop the hero shows: a connected one first. */
-    val primary: Desktop? get() = desktops.firstOrNull { it.connected } ?: desktops.firstOrNull()
-    val others: List<Desktop> get() = desktops.filter { it != primary }
+    val primary: Desktop? get() = desktops.firstOrNull { it.id == selectedDesktopId }
+        ?: desktops.firstOrNull { it.connected } ?: desktops.firstOrNull()
 }
 
 sealed interface HomeMessage {
@@ -42,8 +46,10 @@ class HomeViewModel(
     private val repository: LinkRepository,
     private val presence: Presence,
     mirror: NotificationMirror,
+    private val clipboard: ClipboardSync,
 ) : ViewModel() {
     private val refreshing = MutableStateFlow(false)
+    private val selectedDesktopId = MutableStateFlow<String?>(null)
     private val _message = MutableStateFlow<HomeMessage?>(null)
 
     val state: StateFlow<HomeState> = combine(
@@ -53,6 +59,8 @@ class HomeViewModel(
         mirror.granted,
         refreshing,
     ) { desktops, stay, ringing, granted, busy -> HomeState(desktops, stay, ringing, granted, busy) }
+        .combine(selectedDesktopId) { state, id -> state.copy(selectedDesktopId = id) }
+        .combine(repository.activeTransfers) { state, transfers -> state.copy(activeTransfers = transfers.size) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeState())
 
     /** The one-line message the screen shows, until [messageShown]. */
@@ -74,18 +82,36 @@ class HomeViewModel(
 
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
 
+    fun selectDesktop(desktop: Desktop) { selectedDesktopId.value = desktop.id }
+
+    fun connect(desktop: Desktop) {
+        if (refreshing.value) return
+        refreshing.value = true
+        viewModelScope.launch {
+            try {
+                repository.connect(desktop.id).exceptionOrNull()?.let {
+                    _message.value = HomeMessage.Failed(it.linkFailure())
+                }
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
+
     fun notificationsAllowed() = presence.notificationsAllowed()
 
     fun ring(desktop: Desktop, on: Boolean) = act { repository.ringDesktop(desktop.id, on) }
 
-    /** Sends what the clipboard holds, as a link when it is one; the app may read it only while in front. */
-    fun sendClipboard(desktop: Desktop, text: String?) {
-        if (text.isNullOrBlank()) {
+    /** Offers the current clipboard content; the app may read it only while in front. */
+    fun sendClipboard(desktop: Desktop, clip: ClipData?) {
+        if (clip == null || clip.itemCount == 0 ||
+            (clip.getItemAt(0).uri == null && clip.getItemAt(0).text.isNullOrBlank())
+        ) {
             _message.value = HomeMessage.ClipboardEmpty
             return
         }
         // A clipboard offer, not a share: the desktop puts it on its own clipboard instead of in a notification.
-        act(HomeMessage.ClipboardSent(desktop.name)) { repository.offerClipText(text) }
+        act(HomeMessage.ClipboardSent(desktop.name)) { clipboard.offer(clip) }
     }
 
     fun sendFiles(desktop: Desktop, uris: List<String>) {

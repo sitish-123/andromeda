@@ -39,7 +39,7 @@ def pull(device, clip, mime):
     call("PullClipboard", "(stsh)", (device, int(clip), mime, index), fds, "(t)")
     fds = None  # closes the list's copy of the write end, so the reader sees the end
     reader.join()
-    sys.stdout.write(chunks[0].decode())
+    sys.stdout.buffer.write(chunks[0])
 
 
 if __name__ == "__main__":

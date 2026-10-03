@@ -54,8 +54,9 @@ python3 "$ROOT/tests/e2e/mpris_test_player.py" "$RUNTIME/player-calls.txt" &
 adb shell cmd statusbar collapse
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
+adb shell pm grant "$PACKAGE" android.permission.CAMERA
+adb shell pm revoke "$PACKAGE" android.permission.READ_LOGS
 adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
-fixture_photos
 
 # Fixture photos for the in-app picker: two distinct PNGs in Pictures, scanned into MediaStore, with the media grants
 # and All files access a user would give.
@@ -77,6 +78,7 @@ PY
   adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_VIDEO
   adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
 }
+fixture_photos
 
 pair() {
   local uri

@@ -3,6 +3,7 @@ appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
+- tapOn: "Home tab"
 - scrollUntilVisible:
     element: "Photos"
     direction: UP

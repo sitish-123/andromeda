@@ -1,0 +1,19 @@
+appId: org.umbriel.link
+---
+- launchApp:
+    stopApp: false
+- tapOn: "Settings tab"
+- scrollUntilVisible:
+    element: "Appearance"
+- tapOn: "Dark"
+- takeScreenshot: ${OUT}/appearance-dark
+- launchApp:
+    stopApp: true
+- tapOn: "Settings tab"
+- scrollUntilVisible:
+    element: "Appearance"
+- takeScreenshot: ${OUT}/appearance-dark-after-restart
+- tapOn: "Light"
+- takeScreenshot: ${OUT}/appearance-light
+- tapOn: "System"
+- tapOn: "Home tab"

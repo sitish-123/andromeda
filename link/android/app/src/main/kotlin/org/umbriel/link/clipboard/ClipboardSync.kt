@@ -37,6 +37,20 @@ class ClipboardSync(
     /** Whether [text] is what a desktop just set, so sending it would echo. */
     fun isEcho(text: String): Boolean = hash(text) == lastApplied
 
+    /** Sends the original content, not a URI coerced to text; our lazy desktop URIs must not be echoed back. */
+    suspend fun offer(clip: ClipData): Result<Unit> {
+        val item = clip.getItemAt(0)
+        item.uri?.let { uri ->
+            if (ClipProvider.owns(uri)) return Result.success(Unit)
+            val mime = (0 until clip.description.mimeTypeCount)
+                .map { clip.description.getMimeType(it) }.firstOrNull { '*' !in it }
+            return repository.offerClipUri(uri, mime)
+        }
+        val text = item.coerceToText(context)?.toString()
+        if (text.isNullOrEmpty() || isEcho(text)) return Result.success(Unit)
+        return repository.offerClipText(text)
+    }
+
     /** The clipboard changed here; a desktop clip is no longer there to clear. */
     fun changedLocally() {
         clear?.cancel()

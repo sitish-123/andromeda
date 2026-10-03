@@ -18,9 +18,10 @@ val SourceSans = FontFamily(
     Font(R.font.source_sans_3_bold, FontWeight.ExtraBold),
 )
 
-/** The 15 type roles: a small phone scale where body text is 14 sp. */
+/** The type roles: a small phone scale where body text is 14 sp. */
 @Immutable
 data class LinkType(
+    val hero: TextStyle = role(40, FontWeight.Bold, 1.02f, -1.6f),
     val displayLarge: TextStyle = role(32, FontWeight.ExtraBold, 1.10f, -1.0f),
     val displayMedium: TextStyle = role(28, FontWeight.Bold, 1.15f, -0.5f),
     val displaySmall: TextStyle = role(24, FontWeight.Bold, 1.20f, -0.5f),
@@ -36,6 +37,8 @@ data class LinkType(
     val labelLarge: TextStyle = role(12, FontWeight.SemiBold, 1.30f, 0.2f),
     val labelMedium: TextStyle = role(11, FontWeight.SemiBold, 1.30f, 0.3f),
     val labelSmall: TextStyle = role(10, FontWeight.Medium, 1.30f, 0.4f),
+    /** Readouts: transport, counts, tab names. */
+    val mono: TextStyle = role(11, FontWeight.Medium, 1.30f, 1.2f).copy(fontFamily = FontFamily.Monospace),
 )
 
 /** `tracking` is in px at the role's size, as the tokens give it; Compose wants em. */

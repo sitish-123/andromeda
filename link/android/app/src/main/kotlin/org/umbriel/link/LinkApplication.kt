@@ -25,6 +25,7 @@ import org.umbriel.link.notifications.Channels
 import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.notifications.ShareNotifier
 import org.umbriel.link.notifications.TransferNotifier
+import org.umbriel.link.presence.BluetoothBonding
 import org.umbriel.link.presence.Presence
 import org.umbriel.link.presence.StatusReporter
 import org.umbriel.link.transfer.TransferService
@@ -57,6 +58,7 @@ class AppContainer(val application: Application) {
     val ringer = Ringer(application, repository, scope)
     val screen = ScreenMirror(application, repository, scope)
     val calls = Calls(application, repository, scope)
+    private val bonding = BluetoothBonding(application, repository, scope)
     val files = PhoneFiles(application)
 
     fun start() {
@@ -69,6 +71,7 @@ class AppContainer(val application: Application) {
         ringer.start()
         screen.start()
         calls.start()
+        bonding.start()
         // All files access is granted in Settings, so the roots are rechecked whenever the app comes back.
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             LifecycleEventObserver { _, event ->

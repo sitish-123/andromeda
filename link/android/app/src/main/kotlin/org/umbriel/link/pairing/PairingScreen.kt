@@ -2,7 +2,6 @@ package org.umbriel.link.pairing
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import org.umbriel.link.ui.components.PillKind
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -47,22 +57,37 @@ import org.umbriel.link.ui.theme.Motion
 import org.umbriel.link.ui.theme.Radius
 import org.umbriel.link.ui.theme.Space
 
-/** Pairing: the QR link's confirmation, or a 6-digit code typed into pill cells, and the attempt as a working orb. */
+/**
+ * Pairing: the camera first, reading the desktop's QR code and pairing at once; the 6-digit code one tap away; and a
+ * QR link opened from outside the app shown for confirmation, since nobody here chose to scan it.
+ */
 @Composable
 fun PairingScreen(viewModel: PairingViewModel, onBack: () -> Unit, onPaired: (Desktop) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var typing by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.paired.collect(onPaired) }
     Screen(title = stringResource(R.string.pair_title), onBack = onBack) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.page),
-            verticalArrangement = Arrangement.spacedBy(Space.s24),
+            verticalArrangement = Arrangement.spacedBy(Space.s20),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ConnectionOrb(active = state.link != null, working = state.busy, size = 140.dp, modifier = Modifier.padding(top = Space.s16))
-            if (state.busy) {
-                Label(stringResource(R.string.pairing_progress), LinkTheme.type.titleLarge, LinkTheme.colors.accentText)
+            when {
+                state.busy -> {
+                    ConnectionOrb(active = true, working = true, size = 140.dp, modifier = Modifier.padding(top = Space.s32))
+                    Label(stringResource(R.string.pairing_progress), LinkTheme.type.headlineLarge, LinkTheme.colors.accentText)
+                }
+                state.link != null -> LinkConfirmation(state, viewModel)
+                typing -> {
+                    CodeEntry(state, viewModel)
+                    PillButton(stringResource(R.string.scan_action), { typing = false }, kind = PillKind.Quiet)
+                }
+                else -> {
+                    // A failed attempt re-arms the scanner, which reports one code per composition.
+                    key(state.failure) { Scan(viewModel::pairScanned) }
+                    PillButton(stringResource(R.string.scan_code_instead), { typing = true }, kind = PillKind.Quiet)
+                }
             }
-            if (state.link != null) LinkConfirmation(state, viewModel) else CodeEntry(state, viewModel)
             state.failure?.let {
                 Label(
                     it.text(LocalContext.current.resources),
@@ -74,6 +99,31 @@ fun PairingScreen(viewModel: PairingViewModel, onBack: () -> Unit, onPaired: (De
             }
         }
     }
+}
+
+@Composable
+private fun Scan(onPairingUri: (String) -> Unit) {
+    val context = LocalContext.current
+    val colors = LinkTheme.colors
+    var granted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    LaunchedEffect(Unit) { if (!granted) ask.launch(Manifest.permission.CAMERA) }
+    Box(
+        Modifier.padding(top = Space.s8).fillMaxWidth().aspectRatio(1f).clip(Radius.hero).border(1.dp, colors.borderPrimary, Radius.hero),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (granted) {
+            QrScanner(onPairingUri, Modifier.fillMaxSize())
+        } else {
+            Column(Modifier.padding(Space.s24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.s16)) {
+                Label(stringResource(R.string.scan_camera_needed), LinkTheme.type.bodyLarge, colors.textSecondary, textAlign = TextAlign.Center)
+                PillButton(stringResource(R.string.scan_camera_allow), { ask.launch(Manifest.permission.CAMERA) })
+            }
+        }
+    }
+    Label(stringResource(R.string.scan_hint), LinkTheme.type.bodyLarge, colors.textSecondary, Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
 }
 
 @Composable
@@ -128,14 +178,13 @@ private fun CodeCells(code: String, onChange: (String) -> Unit, onDone: () -> Un
                         val filled = index < code.length
                         val current = index == code.length
                         val border by animateColorAsState(
-                            if (current) colors.accent else colors.borderSecondary,
+                            if (current) colors.accent else if (filled) colors.textPrimary else colors.borderPrimary,
                             tween(Motion.FAST),
                             label = "cell",
                         )
                         Box(
-                            Modifier.weight(1f).aspectRatio(0.72f).clip(Radius.pill)
-                                .background(if (filled) colors.accent.copy(alpha = 0.16f) else colors.surfaceInput)
-                                .border(2.dp, border, Radius.pill),
+                            Modifier.weight(1f).aspectRatio(0.72f).clip(Radius.list)
+                                .border(if (current) 2.dp else 1.dp, border, Radius.list),
                             contentAlignment = Alignment.Center,
                         ) {
                             Label(code.getOrNull(index)?.toString().orEmpty(), LinkTheme.type.displayMedium)

@@ -2,7 +2,6 @@ package org.umbriel.link.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
@@ -23,7 +22,7 @@ object LinkTheme {
 }
 
 @Composable
-fun LinkTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+fun LinkTheme(dark: Boolean = preferredDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (dark) DarkColors else LightColors
     val view = LocalView.current
     if (!view.isInEditMode) {

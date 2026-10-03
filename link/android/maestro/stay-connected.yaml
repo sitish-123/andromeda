@@ -1,10 +1,14 @@
-# Turns "Stay connected" to ${STAY} from the Home screen, where it sits below the desktop's actions.
+# Toggles "Stay connected" in Settings and returns to Home.
 appId: org.umbriel.link
 ---
 - launchApp:
     stopApp: false
+- tapOn: "Settings tab"
 - scrollUntilVisible:
     element: "Stay connected"
 - tapOn:
     text: "Stay connected"
 - takeScreenshot: ${OUT}/stay-connected-${STAY}
+- tapOn:
+    text: "Home tab"
+    optional: true

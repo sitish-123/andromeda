@@ -45,15 +45,6 @@ object Size {
     val orb = 56.dp
     val pill = 48.dp
     val chip = 32.dp
-    val cardRim = 2.dp
-}
-
-/** Blur and offset of each shadow; the color comes from [LinkColors.shadow]. */
-enum class Elevation(val blur: Float, val lightOffset: Float, val darkOffset: Float, val darkBlur: Float) {
-    Small(4f, 2f, 2f, 4f),
-    Medium(12f, 6f, 6f, 12f),
-    SoftLift(12f, 4f, 8f, 14f),
-    SoftLiftElevated(16f, 6f, 10f, 20f),
 }
 
 /** Durations in ms and curves the design system uses; nothing slower than 500 ms. */
