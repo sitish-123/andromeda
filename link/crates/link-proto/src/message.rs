@@ -668,6 +668,61 @@ pub struct Contacts {
     pub refused: Option<MessagesRefusal>,
 }
 
+/// Texts per `texts` page, so a page of the longest fits a control frame.
+pub const MAX_TEXTS_PAGE: usize = 16;
+/// Bytes of a text's body; the phone cuts longer ones when listing.
+pub const MAX_TEXT_BODY: usize = 2048;
+
+/// Asks for a page of the phone's texts, newest first; answered by `texts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextsList {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u32>,
+}
+
+/// One text message; `date` in Unix milliseconds, `sent` for one this phone sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Text {
+    pub id: u64,
+    pub thread: u64,
+    pub address: String,
+    pub body: String,
+    pub date: u64,
+    pub sent: bool,
+}
+
+/// One page of texts; `next` is the cursor for the rest. With `refused`, no texts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Texts {
+    pub req: u64,
+    pub texts: Vec<Text>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<MessagesRefusal>,
+}
+
+/// Asks the phone to send a text; answered by `text-sent` once Android reports it sent or failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextSend {
+    pub req: u64,
+    pub to: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextSent {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<MessagesRefusal>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CallState {
@@ -1062,6 +1117,12 @@ pub enum Message {
     Contacts(Contacts),
     /// The phone's contacts changed; a desktop that keeps them asks again.
     ContactsChanged,
+    TextsList(TextsList),
+    Texts(Texts),
+    /// The phone's texts changed; a desktop that keeps them asks again.
+    TextsChanged,
+    TextSend(TextSend),
+    TextSent(TextSent),
 }
 
 impl Message {
@@ -1119,6 +1180,11 @@ impl Message {
             Self::ContactsList(_) => "contacts-list",
             Self::Contacts(_) => "contacts",
             Self::ContactsChanged => "contacts-changed",
+            Self::TextsList(_) => "texts-list",
+            Self::Texts(_) => "texts",
+            Self::TextsChanged => "texts-changed",
+            Self::TextSend(_) => "text-send",
+            Self::TextSent(_) => "text-sent",
         }
     }
 
@@ -1131,7 +1197,8 @@ impl Message {
             | Self::HotspotRequest
             | Self::MirrorRequest
             | Self::MirrorKeyframe
-            | Self::ContactsChanged => Value::serialized(&Empty {}),
+            | Self::ContactsChanged
+            | Self::TextsChanged => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
@@ -1174,6 +1241,10 @@ impl Message {
             Self::FsThumb(body) => Value::serialized(body),
             Self::ContactsList(body) => Value::serialized(body),
             Self::Contacts(body) => Value::serialized(body),
+            Self::TextsList(body) => Value::serialized(body),
+            Self::Texts(body) => Value::serialized(body),
+            Self::TextSend(body) => Value::serialized(body),
+            Self::TextSent(body) => Value::serialized(body),
         }
     }
 
@@ -1246,6 +1317,14 @@ impl Message {
                 body.deserialized::<Empty>()?;
                 Self::ContactsChanged
             }
+            "texts-list" => Self::TextsList(body.deserialized()?),
+            "texts" => Self::Texts(body.deserialized()?),
+            "texts-changed" => {
+                body.deserialized::<Empty>()?;
+                Self::TextsChanged
+            }
+            "text-send" => Self::TextSend(body.deserialized()?),
+            "text-sent" => Self::TextSent(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -1272,7 +1351,10 @@ impl Message {
             | Self::FileData(_)
             | Self::FsError(_)
             | Self::ContactsList(_)
-            | Self::ContactsChanged => true,
+            | Self::ContactsChanged
+            | Self::TextsList(_)
+            | Self::TextsChanged
+            | Self::TextSent(_) => true,
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
@@ -1325,6 +1407,15 @@ impl Message {
                             && contact.numbers.iter().all(|number| sized(number, 1, MAX_NUMBER_LEN))
                     })
             }
+            Self::Texts(page) => {
+                page.texts.len() <= MAX_TEXTS_PAGE
+                    && (page.refused.is_none() || page.texts.is_empty())
+                    && page
+                        .texts
+                        .iter()
+                        .all(|text| sized(&text.address, 1, MAX_NUMBER_LEN) && text.body.len() <= MAX_TEXT_BODY)
+            }
+            Self::TextSend(send) => sized(&send.to, 1, MAX_NUMBER_LEN) && sized(&send.body, 1, MAX_TEXT_BODY),
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

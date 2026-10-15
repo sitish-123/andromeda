@@ -65,6 +65,9 @@ struct Cli {
     /// A JSON array of `{"name", "numbers"}`, the contacts a desktop with the messages switch on sees.
     #[arg(long)]
     contacts: Option<PathBuf>,
+    /// A JSON array of texts, newest first, that a desktop with the messages switch on sees; sent texts go into it.
+    #[arg(long)]
+    texts: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -89,7 +92,7 @@ enum Command {
     },
     /// Stays present with the paired desktop, as the app does in the foreground: keep-alive, redial with backoff.
     /// Prints every event as a JSON line; each stdin line `<text|link> <text>` is shared with the desktop.
-    /// Other stdin lines: `send <path>...`, `accept <transfer>`, `decline <transfer>`, `cancel <transfer>`, `contacts-changed`.
+    /// Other stdin lines: `send <path>...`, `accept <transfer>`, `decline <transfer>`, `cancel <transfer>`, `contacts-changed`, `texts-changed`.
     Hold {
         /// Stop after this long; otherwise at SIGTERM or SIGINT.
         #[arg(long)]
@@ -203,8 +206,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 }
                 None => None,
             };
-            let messages =
-                cli.contacts.map(|file| Arc::new(library::Book(file)) as Arc<dyn link_core::messages::Messages>);
+            let messages = (cli.contacts.is_some() || cli.texts.is_some()).then(|| {
+                Arc::new(library::Book { contacts: cli.contacts, texts: cli.texts })
+                    as Arc<dyn link_core::messages::Messages>
+            });
             let options = present::Options { seconds, on_offer, status, mirror, messages };
             return present::hold(phone, inbox()?, id, options).await;
         }

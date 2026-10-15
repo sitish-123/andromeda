@@ -42,6 +42,16 @@ struct LinkStatus {
   std::int32_t signal = -1;
 };
 
+// A text message on a phone; `date` in Unix milliseconds, `sent` for one the phone sent.
+struct LinkText {
+  std::uint64_t id = 0;
+  std::uint64_t thread = 0;
+  std::string address;
+  std::string body;
+  std::uint64_t date = 0;
+  bool sent = false;
+};
+
 // A LocalSend device on the LAN, which takes files like a Link device does.
 struct LinkNearby {
   std::string id;
@@ -63,8 +73,9 @@ struct LinkPairingOutcome {
 // Client of umbriel-linkd (org.umbriel.Link1): paired devices, the pairing window, shares, and phone notifications.
 // A received share becomes a notification whose action copies the text or opens the link. A phone notification is
 // shown with its actions and inline reply, which run on the phone; dismissing it here dismisses it there. A phone
-// looking for this desktop rings it until stopped. An incoming call offers mute and decline. The daemon may start,
-// stop, or restart at any time; available() follows its bus name.
+// looking for this desktop rings it until stopped. An incoming call offers mute and decline. Phones that share their
+// texts list them here, and texts go out through them. The daemon may start, stop, or restart at any time; available()
+// follows its bus name.
 class LinkService {
 public:
   using ChangeCallback = std::function<void()>;
@@ -103,6 +114,11 @@ public:
   [[nodiscard]] bool granted(const std::string& deviceId, std::string_view feature) const;
   // Starts or stops ringing a phone.
   void ring(const std::string& deviceId, bool on);
+  // Sends a text through the phone; `done` gets the daemon's error, or nothing once the phone reports it sent.
+  void sendText(
+      const std::string& deviceId, const std::string& to, const std::string& body,
+      std::function<void(std::optional<std::string>)> done
+  );
   void registerIpc(IpcService& ipc, std::function<void()> showPairing);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
@@ -119,6 +135,10 @@ public:
   // How the last pairing attempt ended; cleared by the next startPairing().
   [[nodiscard]] const std::optional<LinkPairingOutcome>& outcome() const noexcept { return m_outcome; }
   [[nodiscard]] bool phoneRinging(const std::string& deviceId) const { return m_phonesRinging.contains(deviceId); }
+  // The phone's newest texts, newest first, while its messages switch is on.
+  [[nodiscard]] const std::vector<LinkText>* texts(const std::string& deviceId) const;
+  // The phone's contact name for a number, else the number.
+  [[nodiscard]] std::string contactName(const std::string& deviceId, const std::string& address) const;
 
 private:
   void refresh();
@@ -196,6 +216,9 @@ private:
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
   std::map<std::string, LinkStatus> m_status;
+  std::map<std::string, std::vector<LinkText>> m_texts;
+  // Per phone, a number's last 9 digits to the contact's name.
+  std::map<std::string, std::unordered_map<std::string, std::string>> m_contactNames;
   std::vector<LinkNearby> m_nearby;
   bool m_localSendVisible = false;
   // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.

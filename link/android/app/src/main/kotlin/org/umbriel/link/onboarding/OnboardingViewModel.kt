@@ -22,10 +22,10 @@ import org.umbriel.link.notifications.NotificationMirror
 import org.umbriel.link.ring.Ringer
 
 /** One grant the app asks for, and how it is given: a Settings page, or runtime permissions. */
-enum class Grant { NotificationAccess, DoNotDisturb, PostNotifications, Battery, Calls, Bluetooth, AutoClipboard }
+enum class Grant { NotificationAccess, DoNotDisturb, PostNotifications, Battery, Calls, Bluetooth, Texts, AutoClipboard }
 
-/** Grants the setup banner does not ask for: automatic clipboard needs a computer once, which not everyone has. */
-private val OPTIONAL = setOf(Grant.AutoClipboard)
+/** Grants the setup banner does not ask for: automatic clipboard needs a computer once, and texts are a choice. */
+private val OPTIONAL = setOf(Grant.Texts, Grant.AutoClipboard)
 
 data class OnboardingState(val granted: Set<Grant> = emptySet()) {
     val complete: Boolean get() = granted.containsAll(Grant.entries - OPTIONAL)
@@ -63,6 +63,7 @@ class OnboardingViewModel(
             emptyArray()
         }
         Grant.Calls -> CALL_PERMISSIONS
+        Grant.Texts -> arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
         Grant.Bluetooth -> when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
                 arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.NEARBY_WIFI_DEVICES)
@@ -94,6 +95,7 @@ class OnboardingViewModel(
         }
         if (CALL_PERMISSIONS.all(::held)) add(Grant.Calls)
         if (permissions(Grant.Bluetooth).all(::held)) add(Grant.Bluetooth)
+        if (permissions(Grant.Texts).all(::held)) add(Grant.Texts)
         if (ClipboardWatcher.granted(application)) add(Grant.AutoClipboard)
     }
 

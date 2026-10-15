@@ -8,9 +8,8 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    ContactsList, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MESSAGES, Message,
-    MessagesRefusal, MirrorStarted, MirrorStop, NetworkKind, Punch, STATUS_SIGNAL, Share, Status, TransferId,
-    WifiDirect,
+    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MESSAGES, Message, MessagesRefusal,
+    MirrorStarted, MirrorStop, NetworkKind, Punch, STATUS_SIGNAL, Share, Status, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -117,7 +116,8 @@ enum Command {
     SetMessages {
         messages: Option<Arc<dyn Messages>>,
     },
-    ContactsChanged,
+    /// `contacts-changed` or `texts-changed`, to desktops with the messages switch on.
+    MessagesChanged(Message),
     /// Moves `id`'s Bluetooth session to this phone's hotspot; answered once it runs over IP, or with why not.
     Upgrade {
         id: DeviceId,
@@ -321,7 +321,12 @@ impl Client {
 
     /// Tells desktops with the messages switch on to pull the contacts again.
     pub async fn contacts_changed(&self) -> Result<(), Error> {
-        self.commands.send(Command::ContactsChanged).await.map_err(|_| Error::Stopped)
+        self.commands.send(Command::MessagesChanged(Message::ContactsChanged)).await.map_err(|_| Error::Stopped)
+    }
+
+    /// Tells desktops with the messages switch on to pull the texts again.
+    pub async fn texts_changed(&self) -> Result<(), Error> {
+        self.commands.send(Command::MessagesChanged(Message::TextsChanged)).await.map_err(|_| Error::Stopped)
     }
 
     /// The phone's battery and network: sent to every desktop on connect and, at most every 10 s, on change.
@@ -496,16 +501,16 @@ impl ClientActor {
             Command::SetSharing { id, feature, on, reply } => {
                 let result = self.phone.set_sharing(&id, feature, on);
                 if result.is_ok() && feature == Feature::Messages {
-                    self.contacts_changed(Some(&id)).await;
+                    self.messages_changed(Some(&id), &[Message::ContactsChanged, Message::TextsChanged]).await;
                 }
                 drop(reply.send(result));
             }
             Command::SetBrowseRoots { roots } => self.phone.set_browse_roots(roots),
             Command::SetMessages { messages } => {
                 self.messages = messages;
-                self.contacts_changed(None).await;
+                self.messages_changed(None, &[Message::ContactsChanged, Message::TextsChanged]).await;
             }
-            Command::ContactsChanged => self.contacts_changed(None).await,
+            Command::MessagesChanged(changed) => self.messages_changed(None, &[changed]).await,
             Command::Upgrade { id, reply } => {
                 self.upgrades.entry(id.clone()).or_default().push(reply);
                 self.start_hotspot(id).await;
@@ -961,8 +966,8 @@ impl ClientActor {
         }
     }
 
-    /// Answers a contacts request off the actor, when this desktop's messages switch is on.
-    async fn contacts(&mut self, from: &DeviceId, list: ContactsList) {
+    /// Answers a contacts or texts request off the actor, when this desktop's messages switch is on.
+    async fn messages_request(&mut self, from: &DeviceId, request: messages::Request) {
         let Some(handle) = self.sessions.get(from).cloned() else { return };
         let allowed = self.phone.desktops().iter().any(|peer| peer.id == *from && peer.grants.messages);
         let refusal = match &self.messages {
@@ -970,23 +975,25 @@ impl ClientActor {
             None => MessagesRefusal::Denied,
             Some(_) if self.browsing.len() >= browse::MAX_IN_FLIGHT => MessagesRefusal::Failed,
             Some(messages) => {
-                drop(self.browsing.spawn(messages::answer(messages.clone(), handle, list.req, list.cursor)));
+                drop(self.browsing.spawn(messages::answer(messages.clone(), handle, request)));
                 return;
             }
         };
-        if let Err(error) = handle.send(messages::refused(list.req, refusal)).await {
-            log::info!("{from}: refusing a contacts request: {error}");
+        if let Err(error) = handle.send(request.refused(refusal)).await {
+            log::info!("{from}: refusing a contacts or texts request: {error}");
         }
     }
 
-    /// Sends `contacts-changed` to `only`, else to every live desktop that takes it.
-    async fn contacts_changed(&self, only: Option<&DeviceId>) {
+    /// Sends each of `changed` to `only`, else to every live desktop that takes them.
+    async fn messages_changed(&self, only: Option<&DeviceId>, changed: &[Message]) {
         for peer in
             self.phone.desktops().iter().filter(|peer| peer.has(MESSAGES) && only.is_none_or(|id| *id == peer.id))
         {
             let Some(handle) = self.sessions.get(&peer.id).filter(|handle| handle.is_live()) else { continue };
-            if let Err(error) = handle.send(Message::ContactsChanged).await {
-                log::info!("{}: sending contacts-changed: {error}", peer.id);
+            for message in changed {
+                if let Err(error) = handle.send(message.clone()).await {
+                    log::info!("{}: sending {}: {error}", peer.id, message.kind());
+                }
             }
         }
     }
@@ -1047,7 +1054,14 @@ impl ClientActor {
             } => {
                 self.browse(&from, request).await;
             }
-            SessionEvent::Message { from, message: Message::ContactsList(list) } => self.contacts(&from, list).await,
+            SessionEvent::Message {
+                from,
+                message: request @ (Message::ContactsList(_) | Message::TextsList(_) | Message::TextSend(_)),
+            } => {
+                if let Some(request) = messages::Request::of(request) {
+                    self.messages_request(&from, request).await;
+                }
+            }
             SessionEvent::Message { from, message: Message::HotspotJoined(joined) } => {
                 self.hotspot_joined(from, &joined);
             }

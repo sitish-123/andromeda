@@ -9,8 +9,9 @@ use std::os::fd::OwnedFd;
 use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    CallAction, CallActionKind, MAX_NAME_LEN, MAX_SHARE_LEN, Message, MirrorAction, MirrorInput, NotificationAction,
-    NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind, TransferId, is_text_mime,
+    CallAction, CallActionKind, MAX_NAME_LEN, MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message, MirrorAction,
+    MirrorInput, NotificationAction, NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind,
+    TransferId, is_text_mime,
 };
 use link_core::transfer::{LocalClip, Source};
 use tokio::sync::{mpsc, watch};
@@ -19,6 +20,7 @@ use zbus::object_server::SignalEmitter;
 
 use crate::browse;
 use crate::hub::{Event, HubHandle, Signal, Snapshot};
+use crate::messages::SendFailure;
 
 pub const PATH: &str = "/org/umbriel/Link1";
 const NAME: &str = "org.umbriel.Link1";
@@ -436,6 +438,36 @@ impl Link {
     #[zbus(signal)]
     async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
 
+    /// A text the phone received, newer than every text kept for it.
+    #[zbus(signal)]
+    async fn text_received(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        id: u64,
+        address: &str,
+        body: &str,
+    ) -> zbus::Result<()>;
+
+    /// Device id to its newest texts `(id, thread, address, body, date in Unix ms, sent)`, newest first, from phones
+    /// whose messages switch is on.
+    #[zbus(property)]
+    fn texts(&self) -> HashMap<String, crate::messages::Texts> {
+        self.snapshots.borrow().texts.iter().cloned().collect()
+    }
+
+    /// Sends a text through a connected phone whose messages switch is on; returns once the phone reports it sent.
+    async fn send_text(&self, device_id: String, to: String, body: String) -> Result<(), LinkError> {
+        if !(1..=MAX_NUMBER_LEN).contains(&to.len()) || !(1..=MAX_TEXT_BODY).contains(&body.len()) {
+            return Err(LinkError::Rejected("an empty or too long number or text".to_owned()));
+        }
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        self.hub.send_text(id, to, body).await.map_err(|failure| match failure {
+            SendFailure::Refused(reason) => LinkError::Refused(reason.as_str().to_owned()),
+            SendFailure::NotConnected => LinkError::NotConnected(format!("{device_id} is not connected")),
+            SendFailure::TimedOut => LinkError::Failed("the phone did not report the text sent in time".to_owned()),
+        })
+    }
+
     /// The desktop joined the phone's hotspot `ssid` to move a transfer off Bluetooth; an empty `ssid` means it left.
     #[zbus(signal)]
     async fn hotspot(emitter: &SignalEmitter<'_>, device_id: &str, ssid: &str) -> zbus::Result<()>;
@@ -555,6 +587,9 @@ pub async fn forward(
                 if next.contacts != last.contacts {
                     link.get().await.contacts_changed(emitter).await?;
                 }
+                if next.texts != last.texts {
+                    link.get().await.texts_changed(emitter).await?;
+                }
                 last = next;
             }
             changed = nearby.changed() => {
@@ -575,6 +610,9 @@ pub async fn forward(
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
+                Event::TextReceived { id, text } => {
+                    Link::text_received(emitter, id.as_str(), text.id, &text.address, &text.body).await?;
+                }
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
                     Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;

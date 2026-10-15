@@ -17,6 +17,7 @@
 #include <array>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -59,6 +60,20 @@ namespace {
                                                     0,    0,   0,   13,  'I',  'H',  'D',  'R'};
 
   using VariantMap = std::map<std::string, sdbus::Variant>;
+
+  // The phone waits up to 60 s for Android to report a text sent; the daemon up to 75 s.
+  constexpr auto kSendTextTimeout = std::chrono::seconds(90);
+
+  // A number's last 9 digits, so +977 98..., 098..., and 98... match the same contact.
+  std::string numberKey(std::string_view number) {
+    std::string digits;
+    for (const char c : number) {
+      if (c >= '0' && c <= '9') {
+        digits += c;
+      }
+    }
+    return digits.size() > 9 ? digits.substr(digits.size() - 9) : digits;
+  }
 
   void logFailure(std::string_view method, const std::optional<sdbus::Error>& error) {
     if (error.has_value()) {
@@ -336,6 +351,43 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed DeviceStatus: {}", e.what());
     }
   }
+  if (const auto it = properties.find("Texts"); it != properties.end()) {
+    try {
+      using Text = sdbus::Struct<std::uint64_t, std::uint64_t, std::string, std::string, std::uint64_t, bool>;
+      m_texts.clear();
+      for (const auto& [id, texts] : it->second.get<std::map<std::string, std::vector<Text>>>()) {
+        auto& list = m_texts[id];
+        for (const auto& text : texts) {
+          list.push_back({
+              .id = text.get<0>(),
+              .thread = text.get<1>(),
+              .address = text.get<2>(),
+              .body = text.get<3>(),
+              .date = text.get<4>(),
+              .sent = text.get<5>(),
+          });
+        }
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Texts: {}", e.what());
+    }
+  }
+  if (const auto it = properties.find("Contacts"); it != properties.end()) {
+    try {
+      using Contact = sdbus::Struct<std::string, std::vector<std::string>>;
+      m_contactNames.clear();
+      for (const auto& [id, contacts] : it->second.get<std::map<std::string, std::vector<Contact>>>()) {
+        auto& names = m_contactNames[id];
+        for (const auto& contact : contacts) {
+          for (const auto& number : contact.get<1>()) {
+            names.try_emplace(numberKey(number), contact.get<0>());
+          }
+        }
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Contacts: {}", e.what());
+    }
+  }
   if (const auto it = properties.find("Grants"); it != properties.end()) {
     try {
       m_grants = it->second.get<std::map<std::string, std::vector<std::string>>>();
@@ -369,6 +421,8 @@ void LinkService::detach() {
   m_available = false;
   m_devices.clear();
   m_status.clear();
+  m_texts.clear();
+  m_contactNames.clear();
   m_nearby.clear();
   m_pairing.reset();
   notify();
@@ -821,6 +875,34 @@ void LinkService::ring(const std::string& deviceId, bool on) {
       .onInterface(kLinkInterface)
       .withArguments(deviceId, on)
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("Ring", error); });
+}
+
+void LinkService::sendText(
+    const std::string& deviceId, const std::string& to, const std::string& body,
+    std::function<void(std::optional<std::string>)> done
+) {
+  m_link->callMethodAsync("SendText")
+      .onInterface(kLinkInterface)
+      .withTimeout(kSendTextTimeout)
+      .withArguments(deviceId, to, body)
+      .uponReplyInvoke([done = std::move(done)](std::optional<sdbus::Error> error) {
+        logFailure("SendText", error);
+        done(error.has_value() ? std::optional<std::string>(error->getMessage()) : std::nullopt);
+      });
+}
+
+const std::vector<LinkText>* LinkService::texts(const std::string& deviceId) const {
+  const auto it = m_texts.find(deviceId);
+  return it != m_texts.end() ? &it->second : nullptr;
+}
+
+std::string LinkService::contactName(const std::string& deviceId, const std::string& address) const {
+  if (const auto names = m_contactNames.find(deviceId); names != m_contactNames.end()) {
+    if (const auto name = names->second.find(numberKey(address)); name != names->second.end()) {
+      return name->second;
+    }
+  }
+  return address;
 }
 
 void LinkService::onRingRequested(const std::string& deviceId, bool on) {

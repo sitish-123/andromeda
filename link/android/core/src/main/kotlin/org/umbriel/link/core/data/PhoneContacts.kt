@@ -9,18 +9,17 @@ import android.os.Looper
 import android.provider.ContactsContract.CommonDataKinds.Phone
 import android.provider.ContactsContract.Contacts
 import org.umbriel.link.ffi.PhoneContact
-import org.umbriel.link.ffi.PhoneMessages
 
 /**
  * The phone's contacts with a number, by name, for desktops whose messages switch is on. [contacts] is called off the
  * main thread; [changed] runs on it, at most once per [SETTLE_MS] of edits.
  */
-class PhoneContacts(private val context: Context, private val changed: () -> Unit) : PhoneMessages {
+class PhoneContacts(private val context: Context, private val changed: () -> Unit) {
     private val main = Handler(Looper.getMainLooper())
     private val notify = Runnable { changed() }
     private var watching = false
 
-    override fun contacts(offset: UInt, limit: UInt): List<PhoneContact>? {
+    fun contacts(offset: UInt, limit: UInt): List<PhoneContact>? {
         if (!granted()) return null
         val resolver = context.contentResolver
         val names = LinkedHashMap<Long, String>()

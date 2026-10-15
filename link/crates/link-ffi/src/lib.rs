@@ -12,7 +12,7 @@ use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Contact, Message, MessagesRefusal, Share, TransferId};
+use link_core::proto::message::{self, Contact, Message, MessagesRefusal, Share, Text, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::{self, Peer};
 use link_core::transfer::{LocalClip, Source, TransferEvent};
@@ -457,11 +457,32 @@ impl link_core::browse::Library for Library {
     }
 }
 
-/// The phone's contacts, for desktops whose messages switch is on. Called off the main thread; may block. `contacts`
-/// returns up to `limit` from `offset` in a stable order, or None while Android denies access.
+/// The phone's contacts and texts, for desktops whose messages switch is on. Called off the main thread; may block.
+/// `contacts` returns up to `limit` from `offset` in a stable order and `texts` newest first, or None while Android
+/// denies access. `send_text` returns once Android reports the text sent or failed.
 #[uniffi::export(with_foreign)]
 pub trait PhoneMessages: Send + Sync {
     fn contacts(&self, offset: u32, limit: u32) -> Option<Vec<PhoneContact>>;
+    fn texts(&self, offset: u32, limit: u32) -> Option<Vec<PhoneText>>;
+    fn send_text(&self, to: String, body: String) -> TextOutcome;
+}
+
+/// `date` in Unix milliseconds; `sent` for one this phone sent.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhoneText {
+    pub id: u64,
+    pub thread: u64,
+    pub address: String,
+    pub body: String,
+    pub date: u64,
+    pub sent: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TextOutcome {
+    Sent,
+    Denied,
+    Failed,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -476,6 +497,27 @@ impl link_core::messages::Messages for Messages {
     fn contacts(&self, offset: u32, limit: u32) -> Result<Vec<Contact>, MessagesRefusal> {
         let contacts = self.0.contacts(offset, limit).ok_or(MessagesRefusal::Denied)?;
         Ok(contacts.into_iter().map(|contact| Contact { name: contact.name, numbers: contact.numbers }).collect())
+    }
+
+    fn texts(&self, offset: u32, limit: u32) -> Result<Vec<Text>, MessagesRefusal> {
+        let texts = self.0.texts(offset, limit).ok_or(MessagesRefusal::Denied)?;
+        let text = |text: PhoneText| Text {
+            id: text.id,
+            thread: text.thread,
+            address: text.address,
+            body: text.body,
+            date: text.date,
+            sent: text.sent,
+        };
+        Ok(texts.into_iter().map(text).collect())
+    }
+
+    fn send_text(&self, to: &str, body: &str) -> Result<(), MessagesRefusal> {
+        match self.0.send_text(to.to_owned(), body.to_owned()) {
+            TextOutcome::Sent => Ok(()),
+            TextOutcome::Denied => Err(MessagesRefusal::Denied),
+            TextOutcome::Failed => Err(MessagesRefusal::Failed),
+        }
     }
 }
 
@@ -611,6 +653,12 @@ impl LinkClient {
     pub async fn contacts_changed(&self) -> Result<(), LinkError> {
         let client = self.client.clone();
         self.run(async move { client.contacts_changed().await }).await
+    }
+
+    /// Tells desktops with the messages switch on that the texts changed.
+    pub async fn texts_changed(&self) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        self.run(async move { client.texts_changed().await }).await
     }
 
     /// Pairs from the QR code's URI and keeps the session open.

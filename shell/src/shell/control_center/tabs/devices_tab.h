@@ -3,6 +3,8 @@
 #include "core/timer_manager.h"
 #include "shell/control_center/tab.h"
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 class Flex;
@@ -27,6 +29,8 @@ private:
   [[nodiscard]] std::string structureKey() const;
   [[nodiscard]] std::unique_ptr<Flex> makeSettings(const std::string& id, float scale);
   [[nodiscard]] std::unique_ptr<Flex> makeNearby(float scale, float opacity);
+  [[nodiscard]] std::unique_ptr<Flex> makeTexts(const std::string& id, float scale);
+  void sendDraft();
   void pickAndSend(const std::string& id);
   void finishPendingSend();
 
@@ -41,5 +45,12 @@ private:
   Timer m_countdownTimer;
   bool m_active = false;
   std::string m_lastStructureKey;
+  // The phone whose texts are open, the conversation shown (none for the list), and the text being written.
+  std::string m_textsDevice;
+  std::optional<std::uint64_t> m_textsThread;
+  std::string m_textsTo;
+  std::string m_draft;
+  std::string m_textsError;
+  bool m_sending = false;
   float m_lastListWidth = -1.0F;
 };

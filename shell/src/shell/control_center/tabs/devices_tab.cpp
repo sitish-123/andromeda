@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <qrencode.h>
+#include <ranges>
 #include <string_view>
 #include <vector>
 
@@ -110,6 +111,22 @@ namespace {
       text += i18n::tr("control-center.devices.status-signal", "bars", std::to_string(status->signal));
     }
     return text;
+  }
+
+  // Conversations listed, and texts shown in one.
+  constexpr std::size_t kMaxThreads = 20;
+  constexpr std::size_t kMaxThreadTexts = 30;
+
+  std::string textTime(std::uint64_t unixMs) {
+    const auto time = std::chrono::system_clock::time_point(std::chrono::milliseconds(unixMs));
+    const auto local = std::chrono::zoned_time(std::chrono::current_zone(), time).get_local_time();
+    const auto today = std::chrono::floor<std::chrono::days>(
+        std::chrono::zoned_time(std::chrono::current_zone(), std::chrono::system_clock::now()).get_local_time()
+    );
+    if (std::chrono::floor<std::chrono::days>(local) == today) {
+      return std::format("{:%H:%M}", std::chrono::floor<std::chrono::minutes>(local));
+    }
+    return std::format("{:%d %b}", std::chrono::floor<std::chrono::days>(local));
   }
 
   std::unique_ptr<Label> makeCaption(std::string text, float scale, ColorRole role = ColorRole::OnSurfaceVariant) {
@@ -221,9 +238,16 @@ std::string DevicesTab::structureKey() const {
     for (const auto feature : kFeatures) {
       key += m_link->granted(device.id, feature.name) ? " +" : " -";
     }
+    key += m_link->texts(device.id) != nullptr ? " texts" : "";
     key += std::ranges::contains(m_link->autoAccept(), device.id) ? " auto\n" : "\n";
   }
   key += m_pendingSend + "\n";
+  if (const auto* texts = m_link->texts(m_textsDevice)) {
+    key += std::format(
+        "texts {} {} {} {} {} {}\n", m_textsDevice, m_textsThread.value_or(0), texts->size(),
+        texts->empty() ? 0 : texts->front().id, m_sending, m_textsError
+    );
+  }
   if (m_quickShare != nullptr && m_quickShare->available()) {
     key += m_quickShare->visible() ? "quick-share 1 " : "quick-share 0 ";
     key += m_quickShare->name() + "\n";
@@ -358,6 +382,168 @@ void DevicesTab::pickAndSend(const std::string& id) {
       (void)link->sendFiles(id, {path->string()});
     }
   });
+}
+
+// The phone's conversations, newest first, or one conversation; either way a field to write a text. In the list the
+// text goes to the number typed; in a conversation, to its number.
+std::unique_ptr<Flex> DevicesTab::makeTexts(const std::string& id, float scale) {
+  auto panel = ui::column({
+      .align = FlexAlign::Stretch,
+      .gap = Style::spaceXs * scale,
+      .paddingV = Style::spaceSm * scale,
+      .paddingH = Style::spaceMd * scale,
+      .fill = colorSpecFromRole(ColorRole::Surface),
+      .radius = Style::scaledRadiusMd(scale),
+  });
+  const auto& texts = *m_link->texts(id);
+  if (!m_textsThread.has_value()) {
+    std::vector<const LinkText*> latest;
+    for (const auto& text : texts) {
+      if (latest.size() < kMaxThreads
+          && std::ranges::none_of(latest, [&](const LinkText* seen) { return seen->thread == text.thread; })) {
+        latest.push_back(&text);
+      }
+    }
+    if (latest.empty()) {
+      panel->addChild(makeCaption(i18n::tr("control-center.devices.texts-none"), scale));
+    }
+    for (const LinkText* text : latest) {
+      panel->addChild(
+          ui::row(
+              {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+              ui::button({
+                  .text = m_link->contactName(id, text->address),
+                  .variant = ButtonVariant::Ghost,
+                  .onClick =
+                      [this, thread = text->thread, address = text->address]() {
+                        m_textsThread = thread;
+                        m_textsTo = address;
+                        m_textsError.clear();
+                        PanelManager::instance().refresh();
+                      },
+              }),
+              ui::label({
+                  .text = (text->sent ? i18n::tr("control-center.devices.text-you") : std::string()) + text->body,
+                  .fontSize = Style::fontSizeCaption * scale,
+                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .maxLines = 1,
+                  .flexGrow = 1.0F,
+              }),
+              makeCaption(textTime(text->date), scale)
+          )
+      );
+    }
+    panel->addChild(
+        ui::input({
+            .value = m_textsTo,
+            .placeholder = i18n::tr("control-center.devices.text-to"),
+            .fontSize = Style::fontSizeBody * scale,
+            .controlHeight = Style::controlHeight * scale,
+            .horizontalPadding = Style::spaceSm * scale,
+            .onChange = [this](const std::string& to) { m_textsTo = to; },
+        })
+    );
+  } else {
+    panel->addChild(
+        ui::row(
+            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+            ui::button({
+                .glyph = Style::rtl() ? "chevron-right" : "chevron-left",
+                .glyphSize = Style::fontSizeBody * scale,
+                .variant = ButtonVariant::Ghost,
+                .tooltip = i18n::tr("control-center.devices.texts-back"),
+                .padding = Style::spaceXs * scale,
+                .radius = Style::scaledRadiusSm(scale),
+                .onClick =
+                    [this]() {
+                      m_textsThread.reset();
+                      m_textsTo.clear();
+                      m_textsError.clear();
+                      PanelManager::instance().refresh();
+                    },
+            }),
+            ui::label({
+                .text = m_link->contactName(id, m_textsTo),
+                .fontSize = Style::fontSizeBody * scale,
+                .fontWeight = FontWeight::Bold,
+                .color = colorSpecFromRole(ColorRole::OnSurface),
+            })
+        )
+    );
+    std::vector<const LinkText*> thread;
+    for (const auto& text : texts) {
+      if (text.thread == *m_textsThread && thread.size() < kMaxThreadTexts) {
+        thread.push_back(&text);
+      }
+    }
+    for (const LinkText* text : std::views::reverse(thread)) {
+      panel->addChild(
+          ui::row(
+              {.align = FlexAlign::Start,
+               .justify = text->sent ? FlexJustify::End : FlexJustify::Start,
+               .gap = Style::spaceSm * scale},
+              ui::label({
+                  .text = text->body,
+                  .fontSize = Style::fontSizeBody * scale,
+                  .color = colorSpecFromRole(text->sent ? ColorRole::Primary : ColorRole::OnSurface),
+                  .maxWidth = 320.0F * scale,
+              }),
+              makeCaption(textTime(text->date), scale)
+          )
+      );
+    }
+  }
+  panel->addChild(
+      ui::row(
+          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+          ui::input({
+              .value = m_draft,
+              .placeholder = i18n::tr("control-center.devices.text-placeholder"),
+              .fontSize = Style::fontSizeBody * scale,
+              .controlHeight = Style::controlHeight * scale,
+              .horizontalPadding = Style::spaceSm * scale,
+              .enabled = !m_sending,
+              .flexGrow = 1.0F,
+              .onChange = [this](const std::string& draft) { m_draft = draft; },
+              .onSubmit = [this](const std::string&) { sendDraft(); },
+          }),
+          ui::button({
+              .glyph = "send",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Default,
+              .tooltip = i18n::tr("control-center.devices.text-send"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this]() { sendDraft(); },
+          })
+      )
+  );
+  if (m_sending) {
+    panel->addChild(makeCaption(i18n::tr("control-center.devices.text-sending"), scale));
+  } else if (!m_textsError.empty()) {
+    panel->addChild(
+        makeCaption(i18n::tr("control-center.devices.text-failed", "reason", m_textsError), scale, ColorRole::Error)
+    );
+  }
+  return panel;
+}
+
+void DevicesTab::sendDraft() {
+  if (m_sending || m_draft.empty() || m_textsTo.empty() || m_textsDevice.empty()) {
+    return;
+  }
+  m_sending = true;
+  m_textsError.clear();
+  m_link->sendText(m_textsDevice, m_textsTo, m_draft, [this](std::optional<std::string> error) {
+    m_sending = false;
+    if (error.has_value()) {
+      m_textsError = *error;
+    } else {
+      m_draft.clear();
+    }
+    PanelManager::instance().refresh();
+  });
+  PanelManager::instance().refresh();
 }
 
 std::unique_ptr<Flex> DevicesTab::makeSettings(const std::string& id, float scale) {
@@ -561,6 +747,26 @@ void DevicesTab::rebuild(Renderer& renderer) {
               },
           })
       );
+      if (m_link->texts(device.id) != nullptr) {
+        const bool open = m_textsDevice == device.id;
+        row->addChild(
+            ui::button({
+                .glyph = "messages",
+                .glyphSize = Style::fontSizeBody * scale,
+                .variant = open ? ButtonVariant::Default : ButtonVariant::Ghost,
+                .tooltip = i18n::tr("control-center.devices.texts"),
+                .padding = Style::spaceXs * scale,
+                .radius = Style::scaledRadiusSm(scale),
+                .onClick = [this, id = device.id, open]() {
+                  m_textsDevice = open ? std::string() : id;
+                  m_textsThread.reset();
+                  m_textsTo.clear();
+                  m_textsError.clear();
+                  PanelManager::instance().refresh();
+                },
+            })
+        );
+      }
       row->addChild(
           ui::button({
               .glyph = "folder",
@@ -607,6 +813,9 @@ void DevicesTab::rebuild(Renderer& renderer) {
         })
     );
     devicesCard->addChild(std::move(row));
+    if (m_textsDevice == device.id && m_link->texts(device.id) != nullptr) {
+      devicesCard->addChild(makeTexts(device.id, scale));
+    }
     devicesCard->addChild(makeSettings(device.id, scale));
   }
   m_list->addChild(std::move(devicesCard));

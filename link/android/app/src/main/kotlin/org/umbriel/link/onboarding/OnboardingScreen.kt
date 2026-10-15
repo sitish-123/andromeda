@@ -3,6 +3,7 @@ package org.umbriel.link.onboarding
 import android.content.Intent
 import org.umbriel.link.ui.theme.Size
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.ui.text.font.FontFamily
 import android.content.ClipboardManager
 import android.content.ClipData
@@ -79,6 +80,7 @@ private val PAGES = listOf(
     Page(Grant.Battery, R.string.onboarding_battery_title, R.string.onboarding_battery_body, Icons.Filled.Favorite),
     Page(Grant.Calls, R.string.onboarding_calls_title, R.string.onboarding_calls_body, Icons.Filled.Call),
     Page(Grant.Bluetooth, R.string.onboarding_bluetooth_title, R.string.onboarding_bluetooth_body, Icons.Filled.Share),
+    Page(Grant.Texts, R.string.onboarding_texts_title, R.string.onboarding_texts_body, Icons.Filled.Email),
     Page(Grant.AutoClipboard, R.string.onboarding_clipboard_title, R.string.onboarding_clipboard_body, Icons.Filled.Edit),
 )
 

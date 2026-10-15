@@ -245,6 +245,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     suspend fun contactsChanged(): Result<Unit> = call { it.contactsChanged() }
 
+    suspend fun textsChanged(): Result<Unit> = call { it.textsChanged() }
+
     suspend fun refresh(): Result<Unit> = call { client ->
         _desktops.value = client.desktops().map { it.toDomain() }
     }

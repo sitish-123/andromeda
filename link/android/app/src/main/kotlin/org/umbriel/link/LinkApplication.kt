@@ -20,7 +20,9 @@ import org.umbriel.link.clipboard.ClipboardWatcher
 import org.umbriel.link.calls.Calls
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.core.data.MediaLibrary
+import org.umbriel.link.core.data.Messaging
 import org.umbriel.link.core.data.PhoneContacts
+import org.umbriel.link.core.data.PhoneTexts
 import org.umbriel.link.files.MediaAccess
 import org.umbriel.link.media.PhoneMedia
 import org.umbriel.link.files.PhoneFiles
@@ -65,6 +67,7 @@ class AppContainer(val application: Application) {
     val files = PhoneFiles(application)
     private val library = MediaLibrary(application)
     private val contacts = PhoneContacts(application) { scope.launch { repository.contactsChanged() } }
+    private val texts = PhoneTexts(application) { scope.launch { repository.textsChanged() } }
 
     fun start() {
         Channels.create(application)
@@ -73,7 +76,7 @@ class AppContainer(val application: Application) {
         status.start()
         mirror.start()
         media.start()
-        scope.launch { repository.setMessages(contacts) }
+        scope.launch { repository.setMessages(Messaging(contacts, texts)) }
         ringer.start()
         screen.start()
         calls.start()
@@ -84,6 +87,7 @@ class AppContainer(val application: Application) {
                 if (event == Lifecycle.Event.ON_START) {
                     refreshBrowseRoots()
                     contacts.watch()
+                    texts.watch()
                 }
             },
         )

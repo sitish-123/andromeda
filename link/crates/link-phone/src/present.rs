@@ -124,6 +124,7 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Option<Valu
         },
         "pull" => pull_line(client, id, rest).await,
         "contacts-changed" => client.contacts_changed().await.map(|()| json!({ "event": verb })).map_err(Into::into),
+        "texts-changed" => client.texts_changed().await.map(|()| json!({ "event": verb })).map_err(Into::into),
         "accept" | "decline" => match files::parse_transfer(rest) {
             Ok(transfer) => client.decide(transfer, verb == "accept").await.map_err(Into::into),
             Err(error) => Err(error),

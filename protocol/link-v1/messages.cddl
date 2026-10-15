@@ -9,6 +9,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
+  texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -242,3 +243,25 @@ contacts-msg = { type: "contacts", id: uint, body: {
 } }
 contact = { name: tstr .size (1..128), numbers: [0*8 tstr .size (1..64)] }
 contacts-changed-msg = { type: "contacts-changed", id: uint, body: {} }
+
+; Texts, behind the same switch: the desktop pulls the newest (at most 256) on connect and after texts-changed, which
+; the phone sends when a text arrives, is sent, or the switch changes. date is in Unix milliseconds; sent marks one
+; this phone sent. text-sent answers text-send once Android reports the text sent, or with why not.
+texts-list-msg = { type: "texts-list", id: uint, body: { req: uint, ? cursor: uint } }
+texts-msg = { type: "texts", id: uint, body: {
+  req: uint,
+  texts: [0*16 text],
+  ? next: uint,
+  ? refused: "not-allowed" / "denied" / "failed",
+} }
+text = {
+  id: uint,
+  thread: uint,
+  address: tstr .size (1..64),
+  body: tstr .size (0..2048),
+  date: uint,
+  sent: bool,
+}
+texts-changed-msg = { type: "texts-changed", id: uint, body: {} }
+text-send-msg = { type: "text-send", id: uint, body: { req: uint, to: tstr .size (1..64), body: tstr .size (1..2048) } }
+text-sent-msg = { type: "text-sent", id: uint, body: { req: uint, ? refused: "not-allowed" / "denied" / "failed" } }

@@ -11,7 +11,7 @@ use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
     Call, CallState, FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message,
-    NotificationPosted, Share, Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    NotificationPosted, Share, Status, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -65,6 +65,8 @@ pub struct Snapshot {
     pub localsend: bool,
     /// Device id to its contacts as `(name, numbers)`, the D-Bus `Contacts` property.
     pub contacts: Vec<(String, crate::messages::Contacts)>,
+    /// Device id to its newest texts, the D-Bus `Texts` property.
+    pub texts: Vec<(String, crate::messages::Texts)>,
 }
 
 #[derive(Debug)]
@@ -108,6 +110,10 @@ pub enum Event {
     Call {
         id: DeviceId,
         call: Call,
+    },
+    TextReceived {
+        id: DeviceId,
+        text: Text,
     },
     /// The desktop joined a phone's hotspot (`ssid`), or left it (None).
     Hotspot {
@@ -164,6 +170,7 @@ enum Command {
     DesktopPlayer { player: MediaPlayer },
     DesktopPlayerGone { player: String },
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
+    SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
 }
 
@@ -361,20 +368,8 @@ impl Hub {
             }
             Command::Connected { id, hello, session } => self.connected(id, hello, session).await,
             Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
-            Command::Browse { id, request, reply } => {
-                let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
-                    return drop(reply.send(Err(browse::Failure::NotConnected)));
-                };
-                let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
-                let request = match request {
-                    Ok(request) => request,
-                    Err(failure) => return drop(reply.send(Err(failure))),
-                };
-                let (req, message) = self.browsing.start(id, request, reply);
-                if session.send(message).await.is_err() {
-                    self.browsing.fail(req, browse::Failure::NotConnected);
-                }
-            }
+            Command::SendText { id, to, body, reply } => self.send_text(id, to, body, reply).await,
+            Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
@@ -547,18 +542,22 @@ impl Hub {
                     log::info!("{from}: asking for the next page of a listing failed");
                 }
             }
-            // The phone's own switch governs its contacts; this desktop asked for them.
+            // The phone's own switch governs its contacts and texts; this desktop asked for them.
             SessionEvent::Message { from, message: Message::Contacts(page) } => {
-                let (next, changed) = self.messages.on_contacts(&from, page);
-                if let Some(next) = next {
-                    self.send_to(&from, next).await;
-                }
-                if changed {
-                    self.publish();
-                }
+                let changed = self.messages.on_contacts(&from, page);
+                self.messages_changed(from, changed).await;
             }
+            SessionEvent::Message { from, message: Message::Texts(page) } => {
+                let changed = self.messages.on_texts(&from, page);
+                self.messages_changed(from, changed).await;
+            }
+            SessionEvent::Message { from, message: Message::TextSent(sent) } => self.messages.on_sent(&from, &sent),
             SessionEvent::Message { from, message: Message::ContactsChanged } if self.phone_has(&from, MESSAGES) => {
                 let pull = self.messages.pull_contacts(from.clone());
+                self.send_to(&from, pull).await;
+            }
+            SessionEvent::Message { from, message: Message::TextsChanged } if self.phone_has(&from, MESSAGES) => {
+                let pull = self.messages.pull_texts(from.clone());
                 self.send_to(&from, pull).await;
             }
             // Answers to this desktop's own mirror request, which needs no grant of the phone's here.
@@ -763,8 +762,10 @@ impl Hub {
         let features = hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
         self.features.insert(id.clone(), features);
         if self.phone_has(&id, MESSAGES) {
-            let pull = self.messages.pull_contacts(id.clone());
-            self.send_to(&id, pull).await;
+            let contacts = self.messages.pull_contacts(id.clone());
+            self.send_to(&id, contacts).await;
+            let texts = self.messages.pull_texts(id.clone());
+            self.send_to(&id, texts).await;
         }
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
         let ready = self
@@ -782,6 +783,44 @@ impl Hub {
         } else {
             // Back on Bluetooth: the phone's hotspot is gone even if its hotspot-end was lost with the old session.
             self.leave_hotspot(&id).await;
+        }
+    }
+
+    async fn browse(&mut self, id: DeviceId, request: browse::Request, reply: browse::Reply) {
+        let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
+            return drop(reply.send(Err(browse::Failure::NotConnected)));
+        };
+        let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
+        let request = match request {
+            Ok(request) => request,
+            Err(failure) => return drop(reply.send(Err(failure))),
+        };
+        let (req, message) = self.browsing.start(id, request, reply);
+        if session.send(message).await.is_err() {
+            self.browsing.fail(req, browse::Failure::NotConnected);
+        }
+    }
+
+    async fn send_text(&mut self, id: DeviceId, to: String, body: String, reply: crate::messages::SendReply) {
+        let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
+            let _ = reply.send(Err(crate::messages::SendFailure::NotConnected));
+            return;
+        };
+        let (req, message) = self.messages.send_text(id, to, body, reply);
+        if session.send(message).await.is_err() {
+            self.messages.answer_send(req, Some(crate::messages::SendFailure::NotConnected));
+        }
+    }
+
+    async fn messages_changed(&mut self, from: DeviceId, changed: crate::messages::Changed) {
+        if let Some(next) = changed.next {
+            self.send_to(&from, next).await;
+        }
+        if changed.publish {
+            self.publish();
+        }
+        for text in changed.received {
+            self.emit(Event::TextReceived { id: from.clone(), text }).await;
         }
     }
 
@@ -870,6 +909,7 @@ impl Hub {
         if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
             self.sessions.remove(&id);
             self.browsing.disconnected(&id);
+            self.messages.disconnected(&id);
             self.mirrors.fail(&id, crate::mirror::Failure::NotConnected);
             self.leave_hotspot(&id).await;
             self.status.remove(&id);
@@ -1040,9 +1080,9 @@ impl Hub {
         status.sort();
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
-            let contacts = self.messages.contacts();
-            let next =
-                Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend, contacts };
+            let (contacts, texts) = (self.messages.contacts(), self.messages.texts());
+            let pairing = self.window.is_some();
+            let next = Snapshot { devices, pairing, auto_accept, grants, status, localsend, contacts, texts };
             let changed = *current != next;
             *current = next;
             changed
@@ -1146,6 +1186,15 @@ impl HubHandle {
             return Err(crate::mirror::Failure::NotConnected);
         }
         answer.await.unwrap_or(Err(crate::mirror::Failure::NotConnected))
+    }
+
+    /// Sends a text through the phone; answered once the phone reports it sent or failed.
+    pub async fn send_text(&self, id: DeviceId, to: String, body: String) -> Result<(), crate::messages::SendFailure> {
+        let (reply, answer) = oneshot::channel();
+        if self.commands.send(Command::SendText { id, to, body, reply }).await.is_err() {
+            return Err(crate::messages::SendFailure::NotConnected);
+        }
+        answer.await.unwrap_or(Err(crate::messages::SendFailure::NotConnected))
     }
 
     /// The device's live session, if it has one.
