@@ -166,20 +166,29 @@ PY
 allow_mirror() {
   wait_for 75 "no mirror request notification" eval 'adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
   adb shell input keyevent KEYCODE_HOME
-  local at="" was="" try
-  # The shade moves while it opens, so a position counts only once two dumps a second apart agree on it.
-  for try in $(seq 16); do
-    ui "notification-$1"
-    at=$(bounds "notification-$1" Allow)
-    [[ -n $at ]] || at=$(bounds "notification-$1" "*wants to show your screen*")
-    [[ -z $at || $at != "$was" ]] || break
-    was=$at
-    if [[ -n $at ]]; then sleep 1; continue; fi
-    if (( try % 2 )); then adb shell cmd statusbar expand-notifications; else adb shell cmd statusbar collapse; fi
-    sleep 0.7
+  local at="" was="" try text
+  # The shade moves while it opens, so a position counts only once two dumps a second apart agree on it. A tap on a
+  # request inside a group of Link's notifications only opens the group, so the request is tapped until the prompt shows.
+  for try in $(seq 30); do
+    ui "prompt-$1"
+    for text in Start "Start now" "Share screen"; do
+      at=$(bounds "prompt-$1" "$text")
+      [[ -z $at ]] || { adb shell input tap $at; adb shell cmd statusbar collapse; return; }
+    done
+    at=$(bounds "prompt-$1" Allow)
+    [[ -n $at ]] || at=$(bounds "prompt-$1" "*wants to show your screen*")
+    if [[ -n $at && $at == "$was" ]]; then
+      adb shell input tap $at
+      was=""
+      sleep 1.5
+    elif [[ -n $at ]]; then
+      was=$at
+      sleep 1
+    else
+      was=""
+      if (( try % 2 )); then adb shell cmd statusbar expand-notifications; else adb shell cmd statusbar collapse; fi
+      sleep 0.7
+    fi
   done
-  [[ -n $at && $at == "$was" ]] || fail "the mirror request is neither a heads-up nor in the shade"
-  adb shell input tap $at
-  tap_text "prompt-$1" "Start" "Start now" "Share screen"
-  adb shell cmd statusbar collapse
+  fail "the mirror request did not lead to the capture prompt"
 }
