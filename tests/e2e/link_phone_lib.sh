@@ -63,8 +63,8 @@ start_linkd() {
 install_app() {
   adb shell input keyevent KEYCODE_WAKEUP
   adb shell cmd statusbar collapse
-  adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
-  adb install -g "$APK" > /dev/null || fail "installing $APK"
+  # An update, not a fresh install: the phone keeps the pairings of other runs and of the user.
+  adb install -r -g "$APK" > /dev/null || fail "installing $APK; a release build on the phone has another key"
   adb install -r "$FIXTURE" > /dev/null || fail "installing $FIXTURE"
   record '{"step":"installed"}'
 }
@@ -114,6 +114,18 @@ pair_phone() {
   tap_text pair Pair
   wait_for 30 "D-Bus does not show the phone connected: $(devices)" connected
   ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
+  DESKTOP=$(phone_peers | tail -1)
+}
+# phone_peers: the ids of the desktops the phone is paired with, oldest first.
+phone_peers() {
+  adb shell run-as "$PACKAGE" cat files/devices.json \
+    | python3 -c 'import json,sys; print(*(p["id"] for p in json.load(sys.stdin)["peers"]), sep="\n")'
+}
+# forget_phone: unpairs the run's desktop while the phone is connected, so the phone forgets only that desktop.
+forget_phone() {
+  [[ -n ${ID:-} ]] && link Unpair "'$ID'" > /dev/null 2>&1 || return 0
+  for _ in $(seq 50); do phone_peers | grep -qx "$DESKTOP" || return 0; sleep 0.2; done
+  echo "the phone did not forget the run's desktop $DESKTOP" >&2
 }
 
 # phone_switches SWITCH...: turns those of the phone's switches for the desktop on, and Stay connected, with the app
@@ -127,7 +139,7 @@ phone_switches() {
 import json, sys
 store = json.load(open(sys.argv[1]))
 for switch in sys.argv[2:]:
-    store["peers"][0].setdefault("grants", {})[switch] = True
+    store["peers"][-1].setdefault("grants", {})[switch] = True
 json.dump(store, open(sys.argv[1], "w"))
 PY
   adb shell run-as "$PACKAGE" sh -c "'cat > files/devices.json'" < "$RUNTIME/phone.json"

@@ -15,8 +15,8 @@
 #    are recorded, and the laptop's Wi-Fi comes back after.
 # Takes the laptop off its Wi-Fi for minutes. Stops the user's umbriel-linkd for the run (it holds Link's Bluetooth
 # profile and port 4717) and starts it again after, re-enables the phone's Wi-Fi, and brings the laptop's Wi-Fi back
-# even on failure. Writes results.jsonl, linkd.log, signals.txt, nm.txt, viewer.log, frames/ to $OUT
-# (default ./artifacts/link-bluetooth-phone).
+# even on failure. Unpairs the run's desktop from the phone after. Writes results.jsonl, linkd.log, signals.txt, nm.txt,
+# viewer.log, frames/ to $OUT (default ./artifacts/link-bluetooth-phone).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-bluetooth-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
@@ -29,6 +29,7 @@ HOME_WIFI=$(nmcli -t -f NAME,TYPE con show --active | grep ':802-11-wireless$' |
 [[ -n $HOME_WIFI ]] || fail "the laptop is not on Wi-Fi"
 USER_LINKD=$(systemctl --user is-active umbriel-linkd || true)
 restore() {
+  forget_phone
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null
   adb shell svc wifi enable || true
