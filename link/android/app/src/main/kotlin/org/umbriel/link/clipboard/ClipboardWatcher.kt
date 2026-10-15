@@ -5,7 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,21 +32,26 @@ class ClipboardWatcher(
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {}
     private var job: Job? = null
     private var process: Process? = null
-    /** Whether logcat has shown this watcher any line; `-T 1` shows the newest at once when it may read them. */
-    @Volatile private var sees = false
+    /**
+     * Android 13+ asks before each logcat reads other apps' lines, and only while the app is in the foreground; in the
+     * background it refuses without a prompt.
+     */
+    private var asked = false
 
     fun start() {
         if (job != null || !granted(context)) return
+        asked = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
         clipboard.addPrimaryClipChangedListener(listener)
         job = scope.launch(Dispatchers.IO) { follow() }
     }
 
     /**
-     * Restarts a watcher that has seen nothing: Android 13+ asks before an app reads other apps' log lines, and a
-     * watcher started in the background is refused without a prompt. Called when the app comes to the foreground.
+     * Restarts a watcher refused in the background, or whose logcat ended. Called when the app comes to the foreground;
+     * a running watcher that was asked keeps its logcat, since a new one asks again.
      */
     fun restartIfBlind() {
-        if (job != null && sees) return
+        if (job != null && asked && process?.isAlive != false) return
         stop()
         start()
     }
@@ -51,6 +59,7 @@ class ClipboardWatcher(
     fun stop() {
         clipboard.removePrimaryClipChangedListener(listener)
         process?.destroy()
+        process = null
         job?.cancel()
         job = null
     }
@@ -59,13 +68,11 @@ class ClipboardWatcher(
         // -T 1 starts at the newest line, so only denials from now on count.
         val logcat = ProcessBuilder("logcat", "-T", "1", "-v", "brief", "ClipboardService:E", "*:S").start()
         process = logcat
-        sees = false
         val denial = "Denying clipboard access to ${context.packageName}"
         try {
             logcat.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
                     if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
-                    sees = true
                     if (denial in line) {
                         sync.changedLocally()
                         context.startActivity(
