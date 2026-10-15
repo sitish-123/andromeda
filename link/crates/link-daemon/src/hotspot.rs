@@ -11,8 +11,8 @@ pub const NM: &str = "org.freedesktop.NetworkManager";
 pub const NM_PATH: &str = "/org/freedesktop/NetworkManager";
 /// Joining includes the Wi-Fi scan and DHCP.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
-/// A local-only hotspot starts beaconing a moment after the phone reports it.
-const SCAN_TIMEOUT: Duration = Duration::from_secs(15);
+/// A local-only hotspot beacons about 2 s after the phone reports it, and a directed scan can take 10 s more to see it.
+const SCAN_TIMEOUT: Duration = Duration::from_secs(30);
 const DEVICE_TYPE_WIFI: u32 = 2;
 pub const WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const ACTIVATED: u32 = 2;
