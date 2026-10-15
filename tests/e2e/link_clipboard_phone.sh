@@ -11,7 +11,7 @@
 # 5. A screenshot (a PNG in Pictures/Screenshots) shared to Link by its media store URI arrives as a file, identical;
 #    OxygenOS screenshots do not touch the clipboard, so Share (or Copy in the screenshot editor) is how they cross.
 # The desktop half (the shell taking the selection, wl-paste) is link_clipboard.sh. Needs ANDROID_SERIAL, the debug
-# APKs, and the phone on the same network as this machine. Uninstalls Link on the phone first, so the phone forgets
+# APKs, and the phone on the same network as this machine. Clears Link's data on the phone first, so the phone forgets
 # its desktops. Holds /tmp/umbriel-link-phone.lock, as other phone runs do. Writes steps.txt, signals.txt, phone.log,
 # linkd.log, and screenshots to $OUT (default ./artifacts/link-clipboard/phone).
 set -euo pipefail
@@ -96,8 +96,9 @@ PY
 
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell cmd statusbar collapse
-adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
-adb install -g "$APK" > /dev/null || fail "installing $APK"
+# Never uninstall: other phone runs share the app and its signing key. Clearing its data forgets other desktops.
+adb shell pm clear "$PACKAGE" > /dev/null 2>&1 || true
+adb install -r -g "$APK" > /dev/null || fail "installing $APK"
 adb install -r "$FIXTURE_APK" > /dev/null || fail "installing $FIXTURE_APK"
 for permission in READ_LOGS SYSTEM_ALERT_WINDOW; do
   adb shell dumpsys package "$PACKAGE" | grep -q "$permission: granted=true" || fail "$permission was not granted at install"
@@ -141,6 +142,16 @@ wait_for 20 "D-Bus does not show the phone connected: $(devices)" connected
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 step "paired with a private desktop through the relay on $HOST:$RELAY_PORT"
 
+# Pairing opens the app, whose watcher asks for log access in the foreground. That prompt would outlive the process
+# killed below and decline the next request; allow it so it closes, then go on with a fresh process.
+for _ in $(seq 10); do
+  if adb shell dumpsys activity activities | grep -q LogAccessDialogActivity; then
+    tap_text "" "Allow one-time access"
+    break
+  fi
+  sleep 0.5
+done
+
 watcher() { adb shell ps -A -o PID,PPID,NAME | awk -v app="$(adb shell pidof $PACKAGE | tr -d '\r')" '$2 == app && $3 == "logcat" {print $1}'; }
 prompts() { adb logcat -d -b events | grep -c "wm_create_activity.*LogAccessDialogActivity" || true; }
 background() { adb shell input keyevent KEYCODE_HOME; sleep 1; }
@@ -170,13 +181,6 @@ sleep 4 # real time: an offer would arrive within this
 [[ $(offers) == "$BEFORE" ]] || fail "a copy crossed before log access was asked"
 step "before the first open: a copy does not cross"
 
-# A build that starts logcat in the background leaves a hidden log-access prompt for up to 5 minutes. The open below
-# would stop it, which declines this request too, and Android keeps a decline for a minute; so wait both out.
-if adb shell dumpsys activity activities | grep -q LogAccessDialogActivity; then
-  echo "waiting for a stale log-access prompt to time out" >&2
-  wait_for 330 "the stale log-access prompt stayed" eval '! adb shell dumpsys activity activities | grep -q LogAccessDialogActivity'
-  sleep 65 # real time: Android's cached decline expires
-fi
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 tap_text 1-log-access-prompt "Allow one-time access"
 wait_for 10 "the dialog did not close" eval '! adb shell dumpsys window | grep -q "mCurrentFocus.*LogAccessDialog"'

@@ -7,7 +7,7 @@
 #    through contacts-changed and goes when it is deleted.
 # 4. Photos lists the media store by album with only the media permissions (no All files access): a PNG pushed into
 #    Pictures/LinkE2E shows in the album, StatFile finds it, ReadFile returns it byte for byte, and Thumbnail is a PNG.
-# Needs ANDROID_SERIAL, the debug APK, and the phone on the same network as this machine. Uninstalls Link on the
+# Needs ANDROID_SERIAL, the debug APK, and the phone on the same network as this machine. Clears Link's data on the
 # phone first, so the phone forgets its desktops. Holds /tmp/umbriel-link-phone.lock, as other phone runs do. Writes
 # steps.txt, signals.txt, phone.log, linkd.log, and the pulled files to $OUT (default ./artifacts/link-data/phone).
 set -euo pipefail
@@ -87,8 +87,9 @@ PY
 
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell cmd statusbar collapse
-adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
-adb install -g "$APK" > /dev/null || fail "installing $APK"
+# Never uninstall: other phone runs share the app and its signing key. Clearing its data forgets other desktops.
+adb shell pm clear "$PACKAGE" > /dev/null 2>&1 || true
+adb install -r -g "$APK" > /dev/null || fail "installing $APK"
 for permission in READ_CONTACTS READ_MEDIA_IMAGES READ_PHONE_STATE; do
   adb shell dumpsys package "$PACKAGE" | grep -q "$permission: granted=true" || fail "$permission was not granted at install"
 done
