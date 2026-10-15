@@ -7,8 +7,8 @@
 # 4. A desktop command shows on the device page by name, and a tap runs its line here.
 # 5. The phone's Ping reaches the desktop; the desktop's ping shows on the phone.
 # Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh.
-# Uninstalls Link on the phone first. Holds /tmp/umbriel-link-phone.lock. Writes results.jsonl, signals.txt, linkd.log,
-# ui-*.xml, and screen-*.png to $OUT (default ./artifacts/link-control-phone).
+# Updates Link on the phone and unpairs its desktop after. Holds /tmp/umbriel-link-phone.lock. Writes results.jsonl,
+# signals.txt, linkd.log, ui-*.xml, and screen-*.png to $OUT (default ./artifacts/link-control-phone).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-control-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
@@ -18,7 +18,7 @@ RELAY_PORT=${RELAY_PORT:-48307}
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-control-phone.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'forget_phone; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 [[ $(adb get-state 2>/dev/null) == device ]] || fail "no phone at $SERIAL"
 [[ -s $APK ]] || fail "no APK at $APK"
 

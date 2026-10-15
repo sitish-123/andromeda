@@ -232,6 +232,8 @@ pub struct Hub {
     hotspots: HashMap<DeviceId, OwnedObjectPath>,
     /// Each join's phone, the hotspot's SSID (None for a Wi-Fi Direct group), and the outcome.
     joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
+    /// Phones whose hotspot this desktop is joining now.
+    joining_hotspots: HashSet<DeviceId>,
     /// How phones find this desktop over Wi-Fi Direct, when it can join a group.
     wifi_direct_peer: Option<WifiDirectReady>,
     /// The code a phone with a session reported while Android pairs Bluetooth with it, until when it counts.
@@ -310,6 +312,7 @@ impl Hub {
             open: HashMap::new(),
             hotspots: HashMap::new(),
             joining: JoinSet::new(),
+            joining_hotspots: HashSet::new(),
             wifi_direct_peer: None,
             bt_pairing: None,
             bluetooth: None,
@@ -1059,6 +1062,7 @@ impl Hub {
         // The phone offers its hotspot only after giving up on a group, which this desktop may have joined anyway.
         let abandoned = self.hotspots.remove(&id);
         log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
+        self.joining_hotspots.insert(id.clone());
         self.emit(Event::Hotspot { id: id.clone(), ssid: Some(offered.ssid.clone()) }).await;
         self.joining.spawn(async move {
             if let Some(group) = abandoned {
@@ -1072,6 +1076,16 @@ impl Hub {
     /// Answers the phone with where the desktop listens on its hotspot or group. A failed hotspot fails the sends
     /// waiting for it; a failed group does not, since the phone falls back to its hotspot.
     async fn hotspot_joined(&mut self, id: DeviceId, ssid: Option<String>, joined: Result<hotspot::Joined, String>) {
+        if ssid.is_some() {
+            self.joining_hotspots.remove(&id);
+        } else if self.joining_hotspots.contains(&id) || self.hotspots.contains_key(&id) {
+            // The phone gave up on its group and runs a hotspot now, which a HotspotEnd would stop.
+            log::info!("{id}: dropping the Wi-Fi Direct group the phone gave up on");
+            if let Ok(joined) = joined {
+                hotspot::leave(&joined.active).await;
+            }
+            return;
+        }
         let Some(session) = self.sessions.get(&id).cloned() else {
             if let Ok(joined) = joined {
                 hotspot::leave(&joined.active).await;

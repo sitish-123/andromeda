@@ -9,8 +9,8 @@
 # 2. Bitrate under loss: while the fixture draws noise, 3 Mbit/s and 2 % loss on the relay make the phone step its
 #    encoder down from 8 Mbit/s; after the link is clean again it steps back up. Frames keep arriving throughout.
 # 3. Sound: the fixture's 440 Hz tone arrives as Opus and decodes to audio.wav with that pitch.
-# Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh. Uninstalls
-# Link on the phone first (its signing key differs from a release build), so the phone forgets its desktops. Holds
+# Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh.
+# Updates Link on the phone, keeps its other pairings, and unpairs the run's desktop after. Holds
 # /tmp/umbriel-link-phone.lock, which other phone runs take too. Writes results.jsonl, latency.tsv, luma.tsv, relay.tsv,
 # bitrate.log, audio.wav, linkd.log, viewer.log, logcat.txt to $OUT (default ./artifacts/link-mirror-phone).
 set -euo pipefail
@@ -25,7 +25,7 @@ TAPS=30
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-mirror-phone.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'forget_phone; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 [[ $(adb get-state 2>/dev/null) == device ]] || fail "no phone at $SERIAL"
 [[ -s $APK && -s $FIXTURE ]] || fail "no APKs at $APK and $FIXTURE"
 
