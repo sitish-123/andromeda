@@ -3,12 +3,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, Message, MirrorStarted, MirrorStop,
-    NetworkKind, Punch, Share, Status, TransferId, WifiDirect,
+    ContactsList, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MESSAGES, Message,
+    MessagesRefusal, MirrorStarted, MirrorStop, NetworkKind, Punch, STATUS_SIGNAL, Share, Status, TransferId,
+    WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -19,6 +21,7 @@ use crate::browse;
 use crate::hotspot::{self, UPGRADE_TIMEOUT};
 use crate::identity::DeviceId;
 use crate::inbox::Inbox;
+use crate::messages::{self, Messages};
 use crate::mirror::MirrorSender;
 use crate::net;
 use crate::phone::{self, PairTarget, Phone};
@@ -111,6 +114,10 @@ enum Command {
     SetBrowseRoots {
         roots: browse::Roots,
     },
+    SetMessages {
+        messages: Option<Arc<dyn Messages>>,
+    },
+    ContactsChanged,
     /// Moves `id`'s Bluetooth session to this phone's hotspot; answered once it runs over IP, or with why not.
     Upgrade {
         id: DeviceId,
@@ -171,8 +178,9 @@ pub struct ClientActor {
     /// While that group is forming: when it gives up for the hotspot.
     wifi_direct_until: Option<Instant>,
     wifi_direct_started: JoinSet<(DeviceId, Result<(), String>)>,
-    /// Browse requests being answered, at most [`browse::MAX_IN_FLIGHT`].
+    /// Browse and contacts requests being answered, at most [`browse::MAX_IN_FLIGHT`].
     browsing: JoinSet<()>,
+    messages: Option<Arc<dyn Messages>>,
 }
 
 struct Ended {
@@ -223,6 +231,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         wifi_direct_until: None,
         wifi_direct_started: JoinSet::new(),
         browsing: JoinSet::new(),
+        messages: None,
     };
     (Client { commands: commands_tx, transfers }, actor, events_rx)
 }
@@ -303,6 +312,16 @@ impl Client {
     /// The folders a desktop with the browse switch on sees; empty while the app may not read shared storage.
     pub async fn set_browse_roots(&self, roots: browse::Roots) -> Result<(), Error> {
         self.commands.send(Command::SetBrowseRoots { roots }).await.map_err(|_| Error::Stopped)
+    }
+
+    /// The phone's contacts for desktops with the messages switch on; None while the app has no access.
+    pub async fn set_messages(&self, messages: Option<Arc<dyn Messages>>) -> Result<(), Error> {
+        self.commands.send(Command::SetMessages { messages }).await.map_err(|_| Error::Stopped)
+    }
+
+    /// Tells desktops with the messages switch on to pull the contacts again.
+    pub async fn contacts_changed(&self) -> Result<(), Error> {
+        self.commands.send(Command::ContactsChanged).await.map_err(|_| Error::Stopped)
     }
 
     /// The phone's battery and network: sent to every desktop on connect and, at most every 10 s, on change.
@@ -475,9 +494,18 @@ impl ClientActor {
                 }
             }
             Command::SetSharing { id, feature, on, reply } => {
-                drop(reply.send(self.phone.set_sharing(&id, feature, on)));
+                let result = self.phone.set_sharing(&id, feature, on);
+                if result.is_ok() && feature == Feature::Messages {
+                    self.contacts_changed(Some(&id)).await;
+                }
+                drop(reply.send(result));
             }
             Command::SetBrowseRoots { roots } => self.phone.set_browse_roots(roots),
+            Command::SetMessages { messages } => {
+                self.messages = messages;
+                self.contacts_changed(None).await;
+            }
+            Command::ContactsChanged => self.contacts_changed(None).await,
             Command::Upgrade { id, reply } => {
                 self.upgrades.entry(id.clone()).or_default().push(reply);
                 self.start_hotspot(id).await;
@@ -603,7 +631,7 @@ impl ClientActor {
             }
         }
         if let Some(status) = self.status {
-            let (handle, status) = (handle.clone(), Message::Status(status));
+            let (handle, status) = (handle.clone(), self.status_message(&id, status));
             if let Err(error) = handle.send(status).await {
                 log::info!("{id}: sending the status: {error}");
             }
@@ -912,11 +940,7 @@ impl ClientActor {
     /// Answers a browse request off the actor, when this desktop's browse switch is on.
     async fn browse(&mut self, from: &DeviceId, request: Message) {
         let Some(handle) = self.sessions.get(from).cloned() else { return };
-        let req = match &request {
-            Message::FsList(list) => list.req,
-            Message::FsRead(read) => read.req,
-            _ => return,
-        };
+        let Some(req) = browse::request_id(&request) else { return };
         let allowed = self.phone.desktops().iter().any(|peer| peer.id == *from && peer.grants.browse);
         let refusal = if !allowed {
             Some(FsRefusal::NotAllowed)
@@ -934,6 +958,36 @@ impl ClientActor {
                 }
             }
             None => drop(self.browsing.spawn(browse::answer(self.phone.browse_roots().clone(), handle, request))),
+        }
+    }
+
+    /// Answers a contacts request off the actor, when this desktop's messages switch is on.
+    async fn contacts(&mut self, from: &DeviceId, list: ContactsList) {
+        let Some(handle) = self.sessions.get(from).cloned() else { return };
+        let allowed = self.phone.desktops().iter().any(|peer| peer.id == *from && peer.grants.messages);
+        let refusal = match &self.messages {
+            _ if !allowed => MessagesRefusal::NotAllowed,
+            None => MessagesRefusal::Denied,
+            Some(_) if self.browsing.len() >= browse::MAX_IN_FLIGHT => MessagesRefusal::Failed,
+            Some(messages) => {
+                drop(self.browsing.spawn(messages::answer(messages.clone(), handle, list.req, list.cursor)));
+                return;
+            }
+        };
+        if let Err(error) = handle.send(messages::refused(list.req, refusal)).await {
+            log::info!("{from}: refusing a contacts request: {error}");
+        }
+    }
+
+    /// Sends `contacts-changed` to `only`, else to every live desktop that takes it.
+    async fn contacts_changed(&self, only: Option<&DeviceId>) {
+        for peer in
+            self.phone.desktops().iter().filter(|peer| peer.has(MESSAGES) && only.is_none_or(|id| *id == peer.id))
+        {
+            let Some(handle) = self.sessions.get(&peer.id).filter(|handle| handle.is_live()) else { continue };
+            if let Err(error) = handle.send(Message::ContactsChanged).await {
+                log::info!("{}: sending contacts-changed: {error}", peer.id);
+            }
         }
     }
 
@@ -963,10 +1017,16 @@ impl ClientActor {
         self.status_sent = Some(Instant::now());
         let Some(status) = self.status else { return };
         for (id, handle) in self.sessions.iter().filter(|(_, handle)| handle.is_live()) {
-            if let Err(error) = handle.send(Message::Status(status)).await {
+            if let Err(error) = handle.send(self.status_message(id, status)).await {
                 log::info!("{id}: sending the status: {error}");
             }
         }
+    }
+
+    /// The status as `id` takes it: without `signal` for a desktop from before it.
+    fn status_message(&self, id: &DeviceId, status: Status) -> Message {
+        let takes_signal = self.phone.desktops().iter().any(|peer| peer.id == *id && peer.has(STATUS_SIGNAL));
+        Message::Status(Status { signal: status.signal.filter(|_| takes_signal), ..status })
     }
 
     fn is_busy(&self, id: &DeviceId) -> bool {
@@ -981,9 +1041,13 @@ impl ClientActor {
     async fn relay(&mut self, event: SessionEvent) {
         match event {
             SessionEvent::Message { from, message: Message::HotspotRequest } => self.start_hotspot(from).await,
-            SessionEvent::Message { from, message: request @ (Message::FsList(_) | Message::FsRead(_)) } => {
+            SessionEvent::Message {
+                from,
+                message: request @ (Message::FsList(_) | Message::FsStat(_) | Message::FsRead(_) | Message::FsThumb(_)),
+            } => {
                 self.browse(&from, request).await;
             }
+            SessionEvent::Message { from, message: Message::ContactsList(list) } => self.contacts(&from, list).await,
             SessionEvent::Message { from, message: Message::HotspotJoined(joined) } => {
                 self.hotspot_joined(from, &joined);
             }

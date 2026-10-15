@@ -7,7 +7,7 @@ use link_core::control::Control;
 use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
 use link_core::proto::message::Hello;
-use link_core::proto::message::{BLUETOOTH_SCHEME, BT_PAIRING};
+use link_core::proto::message::{BLUETOOTH_SCHEME, BT_PAIRING, MESSAGES, STATUS_SIGNAL};
 use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
 use link_core::session::session as start_session;
@@ -176,6 +176,7 @@ impl Context {
         if self.bluetooth.is_some() {
             addresses.push(BT_PAIRING.to_owned());
         }
+        addresses.extend([STATUS_SIGNAL, MESSAGES].map(str::to_owned));
         Hello { version: VERSION, name: self.name.clone(), addresses }
     }
 }

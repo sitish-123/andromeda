@@ -48,6 +48,8 @@ import org.umbriel.link.core.domain.Sharing
 import org.umbriel.link.core.domain.TransferEvent
 import org.umbriel.link.core.domain.TransferRecord
 import org.umbriel.link.ffi.BrowseRoot
+import org.umbriel.link.ffi.PhoneLibrary
+import org.umbriel.link.ffi.PhoneMessages
 import org.umbriel.link.ffi.LinkClient
 import org.umbriel.link.ffi.LinkEvent
 import org.umbriel.link.ffi.LinkException
@@ -113,8 +115,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
 
     /** The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show. */
-    suspend fun setStatus(battery: Int, charging: Boolean, network: String): Result<Unit> =
-        call { it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network) }
+    /** [signal] is cellular bars, 0 to 4, or null without service. */
+    suspend fun setStatus(battery: Int, charging: Boolean, network: String, signal: Int?): Result<Unit> =
+        call { it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network, signal?.coerceIn(0, 4)?.toUByte()) }
 
     /** Offers text from this phone's clipboard to every connected desktop. */
     suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
@@ -235,8 +238,12 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         callAndRefresh { it.setSharing(desktopId, feature.toFfi(), on) }
 
     /** The folders a desktop with this phone's browse switch on sees, by name; empty without All files access. */
-    suspend fun setBrowseRoots(roots: Map<String, String>): Result<Unit> =
-        call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }) }
+    suspend fun setBrowseRoots(roots: Map<String, String>, library: PhoneLibrary?): Result<Unit> =
+        call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }, library) }
+
+    suspend fun setMessages(messages: PhoneMessages?): Result<Unit> = call { it.setMessages(messages) }
+
+    suspend fun contactsChanged(): Result<Unit> = call { it.contactsChanged() }
 
     suspend fun refresh(): Result<Unit> = call { client ->
         _desktops.value = client.desktops().map { it.toDomain() }
@@ -500,6 +507,7 @@ private fun FfiDesktop.toDomain() = Desktop(
         sharing.calls,
         sharing.browse,
         sharing.screen,
+        sharing.messages,
     ),
     bluetoothAddress = bluetoothAddress,
     btPairing = btPairing,
@@ -589,6 +597,7 @@ private fun Feature.toFfi(): FfiFeature = when (this) {
     Feature.Calls -> FfiFeature.CALLS
     Feature.Browse -> FfiFeature.BROWSE
     Feature.Screen -> FfiFeature.SCREEN
+    Feature.Messages -> FfiFeature.MESSAGES
 }
 
 private fun PhoneNotification.toFfi() = FfiPhoneNotification(

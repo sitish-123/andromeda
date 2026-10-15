@@ -121,6 +121,11 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
                     subtitle = stringResource(R.string.feature_browse_hint), icon = LinkIcons.Folder, enabled = !state.busy,
                 )
                 SwitchRow(
+                    stringResource(R.string.feature_messages), desktop.sharing.messages,
+                    { viewModel.setSharing(Feature.Messages, it) },
+                    subtitle = stringResource(R.string.feature_messages_hint), icon = LinkIcons.Contacts, enabled = !state.busy,
+                )
+                SwitchRow(
                     stringResource(R.string.feature_screen), desktop.sharing.screen,
                     { viewModel.setSharing(Feature.Screen, it) },
                     subtitle = stringResource(R.string.feature_screen_hint), icon = LinkIcons.Computer, enabled = !state.busy,

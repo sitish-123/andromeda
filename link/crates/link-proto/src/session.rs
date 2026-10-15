@@ -89,7 +89,9 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::MirrorStarted(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
-        | Message::FsError(_) => role == Role::Desktop,
+        | Message::FsError(_)
+        | Message::Contacts(_)
+        | Message::ContactsChanged => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
         | Message::CallAction(_)
@@ -100,7 +102,10 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe
         | Message::FsList(_)
-        | Message::FsRead(_) => role == Role::Phone,
+        | Message::FsRead(_)
+        | Message::FsStat(_)
+        | Message::FsThumb(_)
+        | Message::ContactsList(_) => role == Role::Phone,
         Message::HotspotEnd(_)
         | Message::MirrorStop(_)
         | Message::MediaPlayer(_)
@@ -401,7 +406,7 @@ mod tests {
     #[test]
     fn status_is_legal_only_towards_the_desktop_and_within_range() {
         use crate::message::{NetworkKind, Status};
-        let status = Status { battery: 42, charging: true, network: NetworkKind::Cellular };
+        let status = Status { battery: 42, charging: true, network: NetworkKind::Cellular, signal: Some(3) };
         let desktop = SessionState::new(Role::Desktop).on_message(envelope(1, Message::Status(status)));
         assert_eq!(desktop, Ok(Inbound::Status(status)));
         let phone = SessionState::new(Role::Phone).on_message(envelope(1, Message::Status(status)));

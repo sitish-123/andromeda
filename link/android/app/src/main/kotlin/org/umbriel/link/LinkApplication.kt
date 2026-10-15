@@ -19,6 +19,9 @@ import org.umbriel.link.clipboard.ClipboardSync
 import org.umbriel.link.clipboard.ClipboardWatcher
 import org.umbriel.link.calls.Calls
 import org.umbriel.link.core.data.LinkRepository
+import org.umbriel.link.core.data.MediaLibrary
+import org.umbriel.link.core.data.PhoneContacts
+import org.umbriel.link.files.MediaAccess
 import org.umbriel.link.media.PhoneMedia
 import org.umbriel.link.files.PhoneFiles
 import org.umbriel.link.notifications.Channels
@@ -60,6 +63,8 @@ class AppContainer(val application: Application) {
     val calls = Calls(application, repository, scope)
     private val bonding = BluetoothBonding(application, repository, scope)
     val files = PhoneFiles(application)
+    private val library = MediaLibrary(application)
+    private val contacts = PhoneContacts(application) { scope.launch { repository.contactsChanged() } }
 
     fun start() {
         Channels.create(application)
@@ -68,6 +73,7 @@ class AppContainer(val application: Application) {
         status.start()
         mirror.start()
         media.start()
+        scope.launch { repository.setMessages(contacts) }
         ringer.start()
         screen.start()
         calls.start()
@@ -77,6 +83,7 @@ class AppContainer(val application: Application) {
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_START) {
                     refreshBrowseRoots()
+                    contacts.watch()
                 }
             },
         )
@@ -95,13 +102,11 @@ class AppContainer(val application: Application) {
         }
     }
 
+    /** `Storage` needs All files access; `Photos`, the media store by album, needs only the media permissions. */
     private fun refreshBrowseRoots() {
-        val roots = if (files.allFiles()) {
-            mapOf("Storage" to files.root.absolutePath, "Photos" to files.root.resolve("DCIM").absolutePath)
-        } else {
-            emptyMap()
-        }
-        scope.launch { repository.setBrowseRoots(roots) }
+        val roots = if (files.allFiles()) mapOf("Storage" to files.root.absolutePath) else emptyMap()
+        val library = library.takeIf { files.mediaAccess() != MediaAccess.None }
+        scope.launch { repository.setBrowseRoots(roots, library) }
     }
 }
 

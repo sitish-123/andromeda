@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::{FsEntry, FsList, FsRead, FsRefusal, Message};
+use link_core::proto::message::{FsEntry, FsList, FsRead, FsRefusal, FsStat, FsThumb, MAX_FS_READ, Message};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
@@ -15,8 +15,41 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_ENTRIES: usize = 16 * 1024;
 
 pub enum Request {
-    List { path: String },
-    Read { path: String, offset: u64, len: u32 },
+    List {
+        path: String,
+    },
+    Stat {
+        path: String,
+    },
+    Read {
+        path: String,
+        offset: u64,
+        len: u32,
+    },
+    Thumb {
+        path: String,
+        px: u16,
+    },
+    /// One entry of a listing, standing in for `Stat` with a phone from before it.
+    Find {
+        parent: String,
+        name: String,
+    },
+}
+
+impl Request {
+    /// What a phone from before `fs-stat` understands: a stat lists the parent, a thumbnail has no stand-in.
+    pub fn for_older_phone(self) -> Result<Self, Failure> {
+        match self {
+            Self::Stat { path } => {
+                let (parent, name) = path.rsplit_once('/').ok_or(Failure::Refused(FsRefusal::NotFound))?;
+                let parent = if parent.is_empty() { "/" } else { parent };
+                Ok(Self::Find { parent: parent.to_owned(), name: name.to_owned() })
+            }
+            Self::Thumb { .. } => Err(Failure::Refused(FsRefusal::NotFound)),
+            other => Ok(other),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -46,6 +79,8 @@ enum Step {
 struct Pending {
     device: DeviceId,
     path: String,
+    /// The one entry a `Find` keeps.
+    pick: Option<String>,
     gathered: Gathered,
     reply: Reply,
     deadline: Instant,
@@ -67,18 +102,32 @@ impl Browsing {
     pub fn start(&mut self, device: DeviceId, request: Request, reply: Reply) -> (u64, Message) {
         self.next += 1;
         let req = self.next;
+        let mut pick = None;
         let (path, gathered, message) = match request {
             Request::List { path } => {
                 let message = Message::FsList(FsList { req, path: path.clone(), cursor: None });
+                (path, Gathered::Entries(Vec::new()), message)
+            }
+            Request::Stat { path } => {
+                let message = Message::FsStat(FsStat { req, path: path.clone() });
                 (path, Gathered::Entries(Vec::new()), message)
             }
             Request::Read { path, offset, len } => {
                 let message = Message::FsRead(FsRead { req, path: path.clone(), offset, len });
                 (path, Gathered::Data { data: Vec::new(), want: len as usize }, message)
             }
+            Request::Find { parent, name } => {
+                pick = Some(name);
+                let message = Message::FsList(FsList { req, path: parent.clone(), cursor: None });
+                (parent, Gathered::Entries(Vec::new()), message)
+            }
+            Request::Thumb { path, px } => {
+                let message = Message::FsThumb(FsThumb { req, path: path.clone(), px });
+                (path, Gathered::Data { data: Vec::new(), want: MAX_FS_READ as usize }, message)
+            }
         };
         let deadline = Instant::now() + ANSWER_TIMEOUT;
-        self.pending.insert(req, Pending { device, path, gathered, reply, deadline });
+        self.pending.insert(req, Pending { device, path, pick, gathered, reply, deadline });
         (req, message)
     }
 
@@ -131,11 +180,15 @@ impl Browsing {
 
     fn finish(&mut self, req: u64) {
         let Some(pending) = self.pending.remove(&req) else { return };
-        let answer = match pending.gathered {
-            Gathered::Entries(entries) => Answer::Entries(entries),
-            Gathered::Data { data, .. } => Answer::Data(data),
+        let answer = match (pending.gathered, pending.pick) {
+            (Gathered::Entries(entries), Some(name)) => match entries.into_iter().find(|entry| entry.name == name) {
+                Some(entry) => Ok(Answer::Entries(vec![entry])),
+                None => Err(Failure::Refused(FsRefusal::NotFound)),
+            },
+            (Gathered::Entries(entries), None) => Ok(Answer::Entries(entries)),
+            (Gathered::Data { data, .. }, _) => Ok(Answer::Data(data)),
         };
-        drop(pending.reply.send(Ok(answer)));
+        drop(pending.reply.send(answer));
     }
 
     pub fn deadline(&self) -> Option<Instant> {

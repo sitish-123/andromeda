@@ -10,8 +10,8 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    Call, CallState, Hello, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted, Share,
-    Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    Call, CallState, FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message,
+    NotificationPosted, Share, Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -59,10 +59,12 @@ pub struct Snapshot {
     pub auto_accept: Vec<String>,
     /// Device id to granted features, the D-Bus `Grants` property.
     pub grants: Vec<(String, Vec<String>)>,
-    /// Connected device id to `(battery, charging, network)`, the D-Bus `DeviceStatus` property.
-    pub status: Vec<(String, (u32, bool, String))>,
+    /// Connected device id to `(battery, charging, network, signal)`, the D-Bus `DeviceStatus` property.
+    pub status: Vec<(String, (u32, bool, String, i32))>,
     /// "Visible to LocalSend", the D-Bus `LocalSendVisible` property.
     pub localsend: bool,
+    /// Device id to its contacts as `(name, numbers)`, the D-Bus `Contacts` property.
+    pub contacts: Vec<(String, crate::messages::Contacts)>,
 }
 
 #[derive(Debug)]
@@ -218,6 +220,9 @@ pub struct Hub {
     /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
     browsing: browse::Browsing,
+    /// Each connected phone's `feature:` entries from its hello.
+    features: HashMap<DeviceId, Vec<String>>,
+    messages: crate::messages::Messages,
     mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
 }
@@ -283,6 +288,8 @@ impl Hub {
             bluetooth: None,
             waiting: Vec::new(),
             browsing: browse::Browsing::default(),
+            features: HashMap::new(),
+            messages: crate::messages::Messages::default(),
             mirrors: crate::mirror::Mirrors::default(),
             puncher,
         };
@@ -299,6 +306,7 @@ impl Hub {
             let deadline = self.window.as_ref().map(|window| window.deadline);
             let give_up = self.waiting.iter().map(|waiting| waiting.deadline).min();
             let browse_deadline = self.browsing.deadline();
+            let contacts_deadline = self.messages.deadline();
             let mirror_deadline = self.mirrors.deadline();
             tokio::select! {
                 () = sleep_until(mirror_deadline) => {
@@ -308,6 +316,7 @@ impl Hub {
                 }
                 Some(id) = self.mirrors.ended() => self.tell_mirror_stop(&id, "the viewer closed").await,
                 () = sleep_until(browse_deadline) => self.browsing.expire(),
+                () = sleep_until(contacts_deadline) => self.messages.expire(),
                 Some(joined) = self.joining.join_next() => match joined {
                     Ok((id, ssid, joined)) => self.hotspot_joined(id, ssid, joined).await,
                     Err(join) => log::warn!("hotspot join task: {join}"),
@@ -355,6 +364,11 @@ impl Hub {
             Command::Browse { id, request, reply } => {
                 let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
                     return drop(reply.send(Err(browse::Failure::NotConnected)));
+                };
+                let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
+                let request = match request {
+                    Ok(request) => request,
+                    Err(failure) => return drop(reply.send(Err(failure))),
                 };
                 let (req, message) = self.browsing.start(id, request, reply);
                 if session.send(message).await.is_err() {
@@ -515,6 +529,7 @@ impl Hub {
                 log::info!("{from} unpaired itself");
                 self.sessions.remove(&from);
                 self.store.remove(&from);
+                self.messages.forget(&from);
                 self.save();
                 self.refresh();
                 self.forget_notifications(&from).await;
@@ -531,6 +546,20 @@ impl Hub {
                 {
                     log::info!("{from}: asking for the next page of a listing failed");
                 }
+            }
+            // The phone's own switch governs its contacts; this desktop asked for them.
+            SessionEvent::Message { from, message: Message::Contacts(page) } => {
+                let (next, changed) = self.messages.on_contacts(&from, page);
+                if let Some(next) = next {
+                    self.send_to(&from, next).await;
+                }
+                if changed {
+                    self.publish();
+                }
+            }
+            SessionEvent::Message { from, message: Message::ContactsChanged } if self.phone_has(&from, MESSAGES) => {
+                let pull = self.messages.pull_contacts(from.clone());
+                self.send_to(&from, pull).await;
             }
             // Answers to this desktop's own mirror request, which needs no grant of the phone's here.
             SessionEvent::Message { from, message: Message::MirrorStarted(started) } => {
@@ -731,6 +760,12 @@ impl Hub {
         }
         self.publish();
         self.transfers.attach(id.clone(), session.clone()).await;
+        let features = hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
+        self.features.insert(id.clone(), features);
+        if self.phone_has(&id, MESSAGES) {
+            let pull = self.messages.pull_contacts(id.clone());
+            self.send_to(&id, pull).await;
+        }
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
         let ready = self
             .wifi_direct_peer
@@ -748,6 +783,19 @@ impl Hub {
             // Back on Bluetooth: the phone's hotspot is gone even if its hotspot-end was lost with the old session.
             self.leave_hotspot(&id).await;
         }
+    }
+
+    async fn send_to(&self, id: &DeviceId, message: Message) {
+        let kind = message.kind();
+        if let Some(session) = self.sessions.get(id)
+            && let Err(error) = session.send(message).await
+        {
+            log::info!("{id}: sending {kind}: {error}");
+        }
+    }
+
+    fn phone_has(&self, id: &DeviceId, feature: &str) -> bool {
+        self.features.get(id).is_some_and(|features| features.iter().any(|entry| entry == feature))
     }
 
     /// The Link device a send is for, when its session runs over Bluetooth and the files are worth the hotspot.
@@ -938,6 +986,7 @@ impl Hub {
             session.close(CloseCode::Unpaired);
         }
         self.store.revoked.push(id.clone());
+        self.messages.forget(id);
         self.save();
         self.refresh();
         true
@@ -983,14 +1032,17 @@ impl Hub {
             .status
             .iter()
             .map(|(id, status)| {
-                let value = (u32::from(status.battery), status.charging, status.network.as_str().to_owned());
+                let signal = status.signal.map_or(-1, i32::from);
+                let value = (u32::from(status.battery), status.charging, status.network.as_str().to_owned(), signal);
                 (id.to_string(), value)
             })
             .collect();
         status.sort();
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
-            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend };
+            let contacts = self.messages.contacts();
+            let next =
+                Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend, contacts };
             let changed = *current != next;
             *current = next;
             changed

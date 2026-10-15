@@ -5,7 +5,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use link_proto::message::{BT_PAIRING, Hello, Message, PairMethod, WIFI_DIRECT_BY_ADDRESS, bluetooth_address};
+use link_proto::message::{
+    BT_PAIRING, FEATURE, FS_STAT, Hello, MESSAGES, Message, PairMethod, WIFI_DIRECT_BY_ADDRESS, bluetooth_address,
+};
 use link_proto::pairing::Secret;
 use link_proto::{CloseCode, VERSION};
 
@@ -262,7 +264,8 @@ impl Phone {
     }
 
     fn hello(&self) -> Hello {
-        Hello { version: VERSION, name: self.name.clone(), addresses: vec![WIFI_DIRECT_BY_ADDRESS.to_owned()] }
+        let features = [WIFI_DIRECT_BY_ADDRESS, FS_STAT, MESSAGES].map(str::to_owned);
+        Hello { version: VERSION, name: self.name.clone(), addresses: features.to_vec() }
     }
 
     fn remember(
@@ -282,6 +285,7 @@ impl Phone {
             peer.bluetooth = Some(bluetooth);
         }
         peer.bt_pairing = hello.addresses.iter().any(|entry| entry == BT_PAIRING);
+        peer.features = hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
         peer.touch();
         self.store.upsert(peer.clone());
         self.store.save(&self.store_path)?;

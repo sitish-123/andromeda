@@ -66,6 +66,7 @@ fn message(kind: Kind, n: u32) -> Message {
             battery: u8::try_from(n % 101).unwrap_or(0),
             charging: false,
             network: NetworkKind::Wifi,
+            signal: None,
         }),
     }
 }

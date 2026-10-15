@@ -185,10 +185,10 @@ impl Link {
         }
     }
 
-    /// Connected device id to `(battery percent, charging, network)`; network is wifi, cellular, ethernet, none, or
-    /// other.
+    /// Connected device id to `(battery percent, charging, network, signal)`; network is wifi, cellular, ethernet,
+    /// none, or other; signal is cellular bars, 0 to 4, or -1 without service.
     #[zbus(property)]
-    fn device_status(&self) -> HashMap<String, (u32, bool, String)> {
+    fn device_status(&self) -> HashMap<String, (u32, bool, String, i32)> {
         self.snapshots.borrow().status.iter().cloned().collect()
     }
 
@@ -206,6 +206,12 @@ impl Link {
     #[zbus(property)]
     fn nearby(&self) -> Vec<(String, String)> {
         self.nearby.borrow().clone()
+    }
+
+    /// Device id to its contacts as `(name, numbers)`, from phones whose messages switch is on.
+    #[zbus(property)]
+    fn contacts(&self) -> HashMap<String, Vec<(String, Vec<String>)>> {
+        self.snapshots.borrow().contacts.iter().cloned().collect()
     }
 
     #[zbus(property)]
@@ -278,6 +284,35 @@ impl Link {
                 Ok(entries.into_iter().map(|entry| (entry.name, entry.dir, entry.size, entry.mtime)).collect())
             }
             browse::Answer::Data(_) => Err(LinkError::Failed("the phone answered a listing with data".to_owned())),
+        }
+    }
+
+    /// One entry on a connected phone, as `ListFiles` gives it: (name, whether a folder, size, mtime).
+    async fn stat_file(&self, device_id: String, path: String) -> Result<(String, bool, u64, u64), LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path) || path == "/" {
+            return Err(LinkError::Rejected("not a browse path below the roots".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::Stat { path }).await? {
+            browse::Answer::Entries(entries) if entries.len() == 1 => {
+                let entry = entries.into_iter().next().ok_or_else(|| LinkError::Failed("no entry".to_owned()))?;
+                Ok((entry.name, entry.dir, entry.size, entry.mtime))
+            }
+            _ => Err(LinkError::Failed("the phone did not answer with one entry".to_owned())),
+        }
+    }
+
+    /// A PNG of an image or video on a connected phone, at most `size` pixels (1 to 1024) on its longer side.
+    async fn thumbnail(&self, device_id: String, path: String, size: u16) -> Result<Vec<u8>, LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path)
+            || !(1..=link_core::proto::message::MAX_FS_THUMB_PX).contains(&size)
+        {
+            return Err(LinkError::Rejected("not a browse path, or a size outside 1 to 1024".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::Thumb { path, px: size }).await? {
+            browse::Answer::Data(png) => Ok(png),
+            browse::Answer::Entries(_) => {
+                Err(LinkError::Failed("the phone answered a thumbnail with a listing".to_owned()))
+            }
         }
     }
 
@@ -516,6 +551,9 @@ pub async fn forward(
                 }
                 if next.localsend != last.localsend {
                     link.get().await.local_send_visible_changed(emitter).await?;
+                }
+                if next.contacts != last.contacts {
+                    link.get().await.contacts_changed(emitter).await?;
                 }
                 last = next;
             }

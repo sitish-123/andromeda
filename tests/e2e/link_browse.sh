@@ -12,7 +12,12 @@
 # 5. The mount is read-only: creating or writing a file fails with EROFS.
 # 6. A phone that disconnects leaves the mount's root once its listing goes stale.
 # 7. A folder of 300 entries lists in full, across the phone's 128-entry pages.
-# Writes results.jsonl, tree.txt, linkd.log, mount.log, hold.log to $OUT (default ./artifacts/link-browse).
+# 8. Photos is the phone's library by album (a folder stands in for Android's media store), and its files read back.
+# 9. A name looked up once its folder's listing is stale is asked for alone (fs-stat), not by listing the folder.
+# 10. Listing an album fills the freedesktop thumbnail cache: each PNG's thumbnail (fs-thumb) lands under the MD5 of
+#     its file URI with Thumb::URI and Thumb::MTime, its picture the phone's; a file with no picture gets none.
+# Every message is checked against protocol/link-v1/messages.cddl. Writes results.jsonl, tree.txt, transcript.jsonl,
+# thumbnails.txt, linkd.log, mount.log, hold.log to $OUT (default ./artifacts/link-browse).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${OUT:-$(pwd)/artifacts/link-browse}
@@ -70,18 +75,31 @@ printf 'beside the root\n' > "$RUNTIME/outside/secret.txt"
 ln -s /etc "$STORAGE/Download/etc"
 ln -s ../outside/secret.txt "$STORAGE/Download/secret.txt"
 for i in $(seq -w 300); do : > "$STORAGE/Many/file-$i"; done
+LIBRARY=$RUNTIME/library
+mkdir -p "$LIBRARY/Camera" "$LIBRARY/Screenshots"
+cp "$STORAGE/DCIM/Camera/IMG_0001.jpg" "$LIBRARY/Camera/"
+python3 - "$LIBRARY/Screenshots" <<'PY'
+import os, struct, sys, zlib
+def png(path, seed):
+    rows = b"".join(b"\0" + bytes((x * seed + y) % 256 for x in range(3 * 32)) for y in range(32))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+png(os.path.join(sys.argv[1], "Screenshot 1.png"), 3)
+png(os.path.join(sys.argv[1], "Screenshot_2.png"), 5)
+PY
 
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
 "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone pair --code "$CODE" --addr "127.0.0.1:$PORT" > /dev/null \
   || fail "pairing"
 hold() {
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
-    --browse-root "Storage=$STORAGE" --browse-root "Photos=$STORAGE/DCIM" hold >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
+  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" \
+    --browse-root "Storage=$STORAGE" --photos "$LIBRARY" hold >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
   HOLD=$!
   wait_for 20 "the phone never connected" connected
 }
 hold
-"$BIN/umbriel-link-mount" "$MNT" > "$OUT/mount.log" 2>&1 &
+XDG_CACHE_HOME=$RUNTIME/cache "$BIN/umbriel-link-mount" "$MNT" > "$OUT/mount.log" 2>&1 &
 wait_for 10 "the mount did not come up" mountpoint -q "$MNT"
 
 wait_for 10 "the mount does not list the phone" test -d "$MNT/phone"
@@ -100,7 +118,8 @@ hold
 sleep 6
 [[ $(ls "$MNT/phone" | tr '\n' ' ') == "Photos Storage " ]] || fail "the phone's roots: $(ls "$MNT/phone")"
 [[ $(ls "$MNT/phone/Storage" | tr '\n' ' ') == "DCIM Download Many " ]] || fail "Storage lists: $(ls -a "$MNT/phone/Storage")"
-[[ -f $MNT/phone/Photos/Camera/IMG_0001.jpg ]] || fail "Photos does not show the camera folder"
+[[ $(ls "$MNT/phone/Photos" | tr '\n' ' ') == "Camera Screenshots " ]] || fail "Photos lists: $(ls "$MNT/phone/Photos")"
+[[ -f $MNT/phone/Photos/Camera/IMG_0001.jpg ]] || fail "Photos does not show the camera album"
 (cd "$MNT" && find . | sort) > "$OUT/tree.txt"
 record '{"step":"lists-roots-and-folders","hidden_left_out":true}'
 
@@ -108,6 +127,8 @@ sha() { sha256sum < "$1" | cut -d' ' -f1; }
 for file in DCIM/Camera/IMG_0001.jpg Download/big.bin Download/notes.txt; do
   [[ $(sha "$STORAGE/$file") == $(sha "$MNT/phone/Storage/$file") ]] || fail "$file reads back different"
 done
+[[ $(sha "$LIBRARY/Camera/IMG_0001.jpg") == $(sha "$MNT/phone/Photos/Camera/IMG_0001.jpg") ]] || fail "a photo reads back different"
+record '{"step":"photos-library-by-album","albums":["Camera","Screenshots"],"sha256_match":true}'
 python3 - "$STORAGE/Download/big.bin" "$MNT/phone/Storage/Download/big.bin" <<'PY' || fail "random-offset reads differ"
 import os, random, sys
 source, mounted = (open(path, "rb") for path in sys.argv[1:3])
@@ -133,9 +154,61 @@ record '{"step":"read-only","errno":"EROFS"}'
 [[ $(ls "$MNT/phone/Storage/Many" | wc -l) == 300 ]] || fail "Many lists $(ls "$MNT/phone/Storage/Many" | wc -l) of 300"
 record '{"step":"long-folder-pages","entries":300}'
 
+hex() { printf %s "$1" | xxd -p | tr -d '\n'; }
+sent() { grep -c "\"cbor\":\"[0-9a-f]*$(hex "$1")" "$OUT/transcript.jsonl" || true; }
+# fs-list of exactly /Storage/Download: its CBOR text header (0x71, 17 bytes) then the path.
+lists() { grep -c "\"cbor\":\"[0-9a-f]*$(hex fs-list)[0-9a-f]*71$(hex /Storage/Download)\"" "$OUT/transcript.jsonl" || true; }
+sleep 6 # real time: the mount's listing of Download goes stale
+LISTS=$(lists); STATS=$(sent fs-stat)
+stat "$MNT/phone/Storage/Download/notes.txt" > /dev/null || fail "stat after the listing went stale"
+(( $(sent fs-stat) > STATS )) || fail "the lookup did not ask for the one entry"
+[[ $(lists) == "$LISTS" ]] || fail "the lookup listed the folder again"
+record '{"step":"stale-lookup-asks-one-entry","message":"fs-stat"}'
+
+ls "$MNT/phone/Photos/Screenshots" "$MNT/phone/Photos/Camera" > /dev/null
+python3 - "$MNT/phone/Photos" "$LIBRARY" "$RUNTIME/cache/thumbnails/large" "$OUT/thumbnails.txt" <<'PY' || fail "thumbnails"
+import hashlib, os, struct, sys, time, urllib.parse
+mounted, library, cache, report = sys.argv[1:5]
+def chunks(data):
+    at, out = 8, []
+    while at < len(data):
+        (length,) = struct.unpack(">I", data[at:at + 4])
+        out.append((data[at + 4:at + 8], data[at + 8:at + 8 + length]))
+        at += 12 + length
+    return out
+lines = []
+for album, name in (("Screenshots", "Screenshot 1.png"), ("Screenshots", "Screenshot_2.png")):
+    path = os.path.join(mounted, album, name)
+    uri = "file://" + urllib.parse.quote(path, safe="/!$&'()*+,:=@~")
+    target = os.path.join(cache, hashlib.md5(uri.encode()).hexdigest() + ".png")
+    for _ in range(100):
+        if os.path.exists(target):
+            break
+        time.sleep(0.1)
+    else:
+        sys.exit(f"no thumbnail for {uri} at {target}")
+    thumb = open(target, "rb").read()
+    text = dict(data.split(b"\0", 1) for kind, data in chunks(thumb) if kind == b"tEXt")
+    assert text[b"Thumb::URI"].decode() == uri, text
+    assert int(text[b"Thumb::MTime"]) == int(os.stat(os.path.join(library, album, name)).st_mtime), text
+    source = open(os.path.join(library, album, name), "rb").read()
+    assert [c for c in chunks(thumb) if c[0] != b"tEXt"] == chunks(source), "the picture is not the phone's"
+    assert oct(os.stat(target).st_mode & 0o777) == "0o600"
+    lines.append(f"{uri} -> {os.path.basename(target)} {text}")
+camera = "file://" + urllib.parse.quote(os.path.join(mounted, "Camera", "IMG_0001.jpg"), safe="/!$&'()*+,:=@~")
+assert not os.path.exists(os.path.join(cache, hashlib.md5(camera.encode()).hexdigest() + ".png")), "a file with no picture"
+open(report, "w").write("\n".join(lines) + "\n")
+PY
+(( $(sent fs-thumb) >= 3 )) || fail "the mount did not ask for each picture's thumbnail"
+record '{"step":"album-thumbnails-cached","thumbnails":2,"text_chunks":["Thumb::URI","Thumb::MTime"],"no_picture_skipped":true}'
+
 kill "$HOLD"; wait "$HOLD" 2>/dev/null || true
 wait_for 15 "the disconnected phone stayed in the mount" eval '[[ ! -e "$MNT/phone" ]]'
 record '{"step":"disconnected-phone-leaves"}'
+
+"$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" > "$OUT/schema.txt" \
+  || fail "transcript violates the schema: $(cat "$OUT/schema.txt")"
+record "{\"step\":\"schema\",\"result\":$(cat "$OUT/schema.txt")}"
 
 cat "$OUT/results.jsonl"
 echo "PASS; artifacts: $OUT"

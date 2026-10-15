@@ -12,7 +12,7 @@ use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Message, Share, TransferId};
+use link_core::proto::message::{self, Contact, Message, MessagesRefusal, Share, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::{self, Peer};
 use link_core::transfer::{LocalClip, Source, TransferEvent};
@@ -80,6 +80,8 @@ pub struct Sharing {
     pub browse: bool,
     /// The desktop may ask to mirror this phone's screen and control it; off after pairing.
     pub screen: bool,
+    /// The desktop may read this phone's contacts and text messages and send texts; off after pairing.
+    pub messages: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -92,6 +94,7 @@ pub enum Feature {
     Calls,
     Browse,
     Screen,
+    Messages,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -414,6 +417,68 @@ pub struct BrowseRoot {
     pub path: String,
 }
 
+/// The phone's media store by album, for the `Photos` root. Called off the main thread; may block. `thumbnail` returns
+/// a PNG at most `px` on its longer side, or None.
+#[uniffi::export(with_foreign)]
+pub trait PhoneLibrary: Send + Sync {
+    fn albums(&self) -> Vec<String>;
+    fn album(&self, name: String) -> Vec<LibraryItem>;
+    fn thumbnail(&self, path: String, px: u16) -> Option<Vec<u8>>;
+}
+
+/// A photo or video; `mtime` in Unix seconds.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LibraryItem {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub mtime: u64,
+}
+
+struct Library(Arc<dyn PhoneLibrary>);
+
+impl link_core::browse::Library for Library {
+    fn albums(&self) -> Vec<String> {
+        self.0.albums()
+    }
+
+    fn album(&self, name: &str) -> Vec<link_core::browse::LibraryItem> {
+        let item = |item: LibraryItem| link_core::browse::LibraryItem {
+            name: item.name,
+            path: PathBuf::from(item.path),
+            size: item.size,
+            mtime: item.mtime,
+        };
+        self.0.album(name.to_owned()).into_iter().map(item).collect()
+    }
+
+    fn thumbnail(&self, path: &std::path::Path, px: u16) -> Option<Vec<u8>> {
+        self.0.thumbnail(path.to_str()?.to_owned(), px)
+    }
+}
+
+/// The phone's contacts, for desktops whose messages switch is on. Called off the main thread; may block. `contacts`
+/// returns up to `limit` from `offset` in a stable order, or None while Android denies access.
+#[uniffi::export(with_foreign)]
+pub trait PhoneMessages: Send + Sync {
+    fn contacts(&self, offset: u32, limit: u32) -> Option<Vec<PhoneContact>>;
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhoneContact {
+    pub name: String,
+    pub numbers: Vec<String>,
+}
+
+struct Messages(Arc<dyn PhoneMessages>);
+
+impl link_core::messages::Messages for Messages {
+    fn contacts(&self, offset: u32, limit: u32) -> Result<Vec<Contact>, MessagesRefusal> {
+        let contacts = self.0.contacts(offset, limit).ok_or(MessagesRefusal::Denied)?;
+        Ok(contacts.into_iter().map(|contact| Contact { name: contact.name, numbers: contact.numbers }).collect())
+    }
+}
+
 /// A local-only hotspot's credentials, from [`PhoneHotspot::start`].
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct HotspotCredentials {
@@ -520,14 +585,32 @@ impl LinkClient {
         Ok(Arc::new(Self { runtime, client, events: Mutex::new(events) }))
     }
 
-    /// The folders a desktop whose browse switch is on sees, by name (`Storage`, `Photos`); an empty list while the
-    /// app lacks All files access.
-    pub async fn set_browse_roots(&self, roots: Vec<BrowseRoot>) -> Result<(), LinkError> {
+    /// What a desktop whose browse switch is on sees: folders by name (`Storage` while the app has All files access)
+    /// and, with `library`, a `Photos` root of albums.
+    pub async fn set_browse_roots(
+        &self,
+        roots: Vec<BrowseRoot>,
+        library: Option<Arc<dyn PhoneLibrary>>,
+    ) -> Result<(), LinkError> {
         let roots = link_core::browse::Roots::new(
             roots.into_iter().map(|root| (root.name, PathBuf::from(root.path))).collect(),
+            library.map(|library| Arc::new(Library(library)) as Arc<dyn link_core::browse::Library>),
         );
         let client = self.client.clone();
         self.run(async move { client.set_browse_roots(roots).await }).await
+    }
+
+    /// The contacts a desktop whose messages switch is on sees; None while the app may not read them.
+    pub async fn set_messages(&self, messages: Option<Arc<dyn PhoneMessages>>) -> Result<(), LinkError> {
+        let messages = messages.map(|messages| Arc::new(Messages(messages)) as Arc<dyn link_core::messages::Messages>);
+        let client = self.client.clone();
+        self.run(async move { client.set_messages(messages).await }).await
+    }
+
+    /// Tells desktops with the messages switch on that the contacts changed.
+    pub async fn contacts_changed(&self) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        self.run(async move { client.contacts_changed().await }).await
     }
 
     /// Pairs from the QR code's URI and keeps the session open.
@@ -590,6 +673,7 @@ impl LinkClient {
             Feature::Calls => store::Feature::Calls,
             Feature::Browse => store::Feature::Browse,
             Feature::Screen => store::Feature::Screen,
+            Feature::Messages => store::Feature::Messages,
         };
         self.run(async move { client.set_sharing(id, feature, on).await }).await
     }
@@ -702,12 +786,19 @@ impl LinkClient {
         self.run(async move { client.send_files(id, sources).await }).await.map(TransferId::to_hex)
     }
 
-    /// The phone's battery (percent) and network (wifi, cellular, ethernet, none, or other), sent to every desktop on
-    /// connect and, at most every 10 s, on change.
-    pub async fn set_status(&self, battery: u8, charging: bool, network: String) -> Result<(), LinkError> {
+    /// The phone's battery (percent), network (wifi, cellular, ethernet, none, or other), and cellular signal (0 to 4
+    /// bars, None without service), sent to every desktop on connect and, at most every 10 s, on change.
+    pub async fn set_status(
+        &self,
+        battery: u8,
+        charging: bool,
+        network: String,
+        signal: Option<u8>,
+    ) -> Result<(), LinkError> {
         let network = message::NetworkKind::parse(&network)
             .ok_or_else(|| LinkError::Rejected { reason: format!("unknown network {network}") })?;
-        let status = message::Status { battery: battery.min(100), charging, network };
+        let status =
+            message::Status { battery: battery.min(100), charging, network, signal: signal.map(|bars| bars.min(4)) };
         let client = self.client.clone();
         self.run(async move { client.set_status(status).await }).await
     }
@@ -894,7 +985,7 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
-    let store::Grants { clipboard, files, notifications, media, ring, calls, browse, screen } = peer.grants;
+    let store::Grants { clipboard, files, notifications, media, ring, calls, browse, screen, messages } = peer.grants;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
@@ -902,7 +993,7 @@ fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
         last_seen: peer.last_seen,
         connected,
         bluetooth,
-        sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse, screen },
+        sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse, screen, messages },
         bluetooth_address: peer.bluetooth.clone(),
         bt_pairing: peer.bt_pairing,
     }

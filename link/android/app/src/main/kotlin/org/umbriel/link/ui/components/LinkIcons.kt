@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 
 object LinkIcons {
     val Computer = glyph("Desktop", "M3 3H21V17H13V19H17V21H7V19H11V17H3ZM5 5V15H19V5Z")
+    val Contacts = glyph("Contacts", "M12 12C14.2 12 16 10.2 16 8S14.2 4 12 4 8 5.8 8 8 9.8 12 12 12ZM12 14C9.3 14 4 15.3 4 18V20H20V18C20 15.3 14.7 14 12 14Z")
     val Folder = glyph("Folder", "M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z")
     val Transfers = glyph("Transfers", "M7 2L2 7H6V19H8V7H12ZM17 22L22 17H18V5H16V17H12Z")
     val Download = glyph("Receive", "M11 3H13V13L17 9L18.5 10.5L12 17L5.5 10.5L7 9L11 13ZM4 19H20V21H4Z")

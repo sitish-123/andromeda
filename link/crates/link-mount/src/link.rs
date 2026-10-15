@@ -42,6 +42,17 @@ impl Link {
         Ok(entries.into_iter().map(|(name, dir, size, mtime)| Entry { name, dir, size, mtime }).collect())
     }
 
+    pub async fn stat(&self, device: &str, path: &str) -> Result<Entry, Errno> {
+        let (name, dir, size, mtime): (String, bool, u64, u64) =
+            self.proxy.call("StatFile", &(device, path)).await.map_err(|error| errno(&error))?;
+        Ok(Entry { name, dir, size, mtime })
+    }
+
+    /// A PNG at most `size` pixels on its longer side.
+    pub async fn thumbnail(&self, device: &str, path: &str, size: u16) -> Result<Vec<u8>, Errno> {
+        self.proxy.call("Thumbnail", &(device, path, size)).await.map_err(|error| errno(&error))
+    }
+
     pub async fn read(&self, device: &str, path: &str, offset: u64, length: u32) -> Result<Vec<u8>, Errno> {
         self.proxy.call("ReadFile", &(device, path, offset, length)).await.map_err(|error| errno(&error))
     }

@@ -4,6 +4,7 @@
 
 mod fs;
 mod link;
+mod thumbs;
 
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,10 @@ fn main() -> anyhow::Result<()> {
     ];
     // A slow read from one phone must not stall a listing of another.
     config.n_threads = Some(4);
-    let filesystem = fs::PhoneFs::new(link, runtime.handle().clone(), owner.uid(), owner.gid());
+    let (thumbs, jobs) = tokio::sync::mpsc::channel(1024);
+    let thumbnailer = runtime.spawn(thumbs::run(link.clone(), jobs));
+    let filesystem =
+        fs::PhoneFs::new(link, runtime.handle().clone(), mountpoint.clone(), thumbs, (owner.uid(), owner.gid()));
     let session = fuser::spawn_mount(filesystem, &mountpoint, &config)
         .with_context(|| format!("mounting {}", mountpoint.display()))?;
     log::info!("phones at {}", mountpoint.display());
@@ -50,6 +54,7 @@ fn main() -> anyhow::Result<()> {
         }
         anyhow::Ok(())
     })?;
+    thumbnailer.abort();
     session.umount_and_join().context("unmounting")
 }
 

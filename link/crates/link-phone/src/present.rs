@@ -27,15 +27,17 @@ pub struct Options {
     pub on_offer: OnOffer,
     pub status: Option<Status>,
     pub mirror: Option<crate::mirror::Source>,
+    pub messages: Option<std::sync::Arc<dyn link_core::messages::Messages>>,
 }
 
 pub async fn hold(phone: Phone, inbox: Inbox, id: DeviceId, options: Options) -> anyhow::Result<()> {
-    let Options { seconds, on_offer, status, mirror } = options;
+    let Options { seconds, on_offer, status, mirror, messages } = options;
     let (client, actor, mut events) = client::client(phone, inbox);
     let drive = async move {
         if let Some(status) = status {
             client.set_status(status).await?;
         }
+        client.set_messages(messages).await?;
         client.set_present(true).await?;
         let mut held = Held::new(client.clone(), id.clone(), mirror);
         let mut terminate = signal(SignalKind::terminate())?;
@@ -121,6 +123,7 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Option<Valu
             Err(error) => Err(error),
         },
         "pull" => pull_line(client, id, rest).await,
+        "contacts-changed" => client.contacts_changed().await.map(|()| json!({ "event": verb })).map_err(Into::into),
         "accept" | "decline" => match files::parse_transfer(rest) {
             Ok(transfer) => client.decide(transfer, verb == "accept").await.map_err(Into::into),
             Err(error) => Err(error),
@@ -144,14 +147,19 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
 }
 
-/// `<battery>,<charging 0|1>,<network>`, as `--status` and a `status` line take it.
+/// `<battery>,<charging 0|1>,<network>[,<signal bars>]`, as `--status` and a `status` line take it.
 pub fn parse_status(text: &str) -> anyhow::Result<Status> {
-    let parts: Vec<&str> = text.split(',').collect();
-    let [battery, charging, network] = parts[..] else { bail!("a status is <battery>,<charging 0|1>,<network>") };
+    let mut parts = text.split(',');
+    let (Some(battery), Some(charging), Some(network), signal, None) =
+        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        bail!("a status is <battery>,<charging 0|1>,<network>[,<signal bars>]")
+    };
     Ok(Status {
         battery: battery.parse().context("battery is 0 to 100")?,
         charging: charging == "1",
         network: NetworkKind::parse(network).context("network is wifi, cellular, ethernet, none, or other")?,
+        signal: signal.map(str::parse).transpose().context("signal is 0 to 4 bars")?,
     })
 }
 

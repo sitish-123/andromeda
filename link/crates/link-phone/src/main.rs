@@ -4,6 +4,7 @@
 mod files;
 mod flood;
 mod held;
+mod library;
 mod mirror;
 mod present;
 mod relay;
@@ -11,6 +12,7 @@ mod transcript;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
@@ -57,6 +59,12 @@ struct Cli {
     /// A folder a desktop with the browse switch on sees, as `<name>=<path>`; repeatable.
     #[arg(long = "browse-root")]
     browse_roots: Vec<String>,
+    /// A folder whose subfolders the `Photos` root shows as albums, standing in for Android's media store.
+    #[arg(long)]
+    photos: Option<PathBuf>,
+    /// A JSON array of `{"name", "numbers"}`, the contacts a desktop with the messages switch on sees.
+    #[arg(long)]
+    contacts: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -81,7 +89,7 @@ enum Command {
     },
     /// Stays present with the paired desktop, as the app does in the foreground: keep-alive, redial with backoff.
     /// Prints every event as a JSON line; each stdin line `<text|link> <text>` is shared with the desktop.
-    /// Other stdin lines: `send <path>...`, `accept <transfer>`, `decline <transfer>`, `cancel <transfer>`.
+    /// Other stdin lines: `send <path>...`, `accept <transfer>`, `decline <transfer>`, `cancel <transfer>`, `contacts-changed`.
     Hold {
         /// Stop after this long; otherwise at SIGTERM or SIGINT.
         #[arg(long)]
@@ -172,7 +180,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         .map(|root| root.split_once('=').map(|(name, path)| (name.to_owned(), PathBuf::from(path))))
         .collect::<Option<Vec<_>>>()
         .context("--browse-root is <name>=<path>")?;
-    phone.set_browse_roots(link_core::browse::Roots::new(roots));
+    let library = cli.photos.map(|dir| Arc::new(library::Folders(dir)) as Arc<dyn link_core::browse::Library>);
+    phone.set_browse_roots(link_core::browse::Roots::new(roots, library));
     if let Some(hotspot) = cli.hotspot {
         let (ssid, passphrase) = hotspot.split_once(':').context("--hotspot is <ssid>:<passphrase>")?;
         let hotspot = Hotspot { ssid: ssid.to_owned(), passphrase: passphrase.to_owned() };
@@ -194,7 +203,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 }
                 None => None,
             };
-            return present::hold(phone, inbox()?, id, present::Options { seconds, on_offer, status, mirror }).await;
+            let messages =
+                cli.contacts.map(|file| Arc::new(library::Book(file)) as Arc<dyn link_core::messages::Messages>);
+            let options = present::Options { seconds, on_offer, status, mirror, messages };
+            return present::hold(phone, inbox()?, id, options).await;
         }
         Command::Flood { kind, count } => {
             let id = only_desktop(&phone)?;

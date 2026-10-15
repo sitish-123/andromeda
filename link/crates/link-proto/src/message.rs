@@ -31,6 +31,18 @@ pub const WIFI_DIRECT_BY_ADDRESS: &str = "feature:wifi-direct-address";
 /// the unknown type, and phones skip entries that are not socket addresses.
 pub const BT_PAIRING: &str = "feature:bt-pairing";
 
+/// The prefix of a hello's `addresses` entries that name a feature rather than an address.
+pub const FEATURE: &str = "feature:";
+
+/// A desktop's hello carries this when its `status` takes `signal`; older desktops close a session on the field.
+pub const STATUS_SIGNAL: &str = "feature:status-signal";
+
+/// A phone's hello carries this when it answers `fs-stat` and `fs-thumb`; older phones close a session on the types.
+pub const FS_STAT: &str = "feature:fs-stat";
+
+/// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
+pub const MESSAGES: &str = "feature:messages";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -515,6 +527,24 @@ pub struct FsRead {
     pub len: u32,
 }
 
+/// Asks for one entry; answered by `fs-entries` holding that entry alone, or `fs-error`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsStat {
+    pub req: u64,
+    pub path: String,
+}
+
+/// Asks for a PNG of an image or video at most `px` on its longer side; answered like `fs-read` from offset 0, at most
+/// [`MAX_FS_READ`] bytes, or `fs-error` (`not-found` when the file has no picture).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsThumb {
+    pub req: u64,
+    pub path: String,
+    pub px: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FsData {
@@ -567,6 +597,7 @@ pub const MAX_FS_NAME: usize = 255;
 /// Entries per `fs-entries`, so a page of the longest names still fits a control frame.
 pub const MAX_FS_ENTRIES: usize = 128;
 pub const MAX_FS_READ: u32 = 1024 * 1024;
+pub const MAX_FS_THUMB_PX: u16 = 1024;
 /// Bytes per `fs-data`, so a read never holds the control stream for long.
 pub const MAX_FS_CHUNK: usize = 48 * 1024;
 
@@ -584,6 +615,58 @@ fn fs_name_valid(name: &str) -> bool {
 
 pub const MAX_NUMBER_LEN: usize = 64;
 pub const MAX_CALLER_LEN: usize = 128;
+/// Contacts per `contacts` page, so a page of the longest fits a control frame.
+pub const MAX_CONTACTS_PAGE: usize = 64;
+pub const MAX_CONTACT_NUMBERS: usize = 8;
+
+/// Why the phone refused a contacts or text message request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MessagesRefusal {
+    /// The phone's messages switch for this desktop is off.
+    NotAllowed,
+    /// Android does not let the app read or send them.
+    Denied,
+    Failed,
+}
+
+impl MessagesRefusal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotAllowed => "not-allowed",
+            Self::Denied => "denied",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Asks for a page of the phone's contacts; answered by `contacts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContactsList {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Contact {
+    pub name: String,
+    pub numbers: Vec<String>,
+}
+
+/// One page of contacts; `next` is the cursor for the rest. With `refused`, no contacts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Contacts {
+    pub req: u64,
+    pub contacts: Vec<Contact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<MessagesRefusal>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -768,6 +851,9 @@ pub struct Status {
     pub battery: u8,
     pub charging: bool,
     pub network: NetworkKind,
+    /// Cellular signal in bars, 0 to 4; absent without a SIM in service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal: Option<u8>,
 }
 
 impl NetworkKind {
@@ -970,6 +1056,12 @@ pub enum Message {
     FsRead(FsRead),
     FsData(FsData),
     FsError(FsError),
+    FsStat(FsStat),
+    FsThumb(FsThumb),
+    ContactsList(ContactsList),
+    Contacts(Contacts),
+    /// The phone's contacts changed; a desktop that keeps them asks again.
+    ContactsChanged,
 }
 
 impl Message {
@@ -1022,6 +1114,11 @@ impl Message {
             Self::FsRead(_) => "fs-read",
             Self::FsData(_) => "fs-data",
             Self::FsError(_) => "fs-error",
+            Self::FsStat(_) => "fs-stat",
+            Self::FsThumb(_) => "fs-thumb",
+            Self::ContactsList(_) => "contacts-list",
+            Self::Contacts(_) => "contacts",
+            Self::ContactsChanged => "contacts-changed",
         }
     }
 
@@ -1030,9 +1127,11 @@ impl Message {
             Self::Hello(body) => Value::serialized(body),
             Self::PairSpake(body) => Value::serialized(body),
             Self::PairConfirm(body) => Value::serialized(body),
-            Self::Unpair | Self::HotspotRequest | Self::MirrorRequest | Self::MirrorKeyframe => {
-                Value::serialized(&Empty {})
-            }
+            Self::Unpair
+            | Self::HotspotRequest
+            | Self::MirrorRequest
+            | Self::MirrorKeyframe
+            | Self::ContactsChanged => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
@@ -1071,6 +1170,10 @@ impl Message {
             Self::FsRead(body) => Value::serialized(body),
             Self::FsData(body) => Value::serialized(body),
             Self::FsError(body) => Value::serialized(body),
+            Self::FsStat(body) => Value::serialized(body),
+            Self::FsThumb(body) => Value::serialized(body),
+            Self::ContactsList(body) => Value::serialized(body),
+            Self::Contacts(body) => Value::serialized(body),
         }
     }
 
@@ -1135,6 +1238,14 @@ impl Message {
             "fs-read" => Self::FsRead(body.deserialized()?),
             "fs-data" => Self::FsData(body.deserialized()?),
             "fs-error" => Self::FsError(body.deserialized()?),
+            "fs-stat" => Self::FsStat(body.deserialized()?),
+            "fs-thumb" => Self::FsThumb(body.deserialized()?),
+            "contacts-list" => Self::ContactsList(body.deserialized()?),
+            "contacts" => Self::Contacts(body.deserialized()?),
+            "contacts-changed" => {
+                body.deserialized::<Empty>()?;
+                Self::ContactsChanged
+            }
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -1159,7 +1270,9 @@ impl Message {
             | Self::Cancel(_)
             | Self::FileDone(_)
             | Self::FileData(_)
-            | Self::FsError(_) => true,
+            | Self::FsError(_)
+            | Self::ContactsList(_)
+            | Self::ContactsChanged => true,
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
@@ -1174,7 +1287,7 @@ impl Message {
             Self::MediaCommand(command) => command.valid(),
             Self::ClipPull(pull) | Self::ClipData(pull) => (1..=MAX_MIME_LEN).contains(&pull.mime.len()),
             Self::ClipOffer(offer) => offer.is_valid(),
-            Self::Status(status) => status.battery <= 100,
+            Self::Status(status) => status.battery <= 100 && status.signal.is_none_or(|bars| bars <= 4),
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),
@@ -1201,6 +1314,17 @@ impl Message {
             }
             Self::FsRead(read) => fs_path_valid(&read.path) && (1..=MAX_FS_READ).contains(&read.len),
             Self::FsData(data) => data.data.len() <= MAX_FS_CHUNK,
+            Self::FsStat(stat) => fs_path_valid(&stat.path),
+            Self::FsThumb(thumb) => fs_path_valid(&thumb.path) && (1..=MAX_FS_THUMB_PX).contains(&thumb.px),
+            Self::Contacts(page) => {
+                page.contacts.len() <= MAX_CONTACTS_PAGE
+                    && (page.refused.is_none() || page.contacts.is_empty())
+                    && page.contacts.iter().all(|contact| {
+                        sized(&contact.name, 1, MAX_CALLER_LEN)
+                            && contact.numbers.len() <= MAX_CONTACT_NUMBERS
+                            && contact.numbers.iter().all(|number| sized(number, 1, MAX_NUMBER_LEN))
+                    })
+            }
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

@@ -38,6 +38,8 @@ struct LinkStatus {
   bool charging = false;
   // wifi, cellular, ethernet, none, or other.
   std::string network;
+  // Cellular bars, 0 to 4; -1 without service.
+  std::int32_t signal = -1;
 };
 
 // A LocalSend device on the LAN, which takes files like a Link device does.

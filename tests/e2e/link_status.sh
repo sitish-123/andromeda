@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Phone status and per-feature rate limits across two network namespaces. Proves: a present phone's battery, charging,
-# and network appear in D-Bus DeviceStatus on connect; a change inside the phone's 10 s window arrives when it ends,
-# not at once; the entry goes when the phone disconnects; a hostile phone flooding shares, file offers, clipboard
-# offers, and statuses gets exactly its burst through (10 shares acked and signalled, 5 offers signalled and the rest
-# answered busy, 20 clipboard offers signalled, 3 statuses applied) and the rest dropped. Every message is validated
-# against protocol/link-v1/messages.cddl. Writes results.jsonl, signals.txt, transcript.jsonl, hold.jsonl, and
-# linkd.log to $OUT (default ./artifacts/link-status).
+# network, and cellular signal (-1 when it reports none) appear in D-Bus DeviceStatus on connect; a change inside the
+# phone's 10 s window arrives when it ends, not at once; the entry goes when the phone disconnects; a hostile phone
+# flooding shares, file offers, clipboard offers, and statuses gets exactly its burst through (10 shares acked and
+# signalled, 5 offers signalled and the rest answered busy, 20 clipboard offers signalled, 3 statuses applied) and the
+# rest dropped. Every message is validated against protocol/link-v1/messages.cddl. Writes results.jsonl, signals.txt,
+# transcript.jsonl, hold.jsonl, and linkd.log to $OUT (default ./artifacts/link-status).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${OUT:-$(pwd)/artifacts/link-status}
@@ -78,19 +78,19 @@ wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
 nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
-  --transcript "$OUT/transcript.jsonl" hold --status 80,0,wifi < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2> "$OUT/hold.log" &
+  --transcript "$OUT/transcript.jsonl" hold --status 80,0,wifi,3 < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2> "$OUT/hold.log" &
 HOLD=$!
 wait_for 10 "present phone never shown connected" connected
 wait_for 5 "DeviceStatus never showed the phone: $(prop DeviceStatus)" \
-  eval "prop DeviceStatus | grep -qF \"'$ID': (uint32 80, false, 'wifi')\""
-record '{"step":"status-on-connect","battery":80,"charging":false,"network":"wifi"}'
+  eval "prop DeviceStatus | grep -qF \"'$ID': (uint32 80, false, 'wifi', 3)\""
+record '{"step":"status-on-connect","battery":80,"charging":false,"network":"wifi","signal":3}'
 
 say "status 79 1 cellular"
 CHANGED=$(date +%s.%N)
 sleep 2 # real time: inside the phone's 10 s window, where the change must not have gone out yet
-prop DeviceStatus | grep -qF "(uint32 80, false, 'wifi')" || fail "a change went out inside the window: $(prop DeviceStatus)"
+prop DeviceStatus | grep -qF "(uint32 80, false, 'wifi', 3)" || fail "a change went out inside the window: $(prop DeviceStatus)"
 wait_for 15 "the changed status never arrived: $(prop DeviceStatus)" \
-  eval "prop DeviceStatus | grep -qF \"'$ID': (uint32 79, true, 'cellular')\""
+  eval "prop DeviceStatus | grep -qF \"'$ID': (uint32 79, true, 'cellular', -1)\""
 DELAY=$(python3 -c "import time,sys; print(round(time.time() - float(sys.argv[1]), 1))" "$CHANGED")
 record "{\"step\":\"status-change-rate-limited\",\"arrived_after_seconds\":$DELAY}"
 

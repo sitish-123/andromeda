@@ -155,6 +155,7 @@
     <string name="feature_ring_hint">Ring the phone or the desktop to find it</string>
     <string name="feature_browse">Browse files</string>
     <string name="feature_screen">Screen</string>
+    <string name="feature_messages">Contacts</string>
     <string name="feature_screen_hint">Let the desktop ask to show this phone\'s screen in a window and control it. You allow each time.</string>
     <string name="screen_control_off">Turn on control from the desktop</string>
     <string name="screen_request_title">%1$s wants to show your screen</string>
@@ -167,6 +168,7 @@
     <string name="screen_input_description">Lets a paired desktop that shows this phone\'s screen tap, swipe, scroll, and type on it while you mirror. Nothing is read or sent anywhere.</string>
     <string name="channel_screen">Screen mirroring</string>
     <string name="feature_browse_hint">Let the desktop open this phone\'s photos and files, read-only. Needs All files access.</string>
+    <string name="feature_messages_hint">Let the desktop see this phone\'s contacts. Needs the contacts permission.</string>
     <string name="feature_calls_hint">Show incoming calls on the desktop</string>
     <string name="send_files">Send files</string>
     <string name="send_files_hint">Photos, videos, or any file</string>

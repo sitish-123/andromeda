@@ -102,10 +102,14 @@ namespace {
     if (status == nullptr) {
       return i18n::tr("control-center.devices.connected");
     }
-    return i18n::tr(
+    std::string text = i18n::tr(
         status->charging ? "control-center.devices.status-charging" : "control-center.devices.status", "battery",
         std::to_string(status->battery), "network", i18n::tr("bar.widgets.phone.network-" + status->network)
     );
+    if (status->signal >= 0) {
+      text += i18n::tr("control-center.devices.status-signal", "bars", std::to_string(status->signal));
+    }
+    return text;
   }
 
   std::unique_ptr<Label> makeCaption(std::string text, float scale, ColorRole role = ColorRole::OnSurfaceVariant) {
@@ -212,7 +216,7 @@ std::string DevicesTab::structureKey() const {
     key +=
         device.id + (device.connected ? " 1 " : " 0 ") + (m_link->phoneRinging(device.id) ? "r " : "- ") + device.name;
     if (const LinkStatus* status = m_link->status(device.id)) {
-      key += std::format(" {} {} {}", status->battery, status->charging, status->network);
+      key += std::format(" {} {} {} {}", status->battery, status->charging, status->network, status->signal);
     }
     for (const auto feature : kFeatures) {
       key += m_link->granted(device.id, feature.name) ? " +" : " -";

@@ -43,6 +43,9 @@ pub struct Peer {
     /// The desktop's hello listed `feature:bt-pairing`: it confirms a Bluetooth pairing by the code the phone reports.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bt_pairing: bool,
+    /// The `feature:` entries of the desktop's last hello.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +60,12 @@ pub enum Feature {
     Browse,
     /// The desktop may ask to mirror the phone's screen and send it input; a phone-side switch, off after pairing.
     Screen,
+    /// The desktop may read the phone's contacts and text messages and send texts; a phone-side switch, off after
+    /// pairing.
+    Messages,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse` and `screen`. A store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, and `messages`. A store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -72,6 +78,7 @@ pub struct Grants {
     pub calls: bool,
     pub browse: bool,
     pub screen: bool,
+    pub messages: bool,
 }
 
 impl Default for Grants {
@@ -85,12 +92,13 @@ impl Default for Grants {
             calls: true,
             browse: false,
             screen: false,
+            messages: false,
         }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Clipboard,
         Self::Files,
         Self::Notifications,
@@ -99,6 +107,7 @@ impl Feature {
         Self::Calls,
         Self::Browse,
         Self::Screen,
+        Self::Messages,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -111,6 +120,7 @@ impl Feature {
             Self::Calls => "calls",
             Self::Browse => "browse",
             Self::Screen => "screen",
+            Self::Messages => "messages",
         }
     }
 
@@ -157,6 +167,7 @@ impl Grants {
             Feature::Calls => self.calls,
             Feature::Browse => self.browse,
             Feature::Screen => self.screen,
+            Feature::Messages => self.messages,
         }
     }
 
@@ -170,6 +181,7 @@ impl Grants {
             Feature::Calls => &mut self.calls,
             Feature::Browse => &mut self.browse,
             Feature::Screen => &mut self.screen,
+            Feature::Messages => &mut self.messages,
         };
         *flag = on;
     }
@@ -200,6 +212,10 @@ pub struct Store {
 }
 
 impl Peer {
+    pub fn has(&self, feature: &str) -> bool {
+        self.features.iter().any(|entry| entry == feature)
+    }
+
     pub fn new(spki: &Spki, name: String) -> Self {
         Self {
             id: spki.device_id(),
@@ -211,6 +227,7 @@ impl Peer {
             grants: Grants::default(),
             bluetooth: None,
             bt_pairing: false,
+            features: Vec::new(),
         }
     }
 

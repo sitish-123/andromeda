@@ -324,8 +324,13 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
     try {
       m_status.clear();
       for (const auto& [id, status] :
-           it->second.get<std::map<std::string, sdbus::Struct<std::uint32_t, bool, std::string>>>()) {
-        m_status[id] = LinkStatus{.battery = status.get<0>(), .charging = status.get<1>(), .network = status.get<2>()};
+           it->second.get<std::map<std::string, sdbus::Struct<std::uint32_t, bool, std::string, std::int32_t>>>()) {
+        m_status[id] = LinkStatus{
+            .battery = status.get<0>(),
+            .charging = status.get<1>(),
+            .network = status.get<2>(),
+            .signal = status.get<3>(),
+        };
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed DeviceStatus: {}", e.what());

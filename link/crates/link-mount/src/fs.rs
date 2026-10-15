@@ -1,8 +1,10 @@
 //! The filesystem at `~/Phone`: one folder per connected phone, and under it the phone's roots, read-only. Listings
-//! and attributes are kept for [`FRESH`]; reads go through 1 MiB blocks, so sequential reads fetch ahead.
+//! and attributes are kept for [`FRESH`]; a name looked up outside a fresh listing is asked for alone; reads go
+//! through 1 MiB blocks, so sequential reads fetch ahead. Each listing queues its pictures' thumbnails.
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -11,8 +13,10 @@ use fuser::{
     ReplyDirectory, ReplyEntry, Request,
 };
 use tokio::runtime::Handle;
+use tokio::sync::mpsc;
 
 use crate::link::Link;
+use crate::thumbs;
 
 /// How long a listing, and the attributes it gave, stand before they are asked for again.
 const FRESH: Duration = Duration::from_secs(5);
@@ -41,6 +45,8 @@ struct State {
     listed: HashMap<u64, (Instant, Vec<(String, u64)>)>,
     blocks: HashMap<(u64, u64), Arc<Vec<u8>>>,
     block_order: VecDeque<(u64, u64)>,
+    /// Each phone's folder name in the mount's root.
+    folders: HashMap<String, String>,
 }
 
 impl State {
@@ -75,18 +81,27 @@ impl State {
 pub struct PhoneFs {
     link: Link,
     runtime: Handle,
+    mountpoint: PathBuf,
+    thumbs: mpsc::Sender<thumbs::Job>,
     uid: u32,
     gid: u32,
     state: Mutex<State>,
 }
 
 impl PhoneFs {
-    pub fn new(link: Link, runtime: Handle, uid: u32, gid: u32) -> Self {
+    pub fn new(
+        link: Link,
+        runtime: Handle,
+        mountpoint: PathBuf,
+        thumbs: mpsc::Sender<thumbs::Job>,
+        owner: (u32, u32),
+    ) -> Self {
+        let (uid, gid) = owner;
         let mut state = State { next: ROOT.0, ..State::default() };
         let root = Node { device: None, path: "/".to_owned(), dir: true, size: 0, mtime: 0 };
         state.nodes.insert(ROOT.0, root.clone());
         state.by_path.insert((None, root.path), ROOT.0);
-        Self { link, runtime, uid, gid, state: Mutex::new(state) }
+        Self { link, runtime, mountpoint, thumbs, uid, gid, state: Mutex::new(state) }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -135,11 +150,60 @@ impl PhoneFs {
                 })
                 .collect(),
         };
+        if let Some(device) = &node.device {
+            self.queue_thumbnails(device, &node.path, &listed);
+        }
         let mut state = self.state();
         let children: Vec<(String, u64)> = listed.into_iter().map(|(name, child)| (name, state.inode(child))).collect();
         let children = unique(children);
+        if node.device.is_none() {
+            state.folders = children
+                .iter()
+                .filter_map(|(name, ino)| Some((state.nodes.get(ino)?.device.clone()?, name.clone())))
+                .collect();
+        }
         state.listed.insert(ino.0, (Instant::now(), children.clone()));
         Ok(children)
+    }
+
+    /// A child by name: from the parent's fresh listing, else asked for alone, so finding one file does not list its
+    /// whole folder.
+    fn child(&self, parent: INodeNo, name: &str) -> Result<u64, Errno> {
+        let fresh = self.state().listed.get(&parent.0).filter(|(at, _)| at.elapsed() < FRESH).map(|(_, children)| {
+            children.iter().find(|(child, _)| child == name).map(|(_, ino)| *ino).ok_or(Errno::ENOENT)
+        });
+        if let Some(found) = fresh {
+            return found;
+        }
+        let node = self.node(parent).ok_or(Errno::ENOENT)?;
+        let Some(device) = node.device.filter(|_| node.dir) else {
+            let children = self.children(parent)?;
+            return children.into_iter().find(|(child, _)| child == name).map(|(_, ino)| ino).ok_or(Errno::ENOENT);
+        };
+        let path = join(&node.path, name);
+        let entry = self.runtime.block_on(self.link.stat(&device, &path))?;
+        let child = Node { device: Some(device), path, dir: entry.dir, size: entry.size, mtime: entry.mtime };
+        Ok(self.state().inode(child))
+    }
+
+    /// The newest pictures of a listing, for the thumbnail cache; dropped when the queue is full.
+    fn queue_thumbnails(&self, device: &str, dir: &str, listed: &[(String, Node)]) {
+        let Some(folder) = self.state().folders.get(device).cloned() else { return };
+        let mut pictures: Vec<&(String, Node)> =
+            listed.iter().filter(|(name, node)| !node.dir && node.size > 0 && thumbs::is_picture(name)).collect();
+        pictures.sort_by_key(|(_, node)| std::cmp::Reverse(node.mtime));
+        let base = self.mountpoint.join(folder).join(dir.trim_start_matches('/'));
+        for (name, node) in pictures.into_iter().take(thumbs::PER_LISTING) {
+            let job = thumbs::Job {
+                device: device.to_owned(),
+                path: node.path.clone(),
+                file: base.join(name),
+                mtime: node.mtime,
+            };
+            if self.thumbs.try_send(job).is_err() {
+                return;
+            }
+        }
     }
 
     fn attr(&self, ino: u64, node: &Node) -> FileAttr {
@@ -194,10 +258,7 @@ fn join(dir: &str, name: &str) -> String {
 
 impl Filesystem for PhoneFs {
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
-        let found = self.children(parent).and_then(|children| {
-            let name = name.to_str().ok_or(Errno::ENOENT)?;
-            children.iter().find(|(child, _)| child == name).map(|(_, ino)| *ino).ok_or(Errno::ENOENT)
-        });
+        let found = name.to_str().ok_or(Errno::ENOENT).and_then(|name| self.child(parent, name));
         match found.and_then(|ino| self.node(INodeNo(ino)).map(|node| (ino, node)).ok_or(Errno::ENOENT)) {
             Ok((ino, node)) => reply.entry(&FRESH, &self.attr(ino, &node), Generation(0)),
             Err(errno) => reply.error(errno),

@@ -9,6 +9,7 @@ mod hub;
 mod listener;
 mod localsend;
 mod media;
+mod messages;
 mod mirror;
 mod mpris;
 mod notifications;
