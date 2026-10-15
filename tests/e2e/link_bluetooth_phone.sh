@@ -16,7 +16,7 @@
 # Takes the laptop off its Wi-Fi for minutes. Stops the user's umbriel-linkd for the run (it holds Link's Bluetooth
 # profile and port 4717) and starts it again after, re-enables the phone's Wi-Fi, and brings the laptop's Wi-Fi back
 # even on failure. Unpairs the run's desktop from the phone after. Writes results.jsonl, linkd.log, signals.txt, nm.txt,
-# viewer.log, frames/ to $OUT (default ./artifacts/link-bluetooth-phone).
+# viewer.log, logcat.txt, frames/ to $OUT (default ./artifacts/link-bluetooth-phone).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-bluetooth-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
@@ -52,6 +52,8 @@ wait_for 10 "BlueZ did not take Link's profile: $(grep -i bluetooth "$OUT/linkd.
 ( nmcli monitor | stamp > "$OUT/nm.txt" ) &
 
 install_app
+adb logcat -c
+adb logcat -v time > "$OUT/logcat.txt" 2>&1 &
 HOST=$(ip -4 route get 1.1.1.1 | grep -o 'src [0-9.]*' | cut -d' ' -f2)
 pair_phone "$HOST:$PORT"
 # Link reads the player's media session through its notification listener, which a fresh install lacks.

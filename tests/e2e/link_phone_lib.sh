@@ -111,7 +111,11 @@ pair_phone() {
   uri=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/" | sed -E "s/&a=[^&]*//g")
   uri="$uri&a=$1"
   adb shell am start -W -a android.intent.action.VIEW -d "'$uri'" "$PACKAGE" > /dev/null
-  tap_text pair Pair
+  # The clipboard watcher asks for log access when the app opens, which can cover the pairing prompt.
+  for _ in 1 2; do
+    tap_text pair "Allow one-time access" Pair
+    [[ -n $(bounds pair "Allow one-time access") ]] || break
+  done
   wait_for 30 "D-Bus does not show the phone connected: $(devices)" connected
   ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
   DESKTOP=$(phone_peers | tail -1)
