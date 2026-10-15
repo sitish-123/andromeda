@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicInteger
 import org.umbriel.link.R
+import org.umbriel.link.core.domain.IncomingPing
 import org.umbriel.link.core.domain.IncomingShare
 import org.umbriel.link.core.domain.ShareKind
 
@@ -35,6 +36,17 @@ class ShareNotifier(private val context: Context) {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(TAG, id, notification)
+    }
+
+    fun post(ping: IncomingPing) {
+        if (!allowed()) return
+        val notification = NotificationCompat.Builder(context, Channels.SHARES)
+            .setSmallIcon(R.drawable.ic_stat_link)
+            .setContentTitle(context.getString(R.string.ping_from, ping.desktopName))
+            .setContentText(ping.message)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(TAG, nextId.incrementAndGet(), notification)
     }
 
     private fun allowed(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||

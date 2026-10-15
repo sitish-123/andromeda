@@ -10,11 +10,17 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.umbriel.link.core.data.LinkRepository
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.DesktopCommand
 import org.umbriel.link.core.domain.Feature
 import org.umbriel.link.core.domain.LinkFailure
 import org.umbriel.link.core.domain.linkFailure
 
-data class DeviceState(val desktop: Desktop? = null, val busy: Boolean = false, val failure: LinkFailure? = null)
+data class DeviceState(
+    val desktop: Desktop? = null,
+    val busy: Boolean = false,
+    val failure: LinkFailure? = null,
+    val commands: List<DesktopCommand> = emptyList(),
+)
 
 /** One desktop: this phone's switches for it, reconnecting, and unpairing. */
 class DeviceViewModel(private val repository: LinkRepository, private val desktopId: String) : ViewModel() {
@@ -22,8 +28,8 @@ class DeviceViewModel(private val repository: LinkRepository, private val deskto
     private val failure = MutableStateFlow<LinkFailure?>(null)
     private val _unpaired = MutableStateFlow(false)
 
-    val state: StateFlow<DeviceState> = combine(repository.desktops, busy, failure) { desktops, working, failed ->
-        DeviceState(desktops.firstOrNull { it.id == desktopId }, working, failed)
+    val state: StateFlow<DeviceState> = combine(repository.desktops, busy, failure, repository.commands) { desktops, working, failed, commands ->
+        DeviceState(desktops.firstOrNull { it.id == desktopId }, working, failed, commands[desktopId].orEmpty())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), DeviceState())
 
     /** True once the desktop is unpaired, so the screen leaves. */
@@ -33,6 +39,10 @@ class DeviceViewModel(private val repository: LinkRepository, private val deskto
 
     /** Dials now instead of waiting for the next redial. */
     fun connect() = act { repository.connect(desktopId) }
+
+    fun ping() = act { repository.ping(desktopId) }
+
+    fun run(command: DesktopCommand) = act { repository.runCommand(desktopId, command.id) }
 
     fun unpair() = act { repository.unpair(desktopId).onSuccess { _unpaired.value = true } }
 

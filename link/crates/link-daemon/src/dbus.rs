@@ -9,9 +9,11 @@ use std::os::fd::OwnedFd;
 use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    CallAction, CallActionKind, MAX_NAME_LEN, MAX_SHARE_LEN, Message, MirrorAction, MirrorInput, NotificationAction,
-    NotificationDismiss, NotificationPosted, Ring, Ringing, Share, ShareKind, TransferId, is_text_mime,
+    CallAction, CallActionKind, InputAction, MAX_NAME_LEN, MAX_SHARE_LEN, Message, MirrorAction, MirrorInput,
+    NotificationAction, NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind,
+    TransferId, is_text_mime,
 };
+use link_core::store::StoredCommand;
 use link_core::transfer::{LocalClip, Source};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
@@ -410,6 +412,52 @@ impl Link {
 
     #[zbus(signal)]
     async fn notification_removed(emitter: &SignalEmitter<'_>, device_id: &str, id: &str) -> zbus::Result<()>;
+
+    /// Replaces the `(name, command)` lines phones holding the `commands` grant may run under `sh -c`.
+    async fn set_commands(&self, commands: Vec<(String, String)>) -> fdo::Result<()> {
+        let commands = commands.into_iter().map(|(name, command)| StoredCommand { name, command }).collect();
+        if self.hub.set_commands(commands).await {
+            Ok(())
+        } else {
+            Err(fdo::Error::InvalidArgs("at most 64 commands, each with a name and a command line".to_owned()))
+        }
+    }
+
+    #[zbus(property)]
+    fn commands(&self) -> Vec<(String, String)> {
+        self.snapshots.borrow().commands.clone()
+    }
+
+    /// Shows `message`, or a plain ping when empty, on the phone.
+    async fn ping(&self, device_id: String, message: String) -> Result<(), LinkError> {
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        let message = (!message.is_empty()).then_some(message);
+        Message::Ping(Ping { message: message.clone() })
+            .validate()
+            .map_err(|error| LinkError::Rejected(error.to_string()))?;
+        match self.hub.ping(id, message).await {
+            Ok(()) => Ok(()),
+            Err(Error::NotConnected) => Err(LinkError::NotConnected(format!("{device_id} is not connected"))),
+            Err(Error::Unexpected(_)) => Err(LinkError::Rejected("the phone's Link is too old for pings".to_owned())),
+            Err(error) => Err(LinkError::Failed(error.to_string())),
+        }
+    }
+
+    #[zbus(signal)]
+    async fn pinged(emitter: &SignalEmitter<'_>, device_id: &str, message: &str) -> zbus::Result<()>;
+
+    /// The phone's touchpad and keyboard: `move` and `scroll` by (dx, dy) logical pixels; `press`, `release`, and
+    /// `click` of the `left`, `right`, or `middle` button in `detail`; `key` with a key name in `detail`; `text` with
+    /// the text in `detail`.
+    #[zbus(signal)]
+    async fn remote_input(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        action: &str,
+        dx: i32,
+        dy: i32,
+        detail: &str,
+    ) -> zbus::Result<()>;
 }
 
 impl Link {
@@ -431,6 +479,25 @@ impl Link {
             return Err(LinkError::NotConnected(format!("{id} is not connected")));
         };
         session.send(message).await.map_err(|error| LinkError::Failed(error.to_string()))
+    }
+}
+
+async fn emit_input(emitter: &SignalEmitter<'_>, id: &DeviceId, input: RemoteInput) -> zbus::Result<()> {
+    let detail = match input.action {
+        InputAction::Press | InputAction::Release | InputAction::Click => input.button.map(|button| wire_name(&button)),
+        InputAction::Key => input.key.map(|key| wire_name(&key)),
+        InputAction::Text => input.text,
+        InputAction::Move | InputAction::Scroll => None,
+    };
+    let (dx, dy) = (input.dx.unwrap_or_default(), input.dy.unwrap_or_default());
+    Link::remote_input(emitter, id.as_str(), &wire_name(&input.action), dx, dy, &detail.unwrap_or_default()).await
+}
+
+/// A unit enum's name on the wire, such as `page-down`.
+fn wire_name(value: &impl serde::Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
     }
 }
 
@@ -520,6 +587,9 @@ pub async fn forward(
                 if next.localsend != last.localsend {
                     link.get().await.local_send_visible_changed(emitter).await?;
                 }
+                if next.commands != last.commands {
+                    link.get().await.commands_changed(emitter).await?;
+                }
                 last = next;
             }
             changed = nearby.changed() => {
@@ -540,6 +610,10 @@ pub async fn forward(
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
+                Event::Pinged { id, message } => {
+                    Link::pinged(emitter, id.as_str(), &message.unwrap_or_default()).await?;
+                }
+                Event::RemoteInput { id, input } => emit_input(emitter, &id, input).await?,
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
                     Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;

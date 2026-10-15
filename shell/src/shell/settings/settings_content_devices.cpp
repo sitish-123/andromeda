@@ -4,6 +4,8 @@
 #include "shell/settings/settings_content_common.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/input.h"
+#include "util/string_utils.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
@@ -90,6 +92,87 @@ namespace settings {
       card->addChild(std::move(pairRow));
     }
 
+    void addCommands(Flex& content, const SettingsDevicesContext& ctx) {
+      if (!ctx.linkAvailable) {
+        return;
+      }
+      const float scale = ctx.scale;
+      Flex* card = addSettingsCard(content, i18n::tr("settings.devices.commands"), scale);
+      card->addChild(makeCaption(i18n::tr("settings.devices.commands-hint"), scale));
+      for (std::size_t i = 0; i < ctx.commands.size(); ++i) {
+        const auto& [name, command] = ctx.commands[i];
+        card->addChild(
+            ui::row(
+                {.align = FlexAlign::Center, .gap = Style::spaceMd * scale, .fillWidth = true},
+                ui::column(
+                    {.align = FlexAlign::Start, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},
+                    makeLabel(
+                        name, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+                    ),
+                    makeLabel(command, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant))
+                ),
+                ui::button({
+                    .glyph = "trash",
+                    .fontSize = Style::fontSizeBody * scale,
+                    .controlHeight = Style::controlHeight * scale,
+                    .variant = ButtonVariant::Ghost,
+                    .tooltip = i18n::tr("settings.devices.command-remove"),
+                    .onClick = [commands = ctx.commands, set = ctx.setCommands, i]() mutable {
+                      commands.erase(commands.begin() + static_cast<std::ptrdiff_t>(i));
+                      set(std::move(commands));
+                    },
+                })
+            )
+        );
+      }
+      Input* name = nullptr;
+      Input* command = nullptr;
+      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+      row->addChild(
+          ui::input({
+              .out = &name,
+              .placeholder = i18n::tr("settings.devices.command-name"),
+              .fontSize = Style::fontSizeBody * scale,
+              .controlHeight = Style::controlHeight * scale,
+              .horizontalPadding = Style::spaceSm * scale,
+              .flexGrow = 1.0F,
+          })
+      );
+      row->addChild(
+          ui::input({
+              .out = &command,
+              .placeholder = i18n::tr("settings.devices.command-line"),
+              .fontSize = Style::fontSizeBody * scale,
+              .controlHeight = Style::controlHeight * scale,
+              .horizontalPadding = Style::spaceSm * scale,
+              .flexGrow = 2.0F,
+          })
+      );
+      const auto add = [name, command, commands = ctx.commands, set = ctx.setCommands]() {
+        const std::string label = StringUtils::trim(name->value());
+        const std::string line = StringUtils::trim(command->value());
+        name->setInvalid(label.empty());
+        command->setInvalid(line.empty());
+        if (!label.empty() && !line.empty()) {
+          auto next = commands;
+          next.emplace_back(label, line);
+          set(std::move(next));
+        }
+      };
+      row->addChild(
+          ui::button({
+              .text = i18n::tr("settings.devices.command-add"),
+              .glyph = "plus",
+              .fontSize = Style::fontSizeBody * scale,
+              .controlHeight = Style::controlHeight * scale,
+              .variant = ButtonVariant::Default,
+              .onClick = add,
+          })
+      );
+      command->setOnSubmit([add](const std::string& /*text*/) { add(); });
+      card->addChild(std::move(row));
+    }
+
     void addQuickShare(Flex& content, const SettingsDevicesContext& ctx) {
       Flex* card = addSettingsCard(content, i18n::tr("settings.devices.quick-share"), ctx.scale);
       if (!ctx.quickShareAvailable) {
@@ -116,6 +199,7 @@ namespace settings {
 
   void addSettingsDevices(Flex& content, const SettingsDevicesContext& ctx) {
     addPhones(content, ctx);
+    addCommands(content, ctx);
     addQuickShare(content, ctx);
   }
 

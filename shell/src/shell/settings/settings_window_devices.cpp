@@ -16,6 +16,16 @@ void SettingsWindow::addDevicesContent(float scale) {
       ctx.phones.push_back({.id = device.id, .name = device.name, .connected = device.connected});
     }
     ctx.unpair = [link = m_linkService](std::string id) { link->unpair(id); };
+    for (const auto& command : m_linkService->commands()) {
+      ctx.commands.emplace_back(command.name, command.command);
+    }
+    ctx.setCommands = [link = m_linkService](std::vector<std::pair<std::string, std::string>> commands) {
+      std::vector<LinkCommand> lines;
+      for (auto& [name, command] : commands) {
+        lines.push_back({.name = std::move(name), .command = std::move(command)});
+      }
+      link->setCommands(lines);
+    };
   }
   if (m_quickShareService != nullptr) {
     ctx.quickShareAvailable = m_quickShareService->available();

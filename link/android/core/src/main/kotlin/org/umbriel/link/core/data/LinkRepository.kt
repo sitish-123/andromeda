@@ -26,6 +26,10 @@ import android.os.SystemClock
 import org.umbriel.link.core.domain.CallAction
 import org.umbriel.link.core.domain.CallState
 import org.umbriel.link.core.domain.Desktop
+import org.umbriel.link.core.domain.DesktopCommand
+import org.umbriel.link.core.domain.IncomingPing
+import org.umbriel.link.core.domain.PointerButton
+import org.umbriel.link.core.domain.RemoteInput
 import org.umbriel.link.core.domain.DesktopPlayer
 import org.umbriel.link.core.domain.Feature
 import org.umbriel.link.core.domain.IncomingClip
@@ -65,6 +69,10 @@ import org.umbriel.link.ffi.PlaybackState as FfiState
 import org.umbriel.link.ffi.NotificationButton as FfiNotificationButton
 import org.umbriel.link.ffi.PhoneNotification as FfiPhoneNotification
 import org.umbriel.link.ffi.ShareKind as FfiShareKind
+import org.umbriel.link.ffi.InputAction
+import org.umbriel.link.ffi.InputButton
+import org.umbriel.link.ffi.InputEvent
+import org.umbriel.link.ffi.InputKey
 
 /**
  * The phone side of Link over the Rust core. Every operation returns a [Result] whose failure is a
@@ -100,6 +108,8 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
+    private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
+    private val _pings = MutableSharedFlow<IncomingPing>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -184,6 +194,18 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** Ends mirroring, or refuses a request, with why. */
     suspend fun stopMirror(desktopId: String, reason: String?): Result<Unit> = call { it.stopMirror(desktopId, reason) }
+
+    /** What each desktop lets this phone run there, by desktop id. */
+    val commands: StateFlow<Map<String, List<DesktopCommand>>> = _commands.asStateFlow()
+
+    val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
+
+    /** Connects first if needed. */
+    suspend fun sendInput(desktopId: String, input: RemoteInput): Result<Unit> = call { it.sendInput(desktopId, input.toFfi()) }
+
+    suspend fun runCommand(desktopId: String, commandId: String): Result<Unit> = call { it.runCommand(desktopId, commandId) }
+
+    suspend fun ping(desktopId: String): Result<Unit> = withMulticast { call { it.ping(desktopId, null) } }
 
     /** A desktop asks this phone to ring (true) or stop, as (desktop id, on). */
     val ringRequests: SharedFlow<Pair<String, Boolean>> = _ringRequests.asSharedFlow()
@@ -407,6 +429,10 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 )
                 is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
                 is LinkEvent.MirrorStopped -> _mirrorCommands.emit(MirrorCommand.Stopped(event.desktopId, event.reason))
+                is LinkEvent.CommandsChanged -> _commands.update {
+                    it + (event.desktopId to event.commands.map { command -> DesktopCommand(command.id, command.name) })
+                }
+                is LinkEvent.Pinged -> _pings.emit(IncomingPing(nameOf(event.desktopId), event.message))
             }
         }
     }
@@ -503,7 +529,24 @@ private fun FfiDesktop.toDomain() = Desktop(
     ),
     bluetoothAddress = bluetoothAddress,
     btPairing = btPairing,
+    control = control,
 )
+
+private fun PointerButton.toFfi(): InputButton = when (this) {
+    PointerButton.Left -> InputButton.LEFT
+    PointerButton.Right -> InputButton.RIGHT
+    PointerButton.Middle -> InputButton.MIDDLE
+}
+
+private fun RemoteInput.toFfi(): InputEvent = when (this) {
+    is RemoteInput.Move -> InputEvent(InputAction.MOVE, dx, dy, null, null, null)
+    is RemoteInput.Scroll -> InputEvent(InputAction.SCROLL, dx, dy, null, null, null)
+    is RemoteInput.Click -> InputEvent(InputAction.CLICK, null, null, button.toFfi(), null, null)
+    is RemoteInput.Press -> InputEvent(InputAction.PRESS, null, null, button.toFfi(), null, null)
+    is RemoteInput.Release -> InputEvent(InputAction.RELEASE, null, null, button.toFfi(), null, null)
+    is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
+    is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
+}
 
 private fun MediaCommandKind.toFfi(): FfiCommand = when (this) {
     MediaCommandKind.Play -> FfiCommand.PLAY

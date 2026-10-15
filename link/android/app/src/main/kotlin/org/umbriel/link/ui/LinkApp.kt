@@ -25,6 +25,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.StateFlow
 import org.umbriel.link.AppContainer
+import org.umbriel.link.control.PresenterScreen
+import org.umbriel.link.control.RemoteScreen
+import org.umbriel.link.control.RemoteViewModel
 import org.umbriel.link.devices.DeviceScreen
 import org.umbriel.link.devices.DeviceViewModel
 import org.umbriel.link.devices.HomeScreen
@@ -50,7 +53,7 @@ import org.umbriel.link.transfer.ActivityScreen
 import org.umbriel.link.transfer.ActivityViewModel
 import org.umbriel.link.R
 
-private enum class Screen { Home, Activity, Settings, Device, Pairing, Setup, Media, MirrorApps }
+private enum class Screen { Home, Activity, Settings, Device, Pairing, Setup, Media, MirrorApps, Remote, Presenter }
 private val rootScreens = listOf(Screen.Home, Screen.Activity, Screen.Settings)
 
 /** A handful of screens, so navigation is one piece of state rather than a navigation library. */
@@ -86,7 +89,7 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
     if (screen != Screen.Home) BackHandler {
         screen = when {
             screen in rootScreens -> Screen.Home
-            screen == Screen.MirrorApps && desktopId != null -> Screen.Device
+            screen in listOf(Screen.MirrorApps, Screen.Remote, Screen.Presenter) && desktopId != null -> Screen.Device
             else -> returnScreen
         }
     }
@@ -143,7 +146,15 @@ fun LinkApp(container: AppContainer, pairingLink: StateFlow<String?>, onLinkHand
                             viewModel(key = "device-$id") { DeviceViewModel(container.repository, id) },
                             onBack = { screen = returnScreen },
                             onMirrorApps = { screen = Screen.MirrorApps },
+                            onRemote = { screen = Screen.Remote },
+                            onPresenter = { screen = Screen.Presenter },
                         )
+                    }
+                    Screen.Remote, Screen.Presenter -> desktopId?.let { id ->
+                        val remote = viewModel(key = "remote-$id") { RemoteViewModel(container.repository, id) }
+                        val name = container.repository.desktops.value.firstOrNull { it.id == id }?.name.orEmpty()
+                        if (current == Screen.Remote) RemoteScreen(remote, name) { screen = Screen.Device }
+                        else PresenterScreen(remote, name) { screen = Screen.Device }
                     }
                     Screen.Pairing -> PairingScreen(
                         viewModel = pairing,

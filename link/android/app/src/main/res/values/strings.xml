@@ -267,4 +267,22 @@
     <string name="activity_moving_short">Moving</string>
     <string name="activity_today">Today</string>
     <string name="activity_yesterday">Yesterday</string>
+    <string name="control_title">Control</string>
+    <string name="control_hint">Use this phone on the desktop.</string>
+    <string name="remote_title">Touchpad and keyboard</string>
+    <string name="remote_hint">Move the pointer on %1$s. Tap to click. Use two fingers to scroll, or tap with two fingers to right-click.</string>
+    <string name="remote_touchpad">Touchpad</string>
+    <string name="remote_left">Left click</string>
+    <string name="remote_right">Right click</string>
+    <string name="remote_type">Type here</string>
+    <string name="presenter_title">Presenter</string>
+    <string name="presenter_hint">Control the slides on %1$s. The volume keys also go to the next and previous slide.</string>
+    <string name="presenter_next">Next</string>
+    <string name="presenter_previous">Previous</string>
+    <string name="presenter_start">Start</string>
+    <string name="presenter_end">End</string>
+    <string name="ping">Ping</string>
+    <string name="ping_hint">Show a notification on the desktop</string>
+    <string name="ping_from">%1$s pinged you</string>
+    <string name="command_hint">Run on the desktop</string>
 </resources>

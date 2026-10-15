@@ -89,7 +89,9 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::MirrorStarted(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
-        | Message::FsError(_) => role == Role::Desktop,
+        | Message::FsError(_)
+        | Message::RemoteInput(_)
+        | Message::RunCommand(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
         | Message::CallAction(_)
@@ -100,14 +102,16 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe
         | Message::FsList(_)
-        | Message::FsRead(_) => role == Role::Phone,
+        | Message::FsRead(_)
+        | Message::Commands(_) => role == Role::Phone,
         Message::HotspotEnd(_)
         | Message::MirrorStop(_)
         | Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)
         | Message::Ring(_)
-        | Message::Ringing(_) => true,
+        | Message::Ringing(_)
+        | Message::Ping(_) => true,
         _ => false,
     }
 }

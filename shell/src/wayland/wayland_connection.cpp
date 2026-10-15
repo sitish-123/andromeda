@@ -35,6 +35,7 @@
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 #include "wlr-output-power-management-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
+#include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
@@ -76,6 +77,7 @@ namespace {
   constexpr std::uint32_t kOutputVersion = 4;
   constexpr std::uint32_t kTextInputManagerVersion = 2;
   constexpr std::uint32_t kVirtualKeyboardManagerVersion = 1;
+  constexpr std::uint32_t kVirtualPointerManagerVersion = 2;
   constexpr std::uint32_t kGammaControlManagerVersion = 1;
   constexpr std::uint32_t kDesktopShellVersion = 2;
   constexpr std::uint32_t kScreencopyManagerVersion = 3;
@@ -1315,6 +1317,14 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zwlr_virtual_pointer_manager_v1_interface.name) {
+    const auto bindVersion = std::min(version, kVirtualPointerManagerVersion);
+    m_virtualPointerManager = static_cast<zwlr_virtual_pointer_manager_v1*>(
+        wl_registry_bind(registry, name, &zwlr_virtual_pointer_manager_v1_interface, bindVersion)
+    );
+    return;
+  }
+
   if (interfaceName == zwlr_gamma_control_manager_v1_interface.name) {
     const auto bindVersion = std::min(version, kGammaControlManagerVersion);
     m_gammaControlManager = static_cast<zwlr_gamma_control_manager_v1*>(
@@ -1580,6 +1590,10 @@ void WaylandConnection::cleanup() {
   if (m_virtualKeyboardManager != nullptr) {
     zwp_virtual_keyboard_manager_v1_destroy(m_virtualKeyboardManager);
     m_virtualKeyboardManager = nullptr;
+  }
+  if (m_virtualPointerManager != nullptr) {
+    zwlr_virtual_pointer_manager_v1_destroy(m_virtualPointerManager);
+    m_virtualPointerManager = nullptr;
   }
 
   if (m_textInputManager != nullptr) {

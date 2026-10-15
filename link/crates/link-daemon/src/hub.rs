@@ -10,12 +10,12 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    Call, CallState, Hello, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted, Share,
-    Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    CONTROL, Call, CallState, Hello, Hotspot, HotspotEnd, HotspotJoined, MediaPlayer, Message, NotificationPosted,
+    Ping, RemoteInput, Share, Status, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
-use link_core::store::{Peer, Store, feature_of};
+use link_core::store::{Feature, Peer, Store, StoredCommand, feature_of};
 use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
 use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
@@ -63,6 +63,8 @@ pub struct Snapshot {
     pub status: Vec<(String, (u32, bool, String))>,
     /// "Visible to LocalSend", the D-Bus `LocalSendVisible` property.
     pub localsend: bool,
+    /// `(name, command)`, the D-Bus `Commands` property.
+    pub commands: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -111,6 +113,15 @@ pub enum Event {
     Hotspot {
         id: DeviceId,
         ssid: Option<String>,
+    },
+    /// The phone's touchpad or keyboard.
+    RemoteInput {
+        id: DeviceId,
+        input: RemoteInput,
+    },
+    Pinged {
+        id: DeviceId,
+        message: Option<String>,
     },
 }
 
@@ -163,6 +174,8 @@ enum Command {
     DesktopPlayerGone { player: String },
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
+    SetCommands { commands: Vec<StoredCommand>, reply: oneshot::Sender<bool> },
+    Ping { id: DeviceId, message: Option<String>, reply: oneshot::Sender<Result<(), link_core::Error>> },
 }
 
 #[derive(Clone)]
@@ -222,6 +235,8 @@ pub struct Hub {
     browsing: browse::Browsing,
     mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
+    /// Phones whose hello listed `feature:control`, which take commands and pings.
+    control: HashSet<DeviceId>,
 }
 
 struct Waiting {
@@ -292,6 +307,7 @@ impl Hub {
             browsing: browse::Browsing::default(),
             mirrors: crate::mirror::Mirrors::default(),
             puncher,
+            control: HashSet::new(),
         };
         hub.refresh();
         (hub, handle, snapshots_rx, events_rx)
@@ -372,6 +388,8 @@ impl Hub {
                 }
             }
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
+            Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
+            Command::Ping { id, message, reply } => drop(reply.send(self.ping(&id, message).await)),
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
             Command::Session { id, reply } => {
@@ -388,19 +406,7 @@ impl Hub {
                 let _ = reply.send(true);
             }
             Command::SetGrant { id, feature, granted, reply } => {
-                let feature = link_core::store::Feature::parse(&feature);
-                let set = match (self.store.peer_mut(&id), feature) {
-                    (Some(peer), Some(feature)) => {
-                        peer.grants.set(feature, granted);
-                        true
-                    }
-                    _ => false,
-                };
-                if set {
-                    self.save();
-                    self.publish();
-                }
-                let _ = reply.send(set);
+                let _ = reply.send(self.set_grant(&id, &feature, granted).await);
             }
             Command::SendFiles { device, sources, reply } => match self.needs_hotspot(&device, &sources) {
                 Some(peer) => self.wait_for_hotspot(peer, Parked::Send { sources, reply }).await,
@@ -567,6 +573,9 @@ impl Hub {
                     self.bt_pairing = Some((passkey, until));
                 }
             }
+            SessionEvent::Message { from, message: Message::Ping(ping) } if self.sessions.contains_key(&from) => {
+                self.emit(Event::Pinged { id: from, message: ping.message }).await;
+            }
             SessionEvent::Message { from, message } => {
                 let granted = feature_of(&message)
                     .is_some_and(|feature| self.store.peer(&from).is_some_and(|peer| peer.grants.allows(feature)));
@@ -612,6 +621,16 @@ impl Hub {
                 let reason = end.reason.unwrap_or_else(|| "the phone ended its hotspot".to_owned());
                 self.fail_waiting(&from, &reason).await;
                 self.leave_hotspot(&from).await;
+            }
+            Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
+            Message::RunCommand(run) => {
+                match self.store.commands.iter().find(|stored| crate::control::id(stored) == run.id) {
+                    Some(stored) => match crate::control::run(stored) {
+                        Ok(()) => log::info!("{from}: ran the command {:?}", stored.name),
+                        Err(error) => log::warn!("{from}: running the command {:?}: {error}", stored.name),
+                    },
+                    None => log::info!("{from}: no command {}", run.id),
+                }
             }
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
         }
@@ -740,8 +759,14 @@ impl Hub {
             older.close(CloseCode::Done);
         }
         self.hotspot_asked.remove(&id);
+        if hello.addresses.iter().any(|entry| entry == CONTROL) {
+            self.control.insert(id.clone());
+        } else {
+            self.control.remove(&id);
+        }
         self.publish();
         self.transfers.attach(id.clone(), session.clone()).await;
+        self.send_commands(&id).await;
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
         let ready = self
             .wifi_direct_peer
@@ -758,6 +783,50 @@ impl Hub {
         } else {
             // Back on Bluetooth: the phone's hotspot is gone even if its hotspot-end was lost with the old session.
             self.leave_hotspot(&id).await;
+        }
+    }
+
+    async fn set_grant(&mut self, id: &DeviceId, feature: &str, granted: bool) -> bool {
+        let (Some(peer), Some(feature)) = (self.store.peer_mut(id), Feature::parse(feature)) else { return false };
+        peer.grants.set(feature, granted);
+        self.save();
+        self.publish();
+        if feature == Feature::Commands {
+            self.send_commands(id).await;
+        }
+        true
+    }
+
+    async fn set_commands(&mut self, commands: Vec<StoredCommand>) -> bool {
+        if !crate::control::valid(&commands) {
+            return false;
+        }
+        self.store.commands = commands;
+        self.save();
+        self.publish();
+        for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            self.send_commands(&id).await;
+        }
+        true
+    }
+
+    async fn ping(&self, id: &DeviceId, message: Option<String>) -> Result<(), link_core::Error> {
+        match self.sessions.get(id) {
+            Some(_) if !self.control.contains(id) => Err(link_core::Error::Unexpected("ping")),
+            Some(session) => session.send(Message::Ping(Ping { message })).await,
+            None => Err(link_core::Error::NotConnected),
+        }
+    }
+
+    /// The commands `id` may run: all of them with its grant, none without.
+    async fn send_commands(&self, id: &DeviceId) {
+        let (Some(session), Some(peer)) = (self.sessions.get(id), self.store.peer(id)) else { return };
+        if !self.control.contains(id) {
+            return;
+        }
+        let granted = if peer.grants.commands { self.store.commands.as_slice() } else { &[] };
+        if let Err(error) = session.send(Message::Commands(crate::control::listing(granted))).await {
+            log::info!("{id}: sending the commands: {error}");
         }
     }
 
@@ -1020,7 +1089,10 @@ impl Hub {
         status.sort();
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
-            let next = Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend };
+            let commands =
+                self.store.commands.iter().map(|stored| (stored.name.clone(), stored.command.clone())).collect();
+            let next =
+                Snapshot { devices, pairing: self.window.is_some(), auto_accept, grants, status, localsend, commands };
             let changed = *current != next;
             *current = next;
             changed
@@ -1137,6 +1209,15 @@ impl HubHandle {
 
     pub async fn session(&self, id: DeviceId) -> Option<SessionHandle> {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
+    }
+
+    /// Replaces the commands phones may run; false when the list breaks its limits.
+    pub async fn set_commands(&self, commands: Vec<StoredCommand>) -> bool {
+        self.request(|reply| Command::SetCommands { commands, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn ping(&self, id: DeviceId, message: Option<String>) -> Result<(), link_core::Error> {
+        self.request(|reply| Command::Ping { id, message, reply }).await.unwrap_or(Err(link_core::Error::Stopped))
     }
 
     pub async fn set_grant(&self, id: DeviceId, feature: String, granted: bool) -> bool {

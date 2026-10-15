@@ -2,6 +2,7 @@
 
 mod bluetooth;
 mod browse;
+mod control;
 mod dbus;
 mod desktop_media;
 mod hotspot;

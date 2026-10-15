@@ -1047,6 +1047,9 @@ impl ClientActor {
                 }
             }
             SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
+            SessionEvent::Message { from, message: message @ Message::Ping(_) } => {
+                self.emit(ClientEvent::Message { from, message }).await;
+            }
             SessionEvent::Message { from, message } => {
                 let allowed = feature_of(&message).is_some_and(|feature| {
                     self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))

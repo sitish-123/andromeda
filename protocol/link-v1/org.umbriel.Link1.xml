@@ -245,6 +245,35 @@
       <arg name="device_id" type="s"/>
       <arg name="id" type="s"/>
     </signal>
+    <!-- The phone as this desktop's touchpad and keyboard, while its input grant is on. action is "move" or "scroll"
+         by (dx, dy) logical pixels, positive down and right; "press", "release", or "click" with "left", "right", or
+         "middle" in detail; "key" with enter, backspace, delete, escape, tab, space, left, right, up, down, home,
+         end, page-up, page-down, or f5 in detail; "text" with the text in detail. The shell injects it. -->
+    <signal name="RemoteInput">
+      <arg name="device_id" type="s"/>
+      <arg name="action" type="s"/>
+      <arg name="dx" type="i"/>
+      <arg name="dy" type="i"/>
+      <arg name="detail" type="s"/>
+    </signal>
+    <!-- (name, command line) pairs that phones holding the commands grant may run here under sh -c. -->
+    <property name="Commands" type="a(ss)" access="read"/>
+    <!-- Replaces Commands and sends phones the new list. Errors: InvalidArgs past 64 commands, or for an empty name
+         or command line. -->
+    <method name="SetCommands">
+      <arg name="commands" type="a(ss)" direction="in"/>
+    </method>
+    <!-- Shows message, or a plain ping when empty, on the phone. Errors: .NotConnected; .Rejected when the phone's
+         Link takes no pings. -->
+    <method name="Ping">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="message" type="s" direction="in"/>
+    </method>
+    <!-- The phone pinged this desktop; message is empty for a plain ping. -->
+    <signal name="Pinged">
+      <arg name="device_id" type="s"/>
+      <arg name="message" type="s"/>
+    </signal>
   </interface>
   <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for
        Accept or Decline (60 s, then declined). -->

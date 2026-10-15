@@ -329,6 +329,7 @@
       "browse": "Browse its files (allow it in Umbriel Link on the phone)",
       "mirror": "Show its screen (allow Screen in Umbriel Link on the phone)",
       "apps": "Open its apps in windows (needs wireless debugging on the phone)",
+      "ping": "Ping",
       "nearby": "Nearby",
       "localsend-visible": "Visible to LocalSend",
       "status": "Connected, {battery}% battery, {network}",
@@ -339,6 +340,8 @@
       "grant-media": "Share media controls",
       "grant-ring": "Ring each other",
       "grant-calls": "Show its calls",
+      "grant-input": "Use it as this desktop's touchpad and keyboard",
+      "grant-commands": "Run this desktop's commands",
       "localsend": "LocalSend",
       "auto-accept": "Accept files without asking",
       "unpair": "Unpair",
@@ -942,6 +945,7 @@
       "link-call-mute": "Mute ringer",
       "link-call-title": "Incoming call from {caller}",
       "link-call-unknown": "an unknown number",
+      "link-ping": "{device} pinged you",
       "link-ring-body": "Ringing until you stop it",
       "link-ring-stop": "Stop",
       "link-ring-title": "{device} is looking for this desktop",
@@ -5297,7 +5301,13 @@
       "quick-share": "Quick Share",
       "visible": "Visible to nearby devices",
       "visible-hint": "Android phones nearby can send files and links to “{name}”. You accept each one.",
-      "downloads": "Received files go to {path}."
+      "downloads": "Received files go to {path}.",
+      "commands": "Commands",
+      "commands-hint": "Phones allowed to run commands show these, and run them here as you.",
+      "command-name": "Name",
+      "command-line": "Command, such as systemctl suspend",
+      "command-add": "Add",
+      "command-remove": "Remove"
     }
   },
   "setup-wizard": {

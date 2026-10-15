@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Flex;
@@ -25,6 +26,9 @@ namespace settings {
     std::function<void()> pair;
     std::function<void(std::string)> unpair;
     std::function<void(bool)> setQuickShareVisible;
+    // (name, command line) that phones with the commands grant may run.
+    std::vector<std::pair<std::string, std::string>> commands;
+    std::function<void(std::vector<std::pair<std::string, std::string>>)> setCommands;
   };
 
   // Phones paired over Umbriel Link and Quick Share visibility, both served by umbriel-linkd.

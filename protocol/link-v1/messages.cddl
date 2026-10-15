@@ -8,6 +8,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   wifi-direct-ready-msg / wifi-direct-msg / bt-pairing-msg /
   mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg /
+  remote-input-msg / commands-msg / run-command-msg / ping-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -225,3 +226,21 @@ fs-error-msg = { type: "fs-error", id: uint, body: {
   req: uint,
   reason: "not-found" / "denied" / "not-allowed" / "not-a-folder" / "not-a-file" / "busy" / "io",
 } }
+
+; The phone as the desktop's remote, only when both hellos listed "feature:control". Phone to desktop, while the
+; desktop's input switch for the phone is on: the pointer and keyboard, moves and scrolls in logical pixels. Desktop to
+; phone, on connect and after each change: every command the phone may run, none without the desktop's commands
+; switch; the phone runs one by id. Either way, without a switch: a ping the user sent, shown as a notification.
+remote-input-msg = { type: "remote-input", id: uint, body: {
+  action: "move" / "scroll" / "press" / "release" / "click" / "key" / "text",
+  ? dx: -10000..10000, ? dy: -10000..10000,
+  ? button: "left" / "right" / "middle",
+  ? key: "enter" / "backspace" / "delete" / "escape" / "tab" / "space" / "left" / "right" / "up" / "down" / "home" /
+    "end" / "page-up" / "page-down" / "f5",
+  ? "text": tstr .size (1..4096),  ; quoted: a bare text is the prelude type
+} }
+commands-msg = { type: "commands", id: uint, body: {
+  commands: [* { id: tstr .size (1..64), name: tstr .size (1..512) }],  ; at most 64
+} }
+run-command-msg = { type: "run-command", id: uint, body: { id: tstr .size (1..64) } }
+ping-msg = { type: "ping", id: uint, body: { ? message: tstr .size (1..256) } }

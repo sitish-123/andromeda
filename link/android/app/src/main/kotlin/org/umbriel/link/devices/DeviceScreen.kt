@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
@@ -59,7 +60,13 @@ import org.umbriel.link.ui.theme.Space
 
 /** One desktop: what this phone shares with it, the per-app notification filter, and unpairing. */
 @Composable
-fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: () -> Unit) {
+fun DeviceScreen(
+    viewModel: DeviceViewModel,
+    onBack: () -> Unit,
+    onMirrorApps: () -> Unit,
+    onRemote: () -> Unit,
+    onPresenter: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val unpaired by viewModel.unpaired.collectAsStateWithLifecycle()
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
@@ -110,6 +117,17 @@ fun DeviceScreen(viewModel: DeviceViewModel, onBack: () -> Unit, onMirrorApps: (
                             Label(stringResource(R.string.mirror_apps_choose), LinkTheme.type.titleSmall, LinkTheme.colors.accentText, Modifier.weight(1f))
                             Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.accentText)
                         }
+                    }
+                }
+            }
+            if (desktop.control) {
+                DashboardSection(stringResource(R.string.control_title), stringResource(R.string.control_hint))
+                DashboardCard(Modifier.fillMaxWidth()) {
+                    NavRow(stringResource(R.string.remote_title), null, Icons.Filled.Edit, onRemote)
+                    NavRow(stringResource(R.string.presenter_title), null, Icons.Filled.PlayArrow, onPresenter)
+                    NavRow(stringResource(R.string.ping), stringResource(R.string.ping_hint), Icons.Filled.Notifications, viewModel::ping)
+                    state.commands.forEach { command ->
+                        NavRow(command.name, stringResource(R.string.command_hint), Icons.Filled.Build, { viewModel.run(command) })
                     }
                 }
             }

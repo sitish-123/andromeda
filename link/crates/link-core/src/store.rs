@@ -43,6 +43,9 @@ pub struct Peer {
     /// The desktop's hello listed `feature:bt-pairing`: it confirms a Bluetooth pairing by the code the phone reports.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bt_pairing: bool,
+    /// The desktop's hello listed `feature:control`: it takes remote input, commands, and pings.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub control: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +60,13 @@ pub enum Feature {
     Browse,
     /// The desktop may ask to mirror the phone's screen and send it input; a phone-side switch, off after pairing.
     Screen,
+    /// The phone may move the desktop's pointer and type; a desktop-side switch, off after pairing.
+    Input,
+    /// The phone may run the commands the desktop lists.
+    Commands,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse` and `screen`. A store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, and `input`. A store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -72,6 +79,8 @@ pub struct Grants {
     pub calls: bool,
     pub browse: bool,
     pub screen: bool,
+    pub input: bool,
+    pub commands: bool,
 }
 
 impl Default for Grants {
@@ -85,12 +94,14 @@ impl Default for Grants {
             calls: true,
             browse: false,
             screen: false,
+            input: false,
+            commands: true,
         }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Clipboard,
         Self::Files,
         Self::Notifications,
@@ -99,6 +110,8 @@ impl Feature {
         Self::Calls,
         Self::Browse,
         Self::Screen,
+        Self::Input,
+        Self::Commands,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -111,6 +124,8 @@ impl Feature {
             Self::Calls => "calls",
             Self::Browse => "browse",
             Self::Screen => "screen",
+            Self::Input => "input",
+            Self::Commands => "commands",
         }
     }
 
@@ -142,6 +157,8 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::MirrorStop(_)
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe => Some(Feature::Screen),
+        Message::RemoteInput(_) => Some(Feature::Input),
+        Message::Commands(_) | Message::RunCommand(_) => Some(Feature::Commands),
         _ => None,
     }
 }
@@ -157,6 +174,8 @@ impl Grants {
             Feature::Calls => self.calls,
             Feature::Browse => self.browse,
             Feature::Screen => self.screen,
+            Feature::Input => self.input,
+            Feature::Commands => self.commands,
         }
     }
 
@@ -170,6 +189,8 @@ impl Grants {
             Feature::Calls => &mut self.calls,
             Feature::Browse => &mut self.browse,
             Feature::Screen => &mut self.screen,
+            Feature::Input => &mut self.input,
+            Feature::Commands => &mut self.commands,
         };
         *flag = on;
     }
@@ -197,6 +218,17 @@ pub struct Store {
     /// "Visible to `LocalSend`": the desktop's `LocalSend` backend listens only while this is on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub localsend: bool,
+    /// What a desktop's phones may run; a desktop-side list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<StoredCommand>,
+}
+
+/// A command line a desktop lets its phones run under `sh -c`, by `name`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoredCommand {
+    pub name: String,
+    pub command: String,
 }
 
 impl Peer {
@@ -211,6 +243,7 @@ impl Peer {
             grants: Grants::default(),
             bluetooth: None,
             bt_pairing: false,
+            control: false,
         }
     }
 
