@@ -188,7 +188,8 @@ bt-pairing-msg = { type: "bt-pairing", id: uint, body: { ? passkey: uint .le 999
 ; Mirroring the phone's screen, while the phone's screen switch for the desktop is on. The desktop asks
 ; (mirror-request, 0-RTT); the phone shows Android's capture prompt, then says the size (mirror-started) and opens a
 ; unidirectional stream whose header is mirror-data, followed by H.264 access units: u32 length, u64 presentation
-; time in microseconds, a flags byte (1 keyframe, 2 codec configuration), then Annex B bytes of at most 4 MiB. The
+; time in microseconds, a flags byte (1 keyframe, 2 codec configuration, 4 audio: one 48 kHz stereo Opus packet
+; instead of video), then the bytes, at most 4 MiB. The
 ; desktop sends input (coordinates in 1/10000 of the width and height; a scroll's x2, y2 is a signed delta) and asks
 ; for a keyframe after a loss (mirror-keyframe, 0-RTT). Either side ends it (mirror-stop).
 mirror-request-msg = { type: "mirror-request", id: uint, body: {} }

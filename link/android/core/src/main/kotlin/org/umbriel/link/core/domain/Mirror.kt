@@ -34,5 +34,8 @@ interface MirrorStream {
     /** One H.264 access unit, Annex B; suspends while the network is behind. */
     suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit>
 
+    /** One Opus packet of 48 kHz stereo. */
+    suspend fun sendAudio(ptsUs: Long, data: ByteArray): Result<Unit>
+
     suspend fun finish()
 }

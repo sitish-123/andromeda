@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Android requires it for any playback capture: the mirrored screen's sound (MirrorAudio). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Development permission, granted only over adb: automatic phone-to-desktop clipboard (ClipboardWatcher). -->
     <!-- Bluetooth carries a session when no Wi-Fi path reaches the desktop. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />

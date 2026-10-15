@@ -302,7 +302,9 @@ impl Link {
         match self.hub.open_mirror(id).await {
             Ok(opened) => Ok((opened.stream.into(), opened.width, opened.height)),
             Err(Failure::NotConnected) => Err(LinkError::NotConnected(format!("{device_id} is not connected"))),
-            Err(Failure::NeedsWifi) => Err(LinkError::Failed("mirroring needs Wi-Fi, not Bluetooth".to_owned())),
+            Err(Failure::NeedsWifi) => {
+                Err(LinkError::Failed("mirroring needs Wi-Fi, and the phone's hotspot did not come up".to_owned()))
+            }
             Err(Failure::Busy) => Err(LinkError::Failed("that phone is already mirroring".to_owned())),
             Err(Failure::Refused(reason)) => Err(LinkError::Refused(reason)),
             Err(Failure::TimedOut) => Err(LinkError::Failed("nobody allowed it on the phone in time".to_owned())),

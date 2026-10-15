@@ -54,10 +54,11 @@
     </method>
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
-         u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration), then Annex B bytes;
-         closing it tells the phone to stop. Errors: .NotConnected, .Refused with the phone's reason (its screen switch
-         is off, declined on the phone), .Failed for a session on Bluetooth ("mirroring needs Wi-Fi"), a phone already
-         mirroring, or no answer in time. -->
+         u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus
+         packet of 48 kHz stereo), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
+         waits up to 60 s for the session to move to the phone's hotspot. Errors: .NotConnected, .Refused with the
+         phone's reason (its screen switch is off, declined on the phone), .Failed when the hotspot did not come up
+         ("mirroring needs Wi-Fi"), a phone already mirroring, or no answer in time. -->
     <method name="OpenMirror">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="stream" type="h" direction="out"/>

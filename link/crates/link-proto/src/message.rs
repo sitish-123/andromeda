@@ -410,7 +410,8 @@ pub struct MirrorInput {
 }
 
 /// The header of the phone's video stream: H.264 access units follow, each a big-endian u32 length, a big-endian u64
-/// presentation time in microseconds, a flags byte ([`MIRROR_KEYFRAME`], [`MIRROR_CONFIG`]), then the Annex B bytes.
+/// presentation time in microseconds, a flags byte ([`MIRROR_KEYFRAME`], [`MIRROR_CONFIG`], [`MIRROR_AUDIO`]), then
+/// the Annex B bytes, or an Opus packet for audio.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MirrorData {
@@ -423,6 +424,8 @@ pub const MIRROR_UNIT: i32 = 10_000;
 pub const MIRROR_KEYFRAME: u8 = 1;
 /// Codec configuration (SPS and PPS), sent before the first frame and again after a size change.
 pub const MIRROR_CONFIG: u8 = 2;
+/// One Opus packet of the phone's sound, 48 kHz stereo, instead of video.
+pub const MIRROR_AUDIO: u8 = 4;
 /// A 1080p access unit stays well under this.
 pub const MAX_MIRROR_UNIT: usize = 4 * 1024 * 1024;
 pub const MAX_MIRROR_SIDE: u32 = 4096;

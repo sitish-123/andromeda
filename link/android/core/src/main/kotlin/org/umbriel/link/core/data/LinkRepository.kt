@@ -564,8 +564,12 @@ private fun FfiMirrorAction.toDomain(): MirrorAction = when (this) {
 }
 
 private class FfiMirror(private val session: MirrorSession) : MirrorStream {
-    override suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit> = try {
-        val flags = (if (keyframe) MIRROR_KEYFRAME else 0) or (if (config) MIRROR_CONFIG else 0)
+    override suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit> =
+        unit(ptsUs, (if (keyframe) MIRROR_KEYFRAME else 0) or (if (config) MIRROR_CONFIG else 0), data)
+
+    override suspend fun sendAudio(ptsUs: Long, data: ByteArray): Result<Unit> = unit(ptsUs, MIRROR_AUDIO, data)
+
+    private suspend fun unit(ptsUs: Long, flags: Int, data: ByteArray): Result<Unit> = try {
         session.sendUnit(ptsUs.toULong(), flags.toUByte(), data)
         Result.success(Unit)
     } catch (error: LinkException) {
@@ -577,6 +581,7 @@ private class FfiMirror(private val session: MirrorSession) : MirrorStream {
     private companion object {
         const val MIRROR_KEYFRAME = 1
         const val MIRROR_CONFIG = 2
+        const val MIRROR_AUDIO = 4
     }
 }
 

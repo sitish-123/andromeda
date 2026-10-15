@@ -215,8 +215,10 @@ pub struct Hub {
     bt_pairing: Option<(u32, Instant)>,
     /// This desktop's Bluetooth adapter, named in the QR code, and the deadline that keeps it open to pairing.
     bluetooth: Option<(String, watch::Sender<Option<Instant>>)>,
-    /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
+    /// Work too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
+    /// Phones on Bluetooth already asked for their hotspot by browsing, which does not wait for it.
+    hotspot_asked: HashSet<DeviceId>,
     browsing: browse::Browsing,
     mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
@@ -224,9 +226,13 @@ pub struct Hub {
 
 struct Waiting {
     peer: DeviceId,
-    sources: Vec<Source>,
-    reply: oneshot::Sender<Result<TransferId, link_core::Error>>,
+    work: Parked,
     deadline: Instant,
+}
+
+enum Parked {
+    Send { sources: Vec<Source>, reply: oneshot::Sender<Result<TransferId, link_core::Error>> },
+    Mirror(crate::mirror::Reply),
 }
 
 /// The transfer backends the hub consents for: the Link transfer actor, which it also attaches sessions to, and
@@ -282,6 +288,7 @@ impl Hub {
             bt_pairing: None,
             bluetooth: None,
             waiting: Vec::new(),
+            hotspot_asked: HashSet::new(),
             browsing: browse::Browsing::default(),
             mirrors: crate::mirror::Mirrors::default(),
             puncher,
@@ -356,6 +363,9 @@ impl Hub {
                 let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
                     return drop(reply.send(Err(browse::Failure::NotConnected)));
                 };
+                if matches!(request, browse::Request::Read { .. }) && session.connection().quic().is_none() {
+                    self.ask_hotspot_once(&id, &session).await;
+                }
                 let (req, message) = self.browsing.start(id, request, reply);
                 if session.send(message).await.is_err() {
                     self.browsing.fail(req, browse::Failure::NotConnected);
@@ -393,7 +403,7 @@ impl Hub {
                 let _ = reply.send(set);
             }
             Command::SendFiles { device, sources, reply } => match self.needs_hotspot(&device, &sources) {
-                Some(peer) => self.wait_for_hotspot(peer, sources, reply).await,
+                Some(peer) => self.wait_for_hotspot(peer, Parked::Send { sources, reply }).await,
                 None => drop(reply.send(self.send_files(&device, sources).await)),
             },
             Command::Decide { id, accept, reply } => {
@@ -729,6 +739,7 @@ impl Hub {
         if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
+        self.hotspot_asked.remove(&id);
         self.publish();
         self.transfers.attach(id.clone(), session.clone()).await;
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
@@ -757,32 +768,41 @@ impl Hub {
         (on_bluetooth && total_size(sources) > link_core::stream::BLUETOOTH_UPGRADE_ABOVE).then_some(peer)
     }
 
-    /// Asks the phone for its hotspot and parks the send until the session moves there.
-    async fn wait_for_hotspot(
-        &mut self,
-        peer: DeviceId,
-        sources: Vec<Source>,
-        reply: oneshot::Sender<Result<TransferId, link_core::Error>>,
-    ) {
+    /// Asks the phone for its hotspot and parks the work until the session moves there.
+    async fn wait_for_hotspot(&mut self, peer: DeviceId, work: Parked) {
         let asked = match self.sessions.get(&peer) {
             Some(session) => session.send(Message::HotspotRequest).await,
             None => Err(link_core::Error::NotConnected),
         };
-        match asked {
-            Ok(()) => {
+        match (asked, work) {
+            (Ok(()), work) => {
                 let deadline = Instant::now() + link_core::hotspot::UPGRADE_TIMEOUT;
-                self.waiting.push(Waiting { peer, sources, reply, deadline });
+                self.waiting.push(Waiting { peer, work, deadline });
             }
-            Err(error) => drop(reply.send(Err(error))),
+            (Err(error), Parked::Send { reply, .. }) => drop(reply.send(Err(error))),
+            (Err(_), Parked::Mirror(reply)) => drop(reply.send(Err(crate::mirror::Failure::NotConnected))),
+        }
+    }
+
+    /// Browsing goes on over Bluetooth while the phone starts its hotspot, so it asks once per session.
+    async fn ask_hotspot_once(&mut self, id: &DeviceId, session: &SessionHandle) {
+        if self.hotspots.contains_key(id) || !self.hotspot_asked.insert(id.clone()) {
+            return;
+        }
+        log::info!("{id}: asking for the phone's hotspot to browse");
+        if let Err(error) = session.send(Message::HotspotRequest).await {
+            log::info!("{id}: asking for the hotspot: {error}");
         }
     }
 
     async fn send_waiting(&mut self, id: &DeviceId) {
         let (ready, rest) = std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.peer == *id);
         self.waiting = rest;
-        for Waiting { peer, sources, reply, .. } in ready {
-            let sent = self.send_files(peer.as_str(), sources).await;
-            drop(reply.send(sent));
+        for Waiting { peer, work, .. } in ready {
+            match work {
+                Parked::Send { sources, reply } => drop(reply.send(self.send_files(peer.as_str(), sources).await)),
+                Parked::Mirror(reply) => self.open_mirror(peer, reply).await,
+            }
         }
     }
 
@@ -790,7 +810,7 @@ impl Hub {
         let (failed, rest) = std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.peer == *id);
         self.waiting = rest;
         for waiting in failed {
-            self.send_without_hotspot(waiting, link_core::Error::Hotspot(reason.to_owned())).await;
+            self.without_hotspot(waiting, link_core::Error::Hotspot(reason.to_owned())).await;
         }
     }
 
@@ -801,13 +821,17 @@ impl Hub {
         self.waiting = rest;
         for waiting in expired {
             log::info!("{}: the session did not move to the phone's hotspot in time", waiting.peer);
-            self.send_without_hotspot(waiting, link_core::Error::TooLargeForBluetooth).await;
+            self.without_hotspot(waiting, link_core::Error::TooLargeForBluetooth).await;
         }
     }
 
-    /// Sends over Bluetooth what fits there, and fails the rest with `error`.
-    async fn send_without_hotspot(&mut self, waiting: Waiting, error: link_core::Error) {
-        let Waiting { peer, sources, reply, .. } = waiting;
+    /// Sends over Bluetooth what fits there, and fails the rest with `error`; mirroring never fits.
+    async fn without_hotspot(&mut self, waiting: Waiting, error: link_core::Error) {
+        let Waiting { peer, work, .. } = waiting;
+        let (sources, reply) = match work {
+            Parked::Mirror(reply) => return drop(reply.send(Err(crate::mirror::Failure::NeedsWifi))),
+            Parked::Send { sources, reply } => (sources, reply),
+        };
         if total_size(&sources) > link_core::stream::BLUETOOTH_FILE_LIMIT {
             return drop(reply.send(Err(error)));
         }
@@ -821,6 +845,7 @@ impl Hub {
         self.transfers.detach(id.clone(), stable_id).await;
         if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
             self.sessions.remove(&id);
+            self.hotspot_asked.remove(&id);
             self.browsing.disconnected(&id);
             self.mirrors.fail(&id, crate::mirror::Failure::NotConnected);
             self.leave_hotspot(&id).await;
@@ -831,14 +856,16 @@ impl Hub {
         }
     }
 
-    /// Asks the phone to mirror, only over IP: video does not fit through Bluetooth.
+    /// Asks the phone to mirror, only over IP: on Bluetooth, which video does not fit through, the request waits for
+    /// the session to move to the phone's hotspot.
     async fn open_mirror(&mut self, id: DeviceId, reply: crate::mirror::Reply) {
         use crate::mirror::Failure;
         let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
             return drop(reply.send(Err(Failure::NotConnected)));
         };
         if session.connection().quic().is_none() {
-            return drop(reply.send(Err(Failure::NeedsWifi)));
+            log::info!("{id}: mirroring waits for the phone's hotspot");
+            return self.wait_for_hotspot(id, Parked::Mirror(reply)).await;
         }
         if self.mirrors.busy(&id) {
             return drop(reply.send(Err(Failure::Busy)));
