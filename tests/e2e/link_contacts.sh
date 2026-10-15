@@ -2,8 +2,9 @@
 # Contacts sync between two network namespaces. Proves: with the phone's messages switch off (as after pairing) the
 # phone refuses and D-Bus Contacts stays empty; with it on, 100 contacts arrive in two pages, exactly as the phone holds
 # them; an edit on the phone plus its contacts-changed reaches Contacts; the contacts outlive a disconnect and go with
-# Unpair. Every message is validated against protocol/link-v1/messages.cddl. Writes results.jsonl, signals.txt,
-# transcript.jsonl, hold.jsonl, contacts.json, and linkd.log to $OUT (default ./artifacts/link-contacts).
+# Unpair; a store with a grant and a field from a newer build still loads. Every message is validated against
+# protocol/link-v1/messages.cddl. Writes results.jsonl, signals.txt, transcript.jsonl, hold.jsonl, contacts.json, and
+# linkd.log to $OUT (default ./artifacts/link-contacts).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${OUT:-$(pwd)/artifacts/link-contacts}
@@ -114,6 +115,9 @@ python3 - "$RUNTIME/phone/devices.json" <<'PY'
 import json, sys
 store = json.load(open(sys.argv[1]))
 store["peers"][0].setdefault("grants", {})["messages"] = True
+# What a newer build might write: this build must still load the store.
+store["peers"][0]["grants"]["from-a-newer-build"] = True
+store["peers"][0]["from-a-newer-build"] = 1
 json.dump(store, open(sys.argv[1], "w"))
 PY
 hold

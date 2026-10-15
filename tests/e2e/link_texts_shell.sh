@@ -14,6 +14,8 @@ boot_headless 1
 rm -f "$OUT"/*.png "$OUT/steps.txt" "$OUT/phone.log" "$OUT/hold.jsonl"
 
 with_noctalia '
+  # A failure exits before with_noctalia stops the jobs, so the headless phone would outlive the run.
+  trap "kill \$(jobs -p) 2>/dev/null || true" EXIT
   BIN='"$LINK_BIN"'
   POINTER='"$POINTER"'
   fail() { echo "FAIL: $*" >&2; exit 1; }

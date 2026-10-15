@@ -19,7 +19,6 @@ use crate::identity::{DeviceId, Spki};
 const MAX_ADDRESSES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Peer {
     pub id: DeviceId,
     pub name: String,
@@ -72,7 +71,7 @@ pub enum Feature {
 /// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, and `input`. A
 /// store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
 pub struct Grants {
     pub clipboard: bool,
@@ -215,8 +214,8 @@ impl Grants {
     }
 }
 
+/// Unknown fields are ignored, so an older build still loads a store a newer one wrote.
 #[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Store {
     #[serde(default)]
     pub port: u16,
@@ -235,7 +234,6 @@ pub struct Store {
 
 /// A command line a desktop lets its phones run under `sh -c`, by `name`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct StoredCommand {
     pub name: String,
     pub command: String,
