@@ -699,6 +699,8 @@ void DevicesTab::rebuild(Renderer& renderer) {
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = device.connected ? FontWeight::Bold : FontWeight::Normal,
                 .color = colorSpecFromRole(ColorRole::OnSurface),
+                .maxLines = 1,
+                .ellipsize = TextEllipsize::End,
             }),
             std::move(status)
         )
