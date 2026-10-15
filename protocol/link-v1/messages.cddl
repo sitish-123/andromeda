@@ -10,6 +10,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
+  remote-input-msg / commands-msg / run-command-msg / ping-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -191,7 +192,8 @@ bt-pairing-msg = { type: "bt-pairing", id: uint, body: { ? passkey: uint .le 999
 ; Mirroring the phone's screen, while the phone's screen switch for the desktop is on. The desktop asks
 ; (mirror-request, 0-RTT); the phone shows Android's capture prompt, then says the size (mirror-started) and opens a
 ; unidirectional stream whose header is mirror-data, followed by H.264 access units: u32 length, u64 presentation
-; time in microseconds, a flags byte (1 keyframe, 2 codec configuration), then Annex B bytes of at most 4 MiB. The
+; time in microseconds, a flags byte (1 keyframe, 2 codec configuration, 4 audio: one 48 kHz stereo Opus packet
+; instead of video), then the bytes, at most 4 MiB. The
 ; desktop sends input (coordinates in 1/10000 of the width and height; a scroll's x2, y2 is a signed delta) and asks
 ; for a keyframe after a loss (mirror-keyframe, 0-RTT). Either side ends it (mirror-stop).
 mirror-request-msg = { type: "mirror-request", id: uint, body: {} }
@@ -265,3 +267,21 @@ text = {
 texts-changed-msg = { type: "texts-changed", id: uint, body: {} }
 text-send-msg = { type: "text-send", id: uint, body: { req: uint, to: tstr .size (1..64), body: tstr .size (1..2048) } }
 text-sent-msg = { type: "text-sent", id: uint, body: { req: uint, ? refused: "not-allowed" / "denied" / "failed" } }
+
+; The phone as the desktop's remote, only when both hellos listed "feature:control". Phone to desktop, while the
+; desktop's input switch for the phone is on: the pointer and keyboard, moves and scrolls in logical pixels. Desktop to
+; phone, on connect and after each change: every command the phone may run, none without the desktop's commands
+; switch; the phone runs one by id. Either way, without a switch: a ping the user sent, shown as a notification.
+remote-input-msg = { type: "remote-input", id: uint, body: {
+  action: "move" / "scroll" / "press" / "release" / "click" / "key" / "text",
+  ? dx: -10000..10000, ? dy: -10000..10000,
+  ? button: "left" / "right" / "middle",
+  ? key: "enter" / "backspace" / "delete" / "escape" / "tab" / "space" / "left" / "right" / "up" / "down" / "home" /
+    "end" / "page-up" / "page-down" / "f5",
+  ? "text": tstr .size (1..4096),  ; quoted: a bare text is the prelude type
+} }
+commands-msg = { type: "commands", id: uint, body: {
+  commands: [* { id: tstr .size (1..64), name: tstr .size (1..512) }],  ; at most 64
+} }
+run-command-msg = { type: "run-command", id: uint, body: { id: tstr .size (1..64) } }
+ping-msg = { type: "ping", id: uint, body: { ? message: tstr .size (1..256) } }

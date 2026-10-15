@@ -13,6 +13,8 @@ data class Desktop(
     val bluetoothAddress: String? = null,
     /** The desktop confirms that pairing by the code the phone reports, without asking. */
     val btPairing: Boolean = false,
+    /** The desktop takes remote input, commands, and pings. */
+    val control: Boolean = false,
 )
 
 /** This phone's switches for one desktop; all but browsing, the screen, and messages on after pairing. */

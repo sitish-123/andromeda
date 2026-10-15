@@ -91,6 +91,7 @@
 #include "wayland/key_repeat_poll_source.h"
 #include "wayland/keyboard_layout_poll_source.h"
 #include "wayland/text_input_service.h"
+#include "wayland/remote_input_service.h"
 #include "wayland/virtual_keyboard_service.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/workspace_poll_source.h"
@@ -251,6 +252,7 @@ private:
   ClipboardService m_clipboardService{m_storageKeyProvider};
   TextInputService m_textInputService;
   VirtualKeyboardService m_virtualKeyboardService;
+  RemoteInputService m_remoteInput{m_wayland};
   ConfigService m_configService;
   HttpClient m_httpClient;
   FileWatcher m_fileWatcher;

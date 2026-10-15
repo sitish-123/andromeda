@@ -11,6 +11,11 @@
             android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
+            android:name=".MirrorProbeActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+        <activity
             android:name=".ImageClipboardActivity"
             android:exported="true" />
         <activity

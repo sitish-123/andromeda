@@ -26,7 +26,7 @@ use crate::net;
 use crate::phone::{self, PairTarget, Phone};
 use crate::reach::{self, Reached, Via};
 use crate::session::{self, Route, SessionEvent, SessionHandle};
-use crate::store::{Feature, Peer, feature_of};
+use crate::store::{Feature, Grants, Peer, feature_of};
 use crate::stream::{BLUETOOTH_FILE_LIMIT, BLUETOOTH_UPGRADE_ABOVE};
 use crate::tls::ServerPin;
 use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
@@ -82,6 +82,10 @@ enum Command {
     Keep {
         id: DeviceId,
         keep: bool,
+    },
+    Mirroring {
+        id: DeviceId,
+        on: bool,
     },
     SetStatus {
         status: Status,
@@ -153,6 +157,8 @@ pub struct ClientActor {
     busy: HashSet<DeviceId>,
     /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
     keeping: HashSet<DeviceId>,
+    /// Desktops this phone's screen streams to, kept like busy ones, and their hotspot with them.
+    mirroring: HashSet<DeviceId>,
     retries: HashMap<DeviceId, Retry>,
     status: Option<Status>,
     /// The status last sent, when, and whether a newer one waits for [`STATUS_EVERY`] to pass.
@@ -214,6 +220,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         present: false,
         busy: HashSet::new(),
         keeping: HashSet::new(),
+        mirroring: HashSet::new(),
         retries: HashMap::new(),
         status: None,
         status_sent: None,
@@ -283,14 +290,17 @@ impl Client {
 
     /// Tells the desktop that asked for mirroring the video's size, then opens the stream the access units go on.
     pub async fn start_mirror(&self, id: DeviceId, width: u32, height: u32) -> Result<MirrorSender, Error> {
-        let session = self.session(id).await?;
+        let session = self.session(id.clone()).await?;
         session.send(Message::MirrorStarted(MirrorStarted { width, height })).await?;
-        MirrorSender::open(&session, width, height).await
+        let sender = MirrorSender::open(&session, width, height).await?;
+        self.commands.send(Command::Mirroring { id, on: true }).await.map_err(|_| Error::Stopped)?;
+        Ok(sender)
     }
 
     /// Ends mirroring, or refuses a request, with a reason when it failed.
     pub async fn stop_mirror(&self, id: DeviceId, reason: Option<String>) -> Result<(), Error> {
         let reason = reason.map(|reason| reason.chars().take(link_proto::message::MAX_REASON_LEN).collect());
+        self.commands.send(Command::Mirroring { id: id.clone(), on: false }).await.map_err(|_| Error::Stopped)?;
         self.send(id, Message::MirrorStop(MirrorStop { reason })).await
     }
 
@@ -498,6 +508,7 @@ impl ClientActor {
                     self.keeping.remove(&id);
                 }
             }
+            Command::Mirroring { id, on } => self.set_mirroring(&id, on),
             Command::SetSharing { id, feature, on, reply } => {
                 let result = self.phone.set_sharing(&id, feature, on);
                 if result.is_ok() && feature == Feature::Messages {
@@ -652,6 +663,7 @@ impl ClientActor {
             return;
         }
         let Some(handle) = self.sessions.remove(&id) else { return };
+        self.mirroring.remove(&id);
         self.on_bluetooth.remove(&id);
         self.on_hotspot.remove(&id);
         if self.hotspot_for.as_ref() == Some(&id) {
@@ -770,9 +782,10 @@ impl ClientActor {
         if self.hotspot_for.as_ref() == Some(&id) {
             return;
         }
-        let files = self.phone.desktops().iter().any(|peer| peer.id == id && peer.grants.files);
+        let needs = |grants: Grants| grants.files || grants.browse || grants.screen;
+        let wanted = self.phone.desktops().iter().any(|peer| peer.id == id && needs(peer.grants));
         let refusal = match (self.hotspot_for.is_some(), self.phone.hotspot()) {
-            _ if !files => Some("its files switch is off"),
+            _ if !wanted => Some("its files, browse, and screen switches are off"),
             (true, _) => Some("the hotspot serves another desktop"),
             (false, _) if self.try_wifi_direct(&id) => None,
             (false, None) => Some("this phone cannot start a hotspot"),
@@ -956,14 +969,16 @@ impl ClientActor {
         } else {
             None
         };
-        match refusal {
-            Some(reason) => {
-                if let Err(error) = handle.send(browse::error(req, reason)).await {
-                    log::info!("{from}: refusing a browse request: {error}");
-                }
+        if let Some(reason) = refusal {
+            if let Err(error) = handle.send(browse::error(req, reason)).await {
+                log::info!("{from}: refusing a browse request: {error}");
             }
-            None => drop(self.browsing.spawn(browse::answer(self.phone.browse_roots().clone(), handle, request))),
+            return;
         }
+        if self.hotspot_for.as_ref() == Some(from) && self.hotspot_idle_at.is_some() {
+            self.hotspot_idle_at = Some(Instant::now() + hotspot::IDLE);
+        }
+        drop(self.browsing.spawn(browse::answer(self.phone.browse_roots().clone(), handle, request)));
     }
 
     /// Answers a contacts or texts request off the actor, when this desktop's messages switch is on.
@@ -1037,7 +1052,19 @@ impl ClientActor {
     }
 
     fn is_busy(&self, id: &DeviceId) -> bool {
-        self.busy.contains(id) || self.keeping.contains(id)
+        self.busy.contains(id) || self.keeping.contains(id) || self.mirroring.contains(id)
+    }
+
+    /// The hotspot stays up while the screen streams over it, and idles out after.
+    fn set_mirroring(&mut self, id: &DeviceId, on: bool) {
+        if on {
+            self.mirroring.insert(id.clone());
+        } else {
+            self.mirroring.remove(id);
+        }
+        if self.hotspot_for.as_ref() == Some(id) {
+            self.hotspot_idle_at = (!self.is_busy(id)).then(|| Instant::now() + hotspot::IDLE);
+        }
     }
 
     /// Whether a lost session to `id` should be redialled.
@@ -1046,6 +1073,9 @@ impl ClientActor {
     }
 
     async fn relay(&mut self, event: SessionEvent) {
+        if let SessionEvent::Message { from, message: Message::MirrorStop(_) } = &event {
+            self.set_mirroring(from, false);
+        }
         match event {
             SessionEvent::Message { from, message: Message::HotspotRequest } => self.start_hotspot(from).await,
             SessionEvent::Message {
@@ -1095,6 +1125,9 @@ impl ClientActor {
                 }
             }
             SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
+            SessionEvent::Message { from, message: message @ Message::Ping(_) } => {
+                self.emit(ClientEvent::Message { from, message }).await;
+            }
             SessionEvent::Message { from, message } => {
                 let allowed = feature_of(&message).is_some_and(|feature| {
                     self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))

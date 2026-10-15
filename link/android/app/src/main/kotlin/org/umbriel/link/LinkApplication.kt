@@ -92,6 +92,7 @@ class AppContainer(val application: Application) {
             },
         )
         scope.launch { repository.incoming.collect(notifier::post) }
+        scope.launch { repository.pings.collect(notifier::post) }
         scope.launch { repository.transfers.collect(transferNotifier::post) }
         scope.launch {
             // Transfers start from the share target or a notification action, both of which may start the service.

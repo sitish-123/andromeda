@@ -94,6 +94,8 @@ namespace {
       Feature{.name = "media", .label = "control-center.devices.grant-media"},
       Feature{.name = "ring", .label = "control-center.devices.grant-ring"},
       Feature{.name = "calls", .label = "control-center.devices.grant-calls"},
+      Feature{.name = "input", .label = "control-center.devices.grant-input"},
+      Feature{.name = "commands", .label = "control-center.devices.grant-commands"},
   };
 
   std::string statusText(const LinkDevice& device, const LinkStatus* status) {
@@ -712,6 +714,17 @@ void DevicesTab::rebuild(Renderer& renderer) {
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusSm(scale),
               .onClick = [this, id = device.id, ringing]() { m_link->ring(id, !ringing); },
+          })
+      );
+      row->addChild(
+          ui::button({
+              .glyph = "hand-finger",
+              .glyphSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("control-center.devices.ping"),
+              .padding = Style::spaceXs * scale,
+              .radius = Style::scaledRadiusSm(scale),
+              .onClick = [this, id = device.id]() { m_link->ping(id); },
           })
       );
       row->addChild(

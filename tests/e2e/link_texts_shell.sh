@@ -71,12 +71,12 @@ PY
   click 708 273
   shot texts-list
   step "conversations: $(prop Texts | grep -o "See you at six" | head -1), named from contacts"
-  click 478 339
+  click 478 358
   shot texts-thread
   step "conversation: Asha (+9779800000001), three texts oldest first"
 
-  type_into 647 450 "Running ten minutes late"
-  click 868 450
+  type_into 647 469 "Running ten minutes late"
+  click 868 469
   wait_for "the phone never sent the text" grep -q "\"event\":\"text-sent\"" "$OUT/hold.jsonl"
   grep -q "\"to\":\"+9779800000001\"" "$OUT/hold.jsonl" || fail "the text went to another number: $(cat "$OUT/hold.jsonl")"
   say texts-changed
@@ -84,11 +84,11 @@ PY
   shot texts-sent
   step "sent from the conversation: $(grep text-sent "$OUT/hold.jsonl")"
 
-  click 466 336
+  click 466 355
   sleep 0.5
-  type_into 667 465 fail
-  type_into 647 507 "No service here"
-  click 868 507
+  type_into 667 484 fail
+  type_into 647 526 "No service here"
+  click 868 526
   wait_for "the shell never logged the failed send" grep -q "SendText" "$OUT/noctalia.log"
   shot texts-failed
   step "a send the phone fails: $(grep SendText "$OUT/noctalia.log" | tail -1 | sed "s/.*SendText/SendText/")"

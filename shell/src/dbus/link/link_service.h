@@ -19,6 +19,7 @@
 class ClipboardService;
 class IpcService;
 class NotificationManager;
+class RemoteInputService;
 class SessionBus;
 class SoundPlayer;
 
@@ -62,6 +63,12 @@ struct LinkPairing {
   std::string code;
   std::string uri;
   std::chrono::steady_clock::time_point deadline;
+};
+
+// A command line phones may run on this desktop under `sh -c`.
+struct LinkCommand {
+  std::string name;
+  std::string command;
 };
 
 struct LinkPairingOutcome {
@@ -119,6 +126,11 @@ public:
       const std::string& deviceId, const std::string& to, const std::string& body,
       std::function<void(std::optional<std::string>)> done
   );
+  void ping(const std::string& deviceId);
+  // A phone with the input grant moves this pointer and types through it.
+  void setRemoteInput(RemoteInputService* input) noexcept { m_remoteInput = input; }
+  [[nodiscard]] const std::vector<LinkCommand>& commands() const noexcept { return m_commands; }
+  void setCommands(const std::vector<LinkCommand>& commands);
   void registerIpc(IpcService& ipc, std::function<void()> showPairing);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
@@ -170,6 +182,8 @@ private:
   void onNotificationClosed(std::uint32_t id, CloseReason reason);
   void onRingRequested(const std::string& deviceId, bool on);
   void onHotspot(const std::string& deviceId, const std::string& ssid);
+  void onRemoteInput(const std::string& action, std::int32_t dx, std::int32_t dy, const std::string& detail);
+  void onPinged(const std::string& deviceId, const std::string& message);
   void
   onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
   void stopRinging();
@@ -220,6 +234,8 @@ private:
   // Per phone, a number's last 9 digits to the contact's name.
   std::map<std::string, std::unordered_map<std::string, std::string>> m_contactNames;
   std::vector<LinkNearby> m_nearby;
+  std::vector<LinkCommand> m_commands;
+  RemoteInputService* m_remoteInput = nullptr;
   bool m_localSendVisible = false;
   // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.
   std::size_t m_lastClipboardHash = 0;

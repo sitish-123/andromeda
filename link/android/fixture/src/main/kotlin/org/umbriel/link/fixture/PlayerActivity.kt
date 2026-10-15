@@ -10,7 +10,10 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 
-/** Plays "Emulator Song" on a MediaSession and logs each command it obeys under the tag `LinkFixture`. */
+/**
+ * Plays "Emulator Song" on a MediaSession and logs each command it obeys under the tag `LinkFixture`. Its artwork is
+ * 64 px square, or the `art` extra's size.
+ */
 class PlayerActivity : Activity() {
     private lateinit var session: MediaSession
     private var playing = true
@@ -48,7 +51,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun publishMetadata() {
-        val art = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(0, 215, 255)) }
+        val px = intent.getIntExtra("art", 64)
+        val art = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(0, 215, 255)) }
         session.setMetadata(
             MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)

@@ -54,10 +54,11 @@
     </method>
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
-         u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration), then Annex B bytes;
-         closing it tells the phone to stop. Errors: .NotConnected, .Refused with the phone's reason (its screen switch
-         is off, declined on the phone), .Failed for a session on Bluetooth ("mirroring needs Wi-Fi"), a phone already
-         mirroring, or no answer in time. -->
+         u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus
+         packet of 48 kHz stereo), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
+         waits up to 60 s for the session to move to the phone's hotspot. Errors: .NotConnected, .Refused with the
+         phone's reason (its screen switch is off, declined on the phone), .Failed when the hotspot did not come up
+         ("mirroring needs Wi-Fi"), a phone already mirroring, or no answer in time. -->
     <method name="OpenMirror">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="stream" type="h" direction="out"/>
@@ -226,8 +227,9 @@
       <arg name="device_id" type="s"/>
       <arg name="on" type="b"/>
     </signal>
-    <!-- This desktop joined the phone's hotspot ssid to move a transfer off Bluetooth, which takes it off its own
-         Wi-Fi; an empty ssid means it left and NetworkManager is bringing the usual network back. -->
+    <!-- This desktop is joining the phone's hotspot ssid to move a transfer, browsing, or mirroring off Bluetooth,
+         which takes it off its own Wi-Fi; sent before it joins. An empty ssid means it left, or the join failed, and
+         NetworkManager is bringing the usual network back. -->
     <signal name="Hotspot">
       <arg name="device_id" type="s"/>
       <arg name="ssid" type="s"/>
@@ -242,6 +244,35 @@
     <signal name="NotificationRemoved">
       <arg name="device_id" type="s"/>
       <arg name="id" type="s"/>
+    </signal>
+    <!-- The phone as this desktop's touchpad and keyboard, while its input grant is on. action is "move" or "scroll"
+         by (dx, dy) logical pixels, positive down and right; "press", "release", or "click" with "left", "right", or
+         "middle" in detail; "key" with enter, backspace, delete, escape, tab, space, left, right, up, down, home,
+         end, page-up, page-down, or f5 in detail; "text" with the text in detail. The shell injects it. -->
+    <signal name="RemoteInput">
+      <arg name="device_id" type="s"/>
+      <arg name="action" type="s"/>
+      <arg name="dx" type="i"/>
+      <arg name="dy" type="i"/>
+      <arg name="detail" type="s"/>
+    </signal>
+    <!-- (name, command line) pairs that phones holding the commands grant may run here under sh -c. -->
+    <property name="Commands" type="a(ss)" access="read"/>
+    <!-- Replaces Commands and sends phones the new list. Errors: InvalidArgs past 64 commands, or for an empty name
+         or command line. -->
+    <method name="SetCommands">
+      <arg name="commands" type="a(ss)" direction="in"/>
+    </method>
+    <!-- Shows message, or a plain ping when empty, on the phone. Errors: .NotConnected; .Rejected when the phone's
+         Link takes no pings. -->
+    <method name="Ping">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="message" type="s" direction="in"/>
+    </method>
+    <!-- The phone pinged this desktop; message is empty for a plain ping. -->
+    <signal name="Pinged">
+      <arg name="device_id" type="s"/>
+      <arg name="message" type="s"/>
     </signal>
   </interface>
   <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for

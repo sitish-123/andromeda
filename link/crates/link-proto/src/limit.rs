@@ -47,9 +47,11 @@ pub struct Limits {
     statuses: Bucket,
     /// Each one makes the desktop join a network.
     hotspots: Bucket,
-    /// Taps, swipes, and keys while mirroring; far above what a hand does.
+    /// Taps, swipes, and keys while mirroring, and the phone's touchpad; far above what a hand does.
     inputs: Bucket,
     mirror_requests: Bucket,
+    /// Pings and commands the user runs by hand.
+    taps: Bucket,
 }
 
 impl Default for Limits {
@@ -62,6 +64,7 @@ impl Default for Limits {
             hotspots: Bucket::new(2, Duration::from_secs(30)),
             inputs: Bucket::new(120, Duration::from_millis(10)),
             mirror_requests: Bucket::new(2, Duration::from_secs(10)),
+            taps: Bucket::new(5, Duration::from_secs(2)),
         }
     }
 }
@@ -75,8 +78,9 @@ impl Limits {
             Message::ClipOffer(_) => &mut self.clips,
             Message::Status(_) => &mut self.statuses,
             Message::Hotspot(_) | Message::WifiDirect(_) => &mut self.hotspots,
-            Message::MirrorInput(_) => &mut self.inputs,
+            Message::MirrorInput(_) | Message::RemoteInput(_) => &mut self.inputs,
             Message::MirrorRequest => &mut self.mirror_requests,
+            Message::Ping(_) | Message::RunCommand(_) => &mut self.taps,
             _ => return true,
         };
         bucket.take(now)

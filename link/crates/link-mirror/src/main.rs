@@ -1,5 +1,6 @@
 //! `umbriel-link-mirror`: a phone's screen in a window, from `umbriel-linkd`'s `OpenMirror`, with taps, swipes,
-//! scrolls, keys, and Back/Home/Recents going back as `MirrorInput`. `--frames` decodes to PNG files instead, for tests.
+//! scrolls, keys, and Back/Home/Recents going back as `MirrorInput`, and its sound on the speakers. `--frames` decodes
+//! to PNG files and a WAV file instead, `--luma` to each frame's brightness and time, for tests.
 
 mod input;
 mod stream;
@@ -28,7 +29,10 @@ struct Cli {
     /// Decode into DIR/frame-NNN.png instead of a window, then exit.
     #[arg(long, value_name = "DIR")]
     frames: Option<PathBuf>,
-    /// With --frames, how many access units to decode.
+    /// Decode without a window and write each frame's decode time (Unix ms) and mean luma to FILE, then exit.
+    #[arg(long, value_name = "FILE", conflicts_with = "frames")]
+    luma: Option<PathBuf>,
+    /// With --frames or --luma, how many access units to decode.
     #[arg(long, default_value_t = 60)]
     count: u32,
 }
@@ -51,6 +55,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     log::info!("mirroring {} at {width}x{height}", cli.device);
     if let Some(dir) = cli.frames {
         return stream::to_png(socket, &dir, cli.count);
+    }
+    if let Some(file) = cli.luma {
+        return stream::to_luma(socket, &file, cli.count);
     }
     // The paintable sink needs a GDK display before its pipeline starts.
     gtk4::init()?;

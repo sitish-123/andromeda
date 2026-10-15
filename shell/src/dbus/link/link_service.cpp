@@ -12,6 +12,7 @@
 #include "render/core/image_decoder.h"
 #include "util/string_utils.h"
 #include "wayland/clipboard_service.h"
+#include "wayland/remote_input_service.h"
 
 #include <algorithm>
 #include <array>
@@ -23,6 +24,7 @@
 #include <filesystem>
 #include <format>
 #include <glib.h>
+#include <linux/input-event-codes.h>
 #include <map>
 #include <ranges>
 #include <sdbus-c++/IProxy.h>
@@ -31,6 +33,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <utility>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace {
 
@@ -56,6 +59,29 @@ namespace {
   constexpr auto kRingLimit = std::chrono::minutes(2);
   // Phone icons are drawn at 64 px; the bound keeps a small hostile PNG from inflating into a huge bitmap.
   constexpr std::uint32_t kMaxIconSide = 256;
+  constexpr std::array<std::pair<std::string_view, std::uint32_t>, 15> kRemoteKeys{{
+      {"enter", XKB_KEY_Return},
+      {"backspace", XKB_KEY_BackSpace},
+      {"delete", XKB_KEY_Delete},
+      {"escape", XKB_KEY_Escape},
+      {"tab", XKB_KEY_Tab},
+      {"space", XKB_KEY_space},
+      {"left", XKB_KEY_Left},
+      {"right", XKB_KEY_Right},
+      {"up", XKB_KEY_Up},
+      {"down", XKB_KEY_Down},
+      {"home", XKB_KEY_Home},
+      {"end", XKB_KEY_End},
+      {"page-up", XKB_KEY_Page_Up},
+      {"page-down", XKB_KEY_Page_Down},
+      {"f5", XKB_KEY_F5},
+  }};
+  constexpr std::array<std::pair<std::string_view, std::uint32_t>, 3> kRemoteButtons{{
+      {"left", BTN_LEFT},
+      {"right", BTN_RIGHT},
+      {"middle", BTN_MIDDLE},
+  }};
+
   constexpr std::array<std::uint8_t, 16> kPngHeader{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n',
                                                     0,    0,   0,   13,  'I',  'H',  'D',  'R'};
 
@@ -258,6 +284,15 @@ LinkService::LinkService(
   m_link->uponSignal("Hotspot")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& ssid) { onHotspot(deviceId, ssid); });
+  m_link->uponSignal("RemoteInput")
+      .onInterface(kLinkInterface)
+      .call([this](
+                const std::string& /*deviceId*/, const std::string& action, std::int32_t dx, std::int32_t dy,
+                const std::string& detail
+            ) { onRemoteInput(action, dx, dy, detail); });
+  m_link->uponSignal("Pinged")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& deviceId, const std::string& message) { onPinged(deviceId, message); });
   m_link->uponSignal("NotificationRemoved")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& id) { onNotificationRemoved(deviceId, id); });
@@ -395,6 +430,16 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed Grants: {}", e.what());
     }
   }
+  if (const auto it = properties.find("Commands"); it != properties.end()) {
+    try {
+      m_commands.clear();
+      for (const auto& command : it->second.get<std::vector<sdbus::Struct<std::string, std::string>>>()) {
+        m_commands.push_back({.name = command.get<0>(), .command = command.get<1>()});
+      }
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Commands: {}", e.what());
+    }
+  }
   if (const auto it = properties.find("AutoAccept"); it != properties.end()) {
     try {
       m_autoAccept = it->second.get<std::vector<std::string>>();
@@ -497,7 +542,7 @@ void LinkService::shareClipboard(const std::string& deviceId) {
   share(deviceId, link ? "link" : "text", *text);
 }
 
-// Joining a phone's hotspot takes the laptop off its Wi-Fi, so it is said while it lasts, and when it ends.
+// Joining a phone's hotspot takes the laptop off its Wi-Fi, so it is said before it joins, and when it ends.
 void LinkService::onHotspot(const std::string& deviceId, const std::string& ssid) {
   const bool joined = !ssid.empty();
   NotificationRequest request;
@@ -903,6 +948,63 @@ std::string LinkService::contactName(const std::string& deviceId, const std::str
     }
   }
   return address;
+}
+
+void LinkService::ping(const std::string& deviceId) {
+  m_link->callMethodAsync("Ping")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, std::string())
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("Ping", error); });
+}
+
+void LinkService::setCommands(const std::vector<LinkCommand>& commands) {
+  std::vector<sdbus::Struct<std::string, std::string>> lines;
+  for (const auto& command : commands) {
+    lines.emplace_back(command.name, command.command);
+  }
+  m_link->callMethodAsync("SetCommands")
+      .onInterface(kLinkInterface)
+      .withArguments(lines)
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetCommands", error); });
+}
+
+void LinkService::onRemoteInput(
+    const std::string& action, std::int32_t dx, std::int32_t dy, const std::string& detail
+) {
+  if (m_remoteInput == nullptr) {
+    return;
+  }
+  const auto button = std::ranges::find(kRemoteButtons, detail, &std::pair<std::string_view, std::uint32_t>::first);
+  const bool known = button != kRemoteButtons.end();
+  if (action == "move") {
+    (void)m_remoteInput->move(dx, dy);
+  } else if (action == "scroll") {
+    (void)m_remoteInput->scroll(dx, dy);
+  } else if ((action == "press" || action == "release") && known) {
+    (void)m_remoteInput->button(button->second, action == "press");
+  } else if (action == "click" && known) {
+    (void)m_remoteInput->button(button->second, true);
+    (void)m_remoteInput->button(button->second, false);
+  } else if (action == "key") {
+    const auto key = std::ranges::find(kRemoteKeys, detail, &std::pair<std::string_view, std::uint32_t>::first);
+    if (key != kRemoteKeys.end()) {
+      (void)m_remoteInput->key(key->second);
+    }
+  } else if (action == "text") {
+    (void)m_remoteInput->text(detail);
+  } else {
+    kLog.debug("remote input {} {} ignored", action, detail);
+  }
+}
+
+void LinkService::onPinged(const std::string& deviceId, const std::string& message) {
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr("notifications.internal.link-ping", "device", deviceName(deviceId));
+  request.body = message;
+  request.origin = NotificationOrigin::Internal;
+  request.icon = std::string("noctalia-glyph:device-mobile-message");
+  (void)m_notifications.addOrReplace(std::move(request));
 }
 
 void LinkService::onRingRequested(const std::string& deviceId, bool on) {

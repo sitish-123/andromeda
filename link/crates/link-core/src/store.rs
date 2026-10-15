@@ -63,9 +63,14 @@ pub enum Feature {
     /// The desktop may read the phone's contacts and text messages and send texts; a phone-side switch, off after
     /// pairing.
     Messages,
+    /// The phone may move the desktop's pointer and type; a desktop-side switch, off after pairing.
+    Input,
+    /// The phone may run the commands the desktop lists.
+    Commands,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, and `messages`. A store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, and `input`. A
+/// store from before a feature gets it on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -79,6 +84,8 @@ pub struct Grants {
     pub browse: bool,
     pub screen: bool,
     pub messages: bool,
+    pub input: bool,
+    pub commands: bool,
 }
 
 impl Default for Grants {
@@ -93,12 +100,14 @@ impl Default for Grants {
             browse: false,
             screen: false,
             messages: false,
+            input: false,
+            commands: true,
         }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::Clipboard,
         Self::Files,
         Self::Notifications,
@@ -108,6 +117,8 @@ impl Feature {
         Self::Browse,
         Self::Screen,
         Self::Messages,
+        Self::Input,
+        Self::Commands,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -121,6 +132,8 @@ impl Feature {
             Self::Browse => "browse",
             Self::Screen => "screen",
             Self::Messages => "messages",
+            Self::Input => "input",
+            Self::Commands => "commands",
         }
     }
 
@@ -152,6 +165,8 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::MirrorStop(_)
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe => Some(Feature::Screen),
+        Message::RemoteInput(_) => Some(Feature::Input),
+        Message::Commands(_) | Message::RunCommand(_) => Some(Feature::Commands),
         _ => None,
     }
 }
@@ -168,6 +183,8 @@ impl Grants {
             Feature::Browse => self.browse,
             Feature::Screen => self.screen,
             Feature::Messages => self.messages,
+            Feature::Input => self.input,
+            Feature::Commands => self.commands,
         }
     }
 
@@ -182,6 +199,8 @@ impl Grants {
             Feature::Browse => &mut self.browse,
             Feature::Screen => &mut self.screen,
             Feature::Messages => &mut self.messages,
+            Feature::Input => &mut self.input,
+            Feature::Commands => &mut self.commands,
         };
         *flag = on;
     }
@@ -209,6 +228,17 @@ pub struct Store {
     /// "Visible to `LocalSend`": the desktop's `LocalSend` backend listens only while this is on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub localsend: bool,
+    /// What a desktop's phones may run; a desktop-side list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<StoredCommand>,
+}
+
+/// A command line a desktop lets its phones run under `sh -c`, by `name`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoredCommand {
+    pub name: String,
+    pub command: String,
 }
 
 impl Peer {

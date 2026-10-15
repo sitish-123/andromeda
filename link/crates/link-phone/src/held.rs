@@ -8,7 +8,7 @@ use link_core::client::{Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
     Call, CallActionKind, CallState, MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message,
-    NotificationButton, NotificationPosted, NotificationRemoved, PlaybackState, Ring, Ringing,
+    NotificationButton, NotificationPosted, NotificationRemoved, Ping, PlaybackState, Ring, Ringing, RunCommand,
 };
 use serde_json::{Value, json};
 
@@ -40,7 +40,9 @@ impl Held {
     /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
     /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
     /// session and dials again; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
-    /// own ringing, as stopping it on the phone does; `call <json>` reports a call (a `call` body).
+    /// own ringing, as stopping it on the phone does; `call <json>` reports a call (a `call` body); `input <json>`
+    /// moves the desktop's pointer or types (a `remote-input` body); `run <id>` runs a desktop command; `ping [text]`
+    /// pings the desktop.
     pub async fn command(&mut self, line: &str) -> Value {
         let (verb, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match verb {
@@ -56,6 +58,7 @@ impl Held {
                 self.ringing = rest.trim() == "on";
                 self.send_switch(rest, |on| Message::Ringing(Ringing { on })).await
             }
+            "input" | "run" | "ping" => self.control(verb, rest).await,
             _ => Err(anyhow!("unknown command")),
         };
         result.unwrap_or_else(|error| json!({ "event": "command-failed", "command": verb, "error": error.to_string() }))
@@ -171,6 +174,17 @@ impl Held {
         Ok(json!({ "event": "call-reported", "state": state, "desktops": sent }))
     }
 
+    async fn control(&self, verb: &str, rest: &str) -> anyhow::Result<Value> {
+        let message = match verb {
+            "input" => Message::RemoteInput(serde_json::from_str(rest).context("not a remote-input body")?),
+            "run" => Message::RunCommand(RunCommand { id: rest.trim().to_owned() }),
+            _ => Message::Ping(Ping { message: (!rest.is_empty()).then(|| rest.to_owned()) }),
+        };
+        let kind = message.kind();
+        self.client.send(self.desktop.clone(), message).await?;
+        Ok(json!({ "event": "sent", "type": kind }))
+    }
+
     async fn send_switch(&self, rest: &str, message: impl FnOnce(bool) -> Message) -> anyhow::Result<Value> {
         let on = match rest.trim() {
             "on" => true,
@@ -279,6 +293,8 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
             "x2": input.x2, "y2": input.y2, "ms": input.ms, "text": input.text,
         }),
         Message::MirrorStop(stop) => json!({ "event": "mirror-stop", "desktop": from, "reason": stop.reason }),
+        Message::Commands(list) => json!({ "event": "commands", "desktop": from, "commands": list.commands }),
+        Message::Ping(ping) => json!({ "event": "ping", "desktop": from, "message": ping.message }),
         other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
     }
 }

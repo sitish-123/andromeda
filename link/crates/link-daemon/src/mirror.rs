@@ -25,7 +25,7 @@ pub struct Opened {
 #[derive(Debug)]
 pub enum Failure {
     NotConnected,
-    /// Bluetooth carries tens of KB/s; video needs Wi-Fi.
+    /// The session is on Bluetooth, which carries tens of KB/s, and the phone's hotspot did not come up.
     NeedsWifi,
     Busy,
     Refused(String),

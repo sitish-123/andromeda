@@ -50,6 +50,7 @@ impl From<link_core::Error> for LinkError {
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts about one desktop")]
 pub struct Desktop {
     pub id: String,
     pub name: String,
@@ -64,6 +65,8 @@ pub struct Desktop {
     pub bluetooth_address: Option<String>,
     /// The desktop confirms that pairing by the code [`LinkClient::report_bt_pairing`] sends, without asking.
     pub bt_pairing: bool,
+    /// The desktop takes [`LinkClient::send_input`], [`LinkClient::run_command`], and [`LinkClient::ping`].
+    pub control: bool,
 }
 
 /// The phone's switches for one desktop.
@@ -237,6 +240,110 @@ pub enum LinkEvent {
         command: MediaCommandKind,
         value: Option<u64>,
     },
+    /// The commands the desktop lets this phone run, all of them; sent on connect and after each change.
+    CommandsChanged {
+        desktop_id: String,
+        commands: Vec<DesktopCommand>,
+    },
+    Pinged {
+        desktop_id: String,
+        message: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DesktopCommand {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum InputAction {
+    /// The pointer by (dx, dy) logical pixels.
+    Move,
+    /// By (dx, dy) logical pixels; positive is down and right.
+    Scroll,
+    Press,
+    Release,
+    Click,
+    Key,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum InputButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum InputKey {
+    Enter,
+    Backspace,
+    Delete,
+    Escape,
+    Tab,
+    Space,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F5,
+}
+
+/// The phone as the desktop's touchpad and keyboard: `button` for press, release, and click, `key` for key, `text`
+/// for text.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct InputEvent {
+    pub action: InputAction,
+    pub dx: Option<i32>,
+    pub dy: Option<i32>,
+    pub button: Option<InputButton>,
+    pub key: Option<InputKey>,
+    pub text: Option<String>,
+}
+
+impl From<InputEvent> for message::RemoteInput {
+    fn from(event: InputEvent) -> Self {
+        use message::{InputAction as A, InputButton as B, InputKey as K};
+        let action = match event.action {
+            InputAction::Move => A::Move,
+            InputAction::Scroll => A::Scroll,
+            InputAction::Press => A::Press,
+            InputAction::Release => A::Release,
+            InputAction::Click => A::Click,
+            InputAction::Key => A::Key,
+            InputAction::Text => A::Text,
+        };
+        let button = event.button.map(|button| match button {
+            InputButton::Left => B::Left,
+            InputButton::Right => B::Right,
+            InputButton::Middle => B::Middle,
+        });
+        let key = event.key.map(|key| match key {
+            InputKey::Enter => K::Enter,
+            InputKey::Backspace => K::Backspace,
+            InputKey::Delete => K::Delete,
+            InputKey::Escape => K::Escape,
+            InputKey::Tab => K::Tab,
+            InputKey::Space => K::Space,
+            InputKey::Left => K::Left,
+            InputKey::Right => K::Right,
+            InputKey::Up => K::Up,
+            InputKey::Down => K::Down,
+            InputKey::Home => K::Home,
+            InputKey::End => K::End,
+            InputKey::PageUp => K::PageUp,
+            InputKey::PageDown => K::PageDown,
+            InputKey::F5 => K::F5,
+        });
+        Self { action, dx: event.dx, dy: event.dy, button, key, text: event.text }
+    }
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -778,6 +885,25 @@ impl LinkClient {
         self.run(async move { client.send(id, Message::Ring(message::Ring { on })).await }).await
     }
 
+    /// Moves the desktop's pointer, clicks, or types, connecting first if needed.
+    pub async fn send_input(&self, desktop_id: String, input: InputEvent) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::RemoteInput(input.into())).await }).await
+    }
+
+    /// Runs one of the commands from [`LinkEvent::CommandsChanged`] on the desktop.
+    pub async fn run_command(&self, desktop_id: String, command_id: String) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::RunCommand(message::RunCommand { id: command_id })).await })
+            .await
+    }
+
+    /// Shows `message`, or a plain ping, on the desktop.
+    pub async fn ping(&self, desktop_id: String, message: Option<String>) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.send(id, Message::Ping(message::Ping { message })).await }).await
+    }
+
     /// Reports this phone's ringing to every connected desktop that may ring it.
     pub async fn report_ringing(&self, on: bool) -> Result<u32, LinkError> {
         self.broadcast(Message::Ringing(message::Ringing { on })).await
@@ -1008,6 +1134,11 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                     text: input.text,
                 },
                 Message::MirrorKeyframe => LinkEvent::MirrorKeyframeRequested { desktop_id },
+                Message::Commands(list) => LinkEvent::CommandsChanged {
+                    desktop_id,
+                    commands: list.commands.into_iter().map(|c| DesktopCommand { id: c.id, name: c.name }).collect(),
+                },
+                Message::Ping(ping) => LinkEvent::Pinged { desktop_id, message: ping.message },
                 Message::MirrorStop(stop) => LinkEvent::MirrorStopped { desktop_id, reason: stop.reason },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,
@@ -1033,7 +1164,8 @@ impl LinkClient {
 }
 
 fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
-    let store::Grants { clipboard, files, notifications, media, ring, calls, browse, screen, messages } = peer.grants;
+    let store::Grants { clipboard, files, notifications, media, ring, calls, browse, screen, messages, .. } =
+        peer.grants;
     Desktop {
         id: peer.id.to_string(),
         name: peer.name.clone(),
@@ -1044,6 +1176,7 @@ fn describe(peer: &Peer, connected: bool, bluetooth: bool) -> Desktop {
         sharing: Sharing { clipboard, files, notifications, media, ring, calls, browse, screen, messages },
         bluetooth_address: peer.bluetooth.clone(),
         bt_pairing: peer.bt_pairing,
+        control: peer.has(message::CONTROL),
     }
 }
 

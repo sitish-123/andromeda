@@ -41,7 +41,8 @@ class PhoneMedia(
     private var controller: MediaController? = null
     /** The last description desktops received, with the elapsed-realtime moment its position was true. */
     private var sent: MediaPlayer? = null
-    private var artwork: Pair<Bitmap, ByteArray?>? = null
+    /** The last artwork compressed: its bitmap, the size it was cut to, and the JPEG. */
+    private var artwork: Triple<Bitmap, Int, ByteArray?>? = null
 
     private val changed = MediaSessionManager.OnActiveSessionsChangedListener { follow(it.orEmpty().firstOrNull()) }
 
@@ -53,7 +54,13 @@ class PhoneMedia(
     }
 
     fun start() {
-        scope.launch { repository.connections.collect { sent?.let { publish(it.copy(positionMs = position(it))) } } }
+        // A desktop that came on Bluetooth needs smaller artwork, so the player is described afresh.
+        scope.launch {
+            repository.connections.collect {
+                val fresh = controller?.let(::describe) ?: sent?.let { old -> old.copy(positionMs = position(old)) }
+                fresh?.let(::publish)
+            }
+        }
         scope.launch { repository.mediaCommands.collect(::obey) }
     }
 
@@ -157,13 +164,17 @@ class PhoneMedia(
         if (volume) add(MediaCommandKind.Volume)
     }
 
-    /** The artwork as a JPEG of at most 256 px and the protocol's size; compressed once per bitmap. */
+    /**
+     * The artwork as a JPEG of at most 256 px, or 128 px while a desktop is connected over Bluetooth, and the
+     * protocol's size; compressed once per bitmap and size.
+     */
     private fun art(metadata: MediaMetadata?): ByteArray? {
         val bitmap = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: return null
-        artwork?.takeIf { it.first === bitmap }?.let { return it.second }
-        val scale = ART_PX.toFloat() / maxOf(bitmap.width, bitmap.height)
+        val px = if (repository.desktops.value.any { it.connected && it.bluetooth }) BLUETOOTH_ART_PX else ART_PX
+        artwork?.takeIf { it.first === bitmap && it.second == px }?.let { return it.third }
+        val scale = px.toFloat() / maxOf(bitmap.width, bitmap.height)
         val sized = if (scale < 1f) {
             Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).roundToInt(), (bitmap.height * scale).roundToInt(), true)
         } else {
@@ -172,7 +183,7 @@ class PhoneMedia(
         val jpeg = generateSequence(85) { it - 15 }.takeWhile { it > 0 }.map { quality ->
             ByteArrayOutputStream().also { sized.compress(Bitmap.CompressFormat.JPEG, quality, it) }.toByteArray()
         }.firstOrNull { it.size <= MediaLimits.ARTWORK }
-        artwork = bitmap to jpeg
+        artwork = Triple(bitmap, px, jpeg)
         return jpeg
     }
 
@@ -199,6 +210,7 @@ class PhoneMedia(
     private companion object {
         const val TAG = "PhoneMedia"
         const val ART_PX = 256
+        const val BLUETOOTH_ART_PX = 128
         const val SEEK_TOLERANCE_MS = 2000
     }
 }

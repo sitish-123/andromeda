@@ -422,7 +422,8 @@ pub struct MirrorInput {
 }
 
 /// The header of the phone's video stream: H.264 access units follow, each a big-endian u32 length, a big-endian u64
-/// presentation time in microseconds, a flags byte ([`MIRROR_KEYFRAME`], [`MIRROR_CONFIG`]), then the Annex B bytes.
+/// presentation time in microseconds, a flags byte ([`MIRROR_KEYFRAME`], [`MIRROR_CONFIG`], [`MIRROR_AUDIO`]), then
+/// the Annex B bytes, or an Opus packet for audio.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MirrorData {
@@ -435,6 +436,8 @@ pub const MIRROR_UNIT: i32 = 10_000;
 pub const MIRROR_KEYFRAME: u8 = 1;
 /// Codec configuration (SPS and PPS), sent before the first frame and again after a size change.
 pub const MIRROR_CONFIG: u8 = 2;
+/// One Opus packet of the phone's sound, 48 kHz stereo, instead of video.
+pub const MIRROR_AUDIO: u8 = 4;
 /// A 1080p access unit stays well under this.
 pub const MAX_MIRROR_UNIT: usize = 4 * 1024 * 1024;
 pub const MAX_MIRROR_SIDE: u32 = 4096;
@@ -1058,6 +1061,127 @@ fn unique(ids: impl Iterator<Item = u64>) -> bool {
     ids.len() == count
 }
 
+/// Both hellos carry this among their `addresses` when the peer takes `remote-input`, `commands`, `run-command`, and
+/// `ping`; older peers close a session on those types.
+pub const CONTROL: &str = "feature:control";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InputAction {
+    /// The pointer by (dx, dy) logical pixels.
+    Move,
+    /// A scroll by (dx, dy) logical pixels; positive is down and right.
+    Scroll,
+    Press,
+    Release,
+    Click,
+    Key,
+    /// `text` typed into the focused window.
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InputButton {
+    Left,
+    Right,
+    Middle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InputKey {
+    Enter,
+    Backspace,
+    Delete,
+    Escape,
+    Tab,
+    Space,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    F5,
+}
+
+/// Phone to desktop: the phone as the desktop's touchpad and keyboard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteInput {
+    pub action: InputAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dx: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dy: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button: Option<InputButton>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<InputKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+pub const MAX_INPUT_DELTA: i32 = 10_000;
+
+impl RemoteInput {
+    fn valid(&self) -> bool {
+        let delta =
+            |value: Option<i32>| value.is_some_and(|value| (-MAX_INPUT_DELTA..=MAX_INPUT_DELTA).contains(&value));
+        match self.action {
+            InputAction::Move | InputAction::Scroll => delta(self.dx) && delta(self.dy),
+            InputAction::Press | InputAction::Release | InputAction::Click => self.button.is_some(),
+            InputAction::Key => self.key.is_some(),
+            InputAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Command {
+    pub id: String,
+    pub name: String,
+}
+
+/// Desktop to phone: every command the desktop lets the phone run, sent on connect and after each change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commands {
+    pub commands: Vec<Command>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunCommand {
+    pub id: String,
+}
+
+/// Either way: a ping the user sent, shown as a notification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ping {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+pub const MAX_COMMANDS: usize = 64;
+pub const MAX_COMMAND_ID_LEN: usize = 64;
+pub const MAX_PING_LEN: usize = 256;
+
+impl Commands {
+    fn valid(&self) -> bool {
+        self.commands.len() <= MAX_COMMANDS
+            && self
+                .commands
+                .iter()
+                .all(|command| sized(&command.id, 1, MAX_COMMAND_ID_LEN) && sized(&command.name, 1, MAX_TITLE_LEN))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Empty {}
@@ -1123,6 +1247,10 @@ pub enum Message {
     TextsChanged,
     TextSend(TextSend),
     TextSent(TextSent),
+    RemoteInput(RemoteInput),
+    Commands(Commands),
+    RunCommand(RunCommand),
+    Ping(Ping),
 }
 
 impl Message {
@@ -1185,6 +1313,10 @@ impl Message {
             Self::TextsChanged => "texts-changed",
             Self::TextSend(_) => "text-send",
             Self::TextSent(_) => "text-sent",
+            Self::RemoteInput(_) => "remote-input",
+            Self::Commands(_) => "commands",
+            Self::RunCommand(_) => "run-command",
+            Self::Ping(_) => "ping",
         }
     }
 
@@ -1245,6 +1377,10 @@ impl Message {
             Self::Texts(body) => Value::serialized(body),
             Self::TextSend(body) => Value::serialized(body),
             Self::TextSent(body) => Value::serialized(body),
+            Self::RemoteInput(body) => Value::serialized(body),
+            Self::Commands(body) => Value::serialized(body),
+            Self::RunCommand(body) => Value::serialized(body),
+            Self::Ping(body) => Value::serialized(body),
         }
     }
 
@@ -1325,6 +1461,10 @@ impl Message {
             }
             "text-send" => Self::TextSend(body.deserialized()?),
             "text-sent" => Self::TextSent(body.deserialized()?),
+            "remote-input" => Self::RemoteInput(body.deserialized()?),
+            "commands" => Self::Commands(body.deserialized()?),
+            "run-command" => Self::RunCommand(body.deserialized()?),
+            "ping" => Self::Ping(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -1416,6 +1556,10 @@ impl Message {
                         .all(|text| sized(&text.address, 1, MAX_NUMBER_LEN) && text.body.len() <= MAX_TEXT_BODY)
             }
             Self::TextSend(send) => sized(&send.to, 1, MAX_NUMBER_LEN) && sized(&send.body, 1, MAX_TEXT_BODY),
+            Self::RemoteInput(input) => input.valid(),
+            Self::Commands(commands) => commands.valid(),
+            Self::RunCommand(run) => sized(&run.id, 1, MAX_COMMAND_ID_LEN),
+            Self::Ping(ping) => ping.message.as_ref().is_none_or(|message| sized(message, 1, MAX_PING_LEN)),
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

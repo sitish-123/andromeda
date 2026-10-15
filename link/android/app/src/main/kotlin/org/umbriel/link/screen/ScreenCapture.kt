@@ -34,8 +34,9 @@ import org.umbriel.link.notifications.Channels
 
 /**
  * Captures the screen into the hardware H.264 encoder and streams its output to one desktop: at most 1080 pixels on
- * the short side, 60 fps, realtime priority, a keyframe every 2 s or on the desktop's request. Codec configuration
- * goes in front of every keyframe, so the desktop can start from any of them.
+ * the short side, 60 fps, realtime priority and low latency, constant bitrate stepped by [MirrorRate], a keyframe
+ * every 2 s or on the desktop's request. Codec configuration goes in front of every keyframe, so the desktop can
+ * start from any of them. What apps play goes along through [MirrorAudio].
  */
 class ScreenCapture : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -44,6 +45,7 @@ class ScreenCapture : Service() {
     private var display: VirtualDisplay? = null
     private var codec: MediaCodec? = null
     private var stream: MirrorStream? = null
+    private var audio: MirrorAudio? = null
     private var desktop: String? = null
 
     @Volatile
@@ -88,17 +90,9 @@ class ScreenCapture : Service() {
 
     private suspend fun capture(desktop: String, projection: MediaProjection) {
         val (width, height) = videoSize()
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
-            setInteger(MediaFormat.KEY_PRIORITY, 0)
-            setInteger(MediaFormat.KEY_LATENCY, 1)
-        }
         val codec = try {
             MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
-                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                configure(videoFormat(this, width, height), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             }
         } catch (error: Exception) {
             Log.w(TAG, "no H.264 encoder: ${error.message}")
@@ -116,11 +110,35 @@ class ScreenCapture : Service() {
             return finish(tellDesktop = false, reason = null)
         }
         this.stream = stream
+        val audio = MirrorAudio(this, projection)
+        this.audio = audio
+        scope.launch { audio.run(stream) }
         drain(codec, stream)
     }
 
+    private fun videoFormat(codec: MediaCodec, width: Int, height: Int) =
+        MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, MAX_BITRATE)
+            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
+            setInteger(MediaFormat.KEY_PRIORITY, 0)
+            setInteger(MediaFormat.KEY_LATENCY, 1)
+            setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            // A still screen sends nothing otherwise, and the desktop would wait on a frame the encoder holds back.
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            // Qualcomm encoders take their low-latency mode only by this vendor key; others ignore it.
+            setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
+            val modes = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).encoderCapabilities
+            if (modes.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)) {
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            }
+        }
+
     private suspend fun drain(codec: MediaCodec, stream: MirrorStream) {
         val info = MediaCodec.BufferInfo()
+        val rate = MirrorRate(MAX_BITRATE, MIN_BITRATE)
         var config: ByteArray? = null
         while (!stopping) {
             val index = try {
@@ -140,12 +158,30 @@ class ScreenCapture : Service() {
                 continue
             }
             val keyframe = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+            if (rate.shouldSkip(keyframe)) continue
             val prefix = config.takeIf { keyframe }
             val unit = if (prefix != null) prefix + bytes else bytes
             if (stream.send(info.presentationTimeUs, keyframe, prefix != null, unit).isFailure) {
                 main.post { finish(tellDesktop = false, reason = null) }
                 break
             }
+            val wasSkipping = rate.skipping
+            rate.sent(info.presentationTimeUs, System.nanoTime() / 1000, keyframe)?.let { bitrate ->
+                Log.i(TAG, "bitrate ${bitrate / 1000} kbit/s")
+                setBitrate(codec, bitrate)
+            }
+            if (rate.skipping && !wasSkipping) {
+                Log.i(TAG, "far behind: skipping to the next keyframe")
+                this.keyframe()
+            }
+        }
+    }
+
+    private fun setBitrate(codec: MediaCodec, bitrate: Int) {
+        try {
+            codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate) })
+        } catch (error: IllegalStateException) {
+            Log.i(TAG, "bitrate: ${error.message}")
         }
     }
 
@@ -172,6 +208,7 @@ class ScreenCapture : Service() {
     private fun finish(tellDesktop: Boolean, reason: String?) {
         if (stopping) return
         stopping = true
+        audio?.stop()
         display?.release()
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
@@ -241,7 +278,9 @@ class ScreenCapture : Service() {
         private const val NOTIFICATION_ID = 41
         private const val MAX_SHORT_SIDE = 1080
         private const val ALIGN = 16
-        private const val BITRATE = 8_000_000
+        private const val MAX_BITRATE = 8_000_000
+        private const val MIN_BITRATE = 1_000_000
+        private const val REPEAT_AFTER_US = 100_000L
         private const val FPS = 60
         private const val KEYFRAME_EVERY_S = 2
         private const val DEQUEUE_TIMEOUT_US = 20_000L

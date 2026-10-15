@@ -10,12 +10,13 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    Call, CallState, FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message,
-    NotificationPosted, Share, Status, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    CONTROL, Call, CallState, FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer,
+    Message, NotificationPosted, Ping, RemoteInput, Share, Status, Text, TransferId, WIFI_DIRECT_BY_ADDRESS,
+    WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
-use link_core::store::{Peer, Store, feature_of};
+use link_core::store::{Feature, Peer, Store, StoredCommand, feature_of};
 use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
 use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
@@ -67,6 +68,8 @@ pub struct Snapshot {
     pub contacts: Vec<(String, crate::messages::Contacts)>,
     /// Device id to its newest texts, the D-Bus `Texts` property.
     pub texts: Vec<(String, crate::messages::Texts)>,
+    /// `(name, command)`, the D-Bus `Commands` property.
+    pub commands: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -115,10 +118,19 @@ pub enum Event {
         id: DeviceId,
         text: Text,
     },
-    /// The desktop joined a phone's hotspot (`ssid`), or left it (None).
+    /// The desktop is joining a phone's hotspot (`ssid`), or left it or failed to join (None).
     Hotspot {
         id: DeviceId,
         ssid: Option<String>,
+    },
+    /// The phone's touchpad or keyboard.
+    RemoteInput {
+        id: DeviceId,
+        input: RemoteInput,
+    },
+    Pinged {
+        id: DeviceId,
+        message: Option<String>,
     },
 }
 
@@ -172,6 +184,8 @@ enum Command {
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
+    SetCommands { commands: Vec<StoredCommand>, reply: oneshot::Sender<bool> },
+    Ping { id: DeviceId, message: Option<String>, reply: oneshot::Sender<Result<(), link_core::Error>> },
 }
 
 #[derive(Clone)]
@@ -224,8 +238,10 @@ pub struct Hub {
     bt_pairing: Option<(u32, Instant)>,
     /// This desktop's Bluetooth adapter, named in the QR code, and the deadline that keeps it open to pairing.
     bluetooth: Option<(String, watch::Sender<Option<Instant>>)>,
-    /// Sends too large for Bluetooth, waiting for the phone's session to move to its hotspot.
+    /// Work too large for Bluetooth, waiting for the phone's session to move to its hotspot.
     waiting: Vec<Waiting>,
+    /// Phones on Bluetooth already asked for their hotspot by browsing, which does not wait for it.
+    hotspot_asked: HashSet<DeviceId>,
     browsing: browse::Browsing,
     /// Each connected phone's `feature:` entries from its hello.
     features: HashMap<DeviceId, Vec<String>>,
@@ -236,9 +252,13 @@ pub struct Hub {
 
 struct Waiting {
     peer: DeviceId,
-    sources: Vec<Source>,
-    reply: oneshot::Sender<Result<TransferId, link_core::Error>>,
+    work: Parked,
     deadline: Instant,
+}
+
+enum Parked {
+    Send { sources: Vec<Source>, reply: oneshot::Sender<Result<TransferId, link_core::Error>> },
+    Mirror(crate::mirror::Reply),
 }
 
 /// The transfer backends the hub consents for: the Link transfer actor, which it also attaches sessions to, and
@@ -294,6 +314,7 @@ impl Hub {
             bt_pairing: None,
             bluetooth: None,
             waiting: Vec::new(),
+            hotspot_asked: HashSet::new(),
             browsing: browse::Browsing::default(),
             features: HashMap::new(),
             messages: crate::messages::Messages::default(),
@@ -371,6 +392,8 @@ impl Hub {
             Command::SendText { id, to, body, reply } => self.send_text(id, to, body, reply).await,
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
+            Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
+            Command::Ping { id, message, reply } => drop(reply.send(self.ping(&id, message).await)),
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
             Command::Session { id, reply } => {
@@ -387,22 +410,10 @@ impl Hub {
                 let _ = reply.send(true);
             }
             Command::SetGrant { id, feature, granted, reply } => {
-                let feature = link_core::store::Feature::parse(&feature);
-                let set = match (self.store.peer_mut(&id), feature) {
-                    (Some(peer), Some(feature)) => {
-                        peer.grants.set(feature, granted);
-                        true
-                    }
-                    _ => false,
-                };
-                if set {
-                    self.save();
-                    self.publish();
-                }
-                let _ = reply.send(set);
+                let _ = reply.send(self.set_grant(&id, &feature, granted).await);
             }
             Command::SendFiles { device, sources, reply } => match self.needs_hotspot(&device, &sources) {
-                Some(peer) => self.wait_for_hotspot(peer, sources, reply).await,
+                Some(peer) => self.wait_for_hotspot(peer, Parked::Send { sources, reply }).await,
                 None => drop(reply.send(self.send_files(&device, sources).await)),
             },
             Command::Decide { id, accept, reply } => {
@@ -585,6 +596,9 @@ impl Hub {
                     self.bt_pairing = Some((passkey, until));
                 }
             }
+            SessionEvent::Message { from, message: Message::Ping(ping) } if self.sessions.contains_key(&from) => {
+                self.emit(Event::Pinged { id: from, message: ping.message }).await;
+            }
             SessionEvent::Message { from, message } => {
                 let granted = feature_of(&message)
                     .is_some_and(|feature| self.store.peer(&from).is_some_and(|peer| peer.grants.allows(feature)));
@@ -623,13 +637,23 @@ impl Hub {
                 self.emit(Event::Call { id: from, call }).await;
             }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
-            Message::Hotspot(offered) => self.join_hotspot(from, offered),
+            Message::Hotspot(offered) => self.join_hotspot(from, offered).await,
             Message::WifiDirect(group) => self.join_wifi_direct(from, group),
             Message::HotspotEnd(end) => {
                 log::info!("{from}: the phone ended its hotspot: {:?}", end.reason);
                 let reason = end.reason.unwrap_or_else(|| "the phone ended its hotspot".to_owned());
                 self.fail_waiting(&from, &reason).await;
                 self.leave_hotspot(&from).await;
+            }
+            Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
+            Message::RunCommand(run) => {
+                match self.store.commands.iter().find(|stored| crate::control::id(stored) == run.id) {
+                    Some(stored) => match crate::control::run(stored) {
+                        Ok(()) => log::info!("{from}: ran the command {:?}", stored.name),
+                        Err(error) => log::warn!("{from}: running the command {:?}: {error}", stored.name),
+                    },
+                    None => log::info!("{from}: no command {}", run.id),
+                }
             }
             other => log::warn!("{from}: a desktop session delivered {}", other.kind()),
         }
@@ -757,6 +781,7 @@ impl Hub {
         if let Some(older) = self.sessions.insert(id.clone(), session.clone()) {
             older.close(CloseCode::Done);
         }
+        self.hotspot_asked.remove(&id);
         self.publish();
         self.transfers.attach(id.clone(), session.clone()).await;
         let features = hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
@@ -767,6 +792,7 @@ impl Hub {
             let texts = self.messages.pull_texts(id.clone());
             self.send_to(&id, texts).await;
         }
+        self.send_commands(&id).await;
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
         let ready = self
             .wifi_direct_peer
@@ -790,6 +816,9 @@ impl Hub {
         let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
             return drop(reply.send(Err(browse::Failure::NotConnected)));
         };
+        if matches!(request, browse::Request::Read { .. }) && session.connection().quic().is_none() {
+            self.ask_hotspot_once(&id, &session).await;
+        }
         let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
         let request = match request {
             Ok(request) => request,
@@ -837,6 +866,50 @@ impl Hub {
         self.features.get(id).is_some_and(|features| features.iter().any(|entry| entry == feature))
     }
 
+    async fn set_grant(&mut self, id: &DeviceId, feature: &str, granted: bool) -> bool {
+        let (Some(peer), Some(feature)) = (self.store.peer_mut(id), Feature::parse(feature)) else { return false };
+        peer.grants.set(feature, granted);
+        self.save();
+        self.publish();
+        if feature == Feature::Commands {
+            self.send_commands(id).await;
+        }
+        true
+    }
+
+    async fn set_commands(&mut self, commands: Vec<StoredCommand>) -> bool {
+        if !crate::control::valid(&commands) {
+            return false;
+        }
+        self.store.commands = commands;
+        self.save();
+        self.publish();
+        for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            self.send_commands(&id).await;
+        }
+        true
+    }
+
+    async fn ping(&self, id: &DeviceId, message: Option<String>) -> Result<(), link_core::Error> {
+        match self.sessions.get(id) {
+            Some(_) if !self.phone_has(id, CONTROL) => Err(link_core::Error::Unexpected("ping")),
+            Some(session) => session.send(Message::Ping(Ping { message })).await,
+            None => Err(link_core::Error::NotConnected),
+        }
+    }
+
+    /// The commands `id` may run: all of them with its grant, none without.
+    async fn send_commands(&self, id: &DeviceId) {
+        let (Some(session), Some(peer)) = (self.sessions.get(id), self.store.peer(id)) else { return };
+        if !self.phone_has(id, CONTROL) {
+            return;
+        }
+        let granted = if peer.grants.commands { self.store.commands.as_slice() } else { &[] };
+        if let Err(error) = session.send(Message::Commands(crate::control::listing(granted))).await {
+            log::info!("{id}: sending the commands: {error}");
+        }
+    }
+
     /// The Link device a send is for, when its session runs over Bluetooth and the files are worth the hotspot.
     fn needs_hotspot(&self, device: &str, sources: &[Source]) -> Option<DeviceId> {
         let peer = DeviceId::parse(device).ok()?;
@@ -844,32 +917,41 @@ impl Hub {
         (on_bluetooth && total_size(sources) > link_core::stream::BLUETOOTH_UPGRADE_ABOVE).then_some(peer)
     }
 
-    /// Asks the phone for its hotspot and parks the send until the session moves there.
-    async fn wait_for_hotspot(
-        &mut self,
-        peer: DeviceId,
-        sources: Vec<Source>,
-        reply: oneshot::Sender<Result<TransferId, link_core::Error>>,
-    ) {
+    /// Asks the phone for its hotspot and parks the work until the session moves there.
+    async fn wait_for_hotspot(&mut self, peer: DeviceId, work: Parked) {
         let asked = match self.sessions.get(&peer) {
             Some(session) => session.send(Message::HotspotRequest).await,
             None => Err(link_core::Error::NotConnected),
         };
-        match asked {
-            Ok(()) => {
+        match (asked, work) {
+            (Ok(()), work) => {
                 let deadline = Instant::now() + link_core::hotspot::UPGRADE_TIMEOUT;
-                self.waiting.push(Waiting { peer, sources, reply, deadline });
+                self.waiting.push(Waiting { peer, work, deadline });
             }
-            Err(error) => drop(reply.send(Err(error))),
+            (Err(error), Parked::Send { reply, .. }) => drop(reply.send(Err(error))),
+            (Err(_), Parked::Mirror(reply)) => drop(reply.send(Err(crate::mirror::Failure::NotConnected))),
+        }
+    }
+
+    /// Browsing goes on over Bluetooth while the phone starts its hotspot, so it asks once per session.
+    async fn ask_hotspot_once(&mut self, id: &DeviceId, session: &SessionHandle) {
+        if self.hotspots.contains_key(id) || !self.hotspot_asked.insert(id.clone()) {
+            return;
+        }
+        log::info!("{id}: asking for the phone's hotspot to browse");
+        if let Err(error) = session.send(Message::HotspotRequest).await {
+            log::info!("{id}: asking for the hotspot: {error}");
         }
     }
 
     async fn send_waiting(&mut self, id: &DeviceId) {
         let (ready, rest) = std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.peer == *id);
         self.waiting = rest;
-        for Waiting { peer, sources, reply, .. } in ready {
-            let sent = self.send_files(peer.as_str(), sources).await;
-            drop(reply.send(sent));
+        for Waiting { peer, work, .. } in ready {
+            match work {
+                Parked::Send { sources, reply } => drop(reply.send(self.send_files(peer.as_str(), sources).await)),
+                Parked::Mirror(reply) => self.open_mirror(peer, reply).await,
+            }
         }
     }
 
@@ -877,7 +959,7 @@ impl Hub {
         let (failed, rest) = std::mem::take(&mut self.waiting).into_iter().partition(|waiting| waiting.peer == *id);
         self.waiting = rest;
         for waiting in failed {
-            self.send_without_hotspot(waiting, link_core::Error::Hotspot(reason.to_owned())).await;
+            self.without_hotspot(waiting, link_core::Error::Hotspot(reason.to_owned())).await;
         }
     }
 
@@ -888,13 +970,17 @@ impl Hub {
         self.waiting = rest;
         for waiting in expired {
             log::info!("{}: the session did not move to the phone's hotspot in time", waiting.peer);
-            self.send_without_hotspot(waiting, link_core::Error::TooLargeForBluetooth).await;
+            self.without_hotspot(waiting, link_core::Error::TooLargeForBluetooth).await;
         }
     }
 
-    /// Sends over Bluetooth what fits there, and fails the rest with `error`.
-    async fn send_without_hotspot(&mut self, waiting: Waiting, error: link_core::Error) {
-        let Waiting { peer, sources, reply, .. } = waiting;
+    /// Sends over Bluetooth what fits there, and fails the rest with `error`; mirroring never fits.
+    async fn without_hotspot(&mut self, waiting: Waiting, error: link_core::Error) {
+        let Waiting { peer, work, .. } = waiting;
+        let (sources, reply) = match work {
+            Parked::Mirror(reply) => return drop(reply.send(Err(crate::mirror::Failure::NeedsWifi))),
+            Parked::Send { sources, reply } => (sources, reply),
+        };
         if total_size(&sources) > link_core::stream::BLUETOOTH_FILE_LIMIT {
             return drop(reply.send(Err(error)));
         }
@@ -908,6 +994,7 @@ impl Hub {
         self.transfers.detach(id.clone(), stable_id).await;
         if self.sessions.get(&id).is_some_and(|live| live.stable_id() == stable_id) {
             self.sessions.remove(&id);
+            self.hotspot_asked.remove(&id);
             self.browsing.disconnected(&id);
             self.messages.disconnected(&id);
             self.mirrors.fail(&id, crate::mirror::Failure::NotConnected);
@@ -919,14 +1006,16 @@ impl Hub {
         }
     }
 
-    /// Asks the phone to mirror, only over IP: video does not fit through Bluetooth.
+    /// Asks the phone to mirror, only over IP: on Bluetooth, which video does not fit through, the request waits for
+    /// the session to move to the phone's hotspot.
     async fn open_mirror(&mut self, id: DeviceId, reply: crate::mirror::Reply) {
         use crate::mirror::Failure;
         let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
             return drop(reply.send(Err(Failure::NotConnected)));
         };
         if session.connection().quic().is_none() {
-            return drop(reply.send(Err(Failure::NeedsWifi)));
+            log::info!("{id}: mirroring waits for the phone's hotspot");
+            return self.wait_for_hotspot(id, Parked::Mirror(reply)).await;
         }
         if self.mirrors.busy(&id) {
             return drop(reply.send(Err(Failure::Busy)));
@@ -960,8 +1049,9 @@ impl Hub {
         });
     }
 
-    /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one.
-    fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
+    /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one. The shell says so first, since the
+    /// laptop leaves its own Wi-Fi.
+    async fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
         if !on_bluetooth {
             return log::info!("{id}: ignoring a hotspot this session does not need");
@@ -969,6 +1059,7 @@ impl Hub {
         // The phone offers its hotspot only after giving up on a group, which this desktop may have joined anyway.
         let abandoned = self.hotspots.remove(&id);
         log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
+        self.emit(Event::Hotspot { id: id.clone(), ssid: Some(offered.ssid.clone()) }).await;
         self.joining.spawn(async move {
             if let Some(group) = abandoned {
                 hotspot::leave(&group).await;
@@ -985,6 +1076,9 @@ impl Hub {
             if let Ok(joined) = joined {
                 hotspot::leave(&joined.active).await;
             }
+            if ssid.is_some() {
+                self.emit(Event::Hotspot { id, ssid: None }).await;
+            }
             return;
         };
         let reply = match joined {
@@ -992,14 +1086,12 @@ impl Hub {
                 let address = std::net::SocketAddr::new(joined.address, self.store.port).to_string();
                 log::info!("{id}: joined the hotspot at {address}");
                 self.hotspots.insert(id.clone(), joined.active);
-                if ssid.is_some() {
-                    self.emit(Event::Hotspot { id: id.clone(), ssid }).await;
-                }
                 Message::HotspotJoined(HotspotJoined { address })
             }
             Err(reason) => {
                 log::info!("{id}: joining the hotspot failed: {reason}");
                 if ssid.is_some() {
+                    self.emit(Event::Hotspot { id: id.clone(), ssid: None }).await;
                     self.fail_waiting(&id, &reason).await;
                 }
                 let reason = reason.chars().take(link_core::proto::message::MAX_REASON_LEN).collect();
@@ -1081,8 +1173,10 @@ impl Hub {
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
             let (contacts, texts) = (self.messages.contacts(), self.messages.texts());
+            let commands =
+                self.store.commands.iter().map(|stored| (stored.name.clone(), stored.command.clone())).collect();
             let pairing = self.window.is_some();
-            let next = Snapshot { devices, pairing, auto_accept, grants, status, localsend, contacts, texts };
+            let next = Snapshot { devices, pairing, auto_accept, grants, status, localsend, contacts, texts, commands };
             let changed = *current != next;
             *current = next;
             changed
@@ -1208,6 +1302,15 @@ impl HubHandle {
 
     pub async fn session(&self, id: DeviceId) -> Option<SessionHandle> {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
+    }
+
+    /// Replaces the commands phones may run; false when the list breaks its limits.
+    pub async fn set_commands(&self, commands: Vec<StoredCommand>) -> bool {
+        self.request(|reply| Command::SetCommands { commands, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn ping(&self, id: DeviceId, message: Option<String>) -> Result<(), link_core::Error> {
+        self.request(|reply| Command::Ping { id, message, reply }).await.unwrap_or(Err(link_core::Error::Stopped))
     }
 
     pub async fn set_grant(&self, id: DeviceId, feature: String, granted: bool) -> bool {

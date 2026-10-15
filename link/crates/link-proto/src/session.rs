@@ -94,7 +94,9 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::ContactsChanged
         | Message::Texts(_)
         | Message::TextsChanged
-        | Message::TextSent(_) => role == Role::Desktop,
+        | Message::TextSent(_)
+        | Message::RemoteInput(_)
+        | Message::RunCommand(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
         | Message::CallAction(_)
@@ -110,14 +112,16 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::FsThumb(_)
         | Message::ContactsList(_)
         | Message::TextsList(_)
-        | Message::TextSend(_) => role == Role::Phone,
+        | Message::TextSend(_)
+        | Message::Commands(_) => role == Role::Phone,
         Message::HotspotEnd(_)
         | Message::MirrorStop(_)
         | Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)
         | Message::Ring(_)
-        | Message::Ringing(_) => true,
+        | Message::Ringing(_)
+        | Message::Ping(_) => true,
         _ => false,
     }
 }
