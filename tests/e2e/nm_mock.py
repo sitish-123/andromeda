@@ -2,9 +2,9 @@
 """A stand-in for NetworkManager on the test's system bus: the calls umbriel-linkd makes to join and leave a phone's
 hotspot or Wi-Fi Direct group, recorded as JSON lines. Joining runs JOIN_CMD (the E2E brings up the link there);
 leaving runs LEAVE_CMD. While the file FAIL_FLAG exists, a hotspot join ends deactivated, as a wrong passphrase would;
-FAIL_FLAG-p2p does the same for a group. A Wi-Fi device lists an access point only for an SSID a scan asked for, as
-iwd joins only what its last scan saw. With P2P_PEER ("<name>=<hwaddr>"), a Wi-Fi P2P device is present and a find
-turns up that peer.
+FAIL_FLAG-p2p does the same for a group. While FAIL_FLAG-p2p-stuck exists, a group join stays activating. A Wi-Fi
+device lists an access point only for an SSID a scan asked for, as iwd joins only what its last scan saw. With P2P_PEER
+("<name>=<hwaddr>"), a Wi-Fi P2P device is present and a find turns up that peer.
 
 Usage: nm_mock.py LOG JOIN_CMD LEAVE_CMD FAIL_FLAG [P2P_PEER]
 """
@@ -18,7 +18,7 @@ from gi.repository import Gio, GLib
 
 NM = "org.freedesktop.NetworkManager"
 ROOT = "/org/freedesktop/NetworkManager"
-ACTIVATED, DEACTIVATED = 2, 4
+ACTIVATING, ACTIVATED, DEACTIVATED = 1, 2, 4
 XML = f"""
 <node>
   <interface name="{NM}">
@@ -104,6 +104,7 @@ def main() -> int:
             active = f"{ROOT}/ActiveConnection/{state['count']}"
             p2p = settings["connection"]["type"] == "wifi-p2p"
             failing = os.path.exists(fail_flag + "-p2p" if p2p else fail_flag)
+            stuck = p2p and os.path.exists(fail_flag + "-p2p-stuck")
             if p2p:
                 log({
                     "call": "add-and-activate-p2p",
@@ -113,6 +114,7 @@ def main() -> int:
                     "autoconnect": settings["connection"]["autoconnect"],
                     "persist": options.get("persist"),
                     "fails": failing,
+                    "stuck": stuck,
                 })
             else:
                 log({
@@ -126,9 +128,9 @@ def main() -> int:
                     "persist": options.get("persist"),
                     "fails": failing,
                 })
-            if not failing:
+            if not failing and not stuck:
                 subprocess.run(join_cmd, shell=True, check=True)
-            state["active"][active] = DEACTIVATED if failing else ACTIVATED
+            state["active"][active] = ACTIVATING if stuck else DEACTIVATED if failing else ACTIVATED
             bus.register_object(active, info.interfaces[1], None, active_property(active), None)
             bus.register_object(active.replace("ActiveConnection", "IP4Config"), info.interfaces[2], None,
                                 ip4_property, None)

@@ -13,6 +13,8 @@
 # 3. A desktop SendFiles over 1 MiB asks the phone, which forms a group the same way, and 8 MiB arrives intact.
 # 4. A group NetworkManager fails to join falls back to the hotspot: the phone starts it, the desktop joins it, the
 #    session moves via "hotspot", and the file arrives; the phone does not try a group again in that session.
+# 5. In a new session, a group join still running when the phone gives up on it does not end the hotspot the phone
+#    falls back to: the file arrives over the hotspot, and the desktop drops the late group without telling the phone.
 # Every control message is validated against protocol/link-v1/messages.cddl.
 # Writes results.jsonl, hold.jsonl, hold.log, nm.jsonl, signals.txt, transcript.jsonl, linkd.log to $OUT (default
 # ./artifacts/link-wifi-direct).
@@ -103,10 +105,14 @@ dbus-monitor --session "type='signal',interface='org.umbriel.Link1',member='Hots
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
-RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
-  --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" \
-  --hotspot "UmbrielTest:secret pass 1" --wifi-direct "Test Phone" hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" \
-  2> "$OUT/hold.log" &
+hold() {
+  RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+    --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" \
+    --hotspot "UmbrielTest:secret pass 1" --wifi-direct "Test Phone" hold --on-offer accept < "$RUNTIME/phone.in" \
+    >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
+  HOLD=$!
+}
+hold
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(last_via) == bluetooth ]]'
 
 HOST=$(cat /proc/sys/kernel/hostname)
@@ -133,7 +139,7 @@ join = calls[2]
 del join["t"]
 assert join == {"call": "add-and-activate-p2p", "peer": "aa:bb:cc:dd:ee:01", "device": "/org/freedesktop/NetworkManager/Devices/1",
                 "specific": "/org/freedesktop/NetworkManager/P2PPeers/1", "autoconnect": False, "persist": "volatile",
-                "fails": False}, join
+                "fails": False, "stuck": False}, join
 PY
 ! grep -q 'member=Hotspot' "$OUT/signals.txt" || fail "D-Bus signalled Hotspot for a Wi-Fi Direct group"
 record '{"step":"phone-send-forms-group","bytes":8388608,"sha256_match":true,"hotspot_started":false}'
@@ -162,6 +168,26 @@ wait_for 60 "the file never arrived over the fallback hotspot" test -f "$DOWNLOA
 grep -q '"fails": true' "$OUT/nm.jsonl" || fail "the desktop did not try the failing group"
 grep -q "hotspot started" "$OUT/hold.log" || fail "the phone did not start its hotspot after the group failed"
 record '{"step":"failed-group-falls-back-to-hotspot","bytes":8388608,"sha256_match":true}'
+
+wait_for 90 "the fallback hotspot never ended" eval '[[ $(nm_calls deactivate) == 3 ]]'
+wait_for 20 "the phone was not back on Bluetooth after the fallback hotspot" eval '[[ $(last_via) == bluetooth ]]'
+kill "$HOLD"
+wait "$HOLD" || true
+rm "$RUNTIME/nm-fail-p2p"
+touch "$RUNTIME/nm-fail-p2p-stuck"
+SESSIONS=$(grep -c '"via":"bluetooth"' "$OUT/hold.jsonl")
+hold
+wait_for 30 "the new session did not come over Bluetooth" eval '(( $(grep -c "\"via\":\"bluetooth\"" "$OUT/hold.jsonl") > SESSIONS ))'
+cp "$RUNTIME/src/group.bin" "$RUNTIME/src/late.bin"
+say "send $RUNTIME/src/late.bin"
+wait_for 60 "a stuck group did not fall back to the hotspot" eval '[[ $(last_via) == hotspot ]]'
+wait_for 60 "the file never arrived over the hotspot after a stuck group" test -f "$DOWNLOADS/late.bin"
+[[ $(sha "$RUNTIME/src/late.bin") == $(sha "$DOWNLOADS/late.bin") ]] || fail "the file after a stuck group differs"
+wait_for 60 "the desktop's stuck group join never ended" grep -q "dropping the Wi-Fi Direct group the phone gave up on" \
+  "$OUT/linkd.log"
+! grep -q "the desktop ended the hotspot" "$OUT/hold.log" || fail "the late group failure ended the phone's hotspot"
+[[ $(last_via) == hotspot ]] || fail "the session left the hotspot after the late group failure"
+record '{"step":"late-group-failure-keeps-hotspot","bytes":8388608,"sha256_match":true}'
 
 CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
