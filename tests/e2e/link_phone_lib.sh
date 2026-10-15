@@ -125,11 +125,18 @@ phone_peers() {
   adb shell run-as "$PACKAGE" cat files/devices.json \
     | python3 -c 'import json,sys; print(*(p["id"] for p in json.load(sys.stdin)["peers"]), sep="\n")'
 }
-# forget_phone: unpairs the run's desktop while the phone is connected, so the phone forgets only that desktop.
+# forget_phone: removes the run's desktop from the stopped app's store, and keeps every other pairing.
 forget_phone() {
-  [[ -n ${ID:-} ]] && link Unpair "'$ID'" > /dev/null 2>&1 || return 0
-  for _ in $(seq 50); do phone_peers | grep -qx "$DESKTOP" || return 0; sleep 0.2; done
-  echo "the phone did not forget the run's desktop $DESKTOP" >&2
+  [[ -n ${DESKTOP:-} ]] || return 0
+  adb shell am force-stop "$PACKAGE"
+  adb shell run-as "$PACKAGE" cat files/devices.json > "$RUNTIME/forget.json" || return 0
+  python3 - "$RUNTIME/forget.json" "$DESKTOP" <<'PY'
+import json, sys
+store = json.load(open(sys.argv[1]))
+store["peers"] = [peer for peer in store["peers"] if peer["id"] != sys.argv[2]]
+json.dump(store, open(sys.argv[1], "w"))
+PY
+  adb shell run-as "$PACKAGE" sh -c "'cat > files/devices.json'" < "$RUNTIME/forget.json"
 }
 
 # phone_switches SWITCH...: turns those of the phone's switches for the desktop on, and Stay connected, with the app
@@ -159,16 +166,19 @@ PY
 allow_mirror() {
   wait_for 75 "no mirror request notification" eval 'adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
   adb shell input keyevent KEYCODE_HOME
-  local at="" try
+  local at="" was="" try
+  # The shade moves while it opens, so a position counts only once two dumps a second apart agree on it.
   for try in $(seq 16); do
     ui "notification-$1"
     at=$(bounds "notification-$1" Allow)
     [[ -n $at ]] || at=$(bounds "notification-$1" "*wants to show your screen*")
-    [[ -z $at ]] || break
+    [[ -z $at || $at != "$was" ]] || break
+    was=$at
+    if [[ -n $at ]]; then sleep 1; continue; fi
     if (( try % 2 )); then adb shell cmd statusbar expand-notifications; else adb shell cmd statusbar collapse; fi
     sleep 0.7
   done
-  [[ -n $at ]] || fail "the mirror request is neither a heads-up nor in the shade"
+  [[ -n $at && $at == "$was" ]] || fail "the mirror request is neither a heads-up nor in the shade"
   adb shell input tap $at
   tap_text "prompt-$1" "Start" "Start now" "Share screen"
   adb shell cmd statusbar collapse
