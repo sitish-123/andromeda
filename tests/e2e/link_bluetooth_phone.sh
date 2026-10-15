@@ -53,6 +53,8 @@ wait_for 10 "BlueZ did not take Link's profile: $(grep -i bluetooth "$OUT/linkd.
 install_app
 HOST=$(ip -4 route get 1.1.1.1 | grep -o 'src [0-9.]*' | cut -d' ' -f2)
 pair_phone "$HOST:$PORT"
+# Link reads the player's media session through its notification listener, which a fresh install lacks.
+adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
 phone_switches screen
 record "{\"step\":\"paired\",\"device\":\"$ID\",\"home_wifi\":\"$HOME_WIFI\"}"
 
@@ -82,6 +84,8 @@ accept_offer() {
 delivered() {
   [[ $(adb shell sha256sum "/sdcard/Download/$1" 2>/dev/null | cut -d' ' -f1) == $(sha256sum < "$2" | cut -d' ' -f1) ]]
 }
+# A leftover copy from an earlier run would make the phone save the new one under another name.
+adb shell rm -f /sdcard/Download/bt-small.bin /sdcard/Download/hotspot-1g.bin
 head -c 524288 /dev/urandom > "$RUNTIME/bt-small.bin"
 T0=$(now_ms)
 python3 "$ROOT/tests/e2e/link_send_files.py" "$ID" "$RUNTIME/bt-small.bin" > /dev/null || fail "SendFiles 512 KiB"
