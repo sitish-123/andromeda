@@ -438,7 +438,7 @@ void LinkService::shareClipboard(const std::string& deviceId) {
   share(deviceId, link ? "link" : "text", *text);
 }
 
-// Joining a phone's hotspot takes the laptop off its Wi-Fi, so it is said while it lasts, and when it ends.
+// Joining a phone's hotspot takes the laptop off its Wi-Fi, so it is said before it joins, and when it ends.
 void LinkService::onHotspot(const std::string& deviceId, const std::string& ssid) {
   const bool joined = !ssid.empty();
   NotificationRequest request;

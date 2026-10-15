@@ -227,8 +227,9 @@
       <arg name="device_id" type="s"/>
       <arg name="on" type="b"/>
     </signal>
-    <!-- This desktop joined the phone's hotspot ssid to move a transfer off Bluetooth, which takes it off its own
-         Wi-Fi; an empty ssid means it left and NetworkManager is bringing the usual network back. -->
+    <!-- This desktop is joining the phone's hotspot ssid to move a transfer, browsing, or mirroring off Bluetooth,
+         which takes it off its own Wi-Fi; sent before it joins. An empty ssid means it left, or the join failed, and
+         NetworkManager is bringing the usual network back. -->
     <signal name="Hotspot">
       <arg name="device_id" type="s"/>
       <arg name="ssid" type="s"/>

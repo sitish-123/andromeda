@@ -403,7 +403,8 @@ impl Link {
     #[zbus(signal)]
     async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
 
-    /// The desktop joined the phone's hotspot `ssid` to move a transfer off Bluetooth; an empty `ssid` means it left.
+    /// The desktop is joining the phone's hotspot `ssid` to move work off Bluetooth, and leaves its own Wi-Fi for it;
+    /// an empty `ssid` means it left, or the join failed.
     #[zbus(signal)]
     async fn hotspot(emitter: &SignalEmitter<'_>, device_id: &str, ssid: &str) -> zbus::Result<()>;
 

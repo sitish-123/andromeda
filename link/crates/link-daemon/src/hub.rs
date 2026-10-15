@@ -107,7 +107,7 @@ pub enum Event {
         id: DeviceId,
         call: Call,
     },
-    /// The desktop joined a phone's hotspot (`ssid`), or left it (None).
+    /// The desktop is joining a phone's hotspot (`ssid`), or left it or failed to join (None).
     Hotspot {
         id: DeviceId,
         ssid: Option<String>,
@@ -605,7 +605,7 @@ impl Hub {
                 self.emit(Event::Call { id: from, call }).await;
             }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
-            Message::Hotspot(offered) => self.join_hotspot(from, offered),
+            Message::Hotspot(offered) => self.join_hotspot(from, offered).await,
             Message::WifiDirect(group) => self.join_wifi_direct(from, group),
             Message::HotspotEnd(end) => {
                 log::info!("{from}: the phone ended its hotspot: {:?}", end.reason);
@@ -899,8 +899,9 @@ impl Hub {
         });
     }
 
-    /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one.
-    fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
+    /// Joins the phone's hotspot off the actor; only a Bluetooth session needs one. The shell says so first, since the
+    /// laptop leaves its own Wi-Fi.
+    async fn join_hotspot(&mut self, id: DeviceId, offered: Hotspot) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
         if !on_bluetooth {
             return log::info!("{id}: ignoring a hotspot this session does not need");
@@ -908,6 +909,7 @@ impl Hub {
         // The phone offers its hotspot only after giving up on a group, which this desktop may have joined anyway.
         let abandoned = self.hotspots.remove(&id);
         log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
+        self.emit(Event::Hotspot { id: id.clone(), ssid: Some(offered.ssid.clone()) }).await;
         self.joining.spawn(async move {
             if let Some(group) = abandoned {
                 hotspot::leave(&group).await;
@@ -924,6 +926,9 @@ impl Hub {
             if let Ok(joined) = joined {
                 hotspot::leave(&joined.active).await;
             }
+            if ssid.is_some() {
+                self.emit(Event::Hotspot { id, ssid: None }).await;
+            }
             return;
         };
         let reply = match joined {
@@ -931,14 +936,12 @@ impl Hub {
                 let address = std::net::SocketAddr::new(joined.address, self.store.port).to_string();
                 log::info!("{id}: joined the hotspot at {address}");
                 self.hotspots.insert(id.clone(), joined.active);
-                if ssid.is_some() {
-                    self.emit(Event::Hotspot { id: id.clone(), ssid }).await;
-                }
                 Message::HotspotJoined(HotspotJoined { address })
             }
             Err(reason) => {
                 log::info!("{id}: joining the hotspot failed: {reason}");
                 if ssid.is_some() {
+                    self.emit(Event::Hotspot { id: id.clone(), ssid: None }).await;
                     self.fail_waiting(&id, &reason).await;
                 }
                 let reason = reason.chars().take(link_core::proto::message::MAX_REASON_LEN).collect();
