@@ -31,7 +31,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_LOGS" />
-    <!-- "Display over other apps": the only way the watcher may bring up ClipboardReadActivity from the background. -->
+    <!-- "Display over other apps": the watcher reads the clipboard from the background through a focused overlay window. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Find my phone rings through Do Not Disturb once the user grants this in Settings. -->

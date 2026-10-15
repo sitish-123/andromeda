@@ -13,6 +13,9 @@
         <activity
             android:name=".ImageClipboardActivity"
             android:exported="true" />
+        <activity
+            android:name=".TextClipboardActivity"
+            android:exported="true" />
         <provider
             android:name=".ImageClipboardProvider"
             android:authorities="org.umbriel.link.fixture.clip"

@@ -3,11 +3,11 @@ package org.umbriel.link.clipboard
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
@@ -19,44 +19,55 @@ import kotlinx.coroutines.launch
 /**
  * Phone to desktop, automatic, as KDE Connect does it: Android lets only the focused app read the clipboard, but it
  * logs a denial for this app on every copy elsewhere, because this app listens for changes. With READ_LOGS (granted
- * once over adb; a sideload-build path, not Play) each denial line brings up [ClipboardReadActivity] for a moment,
- * which reads the clipboard while focused and offers it. Starting it from the background needs "Display over other
- * apps" as well. Runs while [org.umbriel.link.presence.PresenceService] does.
+ * once over adb; a sideload-build path, not Play) each denial line brings up a [ClipboardOverlay] for a moment,
+ * which reads the clipboard while focused and offers it. The overlay needs "Display over other apps" as well. Runs
+ * while [org.umbriel.link.presence.PresenceService] does.
  */
 class ClipboardWatcher(
     private val context: Context,
     private val sync: ClipboardSync,
     private val scope: CoroutineScope,
 ) {
+    private val overlay = ClipboardOverlay(context, sync, scope)
     private val clipboard = context.getSystemService(ClipboardManager::class.java)
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {}
     private var job: Job? = null
     private var process: Process? = null
-    /**
-     * Android 13+ asks before each logcat reads other apps' lines, and only while the app is in the foreground; in the
-     * background it refuses without a prompt.
-     */
-    private var asked = false
+    private var wanted = false
 
+    init {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START && wanted) restartIfBlind() },
+        )
+    }
+
+    /**
+     * Android 13+ asks before each logcat reads other apps' lines, and only while the app is in the foreground. In the
+     * background it refuses without a prompt and keeps refusing for a minute, which would also refuse the foreground
+     * start that follows; so there the watcher waits for the foreground.
+     */
     fun start() {
-        if (job != null || !granted(context)) return
-        asked = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        wanted = true
+        if (job != null || !granted(context) || !mayAsk()) return
         clipboard.addPrimaryClipChangedListener(listener)
         job = scope.launch(Dispatchers.IO) { follow() }
     }
 
     /**
-     * Restarts a watcher refused in the background, or whose logcat ended. Called when the app comes to the foreground;
-     * a running watcher that was asked keeps its logcat, since a new one asks again.
+     * Starts a watcher that waited for the foreground, or whose logcat ended, when the app comes to the foreground; a
+     * running watcher keeps its logcat, since a new one asks again.
      */
-    fun restartIfBlind() {
-        if (job != null && asked && process?.isAlive != false) return
+    private fun restartIfBlind() {
+        if (job != null && process?.isAlive != false) return
         stop()
         start()
     }
 
+    private fun mayAsk(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+
     fun stop() {
+        wanted = false
         clipboard.removePrimaryClipChangedListener(listener)
         process?.destroy()
         process = null
@@ -75,11 +86,7 @@ class ClipboardWatcher(
                     if (!kotlinx.coroutines.currentCoroutineContext().isActive) break
                     if (denial in line) {
                         sync.changedLocally()
-                        context.startActivity(
-                            Intent(context, ClipboardReadActivity::class.java).addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION,
-                            ),
-                        )
+                        overlay.read()
                     }
                 }
             }

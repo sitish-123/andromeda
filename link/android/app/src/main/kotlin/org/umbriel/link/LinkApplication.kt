@@ -77,8 +77,6 @@ class AppContainer(val application: Application) {
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_START) {
                     refreshBrowseRoots()
-                    // The watcher runs with Stay connected; in the foreground a new grant, or the log-access prompt, can reach it.
-                    if (presence.stayConnected.value) clipboardWatcher.restartIfBlind()
                 }
             },
         )
