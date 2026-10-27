@@ -40,7 +40,7 @@ build() {
   meson compile -C build-greeter
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
   CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
-    -p link-mount -p link-mirror
+    -p link-mount -p link-mirror -p link-app
 }
 
 package_andromeda() {
@@ -92,7 +92,7 @@ package_xdg-desktop-portal-andromeda-git() {
 
 package_andromeda-link-git() {
   pkgdesc='Andromeda Link daemon: phone and desktop continuity'
-  depends=(glibc gcc-libs dbus fuse3 gtk4 gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4)
+  depends=(glibc gcc-libs dbus fuse3 gtk4 libadwaita gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4)
   optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
     'networkmanager: joining the phone'"'"'s hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi'
     'gst-plugin-va: hardware decoding of the mirrored phone screen'
@@ -118,7 +118,12 @@ package_andromeda-link-git() {
   install -Dm644 desktop/link/dist/andromeda-link.ufw "$pkgdir/etc/ufw/applications.d/andromeda-link"
   install -Dm644 desktop/link/dist/60-andromeda-link-bluetooth.conf \
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+  install -Dm755 desktop/link/target/release/andromeda-link "$pkgdir/usr/bin/andromeda-link"
+  install -Dm644 -t "$pkgdir/usr/share/andromeda-link" desktop/link/crates/link-app/data/style.css
+  install -Dm644 -t "$pkgdir/usr/share/andromeda-link/fonts" desktop/link/crates/link-app/data/fonts/GoogleSansFlex.ttf
+  install -Dm644 desktop/link/dist/org.andromeda.Link.desktop "$pkgdir/usr/share/applications/org.andromeda.Link.desktop"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 desktop/link/crates/link-app/data/fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-GoogleSansFlex.txt"
 }
 
 package_andromeda-power-git() {
