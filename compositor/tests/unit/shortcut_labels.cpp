@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-using umbriel::shortcutLabels;
+using andromeda::shortcutLabels;
 
 namespace {
 
@@ -22,29 +22,29 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(zeroLabelsIsEmpty) { CHECK(shortcutLabels(0, "12").empty()); }
+ANDROMEDA_TEST(zeroLabelsIsEmpty) { CHECK(shortcutLabels(0, "12").empty()); }
 
-UMBRIEL_TEST(fewerThanTwoKeysIsEmpty) {
+ANDROMEDA_TEST(fewerThanTwoKeysIsEmpty) {
   CHECK(shortcutLabels(4, "").empty());
   CHECK(shortcutLabels(4, "1").empty());
 }
 
-UMBRIEL_TEST(singleKeyLabelsKeepFavoriteOrder) {
+ANDROMEDA_TEST(singleKeyLabelsKeepFavoriteOrder) {
   CHECK_EQ(shortcutLabels(4, "asdf"), (std::vector<std::string>{"a", "s", "d", "f"}));
 }
 
-UMBRIEL_TEST(twoKeysExpandLeastFavoriteTerminal) {
+ANDROMEDA_TEST(twoKeysExpandLeastFavoriteTerminal) {
   CHECK_EQ(shortcutLabels(3, "12"), (std::vector<std::string>{"1", "21", "22"}));
 }
 
-UMBRIEL_TEST(digitsExpandZeroFirst) {
+ANDROMEDA_TEST(digitsExpandZeroFirst) {
   CHECK_EQ(
       shortcutLabels(12, "1234567890"),
       (std::vector<std::string>{"1", "2", "3", "4", "5", "6", "7", "8", "9", "01", "02", "03"})
   );
 }
 
-UMBRIEL_TEST(generatedLabelsArePrefixFree) {
+ANDROMEDA_TEST(generatedLabelsArePrefixFree) {
   CHECK(isPrefixFree(shortcutLabels(100, "asdf")));
   CHECK(isPrefixFree(shortcutLabels(100, "1234567890")));
 }

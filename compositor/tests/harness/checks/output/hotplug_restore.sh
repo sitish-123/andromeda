@@ -4,9 +4,9 @@
 # the same names. Windows must find their way home across that too.
 set -euo pipefail
 
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
-readonly FOREIGN_TOPLEVEL="${UMBRIEL_FOREIGN_TOPLEVEL_CLIENT:-./build-debug/tests/foreign-toplevel-client}"
-readonly BASELINE="$(< "$UMBRIEL_CONFIG")"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly FOREIGN_TOPLEVEL="${ANDROMEDA_FOREIGN_TOPLEVEL_CLIENT:-./build-debug/tests/foreign-toplevel-client}"
+readonly BASELINE="$(< "$ANDROMEDA_CONFIG")"
 
 spawn_client() {
   foot --title="$1" sh -c 'sleep 120' > /dev/null 2>&1 &
@@ -15,7 +15,7 @@ spawn_client() {
 wait_for_count() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     [[ $count == "$expected" ]] && return 0
     sleep 0.25
   done
@@ -24,7 +24,7 @@ wait_for_count() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
 workspace_of() { field_of "$1" workspace; }
@@ -32,7 +32,7 @@ workspace_of() { field_of "$1" workspace; }
 workspace_named_for_window() {
   local workspace
   workspace=$(workspace_of "$1")
-  "$UMBRIEL" workspaces --json | jq -r --arg id "$workspace" '.[] | select(.id == $id) | .named'
+  "$ANDROMEDA" workspaces --json | jq -r --arg id "$workspace" '.[] | select(.id == $id) | .named'
 }
 
 home_of() {
@@ -55,8 +55,8 @@ wait_for_home() {
 
 move_to_workspace() {
   local title=$1 selector=$2
-  "$UMBRIEL" msg "window-focus:$(field_of "$title" id)" > /dev/null
-  "$UMBRIEL" msg "window-move-to-workspace:$selector" > /dev/null
+  "$ANDROMEDA" msg "window-focus:$(field_of "$title" id)" > /dev/null
+  "$ANDROMEDA" msg "window-move-to-workspace:$selector" > /dev/null
   wait_for_home "$title" "${selector#*/}/${selector%%/*}"
 }
 
@@ -96,13 +96,13 @@ move_to_workspace hotplug-second 2/HEADLESS-1
 spawn_client hotplug-other
 wait_for_count 3
 move_to_workspace hotplug-other 1/HEADLESS-2
-"$UMBRIEL" msg workspace-switch:3/HEADLESS-1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:3/HEADLESS-1 > /dev/null
 "$FOREIGN_TOPLEVEL" hotplug-first HEADLESS-1
 "$FOREIGN_TOPLEVEL" hotplug-second HEADLESS-1
 
 # Unplug everything. Destroying the last output leaves the windows with no workspace at all.
-"$UMBRIEL" output-destroy HEADLESS-1 > /dev/null
-"$UMBRIEL" output-destroy HEADLESS-2 > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-1 > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-2 > /dev/null
 for window in hotplug-first hotplug-second hotplug-other; do
   wait_for_home "$window" ''
 done
@@ -112,11 +112,11 @@ done
 {
   printf '%s\n' "$BASELINE"
   printf '\n[[workspace]]\nname = "1"\noutput = "HEADLESS-1"\n'
-} > "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+} > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Plug the monitors back in one at a time, under the names they had before.
-created=$("$UMBRIEL" output-create HEADLESS-2)
+created=$("$ANDROMEDA" output-create HEADLESS-2)
 if [[ $created != HEADLESS-2 ]]; then
   echo "expected the new output to be named HEADLESS-2, got '$created'"
   exit 1
@@ -125,19 +125,19 @@ wait_for_home hotplug-other HEADLESS-2/1
 wait_for_output hotplug-first HEADLESS-2
 wait_for_output hotplug-second HEADLESS-2
 
-"$UMBRIEL" output-create HEADLESS-1 > /dev/null
+"$ANDROMEDA" output-create HEADLESS-1 > /dev/null
 wait_for_home hotplug-first HEADLESS-1/1
 wait_for_home hotplug-second HEADLESS-1/2
 wait_for_home hotplug-other HEADLESS-2/1
 wait_for_active_workspace HEADLESS-1 3
 if [[ $(workspace_named_for_window hotplug-first) != false \
       || $(workspace_named_for_window hotplug-second) != false ]]; then
-  echo "anonymous hotplug homes were restored onto the configured numeric name: $("$UMBRIEL" workspaces --json)"
+  echo "anonymous hotplug homes were restored onto the configured numeric name: $("$ANDROMEDA" workspaces --json)"
   exit 1
 fi
-if [[ $("$UMBRIEL" workspaces --json | jq \
+if [[ $("$ANDROMEDA" workspaces --json | jq \
       '[.[] | select(.output == "HEADLESS-1" and .name == "1" and .named)] | length') != 1 ]]; then
-  echo "recreated output lost its configured numeric name: $("$UMBRIEL" workspaces --json)"
+  echo "recreated output lost its configured numeric name: $("$ANDROMEDA" workspaces --json)"
   exit 1
 fi
 # Workspace 2 was neither the recreated group's initial workspace nor its

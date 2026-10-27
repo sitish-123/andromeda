@@ -21,7 +21,7 @@ struct wlr_tablet_tool;
 struct wlr_tablet_v2_tablet_tool;
 struct wlr_xcursor_manager;
 
-namespace umbriel {
+namespace andromeda {
 
   class LayerSurface;
   class Output;
@@ -359,4 +359,4 @@ namespace umbriel {
     wl_listener m_clientCursorDestroy{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

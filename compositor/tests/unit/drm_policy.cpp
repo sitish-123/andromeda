@@ -5,13 +5,13 @@
 #include <sys/sysmacros.h>
 #include <vector>
 
-using umbriel::DrmDeviceIdentity;
-using umbriel::DrmExclusionMatch;
-using umbriel::drmExclusionMatch;
-using umbriel::isNvidiaGpuDeviceNode;
-using umbriel::parseNvidiaDeviceMinor;
-using umbriel::resolveDrmBackendEnvironment;
-using umbriel::sameDrmPhysicalDevice;
+using andromeda::DrmDeviceIdentity;
+using andromeda::DrmExclusionMatch;
+using andromeda::drmExclusionMatch;
+using andromeda::isNvidiaGpuDeviceNode;
+using andromeda::parseNvidiaDeviceMinor;
+using andromeda::resolveDrmBackendEnvironment;
+using andromeda::sameDrmPhysicalDevice;
 
 namespace {
   const DrmDeviceIdentity kIntegrated{
@@ -28,7 +28,7 @@ namespace {
   };
 } // namespace
 
-UMBRIEL_TEST(renderNodeIdentityExcludesTheWholePhysicalGpu) {
+ANDROMEDA_TEST(renderNodeIdentityExcludesTheWholePhysicalGpu) {
   const std::vector<DrmDeviceIdentity> ignored{{
       .node = "/dev/dri/renderD129",
       .device = makedev(226, 129),
@@ -40,7 +40,7 @@ UMBRIEL_TEST(renderNodeIdentityExcludesTheWholePhysicalGpu) {
   CHECK(drmExclusionMatch(kIntegrated, ignored, {}) == DrmExclusionMatch::None);
 }
 
-UMBRIEL_TEST(cardAndRenderNodesCompareAsOnePhysicalGpu) {
+ANDROMEDA_TEST(cardAndRenderNodesCompareAsOnePhysicalGpu) {
   DrmDeviceIdentity renderNode = kDiscrete;
   renderNode.node = "/dev/dri/renderD129";
   renderNode.device = makedev(226, 129);
@@ -59,7 +59,7 @@ UMBRIEL_TEST(cardAndRenderNodesCompareAsOnePhysicalGpu) {
   CHECK(drmExclusionMatch(renderNode, std::span{&platformDevice, size_t{1}}, {}) == DrmExclusionMatch::PhysicalDevice);
 }
 
-UMBRIEL_TEST(resolvedIdentityDoesNotFollowAReusedDeviceNode) {
+ANDROMEDA_TEST(resolvedIdentityDoesNotFollowAReusedDeviceNode) {
   const std::vector<DrmDeviceIdentity> ignored{kDiscrete};
   DrmDeviceIdentity replacement = kIntegrated;
   replacement.node = kDiscrete.node;
@@ -68,7 +68,7 @@ UMBRIEL_TEST(resolvedIdentityDoesNotFollowAReusedDeviceNode) {
   CHECK(drmExclusionMatch(replacement, ignored, {}) == DrmExclusionMatch::None);
 }
 
-UMBRIEL_TEST(resolvedIdentitySurvivesNodeRenumbering) {
+ANDROMEDA_TEST(resolvedIdentitySurvivesNodeRenumbering) {
   const std::vector<DrmDeviceIdentity> ignored{kDiscrete};
   DrmDeviceIdentity reattached = kDiscrete;
   reattached.node = "/dev/dri/card7";
@@ -76,7 +76,7 @@ UMBRIEL_TEST(resolvedIdentitySurvivesNodeRenumbering) {
   CHECK(drmExclusionMatch(reattached, ignored, {}) == DrmExclusionMatch::PciAddress);
 }
 
-UMBRIEL_TEST(pciAddressKeepsAReattachedGpuExcluded) {
+ANDROMEDA_TEST(pciAddressKeepsAReattachedGpuExcluded) {
   const std::vector<std::string> pciAddresses{"0000:01:00.0"};
   DrmDeviceIdentity reenumerated = kDiscrete;
   reenumerated.node = "/dev/dri/card7";
@@ -85,10 +85,10 @@ UMBRIEL_TEST(pciAddressKeepsAReattachedGpuExcluded) {
   CHECK(drmExclusionMatch(reenumerated, {}, pciAddresses) == DrmExclusionMatch::PciAddress);
 }
 
-UMBRIEL_TEST(backendEnvironmentMatchesWlrootsPrecedence) {
+ANDROMEDA_TEST(backendEnvironmentMatchesWlrootsPrecedence) {
   CHECK_EQ(
       resolveDrmBackendEnvironment(std::nullopt, false, false, false),
-      (umbriel::DrmBackendEnvironment{
+      (andromeda::DrmBackendEnvironment{
           .native = true,
           .exclusionsSupported = true,
           .createLibinput = true,
@@ -102,7 +102,7 @@ UMBRIEL_TEST(backendEnvironmentMatchesWlrootsPrecedence) {
   CHECK(!resolveDrmBackendEnvironment(std::string_view{}, false, false, false).native);
 }
 
-UMBRIEL_TEST(filteredBackendSupportsOnlyOneDrmAndOptionalLibinput) {
+ANDROMEDA_TEST(filteredBackendSupportsOnlyOneDrmAndOptionalLibinput) {
   const auto drmOnly = resolveDrmBackendEnvironment("drm", true, true, true);
   CHECK(drmOnly.native);
   CHECK(drmOnly.exclusionsSupported);
@@ -123,7 +123,7 @@ UMBRIEL_TEST(filteredBackendSupportsOnlyOneDrmAndOptionalLibinput) {
   CHECK(!resolveDrmBackendEnvironment("drm, libinput", false, false, false).exclusionsSupported);
 }
 
-UMBRIEL_TEST(nvidiaDeviceMinorParsesDriverLine) {
+ANDROMEDA_TEST(nvidiaDeviceMinorParsesDriverLine) {
   CHECK_EQ(parseNvidiaDeviceMinor("Device Minor: \t 0"), std::optional<unsigned int>{0});
   CHECK_EQ(parseNvidiaDeviceMinor("  Device Minor: 17\r"), std::optional<unsigned int>{17});
   CHECK(!parseNvidiaDeviceMinor("Device Minor: none"));
@@ -131,7 +131,7 @@ UMBRIEL_TEST(nvidiaDeviceMinorParsesDriverLine) {
   CHECK(!parseNvidiaDeviceMinor("Model: no minor"));
 }
 
-UMBRIEL_TEST(nvidiaGpuDeviceNodeExcludesOnlyPerGpuNodes) {
+ANDROMEDA_TEST(nvidiaGpuDeviceNodeExcludesOnlyPerGpuNodes) {
   CHECK(isNvidiaGpuDeviceNode("/dev/nvidia0"));
   CHECK(isNvidiaGpuDeviceNode("/dev/nvidia17"));
   CHECK(isNvidiaGpuDeviceNode("/dev/nvidia17 (deleted)"));

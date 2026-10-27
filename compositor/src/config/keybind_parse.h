@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   inline constexpr size_t kMaxWorkspaces = 64;
 
@@ -289,7 +289,7 @@ namespace umbriel {
   struct ActionSpec {
     std::string_view name;  // e.g. "spawn", "workspace-switch", "window-close"
     std::string_view param; // "" for simple, "<cmd>" / "<workspace>[/<output>]" for parameterized
-    // One line, no trailing period. `umbriel msg --help` and docs/user/actions.md render it verbatim, and a unit test
+    // One line, no trailing period. `andromeda msg --help` and docs/user/actions.md render it verbatim, and a unit test
     // fails when the doc table and this table disagree.
     std::string_view summary;
     KeybindAction action;
@@ -300,7 +300,7 @@ namespace umbriel {
   // case-insensitive.
   [[nodiscard]] uint32_t mouseButtonFromName(std::string_view name);
 
-  // Canonical name for an evdev BTN_* code, or nullptr for a button Umbriel does not name.
+  // Canonical name for an evdev BTN_* code, or nullptr for a button Andromeda does not name.
   [[nodiscard]] const char* mouseButtonName(uint32_t button);
 
   // Parse a chord such as "Mod+Shift+h", "Ctrl+Alt+Delete", "Mod+WheelUp", "Mod+MouseBack", or "submap[resize],Escape".
@@ -330,4 +330,4 @@ namespace umbriel {
   // The binds used when no config file supplies any.
   std::vector<Keybind> defaultKeybinds();
 
-} // namespace umbriel
+} // namespace andromeda

@@ -16,9 +16,10 @@ newest=$(ls -t "$ROOT"/pkg/andromeda-1:*.pkg.tar.zst | head -1)
 version=$(basename "$newest" | sed -E 's/^andromeda-1:([^-]+)-.*/\1/')
 mapfile -t packages < <(ls "$ROOT"/pkg/*-"1:$version"-*.pkg.tar.zst)
 # The power policy changes kernel defaults and stays opt-in: only an installed one is upgraded.
-pacman -Q umbriel-power-git > /dev/null 2>&1 || mapfile -t packages < <(printf '%s\n' "${packages[@]}" | grep -v /umbriel-power-git-)
+pacman -Q andromeda-power-git > /dev/null 2>&1 || pacman -Q umbriel-power-git > /dev/null 2>&1 || mapfile -t packages < <(printf '%s\n' "${packages[@]}" | grep -v /andromeda-power-git-)
 [[ ${#packages[@]} -gt 0 ]] || { echo "no packages for $version in pkg/; run just package" >&2; exit 1; }
-pacman -U --needed --noconfirm "${packages[@]}"
+# -U ignores `replaces`; --ask 4 answers yes to removing the conflicting umbriel-* packages.
+pacman -U --needed --noconfirm --ask 4 "${packages[@]}"
 
 "$ROOT/tools/gaze-patched.sh" install
 sed -i 's/^\(auth\s\+sufficient\s\+pam_gaze\.so\)$/\1 simultaneous/' /etc/pam.d/polkit-1 /etc/pam.d/sudo

@@ -12,10 +12,10 @@ echo 0 > "$RUNTIME/fail-count"
 LD_PRELOAD=$RUNTIME/commit-fail.so FAIL_COMMIT_OUTPUT=HEADLESS-2 FAIL_COMMIT_FILE=$RUNTIME/fail-count boot_headless 2
 POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 
-commits() { run "$UMBRIEL" output-commits --json | jq -r ".\"$1\""; }
+commits() { run "$ANDROMEDA" output-commits --json | jq -r ".\"$1\""; }
 run "$DESKTOP_CLIENT" mirror HEADLESS-2 HEADLESS-1
 run "$POINTER" 1920 1080 move 100 100 > /dev/null
-run "$UMBRIEL" settle > /dev/null
+run "$ANDROMEDA" settle > /dev/null
 sleep 0.5 # real time: the mirror copies the settled frame
 
 source_before=$(commits HEADLESS-1)

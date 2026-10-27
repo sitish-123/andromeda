@@ -61,7 +61,7 @@ _ensure-configured m=mode:
     fi
 
 build m=mode: (_ensure-configured m)
-    meson compile -C build-{{m}} umbriel
+    meson compile -C build-{{m}} andromeda
 
 debug: (build "debug")
 
@@ -87,7 +87,7 @@ run m=mode startup="": (build m)
     if [[ -n "${2:-}" ]]; then
         args=(-s "$2")
     fi
-    exec ./build-{{m}}/umbriel "${args[@]}"
+    exec ./build-{{m}}/andromeda "${args[@]}"
 
 test m=mode: (configure m)
     #!/usr/bin/env bash
@@ -98,7 +98,7 @@ test m=mode: (configure m)
     meson compile -C build-{{m}} unit-tests
     meson test -C build-{{m}} --print-errorlogs
 
-# The umbrielfx renderer ownership check needs a real DRM render node, which a
+# The andromedafx renderer ownership check needs a real DRM render node, which a
 # container or a headless runner does not have, so it is a tool rather than a
 # suite entry. This runs it against every render node this machine exposes.
 [no-exit-message]
@@ -110,8 +110,8 @@ gpu-test m=mode: (_ensure-configured m)
         echo "no DRM render node under /dev/dri: nothing to check" >&2
         exit 1
     fi
-    ninja -C build-{{m}} umbrielfx/umbrielfx-renderer-test
-    ./build-{{m}}/umbrielfx/umbrielfx-renderer-test "${nodes[@]}"
+    ninja -C build-{{m}} andromedafx/andromedafx-renderer-test
+    ./build-{{m}}/andromedafx/andromedafx-renderer-test "${nodes[@]}"
 
 # Regressions for the GitHub workflow scripts. Pure Python, builds nothing.
 test-workflows:
@@ -126,22 +126,22 @@ check *filters: (_ensure-configured mode)
         export ASAN_OPTIONS="{{asan-options}}${ASAN_OPTIONS:+:${ASAN_OPTIONS}}"
     fi
     # Silent unless it fails: the run's own report is the output.
-    if ! build_log=$(meson compile -C build-{{mode}} umbriel harness-clients 2>&1); then
+    if ! build_log=$(meson compile -C build-{{mode}} andromeda harness-clients 2>&1); then
         printf '%s\n' "$build_log" >&2
         exit 1
     fi
-    bash tests/harness/check.sh ./build-{{mode}}/umbriel {{filters}}
+    bash tests/harness/check.sh ./build-{{mode}}/andromeda {{filters}}
 
 # Runs n copies of one harness check at once, each against its own instance, to expose races that load reveals. `just check-stress focus/dwindle_close`, `just check-stress focus/dwindle_close 64`.
 [no-exit-message]
 check-stress name n="32": (_ensure-configured mode)
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! build_log=$(meson compile -C build-{{mode}} umbriel harness-clients 2>&1); then
+    if ! build_log=$(meson compile -C build-{{mode}} andromeda harness-clients 2>&1); then
         printf '%s\n' "$build_log" >&2
         exit 1
     fi
-    mapfile -t matches < <(bash tests/harness/check.sh ./build-{{mode}}/umbriel --list {{name}})
+    mapfile -t matches < <(bash tests/harness/check.sh ./build-{{mode}}/andromeda --list {{name}})
     if ((${#matches[@]} != 1)); then
         echo "check-stress: '{{name}}' must match exactly one check, matched ${#matches[@]}: ${matches[*]}" >&2
         exit 2
@@ -152,11 +152,11 @@ check-stress name n="32": (_ensure-configured mode)
     for ((i = 1; i <= {{n}}; i++)); do
         cp "tests/harness/checks/${matches[0]}.sh" "$scratch/$copy.$(printf '%03d' "$i").sh"
     done
-    CHECK_DIR="$scratch" CHECK_DURATIONS_FILE="$scratch/durations" bash tests/harness/check.sh ./build-{{mode}}/umbriel -j {{n}}
+    CHECK_DIR="$scratch" CHECK_DURATIONS_FILE="$scratch/durations" bash tests/harness/check.sh ./build-{{mode}}/andromeda -j {{n}}
 
 # Names of every harness check. Boots and builds nothing.
 check-names:
-    @bash tests/harness/check.sh ./build-{{mode}}/umbriel --list
+    @bash tests/harness/check.sh ./build-{{mode}}/andromeda --list
 
 format:
     find src tests \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format -i

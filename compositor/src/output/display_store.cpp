@@ -12,11 +12,11 @@
 #include <type_traits>
 #include <variant>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
-    constexpr std::string_view kHeader = "# Written by Umbriel when displays are changed from a settings app.\n"
+    constexpr std::string_view kHeader = "# Written by Andromeda when displays are changed from a settings app.\n"
                                          "# [output] tables in the including config.toml override these.\n\n";
 
     constexpr std::array<std::string_view, 8> kTransformNames = {
@@ -132,4 +132,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -167,8 +167,8 @@ namespace {
       }
     }
 
-    void start(const umbriel::Config::Drm& config) {
-      manager = umbriel::BackendManager::create(display, config);
+    void start(const andromeda::Config::Drm& config) {
+      manager = andromeda::BackendManager::create(display, config);
       CHECK(manager != nullptr);
       if (manager) {
         CHECK(wlr_backend_start(manager->backend()));
@@ -209,7 +209,7 @@ namespace {
 
     TestDevices inventory;
     wl_display* display = nullptr;
-    std::unique_ptr<umbriel::BackendManager> manager;
+    std::unique_ptr<andromeda::BackendManager> manager;
 
   private:
     std::optional<std::string> m_backends;
@@ -355,7 +355,7 @@ wlr_backend* wlr_backend_autocreate(wl_event_loop* loop, wlr_session** session) 
 }
 } // extern "C"
 
-UMBRIEL_TEST(excludedGpuRemainsUnopenedAfterNodeReuseAndReattachment) {
+ANDROMEDA_TEST(excludedGpuRemainsUnopenedAfterNodeReuseAndReattachment) {
   Fixture fixture;
   fixture.inventory.addGpu(0, "0000:00:02.0");
   auto& ignored = fixture.inventory.addGpu(1, "0000:01:00.0");
@@ -376,7 +376,7 @@ UMBRIEL_TEST(excludedGpuRemainsUnopenedAfterNodeReuseAndReattachment) {
   CHECK_EQ(fixture.inventory.openedPci, (std::vector<std::string>{"0000:00:02.0", "0000:03:00.0", "0000:03:00.0"}));
 }
 
-UMBRIEL_TEST(pciExclusionCoversGpuThatStartsBoundToVfio) {
+ANDROMEDA_TEST(pciExclusionCoversGpuThatStartsBoundToVfio) {
   Fixture fixture;
   fixture.inventory.addGpu(0, "0000:00:02.0");
   fixture.start({.ignoredDevices = {}, .ignoredPciAddresses = {"0000:01:00.0"}});
@@ -385,7 +385,7 @@ UMBRIEL_TEST(pciExclusionCoversGpuThatStartsBoundToVfio) {
   CHECK_EQ(fixture.inventory.openedPci, (std::vector<std::string>{"0000:00:02.0"}));
 }
 
-UMBRIEL_TEST(renderSelectorKeepsItsGpuWhenTheLinkIsRetargeted) {
+ANDROMEDA_TEST(renderSelectorKeepsItsGpuWhenTheLinkIsRetargeted) {
   Fixture fixture;
   fixture.inventory.addGpu(0, "0000:00:02.0");
   auto& ignored = fixture.inventory.addGpu(1, "0000:01:00.0");
@@ -405,42 +405,42 @@ UMBRIEL_TEST(renderSelectorKeepsItsGpuWhenTheLinkIsRetargeted) {
   CHECK_EQ(fixture.inventory.openedPci, (std::vector<std::string>{"0000:00:02.0", "0000:03:00.0"}));
 }
 
-UMBRIEL_TEST(unresolvedRenderSelectorFailsBeforeOpeningAnyGpu) {
+ANDROMEDA_TEST(unresolvedRenderSelectorFailsBeforeOpeningAnyGpu) {
   Fixture fixture;
   fixture.inventory.addGpu(0, "0000:00:02.0");
   // The card is visible before its render-node link. Accepting the unresolved
   // selector here would open the GPU that the user intended to exclude.
   fixture.inventory.addGpu(5, "0000:01:00.0");
-  auto manager = umbriel::BackendManager::create(
+  auto manager = andromeda::BackendManager::create(
       fixture.display, {.ignoredDevices = {"/dev/dri/by-path/pci-0000:01:00.0-render"}, .ignoredPciAddresses = {}}
   );
   CHECK(manager == nullptr);
   CHECK(fixture.inventory.openedPci.empty());
 }
 
-UMBRIEL_TEST(allExcludedAndInvalidSelectorsFailWithoutOpeningAnyGpu) {
+ANDROMEDA_TEST(allExcludedAndInvalidSelectorsFailWithoutOpeningAnyGpu) {
   Fixture fixture;
   auto& gpu = fixture.inventory.addGpu(0, "0000:00:02.0");
   CHECK(
-      umbriel::BackendManager::create(fixture.display, {.ignoredDevices = {gpu.node}, .ignoredPciAddresses = {}})
+      andromeda::BackendManager::create(fixture.display, {.ignoredDevices = {gpu.node}, .ignoredPciAddresses = {}})
       == nullptr
   );
   CHECK(
-      umbriel::BackendManager::create(fixture.display, {.ignoredDevices = {"/dev/null"}, .ignoredPciAddresses = {}})
+      andromeda::BackendManager::create(fixture.display, {.ignoredDevices = {"/dev/null"}, .ignoredPciAddresses = {}})
       == nullptr
   );
   CHECK(fixture.inventory.openedPci.empty());
 }
 
-UMBRIEL_TEST(descriptorAuditRejectsExcludedGpuWhenUdevMetadataDisappears) {
+ANDROMEDA_TEST(descriptorAuditRejectsExcludedGpuWhenUdevMetadataDisappears) {
   for (const bool usePciSelector : {false, true}) {
     Fixture fixture;
     auto& allowed = fixture.inventory.addGpu(0, "0000:00:02.0");
     auto& ignored = fixture.inventory.addGpu(1, "0000:01:00.0");
     auto& render = fixture.inventory.addRenderNode(ignored, 129);
     fixture.start(
-        usePciSelector ? umbriel::Config::Drm{.ignoredDevices = {}, .ignoredPciAddresses = {"0000:01:00.0"}}
-                       : umbriel::Config::Drm{.ignoredDevices = {ignored.node}, .ignoredPciAddresses = {}}
+        usePciSelector ? andromeda::Config::Drm{.ignoredDevices = {}, .ignoredPciAddresses = {"0000:01:00.0"}}
+                       : andromeda::Config::Drm{.ignoredDevices = {ignored.node}, .ignoredPciAddresses = {}}
     );
 
     CHECK(fixture.verifyOpenDevice(allowed.device));
@@ -459,7 +459,7 @@ UMBRIEL_TEST(descriptorAuditRejectsExcludedGpuWhenUdevMetadataDisappears) {
   }
 }
 
-UMBRIEL_TEST(automaticAndHeadlessPathsKeepWlrootsDiscovery) {
+ANDROMEDA_TEST(automaticAndHeadlessPathsKeepWlrootsDiscovery) {
   Fixture fixture;
   fixture.start({});
   CHECK_EQ(fixture.inventory.automaticCalls, 1);
@@ -470,7 +470,7 @@ UMBRIEL_TEST(automaticAndHeadlessPathsKeepWlrootsDiscovery) {
   CHECK(fixture.inventory.openedPci.empty());
 }
 
-UMBRIEL_TEST(descriptorAuditRejectsUnreadableDescriptorsButAllowsClosedOnes) {
+ANDROMEDA_TEST(descriptorAuditRejectsUnreadableDescriptorsButAllowsClosedOnes) {
   Fixture fixture;
   fixture.inventory.addGpu(0, "0000:00:02.0");
   auto& ignored = fixture.inventory.addGpu(1, "0000:01:00.0");

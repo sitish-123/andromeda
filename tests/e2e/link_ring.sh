@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Find my phone and find my desktop, through the shell, against a real umbriel-linkd and a present headless phone,
+# Find my phone and find my desktop, through the shell, against a real andromeda-linkd and a present headless phone,
 # with a private PipeWire whose null sink is recorded. Proves: link-ring rings the phone, whose ringing report turns
 # the Devices tab's Ring button into Stop, and link-ring stop stops it; a phone that stops ringing by itself is shown
 # stopped; the phone rings the desktop, which plays the alarm sound at full volume although UI sounds are off (the
@@ -35,14 +35,14 @@ with_noctalia '
     for _ in $(seq 150); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   phone_saw() { [[ $(grep -c "$1" "$OUT/hold.jsonl") -ge ${2:-1} ]]; }
   ringing() { [[ $(msg link-ringing) == "$1" ]]; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
@@ -53,7 +53,7 @@ with_noctalia '
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
@@ -105,7 +105,7 @@ ffmpeg -hide_banner -i "$OUT/ring.wav" -af volumedetect -f null - 2>&1 | grep -E
 max=$(sed -n "s/.*max_volume: \(-\?[0-9.]*\) dB/\1/p" "$OUT/volume.txt")
 awk -v m="$max" 'BEGIN {exit !(m > -12)}' || { echo "FAIL: the ring is not loud (max $max dB)" >&2; exit 1; }
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in ring-phone-ringing ring-desktop-ringing; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

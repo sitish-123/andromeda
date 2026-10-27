@@ -1,9 +1,9 @@
 {
   pkgs,
-  xdg-desktop-portal-umbriel,
+  xdg-desktop-portal-andromeda,
 }:
 pkgs.mkShell {
-  inputsFrom = [ xdg-desktop-portal-umbriel ];
+  inputsFrom = [ xdg-desktop-portal-andromeda ];
 
   nativeBuildInputs = with pkgs; [
     just
@@ -35,6 +35,6 @@ pkgs.mkShell {
   ];
 
   shellHook = ''
-    echo " xdg-desktop-portal-umbriel dev-shell | 'just --list' to see available tasks"
+    echo " xdg-desktop-portal-andromeda dev-shell | 'just --list' to see available tasks"
   '';
 }

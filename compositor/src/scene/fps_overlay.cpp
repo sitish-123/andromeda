@@ -28,7 +28,7 @@ namespace {
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   FpsOverlay::FpsOverlay(Server& server, wlr_scene_tree* parent) : m_server(server), m_parent(parent) {}
 
@@ -124,4 +124,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -3,10 +3,10 @@
 # Master output moves transfer the focused master or stack area as one column.
 set -euo pipefail
 
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     return 1
   fi
@@ -19,7 +19,7 @@ spawn_client() {
 wait_for_windows() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     [[ $count == "$expected" ]] && return 0
     sleep 0.1
   done
@@ -28,7 +28,7 @@ wait_for_windows() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" --arg field "$2" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" --arg field "$2" \
     '.[] | select(.title == $title) | .[$field]'
 }
 
@@ -47,7 +47,7 @@ workspace_id_named() {
   "$WORKSPACE" --all | awk -F'\t' -v name="$1" '$2 == name { print $1; exit }'
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "master"
@@ -64,7 +64,7 @@ workspaces = ["ONE"]
 position = [1280, 0]
 workspaces = ["RIGHT_ONE"]
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 one_id=$(workspace_id_named ONE)
 right_one_id=$(workspace_id_named RIGHT_ONE)
 if [[ -z $one_id || -z $right_one_id ]]; then

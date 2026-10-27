@@ -26,16 +26,16 @@ namespace {
 
 // Window-rule opacity belongs to the client surface composition. The blur
 // behind it stays fully sampled, matching a client that submits the same alpha.
-UMBRIEL_TEST(windowRuleOpacityDoesNotAttenuateBlur) {
+ANDROMEDA_TEST(windowRuleOpacityDoesNotAttenuateBlur) {
   wlr_scene* scene = wlr_scene_create();
   CHECK(scene != nullptr);
   if (scene == nullptr) {
     return;
   }
 
-  umbriel::ResolvedWindowRule rule;
+  andromeda::ResolvedWindowRule rule;
   rule.blur = true;
-  umbriel::ViewDecoration decoration;
+  andromeda::ViewDecoration decoration;
   decoration.applyRule(rule);
 
   const wlr_box box{0, 0, 100, 100};
@@ -52,16 +52,16 @@ UMBRIEL_TEST(windowRuleOpacityDoesNotAttenuateBlur) {
 
 // Transition opacity still fades the effect itself, otherwise an invisible
 // opening or closing window would leave a standalone blur rectangle.
-UMBRIEL_TEST(transitionOpacityStillAttenuatesBlur) {
+ANDROMEDA_TEST(transitionOpacityStillAttenuatesBlur) {
   wlr_scene* scene = wlr_scene_create();
   CHECK(scene != nullptr);
   if (scene == nullptr) {
     return;
   }
 
-  umbriel::ResolvedWindowRule rule;
+  andromeda::ResolvedWindowRule rule;
   rule.blur = true;
-  umbriel::ViewDecoration decoration;
+  andromeda::ViewDecoration decoration;
   decoration.applyRule(rule);
 
   const wlr_box box{0, 0, 100, 100};

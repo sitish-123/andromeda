@@ -3,22 +3,22 @@
 #include <nlohmann/json.hpp>
 #include <string_view>
 
-namespace compositors::umbriel {
+namespace compositors::andromeda {
 
-  class UmbrielRuntime;
+  class AndromedaRuntime;
 
-  // Base for objects that consume Umbriel event-stream messages. Handlers
+  // Base for objects that consume Andromeda event-stream messages. Handlers
   // register themselves with the runtime on construction and unregister on
-  // destruction. The socket owner (UmbrielWorkspaceBackend) reads the stream
+  // destruction. The socket owner (AndromedaWorkspaceBackend) reads the stream
   // and fans each parsed event out through the runtime to every registered
   // handler.
-  class UmbrielEventHandler {
+  class AndromedaEventHandler {
   public:
-    explicit UmbrielEventHandler(UmbrielRuntime& runtime);
-    virtual ~UmbrielEventHandler();
+    explicit AndromedaEventHandler(AndromedaRuntime& runtime);
+    virtual ~AndromedaEventHandler();
 
-    UmbrielEventHandler(const UmbrielEventHandler&) = delete;
-    UmbrielEventHandler& operator=(const UmbrielEventHandler&) = delete;
+    AndromedaEventHandler(const AndromedaEventHandler&) = delete;
+    AndromedaEventHandler& operator=(const AndromedaEventHandler&) = delete;
 
     virtual void handleEvent(std::string_view event, const nlohmann::json& data) = 0;
     // Called when the runtime tears the event stream down (e.g. cleanup): the
@@ -26,7 +26,7 @@ namespace compositors::umbriel {
     virtual void handleStreamReset() {}
 
   protected:
-    UmbrielRuntime& m_runtime;
+    AndromedaRuntime& m_runtime;
   };
 
-} // namespace compositors::umbriel
+} // namespace compositors::andromeda

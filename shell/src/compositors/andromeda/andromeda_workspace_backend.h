@@ -1,6 +1,6 @@
 #pragma once
 
-#include "compositors/umbriel/umbriel_event_handler.h"
+#include "compositors/andromeda/andromeda_event_handler.h"
 #include "compositors/workspace_backend.h"
 
 #include <cstdint>
@@ -11,24 +11,24 @@
 #include <utility>
 #include <vector>
 
-namespace compositors::umbriel {
-  class UmbrielRuntime;
-} // namespace compositors::umbriel
+namespace compositors::andromeda {
+  class AndromedaRuntime;
+} // namespace compositors::andromeda
 
-// Workspace metadata from the Umbriel IPC windows event, joined to the ext
+// Workspace metadata from the Andromeda IPC windows event, joined to the ext
 // protocol lists the platform already owns. Workspace order and names come from
 // the ext-workspace list (apply refreshes the per-output cache); window rows
-// come from the IPC stream. Umbriel workspace ids are "<output>:<serial>", the
+// come from the IPC stream. Andromeda workspace ids are "<output>:<serial>", the
 // same string in both surfaces, so the cache can key windows to workspaces
 // without a workspace IPC event family.
-class UmbrielWorkspaceBackend final : public compositors::WorkspaceMetadataBackend,
-                                      public compositors::umbriel::UmbrielEventHandler {
+class AndromedaWorkspaceBackend final : public compositors::WorkspaceMetadataBackend,
+                                      public compositors::andromeda::AndromedaEventHandler {
 public:
-  explicit UmbrielWorkspaceBackend(compositors::umbriel::UmbrielRuntime& runtime);
-  ~UmbrielWorkspaceBackend() override;
+  explicit AndromedaWorkspaceBackend(compositors::andromeda::AndromedaRuntime& runtime);
+  ~AndromedaWorkspaceBackend() override;
 
-  UmbrielWorkspaceBackend(const UmbrielWorkspaceBackend&) = delete;
-  UmbrielWorkspaceBackend& operator=(const UmbrielWorkspaceBackend&) = delete;
+  AndromedaWorkspaceBackend(const AndromedaWorkspaceBackend&) = delete;
+  AndromedaWorkspaceBackend& operator=(const AndromedaWorkspaceBackend&) = delete;
 
   void setChangeCallback(ChangeCallback callback) override;
   void setOverviewChangeCallback(ChangeCallback callback) override;

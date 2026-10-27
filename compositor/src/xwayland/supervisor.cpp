@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("xwayland");
@@ -165,4 +165,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -146,7 +146,7 @@ namespace settings {
     constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kMergedSectionIds{{
         {"templates", "appearance"},
         {"osd", "notifications"},
-        {"umbriel", "overview"},
+        {"andromeda", "overview"},
     }};
 
     const SettingsSectionDescriptor& descriptorFor(SettingsSection section) {
@@ -501,7 +501,7 @@ namespace settings {
 
   namespace {
 
-    constexpr std::string_view kCompositorPathRoot = "umbriel";
+    constexpr std::string_view kCompositorPathRoot = "andromeda";
 
     std::vector<std::string> compositorPath(std::string_view key) {
       std::vector<std::string> path{std::string(kCompositorPathRoot)};
@@ -511,12 +511,12 @@ namespace settings {
       return path;
     }
 
-    // "appearance.blur.radius" -> "settings.schema.umbriel.appearance-blur-radius"
+    // "appearance.blur.radius" -> "settings.schema.andromeda.appearance-blur-radius"
     std::string compositorLabelKey(std::string_view key) {
       std::string id(key);
       std::ranges::replace(id, '.', '-');
       std::ranges::replace(id, '_', '-');
-      return "settings.schema.umbriel." + id;
+      return "settings.schema.andromeda." + id;
     }
 
     double compositorNumber(const SettingsControl& compositor, std::string_view key) {
@@ -692,7 +692,7 @@ namespace settings {
         std::vector<SelectOption> options;
         for (const auto& [value, id] : kCornerActions) {
           options.push_back(
-              SelectOption{std::string(value), tr("settings.schema.umbriel.hot-corner-actions." + std::string(id))}
+              SelectOption{std::string(value), tr("settings.schema.andromeda.hot-corner-actions." + std::string(id))}
           );
         }
         if (!current.empty()
@@ -1743,7 +1743,7 @@ namespace settings {
         "screen corners radius"
     ));
 
-    // On Umbriel the compositor owns hot corners; the shell's were moved to it (HotCorners::migrateToCompositor).
+    // On Andromeda the compositor owns hot corners; the shell's were moved to it (HotCorners::migrateToCompositor).
     if (env.compositorSettings == nullptr) {
       entries.push_back(makeEntry(
           SettingsSection::Windows, "hot-corners", tr("settings.schema.desktop.hot-corners-enabled.label"),
@@ -2445,14 +2445,14 @@ namespace settings {
       }
     }
 
-    // Umbriel-specific integrations
-    if (env.umbrielOverviewTypeToLaunchSupported) {
+    // Andromeda-specific integrations
+    if (env.andromedaOverviewTypeToLaunchSupported) {
       entries.push_back(makeEntry(
-          SettingsSection::Overview, "overview", tr("settings.schema.shell.umbriel-overview-type-to-launch.label"),
-          tr("settings.schema.shell.umbriel-overview-type-to-launch.description"),
-          {"shell", "umbriel_overview_type_to_launch_enabled"},
-          ToggleSetting{cfg.shell.umbrielOverviewTypeToLaunchEnabled},
-          "umbriel overview type launch launcher search keyboard focus"
+          SettingsSection::Overview, "overview", tr("settings.schema.shell.andromeda-overview-type-to-launch.label"),
+          tr("settings.schema.shell.andromeda-overview-type-to-launch.description"),
+          {"shell", "andromeda_overview_type_to_launch_enabled"},
+          ToggleSetting{cfg.shell.andromedaOverviewTypeToLaunchEnabled},
+          "andromeda overview type launch launcher search keyboard focus"
       ));
     }
 

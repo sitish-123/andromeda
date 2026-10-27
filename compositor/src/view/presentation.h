@@ -13,7 +13,7 @@ struct wlr_scene_rect;
 struct wlr_scene_tree;
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   // The size a view is currently *drawn* at, which can differ from the committed size: an unacked layout configure, a
   // resize animation, or fullscreen (a mismatched buffer is centered, not scaled). Borders, shadow, blur and output
@@ -84,4 +84,4 @@ namespace umbriel {
     bool m_fullscreenOpaque = true;
   };
 
-} // namespace umbriel
+} // namespace andromeda

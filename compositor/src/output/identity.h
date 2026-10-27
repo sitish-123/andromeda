@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
   // How a physical output identifies itself, as wlroots reports it on
   // wlr_output. Every field except the connector may be absent: make, model and
@@ -16,7 +16,7 @@ namespace umbriel {
   };
 
   // "<make> <model> <serial>", with "Unknown" for any field the display does not report. Names an output by panel
-  // rather than port; shown by `umbriel outputs`.
+  // rather than port; shown by `andromeda outputs`.
   [[nodiscard]] std::string outputDescriptor(const OutputIdentity& identity);
 
   enum class OutputNameMatch {
@@ -39,4 +39,4 @@ namespace umbriel {
   // output would otherwise answer to "Unknown Unknown Unknown".
   [[nodiscard]] OutputNameMatch outputNameMatch(const OutputIdentity& identity, std::string_view configured);
 
-} // namespace umbriel
+} // namespace andromeda

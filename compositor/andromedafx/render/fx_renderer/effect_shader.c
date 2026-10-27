@@ -18,63 +18,63 @@ static const char kPreamble[] =
     "#define sin(x) sin(mod((x), 6.283185307179586))\n"
     "#define cos(x) cos(mod((x), 6.283185307179586))\n"
     "varying vec2 v_texcoord;\n"
-    "uniform sampler2D umbriel_texture;\n"
-    "uniform mat3 umbriel_sample_matrix;\n"
-    "uniform sampler2D umbriel_previous_texture;\n"
-    "uniform mat3 umbriel_previous_sample_matrix;\n"
-    "uniform vec2 umbriel_size;\n"
-    "uniform float umbriel_scale;\n"
-    "uniform float umbriel_time;\n"
-    "uniform vec2 umbriel_expand;\n"
-    "uniform vec4 umbriel_palette[4];\n"
-    "uniform int umbriel_palette_count;\n"
-    "vec4 umbriel_sample(vec2 uv) {\n"
+    "uniform sampler2D andromeda_texture;\n"
+    "uniform mat3 andromeda_sample_matrix;\n"
+    "uniform sampler2D andromeda_previous_texture;\n"
+    "uniform mat3 andromeda_previous_sample_matrix;\n"
+    "uniform vec2 andromeda_size;\n"
+    "uniform float andromeda_scale;\n"
+    "uniform float andromeda_time;\n"
+    "uniform vec2 andromeda_expand;\n"
+    "uniform vec4 andromeda_palette[4];\n"
+    "uniform int andromeda_palette_count;\n"
+    "vec4 andromeda_sample(vec2 uv) {\n"
     "  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);\n"
-    "  vec2 p = (vec3(uv, 1.0) * umbriel_sample_matrix).xy;\n"
+    "  vec2 p = (vec3(uv, 1.0) * andromeda_sample_matrix).xy;\n"
     "  if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) return vec4(0.0);\n"
-    "  return texture2D(umbriel_texture, p);\n"
+    "  return texture2D(andromeda_texture, p);\n"
     "}\n"
-    "vec4 umbriel_sample_previous(vec2 uv) {\n"
+    "vec4 andromeda_sample_previous(vec2 uv) {\n"
     "  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);\n"
-    "  vec2 p = (vec3(uv, 1.0) * umbriel_previous_sample_matrix).xy;\n"
+    "  vec2 p = (vec3(uv, 1.0) * andromeda_previous_sample_matrix).xy;\n"
     "  if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) return vec4(0.0);\n"
-    "  return texture2D(umbriel_previous_texture, p);\n"
+    "  return texture2D(andromeda_previous_texture, p);\n"
     "}\n"
     // GLSL ES 1.00 indexes uniform arrays by constant expressions only, so the loop counter is the index.
-    "vec4 umbriel_palette_at(float t) {\n"
-    "  if (umbriel_palette_count <= 0) return vec4(0.0);\n"
-    "  float span = float(umbriel_palette_count);\n"
+    "vec4 andromeda_palette_at(float t) {\n"
+    "  if (andromeda_palette_count <= 0) return vec4(0.0);\n"
+    "  float span = float(andromeda_palette_count);\n"
     "  float scaled = fract(t) * span;\n"
     "  float index = floor(scaled);\n"
     "  float next = mod(index + 1.0, span);\n"
-    "  vec4 from = umbriel_palette[0];\n"
-    "  vec4 to = umbriel_palette[0];\n"
+    "  vec4 from = andromeda_palette[0];\n"
+    "  vec4 to = andromeda_palette[0];\n"
     "  for (int i = 0; i < 4; i++) {\n"
-    "    if (i >= umbriel_palette_count) break;\n"
-    "    if (float(i) == index) from = umbriel_palette[i];\n"
-    "    if (float(i) == next) to = umbriel_palette[i];\n"
+    "    if (i >= andromeda_palette_count) break;\n"
+    "    if (float(i) == index) from = andromeda_palette[i];\n"
+    "    if (float(i) == next) to = andromeda_palette[i];\n"
     "  }\n"
     "  return mix(from, to, scaled - index);\n"
     "}\n";
 
 static const char kAnimationSection[] =
-    "uniform float umbriel_progress;\n"
-    "uniform float umbriel_linear_progress;\n"
-    "uniform float umbriel_direction;\n"
-    "uniform vec4 umbriel_random_seed;\n"
-    "#define umbriel_clamped_progress clamp(umbriel_progress, 0.0, 1.0)\n";
+    "uniform float andromeda_progress;\n"
+    "uniform float andromeda_linear_progress;\n"
+    "uniform float andromeda_direction;\n"
+    "uniform vec4 andromeda_random_seed;\n"
+    "#define andromeda_clamped_progress clamp(andromeda_progress, 0.0, 1.0)\n";
 static const char kAnimationSuffix[] = "\nvoid main() { gl_FragColor = animation(v_texcoord); }\n";
 
 // Hole and radii describe the client rectangle inside the drawn rectangle. The
 // distance is signed logical pixels, negative inside the window.
 static const char kBorderSection[] =
-    "uniform vec4 umbriel_border_hole;\n"
-    "uniform vec4 umbriel_border_radius;\n"
-    "float umbriel_border_distance(vec2 uv) {\n"
-    "  vec2 half_size = umbriel_border_hole.zw * umbriel_size * 0.5;\n"
-    "  vec2 p = (uv - umbriel_border_hole.xy) * umbriel_size - half_size;\n"
-    "  float r = p.y < 0.0 ? (p.x < 0.0 ? umbriel_border_radius.x : umbriel_border_radius.y)\n"
-    "                      : (p.x < 0.0 ? umbriel_border_radius.w : umbriel_border_radius.z);\n"
+    "uniform vec4 andromeda_border_hole;\n"
+    "uniform vec4 andromeda_border_radius;\n"
+    "float andromeda_border_distance(vec2 uv) {\n"
+    "  vec2 half_size = andromeda_border_hole.zw * andromeda_size * 0.5;\n"
+    "  vec2 p = (uv - andromeda_border_hole.xy) * andromeda_size - half_size;\n"
+    "  float r = p.y < 0.0 ? (p.x < 0.0 ? andromeda_border_radius.x : andromeda_border_radius.y)\n"
+    "                      : (p.x < 0.0 ? andromeda_border_radius.w : andromeda_border_radius.z);\n"
     "  r = min(r, min(half_size.x, half_size.y));\n"
     "  vec2 q = abs(p) - half_size + r;\n"
     "  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;\n"
@@ -83,31 +83,31 @@ static const char kBorderSection[] =
 static const char kBorderSuffix[] =
     "\nvoid main() {\n"
     "  vec4 c = border(v_texcoord);\n"
-    "  gl_FragColor = c * smoothstep(-0.5, 0.5, umbriel_border_distance(v_texcoord));\n"
+    "  gl_FragColor = c * smoothstep(-0.5, 0.5, andromeda_border_distance(v_texcoord));\n"
     "}\n";
 
 // In-place kinds write back through the rounded mask of the drawn rectangle:
 // outside the corner arcs the original pixel is restored. The edge is one
 // buffer pixel soft, so straight edges keep every buffer pixel whole.
 static const char kMaskSection[] =
-    "uniform vec4 umbriel_corner_radius;\n"
-    "float umbriel_mask(vec2 uv) {\n"
-    "  vec2 half_size = umbriel_size * 0.5;\n"
-    "  vec2 p = uv * umbriel_size - half_size;\n"
-    "  float r = p.y < 0.0 ? (p.x < 0.0 ? umbriel_corner_radius.x : umbriel_corner_radius.y)\n"
-    "                      : (p.x < 0.0 ? umbriel_corner_radius.w : umbriel_corner_radius.z);\n"
+    "uniform vec4 andromeda_corner_radius;\n"
+    "float andromeda_mask(vec2 uv) {\n"
+    "  vec2 half_size = andromeda_size * 0.5;\n"
+    "  vec2 p = uv * andromeda_size - half_size;\n"
+    "  float r = p.y < 0.0 ? (p.x < 0.0 ? andromeda_corner_radius.x : andromeda_corner_radius.y)\n"
+    "                      : (p.x < 0.0 ? andromeda_corner_radius.w : andromeda_corner_radius.z);\n"
     "  r = min(r, min(half_size.x, half_size.y));\n"
     "  vec2 q = abs(p) - half_size + r;\n"
     "  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;\n"
-    "  return 1.0 - smoothstep(-0.5, 0.5, d * umbriel_scale);\n"
+    "  return 1.0 - smoothstep(-0.5, 0.5, d * andromeda_scale);\n"
     "}\n";
 static const char kWindowSuffix[] =
-    "\nvoid main() { gl_FragColor = mix(umbriel_sample(v_texcoord), window(v_texcoord), umbriel_mask(v_texcoord)); }\n";
+    "\nvoid main() { gl_FragColor = mix(andromeda_sample(v_texcoord), window(v_texcoord), andromeda_mask(v_texcoord)); }\n";
 static const char kScreenSuffix[] = "\nvoid main() { gl_FragColor = screen(v_texcoord); }\n";
 // The cursor kind is in place too, so it needs the mask helper before its own uniform.
-static const char kCursorSection[] = "uniform vec2 umbriel_pointer;\n";
+static const char kCursorSection[] = "uniform vec2 andromeda_pointer;\n";
 static const char kCursorSuffix[] =
-    "\nvoid main() { gl_FragColor = mix(umbriel_sample(v_texcoord), cursor(v_texcoord), umbriel_mask(v_texcoord)); }\n";
+    "\nvoid main() { gl_FragColor = mix(andromeda_sample(v_texcoord), cursor(v_texcoord), andromeda_mask(v_texcoord)); }\n";
 
 static const char* kind_name(enum fx_effect_kind kind) {
   switch (kind) {
@@ -324,8 +324,8 @@ void fx_effect_shader_bind_uniform(struct fx_effect_shader* shader, const struct
 // preamble declares (and that fillTimeUniforms may omit) are reset first.
 static void reset_optional_uniforms(struct fx_effect_shader* shader) {
   static const struct fx_uniform defaults[] = {
-      {.name = "umbriel_palette_count", .type = FX_UNIFORM_INT, .count = 1},
-      {.name = "umbriel_time", .type = FX_UNIFORM_FLOAT, .count = 1},
+      {.name = "andromeda_palette_count", .type = FX_UNIFORM_INT, .count = 1},
+      {.name = "andromeda_time", .type = FX_UNIFORM_FLOAT, .count = 1},
   };
   for (size_t i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
     fx_effect_shader_bind_uniform(shader, &defaults[i]);
@@ -383,17 +383,17 @@ fx_effect_shader_create(struct wlr_renderer* renderer, enum fx_effect_kind kind,
   shader->proj = glGetUniformLocation(shader->program, "proj");
   shader->tex_proj = glGetUniformLocation(shader->program, "tex_proj");
   shader->position = glGetAttribLocation(shader->program, "pos");
-  shader->tex = glGetUniformLocation(shader->program, "umbriel_texture");
-  shader->sample_matrix = glGetUniformLocation(shader->program, "umbriel_sample_matrix");
-  shader->previous_tex = glGetUniformLocation(shader->program, "umbriel_previous_texture");
-  shader->previous_sample_matrix = glGetUniformLocation(shader->program, "umbriel_previous_sample_matrix");
-  shader->progress = glGetUniformLocation(shader->program, "umbriel_progress");
-  shader->linear_progress = glGetUniformLocation(shader->program, "umbriel_linear_progress");
-  shader->direction = glGetUniformLocation(shader->program, "umbriel_direction");
-  shader->random_seed = glGetUniformLocation(shader->program, "umbriel_random_seed");
-  shader->size = glGetUniformLocation(shader->program, "umbriel_size");
-  shader->scale = glGetUniformLocation(shader->program, "umbriel_scale");
-  shader->expand = glGetUniformLocation(shader->program, "umbriel_expand");
+  shader->tex = glGetUniformLocation(shader->program, "andromeda_texture");
+  shader->sample_matrix = glGetUniformLocation(shader->program, "andromeda_sample_matrix");
+  shader->previous_tex = glGetUniformLocation(shader->program, "andromeda_previous_texture");
+  shader->previous_sample_matrix = glGetUniformLocation(shader->program, "andromeda_previous_sample_matrix");
+  shader->progress = glGetUniformLocation(shader->program, "andromeda_progress");
+  shader->linear_progress = glGetUniformLocation(shader->program, "andromeda_linear_progress");
+  shader->direction = glGetUniformLocation(shader->program, "andromeda_direction");
+  shader->random_seed = glGetUniformLocation(shader->program, "andromeda_random_seed");
+  shader->size = glGetUniformLocation(shader->program, "andromeda_size");
+  shader->scale = glGetUniformLocation(shader->program, "andromeda_scale");
+  shader->expand = glGetUniformLocation(shader->program, "andromeda_expand");
   cache_uniforms(shader, label);
   wlr_egl_restore_context(&previous);
   return shader;

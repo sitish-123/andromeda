@@ -10,7 +10,7 @@ struct wlr_drag;
 struct xdg_toplevel_drag_manager_v1_interface;
 struct xdg_toplevel_drag_v1_interface;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
   class View;
@@ -73,4 +73,4 @@ namespace umbriel {
     std::vector<std::unique_ptr<Drag>> m_drags;
   };
 
-} // namespace umbriel
+} // namespace andromeda

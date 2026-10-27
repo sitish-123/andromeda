@@ -1,20 +1,20 @@
 #include "check.h"
 #include "config/change.h"
 
-using umbriel::AccelProfile;
-using umbriel::Config;
-using umbriel::ConfigChange;
-using umbriel::ConfigEffects;
-using umbriel::ContentType;
-using umbriel::Keybind;
-using umbriel::LayerRule;
-using umbriel::ModifierKey;
-using umbriel::OutputRule;
-using umbriel::SecurityContextRule;
-using umbriel::WindowRule;
-using umbriel::WorkspaceConfig;
+using andromeda::AccelProfile;
+using andromeda::Config;
+using andromeda::ConfigChange;
+using andromeda::ConfigEffects;
+using andromeda::ContentType;
+using andromeda::Keybind;
+using andromeda::LayerRule;
+using andromeda::ModifierKey;
+using andromeda::OutputRule;
+using andromeda::SecurityContextRule;
+using andromeda::WindowRule;
+using andromeda::WorkspaceConfig;
 
-UMBRIEL_TEST(anIdenticalConfigChangesNothing) {
+ANDROMEDA_TEST(anIdenticalConfigChangesNothing) {
   const Config before;
   const Config after;
   const ConfigChange change = ConfigChange::between(before, after);
@@ -23,7 +23,7 @@ UMBRIEL_TEST(anIdenticalConfigChangesNothing) {
   CHECK(!change.any());
 }
 
-UMBRIEL_TEST(aFirstLoadReportsEverything) {
+ANDROMEDA_TEST(aFirstLoadReportsEverything) {
   const ConfigChange change = ConfigChange::everything();
   CHECK(change.any());
   CHECK(change.appearance);
@@ -36,7 +36,7 @@ UMBRIEL_TEST(aFirstLoadReportsEverything) {
   CHECK(change.scratchpads);
 }
 
-UMBRIEL_TEST(eachSectionIsReportedOnItsOwn) {
+ANDROMEDA_TEST(eachSectionIsReportedOnItsOwn) {
   const Config before;
 
   {
@@ -186,7 +186,7 @@ UMBRIEL_TEST(eachSectionIsReportedOnItsOwn) {
   }
 }
 
-UMBRIEL_TEST(nestedAppearanceChangesAreCaught) {
+ANDROMEDA_TEST(nestedAppearanceChangesAreCaught) {
   const Config before;
   Config after;
   // Nested structs need their own comparison, so a change buried a level down is
@@ -207,7 +207,7 @@ UMBRIEL_TEST(nestedAppearanceChangesAreCaught) {
   CHECK(ConfigChange::between(before, focused).input);
 }
 
-UMBRIEL_TEST(borderColorChangesAreColorChangesThatRefreshChrome) {
+ANDROMEDA_TEST(borderColorChangesAreColorChangesThatRefreshChrome) {
   const Config before;
   Config after;
   after.colors.border.focused[0] += 0.1F;
@@ -223,7 +223,7 @@ UMBRIEL_TEST(borderColorChangesAreColorChangesThatRefreshChrome) {
   CHECK(!effects.sceneBlur);
 }
 
-UMBRIEL_TEST(listSectionsAreCompared) {
+ANDROMEDA_TEST(listSectionsAreCompared) {
   const Config before;
 
   {
@@ -262,7 +262,7 @@ UMBRIEL_TEST(listSectionsAreCompared) {
   }
 }
 
-UMBRIEL_TEST(ruleEqualityIgnoresTheCompiledRegex) {
+ANDROMEDA_TEST(ruleEqualityIgnoresTheCompiledRegex) {
   // Two rules built from the same pattern are the same rule, even though their
   // std::regex members are distinct objects that cannot be compared at all.
   Config before;
@@ -283,7 +283,7 @@ UMBRIEL_TEST(ruleEqualityIgnoresTheCompiledRegex) {
   CHECK(!ConfigChange::between(before, after).windowRules);
 }
 
-UMBRIEL_TEST(ruleEqualityStillSeesAnXdgTagChange) {
+ANDROMEDA_TEST(ruleEqualityStillSeesAnXdgTagChange) {
   Config before;
   Config after;
   WindowRule first;
@@ -298,7 +298,7 @@ UMBRIEL_TEST(ruleEqualityStillSeesAnXdgTagChange) {
   CHECK(ConfigChange::between(before, after).windowRules);
 }
 
-UMBRIEL_TEST(ruleEqualityStillSeesAContentTypeChange) {
+ANDROMEDA_TEST(ruleEqualityStillSeesAContentTypeChange) {
   Config before;
   Config after;
   WindowRule first;
@@ -313,7 +313,7 @@ UMBRIEL_TEST(ruleEqualityStillSeesAContentTypeChange) {
   CHECK(ConfigChange::between(before, after).windowRules);
 }
 
-UMBRIEL_TEST(ruleEqualitySeesAnOptionChangeUnderTheSamePattern) {
+ANDROMEDA_TEST(ruleEqualitySeesAnOptionChangeUnderTheSamePattern) {
   Config before;
   Config after;
   WindowRule first;
@@ -327,7 +327,7 @@ UMBRIEL_TEST(ruleEqualitySeesAnOptionChangeUnderTheSamePattern) {
   CHECK(ConfigChange::between(before, after).windowRules);
 }
 
-UMBRIEL_TEST(ruleEqualitySeesDefaultScratchpadChange) {
+ANDROMEDA_TEST(ruleEqualitySeesDefaultScratchpadChange) {
   Config before;
   Config after;
   WindowRule first;
@@ -340,13 +340,13 @@ UMBRIEL_TEST(ruleEqualitySeesDefaultScratchpadChange) {
   CHECK(ConfigChange::between(before, after).windowRules);
 }
 
-UMBRIEL_TEST(identicalConfigsProduceNoRuntimeEffects) {
+ANDROMEDA_TEST(identicalConfigsProduceNoRuntimeEffects) {
   const Config before;
   const Config after;
   CHECK(!ConfigEffects::between(before, after).any());
 }
 
-UMBRIEL_TEST(firstLoadInvalidatesEveryRuntimeConsumer) {
+ANDROMEDA_TEST(firstLoadInvalidatesEveryRuntimeConsumer) {
   const ConfigEffects effects = ConfigEffects::everything();
   CHECK(effects.outputState);
   CHECK(effects.tearingPolicy);
@@ -362,7 +362,7 @@ UMBRIEL_TEST(firstLoadInvalidatesEveryRuntimeConsumer) {
   CHECK(effects.internalUi);
 }
 
-UMBRIEL_TEST(anyColorChangeRefreshesEveryColorConsumer) {
+ANDROMEDA_TEST(anyColorChangeRefreshesEveryColorConsumer) {
   const Config before;
   Config after;
   after.colors.textPrimary[0] -= 0.1F;
@@ -375,7 +375,7 @@ UMBRIEL_TEST(anyColorChangeRefreshesEveryColorConsumer) {
   CHECK(!effects.input);
 }
 
-UMBRIEL_TEST(borderWidthRefreshesChromeAndWorkspaceLayout) {
+ANDROMEDA_TEST(borderWidthRefreshesChromeAndWorkspaceLayout) {
   const Config before;
   Config after;
   after.appearance.borderWidth += 1;
@@ -390,7 +390,7 @@ UMBRIEL_TEST(borderWidthRefreshesChromeAndWorkspaceLayout) {
   CHECK(!effects.input);
 }
 
-UMBRIEL_TEST(layoutGapDoesNotReapplyOutputState) {
+ANDROMEDA_TEST(layoutGapDoesNotReapplyOutputState) {
   const Config before;
   Config after;
   after.layout.gap += 1;
@@ -402,7 +402,7 @@ UMBRIEL_TEST(layoutGapDoesNotReapplyOutputState) {
   CHECK(!effects.viewChrome);
 }
 
-UMBRIEL_TEST(layoutStrutsOnlyRefreshWorkspaceLayout) {
+ANDROMEDA_TEST(layoutStrutsOnlyRefreshWorkspaceLayout) {
   const Config before;
   Config after;
   after.layout.struts.left = 32;
@@ -416,9 +416,9 @@ UMBRIEL_TEST(layoutStrutsOnlyRefreshWorkspaceLayout) {
   CHECK(!effects.layerEffects);
 }
 
-UMBRIEL_TEST(workspaceRuleStrutsOnlyRefreshWorkspaceLayout) {
+ANDROMEDA_TEST(workspaceRuleStrutsOnlyRefreshWorkspaceLayout) {
   Config before;
-  umbriel::WorkspaceConfig rule;
+  andromeda::WorkspaceConfig rule;
   rule.name = "dev";
   before.workspaceRules.push_back(rule);
   Config after = before;
@@ -432,7 +432,7 @@ UMBRIEL_TEST(workspaceRuleStrutsOnlyRefreshWorkspaceLayout) {
   CHECK(!effects.layerEffects);
 }
 
-UMBRIEL_TEST(namedWorkspaceDeclarationChangesRefreshDynamicInventory) {
+ANDROMEDA_TEST(namedWorkspaceDeclarationChangesRefreshDynamicInventory) {
   const Config empty;
   Config configured;
   WorkspaceConfig named;
@@ -464,16 +464,16 @@ UMBRIEL_TEST(namedWorkspaceDeclarationChangesRefreshDynamicInventory) {
   CHECK(!retargetEffects.outputState);
 }
 
-UMBRIEL_TEST(workspaceRuleLayoutAndIndexEditsDoNotRefreshDynamicInventory) {
+ANDROMEDA_TEST(workspaceRuleLayoutAndIndexEditsDoNotRefreshDynamicInventory) {
   Config named;
   WorkspaceConfig namedRule;
   namedRule.name = "dev";
   namedRule.output = "DP-1";
-  namedRule.layout.mode = umbriel::LayoutMode::Scrolling;
+  namedRule.layout.mode = andromeda::LayoutMode::Scrolling;
   named.workspaceRules.push_back(std::move(namedRule));
 
   Config layoutChanged = named;
-  layoutChanged.workspaceRules[0].layout.mode = umbriel::LayoutMode::Master;
+  layoutChanged.workspaceRules[0].layout.mode = andromeda::LayoutMode::Master;
   const ConfigEffects layoutEffects = ConfigEffects::between(named, layoutChanged);
   CHECK(layoutEffects.workspaceLayout);
   CHECK(!layoutEffects.workspaceInventory);
@@ -484,7 +484,7 @@ UMBRIEL_TEST(workspaceRuleLayoutAndIndexEditsDoNotRefreshDynamicInventory) {
   WorkspaceConfig indexRule;
   indexRule.index = 2;
   indexRule.output = "DP-1";
-  indexRule.layout.mode = umbriel::LayoutMode::Dwindle;
+  indexRule.layout.mode = andromeda::LayoutMode::Dwindle;
   indexAdded.workspaceRules.push_back(std::move(indexRule));
   const ConfigEffects indexAddedEffects = ConfigEffects::between(named, indexAdded);
   CHECK(indexAddedEffects.workspaceLayout);
@@ -502,7 +502,7 @@ UMBRIEL_TEST(workspaceRuleLayoutAndIndexEditsDoNotRefreshDynamicInventory) {
   CHECK_EQ(indexRetargetedEffects.summary(), std::string{"workspace layout"});
 }
 
-UMBRIEL_TEST(outputStateAndWorkspaceInventoryAreIndependent) {
+ANDROMEDA_TEST(outputStateAndWorkspaceInventoryAreIndependent) {
   Config before;
   OutputRule original;
   original.name = "HEADLESS-1";
@@ -516,13 +516,13 @@ UMBRIEL_TEST(outputStateAndWorkspaceInventoryAreIndependent) {
   CHECK(!stateEffects.workspaceLayout);
 
   Config vrrChanged = before;
-  vrrChanged.outputs[0].vrr = umbriel::VrrMode::Fullscreen;
+  vrrChanged.outputs[0].vrr = andromeda::VrrMode::Fullscreen;
   const ConfigEffects vrrEffects = ConfigEffects::between(before, vrrChanged);
   CHECK(vrrEffects.outputState);
   CHECK(!vrrEffects.workspaceInventory);
 
   Config hdrChanged = before;
-  hdrChanged.outputs[0].hdr = umbriel::HdrMode::On;
+  hdrChanged.outputs[0].hdr = andromeda::HdrMode::On;
   const ConfigEffects hdrEffects = ConfigEffects::between(before, hdrChanged);
   CHECK(hdrEffects.outputState);
   CHECK(!hdrEffects.workspaceInventory);
@@ -574,7 +574,7 @@ UMBRIEL_TEST(outputStateAndWorkspaceInventoryAreIndependent) {
   CHECK(!reenableEffects.workspaceInventory);
 }
 
-UMBRIEL_TEST(outputScrollingDefaultOnlyRefreshesWorkspaceLayout) {
+ANDROMEDA_TEST(outputScrollingDefaultOnlyRefreshesWorkspaceLayout) {
   Config before;
   OutputRule output;
   output.name = "HEADLESS-1";
@@ -604,14 +604,14 @@ UMBRIEL_TEST(outputScrollingDefaultOnlyRefreshesWorkspaceLayout) {
   CHECK_EQ(effects.summary(), std::string("workspace layout"));
 }
 
-UMBRIEL_TEST(outputWorkspaceAxisOnlyRefreshesWorkspaceLayout) {
+ANDROMEDA_TEST(outputWorkspaceAxisOnlyRefreshesWorkspaceLayout) {
   Config before;
   OutputRule output;
   output.name = "HEADLESS-1";
   before.outputs.push_back(output);
 
   Config after = before;
-  after.outputs[0].workspaceAxis = umbriel::WorkspaceAxis::Horizontal;
+  after.outputs[0].workspaceAxis = andromeda::WorkspaceAxis::Horizontal;
 
   const ConfigEffects effects = ConfigEffects::between(before, after);
   CHECK(effects.workspaceLayout);
@@ -621,7 +621,7 @@ UMBRIEL_TEST(outputWorkspaceAxisOnlyRefreshesWorkspaceLayout) {
   CHECK_EQ(effects.summary(), std::string("workspace layout"));
 }
 
-UMBRIEL_TEST(outputRuleNameSetChangesRefreshIdentityDependentEffects) {
+ANDROMEDA_TEST(outputRuleNameSetChangesRefreshIdentityDependentEffects) {
   Config before;
   OutputRule connector;
   connector.name = "HDMI-A-1";
@@ -648,7 +648,7 @@ UMBRIEL_TEST(outputRuleNameSetChangesRefreshIdentityDependentEffects) {
   CHECK(!caseEffects.workspaceLayout);
 }
 
-UMBRIEL_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
+ANDROMEDA_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
   Config before;
   OutputRule output;
   output.name = "HEADLESS-1";
@@ -719,7 +719,7 @@ UMBRIEL_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
   CHECK(unrelatedEffects.viewChrome);
 }
 
-UMBRIEL_TEST(animationEventEffectsRaiseEffects) {
+ANDROMEDA_TEST(animationEventEffectsRaiseEffects) {
   const Config before;
   Config opening = before;
   opening.animation.windowsIn.effect = "fade";
@@ -732,7 +732,7 @@ UMBRIEL_TEST(animationEventEffectsRaiseEffects) {
   CHECK(!ConfigEffects::between(before, slower).effects);
 }
 
-UMBRIEL_TEST(windowRulesRaiseEffectsOnlyWhenARuleSelectsAnEffect) {
+ANDROMEDA_TEST(windowRulesRaiseEffectsOnlyWhenARuleSelectsAnEffect) {
   Config before;
   WindowRule translucent;
   translucent.appIdPattern = "^foot$";
@@ -754,7 +754,7 @@ UMBRIEL_TEST(windowRulesRaiseEffectsOnlyWhenARuleSelectsAnEffect) {
   CHECK(ConfigEffects::between(selecting, rematched).effects);
 }
 
-UMBRIEL_TEST(directScanoutPolicyForcesOnlyItsRuntimeEffect) {
+ANDROMEDA_TEST(directScanoutPolicyForcesOnlyItsRuntimeEffect) {
   Config before;
   OutputRule output;
   output.name = "HEADLESS-1";
@@ -790,25 +790,25 @@ UMBRIEL_TEST(directScanoutPolicyForcesOnlyItsRuntimeEffect) {
   CHECK(ConfigEffects::between(onlyDefault, Config{}).directScanoutPolicy);
 }
 
-UMBRIEL_TEST(vrrPolicyTracksFullscreenOnlyWhenRequested) {
-  CHECK(!umbriel::vrrEnabled(umbriel::VrrMode::Disabled, false));
-  CHECK(!umbriel::vrrEnabled(umbriel::VrrMode::Disabled, true));
-  CHECK(umbriel::vrrEnabled(umbriel::VrrMode::Always, false));
-  CHECK(umbriel::vrrEnabled(umbriel::VrrMode::Always, true));
-  CHECK(!umbriel::vrrEnabled(umbriel::VrrMode::Fullscreen, false));
-  CHECK(umbriel::vrrEnabled(umbriel::VrrMode::Fullscreen, true));
+ANDROMEDA_TEST(vrrPolicyTracksFullscreenOnlyWhenRequested) {
+  CHECK(!andromeda::vrrEnabled(andromeda::VrrMode::Disabled, false));
+  CHECK(!andromeda::vrrEnabled(andromeda::VrrMode::Disabled, true));
+  CHECK(andromeda::vrrEnabled(andromeda::VrrMode::Always, false));
+  CHECK(andromeda::vrrEnabled(andromeda::VrrMode::Always, true));
+  CHECK(!andromeda::vrrEnabled(andromeda::VrrMode::Fullscreen, false));
+  CHECK(andromeda::vrrEnabled(andromeda::VrrMode::Fullscreen, true));
 }
 
-UMBRIEL_TEST(hdrPolicyTracksEligibilityForEachMode) {
-  CHECK(!umbriel::hdrEnabled(umbriel::HdrMode::Off, false, false));
-  CHECK(umbriel::hdrEnabled(umbriel::HdrMode::On, false, false));
-  CHECK(!umbriel::hdrEnabled(umbriel::HdrMode::Auto, true, false));
-  CHECK(umbriel::hdrEnabled(umbriel::HdrMode::Auto, true, true));
-  CHECK(!umbriel::hdrEnabled(umbriel::HdrMode::Fullscreen, false, false));
-  CHECK(umbriel::hdrEnabled(umbriel::HdrMode::Fullscreen, true, false));
+ANDROMEDA_TEST(hdrPolicyTracksEligibilityForEachMode) {
+  CHECK(!andromeda::hdrEnabled(andromeda::HdrMode::Off, false, false));
+  CHECK(andromeda::hdrEnabled(andromeda::HdrMode::On, false, false));
+  CHECK(!andromeda::hdrEnabled(andromeda::HdrMode::Auto, true, false));
+  CHECK(andromeda::hdrEnabled(andromeda::HdrMode::Auto, true, true));
+  CHECK(!andromeda::hdrEnabled(andromeda::HdrMode::Fullscreen, false, false));
+  CHECK(andromeda::hdrEnabled(andromeda::HdrMode::Fullscreen, true, false));
 }
 
-UMBRIEL_TEST(blurRulesAndInputReachOnlyTheirConsumers) {
+ANDROMEDA_TEST(blurRulesAndInputReachOnlyTheirConsumers) {
   const Config before;
 
   Config blurred;
@@ -844,7 +844,7 @@ UMBRIEL_TEST(blurRulesAndInputReachOnlyTheirConsumers) {
   CHECK(ConfigEffects::between(before, cursorChanged).input);
 }
 
-UMBRIEL_TEST(ruleRequestingOptimizedBlurReachesTheOutputs) {
+ANDROMEDA_TEST(ruleRequestingOptimizedBlurReachesTheOutputs) {
   Config before;
   before.appearance.blur.optimized = false;
   CHECK(!before.optimizedBlurNeeded());
@@ -873,7 +873,7 @@ UMBRIEL_TEST(ruleRequestingOptimizedBlurReachesTheOutputs) {
   CHECK(!ConfigEffects::between(before, optedOut).sceneBlur);
 }
 
-UMBRIEL_TEST(overviewInvalidationExcludesIrrelevantRuntimeEffects) {
+ANDROMEDA_TEST(overviewInvalidationExcludesIrrelevantRuntimeEffects) {
   const Config before;
 
   Config overviewChanged;
@@ -904,7 +904,7 @@ UMBRIEL_TEST(overviewInvalidationExcludesIrrelevantRuntimeEffects) {
   CHECK(ConfigChange::between(before, hotCornerChanged).hotCorners);
 }
 
-UMBRIEL_TEST(modKeyReloadRefreshesOnlyInternalUi) {
+ANDROMEDA_TEST(modKeyReloadRefreshesOnlyInternalUi) {
   const Config before;
   Config after;
   after.general.modKey = ModifierKey::Control;
@@ -917,8 +917,8 @@ UMBRIEL_TEST(modKeyReloadRefreshesOnlyInternalUi) {
   CHECK(!effects.viewChrome);
 }
 
-UMBRIEL_TEST(aFailedReloadResultCarriesNoChangesOrEffects) {
-  const umbriel::ConfigReloadResult result;
+ANDROMEDA_TEST(aFailedReloadResultCarriesNoChangesOrEffects) {
+  const andromeda::ConfigReloadResult result;
   CHECK(!result.success);
   CHECK(!result.change.any());
   CHECK(!result.effects.any());

@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <system_error>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -100,4 +100,4 @@ namespace umbriel {
     });
   }
 
-} // namespace umbriel
+} // namespace andromeda

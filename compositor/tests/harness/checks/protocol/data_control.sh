@@ -3,7 +3,7 @@
 # data-control protocol, and the selection reaches the modern replacement.
 set -euo pipefail
 
-readonly DATA_CONTROL_CLIENT="${UMBRIEL_DATA_CONTROL_CLIENT:-./build-debug/tests/data-control-client}"
+readonly DATA_CONTROL_CLIENT="${ANDROMEDA_DATA_CONTROL_CLIENT:-./build-debug/tests/data-control-client}"
 
 if [[ ! -x $DATA_CONTROL_CLIENT ]]; then
   echo "data-control client not built at $DATA_CONTROL_CLIENT"

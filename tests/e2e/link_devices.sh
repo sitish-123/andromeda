@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The control center's Devices tab against a real umbriel-linkd started after the shell: link-devices refuses while
+# The control center's Devices tab against a real andromeda-linkd started after the shell: link-devices refuses while
 # the daemon is absent and answers once it owns its name; link-pair opens the pairing view (QR code, 6-digit code,
 # countdown); the QR code read off the screenshot (zbarimg) is the daemon's URI, and the headless phone pairs with it;
 # link-devices lists the phone, then shows it connected while it holds a session; link-unpair removes it; stopping the
@@ -23,20 +23,20 @@ with_noctalia '
     for _ in $(seq 100); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
 
   [[ $(msg link-devices) == *"not running"* ]] || fail "link-devices answered without a daemon: $(msg link-devices)"
   step "no daemon: $(msg link-devices)"
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   linkd=$!
-  wait_for "shell never saw umbriel-linkd appear" eval "[[ \$(msg link-devices) != *error* ]]"
+  wait_for "shell never saw andromeda-linkd appear" eval "[[ \$(msg link-devices) != *error* ]]"
   step "daemon up: devices=[$(msg link-devices)]"
 
   [[ $(msg link-pair) == ok ]] || fail "link-pair: $(msg link-pair)"
   wait_for "no pairing window in the shell" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE URI <<< "$(msg link-pairing)"
-  [[ $CODE =~ ^[0-9]{6}$ && $URI == umbriel-link:pair\?* ]] || fail "bad pairing state: $(msg link-pairing)"
+  [[ $CODE =~ ^[0-9]{6}$ && $URI == andromeda-link:pair\?* ]] || fail "bad pairing state: $(msg link-pairing)"
   step "pairing: code=$CODE uri=$URI"
   sleep 1.5 # real time: the control center maps and paints the QR code
   grim "$OUT/pairing.png"
@@ -47,7 +47,7 @@ with_noctalia '
   if ! phone pair --uri "$SCANNED" >> "$OUT/phone.log"; then
     # No LAN address in the URI was reachable; a fresh window over loopback proves the same shell path.
     step "uri unreachable, pairing by code over loopback"
-    PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+    PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
     [[ $(msg link-pair) == ok ]] || fail "second link-pair"
     wait_for "no second window" eval "[[ \$(msg link-pairing) == open\ * && \$(msg link-pairing) != *\$CODE* ]]"
     read -r _ CODE URI <<< "$(msg link-pairing)"

@@ -4,7 +4,7 @@
 #include "config/keybind_parse.h"
 #include "config/managed_settings.h"
 #include "core/log.h"
-#include "umbriel_data_dir.h"
+#include "andromeda_data_dir.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -18,21 +18,41 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
     constexpr Logger kLog("config");
 
+    // Moves the files of `umbriel/`, the config directory's old name, beside `config` once, when `config` is missing.
+    void adoptUmbrielConfig(const std::filesystem::path& config) {
+      const std::filesystem::path dir = config.parent_path();
+      const std::filesystem::path old = dir.parent_path() / "umbriel";
+      std::error_code error;
+      if (std::filesystem::exists(config, error) || !std::filesystem::exists(old / "config.toml", error)) {
+        return;
+      }
+      std::filesystem::create_directories(dir, error);
+      for (const auto& entry : std::filesystem::directory_iterator(old, error)) {
+        const std::filesystem::path target = dir / entry.path().filename();
+        if (!std::filesystem::exists(target, error)) {
+          std::filesystem::rename(entry.path(), target, error);
+        }
+      }
+      std::filesystem::remove(old, error);
+      kLog.info("moved {} to {}", old.string(), dir.string());
+    }
+
     std::filesystem::path userConfigPath() {
+      std::filesystem::path path(".config/andromeda/config.toml");
       if (const char* xdgConfigHome = std::getenv("XDG_CONFIG_HOME");
           xdgConfigHome != nullptr && xdgConfigHome[0] != '\0') {
-        return std::filesystem::path(xdgConfigHome) / "umbriel/config.toml";
+        path = std::filesystem::path(xdgConfigHome) / "andromeda/config.toml";
+      } else if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        path = std::filesystem::path(home) / ".config/andromeda/config.toml";
       }
-      if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
-        return std::filesystem::path(home) / ".config/umbriel/config.toml";
-      }
-      return std::filesystem::path(".config/umbriel/config.toml");
+      adoptUmbrielConfig(path);
+      return path;
     }
 
     enum class ConfigPathKind {
@@ -75,7 +95,7 @@ namespace umbriel {
         const size_t separator = configDirs.find(':', offset);
         const std::string_view directory = configDirs.substr(offset, separator - offset);
         if (!directory.empty()) {
-          candidates.push_back(std::filesystem::path(directory) / "umbriel/config.toml");
+          candidates.push_back(std::filesystem::path(directory) / "andromeda/config.toml");
         }
         if (separator == std::string_view::npos) {
           break;
@@ -83,7 +103,7 @@ namespace umbriel {
         offset = separator + 1;
       }
 
-      candidates.push_back(std::filesystem::path(kDataDir) / "umbriel/config.toml");
+      candidates.push_back(std::filesystem::path(kDataDir) / "andromeda/config.toml");
       return candidates;
     }
 
@@ -121,7 +141,7 @@ namespace umbriel {
       std::ifstream in(legacy);
       std::string firstLine;
       std::getline(in, firstLine);
-      if (!firstLine.starts_with("# Written by Umbriel")) {
+      if (!firstLine.starts_with("# Written by Andromeda")) {
         return;
       }
       in.close();
@@ -287,4 +307,4 @@ namespace umbriel {
 
   const std::vector<std::filesystem::path>& configWatchPaths() { return configStore().watchPaths(); }
 
-} // namespace umbriel
+} // namespace andromeda

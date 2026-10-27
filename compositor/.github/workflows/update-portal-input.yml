@@ -2,7 +2,7 @@ name: Update Portal Input
 
 on:
   repository_dispatch:
-    types: [xdg-desktop-portal-umbriel-updated]
+    types: [xdg-desktop-portal-andromeda-updated]
   schedule:
     - cron: "23 3 * * *"
   workflow_dispatch:
@@ -15,11 +15,11 @@ jobs:
   update:
     if: >-
       ${{
-        github.repository == 'noctalia-dev/umbriel' &&
+        github.repository == 'noctalia-dev/andromeda' &&
         (
           github.event_name != 'repository_dispatch' ||
           (
-            github.event.client_payload.source_repository == 'noctalia-dev/xdg-desktop-portal-umbriel' &&
+            github.event.client_payload.source_repository == 'noctalia-dev/xdg-desktop-portal-andromeda' &&
             github.event.client_payload.source_ref == 'refs/heads/main'
           )
         )
@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out Umbriel
+      - name: Check out Andromeda
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: main
@@ -57,12 +57,12 @@ jobs:
 
           for attempt in 1 2 3; do
             if ((attempt > 1)); then
-              echo "Umbriel main advanced, recomputing from its latest commit (attempt $attempt of 3)."
+              echo "Andromeda main advanced, recomputing from its latest commit (attempt $attempt of 3)."
               git fetch origin "$TARGET_BRANCH"
               git switch --detach FETCH_HEAD
             fi
 
-            nix flake update xdg-desktop-portal-umbriel
+            nix flake update xdg-desktop-portal-andromeda
 
             unexpected_tracked=$(git diff --name-only -- . ':(exclude)flake.lock')
             unexpected_untracked=$(git ls-files --others --exclude-standard)
@@ -72,10 +72,10 @@ jobs:
               exit 1
             fi
             jq -e '
-              .nodes["xdg-desktop-portal-umbriel"].locked
+              .nodes["xdg-desktop-portal-andromeda"].locked
               | .type == "github"
                 and .owner == "noctalia-dev"
-                and .repo == "xdg-desktop-portal-umbriel"
+                and .repo == "xdg-desktop-portal-andromeda"
                 and (.rev | test("^[0-9a-f]{40}$"))
             ' flake.lock > /dev/null
             nix flake check --no-build

@@ -1612,7 +1612,7 @@ namespace noctalia::config::schema {
         field(&ShellConfig::telemetryEnabled, "telemetry_enabled"),
         field(&ShellConfig::setupWizardEnabled, "setup_wizard_enabled"),
         field(&ShellConfig::niriOverviewTypeToLaunchEnabled, "niri_overview_type_to_launch_enabled"),
-        field(&ShellConfig::umbrielOverviewTypeToLaunchEnabled, "umbriel_overview_type_to_launch_enabled"),
+        field(&ShellConfig::andromedaOverviewTypeToLaunchEnabled, "andromeda_overview_type_to_launch_enabled"),
         field(&ShellConfig::polkitAgent, "polkit_agent"),
         field(&ShellConfig::automountDrives, "automount_drives"),
         enumField(&ShellConfig::passwordMaskStyle, "password_style", kPasswordMaskStyles),

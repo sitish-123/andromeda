@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-umbriel=$1
+andromeda=$1
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/components/nested"
@@ -9,7 +9,7 @@ mkdir -p "$fixture/components/nested"
 expect_invalid() {
   config=$1
   expected=$2
-  if "$umbriel" config validate -c "$config" >"$fixture/stdout" 2>"$fixture/stderr"; then
+  if "$andromeda" config validate -c "$config" >"$fixture/stdout" 2>"$fixture/stderr"; then
     printf 'expected validation failure for %s\n' "$config" >&2
     cat "$fixture/stderr" >&2
     exit 1
@@ -69,5 +69,5 @@ cat >"$fixture/components/layout.toml" <<'EOF'
 [layout]
 gap = 7
 EOF
-"$umbriel" config validate -c "$fixture/config.toml" >"$fixture/stdout" 2>"$fixture/stderr"
+"$andromeda" config validate -c "$fixture/config.toml" >"$fixture/stdout" 2>"$fixture/stderr"
 grep -F "config: ok ($fixture/config.toml)" "$fixture/stdout" >/dev/null

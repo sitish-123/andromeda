@@ -55,7 +55,7 @@ namespace {
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   std::string escapeMarkup(std::string_view text) {
     gchar* escaped = g_markup_escape_text(text.data(), static_cast<gssize>(text.size()));
@@ -126,4 +126,4 @@ namespace umbriel {
     };
   }
 
-} // namespace umbriel
+} // namespace andromeda

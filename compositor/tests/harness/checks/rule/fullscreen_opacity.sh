@@ -4,13 +4,13 @@
 # window, and without opaque_fullscreen a client-translucent fullscreen window shows the desktop instead of it.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly UNMAP_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-rule-opacity-client.log"
-readonly UNMAP_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-backdrop-unmap.log"
-readonly WALLPAPER_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-backdrop-wallpaper.log"
-readonly ALPHA_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-client-alpha.log"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly UNMAP_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-rule-opacity-client.log"
+readonly UNMAP_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-backdrop-unmap.log"
+readonly WALLPAPER_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-backdrop-wallpaper.log"
+readonly ALPHA_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-client-alpha.log"
 readonly RULE_APP_ID=fullscreen-rule-opacity
 readonly UNMAP_TITLE=fullscreen-backdrop-unmap
 readonly ALPHA_APP_ID=fullscreen-client-alpha
@@ -20,7 +20,7 @@ if [[ ! -x $CLIENT ]]; then
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -37,13 +37,13 @@ corner_radius = 0
 match.app_id = "^fullscreen-rule-opacity$"
 opacity = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 wait_for_fullscreen() {
   local title=$1 expected=$2
   local state=
   for _ in $(seq 60); do
-    state=$("$UMBRIEL" tearing --json)
+    state=$("$ANDROMEDA" tearing --json)
     if jq -e ".surfaces[] | select(.title == \"$title\") | .fullscreen == $expected" \
         <<< "$state" > /dev/null; then
       return 0
@@ -57,7 +57,7 @@ wait_for_fullscreen() {
 sample_center() {
   local title=$1 screenshot=$2
   local windows win_x win_y win_w win_h
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   read -r win_x win_y win_w win_h <<< "$(
     jq -r ".[] | select(.title == \"$title\") | \"\(.x) \(.y) \(.w) \(.h)\"" <<< "$windows"
   )"
@@ -123,19 +123,19 @@ fi
 
 wait_for_fullscreen "$RULE_APP_ID" true
 sleep 0.15
-read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$UMBRIEL_RUNTIME_DIR/fullscreen-rule-opacity-initial.png")"
+read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$ANDROMEDA_RUNTIME_DIR/fullscreen-rule-opacity-initial.png")"
 assert_fullscreen_client_alpha "initial fullscreen window" "$red" "$green" "$blue"
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen "$RULE_APP_ID" false
 sleep 0.15
-read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$UMBRIEL_RUNTIME_DIR/fullscreen-rule-opacity-windowed.png")"
+read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$ANDROMEDA_RUNTIME_DIR/fullscreen-rule-opacity-windowed.png")"
 assert_windowed_rule "$red" "$green" "$blue"
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen "$RULE_APP_ID" true
 sleep 0.15
-read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$UMBRIEL_RUNTIME_DIR/fullscreen-rule-opacity-restored.png")"
+read -r red green blue <<< "$(sample_center "$RULE_APP_ID" "$ANDROMEDA_RUNTIME_DIR/fullscreen-rule-opacity-restored.png")"
 assert_fullscreen_client_alpha "restored fullscreen window" "$red" "$green" "$blue"
 
 # The desktop background is the backdrop colour too, so a wallpaper tells the two apart.
@@ -148,31 +148,31 @@ wait_for_line "$WALLPAPER_LOG" ready
 # the backdrop along, even though the unmap commit follows handleUnmap.
 "$UNMAP_CLIENT" "$UNMAP_TITLE" > "$UNMAP_LOG" 2>&1 &
 wait_for_line "$UNMAP_LOG" mapped
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen "$UNMAP_TITLE" true
-"$UMBRIEL" settle
-read -r red green blue <<< "$(sample_corner "$UMBRIEL_RUNTIME_DIR/fullscreen-backdrop-mapped.png")"
+"$ANDROMEDA" settle
+read -r red green blue <<< "$(sample_corner "$ANDROMEDA_RUNTIME_DIR/fullscreen-backdrop-mapped.png")"
 if ! is_backdrop "$red" "$green" "$blue"; then
   echo "small fullscreen window drew no backdrop: red=$red green=$green blue=$blue"
   exit 1
 fi
-"$UMBRIEL" msg window-close > /dev/null
+"$ANDROMEDA" msg window-close > /dev/null
 wait_for_line "$UNMAP_LOG" unmapped
-"$UMBRIEL" settle
-read -r red green blue <<< "$(sample_corner "$UMBRIEL_RUNTIME_DIR/fullscreen-backdrop-unmapped.png")"
+"$ANDROMEDA" settle
+read -r red green blue <<< "$(sample_corner "$ANDROMEDA_RUNTIME_DIR/fullscreen-backdrop-unmapped.png")"
 if ! is_wallpaper "$red" "$green" "$blue"; then
   echo "fullscreen backdrop outlived its unmapped window: red=$red green=$green blue=$blue"
   exit 1
 fi
 
 # Without opaque_fullscreen, client alpha alone drops the backdrop: half-alpha magenta blends with the wallpaper.
-sed -i '/^\[appearance\]$/a opaque_fullscreen = false' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i '/^\[appearance\]$/a opaque_fullscreen = false' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 env INITIAL_FULLSCREEN=1 TRANSLUCENT_CONTENT=1 "$CLIENT" "$ALPHA_APP_ID" > "$ALPHA_LOG" 2>&1 &
 wait_for_line "$ALPHA_LOG" mapped
 wait_for_fullscreen "$ALPHA_APP_ID" true
-"$UMBRIEL" settle
-read -r red green blue <<< "$(sample_center "$ALPHA_APP_ID" "$UMBRIEL_RUNTIME_DIR/fullscreen-client-alpha.png")"
+"$ANDROMEDA" settle
+read -r red green blue <<< "$(sample_center "$ALPHA_APP_ID" "$ANDROMEDA_RUNTIME_DIR/fullscreen-client-alpha.png")"
 if (( red < 150 || red > 190 || green < 40 || green > 80 || blue < 193 || blue > 233 )); then
   echo "client-translucent fullscreen window did not show the desktop: red=$red green=$green blue=$blue"
   exit 1

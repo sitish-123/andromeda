@@ -262,7 +262,7 @@ int main() {
   s.buffer = createBuffer(s.shm, 300, 100);
   s.surface = wl_compositor_create_surface(s.compositor);
   auto* layer = zwlr_layer_shell_v1_get_layer_surface(
-      s.shell, s.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "umbriel-pointer-modifiers"
+      s.shell, s.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "andromeda-pointer-modifiers"
   );
   zwlr_layer_surface_v1_add_listener(layer, &kLayer, &s);
   zwlr_layer_surface_v1_set_anchor(layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT);

@@ -11,7 +11,7 @@
 #include <variant>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // The settings a desktop shell may change at runtime, named by their dotted config keys ("input.touchpad.tap",
   // "appearance.border_width"). Values cross the protocol as plain text: "true", "0.3", "25", "adaptive", "us,de".
@@ -33,7 +33,7 @@ namespace umbriel {
   // Validates `text` against `key`'s type and range.
   [[nodiscard]] ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text);
 
-  // The file Umbriel writes these settings to, next to `configRoot`. It is loaded after config.toml and its includes.
+  // The file Andromeda writes these settings to, next to `configRoot`. It is loaded after config.toml and its includes.
   [[nodiscard]] std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot);
 
   // Sets or removes `key` in the generated settings `file`. Returns false on I/O error.
@@ -54,4 +54,4 @@ namespace umbriel {
   // True when the TOML document `root` sets `key`.
   [[nodiscard]] bool documentSetsKey(std::string_view root, std::string_view key);
 
-} // namespace umbriel
+} // namespace andromeda

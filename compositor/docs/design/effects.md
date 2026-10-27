@@ -30,7 +30,7 @@ the only place programs are compiled
   shape-preserving (`:204-214`). The drag deformation program compiles only
   here, and only while animations and `windows_drag.physics` are on
   (`:215-226`).
-- `fillTimeUniforms` (`:323-343`) adds `umbriel_time` only to a program that
+- `fillTimeUniforms` (`:323-343`) adds `andromeda_time` only to a program that
   reads it and the `[colors]` palette only to a preset with `palette = true`.
 - `EffectLedger` ([`effect_ledger.h:12-58`](../../src/scene/effect_ledger.h))
   holds one `EffectInstanceState` per owner: the border node, the surface node
@@ -38,7 +38,7 @@ the only place programs are compiled
   (`effects.cpp:151-152`), and the output and its cursor-owner member for its
   screen and cursor slots (`output.cpp:149`, `:160`). Each records its driving
   output,
-  whether it is visible there, whether its program reads `umbriel_time`, and
+  whether it is visible there, whether its program reads `andromeda_time`, and
   whether its clock advances. `eligible(output)` counts instances that are all
   three and is 0 while suspended; `active()` counts owners. `updateInstance`
   schedules an output's frame when its eligible count leaves zero
@@ -100,7 +100,7 @@ the output under the pointer or the pointer's visibility changes
 ## Attachment
 
 Every node carries up to 13 slots
-([`effect.h:18-39`](../../umbrielfx/include/umbrielfx/render/effect.h)).
+([`effect.h:18-39`](../../andromedafx/include/andromedafx/render/effect.h)).
 Descendant slots compose before ancestor slots; on one node, slots compose in
 index order. Slots 0-2 are persistent; the rest are transient, including drag.
 The class follows the slot, not whether its program reads time.
@@ -126,7 +126,7 @@ and surface tree, which holds every mirrored surface buffer as the view's
 surface tree holds its surfaces.
 
 `wlr_scene_node_copy_animations_for_snapshot`
-([`wlr_scene.c:1776-1795`](../../umbrielfx/types/scene/wlr_scene.c)) copies
+([`wlr_scene.c:1776-1795`](../../andromedafx/types/scene/wlr_scene.c)) copies
 each populated slot with its current parameters, moves its feedback history,
 and turns light off. Slots from `windows_out` up land in `windows_in`; the rest
 keep their index. Nothing updates the copied slots' parameters, so their time
@@ -142,7 +142,7 @@ frames.
 | Layer tree | snapshot root (`layer_surface.cpp:197`) | layers |
 
 Drag physics binds the built-in deformation program to the content tree's drag
-slot with `umbriel_deformation[16]` and an `expand` of the sheet's
+slot with `andromeda_deformation[16]` and an `expand` of the sheet's
 displacement bound plus 2 px (`view.cpp:1453-1473`, `:1137`). The sheet spans
 the content tree's drawn bounds from `wlr_scene_node_effect_bounds` and is
 refit on every tick (`view.cpp:1091-1117`); a re-grab while it settles keeps
@@ -183,10 +183,10 @@ its history carries over.
 
 **In place.** After the subtree is drawn, `render_in_place_slots`
 (`:3632-3700`) calls `fx_render_pass_effect_in_place`
-([`fx_pass.c:1243-1283`](../../umbrielfx/render/fx_renderer/fx_pass.c)),
+([`fx_pass.c:1243-1283`](../../andromedafx/render/fx_renderer/fx_pass.c)),
 which copies the current target under the node's rectangle into the output's
 `in_place_source` offscreen buffer and runs the program with that copy as
-`umbriel_sample`. The result is written back unblended through `umbriel_mask`,
+`andromeda_sample`. The result is written back unblended through `andromeda_mask`,
 which rounds the rectangle with the corner radii of the node's first surface
 buffer. When that buffer has a corner box (content inside client-side margins),
 the rectangle is the corner box within the node bounds, with square corners
@@ -234,7 +234,7 @@ slot follows the same contract.
 An instance is eligible while it is visible on its output
 (`wlr_scene_node_visible_in_box` against the output's layout box; the output
 enabled for a screen slot; the pointer shown on that output for a cursor slot),
-its program reads `umbriel_time`, and its clock advances (for a border or
+its program reads `andromeda_time`, and its clock advances (for a border or
 overlay, `animated` and a nonzero `speed`; for all, an unfrozen animation
 clock).
 
@@ -287,16 +287,16 @@ composition then starts again from the background. This pass damages the whole
 output. When the save fails, it logs once, and the unfiltered composition
 serves display and captures alike for that frame, with no output effects
 (`wlr_scene.c:5682-5685`). `fx_texture_from_dmabuf`
-([`fx_texture.c:532-554`](../../umbrielfx/render/fx_renderer/fx_texture.c))
+([`fx_texture.c:532-554`](../../andromedafx/render/fx_renderer/fx_texture.c))
 substitutes a valid effect capture for any import of that output buffer, which
 is how screencopy and image-copy receive the unfiltered frame.
 
 Feedback history
-([`animation_history.h`](../../umbrielfx/internal/render/fx_renderer/animation_history.h))
+([`animation_history.h`](../../andromedafx/internal/render/fx_renderer/animation_history.h))
 is kept per animated node's slot, per output, per renderer, and per composition
 role: 0 for display, 1 for the unfiltered capture (`wlr_scene.c:3854`). Each
 entry holds two buffers, allocated only for programs that call
-`umbriel_sample_previous`. A pass reads and promotes only its own role's entry;
+`andromeda_sample_previous`. A pass reads and promotes only its own role's entry;
 a first frame, or a missing entry, reads that pass's current input. Promotion
 waits for a successful submission (`fx_pass.c:288-298`), at most once per
 frame; shadow captures read history but never promote it. A new transition or
@@ -420,9 +420,9 @@ Nonblocking opens prevent FIFOs hanging config reload.
 `EffectRegistry` (`src/scene/effect_registry.cpp`) caches one program per referenced preset, kind, exact
 source, and renderer. Startup and any reload that changes `[animation]` or `[effects]` prepare programs
 before rendering. A reload while a transition is running keeps that transition's program but rebinds
-its uniforms from the new configuration, so a program reading `umbriel_time` or the palette can see
+its uniforms from the new configuration, so a program reading `andromeda_time` or the palette can see
 them reset for the rest of that transition. Failures are cached too, avoiding per-frame compiler
-retries. UmbrielFX supplies a GLSL
+retries. AndromedaFX supplies a GLSL
 ES 1.00 wrapper around `vec4 animation(vec2 uv)`, normalized target sampling,
 target-local previous-result sampling, a stable four-channel random seed,
 logical target size, eased and linear progress, and transition direction.
@@ -505,7 +505,7 @@ Logical target bounds are converted to output pixels only at rasterization.
 Sampling transforms account for output rotation and fractional scale, with
 transparent samples outside target/output bounds. Drawing honors ancestor clips.
 
-Shaders that call `umbriel_sample_previous` receive the prior successfully
+Shaders that call `andromeda_sample_previous` receive the prior successfully
 submitted post-shader result for the same node, slot, output, renderer, and
 composition role ([Capture](#capture)). The first render uses the
 current input. History uses normalized target coordinates, so it follows
@@ -581,7 +581,7 @@ A normal tiled close snapshots the complete decorated view, drops any copied
 movement effect, and is appended above every workspace tree under the output's
 view root. It is a fixed canvas: `CloseSnapshot::present(canvasX, canvasY,
 visible)` only translates it with its workspace's slide and hides it while that
-workspace is not showing. `umbriel_size` is therefore constant for a close
+workspace is not showing. `andromeda_size` is therefore constant for a close
 snapshot unless the built-in `popin` or `zoom` style shrinks it, which scales
 the frozen buffers, borders, and shadow toward the captured box's center using
 `1 - alpha`, the same eased progress its fade follows.
@@ -626,8 +626,8 @@ monotonic keep their exact easing. Overshooting or reversing curves are
 projected onto cumulative travel from zero to one across the full configured
 duration. Geometry therefore never reverses, crosses a protected boundary, or
 pins at the first endpoint crossing. The `windows_move` shader slot remains
-bound to the original `AnimatedValue`, so `umbriel_progress` retains the raw
-eased curve and `umbriel_linear_progress` retains its raw linear clock.
+bound to the original `AnimatedValue`, so `andromeda_progress` retains the raw
+eased curve and `andromeda_linear_progress` retains its raw linear clock.
 
 Every ordinary view close snapshot is tracked by its source workspace,
 including snapshots that do not participate in tiled layout geometry. The
@@ -750,8 +750,8 @@ Unit ([`tests/unit`](../../tests/unit)):
 - `config_change.cpp` and `output_frame_schedule.cpp`: which edits raise the
   `effects` flag, and the `max_fps` delay.
 
-umbrielfx (`meson test --suite umbrielfx`, cases `effects-*` from
-[`umbrielfx/tests/effects.c`](../../umbrielfx/tests/effects.c)):
+andromedafx (`meson test --suite andromedafx`, cases `effects-*` from
+[`andromedafx/tests/effects.c`](../../andromedafx/tests/effects.c)):
 
 - Programs: `kinds`, `reads`, `uniforms`, `expand` (with its feedback history),
   `renderer-destroy`.
@@ -772,12 +772,12 @@ Harness ([`tests/harness/checks`](../../tests/harness/checks)):
 | --- | --- |
 | `effect/registry` | Only enabled references compile, compiled and failed programs survive unrelated reloads, a repaired source recompiles, and the bundled presets compile only once selected, each without diagnostics. |
 | `effect/border` | Padding, the client hole, focus following, per-window `off`, the frozen clock, light over a neighbor, frames only while the clock advances, and the card's close snapshot. |
-| `effect/border_transform` | Logical `uv` and `umbriel_border_distance` on a rotated, fractionally scaled output. |
+| `effect/border_transform` | Logical `uv` and `andromeda_border_distance` on a rotated, fractionally scaled output. |
 | `effect/border_frames` | Effect frames follow the animation clock, respect `max_fps`, and advance while another animation drives the output. |
 | `effect/window` | Backdrop sampling at rest, content shading inside an opening capture, the close snapshot, overview cards covering every mirrored surface, `window_effect` overrides, and the overlay following focus. |
 | `effect/window_capture` | `in_capture` for grim and toplevel captures, a reload flipping both, one live instance after remap, and frames only for time-reading programs. |
 | `effect/screen_cursor` | Screen override per output, the cursor square following the pointer, frames stopping when it hides or leaves, lock detachment, and both capture policies. |
 | `effect/capture_feedback` | With `in_capture = false`, captured frames exclude the window effect from the first, display history never composites a capture frame, and display feedback counts the same animation instants as a run without capture. |
-| `effect/reload` | Recovery from a missing shader, `[colors]` reaching a border palette without a recompile and a screen palette that does not read `umbriel_time`, and light layer removal and return. |
+| `effect/reload` | Recovery from a missing shader, `[colors]` reaching a border palette without a recompile and a screen palette that does not read `andromeda_time`, and light layer removal and return. |
 | `drag/physics` | Deformation while held, settling, rigid overview cards, handover to the close snapshot, and nothing left running with physics off. |
 | `render/renderer_recovery` | The built-in fade recompiles once per renderer and an animation preset rebinds after recovery. |

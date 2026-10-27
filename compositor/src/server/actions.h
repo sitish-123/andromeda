@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -20,4 +20,4 @@ namespace umbriel {
   // non-sentinel action is advertised.
   [[nodiscard]] bool actionRegistryComplete();
 
-} // namespace umbriel
+} // namespace andromeda

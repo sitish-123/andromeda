@@ -316,7 +316,7 @@ namespace xdpu {
     std::unique_ptr<StreamBuffer> allocateShm(const FormatChoice& choice) {
       const uint32_t stride = width * bytesPerPixel(choice.drm);
       const size_t size = static_cast<size_t>(stride) * height;
-      const int fd = createMemfd("umbriel-pw-shm", size);
+      const int fd = createMemfd("andromeda-pw-shm", size);
       if (fd < 0) {
         fprintf(stderr, "pipewire: memfd allocation failed: %s\n", std::strerror(errno));
         return nullptr;
@@ -708,10 +708,10 @@ namespace xdpu {
 
     pw_properties* props = pw_properties_new(
         PW_KEY_MEDIA_TYPE, "Video", PW_KEY_MEDIA_CATEGORY, "Capture", PW_KEY_MEDIA_ROLE, "Screen", PW_KEY_MEDIA_CLASS,
-        "Video/Source", PW_KEY_MEDIA_NAME, "umbriel-screen-capture", PW_KEY_NODE_NAME, "umbriel-screen-capture",
-        PW_KEY_NODE_DESCRIPTION, "Umbriel Screen Capture", nullptr
+        "Video/Source", PW_KEY_MEDIA_NAME, "andromeda-screen-capture", PW_KEY_NODE_NAME, "andromeda-screen-capture",
+        PW_KEY_NODE_DESCRIPTION, "Andromeda Screen Capture", nullptr
     );
-    stream->m_impl->stream = pw_stream_new(m_impl->core, "umbriel-screen-capture", props);
+    stream->m_impl->stream = pw_stream_new(m_impl->core, "andromeda-screen-capture", props);
     if (stream->m_impl->stream == nullptr) {
       fprintf(stderr, "pipewire: unable to create stream\n");
       return nullptr;

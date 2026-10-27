@@ -8,7 +8,7 @@
 #include <format>
 #include <span>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -147,4 +147,4 @@ namespace umbriel {
     return result;
   }
 
-} // namespace umbriel
+} // namespace andromeda

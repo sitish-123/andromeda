@@ -15,7 +15,7 @@ resolve_config_home() {
     printf '%s/.config\n' "$HOME"
 }
 
-config_dir="$(resolve_config_home)/umbriel"
+config_dir="$(resolve_config_home)/andromeda"
 config_file="$config_dir/config.toml"
 include_line='files = ["noctalia.toml"]'
 

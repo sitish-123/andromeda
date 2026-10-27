@@ -13,7 +13,7 @@ struct wlr_session_lock_surface_v1;
 struct wlr_session_lock_v1;
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -126,4 +126,4 @@ namespace umbriel {
     std::vector<OutputPresentation> m_outputPresentations;
   };
 
-} // namespace umbriel
+} // namespace andromeda

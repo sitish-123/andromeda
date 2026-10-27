@@ -316,20 +316,20 @@
       "none": "No paired phones yet.",
       "not-connected": "Not connected",
       "pair": "Pair",
-      "pair-hint": "Show a code to scan with Umbriel Link on your phone.",
+      "pair-hint": "Show a code to scan with Andromeda Link on your phone.",
       "pair-title": "Pair a phone",
       "paired": "Paired phones",
       "paired-with": "Paired with {device}",
       "pairing-failed": "Pairing failed: {reason}",
       "ring": "Ring",
       "stop-ring": "Stop ringing",
-      "scan": "Scan with Umbriel Link on your phone, or type this code:",
+      "scan": "Scan with Andromeda Link on your phone, or type this code:",
       "send-clipboard": "Send clipboard",
       "send-files": "Send a file",
-      "browse": "Browse its files (allow it in Umbriel Link on the phone)",
-      "mirror": "Show its screen (allow Screen in Umbriel Link on the phone)",
+      "browse": "Browse its files (allow it in Andromeda Link on the phone)",
+      "mirror": "Show its screen (allow Screen in Andromeda Link on the phone)",
       "apps": "Open its apps in windows (needs wireless debugging on the phone)",
-      "texts": "Its texts (allow Contacts and texts in Umbriel Link on the phone)",
+      "texts": "Its texts (allow Contacts and texts in Andromeda Link on the phone)",
       "texts-none": "No texts yet.",
       "texts-back": "All conversations",
       "text-you": "You: ",
@@ -925,7 +925,7 @@
       "drive-mounted": "{label} is ready",
       "drive-open": "Open",
       "drive-eject": "Eject",
-      "link": "Umbriel Link",
+      "link": "Andromeda Link",
       "link-copy": "Copy",
       "link-open": "Open",
       "link-received-link": "Link from {device}",
@@ -3457,8 +3457,8 @@
           "description": "Default time format for shell UI without its own setting",
           "label": "Time Format"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "Open the launcher when typing in umbriel overview; uses a tiny keyboard-focus surface while overview is open",
+        "andromeda-overview-type-to-launch": {
+          "description": "Open the launcher when typing in andromeda overview; uses a tiny keyboard-focus surface while overview is open",
           "label": "Type to Launch"
         },
         "window-switcher-current-workspace-only": {
@@ -3600,7 +3600,7 @@
           "label": "Transition Effects"
         }
       },
-      "umbriel": {
+      "andromeda": {
         "appearance-border-width": {
           "label": "Border Width",
           "description": "Thickness of the border drawn around every window"
@@ -3663,7 +3663,7 @@
         },
         "appearance-prefer-no-csd": {
           "label": "Prefer Server-Side Decorations",
-          "description": "Use Umbriel's borders instead of the title bars apps draw themselves; applies to apps opened afterwards"
+          "description": "Use Andromeda's borders instead of the title bars apps draw themselves; applies to apps opened afterwards"
         },
         "appearance-drag-opacity": {
           "label": "Opacity While Dragging",
@@ -5303,11 +5303,11 @@
       "phones": "Your phones",
       "none": "No phone paired yet.",
       "pair": "Pair a phone",
-      "pair-hint": "Open Umbriel Link on the phone and scan the code, or type it.",
+      "pair-hint": "Open Andromeda Link on the phone and scan the code, or type it.",
       "connected": "Connected",
       "not-connected": "Not connected",
       "unpair": "Unpair",
-      "unavailable": "Umbriel Link is not running.",
+      "unavailable": "Andromeda Link is not running.",
       "quick-share": "Quick Share",
       "visible": "Visible to nearby devices",
       "visible-hint": "Android phones nearby can send files and links to “{name}”. You accept each one.",

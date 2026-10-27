@@ -77,7 +77,7 @@ struct LinkPairingOutcome {
   std::string detail;
 };
 
-// Client of umbriel-linkd (org.umbriel.Link1): paired devices, the pairing window, shares, and phone notifications.
+// Client of andromeda-linkd (org.andromeda.Link1): paired devices, the pairing window, shares, and phone notifications.
 // A received share becomes a notification whose action copies the text or opens the link. A phone notification is
 // shown with its actions and inline reply, which run on the phone; dismissing it here dismisses it there. A phone
 // looking for this desktop rings it until stopped. An incoming call offers mute and decline. Phones that share their
@@ -106,11 +106,11 @@ public:
   void share(const std::string& deviceId, const std::string& kind, const std::string& text);
   // The clipboard's text, as a link when it is one.
   void shareClipboard(const std::string& deviceId);
-  /// Opens the phone's folder under ~/Phone, which umbriel-link-mount serves while the phone allows browsing.
+  /// Opens the phone's folder under ~/Phone, which andromeda-link-mount serves while the phone allows browsing.
   void browse(const std::string& deviceId);
-  /// Opens umbriel-link-mirror for the phone, which asks it to show its screen.
+  /// Opens andromeda-link-mirror for the phone, which asks it to show its screen.
   void mirror(const std::string& deviceId);
-  /// Opens umbriel-link-apps, which lists the phone's apps and opens each in its own window.
+  /// Opens andromeda-link-apps, which lists the phone's apps and opens each in its own window.
   void apps(const std::string& deviceId);
   // Opens the files here and passes the descriptors, since the sandboxed daemon cannot read the user's files. Returns
   // the paths that could not be opened.

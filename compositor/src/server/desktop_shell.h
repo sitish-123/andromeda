@@ -9,7 +9,7 @@ struct wl_client;
 struct wl_global;
 struct wl_resource;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -46,4 +46,4 @@ namespace umbriel {
     bool m_scrollLock = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

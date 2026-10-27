@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-namespace umbriel::build_info {
+namespace andromeda::build_info {
 
   // build_info.cpp is the only unit that sees the generated revision header, so
   // a new commit recompiles it alone.
@@ -10,4 +10,4 @@ namespace umbriel::build_info {
 
   [[nodiscard]] std::string_view revision() noexcept;
 
-} // namespace umbriel::build_info
+} // namespace andromeda::build_info

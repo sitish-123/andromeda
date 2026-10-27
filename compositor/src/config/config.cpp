@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -161,4 +161,4 @@ namespace umbriel {
     return found == devices.end() ? nullptr : &*found;
   }
 
-} // namespace umbriel
+} // namespace andromeda

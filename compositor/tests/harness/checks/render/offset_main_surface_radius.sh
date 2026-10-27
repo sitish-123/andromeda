@@ -6,9 +6,9 @@
 # reports which surface drew a pixel and whether an arc was cut where no window corner is.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/offset-subsurface-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/offset-main-surface-radius.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/offset-subsurface-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/offset-main-surface-radius.png"
 readonly RADIUS=64
 readonly OFFSET=40
 
@@ -17,7 +17,7 @@ if [[ ! -x $CLIENT ]]; then
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<EOF
+cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [animation]
 duration_ms = 1
@@ -34,7 +34,7 @@ corner_radius = $RADIUS
 [appearance.shadow]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 OFFSET_GEOMETRY=$OFFSET "$CLIENT" "offset-radius" > "$CLIENT_LOG" 2>&1 &
 
@@ -48,7 +48,7 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
 fi
 
 window_box() {
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "offset-radius") | "\(.x) \(.y) \(.w) \(.h)"'
+  "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "offset-radius") | "\(.x) \(.y) \(.w) \(.h)"'
 }
 box=
 for _ in $(seq 60); do
@@ -61,7 +61,7 @@ if [[ -z $box ]]; then
   exit 1
 fi
 # Sample the box the layout settled on, after the (1 ms) open animation has run.
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 read -r win_x win_y win_w win_h <<< "$(window_box)"
 grim "$SCREENSHOT"
 

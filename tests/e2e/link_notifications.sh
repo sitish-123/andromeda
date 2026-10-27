@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phone notifications on the desktop, through the shell, against a real umbriel-linkd and a present headless phone.
+# Phone notifications on the desktop, through the shell, against a real andromeda-linkd and a present headless phone.
 # Proves: a post reaches D-Bus NotificationPosted with its icon and actions and shows as a toast with the app icon; a
 # button runs its action on the phone, and the inline reply sends the typed text with the reply action; dismissing on
 # the desktop dismisses on the phone, whose removal comes back as NotificationRemoved; a removal on the phone closes
@@ -48,20 +48,20 @@ with_noctalia '
     for _ in $(seq 150); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   signals() { grep -c "member=$1" "$OUT/signals.txt" || true; }
   # grep -F without -q reads its whole input, so the writer never dies of SIGPIPE under pipefail.
   heard() { grep -A3 "member=$1" "$OUT/signals.txt" | grep -F "string \"$2\"" > /dev/null; }
   phone_saw() { grep -q "$1" "$OUT/hold.jsonl"; }
-  link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}" 2>&1; }
+  link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}" 2>&1; }
   shot() { sleep 1.5; grim "$OUT/notification-$1.png"; } # real time: the toast maps and paints
   post() { say "notify {\"id\":\"$1\",\"app\":\"$2\",\"title\":\"$3\",\"text\":\"$4\"${5:+,$5}}"; }
   reply_actions="\"actions\":[{\"id\":\"0\",\"label\":\"Reply\",\"reply\":true},{\"id\":\"1\",\"label\":\"Mark as read\",\"reply\":false}]"
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
@@ -69,11 +69,11 @@ with_noctalia '
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
 
-  dbus-monitor --session "type=signal,interface=org.umbriel.Link1" > "$OUT/signals.txt" 2>&1 &
+  dbus-monitor --session "type=signal,interface=org.andromeda.Link1" > "$OUT/signals.txt" 2>&1 &
   wait_for "dbus-monitor did not start" test -s "$OUT/signals.txt"
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
@@ -163,9 +163,9 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
-if "$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
+if "$BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
   echo "FAIL: the schema accepts the hostile posts" >&2
   exit 1
 fi

@@ -10,7 +10,7 @@ struct wlr_backend;
 struct wlr_renderer;
 struct wlr_session;
 
-namespace umbriel {
+namespace andromeda {
 
   // Owns backend selection, hotplug handling, and the GPU exclusions fixed at startup.
   class BackendManager {
@@ -34,4 +34,4 @@ namespace umbriel {
     std::unique_ptr<Impl> m_impl;
   };
 
-} // namespace umbriel
+} // namespace andromeda

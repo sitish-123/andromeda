@@ -2,7 +2,7 @@
 
 #include <deque>
 
-namespace umbriel {
+namespace andromeda {
 
   std::vector<std::string> shortcutLabels(size_t count, std::string_view keys) {
     if (keys.size() < 2) {
@@ -31,4 +31,4 @@ namespace umbriel {
     return labels;
   }
 
-} // namespace umbriel
+} // namespace andromeda

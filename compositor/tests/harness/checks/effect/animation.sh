@@ -2,21 +2,21 @@
 # Observe shader-specific intermediate colors, source sampling, completion,
 # closing snapshots, and automatic reload of an imported GLSL file.
 set -euo pipefail
-cat > "$UMBRIEL_RUNTIME_DIR/fixture-1.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/fixture-1.glsl" <<'GLSL'
 vec4 animation(vec2 uv) { return vec4(0.0, 1.0, 0.0, 1.0); }
 GLSL
 
-readonly CLIENT="$UMBRIEL_UNMAP_CLIENT"
-readonly SHADER="${UMBRIEL_CONFIG%/*}/animation.glsl"
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/shader.png"
+readonly CLIENT="$ANDROMEDA_UNMAP_CLIENT"
+readonly SHADER="${ANDROMEDA_CONFIG%/*}/animation.glsl"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/shader.png"
 
 cat > "$SHADER" <<'EOF'
 vec4 animation(vec2 uv) {
-    vec4 source = umbriel_sample(uv);
-    return vec4(1.0, step(0.4, umbriel_progress), source.b > 0.01 ? 0.0 : 1.0, 1.0);
+    vec4 source = andromeda_sample(uv);
+    return vec4(1.0, step(0.4, andromeda_progress), source.b > 0.01 ? 0.0 : 1.0, 1.0);
 }
 EOF
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = true
@@ -34,12 +34,12 @@ shader = "fixture-1.glsl"
 [animation.windows_out]
 effect = "windows_out_fixture_1"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn() {
-  "$CLIENT" "$1" 1200 700 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 1200 700 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
   for _ in $(seq 80); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)')
     [[ -n $window ]] && break
     sleep 0.025
   done
@@ -57,55 +57,55 @@ sample() {
 
 # Animation time only moves by clock-advance: opening samples land at 120 ms and 770 ms (progress 0.075 and 0.48),
 # the closing sample at 150 ms, and advancing 1600 ms finishes each timeline.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 spawn shader-first
-"$UMBRIEL" clock-advance 120
+"$ANDROMEDA" clock-advance 120
 sample
 if ! (( red > 220 && green < 30 && blue < 30 )); then
   echo "opening shader did not sample the client and produce red: $red $green $blue"
   exit 1
 fi
-"$UMBRIEL" clock-advance 650
+"$ANDROMEDA" clock-advance 650
 sample
 if ! (( red > 220 && green > 220 && blue < 30 )); then
   echo "shader progress did not transition red to yellow: $red $green $blue"
   exit 1
 fi
-"$UMBRIEL" clock-advance 1600
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 1600
+"$ANDROMEDA" settle
 sample
 if ! (( blue > 80 && red < 200 )); then
   echo "opening shader did not release its target at completion: $red $green $blue"
   exit 1
 fi
 
-"$UMBRIEL" msg "window-close:$window_id" > /dev/null
-"$UMBRIEL" clock-advance 150
+"$ANDROMEDA" msg "window-close:$window_id" > /dev/null
+"$ANDROMEDA" clock-advance 150
 sample
 if ! (( green > 220 && red < 30 && blue < 30 )); then
   echo "closing snapshot did not run its shader: $red $green $blue"
   exit 1
 fi
-"$UMBRIEL" clock-advance 1600
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 1600
+"$ANDROMEDA" settle
 
 # Do not explicitly reload: the imported file must be a watcher dependency.
-mark=$(wc -l < "$UMBRIEL_LOG")
+mark=$(wc -l < "$ANDROMEDA_LOG")
 cat > "$SHADER" <<'EOF'
 vec4 animation(vec2 uv) { return vec4(0.0, 1.0, 1.0, 1.0); }
 EOF
 for _ in $(seq 80); do
-  if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q 'config reloaded'; then
+  if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q 'config reloaded'; then
     break
   fi
   sleep 0.05
 done
-if ! tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q 'config reloaded'; then
+if ! tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q 'config reloaded'; then
   echo "editing the shader file did not trigger configuration reload"
   exit 1
 fi
 spawn shader-reloaded
-"$UMBRIEL" clock-advance 120
+"$ANDROMEDA" clock-advance 120
 sample
 if ! (( red < 30 && green > 220 && blue > 220 )); then
   echo "new transition did not use edited shader source: $red $green $blue"

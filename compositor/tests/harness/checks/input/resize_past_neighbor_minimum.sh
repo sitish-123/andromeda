@@ -4,9 +4,9 @@ set -euo pipefail
 readonly BTN_RIGHT=273
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/pointer-client}"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 # This check exercises resize constraints, not presentation interpolation.
 # Pointer coordinates must refer to settled windows after the first resize.
 [animation]
@@ -14,14 +14,14 @@ enabled = false
 [layout.scrolling]
 default_extent_fraction = 0.25
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
 }
 
 window() {
-  "$UMBRIEL" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)'
+  "$ANDROMEDA" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)'
 }
 
 wait_for_window() {
@@ -69,7 +69,7 @@ done
 if [[ $(jq -r '.w' <<< "$a") -ne 189 \
   || $(jq -r '.x' <<< "$b_after") -ge $(jq -r '.x' <<< "$b_before") \
   || $(jq -r '.x + .w' <<< "$b_after") -ne $(jq -r '.x + .w' <<< "$b_before") ]]; then
-  echo "leftward resize did not grow B after A reached minimum: before=$b_before after=$b_after windows=$($UMBRIEL windows --json)"
+  echo "leftward resize did not grow B after A reached minimum: before=$b_before after=$b_after windows=$($ANDROMEDA windows --json)"
   exit 1
 fi
 

@@ -62,6 +62,6 @@ def activate(app):
     record("ready")
 
 
-app = Gtk.Application(application_id="org.umbriel.LinkInputProbe")
+app = Gtk.Application(application_id="org.andromeda.LinkInputProbe")
 app.connect("activate", activate)
 app.run([])

@@ -1,11 +1,11 @@
 #pragma once
 
 extern "C" {
-#include <umbrielfx/types/fx/clipped_region.h>
+#include <andromedafx/types/fx/clipped_region.h>
 #include <wlr/util/box.h>
 }
 
-namespace umbriel {
+namespace andromeda {
   // Offset centering a client buffer of `contentSize` in a fullscreen tile of `tileSize`. Negative when the buffer is
   // the larger of the two, which crops it equally on both sides; a fullscreen buffer is never scaled, because scaling a
   // client that is mid mode-change shows it at the wrong aspect ratio.
@@ -59,4 +59,4 @@ namespace umbriel {
     }
     return src;
   }
-} // namespace umbriel
+} // namespace andromeda

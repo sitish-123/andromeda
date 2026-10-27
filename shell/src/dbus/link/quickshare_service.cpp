@@ -23,9 +23,9 @@ namespace {
 
   constexpr Logger kLog("quick-share");
 
-  const sdbus::ServiceName kLinkBusName{"org.umbriel.Link1"};
-  const sdbus::ObjectPath kLinkPath{"/org/umbriel/Link1"};
-  constexpr auto kInterface = "org.umbriel.Link1.QuickShare";
+  const sdbus::ServiceName kLinkBusName{"org.andromeda.Link1"};
+  const sdbus::ObjectPath kLinkPath{"/org/andromeda/Link1"};
+  constexpr auto kInterface = "org.andromeda.Link1.QuickShare";
   const sdbus::ServiceName kBusName{"org.freedesktop.DBus"};
   const sdbus::ObjectPath kBusPath{"/org/freedesktop/DBus"};
   constexpr auto kBusInterface = "org.freedesktop.DBus";
@@ -388,7 +388,7 @@ void QuickShareService::call(const std::string& method, std::uint64_t id) {
 void QuickShareService::registerIpc(IpcService& ipc) {
   ipc.bind(noctalia::cli::msg::quickShareVisible, [this](const std::string& args) -> std::string {
     if (!m_available) {
-      return "error: umbriel-linkd is not running\n";
+      return "error: andromeda-linkd is not running\n";
     }
     const std::string arg = StringUtils::trim(args);
     if (arg == "on" || arg == "off" || arg == "toggle") {
@@ -403,7 +403,7 @@ void QuickShareService::registerIpc(IpcService& ipc) {
   });
   ipc.bind(noctalia::cli::msg::quickShareNearby, [this](const std::string& args) -> std::string {
     if (!m_available) {
-      return "error: umbriel-linkd is not running\n";
+      return "error: andromeda-linkd is not running\n";
     }
     const std::string arg = StringUtils::trim(args);
     if (arg == "on" || arg == "off") {

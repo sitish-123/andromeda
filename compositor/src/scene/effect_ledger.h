@@ -3,10 +3,10 @@
 #include <algorithm>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // What decides whether an effect instance asks for frames: it is drawn on an
-  // output, its program reads umbriel_time, and its clock is advancing. Frozen
+  // output, its program reads andromeda_time, and its clock is advancing. Frozen
   // snapshots and effects with `animated = false` or `speed = 0` arrive with
   // advancing = false.
   struct EffectInstanceState {
@@ -57,4 +57,4 @@ namespace umbriel {
     bool m_suspended = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

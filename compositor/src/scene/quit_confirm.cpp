@@ -23,7 +23,7 @@ namespace {
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   QuitConfirm::QuitConfirm(Server& server, wlr_scene_tree* parent) : m_server(server), m_parent(parent) {}
 
@@ -82,7 +82,7 @@ namespace umbriel {
 
     // Static strings, no user input, so no escaping needed. Transparent background: the panel rect behind provides the
     // surface. The title is sized like the cheatsheet's heading.
-    const std::string_view heading = m_kind == Kind::SessionQuit ? "Quit Umbriel?" : "Allow screencast target changes?";
+    const std::string_view heading = m_kind == Kind::SessionQuit ? "Quit Andromeda?" : "Allow screencast target changes?";
     const std::string_view detail = m_kind == Kind::SessionQuit
         ? "Enter confirms; any other key or click cancels"
         : "This can reveal another window or screen. Enter confirms; any other key or click cancels";
@@ -144,4 +144,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

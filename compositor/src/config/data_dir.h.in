@@ -1,5 +1,5 @@
 #pragma once
 
-namespace umbriel {
-  inline constexpr char kDataDir[] = @UMBRIEL_DATA_DIR@;
+namespace andromeda {
+  inline constexpr char kDataDir[] = @ANDROMEDA_DATA_DIR@;
 }

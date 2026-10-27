@@ -3,21 +3,21 @@
 # an implicit pointer grab. Restoring it on later pointer activity would send a
 # leave and enter sequence that cancels held-button actions in games.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly LEFT_BUTTON=272
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly BEFORE="$UMBRIEL_RUNTIME_DIR/hide-typing-before.png"
-readonly AFTER="$UMBRIEL_RUNTIME_DIR/hide-typing-after.png"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly BEFORE="$ANDROMEDA_RUNTIME_DIR/hide-typing-before.png"
+readonly AFTER="$ANDROMEDA_RUNTIME_DIR/hide-typing-after.png"
 
 if [[ ! -x $POINTER ]] || ! command -v foot > /dev/null; then
   echo "hide-when-typing helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -27,13 +27,13 @@ curve = "linear"
 hide_when_typing = true
 hide_timeout_ms = 0
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 foot --config=/dev/null --title=hide-typing-button sh -c 'sleep 120' > /dev/null 2>&1 &
 
 window=''
 for _ in $(seq 60); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "hide-typing-button")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "hide-typing-button")')
   [[ -n $window ]] && break
   sleep 0.1
 done

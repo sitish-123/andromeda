@@ -31,7 +31,7 @@ namespace settings {
     std::function<void(std::vector<std::pair<std::string, std::string>>)> setCommands;
   };
 
-  // Phones paired over Umbriel Link and Quick Share visibility, both served by umbriel-linkd.
+  // Phones paired over Andromeda Link and Quick Share visibility, both served by andromeda-linkd.
   void addSettingsDevices(Flex& content, const SettingsDevicesContext& ctx);
 
 } // namespace settings

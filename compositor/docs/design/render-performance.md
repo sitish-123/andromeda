@@ -1,14 +1,14 @@
 # Render performance
 
 Every output frame resolves to one of two costs: a page flip of the client's own
-buffer, or a GLES composite into Umbriel's output buffer. Which one happens
+buffer, or a GLES composite into Andromeda's output buffer. Which one happens
 decides how much GPU time a fullscreen client is left with, so it is the first
 thing to establish when a frame rate is lower than expected.
 
 ## Scanout eligibility
 
 `scene_entry_try_direct_scanout`
-([`wlr_scene.c:4694`](../../umbrielfx/types/scene/wlr_scene.c)) is attempted only
+([`wlr_scene.c:4694`](../../andromedafx/types/scene/wlr_scene.c)) is attempted only
 when the render list holds exactly one entry, no color transform applies, no
 gamma LUT upload is pending, SDR capture is off, and damage highlighting is off
 (`:5392-5396`).
@@ -30,7 +30,7 @@ The fork adds three conditions upstream does not have:
   scanout bypasses `node->visible`. An ancestor tree clip therefore forces
   composition even when nothing overlaps the node.
 
-Umbriel holds `wlr_output_lock_attach_render` while an output animates
+Andromeda holds `wlr_output_lock_attach_render` while an output animates
 ([`output.cpp:1265-1268`](../../src/output/output.cpp)) and vetoes tearing for
 the same frames (`:1308-1309`). Persistent effects trigger neither.
 
@@ -105,7 +105,7 @@ permanently.
 
 ## Renderer loss recovery
 
-UmbrielFX checks `glGetGraphicsResetStatusKHR` when a buffer render pass begins.
+AndromedaFX checks `glGetGraphicsResetStatusKHR` when a buffer render pass begins.
 A reset emits the renderer's `lost` signal, but the listener only queues a
 one-shot event-loop idle callback. Recovery cannot destroy the renderer from
 the listener itself: `wl_signal_emit_mutable` still owns temporary listeners in
@@ -132,22 +132,22 @@ require a running-session check.
 A `tracy` build carries CPU zones at those boundaries through
 [`src/core/tracy.h`](../../src/core/tracy.h): `Output::handleFrame`,
 `Output::flushDirty`, `Output::render`, `Server::tickAnimations`, and
-`WineColorManager::applySurfaceDescriptions`. umbrielfx carries paired CPU and
+`WineColorManager::applySurfaceDescriptions`. andromedafx carries paired CPU and
 GPU zones across its render pass. Every `wlr_scene_output_build_state` exit
 emits a frame mark, including the scanout one, so a capture separates
 scanned-out frames from composited ones: a scanned-out frame has a frame mark
 and no render-pass zones. Build and capture instructions are in
 [CONTRIBUTING.md](../../CONTRIBUTING.md#profiling).
 
-umbrielfx adds these zones for effect costs:
+andromedafx adds these zones for effect costs:
 
 | Zone | Where | Fires | Text |
 | --- | --- | --- | --- |
-| `render list` | `wlr_scene_output_build_state`, [`wlr_scene.c:5275-5284`](../../umbrielfx/types/scene/wlr_scene.c) | Every render-list build, including the scanout ones | Output name and render-list length, such as `HEADLESS-2 4`, formatted only while a profiler is connected |
+| `render list` | `wlr_scene_output_build_state`, [`wlr_scene.c:5275-5284`](../../andromedafx/types/scene/wlr_scene.c) | Every render-list build, including the scanout ones | Output name and render-list length, such as `HEADLESS-2 4`, formatted only while a profiler is connected |
 | `fx_render_pass_init_offscreen_buffers` | `:5582-5591` | Only when the output initializes offscreen buffers: blur, a transient slot, or `persistent_visible` | Output name |
 | `scene_node_bounds` | `scene_node_update`, `:1524-1526` | Every enabled-path node update | |
 | `scene_node_drawn_expand` | `:1457-1463` | The expand walk, over ancestors and descendants, on every node update while the scene has effect state, including the disabled path | |
-| `draw_animation_texture` (CPU and GPU) | [`fx_pass.c:691`](../../umbrielfx/render/fx_renderer/fx_pass.c) | Every effect program draw: animation slots, border, window, screen, and cursor effects, border light, and the shadow of a slot program | |
+| `draw_animation_texture` (CPU and GPU) | [`fx_pass.c:691`](../../andromedafx/render/fx_renderer/fx_pass.c) | Every effect program draw: animation slots, border, window, screen, and cursor effects, border light, and the shadow of a slot program | |
 
 `tracy-csvexport -u` prints each CPU zone event with its text in the `value`
 column, and `-g` prints each GPU zone event. These zones end with
@@ -175,7 +175,7 @@ So pick the workload for the question:
 | --- | --- | --- |
 | Did the commit and buffer-release path regress? | `vkmark --fullscreen --present-mode immediate` | The absolute number, which is per-commit compositor CPU cost and nothing else. Very sensitive, and unrelated to composite cost. |
 | Is presentation smooth? | `vkmark --fullscreen --present-mode fifo` | Frametime, not FPS. FPS pins to the refresh rate whenever nothing is missed, so only the frametime spread and the missed-frame count carry information. This is the stutter instrument. |
-| Does the XWayland path cost anything? | Not answerable this way | An X11 client's frame counter measures its swaps to Xwayland, which Xwayland absorbs independently of Umbriel's buffer release, so the number is not comparable to a native client's. Measured at an identical `1280x720` surface: `glmark2-es2-wayland` scored 50140 and `glmark2-es2` scored 65347. The X11 path is not 30% faster; it is measuring a different loop. |
+| Does the XWayland path cost anything? | Not answerable this way | An X11 client's frame counter measures its swaps to Xwayland, which Xwayland absorbs independently of Andromeda's buffer release, so the number is not comparable to a native client's. Measured at an identical `1280x720` surface: `glmark2-es2-wayland` scored 50140 and `glmark2-es2` scored 65347. The X11 path is not 30% faster; it is measuring a different loop. |
 | Why is a game slower here than elsewhere? | The game | Nothing lighter is GPU-bound enough for the compositor's GPU share to show up in the client's own frame rate. Read the compositor's cost from its zones instead, and the client's from an external overlay. |
 
 `vkcube` prints no frame rate at all, and its `--c <framecount>` exits after that
@@ -194,7 +194,7 @@ Measured 2026-09-26 on a laptop with an Intel Arc (ARL) iGPU and an NVIDIA RTX
 
 ```sh
 WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=2 WLR_RENDER_DRM_DEVICE=/dev/dri/renderD129 \
-  build-tracy/umbriel -c config.toml
+  build-tracy/andromeda -c config.toml
 vkmark -D <intel-uuid> --present-mode immediate -b shading:duration=5
 ```
 
@@ -249,16 +249,16 @@ A persistent border or window effect costs only the outputs where its result
 is visible. Four runs check that, each path separately, with two outputs: A
 carries the effect and B a workload that stays the same. Transient animations
 are off (`[animation] enabled = false`), blur is off, and the effect is toggled
-by editing the configuration and running `umbriel msg config-reload`.
+by editing the configuration and running `andromeda msg config-reload`.
 
 - **Scanout.** A shows an ordinary desktop with several visible windows, so it
   never scans out. B runs an eligible fullscreen client, such as
   `vkmark --fullscreen --present-mode fifo`, whose `render list` zone reads
-  `1`, and `~/.cache/umbriel/umbriel.log` shows `Direct scan-out enabled`.
+  `1`, and `~/.cache/andromeda/andromeda.log` shows `Direct scan-out enabled`.
   Toggling A's effect at least three times must add no
   `Direct scan-out disabled` after that line. The log rotates at 1 MiB and
   keeps one previous file, so the check reads both, oldest first:
-  `cat umbriel.log.1 umbriel.log 2>/dev/null | sed -n '/Direct scan-out enabled/,$p' | grep -c 'Direct scan-out disabled'`
+  `cat andromeda.log.1 andromeda.log 2>/dev/null | sed -n '/Direct scan-out enabled/,$p' | grep -c 'Direct scan-out disabled'`
   prints `0`. The log names no output (`wlr_scene.c:5414`), so A's fixed
   ineligibility is what attributes the lines to B. Highlight mode cannot serve
   this run: scanout requires damage highlighting off (`:5392-5396`), so every
@@ -284,7 +284,7 @@ scenes come from the harness clients and `vkmark`:
 
 - B: `vkmark --present-mode immediate`, tiled at 800x600, and
   `unmap-client b-overlay 200 150`, floated by a window rule.
-- A, after `umbriel msg output-focus-right`: `unmap-client a-other 400 300` and
+- A, after `andromeda msg output-focus-right`: `unmap-client a-other 400 300` and
   `unmap-client a-win 400 300`, tiled, with `a-win` focused and carrying the
   effect, and the pointer moved over it with `pointer-client`.
 - Damage run: B holds `foot` running
@@ -329,7 +329,7 @@ against 65 ns). Each time includes the zone's own begin and end.
 
 - Confirm the surface is presented before trusting any uncapped number. A `fifo`
   run that does not pin to the output's refresh rate means the surface is not
-  reaching the screen: Umbriel culls invisible nodes outright
+  reaching the screen: Andromeda culls invisible nodes outright
   (`wlr_scene.c:4549`), and a culled surface has its buffers released
   immediately, which looks like an excellent frame rate.
 - A connected profiler reschedules every output frame as soon as the previous
@@ -344,8 +344,8 @@ against 65 ns). Each time includes the zone's own begin and end.
   attributed. Every build records them, since the log file is unfiltered and
   `wlr_log_init` asks wlroots for every level (`src/main.cpp:303-305`). The
   neighboring `types/output/render.c` lines are wlroots' render lock, which
-  Umbriel takes while an output animates, not the scene's decision.
-- `umbriel tearing` reports per output `last_commit_tearing`,
+  Andromeda takes while an output animates, not the scene's decision.
+- `andromeda tearing` reports per output `last_commit_tearing`,
   `last_presentation_presented`, and a `fallback_reason` naming whichever
   tearing veto applied. It says nothing about scanout.
 - GPU zones need `EXT_disjoint_timer_query`. Without it the GPU timeline is

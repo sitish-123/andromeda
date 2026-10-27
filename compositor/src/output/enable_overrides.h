@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // Session-scoped logical enablement selected through output management.
   // Identified monitors can carry their choice to another connector. Outputs
@@ -28,4 +28,4 @@ namespace umbriel {
     std::vector<Entry> m_entries;
   };
 
-} // namespace umbriel
+} // namespace andromeda

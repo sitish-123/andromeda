@@ -6,30 +6,30 @@
 # finger-scroll stream; three-finger swipes reach the same navigation with their own travel distances.
 set -euo pipefail
 
-active_workspace() { "$UMBRIEL" workspaces --json | jq -r '.[] | select(.active) | .index'; }
+active_workspace() { "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .index'; }
 wait_workspace() {
   for _ in $(seq 60); do
     [[ $(active_workspace) == "$1" ]] && return 0
     sleep 0.05
   done
-  echo "expected workspace $1: $("$UMBRIEL" workspaces --json)"
+  echo "expected workspace $1: $("$ANDROMEDA" workspaces --json)"
   return 1
 }
-frame() { grim "$UMBRIEL_RUNTIME_DIR/$1.png"; }
+frame() { grim "$ANDROMEDA_RUNTIME_DIR/$1.png"; }
 # Mean blue of a patch of the first preview: it drops as the filmstrip moves a card out from under it.
 blue() {
   frame "$1"
-  magick "$UMBRIEL_RUNTIME_DIR/$1.png" -crop 20x20+630+350 -format '%[fx:round(255*mean.b)]' info:
+  magick "$ANDROMEDA_RUNTIME_DIR/$1.png" -crop 20x20+630+350 -format '%[fx:round(255*mean.b)]' info:
 }
 # Mean difference between two frames, as a fraction of full scale.
 difference() {
-  magick "$UMBRIEL_RUNTIME_DIR/$1.png" "$UMBRIEL_RUNTIME_DIR/$2.png" \
+  magick "$ANDROMEDA_RUNTIME_DIR/$1.png" "$ANDROMEDA_RUNTIME_DIR/$2.png" \
     -compose difference -composite -format '%[fx:mean]' info:
 }
 moving() { awk -v value="$(difference "$1" "$2")" 'BEGIN { exit !(value > 0.0005) }'; }
 # $1 workspace axis, $2 vertical scroll factor, $3 horizontal scroll factor.
 configure() {
-  cat > "$UMBRIEL_CONFIG" <<EOF
+  cat > "$ANDROMEDA_CONFIG" <<EOF
 [general]
 xwayland = false
 show_cheatsheet = false
@@ -51,19 +51,19 @@ scroll_factor_horizontal = $3
 [output."HEADLESS-1"]
 workspace_axis = "$1"
 EOF
-  "$UMBRIEL" msg config-reload > /dev/null
+  "$ANDROMEDA" msg config-reload > /dev/null
 }
 
 count=0
 for title in touchpad-a touchpad-b touchpad-c; do
-  "$UMBRIEL_UNMAP_CLIENT" "$title" 1200 700 > /dev/null 2>&1 &
+  "$ANDROMEDA_UNMAP_CLIENT" "$title" 1200 700 > /dev/null 2>&1 &
   count=$((count + 1))
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq length) == "$count" ]] && break
+    [[ $("$ANDROMEDA" windows --json | jq length) == "$count" ]] && break
     sleep 0.05
   done
 done
-[[ $("$UMBRIEL" windows --json | jq length) == 3 ]]
+[[ $("$ANDROMEDA" windows --json | jq length) == 3 ]]
 
 for workspace_axis in vertical horizontal; do
   strip_axis=horizontal
@@ -73,20 +73,20 @@ for workspace_axis in vertical horizontal; do
     strip_coordinate=y
   fi
   first_position() {
-    "$UMBRIEL" windows --json | jq -r --arg coordinate "$strip_coordinate" '.[] | select(.title == "touchpad-a") | .[$coordinate]'
+    "$ANDROMEDA" windows --json | jq -r --arg coordinate "$strip_coordinate" '.[] | select(.title == "touchpad-a") | .[$coordinate]'
   }
 
   configure "$workspace_axis" 1.0 1.0
-  "$UMBRIEL" msg workspace-switch:1 > /dev/null
-  "$UMBRIEL" msg column-focus-first > /dev/null
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 move 640 360
-  "$UMBRIEL" msg overview-open > /dev/null
-  "$UMBRIEL" settle
+  "$ANDROMEDA" msg workspace-switch:1 > /dev/null
+  "$ANDROMEDA" msg column-focus-first > /dev/null
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 move 640 360
+  "$ANDROMEDA" msg overview-open > /dev/null
+  "$ANDROMEDA" settle
 
   # Travel across the workspace axis pans the strip. It keeps panning through drift onto the other axis, and never
   # activates another workspace. The client stays alive so the position can be read mid-gesture.
   before=$(first_position)
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$strip_axis" 150 axis "$workspace_axis" 80 pause 300 axis-stop "$strip_axis" &
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$strip_axis" 150 axis "$workspace_axis" 80 pause 300 axis-stop "$strip_axis" &
   pointer_pid=$!
   moved=false
   for _ in $(seq 40); do
@@ -99,7 +99,7 @@ for workspace_axis in vertical horizontal; do
 
   # Travel along the workspace axis drags the filmstrip while held, and selects only at axis_stop.
   before_blue=$(blue "$workspace_axis-before")
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 400 axis-stop "$workspace_axis" &
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 400 axis-stop "$workspace_axis" &
   pointer_pid=$!
   sleep 0.2
   [[ $(active_workspace) == 1 ]] || { echo "$workspace_axis: workspace committed before release"; exit 1; }
@@ -126,29 +126,29 @@ for workspace_axis in vertical horizontal; do
   fi
 
   # Losing the input device cancels the gesture; the same travel released properly commits.
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$workspace_axis" -210
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$workspace_axis" -210
   wait_workspace 2
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$workspace_axis" -210 pause 180 axis-stop "$workspace_axis"
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$workspace_axis" -210 pause 180 axis-stop "$workspace_axis"
   wait_workspace 1
 
   # Halving this physical axis halves its travel, whatever the workspace arrangement is.
   configure "$workspace_axis" 0.5 0.5
-  "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 180 axis-stop "$workspace_axis"
-  "$UMBRIEL" settle
+  "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 180 axis-stop "$workspace_axis"
+  "$ANDROMEDA" settle
   [[ $(active_workspace) == 1 ]] || { echo "$workspace_axis: halved scroll factor still selected a workspace"; exit 1; }
 
   # Travel means the same thing before the opening zoom has landed as it does after.
   if [[ $workspace_axis == vertical ]]; then
     configure "$workspace_axis" 1.0 1.0
-    "$UMBRIEL" msg overview-close > /dev/null
-    "$UMBRIEL" settle
-    "$UMBRIEL" msg overview-open > /dev/null
-    "$UMBRIEL_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 180 axis-stop "$workspace_axis"
+    "$ANDROMEDA" msg overview-close > /dev/null
+    "$ANDROMEDA" settle
+    "$ANDROMEDA" msg overview-open > /dev/null
+    "$ANDROMEDA_POINTER_CLIENT" 1280 720 axis "$workspace_axis" 210 pause 180 axis-stop "$workspace_axis"
     wait_workspace 2
-    "$UMBRIEL" msg workspace-switch:1 > /dev/null
+    "$ANDROMEDA" msg workspace-switch:1 > /dev/null
   fi
-  "$UMBRIEL" msg overview-close > /dev/null
-  "$UMBRIEL" settle
+  "$ANDROMEDA" msg overview-close > /dev/null
+  "$ANDROMEDA" settle
 done
 
 echo 'finger travel pans the strip, drags the filmstrip, settles on release, cancels with the device, and scales per axis'

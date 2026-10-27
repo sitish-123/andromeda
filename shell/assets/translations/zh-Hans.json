@@ -1398,7 +1398,7 @@
         "shell": "Shell",
         "system": "系统",
         "templates": "模板",
-        "umbriel": "Umbriel",
+        "andromeda": "Andromeda",
         "wallpaper": "壁纸"
       }
     },
@@ -3283,8 +3283,8 @@
           "description": "Shell UI 的默认时间格式",
           "label": "时间格式"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "在 umbriel 概览中键入时打开启动器；进入概览后，将通过一个极小的输入界面接收键盘输入",
+        "andromeda-overview-type-to-launch": {
+          "description": "在 andromeda 概览中键入时打开启动器；进入概览后，将通过一个极小的输入界面接收键盘输入",
           "label": "键入启动"
         },
         "window-switcher-current-workspace-only": {

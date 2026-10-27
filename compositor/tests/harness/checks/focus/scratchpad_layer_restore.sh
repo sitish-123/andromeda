@@ -4,13 +4,13 @@
 # the workspace (see 233).
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
 readonly SCRATCHPAD=refocus
 readonly WS=scratchpad-refocus-workspace
 readonly SCRATCH=scratchpad-refocus-foreground
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -33,9 +33,9 @@ default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 default_position = { x = 430, y = 230, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 field_of() {
   windows | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
@@ -83,31 +83,31 @@ steal_with_layer() {
   wait "$layer_pid" 2>/dev/null || true
 }
 
-"$CLIENT" "$WS" > "$UMBRIEL_RUNTIME_DIR/$WS.log" 2>&1 &
+"$CLIENT" "$WS" > "$ANDROMEDA_RUNTIME_DIR/$WS.log" 2>&1 &
 wait_for_count 1
 wait_for_field "$WS" active true
 
-"$CLIENT" "$SCRATCH" 420 260 > "$UMBRIEL_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
+"$CLIENT" "$SCRATCH" 420 260 > "$ANDROMEDA_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
 wait_for_count 2
 scratch_id=$(field_of "$SCRATCH" id)
 ws_id=$(field_of "$WS" id)
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
-"$UMBRIEL" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
 wait_for_field "$SCRATCH" scratchpad "$SCRATCHPAD"
-"$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
 wait_for_field "$SCRATCH" active true
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
 wait_for_field "$SCRATCH" active true
 
 # Phase one: focus sits on the workspace, so the layer release must hand it
 # back to the workspace, not the scratchpad.
-"$UMBRIEL" msg "window-focus:$ws_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$ws_id" > /dev/null
 wait_for_field "$WS" active true
 if ! wait_for_field "$SCRATCH" active false; then
   echo "workspace did not take focus from the visible scratchpad"
   exit 1
 fi
-steal_with_layer "$UMBRIEL_RUNTIME_DIR/layer-workspace.log"
+steal_with_layer "$ANDROMEDA_RUNTIME_DIR/layer-workspace.log"
 wait_for_field "$WS" active true
 if ! wait_for_field "$SCRATCH" active false; then
   echo "layer release stole workspace focus to the scratchpad"
@@ -116,9 +116,9 @@ fi
 
 # Phase two: focus sits on the scratchpad, so the layer release must hand it
 # back to the scratchpad, not the workspace behind it.
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
 wait_for_field "$SCRATCH" active true
-steal_with_layer "$UMBRIEL_RUNTIME_DIR/layer-scratchpad.log"
+steal_with_layer "$ANDROMEDA_RUNTIME_DIR/layer-scratchpad.log"
 wait_for_field "$SCRATCH" active true
 if ! wait_for_field "$WS" active false; then
   echo "layer release dropped scratchpad focus to the workspace"

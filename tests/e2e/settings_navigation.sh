@@ -6,7 +6,7 @@
 #   - an entry lands in a section the sidebar never shows,
 #   - `settings-open <page>` (or `bar:<name>`) does not switch pages while Settings is already open (two pages
 #     paint identically),
-#   - an old section id (templates, osd, umbriel) no longer opens the page that absorbed it.
+#   - an old section id (templates, osd, andromeda) no longer opens the page that absorbed it.
 # Writes the registry listing and one screenshot per page to $OUT (default ./artifacts/settings-navigation).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/settings-navigation}
@@ -36,7 +36,7 @@ done
 mkdir -p "$RUNTIME/home/.local/state/noctalia"
 printf '[theme]\npure_black_dark = true\n' > "$RUNTIME/home/.local/state/noctalia/settings.toml"
 
-aliases="templates:appearance osd:notifications umbriel:overview"
+aliases="templates:appearance osd:notifications andromeda:overview"
 with_noctalia '
   shot() { "$NOCTALIA" msg settings-open "$1" > /dev/null; sleep 1.5; grim -g "0,40 1280x680" "$OUT/$2.png"; }  # real time: repaint; below the bar, whose clock ticks
   for page in '"${pages[*]}"'; do shot "$page" "$page"; done

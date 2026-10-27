@@ -19,19 +19,19 @@ for target_source in "HEADLESS-2 HEADLESS-1" "HEADLESS-1 HEADLESS-2"; do
     boot_headless 2
     pid=$!
     run "$DESKTOP_CLIENT" mirror "$target" "$source"
-    for _ in $(seq 50); do grep -q "output '$target': mirroring" "$OUT/umbriel.log" && break; sleep 0.1; done
-    run "$UMBRIEL" settle > /dev/null
+    for _ in $(seq 50); do grep -q "output '$target': mirroring" "$OUT/andromeda.log" && break; sleep 0.1; done
+    run "$ANDROMEDA" settle > /dev/null
     if [[ $stop == term ]]; then
       kill -TERM "$pid"
     else
-      run "$UMBRIEL" msg session-quit:skip-confirmation > /dev/null 2>&1 || true
+      run "$ANDROMEDA" msg session-quit:skip-confirmation > /dev/null 2>&1 || true
     fi
     status=0
     wait "$pid" 2> /dev/null || status=$?
-    if (( status == 0 )) && ! grep -qiE 'abort|assert|double free|free\(\)|sanitizer' "$OUT/umbriel.log"; then
+    if (( status == 0 )) && ! grep -qiE 'abort|assert|double free|free\(\)|sanitizer' "$OUT/andromeda.log"; then
       echo "PASS $name: exit status 0" >> "$BASE/shutdown.txt"
     else
-      echo "FAIL $name: exit status $status; $(grep -iE 'abort|assert|free' "$OUT/umbriel.log" | tail -1)" >> "$BASE/shutdown.txt"
+      echo "FAIL $name: exit status $status; $(grep -iE 'abort|assert|free' "$OUT/andromeda.log" | tail -1)" >> "$BASE/shutdown.txt"
     fi
   done
 done

@@ -1,22 +1,22 @@
 #pragma once
 
-#include "compositors/umbriel/umbriel_event_handler.h"
+#include "compositors/andromeda/andromeda_event_handler.h"
 
 #include <optional>
 #include <string>
 #include <string_view>
 
-namespace compositors::umbriel {
-  class UmbrielRuntime;
-} // namespace compositors::umbriel
+namespace compositors::andromeda {
+  class AndromedaRuntime;
+} // namespace compositors::andromeda
 
-// Caches the Umbriel focused output from the persistent event stream so a query
-// is a cache read rather than a blocking IPC round-trip. Umbriel's workspaces
+// Caches the Andromeda focused output from the persistent event stream so a query
+// is a cache read rather than a blocking IPC round-trip. Andromeda's workspaces
 // snapshot marks the single focused workspace, which names the focused output
 // even when that workspace is empty.
-class UmbrielOutputBackend final : public compositors::umbriel::UmbrielEventHandler {
+class AndromedaOutputBackend final : public compositors::andromeda::AndromedaEventHandler {
 public:
-  explicit UmbrielOutputBackend(compositors::umbriel::UmbrielRuntime& runtime);
+  explicit AndromedaOutputBackend(compositors::andromeda::AndromedaRuntime& runtime);
 
   [[nodiscard]] std::optional<std::string> focusedOutputName() const;
 
@@ -27,8 +27,8 @@ private:
   std::optional<std::string> m_focusedOutput;
 };
 
-namespace compositors::umbriel {
+namespace compositors::andromeda {
 
-  [[nodiscard]] bool setOutputPower(UmbrielRuntime& runtime, bool on);
+  [[nodiscard]] bool setOutputPower(AndromedaRuntime& runtime, bool on);
 
-} // namespace compositors::umbriel
+} // namespace compositors::andromeda

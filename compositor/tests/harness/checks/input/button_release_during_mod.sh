@@ -9,27 +9,27 @@ readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly LEFT_BUTTON=272
 readonly KEY_A=30
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly LOG="$UMBRIEL_RUNTIME_DIR/button-release.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly LOG="$ANDROMEDA_RUNTIME_DIR/button-release.log"
 
 if [[ ! -x $POINTER || ! -x $OBSERVER ]]; then
   echo "input helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
 curve = "linear"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$OBSERVER" button-release > "$LOG" 2>&1 &
 window=''
 for _ in $(seq 60); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "button-release")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "button-release")')
   [[ -n $window ]] && break
   sleep 0.1
 done
@@ -39,8 +39,8 @@ if [[ -z $window ]]; then
 fi
 # Geometry right after map is still the pre-arrangement one, so read it again
 # once the layout has placed the window.
-"$UMBRIEL" settle
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "button-release")')
+"$ANDROMEDA" settle
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "button-release")')
 x=$(jq -r '(.x + .w / 2 | round)' <<< "$window")
 y=$(jq -r '(.y + .h / 2 | round)' <<< "$window")
 
@@ -51,8 +51,8 @@ y=$(jq -r '(.y + .h / 2 | round)' <<< "$window")
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" \
   move "$x" "$y" pause 300 press "$LEFT_BUTTON" \
   tap "$KEY_A" mod logo pause 200 mod none release "$LEFT_BUTTON" \
-  > "$UMBRIEL_RUNTIME_DIR/button-release-pointer.log" 2>&1 || {
-  echo "pointer client failed: $(< "$UMBRIEL_RUNTIME_DIR/button-release-pointer.log")"
+  > "$ANDROMEDA_RUNTIME_DIR/button-release-pointer.log" 2>&1 || {
+  echo "pointer client failed: $(< "$ANDROMEDA_RUNTIME_DIR/button-release-pointer.log")"
   exit 1
 }
 

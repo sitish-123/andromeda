@@ -4,8 +4,8 @@
 #include <wlr/util/log.h>
 
 #include "render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/render/fx_renderer/fx_offscreen_buffers.h"
+#include "andromedafx/render/fx_renderer/fx_renderer.h"
+#include "andromedafx/render/fx_renderer/fx_offscreen_buffers.h"
 
 static void drop_framebuffer(struct fx_framebuffer **buffer) {
 	if (*buffer == NULL) {

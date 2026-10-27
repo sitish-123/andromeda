@@ -4,7 +4,7 @@
 # harness: keyboard=none
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_KEYBOARD_KEYMAP_CLIENT:-./build-debug/tests/keyboard-keymap-client}"
+readonly CLIENT="${ANDROMEDA_KEYBOARD_KEYMAP_CLIENT:-./build-debug/tests/keyboard-keymap-client}"
 
 "$CLIENT"
 echo "virtual keyboard lifecycle preserves usable seat keymaps"

@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -258,4 +258,4 @@ namespace umbriel {
       .attach = ToplevelDragManager::handleAttach,
   };
 
-} // namespace umbriel
+} // namespace andromeda

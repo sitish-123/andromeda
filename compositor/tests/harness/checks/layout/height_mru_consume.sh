@@ -4,7 +4,7 @@
 set -euo pipefail
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     return 1
   fi
@@ -17,7 +17,7 @@ spawn_client() {
 wait_for_windows() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     [[ $count == "$expected" ]] && return 0
     sleep 0.1
   done
@@ -26,14 +26,14 @@ wait_for_windows() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" --arg field "$2" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" --arg field "$2" \
     '.[] | select(.title == $title) | .[$field]'
 }
 
 wait_for_stacked() {
   local windows=
   for _ in $(seq 50); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     if jq -e '
       [.[] | select(.title == "harness-a")] as $a
       | [.[] | select(.title == "harness-b")] as $b
@@ -53,7 +53,7 @@ wait_for_stacked() {
 wait_for_separate_columns() {
   local windows=
   for _ in $(seq 50); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     if jq -e '
       [.[] | select(.title == "harness-a")] as $a
       | [.[] | select(.title == "harness-b")] as $b
@@ -72,7 +72,7 @@ wait_for_separate_columns() {
 wait_for_b_height_percent() {
   local minimum=$1 maximum=$2 windows=
   for _ in $(seq 50); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     if jq -e --argjson minimum "$minimum" --argjson maximum "$maximum" '
       [.[] | select(.title == "harness-a")] as $a
       | [.[] | select(.title == "harness-b")] as $b

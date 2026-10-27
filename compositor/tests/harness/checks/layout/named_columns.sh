@@ -4,26 +4,26 @@ set -euo pipefail
 
 failed=0
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly DELAYED_LOG="$UMBRIEL_RUNTIME_DIR/named-delayed.log"
-readonly FIRST_LOG="$UMBRIEL_RUNTIME_DIR/named-first.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/named-column-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly DELAYED_LOG="$ANDROMEDA_RUNTIME_DIR/named-delayed.log"
+readonly FIRST_LOG="$ANDROMEDA_RUNTIME_DIR/named-first.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/named-column-control"
 
 spawn_client() {
-  "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_windows() {
   local count=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $count ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $count ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for $count named-column clients: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $count named-column clients: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout.scrolling]
 default_extent_fraction = 0.5
@@ -64,7 +64,7 @@ default_scrolling_column = "browser-stack"
 default_scrolling_column_order = 12
 default_scrolling_extent = 0.25
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Start the lower window first. The rule order must correct the final stack.
 spawn_client named-later
@@ -75,14 +75,14 @@ LOG_CONFIGURES=1 "$CLIENT" named-first 800 600 > "$FIRST_LOG" 2>&1 &
 wait_for_windows 3
 
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   later_x=$(jq -r '.[] | select(.title == "named-later") | .x' <<< "$windows")
   first_x=$(jq -r '.[] | select(.title == "named-first") | .x' <<< "$windows")
   [[ -n $first_x && $first_x == "$later_x" ]] && break
   sleep 0.1
 done
 
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 first_configure=$(awk -F= '/^configured-size=/{print $2; exit}' "$FIRST_LOG")
 first_arranged=$(awk -F= '/^configured-size=/{size=$2} END {print size}' "$FIRST_LOG")
 if [[ $first_configure != "$first_arranged" ]]; then
@@ -114,7 +114,7 @@ wait_for_windows 9
 printf 'u' >&"$control_fd"
 
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   later_x=$(jq -r '.[] | select(.title == "named-later") | .x' <<< "$windows")
   later_y=$(jq -r '.[] | select(.title == "named-later") | .y' <<< "$windows")
   first_x=$(jq -r '.[] | select(.title == "named-first") | .x' <<< "$windows")
@@ -160,9 +160,9 @@ fi
 column_gap_before=$((unrelated_x - first_x))
 spawn_client named-floating-joiner
 wait_for_windows 10
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   first_x=$(jq -r '.[] | select(.title == "named-first") | .x' <<< "$windows")
   joiner_x=$(jq -r '.[] | select(.title == "named-floating-joiner") | .x' <<< "$windows")
   unrelated_x=$(jq -r '.[] | select(.title == "unrelated") | .x' <<< "$windows")

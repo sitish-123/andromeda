@@ -16,10 +16,10 @@ extern "C" {
 #include <utility>
 #include <vector>
 
-using umbriel::buildCheatsheetRows;
-using umbriel::CheatsheetRow;
-using umbriel::Keybind;
-using umbriel::KeybindAction;
+using andromeda::buildCheatsheetRows;
+using andromeda::CheatsheetRow;
+using andromeda::Keybind;
+using andromeda::KeybindAction;
 
 namespace {
 
@@ -34,7 +34,7 @@ namespace {
 
   Keybind spawnBind(uint32_t keysym, const std::string& command) {
     Keybind result = bind(KeybindAction::Spawn, keysym);
-    umbriel::SpawnArg spawn;
+    andromeda::SpawnArg spawn;
     spawn.command = command;
     result.payload = std::move(spawn);
     return result;
@@ -42,23 +42,23 @@ namespace {
 
   Keybind workspaceIndexBind(uint32_t keysym, size_t index, uint32_t modifiers = 0) {
     Keybind result = bind(KeybindAction::WorkspaceSwitch, keysym, modifiers);
-    umbriel::WorkspaceArg workspace;
-    workspace.reference = umbriel::WorkspaceIndex{index};
+    andromeda::WorkspaceArg workspace;
+    workspace.reference = andromeda::WorkspaceIndex{index};
     result.payload = std::move(workspace);
     return result;
   }
 
   Keybind workspaceNameBind(uint32_t keysym, const std::string& name, uint32_t modifiers = 0) {
     Keybind result = bind(KeybindAction::WorkspaceSwitch, keysym, modifiers);
-    umbriel::WorkspaceArg workspace;
-    workspace.reference = umbriel::WorkspaceName{name};
+    andromeda::WorkspaceArg workspace;
+    workspace.reference = andromeda::WorkspaceName{name};
     result.payload = std::move(workspace);
     return result;
   }
 
-  Keybind layoutBind(uint32_t keysym, umbriel::LayoutMode mode) {
+  Keybind layoutBind(uint32_t keysym, andromeda::LayoutMode mode) {
     Keybind result = bind(KeybindAction::WorkspaceSetLayout, keysym);
-    result.payload = umbriel::LayoutModeArg{.mode = mode};
+    result.payload = andromeda::LayoutModeArg{.mode = mode};
     return result;
   }
 
@@ -73,20 +73,20 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(anEmptyBindListProducesNoRows) { CHECK(buildCheatsheetRows({}).empty()); }
+ANDROMEDA_TEST(anEmptyBindListProducesNoRows) { CHECK(buildCheatsheetRows({}).empty()); }
 
-UMBRIEL_TEST(utf8ArrowOccupiesOneCheatsheetColumn) {
-  CHECK_EQ(umbriel::cheatsheetChordColumns("Mod+\xe2\x86\x93"), size_t{5});
-  CHECK_EQ(umbriel::cheatsheetChordColumns("Mod+WheelDown"), size_t{13});
+ANDROMEDA_TEST(utf8ArrowOccupiesOneCheatsheetColumn) {
+  CHECK_EQ(andromeda::cheatsheetChordColumns("Mod+\xe2\x86\x93"), size_t{5});
+  CHECK_EQ(andromeda::cheatsheetChordColumns("Mod+WheelDown"), size_t{13});
 }
 
-UMBRIEL_TEST(bindsWithNoActionAreSkipped) {
+ANDROMEDA_TEST(bindsWithNoActionAreSkipped) {
   const std::vector<Keybind> binds = {Keybind{}, bind(KeybindAction::WindowClose, XKB_KEY_q)};
   const auto rows = buildCheatsheetRows(binds);
   CHECK_EQ(rows.size(), size_t{1});
   CHECK(rows[0].actionType == KeybindAction::WindowClose);
 }
-UMBRIEL_TEST(modifierOnlyBindHasNoTrailingKeysym) {
+ANDROMEDA_TEST(modifierOnlyBindHasNoTrailingKeysym) {
   Keybind modifier;
   modifier.useMod = true;
   modifier.modifierOnly = true;
@@ -97,7 +97,7 @@ UMBRIEL_TEST(modifierOnlyBindHasNoTrailingKeysym) {
   CHECK_EQ(rows[0].chord, std::string{"Mod"});
 }
 
-UMBRIEL_TEST(oneRowPerBindWhenActionsDiffer) {
+ANDROMEDA_TEST(oneRowPerBindWhenActionsDiffer) {
   const std::vector<Keybind> binds = {
       bind(KeybindAction::WindowClose, XKB_KEY_q),
       bind(KeybindAction::ToggleFloating, XKB_KEY_t),
@@ -111,22 +111,22 @@ UMBRIEL_TEST(oneRowPerBindWhenActionsDiffer) {
   }
 }
 
-UMBRIEL_TEST(masterLayoutModeIsNamedInTheActionLabel) {
-  const std::vector<Keybind> binds = {layoutBind(XKB_KEY_m, umbriel::LayoutMode::Master)};
+ANDROMEDA_TEST(masterLayoutModeIsNamedInTheActionLabel) {
+  const std::vector<Keybind> binds = {layoutBind(XKB_KEY_m, andromeda::LayoutMode::Master)};
   const auto rows = buildCheatsheetRows(binds);
   CHECK_EQ(rows.size(), size_t{1});
   CHECK(rows[0].action.contains("master"));
 }
 
-UMBRIEL_TEST(unnamedSubmapIsNamedInTheActionLabel) {
+ANDROMEDA_TEST(unnamedSubmapIsNamedInTheActionLabel) {
   Keybind unnamed = bind(KeybindAction::Submap, XKB_KEY_s);
-  unnamed.payload = umbriel::SubmapArg{};
+  unnamed.payload = andromeda::SubmapArg{};
   const auto rows = buildCheatsheetRows(std::vector<Keybind>{unnamed});
   CHECK_EQ(rows.size(), size_t{1});
   CHECK_EQ(rows[0].action, std::string{"submap: unnamed"});
 }
 
-UMBRIEL_TEST(bindsSharingAnActionMergeWithADitto) {
+ANDROMEDA_TEST(bindsSharingAnActionMergeWithADitto) {
   // Mod+H and Mod+Left both focus left; the second row shows the chord and a
   // ditto rather than repeating the label.
   const std::vector<Keybind> binds = {
@@ -141,7 +141,7 @@ UMBRIEL_TEST(bindsSharingAnActionMergeWithADitto) {
   CHECK(rows[0].chord != rows[1].chord);
 }
 
-UMBRIEL_TEST(differentModifiersDoNotMerge) {
+ANDROMEDA_TEST(differentModifiersDoNotMerge) {
   // Same action, different modifier: these are distinct entries, not a repeat.
   const std::vector<Keybind> binds = {
       bind(KeybindAction::WindowFocusLeft, XKB_KEY_h),
@@ -153,7 +153,7 @@ UMBRIEL_TEST(differentModifiersDoNotMerge) {
   CHECK(rows[1].action != kDitto);
 }
 
-UMBRIEL_TEST(spawnIsSplitIntoBinaryAndArguments) {
+ANDROMEDA_TEST(spawnIsSplitIntoBinaryAndArguments) {
   const std::vector<Keybind> binds = {spawnBind(XKB_KEY_Return, "/usr/bin/foot -e htop")};
   const auto rows = buildCheatsheetRows(binds);
   CHECK_EQ(rows.size(), size_t{1});
@@ -163,7 +163,7 @@ UMBRIEL_TEST(spawnIsSplitIntoBinaryAndArguments) {
   CHECK_EQ(rows[0].spawnArgs, std::string{"-e htop"});
 }
 
-UMBRIEL_TEST(spawnWithNoArgumentsFallsBackToTheBinary) {
+ANDROMEDA_TEST(spawnWithNoArgumentsFallsBackToTheBinary) {
   const std::vector<Keybind> binds = {spawnBind(XKB_KEY_Return, "foot")};
   const auto rows = buildCheatsheetRows(binds);
   CHECK_EQ(rows.size(), size_t{1});
@@ -172,7 +172,7 @@ UMBRIEL_TEST(spawnWithNoArgumentsFallsBackToTheBinary) {
   CHECK_EQ(rows[0].action, std::string{"foot"});
 }
 
-UMBRIEL_TEST(spawnsWithDifferentCommandsDoNotMerge) {
+ANDROMEDA_TEST(spawnsWithDifferentCommandsDoNotMerge) {
   const std::vector<Keybind> binds = {
       spawnBind(XKB_KEY_Return, "foot"),
       spawnBind(XKB_KEY_b, "firefox"),
@@ -180,7 +180,7 @@ UMBRIEL_TEST(spawnsWithDifferentCommandsDoNotMerge) {
   CHECK_EQ(buildCheatsheetRows(binds).size(), size_t{2});
 }
 
-UMBRIEL_TEST(perDigitWorkspaceBindsCollapseToOneRow) {
+ANDROMEDA_TEST(perDigitWorkspaceBindsCollapseToOneRow) {
   // The defaults bind workspaces 1-9 on both the number row and the keypad. Eighteen rows of near-identical text would
   // swamp the sheet, so they collapse to a single "1…9" row.
   std::vector<Keybind> binds;
@@ -200,7 +200,7 @@ UMBRIEL_TEST(perDigitWorkspaceBindsCollapseToOneRow) {
   }
 }
 
-UMBRIEL_TEST(numericWorkspaceNamesStayDistinctFromPositionalBinds) {
+ANDROMEDA_TEST(numericWorkspaceNamesStayDistinctFromPositionalBinds) {
   const std::vector<Keybind> binds = {
       workspaceIndexBind(XKB_KEY_1, 2),
       workspaceNameBind(XKB_KEY_2, "2"),
@@ -211,7 +211,7 @@ UMBRIEL_TEST(numericWorkspaceNamesStayDistinctFromPositionalBinds) {
   CHECK(std::ranges::any_of(rows, [](const CheatsheetRow& row) { return row.action.ends_with(": \"2\""); }));
 }
 
-UMBRIEL_TEST(numericNamedWorkspaceBindsDoNotCollapseAsAPositionalRun) {
+ANDROMEDA_TEST(numericNamedWorkspaceBindsDoNotCollapseAsAPositionalRun) {
   std::vector<Keybind> binds;
   binds.reserve(9);
   for (int i = 0; i < 9; ++i) {
@@ -220,7 +220,7 @@ UMBRIEL_TEST(numericNamedWorkspaceBindsDoNotCollapseAsAPositionalRun) {
   CHECK_EQ(buildCheatsheetRows(binds).size(), size_t{9});
 }
 
-UMBRIEL_TEST(anIncompleteWorkspaceRunIsLeftAlone) {
+ANDROMEDA_TEST(anIncompleteWorkspaceRunIsLeftAlone) {
   // Only three digits bound: collapsing would misreport the range, so the rows
   // stay as they are.
   std::vector<Keybind> binds;
@@ -232,11 +232,11 @@ UMBRIEL_TEST(anIncompleteWorkspaceRunIsLeftAlone) {
   CHECK_EQ(countRows(rows, KeybindAction::WorkspaceSwitch), size_t{3});
 }
 
-UMBRIEL_TEST(workspaceRunsKeepPostActionSubmapTransitions) {
+ANDROMEDA_TEST(workspaceRunsKeepPostActionSubmapTransitions) {
   std::vector<Keybind> binds;
   for (int i = 0; i < 9; ++i) {
     Keybind workspace = workspaceIndexBind(static_cast<uint32_t>(XKB_KEY_1 + i), static_cast<size_t>(i + 1));
-    workspace.submapAfter = umbriel::SubmapArg{.name = "inner"};
+    workspace.submapAfter = andromeda::SubmapArg{.name = "inner"};
     binds.push_back(std::move(workspace));
   }
 
@@ -245,7 +245,7 @@ UMBRIEL_TEST(workspaceRunsKeepPostActionSubmapTransitions) {
   CHECK(rows[0].action.contains("inner"));
 }
 
-UMBRIEL_TEST(submapBindsCarryTheirSubmap) {
+ANDROMEDA_TEST(submapBindsCarryTheirSubmap) {
   Keybind inSubmap = bind(KeybindAction::WindowFocusLeft, XKB_KEY_h);
   inSubmap.submap = "resize";
   const std::vector<Keybind> binds = {bind(KeybindAction::WindowFocusLeft, XKB_KEY_h), inSubmap};
@@ -259,11 +259,11 @@ UMBRIEL_TEST(submapBindsCarryTheirSubmap) {
   CHECK(haveSubmap);
 }
 
-UMBRIEL_TEST(postActionSubmapsRemainDistinctAndVisible) {
+ANDROMEDA_TEST(postActionSubmapsRemainDistinctAndVisible) {
   Keybind resets = bind(KeybindAction::WindowFocusLeft, XKB_KEY_h);
-  resets.submapAfter = umbriel::SubmapArg{.name = "reset"};
+  resets.submapAfter = andromeda::SubmapArg{.name = "reset"};
   Keybind enters = bind(KeybindAction::WindowFocusLeft, XKB_KEY_Left);
-  enters.submapAfter = umbriel::SubmapArg{.name = "inner"};
+  enters.submapAfter = andromeda::SubmapArg{.name = "inner"};
 
   const std::vector<CheatsheetRow> rows = buildCheatsheetRows(std::vector<Keybind>{resets, enters});
   CHECK_EQ(rows.size(), size_t{2});
@@ -271,11 +271,11 @@ UMBRIEL_TEST(postActionSubmapsRemainDistinctAndVisible) {
   CHECK(rows[0].action.contains("reset") || rows[1].action.contains("reset"));
 }
 
-UMBRIEL_TEST(groupTitlesArePlainTextNotMarkup) {
+ANDROMEDA_TEST(groupTitlesArePlainTextNotMarkup) {
   // This layer is content; escaping belongs to whatever draws it. A title carrying its own entities gets escaped a
   // second time and the reader sees the entity: "Move &amp; size" was rendered exactly like that.
   for (int i = 0; i < 32; ++i) {
-    const char* title = umbriel::groupTitle(static_cast<umbriel::Group>(i));
+    const char* title = andromeda::groupTitle(static_cast<andromeda::Group>(i));
     if (title == nullptr) {
       continue;
     }
@@ -286,102 +286,102 @@ UMBRIEL_TEST(groupTitlesArePlainTextNotMarkup) {
   }
 }
 
-UMBRIEL_TEST(crossWorkspaceDirectionalActionsUseExpectedGroups) {
-  CHECK(umbriel::groupForAction(KeybindAction::WindowFocusOrWorkspaceUp) == umbriel::Group::Focus);
-  CHECK(umbriel::groupForAction(KeybindAction::WindowFocusOrWorkspaceDown) == umbriel::Group::Focus);
-  CHECK(umbriel::groupForAction(KeybindAction::WindowMoveOrWorkspaceUp) == umbriel::Group::MoveSize);
-  CHECK(umbriel::groupForAction(KeybindAction::WindowMoveOrWorkspaceDown) == umbriel::Group::MoveSize);
+ANDROMEDA_TEST(crossWorkspaceDirectionalActionsUseExpectedGroups) {
+  CHECK(andromeda::groupForAction(KeybindAction::WindowFocusOrWorkspaceUp) == andromeda::Group::Focus);
+  CHECK(andromeda::groupForAction(KeybindAction::WindowFocusOrWorkspaceDown) == andromeda::Group::Focus);
+  CHECK(andromeda::groupForAction(KeybindAction::WindowMoveOrWorkspaceUp) == andromeda::Group::MoveSize);
+  CHECK(andromeda::groupForAction(KeybindAction::WindowMoveOrWorkspaceDown) == andromeda::Group::MoveSize);
 }
 
-UMBRIEL_TEST(everyActionMapsToAGroupWithATitle) {
+ANDROMEDA_TEST(everyActionMapsToAGroupWithATitle) {
   // groupForAction has no default arm to fall through to, so a new action that
   // is never grouped would show up here.
-  for (const auto& spec : umbriel::actionSpecs()) {
-    const umbriel::Group group = umbriel::groupForAction(spec.action);
-    const char* title = umbriel::groupTitle(group);
+  for (const auto& spec : andromeda::actionSpecs()) {
+    const andromeda::Group group = andromeda::groupForAction(spec.action);
+    const char* title = andromeda::groupTitle(group);
     CHECK(title != nullptr);
     CHECK(title != nullptr && title[0] != '\0');
   }
 }
 
-UMBRIEL_TEST(everyActionsGroupIsInTheFixedDisplayOrder) {
-  // The overlay, `umbriel msg --help`, and the action reference all walk fixedGroupOrder(). A group that exists but is
+ANDROMEDA_TEST(everyActionsGroupIsInTheFixedDisplayOrder) {
+  // The overlay, `andromeda msg --help`, and the action reference all walk fixedGroupOrder(). A group that exists but is
   // not listed there drops every action it owns from all three at once.
-  const auto order = umbriel::fixedGroupOrder();
-  for (const auto& spec : umbriel::actionSpecs()) {
-    const umbriel::Group group = umbriel::groupForAction(spec.action);
+  const auto order = andromeda::fixedGroupOrder();
+  for (const auto& spec : andromeda::actionSpecs()) {
+    const andromeda::Group group = andromeda::groupForAction(spec.action);
     CHECK(std::ranges::find(order, group) != order.end());
   }
 }
 
-UMBRIEL_TEST(scratchpadActionsHaveTheirOwnGroup) {
-  CHECK(umbriel::groupForAction(KeybindAction::WindowMoveToScratchpad) == umbriel::Group::Scratchpad);
-  CHECK(umbriel::groupForAction(KeybindAction::ScratchpadToggle) == umbriel::Group::Scratchpad);
-  CHECK(umbriel::groupForAction(KeybindAction::WindowToggleScratchpad) == umbriel::Group::Scratchpad);
-  CHECK(umbriel::groupForAction(KeybindAction::WindowRestoreFromScratchpad) == umbriel::Group::Scratchpad);
-  CHECK(umbriel::groupForAction(KeybindAction::ScratchpadFocusNext) == umbriel::Group::Scratchpad);
+ANDROMEDA_TEST(scratchpadActionsHaveTheirOwnGroup) {
+  CHECK(andromeda::groupForAction(KeybindAction::WindowMoveToScratchpad) == andromeda::Group::Scratchpad);
+  CHECK(andromeda::groupForAction(KeybindAction::ScratchpadToggle) == andromeda::Group::Scratchpad);
+  CHECK(andromeda::groupForAction(KeybindAction::WindowToggleScratchpad) == andromeda::Group::Scratchpad);
+  CHECK(andromeda::groupForAction(KeybindAction::WindowRestoreFromScratchpad) == andromeda::Group::Scratchpad);
+  CHECK(andromeda::groupForAction(KeybindAction::ScratchpadFocusNext) == andromeda::Group::Scratchpad);
 }
 
-UMBRIEL_TEST(scrollAndPinActionsGroupWithTheirPeers) {
-  CHECK(umbriel::groupForAction(KeybindAction::LayoutScrollUp) == umbriel::Group::MoveSize);
-  CHECK(umbriel::groupForAction(KeybindAction::LayoutScrollDown) == umbriel::Group::MoveSize);
-  CHECK(umbriel::groupForAction(KeybindAction::LayoutScrollDrag) == umbriel::Group::MoveSize);
-  CHECK(umbriel::groupForAction(KeybindAction::TogglePinned) == umbriel::Group::Windows);
+ANDROMEDA_TEST(scrollAndPinActionsGroupWithTheirPeers) {
+  CHECK(andromeda::groupForAction(KeybindAction::LayoutScrollUp) == andromeda::Group::MoveSize);
+  CHECK(andromeda::groupForAction(KeybindAction::LayoutScrollDown) == andromeda::Group::MoveSize);
+  CHECK(andromeda::groupForAction(KeybindAction::LayoutScrollDrag) == andromeda::Group::MoveSize);
+  CHECK(andromeda::groupForAction(KeybindAction::TogglePinned) == andromeda::Group::Windows);
 }
 
 // column packing: Groups are indivisible, so the panel is as tall as the tallest column and the only lever is where the
 // breaks fall. These pin that the split is the best one available rather than a plausible one.
 
-UMBRIEL_TEST(oneColumnHoldsEverything) {
+ANDROMEDA_TEST(oneColumnHoldsEverything) {
   const std::vector<int> blocks{4, 9, 2};
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 1), 15);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 1), 15);
 }
 
-UMBRIEL_TEST(anEvenSplitIsFound) {
+ANDROMEDA_TEST(anEvenSplitIsFound) {
   const std::vector<int> blocks{5, 5, 5, 5};
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 2), 10);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 2), 10);
 }
 
-UMBRIEL_TEST(noColumnIsShorterThanItsLargestGroup) {
+ANDROMEDA_TEST(noColumnIsShorterThanItsLargestGroup) {
   // 20 cannot be split, so no number of columns gets the tallest below it.
   const std::vector<int> blocks{2, 20, 2};
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 3), 20);
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 99), 20);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 3), 20);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 99), 20);
 }
 
-UMBRIEL_TEST(aShortGroupLetsItsNeighbourShareTheColumn) {
+ANDROMEDA_TEST(aShortGroupLetsItsNeighbourShareTheColumn) {
   // The naive lineCount/numCols target is 22/2 = 11, and snapping back to a group boundary would cut the first column
   // at 10 and leave 12 in the second. Packing 10 + 2 together is better, and is what this must find.
   const std::vector<int> blocks{10, 2, 10};
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 2), 12);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 2), 12);
 }
 
-UMBRIEL_TEST(moreColumnsAreNeverTaller) {
+ANDROMEDA_TEST(moreColumnsAreNeverTaller) {
   const std::vector<int> blocks{3, 7, 2, 8, 4, 6, 1};
-  int previous = umbriel::balancedColumnHeight(blocks, 1);
+  int previous = andromeda::balancedColumnHeight(blocks, 1);
   for (int columns = 2; columns <= 8; ++columns) {
-    const int height = umbriel::balancedColumnHeight(blocks, columns);
+    const int height = andromeda::balancedColumnHeight(blocks, columns);
     CHECK(height <= previous);
     previous = height;
   }
 }
 
-UMBRIEL_TEST(theAnswerIsActuallyAchievable) {
+ANDROMEDA_TEST(theAnswerIsActuallyAchievable) {
   // A height nobody can pack into is not an answer: the optimum must be
   // reachable, and one line less must not be.
   const std::vector<int> blocks{3, 7, 2, 8, 4, 6, 1};
-  const int height = umbriel::balancedColumnHeight(blocks, 3);
-  CHECK(umbriel::columnsNeededFor(blocks, height) <= 3);
-  CHECK(umbriel::columnsNeededFor(blocks, height - 1) > 3);
+  const int height = andromeda::balancedColumnHeight(blocks, 3);
+  CHECK(andromeda::columnsNeededFor(blocks, height) <= 3);
+  CHECK(andromeda::columnsNeededFor(blocks, height - 1) > 3);
 }
 
-UMBRIEL_TEST(degenerateInputsAreSafe) {
+ANDROMEDA_TEST(degenerateInputsAreSafe) {
   const std::vector<int> empty;
-  CHECK_EQ(umbriel::balancedColumnHeight(empty, 3), 0);
+  CHECK_EQ(andromeda::balancedColumnHeight(empty, 3), 0);
   const std::vector<int> blocks{5, 5};
   // Nonsense column counts fall back to one column rather than dividing by it.
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, 0), 10);
-  CHECK_EQ(umbriel::balancedColumnHeight(blocks, -3), 10);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, 0), 10);
+  CHECK_EQ(andromeda::balancedColumnHeight(blocks, -3), 10);
 }
 
 int main() { return RUN_TESTS(); }

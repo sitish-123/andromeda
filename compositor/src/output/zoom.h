@@ -2,7 +2,7 @@
 
 #include "wlr.h"
 
-namespace umbriel {
+namespace andromeda {
 
   // The screen magnifier's view: the part of the output, in output-local layout coordinates, that fills the output
   // at `factor`. It is centered on the pointer and pushed inward at the edges so it never leaves the output.
@@ -14,4 +14,4 @@ namespace umbriel {
       wlr_renderer* renderer, wlr_swapchain* swapchain, wlr_output_state& state, const wlr_fbox& box, float scale
   );
 
-} // namespace umbriel
+} // namespace andromeda

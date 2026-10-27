@@ -10,7 +10,7 @@ struct wl_client;
 struct wl_global;
 struct wl_resource;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -63,4 +63,4 @@ namespace umbriel {
     wl_resource* m_captureResource = nullptr;
   };
 
-} // namespace umbriel
+} // namespace andromeda

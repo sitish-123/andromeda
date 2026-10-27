@@ -3,30 +3,30 @@
 ## Starting configuration
 
 The packaged starting configuration is
-[`examples/config.toml`](https://github.com/noctalia-dev/umbriel/blob/main/examples/config.toml).
+[`examples/config.toml`](https://github.com/noctalia-dev/andromeda/blob/main/examples/config.toml).
 Copy it before making local changes:
 
 ```sh
-mkdir -p ~/.config/umbriel
-cp /usr/share/umbriel/config.toml ~/.config/umbriel/config.toml
+mkdir -p ~/.config/andromeda
+cp /usr/share/andromeda/config.toml ~/.config/andromeda/config.toml
 ```
 
 A manual installation under `/usr/local` places it at
-`/usr/local/share/umbriel/config.toml`. Nix users should prefer
-`programs.umbriel.settings` in Home Manager or hjem.
+`/usr/local/share/andromeda/config.toml`. Nix users should prefer
+`programs.andromeda.settings` in Home Manager or hjem.
 
-Umbriel watches the active configuration and applies valid changes when you
+Andromeda watches the active configuration and applies valid changes when you
 save. Most options reload immediately; reference tables identify options that
-require a restart. If a reload fails, Umbriel keeps the last working
+require a restart. If a reload fails, Andromeda keeps the last working
 configuration and tries again on the next save.
 
-Without `-c`, Umbriel checks these locations in order:
+Without `-c`, Andromeda checks these locations in order:
 
-1. `$XDG_CONFIG_HOME/umbriel/config.toml`
-2. Each `$XDG_CONFIG_DIRS/umbriel/config.toml`
-3. The packaged `share/umbriel/config.toml`
+1. `$XDG_CONFIG_HOME/andromeda/config.toml`
+2. Each `$XDG_CONFIG_DIRS/andromeda/config.toml`
+3. The packaged `share/andromeda/config.toml`
 
-Use `umbriel -c <path>` to select one exact file. Umbriel never creates or
+Use `andromeda -c <path>` to select one exact file. Andromeda never creates or
 modifies a user configuration automatically.
 
 ## Diagnostics
@@ -38,7 +38,7 @@ closes after ten seconds; an error remains until the next successful reload.
 Check a file without starting the compositor:
 
 ```sh
-umbriel config validate
+andromeda config validate
 ```
 
 The command prints every diagnostic with its file, line, and column, and exits
@@ -47,8 +47,8 @@ nonzero when it finds a problem.
 List every configuration key the installed binary accepts:
 
 ```sh
-umbriel config schema
-umbriel config schema --json
+andromeda config schema
+andromeda config schema --json
 ```
 
 Without `--json` it prints how many options each section has. With `--json` it
@@ -71,7 +71,7 @@ files = [
 
 [include.optional]
 files = [
-  "~/.config/umbriel/noctalia.toml",
+  "~/.config/andromeda/noctalia.toml",
 ]
 ```
 
@@ -88,7 +88,7 @@ Included files are applied in list order. The including file is applied last:
 
 Every file must contain valid TOML. Duplicate device or workspace selectors,
 and an effect preset defined in two files, are errors even when they come from
-different files: at startup Umbriel uses the default configuration and shows
+different files: at startup Andromeda uses the default configuration and shows
 an error banner (unless the configuration sets `[drm]`, which refuses to
 start), and a reload keeps the previous configuration.
 
@@ -99,7 +99,7 @@ is unavailable.
 ## Settings made in a settings app
 
 Changes made from a desktop settings app (Noctalia's Settings) are written to
-`settings.toml` next to `config.toml`. Umbriel loads it after `config.toml` and
+`settings.toml` next to `config.toml`. Andromeda loads it after `config.toml` and
 its includes, without an include line, so a value chosen in the app wins over
 the same key written by hand. Resetting a setting in the app removes it from
 `settings.toml`, and the hand-written value or the default applies again. Keys
@@ -124,7 +124,7 @@ honor_restored_maximize = false
 | `autostart` | string array | `[]` | Commands started once with the session. Changes require a restart. |
 | `mod_key` | string | Super, or Alt when nested | Modifier represented by `Mod` in keybinds. |
 | `xwayland` | bool | `true` | Start xwayland-satellite for X11 applications. Changes require a restart. |
-| `show_cheatsheet` | bool | `true` | Show the keybind cheatsheet when Umbriel starts. |
+| `show_cheatsheet` | bool | `true` | Show the keybind cheatsheet when Andromeda starts. |
 | `focus_on_activate` | bool | `false` | Let application activation requests focus and reveal their target. |
 | `honor_restored_maximize` | bool | `false` | Honor maximize requests an application makes while its window opens, until it acknowledges its opening layout. |
 
@@ -133,7 +133,7 @@ is enabled.
 
 ## DRM devices
 
-Use `[drm]` only when Umbriel should leave a GPU unopened in a native session.
+Use `[drm]` only when Andromeda should leave a GPU unopened in a native session.
 Omit the section for automatic GPU discovery. Changes require a restart.
 
 ```toml
@@ -147,7 +147,7 @@ ignored_pci_addresses = ["0000:01:00.0"]
 | `ignored_devices` | string array | `[]` | Absolute card or render-node paths. Prefer stable `/dev/dri/by-path` links. |
 | `ignored_pci_addresses` | string array | `[]` | PCI addresses in `domain:bus:slot.function` form. |
 
-Umbriel does not bind or unbind PCI drivers. Configure that lifecycle in
+Andromeda does not bind or unbind PCI drivers. Configure that lifecycle in
 libvirt or equivalent host tooling.
 
 ### Limits
@@ -166,17 +166,17 @@ ELECTRON_OZONE_PLATFORM_HINT = "auto"
 SDL_VIDEODRIVER = "wayland"
 ```
 
-These variables apply to Umbriel and commands started in its session. In a
+These variables apply to Andromeda and commands started in its session. In a
 managed native session, they are also published to the systemd user manager for
 session services such as Noctalia. Nested sessions do not modify the host
 session environment.
 
-Names must match `[A-Za-z_][A-Za-z0-9_]*`, and values must be strings. Umbriel
+Names must match `[A-Za-z_][A-Za-z0-9_]*`, and values must be strings. Andromeda
 owns its display and session variables, so this section cannot override
-`WAYLAND_DISPLAY`, `WAYLAND_SOCKET`, `DISPLAY`, `UMBRIEL_SOCKET`,
+`WAYLAND_DISPLAY`, `WAYLAND_SOCKET`, `DISPLAY`, `ANDROMEDA_SOCKET`,
 `XDG_CURRENT_DESKTOP`, `XDG_SESSION_DESKTOP`, or `XDG_SESSION_TYPE`.
 
-Environment changes require an Umbriel restart. Fully quit and relaunch
+Environment changes require an Andromeda restart. Fully quit and relaunch
 long-running applications that survived the restart.
 
 Removing a key does not clear a value already published to the systemd user
@@ -193,7 +193,7 @@ lid_close = "notify-send 'The laptop lid is closed!'"
 lid_open = "notify-send 'The laptop lid is open!'"
 ```
 
-Umbriel runs the command for the current lid state once during startup, after
+Andromeda runs the command for the current lid state once during startup, after
 the compositor IPC socket is ready, then runs commands when that state changes.
 This also handles signing in while the lid is already closed or already open.
 If the system reports more than one lid switch, the combined state remains
@@ -205,8 +205,8 @@ merely powering it off:
 
 ```toml
 [events]
-lid_close = "umbriel msg output-disable:eDP-1"
-lid_open = "umbriel msg output-enable:eDP-1"
+lid_close = "andromeda msg output-disable:eDP-1"
+lid_open = "andromeda msg output-enable:eDP-1"
 ```
 
 ## Screencast
@@ -227,7 +227,7 @@ disable_dynamic_confirmation = false
 
 ## Scratchpads
 
-With no `[[scratchpad]]` entries, Umbriel provides one implicit scratchpad named
+With no `[[scratchpad]]` entries, Andromeda provides one implicit scratchpad named
 `default`:
 
 ```toml
@@ -256,7 +256,7 @@ Defining a named scratchpad removes the implicit `default`. See
 
 ## Idle inhibition
 
-Umbriel honors idle inhibitors only while their application surface is mapped
+Andromeda honors idle inhibitors only while their application surface is mapped
 and visible. Switching away from its workspace, hiding it in a scratchpad,
 disabling its output, or locking the session suspends the inhibitor until the
 surface becomes visible again.

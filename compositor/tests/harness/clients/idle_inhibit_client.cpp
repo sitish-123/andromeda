@@ -100,7 +100,7 @@ namespace {
     constexpr int height = 64;
     constexpr int stride = width * 4;
     state.size = stride * height;
-    const int fd = memfd_create("umbriel-idle-inhibit-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-idle-inhibit-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(state.size)) < 0) {
       return false;
     }

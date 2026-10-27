@@ -7,15 +7,15 @@
 # ring its rule adds, and its drop shadow.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/rule-decoration.png"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/rule-decoration.png"
 
 # A white desktop and a red or green frame make both effects readable as whole
 # pixels, and the desktop color is [colors] backdrop. The global corner radius
 # stays high so the framed window's corners are really rounded: that is what the
 # bare window's square corner has to differ from. Samples beside a window's
 # midpoint stay clear of the corners either way.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#FFFFFFFF"
@@ -46,10 +46,10 @@ default_floating_size_px = { width = 400, height = 300 }
 default_position = { x = 620, y = 120, anchor = "top_left" }
 outer_border_width = 4
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 window_of() {
-  "$UMBRIEL" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)'
+  "$ANDROMEDA" windows --json | jq -c --arg title "$1" '.[] | select(.title == $title)'
 }
 
 wait_mapped() {
@@ -57,19 +57,19 @@ wait_mapped() {
     [[ -n $(window_of "$1") ]] && return 0
     sleep 0.05
   done
-  echo "$1 never mapped: $("$UMBRIEL" windows --json)"
+  echo "$1 never mapped: $("$ANDROMEDA" windows --json)"
   exit 1
 }
 
 # Window opens and the config reload animate; settle waits for every timeline to reach rest before the grab.
 shot_settled() {
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
   grim -o HEADLESS-1 "$SCREENSHOT"
 }
 
-"$CLIENT" bare-window > "$UMBRIEL_RUNTIME_DIR/rule-decoration-bare.log" 2>&1 &
+"$CLIENT" bare-window > "$ANDROMEDA_RUNTIME_DIR/rule-decoration-bare.log" 2>&1 &
 wait_mapped bare-window
-"$CLIENT" framed-window > "$UMBRIEL_RUNTIME_DIR/rule-decoration-framed.log" 2>&1 &
+"$CLIENT" framed-window > "$ANDROMEDA_RUNTIME_DIR/rule-decoration-framed.log" 2>&1 &
 wait_mapped framed-window
 
 BARE=$(window_of bare-window)
@@ -175,9 +175,9 @@ fi
 # The override works in the other direction too: with the global switch off, a rule
 # that sets shadow = true still draws one, while a window without the rule stays
 # bare.
-printf '\n[appearance.shadow]\nenabled = false\n' >> "$UMBRIEL_CONFIG"
-sed -i 's/^shadow = false$/shadow = true/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[appearance.shadow]\nenabled = false\n' >> "$ANDROMEDA_CONFIG"
+sed -i 's/^shadow = false$/shadow = true/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 shot_settled
 expect_shadow "$BARE" 200 306 "shadow = true under a globally disabled shadow"
 expect_background "$FRAMED" 200 312 "window without the rule under the same global switch"

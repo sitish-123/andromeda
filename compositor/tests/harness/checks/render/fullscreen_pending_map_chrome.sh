@@ -3,16 +3,16 @@
 # mapped view must use that pending fullscreen state when deciding whether to create rounded window chrome.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-pending-map-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/fullscreen-pending-map.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-pending-map-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/fullscreen-pending-map.png"
 
 if [[ ! -x $CLIENT ]]; then
   echo "subsurface client not built at $CLIENT"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -30,7 +30,7 @@ border_width = 12
 outer_border_width = 0
 corner_radius = 64
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 env FULLSCREEN_BEFORE_MAP=1 TRANSPARENT_CONTENT=1 \
   "$CLIENT" fullscreen-pending-map > "$CLIENT_LOG" 2>&1 &
@@ -50,7 +50,7 @@ if [[ ! $first_configure =~ ^first-configure\ [0-9]+\ [0-9]+\ windowed$ ]]; then
 fi
 
 window_box() {
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "fullscreen-pending-map") | "\(.x) \(.y) \(.w) \(.h)"'
+  "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "fullscreen-pending-map") | "\(.x) \(.y) \(.w) \(.h)"'
 }
 
 box=
@@ -67,7 +67,7 @@ if [[ ! $box =~ ^-?[0-9]+\ -?[0-9]+\ 1280\ 720$ ]]; then
 fi
 read -r win_x win_y _ _ <<< "$box"
 
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim "$SCREENSHOT"
 
 sample() {

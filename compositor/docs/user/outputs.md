@@ -10,7 +10,7 @@ position = [0, 0]
 scale = 1.25
 ```
 
-Run `umbriel outputs` inside a session to list names and available modes. The
+Run `andromeda outputs` inside a session to list names and available modes. The
 `Config name` value is a copyable monitor identity in
 `"<make> <model> <serial>"` form:
 
@@ -23,14 +23,14 @@ Use a monitor identity when settings should follow one display between ports.
 Use a connector when settings belong to a physical port. If both match, the
 monitor section wins. Matching is case-insensitive.
 
-Without a matching output section, Umbriel enables outputs that advertise a
+Without a matching output section, Andromeda enables outputs that advertise a
 preferred mode, a display identity, or no fixed mode list. A connector that
 advertises modes but provides neither a preferred mode nor an identity stays
 disabled. This avoids activating stale connector state reported by some DRM
 drivers. Add a matching output section with `enabled = true` to enable such a
 display explicitly.
 
-When an output disconnects or is disabled, Umbriel temporarily moves its
+When an output disconnects or is disabled, Andromeda temporarily moves its
 workspaces and windows to another enabled output. They return with their layout
 and positions when the output becomes available again.
 
@@ -57,7 +57,7 @@ and positions when the output becomes available again.
 | `layout.scrolling.default_extent_fraction` | float | inherited | Initial scrolling-column extent on this output. |
 | `screen_effect` | string | inherited | Replace `effects.screen` by name, or `"off"` to disable it on this output. |
 
-Umbriel tries an unadvertised resolution as a custom mode. If it cannot apply
+Andromeda tries an unadvertised resolution as a custom mode. If it cannot apply
 the configured mode, it uses the preferred advertised mode and logs a warning.
 
 ### Workspace count
@@ -152,7 +152,7 @@ direct_scanout = false
 The change applies on reload. Disabling direct scanout can increase GPU use and
 power consumption.
 
-Set `WLR_SCENE_DISABLE_DIRECT_SCANOUT=1` before starting Umbriel to disable
+Set `WLR_SCENE_DISABLE_DIRECT_SCANOUT=1` before starting Andromeda to disable
 direct scanout on every output.
 
 ### Variable refresh rate
@@ -183,9 +183,9 @@ Tearing requires an output-level opt-in:
 tearing = true
 ```
 
-Umbriel uses asynchronous presentation only for an eligible fullscreen window
+Andromeda uses asynchronous presentation only for an eligible fullscreen window
 that requests it or matches a `tearing = true` window rule. A window rule can
-also veto a client request. Run `umbriel tearing` to inspect eligibility and
+also veto a client request. Run `andromeda tearing` to inspect eligibility and
 fallback reasons.
 
 ### HDR
@@ -227,7 +227,7 @@ Set `bit_depth = 10` to request a 10-bit SDR compositor render format:
 bit_depth = 10
 ```
 
-Umbriel selects XR30 (`DRM_FORMAT_XRGB2101010`) or XB30
+Andromeda selects XR30 (`DRM_FORMAT_XRGB2101010`) or XB30
 (`DRM_FORMAT_XBGR2101010`) when the backend accepts it. XB30 is tried first if
 it is already active. Otherwise, XR30 is tried first. If no 10-bit format
 commits, the output falls back to 8-bit. HDR uses 10-bit independently of this
@@ -240,20 +240,20 @@ and linear filtering of half-float textures. Otherwise, they remain 8-bit.
 `bit_depth = 10` controls the compositor render format only. It does not
 guarantee that the physical display link runs at 10 bits per channel. The
 number of bits delivered to the panel depends on the display's EDID, cable,
-and driver. Run `umbriel color` to confirm the active render format that the
+and driver. Run `andromeda color` to confirm the active render format that the
 compositor committed.
 
-In `umbriel color --json`, `bit_depth` is the configured value and
+In `andromeda color --json`, `bit_depth` is the configured value and
 `bit_depth_active` reports whether an enabled SDR output is currently using
 XR30 or XB30. `bit_depth_fallback_reason` explains a failed 10-bit request.
 It is empty while HDR is active.
 
 #### VRR fallback
 
-When VRR is also requested and the output supports adaptive sync, Umbriel tests
+When VRR is also requested and the output supports adaptive sync, Andromeda tests
 the formats with VRR first, in the order described above. If neither passes, it
 tests them without VRR in the same order. Once a format passes its test,
-Umbriel attempts to commit it. If that commit fails with VRR, it retries the
+Andromeda attempts to commit it. If that commit fails with VRR, it retries the
 same format without VRR, without another test. A failed commit does not try the
 other format. If no 10-bit format commits, it falls back to 8-bit. HDR follows
 the same retry rule before falling back to SDR.
@@ -280,8 +280,8 @@ target for remote desktop and game streaming. See
 [Game streaming](streaming.md) for a Sunshine setup.
 
 ```sh
-umbriel output-create stream
-umbriel output-destroy stream
+andromeda output-create stream
+andromeda output-destroy stream
 ```
 
 The name uses ASCII letters, digits, `-`, `_`, and `.`, and must not match an
@@ -320,9 +320,9 @@ Use the logical output actions for the same temporary change without an
 external output-management tool:
 
 ```sh
-umbriel msg output-disable:eDP-1
-umbriel msg output-enable:eDP-1
-umbriel msg output-toggle:eDP-1
+andromeda msg output-disable:eDP-1
+andromeda msg output-enable:eDP-1
+andromeda msg output-toggle:eDP-1
 ```
 
 These actions remove and restore the output as part of the desktop layout.
@@ -357,9 +357,9 @@ is ignored.
 Use DPMS actions to power monitors off without removing their workspaces:
 
 ```sh
-umbriel msg dpms-off
-umbriel msg dpms-off:DP-1
-umbriel msg dpms-on:DP-1
+andromeda msg dpms-off
+andromeda msg dpms-off:DP-1
+andromeda msg dpms-on:DP-1
 ```
 
 The bare actions target every configured output. Input wakes all monitors when
@@ -371,7 +371,7 @@ windows, or exclude it from a whole-desktop capture.
 
 Tools such as `wlr-randr`, `kanshi`, `wdisplays`, and Noctalia's Displays page
 can change enabled state, mode, position, scale, transform, and adaptive sync
-while Umbriel is running.
+while Andromeda is running.
 
 Each successful change is also written to `displays.toml` beside the config
 file, one `[output]` table per display, named by its descriptor when the

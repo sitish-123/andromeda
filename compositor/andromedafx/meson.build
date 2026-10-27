@@ -1,30 +1,30 @@
-# umbrielfx is a hard fork of wlrfx/scenefx (MIT, see LICENSE), built as a
+# andromedafx is a hard fork of wlrfx/scenefx (MIT, see LICENSE), built as a
 # static library rather than joined into the compositor's source lists: it is C
 # compiled against wlroots' private struct layouts (-DWLR_PRIVATE=), and those
-# flags must not leak into Umbriel's C++23 units.
+# flags must not leak into Andromeda's C++23 units.
 
 cc = meson.get_compiler('c')
 
 # dladdr, for the scene helper guard. Folded into libc since glibc 2.34.
-umbrielfx_dl_dep = cc.find_library('dl', required: false)
-umbrielfx_egl_dep = dependency('egl')
-umbrielfx_gbm_dep = dependency('gbm')
-umbrielfx_glesv2_dep = dependency('glesv2')
-umbrielfx_math_dep = cc.find_library('m')
-umbrielfx_rt_dep = cc.find_library('rt')
+andromedafx_dl_dep = cc.find_library('dl', required: false)
+andromedafx_egl_dep = dependency('egl')
+andromedafx_gbm_dep = dependency('gbm')
+andromedafx_glesv2_dep = dependency('glesv2')
+andromedafx_math_dep = cc.find_library('m')
+andromedafx_rt_dep = cc.find_library('rt')
 
 # Older EGL headers cannot express the dmabuf import and fence attributes
 # fx_texture.c and egl.c rely on.
-umbrielfx_eglext_version = cc.get_define(
+andromedafx_eglext_version = cc.get_define(
   'EGL_EGLEXT_VERSION',
-  dependencies: umbrielfx_egl_dep,
+  dependencies: andromedafx_egl_dep,
   prefix: '#include <EGL/eglext.h>',
 ).to_int()
-if umbrielfx_eglext_version < 20210604
-  error('umbrielfx requires EGL headers with EGL_EGLEXT_VERSION >= 20210604')
+if andromedafx_eglext_version < 20210604
+  error('andromedafx requires EGL headers with EGL_EGLEXT_VERSION >= 20210604')
 endif
 
-umbrielfx_sources = files(
+andromedafx_sources = files(
   'render/color.c',
   'render/egl.c',
   'render/pixel_format.c',
@@ -56,55 +56,55 @@ umbrielfx_sources = files(
   'util/time.c',
 )
 
-umbrielfx_deps = [
+andromedafx_deps = [
   libdrm_dep,
   pixman_dep,
-  umbrielfx_dl_dep,
-  umbrielfx_egl_dep,
-  umbrielfx_gbm_dep,
-  umbrielfx_glesv2_dep,
-  umbrielfx_math_dep,
-  umbrielfx_rt_dep,
+  andromedafx_dl_dep,
+  andromedafx_egl_dep,
+  andromedafx_gbm_dep,
+  andromedafx_glesv2_dep,
+  andromedafx_math_dep,
+  andromedafx_rt_dep,
   wayland_server_dep,
   wlroots_dep,
 ]
 
 # ICC profile evaluation for client-supplied color management. Without lcms2
 # the fallback rejects ICC profiles and leaves the parametric transforms.
-umbrielfx_lcms2_dep = dependency('lcms2', required: false)
-if umbrielfx_lcms2_dep.found()
-  umbrielfx_deps += umbrielfx_lcms2_dep
-  umbrielfx_sources += files('render/color_lcms2.c')
+andromedafx_lcms2_dep = dependency('lcms2', required: false)
+if andromedafx_lcms2_dep.found()
+  andromedafx_deps += andromedafx_lcms2_dep
+  andromedafx_sources += files('render/color_lcms2.c')
 else
-  umbrielfx_sources += files('render/color_fallback.c')
+  andromedafx_sources += files('render/color_fallback.c')
 endif
 
 # wlroots' layer-shell header pulls in the generated server protocol header.
-umbrielfx_sources += layer_shell_protocol_h
+andromedafx_sources += layer_shell_protocol_h
 
-umbrielfx_little_endian = target_machine.endian() == 'little'
+andromedafx_little_endian = target_machine.endian() == 'little'
 
-umbrielfx_c_args = [
+andromedafx_c_args = [
   '-D_POSIX_C_SOURCE=200809L',
   '-DWLR_USE_UNSTABLE',
   '-DWLR_PRIVATE=',
-  '-DWLR_LITTLE_ENDIAN=@0@'.format(umbrielfx_little_endian.to_int()),
-  '-DWLR_BIG_ENDIAN=@0@'.format((not umbrielfx_little_endian).to_int()),
+  '-DWLR_LITTLE_ENDIAN=@0@'.format(andromedafx_little_endian.to_int()),
+  '-DWLR_BIG_ENDIAN=@0@'.format((not andromedafx_little_endian).to_int()),
 ]
 
 # Keep wlr_log's __FILE__ output relative to the source root rather than
 # leaking the absolute build path.
-umbrielfx_relative_dir = fs.relative_to(
+andromedafx_relative_dir = fs.relative_to(
   meson.current_source_dir(),
   meson.global_build_root(),
 ) + '/'
 if cc.has_argument('-fmacro-prefix-map=/prefix/to/hide=')
-  umbrielfx_c_args += '-fmacro-prefix-map=@0@='.format(umbrielfx_relative_dir)
+  andromedafx_c_args += '-fmacro-prefix-map=@0@='.format(andromedafx_relative_dir)
 else
-  umbrielfx_c_args += '-D_WLR_REL_SRC_DIR="@0@"'.format(umbrielfx_relative_dir)
+  andromedafx_c_args += '-D_WLR_REL_SRC_DIR="@0@"'.format(andromedafx_relative_dir)
 endif
 
-umbrielfx_c_args += cc.get_supported_arguments([
+andromedafx_c_args += cc.get_supported_arguments([
   '-Wundef',
   '-Wlogical-op',
   '-Wmissing-include-dirs',
@@ -126,13 +126,13 @@ umbrielfx_c_args += cc.get_supported_arguments([
 
 # Without these, tracy.c and every TRACY_* call site compile away.
 if tracy_dep.found()
-  umbrielfx_deps += tracy_dep
-  umbrielfx_c_args += ['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND']
+  andromedafx_deps += tracy_dep
+  andromedafx_c_args += ['-DTRACY_ENABLE', '-DTRACY_ON_DEMAND']
 endif
 
 # Shaders are compiled at runtime, so they ship as generated char arrays rather
 # than data files an installed binary would have to locate.
-umbrielfx_shader_embed = find_program(
+andromedafx_shader_embed = find_program(
   'render/fx_renderer/shaders/embed.sh',
   native: true,
 )
@@ -153,9 +153,9 @@ foreach shader : [
   'quad_round.frag',
   'tex.frag',
 ]
-  umbrielfx_sources += custom_target(
+  andromedafx_sources += custom_target(
     shader.underscorify() + '_src.h',
-    command: [umbrielfx_shader_embed, shader.underscorify() + '_src'],
+    command: [andromedafx_shader_embed, shader.underscorify() + '_src'],
     input: 'render/fx_renderer/shaders' / shader,
     output: shader.underscorify() + '_src.h',
     feed: true,
@@ -166,15 +166,15 @@ endforeach
 # Only `include` reaches the compositor. `internal` holds headers whose paths
 # (`render/`, `types/`, `util/`) would otherwise sit at the root of every
 # compositor translation unit's include path.
-umbrielfx_inc = include_directories('include')
-umbrielfx_internal_inc = include_directories('internal')
+andromedafx_inc = include_directories('include')
+andromedafx_internal_inc = include_directories('internal')
 
-umbrielfx_lib = static_library(
-  'umbrielfx',
-  umbrielfx_sources,
-  c_args: umbrielfx_c_args,
-  dependencies: umbrielfx_deps,
-  include_directories: [umbrielfx_inc, umbrielfx_internal_inc],
+andromedafx_lib = static_library(
+  'andromedafx',
+  andromedafx_sources,
+  c_args: andromedafx_c_args,
+  dependencies: andromedafx_deps,
+  include_directories: [andromedafx_inc, andromedafx_internal_inc],
   override_options: [
     'c_std=' + (meson.version().version_compare('>=1.4.0') ? 'c23,c11' : 'c11'),
   ],
@@ -184,20 +184,20 @@ umbrielfx_lib = static_library(
 # link_whole: the scene graph registers node type handlers and format tables
 # through constructors and tables the compositor never names directly, so
 # archive member pruning would drop them.
-umbrielfx_dep = declare_dependency(
-  link_whole: umbrielfx_lib,
-  dependencies: umbrielfx_deps,
-  include_directories: umbrielfx_inc,
+andromedafx_dep = declare_dependency(
+  link_whole: andromedafx_lib,
+  dependencies: andromedafx_deps,
+  include_directories: andromedafx_inc,
 )
 
 if build_tests
-  umbrielfx_color_test = executable(
-    'umbrielfx-color-test',
+  andromedafx_color_test = executable(
+    'andromedafx-color-test',
     'tests/color.c',
-    c_args: umbrielfx_c_args,
-    dependencies: umbrielfx_deps,
-    include_directories: [umbrielfx_inc, umbrielfx_internal_inc],
-    link_with: umbrielfx_lib,
+    c_args: andromedafx_c_args,
+    dependencies: andromedafx_deps,
+    include_directories: [andromedafx_inc, andromedafx_internal_inc],
+    link_with: andromedafx_lib,
     build_by_default: false,
   )
   foreach case_name : [
@@ -222,35 +222,35 @@ if build_tests
   ]
     test(
       'color-' + case_name,
-      umbrielfx_color_test,
+      andromedafx_color_test,
       args: case_name,
-      suite: 'umbrielfx',
+      suite: 'andromedafx',
     )
   endforeach
 
-  umbrielfx_capture_pacing_test = executable(
-    'umbrielfx-capture-pacing-test',
+  andromedafx_capture_pacing_test = executable(
+    'andromedafx-capture-pacing-test',
     'tests/capture_pacing.c',
-    c_args: umbrielfx_c_args,
-    dependencies: umbrielfx_deps,
-    include_directories: [umbrielfx_inc, umbrielfx_internal_inc],
-    link_with: umbrielfx_lib,
+    c_args: andromedafx_c_args,
+    dependencies: andromedafx_deps,
+    include_directories: [andromedafx_inc, andromedafx_internal_inc],
+    link_with: andromedafx_lib,
     build_by_default: false,
   )
 
   test(
     'capture-pacing',
-    umbrielfx_capture_pacing_test,
-    suite: 'umbrielfx',
+    andromedafx_capture_pacing_test,
+    suite: 'andromedafx',
   )
 
-  umbrielfx_effects_test = executable(
-    'umbrielfx-effects-test',
+  andromedafx_effects_test = executable(
+    'andromedafx-effects-test',
     'tests/effects.c',
-    c_args: umbrielfx_c_args,
-    dependencies: umbrielfx_deps,
-    include_directories: [umbrielfx_inc, umbrielfx_internal_inc],
-    link_with: umbrielfx_lib,
+    c_args: andromedafx_c_args,
+    dependencies: andromedafx_deps,
+    include_directories: [andromedafx_inc, andromedafx_internal_inc],
+    link_with: andromedafx_lib,
     build_by_default: false,
   )
   foreach case_name : [
@@ -284,7 +284,7 @@ if build_tests
     'in-place-shape',
     'output-effects',
   ]
-    test('effects-' + case_name, umbrielfx_effects_test, args: case_name, suite: 'umbrielfx')
+    test('effects-' + case_name, andromedafx_effects_test, args: case_name, suite: 'andromedafx')
   endforeach
 
   # Renderer ownership and descriptor stability against a real GPU. It takes
@@ -292,37 +292,37 @@ if build_tests
   # rather than a suite entry. Built by default so the warning gate compiles
   # it.
   executable(
-    'umbrielfx-renderer-test',
+    'andromedafx-renderer-test',
     'tests/renderer.c',
-    c_args: umbrielfx_c_args,
-    dependencies: umbrielfx_deps,
-    include_directories: [umbrielfx_inc, umbrielfx_internal_inc],
-    link_with: umbrielfx_lib,
+    c_args: andromedafx_c_args,
+    dependencies: andromedafx_deps,
+    include_directories: [andromedafx_inc, andromedafx_internal_inc],
+    link_with: andromedafx_lib,
   )
 
   if cc.get_define('WLR_HAS_GLES2_RENDERER', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) == '1'
-    umbrielfx_egl_abi_test = executable(
-      'umbrielfx-egl-abi-test',
+    andromedafx_egl_abi_test = executable(
+      'andromedafx-egl-abi-test',
       'tests/egl_abi.c',
-      c_args: umbrielfx_c_args,
-      dependencies: umbrielfx_deps,
-      include_directories: umbrielfx_internal_inc,
+      c_args: andromedafx_c_args,
+      dependencies: andromedafx_deps,
+      include_directories: andromedafx_internal_inc,
       export_dynamic: true,
       build_by_default: false,
     )
-    test('umbrielfx-egl-abi', umbrielfx_egl_abi_test, suite: 'umbrielfx')
+    test('andromedafx-egl-abi', andromedafx_egl_abi_test, suite: 'andromedafx')
   endif
-  # umbrielfx's scene structs must extend wlroots' as a strict prefix. One source,
+  # andromedafx's scene structs must extend wlroots' as a strict prefix. One source,
   # built against each header, proves the offsets still agree.
-  umbrielfx_abi_probes = []
+  andromedafx_abi_probes = []
   foreach probe : [
     ['wlroots', '<wlr/types/wlr_scene.h>', [wlroots_dep]],
-    ['umbrielfx', '<umbrielfx/types/wlr_scene.h>', [wlroots_dep, umbrielfx_dep]],
+    ['andromedafx', '<andromedafx/types/wlr_scene.h>', [wlroots_dep, andromedafx_dep]],
   ]
-    umbrielfx_abi_probes += executable(
-      'umbrielfx-abi-probe-' + probe[0],
+    andromedafx_abi_probes += executable(
+      'andromedafx-abi-probe-' + probe[0],
       'tests/abi.c',
-      c_args: umbrielfx_c_args + ['-DABI_PROBE_HEADER=' + probe[1]],
+      c_args: andromedafx_c_args + ['-DABI_PROBE_HEADER=' + probe[1]],
       dependencies: probe[2],
       build_by_default: false,
     )
@@ -331,7 +331,7 @@ if build_tests
   test(
     'scene-abi',
     find_program('tests/abi_compare.sh', native: true),
-    args: umbrielfx_abi_probes,
-    suite: 'umbrielfx',
+    args: andromedafx_abi_probes,
+    suite: 'andromedafx',
   )
 endif

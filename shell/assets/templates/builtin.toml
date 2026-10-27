@@ -72,8 +72,8 @@ category = "compositor"
 name = "Sway"
 category = "compositor"
 
-[catalog.umbriel]
-name = "Umbriel"
+[catalog.andromeda]
+name = "Andromeda"
 category = "compositor"
 
 [catalog.starship]
@@ -194,11 +194,11 @@ output_path = "$XDG_CONFIG_HOME/sway/noctalia"
 post_hook = "bash '{{ config_dir }}/sway/apply.sh'"
 undo_hook = "bash '{{ config_dir }}/sway/undo.sh'"
 
-[templates.umbriel]
-input_path = "./umbriel/umbriel.toml"
-output_path = "$XDG_CONFIG_HOME/umbriel/noctalia.toml"
-post_hook = "bash '{{ config_dir }}/umbriel/apply.sh'"
-undo_hook = "bash '{{ config_dir }}/umbriel/undo.sh'"
+[templates.andromeda]
+input_path = "./andromeda/andromeda.toml"
+output_path = "$XDG_CONFIG_HOME/andromeda/noctalia.toml"
+post_hook = "bash '{{ config_dir }}/andromeda/apply.sh'"
+undo_hook = "bash '{{ config_dir }}/andromeda/undo.sh'"
 
 [templates.starship]
 input_path = "./starship/starship.toml"

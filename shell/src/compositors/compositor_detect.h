@@ -15,7 +15,7 @@ namespace compositors {
     Triad = 6,
     Dwl = 7,
     Kde = 8,
-    Umbriel = 9,
+    Andromeda = 9,
   };
 
   // Detected once per process from env vars. Cached after the first call.
@@ -35,6 +35,6 @@ namespace compositors {
   [[nodiscard]] inline bool isTriad() { return detect() == CompositorKind::Triad; }
   [[nodiscard]] inline bool isDwl() { return detect() == CompositorKind::Dwl; }
   [[nodiscard]] inline bool isKde() { return detect() == CompositorKind::Kde; }
-  [[nodiscard]] inline bool isUmbriel() { return detect() == CompositorKind::Umbriel; }
+  [[nodiscard]] inline bool isAndromeda() { return detect() == CompositorKind::Andromeda; }
 
 } // namespace compositors

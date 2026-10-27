@@ -1,7 +1,7 @@
 #pragma once
 
-namespace umbriel {
+namespace andromeda {
 
   [[nodiscard]] constexpr bool maximizeRequestTargetsEdges(bool edgesActive) { return edgesActive; }
 
-} // namespace umbriel
+} // namespace andromeda

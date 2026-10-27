@@ -16,7 +16,7 @@ struct wlr_surface;
 struct wp_fifo_manager_v1_interface;
 struct wp_fifo_v1_interface;
 
-namespace umbriel {
+namespace andromeda {
 
   // Serves wp_fifo_manager_v1: a content update that waits on a surface's barrier is held until an output the surface
   // is on has latched the update that set the barrier. Surfaces on no enabled output ignore the wait, as the protocol
@@ -81,4 +81,4 @@ namespace umbriel {
     std::vector<std::unique_ptr<Surface>> m_surfaces;
   };
 
-} // namespace umbriel
+} // namespace andromeda

@@ -1,4 +1,4 @@
-name: Notify Umbriel
+name: Notify Andromeda
 
 on:
   push:
@@ -8,17 +8,17 @@ permissions: {}
 
 jobs:
   notify:
-    if: ${{ github.repository == 'noctalia-dev/xdg-desktop-portal-umbriel' }}
+    if: ${{ github.repository == 'noctalia-dev/xdg-desktop-portal-andromeda' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch Umbriel portal input update
+      - name: Dispatch Andromeda portal input update
         env:
-          GH_TOKEN: ${{ secrets.UMBRIEL_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.ANDROMEDA_DISPATCH_TOKEN }}
         run: |
           gh api \
             --method POST \
-            repos/noctalia-dev/umbriel/dispatches \
-            -f event_type=xdg-desktop-portal-umbriel-updated \
+            repos/noctalia-dev/andromeda/dispatches \
+            -f event_type=xdg-desktop-portal-andromeda-updated \
             -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
             -f "client_payload[source_ref]=$GITHUB_REF" \
             -f "client_payload[source_revision]=$GITHUB_SHA"

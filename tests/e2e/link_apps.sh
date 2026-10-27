@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Phone apps in desktop windows: umbriel-link-apps against an emulator adb already reaches (as wireless debugging does
-# for a paired phone), inside a headless Umbriel. Proves: --list names the launcher apps (Settings among them);
+# Phone apps in desktop windows: andromeda-link-apps against an emulator adb already reaches (as wireless debugging does
+# for a paired phone), inside a headless Andromeda. Proves: --list names the launcher apps (Settings among them);
 # --launch opens Settings on a new virtual display, not the phone's own, in a scrcpy window the compositor shows; and
 # closing that window removes the display. Needs scrcpy and a running emulator (ANDROID_SERIAL, default
-# emulator-5554). Writes results.jsonl, apps.jsonl, window.png, scrcpy.log, umbriel.log to $OUT (default
+# emulator-5554). Writes results.jsonl, apps.jsonl, window.png, scrcpy.log, andromeda.log to $OUT (default
 # ./artifacts/link-apps).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-apps}
@@ -18,12 +18,12 @@ command -v scrcpy > /dev/null || fail "scrcpy is not installed"
 boot_headless 1
 virtual() { adb shell dumpsys display | grep -c 'mDisplayId=.*scrcpy\|"scrcpy"' || true; }
 
-"$LINK_BIN/umbriel-link-apps" any --list > "$OUT/apps.jsonl" 2> "$OUT/scrcpy.log" || fail "--list: $(tail -3 "$OUT/scrcpy.log")"
+"$LINK_BIN/andromeda-link-apps" any --list > "$OUT/apps.jsonl" 2> "$OUT/scrcpy.log" || fail "--list: $(tail -3 "$OUT/scrcpy.log")"
 grep -q '"package":"com.android.settings"' "$OUT/apps.jsonl" || fail "Settings is not listed: $(head -5 "$OUT/apps.jsonl")"
 record "{\"step\":\"lists-apps\",\"count\":$(wc -l < "$OUT/apps.jsonl")}"
 
 BEFORE=$(virtual)
-run env SDL_VIDEODRIVER=wayland "$LINK_BIN/umbriel-link-apps" any --launch com.android.settings >> "$OUT/scrcpy.log" 2>&1 \
+run env SDL_VIDEODRIVER=wayland "$LINK_BIN/andromeda-link-apps" any --launch com.android.settings >> "$OUT/scrcpy.log" 2>&1 \
   || fail "--launch failed"
 for _ in $(seq 150); do (( $(virtual) > BEFORE )) && break; sleep 0.1; done
 (( $(virtual) > BEFORE )) || fail "no scrcpy virtual display appeared"

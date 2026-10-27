@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace umbriel {
+namespace andromeda {
 
   // Out of line so the header needs only a forward declaration of View.
   ViewRegistry::ViewRegistry() = default;
@@ -31,4 +31,4 @@ namespace umbriel {
     m_views.insert(m_views.begin(), std::move(entry));
   }
 
-} // namespace umbriel
+} // namespace andromeda

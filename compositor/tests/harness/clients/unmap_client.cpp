@@ -202,7 +202,7 @@ namespace {
 
   void keyboardKeymap(void*, wl_keyboard*, uint32_t, int32_t fd, uint32_t) {
     close(fd);
-    if (std::getenv("UMBRIEL_LOG_KEYMAPS") != nullptr) {
+    if (std::getenv("ANDROMEDA_LOG_KEYMAPS") != nullptr) {
       std::println("keymap");
       std::fflush(stdout);
     }
@@ -268,7 +268,7 @@ namespace {
     Buffer buffer;
     const int stride = width * 4;
     buffer.size = static_cast<size_t>(stride * height);
-    const int fd = memfd_create("umbriel-unmap-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-unmap-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(buffer.size)) < 0) {
       if (fd >= 0) {
         close(fd);

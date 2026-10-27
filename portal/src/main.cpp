@@ -2,7 +2,7 @@
 #include "dbus/dbus.h"
 #include "loop/loop.h"
 #include "pipewire/pipewire.h"
-#include "umbriel/ipc.h"
+#include "andromeda/ipc.h"
 #include "wayland/wayland.h"
 
 #include <cerrno>
@@ -25,12 +25,12 @@ int main() {
     }
     xdpu::PipeWireContext pipewire(loop);
     xdpu::DbusPortal portal(loop, config, wayland, pipewire);
-    xdpu::UmbrielIpc umbrielIpc(
+    xdpu::AndromedaIpc andromedaIpc(
         loop, [&portal](const xdpu::ScreenCastCommand& command) { portal.onScreenCastCommand(command); },
         [&portal](const std::optional<std::string>& identifier) { portal.onFocusedWindowChanged(identifier); },
         [&portal](const std::optional<std::string>& output) { portal.onFocusedOutputChanged(output); }
     );
-    portal.setScreenCastActiveHandler([&umbrielIpc](bool active) { umbrielIpc.setScreenCastActive(active); });
+    portal.setScreenCastActiveHandler([&andromedaIpc](bool active) { andromedaIpc.setScreenCastActive(active); });
 
     xdpu::ConfigWatcher watcher(loop, [&](const auto& oldCfg, const auto& newCfg) {
       config = newCfg;

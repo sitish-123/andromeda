@@ -1,18 +1,18 @@
-# Unit tests. Each entry is [name, test sources, extra dependencies]. Every test gets umbriel_pure_dep; add umbriel_core_dep to the third field for a test that
+# Unit tests. Each entry is [name, test sources, extra dependencies]. Every test gets andromeda_pure_dep; add andromeda_core_dep to the third field for a test that
 # needs compositor code. Either way a test never lists or recompiles a source.
 unit_tests = [
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
-  ['overview-preview-geometry', ['unit/overview_preview_geometry.cpp'], [umbriel_core_dep]],
+  ['overview-preview-geometry', ['unit/overview_preview_geometry.cpp'], [andromeda_core_dep]],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],
   ['scene-clip', ['unit/scene_clip.cpp'], [wayland_server_dep]],
-  ['presentation', ['unit/presentation.cpp'], [umbriel_core_dep]],
-  ['animation', ['unit/animation.cpp'], [umbriel_core_dep]],
-  ['application-scope', ['unit/application_scope.cpp'], [umbriel_core_dep], [], ['-Wl,--wrap=umbrielCloseRange']],
+  ['presentation', ['unit/presentation.cpp'], [andromeda_core_dep]],
+  ['animation', ['unit/animation.cpp'], [andromeda_core_dep]],
+  ['application-scope', ['unit/application_scope.cpp'], [andromeda_core_dep], [], ['-Wl,--wrap=andromedaCloseRange']],
   ['shader-source', ['unit/shader_source.cpp'], []],
   ['effects', ['unit/effects.cpp'], []],
-  ['window-opacity-blur', ['unit/window_opacity_blur.cpp'], [umbriel_core_dep]],
+  ['window-opacity-blur', ['unit/window_opacity_blur.cpp'], [andromeda_core_dep]],
   ['value-parse', ['unit/value_parse.cpp'], []],
   ['keybind-parse', ['unit/keybind_parse.cpp'], []],
   ['lid-state', ['unit/lid_state.cpp'], []],
@@ -23,7 +23,7 @@ unit_tests = [
   ['shortcut-keysym', ['unit/shortcut_keysym.cpp'], []],
   ['output-direction', ['unit/output_direction.cpp'], []],
   ['output-identity', ['unit/output_identity.cpp'], []],
-  ['mirror-placement', ['unit/mirror_placement.cpp'], [umbriel_core_dep]],
+  ['mirror-placement', ['unit/mirror_placement.cpp'], [andromeda_core_dep]],
   ['output-mode-selection', ['unit/output_mode_selection.cpp'], []],
   ['output-frame-schedule', ['unit/output_frame_schedule.cpp'], []],
   ['output-format-sequence', ['unit/output_format_sequence.cpp'], []],
@@ -44,21 +44,21 @@ unit_tests = [
   ['deferred-unfullscreen', ['unit/deferred_unfullscreen.cpp'], []],
   ['config-section', ['unit/config_section.cpp'], []],
   ['config-change', ['unit/config_change.cpp'], []],
-  ['config-schema', ['unit/config_schema.cpp'], [umbriel_core_dep]],
+  ['config-schema', ['unit/config_schema.cpp'], [andromeda_core_dep]],
   [
     'config-load',
     ['unit/config_load.cpp'],
-    [umbriel_core_dep],
+    [andromeda_core_dep],
     [
-      '-DUMBRIEL_EXAMPLE_CONFIG="' + meson.project_source_root() / 'examples/config.toml' + '"',
-      '-DUMBRIEL_SOURCE_ROOT="' + meson.project_source_root() + '"',
+      '-DANDROMEDA_EXAMPLE_CONFIG="' + meson.project_source_root() / 'examples/config.toml' + '"',
+      '-DANDROMEDA_SOURCE_ROOT="' + meson.project_source_root() + '"',
     ],
   ],
   ['drm-policy', ['unit/drm_policy.cpp'], []],
-  ['config-watcher', ['unit/config_watcher.cpp'], [umbriel_core_dep]],
-  ['managed-settings', ['unit/managed_settings.cpp'], [umbriel_core_dep]],
-  ['action-registry', ['unit/action_registry.cpp'], [umbriel_core_dep]],
-  ['ipc-commands', ['unit/ipc_commands.cpp'], [umbriel_core_dep]],
+  ['config-watcher', ['unit/config_watcher.cpp'], [andromeda_core_dep]],
+  ['managed-settings', ['unit/managed_settings.cpp'], [andromeda_core_dep]],
+  ['action-registry', ['unit/action_registry.cpp'], [andromeda_core_dep]],
+  ['ipc-commands', ['unit/ipc_commands.cpp'], [andromeda_core_dep]],
   ['config-resolve', ['unit/config_resolve.cpp'], []],
   # Reads docs/user/actions.md from the source tree: the doc's tables are generated from the same spec strings the CLI
   # prints, so the compiled table and the page cannot drift apart unnoticed.
@@ -66,7 +66,7 @@ unit_tests = [
     'docs-actions',
     ['unit/docs_actions.cpp'],
     [],
-    ['-DUMBRIEL_DOCS_ACTIONS_MD="' + meson.project_source_root() / 'docs/user/actions.md' + '"'],
+    ['-DANDROMEDA_DOCS_ACTIONS_MD="' + meson.project_source_root() / 'docs/user/actions.md' + '"'],
   ],
 ]
 
@@ -74,7 +74,7 @@ if native_drm_policy_supported
   # Meson enables 64-bit file offsets; glibc redirects stat to stat64.
   stat_symbol = is_glibc ? 'stat64' : 'stat'
   unit_tests += [
-    ['backend-manager', ['unit/backend_manager.cpp'], [umbriel_core_dep], [], ['-Wl,--wrap=' + stat_symbol]],
+    ['backend-manager', ['unit/backend_manager.cpp'], [andromeda_core_dep], [], ['-Wl,--wrap=' + stat_symbol]],
   ]
 endif
 
@@ -87,7 +87,7 @@ foreach unit_test : unit_tests
     unit_test[0] + '-test',
     unit_test[1],
     include_directories: include_directories('unit'),
-    dependencies: [umbriel_pure_dep] + unit_test[2],
+    dependencies: [andromeda_pure_dep] + unit_test[2],
     cpp_args: unit_test_args,
     link_args: unit_test_link_args,
   )
@@ -99,7 +99,7 @@ endforeach
 test(
   'validate-config',
   find_program('validate_config.sh'),
-  args: [umbriel],
+  args: [andromeda],
 )
 
 # Harness helper, not a unit test: drives virtual pointer and modifier input against a running compositor. The headless backend has no input devices, so protocol

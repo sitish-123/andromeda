@@ -5,14 +5,14 @@
 #include <algorithm>
 
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
 // clang-format off
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   void clearWindowEffectSlots(wlr_scene_node* node) {
     if (node != nullptr) {
@@ -82,7 +82,7 @@ namespace umbriel {
           {
               .output = input.output,
               .visible = wlr_scene_node_visible_in_box(input.border, &input.outputBox),
-              .readsTime = fx_effect_shader_reads(shader, "umbriel_time"),
+              .readsTime = fx_effect_shader_reads(shader, "andromeda_time"),
               .advancing = advancing && input.clockAdvancing,
           }
       );
@@ -143,7 +143,7 @@ namespace umbriel {
           {
               .output = input.output,
               .visible = visible,
-              .readsTime = fx_effect_shader_reads(program, "umbriel_time"),
+              .readsTime = fx_effect_shader_reads(program, "andromeda_time"),
               .advancing = advancing && input.clockAdvancing,
           }
       );
@@ -168,4 +168,4 @@ namespace umbriel {
     untrack(border);
   }
 
-} // namespace umbriel
+} // namespace andromeda

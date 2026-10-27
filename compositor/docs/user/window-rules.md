@@ -27,7 +27,7 @@ default_workspace = 2
 Selectors are optional. A rule with none matches every window. Regular
 expressions match any part of a value, so use `^` and `$` for an exact match.
 
-Run `umbriel windows` to inspect current application IDs, titles, tags, and
+Run `andromeda windows` to inspect current application IDs, titles, tags, and
 content types. Prefer `app_id` for placement because titles often change.
 
 State selectors update while the window is open. Opening settings are resolved
@@ -50,7 +50,7 @@ floating or pinned state that it creates.
 | `default_scrolling_column` | Join matching windows into one named scrolling column. |
 | `default_scrolling_column_order` | Set order inside a named scrolling column. |
 
-These values apply once when a window opens. Umbriel checks once more when the
+These values apply once when a window opens. Andromeda checks once more when the
 first title arrives because some applications set it after mapping.
 
 Dialogs float by default. Use `default_floating = false` in a matching rule to
@@ -183,13 +183,13 @@ border_color_unfocused = "#5C4A2AFF"
 ### Decoration
 
 `border_width`, `outer_border_width`, `corner_radius`, and `shadow` change what
-Umbriel draws around the windows a rule matches. Layout spacing keeps using the
+Andromeda draws around the windows a rule matches. Layout spacing keeps using the
 global border widths, so a rule never moves other windows: a thinner border
 leaves its gap empty, and a thicker one draws into the gap. The shadow's
 softness, offsets, and color stay global.
 
 An application that draws its own rounded corners and shadow looks best
-without Umbriel's:
+without Andromeda's:
 
 ```toml
 [[window_rule]]

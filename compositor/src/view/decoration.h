@@ -13,7 +13,7 @@ struct wlr_scene_border;
 struct wlr_scene_tree;
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   // Everything drawn around a view's surface: inner and outer border rings, blur behind the surface, and drop shadow.
   // The shadow container is a child of the view's frame, below its content; a tile's container is instead lent to the
@@ -105,4 +105,4 @@ namespace umbriel {
     bool m_shadowPooled = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

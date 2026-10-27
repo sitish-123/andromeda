@@ -3,7 +3,7 @@
 `BackendManager` filters GPUs before wlroots opens their KMS nodes and gives
 `Server` the selected backend, session, and renderer factory.
 
-Without exclusions, Umbriel uses `wlr_backend_autocreate()` and
+Without exclusions, Andromeda uses `wlr_backend_autocreate()` and
 `fx_renderer_create()`. The policy does not apply to nested Wayland, X11, or
 headless backends.
 
@@ -37,6 +37,6 @@ reloads, and compatibility limits.
 
 ## Verification
 
-The [contributor guide](../../CONTRIBUTING.md#umbrielfx) describes simulated
+The [contributor guide](../../CONTRIBUTING.md#andromedafx) describes simulated
 backend tests, EGL ABI checks, and hardware renderer checks. Physical VFIO
 transitions require testing in a dedicated native session.

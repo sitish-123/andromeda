@@ -19,18 +19,18 @@
 
 namespace {
 
-  using umbriel::balancedColumnHeight;
-  using umbriel::cheatsheetChordColumns;
-  using umbriel::CheatsheetRow;
-  using umbriel::escapeMarkup;
-  using umbriel::fixedGroupOrder;
-  using umbriel::Group;
-  using umbriel::groupForAction;
-  using umbriel::groupTitle;
-  using umbriel::keycapBackgroundColor;
-  using umbriel::renderTextBuffer;
-  using umbriel::rgbaHex;
-  using umbriel::TextBufferResult;
+  using andromeda::balancedColumnHeight;
+  using andromeda::cheatsheetChordColumns;
+  using andromeda::CheatsheetRow;
+  using andromeda::escapeMarkup;
+  using andromeda::fixedGroupOrder;
+  using andromeda::Group;
+  using andromeda::groupForAction;
+  using andromeda::groupTitle;
+  using andromeda::keycapBackgroundColor;
+  using andromeda::renderTextBuffer;
+  using andromeda::rgbaHex;
+  using andromeda::TextBufferResult;
 
   struct CheatsheetPalette {
     std::string textPrimary;
@@ -41,7 +41,7 @@ namespace {
     std::string keycapBackground;
   };
 
-  CheatsheetPalette makeCheatsheetPalette(const umbriel::Config::Colors& colors) {
+  CheatsheetPalette makeCheatsheetPalette(const andromeda::Config::Colors& colors) {
     const std::array<float, 4> keycapBackground = keycapBackgroundColor(colors.background, colors.textPrimary);
     return {
         .textPrimary = rgbaHex(colors.textPrimary),
@@ -182,7 +182,7 @@ namespace {
   // Rows become Pango markup lines under their group headers. Lines sharing a group value are never split across
   // columns, so a header cannot be stranded at the foot of one.
   std::vector<DisplayLine> buildDisplayLines(
-      const std::vector<umbriel::CheatsheetRow>& rows, const std::vector<std::string>& submapOrder,
+      const std::vector<andromeda::CheatsheetRow>& rows, const std::vector<std::string>& submapOrder,
       const CheatsheetPalette& palette
   ) {
     std::vector<DisplayLine> lines;
@@ -308,7 +308,7 @@ namespace {
   }
 
   // Lay the columns out and rasterise each, returning the buffers and the tallest.
-  std::pair<std::vector<umbriel::TextBufferResult>, int>
+  std::pair<std::vector<andromeda::TextBufferResult>, int>
   renderColumns(const std::vector<DisplayLine>& allLines, int cols, double scale, int fontSize) {
     auto colMarkups = layoutColumns(allLines, cols);
     const std::string font = std::format("monospace {}", fontSize);
@@ -341,13 +341,13 @@ namespace {
   // notice) and the footer naming the modifier key.
   Chrome renderChrome(bool configMissing, std::string_view modKeyName, double scale, const CheatsheetPalette& palette) {
     std::string titleMarkup =
-        std::format("<span size='14pt' weight='bold' foreground='{}'>Umbriel keybinds</span>", palette.accentPrimary);
+        std::format("<span size='14pt' weight='bold' foreground='{}'>Andromeda keybinds</span>", palette.accentPrimary);
     if (configMissing) {
       titleMarkup += std::format(
           "\n<span foreground='{}'>no config found \xc2\xb7 showing built-in defaults</span>", palette.warning
       );
       titleMarkup += std::format(
-          "\n<span foreground='{}'>copy examples/config.toml to ~/.config/umbriel/config.toml</span>", palette.textMuted
+          "\n<span foreground='{}'>copy examples/config.toml to ~/.config/andromeda/config.toml</span>", palette.textMuted
       );
     }
     const std::string footerMarkup = std::format(
@@ -376,7 +376,7 @@ namespace {
     int totalHeight = 0;
   };
 
-  void dropBuffers(std::vector<umbriel::TextBufferResult>& buffers) {
+  void dropBuffers(std::vector<andromeda::TextBufferResult>& buffers) {
     for (auto& buf : buffers) {
       if (buf.buffer != nullptr) {
         wlr_buffer_drop(buf.buffer);
@@ -389,7 +389,7 @@ namespace {
   // height bound advances the loop, the width bound stops it, and the result is the narrowest arrangement that clears
   // both. Shrinking the font is the outer lever, since it costs legibility everywhere while a column costs only width.
   // Starts at one column; buffers from a rejected attempt are dropped.
-  int bodyWidth(const std::vector<umbriel::TextBufferResult>& columns) {
+  int bodyWidth(const std::vector<andromeda::TextBufferResult>& columns) {
     int width = 0;
     for (size_t i = 0; i < columns.size(); ++i) {
       width += columns[i].logicalWidth;
@@ -426,7 +426,7 @@ namespace {
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   Cheatsheet::Cheatsheet(Server& server, wlr_scene_tree* parent) : m_server(server), m_parent(parent) {}
 
@@ -612,4 +612,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

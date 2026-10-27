@@ -1,8 +1,8 @@
 Contributing
 ===
 
-This file collects contributor-facing details for Umbriel: design goals, stack notes, code style, source layout,
-and debugging helpers. Umbriel shares its conventions with [noctalia](https://github.com/noctalia-dev/noctalia):
+This file collects contributor-facing details for Andromeda: design goals, stack notes, code style, source layout,
+and debugging helpers. Andromeda shares its conventions with [noctalia](https://github.com/noctalia-dev/noctalia):
 same team, same style. If in doubt, match what noctalia does.
 
 For dependencies and normal build commands, start with [README.md](README.md). For what the project accepts and
@@ -11,9 +11,9 @@ requests.
 
 ## Design Principles
 
-- Thin layer over wlroots 0.20 + `umbrielfx`: lean on the libraries, do not reimplement them.
+- Thin layer over wlroots 0.20 + `andromedafx`: lean on the libraries, do not reimplement them.
 - Domain-oriented C++23: one domain per directory, headers beside their sources, and `src/` as the include root.
-- Effects (blur, shadows, rounded corners, animations) go through `umbrielfx`; new visuals land there rather than as
+- Effects (blur, shadows, rounded corners, animations) go through `andromedafx`; new visuals land there rather than as
   ad-hoc scene hacks.
 - Mechanism and policy stay separate. Example: `View::applySeatFocus` is mechanism; focus policy lives in
   `Server::focusView`.
@@ -28,7 +28,7 @@ Direct project dependencies. Transitive dependencies are owned by their providin
 | Layer | Library |
 |-------|---------|
 | Compositor framework | `wlroots-0.20` |
-| Scene graph and effects | `umbrielfx` (blur, shadows, rounded corners; maintained in-tree) |
+| Scene graph and effects | `andromedafx` (blur, shadows, rounded corners; maintained in-tree) |
 | Wayland core | `wayland-server`, `wayland-client`, `wayland-protocols`, `wayland-scanner` |
 | Input | `libinput`, `xkbcommon` |
 | Graphics | `pixman`, `libdrm`, OpenGL via wlroots |
@@ -40,15 +40,15 @@ Direct project dependencies. Transitive dependencies are owned by their providin
 
 ## Development Commands
 
-The README covers routine builds and running Umbriel. Contributor checks and specialized builds use:
+The README covers routine builds and running Andromeda. Contributor checks and specialized builds use:
 
 | Command | Purpose |
 |---------|---------|
 | `just configure <mode> [prefix]` | Create or reconfigure a build directory and symlink `compile_commands.json` to it |
 | `just asan` | Build with AddressSanitizer (see [AddressSanitizer](#addresssanitizer)) |
 | `just run <mode> [startup]` | Build and run a nested session, optionally spawning a command |
-| `just test` | Run the Meson test suite: unit tests plus the umbrielfx suites |
-| `just gpu-test` | Run the umbrielfx renderer ownership check against this machine's DRM render nodes; it needs a GPU, so `just test` does not cover it |
+| `just test` | Run the Meson test suite: unit tests plus the andromedafx suites |
+| `just gpu-test` | Run the andromedafx renderer ownership check against this machine's DRM render nodes; it needs a GPU, so `just test` does not cover it |
 | `just check [filter ...]` | Run the headless compositor harness (`tests/harness/check.sh`), every check or the ones whose names contain a fragment: `just check render/`, `just check drag`, `just check render/ -v`. Checks run several at a time; `-j16` or `CHECK_JOBS=16` changes how many. Another build directory is `mode=`, as in `just mode=asan check render/` |
 | `just check-stress <name> [n]` | Run `n` copies (default 32) of one harness check at once, to expose races that load reveals |
 | `just check-names` | List every harness check name. Builds nothing |
@@ -64,15 +64,15 @@ Tests live in three places, and which one a change belongs in follows from what 
 tests/unit/             C++ unit tests, one binary per test, run by `just test`
 tests/meson.build       the unit test table and the harness client targets
 tests/harness/check.sh  the headless compositor harness, run by `just check`
-tests/harness/lib.sh    helpers a check sources with `source "$UMBRIEL_HARNESS_LIB"`
+tests/harness/lib.sh    helpers a check sources with `source "$ANDROMEDA_HARNESS_LIB"`
 tests/harness/checks/   one script per behaviour it asserts
 tests/harness/clients/  Wayland helper clients the checks drive
 ```
 
 A unit test covers math and pure decisions (layout geometry, config classification, keybind parsing) and never needs a
 compositor. A harness check covers anything that only exists in a running compositor: real clients, real framebuffers,
-seat grabs, live reloads. Every unit test gets `umbriel_pure_dep`, and one that needs compositor code adds
-`umbriel_core_dep` in the third field of the `unit_tests` table in `tests/meson.build`. A test that is not in that
+seat grabs, live reloads. Every unit test gets `andromeda_pure_dep`, and one that needs compositor code adds
+`andromeda_core_dep` in the third field of the `unit_tests` table in `tests/meson.build`. A test that is not in that
 table is not built and will rot unnoticed.
 
 Test targets exist only where the `tests` feature option resolves to enabled. `just configure` passes
@@ -91,21 +91,21 @@ durations the previous run recorded. Reports stay in declaration order whatever 
 follow:
 
 - A check must pass in a plain `just check` run, with no environment overrides.
-- A check starts from a pristine instance (no windows, overview closed, workspace 1 focused, `$UMBRIEL_CONFIG` holding
+- A check starts from a pristine instance (no windows, overview closed, workspace 1 focused, `$ANDROMEDA_CONFIG` holding
   the harness default) and owes nothing to whatever runs next. It appends the config it needs, spawns what it needs,
   and asserts. It must not restore config, close the overview, return to workspace 1, or reap its clients at exit: the
   harness owns all of that. A check that needs a different compositor lifecycle boots a private instance and tears it
   down itself, as `session/quit` does.
 - Never re-apply `XDG_RUNTIME_DIR`, `WAYLAND_DISPLAY`, or `-u DBUS_SESSION_BUS_ADDRESS` per command. The harness
   already put the body in that environment. This is containment, not convenience: only IPC subcommands honour
-  `UMBRIEL_SOCKET`, while `umbriel outputs` and every helper client are Wayland clients resolving `XDG_RUNTIME_DIR`
+  `ANDROMEDA_SOCKET`, while `andromeda outputs` and every helper client are Wayland clients resolving `XDG_RUNTIME_DIR`
   and `WAYLAND_DISPLAY`, so a missing prefix used to query the developer's live session instead of the instance.
 - Never retain `$!` from a backgrounded shell *function*. Bash forks a subshell, so the captured pid is the wrapper and
   a signal to it leaves the client running. Background the client binary directly when a pid must be kept.
-- Never time a check with the wall clock. Wait for an end state with `umbriel settle`: it replies once no animation
+- Never time a check with the wall clock. Wait for an end state with `andromeda settle`: it replies once no animation
   runs, no arrange is pending, every mapped window has acknowledged and committed its latest configure, and every
-  output has drawn a frame. Sample mid-animation on the animation clock: `umbriel clock-freeze` stops animation time,
-  `umbriel clock-advance <ms>` moves it and replies once every output has drawn that instant, and an animation started
+  output has drawn a frame. Sample mid-animation on the animation clock: `andromeda clock-freeze` stops animation time,
+  `andromeda clock-advance <ms>` moves it and replies once every output has drawn that instant, and an animation started
   while frozen counts from the frozen instant, so long configured durations cost nothing
   (`animation/builtin_window_styles` is the reference). Poll a client's log or IPC state for anything a client does. The
   pointer helper's `mark <label>` prints once every earlier command has been processed, and `hold` keeps buttons and
@@ -115,13 +115,13 @@ follow:
   `# real time: <reason>`, which is for compositor timers, helper-client pauses, and proofs that nothing reacts
   within a window. `windows --json` reports layout targets, not what is on screen, so it is not proof that motion
   has been drawn.
-- Analyse screenshots with `$UMBRIEL_PIXEL_PROBE` (`count`, `bbox`, `mean`, `max`, `pixel`, `size`; its source
+- Analyse screenshots with `$ANDROMEDA_PIXEL_PROBE` (`count`, `bbox`, `mean`, `max`, `pixel`, `size`; its source
   documents the predicate syntax) rather than ImageMagick. Read pixels as `grim` encodes them, which is what the
   compositor blended and shows: a colourspace conversion such as `magick -colorspace RGB` only moves blended values
   and makes thresholds harder to reason about. Pass a new or materially changed check through
   `just check-stress <name>` before relying on it.
 - Never depend on a machine-wide resource a sibling check could be using at the same time: a fixed port, a shared
-  path outside `$UMBRIEL_RUNTIME_DIR`, a named process matched with `pkill`, or the wall-clock cost of a neighbour.
+  path outside `$ANDROMEDA_RUNTIME_DIR`, a named process matched with `pkill`, or the wall-clock cost of a neighbour.
   Everything a check needs lives in its own instance and its own runtime directory.
 
 Checks live in topic directories under `tests/harness/checks/`, and a check's name is its path without `.sh`:
@@ -130,7 +130,7 @@ activation), `protocol` (protocol globals and session lock), `layout`, `workspac
 (window rules), `overview`, `drag`, `focus`, `input` (keyboard, input method, pointer grabs), `output`, `render`,
 `effect`, and `animation` (geometry motion and window lifecycle timing). File a check under the behavior it asserts,
 not under what it sets up: a scratchpad focus regression belongs in `focus/`. Name it without repeating its topic:
-`scratchpad/named`, not `scratchpad/named_scratchpads`. Checks reach repository files through `$UMBRIEL_REPO`.
+`scratchpad/named`, not `scratchpad/named_scratchpads`. Checks reach repository files through `$ANDROMEDA_REPO`.
 
 A boot costs about 80ms and the pool runs checks side by side, so the suite's wall time is bounded below by its longest
 check: three six-second siblings finish in six seconds, and folding them into one check makes the whole suite wait
@@ -163,7 +163,7 @@ A check that stops making progress is killed after 120 seconds, so the suite rep
 the version bump is committed to the intended release commit, create and push the matching tag:
 
 ```sh
-git tag -a "v$(<VERSION)" -m "Umbriel $(<VERSION)"
+git tag -a "v$(<VERSION)" -m "Andromeda $(<VERSION)"
 git push origin "v$(<VERSION)"
 ```
 
@@ -197,7 +197,7 @@ and refreshes the git index for tracked formatting changes.
 | Variables / Parameters | camelCase | `startupCmd` |
 | Private members | m_camelCase | `m_sceneTree` |
 | Constants | k-prefixed constexpr | `kLayerCount` |
-| Macros | SCREAMING_SNAKE_CASE | `UMBRIEL_VERSION` |
+| Macros | SCREAMING_SNAKE_CASE | `ANDROMEDA_VERSION` |
 
 Scoped enums (`enum class`) use PascalCase enumerators and an explicit `std::uint8_t` underlying type where it makes
 sense: `enum class FocusReason : uint8_t { Directional, PointerPress, ... }`.
@@ -209,7 +209,7 @@ Getters are the noun, without a `get` prefix, and `[[nodiscard]]`: `toplevel()`,
 | | Convention | Example |
 |---|---|---|
 | TOML keys | snake_case | `scroll_wheel_step`, `click_method` |
-| Enumerated values Umbriel defines | snake_case | `top_left`, `button_areas`, `on` |
+| Enumerated values Andromeda defines | snake_case | `top_left`, `button_areas`, `on` |
 | Action and IPC identifiers | kebab-case | `window-close`, `layout-scroll-left` |
 | Identifiers owned by another system | verbatim | `variant = "altgr-intl"`, output `DP-1`, `app_id` |
 
@@ -261,7 +261,7 @@ src/
   config/     TOML parsing, resolution, reloads, and diagnostics
   core/       animation, logging, process, and resource helpers
   cli/        runtime inspection and command-line entry points
-umbrielfx/    in-tree scene graph and GLES2 renderer (C, hard fork of SceneFX)
+andromedafx/    in-tree scene graph and GLES2 renderer (C, hard fork of SceneFX)
 protocols/    vendored Wayland protocol XML
 data/         session desktop entry
 nix/          package and system integration modules
@@ -276,37 +276,37 @@ Conventions:
   config options. The reference pages are linked from [`examples/config.toml`](examples/config.toml) and the
   [README](README.md#configuration). Maintainer design notes live in [`docs/design/`](docs/design/).
 
-## umbrielfx
+## andromedafx
 
-`umbrielfx/` is a hard fork of [SceneFX](https://github.com/wlrfx/scenefx), built by `subdir('umbrielfx')` from the
+`andromedafx/` is a hard fork of [SceneFX](https://github.com/wlrfx/scenefx), built by `subdir('andromedafx')` from the
 root `meson.build`. Edit it like any other directory and commit alongside the compositor change that needs it. Never
 rebase it onto upstream SceneFX.
 
 It is C compiled against wlroots' private struct layouts (`-DWLR_PRIVATE=`), so its compiler flags stay on its own
-target and never reach the compositor's C++23 units. Public headers are `umbrielfx/include/umbrielfx/`; private ones
-live in `umbrielfx/internal/` and stay off the compositor's include path. See
-[`umbrielfx/README.md`](umbrielfx/README.md).
+target and never reach the compositor's C++23 units. Public headers are `andromedafx/include/andromedafx/`; private ones
+live in `andromedafx/internal/` and stay off the compositor's include path. See
+[`andromedafx/README.md`](andromedafx/README.md).
 
 It replaces wlroots' scene graph but reuses the scene helpers it does not reimplement, such as
 `wlr_scene_xdg_surface_create` and `wlr_scene_attach_output_layout`. Those resolve to `libwlroots` and read
-umbrielfx's structs at wlroots' field offsets, so a struct in `types/wlr_scene.h` that wlroots also declares must stay
-a strict prefix extension: new fields go after every wlroots field. `umbrielfx/tests/abi.c` fails the build's test
+andromedafx's structs at wlroots' field offsets, so a struct in `types/wlr_scene.h` that wlroots also declares must stay
+a strict prefix extension: new fields go after every wlroots field. `andromedafx/tests/abi.c` fails the build's test
 suite if that slips.
 
 Its regressions run in their own suite:
 
 ```sh
-meson test -C build-release --suite umbrielfx
+meson test -C build-release --suite andromedafx
 ```
 
 Renderer ownership and descriptor stability need a real GPU, so that check is a
-tool rather than a suite entry: `umbrielfx-renderer-test` takes DRM render
+tool rather than a suite entry: `andromedafx-renderer-test` takes DRM render
 nodes as arguments, and `just gpu-test` passes every node the machine has.
 
 ```sh
 just gpu-test                 # every /dev/dri/renderD*
 just mode=release gpu-test    # from another build directory
-build-release/umbrielfx/umbrielfx-renderer-test /dev/dri/renderD128 /dev/dri/renderD129
+build-release/andromedafx/andromedafx-renderer-test /dev/dri/renderD128 /dev/dri/renderD129
 ```
 
 Every selected node must open and initialize or the run fails. The EGL and
@@ -317,7 +317,7 @@ taking control of a seat.
 ## Debugging
 
 - Every build writes every level, debug included, to
-  `$XDG_CACHE_HOME/umbriel/umbriel.log` (fallback `~/.cache/umbriel/umbriel.log`).
+  `$XDG_CACHE_HOME/andromeda/andromeda.log` (fallback `~/.cache/andromeda/andromeda.log`).
   The file is deliberately unfiltered (`src/core/log.cpp:270`); only the console
   honours the build's minimum level, which is debug for debug and ASan builds and
   info for release (`src/core/log.cpp:21-25`). So a release session still records
@@ -333,11 +333,11 @@ every workflow runs there:
 ```sh
 just asan                     # build the instrumented binary
 just run asan [startup]       # nested session under ASan
-just test asan                # unit tests plus the umbrielfx suites
+just test asan                # unit tests plus the andromedafx suites
 just mode=asan check [filter] # harness checks, one instrumented compositor per check
 ```
 
-`b_sanitize` is a global Meson option, so umbrielfx's C sources are instrumented alongside the compositor and a report
+`b_sanitize` is a global Meson option, so andromedafx's C sources are instrumented alongside the compositor and a report
 points into them with file and line. `just configure` also repoints the `compile_commands.json` symlink, so returning
 to unsanitized work needs `just configure debug`.
 
@@ -346,12 +346,12 @@ wins, so `ASAN_OPTIONS=detect_leaks=1 just mode=asan check overview/wheel` overr
 
 Leak detection is off because Mesa leaks its EGL display setup on every renderer teardown, under `dri2_initialize`
 below `wlr_egl_create_with_drm_fd`: about 400 KB in 7900 allocations when the compositor exits, and 115 KB in the
-umbrielfx color tests. Left on, every harness check fails at teardown with `compositor exited with status 1` and the
+andromedafx color tests. Left on, every harness check fails at teardown with `compositor exited with status 1` and the
 14 color tests abort. Enable it for the one scope you are chasing a leak in, and read past the `libEGL_mesa` frames.
 
 Reports go to stderr, which for `just run asan` is the parent terminal. Where stderr is not readable, as in a session
-started by a display manager, redirect them: `ASAN_OPTIONS=log_path=/var/tmp/umbriel-asan just run asan` writes
-`/var/tmp/umbriel-asan.<pid>` instead.
+started by a display manager, redirect them: `ASAN_OPTIONS=log_path=/var/tmp/andromeda-asan just run asan` writes
+`/var/tmp/andromeda-asan.<pid>` instead.
 
 An ASan build still links `jemalloc` when it is installed, since `-Djemalloc` is independent of `b_sanitize`, but
 `libasan` precedes it in the link order and services every allocation. The `jemalloc: narenas=...` startup record in
@@ -359,14 +359,14 @@ an ASan build therefore describes an allocator nothing uses; configure with `-Dj
 
 ### Profiling
 
-`tracy` mode is a release build with `-Dtracy=enabled`. It compiles the Tracy zones in umbrielfx's render pass and
+`tracy` mode is a release build with `-Dtracy=enabled`. It compiles the Tracy zones in andromedafx's render pass and
 in the compositor's per-frame path; every other build mode compiles them to nothing.
 
 ```sh
-just tracy                                     # build build-tracy/umbriel
+just tracy                                     # build build-tracy/andromeda
 just mode=tracy run                            # nested instrumented session
-tracy-capture -o /tmp/umbriel.tracy -s 10 -f   # 10 seconds, overwrite
-tracy-csvexport /tmp/umbriel.tracy             # name, counts, mean_ns, max_ns per zone
+tracy-capture -o /tmp/andromeda.tracy -s 10 -f   # 10 seconds, overwrite
+tracy-csvexport /tmp/andromeda.tracy             # name, counts, mean_ns, max_ns per zone
 ```
 
 The client half of Tracy has to be built rather than installed. Both of its upstream build systems default
@@ -394,17 +394,17 @@ Which zones exist, what a capture can and cannot answer, and which workloads to 
 The CLI doubles as a runtime inspection and IPC surface against a running compositor:
 
 ```sh
-umbriel -v | --version            # print the release version and commit revision
-umbriel config validate [-c <config>]  # check a config file without starting
-umbriel config schema [--json]  # list every config key with its type and default
-umbriel outputs                  # list connectors and modes
-umbriel windows                  # list windows (focused *, urgent !)
-umbriel workspaces               # list workspaces and their layouts
-umbriel subscribe <events>       # stream events as JSON lines until closed
-umbriel layers                   # list layer-shell surfaces
-umbriel keyboard-layouts         # list configured keyboard layouts
-umbriel msg --help              # list actions available to `msg` and keybinds
-umbriel msg <action> [args...]   # send an action to the running compositor
+andromeda -v | --version            # print the release version and commit revision
+andromeda config validate [-c <config>]  # check a config file without starting
+andromeda config schema [--json]  # list every config key with its type and default
+andromeda outputs                  # list connectors and modes
+andromeda windows                  # list windows (focused *, urgent !)
+andromeda workspaces               # list workspaces and their layouts
+andromeda subscribe <events>       # stream events as JSON lines until closed
+andromeda layers                   # list layer-shell surfaces
+andromeda keyboard-layouts         # list configured keyboard layouts
+andromeda msg --help              # list actions available to `msg` and keybinds
+andromeda msg <action> [args...]   # send an action to the running compositor
 ```
 
 `windows`, `workspaces`, `layers`, `keyboard-layouts`, and `msg` accept `--json` / `-j` for machine-readable output.

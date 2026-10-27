@@ -32,7 +32,7 @@ jobs:
 
             const compositorLabelMap = {
               "Niri": "niri",
-              "Umbriel": "umbriel",
+              "Andromeda": "andromeda",
               "Hyprland": "hyprland",
               "Sway": "sway",
               "Scroll": "scroll",

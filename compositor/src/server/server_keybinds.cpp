@@ -18,7 +18,7 @@
 #include <string>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
   namespace {
     uint32_t modifierMaskForKeysym(uint32_t keysym) {
       switch (keysym) {
@@ -366,4 +366,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

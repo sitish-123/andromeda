@@ -9,7 +9,7 @@ readonly OUTPUT_H=720
 readonly OVERVIEW_ZOOM=0.5
 readonly OVERVIEW_X=320
 readonly OVERVIEW_Y=180
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -21,28 +21,28 @@ spawn_client() {
 
 wait_for_count() {
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $1 ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $1 ]] && return 0
     sleep 0.25
   done
   echo "timed out waiting for $1 window(s)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[window_rule]]
 match.title = "^wide-drag$"
 default_scrolling_extent = 0.75
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client terminal-drag
 wait_for_count 1
 spawn_client wide-drag
 wait_for_count 2
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 wide_before=$(jq -r '.[] | select(.title == "wide-drag") | .w' <<< "$windows")
 if [[ $wide_before != 942 ]]; then
   echo "window rule did not produce the expected 0.75 width: $windows"
@@ -54,15 +54,15 @@ start_x=$(jq -r --argjson origin "$OVERVIEW_X" --argjson zoom "$OVERVIEW_ZOOM" \
 start_y=$(jq -r --argjson origin "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
   '.[] | select(.title == "wide-drag") | ($origin + ((.y + .h / 2) * $zoom) | round)' <<< "$windows")
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 # The left side of the overview row maps to the gap before the terminal.
 pointer move "$start_x" "$start_y" press "$BTN_LEFT" move 345 360 release "$BTN_LEFT"
-"$UMBRIEL" settle
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 wide_after=$(jq -r '.[] | select(.title == "wide-drag") | .w' <<< "$windows")
 wide_x=$(jq -r '.[] | select(.title == "wide-drag") | .x' <<< "$windows")
 terminal_x=$(jq -r '.[] | select(.title == "terminal-drag") | .x' <<< "$windows")

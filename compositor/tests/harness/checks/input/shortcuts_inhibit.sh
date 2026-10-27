@@ -8,22 +8,22 @@ readonly OUTPUT_H=720
 readonly KEY_1=2
 readonly KEY_2=3
 readonly KEY_ESC=1
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/shortcuts-inhibit.log"
-readonly OTHER_LOG="$UMBRIEL_RUNTIME_DIR/shortcuts-other.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/shortcuts-inhibit.log"
+readonly OTHER_LOG="$ANDROMEDA_RUNTIME_DIR/shortcuts-other.log"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [keybinds]
 "Mod+1" = "workspace-set-layout:master"
 "Mod+2" = { action = "workspace-set-layout:dwindle", allow_when_inhibited = true }
 "Mod+Escape" = { action = "shortcuts-inhibit-toggle", allow_when_inhibited = true, repeat = false }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 focused_layout() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .layout'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .layout'
 }
 
 wait_for() {
@@ -38,7 +38,7 @@ wait_for() {
 
 INHIBIT_SHORTCUTS=1 "$OBSERVER" shortcuts-inhibit > "$CLIENT_LOG" 2>&1 &
 inhibitor_pid=$!
-wait_for "the test window" '[[ $("$UMBRIEL" windows --json | jq length) == 1 ]]'
+wait_for "the test window" '[[ $("$ANDROMEDA" windows --json | jq length) == 1 ]]'
 wait_for "the inhibitor to activate" 'grep -q "shortcuts-inhibitor active" "$CLIENT_LOG"'
 
 # The ordinary bind is suppressed and both key event halves reach the client.
@@ -90,7 +90,7 @@ if ((presses != 2 || releases != 2)); then
   exit 1
 fi
 
-"$UMBRIEL" msg workspace-set-layout:scrolling > /dev/null
+"$ANDROMEDA" msg workspace-set-layout:scrolling > /dev/null
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" \
   mod logo key-press "$KEY_1" tap "$KEY_ESC" key-release "$KEY_1" mod none
 wait_for "reactivation during a held compositor key" '[[ $(grep -c "shortcuts-inhibitor active" "$CLIENT_LOG") == 3 ]]'
@@ -107,10 +107,10 @@ fi
 
 # An inhibitor is relevant only while its exact surface holds keyboard focus.
 "$OBSERVER" shortcuts-other > "$OTHER_LOG" 2>&1 &
-wait_for "the uninhibited test window" '[[ $("$UMBRIEL" windows --json | jq length) == 2 ]]'
+wait_for "the uninhibited test window" '[[ $("$ANDROMEDA" windows --json | jq length) == 2 ]]'
 wait_for "the uninhibited surface to gain focus" \
-  '[[ $("$UMBRIEL" windows --json | jq -r '\''.[] | select(.focused) | .title'\'') == shortcuts-other ]]'
-"$UMBRIEL" msg workspace-set-layout:scrolling > /dev/null
+  '[[ $("$ANDROMEDA" windows --json | jq -r '\''.[] | select(.focused) | .title'\'') == shortcuts-other ]]'
+"$ANDROMEDA" msg workspace-set-layout:scrolling > /dev/null
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" mod logo tap "$KEY_1" mod none
 wait_for "the inhibitor to become irrelevant off focus" '[[ $(focused_layout) == master ]]'
 if grep -q "keyboard-key code=$KEY_1" "$OTHER_LOG"; then
@@ -120,8 +120,8 @@ fi
 
 # Destroying the inhibitor client leaves ordinary shortcut handling intact.
 kill "$inhibitor_pid"
-wait_for "the inhibitor window to close" '[[ $("$UMBRIEL" windows --json | jq length) == 1 ]]'
-"$UMBRIEL" msg workspace-set-layout:scrolling > /dev/null
+wait_for "the inhibitor window to close" '[[ $("$ANDROMEDA" windows --json | jq length) == 1 ]]'
+"$ANDROMEDA" msg workspace-set-layout:scrolling > /dev/null
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" mod logo tap "$KEY_1" mod none
 wait_for "shortcuts after inhibitor destruction" '[[ $(focused_layout) == master ]]'
 

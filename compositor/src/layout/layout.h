@@ -10,7 +10,7 @@
 
 struct wlr_box;
 
-namespace umbriel {
+namespace andromeda {
 
   class View;
   class Layout;
@@ -303,4 +303,4 @@ namespace umbriel {
 
   [[nodiscard]] std::unique_ptr<Layout> createLayout(LayoutMode mode);
 
-} // namespace umbriel
+} // namespace andromeda

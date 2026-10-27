@@ -1,7 +1,7 @@
 # Layer Rules
 
 Layer rules apply visual effects to layer-shell surfaces such as bars,
-launchers, and notifications. Run `umbriel layers` to list active namespaces.
+launchers, and notifications. Run `andromeda layers` to list active namespaces.
 
 ```toml
 [[layer_rule]]

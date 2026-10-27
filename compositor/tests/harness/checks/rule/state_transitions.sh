@@ -4,15 +4,15 @@
 # focus or identity, so no other rule refresh can produce the effect.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/rule-state-transitions.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/rule-state-transitions.png"
 
 if [[ ! -x $CLIENT ]]; then
   echo "subsurface client not built at $CLIENT"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -34,10 +34,10 @@ match.title = "^state-rules$"
 match.is_pinned = true
 opacity = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg field "$1" '.[] | select(.title == "state-rules") | .[$field]'
+  "$ANDROMEDA" windows --json | jq -r --arg field "$1" '.[] | select(.title == "state-rules") | .[$field]'
 }
 
 wait_for_field() {
@@ -57,7 +57,7 @@ wait_for_field() {
 sample_blue() {
   local x y w h
   read -r x y w h <<< "$(
-    "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "state-rules") | "\(.x) \(.y) \(.w) \(.h)"'
+    "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "state-rules") | "\(.x) \(.y) \(.w) \(.h)"'
   )"
   grim "$SCREENSHOT"
   magick "$SCREENSHOT" -crop "20x20+$((x + w / 2 - 10))+$((y + h / 2 - 10))" \
@@ -67,7 +67,7 @@ sample_blue() {
 # Failures go to stderr: the caller captures stdout to report the samples it saw.
 expect_state() {
   local label=$1 want=$2 blue=
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
   blue=$(sample_blue)
   if [[ $want == applied ]] && ((blue > 200)); then
     echo "$label: state rule was not applied (blue=$blue)" >&2
@@ -80,23 +80,23 @@ expect_state() {
   echo "$label blue=$blue"
 }
 
-"$CLIENT" state-rules 640 480 > "$UMBRIEL_RUNTIME_DIR/state-rules.log" 2>&1 &
+"$CLIENT" state-rules 640 480 > "$ANDROMEDA_RUNTIME_DIR/state-rules.log" 2>&1 &
 wait_for_field floating false
 tiled=$(expect_state "tiled" absent)
 
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_field floating true
 floated=$(expect_state "floating" applied)
 
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_field floating false
 retiled=$(expect_state "re-tiled" absent)
 
-"$UMBRIEL" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
 wait_for_field floating true
 pinned=$(expect_state "pinned" applied)
 
-"$UMBRIEL" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
 wait_for_field floating false
 unpinned=$(expect_state "unpinned" absent)
 

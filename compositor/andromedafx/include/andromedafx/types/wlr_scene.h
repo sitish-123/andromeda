@@ -28,9 +28,9 @@
 #include <wlr/util/addon.h>
 #include <wlr/util/box.h>
 
-#include "umbrielfx/types/fx/blur_data.h"
-#include "umbrielfx/types/fx/clipped_region.h"
-#include "umbrielfx/types/linked_node.h"
+#include "andromedafx/types/fx/blur_data.h"
+#include "andromedafx/types/fx/clipped_region.h"
+#include "andromedafx/types/linked_node.h"
 
 struct wlr_output;
 struct wlr_output_layout;
@@ -365,9 +365,9 @@ struct wlr_scene_output {
 		struct wlr_drm_syncobj_timeline *out_timeline;
 		uint64_t out_point;
 
-		// Fields Umbriel adds must stay after every wlroots field so this
+		// Fields Andromeda adds must stay after every wlroots field so this
 		// struct remains a strict prefix extension of wlroots'. The scene
-		// helpers Umbriel reuses from wlroots (wlr_scene_attach_output_layout,
+		// helpers Andromeda reuses from wlroots (wlr_scene_attach_output_layout,
 		// wlr_scene_output_layout_add_output) read this struct at wlroots
 		// offsets.
 		float sdr_white_level;
@@ -457,15 +457,15 @@ struct wlr_scene_node *wlr_scene_node_at(struct wlr_scene_node *node,
 	double lx, double ly, double *nx, double *ny);
 
 /**
- * Check that every scene helper resolves into umbrielfx rather than libwlroots.
+ * Check that every scene helper resolves into andromedafx rather than libwlroots.
  *
- * umbrielfx's scene structs carry trailing fields wlroots knows nothing about,
- * so a node allocated by wlroots is short and umbrielfx reads those fields past
+ * andromedafx's scene structs carry trailing fields wlroots knows nothing about,
+ * so a node allocated by wlroots is short and andromedafx reads those fields past
  * the end of it. Call this before building a scene: it returns NULL when the
  * helpers are sound, otherwise a message naming the first one that came from
  * elsewhere. The message points at a static buffer and stays valid.
  */
-const char *umbrielfx_scene_check_helpers(void);
+const char *andromedafx_scene_check_helpers(void);
 
 /**
  * Create a new scene-graph.

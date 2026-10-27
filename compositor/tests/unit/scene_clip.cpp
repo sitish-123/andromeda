@@ -1,6 +1,6 @@
 // Regression coverage for the SceneFX subtree clip (wlr_scene_tree_set_clip). A tree clip has to contain everything
 // that keys off node->visible, which the compositor observes as output membership and the wl_surface enter/leave that
-// follows it, plus hit testing, which walks the scene independently. Umbriel relies on exactly that to keep one
+// follows it, plus hit testing, which walks the scene independently. Andromeda relies on exactly that to keep one
 // output's windows off its neighbour.
 #include "check.h"
 
@@ -182,7 +182,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(unclippedTreeStraddlesBothOutputs) {
+ANDROMEDA_TEST(unclippedTreeStraddlesBothOutputs) {
   Fixture fixture;
   CHECK(fixture.setUp());
 
@@ -194,7 +194,7 @@ UMBRIEL_TEST(unclippedTreeStraddlesBothOutputs) {
   fixture.tearDown();
 }
 
-UMBRIEL_TEST(clipDropsNeighbourMembershipAndFiresLeave) {
+ANDROMEDA_TEST(clipDropsNeighbourMembershipAndFiresLeave) {
   Fixture fixture;
   CHECK(fixture.setUp());
 
@@ -215,7 +215,7 @@ UMBRIEL_TEST(clipDropsNeighbourMembershipAndFiresLeave) {
   fixture.tearDown();
 }
 
-UMBRIEL_TEST(clearingTheClipRestoresMembership) {
+ANDROMEDA_TEST(clearingTheClipRestoresMembership) {
   Fixture fixture;
   CHECK(fixture.setUp());
 
@@ -233,7 +233,7 @@ UMBRIEL_TEST(clearingTheClipRestoresMembership) {
   fixture.tearDown();
 }
 
-UMBRIEL_TEST(clipOutsideTheNodeHidesItEntirely) {
+ANDROMEDA_TEST(clipOutsideTheNodeHidesItEntirely) {
   Fixture fixture;
   CHECK(fixture.setUp());
 
@@ -248,7 +248,7 @@ UMBRIEL_TEST(clipOutsideTheNodeHidesItEntirely) {
   fixture.tearDown();
 }
 
-UMBRIEL_TEST(nestedClipsIntersect) {
+ANDROMEDA_TEST(nestedClipsIntersect) {
   Fixture fixture;
   CHECK(fixture.setUp());
 
@@ -272,7 +272,7 @@ UMBRIEL_TEST(nestedClipsIntersect) {
   fixture.tearDown();
 }
 
-UMBRIEL_TEST(hitTestSeededInsideTheClippedSubtreeStillClips) {
+ANDROMEDA_TEST(hitTestSeededInsideTheClippedSubtreeStillClips) {
   Fixture fixture;
   CHECK(fixture.setUp());
 

@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-namespace umbriel {
+namespace andromeda {
 
   struct XdgSizeHints {
     int minWidth = 1;
@@ -56,4 +56,4 @@ namespace umbriel {
     return std::max(1, height);
   }
 
-} // namespace umbriel
+} // namespace andromeda

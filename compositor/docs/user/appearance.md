@@ -1,6 +1,6 @@
 # Appearance
 
-Configure Umbriel's colors, window decorations, blur, and shadows.
+Configure Andromeda's colors, window decorations, blur, and shadows.
 
 ## Colors
 
@@ -22,7 +22,7 @@ Colors use `#RRGGBB` or `#RRGGBBAA`.
 
 | Key | Description |
 | --- | --- |
-| `background` | Background for Umbriel panels and banners. |
+| `background` | Background for Andromeda panels and banners. |
 | `text_primary` | Primary text. |
 | `text_muted` | Secondary help and status text. |
 | `accent_primary` | Titles, key chords, and primary emphasis. |
@@ -78,7 +78,7 @@ opaque_fullscreen = true
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `prefer_no_csd` | `true` | Prefer Umbriel's border-only server decoration. |
+| `prefer_no_csd` | `true` | Prefer Andromeda's border-only server decoration. |
 | `border_width` | `2` | Inner border width in logical pixels. |
 | `outer_border_width` | `0` | Outer ring width in logical pixels. |
 | `corner_radius` | `10` | Radius of the complete decorated window. |

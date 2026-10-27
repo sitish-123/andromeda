@@ -6,14 +6,14 @@
 # hole), and its alternating columns must land on exact texel centers.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/fractional-content-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/fractional-content.png"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/fractional-content-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/fractional-content.png"
 
 # A pinned float fixes both content edges: the physical extent the compositor
 # derives from them must round up while the client's floored buffer rounds down,
 # or the one-pixel shortfall this check is about does not exist.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -37,7 +37,7 @@ default_position = { x = 9, y = 9, anchor = "top_left" }
 [output."HEADLESS-1"]
 scale = 1.25
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" fractional-content > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -48,7 +48,7 @@ if ! grep -q '^mapped ' "$CLIENT_LOG"; then
   echo "fractional content client never mapped: $(cat "$CLIENT_LOG")"
   exit 1
 fi
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 # The client answers the unsized initial configure with its own size and only
 # learns the layout's size once mapped, so the last report is the one that
@@ -57,7 +57,7 @@ read -r logical_w logical_h buffer_w buffer_h < <(
   sed -n 's/^mapped \([0-9]*\)x\([0-9]*\) buffer \([0-9]*\)x\([0-9]*\) .*/\1 \2 \3 \4/p' "$CLIENT_LOG" | tail -1
 )
 
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "fractional-content")')
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "fractional-content")')
 if [[ -z $window ]]; then
   echo "fractional content window missing from IPC"
   exit 1

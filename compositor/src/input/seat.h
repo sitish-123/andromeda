@@ -6,7 +6,7 @@ struct wlr_cursor_shape_manager_v1;
 struct wlr_seat;
 struct wlr_seat_client;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -59,4 +59,4 @@ namespace umbriel {
     wl_listener m_dragDestroy{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

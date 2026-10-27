@@ -1,5 +1,5 @@
 [Unit]
-Description=Shutdown running Umbriel session
+Description=Shutdown running Andromeda session
 DefaultDependencies=no
 StopWhenUnneeded=true
 

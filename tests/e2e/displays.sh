@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Boots a headless Umbriel with two outputs. Drives OutputManagement through apply, disable, and revert against it
+# Boots a headless Andromeda with two outputs. Drives OutputManagement through apply, disable, and revert against it
 # (output-apply.txt), then runs the Noctalia fork, opens Settings > Displays, and screenshots it (displays.png), and
 # again after a protocol mirror (displays-mirror.png). Artifacts go to $OUT (default ./artifacts/displays).
 set -euo pipefail
@@ -13,9 +13,9 @@ gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-pr
 g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/output-apply" \
   "$(dirname "$0")/output_apply.cpp" "$SRC/src/wayland/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
 
-run "$UMBRIEL" outputs > "$OUT/outputs-before.txt"
+run "$ANDROMEDA" outputs > "$OUT/outputs-before.txt"
 run "$RUNTIME/output-apply" | tee "$OUT/output-apply.txt"
-run "$UMBRIEL" outputs > "$OUT/outputs-after.txt"
+run "$ANDROMEDA" outputs > "$OUT/outputs-after.txt"
 with_noctalia '
   "$NOCTALIA" msg settings-open displays > /dev/null
   sleep 2 # real time: the settings window maps and paints

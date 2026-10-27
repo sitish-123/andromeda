@@ -195,7 +195,7 @@ void WaylandWorkspaces::initialize() {
       return;
     }
     break;
-  case compositors::CompositorKind::Umbriel:
+  case compositors::CompositorKind::Andromeda:
     if (availableOrConnected(m_extBackend)) {
       setActiveBackend(m_extBackend);
       return;

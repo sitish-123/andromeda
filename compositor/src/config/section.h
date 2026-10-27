@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // Reads one table of a config file, remembering which keys it was asked for; any other key in the table produces an
   // unknown-key warning. The warning is emitted from the destructor, so a reader that returns early still reports.
@@ -88,4 +88,4 @@ namespace umbriel {
     bool m_freeform = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

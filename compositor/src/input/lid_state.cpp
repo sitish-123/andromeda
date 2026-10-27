@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace umbriel {
+namespace andromeda {
 
   LidStateCoordinator::SourceId LidStateCoordinator::addSource(LidState initial) {
     const SourceId id = m_nextSource++;
@@ -47,4 +47,4 @@ namespace umbriel {
     return current;
   }
 
-} // namespace umbriel
+} // namespace andromeda

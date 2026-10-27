@@ -5,7 +5,7 @@
 #include "dbus/session.h"
 #include "loop/loop.h"
 #include "pipewire/pipewire.h"
-#include "umbriel/ipc.h"
+#include "andromeda/ipc.h"
 #include "wayland/wayland.h"
 
 #include <algorithm>
@@ -177,7 +177,7 @@ namespace xdpu {
       }
 
       const auto version = restoreDataVersionFromWire(std::get<1>(restore));
-      if (std::get<0>(restore) != "umbriel" || !version) {
+      if (std::get<0>(restore) != "andromeda" || !version) {
         return {};
       }
 

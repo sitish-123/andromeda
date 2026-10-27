@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -151,4 +151,4 @@ namespace umbriel {
     return table == nullptr || !table->empty();
   }
 
-} // namespace umbriel
+} // namespace andromeda

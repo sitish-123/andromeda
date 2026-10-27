@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Sync docs/user/*.md into ../noctalia-docs/src/content/docs/umbriel/ as .mdx.
+# Sync docs/user/*.md into ../noctalia-docs/src/content/docs/andromeda/ as .mdx.
 # Existing .mdx files keep their hand-written frontmatter (title, description);
 # only the body is refreshed. New files get a title from their first H1, and a
 # leading H1 is dropped from the body. Stale .mdx files without a source are
 # removed after a successful sync.
-# Source docs use relative .md links so they render on GitHub; the site serves pages at /umbriel/<route>/, so sibling
+# Source docs use relative .md links so they render on GitHub; the site serves pages at /andromeda/<route>/, so sibling
 # links are rewritten here, and the packaged configuration links to its repository version. A small explicit map
 # handles filenames whose site route differs. docs/design/ is maintainer-only, never synced, and must not be linked
 # from user docs; any .md link that survives the rewrite is reported, since it would 404.
@@ -14,10 +14,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 site_root="${1:-"$repo_root/../noctalia-docs"}"
-dest_dir="$site_root/src/content/docs/umbriel"
+dest_dir="$site_root/src/content/docs/andromeda"
 
 mkdir -p "$dest_dir"
-rm -f "$site_root/public/umbriel/config.toml"
+rm -f "$site_root/public/andromeda/config.toml"
 
 site_route() {
     case "$1" in
@@ -26,7 +26,7 @@ site_route() {
     esac
 }
 
-# Build the link rewrite table from the actual doc inventory. User docs are copied to the site at /umbriel/<name>/. Design notes stay maintainer-only in the repo
+# Build the link rewrite table from the actual doc inventory. User docs are copied to the site at /andromeda/<name>/. Design notes stay maintainer-only in the repo
 # and must not be linked from user docs; the leftover check below flags any that slip in.
 link_exprs=()
 declare -A expected_mdx=()
@@ -35,8 +35,8 @@ for md in "$repo_root"/docs/user/*.md; do
     base="$(basename "$md" .md)"
     route="$(site_route "$base")"
     expected_mdx["$dest_dir/$route.mdx"]=1
-    link_exprs+=(-e "s|]($base.md)|](/umbriel/$route/)|g")
-    link_exprs+=(-e "s|]($base.md#|](/umbriel/$route/#|g")
+    link_exprs+=(-e "s|]($base.md)|](/andromeda/$route/)|g")
+    link_exprs+=(-e "s|]($base.md#|](/andromeda/$route/#|g")
 done
 
 

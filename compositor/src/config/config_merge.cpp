@@ -14,7 +14,7 @@
 #include <system_error>
 #include <utility>
 
-namespace umbriel::configmerge {
+namespace andromeda::configmerge {
 
   namespace {
 
@@ -449,4 +449,4 @@ namespace umbriel::configmerge {
     return result;
   }
 
-} // namespace umbriel::configmerge
+} // namespace andromeda::configmerge

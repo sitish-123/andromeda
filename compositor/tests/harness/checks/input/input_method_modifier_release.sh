@@ -12,15 +12,15 @@ readonly OUTPUT_H=720
 readonly KEY_1=2
 readonly KEY_2=3
 readonly KEY_ENTER=28
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly INPUT_METHOD="${UMBRIEL_INPUT_METHOD_CLIENT:-./build-debug/tests/input-method-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly TEXT_LOG="$UMBRIEL_RUNTIME_DIR/text-input-window.log"
-readonly PLAIN_LOG="$UMBRIEL_RUNTIME_DIR/plain-window.log"
-readonly INPUT_METHOD_LOG="$UMBRIEL_RUNTIME_DIR/input-method-lifecycle.log"
-readonly DRIVER_LOG="$UMBRIEL_RUNTIME_DIR/input-method-driver.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly INPUT_METHOD="${ANDROMEDA_INPUT_METHOD_CLIENT:-./build-debug/tests/input-method-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly TEXT_LOG="$ANDROMEDA_RUNTIME_DIR/text-input-window.log"
+readonly PLAIN_LOG="$ANDROMEDA_RUNTIME_DIR/plain-window.log"
+readonly INPUT_METHOD_LOG="$ANDROMEDA_RUNTIME_DIR/input-method-lifecycle.log"
+readonly DRIVER_LOG="$ANDROMEDA_RUNTIME_DIR/input-method-driver.log"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -31,25 +31,25 @@ curve = "linear"
 "Mod+2" = "workspace-switch:2"
 "Mod+Return" = "workspace-switch:1"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 wait_for_count() {
   local want=$1
   for _ in $(seq 80); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.05
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_active() {
   local title=$1
   for _ in $(seq 80); do
-    [[ $("$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | first // "none"') == "$title" ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | first // "none"') == "$title" ]] && return 0
     sleep 0.05
   done
-  echo "expected '$title' active, got: $("$UMBRIEL" windows --json)"
+  echo "expected '$title' active, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 

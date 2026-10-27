@@ -2,7 +2,7 @@
 
 #include <chrono>
 
-namespace umbriel {
+namespace andromeda {
 
   enum class FullscreenRequestDisposition {
     Acknowledge,
@@ -47,4 +47,4 @@ namespace umbriel {
     TimePoint m_parkedAt;
   };
 
-} // namespace umbriel
+} // namespace andromeda

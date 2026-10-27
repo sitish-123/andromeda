@@ -3,12 +3,12 @@
 
 #include <array>
 
-using umbriel::adjacentOutputIndex;
-using umbriel::cyclicOutputIndex;
-using umbriel::OutputBox;
-using umbriel::OutputDirection;
+using andromeda::adjacentOutputIndex;
+using andromeda::cyclicOutputIndex;
+using andromeda::OutputBox;
+using andromeda::OutputDirection;
 
-UMBRIEL_TEST(scaledOutputsMayOverlapAtTheirSharedEdge) {
+ANDROMEDA_TEST(scaledOutputsMayOverlapAtTheirSharedEdge) {
   // Reported layout: a 3840x2160 output at scale 1.6, with the scaled laptop
   // panel centered below it. Rounding leaves a two-logical-pixel overlap.
   constexpr std::array boxes{
@@ -22,7 +22,7 @@ UMBRIEL_TEST(scaledOutputsMayOverlapAtTheirSharedEdge) {
   CHECK_EQ(adjacentOutputIndex(boxes, 0, OutputDirection::Right, 1200, 675), std::optional<size_t>{});
 }
 
-UMBRIEL_TEST(horizontalNeighborsMayOverlapAfterRounding) {
+ANDROMEDA_TEST(horizontalNeighborsMayOverlapAfterRounding) {
   constexpr std::array boxes{
       OutputBox{0, 0, 1000, 800},
       OutputBox{998, 50, 800, 700},
@@ -33,7 +33,7 @@ UMBRIEL_TEST(horizontalNeighborsMayOverlapAfterRounding) {
   CHECK_EQ(adjacentOutputIndex(boxes, 0, OutputDirection::Down, 500, 400), std::optional<size_t>{});
 }
 
-UMBRIEL_TEST(nearestDirectionalOutputWins) {
+ANDROMEDA_TEST(nearestDirectionalOutputWins) {
   constexpr std::array boxes{
       OutputBox{0, 0, 1000, 800},
       OutputBox{1000, 0, 800, 800},
@@ -43,7 +43,7 @@ UMBRIEL_TEST(nearestDirectionalOutputWins) {
   CHECK_EQ(adjacentOutputIndex(boxes, 0, OutputDirection::Right, 500, 400), std::optional<size_t>{1});
 }
 
-UMBRIEL_TEST(outputCyclingFollowsLayoutOrderAndWraps) {
+ANDROMEDA_TEST(outputCyclingFollowsLayoutOrderAndWraps) {
   // Declared out of layout order, so a cycle that followed the input order
   // would visit the middle monitor first.
   constexpr std::array boxes{
@@ -59,7 +59,7 @@ UMBRIEL_TEST(outputCyclingFollowsLayoutOrderAndWraps) {
   CHECK_EQ(cyclicOutputIndex(boxes, 0, -1), std::optional<size_t>{2});
 }
 
-UMBRIEL_TEST(stackedOutputsCycleTopToBottom) {
+ANDROMEDA_TEST(stackedOutputsCycleTopToBottom) {
   // Same x: the secondary key orders them, so a vertical stack cycles downwards
   // and wraps back to the top.
   constexpr std::array boxes{
@@ -74,7 +74,7 @@ UMBRIEL_TEST(stackedOutputsCycleTopToBottom) {
   CHECK_EQ(cyclicOutputIndex(boxes, 1, -1), std::optional<size_t>{0});
 }
 
-UMBRIEL_TEST(outputCyclingNeedsASecondOutputAndAKnownReference) {
+ANDROMEDA_TEST(outputCyclingNeedsASecondOutputAndAKnownReference) {
   constexpr std::array lone{OutputBox{0, 0, 1920, 1080}};
   CHECK_EQ(cyclicOutputIndex(lone, 0, 1), std::optional<size_t>{});
 

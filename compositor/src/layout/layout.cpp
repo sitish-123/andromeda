@@ -17,7 +17,7 @@ extern "C" {
 #include <wlr/util/edges.h>
 }
 
-namespace umbriel {
+namespace andromeda {
 
   wlr_box applyLayoutStruts(const wlr_box& area, const LayoutStruts& struts) {
     const auto coordinate = [](int value, int offset) {
@@ -159,4 +159,4 @@ namespace umbriel {
     return edges;
   }
 
-} // namespace umbriel
+} // namespace andromeda

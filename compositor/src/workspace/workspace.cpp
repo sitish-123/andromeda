@@ -29,7 +29,7 @@
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("workspace");
@@ -2674,4 +2674,4 @@ namespace umbriel {
     return empty != m_workspaces.rend() ? empty->get() : nullptr;
   }
 
-} // namespace umbriel
+} // namespace andromeda

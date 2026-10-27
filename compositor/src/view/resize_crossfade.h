@@ -11,7 +11,7 @@ struct wlr_scene_node;
 struct wlr_scene_tree;
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   // The frame a layout-sized view showed before it committed its new size, faded out above the live buffers so the
   // content eases into the new size instead of switching in one frame. The frozen buffers are scaled into the presented
@@ -63,4 +63,4 @@ namespace umbriel {
     bool m_fading = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

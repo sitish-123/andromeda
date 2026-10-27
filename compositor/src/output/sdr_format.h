@@ -6,7 +6,7 @@
 #include <optional>
 #include <utility>
 
-namespace umbriel {
+namespace andromeda {
 
   template <typename Probe>
   [[nodiscard]] std::optional<uint32_t> selectSdr10RenderFormat(uint32_t currentFormat, Probe&& accepts) {
@@ -26,4 +26,4 @@ namespace umbriel {
     return enabled && !hdrActive && (renderFormat == DRM_FORMAT_XRGB2101010 || renderFormat == DRM_FORMAT_XBGR2101010);
   }
 
-} // namespace umbriel
+} // namespace andromeda

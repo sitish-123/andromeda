@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick Share through the shell against a real umbriel-linkd on the test bus: quickshare-visible turns it on; the
+# Quick Share through the shell against a real andromeda-linkd on the test bus: quickshare-visible turns it on; the
 # control center's Devices tab and Settings' Phone & Devices page show the switch; a file sent by our Quick Share sender
 # raises an offer notification with the sender and PIN, and nothing is saved until its Accept button is pressed; then
 # the file is in XDG_DOWNLOAD_DIR and a "Files from" notification offers Open and Show in folder. Sending the other
@@ -28,7 +28,7 @@ with_noctalia '
   }
   ocr() { magick "$1" -resize 200% png:- | tesseract - - 2> /dev/null; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw Quick Share" eval "[[ \$(msg quickshare-visible) == off ]]"
   [[ $(msg quickshare-visible on) == on ]] || fail "quickshare-visible on refused"
   wait_for "visibility did not reach the shell" eval "[[ \$(msg quickshare-visible) == on ]]"
@@ -49,7 +49,7 @@ with_noctalia '
   msg settings-close > /dev/null
   step "switch shown in the Devices tab and Settings"
 
-  "$BIN/umbriel-quickshare" --name "Test Phone" send --addr 127.0.0.1:4718 "$RUNTIME/photo.jpg" \
+  "$BIN/andromeda-quickshare" --name "Test Phone" send --addr 127.0.0.1:4718 "$RUNTIME/photo.jpg" \
     > "$RUNTIME/send.jsonl" 2>> "$OUT/send.log" &
   SENDER=$!
   wait_for "no connection reached the daemon" grep -q "quick share: connection" "$OUT/linkd.log"
@@ -71,7 +71,7 @@ with_noctalia '
   step "accepted and saved; result notification shown"
 
   mkdir -p "$RUNTIME/nearby-in"
-  "$BIN/umbriel-quickshare" --name "Nearby Phone" receive --dir "$RUNTIME/nearby-in" --port 47310 --consent accept \
+  "$BIN/andromeda-quickshare" --name "Nearby Phone" receive --dir "$RUNTIME/nearby-in" --port 47310 --consent accept \
     > "$RUNTIME/nearby.jsonl" 2>> "$OUT/send.log" &
   [[ $(msg quickshare-nearby on) == ok ]] || fail "quickshare-nearby on refused"
   wait_for "the shell never listed the nearby receiver" eval "msg quickshare-nearby | grep -q \"Nearby Phone\""

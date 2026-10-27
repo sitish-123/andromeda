@@ -6,15 +6,15 @@
 # on, leaves fullscreen unchanged. The scope selects which kinds of arriving window count.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly FIRST_LOG="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-first.log"
-readonly SECOND_LOG="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-second.log"
-readonly THIRD_LOG="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-third.log"
-readonly TARGET_LOG="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-target.log"
-readonly LATE_LOG="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-late.log"
-readonly TITLE_FIFO="$UMBRIEL_RUNTIME_DIR/dwindle-fullscreen-title.fifo"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly FIRST_LOG="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-first.log"
+readonly SECOND_LOG="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-second.log"
+readonly THIRD_LOG="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-third.log"
+readonly TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-target.log"
+readonly LATE_LOG="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-late.log"
+readonly TITLE_FIFO="$ANDROMEDA_RUNTIME_DIR/dwindle-fullscreen-title.fifo"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "dwindle"
@@ -23,12 +23,12 @@ new_exits_fullscreen = []
 [animation]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 wait_for_query() {
   local query=$1 message=$2 windows=
   for _ in $(seq 60); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     jq -e "$query" <<< "$windows" > /dev/null && return 0
     sleep 0.1
   done
@@ -39,7 +39,7 @@ wait_for_query() {
 wait_for_fullscreen_query() {
   local query=$1 message=$2 state=
   for _ in $(seq 60); do
-    state=$("$UMBRIEL" tearing --json)
+    state=$("$ANDROMEDA" tearing --json)
     jq -e "$query" <<< "$state" > /dev/null && return 0
     sleep 0.1
   done
@@ -52,7 +52,7 @@ wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-first")] | length == 1' \
   "first window did not map"
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-first" and .fullscreen)] | length == 1' \
   "first window did not enter fullscreen"
@@ -70,7 +70,7 @@ wait_for_fullscreen_query \
     and ([.surfaces[] | select(.title == "dwindle-fullscreen-second") | .fullscreen] == [false])' \
   "mapping the second window changed the fullscreen state"
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '(.surfaces | length) == 2 and all(.surfaces[]; .fullscreen == false)' \
   "fullscreen toggle did not leave the visible fullscreen state"
@@ -78,8 +78,8 @@ wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-second" and .focused)] | length == 1' \
   "leaving the obscuring fullscreen changed focus"
 
-sed -i 's/^new_exits_fullscreen = \[\]$/new_exits_fullscreen = "tiled"/' "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+sed -i 's/^new_exits_fullscreen = \[\]$/new_exits_fullscreen = "tiled"/' "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [output.HEADLESS-1]
 workspaces = 2
@@ -88,22 +88,22 @@ workspaces = 2
 match.title = "^dwindle-fullscreen-late$"
 default_workspace = 2
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Attaching an existing view to the layout is not a new window opening.
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-second" and .floating)] | length == 1' \
   "second window did not become floating"
-first_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-first") | .id')
-second_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-second") | .id')
-"$UMBRIEL" msg "window-focus:$first_id" > /dev/null
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+first_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-first") | .id')
+second_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-second") | .id')
+"$ANDROMEDA" msg "window-focus:$first_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-first" and .fullscreen)] | length == 1' \
   "first window did not re-enter fullscreen"
-"$UMBRIEL" msg "window-focus:$second_id" > /dev/null
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg "window-focus:$second_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-second" and (.floating | not))] | length == 1' \
   "second window did not reattach to the layout"
@@ -119,16 +119,16 @@ wait_for_fullscreen_query \
   '(.surfaces | length) == 3 and all(.surfaces[]; .fullscreen == false)' \
   "mapping a new window did not exit fullscreen"
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 "$CLIENT" dwindle-fullscreen-target > "$TARGET_LOG" 2>&1 &
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-target" and .active and .focused)] | length == 1' \
   "target workspace window did not map"
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-target" and .fullscreen)] | length == 1' \
   "target workspace window did not enter fullscreen"
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 
 mkfifo "$TITLE_FIFO"
 exec {title_fd}<>"$TITLE_FIFO"
@@ -145,19 +145,19 @@ wait_for_fullscreen_query \
   '(.surfaces | length) == 5 and all(.surfaces[]; .fullscreen == false)' \
   "late initial workspace placement did not exit fullscreen"
 
-target_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-target") | .id')
-third_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-third") | .id')
-late_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-late") | .id')
+target_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-target") | .id')
+third_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-third") | .id')
+late_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "dwindle-fullscreen-late") | .id')
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-"$UMBRIEL" msg "window-focus:$target_id" > /dev/null
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg "window-focus:$target_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-target" and .fullscreen)] | length == 1' \
   "target window did not re-enter fullscreen"
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
-"$UMBRIEL" msg "window-focus:$third_id" > /dev/null
-"$UMBRIEL" msg window-move-to-workspace:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg "window-focus:$third_id" > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:2 > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-third" and (.workspace | endswith(":2")))] | length == 1' \
   "third window did not move to workspace 2"
@@ -165,37 +165,37 @@ wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-target") | .fullscreen] == [false]' \
   "moving a tiled window in did not exit fullscreen"
 
-sed -i 's/^new_exits_fullscreen = "tiled"$/new_exits_fullscreen = "floating"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^new_exits_fullscreen = "tiled"$/new_exits_fullscreen = "floating"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
-"$UMBRIEL" msg "window-focus:$late_id" > /dev/null
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg "window-focus:$late_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-late" and .floating)] | length == 1' \
   "late window did not become floating"
-"$UMBRIEL" msg "window-focus:$target_id" > /dev/null
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg "window-focus:$target_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-target" and .fullscreen)] | length == 1' \
   "target window did not enter fullscreen before the floating moves"
 
 # A move onto the workspace the window already occupies is not an arrival. settle waits for every configure an
 # erroneous exit would send to be acknowledged, so the fullscreen state read after it is final.
-"$UMBRIEL" msg "window-focus:$late_id" > /dev/null
-"$UMBRIEL" msg window-move-to-workspace:2 > /dev/null
-"$UMBRIEL" settle
-state=$("$UMBRIEL" tearing --json)
+"$ANDROMEDA" msg "window-focus:$late_id" > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:2 > /dev/null
+"$ANDROMEDA" settle
+state=$("$ANDROMEDA" tearing --json)
 if ! jq -e '[.surfaces[] | select(.title == "dwindle-fullscreen-target") | .fullscreen] == [true]' <<< "$state" \
   > /dev/null; then
   echo "moving a floating window to its own workspace exited fullscreen: $state"
   exit 1
 fi
 
-"$UMBRIEL" msg window-move-to-workspace:1 > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:1 > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-late" and (.workspace | endswith(":1")))] | length == 1' \
   "late window did not move to workspace 1"
-"$UMBRIEL" msg window-move-to-workspace:2 > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:2 > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-late" and (.workspace | endswith(":2")))] | length == 1' \
   "late window did not move back to workspace 2"
@@ -204,25 +204,25 @@ wait_for_fullscreen_query \
   "moving a floating window in did not exit fullscreen"
 
 # On a scrolling workspace a tiled arrival opens beside the fullscreen column, so even "all" keeps fullscreen.
-sed -i 's/^new_exits_fullscreen = "floating"$/new_exits_fullscreen = "all"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg workspace-set-layout:scrolling > /dev/null
-"$UMBRIEL" msg "window-focus:$target_id" > /dev/null
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+sed -i 's/^new_exits_fullscreen = "floating"$/new_exits_fullscreen = "all"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-set-layout:scrolling > /dev/null
+"$ANDROMEDA" msg "window-focus:$target_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen_query \
   '[.surfaces[] | select(.title == "dwindle-fullscreen-target" and .fullscreen)] | length == 1' \
   "target window did not enter fullscreen on the scrolling workspace"
-"$UMBRIEL" msg "window-focus:$third_id" > /dev/null
-"$UMBRIEL" msg window-move-to-workspace:1 > /dev/null
+"$ANDROMEDA" msg "window-focus:$third_id" > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:1 > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-third" and (.workspace | endswith(":1")))] | length == 1' \
   "third window did not move to workspace 1"
-"$UMBRIEL" msg window-move-to-workspace:2 > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:2 > /dev/null
 wait_for_query \
   '[.[] | select(.title == "dwindle-fullscreen-third" and (.workspace | endswith(":2")))] | length == 1' \
   "third window did not move back to the scrolling workspace"
-"$UMBRIEL" settle
-state=$("$UMBRIEL" tearing --json)
+"$ANDROMEDA" settle
+state=$("$ANDROMEDA" tearing --json)
 if ! jq -e '[.surfaces[] | select(.title == "dwindle-fullscreen-target") | .fullscreen] == [true]' <<< "$state" \
   > /dev/null; then
   echo "a tiled arrival on a scrolling workspace exited fullscreen: $state"

@@ -10,16 +10,16 @@
 #include <variant>
 #include <vector>
 
-using umbriel::Config;
-using umbriel::ContentType;
-using umbriel::LayerRule;
-using umbriel::LayoutMode;
-using umbriel::OutputIdentity;
-using umbriel::OutputRule;
-using umbriel::SecurityContextRule;
-using umbriel::VrrMode;
-using umbriel::WindowRule;
-using umbriel::WorkspaceConfig;
+using andromeda::Config;
+using andromeda::ContentType;
+using andromeda::LayerRule;
+using andromeda::LayoutMode;
+using andromeda::OutputIdentity;
+using andromeda::OutputRule;
+using andromeda::SecurityContextRule;
+using andromeda::VrrMode;
+using andromeda::WindowRule;
+using andromeda::WorkspaceConfig;
 
 namespace {
   constexpr OutputIdentity identity(
@@ -29,12 +29,12 @@ namespace {
   }
 } // namespace
 
-UMBRIEL_TEST(globalLayoutUsesTheCallerOwnedConfig) {
+ANDROMEDA_TEST(globalLayoutUsesTheCallerOwnedConfig) {
   Config first;
   first.layout.gap = 11;
   first.appearance.borderWidth = 5;
   first.appearance.outerBorderWidth = 3;
-  const umbriel::ResolvedLayoutConfig firstLayout = umbriel::resolveGlobalLayout(first);
+  const andromeda::ResolvedLayoutConfig firstLayout = andromeda::resolveGlobalLayout(first);
 
   CHECK_EQ(firstLayout.gap, 11);
   CHECK_EQ(firstLayout.totalGap, 27);
@@ -47,19 +47,19 @@ UMBRIEL_TEST(globalLayoutUsesTheCallerOwnedConfig) {
   second.layout.gap = 4;
   second.appearance.borderWidth = 1;
   second.appearance.outerBorderWidth = 0;
-  const umbriel::ResolvedLayoutConfig secondLayout = umbriel::resolveGlobalLayout(second);
+  const andromeda::ResolvedLayoutConfig secondLayout = andromeda::resolveGlobalLayout(second);
 
   CHECK_EQ(secondLayout.totalGap, 6);
   CHECK_EQ(secondLayout.edgePad, 5);
   CHECK(firstLayout != secondLayout);
 }
 
-UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
+ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   Config config;
   config.layout.gap = 8;
   config.layout.struts = {.left = 1, .right = 2, .top = 3, .bottom = 4};
   config.appearance.borderWidth = 2;
-  config.layout.master.position = umbriel::MasterPosition::Right;
+  config.layout.master.position = andromeda::MasterPosition::Right;
   config.layout.master.defaultWidthFraction = 0.58;
   config.layout.master.newOnTop = false;
   config.layout.dwindle.preserveSplit = true;
@@ -81,7 +81,7 @@ UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   dpOne.layout.gap = 20;
   dpOne.layout.struts.right = 20;
   dpOne.layout.mode = LayoutMode::Dwindle;
-  dpOne.layout.master.position = umbriel::MasterPosition::Left;
+  dpOne.layout.master.position = andromeda::MasterPosition::Left;
   dpOne.layout.master.defaultWidthFraction = 0.7;
   dpOne.layout.master.newOnTop = false;
   dpOne.layout.dwindle.preserveSplit = true;
@@ -93,7 +93,7 @@ UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   dpTwo.layout.gap = 30;
   config.workspaceRules.push_back(std::move(dpTwo));
 
-  const auto onDpOne = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
+  const auto onDpOne = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
   CHECK(onDpOne.mode == LayoutMode::Dwindle);
   CHECK_EQ(onDpOne.gap, 20);
   CHECK_EQ(onDpOne.totalGap, 24);
@@ -104,12 +104,12 @@ UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   CHECK_EQ(onDpOne.struts.bottom, 4);
   CHECK(onDpOne.scrolling.defaultExtentFraction.has_value());
   CHECK_EQ(*onDpOne.scrolling.defaultExtentFraction, 0.6);
-  CHECK(onDpOne.master.position == umbriel::MasterPosition::Left);
+  CHECK(onDpOne.master.position == andromeda::MasterPosition::Left);
   CHECK_EQ(onDpOne.master.defaultWidthFraction, 0.7);
   CHECK(!onDpOne.master.newOnTop);
   CHECK(onDpOne.dwindle.preserveSplit);
 
-  const auto onDpTwo = umbriel::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0);
+  const auto onDpTwo = andromeda::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0);
   CHECK(onDpTwo.mode == LayoutMode::Scrolling);
   CHECK_EQ(onDpTwo.gap, 30);
   CHECK_EQ(onDpTwo.struts.left, 10);
@@ -118,12 +118,12 @@ UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   CHECK_EQ(onDpTwo.struts.bottom, 4);
   CHECK(onDpTwo.scrolling.defaultExtentFraction.has_value());
   CHECK_EQ(*onDpTwo.scrolling.defaultExtentFraction, 0.6);
-  CHECK(onDpTwo.master.position == umbriel::MasterPosition::Right);
+  CHECK(onDpTwo.master.position == andromeda::MasterPosition::Right);
   CHECK_EQ(onDpTwo.master.defaultWidthFraction, 0.6);
   CHECK(onDpTwo.master.newOnTop);
   CHECK(!onDpTwo.dwindle.preserveSplit);
 
-  const auto elsewhere = umbriel::resolveWorkspaceLayout(config, identity("HDMI-A-1"), "dev", 0);
+  const auto elsewhere = andromeda::resolveWorkspaceLayout(config, identity("HDMI-A-1"), "dev", 0);
   CHECK_EQ(elsewhere.gap, 12);
   CHECK_EQ(elsewhere.struts.left, 10);
   CHECK_EQ(elsewhere.struts.right, 2);
@@ -131,13 +131,13 @@ UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   CHECK_EQ(elsewhere.struts.bottom, 4);
   CHECK(elsewhere.scrolling.defaultExtentFraction.has_value());
   CHECK_EQ(*elsewhere.scrolling.defaultExtentFraction, 0.6);
-  CHECK(elsewhere.master.position == umbriel::MasterPosition::Right);
+  CHECK(elsewhere.master.position == andromeda::MasterPosition::Right);
   CHECK_EQ(elsewhere.master.defaultWidthFraction, 0.6);
   CHECK(elsewhere.master.newOnTop);
   CHECK(!elsewhere.dwindle.preserveSplit);
 }
 
-UMBRIEL_TEST(outputScrollingDefaultPrecedesWorkspaceRulesAndFollowsGlobalLayout) {
+ANDROMEDA_TEST(outputScrollingDefaultPrecedesWorkspaceRulesAndFollowsGlobalLayout) {
   Config config;
   config.layout.scrolling.defaultExtentFraction = 0.2;
 
@@ -157,20 +157,20 @@ UMBRIEL_TEST(outputScrollingDefaultPrecedesWorkspaceRulesAndFollowsGlobalLayout)
   outputWorkspace.layout.scrolling.defaultExtentFraction = 0.5;
   config.workspaceRules.push_back(std::move(outputWorkspace));
 
-  const auto outputSpecific = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
+  const auto outputSpecific = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
   CHECK_EQ(*outputSpecific.scrolling.defaultExtentFraction, 0.5);
 
-  const auto outputDefault = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "chat", 1);
+  const auto outputDefault = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "chat", 1);
   CHECK_EQ(*outputDefault.scrolling.defaultExtentFraction, 0.3);
 
-  const auto workspaceDefault = umbriel::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0);
+  const auto workspaceDefault = andromeda::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0);
   CHECK_EQ(*workspaceDefault.scrolling.defaultExtentFraction, 0.4);
 
-  const auto globalDefault = umbriel::resolveWorkspaceLayout(config, identity("DP-2"), "chat", 1);
+  const auto globalDefault = andromeda::resolveWorkspaceLayout(config, identity("DP-2"), "chat", 1);
   CHECK_EQ(*globalDefault.scrolling.defaultExtentFraction, 0.2);
 }
 
-UMBRIEL_TEST(outputSpecificWorkspaceRulesBeatLaterGlobalRules) {
+ANDROMEDA_TEST(outputSpecificWorkspaceRulesBeatLaterGlobalRules) {
   Config config;
 
   WorkspaceConfig specific;
@@ -185,24 +185,24 @@ UMBRIEL_TEST(outputSpecificWorkspaceRulesBeatLaterGlobalRules) {
   config.workspaceRules.push_back(std::move(global));
 
   constexpr OutputIdentity monitor = identity("HDMI-A-1", "Microstep", "MSI G2712F", "CD6T084401192");
-  const auto onMonitor = umbriel::resolveWorkspaceLayout(config, monitor, "dev", 0);
+  const auto onMonitor = andromeda::resolveWorkspaceLayout(config, monitor, "dev", 0);
   CHECK_EQ(onMonitor.gap, 20);
 
-  const auto elsewhere = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
+  const auto elsewhere = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
   CHECK_EQ(elsewhere.gap, 12);
 }
 
-UMBRIEL_TEST(omittedScrollingDefaultWidthRemainsUnset) {
+ANDROMEDA_TEST(omittedScrollingDefaultWidthRemainsUnset) {
   Config config;
 
-  const auto global = umbriel::resolveGlobalLayout(config);
+  const auto global = andromeda::resolveGlobalLayout(config);
   CHECK(!global.scrolling.defaultExtentFraction.has_value());
 
-  const auto workspace = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
+  const auto workspace = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
   CHECK(!workspace.scrolling.defaultExtentFraction.has_value());
 }
 
-UMBRIEL_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
+ANDROMEDA_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
   Config config;
   OutputRule fixed;
   fixed.name = "DP-1";
@@ -224,17 +224,17 @@ UMBRIEL_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
   countedIndex.index = 2;
   countedIndex.output = "DP-3";
   countedIndex.layout.gap = 31;
-  CHECK(umbriel::workspaceRuleTargetExists(config, countedIndex));
+  CHECK(andromeda::workspaceRuleTargetExists(config, countedIndex));
   config.workspaceRules.push_back(std::move(countedIndex));
 
   WorkspaceConfig countedName;
   countedName.name = "2";
   countedName.output = "DP-3";
   countedName.layout.mode = LayoutMode::Master;
-  CHECK(!umbriel::workspaceRuleTargetExists(config, countedName));
+  CHECK(!andromeda::workspaceRuleTargetExists(config, countedName));
   config.workspaceRules.push_back(std::move(countedName));
 
-  const auto staticSet = umbriel::resolveWorkspacesForOutput(config, identity("DP-1"));
+  const auto staticSet = andromeda::resolveWorkspacesForOutput(config, identity("DP-1"));
   CHECK(!staticSet.dynamic);
   CHECK_EQ(staticSet.workspaces.size(), size_t{2});
   CHECK_EQ(staticSet.workspaces[0].name, std::string{"main"});
@@ -243,7 +243,7 @@ UMBRIEL_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
   CHECK(staticSet.workspaces[1].named);
   CHECK_EQ(staticSet.workspaces[1].layout.gap, 24);
 
-  const auto countedSet = umbriel::resolveWorkspacesForOutput(config, identity("DP-3"));
+  const auto countedSet = andromeda::resolveWorkspacesForOutput(config, identity("DP-3"));
   CHECK(!countedSet.dynamic);
   CHECK_EQ(countedSet.workspaces.size(), size_t{3});
   if (countedSet.workspaces.size() == 3) {
@@ -257,14 +257,14 @@ UMBRIEL_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
     CHECK(!countedSet.workspaces[2].named);
   }
 
-  const auto dynamicSet = umbriel::resolveWorkspacesForOutput(config, identity("DP-2"));
+  const auto dynamicSet = andromeda::resolveWorkspacesForOutput(config, identity("DP-2"));
   CHECK(dynamicSet.dynamic);
   CHECK_EQ(dynamicSet.workspaces.size(), size_t{1});
   CHECK_EQ(dynamicSet.workspaces[0].name, std::string{"1"});
   CHECK(!dynamicSet.workspaces[0].named);
 
   config.workspaces.emptyAbove = true;
-  const auto dynamicSetWithEmptyAbove = umbriel::resolveWorkspacesForOutput(config, identity("DP-2"));
+  const auto dynamicSetWithEmptyAbove = andromeda::resolveWorkspacesForOutput(config, identity("DP-2"));
   CHECK(dynamicSetWithEmptyAbove.dynamic);
   CHECK_EQ(dynamicSetWithEmptyAbove.workspaces.size(), size_t{2});
   if (dynamicSetWithEmptyAbove.workspaces.size() == 2) {
@@ -275,7 +275,7 @@ UMBRIEL_TEST(workspaceInventoryResolvesStaticAndDynamicOutputs) {
   }
 }
 
-UMBRIEL_TEST(dynamicWorkspaceNamesMaterializeWithScopeAndRemainDistinctFromNumericLabels) {
+ANDROMEDA_TEST(dynamicWorkspaceNamesMaterializeWithScopeAndRemainDistinctFromNumericLabels) {
   Config config;
   config.workspaces.emptyAbove = true;
 
@@ -300,7 +300,7 @@ UMBRIEL_TEST(dynamicWorkspaceNamesMaterializeWithScopeAndRemainDistinctFromNumer
   leftOnly.layout.mode = LayoutMode::Dwindle;
   config.workspaceRules.push_back(std::move(leftOnly));
 
-  const auto left = umbriel::resolveWorkspacesForOutput(config, identity("DP-1"));
+  const auto left = andromeda::resolveWorkspacesForOutput(config, identity("DP-1"));
   CHECK(left.dynamic);
   CHECK_EQ(left.workspaces.size(), size_t{5});
   if (left.workspaces.size() == 5) {
@@ -323,7 +323,7 @@ UMBRIEL_TEST(dynamicWorkspaceNamesMaterializeWithScopeAndRemainDistinctFromNumer
     CHECK(!left.workspaces[4].named);
   }
 
-  const auto right = umbriel::resolveWorkspacesForOutput(config, identity("DP-2"));
+  const auto right = andromeda::resolveWorkspacesForOutput(config, identity("DP-2"));
   CHECK(right.dynamic);
   CHECK_EQ(right.workspaces.size(), size_t{4});
   if (right.workspaces.size() == 4) {
@@ -343,13 +343,13 @@ UMBRIEL_TEST(dynamicWorkspaceNamesMaterializeWithScopeAndRemainDistinctFromNumer
   }
   CHECK(!std::ranges::any_of(right.workspaces, [](const auto& workspace) { return workspace.name == "LEFT"; }));
 
-  const auto unnamedNumericLabel = umbriel::resolveUnnamedWorkspaceLayout(config, identity("DP-1"), 0);
-  const auto explicitNumericName = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "1", 0);
+  const auto unnamedNumericLabel = andromeda::resolveUnnamedWorkspaceLayout(config, identity("DP-1"), 0);
+  const auto explicitNumericName = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "1", 0);
   CHECK(unnamedNumericLabel.mode == LayoutMode::Scrolling);
   CHECK(explicitNumericName.mode == LayoutMode::Master);
 }
 
-UMBRIEL_TEST(dynamicWorkspaceResolutionReportsNamesOmittedAcrossOutputAliases) {
+ANDROMEDA_TEST(dynamicWorkspaceResolutionReportsNamesOmittedAcrossOutputAliases) {
   Config config;
   for (size_t index = 0; index < 63; ++index) {
     WorkspaceConfig named;
@@ -363,13 +363,13 @@ UMBRIEL_TEST(dynamicWorkspaceResolutionReportsNamesOmittedAcrossOutputAliases) {
   config.workspaceRules.push_back(std::move(descriptor));
 
   constexpr OutputIdentity monitor = identity("HDMI-A-1", "Microstep", "MSI G2712F", "CD6T084401192");
-  const auto resolved = umbriel::resolveWorkspacesForOutput(config, monitor);
+  const auto resolved = andromeda::resolveWorkspacesForOutput(config, monitor);
   CHECK(resolved.dynamic);
-  CHECK_EQ(resolved.workspaces.size(), umbriel::kMaxWorkspaces);
+  CHECK_EQ(resolved.workspaces.size(), andromeda::kMaxWorkspaces);
   CHECK_EQ(resolved.omittedNamed, size_t{1});
   CHECK_EQ(
       std::ranges::count_if(resolved.workspaces, [](const auto& workspace) { return workspace.named; }),
-      static_cast<std::ptrdiff_t>(umbriel::kMaxWorkspaces - 1)
+      static_cast<std::ptrdiff_t>(andromeda::kMaxWorkspaces - 1)
   );
   CHECK_EQ(resolved.workspaces.back().name, std::string{"64"});
   CHECK(!resolved.workspaces.back().named);
@@ -378,17 +378,17 @@ UMBRIEL_TEST(dynamicWorkspaceResolutionReportsNamesOmittedAcrossOutputAliases) {
   }));
 }
 
-UMBRIEL_TEST(dynamicWorkspaceMinimumIsPerOutput) {
+ANDROMEDA_TEST(dynamicWorkspaceMinimumIsPerOutput) {
   Config config;
   OutputRule padded;
   padded.name = "DP-1";
   padded.minWorkspaces = 3;
   config.outputs.push_back(std::move(padded));
 
-  CHECK_EQ(umbriel::resolveDynamicWorkspaceMinimum(config, identity("DP-1")), size_t{3});
-  CHECK_EQ(umbriel::resolveDynamicWorkspaceMinimum(config, identity("DP-2")), size_t{1});
+  CHECK_EQ(andromeda::resolveDynamicWorkspaceMinimum(config, identity("DP-1")), size_t{3});
+  CHECK_EQ(andromeda::resolveDynamicWorkspaceMinimum(config, identity("DP-2")), size_t{1});
 
-  const auto paddedSet = umbriel::resolveWorkspacesForOutput(config, identity("DP-1"));
+  const auto paddedSet = andromeda::resolveWorkspacesForOutput(config, identity("DP-1"));
   CHECK(paddedSet.dynamic);
   CHECK_EQ(paddedSet.workspaces.size(), size_t{3});
   if (paddedSet.workspaces.size() == 3) {
@@ -396,16 +396,16 @@ UMBRIEL_TEST(dynamicWorkspaceMinimumIsPerOutput) {
     CHECK_EQ(paddedSet.workspaces[2].name, std::string{"3"});
   }
 
-  const auto bareSet = umbriel::resolveWorkspacesForOutput(config, identity("DP-2"));
+  const auto bareSet = andromeda::resolveWorkspacesForOutput(config, identity("DP-2"));
   CHECK(bareSet.dynamic);
   CHECK_EQ(bareSet.workspaces.size(), size_t{1});
 
   // The leading empty is an extra entry only where it exceeds the minimum.
   config.workspaces.emptyAbove = true;
-  CHECK_EQ(umbriel::resolveWorkspacesForOutput(config, identity("DP-1")).workspaces.size(), size_t{3});
-  CHECK_EQ(umbriel::resolveWorkspacesForOutput(config, identity("DP-2")).workspaces.size(), size_t{2});
+  CHECK_EQ(andromeda::resolveWorkspacesForOutput(config, identity("DP-1")).workspaces.size(), size_t{3});
+  CHECK_EQ(andromeda::resolveWorkspacesForOutput(config, identity("DP-2")).workspaces.size(), size_t{2});
 }
-UMBRIEL_TEST(workspaceRulesMatchConnectorAndDescriptorWithoutOutputSection) {
+ANDROMEDA_TEST(workspaceRulesMatchConnectorAndDescriptorWithoutOutputSection) {
   Config config;
 
   WorkspaceConfig connector;
@@ -421,12 +421,12 @@ UMBRIEL_TEST(workspaceRulesMatchConnectorAndDescriptorWithoutOutputSection) {
   config.workspaceRules.push_back(std::move(descriptor));
 
   constexpr OutputIdentity monitor = identity("HDMI-A-1", "Microstep", "MSI G2712F", "CD6T084401192");
-  const auto resolved = umbriel::resolveWorkspaceLayout(config, monitor, "1", 0);
+  const auto resolved = andromeda::resolveWorkspaceLayout(config, monitor, "1", 0);
   CHECK_EQ(resolved.gap, 18);
   CHECK(resolved.mode == LayoutMode::Dwindle);
 }
 
-UMBRIEL_TEST(descriptorOutputRuleOverridesConnectorFallback) {
+ANDROMEDA_TEST(descriptorOutputRuleOverridesConnectorFallback) {
   Config config;
   config.layout.scrolling.defaultExtentFraction = 0.5;
 
@@ -443,14 +443,14 @@ UMBRIEL_TEST(descriptorOutputRuleOverridesConnectorFallback) {
   config.outputs.push_back(std::move(descriptor));
 
   constexpr OutputIdentity monitor = identity("HDMI-A-1", "Microstep", "MSI G2712F", "CD6T084401192");
-  const OutputRule* selected = umbriel::findOutputRule(config, monitor);
+  const OutputRule* selected = andromeda::findOutputRule(config, monitor);
   CHECK(selected != nullptr);
   if (selected != nullptr) {
     CHECK_EQ(selected->name, std::string{"Microstep MSI G2712F CD6T084401192"});
     CHECK_EQ(*selected->layout.scrolling.defaultExtentFraction, 0.75);
   }
 
-  const auto resolved = umbriel::resolveWorkspacesForOutput(config, monitor);
+  const auto resolved = andromeda::resolveWorkspacesForOutput(config, monitor);
   CHECK(!resolved.dynamic);
   CHECK_EQ(resolved.workspaces.size(), size_t{1});
   if (resolved.workspaces.size() == 1) {
@@ -461,12 +461,12 @@ UMBRIEL_TEST(descriptorOutputRuleOverridesConnectorFallback) {
 
 // Scrolling runs perpendicular to the workspace axis, and a descriptor rule that
 // omits the axis does not inherit the connector rule's.
-UMBRIEL_TEST(workspaceAxisSelectsTheStripDirectionPerOutput) {
+ANDROMEDA_TEST(workspaceAxisSelectsTheStripDirectionPerOutput) {
   Config config;
 
   OutputRule connector;
   connector.name = "HDMI-A-1";
-  connector.workspaceAxis = umbriel::WorkspaceAxis::Horizontal;
+  connector.workspaceAxis = andromeda::WorkspaceAxis::Horizontal;
   config.outputs.push_back(std::move(connector));
 
   OutputRule descriptor;
@@ -475,49 +475,49 @@ UMBRIEL_TEST(workspaceAxisSelectsTheStripDirectionPerOutput) {
 
   OutputRule horizontal;
   horizontal.name = "DP-1";
-  horizontal.workspaceAxis = umbriel::WorkspaceAxis::Horizontal;
+  horizontal.workspaceAxis = andromeda::WorkspaceAxis::Horizontal;
   config.outputs.push_back(std::move(horizontal));
 
   constexpr OutputIdentity monitor = identity("HDMI-A-1", "Microstep", "MSI G2712F", "CD6T084401192");
-  CHECK(umbriel::resolveWorkspaceAxis(config, monitor) == umbriel::WorkspaceAxis::Vertical);
+  CHECK(andromeda::resolveWorkspaceAxis(config, monitor) == andromeda::WorkspaceAxis::Vertical);
   CHECK(
-      umbriel::resolveWorkspaceLayout(config, monitor, "1", 0).scrolling.direction
-      == umbriel::ScrollingDirection::Horizontal
+      andromeda::resolveWorkspaceLayout(config, monitor, "1", 0).scrolling.direction
+      == andromeda::ScrollingDirection::Horizontal
   );
 
-  CHECK(umbriel::resolveWorkspaceAxis(config, identity("DP-1")) == umbriel::WorkspaceAxis::Horizontal);
+  CHECK(andromeda::resolveWorkspaceAxis(config, identity("DP-1")) == andromeda::WorkspaceAxis::Horizontal);
   CHECK(
-      umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "1", 0).scrolling.direction
-      == umbriel::ScrollingDirection::Vertical
+      andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "1", 0).scrolling.direction
+      == andromeda::ScrollingDirection::Vertical
   );
 
-  CHECK(umbriel::resolveWorkspaceAxis(config, identity("DP-9")) == umbriel::WorkspaceAxis::Vertical);
+  CHECK(andromeda::resolveWorkspaceAxis(config, identity("DP-9")) == andromeda::WorkspaceAxis::Vertical);
   CHECK(
-      umbriel::resolveWorkspaceLayout(config, identity("DP-9"), "1", 0).scrolling.direction
-      == umbriel::ScrollingDirection::Horizontal
+      andromeda::resolveWorkspaceLayout(config, identity("DP-9"), "1", 0).scrolling.direction
+      == andromeda::ScrollingDirection::Horizontal
   );
 }
 
 // A workspace rule cannot override the resolved strip direction.
-UMBRIEL_TEST(workspaceRulesCannotOverrideTheResolvedStripDirection) {
+ANDROMEDA_TEST(workspaceRulesCannotOverrideTheResolvedStripDirection) {
   Config config;
 
   OutputRule horizontal;
   horizontal.name = "DP-1";
-  horizontal.workspaceAxis = umbriel::WorkspaceAxis::Horizontal;
+  horizontal.workspaceAxis = andromeda::WorkspaceAxis::Horizontal;
   config.outputs.push_back(std::move(horizontal));
 
   WorkspaceConfig rule;
   rule.name = "dev";
-  rule.layout.scrolling.centerFocused = umbriel::CenterFocusedColumn::Always;
+  rule.layout.scrolling.centerFocused = andromeda::CenterFocusedColumn::Always;
   config.workspaceRules.push_back(std::move(rule));
 
-  const auto resolved = umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
-  CHECK(resolved.scrolling.centerFocused == umbriel::CenterFocusedColumn::Always);
-  CHECK(resolved.scrolling.direction == umbriel::ScrollingDirection::Vertical);
+  const auto resolved = andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0);
+  CHECK(resolved.scrolling.centerFocused == andromeda::CenterFocusedColumn::Always);
+  CHECK(resolved.scrolling.direction == andromeda::ScrollingDirection::Vertical);
 }
 
-UMBRIEL_TEST(fixedWorkspaceTargetSelectsItsUniqueOutput) {
+ANDROMEDA_TEST(fixedWorkspaceTargetSelectsItsUniqueOutput) {
   Config config;
 
   OutputRule primary;
@@ -534,16 +534,16 @@ UMBRIEL_TEST(fixedWorkspaceTargetSelectsItsUniqueOutput) {
   dynamic.name = "DP-2";
   config.outputs.push_back(std::move(dynamic));
 
-  CHECK_EQ(umbriel::uniqueFixedWorkspaceOwner(config, 3), config.outputs.data());
-  CHECK(umbriel::uniqueFixedWorkspaceOwner(config, 0) == nullptr);
-  CHECK(umbriel::uniqueFixedWorkspaceOwner(config, 4) == nullptr);
-  CHECK_EQ(umbriel::uniqueFixedWorkspaceOwner(config, "1"), config.outputs.data());
-  CHECK_EQ(umbriel::uniqueFixedWorkspaceOwner(config, "CHAT"), config.outputs.data() + 1);
-  CHECK(umbriel::uniqueFixedWorkspaceOwner(config, "COMMON") == nullptr);
-  CHECK(umbriel::uniqueFixedWorkspaceOwner(config, "missing") == nullptr);
+  CHECK_EQ(andromeda::uniqueFixedWorkspaceOwner(config, 3), config.outputs.data());
+  CHECK(andromeda::uniqueFixedWorkspaceOwner(config, 0) == nullptr);
+  CHECK(andromeda::uniqueFixedWorkspaceOwner(config, 4) == nullptr);
+  CHECK_EQ(andromeda::uniqueFixedWorkspaceOwner(config, "1"), config.outputs.data());
+  CHECK_EQ(andromeda::uniqueFixedWorkspaceOwner(config, "CHAT"), config.outputs.data() + 1);
+  CHECK(andromeda::uniqueFixedWorkspaceOwner(config, "COMMON") == nullptr);
+  CHECK(andromeda::uniqueFixedWorkspaceOwner(config, "missing") == nullptr);
 }
 
-UMBRIEL_TEST(windowRulesMergeMatchingFieldsInOrder) {
+ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   Config config;
 
   WindowRule app;
@@ -558,11 +558,11 @@ UMBRIEL_TEST(windowRulesMergeMatchingFieldsInOrder) {
   app.focusOnActivate = false;
   app.vrr = VrrMode::Disabled;
   app.allowTearing = false;
-  app.hdr = umbriel::HdrMode::Off;
-  app.defaultPosition = umbriel::WindowPosition{
+  app.hdr = andromeda::HdrMode::Off;
+  app.defaultPosition = andromeda::WindowPosition{
       .x = 12,
       .y = 24,
-      .anchor = umbriel::WindowPositionAnchor::TopRight,
+      .anchor = andromeda::WindowPositionAnchor::TopRight,
   };
   config.windowRules.push_back(std::move(app));
 
@@ -573,7 +573,7 @@ UMBRIEL_TEST(windowRulesMergeMatchingFieldsInOrder) {
   title.focusOnActivate = true;
   title.vrr = VrrMode::Always;
   title.allowTearing = true;
-  title.hdr = umbriel::HdrMode::On;
+  title.hdr = andromeda::HdrMode::On;
   title.defaultPinned = false;
   title.defaultScrollingColumn = "terminals";
   title.defaultScrollingColumnOrder = 10;
@@ -585,14 +585,14 @@ UMBRIEL_TEST(windowRulesMergeMatchingFieldsInOrder) {
   config.windowRules.push_back(std::move(unfocused));
 
   const auto resolved =
-      umbriel::resolveWindowRules(config, "foot", "project shell", std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "foot", "project shell", std::nullopt, ContentType::None, {}, 0);
   CHECK(resolved.opacity && *resolved.opacity == 0.8);
   CHECK(resolved.blur && *resolved.blur);
   CHECK(resolved.defaultFloating && *resolved.defaultFloating);
   CHECK(resolved.defaultPosition.has_value());
   CHECK_EQ(resolved.defaultPosition->x, 12);
   CHECK_EQ(resolved.defaultPosition->y, 24);
-  CHECK(resolved.defaultPosition->anchor == umbriel::WindowPositionAnchor::TopRight);
+  CHECK(resolved.defaultPosition->anchor == andromeda::WindowPositionAnchor::TopRight);
   CHECK(resolved.defaultFocused && !*resolved.defaultFocused);
   CHECK(resolved.defaultPinned && !*resolved.defaultPinned);
   CHECK(resolved.defaultScrollingColumn && *resolved.defaultScrollingColumn == "terminals");
@@ -600,28 +600,28 @@ UMBRIEL_TEST(windowRulesMergeMatchingFieldsInOrder) {
   CHECK(resolved.focusOnActivate && *resolved.focusOnActivate);
   CHECK(resolved.vrr == VrrMode::Always);
   CHECK(resolved.allowTearing && *resolved.allowTearing);
-  CHECK(resolved.hdr == umbriel::HdrMode::On);
+  CHECK(resolved.hdr == andromeda::HdrMode::On);
 
-  const auto appOnly = umbriel::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
+  const auto appOnly = andromeda::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
   CHECK(appOnly.defaultPinned && *appOnly.defaultPinned);
   CHECK(appOnly.defaultScrollingColumn && *appOnly.defaultScrollingColumn == "browser-stack");
   CHECK(appOnly.defaultScrollingColumnOrder && *appOnly.defaultScrollingColumnOrder == 20);
   CHECK(appOnly.vrr == VrrMode::Disabled);
   CHECK(appOnly.allowTearing && !*appOnly.allowTearing);
-  CHECK(appOnly.hdr == umbriel::HdrMode::Off);
+  CHECK(appOnly.hdr == andromeda::HdrMode::Off);
 
-  const auto focused = umbriel::resolveWindowRules(
+  const auto focused = andromeda::resolveWindowRules(
       config, "foot", "project shell", std::nullopt, ContentType::None, {.focused = true}, 0
   );
   CHECK(focused.opacity && *focused.opacity == 0.8);
   CHECK(!focused.defaultFloating);
-  CHECK(umbriel::anyWindowRuleHasTitlePattern(config));
+  CHECK(andromeda::anyWindowRuleHasTitlePattern(config));
 }
 
 // Decoration overrides merge per field like every other dynamic effect: the last
 // matching rule that names a key wins it, and a key no rule sets stays unset so
 // the window keeps the global [appearance] value.
-UMBRIEL_TEST(windowRuleDecorationOverridesMergePerField) {
+ANDROMEDA_TEST(windowRuleDecorationOverridesMergePerField) {
 
   Config config;
 
@@ -640,64 +640,64 @@ UMBRIEL_TEST(windowRuleDecorationOverridesMergePerField) {
   title.shadow = true;
   config.windowRules.push_back(std::move(title));
 
-  const auto both = umbriel::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
+  const auto both = andromeda::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
   CHECK(both.borderWidth && *both.borderWidth == 0);
   CHECK(both.outerBorderWidth && *both.outerBorderWidth == 3);
   CHECK(both.cornerRadius && *both.cornerRadius == 0);
   CHECK(both.shadow && *both.shadow);
 
-  const auto appOnly = umbriel::resolveWindowRules(config, "foot", "docs", std::nullopt, ContentType::None, {}, 0);
+  const auto appOnly = andromeda::resolveWindowRules(config, "foot", "docs", std::nullopt, ContentType::None, {}, 0);
   CHECK(appOnly.borderWidth && *appOnly.borderWidth == 0);
   CHECK(appOnly.shadow && !*appOnly.shadow);
   CHECK(!appOnly.cornerRadius);
 }
 
-UMBRIEL_TEST(windowRuleEffectOverridesUseLastWriterWins) {
-  umbriel::Config config;
-  umbriel::WindowRule first;
+ANDROMEDA_TEST(windowRuleEffectOverridesUseLastWriterWins) {
+  andromeda::Config config;
+  andromeda::WindowRule first;
   first.appIdPattern = "foot";
   first.appIdRegex = std::regex("foot");
   first.borderEffect = "pulse";
   first.windowEffect = "lines";
-  umbriel::WindowRule second = first;
+  andromeda::WindowRule second = first;
   second.borderEffect = "off";
   second.windowEffect.reset();
   config.windowRules = {first, second};
   const auto resolved =
-      umbriel::resolveWindowRules(config, "foot", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "foot", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(resolved.borderEffect == "off");
   CHECK(resolved.windowEffect == "lines");
 }
 
-UMBRIEL_TEST(windowRulesMergeWorkspaceTargetsAcrossSelectorKinds) {
+ANDROMEDA_TEST(windowRulesMergeWorkspaceTargetsAcrossSelectorKinds) {
   Config config;
 
   WindowRule app;
   app.appIdPattern = "^foot$";
   app.appIdRegex = std::regex(app.appIdPattern);
-  app.defaultWorkspace = umbriel::WorkspaceReference{umbriel::WorkspaceIndex{2}};
+  app.defaultWorkspace = andromeda::WorkspaceReference{andromeda::WorkspaceIndex{2}};
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
   title.titlePattern = "chat";
   title.titleRegex = std::regex(title.titlePattern);
-  title.defaultWorkspace = umbriel::WorkspaceReference{umbriel::WorkspaceName{"2"}};
+  title.defaultWorkspace = andromeda::WorkspaceReference{andromeda::WorkspaceName{"2"}};
   config.windowRules.push_back(std::move(title));
 
-  const auto appOnly = umbriel::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
+  const auto appOnly = andromeda::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
   const auto* position =
-      appOnly.defaultWorkspace ? std::get_if<umbriel::WorkspaceIndex>(&*appOnly.defaultWorkspace) : nullptr;
+      appOnly.defaultWorkspace ? std::get_if<andromeda::WorkspaceIndex>(&*appOnly.defaultWorkspace) : nullptr;
   CHECK(position != nullptr);
   CHECK(position != nullptr && position->value == 2);
 
   const auto merged =
-      umbriel::resolveWindowRules(config, "foot", "project chat", std::nullopt, ContentType::None, {}, 0);
-  const auto* name = merged.defaultWorkspace ? std::get_if<umbriel::WorkspaceName>(&*merged.defaultWorkspace) : nullptr;
+      andromeda::resolveWindowRules(config, "foot", "project chat", std::nullopt, ContentType::None, {}, 0);
+  const auto* name = merged.defaultWorkspace ? std::get_if<andromeda::WorkspaceName>(&*merged.defaultWorkspace) : nullptr;
   CHECK(name != nullptr);
   CHECK(name != nullptr && name->value == "2");
 }
 
-UMBRIEL_TEST(windowRulesMergeDefaultScratchpadLastWriterWins) {
+ANDROMEDA_TEST(windowRulesMergeDefaultScratchpadLastWriterWins) {
   Config config;
 
   WindowRule app;
@@ -712,14 +712,14 @@ UMBRIEL_TEST(windowRulesMergeDefaultScratchpadLastWriterWins) {
   title.defaultScratchpad = "media";
   config.windowRules.push_back(std::move(title));
 
-  const auto appOnly = umbriel::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {}, 0);
+  const auto appOnly = andromeda::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {}, 0);
   CHECK(appOnly.defaultScratchpad == "terminal");
 
-  const auto merged = umbriel::resolveWindowRules(config, "foot", "music", std::nullopt, ContentType::None, {}, 0);
+  const auto merged = andromeda::resolveWindowRules(config, "foot", "music", std::nullopt, ContentType::None, {}, 0);
   CHECK(merged.defaultScratchpad == "media");
 }
 
-UMBRIEL_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
+ANDROMEDA_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   Config config;
 
   WindowRule first;
@@ -734,7 +734,7 @@ UMBRIEL_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   config.windowRules.push_back(std::move(first));
 
   const auto sameRule =
-      umbriel::resolveWindowRules(config, "utility", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "utility", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(sameRule.defaultFloatingWidthPx && *sameRule.defaultFloatingWidthPx == 800);
   CHECK(sameRule.defaultFloatingWidth && *sameRule.defaultFloatingWidth == 0.5);
   CHECK(sameRule.defaultScrollingExtentPx && *sameRule.defaultScrollingExtentPx == 800);
@@ -749,7 +749,7 @@ UMBRIEL_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   config.windowRules.push_back(std::move(second));
 
   const auto resolved =
-      umbriel::resolveWindowRules(config, "utility", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "utility", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(resolved.defaultFloating && *resolved.defaultFloating);
   CHECK(!resolved.defaultFloatingWidthPx);
   CHECK(resolved.defaultFloatingWidth && *resolved.defaultFloatingWidth == 0.6);
@@ -759,7 +759,7 @@ UMBRIEL_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   CHECK(!resolved.defaultScrollingExtentPx);
 }
 
-UMBRIEL_TEST(windowRulesMergeBorderColorsLastWriterWins) {
+ANDROMEDA_TEST(windowRulesMergeBorderColorsLastWriterWins) {
   Config config;
 
   WindowRule app;
@@ -775,20 +775,20 @@ UMBRIEL_TEST(windowRulesMergeBorderColorsLastWriterWins) {
   title.borderColorOuter = std::array<float, 4>{0.1F, 0.2F, 0.3F, 1.0F};
   config.windowRules.push_back(std::move(title));
 
-  const auto appOnly = umbriel::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
+  const auto appOnly = andromeda::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
   CHECK(appOnly.borderColorFocused && (*appOnly.borderColorFocused)[0] == 1.0F);
   CHECK(!appOnly.borderColorUnfocused);
   CHECK(!appOnly.borderColorOuter);
 
   // Each key is independent: the later rule replaces only the keys it sets.
   const auto merged =
-      umbriel::resolveWindowRules(config, "foot", "project shell", std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "foot", "project shell", std::nullopt, ContentType::None, {}, 0);
   CHECK(merged.borderColorFocused && (*merged.borderColorFocused)[1] == 1.0F);
   CHECK(!merged.borderColorUnfocused);
   CHECK(merged.borderColorOuter && (*merged.borderColorOuter)[2] == 0.3F);
 }
 
-UMBRIEL_TEST(windowRulesMatchContentTypesAndComposeSelectors) {
+ANDROMEDA_TEST(windowRulesMatchContentTypesAndComposeSelectors) {
   Config config;
 
   WindowRule photo;
@@ -819,40 +819,40 @@ UMBRIEL_TEST(windowRulesMatchContentTypesAndComposeSelectors) {
   config.windowRules.push_back(std::move(none));
 
   const auto matchingGame =
-      umbriel::resolveWindowRules(config, "runner", "now playing", std::nullopt, ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", std::nullopt, ContentType::Game, {}, 0);
   CHECK(matchingGame.opacity && *matchingGame.opacity == 0.75);
   CHECK(!matchingGame.defaultFloating);
 
   const auto wrongApp =
-      umbriel::resolveWindowRules(config, "launcher", "now playing", std::nullopt, ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "launcher", "now playing", std::nullopt, ContentType::Game, {}, 0);
   CHECK(!wrongApp.opacity);
   const auto wrongTitle =
-      umbriel::resolveWindowRules(config, "runner", "paused", std::nullopt, ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "paused", std::nullopt, ContentType::Game, {}, 0);
   CHECK(!wrongTitle.opacity);
-  const auto wrongFocus = umbriel::resolveWindowRules(
+  const auto wrongFocus = andromeda::resolveWindowRules(
       config, "runner", "now playing", std::nullopt, ContentType::Game, {.focused = true}, 0
   );
   CHECK(!wrongFocus.opacity);
-  const auto afterStartupRule = umbriel::resolveWindowRules(
-      config, "runner", "now playing", std::nullopt, ContentType::Game, {}, umbriel::kStartupWindowRuleDurationMs
+  const auto afterStartupRule = andromeda::resolveWindowRules(
+      config, "runner", "now playing", std::nullopt, ContentType::Game, {}, andromeda::kStartupWindowRuleDurationMs
   );
   CHECK(!afterStartupRule.opacity);
   CHECK(afterStartupRule.defaultFloating && *afterStartupRule.defaultFloating);
 
   const auto matchingPhoto =
-      umbriel::resolveWindowRules(config, "viewer", "photo", std::nullopt, ContentType::Photo, {}, 0);
+      andromeda::resolveWindowRules(config, "viewer", "photo", std::nullopt, ContentType::Photo, {}, 0);
   CHECK(matchingPhoto.opacity && *matchingPhoto.opacity == 0.25);
 
   const auto matchingNone =
-      umbriel::resolveWindowRules(config, "terminal", "shell", std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "terminal", "shell", std::nullopt, ContentType::None, {}, 0);
   CHECK(matchingNone.defaultFloating && *matchingNone.defaultFloating);
 
-  const auto video = umbriel::resolveWindowRules(config, "viewer", "video", std::nullopt, ContentType::Video, {}, 0);
+  const auto video = andromeda::resolveWindowRules(config, "viewer", "video", std::nullopt, ContentType::Video, {}, 0);
   CHECK(!video.opacity);
   CHECK(!video.defaultFloating);
 }
 
-UMBRIEL_TEST(windowRulesMatchWindowStateSelectors) {
+ANDROMEDA_TEST(windowRulesMatchWindowStateSelectors) {
   Config config;
 
   WindowRule floatingRule;
@@ -871,30 +871,30 @@ UMBRIEL_TEST(windowRulesMatchWindowStateSelectors) {
   scratchpadRule.opacity = 0.9;
   config.windowRules.push_back(std::move(scratchpadRule));
 
-  const auto tiled = umbriel::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {}, 0);
+  const auto tiled = andromeda::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {}, 0);
   CHECK(!tiled.opacity);
   CHECK(!tiled.blur);
 
   const auto floating =
-      umbriel::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {.floating = true}, 0);
+      andromeda::resolveWindowRules(config, "foot", "shell", std::nullopt, ContentType::None, {.floating = true}, 0);
   CHECK(floating.opacity && *floating.opacity == 0.4);
   CHECK(!floating.blur);
 
   // A pinned window is floating too, so both selectors hold at once.
-  const auto pinned = umbriel::resolveWindowRules(
+  const auto pinned = andromeda::resolveWindowRules(
       config, "foot", "shell", std::nullopt, ContentType::None, {.floating = true, .pinned = true}, 0
   );
   CHECK(pinned.opacity && *pinned.opacity == 0.4);
   CHECK(pinned.blur && !*pinned.blur);
 
   // is_scratchpad = false excludes the floating rule; the scratchpad rule wins the opacity.
-  const auto scratchpad = umbriel::resolveWindowRules(
+  const auto scratchpad = andromeda::resolveWindowRules(
       config, "foot", "shell", std::nullopt, ContentType::None, {.floating = true, .scratchpad = true}, 0
   );
   CHECK(scratchpad.opacity && *scratchpad.opacity == 0.9);
 }
 
-UMBRIEL_TEST(windowRulesMatchXdgTagsAndComposeSelectors) {
+ANDROMEDA_TEST(windowRulesMatchXdgTagsAndComposeSelectors) {
   Config config;
 
   WindowRule anyGameTag;
@@ -923,43 +923,43 @@ UMBRIEL_TEST(windowRulesMatchXdgTagsAndComposeSelectors) {
   config.windowRules.push_back(std::move(running));
 
   const auto matchingLauncher =
-      umbriel::resolveWindowRules(config, "runner", "now playing", "game-launcher", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", "game-launcher", ContentType::Game, {}, 0);
   CHECK(matchingLauncher.opacity && *matchingLauncher.opacity == 0.9);
   CHECK(matchingLauncher.defaultFloating && *matchingLauncher.defaultFloating);
 
   const auto matchingRunning =
-      umbriel::resolveWindowRules(config, "runner", "now playing", "game-running", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", "game-running", ContentType::Game, {}, 0);
   CHECK(matchingRunning.opacity && *matchingRunning.opacity == 0.5);
 
   const auto matchingSecondTag =
-      umbriel::resolveWindowRules(config, "runner", "now playing", "game-settings", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", "game-settings", ContentType::Game, {}, 0);
   CHECK(matchingSecondTag.opacity && *matchingSecondTag.opacity == 0.5);
 
   const auto wrongApp =
-      umbriel::resolveWindowRules(config, "launcher", "now playing", "game-running", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "launcher", "now playing", "game-running", ContentType::Game, {}, 0);
   CHECK(wrongApp.opacity && *wrongApp.opacity == 0.25);
   const auto wrongTitle =
-      umbriel::resolveWindowRules(config, "runner", "paused", "game-running", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "paused", "game-running", ContentType::Game, {}, 0);
   CHECK(wrongTitle.opacity && *wrongTitle.opacity == 0.25);
   const auto wrongContent =
-      umbriel::resolveWindowRules(config, "runner", "now playing", "game-running", ContentType::Video, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", "game-running", ContentType::Video, {}, 0);
   CHECK(wrongContent.opacity && *wrongContent.opacity == 0.25);
-  const auto wrongFocus = umbriel::resolveWindowRules(
+  const auto wrongFocus = andromeda::resolveWindowRules(
       config, "runner", "now playing", "game-running", ContentType::Game, {.focused = true}, 0
   );
   CHECK(wrongFocus.opacity && *wrongFocus.opacity == 0.25);
 
   const auto missingTag =
-      umbriel::resolveWindowRules(config, "runner", "now playing", std::nullopt, ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", std::nullopt, ContentType::Game, {}, 0);
   CHECK(!missingTag.opacity);
   CHECK(!missingTag.defaultFloating);
   const auto unknownTag =
-      umbriel::resolveWindowRules(config, "runner", "now playing", "browser", ContentType::Game, {}, 0);
+      andromeda::resolveWindowRules(config, "runner", "now playing", "browser", ContentType::Game, {}, 0);
   CHECK(!unknownTag.opacity);
   CHECK(!unknownTag.defaultFloating);
 }
 
-UMBRIEL_TEST(windowRulesMatchEmptyIdentityOnlyWhenTheClientSetIt) {
+ANDROMEDA_TEST(windowRulesMatchEmptyIdentityOnlyWhenTheClientSetIt) {
   Config config;
 
   WindowRule blankTitle;
@@ -981,27 +981,27 @@ UMBRIEL_TEST(windowRulesMatchEmptyIdentityOnlyWhenTheClientSetIt) {
   config.windowRules.push_back(std::move(blankTag));
 
   // A window whose title, app ID, and tag are all set to the empty string.
-  const auto allEmpty = umbriel::resolveWindowRules(config, "", "", "", ContentType::None, {}, 0);
+  const auto allEmpty = andromeda::resolveWindowRules(config, "", "", "", ContentType::None, {}, 0);
   CHECK(allEmpty.defaultFloating && *allEmpty.defaultFloating);
   CHECK(allEmpty.opacity && *allEmpty.opacity == 0.5);
   CHECK(allEmpty.defaultMaximize && *allEmpty.defaultMaximize);
 
   // A window that never sent any of them matches nothing: an unset value is not an empty one.
   const auto allUnset =
-      umbriel::resolveWindowRules(config, std::nullopt, std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, std::nullopt, std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(!allUnset.defaultFloating);
   CHECK(!allUnset.opacity);
   CHECK(!allUnset.defaultMaximize);
 
   // Selectors are independent: an empty title matches while a non-empty app ID and an unset tag do not.
   const auto emptyTitleOnly =
-      umbriel::resolveWindowRules(config, "firefox", "", std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "firefox", "", std::nullopt, ContentType::None, {}, 0);
   CHECK(emptyTitleOnly.defaultFloating && *emptyTitleOnly.defaultFloating);
   CHECK(!emptyTitleOnly.opacity);
   CHECK(!emptyTitleOnly.defaultMaximize);
 }
 
-UMBRIEL_TEST(windowRulesMatchIsAlone) {
+ANDROMEDA_TEST(windowRulesMatchIsAlone) {
   Config config;
 
   WindowRule aloneOnly;
@@ -1020,13 +1020,13 @@ UMBRIEL_TEST(windowRulesMatchIsAlone) {
 
   // Alone windows take the is_alone=true rule and skip the is_alone=false one.
   const auto alone =
-      umbriel::resolveWindowRules(config, "player", std::nullopt, std::nullopt, ContentType::None, {.alone = true}, 0);
+      andromeda::resolveWindowRules(config, "player", std::nullopt, std::nullopt, ContentType::None, {.alone = true}, 0);
   CHECK(alone.defaultMaximize && *alone.defaultMaximize);
   CHECK(!alone.defaultFloating);
 
   // Windows that are not alone skip the is_alone=true rule and take the is_alone=false one.
   const auto notAlone =
-      umbriel::resolveWindowRules(config, "player", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "player", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(notAlone.defaultFloating && *notAlone.defaultFloating);
   CHECK(!notAlone.defaultMaximize);
 
@@ -1038,31 +1038,31 @@ UMBRIEL_TEST(windowRulesMatchIsAlone) {
   config.windowRules.push_back(std::move(anyState));
 
   const auto anyStateAlone =
-      umbriel::resolveWindowRules(config, "worker", std::nullopt, std::nullopt, ContentType::None, {.alone = true}, 0);
+      andromeda::resolveWindowRules(config, "worker", std::nullopt, std::nullopt, ContentType::None, {.alone = true}, 0);
   CHECK(anyStateAlone.defaultPinned && *anyStateAlone.defaultPinned);
   const auto anyStateNotAlone =
-      umbriel::resolveWindowRules(config, "worker", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+      andromeda::resolveWindowRules(config, "worker", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(anyStateNotAlone.defaultPinned && *anyStateNotAlone.defaultPinned);
 }
 
-UMBRIEL_TEST(windowVrrRuleOverridesTheOutputPolicy) {
-  CHECK(umbriel::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Always, false));
-  CHECK(!umbriel::effectiveVrrEnabled(VrrMode::Always, false, VrrMode::Disabled, false));
-  CHECK(!umbriel::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Fullscreen, false));
-  CHECK(umbriel::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Fullscreen, true));
-  CHECK(umbriel::effectiveVrrEnabled(VrrMode::Fullscreen, true, std::nullopt, false));
+ANDROMEDA_TEST(windowVrrRuleOverridesTheOutputPolicy) {
+  CHECK(andromeda::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Always, false));
+  CHECK(!andromeda::effectiveVrrEnabled(VrrMode::Always, false, VrrMode::Disabled, false));
+  CHECK(!andromeda::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Fullscreen, false));
+  CHECK(andromeda::effectiveVrrEnabled(VrrMode::Disabled, false, VrrMode::Fullscreen, true));
+  CHECK(andromeda::effectiveVrrEnabled(VrrMode::Fullscreen, true, std::nullopt, false));
 }
 
-UMBRIEL_TEST(tearingRequiresTheOutputGateAndUsesTheWindowOverride) {
-  CHECK(!umbriel::tearingEnabled(false, std::nullopt, true));
-  CHECK(!umbriel::tearingEnabled(false, true, true));
-  CHECK(umbriel::tearingEnabled(true, std::nullopt, true));
-  CHECK(!umbriel::tearingEnabled(true, std::nullopt, false));
-  CHECK(umbriel::tearingEnabled(true, true, false));
-  CHECK(!umbriel::tearingEnabled(true, false, true));
+ANDROMEDA_TEST(tearingRequiresTheOutputGateAndUsesTheWindowOverride) {
+  CHECK(!andromeda::tearingEnabled(false, std::nullopt, true));
+  CHECK(!andromeda::tearingEnabled(false, true, true));
+  CHECK(andromeda::tearingEnabled(true, std::nullopt, true));
+  CHECK(!andromeda::tearingEnabled(true, std::nullopt, false));
+  CHECK(andromeda::tearingEnabled(true, true, false));
+  CHECK(!andromeda::tearingEnabled(true, false, true));
 }
 
-UMBRIEL_TEST(layerRulesMergeMatchingFieldsInOrder) {
+ANDROMEDA_TEST(layerRulesMergeMatchingFieldsInOrder) {
   Config config;
 
   LayerRule first;
@@ -1079,12 +1079,12 @@ UMBRIEL_TEST(layerRulesMergeMatchingFieldsInOrder) {
   second.optimized = true;
   config.layerRules.push_back(std::move(second));
 
-  const auto resolved = umbriel::resolveLayerRules(config, "panel");
+  const auto resolved = andromeda::resolveLayerRules(config, "panel");
   CHECK(resolved.blur && *resolved.blur);
   CHECK(resolved.ignoreAlpha && *resolved.ignoreAlpha == 0.75);
   CHECK(resolved.optimized && *resolved.optimized);
 
-  const auto unmatched = umbriel::resolveLayerRules(config, "wallpaper");
+  const auto unmatched = andromeda::resolveLayerRules(config, "wallpaper");
   CHECK(!unmatched.blur);
   CHECK(!unmatched.ignoreAlpha);
   CHECK(!unmatched.optimized);
@@ -1096,12 +1096,12 @@ UMBRIEL_TEST(layerRulesMergeMatchingFieldsInOrder) {
   config.layerRules.push_back(std::move(blank));
 
   // Layer surfaces name themselves at creation, so an empty namespace is a value a rule can match.
-  const auto blankNamespace = umbriel::resolveLayerRules(config, "");
+  const auto blankNamespace = andromeda::resolveLayerRules(config, "");
   CHECK(blankNamespace.blur && *blankNamespace.blur);
-  CHECK(!umbriel::resolveLayerRules(config, std::nullopt).blur);
+  CHECK(!andromeda::resolveLayerRules(config, std::nullopt).blur);
 }
 
-UMBRIEL_TEST(securityContextRulesGrantGlobalsByMetadata) {
+ANDROMEDA_TEST(securityContextRulesGrantGlobalsByMetadata) {
   Config config;
 
   SecurityContextRule scoped;
@@ -1123,7 +1123,7 @@ UMBRIEL_TEST(securityContextRulesGrantGlobalsByMetadata) {
   config.securityContextRules.push_back(std::move(partial));
 
   const auto grants = [&](const char* engine, const char* appId, std::string_view global) {
-    const std::vector<std::string> globals = umbriel::securityContextRuleGlobals(config, engine, appId);
+    const std::vector<std::string> globals = andromeda::securityContextRuleGlobals(config, engine, appId);
     return std::ranges::find(globals, global) != globals.end();
   };
 
@@ -1135,12 +1135,12 @@ UMBRIEL_TEST(securityContextRulesGrantGlobalsByMetadata) {
   CHECK(!grants(nullptr, "org.example.Bar", "zwlr_layer_shell_v1"));
   // A rule without match keys applies to every client, but only for its own globals.
   CHECK(grants(nullptr, nullptr, "ext_idle_notifier_v1"));
-  CHECK_EQ(umbriel::securityContextRuleGlobals(config, nullptr, nullptr).size(), size_t{1});
+  CHECK_EQ(andromeda::securityContextRuleGlobals(config, nullptr, nullptr).size(), size_t{1});
   // The whole value must match; a substring is not enough.
   CHECK(!grants("org.flatpak", "org.example.Bar", "zwlr_screencopy_manager_v1"));
   CHECK(grants(nullptr, "example", "zwlr_screencopy_manager_v1"));
   // Matching rules pool their globals.
-  CHECK_EQ(umbriel::securityContextRuleGlobals(config, "org.flatpak", "org.example.Bar").size(), size_t{2});
+  CHECK_EQ(andromeda::securityContextRuleGlobals(config, "org.flatpak", "org.example.Bar").size(), size_t{2});
 }
 
 int main() { return RUN_TESTS(); }

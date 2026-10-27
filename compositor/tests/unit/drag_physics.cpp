@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-using umbriel::DragPhysics;
+using andromeda::DragPhysics;
 
 namespace {
   // Ticks round(seconds / step) times.
@@ -65,7 +65,7 @@ namespace {
   }
 } // namespace
 
-UMBRIEL_TEST(grabPointStaysPinnedWhileTheSheetMoves) {
+ANDROMEDA_TEST(grabPointStaysPinnedWhileTheSheetMoves) {
   DragPhysics physics;
   physics.begin(400, 300, 0.25F, 0.8F, 1);
   for (int i = 0; i < 10; ++i) {
@@ -78,7 +78,7 @@ UMBRIEL_TEST(grabPointStaysPinnedWhileTheSheetMoves) {
   CHECK(physics.maxDisplacement() > 5.0F);
 }
 
-UMBRIEL_TEST(motionTrailsOppositeToThePointer) {
+ANDROMEDA_TEST(motionTrailsOppositeToThePointer) {
   DragPhysics physics;
   // Off-centre but not a grid vertex: at an exact corner (0, 0) the grab weight there is 1 and the pin
   // alone forces that corner's displacement to zero, so the check below would hold by construction.
@@ -93,7 +93,7 @@ UMBRIEL_TEST(motionTrailsOppositeToThePointer) {
   CHECK(std::abs(sheet[0][0]) < 0.05F);
 }
 
-UMBRIEL_TEST(displacementStaysBoundedAndTheSheetNeverFoldsUnderExtremeShaking) {
+ANDROMEDA_TEST(displacementStaysBoundedAndTheSheetNeverFoldsUnderExtremeShaking) {
   DragPhysics physics;
   // Off-centre grab, so the two displacement components differ.
   physics.begin(120, 70, 0.25F, 0.5F, 1);
@@ -110,7 +110,7 @@ UMBRIEL_TEST(displacementStaysBoundedAndTheSheetNeverFoldsUnderExtremeShaking) {
   }
 }
 
-UMBRIEL_TEST(aShrinkingRetargetOfADisplacedSheetStaysAContraction) {
+ANDROMEDA_TEST(aShrinkingRetargetOfADisplacedSheetStaysAContraction) {
   // The mirrored run (flip = -1) puts the fold along the anti-diagonal.
   for (const float flip : {1.0F, -1.0F}) {
     const auto row = [flip](float v) { return flip > 0 ? v : 1.0F - v; };
@@ -132,7 +132,7 @@ UMBRIEL_TEST(aShrinkingRetargetOfADisplacedSheetStaysAContraction) {
   }
 }
 
-UMBRIEL_TEST(velocityStaysBoundedWhenAResizeScalesAFastSheet) {
+ANDROMEDA_TEST(velocityStaysBoundedWhenAResizeScalesAFastSheet) {
   DragPhysics physics;
   physics.begin(1000, 1000, 0.5F, 0.5F, 1);
   physics.move(-30, -30);
@@ -149,7 +149,7 @@ UMBRIEL_TEST(velocityStaysBoundedWhenAResizeScalesAFastSheet) {
   CHECK(contracts(physics, 1000 * scale, 1000 * scale));
 }
 
-UMBRIEL_TEST(reGrabbingWhileSettlingKeepsTheSheetAndItsTransition) {
+ANDROMEDA_TEST(reGrabbingWhileSettlingKeepsTheSheetAndItsTransition) {
   DragPhysics physics;
   physics.begin(400, 300, 0.2F, 0.2F, 7);
   for (int i = 0; i < 6; ++i) {
@@ -168,7 +168,7 @@ UMBRIEL_TEST(reGrabbingWhileSettlingKeepsTheSheetAndItsTransition) {
   CHECK(contracts(physics, 400, 300));
 }
 
-UMBRIEL_TEST(settlesAfterReleaseAndWhileHeldStill) {
+ANDROMEDA_TEST(settlesAfterReleaseAndWhileHeldStill) {
   DragPhysics physics;
   physics.begin(400, 300, 0.5F, 0.5F, 1);
   physics.move(60, 20);
@@ -190,7 +190,7 @@ UMBRIEL_TEST(settlesAfterReleaseAndWhileHeldStill) {
   }
 }
 
-UMBRIEL_TEST(integrationIsIndependentOfTheCallerFrameRate) {
+ANDROMEDA_TEST(integrationIsIndependentOfTheCallerFrameRate) {
   DragPhysics slow;
   DragPhysics fast;
   slow.begin(400, 300, 0.3F, 0.3F, 1);
@@ -207,7 +207,7 @@ UMBRIEL_TEST(integrationIsIndependentOfTheCallerFrameRate) {
   }
 }
 
-UMBRIEL_TEST(longPausesSettleImmediatelyAndTransitionIdPassesThrough) {
+ANDROMEDA_TEST(longPausesSettleImmediatelyAndTransitionIdPassesThrough) {
   DragPhysics physics;
   physics.begin(400, 300, 0.5F, 0.5F, 42);
   CHECK_EQ(physics.transitionId(), uint64_t{42});
@@ -219,7 +219,7 @@ UMBRIEL_TEST(longPausesSettleImmediatelyAndTransitionIdPassesThrough) {
   CHECK_EQ(physics.transitionId(), uint64_t{43});
 }
 
-UMBRIEL_TEST(tickIgnoresNonPositiveOrNonFiniteSeconds) {
+ANDROMEDA_TEST(tickIgnoresNonPositiveOrNonFiniteSeconds) {
   DragPhysics neverBegun;
   CHECK(!neverBegun.tick(1.0));
 
@@ -240,7 +240,7 @@ UMBRIEL_TEST(tickIgnoresNonPositiveOrNonFiniteSeconds) {
   }
 }
 
-UMBRIEL_TEST(aBorderedWindowKeepsTheGrabbedCornerUnderThePointer) {
+ANDROMEDA_TEST(aBorderedWindowKeepsTheGrabbedCornerUnderThePointer) {
   // The sheet spans the box the drag slot draws over: a 400x300 window inside a 24 px ring (border plus padding).
   const float boxX = -24, boxY = -24, boxWidth = 448, boxHeight = 348;
   // The pointer holds the window geometry's top-left corner, window-local (0, 0).

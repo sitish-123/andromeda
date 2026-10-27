@@ -4,14 +4,14 @@
 
 #include <algorithm>
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 // clang-format off
 #include <cstring> // IWYU pragma: keep
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   void SurfaceShadow::update(
       wlr_scene_tree* parent, int contentWidth, int contentHeight, int borderTotal, int cornerRadius
@@ -138,4 +138,4 @@ namespace umbriel {
     std::copy_n(m_node->color, 4, result.color.begin());
     return result;
   }
-} // namespace umbriel
+} // namespace andromeda

@@ -9,7 +9,7 @@ struct wlr_buffer;
 struct wlr_output;
 struct wlr_renderer;
 
-namespace umbriel {
+namespace andromeda {
 
   struct MirrorPlacement {
     wlr_box dst;                   // in the target's buffer coordinates
@@ -36,4 +36,4 @@ namespace umbriel {
   bool
   renderMirrorFrame(wlr_output* target, wlr_renderer* renderer, wlr_buffer* frame, wl_output_transform sourceTransform);
 
-} // namespace umbriel
+} // namespace andromeda

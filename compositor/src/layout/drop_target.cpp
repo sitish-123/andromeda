@@ -16,7 +16,7 @@
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr int kColumnHintWidth = 300;
@@ -537,4 +537,4 @@ namespace umbriel {
     server.focusView(&view, FocusReason::DragDrop);
   }
 
-} // namespace umbriel
+} // namespace andromeda

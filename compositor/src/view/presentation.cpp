@@ -9,7 +9,7 @@
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   // Presented size
   void ViewPresentation::setSize(int width, int height) {
@@ -167,4 +167,4 @@ namespace umbriel {
     );
   }
 
-} // namespace umbriel
+} // namespace andromeda

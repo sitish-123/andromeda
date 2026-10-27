@@ -1,4 +1,4 @@
-#include "umbriel/ipc.h"
+#include "andromeda/ipc.h"
 
 #include "loop/loop.h"
 
@@ -20,7 +20,7 @@ namespace xdpu {
   namespace {
 
     std::string socketPath() {
-      if (const char* configured = std::getenv("UMBRIEL_SOCKET"); configured != nullptr && configured[0] != '\0') {
+      if (const char* configured = std::getenv("ANDROMEDA_SOCKET"); configured != nullptr && configured[0] != '\0') {
         return configured;
       }
       const char* runtime = std::getenv("XDG_RUNTIME_DIR");
@@ -28,7 +28,7 @@ namespace xdpu {
       if (runtime == nullptr || runtime[0] == '\0' || display == nullptr || display[0] == '\0') {
         return {};
       }
-      return std::string(runtime) + "/umbriel-" + display + ".sock";
+      return std::string(runtime) + "/andromeda-" + display + ".sock";
     }
 
     void closeFd(int fd) {
@@ -40,7 +40,7 @@ namespace xdpu {
 
   } // namespace
 
-  struct UmbrielIpc::Impl {
+  struct AndromedaIpc::Impl {
     Loop& loop;
     ScreenCastHandler screenCastHandler;
     FocusHandler focusedWindowHandler;
@@ -59,18 +59,18 @@ namespace xdpu {
           focusedWindowHandler(std::move(focusedWindowHandler)), focusedOutputHandler(std::move(focusedOutputHandler)) {
       const std::string path = socketPath();
       if (path.empty()) {
-        std::fprintf(stderr, "umbriel-ipc: compositor socket path is unavailable\n");
+        std::fprintf(stderr, "andromeda-ipc: compositor socket path is unavailable\n");
         return;
       }
       fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
       if (fd < 0) {
-        std::fprintf(stderr, "umbriel-ipc: socket failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "andromeda-ipc: socket failed: %s\n", std::strerror(errno));
         return;
       }
 
       sockaddr_un address{};
       if (path.size() >= sizeof(address.sun_path)) {
-        std::fprintf(stderr, "umbriel-ipc: compositor socket path is too long\n");
+        std::fprintf(stderr, "andromeda-ipc: compositor socket path is too long\n");
         closeFd(fd);
         fd = -1;
         return;
@@ -78,7 +78,7 @@ namespace xdpu {
       address.sun_family = AF_UNIX;
       path.copy(address.sun_path, path.size());
       if (connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        std::fprintf(stderr, "umbriel-ipc: connect failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "andromeda-ipc: connect failed: %s\n", std::strerror(errno));
         closeFd(fd);
         fd = -1;
         return;
@@ -96,7 +96,7 @@ namespace xdpu {
         if (written < 0 && errno == EINTR) {
           continue;
         }
-        std::fprintf(stderr, "umbriel-ipc: subscribe failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "andromeda-ipc: subscribe failed: %s\n", std::strerror(errno));
         closeFd(fd);
         fd = -1;
         return;
@@ -104,7 +104,7 @@ namespace xdpu {
 
       const int flags = fcntl(fd, F_GETFL, 0);
       if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        std::fprintf(stderr, "umbriel-ipc: failed to make socket nonblocking: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "andromeda-ipc: failed to make socket nonblocking: %s\n", std::strerror(errno));
         closeFd(fd);
         fd = -1;
         return;
@@ -149,7 +149,7 @@ namespace xdpu {
           loop.updateFd(watch, EPOLLIN | EPOLLOUT | EPOLLERR | EPOLLHUP);
           return;
         }
-        std::fprintf(stderr, "umbriel-ipc: send failed: %s\n", std::strerror(errno));
+        std::fprintf(stderr, "andromeda-ipc: send failed: %s\n", std::strerror(errno));
         disconnect();
         return;
       }
@@ -199,7 +199,7 @@ namespace xdpu {
           continue;
         }
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-          std::fprintf(stderr, "umbriel-ipc: receive failed: %s\n", std::strerror(errno));
+          std::fprintf(stderr, "andromeda-ipc: receive failed: %s\n", std::strerror(errno));
           disconnect();
           return;
         }
@@ -303,7 +303,7 @@ namespace xdpu {
     }
   };
 
-  UmbrielIpc::UmbrielIpc(
+  AndromedaIpc::AndromedaIpc(
       Loop& loop, ScreenCastHandler screenCastHandler, FocusHandler focusedWindowHandler,
       FocusHandler focusedOutputHandler
   )
@@ -313,10 +313,10 @@ namespace xdpu {
             )
         ) {}
 
-  UmbrielIpc::~UmbrielIpc() = default;
+  AndromedaIpc::~AndromedaIpc() = default;
 
-  bool UmbrielIpc::connected() const { return m_impl->fd >= 0; }
+  bool AndromedaIpc::connected() const { return m_impl->fd >= 0; }
 
-  void UmbrielIpc::setScreenCastActive(bool active) { m_impl->setScreenCastActive(active); }
+  void AndromedaIpc::setScreenCastActive(bool active) { m_impl->setScreenCastActive(active); }
 
 } // namespace xdpu

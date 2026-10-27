@@ -3,14 +3,14 @@
 # one maximized to edges, not the tile underneath either.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly BASE_CONFIG="$UMBRIEL_RUNTIME_DIR/transient-fullscreen-base.toml"
-readonly PANEL_LOG="$UMBRIEL_RUNTIME_DIR/transient-fullscreen-panel.log"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/transient-fullscreen.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly BASE_CONFIG="$ANDROMEDA_RUNTIME_DIR/transient-fullscreen-base.toml"
+readonly PANEL_LOG="$ANDROMEDA_RUNTIME_DIR/transient-fullscreen-panel.log"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/transient-fullscreen.log"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 wait_for_window_count() {
@@ -38,8 +38,8 @@ wait_for_position() {
 # $1 is the rule that opens the parent in the state under test. A left strut keeps the tiles away from the output's
 # corner, so a dialog centered on the parent's tile lands elsewhere than one centered on the output or the usable area.
 write_config() {
-  cat "$BASE_CONFIG" > "$UMBRIEL_CONFIG"
-  cat >> "$UMBRIEL_CONFIG" <<EOF2
+  cat "$BASE_CONFIG" > "$ANDROMEDA_CONFIG"
+  cat >> "$ANDROMEDA_CONFIG" <<EOF2
 
 [animation]
 enabled = false
@@ -54,10 +54,10 @@ left = 100
 match.title = "^transient-parent$"
 $1 = true
 EOF2
-  "$UMBRIEL" msg config-reload > /dev/null
+  "$ANDROMEDA" msg config-reload > /dev/null
 }
 
-cp "$UMBRIEL_CONFIG" "$BASE_CONFIG"
+cp "$ANDROMEDA_CONFIG" "$BASE_CONFIG"
 
 # A 40 pixel panel takes the top of the usable area.
 "$LAYER_CLIENT" HEADLESS-1 40 > "$PANEL_LOG" 2>&1 &

@@ -12,7 +12,7 @@
 
 struct wl_event_source;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -32,7 +32,7 @@ namespace umbriel {
     };
     // Number of bits above; sizes the last-broadcast cache.
     static constexpr size_t kEventCount = 7;
-    // Subscribable names in bit order: the subscribe handler matches against this table and `umbriel subscribe`
+    // Subscribable names in bit order: the subscribe handler matches against this table and `andromeda subscribe`
     // lists it, so a new family cannot be accepted by one and unknown to the other.
     static constexpr std::array<std::string_view, kEventCount> kEventNames = {
         "theme", "overview", "keyboard_layout", "windows", "workspaces", "submap", "screencast"
@@ -104,4 +104,4 @@ namespace umbriel {
     std::array<std::string, kEventCount> m_lastBroadcast;
   };
 
-} // namespace umbriel
+} // namespace andromeda

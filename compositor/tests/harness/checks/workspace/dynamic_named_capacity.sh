@@ -3,8 +3,8 @@
 # every ordinary workspace is occupied, then claims the exact ordinary workspace that later becomes empty.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly BASELINE="$(< "$UMBRIEL_CONFIG")"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly BASELINE="$(< "$ANDROMEDA_CONFIG")"
 declare -a CLIENT_PIDS=()
 
 cleanup() {
@@ -19,14 +19,14 @@ cleanup() {
 trap cleanup EXIT
 
 workspace_snapshot() {
-  "$UMBRIEL" workspaces --json |
+  "$ANDROMEDA" workspaces --json |
     jq -c '[.[] | select(.output == "HEADLESS-1")] | sort_by(.index)'
 }
 
 wait_for_window_count() {
   local expected=$1 snapshot=
   for _ in $(seq 240); do
-    snapshot=$("$UMBRIEL" windows --json)
+    snapshot=$("$ANDROMEDA" windows --json)
     [[ $(jq 'length' <<< "$snapshot") -eq $expected ]] && return 0
     sleep 0.05
   done
@@ -34,8 +34,8 @@ wait_for_window_count() {
   exit 1
 }
 
-printf '%s\n' "$BASELINE" > "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+printf '%s\n' "$BASELINE" > "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -49,7 +49,7 @@ min_workspaces = 64
 EOF
 
 for index in $(seq 2 63); do
-  cat >> "$UMBRIEL_CONFIG" <<EOF
+  cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [[window_rule]]
 match.app_id = "^dynamic-capacity-$index$"
@@ -58,7 +58,7 @@ default_workspace = $index
 default_focused = false
 EOF
 done
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 initial=$(workspace_snapshot)
 if [[ $(jq 'length' <<< "$initial") -ne 64 ]]; then
@@ -76,9 +76,9 @@ for index in $(seq 2 63); do
 done
 wait_for_window_count 62
 
-occupied_ids=$("$UMBRIEL" windows --json | jq -r 'map(.workspace) | unique | length')
+occupied_ids=$("$ANDROMEDA" windows --json | jq -r 'map(.workspace) | unique | length')
 if [[ $occupied_ids -ne 62 ]]; then
-  echo "capacity clients did not occupy 62 distinct workspaces: $("$UMBRIEL" windows --json)"
+  echo "capacity clients did not occupy 62 distinct workspaces: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
@@ -86,7 +86,7 @@ before_name=$(workspace_snapshot)
 leading_id=$(jq -r '.[] | select(.index == 1) | .id' <<< "$before_name")
 candidate_id=$(jq -r '.[] | select(.index == 32) | .id' <<< "$before_name")
 sentinel_id=$(jq -r '.[] | select(.index == 64) | .id' <<< "$before_name")
-occupied_workspace_ids=$("$UMBRIEL" windows --json | jq -c 'map(.workspace)')
+occupied_workspace_ids=$("$ANDROMEDA" windows --json | jq -c 'map(.workspace)')
 if [[ -z $leading_id || -z $candidate_id || -z $sentinel_id ]] \
     || ! jq -e --argjson occupied "$occupied_workspace_ids" '
       (.[] | select(.index == 1) | .id) as $leading
@@ -100,15 +100,15 @@ if [[ -z $leading_id || -z $candidate_id || -z $sentinel_id ]] \
   exit 1
 fi
 
-readonly FULL_CONFIG="$(< "$UMBRIEL_CONFIG")"
-printf '%s\n' "$FULL_CONFIG" > "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+readonly FULL_CONFIG="$(< "$ANDROMEDA_CONFIG")"
+printf '%s\n' "$FULL_CONFIG" > "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[workspace]]
 name = "PENDING"
 output = "HEADLESS-1"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 pending=$(workspace_snapshot)
 if jq -e 'any(.[]; .name == "PENDING" or .named)' <<< "$pending" > /dev/null; then

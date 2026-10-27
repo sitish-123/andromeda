@@ -4,7 +4,7 @@
 
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   class LayerSurface;
   class Output;
@@ -81,4 +81,4 @@ namespace umbriel {
     Server& m_server;
   };
 
-} // namespace umbriel
+} // namespace andromeda

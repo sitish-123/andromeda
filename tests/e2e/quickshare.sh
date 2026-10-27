@@ -34,7 +34,7 @@ in_phone ip link set lo up
 in_phone ip addr add 10.78.0.2/24 dev p0
 in_phone ip link set p0 up
 
-QS=$BIN/umbriel-quickshare
+QS=$BIN/andromeda-quickshare
 IN=$RUNTIME/in
 mkdir -p "$IN" "$RUNTIME/declined" "$RUNTIME/files"
 head -c 20000000 /dev/urandom > "$RUNTIME/files/blob.bin"

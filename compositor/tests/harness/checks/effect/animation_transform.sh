@@ -3,19 +3,19 @@
 # Logical UVs must survive fractional scale and rotation. An overview shader
 # samples the result of the window shader, and neither may bleed to its neighbour.
 set -euo pipefail
-cat > "$UMBRIEL_RUNTIME_DIR/fixture-1.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/fixture-1.glsl" <<'GLSL'
 vec4 animation(vec2 uv) { return uv.x < 0.5 ? vec4(1.0,0.0,0.0,1.0) : vec4(0.0,0.0,1.0,1.0); }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/fixture-2.glsl" <<'GLSL'
-vec4 animation(vec2 uv) { vec4 c = umbriel_sample(uv); return vec4(0.0,c.r,0.0,c.a); }
+cat > "$ANDROMEDA_RUNTIME_DIR/fixture-2.glsl" <<'GLSL'
+vec4 animation(vec2 uv) { vec4 c = andromeda_sample(uv); return vec4(0.0,c.r,0.0,c.a); }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/fixture-3.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/fixture-3.glsl" <<'GLSL'
 this is not GLSL
 GLSL
-readonly BASE="$UMBRIEL_RUNTIME_DIR/composition-base.toml"
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/composition.png"
-cp "$UMBRIEL_CONFIG" "$BASE"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+readonly BASE="$ANDROMEDA_RUNTIME_DIR/composition-base.toml"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/composition.png"
+cp "$ANDROMEDA_CONFIG" "$BASE"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [output."HEADLESS-1"]
 scale = 1.25
@@ -37,10 +37,10 @@ shader = "fixture-2.glsl"
 [animation.overview]
 effect = "overview_fixture_2"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL_UNMAP_CLIENT" shader-composition 700 700 > "$UMBRIEL_RUNTIME_DIR/client.log" 2>&1 &
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA_UNMAP_CLIENT" shader-composition 700 700 > "$ANDROMEDA_RUNTIME_DIR/client.log" 2>&1 &
 for _ in $(seq 80); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "shader-composition")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "shader-composition")')
   [[ -n $window ]] && break
   sleep 0.025
 done
@@ -69,29 +69,29 @@ if ! (( blue > 220 && red < 30 )); then
 fi
 # Animation time only moves by clock-advance: the overview sample lands halfway through its 4000 ms timeline, while
 # the window's own opening shader is still running.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" clock-advance 2000
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" clock-advance 2000
 grim -s 1 -o "$home" "$IMAGE"
-green=$("$UMBRIEL_PIXEL_PROBE" "$IMAGE" count 'g > 0.9 && r < 0.1 && b < 0.1')
+green=$("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" count 'g > 0.9 && r < 0.1 && b < 0.1')
 if (( green < 1000 )); then
   echo "outer shader did not sample the inner window effect: $green green pixels"
   exit 1
 fi
 grim -s 1 -o "$neighbour" "$IMAGE"
-green=$("$UMBRIEL_PIXEL_PROBE" "$IMAGE" count 'g > 0.9 && r < 0.1 && b < 0.1')
+green=$("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" count 'g > 0.9 && r < 0.1 && b < 0.1')
 if (( green > 10 )); then
   echo "window effect escaped to neighbouring output: $green green pixels"
   exit 1
 fi
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" clock-advance 8000
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" clock-advance 8000
+"$ANDROMEDA" settle
 
 # An invalid program must produce a labelled compiler error and leave the
 # compositor able to map another client through its built-in animation.
-cat "$BASE" > "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat "$BASE" > "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [effects.preset.windows_in_fixture_3]
 kind = "animation"
@@ -99,14 +99,14 @@ shader = "fixture-3.glsl"
 [animation.windows_in]
 effect = "windows_in_fixture_3"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-if ! grep -q "effect preset 'windows_in_fixture_3' (animation) failed to compile; rendering plainly" "$UMBRIEL_LOG"; then
+"$ANDROMEDA" msg config-reload > /dev/null
+if ! grep -q "effect preset 'windows_in_fixture_3' (animation) failed to compile; rendering plainly" "$ANDROMEDA_LOG"; then
   echo "invalid GLSL did not produce the expected fallback diagnostic"
   exit 1
 fi
-"$UMBRIEL_UNMAP_CLIENT" shader-fallback 700 700 > "$UMBRIEL_RUNTIME_DIR/fallback.log" 2>&1 &
+"$ANDROMEDA_UNMAP_CLIENT" shader-fallback 700 700 > "$ANDROMEDA_RUNTIME_DIR/fallback.log" 2>&1 &
 for _ in $(seq 60); do
-  if "$UMBRIEL" windows --json | jq -e '.[] | select(.title == "shader-fallback")' > /dev/null; then
+  if "$ANDROMEDA" windows --json | jq -e '.[] | select(.title == "shader-fallback")' > /dev/null; then
     echo "rotated/scaled UVs, nested sampling, containment, and invalid-source fallback verified"
     exit 0
   fi

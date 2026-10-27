@@ -37,9 +37,9 @@ jobs:
                 bash build-base just meson pkgconf samurai su-exec \
                 cairo-dev nlohmann-json pango-dev tomlplusplus-dev \
                 wayland-dev wayland-protocols wlroots0.20-dev
-              mkdir -p /tmp/umbriel-ci-home
-              chown "$CI_UID:$CI_GID" /tmp/umbriel-ci-home
-              export HOME=/tmp/umbriel-ci-home
+              mkdir -p /tmp/andromeda-ci-home
+              chown "$CI_UID:$CI_GID" /tmp/andromeda-ci-home
+              export HOME=/tmp/andromeda-ci-home
               su-exec "$CI_UID:$CI_GID" just build
               su-exec "$CI_UID:$CI_GID" just test
             '

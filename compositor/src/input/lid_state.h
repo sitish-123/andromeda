@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   enum class LidState : uint8_t {
     Open,
@@ -42,4 +42,4 @@ namespace umbriel {
     bool m_ready = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

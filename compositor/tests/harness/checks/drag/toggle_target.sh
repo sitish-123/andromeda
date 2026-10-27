@@ -12,7 +12,7 @@ readonly BTN_LEFT=272
 readonly BTN_RIGHT=273
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -24,7 +24,7 @@ spawn_client() {
 
 wait_for_count() {
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $1 ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $1 ]] && return 0
     sleep 0.25
   done
   echo "timed out waiting for $1 window(s)"
@@ -32,7 +32,7 @@ wait_for_count() {
 }
 
 window() {
-  "$UMBRIEL" windows --json | jq -r --arg t "$1" ".[] | select(.title == \$t) | $2"
+  "$ANDROMEDA" windows --json | jq -r --arg t "$1" ".[] | select(.title == \$t) | $2"
 }
 
 # Drag the named window from its center to (x, y), pressing the free button
@@ -47,10 +47,10 @@ drag_toggling() {
   done
   args+=(move "$x" "$y" release "$BTN_LEFT" mod none)
   pointer "${args[@]}"
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [input]
 window_drag_toggle = "floating"
@@ -62,26 +62,26 @@ default_extent_fraction = 0.5
 [animation]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client toggle-keep
 wait_for_count 1
 spawn_client toggle-wide
 wait_for_count 2
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 # Give the window a floating size that differs from its column, so the drop can
 # be told apart from a drag that never resized anything.
-"$UMBRIEL" msg window-toggle-floating > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" msg window-set-primary-extent:0.3 > /dev/null
-"$UMBRIEL" msg window-set-secondary-extent:0.4 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg window-set-primary-extent:0.3 > /dev/null
+"$ANDROMEDA" msg window-set-secondary-extent:0.4 > /dev/null
+"$ANDROMEDA" settle
 read -r float_w float_h < <(window toggle-wide '"\(.w) \(.h)"')
-"$UMBRIEL" msg window-toggle-floating > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" msg window-set-primary-extent:0.75 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg window-set-primary-extent:0.75 > /dev/null
+"$ANDROMEDA" settle
 read -r tiled_w tiled_h < <(window toggle-wide '"\(.w) \(.h)"')
 neighbor_w=$(window toggle-keep .w)
 if [[ $tiled_w == "$float_w" || $tiled_w == "$neighbor_w" ]]; then
@@ -94,7 +94,7 @@ fi
 drag_toggling toggle-wide 700 400 1
 read -r floating x y w h < <(window toggle-wide '"\(.floating) \(.x) \(.y) \(.w) \(.h)"')
 if [[ $floating != true ]]; then
-  echo "one toggle did not float the dragged window: $("$UMBRIEL" windows --json)"
+  echo "one toggle did not float the dragged window: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 if [[ $w != "$float_w" || $h != "$float_h" ]]; then
@@ -109,14 +109,14 @@ fi
 # Two presses: the drag ends up targeting the strip again, so the window drops
 # back into it. Dropping past the last column opens a new one, which is where
 # the width the drag detached has to reappear.
-"$UMBRIEL" msg window-toggle-floating > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" msg window-set-primary-extent:0.75 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg window-set-primary-extent:0.75 > /dev/null
+"$ANDROMEDA" settle
 drag_toggling toggle-wide 1270 400 2
 read -r floating w h < <(window toggle-wide '"\(.floating) \(.w) \(.h)"')
 if [[ $floating != false ]]; then
-  echo "toggling out and back left the window floating: $("$UMBRIEL" windows --json)"
+  echo "toggling out and back left the window floating: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 if [[ $w != "$tiled_w" || $h != "$tiled_h" ]]; then
@@ -126,47 +126,47 @@ fi
 
 # Pinned mode: one press pins the tiled window, and dragging the pinned window
 # with one press puts it back where it was pinned from.
-sed -i 's/window_drag_toggle = "floating"/window_drag_toggle = "pinned"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle
+sed -i 's/window_drag_toggle = "floating"/window_drag_toggle = "pinned"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle
 drag_toggling toggle-wide 700 400 1
 if [[ $(window toggle-wide .floating) != true ]]; then
-  echo "pinned mode did not take the window out of the layout: $("$UMBRIEL" windows --json)"
+  echo "pinned mode did not take the window out of the layout: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 drag_toggling toggle-wide 400 300 1
 if [[ $(window toggle-wide .floating) != false ]]; then
-  echo "unpinning during a drag did not re-tile the window: $("$UMBRIEL" windows --json)"
+  echo "unpinning during a drag did not re-tile the window: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
 # A fullscreen window refuses to be pinned, so the drop has to fall back to the
 # layout instead of leaving it detached.
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
-"$UMBRIEL" settle
-fullscreen_title=$("$UMBRIEL" windows --json | jq -r '.[] | select(.focused) | .title')
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" settle
+fullscreen_title=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.focused) | .title')
 if [[ -z $fullscreen_title ]]; then
-  echo "no focused window to fullscreen: $("$UMBRIEL" windows --json)"
+  echo "no focused window to fullscreen: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 drag_toggling "$fullscreen_title" 1270 360 1
 if [[ $(window "$fullscreen_title" .floating) != false ]]; then
-  echo "pinning a fullscreen window during a drag changed its state: $("$UMBRIEL" windows --json)"
+  echo "pinning a fullscreen window during a drag changed its state: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" settle
 # In the layout its column is narrower than the output, and layout-directed
 # focus can leave it. A detached window keeps the full output size and holds
 # focus with no way back.
 if [[ $(window "$fullscreen_title" .w) -ge $OUTPUT_W ]]; then
-  echo "a refused pin left its window at output size: $("$UMBRIEL" windows --json)"
+  echo "a refused pin left its window at output size: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
-"$UMBRIEL" msg window-focus-left > /dev/null
-"$UMBRIEL" settle
-if [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.focused) | .title') == "$fullscreen_title" ]]; then
-  echo "focus could not leave the dropped window: $("$UMBRIEL" windows --json)"
+"$ANDROMEDA" msg window-focus-left > /dev/null
+"$ANDROMEDA" settle
+if [[ $("$ANDROMEDA" windows --json | jq -r '.[] | select(.focused) | .title') == "$fullscreen_title" ]]; then
+  echo "focus could not leave the dropped window: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 

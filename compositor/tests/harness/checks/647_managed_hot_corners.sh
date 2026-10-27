@@ -5,13 +5,13 @@
 set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly DESKTOP=${UMBRIEL_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/settings.toml
-trap 'rm -f "$SAVED"; "$UMBRIEL" msg config-reload > /dev/null' EXIT
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly DESKTOP=${ANDROMEDA_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/settings.toml
+trap 'rm -f "$SAVED"; "$ANDROMEDA" msg config-reload > /dev/null' EXIT
 
 pointer() { "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"; }
-active_workspace() { "$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .index'; }
+active_workspace() { "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .index'; }
 setting_is() {
   for _ in $(seq 40); do
     [[ $("$DESKTOP" settings-state | grep "^$1=" | cut -d= -f2- | sed 's/ customized$//') == "$2" ]] && return 0
@@ -22,7 +22,7 @@ setting_is() {
 }
 
 pointer move 640 360
-cat >> "$UMBRIEL_CONFIG" <<'CONF'
+cat >> "$ANDROMEDA_CONFIG" <<'CONF'
 [output.HEADLESS-1]
 workspaces = 2
 [animation]
@@ -30,7 +30,7 @@ enabled = false
 [input.focus]
 follows_mouse = false
 CONF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$DESKTOP" settings-set hot_corners.top_left.action "workspace-switch:2/HEADLESS-1"
 "$DESKTOP" settings-set hot_corners.top_left.delay_ms 100
@@ -42,7 +42,7 @@ pointer move 0 0 pause 300
 [[ $(active_workspace) == 2 ]] || { echo "the managed hot corner did not fire (workspace $(active_workspace))"; exit 1; }
 
 pointer move 640 360
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 for key in enabled delay_ms action; do "$DESKTOP" settings-set "hot_corners.top_left.$key" ""; done
 setting_is hot_corners.top_left.enabled false
 pointer move 0 0 pause 300

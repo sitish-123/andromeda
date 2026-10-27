@@ -14,7 +14,7 @@ spawn_titled() {
   CLIENT_PID[$1]=$!
 }
 
-window_count() { "$UMBRIEL" windows --json | jq 'length'; }
+window_count() { "$ANDROMEDA" windows --json | jq 'length'; }
 
 wait_for_count() {
   for _ in $(seq 80); do
@@ -26,14 +26,14 @@ wait_for_count() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg t "$1" --arg f "$2" \
       '[.[] | select(.title == $t) | .[$f]] | if length == 1 then .[0] | tostring else "missing" end'
 }
 
 # Positions of everything except A, as one comparable string.
 survivors() {
-  "$UMBRIEL" windows --json | jq -cS '[.[] | select(.title != "A") | {title, x}] | sort_by(.title)'
+  "$ANDROMEDA" windows --json | jq -cS '[.[] | select(.title != "A") | {title, x}] | sort_by(.title)'
 }
 
 # Spawned one at a time so the columns end up in a known left-to-right order:
@@ -46,21 +46,21 @@ done
 # Focus C, which scrolls A and B off the left edge and parks the scroll at the
 # far edge of C's band.
 for _ in 1 2 3; do
-  "$UMBRIEL" msg window-focus-left > /dev/null
+  "$ANDROMEDA" msg window-focus-left > /dev/null
 done
 # Then step off that edge, leaving C fully visible but no longer pinned. Without
 # this the clamp below would hide whether the compensation ran at all.
 for _ in 1 2 3 4; do
-  "$UMBRIEL" msg layout-scroll-left > /dev/null
+  "$ANDROMEDA" msg layout-scroll-left > /dev/null
 done
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 a_x=$(field_of A x)
 a_w=$(field_of A w)
 c_x=$(field_of C x)
 c_w=$(field_of C w)
 if [[ $a_x == "missing" || $c_x == "missing" ]]; then
-  echo "expected six distinctly titled windows, got: $("$UMBRIEL" windows --json | jq -c '[.[].title]')"
+  echo "expected six distinctly titled windows, got: $("$ANDROMEDA" windows --json | jq -c '[.[].title]')"
   exit 1
 fi
 
@@ -68,12 +68,12 @@ fi
 # pass for the wrong reason.
 if (( a_x + a_w > 0 )); then
   echo "precondition failed: A is not off-screen left (x=$a_x w=$a_w)"
-  echo "  windows: $("$UMBRIEL" windows --json | jq -c '[.[] | {title, x, w}]')"
+  echo "  windows: $("$ANDROMEDA" windows --json | jq -c '[.[] | {title, x, w}]')"
   exit 1
 fi
 if (( c_x < 0 || c_x + c_w > 1280 )); then
   echo "precondition failed: focused C is not fully on screen (x=$c_x w=$c_w)"
-  echo "  windows: $("$UMBRIEL" windows --json | jq -c '[.[] | {title, x, w}]')"
+  echo "  windows: $("$ANDROMEDA" windows --json | jq -c '[.[] | {title, x, w}]')"
   exit 1
 fi
 
@@ -82,7 +82,7 @@ before=$(survivors)
 # Close A without focusing it: focusing would scroll it back into view first.
 kill -TERM "${CLIENT_PID[A]}" 2>/dev/null || true
 wait_for_count 5
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 after=$(survivors)
 

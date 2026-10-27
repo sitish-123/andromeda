@@ -1,6 +1,6 @@
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 
-#include "compositors/umbriel/umbriel_event_handler.h"
+#include "compositors/andromeda/andromeda_event_handler.h"
 #include "core/log.h"
 
 #include <algorithm>
@@ -16,11 +16,11 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-namespace compositors::umbriel {
+namespace compositors::andromeda {
 
   namespace {
 
-    constexpr Logger kLog("umbriel_runtime");
+    constexpr Logger kLog("andromeda_runtime");
     constexpr auto kReconnectInitial = std::chrono::seconds(2);
     constexpr auto kReconnectMax = std::chrono::seconds(30);
     constexpr std::size_t kReadBufferMaxBytes = 1024U * 1024U;
@@ -49,7 +49,7 @@ namespace compositors::umbriel {
 
   } // namespace
 
-  struct UmbrielRuntime::IpcReply {
+  struct AndromedaRuntime::IpcReply {
     enum class Status {
       Unavailable,
       WriteFailed,
@@ -63,13 +63,13 @@ namespace compositors::umbriel {
     std::optional<nlohmann::json> json;
   };
 
-  bool UmbrielRuntime::available() const {
+  bool AndromedaRuntime::available() const {
     ensureResolved();
     return !m_socketPath.empty();
   }
 
   std::optional<nlohmann::json>
-  UmbrielRuntime::requestCommand(std::string_view cmd, std::optional<std::string_view> arg) const {
+  AndromedaRuntime::requestCommand(std::string_view cmd, std::optional<std::string_view> arg) const {
     nlohmann::json request = nlohmann::json::object();
     request["cmd"] = cmd;
     if (arg.has_value()) {
@@ -88,11 +88,11 @@ namespace compositors::umbriel {
     return reply.json;
   }
 
-  bool UmbrielRuntime::requestAction(std::string_view action) const {
+  bool AndromedaRuntime::requestAction(std::string_view action) const {
     return requestCommand("msg", action).has_value();
   }
 
-  UmbrielRuntime::IpcReply UmbrielRuntime::request(std::string_view payload) const {
+  AndromedaRuntime::IpcReply AndromedaRuntime::request(std::string_view payload) const {
     ensureResolved();
     if (m_socketPath.empty() || payload.empty()) {
       return {IpcReply::Status::Unavailable, std::nullopt};
@@ -167,22 +167,22 @@ namespace compositors::umbriel {
     }
   }
 
-  void UmbrielRuntime::refresh() {
+  void AndromedaRuntime::refresh() {
     m_socketPath.clear();
     m_resolved = false;
     resolveSocketPath();
   }
 
-  UmbrielRuntime::~UmbrielRuntime() { closeSocket(false); }
+  AndromedaRuntime::~AndromedaRuntime() { closeSocket(false); }
 
-  void UmbrielRuntime::cleanup() {
+  void AndromedaRuntime::cleanup() {
     closeSocket(false);
     m_readBuffer.clear();
     m_reconnectBackoff = kReconnectInitial;
     notifyStreamReset();
   }
 
-  void UmbrielRuntime::registerEventHandler(UmbrielEventHandler* handler) {
+  void AndromedaRuntime::registerEventHandler(AndromedaEventHandler* handler) {
     if (handler == nullptr || std::ranges::contains(m_eventHandlers, handler)) {
       return;
     }
@@ -192,9 +192,9 @@ namespace compositors::umbriel {
     }
   }
 
-  void UmbrielRuntime::unregisterEventHandler(UmbrielEventHandler* handler) { std::erase(m_eventHandlers, handler); }
+  void AndromedaRuntime::unregisterEventHandler(AndromedaEventHandler* handler) { std::erase(m_eventHandlers, handler); }
 
-  void UmbrielRuntime::dispatchEvent(std::string_view event, const nlohmann::json& data) const {
+  void AndromedaRuntime::dispatchEvent(std::string_view event, const nlohmann::json& data) const {
     for (auto* handler : m_eventHandlers) {
       if (handler != nullptr) {
         handler->handleEvent(event, data);
@@ -202,7 +202,7 @@ namespace compositors::umbriel {
     }
   }
 
-  void UmbrielRuntime::notifyStreamReset() const {
+  void AndromedaRuntime::notifyStreamReset() const {
     for (auto* handler : m_eventHandlers) {
       if (handler != nullptr) {
         handler->handleStreamReset();
@@ -210,7 +210,7 @@ namespace compositors::umbriel {
     }
   }
 
-  int UmbrielRuntime::pollTimeoutMs() const noexcept {
+  int AndromedaRuntime::pollTimeoutMs() const noexcept {
     if (m_eventSocketFd >= 0 || !available()) {
       return -1;
     }
@@ -222,7 +222,7 @@ namespace compositors::umbriel {
     return static_cast<int>(std::max<std::int64_t>(0, remaining));
   }
 
-  void UmbrielRuntime::dispatchPoll(short revents) {
+  void AndromedaRuntime::dispatchPoll(short revents) {
     if (!available()) {
       return;
     }
@@ -239,7 +239,7 @@ namespace compositors::umbriel {
     }
   }
 
-  void UmbrielRuntime::connectIfNeeded() {
+  void AndromedaRuntime::connectIfNeeded() {
     ensureResolved();
     if (m_eventSocketFd >= 0 || m_socketPath.empty()) {
       return;
@@ -259,7 +259,7 @@ namespace compositors::umbriel {
     sockaddr_un addr{};
     addr.sun_family = AF_UNIX;
     if (m_socketPath.size() >= sizeof(addr.sun_path)) {
-      kLog.warn("umbriel socket path too long");
+      kLog.warn("andromeda socket path too long");
       ::close(fd);
       scheduleReconnect();
       return;
@@ -289,10 +289,10 @@ namespace compositors::umbriel {
     m_nextReconnectAt = {};
     m_reconnectBackoff = kReconnectInitial;
     m_readBuffer.clear();
-    kLog.debug("connected to umbriel event stream");
+    kLog.debug("connected to andromeda event stream");
   }
 
-  void UmbrielRuntime::closeSocket(bool scheduleReconnectFlag) {
+  void AndromedaRuntime::closeSocket(bool scheduleReconnectFlag) {
     if (m_eventSocketFd >= 0) {
       ::close(m_eventSocketFd);
       m_eventSocketFd = -1;
@@ -305,21 +305,21 @@ namespace compositors::umbriel {
     }
   }
 
-  void UmbrielRuntime::scheduleReconnect() {
+  void AndromedaRuntime::scheduleReconnect() {
     const auto now = std::chrono::steady_clock::now();
     m_nextReconnectAt = now + m_reconnectBackoff;
     const auto doubled = m_reconnectBackoff * 2;
     m_reconnectBackoff = std::min(doubled, kReconnectMax);
   }
 
-  void UmbrielRuntime::readSocket() {
+  void AndromedaRuntime::readSocket() {
     std::array<char, 4096> buffer{};
     while (true) {
       const ssize_t readBytes = ::read(m_eventSocketFd, buffer.data(), buffer.size());
       if (readBytes > 0) {
         m_readBuffer.insert(m_readBuffer.end(), buffer.begin(), buffer.begin() + readBytes);
         if (m_readBuffer.size() > kReadBufferMaxBytes) {
-          kLog.warn("umbriel event stream read buffer exceeded {} bytes; reconnecting", kReadBufferMaxBytes);
+          kLog.warn("andromeda event stream read buffer exceeded {} bytes; reconnecting", kReadBufferMaxBytes);
           closeSocket(true);
           m_readBuffer.clear();
           return;
@@ -346,7 +346,7 @@ namespace compositors::umbriel {
     parseMessages();
   }
 
-  void UmbrielRuntime::parseMessages() {
+  void AndromedaRuntime::parseMessages() {
     auto lineStart = m_readBuffer.begin();
     for (auto it = m_readBuffer.begin(); it != m_readBuffer.end(); ++it) {
       if (*it != '\n') {
@@ -371,12 +371,12 @@ namespace compositors::umbriel {
     }
   }
 
-  bool UmbrielRuntime::handleMessage(std::string_view line) {
+  bool AndromedaRuntime::handleMessage(std::string_view line) {
     nlohmann::json json;
     try {
       json = nlohmann::json::parse(line);
     } catch (const nlohmann::json::exception& e) {
-      kLog.warn("failed to parse umbriel event stream message: {}", e.what());
+      kLog.warn("failed to parse andromeda event stream message: {}", e.what());
       return true;
     }
 
@@ -385,7 +385,7 @@ namespace compositors::umbriel {
     }
 
     if (json.contains("err")) {
-      kLog.warn("umbriel event stream returned an error, reconnecting");
+      kLog.warn("andromeda event stream returned an error, reconnecting");
       closeSocket(true);
       return false;
     }
@@ -399,16 +399,16 @@ namespace compositors::umbriel {
     return true;
   }
 
-  void UmbrielRuntime::ensureResolved() const {
+  void AndromedaRuntime::ensureResolved() const {
     if (!m_resolved) {
       resolveSocketPath();
     }
   }
 
-  void UmbrielRuntime::resolveSocketPath() const {
+  void AndromedaRuntime::resolveSocketPath() const {
     m_resolved = true;
 
-    if (const char* socketPath = std::getenv("UMBRIEL_SOCKET"); socketPath != nullptr && socketPath[0] != '\0') {
+    if (const char* socketPath = std::getenv("ANDROMEDA_SOCKET"); socketPath != nullptr && socketPath[0] != '\0') {
       m_socketPath = socketPath;
       return;
     }
@@ -419,10 +419,10 @@ namespace compositors::umbriel {
       return;
     }
 
-    const std::string fallback = std::string(runtimeDir) + "/umbriel-" + waylandDisplay + ".sock";
+    const std::string fallback = std::string(runtimeDir) + "/andromeda-" + waylandDisplay + ".sock";
     if (isSocketPath(fallback)) {
       m_socketPath = fallback;
     }
   }
 
-} // namespace compositors::umbriel
+} // namespace compositors::andromeda

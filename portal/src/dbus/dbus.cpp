@@ -5,7 +5,7 @@
 #include "dbus/screenshot.h"
 #include "loop/loop.h"
 #include "pipewire/pipewire.h"
-#include "umbriel/ipc.h"
+#include "andromeda/ipc.h"
 #include "wayland/wayland.h"
 
 #include <csignal>
@@ -19,7 +19,7 @@ namespace xdpu {
 
   namespace {
 
-    constexpr char kBusName[] = "org.freedesktop.impl.portal.desktop.umbriel";
+    constexpr char kBusName[] = "org.freedesktop.impl.portal.desktop.andromeda";
     constexpr char kDesktopPath[] = "/org/freedesktop/portal/desktop";
 
     uint32_t pollEventsToEpoll(short events) {

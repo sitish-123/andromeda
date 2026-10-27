@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -31,4 +31,4 @@ namespace umbriel {
         || (above(b.from, a.from) && above(b.to, a.to));
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -27,7 +27,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -2038,4 +2038,4 @@ namespace umbriel {
     return std::ranges::all_of(advertised.begin() + 1, advertised.end(), [](bool present) { return present; });
   }
 
-} // namespace umbriel
+} // namespace andromeda

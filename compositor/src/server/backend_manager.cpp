@@ -10,7 +10,7 @@
 #include <string_view>
 #include <utility>
 
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
@@ -27,13 +27,13 @@
 #include <xf86drmMode.h>
 #endif
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
     constexpr Logger kLog("drm");
 
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
     constexpr auto kDeviceWaitTimeout = std::chrono::seconds(10);
     // Linux reserves this character-device major for DRM, including removed nodes.
     constexpr unsigned int kDrmDeviceMajor = 226;
@@ -207,14 +207,14 @@ namespace umbriel {
     Impl(wl_display* display, Config::Drm config) : m_display(display), m_config(std::move(config)) {}
 
     ~Impl() {
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       m_destroying = true;
       disconnectSessionListeners();
 #endif
       if (m_backend != nullptr) {
         wlr_backend_destroy(m_backend);
       }
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       if (m_policyActive && m_session != nullptr) {
         wlr_session_destroy(m_session);
       }
@@ -246,7 +246,7 @@ namespace umbriel {
         return m_backend != nullptr;
       }
 
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       if (!environment.exclusionsSupported) {
         kLog.error(
             "DRM exclusion supports one drm backend and at most one libinput backend; mixed native backends cannot be "
@@ -294,7 +294,7 @@ namespace umbriel {
     [[nodiscard]] wlr_session* session() const { return m_session; }
 
     [[nodiscard]] wlr_renderer* createRenderer() {
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       if (m_policyActive) {
         const bool forceSoftware = environmentFlagEnabled("WLR_RENDERER_FORCE_SOFTWARE");
         if (forceSoftware) {
@@ -310,7 +310,7 @@ namespace umbriel {
     }
 
     [[nodiscard]] bool verifyOpenDevices([[maybe_unused]] std::string_view context) {
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       return !m_policyActive || verifyNoExcludedDeviceIsOpen(context);
 #else
       return true;
@@ -318,7 +318,7 @@ namespace umbriel {
     }
 
     void markStarted() {
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
       m_started = true;
 #endif
     }
@@ -330,7 +330,7 @@ namespace umbriel {
     wlr_backend* m_backend = nullptr;
     wlr_session* m_session = nullptr;
 
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
     struct DrmBackendRecord {
       Impl* owner = nullptr;
       wlr_backend* backend = nullptr;
@@ -841,7 +841,7 @@ namespace umbriel {
       self->disconnectSessionListeners();
       self->m_session = nullptr;
       if (!self->m_destroying) {
-        kLog.error("native session was lost; terminating Umbriel");
+        kLog.error("native session was lost; terminating Andromeda");
         wl_display_terminate(self->m_display);
       }
     }
@@ -861,7 +861,7 @@ namespace umbriel {
         self->m_drmBackends.erase(position);
       }
       if (primary && !self->m_destroying) {
-        kLog.error("primary DRM backend was lost; terminating Umbriel");
+        kLog.error("primary DRM backend was lost; terminating Andromeda");
         wl_display_terminate(self->m_display);
       } else if (!primary && !self->m_destroying) {
         kLog.info("secondary DRM backend was removed");
@@ -901,4 +901,4 @@ namespace umbriel {
   bool BackendManager::verifyOpenDevices(std::string_view context) { return m_impl->verifyOpenDevices(context); }
   void BackendManager::markStarted() { m_impl->markStarted(); }
 
-} // namespace umbriel
+} // namespace andromeda

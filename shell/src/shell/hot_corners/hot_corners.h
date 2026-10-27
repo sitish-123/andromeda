@@ -52,7 +52,7 @@ private:
   void armCorner(Corner& corner, int position, wl_output* output);
   void disarmCorner(Corner& corner);
   void triggerAction(const std::string& action, const std::string& command, wl_output* output);
-  // On Umbriel the compositor detects corners, so these surfaces stay down there.
+  // On Andromeda the compositor detects corners, so these surfaces stay down there.
   [[nodiscard]] bool active() const;
   // Moves corners configured here to the compositor's hot corners once, when the compositor has none of its own.
   void migrateToCompositor();

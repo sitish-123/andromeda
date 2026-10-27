@@ -2,7 +2,7 @@
 
 #include "check.h"
 
-using umbriel::matchingLayoutGroup;
+using andromeda::matchingLayoutGroup;
 
 namespace {
 
@@ -42,7 +42,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(matchesLayoutByNameAcrossDifferentOrders) {
+ANDROMEDA_TEST(matchesLayoutByNameAcrossDifferentOrders) {
   Keymap source("us,de");
   Keymap target("de,us");
   CHECK(source.get() != nullptr);
@@ -55,7 +55,7 @@ UMBRIEL_TEST(matchesLayoutByNameAcrossDifferentOrders) {
   }
 }
 
-UMBRIEL_TEST(leavesADeviceWithoutTheNamedLayoutUnchanged) {
+ANDROMEDA_TEST(leavesADeviceWithoutTheNamedLayoutUnchanged) {
   Keymap source("us,de");
   Keymap target("us,fr");
   CHECK(source.get() != nullptr);
@@ -63,7 +63,7 @@ UMBRIEL_TEST(leavesADeviceWithoutTheNamedLayoutUnchanged) {
   CHECK(!matchingLayoutGroup(target.get(), source.get(), 1).has_value());
 }
 
-UMBRIEL_TEST(rejectsAnInvalidSourceGroup) {
+ANDROMEDA_TEST(rejectsAnInvalidSourceGroup) {
   Keymap source("us,de");
   Keymap target("us,de");
   CHECK(source.get() != nullptr);

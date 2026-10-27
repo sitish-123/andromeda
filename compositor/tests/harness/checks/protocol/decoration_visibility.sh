@@ -3,12 +3,12 @@
 # staying stable for clients that remain connected across a config reload.
 set -euo pipefail
 
-readonly GLOBAL_CLIENT="${UMBRIEL_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
+readonly GLOBAL_CLIENT="${ANDROMEDA_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
 readonly XDG_DECORATION=zxdg_decoration_manager_v1
 readonly KDE_DECORATION=org_kde_kwin_server_decoration_manager
-readonly BIND_LOG="$UMBRIEL_RUNTIME_DIR/decoration-bind-client.log"
-readonly RECHECK_LOG="$UMBRIEL_RUNTIME_DIR/decoration-recheck-client.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/decoration-control"
+readonly BIND_LOG="$ANDROMEDA_RUNTIME_DIR/decoration-bind-client.log"
+readonly RECHECK_LOG="$ANDROMEDA_RUNTIME_DIR/decoration-recheck-client.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/decoration-control"
 
 if [[ ! -x $GLOBAL_CLIENT ]]; then
   echo "global client not built at $GLOBAL_CLIENT"
@@ -43,8 +43,8 @@ exec {control_fd}<>"$CONTROL_FIFO"
 bind_pid=$!
 wait_for_ready "$bind_pid" "$BIND_LOG" "binding global client"
 
-printf '\n[appearance]\nprefer_no_csd = false\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[appearance]\nprefer_no_csd = false\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 query_decoration_globals absent
 
 printf '\n' >&"$control_fd"
@@ -57,8 +57,8 @@ fi
 recheck_pid=$!
 wait_for_ready "$recheck_pid" "$RECHECK_LOG" "rechecking global client"
 
-sed -i 's/prefer_no_csd = false/prefer_no_csd = true/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/prefer_no_csd = false/prefer_no_csd = true/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 query_decoration_globals present
 
 printf '\n' >&"$control_fd"

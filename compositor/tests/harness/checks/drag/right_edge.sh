@@ -2,7 +2,7 @@
 # The last scrolling column's append hint must remain outside the card when the
 # pointer reaches the centered preview boundary.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly BTN_LEFT=272
 readonly OUTPUT_W=1280
@@ -17,7 +17,7 @@ spawn_client() {
     --title="right-edge-$1" sh -c 'sleep 120' > /dev/null 2>&1 &
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 insert_hint = "#FF0000FF"
@@ -35,18 +35,18 @@ default_extent_fraction = 0.5
 [overview]
 zoom = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 for id in $(seq 1 6); do
   spawn_client "$id"
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $id ]] && break
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $id ]] && break
     sleep 0.25
   done
 done
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 source_title=right-edge-5
 focused_title=$(jq -r '.[] | select(.focused) | .title' <<< "$windows")
 if [[ $focused_title != right-edge-6 ]]; then
@@ -58,16 +58,16 @@ start_x=$(jq -r --argjson origin "$OVERVIEW_X" --argjson zoom "$OVERVIEW_ZOOM" \
 start_y=$(jq -r --argjson origin "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
   '.[] | select(.title == "right-edge-5") | ($origin + ((.y + .h / 2) * $zoom) | round)' <<< "$windows")
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 # Animation time only moves by clock-advance while the drag is sampled.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 inside_x=$((OVERVIEW_RIGHT - 29))
 pointer_hold "$OUTPUT_W" "$OUTPUT_H" move "$start_x" "$start_y" press "$BTN_LEFT" move "$OVERVIEW_RIGHT" 360 \
   -- move "$inside_x" 360 mark inside hold release "$BTN_LEFT"
-"$UMBRIEL" clock-advance 500 > /dev/null
+"$ANDROMEDA" clock-advance 500 > /dev/null
 
-outside_screenshot="$UMBRIEL_RUNTIME_DIR/drag-right-outside-hint.png"
+outside_screenshot="$ANDROMEDA_RUNTIME_DIR/drag-right-outside-hint.png"
 grim "$outside_screenshot"
 outside_red=$(magick "$outside_screenshot" -crop 100x240+980+240 \
   -format '%[fx:round(255*mean.r)]' info:)
@@ -79,8 +79,8 @@ if (( outside_red < outside_green + 35 )); then
 fi
 
 pointer_step inside
-"$UMBRIEL" clock-advance 500 > /dev/null
-inside_screenshot="$UMBRIEL_RUNTIME_DIR/drag-right-inside-hint.png"
+"$ANDROMEDA" clock-advance 500 > /dev/null
+inside_screenshot="$ANDROMEDA_RUNTIME_DIR/drag-right-inside-hint.png"
 grim "$inside_screenshot"
 inside_red=$(magick "$inside_screenshot" -crop 100x50+700+195 \
   -format '%[fx:round(255*mean.r)]' info:)
@@ -92,12 +92,12 @@ if (( inside_red < inside_green + 35 )); then
 fi
 
 pointer_release
-"$UMBRIEL" clock-resume
-"$UMBRIEL" settle
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-resume
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r source_x source_y source_w < <(
   jq -r --arg title "$source_title" '.[] | select(.title == $title) | "\(.x) \(.y) \(.w)"' <<< "$windows"
 )

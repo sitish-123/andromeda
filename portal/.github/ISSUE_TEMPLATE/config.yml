@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Umbriel compositor issues
-    url: https://github.com/noctalia-dev/umbriel/issues
+  - name: Andromeda compositor issues
+    url: https://github.com/noctalia-dev/andromeda/issues
     about: Report compositor behavior, window management, input, or rendering issues here.
   - name: Noctalia Discord
     url: https://discord.noctalia.dev

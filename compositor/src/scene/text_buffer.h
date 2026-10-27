@@ -5,7 +5,7 @@
 
 struct wlr_buffer;
 
-namespace umbriel {
+namespace andromeda {
 
   struct TextBufferParams {
     std::string markup; // Pango markup
@@ -35,4 +35,4 @@ namespace umbriel {
   // Returns a buffer the caller owns (drop after wlr_scene_buffer_create).
   [[nodiscard]] TextBufferResult renderTextBuffer(const TextBufferParams& params);
 
-} // namespace umbriel
+} // namespace andromeda

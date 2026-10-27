@@ -6,9 +6,9 @@
 #include <span>
 #include <vector>
 
-using umbriel::interpolateBox;
-using umbriel::keepsSeparation;
-using umbriel::MotionBox;
+using andromeda::interpolateBox;
+using andromeda::keepsSeparation;
+using andromeda::MotionBox;
 
 namespace {
 
@@ -60,14 +60,14 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(interpolateBoxEndpointsAreExact) {
+ANDROMEDA_TEST(interpolateBoxEndpointsAreExact) {
   const wlr_box from{3, 7, 100, 50};
   const wlr_box to{-40, 12, 5, 0};
   CHECK(sameBox(interpolateBox(from, to, 0.0), from));
   CHECK(sameBox(interpolateBox(from, to, 1.0), to));
 }
 
-UMBRIEL_TEST(interpolateBoxEdgesMoveMonotonically) {
+ANDROMEDA_TEST(interpolateBoxEdgesMoveMonotonically) {
   const wlr_box from{0, 0, 7, 7};
   const wlr_box to{100, 0, 13, 7};
   int lastLeft = from.x;
@@ -81,7 +81,7 @@ UMBRIEL_TEST(interpolateBoxEdgesMoveMonotonically) {
   }
 }
 
-UMBRIEL_TEST(establishedColumnsStaySeparateDuringInsertionReflow) {
+ANDROMEDA_TEST(establishedColumnsStaySeparateDuringInsertionReflow) {
   const std::vector<MotionBox> peers{
       {{0, 0, 600, 800}, kColumnA},
       {{600 + kGap, 0, 600, 800}, kColumnB},
@@ -90,7 +90,7 @@ UMBRIEL_TEST(establishedColumnsStaySeparateDuringInsertionReflow) {
   checkAllKeepSeparation(peers);
 }
 
-UMBRIEL_TEST(establishedColumnsStaySeparateDuringClosingReflow) {
+ANDROMEDA_TEST(establishedColumnsStaySeparateDuringClosingReflow) {
   const std::vector<MotionBox> peers{
       {kColumnA, {0, 0, 600, 800}},
       {kColumnC, {600 + kGap, 0, 600, 800}},
@@ -99,7 +99,7 @@ UMBRIEL_TEST(establishedColumnsStaySeparateDuringClosingReflow) {
   checkAllKeepSeparation(peers);
 }
 
-UMBRIEL_TEST(keepsSeparationFlagsRearrangements) {
+ANDROMEDA_TEST(keepsSeparationFlagsRearrangements) {
   const int rowHeight = (800 - kGap) / 2;
   // A above B becomes A left of B (expel), C shifts right to make room.
   const MotionBox a{{0, 0, 400, rowHeight}, kColumnA};

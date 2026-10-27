@@ -8,7 +8,7 @@ struct wlr_output;
 struct wlr_output_event_present;
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
   class Server;
 
   // Per-output readout in the top-right corner of the usable area (below a bar): the mode's refresh rate, frames actually presented in the last
@@ -44,4 +44,4 @@ namespace umbriel {
     std::unordered_map<wlr_output*, Stats> m_stats;
   };
 
-} // namespace umbriel
+} // namespace andromeda

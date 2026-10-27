@@ -9,7 +9,7 @@ hidden quickly. Its windows float and appear together.
 
 ## Default scratchpad
 
-Without `[[scratchpad]]` entries, Umbriel creates one implicit scratchpad named
+Without `[[scratchpad]]` entries, Andromeda creates one implicit scratchpad named
 `default`. The packaged config binds it without a name suffix:
 
 ```toml
@@ -92,7 +92,7 @@ default_scratchpad = "monitor"
 ```
 
 A matching `default_scratchpad` window rule assigns the window to the
-scratchpad. When it arrives within 10 seconds of the launch, Umbriel shows the
+scratchpad. When it arrives within 10 seconds of the launch, Andromeda shows the
 scratchpad on the invoking output and gives it focus.
 
 Toggling while the launch is still pending hides it instead: the window still
@@ -143,7 +143,7 @@ Backdrop dim and blur affect only the output showing the scratchpad.
 ## Restoring windows
 
 Each member remembers its source output, workspace, and tiled or floating
-state. If that output or workspace no longer exists, Umbriel restores the
+state. If that output or workspace no longer exists, Andromeda restores the
 window to the scratchpad's current output and active workspace.
 
 Fullscreen, pinned, and maximize-to-edges state are cleared when a window enters

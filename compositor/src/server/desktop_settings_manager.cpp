@@ -15,7 +15,7 @@
 
 #include <xkbcommon/xkbcommon.h>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -257,4 +257,4 @@ namespace umbriel {
       .cancel_capture = DesktopSettingsManager::handleCancelCapture,
   };
 
-} // namespace umbriel
+} // namespace andromeda

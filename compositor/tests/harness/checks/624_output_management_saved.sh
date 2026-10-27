@@ -5,8 +5,8 @@
 # containment.
 set -euo pipefail
 
-readonly OUTPUT_MANAGEMENT=${UMBRIEL_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/displays.toml
+readonly OUTPUT_MANAGEMENT=${ANDROMEDA_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/displays.toml
 
 "$OUTPUT_MANAGEMENT" apply enable HEADLESS-2 0 720 > /dev/null
 for _ in $(seq 40); do
@@ -35,7 +35,7 @@ cleanup() {
 trap cleanup EXIT
 
 CONFIG=$RUNTIME_DIR/config.toml
-SOCKET=$RUNTIME_DIR/umbriel-wayland-0.sock
+SOCKET=$RUNTIME_DIR/andromeda-wayland-0.sock
 cp "$SAVED" "$RUNTIME_DIR/displays.toml"
 cat > "$CONFIG" << 'EOF'
 [include.optional]
@@ -52,7 +52,7 @@ env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
   WLR_BACKENDS=headless \
   WLR_LIBINPUT_NO_DEVICES=1 \
   WLR_HEADLESS_OUTPUTS=2 \
-  "$UMBRIEL" -c "$CONFIG" > "$RUNTIME_DIR/compositor.log" 2>&1 &
+  "$ANDROMEDA" -c "$CONFIG" > "$RUNTIME_DIR/compositor.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 40); do
   [[ -S $SOCKET ]] && break
@@ -67,7 +67,7 @@ fi
 position=
 for _ in $(seq 40); do
   position=$(
-    UMBRIEL_SOCKET=$SOCKET XDG_RUNTIME_DIR=$RUNTIME_DIR WAYLAND_DISPLAY=wayland-0 "$UMBRIEL" outputs --json \
+    ANDROMEDA_SOCKET=$SOCKET XDG_RUNTIME_DIR=$RUNTIME_DIR WAYLAND_DISPLAY=wayland-0 "$ANDROMEDA" outputs --json \
       | jq -r '.[] | select(.name == "HEADLESS-2") | "\(.position.x),\(.position.y)"'
   )
   [[ $position == "0,720" ]] && break

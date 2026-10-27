@@ -81,7 +81,7 @@ namespace {
 
     const size_t stride = static_cast<size_t>(bufferWidth) * 4;
     const size_t size = stride * static_cast<size_t>(bufferHeight);
-    const int fd = memfd_create("umbriel-fractional-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-fractional-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(size)) < 0) {
       if (fd >= 0) {
         close(fd);

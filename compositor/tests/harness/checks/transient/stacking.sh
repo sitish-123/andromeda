@@ -2,12 +2,12 @@
 # A parented XDG toplevel stays above a floating, pinned, or fullscreen parent.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/transient-stacking.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/transient-stacking.log"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 field_of() {
@@ -38,13 +38,13 @@ wait_for_field() {
 wait_for_fullscreen() {
   local id=$1 want=$2
   for _ in $(seq 60); do
-    if [[ $("$UMBRIEL" tearing --json \
+    if [[ $("$ANDROMEDA" tearing --json \
       | jq -r --arg id "$id" '.surfaces[] | select(.id == $id) | .fullscreen') == "$want" ]]; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected $id fullscreen=$want, got: $("$UMBRIEL" tearing --json)"
+  echo "expected $id fullscreen=$want, got: $("$ANDROMEDA" tearing --json)"
   return 1
 }
 
@@ -57,7 +57,7 @@ focus_at() {
   fi
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -75,7 +75,7 @@ match.title = "^transient-child$"
 default_floating = true
 default_position = { x = 500, y = 110, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 TRANSIENT_SUITE=1 "$CLIENT" transient-child 600 500 > "$CLIENT_LOG" 2>&1 &
 wait_for_window_count 3
@@ -99,13 +99,13 @@ wait_for_field "$child_id" focused false
 focus_at 600 360 "$child_id" "focusing the floating parent buried its transient"
 
 focus_at 200 360 "$parent_id" "could not refocus the parent before pinning"
-"$UMBRIEL" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
 wait_for_field "$child_id" focused false
 focus_at 600 360 "$child_id" "the pinned parent covered its transient"
 
 focus_at 200 360 "$parent_id" "could not refocus the pinned parent"
-"$UMBRIEL" msg window-toggle-pinned > /dev/null
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_fullscreen "$parent_id" true
 wait_for_fullscreen "$child_id" false
 wait_for_field "$child_id" focused false

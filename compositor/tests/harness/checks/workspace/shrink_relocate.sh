@@ -4,9 +4,9 @@
 # window. Every window must report the one surviving workspace id; the relocation count alone cannot show a skip.
 set -euo pipefail
 
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
-window_count() { "$UMBRIEL" windows --json | jq 'length'; }
+window_count() { "$ANDROMEDA" windows --json | jq 'length'; }
 
 wait_for_count() {
   for _ in $(seq 60); do
@@ -19,15 +19,15 @@ wait_for_count() {
 
 # Distinct workspace ids the mapped windows claim, as ids rather than names: a window stranded on a destroyed
 # workspace keeps that workspace's id, and ids are never reissued, so the stale one cannot alias a survivor.
-window_workspace_ids() { "$UMBRIEL" windows --json | jq -r '[.[].workspace] | unique | join(" ")'; }
+window_workspace_ids() { "$ANDROMEDA" windows --json | jq -r '[.[].workspace] | unique | join(" ")'; }
 
 workspace_id_named() { "$WORKSPACE" --all | awk -F'\t' -v name="$1" '$2 == name { print $1 }'; }
 
-printf '\n[output.HEADLESS-1]\nworkspaces = ["one", "two", "three"]\n' >> "$UMBRIEL_CONFIG"
-cp "$UMBRIEL_CONFIG" "$UMBRIEL_CONFIG.three"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[output.HEADLESS-1]\nworkspaces = ["one", "two", "three"]\n' >> "$ANDROMEDA_CONFIG"
+cp "$ANDROMEDA_CONFIG" "$ANDROMEDA_CONFIG.three"
+"$ANDROMEDA" msg config-reload > /dev/null
 
-"$UMBRIEL" msg workspace-switch:three > /dev/null
+"$ANDROMEDA" msg workspace-switch:three > /dev/null
 for index in a b c; do
   foot --title="shrink-$index" sh -c 'sleep 120' > /dev/null 2>&1 &
 done
@@ -39,9 +39,9 @@ if [[ $(window_workspace_ids) != "$doomed" ]]; then
   exit 1
 fi
 
-mark=$(wc -l < "$UMBRIEL_LOG")
-sed 's/^workspaces = .*/workspaces = ["one", "two"]/' "$UMBRIEL_CONFIG.three" > "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+mark=$(wc -l < "$ANDROMEDA_LOG")
+sed 's/^workspaces = .*/workspaces = ["one", "two"]/' "$ANDROMEDA_CONFIG.three" > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 survivor=$(workspace_id_named two)
 if [[ -z $survivor ]]; then
@@ -50,7 +50,7 @@ if [[ -z $survivor ]]; then
 fi
 if [[ $(window_workspace_ids) != "$survivor" ]]; then
   echo "a window was left behind on the removed workspace: ids=$(window_workspace_ids), removed=$doomed, want $survivor"
-  tail -n +"$mark" "$UMBRIEL_LOG" | sed 's/^/    /'
+  tail -n +"$mark" "$ANDROMEDA_LOG" | sed 's/^/    /'
   exit 1
 fi
 if [[ $(window_count) -ne 3 ]]; then

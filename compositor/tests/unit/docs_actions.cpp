@@ -1,4 +1,4 @@
-// docs/user/actions.md is the action reference. Its tables are the same strings `umbriel msg --help` prints, so a new
+// docs/user/actions.md is the action reference. Its tables are the same strings `andromeda msg --help` prints, so a new
 // action, a renamed one, or a reworded summary that never reaches the doc is a failure here rather than a silently
 // stale page. The doc is also required to group actions exactly as the cheatsheet and the CLI do: one taxonomy, three
 // renderings.
@@ -14,15 +14,15 @@
 #include <string_view>
 #include <vector>
 
-#ifndef UMBRIEL_DOCS_ACTIONS_MD
-#error "UMBRIEL_DOCS_ACTIONS_MD must point at docs/user/actions.md"
+#ifndef ANDROMEDA_DOCS_ACTIONS_MD
+#error "ANDROMEDA_DOCS_ACTIONS_MD must point at docs/user/actions.md"
 #endif
 
-using umbriel::ActionSpec;
-using umbriel::fixedGroupOrder;
-using umbriel::Group;
-using umbriel::groupForAction;
-using umbriel::groupTitle;
+using andromeda::ActionSpec;
+using andromeda::fixedGroupOrder;
+using andromeda::Group;
+using andromeda::groupForAction;
+using andromeda::groupTitle;
 
 namespace {
 
@@ -112,7 +112,7 @@ namespace {
   const DocTables& docTables() {
     static const DocTables tables = [] {
       DocTables parsed;
-      std::ifstream file(UMBRIEL_DOCS_ACTIONS_MD);
+      std::ifstream file(ANDROMEDA_DOCS_ACTIONS_MD);
       if (!file) {
         return parsed;
       }
@@ -159,17 +159,17 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(actionsDocIsReadable) {
+ANDROMEDA_TEST(actionsDocIsReadable) {
   CHECK(docTables().read);
   CHECK(!docTables().rows.empty());
 }
 
-UMBRIEL_TEST(everyActionSpecHasADocRowWithTheSameTextAndGroup) {
+ANDROMEDA_TEST(everyActionSpecHasADocRowWithTheSameTextAndGroup) {
   const DocTables& doc = docTables();
-  for (const ActionSpec& spec : umbriel::actionSpecs()) {
+  for (const ActionSpec& spec : andromeda::actionSpecs()) {
     const auto row = doc.rows.find(std::string(spec.name));
     if (row == doc.rows.end()) {
-      ::umbriel::test::reportFailure(__FILE__, __LINE__, std::format("{} is missing from actions.md", spec.name));
+      ::andromeda::test::reportFailure(__FILE__, __LINE__, std::format("{} is missing from actions.md", spec.name));
       continue;
     }
     CHECK_EQ(row->second.param, std::string(spec.param));
@@ -178,22 +178,22 @@ UMBRIEL_TEST(everyActionSpecHasADocRowWithTheSameTextAndGroup) {
   }
 }
 
-UMBRIEL_TEST(actionsDocListsEveryActionOnceAndNothingElse) {
+ANDROMEDA_TEST(actionsDocListsEveryActionOnceAndNothingElse) {
   for (const auto& name : docTables().duplicates) {
-    ::umbriel::test::reportFailure(__FILE__, __LINE__, std::format("actions.md documents `{}` more than once", name));
+    ::andromeda::test::reportFailure(__FILE__, __LINE__, std::format("actions.md documents `{}` more than once", name));
   }
   for (const auto& [name, row] : docTables().rows) {
     const bool known =
-        std::ranges::any_of(umbriel::actionSpecs(), [&name](const ActionSpec& spec) { return spec.name == name; });
+        std::ranges::any_of(andromeda::actionSpecs(), [&name](const ActionSpec& spec) { return spec.name == name; });
     if (!known) {
-      ::umbriel::test::reportFailure(
+      ::andromeda::test::reportFailure(
           __FILE__, __LINE__, std::format("actions.md documents `{}`, which is not an action", name)
       );
     }
   }
 }
 
-UMBRIEL_TEST(actionsDocSectionsFollowTheCheatsheetOrder) {
+ANDROMEDA_TEST(actionsDocSectionsFollowTheCheatsheetOrder) {
   std::vector<std::string> expected;
   for (const Group group : fixedGroupOrder()) {
     expected.emplace_back(groupTitle(group));

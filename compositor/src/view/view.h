@@ -37,7 +37,7 @@ struct wlr_surface;
 struct wlr_xdg_popup;
 struct wlr_xdg_toplevel;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
   class ScratchpadManager;
@@ -787,4 +787,4 @@ namespace umbriel {
     wl_listener m_captureSourceDestroy{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

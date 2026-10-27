@@ -1001,11 +1001,11 @@ _noctalia_sources = files(
   'src/compositors/triad/triad_output_backend.cpp',
   'src/compositors/triad/triad_keyboard_backend.cpp',
   'src/compositors/triad/triad_workspace_backend.cpp',
-  'src/compositors/umbriel/umbriel_runtime.cpp',
-  'src/compositors/umbriel/umbriel_event_handler.cpp',
-  'src/compositors/umbriel/umbriel_workspace_backend.cpp',
-  'src/compositors/umbriel/umbriel_keyboard_backend.cpp',
-  'src/compositors/umbriel/umbriel_output_backend.cpp',
+  'src/compositors/andromeda/andromeda_runtime.cpp',
+  'src/compositors/andromeda/andromeda_event_handler.cpp',
+  'src/compositors/andromeda/andromeda_workspace_backend.cpp',
+  'src/compositors/andromeda/andromeda_keyboard_backend.cpp',
+  'src/compositors/andromeda/andromeda_output_backend.cpp',
   'src/compositors/sway/sway_runtime.cpp',
   'src/compositors/sway/sway_keyboard_backend.cpp',
   'src/compositors/sway/sway_output_backend.cpp',
@@ -1390,9 +1390,9 @@ if build_tests
     args: ['tests/template_undo_signal_test.sh', meson.current_source_dir() / 'assets/templates'],
     workdir: meson.current_source_dir(),
   )
-  test('umbriel_apply_include_comment',
+  test('andromeda_apply_include_comment',
     bash_program,
-    args: ['tests/umbriel_apply_include_comment_test.sh', meson.current_source_dir() / 'assets/templates/umbriel/apply.sh'],
+    args: ['tests/andromeda_apply_include_comment_test.sh', meson.current_source_dir() / 'assets/templates/andromeda/apply.sh'],
     workdir: meson.current_source_dir(),
   )
 endif # build_tests

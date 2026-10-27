@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <wlr/types/wlr_compositor.h>
-#include "umbrielfx/types/wlr_scene.h"
+#include "andromedafx/types/wlr_scene.h"
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/util/addon.h>
 #include "types/wlr_scene.h"

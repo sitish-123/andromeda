@@ -6,13 +6,13 @@
 # to hand the window to a layout that scrolls perpendicular to the one it left.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly SOURCE_SHOT="$UMBRIEL_RUNTIME_DIR/overview-output-source.png"
-readonly TARGET_SHOT="$UMBRIEL_RUNTIME_DIR/overview-output-target.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly SOURCE_SHOT="$ANDROMEDA_RUNTIME_DIR/overview-output-source.png"
+readonly TARGET_SHOT="$ANDROMEDA_RUNTIME_DIR/overview-output-target.png"
 
 output_field() {
-  "$UMBRIEL" outputs |
+  "$ANDROMEDA" outputs |
     awk -v name="$1" -v field="$2" '$1 == name {found = 1; next} found && /Position:/ {split($2, p, ","); print p[field]; exit}'
 }
 
@@ -48,7 +48,7 @@ assert_no_card() {
   fi
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#000000FF"
@@ -89,7 +89,7 @@ default_output = "HEADLESS-1"
 match.app_id = "^overview-output-lane$"
 default_output = "HEADLESS-2"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 source=HEADLESS-1
 target=HEADLESS-2
@@ -101,38 +101,38 @@ if [[ -z $source_x || -z $target_x || $source_x == "$target_x" ]]; then
 fi
 
 "$POINTER" 2560 720 move "$((source_x + 640))" 360
-APP_ID=overview-output-move "$CLIENT" overview-output-move 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-output-client.log" 2>&1 &
+APP_ID=overview-output-move "$CLIENT" overview-output-move 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-output-client.log" 2>&1 &
 
 workspace=
 for _ in $(seq 60); do
-  workspace=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "overview-output-move") | .workspace')
+  workspace=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "overview-output-move") | .workspace')
   [[ $workspace == "$source":* ]] && break
   sleep 0.1
 done
 if [[ $workspace != "$source":* ]]; then
-  echo "client did not map on $source: $("$UMBRIEL" windows --json)"
+  echo "client did not map on $source: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-APP_ID=overview-output-lane "$CLIENT" overview-output-lane 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-output-lane.log" 2>&1 &
+APP_ID=overview-output-lane "$CLIENT" overview-output-lane 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-output-lane.log" 2>&1 &
 for _ in $(seq 60); do
-  workspace=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "overview-output-lane") | .workspace')
+  workspace=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "overview-output-lane") | .workspace')
   [[ $workspace == "$target":* ]] && break
   sleep 0.1
 done
 if [[ $workspace != "$target":* ]]; then
-  echo "lane client did not map on $target: $("$UMBRIEL" windows --json)"
+  echo "lane client did not map on $target: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
-moved_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "overview-output-move") | .id')
-"$UMBRIEL" msg "window-focus:$moved_id" > /dev/null
+moved_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "overview-output-move") | .id')
+"$ANDROMEDA" msg "window-focus:$moved_id" > /dev/null
 for _ in $(seq 60); do
-  [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.active) | .title') == overview-output-move ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq -r '.[] | select(.active) | .title') == overview-output-move ]] && break
   sleep 0.05
 done
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 grim -o "$source" "$SOURCE_SHOT"
 assert_blue_card source "$SOURCE_SHOT" 640 360
 
@@ -141,16 +141,16 @@ if (( target_x > source_x )); then
 else
   action=window-move-to-output-left
 fi
-"$UMBRIEL" msg "$action" > /dev/null
+"$ANDROMEDA" msg "$action" > /dev/null
 
 for _ in $(seq 60); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "overview-output-move")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "overview-output-move")')
   workspace=$(jq -r '.workspace' <<< "$window")
   [[ $workspace == "$target":* ]] && break
   sleep 0.1
 done
 if [[ $workspace != "$target":* ]]; then
-  echo "window state did not move to $target: $("$UMBRIEL" windows --json)"
+  echo "window state did not move to $target: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
@@ -164,7 +164,7 @@ fi
 
 # Horizontally arranged workspaces scroll vertically, so the destination's two lanes stack along Y at a common X.
 # On the source output's axis the same pair would sit side by side.
-read -r lane_x lane_y moved_x moved_y <<< "$("$UMBRIEL" windows --json | jq -r \
+read -r lane_x lane_y moved_x moved_y <<< "$("$ANDROMEDA" windows --json | jq -r \
   '(.[] | select(.title == "overview-output-lane")) as $lane | (.[] | select(.title == "overview-output-move")) as $moved
    | "\($lane.x) \($lane.y) \($moved.x) \($moved.y)"')"
 lane_dy=$((moved_y - lane_y))
@@ -174,7 +174,7 @@ if (( lane_x != moved_x || lane_dy < 200 )); then
   exit 1
 fi
 
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 # 1280x720 at zoom 0.5: the active preview spans 320,180 to 960,540 in output-local coordinates. Sample inside the
 # moved card, offset from its origin so the workspace badge in the preview corner cannot answer for it.
 card_x=$((320 + (moved_x - target_x) / 2 + 200))
@@ -186,8 +186,8 @@ assert_no_card source "$SOURCE_SHOT" 640 360
 
 # Selecting the destination's second workspace slides its previews sideways, because that output arranges workspaces
 # along X. The card of the workspace left behind must appear left of the active preview, not above or below it.
-"$UMBRIEL" msg "workspace-switch:2/$target" > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg "workspace-switch:2/$target" > /dev/null
+"$ANDROMEDA" settle
 grim -o "$target" "$TARGET_SHOT"
 assert_no_card "destination active preview" "$TARGET_SHOT" "$card_x" "$card_y"
 # Preview step: a 640 px preview plus a 0.1 * 1280 * 0.5 gap, so the previous preview slides 704 px to the left and

@@ -6,7 +6,7 @@ extern "C" {
 
 #include <utility>
 
-namespace umbriel {
+namespace andromeda {
   bool modifierTapPressMatches(uint32_t modifiers, uint32_t pressedModifier, uint32_t expected) {
     const uint32_t effective = (modifiers | pressedModifier) & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
     return effective == expected && pressedModifier == expected;
@@ -39,4 +39,4 @@ namespace umbriel {
     m_keycode = 0;
   }
 
-} // namespace umbriel
+} // namespace andromeda

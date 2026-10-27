@@ -22,15 +22,15 @@ with_noctalia '
     fail "$what"
   }
   say() { printf "%s\n" "$*" >&3; }
-  prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+  prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
     >> "$OUT/phone.log" 2>&1 || fail "pairing"
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
@@ -40,7 +40,7 @@ with_noctalia '
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold --status 42,1,wifi \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold --status 42,1,wifi \
     < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "no status on D-Bus" eval "prop DeviceStatus | grep -qF \"(uint32 42, true, '"'"'wifi'"'"')\""

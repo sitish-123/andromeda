@@ -8,9 +8,9 @@
 #include <string>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
-  // A TOML file Umbriel writes on the user's behalf (displays.toml, settings.toml).
+  // A TOML file Andromeda writes on the user's behalf (displays.toml, settings.toml).
 
   // Parses `existing` (a damaged document starts empty), applies `edit`, and serializes it under `header`.
   [[nodiscard]] std::string
@@ -25,4 +25,4 @@ namespace umbriel {
   // The table at `path` below `root`, created along the way. A non-table value in the way is replaced.
   toml::table& generatedTable(toml::table& root, std::initializer_list<std::string_view> path);
 
-} // namespace umbriel
+} // namespace andromeda

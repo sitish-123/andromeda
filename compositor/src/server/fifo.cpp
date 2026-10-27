@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <ranges>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -218,7 +218,7 @@ namespace umbriel {
 
   // The addon also marks a surface that already has fifo state.
   const wlr_addon_interface FifoManager::kAddonInterface = {
-      .name = "umbriel_fifo_v1",
+      .name = "andromeda_fifo_v1",
       .destroy = FifoManager::handleSurfaceDestroyed,
   };
 
@@ -233,4 +233,4 @@ namespace umbriel {
       .destroy = FifoManager::handleFifoDestroy,
   };
 
-} // namespace umbriel
+} // namespace andromeda

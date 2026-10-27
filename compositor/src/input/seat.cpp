@@ -6,7 +6,7 @@
 #include "server/toplevel_drag.h"
 #include "wlr.h"
 
-namespace umbriel {
+namespace andromeda {
 
   Seat::Seat(Server& server) : m_server(&server) {
     m_seat = wlr_seat_create(m_server->display(), "seat0");
@@ -255,4 +255,4 @@ namespace umbriel {
     m_server->restoreActivatedViewKeyboardFocus();
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -21,7 +21,7 @@ with_noctalia '
   sleep 1.5 # real time: the page rebuilds from the new state
   scroll_down 2560 1440 742 1152
   grim -o HEADLESS-2 "$OUT/after.png"
-  "$UMBRIEL" outputs --json > "$OUT/outputs.json"
+  "$ANDROMEDA" outputs --json > "$OUT/outputs.json"
 '
 # The page is scrolled to the bottom, where Apply is the only primary-coloured control in this corner.
 BUTTONS='400x100+880+620'

@@ -14,7 +14,7 @@
 #include <unistd.h>
 #include <unordered_map>
 
-namespace umbriel {
+namespace andromeda {
 
   uint64_t nextAnimationTransitionId() {
     static std::atomic<uint64_t> nextId{1};
@@ -998,4 +998,4 @@ namespace umbriel {
     out[3] = m_current[3];
   }
 
-} // namespace umbriel
+} // namespace andromeda

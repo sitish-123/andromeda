@@ -4,7 +4,7 @@
 #include <GLES2/gl2.h>
 #include <pixman.h>
 #include <stdbool.h>
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
 #include <wlr/util/box.h>
@@ -94,8 +94,8 @@ struct fx_effect_composite {
   struct fx_effect_light_cache* light;       // NULL unless this composite emits light
   bool replace;                              // write without blending; set by the in-place path
   unsigned role;                             // selects the history: 0 display, 1 unfiltered capture
-  const float* corner_radius;                // tl, tr, br, bl logical px for umbriel_corner_radius; may be NULL
-  const float* pointer;                      // umbriel_pointer, uv in the drawn box; NULL unless a cursor kind
+  const float* corner_radius;                // tl, tr, br, bl logical px for andromeda_corner_radius; may be NULL
+  const float* pointer;                      // andromeda_pointer, uv in the drawn box; NULL unless a cursor kind
 };
 
 // Pops the capture begun by fx_render_pass_begin_animation and draws it

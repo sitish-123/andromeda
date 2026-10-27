@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // A selector recorded while parsing and checked once every table is read, so forward and cross-include references
   // resolve.
@@ -154,4 +154,4 @@ namespace umbriel {
   // Loaded. The caller has already found the file and reset the store for this load.
   [[nodiscard]] ConfigParseOutcome parseConfig(Config& out, const std::filesystem::path& rootPath);
 
-} // namespace umbriel
+} // namespace andromeda

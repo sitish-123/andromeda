@@ -3,10 +3,10 @@
 #include <stdio.h>
 #include <wlr/types/wlr_output_layout.h>
 
-#include "umbrielfx/types/wlr_scene.h"
+#include "andromedafx/types/wlr_scene.h"
 
-// umbrielfx's scene structs carry trailing fields wlroots knows nothing about,
-// so a node a libwlroots helper allocated is short and umbrielfx reads those
+// andromedafx's scene structs carry trailing fields wlroots knows nothing about,
+// so a node a libwlroots helper allocated is short and andromedafx reads those
 // fields past the end of it. Whether a borrowed helper resolves here or into
 // libwlroots depends on how the distribution built libwlroots, and the failure
 // is silent, so check the resolution once at startup rather than trusting the
@@ -22,13 +22,13 @@ static const char *module_of(const void *fn, const void **base) {
 	return info.dli_fname != NULL ? info.dli_fname : "<anonymous>";
 }
 
-const char *umbrielfx_scene_check_helpers(void) {
+const char *andromedafx_scene_check_helpers(void) {
 	static char message[512];
 
-	// Taken from inside umbrielfx, so it names whichever module this
+	// Taken from inside andromedafx, so it names whichever module this
 	// translation unit was linked into.
 	const void *want = NULL;
-	const char *want_name = module_of((const void *)&umbrielfx_scene_check_helpers, &want);
+	const char *want_name = module_of((const void *)&andromedafx_scene_check_helpers, &want);
 
 	static const struct {
 		const char *name;
@@ -51,10 +51,10 @@ const char *umbrielfx_scene_check_helpers(void) {
 			continue;
 		}
 		snprintf(message, sizeof(message),
-			"%s resolves to %s instead of umbrielfx (%s). Scene nodes would be "
-			"allocated at wlroots' size and umbrielfx would read its own fields "
-			"past the end of them. umbrielfx must define every scene helper; see "
-			"umbrielfx/README.md.",
+			"%s resolves to %s instead of andromedafx (%s). Scene nodes would be "
+			"allocated at wlroots' size and andromedafx would read its own fields "
+			"past the end of them. andromedafx must define every scene helper; see "
+			"andromedafx/README.md.",
 			helpers[i].name, got_name, want_name);
 		return message;
 	}
@@ -63,7 +63,7 @@ const char *umbrielfx_scene_check_helpers(void) {
 	// compare equal above and pass an unchecked build.
 	if (want == NULL) {
 		snprintf(message, sizeof(message),
-			"could not resolve the module backing umbrielfx's scene helpers, so "
+			"could not resolve the module backing andromedafx's scene helpers, so "
 			"they went unverified.");
 		return message;
 	}

@@ -1,6 +1,6 @@
 #include "view/effects.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     // The most specific selector replaces the default by name; "off" and "" both disable it.
@@ -28,4 +28,4 @@ namespace umbriel {
     return compiled && preset != nullptr && preset->kind == EffectKind::Border ? preset->padding : 0;
   }
 
-} // namespace umbriel
+} // namespace andromeda

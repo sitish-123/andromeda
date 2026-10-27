@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // One loaded configuration and everything learned while loading it: `Config`, diagnostics, the set of files to watch
   // (a config that stops `include`-ing a file must stop watching it), and whether a config file exists. A reload
@@ -71,4 +71,4 @@ namespace umbriel {
   // settings as arguments and do not reach for this.
   [[nodiscard]] ConfigStore& configStore();
 
-} // namespace umbriel
+} // namespace andromeda

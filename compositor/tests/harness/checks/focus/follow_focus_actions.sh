@@ -5,10 +5,10 @@
 set -euo pipefail
 
 readonly BTN_LEFT=272
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly FOREIGN_TOPLEVEL="${UMBRIEL_FOREIGN_TOPLEVEL_CLIENT:-./build-debug/tests/foreign-toplevel-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly FOREIGN_TOPLEVEL="${ANDROMEDA_FOREIGN_TOPLEVEL_CLIENT:-./build-debug/tests/foreign-toplevel-client}"
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_windows() {
   local want=$1
@@ -52,10 +52,10 @@ window_output() {
   echo "${workspace%%:*}"
 }
 output_x() {
-  "$UMBRIEL" outputs | awk -v name="$1" '$1 == name {found = 1; next} found && /Position:/ {split($2, p, ","); print p[1]; exit}'
+  "$ANDROMEDA" outputs | awk -v name="$1" '$1 == name {found = 1; next} found && /Position:/ {split($2, p, ","); print p[1]; exit}'
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -86,13 +86,13 @@ default_output = "HEADLESS-2"
 match.title = "^follow-other-third$"
 default_output = "HEADLESS-2"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-foot --title=follow-first sh -c 'sleep 120' > "$UMBRIEL_RUNTIME_DIR/follow-first.log" 2>&1 &
-foot --title=follow-second sh -c 'sleep 120' > "$UMBRIEL_RUNTIME_DIR/follow-second.log" 2>&1 &
-foot --title=follow-other-output sh -c 'sleep 120' > "$UMBRIEL_RUNTIME_DIR/follow-other-output.log" 2>&1 &
-foot --title=follow-other-neighbor sh -c 'sleep 120' > "$UMBRIEL_RUNTIME_DIR/follow-other-neighbor.log" 2>&1 &
-foot --title=follow-other-third sh -c 'sleep 120' > "$UMBRIEL_RUNTIME_DIR/follow-other-third.log" 2>&1 &
+foot --title=follow-first sh -c 'sleep 120' > "$ANDROMEDA_RUNTIME_DIR/follow-first.log" 2>&1 &
+foot --title=follow-second sh -c 'sleep 120' > "$ANDROMEDA_RUNTIME_DIR/follow-second.log" 2>&1 &
+foot --title=follow-other-output sh -c 'sleep 120' > "$ANDROMEDA_RUNTIME_DIR/follow-other-output.log" 2>&1 &
+foot --title=follow-other-neighbor sh -c 'sleep 120' > "$ANDROMEDA_RUNTIME_DIR/follow-other-neighbor.log" 2>&1 &
+foot --title=follow-other-third sh -c 'sleep 120' > "$ANDROMEDA_RUNTIME_DIR/follow-other-third.log" 2>&1 &
 wait_for_windows 5
 
 first_id=$(window_id follow-first)
@@ -107,7 +107,7 @@ fi
 
 # Put the pointer on the focused window, then swap that window with its neighbor. ID-targeted focus must move the
 # pointer to the newly focused window, so an unmoved click must keep focus there.
-"$UMBRIEL" msg "window-focus:$first_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$first_id" > /dev/null
 "$POINTER" 2560 720 move "$(window_center_x "$first_id")" "$(window_center_y "$first_id")"
 before_x=$(window_x "$first_id")
 if ((before_x < $(window_x "$second_id"))); then
@@ -115,14 +115,14 @@ if ((before_x < $(window_x "$second_id"))); then
 else
   move_action=window-move-or-output-left
 fi
-"$UMBRIEL" msg "$move_action" > /dev/null
+"$ANDROMEDA" msg "$move_action" > /dev/null
 wait_for_moved_x "$first_id" "$before_x"
 after_x=$(window_x "$first_id")
 if [[ $after_x == "$before_x" ]]; then
   echo "$move_action did not move follow-first: $(windows)"
   exit 1
 fi
-"$UMBRIEL" msg "window-focus:$second_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$second_id" > /dev/null
 "$POINTER" 2560 720 click "$BTN_LEFT"
 wait_for_active "$second_id"
 
@@ -135,14 +135,14 @@ if ((other_output_x > first_output_x)); then
 else
   output_action=output-focus-left
 fi
-"$UMBRIEL" msg "window-focus:$other_id" > /dev/null
-"$UMBRIEL" msg "window-focus:$first_id" > /dev/null
-"$UMBRIEL" msg "$output_action" > /dev/null
+"$ANDROMEDA" msg "window-focus:$other_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$first_id" > /dev/null
+"$ANDROMEDA" msg "$output_action" > /dev/null
 wait_for_active "$other_id"
 "$POINTER" 2560 720 click "$BTN_LEFT"
 wait_for_active "$other_id"
 
-# A dock uses foreign-toplevel activation rather than Umbriel's IPC. It must receive the same configured pointer-following
+# A dock uses foreign-toplevel activation rather than Andromeda's IPC. It must receive the same configured pointer-following
 # behavior.
 "$FOREIGN_TOPLEVEL" follow-first "$first_output" activate
 wait_for_active "$first_id"

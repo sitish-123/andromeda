@@ -12,8 +12,8 @@
 #include <unistd.h>
 #include <wayland-server-core.h>
 
-using umbriel::ConfigStore;
-using umbriel::ConfigWatcher;
+using andromeda::ConfigStore;
+using andromeda::ConfigWatcher;
 
 namespace {
   class ScopedEnvironment {
@@ -42,12 +42,12 @@ namespace {
   public:
     DefaultConfigTree()
         : m_base(
-              std::filesystem::temp_directory_path() / ("umbriel-config-watcher-priority-" + std::to_string(getpid()))
+              std::filesystem::temp_directory_path() / ("andromeda-config-watcher-priority-" + std::to_string(getpid()))
           ),
           m_userHome(m_base / "user"), m_systemDir(m_base / "system") {
       std::filesystem::remove_all(m_base);
       std::filesystem::create_directories(m_userHome);
-      write(m_systemDir / "umbriel/config.toml", 17);
+      write(m_systemDir / "andromeda/config.toml", 17);
     }
 
     ~DefaultConfigTree() { std::filesystem::remove_all(m_base); }
@@ -68,9 +68,9 @@ namespace {
 
     [[nodiscard]] const std::filesystem::path& userHome() const { return m_userHome; }
     [[nodiscard]] const std::filesystem::path& systemDir() const { return m_systemDir; }
-    [[nodiscard]] std::filesystem::path userConfig() const { return m_userHome / "umbriel/config.toml"; }
+    [[nodiscard]] std::filesystem::path userConfig() const { return m_userHome / "andromeda/config.toml"; }
     [[nodiscard]] std::filesystem::path userTarget() const { return m_base / "target/config.toml"; }
-    [[nodiscard]] std::filesystem::path systemConfig() const { return m_systemDir / "umbriel/config.toml"; }
+    [[nodiscard]] std::filesystem::path systemConfig() const { return m_systemDir / "andromeda/config.toml"; }
 
   private:
     static void write(const std::filesystem::path& path, int gap) {
@@ -87,7 +87,7 @@ namespace {
   class SymlinkedConfigTree {
   public:
     SymlinkedConfigTree()
-        : m_base(std::filesystem::temp_directory_path() / ("umbriel-config-watcher-" + std::to_string(getpid()))),
+        : m_base(std::filesystem::temp_directory_path() / ("andromeda-config-watcher-" + std::to_string(getpid()))),
           m_realDir(m_base / "z-real"), m_nextDir(m_base / "y-next"), m_linkDir(m_base / "a-link") {
       std::filesystem::remove_all(m_base);
       std::filesystem::create_directories(m_realDir);
@@ -139,10 +139,10 @@ namespace {
   }
 } // namespace
 
-UMBRIEL_TEST(anIncludedFileReloadsThroughASymlinkedConfigDirectory) {
+ANDROMEDA_TEST(anIncludedFileReloadsThroughASymlinkedConfigDirectory) {
   const SymlinkedConfigTree tree;
   const std::string root = tree.root().string();
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(root.c_str()));
 
   CHECK_EQ(store.config().layout.gap, 5);
@@ -157,7 +157,7 @@ UMBRIEL_TEST(anIncludedFileReloadsThroughASymlinkedConfigDirectory) {
   int reloads = 0;
   std::unique_ptr<ConfigWatcher> watcher;
   watcher = std::make_unique<ConfigWatcher>(loop, [&] {
-    const umbriel::ConfigReloadResult result = store.reload();
+    const andromeda::ConfigReloadResult result = store.reload();
     if (result.success) {
       ++reloads;
     }
@@ -177,10 +177,10 @@ UMBRIEL_TEST(anIncludedFileReloadsThroughASymlinkedConfigDirectory) {
   wl_event_loop_destroy(loop);
 }
 
-UMBRIEL_TEST(aRetargetedSymlinkedConfigDirectoryReloadsFromTheNewTarget) {
+ANDROMEDA_TEST(aRetargetedSymlinkedConfigDirectoryReloadsFromTheNewTarget) {
   const SymlinkedConfigTree tree;
   const std::string root = tree.root().string();
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(root.c_str()));
 
   CHECK_EQ(store.config().layout.gap, 5);
@@ -194,7 +194,7 @@ UMBRIEL_TEST(aRetargetedSymlinkedConfigDirectoryReloadsFromTheNewTarget) {
   int reloads = 0;
   std::unique_ptr<ConfigWatcher> watcher;
   watcher = std::make_unique<ConfigWatcher>(loop, [&] {
-    const umbriel::ConfigReloadResult result = store.reload();
+    const andromeda::ConfigReloadResult result = store.reload();
     if (result.success) {
       ++reloads;
     }
@@ -213,12 +213,12 @@ UMBRIEL_TEST(aRetargetedSymlinkedConfigDirectoryReloadsFromTheNewTarget) {
   wl_event_loop_destroy(loop);
 }
 
-UMBRIEL_TEST(aNewHigherPriorityUserConfigIsAdoptedWithoutRestart) {
+ANDROMEDA_TEST(aNewHigherPriorityUserConfigIsAdoptedWithoutRestart) {
   const DefaultConfigTree tree;
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", tree.userHome().string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", tree.systemDir().string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
 
   CHECK_EQ(store.rootPath(), tree.systemConfig());
@@ -233,7 +233,7 @@ UMBRIEL_TEST(aNewHigherPriorityUserConfigIsAdoptedWithoutRestart) {
   int adoptions = 0;
   std::unique_ptr<ConfigWatcher> watcher;
   watcher = std::make_unique<ConfigWatcher>(loop, [&] {
-    const umbriel::ConfigReloadResult result = store.reload();
+    const andromeda::ConfigReloadResult result = store.reload();
     if (result.success && store.rootPath() == tree.userConfig() && store.config().layout.gap == 19) {
       ++adoptions;
     }
@@ -248,13 +248,13 @@ UMBRIEL_TEST(aNewHigherPriorityUserConfigIsAdoptedWithoutRestart) {
   wl_event_loop_destroy(loop);
 }
 
-UMBRIEL_TEST(aDeletedSymlinkTargetIsRewatchedWhenItReappears) {
+ANDROMEDA_TEST(aDeletedSymlinkTargetIsRewatchedWhenItReappears) {
   const DefaultConfigTree tree;
   tree.linkUserToTarget(19);
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", tree.userHome().string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", tree.systemDir().string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
 
   CHECK_EQ(store.rootPath(), tree.userConfig());
@@ -269,7 +269,7 @@ UMBRIEL_TEST(aDeletedSymlinkTargetIsRewatchedWhenItReappears) {
   int reloads = 0;
   std::unique_ptr<ConfigWatcher> watcher;
   watcher = std::make_unique<ConfigWatcher>(loop, [&] {
-    const umbriel::ConfigReloadResult result = store.reload();
+    const andromeda::ConfigReloadResult result = store.reload();
     if (result.success) {
       ++reloads;
     }

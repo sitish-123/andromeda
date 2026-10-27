@@ -2,7 +2,7 @@
 
 #include "wlr.h"
 
-namespace umbriel {
+namespace andromeda {
 
   SurfaceLayoutMemory::~SurfaceLayoutMemory() { clear(); }
 
@@ -57,4 +57,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

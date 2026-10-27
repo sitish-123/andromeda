@@ -2,20 +2,20 @@
 # A window on the active workspace is suspended and gets no frame callbacks while the session is locked and while its
 # output is powered off, and resumes with its frames after each; a game keeps its slow tick behind the lock.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
-readonly CLIENT="${UMBRIEL_BACKGROUND_CLIENT:-./build-debug/tests/background-client}"
-readonly LOCK_CLIENT="${UMBRIEL_LOCK_CLIENT:-./build-debug/tests/lock-client}"
-readonly NORMAL_LOG="$UMBRIEL_RUNTIME_DIR/visible-normal.log"
-readonly GAME_LOG="$UMBRIEL_RUNTIME_DIR/visible-game.log"
-readonly LOCK_LOG="$UMBRIEL_RUNTIME_DIR/lock-client.log"
-readonly LOCK_FIFO="$UMBRIEL_RUNTIME_DIR/lock-control"
+readonly CLIENT="${ANDROMEDA_BACKGROUND_CLIENT:-./build-debug/tests/background-client}"
+readonly LOCK_CLIENT="${ANDROMEDA_LOCK_CLIENT:-./build-debug/tests/lock-client}"
+readonly NORMAL_LOG="$ANDROMEDA_RUNTIME_DIR/visible-normal.log"
+readonly GAME_LOG="$ANDROMEDA_RUNTIME_DIR/visible-game.log"
+readonly LOCK_LOG="$ANDROMEDA_RUNTIME_DIR/lock-client.log"
+readonly LOCK_FIFO="$ANDROMEDA_RUNTIME_DIR/lock-control"
 
 "$CLIENT" visible-normal > "$NORMAL_LOG" 2>&1 &
 CONTENT_TYPE=game "$CLIENT" visible-game > "$GAME_LOG" 2>&1 &
 await_events "$NORMAL_LOG" mapped 1
 await_events "$GAME_LOG" mapped 1
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 frames() { events "$1" frame; }
 
@@ -63,7 +63,7 @@ echo unlock >&"$lock_fd"
 await_events "$LOCK_LOG" unlocked 1 "the lock client"
 expect_resumed_with_frames 1 "unlocking"
 
-"$UMBRIEL" msg dpms-off > /dev/null
+"$ANDROMEDA" msg dpms-off > /dev/null
 await_events "$NORMAL_LOG" suspended 2 "the window on a powered-off output"
 off_frames=$(frames_in_a_second "$NORMAL_LOG")
 if ((off_frames > 1)); then
@@ -71,7 +71,7 @@ if ((off_frames > 1)); then
   exit 1
 fi
 
-"$UMBRIEL" msg dpms-on > /dev/null
+"$ANDROMEDA" msg dpms-on > /dev/null
 expect_resumed_with_frames 2 "powering the output on"
 
 echo "suspended behind the lock ($locked_frames frames/s, game kept $game_frames) and with the output off ($off_frames frames/s); resumed after each"

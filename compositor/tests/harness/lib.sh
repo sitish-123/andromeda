@@ -1,4 +1,4 @@
-# Helpers shared by harness checks. A check sources it with: source "$UMBRIEL_HARNESS_LIB"
+# Helpers shared by harness checks. A check sources it with: source "$ANDROMEDA_HARNESS_LIB"
 
 # Runs the pointer helper through a sequence and holds the resulting input state (a pressed button, a held modifier)
 # until pointer_release: pointer_hold <width> <height> <command>... [-- <command>...]. It returns once every command
@@ -12,11 +12,11 @@ pointer_hold() {
     shift
   done
   (($# > 0)) && shift
-  local fifo=$UMBRIEL_RUNTIME_DIR/pointer-hold.fifo
-  POINTER_HOLD_LOG=$UMBRIEL_RUNTIME_DIR/pointer-hold.log
+  local fifo=$ANDROMEDA_RUNTIME_DIR/pointer-hold.fifo
+  POINTER_HOLD_LOG=$ANDROMEDA_RUNTIME_DIR/pointer-hold.log
   rm -f "$fifo"
   mkfifo "$fifo"
-  "$UMBRIEL_POINTER_CLIENT" "$width" "$height" "${before[@]}" mark held hold "$@" < "$fifo" > "$POINTER_HOLD_LOG" 2>&1 &
+  "$ANDROMEDA_POINTER_CLIENT" "$width" "$height" "${before[@]}" mark held hold "$@" < "$fifo" > "$POINTER_HOLD_LOG" 2>&1 &
   POINTER_HOLD_PID=$!
   exec {POINTER_HOLD_FD}> "$fifo"
   for _ in $(seq 200); do

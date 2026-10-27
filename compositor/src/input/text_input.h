@@ -14,7 +14,7 @@ struct wlr_surface;
 struct wlr_text_input_manager_v3;
 struct wlr_text_input_v3;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -105,4 +105,4 @@ namespace umbriel {
     wl_listener m_grabDestroy{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

@@ -9,11 +9,11 @@ boot_headless 2
 
 export WAYLAND_DEBUG=client
 with_noctalia '
-  mark() { wc -l < "$OUT/umbriel.log"; }
+  mark() { wc -l < "$OUT/andromeda.log"; }
   wait_log() {
     local from=$1 pattern=$2 count=$3
     for _ in $(seq 50); do
-      (( $(tail -n +"$((from + 1))" "$OUT/umbriel.log" | grep -c "$pattern") >= count )) && return 0
+      (( $(tail -n +"$((from + 1))" "$OUT/andromeda.log" | grep -c "$pattern") >= count )) && return 0
       sleep 0.1
     done
     echo "FAIL: expected $count lines matching \"$pattern\""

@@ -11,11 +11,11 @@ extern "C" {
 #undef static
 }
 
-using umbriel::fastestPreferredMode;
-using umbriel::outputCanAutoEnable;
-using umbriel::OutputMode;
-using umbriel::preferredFallbackMode;
-using umbriel::selectOutputMode;
+using andromeda::fastestPreferredMode;
+using andromeda::outputCanAutoEnable;
+using andromeda::OutputMode;
+using andromeda::preferredFallbackMode;
+using andromeda::selectOutputMode;
 
 namespace {
   wlr_output_mode outputMode(int width, int height, int refresh, bool preferred = false) {
@@ -32,7 +32,7 @@ namespace {
   void addMode(wlr_output& output, wlr_output_mode& mode) { wl_list_insert(output.modes.prev, &mode.link); }
 } // namespace
 
-UMBRIEL_TEST(configuredResolutionSelectsClosestRefresh) {
+ANDROMEDA_TEST(configuredResolutionSelectsClosestRefresh) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode lower = outputMode(5120, 1440, 119998, true);
@@ -46,7 +46,7 @@ UMBRIEL_TEST(configuredResolutionSelectsClosestRefresh) {
   CHECK_EQ(selected->refresh, 143987);
 }
 
-UMBRIEL_TEST(unidentifiedOutputWithoutPreferredModeNeedsExplicitConfiguration) {
+ANDROMEDA_TEST(unidentifiedOutputWithoutPreferredModeNeedsExplicitConfiguration) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode stale = outputMode(1920, 1080, 59994);
@@ -55,7 +55,7 @@ UMBRIEL_TEST(unidentifiedOutputWithoutPreferredModeNeedsExplicitConfiguration) {
   CHECK(!outputCanAutoEnable(&output));
 }
 
-UMBRIEL_TEST(preferredModeMakesUnconfiguredOutputSafeToEnable) {
+ANDROMEDA_TEST(preferredModeMakesUnconfiguredOutputSafeToEnable) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode preferred = outputMode(1920, 1080, 60150, true);
@@ -64,7 +64,7 @@ UMBRIEL_TEST(preferredModeMakesUnconfiguredOutputSafeToEnable) {
   CHECK(outputCanAutoEnable(&output));
 }
 
-UMBRIEL_TEST(edidIdentityMakesUnconfiguredOutputSafeWithoutPreferredMode) {
+ANDROMEDA_TEST(edidIdentityMakesUnconfiguredOutputSafeWithoutPreferredMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode mode = outputMode(1920, 1080, 60000);
@@ -75,14 +75,14 @@ UMBRIEL_TEST(edidIdentityMakesUnconfiguredOutputSafeWithoutPreferredMode) {
   CHECK(outputCanAutoEnable(&output));
 }
 
-UMBRIEL_TEST(backendManagedOutputWithoutModesRemainsAutoEnabled) {
+ANDROMEDA_TEST(backendManagedOutputWithoutModesRemainsAutoEnabled) {
   wlr_output output{};
   wl_list_init(&output.modes);
 
   CHECK(outputCanAutoEnable(&output));
 }
 
-UMBRIEL_TEST(configuredResolutionWithoutRefreshPrefersMarkedMode) {
+ANDROMEDA_TEST(configuredResolutionWithoutRefreshPrefersMarkedMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode fastest = outputMode(2560, 1440, 165000);
@@ -96,7 +96,7 @@ UMBRIEL_TEST(configuredResolutionWithoutRefreshPrefersMarkedMode) {
   CHECK_EQ(selected->refresh, 59951);
 }
 
-UMBRIEL_TEST(configuredResolutionWithoutRefreshUsesHighestUnmarkedMode) {
+ANDROMEDA_TEST(configuredResolutionWithoutRefreshUsesHighestUnmarkedMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode lower = outputMode(2560, 1440, 59951);
@@ -111,7 +111,7 @@ UMBRIEL_TEST(configuredResolutionWithoutRefreshUsesHighestUnmarkedMode) {
 }
 
 // An unadvertised resolution stays a custom mode: the caller only leaves it behind once the commit fails.
-UMBRIEL_TEST(unadvertisedResolutionSelectsNoAdvertisedMode) {
+ANDROMEDA_TEST(unadvertisedResolutionSelectsNoAdvertisedMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode preferred = outputMode(2560, 1440, 119998, true);
@@ -120,14 +120,14 @@ UMBRIEL_TEST(unadvertisedResolutionSelectsNoAdvertisedMode) {
   CHECK(selectOutputMode(&output, OutputMode{5120, 1440, 143987}) == nullptr);
 }
 
-UMBRIEL_TEST(outputWithoutAdvertisedModesSelectsNoAdvertisedMode) {
+ANDROMEDA_TEST(outputWithoutAdvertisedModesSelectsNoAdvertisedMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
 
   CHECK(selectOutputMode(&output, OutputMode{1280, 720, 0}) == nullptr);
 }
 
-UMBRIEL_TEST(failedCustomModeFallsBackToPreferredMode) {
+ANDROMEDA_TEST(failedCustomModeFallsBackToPreferredMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode preferred = outputMode(2560, 1440, 119998, true);
@@ -141,7 +141,7 @@ UMBRIEL_TEST(failedCustomModeFallsBackToPreferredMode) {
   CHECK_EQ(fallback->refresh, 119998);
 }
 
-UMBRIEL_TEST(failedAdvertisedModeFallsBackToPreferredMode) {
+ANDROMEDA_TEST(failedAdvertisedModeFallsBackToPreferredMode) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode preferred = outputMode(2560, 1440, 119998, true);
@@ -156,7 +156,7 @@ UMBRIEL_TEST(failedAdvertisedModeFallsBackToPreferredMode) {
 }
 
 // Retrying the mode that just failed would only fail again.
-UMBRIEL_TEST(failedPreferredModeHasNoFallback) {
+ANDROMEDA_TEST(failedPreferredModeHasNoFallback) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode preferred = outputMode(2560, 1440, 119998, true);
@@ -165,7 +165,7 @@ UMBRIEL_TEST(failedPreferredModeHasNoFallback) {
   CHECK(preferredFallbackMode(&output, &preferred) == nullptr);
 }
 
-UMBRIEL_TEST(outputWithoutAdvertisedModesHasNoFallback) {
+ANDROMEDA_TEST(outputWithoutAdvertisedModesHasNoFallback) {
   wlr_output output{};
   wl_list_init(&output.modes);
 
@@ -175,7 +175,7 @@ UMBRIEL_TEST(outputWithoutAdvertisedModesHasNoFallback) {
 // Ways the automatic mode can go wrong: a TV's preferred 4K@30 kept over its 4K@60, a faster mode at another
 // resolution chosen, an output without a preferred mode left without one, and an output without modes given one.
 
-UMBRIEL_TEST(automaticModeTakesHighestRefreshAtPreferredResolution) {
+ANDROMEDA_TEST(automaticModeTakesHighestRefreshAtPreferredResolution) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode slow = outputMode(3840, 2160, 30000, true);
@@ -188,7 +188,7 @@ UMBRIEL_TEST(automaticModeTakesHighestRefreshAtPreferredResolution) {
   CHECK(fastestPreferredMode(&output) == &fast);
 }
 
-UMBRIEL_TEST(automaticModeKeepsPreferredWhenItIsFastest) {
+ANDROMEDA_TEST(automaticModeKeepsPreferredWhenItIsFastest) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode slower = outputMode(2880, 1800, 60000);
@@ -199,7 +199,7 @@ UMBRIEL_TEST(automaticModeKeepsPreferredWhenItIsFastest) {
   CHECK(fastestPreferredMode(&output) == &preferred);
 }
 
-UMBRIEL_TEST(automaticModeWithoutPreferredUsesFirstModesResolution) {
+ANDROMEDA_TEST(automaticModeWithoutPreferredUsesFirstModesResolution) {
   wlr_output output{};
   wl_list_init(&output.modes);
   wlr_output_mode first = outputMode(1920, 1080, 50000);
@@ -212,7 +212,7 @@ UMBRIEL_TEST(automaticModeWithoutPreferredUsesFirstModesResolution) {
   CHECK(fastestPreferredMode(&output) == &faster);
 }
 
-UMBRIEL_TEST(automaticModeIsNullWithoutModes) {
+ANDROMEDA_TEST(automaticModeIsNullWithoutModes) {
   wlr_output output{};
   wl_list_init(&output.modes);
 

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace umbriel {
+namespace andromeda {
 
   // Work that must finish before the next frame. The frame handler rebuilds
   // stale state once, in a fixed order.
@@ -38,4 +38,4 @@ namespace umbriel {
   [[nodiscard]] constexpr bool any(Dirty set) { return static_cast<uint32_t>(set) != 0; }
   [[nodiscard]] constexpr bool has(Dirty set, Dirty bit) { return any(set & bit); }
 
-} // namespace umbriel
+} // namespace andromeda

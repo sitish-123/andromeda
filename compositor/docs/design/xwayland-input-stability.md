@@ -1,9 +1,9 @@
 # Xwayland input stability
 
-Umbriel supports X11 clients through xwayland-satellite, which acts as both
+Andromeda supports X11 clients through xwayland-satellite, which acts as both
 the Wayland client owning every X11 surface and the window manager of its own
 X server. Two satellite behaviors make compositor-side geometry churn
-dangerous, and several Umbriel invariants exist purely to protect against
+dangerous, and several Andromeda invariants exist purely to protect against
 them. Breaking any of these reintroduces a bug class where an X11 game's
 mouse input dies in part of the screen while everything looks correct.
 
@@ -34,7 +34,7 @@ Defense:
 `pinnedRoot`): each output owns three scene trees carrying
 a `wlr_scene_tree_set_clip` of that output's layout box, and every workspace
 tree, fullscreen tree, pinned view and close snapshot hangs under them.
-`umbrielfx` folds an ancestor tree clip into the visibility walk
+`andromedafx` folds an ancestor tree clip into the visibility walk
 (`_scene_nodes_in_box` accumulates the clip, `scene_node_update_iterator`
 intersects `node->visible` with it), so a node that reaches past its own
 output has no visible region there at all: no rendering, no damage, no
@@ -44,7 +44,7 @@ The drag tree is deliberately outside those roots, which is what lets a
 dragged window span both outputs.
 
 A rejected approach, for whoever considers it next: pinning scene nodes to a
-single output inside `umbrielfx` (filtering `active_outputs` in
+single output inside `andromedafx` (filtering `active_outputs` in
 `update_node_update_outputs`) does suppress the enter/leave churn, but it
 divorces output membership from rendering. `wlr_scene_output_build_state`
 asserts on buffers rendered on an output they are not members of (SIGABRT
@@ -60,10 +60,10 @@ A fake-fullscreen game (borderless window at output size) that receives a
 compositor-imposed windowed size, then returns to fullscreen, keeps a stale
 mouse mapping: X geometry, stacking, focus, and event delivery all recover,
 but hover and clicks die outside the transient size. This is upstream
-Wine/satellite behavior, reproduced outside Umbriel; the boundary of the dead
+Wine/satellite behavior, reproduced outside Andromeda; the boundary of the dead
 zone always equals whatever transient size the compositor sent.
 
-Umbriel therefore avoids incidental windowed resize round trips while keeping
+Andromeda therefore avoids incidental windowed resize round trips while keeping
 deliberate fullscreen exits authoritative:
 
 1. **Float toggle** (`View::setFloating(true)`) keeps the current size when

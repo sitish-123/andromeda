@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <wayland-server-core.h>
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -132,4 +132,4 @@ namespace umbriel {
     wl_listener m_holdEnd{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

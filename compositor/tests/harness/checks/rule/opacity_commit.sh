@@ -3,9 +3,9 @@
 # reproduces browsers that continually redraw after a workspace transition.
 set -euo pipefail
 
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/rule-opacity-commit.png"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/rule-opacity-commit.png"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -22,24 +22,24 @@ corner_radius = 0
 match.app_id = "^opacity-commit$"
 opacity = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 foot --config=/dev/null --app-id=opacity-commit --override=colors-dark.background=000000 \
   sh -c 'while :; do printf "\\r%08d" "$RANDOM"; sleep 0.02; done' > /dev/null 2>&1 &
 
 for _ in $(seq 60); do
-  [[ $("$UMBRIEL" windows --json | jq 'length') -eq 1 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq 'length') -eq 1 ]] && break
   sleep 0.1
 done
-if [[ $("$UMBRIEL" windows --json | jq 'length') -ne 1 ]]; then
+if [[ $("$ANDROMEDA" windows --json | jq 'length') -ne 1 ]]; then
   echo "timed out waiting for opacity-commit"
   exit 1
 fi
 
 # Switching back applies the view clip, then subsequent client commits must
 # preserve the 0.5 compositor opacity rather than restoring opaque black.
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 sleep 0.5 # real time: foot commits fresh content after the switch
 grim "$SCREENSHOT"
 

@@ -41,7 +41,7 @@
 #include "xwayland/supervisor.h"
 
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
 #include <algorithm>
@@ -60,7 +60,7 @@ extern "C" {
 #include <unistd.h>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -228,17 +228,17 @@ namespace umbriel {
           configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
       std::string command =
           "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
-          "UMBRIEL_SOCKET'; systemd_ready=false; "
+          "ANDROMEDA_SOCKET'; systemd_ready=false; "
           "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
           "if systemctl --user import-environment $variables";
       command += publishConfigured;
       command += "; then systemd_ready=true; else "
-                 "echo 'umbriel: failed to publish the session environment' >&2; fi; fi; "
+                 "echo 'andromeda: failed to publish the session environment' >&2; fi; fi; "
                  "if command -v dbus-update-activation-environment >/dev/null 2>&1; then "
                  "dbus-update-activation-environment $variables || "
-                 "echo 'umbriel: failed to update the D-Bus activation environment' >&2; fi; "
-                 "if $systemd_ready; then systemctl --user start --no-block umbriel-session.target || "
-                 "echo 'umbriel: failed to start the systemd session target' >&2; fi";
+                 "echo 'andromeda: failed to update the D-Bus activation environment' >&2; fi; "
+                 "if $systemd_ready; then systemctl --user start --no-block andromeda-session.target || "
+                 "echo 'andromeda: failed to start the systemd session target' >&2; fi";
       return command;
     }
 
@@ -530,10 +530,10 @@ namespace umbriel {
     m_outputLayout = wlr_output_layout_create(m_display);
     wlr_xdg_output_manager_v1_create(m_display, m_outputLayout);
     // A scene helper served by libwlroots allocates nodes too small for
-    // umbrielfx's trailing fields, which renders every surface black instead of
+    // andromedafx's trailing fields, which renders every surface black instead of
     // failing. Refuse to build a scene on top of that.
-    if (const char* mismatch = umbrielfx_scene_check_helpers(); mismatch != nullptr) {
-      throw std::runtime_error(std::string("umbrielfx scene helpers are not linked correctly: ") + mismatch);
+    if (const char* mismatch = andromedafx_scene_check_helpers(); mismatch != nullptr) {
+      throw std::runtime_error(std::string("andromedafx scene helpers are not linked correctly: ") + mismatch);
     }
     m_scene = wlr_scene_create();
     if (linuxDmabuf != nullptr) {
@@ -947,7 +947,7 @@ namespace umbriel {
       } else if (ownerUnit.empty()) {
         kLog.warn("application scope isolation unavailable: cannot identify the compositor unit");
       } else {
-        m_applicationScopePartOfProperty = "--property=PartOf=umbriel-session.target";
+        m_applicationScopePartOfProperty = "--property=PartOf=andromeda-session.target";
         m_applicationScopeBindsToProperty = "--property=BindsTo=" + ownerUnit;
         m_systemdControlEnvironment = captureSystemdControlEnvironment();
         m_applicationScopeEnvironmentArguments = applicationScopeEnvironmentArguments(config().environment.variables);
@@ -965,12 +965,12 @@ namespace umbriel {
     m_backgroundFrameTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
     setenv(
-        "UMBRIEL_SOCKET",
-        (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/umbriel-" + m_socketName + ".sock").c_str(), true
+        "ANDROMEDA_SOCKET",
+        (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda-" + m_socketName + ".sock").c_str(), true
     );
     m_ipc = std::make_unique<Ipc>(*this, m_socketName);
-    setenv("XDG_CURRENT_DESKTOP", "umbriel", 1);
-    setenv("XDG_SESSION_DESKTOP", "umbriel", 1);
+    setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
+    setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
 
     // Export cursor settings so X11 clients (via xwayland-satellite) and
@@ -1172,7 +1172,7 @@ namespace umbriel {
       return;
     }
     const std::string scopeUnitArgument = scopeRequired
-        ? "--unit=app-umbriel-" + std::to_string(getpid()) + "-" + std::to_string(m_nextApplicationScopeId++) + ".scope"
+        ? "--unit=app-andromeda-" + std::to_string(getpid()) + "-" + std::to_string(m_nextApplicationScopeId++) + ".scope"
         : "";
 
     wlr_xdg_activation_token_v1* launchToken = nullptr;
@@ -1489,7 +1489,7 @@ namespace umbriel {
   void Server::unregisterAnimatable(Animatable* animatable) { std::erase(m_animatables, animatable); }
 
   bool Server::tickAnimations(uint64_t nowMsec) {
-    UMBRIEL_ZONE("Server::tickAnimations");
+    ANDROMEDA_ZONE("Server::tickAnimations");
     if (nowMsec == m_lastAnimTickMsec) {
       return animationsActive();
     }
@@ -1545,7 +1545,7 @@ namespace umbriel {
   } // namespace
 
   uint64_t Server::animationClockMsec() const {
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     if (m_frozenAnimationClockMsec) {
       return *m_frozenAnimationClockMsec;
     }
@@ -1555,7 +1555,7 @@ namespace umbriel {
 #endif
   }
 
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
   void Server::freezeAnimationClock() {
     if (!m_frozenAnimationClockMsec) {
       m_frozenAnimationClockMsec = animationClockMsec();
@@ -1698,4 +1698,4 @@ namespace umbriel {
     const auto diff = std::chrono::steady_clock::now() - m_startTime;
     return std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
   }
-} // namespace umbriel
+} // namespace andromeda

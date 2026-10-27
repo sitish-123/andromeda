@@ -15,13 +15,13 @@
 #include <string>
 #include <variant>
 
-using umbriel::ActionArgKind;
-using umbriel::ActionSpec;
-using umbriel::Keybind;
-using umbriel::KeybindAction;
-using umbriel::parseAction;
-using umbriel::parseChord;
-using umbriel::WheelDirection;
+using andromeda::ActionArgKind;
+using andromeda::ActionSpec;
+using andromeda::Keybind;
+using andromeda::KeybindAction;
+using andromeda::parseAction;
+using andromeda::parseChord;
+using andromeda::WheelDirection;
 
 namespace {
 
@@ -34,7 +34,7 @@ namespace {
 } // namespace
 
 // parseChord: modifiers
-UMBRIEL_TEST(parsesEveryModifierToken) {
+ANDROMEDA_TEST(parsesEveryModifierToken) {
   CHECK(chord("Mod+a").useMod);
   CHECK_EQ(chord("Shift+a").modifiers, uint32_t{WLR_MODIFIER_SHIFT});
   CHECK_EQ(chord("Ctrl+a").modifiers, uint32_t{WLR_MODIFIER_CTRL});
@@ -45,13 +45,13 @@ UMBRIEL_TEST(parsesEveryModifierToken) {
   CHECK_EQ(chord("Win+a").modifiers, uint32_t{WLR_MODIFIER_LOGO});
 }
 
-UMBRIEL_TEST(modifierTokensAreCaseInsensitive) {
+ANDROMEDA_TEST(modifierTokensAreCaseInsensitive) {
   CHECK_EQ(chord("SHIFT+a").modifiers, chord("shift+a").modifiers);
   CHECK_EQ(chord("CtRl+a").modifiers, uint32_t{WLR_MODIFIER_CTRL});
   CHECK(chord("MOD+a").useMod);
 }
 
-UMBRIEL_TEST(modIsDistinctFromExplicitSuper) {
+ANDROMEDA_TEST(modIsDistinctFromExplicitSuper) {
   const Keybind withMod = chord("Mod+a");
   const Keybind withSuper = chord("Super+a");
   CHECK(withMod.useMod);
@@ -59,7 +59,7 @@ UMBRIEL_TEST(modIsDistinctFromExplicitSuper) {
   CHECK(!withSuper.useMod);
   CHECK_EQ(withSuper.modifiers, uint32_t{WLR_MODIFIER_LOGO});
 }
-UMBRIEL_TEST(parsesModifierOnlyBinds) {
+ANDROMEDA_TEST(parsesModifierOnlyBinds) {
   const Keybind withMod = chord("Mod");
   CHECK(withMod.modifierOnly);
   CHECK(withMod.useMod);
@@ -75,13 +75,13 @@ UMBRIEL_TEST(parsesModifierOnlyBinds) {
   CHECK_EQ(chord("Win").modifiers, uint32_t{WLR_MODIFIER_LOGO});
 }
 
-UMBRIEL_TEST(rejectsModifierOnlyCombinations) {
+ANDROMEDA_TEST(rejectsModifierOnlyCombinations) {
   Keybind bind;
   CHECK(!parseChord("Ctrl+Alt", bind));
   CHECK(!parseChord("Mod+Shift", bind));
 }
 
-UMBRIEL_TEST(combinesMultipleModifiers) {
+ANDROMEDA_TEST(combinesMultipleModifiers) {
   const Keybind bind = chord("Mod+Ctrl+Shift+q");
   CHECK(bind.useMod);
   CHECK_EQ(bind.modifiers, uint32_t{WLR_MODIFIER_CTRL | WLR_MODIFIER_SHIFT});
@@ -89,12 +89,12 @@ UMBRIEL_TEST(combinesMultipleModifiers) {
 }
 
 // parseChord: keys
-UMBRIEL_TEST(keysymsAreLowercased) {
+ANDROMEDA_TEST(keysymsAreLowercased) {
   CHECK_EQ(chord("Mod+A").keysym, uint32_t{XKB_KEY_a});
   CHECK_EQ(chord("Mod+a").keysym, uint32_t{XKB_KEY_a});
 }
 
-UMBRIEL_TEST(parsesNamedAndBareKeys) {
+ANDROMEDA_TEST(parsesNamedAndBareKeys) {
   CHECK_EQ(chord("Escape").keysym, uint32_t{XKB_KEY_Escape});
   CHECK_EQ(chord("Mod+Return").keysym, uint32_t{XKB_KEY_Return});
   CHECK_EQ(chord("Mod+comma").keysym, uint32_t{XKB_KEY_comma});
@@ -102,7 +102,7 @@ UMBRIEL_TEST(parsesNamedAndBareKeys) {
   CHECK_EQ(chord("Mod+KP_1").keysym, uint32_t{XKB_KEY_KP_1});
 }
 
-UMBRIEL_TEST(parsesXf86KeysWithModifiers) {
+ANDROMEDA_TEST(parsesXf86KeysWithModifiers) {
   CHECK_EQ(chord("XF86AudioMute").keysym, uint32_t{XKB_KEY_XF86AudioMute});
 
   const Keybind modMute = chord("Mod+XF86AudioMute");
@@ -114,7 +114,7 @@ UMBRIEL_TEST(parsesXf86KeysWithModifiers) {
   CHECK_EQ(modifiedPlay.keysym, uint32_t{XKB_KEY_XF86AudioPlay});
 }
 
-UMBRIEL_TEST(rejectsUnknownKeysyms) {
+ANDROMEDA_TEST(rejectsUnknownKeysyms) {
   Keybind bind;
   CHECK(!parseChord("Mod+NotAKey", bind));
   CHECK(!parseChord("Mod+", bind));
@@ -124,7 +124,7 @@ UMBRIEL_TEST(rejectsUnknownKeysyms) {
   CHECK(!parseChord("Bogus+a", bind)); // unknown modifier
 }
 
-UMBRIEL_TEST(failedParseLeavesBindDefaulted) {
+ANDROMEDA_TEST(failedParseLeavesBindDefaulted) {
   Keybind bind;
   CHECK(parseChord("Mod+Shift+a", bind));
   CHECK(!parseChord("Mod+NotAKey", bind));
@@ -135,7 +135,7 @@ UMBRIEL_TEST(failedParseLeavesBindDefaulted) {
 }
 
 // parseChord: wheel and mouse
-UMBRIEL_TEST(parsesWheelDirections) {
+ANDROMEDA_TEST(parsesWheelDirections) {
   CHECK(chord("Mod+WheelUp").wheel == WheelDirection::Up);
   CHECK(chord("Mod+WheelDown").wheel == WheelDirection::Down);
   CHECK(chord("Mod+WheelLeft").wheel == WheelDirection::Left);
@@ -143,7 +143,7 @@ UMBRIEL_TEST(parsesWheelDirections) {
   CHECK_EQ(chord("Mod+WheelUp").keysym, uint32_t{0});
 }
 
-UMBRIEL_TEST(parsesMouseButtons) {
+ANDROMEDA_TEST(parsesMouseButtons) {
   CHECK_EQ(chord("Mod+MouseLeft").mouseButton, uint32_t{BTN_LEFT});
   CHECK_EQ(chord("Mod+MouseRight").mouseButton, uint32_t{BTN_RIGHT});
   CHECK_EQ(chord("Mod+MouseMiddle").mouseButton, uint32_t{BTN_MIDDLE});
@@ -151,13 +151,13 @@ UMBRIEL_TEST(parsesMouseButtons) {
   CHECK_EQ(chord("Mod+MouseForward").mouseButton, uint32_t{BTN_EXTRA});
 }
 
-UMBRIEL_TEST(parsesLayoutScrollDragAction) {
+ANDROMEDA_TEST(parsesLayoutScrollDragAction) {
   Keybind bind;
-  CHECK(umbriel::parseAction("layout-scroll-drag", bind));
+  CHECK(andromeda::parseAction("layout-scroll-drag", bind));
   CHECK(bind.action == KeybindAction::LayoutScrollDrag);
 }
 
-UMBRIEL_TEST(rejectsBareWheelAndMouseBinds) {
+ANDROMEDA_TEST(rejectsBareWheelAndMouseBinds) {
   // An unmodified wheel or button bind would swallow all client input.
   Keybind bind;
   CHECK(!parseChord("WheelUp", bind));
@@ -165,16 +165,16 @@ UMBRIEL_TEST(rejectsBareWheelAndMouseBinds) {
 }
 
 // parseChord: submaps
-UMBRIEL_TEST(parsesSubmapPrefix) {
+ANDROMEDA_TEST(parsesSubmapPrefix) {
   const Keybind bind = chord("submap[resize],Mod+h");
   CHECK_EQ(bind.submap, std::string{"resize"});
   CHECK(bind.useMod);
   CHECK_EQ(bind.keysym, uint32_t{XKB_KEY_h});
 }
 
-UMBRIEL_TEST(submapCommaIsOptional) { CHECK_EQ(chord("submap[resize]Escape").submap, std::string{"resize"}); }
+ANDROMEDA_TEST(submapCommaIsOptional) { CHECK_EQ(chord("submap[resize]Escape").submap, std::string{"resize"}); }
 
-UMBRIEL_TEST(rejectsMalformedSubmapPrefix) {
+ANDROMEDA_TEST(rejectsMalformedSubmapPrefix) {
   Keybind bind;
   CHECK(!parseChord("submap[resize", bind));   // unterminated
   CHECK(!parseChord("submap[],Escape", bind)); // empty name
@@ -183,7 +183,7 @@ UMBRIEL_TEST(rejectsMalformedSubmapPrefix) {
 }
 
 // parseAction
-UMBRIEL_TEST(parsesSimpleActions) {
+ANDROMEDA_TEST(parsesSimpleActions) {
   Keybind bind;
   CHECK(parseAction("window-close", bind));
   CHECK(bind.action == KeybindAction::WindowClose);
@@ -196,16 +196,16 @@ UMBRIEL_TEST(parsesSimpleActions) {
   CHECK(bind.action == KeybindAction::SessionQuit);
 }
 
-UMBRIEL_TEST(parsesSessionQuitConfirmation) {
+ANDROMEDA_TEST(parsesSessionQuitConfirmation) {
   Keybind bind;
   CHECK(parseAction("session-quit", bind));
   CHECK(bind.action == KeybindAction::SessionQuit);
-  const auto* plain = umbriel::payloadIf<umbriel::QuitArg>(bind);
+  const auto* plain = andromeda::payloadIf<andromeda::QuitArg>(bind);
   CHECK(plain != nullptr);
   CHECK(plain == nullptr || !plain->skipConfirmation);
 
   CHECK(parseAction("session-quit:skip-confirmation", bind));
-  const auto* skip = umbriel::payloadIf<umbriel::QuitArg>(bind);
+  const auto* skip = andromeda::payloadIf<andromeda::QuitArg>(bind);
   CHECK(skip != nullptr);
   CHECK(skip == nullptr || skip->skipConfirmation);
 
@@ -213,51 +213,51 @@ UMBRIEL_TEST(parsesSessionQuitConfirmation) {
   CHECK(!parseAction("session-quit:", bind));
 }
 
-UMBRIEL_TEST(parsesCommandActions) {
+ANDROMEDA_TEST(parsesCommandActions) {
   Keybind bind;
   CHECK(parseAction("spawn:foot -e htop", bind));
   CHECK(bind.action == KeybindAction::Spawn);
-  const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind);
+  const auto* spawn = andromeda::payloadIf<andromeda::SpawnArg>(bind);
   CHECK(spawn != nullptr);
   CHECK_EQ(spawn != nullptr ? spawn->command : std::string{}, std::string{"foot -e htop"});
 }
 
-UMBRIEL_TEST(submapNoLongerSharesStorageWithSpawn) {
+ANDROMEDA_TEST(submapNoLongerSharesStorageWithSpawn) {
   // A submap name and a shell command live in separate fields.
   Keybind bind;
   CHECK(parseAction("submap:resize", bind));
   CHECK(bind.action == KeybindAction::Submap);
-  const auto* submap = umbriel::payloadIf<umbriel::SubmapArg>(bind);
+  const auto* submap = andromeda::payloadIf<andromeda::SubmapArg>(bind);
   CHECK(submap != nullptr);
   CHECK_EQ(submap != nullptr ? submap->name : std::string{}, std::string{"resize"});
-  CHECK(umbriel::payloadIf<umbriel::SpawnArg>(bind) == nullptr);
+  CHECK(andromeda::payloadIf<andromeda::SpawnArg>(bind) == nullptr);
 
   CHECK(!parseAction("submap", bind));
   CHECK(!parseAction("submap:", bind));
   CHECK(!parseAction("submap:invalid]name", bind));
 
   CHECK(parseAction("spawn:resize", bind));
-  CHECK(umbriel::payloadIf<umbriel::SubmapArg>(bind) == nullptr);
+  CHECK(andromeda::payloadIf<andromeda::SubmapArg>(bind) == nullptr);
 }
 
-UMBRIEL_TEST(onlyResetPopsASubmap) {
+ANDROMEDA_TEST(onlyResetPopsASubmap) {
   Keybind bind;
   CHECK(parseAction("submap:reset", bind));
-  CHECK(umbriel::isSubmapResetBind(bind));
+  CHECK(andromeda::isSubmapResetBind(bind));
   CHECK(!parseAction("submap:disable", bind));
   CHECK(parseAction("submap:resize", bind));
-  CHECK(!umbriel::isSubmapResetBind(bind));
+  CHECK(!andromeda::isSubmapResetBind(bind));
 
   // Only a submap bind can be a submap reset, whatever its payload says.
   CHECK(parseAction("spawn:reset", bind));
-  CHECK(!umbriel::isSubmapResetBind(bind));
+  CHECK(!andromeda::isSubmapResetBind(bind));
 }
 
-UMBRIEL_TEST(parsesPrimaryExtentFractions) {
+ANDROMEDA_TEST(parsesPrimaryExtentFractions) {
   Keybind bind;
   CHECK(parseAction("window-set-primary-extent:0.5", bind));
   CHECK(bind.action == KeybindAction::WindowSetPrimaryExtent);
-  const auto* width = umbriel::payloadIf<umbriel::FractionArg>(bind);
+  const auto* width = andromeda::payloadIf<andromeda::FractionArg>(bind);
   CHECK(width != nullptr);
   CHECK(width != nullptr && std::fabs(width->fraction - 0.5) < 1e-9);
 
@@ -265,7 +265,7 @@ UMBRIEL_TEST(parsesPrimaryExtentFractions) {
   CHECK(parseAction("window-set-primary-extent:0.1", bind));
 }
 
-UMBRIEL_TEST(rejectsOutOfRangePrimaryExtentFractions) {
+ANDROMEDA_TEST(rejectsOutOfRangePrimaryExtentFractions) {
   Keybind bind;
   CHECK(!parseAction("window-set-primary-extent:0", bind)); // below the 0.1 floor
   CHECK(!parseAction("window-set-primary-extent:0.09", bind));
@@ -277,9 +277,9 @@ UMBRIEL_TEST(rejectsOutOfRangePrimaryExtentFractions) {
   CHECK(!parseAction("window-set-primary-extent:nan", bind));
 }
 
-UMBRIEL_TEST(parsesPrimaryExtentDeltas) {
+ANDROMEDA_TEST(parsesPrimaryExtentDeltas) {
   const auto fraction = [](const Keybind& bind) {
-    const auto* width = umbriel::payloadIf<umbriel::FractionArg>(bind);
+    const auto* width = andromeda::payloadIf<andromeda::FractionArg>(bind);
     return width != nullptr ? width->fraction : 0.0;
   };
 
@@ -295,7 +295,7 @@ UMBRIEL_TEST(parsesPrimaryExtentDeltas) {
   CHECK(std::fabs(fraction(bind) - 0.25) < 1e-9);
 }
 
-UMBRIEL_TEST(rejectsInvalidPrimaryExtentDeltas) {
+ANDROMEDA_TEST(rejectsInvalidPrimaryExtentDeltas) {
   Keybind bind;
   CHECK(!parseAction("window-modify-primary-extent:0", bind));    // zero delta is a no-op
   CHECK(!parseAction("window-modify-primary-extent:1.5", bind));  // above the 0.9 cap
@@ -308,28 +308,28 @@ UMBRIEL_TEST(rejectsInvalidPrimaryExtentDeltas) {
   CHECK(!parseAction("window-modify-primary-extent:nan", bind));
 }
 
-UMBRIEL_TEST(parsesSecondaryExtentActions) {
+ANDROMEDA_TEST(parsesSecondaryExtentActions) {
   Keybind bind;
   CHECK(parseAction("window-set-secondary-extent:0.5", bind));
   CHECK(bind.action == KeybindAction::WindowSetSecondaryExtent);
-  const auto* height = umbriel::payloadIf<umbriel::FractionArg>(bind);
+  const auto* height = andromeda::payloadIf<andromeda::FractionArg>(bind);
   CHECK(height != nullptr);
   CHECK(height != nullptr && std::fabs(height->fraction - 0.5) < 1e-9);
 
   CHECK(parseAction("window-modify-secondary-extent:-0.2", bind));
   CHECK(bind.action == KeybindAction::WindowModifySecondaryExtent);
-  height = umbriel::payloadIf<umbriel::FractionArg>(bind);
+  height = andromeda::payloadIf<andromeda::FractionArg>(bind);
   CHECK(height != nullptr && std::fabs(height->fraction + 0.2) < 1e-9);
 
   CHECK(parseAction("window-modify-secondary-extent:+0.1", bind));
-  height = umbriel::payloadIf<umbriel::FractionArg>(bind);
+  height = andromeda::payloadIf<andromeda::FractionArg>(bind);
   CHECK(height != nullptr && std::fabs(height->fraction - 0.1) < 1e-9);
 
   CHECK(!parseAction("window-set-secondary-extent:0.05", bind));
   CHECK(!parseAction("window-modify-secondary-extent:0", bind));
 }
 
-UMBRIEL_TEST(rejectsRemovedWidthAndHeightActions) {
+ANDROMEDA_TEST(rejectsRemovedWidthAndHeightActions) {
   constexpr std::array<std::string_view, 8> removed{
       "window-cycle-width",   "window-cycle-width-back", "window-cycle-height",     "window-cycle-height-back",
       "window-set-width:0.5", "window-set-height:0.5",   "window-modify-width:0.1", "window-modify-height:0.1",
@@ -340,28 +340,28 @@ UMBRIEL_TEST(rejectsRemovedWidthAndHeightActions) {
   }
 }
 
-UMBRIEL_TEST(parsesLayoutModeActions) {
+ANDROMEDA_TEST(parsesLayoutModeActions) {
   Keybind bind;
   CHECK(parseAction("workspace-set-layout:scrolling", bind));
   CHECK(bind.action == KeybindAction::WorkspaceSetLayout);
-  const auto* scrolling = umbriel::payloadIf<umbriel::LayoutModeArg>(bind);
+  const auto* scrolling = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
   CHECK(scrolling != nullptr);
-  CHECK(scrolling != nullptr && scrolling->mode == umbriel::LayoutMode::Scrolling);
+  CHECK(scrolling != nullptr && scrolling->mode == andromeda::LayoutMode::Scrolling);
 
   CHECK(parseAction("workspace-set-layout:dwindle", bind));
-  const auto* dwindle = umbriel::payloadIf<umbriel::LayoutModeArg>(bind);
-  CHECK(dwindle != nullptr && dwindle->mode == umbriel::LayoutMode::Dwindle);
+  const auto* dwindle = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(dwindle != nullptr && dwindle->mode == andromeda::LayoutMode::Dwindle);
 
   CHECK(parseAction("workspace-set-layout:master", bind));
-  const auto* master = umbriel::payloadIf<umbriel::LayoutModeArg>(bind);
-  CHECK(master != nullptr && master->mode == umbriel::LayoutMode::Master);
+  const auto* master = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(master != nullptr && master->mode == andromeda::LayoutMode::Master);
 
   CHECK(parseAction("workspace-set-layout:toggle", bind));
-  const auto* toggle = umbriel::payloadIf<umbriel::LayoutModeArg>(bind);
+  const auto* toggle = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
   CHECK(toggle != nullptr && !toggle->mode.has_value());
 }
 
-UMBRIEL_TEST(rejectsInvalidLayoutModeActions) {
+ANDROMEDA_TEST(rejectsInvalidLayoutModeActions) {
   Keybind bind;
   CHECK(!parseAction("workspace-set-layout:spiral", bind));    // not a known mode
   CHECK(!parseAction("workspace-set-layout:", bind));          // empty arg
@@ -369,7 +369,7 @@ UMBRIEL_TEST(rejectsInvalidLayoutModeActions) {
   CHECK(!parseAction("workspace-set-layout:Scrolling", bind)); // exact lowercase only
 }
 
-UMBRIEL_TEST(parsesArgumentFreeNewActions) {
+ANDROMEDA_TEST(parsesArgumentFreeNewActions) {
   Keybind bind;
   CHECK(parseAction("workspace-next", bind));
   CHECK(bind.action == KeybindAction::WorkspaceNext);
@@ -457,8 +457,8 @@ UMBRIEL_TEST(parsesArgumentFreeNewActions) {
   CHECK(!parseAction("window-consume-or-expel-right:x", bind));
 }
 
-UMBRIEL_TEST(parsesWorkspaceSelectors) {
-  const auto selector = [](const Keybind& bind) { return umbriel::payloadIf<umbriel::WorkspaceArg>(bind); };
+ANDROMEDA_TEST(parsesWorkspaceSelectors) {
+  const auto selector = [](const Keybind& bind) { return andromeda::payloadIf<andromeda::WorkspaceArg>(bind); };
 
   Keybind bind;
   CHECK(parseAction("workspace-switch:3", bind));
@@ -466,7 +466,7 @@ UMBRIEL_TEST(parsesWorkspaceSelectors) {
   const auto* position = selector(bind);
   CHECK(position != nullptr);
   const auto* positionValue =
-      position != nullptr ? std::get_if<umbriel::WorkspaceIndex>(&position->reference) : nullptr;
+      position != nullptr ? std::get_if<andromeda::WorkspaceIndex>(&position->reference) : nullptr;
   CHECK(positionValue != nullptr);
   CHECK(positionValue != nullptr && positionValue->value == 3);
   CHECK(position != nullptr && position->output.empty());
@@ -474,7 +474,7 @@ UMBRIEL_TEST(parsesWorkspaceSelectors) {
   CHECK(parseAction("workspace-switch:web/DP-1", bind));
   const auto* named = selector(bind);
   CHECK(named != nullptr);
-  const auto* nameValue = named != nullptr ? std::get_if<umbriel::WorkspaceName>(&named->reference) : nullptr;
+  const auto* nameValue = named != nullptr ? std::get_if<andromeda::WorkspaceName>(&named->reference) : nullptr;
   CHECK(nameValue != nullptr);
   CHECK(nameValue != nullptr && nameValue->value == "web");
   CHECK(named != nullptr && named->output == "DP-1");
@@ -482,7 +482,7 @@ UMBRIEL_TEST(parsesWorkspaceSelectors) {
   CHECK(parseAction("window-move-to-workspace:2/HDMI-A-1", bind));
   CHECK(bind.action == KeybindAction::WindowMoveToWorkspace);
   position = selector(bind);
-  positionValue = position != nullptr ? std::get_if<umbriel::WorkspaceIndex>(&position->reference) : nullptr;
+  positionValue = position != nullptr ? std::get_if<andromeda::WorkspaceIndex>(&position->reference) : nullptr;
   CHECK(positionValue != nullptr);
   CHECK(positionValue != nullptr && positionValue->value == 2);
   CHECK(position != nullptr && position->output == "HDMI-A-1");
@@ -490,7 +490,7 @@ UMBRIEL_TEST(parsesWorkspaceSelectors) {
   CHECK(parseAction("window-move-to-workspace-silent:2/HDMI-A-1", bind));
   CHECK(bind.action == KeybindAction::WindowMoveToWorkspaceSilent);
   position = selector(bind);
-  positionValue = position != nullptr ? std::get_if<umbriel::WorkspaceIndex>(&position->reference) : nullptr;
+  positionValue = position != nullptr ? std::get_if<andromeda::WorkspaceIndex>(&position->reference) : nullptr;
   CHECK(positionValue != nullptr);
   CHECK(positionValue != nullptr && positionValue->value == 2);
   CHECK(position != nullptr && position->output == "HDMI-A-1");
@@ -498,19 +498,19 @@ UMBRIEL_TEST(parsesWorkspaceSelectors) {
   CHECK(parseAction("column-move-to-workspace:\"2\"/DP-1", bind));
   CHECK(bind.action == KeybindAction::ColumnMoveToWorkspace);
   named = selector(bind);
-  nameValue = named != nullptr ? std::get_if<umbriel::WorkspaceName>(&named->reference) : nullptr;
+  nameValue = named != nullptr ? std::get_if<andromeda::WorkspaceName>(&named->reference) : nullptr;
   CHECK(nameValue != nullptr);
   CHECK(nameValue != nullptr && nameValue->value == "2");
   CHECK(named != nullptr && named->output == "DP-1");
 
   CHECK(parseAction("workspace-switch:name:2", bind));
   named = selector(bind);
-  nameValue = named != nullptr ? std::get_if<umbriel::WorkspaceName>(&named->reference) : nullptr;
+  nameValue = named != nullptr ? std::get_if<andromeda::WorkspaceName>(&named->reference) : nullptr;
   CHECK(nameValue != nullptr);
   CHECK(nameValue != nullptr && nameValue->value == "name:2");
 }
 
-UMBRIEL_TEST(rejectsMalformedWorkspaceSelectors) {
+ANDROMEDA_TEST(rejectsMalformedWorkspaceSelectors) {
   Keybind bind;
   CHECK(!parseAction("workspace-switch:", bind));      // no selector
   CHECK(!parseAction("workspace-switch:/DP-1", bind)); // empty workspace
@@ -525,9 +525,9 @@ UMBRIEL_TEST(rejectsMalformedWorkspaceSelectors) {
   CHECK(!parseAction("column-move-to-workspace:/DP-1", bind));
 }
 
-UMBRIEL_TEST(parsesOptionalOutputActions) {
+ANDROMEDA_TEST(parsesOptionalOutputActions) {
   const auto outputOf = [](const Keybind& bind) {
-    const auto* arg = umbriel::payloadIf<umbriel::OutputArg>(bind);
+    const auto* arg = andromeda::payloadIf<andromeda::OutputArg>(bind);
     return arg != nullptr ? arg->output : std::string{};
   };
 
@@ -562,9 +562,9 @@ UMBRIEL_TEST(parsesOptionalOutputActions) {
   CHECK(!parseAction("output-toggle", bind));
 }
 
-UMBRIEL_TEST(parsesOptionalScratchpadActions) {
+ANDROMEDA_TEST(parsesOptionalScratchpadActions) {
   const auto scratchpadOf = [](const Keybind& bind) {
-    const auto* arg = umbriel::payloadIf<umbriel::ScratchpadArg>(bind);
+    const auto* arg = andromeda::payloadIf<andromeda::ScratchpadArg>(bind);
     return arg != nullptr ? arg->name : std::string{};
   };
 
@@ -573,8 +573,8 @@ UMBRIEL_TEST(parsesOptionalScratchpadActions) {
   CHECK(bind.action == KeybindAction::ScratchpadToggle);
   // The alternative is present even with no name, so the payload still says
   // which action shape it belongs to.
-  CHECK(umbriel::payloadIf<umbriel::ScratchpadArg>(bind) != nullptr);
-  CHECK(umbriel::payloadIf<umbriel::OutputArg>(bind) == nullptr);
+  CHECK(andromeda::payloadIf<andromeda::ScratchpadArg>(bind) != nullptr);
+  CHECK(andromeda::payloadIf<andromeda::OutputArg>(bind) == nullptr);
   CHECK(scratchpadOf(bind).empty());
 
   CHECK(parseAction("scratchpad-toggle:terminal", bind));
@@ -596,7 +596,7 @@ UMBRIEL_TEST(parsesOptionalScratchpadActions) {
   CHECK(!parseAction("scratchpad-toggle:", bind));
 }
 
-UMBRIEL_TEST(parsesWindowIdActions) {
+ANDROMEDA_TEST(parsesWindowIdActions) {
   Keybind bind;
   CHECK(parseAction("screencast-clear", bind));
   CHECK(bind.action == KeybindAction::ScreenCastClear);
@@ -608,29 +608,29 @@ UMBRIEL_TEST(parsesWindowIdActions) {
   CHECK(bind.action == KeybindAction::ScreenCastFollowStop);
   CHECK(parseAction("screencast-set-window", bind));
   CHECK(bind.action == KeybindAction::ScreenCastSetWindow);
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{});
   CHECK(parseAction("screencast-set-window:abc123", bind));
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
   CHECK(!parseAction("dynamic-cast-window", bind));
   CHECK(!parseAction("dynamic-cast-output", bind));
   CHECK(!parseAction("dynamic-cast-clear", bind));
   CHECK(parseAction("window-close", bind));
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{});
   CHECK(parseAction("window-close:abc123", bind));
   CHECK(bind.action == KeybindAction::WindowClose);
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
   CHECK(parseAction("window-focus:abc123", bind));
   CHECK(bind.action == KeybindAction::WindowFocusId);
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
   CHECK(parseAction("window-focus-warp:abc123", bind));
   CHECK(bind.action == KeybindAction::WindowFocusWarpId);
-  CHECK_EQ(umbriel::payloadIf<umbriel::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
 }
 
-UMBRIEL_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
+ANDROMEDA_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
   // The whole point of the variant: the spec's argKind and the payload the
   // parser produces cannot drift apart.
-  for (const auto& spec : umbriel::actionSpecs()) {
+  for (const auto& spec : andromeda::actionSpecs()) {
     Keybind bind;
     std::string input(spec.name);
     switch (spec.argKind) {
@@ -670,39 +670,39 @@ UMBRIEL_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
       break;
     case ActionArgKind::Command:
       CHECK(
-          umbriel::payloadIf<umbriel::SpawnArg>(bind) != nullptr
-          || umbriel::payloadIf<umbriel::SubmapArg>(bind) != nullptr
+          andromeda::payloadIf<andromeda::SpawnArg>(bind) != nullptr
+          || andromeda::payloadIf<andromeda::SubmapArg>(bind) != nullptr
       );
       break;
     case ActionArgKind::Fraction:
     case ActionArgKind::FractionDelta:
-      CHECK(umbriel::payloadIf<umbriel::FractionArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::FractionArg>(bind) != nullptr);
       break;
     case ActionArgKind::LayoutMode:
-      CHECK(umbriel::payloadIf<umbriel::LayoutModeArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::LayoutModeArg>(bind) != nullptr);
       break;
     case ActionArgKind::Workspace:
-      CHECK(umbriel::payloadIf<umbriel::WorkspaceArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::WorkspaceArg>(bind) != nullptr);
       break;
     case ActionArgKind::Output:
     case ActionArgKind::OptionalOutput:
-      CHECK(umbriel::payloadIf<umbriel::OutputArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::OutputArg>(bind) != nullptr);
       break;
     case ActionArgKind::OptionalScratchpad:
-      CHECK(umbriel::payloadIf<umbriel::ScratchpadArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::ScratchpadArg>(bind) != nullptr);
       break;
     case ActionArgKind::WindowId:
     case ActionArgKind::OptionalWindowId:
-      CHECK(umbriel::payloadIf<umbriel::WindowIdArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::WindowIdArg>(bind) != nullptr);
       break;
     case ActionArgKind::SkipConfirmation:
-      CHECK(umbriel::payloadIf<umbriel::QuitArg>(bind) != nullptr);
+      CHECK(andromeda::payloadIf<andromeda::QuitArg>(bind) != nullptr);
       break;
     }
   }
 }
 
-UMBRIEL_TEST(rejectsUnknownActions) {
+ANDROMEDA_TEST(rejectsUnknownActions) {
   Keybind bind;
   CHECK(!parseAction("", bind));
   CHECK(!parseAction("not-an-action", bind));
@@ -716,10 +716,10 @@ UMBRIEL_TEST(rejectsUnknownActions) {
 }
 
 // action spec table
-UMBRIEL_TEST(everyActionSpecRoundTripsThroughParseAction) {
+ANDROMEDA_TEST(everyActionSpecRoundTripsThroughParseAction) {
   // The registry is duplicated across the enum, this table, and the dispatch
   // switch. At minimum, every advertised name must parse back to its action.
-  for (const auto& spec : umbriel::actionSpecs()) {
+  for (const auto& spec : andromeda::actionSpecs()) {
     Keybind bind;
     std::string input(spec.name);
     switch (spec.argKind) {
@@ -759,20 +759,20 @@ UMBRIEL_TEST(everyActionSpecRoundTripsThroughParseAction) {
   }
 }
 
-UMBRIEL_TEST(actionSpecNamesAreUniqueAndSorted) {
-  const auto specs = umbriel::actionSpecs();
+ANDROMEDA_TEST(actionSpecNamesAreUniqueAndSorted) {
+  const auto specs = andromeda::actionSpecs();
   CHECK(!specs.empty());
-  CHECK(std::ranges::is_sorted(specs, {}, &umbriel::ActionSpec::name));
+  CHECK(std::ranges::is_sorted(specs, {}, &andromeda::ActionSpec::name));
   for (size_t i = 1; i < specs.size(); ++i) {
     CHECK(specs[i - 1].name != specs[i].name);
   }
 }
 
-UMBRIEL_TEST(everyActionHasASpec) {
+ANDROMEDA_TEST(everyActionHasASpec) {
   // actions.cpp guards the handler table with a consteval check; this guards the name table, so no action is
   // unbindable and unreachable over IPC.
   std::array<bool, static_cast<size_t>(KeybindAction::Count)> named{};
-  for (const auto& spec : umbriel::actionSpecs()) {
+  for (const auto& spec : andromeda::actionSpecs()) {
     named[static_cast<size_t>(spec.action)] = true;
   }
   // Enumerator 0 is None, which is never bindable. On failure the reported
@@ -787,8 +787,8 @@ UMBRIEL_TEST(everyActionHasASpec) {
   CHECK_EQ(firstUnnamed, named.size());
 }
 
-UMBRIEL_TEST(parameterizedSpecsDeclareAParam) {
-  for (const auto& spec : umbriel::actionSpecs()) {
+ANDROMEDA_TEST(parameterizedSpecsDeclareAParam) {
+  for (const auto& spec : andromeda::actionSpecs()) {
     if (spec.argKind == ActionArgKind::None) {
       CHECK(spec.param.empty());
     } else {
@@ -797,10 +797,10 @@ UMBRIEL_TEST(parameterizedSpecsDeclareAParam) {
   }
 }
 
-UMBRIEL_TEST(everySpecHasAOneLineSummary) {
-  // `umbriel msg --help` and docs/user/actions.md print these verbatim in a table cell, so a missing, multi-line, or
+ANDROMEDA_TEST(everySpecHasAOneLineSummary) {
+  // `andromeda msg --help` and docs/user/actions.md print these verbatim in a table cell, so a missing, multi-line, or
   // sentence-shaped summary shows up as broken output rather than a prose choice.
-  for (const auto& spec : umbriel::actionSpecs()) {
+  for (const auto& spec : andromeda::actionSpecs()) {
     CHECK(!spec.summary.empty());
     CHECK(spec.summary.size() <= 60);
     CHECK(!spec.summary.ends_with('.'));
@@ -811,8 +811,8 @@ UMBRIEL_TEST(everySpecHasAOneLineSummary) {
 }
 
 // defaults
-UMBRIEL_TEST(defaultKeybindsAreUsable) {
-  const auto binds = umbriel::defaultKeybinds();
+ANDROMEDA_TEST(defaultKeybindsAreUsable) {
+  const auto binds = andromeda::defaultKeybinds();
   CHECK(!binds.empty());
 
   // Every default is Mod-based, so a bare keystroke always reaches the client.
@@ -841,10 +841,10 @@ UMBRIEL_TEST(defaultKeybindsAreUsable) {
   CHECK_EQ(switches, 18);
 }
 
-// Every name `umbriel msg --help` and the keybind reader advertise must round-trip through parseAction with an
+// Every name `andromeda msg --help` and the keybind reader advertise must round-trip through parseAction with an
 // argument of the kind its spec declares, and its help text must describe that same argument. The enum, kActionSpecs,
 // and parseAction's switch must agree.
-UMBRIEL_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
+ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
   const auto sampleFor = [](ActionArgKind kind) -> std::string {
     switch (kind) {
     case ActionArgKind::None:
@@ -905,7 +905,7 @@ UMBRIEL_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
   };
 
   size_t swept = 0;
-  for (const ActionSpec& spec : umbriel::actionSpecs()) {
+  for (const ActionSpec& spec : andromeda::actionSpecs()) {
     Keybind bind;
     const std::string text = std::string(spec.name) + sampleFor(spec.argKind);
     CHECK(parseAction(text, bind));

@@ -2,21 +2,21 @@
 
 #include "check.h"
 
-using umbriel::DeferredUnfullscreen;
-using umbriel::FullscreenRequestDisposition;
+using andromeda::DeferredUnfullscreen;
+using andromeda::FullscreenRequestDisposition;
 
 namespace {
   using namespace std::chrono_literals;
   constexpr DeferredUnfullscreen::TimePoint kStart{};
 } // namespace
 
-UMBRIEL_TEST(inactiveUnfullscreenRequestIsParked) {
+ANDROMEDA_TEST(inactiveUnfullscreenRequestIsParked) {
   DeferredUnfullscreen state;
   CHECK(state.observeClientRequest(false, false, true, kStart) == FullscreenRequestDisposition::Park);
   CHECK(state.pending());
 }
 
-UMBRIEL_TEST(activationConsumesAFreshParkedRequest) {
+ANDROMEDA_TEST(activationConsumesAFreshParkedRequest) {
   DeferredUnfullscreen state;
   static_cast<void>(state.observeClientRequest(false, false, true, kStart));
   CHECK(state.takeOnActivation(kStart + DeferredUnfullscreen::kGrace));
@@ -24,14 +24,14 @@ UMBRIEL_TEST(activationConsumesAFreshParkedRequest) {
   CHECK(!state.takeOnActivation(kStart + DeferredUnfullscreen::kGrace));
 }
 
-UMBRIEL_TEST(expiredParkedRequestIsDiscarded) {
+ANDROMEDA_TEST(expiredParkedRequestIsDiscarded) {
   DeferredUnfullscreen state;
   static_cast<void>(state.observeClientRequest(false, false, true, kStart));
   CHECK(!state.takeOnActivation(kStart + DeferredUnfullscreen::kGrace + 1ms));
   CHECK(!state.pending());
 }
 
-UMBRIEL_TEST(laterFullscreenRequestSupersedesParkedUnfullscreen) {
+ANDROMEDA_TEST(laterFullscreenRequestSupersedesParkedUnfullscreen) {
   DeferredUnfullscreen state;
   static_cast<void>(state.observeClientRequest(false, false, true, kStart));
   CHECK(state.observeClientRequest(true, false, true, kStart + 1ms) == FullscreenRequestDisposition::Acknowledge);
@@ -39,7 +39,7 @@ UMBRIEL_TEST(laterFullscreenRequestSupersedesParkedUnfullscreen) {
   CHECK(!state.takeOnActivation(kStart + 2ms));
 }
 
-UMBRIEL_TEST(applyingAnotherRequestClearsParkedUnfullscreen) {
+ANDROMEDA_TEST(applyingAnotherRequestClearsParkedUnfullscreen) {
   DeferredUnfullscreen state;
   static_cast<void>(state.observeClientRequest(false, false, true, kStart));
   CHECK(state.observeClientRequest(true, true, false, kStart + 1ms) == FullscreenRequestDisposition::Apply);

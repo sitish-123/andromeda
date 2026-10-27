@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Mirroring a phone's screen, headless: the phone streams an H.264 file of SMPTE bars (umbriel-link-phone
-# --mirror-file, as the app streams its encoder's output) and umbriel-link-mirror --frames decodes what OpenMirror
+# Mirroring a phone's screen, headless: the phone streams an H.264 file of SMPTE bars (andromeda-link-phone
+# --mirror-file, as the app streams its encoder's output) and andromeda-link-mirror --frames decodes what OpenMirror
 # hands it into PNG files.
 #
 # Proves:
@@ -60,13 +60,13 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-XDG_STATE_HOME=$RUNTIME/desktop RUST_LOG=info "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+XDG_STATE_HOME=$RUNTIME/desktop RUST_LOG=info "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
-phone() { in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone "$@"; }
-viewer() { "$BIN/umbriel-link-mirror" "$ID" --frames "$OUT/frames" "$@"; }
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
+phone() { in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone "$@"; }
+viewer() { "$BIN/andromeda-link-mirror" "$ID" --frames "$OUT/frames" "$@"; }
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
 
 gst-launch-1.0 -q videotestsrc num-buffers=60 pattern=smpte \
@@ -76,7 +76,7 @@ gst-launch-1.0 -q videotestsrc num-buffers=60 pattern=smpte \
 
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
 phone pair --code "$CODE" --addr "10.81.0.1:$PORT" > /dev/null 2>> "$OUT/hold.log" || fail "pairing"
-ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["peers"][0]["id"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["peers"][0]["id"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 hold() {
   phone --mirror-file "$RUNTIME/bars.h264" --mirror-size 720x1280 hold >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
   HOLD=$!
@@ -151,29 +151,29 @@ PY
 grep -q '"type":"mirror-keyframe"' "$OUT/hold.jsonl" || fail "the keyframe request did not reach the phone"
 record '{"step":"input-reaches-phone","actions":["tap","swipe","scroll","text","back"],"out_of_range":"rejected"}'
 STOPS=$(grep -c '"event":"mirror-stop"' "$OUT/hold.jsonl" || true)
-pkill -f -- "umbriel-link-mirror $ID --frames" || true
+pkill -f -- "andromeda-link-mirror $ID --frames" || true
 wait "$VIEWER" 2> /dev/null || true
 wait_for 10 "closing the second viewer did not stop the phone" \
   eval '(( $(grep -c "\"event\":\"mirror-stop\"" "$OUT/hold.jsonl") > STOPS ))'
 
-# The window itself, when gtk4paintablesink is installed: a headless Umbriel in this namespace, the viewer in it, and a
+# The window itself, when gtk4paintablesink is installed: a headless Andromeda in this namespace, the viewer in it, and a
 # screenshot that must show the bars.
 if gst-inspect-1.0 gtk4paintablesink > /dev/null 2>&1; then
   WL=$RUNTIME/wl
   mkdir -p "$WL"
   chmod 700 "$WL"
-  printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$WL/umbriel.toml"
+  printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$WL/andromeda.toml"
   env -u WAYLAND_DISPLAY -u DISPLAY XDG_RUNTIME_DIR="$WL" WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 \
-    WLR_HEADLESS_OUTPUTS=1 "${UMBRIEL:-$ROOT/compositor/build-debug/umbriel}" -c "$WL/umbriel.toml" \
-    > "$OUT/umbriel.log" 2>&1 &
-  wait_for 10 "umbriel did not start" test -S "$WL/wayland-0"
+    WLR_HEADLESS_OUTPUTS=1 "${ANDROMEDA:-$ROOT/compositor/build-debug/andromeda}" -c "$WL/andromeda.toml" \
+    > "$OUT/andromeda.log" 2>&1 &
+  wait_for 10 "andromeda did not start" test -S "$WL/wayland-0"
   in_session() { env -u DISPLAY XDG_RUNTIME_DIR="$WL" WAYLAND_DISPLAY=wayland-0 "$@"; }
   STOPS=$(grep -c '"event":"mirror-stop"' "$OUT/hold.jsonl" || true)
-  in_session "$BIN/umbriel-link-mirror" "$ID" --name Phone >> "$OUT/viewer.log" 2>&1 &
+  in_session "$BIN/andromeda-link-mirror" "$ID" --name Phone >> "$OUT/viewer.log" 2>&1 &
   WINDOW=$!
   sleep 4 # real time: the window maps, the decoder starts, and a keyframe arrives
   in_session grim "$OUT/window.png"
-  pkill -f -- "umbriel-link-mirror $ID --name" || true
+  pkill -f -- "andromeda-link-mirror $ID --name" || true
   wait "$WINDOW" 2> /dev/null || true
   python3 - "$OUT/window.png" <<'PY' || fail "the window does not show the bars"
 import subprocess, sys

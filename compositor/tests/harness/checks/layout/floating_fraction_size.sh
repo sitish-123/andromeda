@@ -5,9 +5,9 @@
 # snapshot, so no custom mode here.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -28,10 +28,10 @@ default_floating = true
 default_floating_size_px = { width = 300, height = 200 }
 default_floating_size = { width = 0.9, height = 0.9 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
@@ -49,7 +49,7 @@ wait_for_field() {
 # The client adopts every configured size, so IPC geometry reports what the
 # compositor asked for, overriding its own 800x600 preference.
 for title in frac-only frac-width-only frac-vs-pixels; do
-  "$CLIENT" "$title" > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
 done
 
 # Both axes: 0.5 of 1280x720.

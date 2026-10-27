@@ -8,17 +8,17 @@
 # harness: outputs=2
 set -euo pipefail
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation.windows_move]
 enabled = true
 duration_ms = 5000
 curve = "linear"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/pinned-output-hotplug-client.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/pinned-output-hotplug-client.log"
 
 env REDRAW_ON_CLOSE=1 "$CLIENT" pinned-output-hotplug 1200 700 > "$CLIENT_LOG" 2>&1 &
 
@@ -31,22 +31,22 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-window_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "pinned-output-hotplug") | .id')
+window_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "pinned-output-hotplug") | .id')
 if [[ -z $window_id ]]; then
   echo "could not resolve the pinned window id"
   exit 1
 fi
-"$UMBRIEL" msg "window-focus:$window_id" > /dev/null
-"$UMBRIEL" msg window-move-to-workspace:1/HEADLESS-1 > /dev/null
-"$UMBRIEL" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg "window-focus:$window_id" > /dev/null
+"$ANDROMEDA" msg window-move-to-workspace:1/HEADLESS-1 > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
 before=$(
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -c --arg id "$window_id" '.[] | select(.id == $id) | {x, y, w, h, floating}'
 )
 
-"$UMBRIEL" output-destroy HEADLESS-1 > /dev/null
-"$UMBRIEL" output-destroy HEADLESS-2 > /dev/null
-"$UMBRIEL" msg "window-close:$window_id" > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-1 > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-2 > /dev/null
+"$ANDROMEDA" msg "window-close:$window_id" > /dev/null
 for _ in $(seq 60); do
   grep -q '^redrawn$' "$CLIENT_LOG" && break
   sleep 0.1
@@ -56,26 +56,26 @@ if ! grep -q '^redrawn$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-created=$("$UMBRIEL" output-create HEADLESS-2)
+created=$("$ANDROMEDA" output-create HEADLESS-2)
 if [[ $created != HEADLESS-2 ]]; then
   echo "expected the first recreated output to be named HEADLESS-2, got '$created'"
   exit 1
 fi
-"$UMBRIEL" output-create HEADLESS-1 > /dev/null
+"$ANDROMEDA" output-create HEADLESS-1 > /dev/null
 
 workspace=
 for _ in $(seq 60); do
-  workspace=$("$UMBRIEL" windows --json | jq -r --arg id "$window_id" '.[] | select(.id == $id) | .workspace')
+  workspace=$("$ANDROMEDA" windows --json | jq -r --arg id "$window_id" '.[] | select(.id == $id) | .workspace')
   [[ $workspace == HEADLESS-1:* ]] && break
   sleep 0.1
 done
 if [[ $workspace != HEADLESS-1:* ]]; then
-  echo "pinned window did not return to the recreated output: $("$UMBRIEL" windows --json)"
+  echo "pinned window did not return to the recreated output: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
 after=$(
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -c --arg id "$window_id" '.[] | select(.id == $id) | {x, y, w, h, floating}'
 )
 if [[ $after != "$before" ]]; then

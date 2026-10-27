@@ -51,7 +51,7 @@ void HotCorners::initialize(WaylandConnection& wayland, ConfigService* config, R
   m_config = config;
   m_renderContext = renderContext;
   const auto [name, version] = wayland.desktopSettingsGlobal();
-  if (compositors::isUmbriel() && name != 0 && config != nullptr && config->config().hotCorners.enabled) {
+  if (compositors::isAndromeda() && name != 0 && config != nullptr && config->config().hotCorners.enabled) {
     m_migration = std::make_unique<SettingsControl>(wayland.registry(), name, version, [this]() {
       if (m_migration != nullptr && m_migration->ready() && !std::exchange(m_migrated, true)) {
         migrateToCompositor();
@@ -62,7 +62,7 @@ void HotCorners::initialize(WaylandConnection& wayland, ConfigService* config, R
 }
 
 bool HotCorners::active() const {
-  return m_config != nullptr && m_config->config().hotCorners.enabled && !compositors::isUmbriel();
+  return m_config != nullptr && m_config->config().hotCorners.enabled && !compositors::isAndromeda();
 }
 
 void HotCorners::migrateToCompositor() {

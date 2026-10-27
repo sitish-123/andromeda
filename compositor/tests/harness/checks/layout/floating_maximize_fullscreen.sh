@@ -8,13 +8,13 @@
 # snapshot, so no custom mode here.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/float-maximize-fullscreen.log"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/float-maximize-fullscreen.log"
 
 # Animations off, as elsewhere: an animated move settles on the target pixel
 # only to within rounding, so asserting an exact origin while one runs is
 # flaky. The stranded size this covers does not need one.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -24,10 +24,10 @@ match.title = "^float-fs-maximize$"
 default_floating = true
 default_floating_size = { width = 0.5, height = 0.5 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
@@ -43,7 +43,7 @@ wait_for_field() {
 }
 
 box_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r '.[] | select(.title == "float-fs-maximize") | "\(.w)x\(.h)+\(.x)+\(.y)"'
 }
 
@@ -69,26 +69,26 @@ assert_box() {
 wait_for_field float-fs-maximize floating true
 assert_box 640 360 320 180
 
-"$UMBRIEL" msg "window-focus-warp:$(field_of float-fs-maximize id)" > /dev/null
+"$ANDROMEDA" msg "window-focus-warp:$(field_of float-fs-maximize id)" > /dev/null
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 assert_box 1280 720 0 0
 
 # Maximizing out of fullscreen fills the usable area, which looks identical to
 # fullscreen. The transition that matters is the next one.
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box 1280 720 0 0
 
 # Unmaximizing has to land on the pre-fullscreen box. A restore box captured
 # from the leaving geometry keeps 1280x720 here, and the window can never get
 # back to its own size.
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box 640 360 320 180
 
 # Still a working toggle afterwards, rather than a one-way trip.
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box 1280 720 0 0
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box 640 360 320 180
 
 echo "maximizing a fullscreen float restores the box it had before fullscreen"

@@ -12,7 +12,7 @@ LAYER=$ROOT/compositor/build-debug/tests/layer-client
 POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 : > "$OUT/focus.txt"
 result() { echo "$1" >> "$OUT/focus.txt"; }
-active() { run "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "keep") | .active'; }
+active() { run "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "keep") | .active'; }
 wait_active() {
   for _ in $(seq 50); do [[ $(active) == "$1" ]] && return 0; sleep 0.1; done
   return 1
@@ -36,8 +36,8 @@ kill -0 "$layer" 2> /dev/null && result "FAIL the layer surface on the mirror wa
   || result "PASS the layer surface on the mirror was closed"
 wait_active true && result "PASS focus returned to the window on HEADLESS-1" \
   || result "FAIL focus stayed on the hidden layer surface"
-run "$UMBRIEL" layers > "$OUT/layers.txt" 2>&1 || true
-run "$UMBRIEL" windows --json > "$OUT/windows.json"
+run "$ANDROMEDA" layers > "$OUT/layers.txt" 2>&1 || true
+run "$ANDROMEDA" windows --json > "$OUT/windows.json"
 
 cat "$OUT/focus.txt"
 ! grep -q '^FAIL' "$OUT/focus.txt" || { echo "FAIL; artifacts: $OUT"; exit 1; }

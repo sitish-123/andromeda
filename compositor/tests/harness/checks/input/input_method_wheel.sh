@@ -7,33 +7,33 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly INPUT_METHOD="${UMBRIEL_INPUT_METHOD_CLIENT:-./build-debug/tests/input-method-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly INPUT_METHOD_LOG="$UMBRIEL_RUNTIME_DIR/input-method.log"
-readonly POINTER_LOG="$UMBRIEL_RUNTIME_DIR/pointer.log"
-readonly FIRST_LOG="$UMBRIEL_RUNTIME_DIR/input-first.log"
-readonly SECOND_LOG="$UMBRIEL_RUNTIME_DIR/input-second.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly INPUT_METHOD="${ANDROMEDA_INPUT_METHOD_CLIENT:-./build-debug/tests/input-method-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly INPUT_METHOD_LOG="$ANDROMEDA_RUNTIME_DIR/input-method.log"
+readonly POINTER_LOG="$ANDROMEDA_RUNTIME_DIR/pointer.log"
+readonly FIRST_LOG="$ANDROMEDA_RUNTIME_DIR/input-first.log"
+readonly SECOND_LOG="$ANDROMEDA_RUNTIME_DIR/input-second.log"
 
 spawn_client() {
-  UMBRIEL_LOG_KEYMAPS=1 "$CLIENT" "$1" 1200 700 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  ANDROMEDA_LOG_KEYMAPS=1 "$CLIENT" "$1" 1200 700 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.1
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 active_title() {
-  "$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
+  "$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -44,15 +44,15 @@ curve = "linear"
 "Alt" = "workspace-next"
 "Super" = "workspace-next"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client "input-first"
 wait_for_count 1
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 sleep 0.1
 spawn_client "input-second"
 wait_for_count 2
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 sleep 0.1
 
 # Create the physical harness keyboard first, then pause while the input method creates its own current keyboard and
@@ -85,7 +85,7 @@ wait "$POINTER_PID" || {
   exit 1
 }
 if [[ $(active_title) != input-second ]]; then
-  echo "Mod+WheelDown ignored the physical modifier during an input-method grab: $("$UMBRIEL" windows --json)"
+  echo "Mod+WheelDown ignored the physical modifier during an input-method grab: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
@@ -103,7 +103,7 @@ if grep -q '^key 30 1$' "$FIRST_LOG" 2>/dev/null; then
 fi
 
 # Observe the IME echo while Super is held, then verify the release action.
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" key-press 125 pause 1000 key-release 125 > "$POINTER_LOG" 2>&1 &
 POINTER_PID=$!
 for _ in $(seq 40); do
@@ -121,7 +121,7 @@ if [[ $(active_title) != input-second ]]; then
 fi
 
 # An unrelated virtual keyboard's key press still cancels a held modifier tap.
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 presses_before=$(grep -c '^key 56 1$' "$FIRST_LOG" || true)
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" key-press 56 pause 1000 key-release 56 > "$POINTER_LOG" 2>&1 &
 POINTER_PID=$!
@@ -157,6 +157,6 @@ if [[ $(active_title) != input-second ]]; then
   echo "virtual keyboard modifier tap did not switch to workspace 2 without an input method"
   exit 1
 fi
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 
 echo "input-method grabs preserve modifier wheel bindings, taps, cancellation, and keyboard focus"

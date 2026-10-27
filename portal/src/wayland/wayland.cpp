@@ -642,7 +642,7 @@ namespace xdpu {
         return false;
       }
 
-      const int fd = memfd_create("umbriel-cursor", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+      const int fd = memfd_create("andromeda-cursor", MFD_CLOEXEC | MFD_ALLOW_SEALING);
       if (fd < 0 || ftruncate(fd, static_cast<off_t>(size)) < 0) {
         if (fd >= 0) {
           close(fd);

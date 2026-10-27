@@ -1,27 +1,27 @@
-# Umbriel
+# Andromeda
 
-Umbriel is a Wayland compositor designed for daily use, with scrolling, dwindle, and master layouts, per-output
+Andromeda is a Wayland compositor designed for daily use, with scrolling, dwindle, and master layouts, per-output
 workspaces, window rules, blur, shadows, and fluid animations.
 
 It runs independently and can be paired with [Noctalia](https://github.com/noctalia-dev/noctalia), which provides a
-first-class desktop shell experience for Umbriel. Umbriel is built in C++23 on
-[wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) and `umbrielfx`, its own hard fork of
+first-class desktop shell experience for Andromeda. Andromeda is built in C++23 on
+[wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) and `andromedafx`, its own hard fork of
 [SceneFX](https://github.com/wlrfx/scenefx). Xwayland support comes from
 [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite), which must be
 installed and on `PATH`. Portal screen capture and sharing is provided by
-[xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel), an
-xdg-desktop-portal backend for Umbriel.
+[xdg-desktop-portal-andromeda](https://github.com/noctalia-dev/xdg-desktop-portal-andromeda), an
+xdg-desktop-portal backend for Andromeda.
 
 > [!IMPORTANT]
-> Umbriel is young and actively evolving. It is usable today, but configuration keys, keybinds, and behavior may change
+> Andromeda is young and actively evolving. It is usable today, but configuration keys, keybinds, and behavior may change
 > between releases, and rough edges remain. Current defaults are opinions, not stability promises.
 
 <p align="center">
-  <img src="https://assets.noctalia.dev/?file=umbriel.svg" alt="Umbriel Logo" style="width: 192px" />
+  <img src="https://assets.noctalia.dev/?file=andromeda.svg" alt="Andromeda Logo" style="width: 192px" />
 </p>
 
 <p align="center">
-  <a href="https://docs.noctalia.dev/umbriel/">
+  <a href="https://docs.noctalia.dev/andromeda/">
     <img src="https://img.shields.io/badge/docs-fbf099?style=for-the-badge&logo=gitbook&logoColor=110f3d&labelColor=fbf099" alt="Documentation" />
   </a>
   <a href="https://discord.noctalia.dev">
@@ -29,12 +29,12 @@ xdg-desktop-portal backend for Umbriel.
   </a>
 </p>
 
-## Why Umbriel?
+## Why Andromeda?
 
-When people ask what Umbriel's selling point is, the honest answer is that there is no single killer feature. We were
+When people ask what Andromeda's selling point is, the honest answer is that there is no single killer feature. We were
 simply disappointed with the choices available to us, so we built the compositor we wanted to live in. The plan is
 not to conquer the world or take over the big names; it is to feel at home with something we have a say in, with less
-friction. That is exactly how Noctalia came to life, and Umbriel is its compositor side.
+friction. That is exactly how Noctalia came to life, and Andromeda is its compositor side.
 
 To understand the values and philosophy guiding the project, read our [ethos](https://noctalia.dev/ethos).
 
@@ -62,13 +62,13 @@ To understand the values and philosophy guiding the project, read our [ethos](ht
 Distribution maintainers should also read [PACKAGING.md](PACKAGING.md) for the
 installed layout, dependency notes, and config fallback.
 
-The scene graph and renderer live in [`umbrielfx/`](umbrielfx/) and build as part of the tree.
+The scene graph and renderer live in [`andromedafx/`](andromedafx/) and build as part of the tree.
 
 ### System build
 
 Install a C++23 compiler, Meson, Ninja, pkg-config, wayland-scanner, and development packages for wlroots 0.20
 (0.20.1 or newer), Wayland, xkbcommon, libinput, pixman, libdrm, EGL, GLES2, GBM, lcms2, Cairo, Pango, tomlplusplus,
-and nlohmann-json. Native `[drm]` GPU exclusions also require libudev. Then build Umbriel:
+and nlohmann-json. Native `[drm]` GPU exclusions also require libudev. Then build Andromeda:
 
 ```sh
 just release
@@ -80,7 +80,7 @@ fragmentation in long-running sessions. Meson's `-Djemalloc=enabled` or `-Djemal
 default (`auto`) uses it when the development package is installed and skips it otherwise (non-glibc libc builds
 always skip it).
 
-The binaries are written to `build-debug/umbriel` and `build-release/umbriel`.
+The binaries are written to `build-debug/andromeda` and `build-release/andromeda`.
 
 ### Nix
 
@@ -90,7 +90,7 @@ Build the package directly:
 nix build
 ```
 
-The resulting binary is available at `result/bin/umbriel`. For development, enter the project shell and use the same
+The resulting binary is available at `result/bin/andromeda`. For development, enter the project shell and use the same
 Just recipes as a system build:
 
 ```sh
@@ -106,7 +106,7 @@ commands:
 
 ```sh
 nix develop
-just test                 # unit and umbrielfx suites, through Meson
+just test                 # unit and andromedafx suites, through Meson
 just check                # every harness check
 ```
 
@@ -128,26 +128,26 @@ checks print their whole output. A failing check keeps its runtime directory
 
 ## Running
 
-Installed display-manager sessions start through `start-umbriel`. For supported
+Installed display-manager sessions start through `start-andromeda`. For supported
 account shells, it loads the noninteractive login environment, then runs the
 compositor as a user service on systemd or directly on other init systems.
 In a managed systemd session, the launcher imports that login environment into
-the user manager before starting Umbriel. Login-profile values take precedence
+the user manager before starting Andromeda. Login-profile values take precedence
 over values with the same names from `environment.d`, including `PATH`;
 variables found only in the user manager remain available.
 
 Start an installed native session from a TTY with:
 
 ```sh
-start-umbriel
+start-andromeda
 ```
 
-From an existing Wayland or X11 session, Umbriel opens a nested window (mod = Alt).
+From an existing Wayland or X11 session, Andromeda opens a nested window (mod = Alt).
 From a TTY it takes over the seat (mod = Super).
 
 Apps that capture the screen through xdg-desktop-portal (browser screen sharing, OBS, portal-aware screenshot
-tools) are served by [xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel), which
-implements the Screencast and Screenshot interfaces for Umbriel.
+tools) are served by [xdg-desktop-portal-andromeda](https://github.com/noctalia-dev/xdg-desktop-portal-andromeda), which
+implements the Screencast and Screenshot interfaces for Andromeda.
 
 ```sh
 just run debug kitty
@@ -156,7 +156,7 @@ just run debug kitty
 Or run the binary directly:
 
 ```sh
-./build-debug/umbriel -s kitty
+./build-debug/andromeda -s kitty
 ```
 
 Inside the session:
@@ -176,15 +176,15 @@ Inside the session:
 | mod+Shift+1..9 | Move focused window to workspace and follow |
 
 `kitty` is an optional startup command. Replace it with another command, or omit it by running `just run debug`
-or `./build-debug/umbriel`. There is no default spawn keybind, so add one under `[keybinds]` (see
+or `./build-debug/andromeda`. There is no default spawn keybind, so add one under `[keybinds]` (see
 [`examples/config.toml`](examples/config.toml)) to open more terminals from inside the session, e.g. `"Mod+Return" = "spawn:kitty"`.
 
 Stop with mod+Escape or `Ctrl+C` from the parent terminal.
 
 ## Configuration
 
-Umbriel first checks `$XDG_CONFIG_HOME/umbriel/config.toml`, then
-`$XDG_CONFIG_DIRS`, and finally its packaged `share/umbriel/config.toml`.
+Andromeda first checks `$XDG_CONFIG_HOME/andromeda/config.toml`, then
+`$XDG_CONFIG_DIRS`, and finally its packaged `share/andromeda/config.toml`.
 These paths remain watched, so creating a higher-priority config switches to it
 without a session restart. Pass `-c path/to/config.toml` to pin another file.
 Config files can include files with
@@ -192,7 +192,7 @@ Config files can include files with
 file override earlier values.
 
 See [`examples/config.toml`](examples/config.toml) for the packaged starting configuration and
-[`our online documentation`](https://docs.noctalia.dev/umbriel/) for the full reference.
+[`our online documentation`](https://docs.noctalia.dev/andromeda/) for the full reference.
 
 ### Nix (home-manager / NixOS)
 
@@ -200,15 +200,15 @@ Declarative configuration uses Nix attrsets serialized to TOML with `pkgs.format
 
 ```nix
 # flake inputs
-umbriel.url = "git+https://github.com/noctalia-dev/umbriel";
+andromeda.url = "git+https://github.com/noctalia-dev/andromeda";
 
 # NixOS
-imports = [ inputs.umbriel.nixosModules.default ];
-programs.umbriel.enable = true;
+imports = [ inputs.andromeda.nixosModules.default ];
+programs.andromeda.enable = true;
 
 # home-manager
-imports = [ inputs.umbriel.homeModules.default ];
-programs.umbriel = {
+imports = [ inputs.andromeda.homeModules.default ];
+programs.andromeda = {
   enable = true;
   settings = {
     general.autostart = [ "noctalia" ];
@@ -223,19 +223,19 @@ programs.umbriel = {
 };
 ```
 
-The portal lives in [a separate repository](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel) and comes
-with the NixOS module: enabling Umbriel installs it, configures it as the `xdg.portal` backend, and writes the
-portal configuration screencasting needs. You can set `programs.umbriel.portalPackage` to null if you don't want
+The portal lives in [a separate repository](https://github.com/noctalia-dev/xdg-desktop-portal-andromeda) and comes
+with the NixOS module: enabling Andromeda installs it, configures it as the `xdg.portal` backend, and writes the
+portal configuration screencasting needs. You can set `programs.andromeda.portalPackage` to null if you don't want
 the portal.
 
-When `settings` is omitted, the Home Manager and hjem modules leave the user path untouched so Umbriel loads its
+When `settings` is omitted, the Home Manager and hjem modules leave the user path untouched so Andromeda loads its
 packaged configuration. Home Manager also accepts a raw TOML string or a path. The hjem module is exported as
-`inputs.umbriel.hjemModules.default`.
+`inputs.andromeda.hjemModules.default`.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, naming conventions, the dependency stack, and debugging
-helpers, and [SCOPE.md](SCOPE.md) for what the project takes on and what it declines. Umbriel shares its conventions
+helpers, and [SCOPE.md](SCOPE.md) for what the project takes on and what it declines. Andromeda shares its conventions
 with [noctalia](https://github.com/noctalia-dev/noctalia). For general help and design discussion, join the community
 on [Discord](https://discord.noctalia.dev).
 
@@ -250,6 +250,6 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 <p align="center">
   <a href="https://github.com/noctalia-dev/noctalia/stargazers">
-    <img src="https://api.noctalia.dev/stars/umbriel" alt="Star History" />
+    <img src="https://api.noctalia.dev/stars/andromeda" alt="Star History" />
   </a>
 </p>

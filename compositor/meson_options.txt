@@ -2,7 +2,7 @@ option(
   'tests',
   type: 'feature',
   value: 'auto',
-  description: 'Build unit tests, harness clients, and umbrielfx checks (auto: on for unsanitized debug builds)',
+  description: 'Build unit tests, harness clients, and andromedafx checks (auto: on for unsanitized debug builds)',
 )
 option(
   'test_ipc',
@@ -16,5 +16,5 @@ option(
   'tracy',
   type: 'feature',
   value: 'disabled',
-  description: 'Compile umbrielfx\'s Tracy CPU and GPU render zones (needs a client built with TRACY_ENABLE and TRACY_ON_DEMAND)',
+  description: 'Compile andromedafx\'s Tracy CPU and GPU render zones (needs a client built with TRACY_ENABLE and TRACY_ON_DEMAND)',
 )

@@ -132,14 +132,14 @@ Then set `curve = "myBezier"` or `curve = "myBounce"`.
 
 Every animation event other than `windows_drag` can run a custom program.
 Define an `animation` preset and select it with `effect`; the event's enabled
-state, duration, and curve still control its timeline. Umbriel ships `reveal`
+state, duration, and curve still control its timeline. Andromeda ships `reveal`
 and `squash`:
 
 ```toml
 [include]
 files = [
-  "/usr/share/umbriel/effects/animation/reveal/effect.toml",
-  "/usr/share/umbriel/effects/animation/squash/effect.toml",
+  "/usr/share/andromeda/effects/animation/reveal/effect.toml",
+  "/usr/share/andromeda/effects/animation/squash/effect.toml",
 ]
 
 [animation.windows_in]
@@ -166,11 +166,11 @@ program; a reload affects the next event.
 
 | Name | Meaning |
 | --- | --- |
-| `umbriel_progress` | Eased progress, including overshoot |
-| `umbriel_clamped_progress` | Eased progress clamped to 0 through 1 |
-| `umbriel_linear_progress` | Progress before easing |
-| `umbriel_direction` | `1` for entering and `-1` for leaving |
-| `umbriel_random_seed` | Four stable random values for this transition |
+| `andromeda_progress` | Eased progress, including overshoot |
+| `andromeda_clamped_progress` | Eased progress clamped to 0 through 1 |
+| `andromeda_linear_progress` | Progress before easing |
+| `andromeda_direction` | `1` for entering and `-1` for leaving |
+| `andromeda_random_seed` | Four stable random values for this transition |
 
 ### Targets
 

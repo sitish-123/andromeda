@@ -4,15 +4,15 @@
 # the right for its independent windows_out lifetime.
 set -euo pipefail
 
-readonly SHOTS="$UMBRIEL_RUNTIME_DIR/tiled-close-retained-no-reflow"
+readonly SHOTS="$ANDROMEDA_RUNTIME_DIR/tiled-close-retained-no-reflow"
 readonly MOVE_MS=500
 mkdir -p "$SHOTS"
 
-cat > "$UMBRIEL_RUNTIME_DIR/solid-blue.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/solid-blue.glsl" <<'GLSL'
 vec4 animation(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0); }
 GLSL
 
-cat >> "$UMBRIEL_CONFIG" <<EOF
+cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [colors]
 backdrop = "#000000FF"
@@ -61,13 +61,13 @@ match.title = "^retained-opener$"
 default_scrolling_column = "retained-left-stack"
 default_scrolling_column_order = 20
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn() {
   local title=$1 color=$2
-  FILL_COLOR="$color" "$UMBRIEL_UNMAP_CLIENT" "$title" 1200 700 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR="$color" "$ANDROMEDA_UNMAP_CLIENT" "$title" 1200 700 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 100); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && return 0
     sleep 0.025
   done
@@ -78,8 +78,8 @@ spawn() {
 wait_unmapped() {
   local title=$1
   for _ in $(seq 100); do
-    if grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/$title.log" \
-        && ! "$UMBRIEL" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
+    if grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/$title.log" \
+        && ! "$ANDROMEDA" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
       return 0
     fi
     sleep 0.025
@@ -91,7 +91,7 @@ wait_unmapped() {
 wait_for_query() {
   local query=$1 message=$2 windows=
   for _ in $(seq 100); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     if jq -e "$query" <<< "$windows" > /dev/null; then
       return 0
     fi
@@ -110,11 +110,11 @@ capture_series() {
 }
 
 blue_pixels() {
-  "$UMBRIEL_PIXEL_PROBE" "$1" count 'b > 0.8 && r < 0.1 && g < 0.1'
+  "$ANDROMEDA_PIXEL_PROBE" "$1" count 'b > 0.8 && r < 0.1 && g < 0.1'
 }
 
 blue_bounds() {
-  "$UMBRIEL_PIXEL_PROBE" "$1" bbox 'b > 0.8 && r < 0.1 && g < 0.1'
+  "$ANDROMEDA_PIXEL_PROBE" "$1" bbox 'b > 0.8 && r < 0.1 && g < 0.1'
 }
 
 bounds_match() {
@@ -128,19 +128,19 @@ bounds_match() {
 }
 
 spawn retained-owner 0xFFFF0000
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 spawn retained-peer 0xFFFF0000
 peer_id=$(jq -r .id <<< "$window")
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 spawn retained-close 0xFF0000FF
 closing_id=$(jq -r .id <<< "$window")
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-survivors_before=$("$UMBRIEL" windows --json | jq -c \
+survivors_before=$("$ANDROMEDA" windows --json | jq -c \
   '[.[] | select(.title == "retained-owner" or .title == "retained-peer") | {title, x, y, w, h}] | sort_by(.title)')
-"$UMBRIEL" msg "window-close:$closing_id" > /dev/null
+"$ANDROMEDA" msg "window-close:$closing_id" > /dev/null
 wait_unmapped retained-close
-survivors_after=$("$UMBRIEL" windows --json | jq -c \
+survivors_after=$("$ANDROMEDA" windows --json | jq -c \
   '[.[] | select(.title == "retained-owner" or .title == "retained-peer") | {title, x, y, w, h}] | sort_by(.title)')
 if [[ $survivors_after != "$survivors_before" ]]; then
   echo "setup close unexpectedly reflowed its survivors: before=$survivors_before after=$survivors_after"
@@ -162,8 +162,8 @@ wait_for_query \
 
 # Consuming the middle peer adds a third row to the same left column. It must not reinterpret the retained close as a
 # new vacancy or collapse its mask.
-"$UMBRIEL" msg "window-focus:$peer_id" > /dev/null
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg "window-focus:$peer_id" > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 capture_series consume
 wait_for_query \
   '[.[] | select(.title == "retained-owner" or .title == "retained-opener" or .title == "retained-peer")] as $stack

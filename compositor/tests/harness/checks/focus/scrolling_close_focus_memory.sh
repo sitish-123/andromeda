@@ -3,14 +3,14 @@
 # column. Visual row order must not replace that focus memory with the column's top window.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 spawn_client() {
   local title=$1
-  "$CLIENT" "$title" 1200 700 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" 1200 700 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
 }
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_count() {
   local want=$1
@@ -54,7 +54,7 @@ wait_for_stack() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -62,17 +62,17 @@ enabled = false
 [layout]
 mode = "scrolling"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client scroll-close-top
 wait_for_count 1
 spawn_client scroll-close-bottom
 wait_for_count 2
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 wait_for_stack
 
 bottom_id=$(field_of scroll-close-bottom id)
-"$UMBRIEL" msg "window-focus:$bottom_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$bottom_id" > /dev/null
 wait_for_active scroll-close-bottom
 
 spawn_client scroll-close-temporary
@@ -80,13 +80,13 @@ wait_for_count 3
 wait_for_active scroll-close-temporary
 
 temporary_id=$(field_of scroll-close-temporary id)
-"$UMBRIEL" msg "window-close:$temporary_id" > /dev/null
+"$ANDROMEDA" msg "window-close:$temporary_id" > /dev/null
 for _ in $(seq 40); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/scroll-close-temporary.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/scroll-close-temporary.log" && break
   sleep 0.1
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/scroll-close-temporary.log"; then
-  echo "temporary window did not unmap: $(< "$UMBRIEL_RUNTIME_DIR/scroll-close-temporary.log")"
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/scroll-close-temporary.log"; then
+  echo "temporary window did not unmap: $(< "$ANDROMEDA_RUNTIME_DIR/scroll-close-temporary.log")"
   exit 1
 fi
 wait_for_count 2

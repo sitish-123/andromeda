@@ -2,11 +2,11 @@
 # A parented XDG toplevel without a position rule opens centered over its parent, not over the output.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/transient-placement.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/transient-placement.log"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 wait_for_window_count() {
@@ -31,7 +31,7 @@ wait_for_position() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -41,7 +41,7 @@ match.title = "^transient-parent$"
 default_floating = true
 default_position = { x = 100, y = 110, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Over the 900x600 parent the 400x300 child lands at 350,260. Centered on the 1280x720 output it would be 440,210.
 TRANSIENT_SUITE=1 TRANSIENT_PARENT_SIZE=900x600 "$CLIENT" transient-child 400 300 > "$CLIENT_LOG" 2>&1 &

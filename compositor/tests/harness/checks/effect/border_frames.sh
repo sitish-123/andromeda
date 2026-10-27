@@ -4,40 +4,40 @@
 # time keeps advancing while another animation drives the output's frames.
 set -euo pipefail
 
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/effect-border-frames.png"
-cat > "$UMBRIEL_RUNTIME_DIR/clock.glsl" <<'GLSL'
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/effect-border-frames.png"
+cat > "$ANDROMEDA_RUNTIME_DIR/clock.glsl" <<'GLSL'
 // The red channel encodes the current effect time, so a frozen clock renders an unchanging ring and an advancing
 // clock renders a different one. The 0.3 factor keeps whole-second steps (max_fps = 1) from wrapping to the same value.
-vec4 border(vec2 uv) { return vec4(fract(umbriel_time * 0.3), 0.0, 0.0, 1.0); }
+vec4 border(vec2 uv) { return vec4(fract(andromeda_time * 0.3), 0.0, 0.0, 1.0); }
 GLSL
 
-readonly BASE="$UMBRIEL_RUNTIME_DIR/frames-base.toml"
-cp "$UMBRIEL_CONFIG" "$BASE"
+readonly BASE="$ANDROMEDA_RUNTIME_DIR/frames-base.toml"
+cp "$ANDROMEDA_CONFIG" "$BASE"
 
 effect_field() {
-  "$UMBRIEL" effect-frames --json | jq -er ".outputs[0].$1" || {
+  "$ANDROMEDA" effect-frames --json | jq -er ".outputs[0].$1" || {
     echo "effect-frames reported no .outputs[0].$1" >&2
     return 1
   }
 }
 frames() { effect_field effect_frames; }
 eligible() { effect_field eligible; }
-ring_pixel() { "$UMBRIEL_PIXEL_PROBE" "$IMAGE" pixel "$1" "$2"; }
+ring_pixel() { "$ANDROMEDA_PIXEL_PROBE" "$IMAGE" pixel "$1" "$2"; }
 
 open_window() {
   local title=${1:-frame-one} fill=${2:-0xFF00FF00}
-  FILL_COLOR=$fill "$UMBRIEL_UNMAP_CLIENT" "$title" 300 200 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR=$fill "$ANDROMEDA_UNMAP_CLIENT" "$title" 300 200 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 80); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && break
     sleep 0.025
   done
   [[ -n $window ]]
-  "$UMBRIEL" settle > /dev/null
+  "$ANDROMEDA" settle > /dev/null
   read -r x y w h id < <(jq -r '"\(.x) \(.y) \(.w) \(.h) \(.id)"' <<< "$window")
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -64,7 +64,7 @@ match.title = "^frame-one$"
 default_floating = true
 default_position = { x = 100, y = 100, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 open_window
 ring_x=$((x + w / 2))
 ring_y=$((y - 12))
@@ -72,12 +72,12 @@ light_x=$((x + w / 2))
 light_y=$((y - 50))
 
 # 1. A frozen clock renders the same instant across frames; only clock-advance moves it.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" settle > /dev/null
 grim "$IMAGE"
 read -r ring_r1 ring_g1 ring_b1 < <(ring_pixel "$ring_x" "$ring_y")
 read -r light_r1 light_g1 light_b1 < <(ring_pixel "$light_x" "$light_y")
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" settle > /dev/null
 grim "$IMAGE"
 read -r ring_r2 ring_g2 ring_b2 < <(ring_pixel "$ring_x" "$ring_y")
 read -r light_r2 light_g2 light_b2 < <(ring_pixel "$light_x" "$light_y")
@@ -89,7 +89,7 @@ if [[ "$light_r1 $light_g1 $light_b1" != "$light_r2 $light_g2 $light_b2" ]]; the
   echo "a frozen clock's light pixel changed between two frames: $light_r1 $light_g1 $light_b1 -> $light_r2 $light_g2 $light_b2"
   exit 1
 fi
-"$UMBRIEL" clock-advance 500
+"$ANDROMEDA" clock-advance 500
 grim "$IMAGE"
 read -r ring_r3 ring_g3 ring_b3 < <(ring_pixel "$ring_x" "$ring_y")
 if [[ "$ring_r1 $ring_g1 $ring_b1" == "$ring_r3 $ring_g3 $ring_b3" ]]; then
@@ -101,9 +101,9 @@ fi
 # no effect-only frames while the compositor stays up.
 # The reconfigure below flips [animation] from off to on, which can start the border's own focus-color transition;
 # resuming the clock first lets that transition (and the reload itself) settle before this check freezes it again.
-"$UMBRIEL" clock-resume
-cat "$BASE" > "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+"$ANDROMEDA" clock-resume
+cat "$BASE" > "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = true
@@ -135,21 +135,21 @@ match.title = "^frame-one$"
 default_floating = true
 default_position = { x = 100, y = 100, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle > /dev/null
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" settle > /dev/null
 grim "$IMAGE"
 read -r ring_r5 ring_g5 ring_b5 < <(ring_pixel "$ring_x" "$ring_y")
 before_close=$(frames)
-"$UMBRIEL" msg "window-close:$id" > /dev/null
+"$ANDROMEDA" msg "window-close:$id" > /dev/null
 # The close animation is now running but frozen; settle would refuse (an active animation never finishes on a
 # frozen clock), so this polls the window list instead, which drops the title once the close snapshot takes over.
 for _ in $(seq 100); do
-  [[ -z $("$UMBRIEL" windows --json | jq -c --arg title frame-one '.[] | select(.title == $title)') ]] && break
+  [[ -z $("$ANDROMEDA" windows --json | jq -c --arg title frame-one '.[] | select(.title == $title)') ]] && break
   sleep 0.02
 done
-if [[ -n $("$UMBRIEL" windows --json | jq -c --arg title frame-one '.[] | select(.title == $title)') ]]; then
+if [[ -n $("$ANDROMEDA" windows --json | jq -c --arg title frame-one '.[] | select(.title == $title)') ]]; then
   echo "the window never left the window list after window-close"
   exit 1
 fi
@@ -164,22 +164,22 @@ if (( after_close != before_close )); then
   echo "a frozen clock's close snapshot still produced effect-only frames"
   exit 1
 fi
-if ! "$UMBRIEL" windows > /dev/null; then
+if ! "$ANDROMEDA" windows > /dev/null; then
   echo "the compositor did not answer after closing a window under a frozen clock"
   exit 1
 fi
-"$UMBRIEL" clock-advance 5000
-"$UMBRIEL" clock-resume
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" clock-advance 5000
+"$ANDROMEDA" clock-resume
+"$ANDROMEDA" settle > /dev/null
 
 # 3. effects.max_fps caps the render rate to its own due-frame interval: at 1 fps, two captures taken right after a
 # due frame and 150ms apart never differ, but captures 1.3s apart do.
 open_window
 ring_x=$((x + w / 2))
 ring_y=$((y - 12))
-sed -i '/^\[effects\]$/a max_fps = 1' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle > /dev/null
+sed -i '/^\[effects\]$/a max_fps = 1' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
 capped=$(frames)
 for _ in $(seq 150); do
   now=$(frames)
@@ -209,8 +209,8 @@ fi
 
 # 4. Effect time keeps advancing while another animation drives the output's frames: a neighbour's 3s real-time
 # close fade runs while two captures 600ms apart must show different time-keyed ring pixels.
-cat "$BASE" > "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat "$BASE" > "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = true
@@ -246,18 +246,18 @@ match.title = "^frame-two$"
 default_floating = true
 default_position = { x = 600, y = 100, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
 one_id=$id
 open_window frame-two 0xFF0000FF
 two_id=$id
 two_x=$((x + w / 2))
 two_y=$((y + h / 2))
-"$UMBRIEL" msg "window-focus:$one_id" > /dev/null
-"$UMBRIEL" settle > /dev/null
-"$UMBRIEL" msg "window-close:$two_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$one_id" > /dev/null
+"$ANDROMEDA" settle > /dev/null
+"$ANDROMEDA" msg "window-close:$two_id" > /dev/null
 for _ in $(seq 100); do
-  [[ -z $("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "frame-two")') ]] && break
+  [[ -z $("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "frame-two")') ]] && break
   sleep 0.02
 done
 grim "$IMAGE"

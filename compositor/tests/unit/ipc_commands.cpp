@@ -9,7 +9,7 @@
 
 namespace {
 
-  std::string captureHumanOutput(const umbriel::IpcCommandSpec& spec, const nlohmann::json& ok) {
+  std::string captureHumanOutput(const andromeda::IpcCommandSpec& spec, const nlohmann::json& ok) {
     FILE* output = std::tmpfile();
     CHECK(output != nullptr);
     if (output == nullptr) {
@@ -73,8 +73,8 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(keyboardLayoutsHumanOutputListsAndMarksCurrentLayout) {
-  const umbriel::IpcCommandSpec* spec = umbriel::findIpcCommand("keyboard-layouts");
+ANDROMEDA_TEST(keyboardLayoutsHumanOutputListsAndMarksCurrentLayout) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("keyboard-layouts");
   CHECK(spec != nullptr);
   if (spec == nullptr) {
     return;
@@ -92,8 +92,8 @@ UMBRIEL_TEST(keyboardLayoutsHumanOutputListsAndMarksCurrentLayout) {
   CHECK_EQ(captureHumanOutput(*spec, layouts), "  English (US)\n* German\n");
 }
 
-UMBRIEL_TEST(colorHumanDisabledOutputHasNoActiveDepth) {
-  const umbriel::IpcCommandSpec* spec = umbriel::findIpcCommand("color");
+ANDROMEDA_TEST(colorHumanDisabledOutputHasNoActiveDepth) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("color");
   CHECK(spec != nullptr && spec->printHuman != nullptr);
   if (spec == nullptr || spec->printHuman == nullptr) {
     return;
@@ -105,8 +105,8 @@ UMBRIEL_TEST(colorHumanDisabledOutputHasNoActiveDepth) {
   CHECK(out.contains("bit depth: none (configured 10)"));
 }
 
-UMBRIEL_TEST(colorHumanSdr10LineUsesCommittedFormatForDepth) {
-  const umbriel::IpcCommandSpec* spec = umbriel::findIpcCommand("color");
+ANDROMEDA_TEST(colorHumanSdr10LineUsesCommittedFormatForDepth) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("color");
   CHECK(spec != nullptr && spec->printHuman != nullptr);
   if (spec == nullptr || spec->printHuman == nullptr) {
     return;
@@ -124,8 +124,8 @@ UMBRIEL_TEST(colorHumanSdr10LineUsesCommittedFormatForDepth) {
   CHECK(out.contains("bit depth: 10 (configured 10)"));
 }
 
-UMBRIEL_TEST(colorHumanSdr10FallbackShowsReason) {
-  const umbriel::IpcCommandSpec* spec = umbriel::findIpcCommand("color");
+ANDROMEDA_TEST(colorHumanSdr10FallbackShowsReason) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("color");
   CHECK(spec != nullptr && spec->printHuman != nullptr);
   if (spec == nullptr || spec->printHuman == nullptr) {
     return;
@@ -143,8 +143,8 @@ UMBRIEL_TEST(colorHumanSdr10FallbackShowsReason) {
   CHECK(out.contains("bit depth: 8 (configured 10)"));
 }
 
-UMBRIEL_TEST(colorHumanDepthIgnoresActivityFlags) {
-  const umbriel::IpcCommandSpec* spec = umbriel::findIpcCommand("color");
+ANDROMEDA_TEST(colorHumanDepthIgnoresActivityFlags) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("color");
   CHECK(spec != nullptr && spec->printHuman != nullptr);
   if (spec == nullptr || spec->printHuman == nullptr) {
     return;

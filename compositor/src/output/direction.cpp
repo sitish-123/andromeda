@@ -6,7 +6,7 @@
 #include <limits>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   std::optional<size_t> adjacentOutputIndex(
       std::span<const OutputBox> boxes, size_t reference, OutputDirection direction, double refX, double refY
@@ -86,4 +86,4 @@ namespace umbriel {
     return order[static_cast<size_t>(wrapped)];
   }
 
-} // namespace umbriel
+} // namespace andromeda

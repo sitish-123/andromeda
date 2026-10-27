@@ -17,7 +17,7 @@ namespace sdbus {
   class Variant;
 } // namespace sdbus
 
-// Client of umbriel-linkd's org.umbriel.Link1.QuickShare: the visibility switch, and a notification for every offer
+// Client of andromeda-linkd's org.andromeda.Link1.QuickShare: the visibility switch, and a notification for every offer
 // (Accept, Decline) and every result (Open, Show in folder, Copy).
 class QuickShareService {
 public:

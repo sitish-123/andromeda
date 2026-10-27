@@ -5,21 +5,21 @@
 # The named, next, and previous silent forms share one rule.
 set -euo pipefail
 
-readonly WORKSPACE_CLIENT="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly WORKSPACE_CLIENT="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
 spawn_client() {
   foot --title="$1" sh -c 'sleep 120' > /dev/null 2>&1 &
 }
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     return 1
   fi
 }
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 id_of() {
@@ -88,7 +88,7 @@ wait_for_active_absent() {
 }
 
 active_workspace() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.active) | .name'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .name'
 }
 
 assert_active() {
@@ -102,12 +102,12 @@ assert_active() {
 
 # Static workspaces make both destinations exist from the start, so a move can
 # never be mistaken for a dynamic-workspace clamp.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [output.HEADLESS-1]
 workspaces = ["ONE", "TWO"]
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 one_id=$(workspace_id_named ONE)
 two_id=$(workspace_id_named TWO)

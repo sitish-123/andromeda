@@ -7,7 +7,7 @@
 
 struct wlr_output_mode;
 
-namespace umbriel {
+namespace andromeda {
   struct OutputMode;
 
   enum class FormatTier : uint8_t {
@@ -55,4 +55,4 @@ namespace umbriel {
 
   [[nodiscard]] FormatSequenceResult
   runFormatSequence(const FormatSequenceParams& params, const FormatSequenceOps& ops);
-} // namespace umbriel
+} // namespace andromeda

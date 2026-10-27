@@ -11,7 +11,7 @@ extern "C" {
 #include <optional>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   struct FloatingPoint {
     int x = 0;
@@ -181,4 +181,4 @@ namespace umbriel {
     bool m_resizeActive = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

@@ -5,12 +5,12 @@
 # focus retained on the pointer-selected output.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
 readonly POINTER_BACKGROUND=scratchpad-seat-pointer-background
 readonly TARGET_BACKGROUND=scratchpad-seat-target-background
 readonly SCRATCH=scratchpad-seat-foreground
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -31,9 +31,9 @@ match.title = "^scratchpad-seat-foreground$"
 default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 field_of() {
   windows | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
@@ -70,11 +70,11 @@ window_output() {
 # Workspace `focused` follows the pointer output, while window `active` follows
 # the globally focused seat surface.
 cursor_output() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .output'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .output'
 }
 
 output_scale() {
-  "$UMBRIEL" outputs | awk -v name="$1" '$1 == name { found = 1; next } found && /Scale:/ { print $2; exit }'
+  "$ANDROMEDA" outputs | awk -v name="$1" '$1 == name { found = 1; next } found && /Scale:/ { print $2; exit }'
 }
 
 wait_for_output_scale() {
@@ -85,7 +85,7 @@ wait_for_output_scale() {
     sleep 0.1
   done
   echo "expected $name scale $expected, got $actual"
-  "$UMBRIEL" outputs
+  "$ANDROMEDA" outputs
   return 1
 }
 
@@ -98,7 +98,7 @@ background_signature() {
   '
 }
 
-"$CLIENT" "$POINTER_BACKGROUND" > "$UMBRIEL_RUNTIME_DIR/$POINTER_BACKGROUND.log" 2>&1 &
+"$CLIENT" "$POINTER_BACKGROUND" > "$ANDROMEDA_RUNTIME_DIR/$POINTER_BACKGROUND.log" 2>&1 &
 wait_for_count 1
 wait_for_field "$POINTER_BACKGROUND" w 640
 wait_for_field "$POINTER_BACKGROUND" h 360
@@ -106,8 +106,8 @@ pointer_output=$(window_output "$POINTER_BACKGROUND")
 
 # The headless outputs are horizontal. Move right to establish a second output
 # without assuming which connector name the harness placed first.
-"$UMBRIEL" msg output-focus-right > /dev/null
-"$CLIENT" "$TARGET_BACKGROUND" > "$UMBRIEL_RUNTIME_DIR/$TARGET_BACKGROUND.log" 2>&1 &
+"$ANDROMEDA" msg output-focus-right > /dev/null
+"$CLIENT" "$TARGET_BACKGROUND" > "$ANDROMEDA_RUNTIME_DIR/$TARGET_BACKGROUND.log" 2>&1 &
 wait_for_count 2
 wait_for_field "$TARGET_BACKGROUND" w 640
 wait_for_field "$TARGET_BACKGROUND" h 360
@@ -117,22 +117,22 @@ if [[ -z $pointer_output || -z $target_output || $pointer_output == "$target_out
   exit 1
 fi
 
-"$CLIENT" "$SCRATCH" > "$UMBRIEL_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
+"$CLIENT" "$SCRATCH" > "$ANDROMEDA_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
 wait_for_count 3
 wait_for_field "$SCRATCH" w 420
 wait_for_field "$SCRATCH" h 260
 scratch_id=$(field_of "$SCRATCH" id)
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
-"$UMBRIEL" msg window-move-to-scratchpad:seat > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg window-move-to-scratchpad:seat > /dev/null
 wait_for_field "$SCRATCH" workspace ""
-"$UMBRIEL" msg scratchpad-toggle:seat > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:seat > /dev/null
 wait_for_field "$SCRATCH" active true
 
 # Return the pointer to the first output, then restore seat focus to the visible
 # scratchpad without warping, splitting seat focus from the pointer's output.
-"$UMBRIEL" msg output-focus-left > /dev/null
+"$ANDROMEDA" msg output-focus-left > /dev/null
 wait_for_field "$POINTER_BACKGROUND" active true
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
 wait_for_field "$SCRATCH" active true
 if [[ $(cursor_output) != "$pointer_output" ]]; then
   echo "pointer and scratchpad seat focus did not split across outputs: $(windows)"
@@ -142,8 +142,8 @@ fi
 # Output reconfiguration must preserve the valid seat owner instead of
 # selecting the workspace under the pointer. This also proves the scale change
 # happened before inspecting focus.
-printf '\n[output.%s]\nscale = 1.25\n' "$target_output" >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[output.%s]\nscale = 1.25\n' "$target_output" >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_output_scale "$target_output" 1.250000
 wait_for_field "$SCRATCH" active true
 if [[ $(field_of "$POINTER_BACKGROUND" active) != false
@@ -157,7 +157,7 @@ if [[ $(cursor_output) != "$pointer_output" ]]; then
 fi
 
 baseline_background=$(background_signature)
-"$UMBRIEL" msg window-set-primary-extent:0.25 > /dev/null
+"$ANDROMEDA" msg window-set-primary-extent:0.25 > /dev/null
 
 resized=false
 for _ in $(seq 80); do

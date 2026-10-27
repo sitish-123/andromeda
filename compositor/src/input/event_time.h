@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstdint>
 
-namespace umbriel {
+namespace andromeda {
 
   // Milliseconds on the monotonic clock libinput stamps input events with, for work that has no event to read a
   // timestamp from.
@@ -12,4 +12,4 @@ namespace umbriel {
     return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -2,10 +2,10 @@
 # wp_commit_timing_manager_v1 is offered, and an update stamped 400 ms ahead is drawn neither before its time nor long
 # after it.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
-readonly CLIENT="${UMBRIEL_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
-readonly LOG="$UMBRIEL_RUNTIME_DIR/commit-timing.log"
+readonly CLIENT="${ANDROMEDA_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
+readonly LOG="$ANDROMEDA_RUNTIME_DIR/commit-timing.log"
 
 "$CLIENT" commit-timing > "$LOG" 2>&1 &
 await_events "$LOG" mapped 1 "the timed window"

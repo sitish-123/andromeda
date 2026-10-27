@@ -64,7 +64,7 @@ jobs:
                 selectedValue: sessionValue,
                 labelMap: sessionLabelMap,
                 managedLabels: sessionLabels,
-                description: "Issue reported for this Umbriel session type"
+                description: "Issue reported for this Andromeda session type"
               }
             ];
 

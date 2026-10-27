@@ -19,7 +19,7 @@ struct wlr_ext_workspace_handle_v1;
 struct wlr_ext_workspace_manager_v1;
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
 
   class DwindleLayout;
   class MasterStackLayout;
@@ -378,4 +378,4 @@ namespace umbriel {
     Slide m_slide;
   };
 
-} // namespace umbriel
+} // namespace andromeda

@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=Umbriel
-Comment=Umbriel Wayland Compositor
-Exec=start-umbriel
+Name=Andromeda
+Comment=Andromeda Wayland Compositor
+Exec=start-andromeda
 Type=Application
-DesktopNames=Umbriel
+DesktopNames=Andromeda

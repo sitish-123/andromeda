@@ -4,7 +4,7 @@
 #include <sstream>
 #include <system_error>
 
-namespace umbriel {
+namespace andromeda {
 
   std::string
   editGeneratedToml(std::string_view existing, std::string_view header, const std::function<void(toml::table&)>& edit) {
@@ -55,4 +55,4 @@ namespace umbriel {
     return *table;
   }
 
-} // namespace umbriel
+} // namespace andromeda

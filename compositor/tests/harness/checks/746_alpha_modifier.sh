@@ -2,13 +2,13 @@
 # wp_alpha_modifier_v1 is offered, and a white window's multiplier blends it over a black backdrop: 1 is white, 0.5
 # is mid grey, and 0 shows the backdrop.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
-readonly CLIENT="${UMBRIEL_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
-readonly LOG="$UMBRIEL_RUNTIME_DIR/alpha.log"
-readonly FIFO="$UMBRIEL_RUNTIME_DIR/alpha-control"
+readonly CLIENT="${ANDROMEDA_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
+readonly LOG="$ANDROMEDA_RUNTIME_DIR/alpha.log"
+readonly FIFO="$ANDROMEDA_RUNTIME_DIR/alpha-control"
 
-cat >> "$UMBRIEL_CONFIG" <<'CONF'
+cat >> "$ANDROMEDA_CONFIG" <<'CONF'
 
 [animation]
 enabled = false
@@ -23,14 +23,14 @@ corner_radius = 0
 [appearance.shadow]
 enabled = false
 CONF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$FIFO"
 exec {control}<> "$FIFO"
 "$CLIENT" alpha <&"$control" > "$LOG" 2>&1 &
 await_events "$LOG" mapped 1 "the alpha window"
-"$UMBRIEL" settle
-read -r x y w h < <("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "alpha") | "\(.x) \(.y) \(.w) \(.h)"')
+"$ANDROMEDA" settle
+read -r x y w h < <("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "alpha") | "\(.x) \(.y) \(.w) \(.h)"')
 center="20x20+$((x + w / 2 - 10))+$((y + h / 2 - 10))"
 
 # Mean red of the window's centre, 0 to 255, at multiplier $1.
@@ -39,9 +39,9 @@ red_at() {
   count=$(events "$LOG" "alpha $1")
   echo "alpha $1" >&"$control"
   await_events "$LOG" "alpha $1" $((count + 1)) "multiplier $1" > /dev/null
-  "$UMBRIEL" settle
-  grim "$UMBRIEL_RUNTIME_DIR/alpha-$1.png"
-  "$UMBRIEL_PIXEL_PROBE" "$UMBRIEL_RUNTIME_DIR/alpha-$1.png" mean "$center" | cut -d' ' -f1
+  "$ANDROMEDA" settle
+  grim "$ANDROMEDA_RUNTIME_DIR/alpha-$1.png"
+  "$ANDROMEDA_PIXEL_PROBE" "$ANDROMEDA_RUNTIME_DIR/alpha-$1.png" mean "$center" | cut -d' ' -f1
 }
 
 opaque=$(red_at 1)

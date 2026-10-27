@@ -4,7 +4,7 @@
 set -euo pipefail
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     return 1
   fi
@@ -12,7 +12,7 @@ accepts() {
 
 rejects_with() {
   local action=$1 expected=$2
-  if out=$("$UMBRIEL" msg "$action" 2>&1); then
+  if out=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to be rejected, but it succeeded"
     return 1
   fi
@@ -29,12 +29,12 @@ spawn_client() {
 wait_for_windows() {
   local want=$1
   for _ in $(seq 40); do
-    if [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]]; then
+    if [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]]; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected $want window(s), got $("$UMBRIEL" windows --json | jq 'length')"
+  echo "expected $want window(s), got $("$ANDROMEDA" windows --json | jq 'length')"
   return 1
 }
 
@@ -60,13 +60,13 @@ done
 spawn_client ws-flip
 wait_for_windows 1
 
-if [[ $("$UMBRIEL" windows --json | jq -r '.[0].active') != true ]]; then
+if [[ $("$ANDROMEDA" windows --json | jq -r '.[0].active') != true ]]; then
   echo "expected the window to be active before the switch"
   exit 1
 fi
 accepts "workspace-next"
 for _ in $(seq 40); do
-  active_now=$("$UMBRIEL" windows --json | jq -r '.[0].active')
+  active_now=$("$ANDROMEDA" windows --json | jq -r '.[0].active')
   [[ $active_now == false ]] && break
   sleep 0.1
 done
@@ -76,7 +76,7 @@ if [[ $active_now != false ]]; then
 fi
 accepts "workspace-previous"
 for _ in $(seq 40); do
-  active_now=$("$UMBRIEL" windows --json | jq -r '.[0].active')
+  active_now=$("$ANDROMEDA" windows --json | jq -r '.[0].active')
   [[ $active_now == true ]] && break
   sleep 0.1
 done
@@ -87,11 +87,11 @@ fi
 
 # Moving to an adjacent workspace follows the focused window. At either end
 # the corresponding action remains a silent no-op.
-start_workspace=$("$UMBRIEL" windows --json | jq -r '.[0].workspace')
+start_workspace=$("$ANDROMEDA" windows --json | jq -r '.[0].workspace')
 accepts "window-move-to-workspace-next"
 moved_workspace=$start_workspace
 for _ in $(seq 40); do
-  moved_workspace=$("$UMBRIEL" windows --json | jq -r '.[0].workspace')
+  moved_workspace=$("$ANDROMEDA" windows --json | jq -r '.[0].workspace')
   [[ $moved_workspace != "$start_workspace" ]] && break
   sleep 0.1
 done
@@ -99,7 +99,7 @@ if [[ $moved_workspace == "$start_workspace" ]]; then
   echo "expected the focused window to move to the next workspace"
   exit 1
 fi
-if [[ $("$UMBRIEL" windows --json | jq -r '.[0].active') != true ]]; then
+if [[ $("$ANDROMEDA" windows --json | jq -r '.[0].active') != true ]]; then
   echo "expected the moved window to remain active on the next workspace"
   exit 1
 fi
@@ -107,7 +107,7 @@ fi
 accepts "window-move-to-workspace-previous"
 returned_workspace=$moved_workspace
 for _ in $(seq 40); do
-  returned_workspace=$("$UMBRIEL" windows --json | jq -r '.[0].workspace')
+  returned_workspace=$("$ANDROMEDA" windows --json | jq -r '.[0].workspace')
   [[ $returned_workspace == "$start_workspace" ]] && break
   sleep 0.1
 done
@@ -120,12 +120,12 @@ fi
 # the workspace boundary falls through to workspace navigation.
 spawn_client vertical-local
 wait_for_windows 2
-local_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "vertical-local") | .id')
+local_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "vertical-local") | .id')
 accepts "window-focus:$local_id"
 accepts "window-consume-left"
 stacked=false
 for _ in $(seq 40); do
-  if "$UMBRIEL" windows --json | jq -e \
+  if "$ANDROMEDA" windows --json | jq -e \
       'length == 2 and (.[0].workspace == .[1].workspace) and ([.[].y] | unique | length == 2)' > /dev/null; then
     stacked=true
     break
@@ -136,12 +136,12 @@ if [[ $stacked != true ]]; then
   echo "expected two rows in one column before vertical navigation"
   exit 1
 fi
-read -r top_id bottom_id <<< "$("$UMBRIEL" windows --json | jq -r 'sort_by(.y) | "\(.[0].id) \(.[1].id)"')"
+read -r top_id bottom_id <<< "$("$ANDROMEDA" windows --json | jq -r 'sort_by(.y) | "\(.[0].id) \(.[1].id)"')"
 accepts "window-focus:$top_id"
 accepts "window-focus-or-workspace-down"
 bottom_active=false
 for _ in $(seq 40); do
-  bottom_active=$("$UMBRIEL" windows --json | jq -r --arg id "$bottom_id" '.[] | select(.id == $id) | .active')
+  bottom_active=$("$ANDROMEDA" windows --json | jq -r --arg id "$bottom_id" '.[] | select(.id == $id) | .active')
   [[ $bottom_active == true ]] && break
   sleep 0.1
 done
@@ -149,7 +149,7 @@ if [[ $bottom_active != true ]]; then
   echo "expected focus-down variant to use the lower row before changing workspaces"
   exit 1
 fi
-if ! "$UMBRIEL" windows --json | jq -e --arg workspace "$start_workspace" \
+if ! "$ANDROMEDA" windows --json | jq -e --arg workspace "$start_workspace" \
     'all(.[]; .workspace == $workspace)' > /dev/null; then
   echo "vertical neighbor focus unexpectedly changed workspaces"
   exit 1
@@ -158,7 +158,7 @@ fi
 accepts "window-move-or-workspace-up"
 local_moved=false
 for _ in $(seq 40); do
-  local_moved=$("$UMBRIEL" windows --json | jq -r --arg id "$bottom_id" --arg other "$top_id" \
+  local_moved=$("$ANDROMEDA" windows --json | jq -r --arg id "$bottom_id" --arg other "$top_id" \
     '([.[] | select(.id == $id) | .y][0]) < ([.[] | select(.id == $other) | .y][0])')
   [[ $local_moved == true ]] && break
   sleep 0.1
@@ -173,7 +173,7 @@ wait_for_windows 1
 accepts "window-focus-or-workspace-down"
 active_now=true
 for _ in $(seq 40); do
-  active_now=$("$UMBRIEL" windows --json | jq -r '.[0].active')
+  active_now=$("$ANDROMEDA" windows --json | jq -r '.[0].active')
   [[ $active_now == false ]] && break
   sleep 0.1
 done
@@ -183,7 +183,7 @@ if [[ $active_now != false ]]; then
 fi
 accepts "window-focus-or-workspace-up"
 for _ in $(seq 40); do
-  active_now=$("$UMBRIEL" windows --json | jq -r '.[0].active')
+  active_now=$("$ANDROMEDA" windows --json | jq -r '.[0].active')
   [[ $active_now == true ]] && break
   sleep 0.1
 done
@@ -194,7 +194,7 @@ fi
 
 accepts "window-move-or-workspace-down"
 for _ in $(seq 40); do
-  returned_workspace=$("$UMBRIEL" windows --json | jq -r '.[0].workspace')
+  returned_workspace=$("$ANDROMEDA" windows --json | jq -r '.[0].workspace')
   [[ $returned_workspace == "$moved_workspace" ]] && break
   sleep 0.1
 done
@@ -204,7 +204,7 @@ if [[ $returned_workspace != "$moved_workspace" ]]; then
 fi
 accepts "window-move-or-workspace-up"
 for _ in $(seq 40); do
-  returned_workspace=$("$UMBRIEL" windows --json | jq -r '.[0].workspace')
+  returned_workspace=$("$ANDROMEDA" windows --json | jq -r '.[0].workspace')
   [[ $returned_workspace == "$start_workspace" ]] && break
   sleep 0.1
 done
@@ -215,11 +215,11 @@ fi
 
 # window-modify-primary-extent: Headless output is 1280x720 with the shipped defaults (gap 8, border 2): viewport 1260, so -0.2 shrinks a column by about 252px.
 # The exact geometry math lives in layout/scrolling.sh (624 wide at 0.5).
-before_w=$(jq -r '.[0].w' <<< "$("$UMBRIEL" windows --json)")
+before_w=$(jq -r '.[0].w' <<< "$("$ANDROMEDA" windows --json)")
 accepts "window-modify-primary-extent:-0.2"
 after_w=$before_w
 for _ in $(seq 40); do
-  after_w=$(jq -r '.[0].w' <<< "$("$UMBRIEL" windows --json)")
+  after_w=$(jq -r '.[0].w' <<< "$("$ANDROMEDA" windows --json)")
   [[ $after_w -le $((before_w - 200)) ]] && break
   sleep 0.1
 done
@@ -233,12 +233,12 @@ fi
 narrow_w=$after_w
 spawn_client stacked-move
 wait_for_windows 2
-stacked_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "stacked-move") | .id')
+stacked_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "stacked-move") | .id')
 accepts "window-focus:$stacked_id"
 accepts "window-consume-left"
 stacked=false
 for _ in $(seq 40); do
-  if "$UMBRIEL" windows --json | jq -e --argjson want "$narrow_w" \
+  if "$ANDROMEDA" windows --json | jq -e --argjson want "$narrow_w" \
       'length == 2 and all(.[]; .w == $want) and ([.[].y] | unique | length == 2)' > /dev/null; then
     stacked=true
     break
@@ -253,7 +253,7 @@ fi
 accepts "window-toggle-maximize"
 maximized_w=$narrow_w
 for _ in $(seq 40); do
-  maximized_w=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "stacked-move") | .w')
+  maximized_w=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "stacked-move") | .w')
   [[ $maximized_w -ge $((narrow_w + 400)) ]] && break
   sleep 0.1
 done
@@ -266,7 +266,7 @@ accepts "window-move-to-workspace-next"
 current_workspace=$start_workspace
 moved_w=0
 for _ in $(seq 40); do
-  read -r current_workspace moved_w <<< "$("$UMBRIEL" windows --json \
+  read -r current_workspace moved_w <<< "$("$ANDROMEDA" windows --json \
     | jq -r '.[] | select(.title == "stacked-move") | "\(.workspace) \(.w)"')"
   [[ $current_workspace == "$moved_workspace" && $moved_w -eq $maximized_w ]] && break
   sleep 0.1
@@ -279,7 +279,7 @@ fi
 accepts "window-toggle-maximize"
 restored_narrow_w=$moved_w
 for _ in $(seq 40); do
-  restored_narrow_w=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "stacked-move") | .w')
+  restored_narrow_w=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "stacked-move") | .w')
   [[ $restored_narrow_w -eq $narrow_w ]] && break
   sleep 0.1
 done
@@ -290,7 +290,7 @@ fi
 
 accepts "window-move-to-workspace-previous"
 for _ in $(seq 40); do
-  current_workspace=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "stacked-move") | .workspace')
+  current_workspace=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "stacked-move") | .workspace')
   [[ $current_workspace == "$start_workspace" ]] && break
   sleep 0.1
 done
@@ -305,7 +305,7 @@ wait_for_windows 1
 accepts "window-toggle-maximize"
 source_w=0
 for _ in $(seq 40); do
-  source_w=$("$UMBRIEL" windows --json | jq -r '.[0].w')
+  source_w=$("$ANDROMEDA" windows --json | jq -r '.[0].w')
   [[ $source_w -eq $narrow_w ]] && break
   sleep 0.1
 done
@@ -316,7 +316,7 @@ fi
 accepts "window-modify-primary-extent:+0.2"
 restored_w=0
 for _ in $(seq 40); do
-  restored_w=$(jq -r '.[0].w' <<< "$("$UMBRIEL" windows --json)")
+  restored_w=$(jq -r '.[0].w' <<< "$("$ANDROMEDA" windows --json)")
   [[ $restored_w -eq $before_w ]] && break
   sleep 0.1
 done
@@ -328,7 +328,7 @@ fi
 # window-center
 accepts "window-toggle-floating"
 for _ in $(seq 40); do
-  floating=$(jq -r '.[0].floating' <<< "$("$UMBRIEL" windows --json)")
+  floating=$(jq -r '.[0].floating' <<< "$("$ANDROMEDA" windows --json)")
   [[ $floating == true ]] && break
   sleep 0.1
 done
@@ -336,8 +336,8 @@ if [[ $floating != true ]]; then
   echo "window-toggle-floating did not float the window"
   exit 1
 fi
-w=$(jq -r '.[0].w' <<< "$("$UMBRIEL" windows --json)")
-h=$(jq -r '.[0].h' <<< "$("$UMBRIEL" windows --json)")
+w=$(jq -r '.[0].w' <<< "$("$ANDROMEDA" windows --json)")
+h=$(jq -r '.[0].h' <<< "$("$ANDROMEDA" windows --json)")
 accepts "window-center"
 # No layers on the headless output, so the usable area is the whole 1280x720
 # output and centering is exact modulo integer rounding and animation settle.
@@ -346,7 +346,7 @@ want_y=$(( (720 - h) / 2 ))
 cur_x=0
 cur_y=0
 for _ in $(seq 40); do
-  read -r cur_x cur_y <<< "$(jq -r '.[0] | "\(.x) \(.y)"' <<< "$("$UMBRIEL" windows --json)")"
+  read -r cur_x cur_y <<< "$(jq -r '.[0] | "\(.x) \(.y)"' <<< "$("$ANDROMEDA" windows --json)")"
   dx=$((cur_x - want_x))
   dy=$((cur_y - want_y))
   [[ $dx -ge -3 && $dx -le 3 && $dy -ge -3 && $dy -le 3 ]] && break
@@ -361,12 +361,12 @@ accepts "window-toggle-floating" # restore tiled
 spawn_client window-toggle-unfoucsed
 wait_for_windows 2
 
-read -r id <<< "$(jq -r '.[0].id' <<< "$("$UMBRIEL" windows --json)")"
+read -r id <<< "$(jq -r '.[0].id' <<< "$("$ANDROMEDA" windows --json)")"
 accepts "window-focus:$id"
 
-read -r unfocused_id started_focused started_floating <<< "$(jq -r '.[1] | "\(.id) \(.focused) \(.floating)"' <<< "$("$UMBRIEL" windows --json)")"
+read -r unfocused_id started_focused started_floating <<< "$(jq -r '.[1] | "\(.id) \(.focused) \(.floating)"' <<< "$("$ANDROMEDA" windows --json)")"
 accepts "window-toggle-floating:$unfocused_id"
-read -r ended_focused ended_floating <<< "$(jq -r '.[1] | "\(.focused) \(.floating)"' <<< "$("$UMBRIEL" windows --json )")"
+read -r ended_focused ended_floating <<< "$(jq -r '.[1] | "\(.focused) \(.floating)"' <<< "$("$ANDROMEDA" windows --json )")"
 
 if [[ $started_focused == false && $ended_focused == true ]]; then
   echo "Window stole focus when toggled"
@@ -383,14 +383,14 @@ accepts "window-toggle-floating:$unfocused_id"
 accepts "window-move-to-scratchpad"
 accepts "scratchpad-toggle"
 
-read -r active focused <<< "$(jq '.[0] | "\(.active) \(.focused)"' <<< "$("$UMBRIEL" windows --json)")"
+read -r active focused <<< "$(jq '.[0] | "\(.active) \(.focused)"' <<< "$("$ANDROMEDA" windows --json)")"
 if [[ $active == false || $focused == true ]]; then
   echo "Scrachpad window is not behaving properly"
   exit 1
 fi
 
 accepts "window-toggle-floating:$unfocused_id"
-read -r ended_active ended_floating <<< "$(jq -r '.[1] | "\(.active) \(.floating)"' <<< "$("$UMBRIEL" windows --json )")"
+read -r ended_active ended_floating <<< "$(jq -r '.[1] | "\(.active) \(.floating)"' <<< "$("$ANDROMEDA" windows --json )")"
 
 if [[ $ended_active == true ]]; then
   echo "Scratchpad should be active, not floating window"
@@ -415,7 +415,7 @@ wait_for_windows 3
 accepts "workspace-set-layout:dwindle"
 min_h=720
 for _ in $(seq 40); do
-  min_h=$(jq '[.[].h] | min' <<< "$("$UMBRIEL" windows --json)")
+  min_h=$(jq '[.[].h] | min' <<< "$("$ANDROMEDA" windows --json)")
   [[ $min_h -lt 600 ]] && break
   sleep 0.1
 done
@@ -425,11 +425,11 @@ if [[ $min_h -ge 600 ]]; then
 fi
 
 # column-center rejects over IPC outside scrolling without changing geometry.
-"$UMBRIEL" settle
-dwindle_geometry=$("$UMBRIEL" windows --json | jq -c 'sort_by(.id) | map({id, x, y, w, h})')
+"$ANDROMEDA" settle
+dwindle_geometry=$("$ANDROMEDA" windows --json | jq -c 'sort_by(.id) | map({id, x, y, w, h})')
 rejects_with "column-center" "requires the scrolling layout"
-"$UMBRIEL" settle
-after_center=$("$UMBRIEL" windows --json | jq -c 'sort_by(.id) | map({id, x, y, w, h})')
+"$ANDROMEDA" settle
+after_center=$("$ANDROMEDA" windows --json | jq -c 'sort_by(.id) | map({id, x, y, w, h})')
 if [[ $after_center != "$dwindle_geometry" ]]; then
   echo "column-center changed dwindle geometry: $dwindle_geometry -> $after_center"
   exit 1
@@ -441,7 +441,7 @@ spawn_client dwindle-d
 wait_for_windows 4
 min_h=720
 for _ in $(seq 40); do
-  min_h=$(jq '[.[].h] | min' <<< "$("$UMBRIEL" windows --json)")
+  min_h=$(jq '[.[].h] | min' <<< "$("$ANDROMEDA" windows --json)")
   [[ $min_h -lt 600 ]] && break
   sleep 0.1
 done
@@ -453,7 +453,7 @@ fi
 accepts "workspace-set-layout:scrolling"
 min_h=0
 for _ in $(seq 40); do
-  min_h=$(jq '[.[].h] | min' <<< "$("$UMBRIEL" windows --json)")
+  min_h=$(jq '[.[].h] | min' <<< "$("$ANDROMEDA" windows --json)")
   [[ $min_h -ge 690 ]] && break
   sleep 0.1
 done
@@ -465,7 +465,7 @@ fi
 accepts "workspace-set-layout:toggle"
 min_h=720
 for _ in $(seq 40); do
-  min_h=$(jq '[.[].h] | min' <<< "$("$UMBRIEL" windows --json)")
+  min_h=$(jq '[.[].h] | min' <<< "$("$ANDROMEDA" windows --json)")
   [[ $min_h -lt 600 ]] && break
   sleep 0.1
 done

@@ -9,10 +9,10 @@ set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly BTN_MIDDLE=274
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -26,14 +26,14 @@ workspace_axis = "vertical"
 [keybinds]
 "Mod+MouseMiddle" = "layout-scroll-drag"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
 }
 
 window_count() {
-  "$UMBRIEL" windows --json | jq 'length'
+  "$ANDROMEDA" windows --json | jq 'length'
 }
 
 wait_for_count() {
@@ -49,7 +49,7 @@ wait_for_a_visible() {
   local field=$1
   local value=-1
   for _ in $(seq 40); do
-    value=$("$UMBRIEL" windows --json | jq -r --arg field "$field" '.[] | select(.title == "A") | .[$field]')
+    value=$("$ANDROMEDA" windows --json | jq -r --arg field "$field" '.[] | select(.title == "A") | .[$field]')
     ((value >= 0)) && {
       echo "$value"
       return 0
@@ -68,13 +68,13 @@ for title in A B C D; do
 done
 
 # New windows focus at the strip end. Return to A and wait for its arrangement so dragging left has room to pan.
-"$UMBRIEL" msg column-focus-first > /dev/null
+"$ANDROMEDA" msg column-focus-first > /dev/null
 before_x=$(wait_for_a_visible x)
 
 pointer move 900 360 mod logo press "$BTN_MIDDLE" move 850 360 move 350 360 release "$BTN_MIDDLE" mod none
 after_x=$before_x
 for _ in $(seq 40); do
-  after_x=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .x')
+  after_x=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .x')
   ((after_x < before_x)) && break
   sleep 0.1
 done
@@ -84,11 +84,11 @@ if ((after_x >= before_x)); then
 fi
 
 # Arrange the workspaces horizontally: the strip turns vertical, and the drag must follow it.
-sed -i 's/^workspace_axis = "vertical"$/workspace_axis = "horizontal"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^workspace_axis = "vertical"$/workspace_axis = "horizontal"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 vertical_rows=0
 for _ in $(seq 40); do
-  vertical_rows=$("$UMBRIEL" windows --json | jq '[.[].y] | unique | length')
+  vertical_rows=$("$ANDROMEDA" windows --json | jq '[.[].y] | unique | length')
   ((vertical_rows > 1)) && break
   sleep 0.1
 done
@@ -96,12 +96,12 @@ if ((vertical_rows <= 1)); then
   echo "scrolling layout did not reload with a vertical strip"
   exit 1
 fi
-"$UMBRIEL" msg column-focus-first > /dev/null
+"$ANDROMEDA" msg column-focus-first > /dev/null
 before_y=$(wait_for_a_visible y)
 pointer move 640 650 mod logo press "$BTN_MIDDLE" move 640 600 move 640 100 release "$BTN_MIDDLE" mod none
 after_y=$before_y
 for _ in $(seq 40); do
-  after_y=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .y')
+  after_y=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .y')
   ((after_y < before_y)) && break
   sleep 0.1
 done
@@ -113,12 +113,12 @@ fi
 # With the workspaces on X, the overview middle drag steps rows on X and pans the strip on Y. Both start from a known
 # press point: the axis is locked from the travel of the first motion.
 pointer move 640 360
-"$UMBRIEL" msg overview-open > /dev/null
-strip_before_y=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .y')
+"$ANDROMEDA" msg overview-open > /dev/null
+strip_before_y=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .y')
 pointer press "$BTN_MIDDLE" move 640 400 move 640 620 release "$BTN_MIDDLE"
 strip_after_y=$strip_before_y
 for _ in $(seq 20); do
-  strip_after_y=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .y')
+  strip_after_y=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .y')
   ((strip_after_y > strip_before_y)) && break
   sleep 0.1
 done
@@ -136,15 +136,15 @@ if [[ $("$WORKSPACE") != 2 ]]; then
   echo "horizontal overview middle drag did not step to the next workspace: $("$WORKSPACE")"
   exit 1
 fi
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 
 # Restore the horizontal presentation and first column so a known card sits under the overview test point.
-sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 horizontal_rows=0
 for _ in $(seq 40); do
-  horizontal_rows=$("$UMBRIEL" windows --json | jq '[.[].y] | unique | length')
+  horizontal_rows=$("$ANDROMEDA" windows --json | jq '[.[].y] | unique | length')
   ((horizontal_rows == 1)) && break
   sleep 0.1
 done
@@ -152,18 +152,18 @@ if ((horizontal_rows != 1)); then
   echo "scrolling layout did not restore its horizontal strip"
   exit 1
 fi
-"$UMBRIEL" msg column-focus-first > /dev/null
+"$ANDROMEDA" msg column-focus-first > /dev/null
 wait_for_a_visible x > /dev/null
 
 # The configured modified drag pans the scrolling row under the pointer in the overview too. Overview cards are scaled,
 # so the gesture maps pointer travel back through that scale before updating the workspace viewport.
 pointer move 560 360
-"$UMBRIEL" msg overview-open > /dev/null
-overview_before_x=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .x')
+"$ANDROMEDA" msg overview-open > /dev/null
+overview_before_x=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .x')
 pointer mod logo press "$BTN_MIDDLE" move 510 360 move 310 360 release "$BTN_MIDDLE" mod none
 overview_after_x=$overview_before_x
 for _ in $(seq 20); do
-  overview_after_x=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .x')
+  overview_after_x=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .x')
   ((overview_after_x < overview_before_x)) && break
   sleep 0.1
 done
@@ -177,7 +177,7 @@ bare_before_x=$overview_after_x
 pointer press "$BTN_MIDDLE" move 360 360 move 560 360 release "$BTN_MIDDLE"
 bare_after_x=$bare_before_x
 for _ in $(seq 20); do
-  bare_after_x=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "A") | .x')
+  bare_after_x=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "A") | .x')
   ((bare_after_x > bare_before_x)) && break
   sleep 0.1
 done

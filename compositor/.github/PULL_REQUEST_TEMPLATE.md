@@ -43,8 +43,8 @@
 
 <!-- Mark what applies to this PR. -->
 
-- [ ] Tested in a nested Umbriel session
-- [ ] Tested in a native Umbriel session
+- [ ] Tested in a nested Andromeda session
+- [ ] Tested in a native Andromeda session
 - [ ] Tested with multiple monitors
 - [ ] Tested with a scaled output
 - [ ] Tested with native Wayland applications

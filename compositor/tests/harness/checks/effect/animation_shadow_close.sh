@@ -2,14 +2,14 @@
 # A descendant-only effect changes the caster too. Freeze it on close so the
 # removed border and its enlarged analytic shadow do not flash back into view.
 set -euo pipefail
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/border.png"
-cat > "$UMBRIEL_RUNTIME_DIR/border.glsl" <<'GLSL'
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/border.png"
+cat > "$ANDROMEDA_RUNTIME_DIR/border.glsl" <<'GLSL'
 vec4 animation(vec2 uv) { return vec4(0.0); }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/identity.glsl" <<'GLSL'
-vec4 animation(vec2 uv) { return umbriel_sample(uv); }
+cat > "$ANDROMEDA_RUNTIME_DIR/identity.glsl" <<'GLSL'
+vec4 animation(vec2 uv) { return andromeda_sample(uv); }
 GLSL
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 shadow = "#00FF00FF"
@@ -52,21 +52,21 @@ match.title = "^border-b$"
 default_floating = true
 default_position = { x = 800, y = 120, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # Animation time only moves by clock-advance: samples land 200 ms into each 2000 ms timeline.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 for title in border-a border-b; do
-  "$UMBRIEL_UNMAP_CLIENT" "$title" 300 300 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$ANDROMEDA_UNMAP_CLIENT" "$title" 300 300 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 80); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && break
     sleep 0.025
   done
   [[ -n $window ]]
 done
-"$UMBRIEL" clock-advance 2000
-"$UMBRIEL" settle
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "border-a")')
+"$ANDROMEDA" clock-advance 2000
+"$ANDROMEDA" settle
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "border-a")')
 id=$(jq -r .id <<< "$window")
 x=$(jq -r '.x + (.w / 2 | floor)' <<< "$window")
 y=$(jq -r '.y - 6' <<< "$window")
@@ -78,10 +78,10 @@ assert_shadow() {
     echo "$1: border shader shadow did not follow the content edge: $r $g $b"; exit 1
   fi
 }
-"$UMBRIEL" msg "window-focus:$id" > /dev/null
-"$UMBRIEL" clock-advance 200
+"$ANDROMEDA" msg "window-focus:$id" > /dev/null
+"$ANDROMEDA" clock-advance 200
 assert_shadow focus
-"$UMBRIEL" msg "window-close:$id" > /dev/null
-"$UMBRIEL" clock-advance 200
+"$ANDROMEDA" msg "window-close:$id" > /dev/null
+"$ANDROMEDA" clock-advance 200
 assert_shadow closing
 echo "descendant-only border silhouette and its closing snapshot shadow verified"

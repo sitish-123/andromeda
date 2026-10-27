@@ -7,18 +7,18 @@
 set -euo pipefail
 
 printf '\n[output."HEADLESS-1"]\nmode = "1280x720@4"\n\n[output."HEADLESS-2"]\nmode = "1280x720@4"\n' \
-  >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+  >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Opens a tile on HEADLESS-2, moves it to a workspace of its own on HEADLESS-1, floats it, and prints where it landed.
 float_after_move() {
   local title=$1 workspace=$2 timing=$3 id
-  if [[ $("$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .output') != HEADLESS-2 ]]; then
-    "$UMBRIEL" msg output-focus-left > /dev/null
+  if [[ $("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .output') != HEADLESS-2 ]]; then
+    "$ANDROMEDA" msg output-focus-left > /dev/null
   fi
-  "$UMBRIEL_UNMAP_CLIENT" "$title" 400 300 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$ANDROMEDA_UNMAP_CLIENT" "$title" 400 300 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 60); do
-    id=$("$UMBRIEL" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .id')
+    id=$("$ANDROMEDA" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .id')
     [[ -n $id ]] && break
     sleep 0.05
   done
@@ -26,17 +26,17 @@ float_after_move() {
     echo "$title never mapped"
     return 1
   fi
-  if [[ $("$UMBRIEL" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .workspace') != HEADLESS-2:* ]]; then
-    echo "$title did not open on HEADLESS-2: $("$UMBRIEL" windows --json)"
+  if [[ $("$ANDROMEDA" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .workspace') != HEADLESS-2:* ]]; then
+    echo "$title did not open on HEADLESS-2: $("$ANDROMEDA" windows --json)"
     return 1
   fi
-  "$UMBRIEL" msg "window-focus:$id" > /dev/null
-  "$UMBRIEL" settle
-  "$UMBRIEL" msg "window-move-to-workspace:$workspace/HEADLESS-1" > /dev/null
-  [[ $timing == settled ]] && "$UMBRIEL" settle
-  "$UMBRIEL" msg window-toggle-floating > /dev/null
-  "$UMBRIEL" settle
-  "$UMBRIEL" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | "\(.x) \(.y) \(.workspace)"'
+  "$ANDROMEDA" msg "window-focus:$id" > /dev/null
+  "$ANDROMEDA" settle
+  "$ANDROMEDA" msg "window-move-to-workspace:$workspace/HEADLESS-1" > /dev/null
+  [[ $timing == settled ]] && "$ANDROMEDA" settle
+  "$ANDROMEDA" msg window-toggle-floating > /dev/null
+  "$ANDROMEDA" settle
+  "$ANDROMEDA" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | "\(.x) \(.y) \(.workspace)"'
 }
 
 pending=$(float_after_move float-pending 2 pending)

@@ -4,15 +4,15 @@
 # focus, and transient placement unless an explicit window rule says otherwise.
 set -euo pipefail
 
-readonly PARENT_CLIENT="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly CHILD_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly PARENT_LOG="$UMBRIEL_RUNTIME_DIR/scratchpad-parent.log"
-readonly CHILD_LOG="$UMBRIEL_RUNTIME_DIR/scratchpad-child.log"
-readonly LATE_LOG="$UMBRIEL_RUNTIME_DIR/scratchpad-late-child.log"
-readonly EXPLICIT_LOG="$UMBRIEL_RUNTIME_DIR/scratchpad-explicit-child.log"
-readonly LATE_FIFO="$UMBRIEL_RUNTIME_DIR/scratchpad-late-child-control"
+readonly PARENT_CLIENT="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly CHILD_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly PARENT_LOG="$ANDROMEDA_RUNTIME_DIR/scratchpad-parent.log"
+readonly CHILD_LOG="$ANDROMEDA_RUNTIME_DIR/scratchpad-child.log"
+readonly LATE_LOG="$ANDROMEDA_RUNTIME_DIR/scratchpad-late-child.log"
+readonly EXPLICIT_LOG="$ANDROMEDA_RUNTIME_DIR/scratchpad-explicit-child.log"
+readonly LATE_FIFO="$ANDROMEDA_RUNTIME_DIR/scratchpad-late-child-control"
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_count() {
   local expected=$1 actual=
@@ -35,7 +35,7 @@ wait_for_query() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -61,7 +61,7 @@ default_scratchpad = "forced"
 default_floating = true
 default_floating_size_px = { width = 300, height = 200 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 EXPORT_TOPLEVEL=1 "$PARENT_CLIENT" scratchpad-foreign-parent > "$PARENT_LOG" 2>&1 &
 wait_for_count 1
@@ -76,8 +76,8 @@ if [[ -z $handle ]]; then
   exit 1
 fi
 
-"$UMBRIEL" msg window-move-to-scratchpad:portal > /dev/null
-"$UMBRIEL" msg scratchpad-toggle:portal > /dev/null
+"$ANDROMEDA" msg window-move-to-scratchpad:portal > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:portal > /dev/null
 wait_for_query \
   '[.[] | select(.title == "scratchpad-foreign-parent" and .scratchpad == "portal" and .active)] | length == 1' \
   "scratchpad parent did not become visible and focused"
@@ -94,9 +94,9 @@ wait_for_query \
 
 # Membership owns visibility too. Hiding and showing the pad must bring the
 # dialog back as its last focused member.
-"$UMBRIEL" msg scratchpad-toggle:portal > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:portal > /dev/null
 wait_for_query '[.[] | select(.active)] | length == 0' "hiding the inherited dialog did not clear focus"
-"$UMBRIEL" msg scratchpad-toggle:portal > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:portal > /dev/null
 wait_for_query \
   '[.[] | select(.title == "scratchpad-foreign-child" and .scratchpad == "portal" and .active)] | length == 1' \
   "showing the scratchpad did not restore focus to the inherited dialog"

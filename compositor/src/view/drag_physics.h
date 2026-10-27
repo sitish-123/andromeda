@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-namespace umbriel {
+namespace andromeda {
 
   // A dragged window deforms as an elastic sheet pinned at the grab point and
   // relaxes back to rest after release. A 4x4 grid of point masses (kPoints,
@@ -63,4 +63,4 @@ namespace umbriel {
     bool m_active = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

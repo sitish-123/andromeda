@@ -3,33 +3,33 @@
 # then restore focus to its parent, not the unrelated tile.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/transient-client.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/transient-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/transient-client.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/transient-control"
 
 wait_for_window_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.1
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_focus() {
   local want=$1
   for _ in $(seq 40); do
-    if [[ $("$UMBRIEL" windows --json | jq -r --arg id "$want" '.[] | select(.id == $id) | .focused') == true ]]; then
+    if [[ $("$ANDROMEDA" windows --json | jq -r --arg id "$want" '.[] | select(.id == $id) | .focused') == true ]]; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected $want to be focused: $("$UMBRIEL" windows --json)"
+  echo "expected $want to be focused: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -45,7 +45,7 @@ default_extent_fraction = 0.75
 match.title = "^transient-child-ready$"
 default_maximize = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
@@ -63,7 +63,7 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
 fi
 wait_for_window_count 3
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 parent_id=$(jq -r '.[] | select(.title == "transient-parent") | .id' <<< "$windows")
 unrelated_id=$(jq -r '.[] | select(.title == "transient-unrelated") | .id' <<< "$windows")
 child_id=$(jq -r '.[] | select(.title == "transient-child") | .id' <<< "$windows")
@@ -84,7 +84,7 @@ fi
 
 printf 'u' >&"$control_fd"
 for _ in $(seq 40); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   [[ $(jq -r --arg id "$child_id" '.[] | select(.id == $id) | .title' <<< "$windows") == transient-child-ready ]] \
     && break
   sleep 0.05
@@ -93,7 +93,7 @@ if [[ $(jq -r --arg id "$child_id" '.[] | select(.id == $id) | .title' <<< "$win
   echo "transient title did not settle after map: $windows"
   exit 1
 fi
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 if grep -q '^configured-maximized$' "$CLIENT_LOG"; then
   echo "late default_maximize reached a parented transient: $(< "$CLIENT_LOG")"
   exit 1
@@ -106,7 +106,7 @@ if ((child_w != 600 || child_h != 500)); then
   exit 1
 fi
 
-"$UMBRIEL" msg "window-close:$child_id" > /dev/null
+"$ANDROMEDA" msg "window-close:$child_id" > /dev/null
 for _ in $(seq 40); do
   grep -q '^unmapped$' "$CLIENT_LOG" && break
   sleep 0.1
@@ -121,8 +121,8 @@ if ! kill -0 "$client_pid" 2>/dev/null; then
 fi
 
 wait_for_focus "$parent_id"
-"$UMBRIEL" settle
-windows=$("$UMBRIEL" windows --json)
+"$ANDROMEDA" settle
+windows=$("$ANDROMEDA" windows --json)
 if [[ $(jq -r --arg id "$unrelated_id" '.[] | select(.id == $id) | .focused' <<< "$windows") != false ]]; then
   echo "unrelated view received focus after the transient closed: $windows"
   exit 1

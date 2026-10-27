@@ -2,10 +2,10 @@
 # wp_fifo_manager_v1 is offered, and 60 updates sent at once, each waiting on the barrier the one before set, are
 # applied one per refresh instead of all at the next frame.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
-readonly CLIENT="${UMBRIEL_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
-readonly LOG="$UMBRIEL_RUNTIME_DIR/fifo.log"
+readonly CLIENT="${ANDROMEDA_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
+readonly LOG="$ANDROMEDA_RUNTIME_DIR/fifo.log"
 
 "$CLIENT" fifo > "$LOG" 2>&1 &
 await_events "$LOG" mapped 1 "the fifo window"

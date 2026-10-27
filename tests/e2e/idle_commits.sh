@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Counts compositor commits over 30 s of a static desktop: a headless Umbriel with the Noctalia fork showing a bar.
+# Counts compositor commits over 30 s of a static desktop: a headless Andromeda with the Noctalia fork showing a bar.
 # The window starts after a minute tick and ends before the next, so a static screen must not commit at all, and panel
 # self-refresh stays on. WINDOW is at most 57 s. Two bars are checked:
 # a clock-only top bar, and a left (vertical), fractionally scaled bar with the clock and a capsule group of
@@ -19,7 +19,7 @@ measure() {
   with_noctalia '
     commits() {
       local n
-      n=$("$UMBRIEL" output-commits --json | jq -r ".\"HEADLESS-1\" // .ok.\"HEADLESS-1\"")
+      n=$("$ANDROMEDA" output-commits --json | jq -r ".\"HEADLESS-1\" // .ok.\"HEADLESS-1\"")
       [[ $n =~ ^[0-9]+$ ]] || { echo "no commit count: $n" >&2; exit 1; }
       echo "$n"
     }

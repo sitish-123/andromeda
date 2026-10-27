@@ -97,7 +97,7 @@ jobs:
       - name: Prepare compile database and generated sources
         run: |
           runuser --user ci -- env HOME=/home/ci just configure
-          runuser --user ci -- env HOME=/home/ci meson compile -C build-debug umbriel unit-tests harness-clients
+          runuser --user ci -- env HOME=/home/ci meson compile -C build-debug andromeda unit-tests harness-clients
 
       - name: Run clang-tidy
         run: runuser --user ci -- env HOME=/home/ci just lint

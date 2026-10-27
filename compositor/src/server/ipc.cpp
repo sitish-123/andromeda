@@ -22,7 +22,7 @@
 #include <utility>
 #include <wayland-server-core.h>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("ipc");
@@ -90,12 +90,12 @@ namespace umbriel {
 
     nlohmann::json windowsEvent(Server& server) {
       // Reuses the command handler so the event payload can never diverge from
-      // what `umbriel windows` reports.
+      // what `andromeda windows` reports.
       return nlohmann::json{{"event", "windows"}, {"data", IpcCommands::windows(server, {}).at("ok")}};
     }
 
     nlohmann::json workspacesEvent(Server& server) {
-      // Same reuse as windowsEvent: the event and `umbriel workspaces` are the one payload, including the effective
+      // Same reuse as windowsEvent: the event and `andromeda workspaces` are the one payload, including the effective
       // layout mode of every workspace, which no Wayland protocol carries.
       return nlohmann::json{{"event", "workspaces"}, {"data", IpcCommands::workspaces(server, {}).at("ok")}};
     }
@@ -139,7 +139,7 @@ namespace umbriel {
       kLog.error("XDG_RUNTIME_DIR not set, IPC socket disabled");
       return;
     }
-    m_socketPath = std::string(runtimeDir) + "/umbriel-" + waylandSocketName + ".sock";
+    m_socketPath = std::string(runtimeDir) + "/andromeda-" + waylandSocketName + ".sock";
 
     m_listenFd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     if (m_listenFd < 0) {
@@ -407,7 +407,7 @@ namespace umbriel {
                  return candidate->wlr()->enabled && name == candidate->wlr()->name;
                });
       });
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
       // A frozen animation never ends, so the wait would only time out.
       if (connection->frameWait == FrameWait::Settled
           && m_server->animationClockFrozen()
@@ -539,7 +539,7 @@ namespace umbriel {
       }
       return response;
     }
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     if (cmd == "settle") {
       beginFrameWait(connection, FrameWait::Settled, IpcCommands::settle(*m_server, {}).dump());
       return std::nullopt;
@@ -630,4 +630,4 @@ namespace umbriel {
 
   void Ipc::notifyScreenCastChanged() { broadcastEvent(kEventScreenCast, screenCastEvent(*m_server)); }
 
-} // namespace umbriel
+} // namespace andromeda

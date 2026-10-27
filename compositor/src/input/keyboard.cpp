@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <optional>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("keyboard");
@@ -487,4 +487,4 @@ namespace umbriel {
     return 0;
   }
 
-} // namespace umbriel
+} // namespace andromeda

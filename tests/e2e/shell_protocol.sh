@@ -10,8 +10,8 @@ boot_headless 1
 KEYS=${KEYS:-$ROOT/compositor/build-debug/tests/pointer-client}
 
 with_noctalia '
-  layer_present() { "$UMBRIEL" layers | grep -q "$1"; }
-  "$UMBRIEL" msg "shell:panel-open launcher" > /dev/null
+  layer_present() { "$ANDROMEDA" layers | grep -q "$1"; }
+  "$ANDROMEDA" msg "shell:panel-open launcher" > /dev/null
   for _ in $(seq 50); do layer_present noctalia-panel && break; sleep 0.1; done
   layer_present noctalia-panel || { echo "FAIL: shell action did not open the launcher panel"; exit 1; }
   "$NOCTALIA" msg panel-close > /dev/null

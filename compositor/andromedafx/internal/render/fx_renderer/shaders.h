@@ -4,7 +4,7 @@
 #include <GLES2/gl2.h>
 #include <stdbool.h>
 #include <wayland-server-core.h>
-#include <umbrielfx/types/fx/clipped_region.h>
+#include <andromedafx/types/fx/clipped_region.h>
 #include "types/fx/clipped_region.h"
 
 struct fx_renderer;

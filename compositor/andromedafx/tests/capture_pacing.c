@@ -10,7 +10,7 @@
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_output.h>
 
-#include "umbrielfx/types/wlr_scene.h"
+#include "andromedafx/types/wlr_scene.h"
 
 static int failures;
 #define CHECK(condition)                                                                           \

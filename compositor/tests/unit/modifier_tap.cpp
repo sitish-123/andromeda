@@ -6,10 +6,10 @@ extern "C" {
 #include <wlr/types/wlr_keyboard.h>
 }
 
-using umbriel::Keybind;
-using umbriel::KeybindAction;
-using umbriel::modifierTapPressMatches;
-using umbriel::ModifierTapState;
+using andromeda::Keybind;
+using andromeda::KeybindAction;
+using andromeda::modifierTapPressMatches;
+using andromeda::ModifierTapState;
 
 namespace {
 
@@ -23,14 +23,14 @@ namespace {
   }
 
 } // namespace
-UMBRIEL_TEST(currentPressContributesModifierBeforeWlrootsStateUpdate) {
+ANDROMEDA_TEST(currentPressContributesModifierBeforeWlrootsStateUpdate) {
   CHECK(modifierTapPressMatches(0, WLR_MODIFIER_LOGO, WLR_MODIFIER_LOGO));
   CHECK(modifierTapPressMatches(WLR_MODIFIER_CAPS, WLR_MODIFIER_LOGO, WLR_MODIFIER_LOGO));
   CHECK(!modifierTapPressMatches(WLR_MODIFIER_CTRL, WLR_MODIFIER_LOGO, WLR_MODIFIER_LOGO));
   CHECK(!modifierTapPressMatches(0, WLR_MODIFIER_ALT, WLR_MODIFIER_LOGO));
 }
 
-UMBRIEL_TEST(releaseCompletesArmedTapOnce) {
+ANDROMEDA_TEST(releaseCompletesArmedTapOnce) {
   ModifierTapState state;
   int keyboard = 0;
   state.arm(launcherBind(), &keyboard, 42);
@@ -43,7 +43,7 @@ UMBRIEL_TEST(releaseCompletesArmedTapOnce) {
   CHECK(!state.release(&keyboard, 42).has_value());
 }
 
-UMBRIEL_TEST(otherKeyPressCancelsWithoutRearming) {
+ANDROMEDA_TEST(otherKeyPressCancelsWithoutRearming) {
   ModifierTapState state;
   int keyboard = 0;
   CHECK(!state.cancelForKeyPress());
@@ -54,7 +54,7 @@ UMBRIEL_TEST(otherKeyPressCancelsWithoutRearming) {
   CHECK(!state.release(&keyboard, 42).has_value());
 }
 
-UMBRIEL_TEST(differentKeyboardCannotCompleteTap) {
+ANDROMEDA_TEST(differentKeyboardCannotCompleteTap) {
   ModifierTapState state;
   int firstKeyboard = 0;
   int secondKeyboard = 0;
@@ -65,7 +65,7 @@ UMBRIEL_TEST(differentKeyboardCannotCompleteTap) {
   CHECK(state.release(&firstKeyboard, 42).has_value());
 }
 
-UMBRIEL_TEST(differentKeyReleaseLeavesTapArmed) {
+ANDROMEDA_TEST(differentKeyReleaseLeavesTapArmed) {
   ModifierTapState state;
   int keyboard = 0;
   state.arm(launcherBind(), &keyboard, 42);
@@ -75,7 +75,7 @@ UMBRIEL_TEST(differentKeyReleaseLeavesTapArmed) {
   CHECK(state.release(&keyboard, 42).has_value());
 }
 
-UMBRIEL_TEST(explicitCancellationDropsTap) {
+ANDROMEDA_TEST(explicitCancellationDropsTap) {
   ModifierTapState state;
   int keyboard = 0;
   state.arm(launcherBind(), &keyboard, 42);

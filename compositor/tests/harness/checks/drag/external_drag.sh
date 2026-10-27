@@ -6,9 +6,9 @@ set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly LEFT_BUTTON=272
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly DRAG_CLIENT="${UMBRIEL_DRAG_CLIENT:-./build-debug/tests/drag-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/drag-client.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly DRAG_CLIENT="${ANDROMEDA_DRAG_CLIENT:-./build-debug/tests/drag-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/drag-client.log"
 
 if [[ ! -x $POINTER ]]; then
   echo "pointer client not built at $POINTER"
@@ -20,7 +20,7 @@ if [[ ! -x $DRAG_CLIENT ]]; then
 fi
 
 overview_state() {
-  python3 - "$UMBRIEL_SOCKET" <<'PY'
+  python3 - "$ANDROMEDA_SOCKET" <<'PY'
 import json
 import socket
 import sys
@@ -96,7 +96,7 @@ if ! grep -q '^drag-started$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-"$UMBRIEL" msg overview-open > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
 sleep 0.3 # real time: proves the overview stays closed
 if [[ $(overview_state) != false ]]; then
   echo "overview opened while a client drag was active"
@@ -116,7 +116,7 @@ fi
 wait "$DRAG_PID"
 
 # The refused request must not poison later overview activation.
-"$UMBRIEL" msg overview-open > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
 for _ in $(seq 20); do
   [[ $(overview_state) == true ]] && break
   sleep 0.1

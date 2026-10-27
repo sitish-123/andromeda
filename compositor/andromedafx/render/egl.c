@@ -387,7 +387,7 @@ static bool egl_init_display(struct wlr_egl *egl, EGLDisplay display,
 
 static bool egl_init(struct wlr_egl *egl, EGLenum platform,
 		void *remote_display, bool allow_software) {
-	// A GBM display is private to this wlr_egl because umbrielfx created the GBM
+	// A GBM display is private to this wlr_egl because andromedafx created the GBM
 	// device. It can always be terminated, even without reference tracking.
 	bool owns_display = platform == EGL_PLATFORM_GBM_KHR;
 	EGLint display_attribs[3] = {0};

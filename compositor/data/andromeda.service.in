@@ -1,12 +1,12 @@
 [Unit]
-Description=Umbriel Wayland compositor
-Documentation=https://github.com/noctalia-dev/umbriel
+Description=Andromeda Wayland compositor
+Documentation=https://github.com/noctalia-dev/andromeda
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target
-PartOf=umbriel-session.target
-Before=umbriel-session.target
+PartOf=andromeda-session.target
+Before=andromeda-session.target
 
 [Service]
 Type=simple
 Slice=session.slice
-ExecStart=@UMBRIEL_EXECUTABLE@
+ExecStart=@ANDROMEDA_EXECUTABLE@

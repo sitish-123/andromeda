@@ -6,9 +6,9 @@ set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly BTN_LEFT=272
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly OVERVIEW_EVENTS="$UMBRIEL_RUNTIME_DIR/overview-events.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly OVERVIEW_EVENTS="$ANDROMEDA_RUNTIME_DIR/overview-events.log"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -19,21 +19,21 @@ chord() {
 }
 
 window_count() {
-  "$UMBRIEL" windows --json | jq 'length'
+  "$ANDROMEDA" windows --json | jq 'length'
 }
 
 selected_title() {
-  "$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
+  "$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
 }
 
 active_workspace() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.active) | .name'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .name'
 }
 
 # The closed event goes out as the zoom starts. The zoom hands the keyboard back as it lands, so a new keyboard enter
 # on the landing window marks its end.
 keyboard_enters() {
-  grep -c '^keyboard-enter$' "$UMBRIEL_RUNTIME_DIR/$1.log" || true
+  grep -c '^keyboard-enter$' "$ANDROMEDA_RUNTIME_DIR/$1.log" || true
 }
 
 overview_open_count() {
@@ -46,7 +46,7 @@ wait_for_count() {
     [[ $(window_count) -eq $expected ]] && return 0
     sleep 0.05
   done
-  echo "expected $expected windows, got: $($UMBRIEL windows --json)"
+  echo "expected $expected windows, got: $($ANDROMEDA windows --json)"
   return 1
 }
 
@@ -56,7 +56,7 @@ wait_for_focus() {
     [[ $(selected_title) == "$expected" ]] && return 0
     sleep 0.05
   done
-  echo "expected focus on '$expected', got: $($UMBRIEL windows --json)"
+  echo "expected focus on '$expected', got: $($ANDROMEDA windows --json)"
   return 1
 }
 
@@ -66,11 +66,11 @@ wait_for_workspace() {
     [[ $(active_workspace) == "$expected" ]] && return 0
     sleep 0.05
   done
-  echo "expected workspace '$expected', got: $($UMBRIEL workspaces --json)"
+  echo "expected workspace '$expected', got: $($ANDROMEDA workspaces --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation.overview]
 duration_ms = 500
@@ -94,8 +94,8 @@ shortcuts = false
 "Ctrl+P" = "window-focus-or-workspace-up"
 "Ctrl+X" = "window-close"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" subscribe overview > "$OVERVIEW_EVENTS" &
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" subscribe overview > "$OVERVIEW_EVENTS" &
 for _ in $(seq 40); do
   [[ -s $OVERVIEW_EVENTS ]] && break
   sleep 0.05
@@ -106,19 +106,19 @@ done
 pointer mod none pause 60000 > /dev/null 2>&1 &
 sleep 0.2 # real time: the keyboard holder connects before the clients bind
 
-"$CLIENT" overview-vim-first 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-vim-first.log" 2>&1 &
+"$CLIENT" overview-vim-first 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-vim-first.log" 2>&1 &
 wait_for_count 1
-"$CLIENT" overview-vim-second 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-vim-second.log" 2>&1 &
+"$CLIENT" overview-vim-second 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-vim-second.log" 2>&1 &
 wait_for_count 2
 
 second_id=$(
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "overview-vim-second") | .id'
+  "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "overview-vim-second") | .id'
 )
-"$UMBRIEL" msg "window-focus:$second_id" > /dev/null
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg "window-focus:$second_id" > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 stacked=false
 for _ in $(seq 60); do
-  if "$UMBRIEL" windows --json | jq -e \
+  if "$ANDROMEDA" windows --json | jq -e \
       '[.[] | select(.title == "overview-vim-first" or .title == "overview-vim-second")]
        | length == 2 and (.[0].x == .[1].x) and ([.[].y] | unique | length == 2)' > /dev/null; then
     stacked=true
@@ -127,33 +127,33 @@ for _ in $(seq 60); do
   sleep 0.05
 done
 if [[ $stacked != true ]]; then
-  echo "expected the first two windows to form a vertical stack: $($UMBRIEL windows --json)"
+  echo "expected the first two windows to form a vertical stack: $($ANDROMEDA windows --json)"
   exit 1
 fi
 
-"$CLIENT" overview-vim-right 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-vim-right.log" 2>&1 &
+"$CLIENT" overview-vim-right 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-vim-right.log" 2>&1 &
 wait_for_count 3
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-"$CLIENT" overview-vim-row 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-vim-row.log" 2>&1 &
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+"$CLIENT" overview-vim-row 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-vim-row.log" 2>&1 &
 wait_for_count 4
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 
-read -r top_id top_title bottom_id bottom_title <<< "$("$UMBRIEL" windows --json | jq -r \
+read -r top_id top_title bottom_id bottom_title <<< "$("$ANDROMEDA" windows --json | jq -r \
   '[.[] | select(.title == "overview-vim-first" or .title == "overview-vim-second")] | sort_by(.y)
    | "\(.[0].id) \(.[0].title) \(.[1].id) \(.[1].title)"')"
-"$UMBRIEL" msg "window-focus:$top_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$top_id" > /dev/null
 wait_for_focus "$top_title"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-read -r top_x top_y bottom_y <<< "$("$UMBRIEL" windows --json | jq -r --arg top "$top_id" --arg bottom "$bottom_id" \
+read -r top_x top_y bottom_y <<< "$("$ANDROMEDA" windows --json | jq -r --arg top "$top_id" --arg bottom "$bottom_id" \
   '(.[] | select(.id == $top)) as $top_view | (.[] | select(.id == $bottom)) as $bottom_view
    | "\($top_view.x) \($top_view.y) \($bottom_view.y)"')"
 # The client reports its buffer size, which can exceed the tiled target. Use the two row origins to choose a point
 # safely inside the top tile instead of deriving its center from the client buffer.
 pointer move "$((top_x + 100))" "$(((top_y + bottom_y) / 2))"
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 
 # Vim-style custom bindings and the built-in arrow fallback share horizontal card navigation.
 chord 38 # L
@@ -171,9 +171,9 @@ wait_for_focus "$bottom_title"
 wait_for_workspace 1
 chord 25 # P
 wait_for_focus "$top_title"
-"$UMBRIEL" msg window-focus-or-output-right > /dev/null
+"$ANDROMEDA" msg window-focus-or-output-right > /dev/null
 wait_for_focus overview-vim-right
-if output_error=$("$UMBRIEL" msg window-focus-or-output-right 2>&1); then
+if output_error=$("$ANDROMEDA" msg window-focus-or-output-right 2>&1); then
   echo "expected window-focus-or-output-right at the card edge to reach its output fallback"
   exit 1
 fi
@@ -184,15 +184,15 @@ fi
 
 # Overview focus updates its card selection without applying the normal follows_focus cursor warp. Close the overview,
 # focus the top window without a warp, then click without moving: the pointer must still be over that top window.
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" msg "window-focus:$top_id" > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg "window-focus:$top_id" > /dev/null
 wait_for_focus "$top_title"
 pointer click "$BTN_LEFT"
 wait_for_focus "$top_title"
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 
 # A normal action operates on the selected overview card and leaves the overview interactive.
 chord 38 # L
@@ -228,20 +228,20 @@ wait_for_workspace 1
 # during that close, and row retargeting must not restart the zoom timeline: on a frozen clock the 500 ms zoom has
 # landed 550 ms after Enter, while a restart at either bind would still be running.
 entered_before=$(keyboard_enters overview-vim-row)
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 pointer tap 28 # Enter
-"$UMBRIEL" clock-advance 150
+"$ANDROMEDA" clock-advance 150
 chord 49 # N, focus the lower card
 wait_for_focus "$bottom_title"
-"$UMBRIEL" clock-advance 150
+"$ANDROMEDA" clock-advance 150
 chord 49 # N, switch to workspace 2
 wait_for_workspace 2
-"$UMBRIEL" clock-advance 250
+"$ANDROMEDA" clock-advance 250
 for _ in $(seq 20); do
   (( $(keyboard_enters overview-vim-row) > entered_before )) && break
   sleep 0.05
 done
-"$UMBRIEL" clock-resume
+"$ANDROMEDA" clock-resume
 if (( $(keyboard_enters overview-vim-row) <= entered_before )); then
   echo "workspace binds extended the overview closing timeline"
   exit 1
@@ -251,19 +251,19 @@ wait_for_workspace 2
 
 # The same rules follow the output's workspace axis. With workspaces arranged along X the roles swap: Left and Right
 # run along the workspace axis, and Up and Down traverse the vertically scrolling lanes.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [output."HEADLESS-1"]
 workspace_axis = "horizontal"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 wait_for_workspace 1
 
 # The stacked pair keeps its column, which now lays its members out along X.
 transposed=false
 for _ in $(seq 60); do
-  read -r left_id left_title right_id right_title order <<< "$("$UMBRIEL" windows --json | jq -r \
+  read -r left_id left_title right_id right_title order <<< "$("$ANDROMEDA" windows --json | jq -r \
     '[.[] | select(.title == "overview-vim-first" or .title == "overview-vim-second")] | sort_by(.x)
      | "\(.[0].id) \(.[0].title) \(.[1].id) \(.[1].title) "
        + (if .[0].y == .[1].y and .[0].x < .[1].x then "side-by-side" else "stacked" end)')"
@@ -271,19 +271,19 @@ for _ in $(seq 60); do
   sleep 0.05
 done
 if [[ $transposed != true ]]; then
-  echo "stacked column did not transpose onto the horizontal axis: $("$UMBRIEL" windows --json)"
+  echo "stacked column did not transpose onto the horizontal axis: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
 # A second lane, so the perpendicular arrows have somewhere to go inside the workspace. A vertically scrolling strip
 # puts that new column above or below the stacked pair, never beside it. Column insertion animates the strip, so both
 # lanes have to read the same twice before their order decides which arrow points at the new one.
-"$CLIENT" overview-vim-lane 1200 700 > "$UMBRIEL_RUNTIME_DIR/overview-vim-lane.log" 2>&1 &
+"$CLIENT" overview-vim-lane 1200 700 > "$ANDROMEDA_RUNTIME_DIR/overview-vim-lane.log" 2>&1 &
 wait_for_count 4
 lanes=
 previous=
 for _ in $(seq 80); do
-  lanes=$("$UMBRIEL" windows --json | jq -r \
+  lanes=$("$ANDROMEDA" windows --json | jq -r \
     '[(.[] | select(.title == "overview-vim-first") | .y), (.[] | select(.title == "overview-vim-lane") | .y)] | "\(.[0]) \(.[1])"')
   read -r stack_y lane_y <<< "$lanes"
   if [[ $lanes == "$previous" ]] && (( lane_y > stack_y + 100 || lane_y + 100 < stack_y )); then
@@ -294,7 +294,7 @@ for _ in $(seq 80); do
   sleep 0.05
 done
 if [[ -z $lanes ]]; then
-  echo "the new column did not settle into a lane of its own along Y: $("$UMBRIEL" windows --json)"
+  echo "the new column did not settle into a lane of its own along Y: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 if (( lane_y > stack_y )); then
@@ -305,10 +305,10 @@ else
   back=108   # Down
 fi
 
-"$UMBRIEL" msg "window-focus:$left_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$left_id" > /dev/null
 wait_for_focus "$left_title"
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 
 # Along the workspace axis: the stacked neighbour first, the next workspace only once the lane has no card that way.
 pointer tap 106 # Right
@@ -329,7 +329,7 @@ pointer tap "$toward"
 wait_for_focus overview-vim-lane
 wait_for_workspace 1
 pointer tap "$toward"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 wait_for_focus overview-vim-lane
 wait_for_workspace 1
 pointer tap "$back"
@@ -341,7 +341,7 @@ chord 38 # L
 wait_for_focus "$right_title"
 wait_for_workspace 1
 chord 38 # L again, with nothing to the right
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 wait_for_focus "$right_title"
 wait_for_workspace 1
 
@@ -349,17 +349,17 @@ wait_for_workspace 1
 # 500 ms zoom has landed 550 ms after Enter on a frozen clock, while a restart at the bind would still be running.
 entered_before=$(keyboard_enters "$left_title")
 opened_before=$(overview_open_count)
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 pointer tap 28 # Enter
-"$UMBRIEL" clock-advance 150
+"$ANDROMEDA" clock-advance 150
 chord 35 # H, focus the card to the left during the closing zoom
 wait_for_focus "$left_title"
-"$UMBRIEL" clock-advance 400
+"$ANDROMEDA" clock-advance 400
 for _ in $(seq 20); do
   (( $(keyboard_enters "$left_title") > entered_before )) && break
   sleep 0.05
 done
-"$UMBRIEL" clock-resume
+"$ANDROMEDA" clock-resume
 if (( $(keyboard_enters "$left_title") <= entered_before )); then
   echo "the closing zoom never finished on horizontally arranged workspaces"
   exit 1

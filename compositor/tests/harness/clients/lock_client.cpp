@@ -52,7 +52,7 @@ namespace {
   wl_buffer* createBuffer(State& state, int width, int height) {
     const int stride = width * 4;
     const size_t size = static_cast<size_t>(stride) * static_cast<size_t>(height);
-    const int fd = memfd_create("umbriel-lock-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-lock-client", MFD_CLOEXEC);
     if (fd < 0) {
       return nullptr;
     }

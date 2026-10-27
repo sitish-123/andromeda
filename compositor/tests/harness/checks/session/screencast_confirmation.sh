@@ -4,17 +4,17 @@
 # revokes approval, and the explicit configuration bypass skips the prompt.
 set -euo pipefail
 
-readonly POINTER="$UMBRIEL_POINTER_CLIENT"
+readonly POINTER="$ANDROMEDA_POINTER_CLIENT"
 readonly BTN_LEFT=272
 
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" "$POINTER" "$BTN_LEFT" <<'PY'
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" "$POINTER" "$BTN_LEFT" <<'PY'
 import json
 import select
 import socket
 import subprocess
 import sys
 
-socket_path, umbriel, pointer, button = sys.argv[1:]
+socket_path, andromeda, pointer, button = sys.argv[1:]
 
 
 def read_line(client, buffer):
@@ -31,7 +31,7 @@ def read_line(client, buffer):
 
 
 def action(name):
-    result = subprocess.run([umbriel, "msg", name], capture_output=True, text=True, timeout=5)
+    result = subprocess.run([andromeda, "msg", name], capture_output=True, text=True, timeout=5)
     if result.returncode != 0:
         raise SystemExit(f"{name} was rejected: {result.stderr.strip()}")
 
@@ -56,7 +56,7 @@ if response != {"ok": None}:
     raise SystemExit(f"activating the screencast returned {response!r}")
 
 output = json.loads(
-    subprocess.run([umbriel, "outputs", "--json"], check=True, capture_output=True, text=True, timeout=5).stdout
+    subprocess.run([andromeda, "outputs", "--json"], check=True, capture_output=True, text=True, timeout=5).stdout
 )[0]["name"]
 set_output = f"screencast-set-output:{output}"
 
@@ -106,16 +106,16 @@ if response != {"ok": None}:
 client.close()
 PY
 
-printf '\n[screencast]\ndisable_dynamic_confirmation = true\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[screencast]\ndisable_dynamic_confirmation = true\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" <<'PY'
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" <<'PY'
 import json
 import socket
 import subprocess
 import sys
 
-socket_path, umbriel = sys.argv[1:]
+socket_path, andromeda = sys.argv[1:]
 client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 client.connect(socket_path)
 client.sendall(b'{"cmd":"subscribe","events":["screencast"]}\n')
@@ -136,7 +136,7 @@ if initial.get("data", {}).get("serial") != 3:
 client.sendall(b'{"cmd":"screencast-session","active":true}\n')
 if read_line() != {"ok": None}:
     raise SystemExit("could not activate the bypass test share")
-result = subprocess.run([umbriel, "msg", "screencast-follow-window"], capture_output=True, text=True, timeout=5)
+result = subprocess.run([andromeda, "msg", "screencast-follow-window"], capture_output=True, text=True, timeout=5)
 if result.returncode != 0:
     raise SystemExit(f"configured bypass rejected the action: {result.stderr.strip()}")
 event = read_line()

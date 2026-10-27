@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <wlr/util/log.h>
-#include <umbrielfx/types/fx/clipped_region.h>
+#include <andromedafx/types/fx/clipped_region.h>
 
 #include "render/fx_renderer/shaders.h"
 #include "render/fx_renderer/fx_renderer.h"

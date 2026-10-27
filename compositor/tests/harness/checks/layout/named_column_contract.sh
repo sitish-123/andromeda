@@ -2,41 +2,41 @@
 # Named scrolling columns honor orientation and workspace scope without changing other layouts.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly VERTICAL_CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly MAX_LOG="$UMBRIEL_RUNTIME_DIR/named-vertical-max.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly VERTICAL_CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly MAX_LOG="$ANDROMEDA_RUNTIME_DIR/named-vertical-max.log"
 
 spawn_client() {
-  "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for $expected clients: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $expected clients: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_query() {
   local query=$1 message=$2
   for _ in $(seq 60); do
-    if "$UMBRIEL" windows --json | jq -e "$query" > /dev/null; then
+    if "$ANDROMEDA" windows --json | jq -e "$query" > /dev/null; then
       return 0
     fi
     sleep 0.1
   done
-  echo "$message: $("$UMBRIEL" windows --json)"
+  echo "$message: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 workspace_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .workspace'
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .workspace'
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -98,13 +98,13 @@ match.title = "^named-float-"
 default_scrolling_column = "ignored-floating-stack"
 default_floating = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # A vertical named lane uses the first launched member's primary-axis extent,
 # while configured order controls the cross-axis row positions.
-"$VERTICAL_CLIENT" named-vertical-later 800 600 > "$UMBRIEL_RUNTIME_DIR/named-vertical-later.log" 2>&1 &
+"$VERTICAL_CLIENT" named-vertical-later 800 600 > "$ANDROMEDA_RUNTIME_DIR/named-vertical-later.log" 2>&1 &
 wait_for_windows 1
-"$VERTICAL_CLIENT" named-vertical-first 800 600 > "$UMBRIEL_RUNTIME_DIR/named-vertical-first.log" 2>&1 &
+"$VERTICAL_CLIENT" named-vertical-first 800 600 > "$ANDROMEDA_RUNTIME_DIR/named-vertical-first.log" 2>&1 &
 wait_for_windows 2
 wait_for_query \
   'all(.[]; .w == 624 and .h == 166 and .y == 277) and any(.[]; .title == "named-vertical-first" and .x == 10) and any(.[]; .title == "named-vertical-later" and .x == 646)' \
@@ -118,7 +118,7 @@ wait_for_query \
   'all(.[]; .w == 412 and .h == 700 and .y == 10) and any(.[]; .title == "named-vertical-first" and .x == 10) and any(.[]; .title == "named-vertical-max" and .x == 434) and any(.[]; .title == "named-vertical-later" and .x == 858)' \
   "maximized member did not join and expand the vertical named lane"
 first_configure=$(awk '/^first-configure /{print $2 "x" $3; exit}' "$MAX_LOG")
-final_size=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "named-vertical-max") | "\(.w)x\(.h)"')
+final_size=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "named-vertical-max") | "\(.w)x\(.h)"')
 if [[ $first_configure != "$final_size" ]]; then
   echo "vertical named maximize first configure $first_configure did not match final size $final_size"
   exit 1
@@ -126,12 +126,12 @@ fi
 vertical_workspace=$(workspace_of named-vertical-first)
 
 # Restore vertically arranged workspaces so the strip runs horizontally again.
-sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Once users split a named column manually, new members join the first named
 # column in strip order, not whichever column happens to be focused.
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 spawn_client named-split-a
 wait_for_windows 4
 spawn_client named-split-b
@@ -139,7 +139,7 @@ wait_for_windows 5
 wait_for_query \
   '[.[] | select(.title == "named-split-a" or .title == "named-split-b") | .x] | unique | length == 1' \
   "horizontal named members did not initially share a column"
-"$UMBRIEL" msg window-consume-or-expel-right > /dev/null
+"$ANDROMEDA" msg window-consume-or-expel-right > /dev/null
 wait_for_query \
   'any(.[]; .title == "named-split-a" and .x == 10) and any(.[]; .title == "named-split-b" and .x > 600)' \
   "manual expel did not split the named column"
@@ -152,13 +152,13 @@ split_workspace=$(workspace_of named-split-a)
 
 # The same name on another workspace starts a local column instead of reaching
 # into the existing workspace's layout.
-"$UMBRIEL" msg workspace-switch:4 > /dev/null
+"$ANDROMEDA" msg workspace-switch:4 > /dev/null
 spawn_client named-split-local
 wait_for_windows 7
 local_workspace=$(workspace_of named-split-local)
 if [[ -z $vertical_workspace || -z $split_workspace || -z $local_workspace \
       || $vertical_workspace == "$split_workspace" || $split_workspace == "$local_workspace" ]]; then
-  echo "named columns were not scoped to distinct workspaces: $("$UMBRIEL" windows --json)"
+  echo "named columns were not scoped to distinct workspaces: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
@@ -173,7 +173,7 @@ wait_for_query \
 
 # Master layout keeps its own insertion policy rather than treating the name as
 # a scrolling column.
-"$UMBRIEL" msg workspace-switch:3 > /dev/null
+"$ANDROMEDA" msg workspace-switch:3 > /dev/null
 spawn_client named-master-a
 wait_for_windows 10
 spawn_client named-master-b

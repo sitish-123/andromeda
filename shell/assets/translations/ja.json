@@ -2249,8 +2249,8 @@
           "description": "個別設定のないシェルUIで使用する既定時刻形式",
           "label": "時刻形式"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "Umbrielのオーバービューで入力するとランチャーを開きます。オーバービュー表示中は、キーボードフォーカス用の小さな領域を使用します",
+        "andromeda-overview-type-to-launch": {
+          "description": "Andromedaのオーバービューで入力するとランチャーを開きます。オーバービュー表示中は、キーボードフォーカス用の小さな領域を使用します",
           "label": "入力でランチャーを開く"
         },
         "window-switcher-current-workspace-only": {

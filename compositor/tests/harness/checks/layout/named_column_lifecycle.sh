@@ -2,42 +2,42 @@
 # Late named scrolling-column rules preserve ownership, focus, width, and maximize state across relocation.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly MOVE_FIFO="$UMBRIEL_RUNTIME_DIR/named-move-control"
-readonly MAX_MOVE_FIFO="$UMBRIEL_RUNTIME_DIR/named-max-move-control"
-readonly MAX_RECLASSIFY_FIFO="$UMBRIEL_RUNTIME_DIR/named-max-reclassify-control"
-readonly OWNER_WIDTH_FIFO="$UMBRIEL_RUNTIME_DIR/named-owner-width-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly MOVE_FIFO="$ANDROMEDA_RUNTIME_DIR/named-move-control"
+readonly MAX_MOVE_FIFO="$ANDROMEDA_RUNTIME_DIR/named-max-move-control"
+readonly MAX_RECLASSIFY_FIFO="$ANDROMEDA_RUNTIME_DIR/named-max-reclassify-control"
+readonly OWNER_WIDTH_FIFO="$ANDROMEDA_RUNTIME_DIR/named-owner-width-control"
 
 spawn_client() {
-  "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for $expected clients: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $expected clients: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_query() {
   local query=$1 message=$2
   for _ in $(seq 60); do
-    if "$UMBRIEL" windows --json | jq -e "$query" > /dev/null; then
+    if "$ANDROMEDA" windows --json | jq -e "$query" > /dev/null; then
       return 0
     fi
     sleep 0.1
   done
-  echo "$message: $("$UMBRIEL" windows --json)"
+  echo "$message: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_delta() {
   local first=$1 second=$2 expected=$3 message=$4 windows first_x second_x
   for _ in $(seq 60); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     first_x=$(jq -r --arg title "$first" '.[] | select(.title == $title) | .x' <<< "$windows")
     second_x=$(jq -r --arg title "$second" '.[] | select(.title == $title) | .x' <<< "$windows")
     [[ -n $first_x && -n $second_x ]] && ((second_x - first_x == expected)) && return 0
@@ -47,7 +47,7 @@ wait_for_delta() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -119,14 +119,14 @@ match.title = "^named-owner-width-late$"
 default_scrolling_column_order = 10
 default_scrolling_extent = 0.7
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # A focused late move keeps focus and seeds the target column with the width
 # already resolved from the app ID.
 mkfifo "$MOVE_FIFO"
 exec {move_fd}<>"$MOVE_FIFO"
 APP_ID=named-move-owner TITLE_AFTER_MAP=named-move-late \
-  "$CLIENT" named-move-placeholder 800 600 <&"$move_fd" > "$UMBRIEL_RUNTIME_DIR/named-move-owner.log" 2>&1 &
+  "$CLIENT" named-move-placeholder 800 600 <&"$move_fd" > "$ANDROMEDA_RUNTIME_DIR/named-move-owner.log" 2>&1 &
 wait_for_windows 1
 printf 'u' >&"$move_fd"
 wait_for_query \
@@ -142,7 +142,7 @@ mkfifo "$MAX_MOVE_FIFO"
 exec {max_move_fd}<>"$MAX_MOVE_FIFO"
 APP_ID=named-max-move-owner TITLE_AFTER_MAP=named-max-move-late \
   "$CLIENT" named-max-move-placeholder 800 600 <&"$max_move_fd" \
-  > "$UMBRIEL_RUNTIME_DIR/named-max-move-owner.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/named-max-move-owner.log" 2>&1 &
 wait_for_windows 3
 printf 'u' >&"$max_move_fd"
 wait_for_query 'any(.[]; .title == "named-max-move-late" and (.workspace | endswith(":3")))' \
@@ -160,7 +160,7 @@ mkfifo "$MAX_RECLASSIFY_FIFO"
 exec {max_reclassify_fd}<>"$MAX_RECLASSIFY_FIFO"
 APP_ID=named-max-reclass-joiner TITLE_AFTER_MAP=named-max-reclass-late \
   "$CLIENT" named-max-reclass-placeholder 800 600 <&"$max_reclassify_fd" \
-  > "$UMBRIEL_RUNTIME_DIR/named-max-reclassify-joiner.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/named-max-reclassify-joiner.log" 2>&1 &
 wait_for_windows 6
 printf 'u' >&"$max_reclassify_fd"
 wait_for_query 'any(.[]; .title == "named-max-reclass-late" and (.workspace | endswith(":4")))' \
@@ -176,7 +176,7 @@ mkfifo "$OWNER_WIDTH_FIFO"
 exec {owner_width_fd}<>"$OWNER_WIDTH_FIFO"
 APP_ID=named-owner-width-owner TITLE_AFTER_MAP=named-owner-width-late \
   "$CLIENT" named-owner-width-placeholder 800 600 <&"$owner_width_fd" \
-  > "$UMBRIEL_RUNTIME_DIR/named-owner-width-owner.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/named-owner-width-owner.log" 2>&1 &
 wait_for_windows 8
 spawn_client named-owner-width-peer
 wait_for_windows 9

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shares through the shell against a real umbriel-linkd and a present headless phone: text from the phone becomes a
+# Shares through the shell against a real andromeda-linkd and a present headless phone: text from the phone becomes a
 # notification whose default action puts it on the clipboard (read back with wl-paste); a link becomes a notification
 # whose default action opens it through the default https handler (a recording stand-in in the private HOME);
 # link-share sends text and a link to the phone, and refuses a disconnected phone. Writes notification-text.png,
@@ -31,12 +31,12 @@ with_noctalia '
     for _ in $(seq 100); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
@@ -48,7 +48,7 @@ with_noctalia '
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold < "$RUNTIME/phone.in" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold < "$RUNTIME/phone.in" \
     > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"

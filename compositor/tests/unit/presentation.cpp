@@ -10,7 +10,7 @@
 // in the scene node's position. The wlroots xdg scene helper rewrites that position to (-geometry.x, -geometry.y) on
 // every commit, so the offset has to be re-applied afterwards or an oversized fullscreen buffer drifts to the top left
 // on the next frame the client draws.
-UMBRIEL_TEST(fullscreenCenteringSurvivesSceneReconfiguration) {
+ANDROMEDA_TEST(fullscreenCenteringSurvivesSceneReconfiguration) {
   wlr_scene* scene = wlr_scene_create();
   CHECK(scene != nullptr);
   if (scene == nullptr) {
@@ -23,7 +23,7 @@ UMBRIEL_TEST(fullscreenCenteringSurvivesSceneReconfiguration) {
     return;
   }
 
-  umbriel::ViewPresentation presentation;
+  andromeda::ViewPresentation presentation;
   // Non-zero geometry origin, as a client with CSD shadows commits: the node
   // position is the centering offset minus that origin, not the offset alone.
   const wlr_box geometry{40, 30, 1920, 1080};

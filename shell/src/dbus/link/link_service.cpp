@@ -39,9 +39,9 @@ namespace {
 
   constexpr Logger kLog("link");
 
-  const sdbus::ServiceName kLinkBusName{"org.umbriel.Link1"};
-  const sdbus::ObjectPath kLinkPath{"/org/umbriel/Link1"};
-  constexpr auto kLinkInterface = "org.umbriel.Link1";
+  const sdbus::ServiceName kLinkBusName{"org.andromeda.Link1"};
+  const sdbus::ObjectPath kLinkPath{"/org/andromeda/Link1"};
+  constexpr auto kLinkInterface = "org.andromeda.Link1";
   const sdbus::ServiceName kDaemonBusName{"org.freedesktop.DBus"};
   const sdbus::ObjectPath kDaemonPath{"/org/freedesktop/DBus"};
   constexpr auto kDaemonInterface = "org.freedesktop.DBus";
@@ -712,7 +712,7 @@ void LinkService::browse(const std::string& deviceId) {
   if (home == nullptr) {
     return;
   }
-  // umbriel-link-mount names a phone's folder after it, with any slash swapped for U+2215 (∕).
+  // andromeda-link-mount names a phone's folder after it, with any slash swapped for U+2215 (∕).
   std::string name = deviceName(deviceId);
   for (std::size_t at = 0; (at = name.find('/', at)) != std::string::npos;) {
     name.replace(at, 1, "\u2215");
@@ -721,14 +721,14 @@ void LinkService::browse(const std::string& deviceId) {
 }
 
 void LinkService::mirror(const std::string& deviceId) {
-  if (!process::runAsync(std::vector<std::string>{"umbriel-link-mirror", deviceId, "--name", deviceName(deviceId)})) {
-    kLog.warn("could not start umbriel-link-mirror");
+  if (!process::runAsync(std::vector<std::string>{"andromeda-link-mirror", deviceId, "--name", deviceName(deviceId)})) {
+    kLog.warn("could not start andromeda-link-mirror");
   }
 }
 
 void LinkService::apps(const std::string& deviceId) {
-  if (!process::runAsync(std::vector<std::string>{"umbriel-link-apps", deviceName(deviceId)})) {
-    kLog.warn("could not start umbriel-link-apps");
+  if (!process::runAsync(std::vector<std::string>{"andromeda-link-apps", deviceName(deviceId)})) {
+    kLog.warn("could not start andromeda-link-apps");
   }
 }
 
@@ -1197,7 +1197,7 @@ void LinkService::onAction(std::uint32_t id, const std::string& action, const st
 void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing) {
   ipc.bind(noctalia::cli::msg::linkDevices, [this](const std::string&) -> std::string {
     if (!m_available) {
-      return "error: umbriel-linkd is not running\n";
+      return "error: andromeda-linkd is not running\n";
     }
     std::string out;
     for (const auto& device : m_devices) {
@@ -1208,7 +1208,7 @@ void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing
   ipc.bind(
       noctalia::cli::msg::linkPair, [this, showPairing = std::move(showPairing)](const std::string&) -> std::string {
         if (!m_available) {
-          return "error: umbriel-linkd is not running\n";
+          return "error: andromeda-linkd is not running\n";
         }
         startPairing();
         showPairing();

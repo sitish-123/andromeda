@@ -5,8 +5,8 @@
 # working in both layouts.
 set -euo pipefail
 
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-BASELINE=$(< "$UMBRIEL_CONFIG")
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+BASELINE=$(< "$ANDROMEDA_CONFIG")
 
 write_config() {
   {
@@ -16,16 +16,16 @@ write_config() {
     [[ -n $1 ]] && printf 'scale = %s\n' "$1"
     printf '\n[[window_rule]]\nmatch.title = "^auto-scale-left$"\ndefault_output = "HEADLESS-1"\n'
     printf '\n[[window_rule]]\nmatch.title = "^auto-scale-right$"\ndefault_output = "HEADLESS-2"\n'
-  } > "$UMBRIEL_CONFIG"
+  } > "$ANDROMEDA_CONFIG"
 }
 
 output_x() {
-  "$UMBRIEL" outputs \
+  "$ANDROMEDA" outputs \
     | awk -v name="$1" '$1 == name { found = 1; next } found && /Position:/ { split($2, p, ","); print p[1]; exit }'
 }
 
 output_scale() {
-  "$UMBRIEL" outputs | awk -v name="$1" '$1 == name { found = 1; next } found && /Scale:/ { print $2; exit }'
+  "$ANDROMEDA" outputs | awk -v name="$1" '$1 == name { found = 1; next } found && /Scale:/ { print $2; exit }'
 }
 
 wait_for_output() {
@@ -37,14 +37,14 @@ wait_for_output() {
     sleep 0.1
   done
   echo "$name state did not settle: x=$actual_x scale=$actual_scale, expected x=$expected_x scale=$expected_scale"
-  "$UMBRIEL" outputs
+  "$ANDROMEDA" outputs
   return 1
 }
 
 wait_for_windows() {
   local windows=
   for _ in $(seq 60); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     if jq -e '
       any(.[]; .title == "auto-scale-left" and (.workspace | startswith("HEADLESS-1:")))
       and any(.[]; .title == "auto-scale-right" and (.workspace | startswith("HEADLESS-2:")))
@@ -60,7 +60,7 @@ wait_for_windows() {
 wait_for_focus() {
   local expected=$1 focused=
   for _ in $(seq 40); do
-    focused=$("$UMBRIEL" windows --json | jq -r '.[] | select(.active) | .title')
+    focused=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.active) | .title')
     [[ $focused == "$expected" ]] && return 0
     sleep 0.1
   done
@@ -69,7 +69,7 @@ wait_for_focus() {
 }
 
 write_config 1.25
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_output HEADLESS-1 0 1.250000
 wait_for_output HEADLESS-2 1024 1.000000
 
@@ -80,7 +80,7 @@ wait_for_windows
 wait_for_focus auto-scale-right
 
 write_config ''
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_output HEADLESS-1 0 1.000000
 wait_for_output HEADLESS-2 1280 1.000000
 "$POINTER" 2560 720 move 100 100 move 1360 100

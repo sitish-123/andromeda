@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   // Column packing. The body is a list of lines split into columns. The atoms are blocks, one group plus the blank
   // spacer before it, so a group is never split and the only freedom is where the breaks between blocks go.
@@ -62,7 +62,7 @@ namespace umbriel {
   [[nodiscard]] const char* groupTitle(Group group);
   [[nodiscard]] Group groupForAction(KeybindAction action);
 
-  // Display order of the non-submap groups, shared by the cheatsheet overlay and `umbriel msg --help` so the two never
+  // Display order of the non-submap groups, shared by the cheatsheet overlay and `andromeda msg --help` so the two never
   // present the same actions in a different shape. Submap groups follow in first-seen order and are not listed here.
   [[nodiscard]] std::span<const Group> fixedGroupOrder();
 
@@ -70,4 +70,4 @@ namespace umbriel {
   // row carries the label and whose others carry a ditto mark.
   [[nodiscard]] std::vector<CheatsheetRow> buildCheatsheetRows(std::span<const Keybind> keybinds);
 
-} // namespace umbriel
+} // namespace andromeda

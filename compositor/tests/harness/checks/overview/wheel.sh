@@ -7,8 +7,8 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
 if [[ ! -x $POINTER ]]; then
   echo "pointer client not built at $POINTER"
@@ -52,7 +52,7 @@ expect_inert_notch() {
   local dir=$1 command=$2 reason=$3 before after
   before=$("$WORKSPACE")
   pointer "$command" "$dir"
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
   after=$("$WORKSPACE")
   if [[ $after != "$before" ]]; then
     echo "$reason ($command $dir activated workspace '$after')"
@@ -62,25 +62,25 @@ expect_inert_notch() {
 
 # A layout-changing reload closes the overview, so every axis phase reopens it.
 open_overview() {
-  "$UMBRIEL" msg overview-open > /dev/null
-  "$UMBRIEL" settle
+  "$ANDROMEDA" msg overview-open > /dev/null
+  "$ANDROMEDA" settle
 }
 
 # One window, so the group holds workspace 1 (occupied) and a dynamic 2.
-"$UMBRIEL_UNMAP_CLIENT" overview-wheel 1200 700 > /dev/null 2>&1 &
+"$ANDROMEDA_UNMAP_CLIENT" overview-wheel 1200 700 > /dev/null 2>&1 &
 for _ in $(seq 60); do
-  [[ $("$UMBRIEL" windows --json | jq 'length') -eq 1 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq 'length') -eq 1 ]] && break
   sleep 0.25
 done
-if [[ $("$UMBRIEL" windows --json | jq 'length') -ne 1 ]]; then
+if [[ $("$ANDROMEDA" windows --json | jq 'length') -ne 1 ]]; then
   echo "timed out waiting for the window to map"
   exit 1
 fi
 
 # Park the cursor over the output so the notch resolves to this group.
 pointer move $((OUTPUT_W / 2)) $((OUTPUT_H / 2))
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 
 expect_notch 1 2  # down the filmstrip
 expect_notch -1 1 # and back up
@@ -91,22 +91,22 @@ expect_inert_notch -1 notch "a notch past the first workspace was not clamped"
 
 # A successful source change with no overview-invalidating runtime effect is
 # equally inert. back_and_forth is read directly when switching workspaces.
-printf '\n[workspaces]\nback_and_forth = true\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[workspaces]\nback_and_forth = true\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 expect_notch 1 2
 expect_notch -1 1
 
 # Failed reloads keep both the committed config and live overview state. The malformed write clobbers the file, so it
 # comes after the valid variant above rather than before it.
-printf '[layout\n' > "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '[layout\n' > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 expect_notch 1 2
 expect_notch -1 1
 
 # Horizontally arranged workspaces use the horizontal wheel. The malformed write above left
 # the file unusable, so this phase rewrites it whole; three static workspaces put both ends of the arrangement within
 # reach of a wheel.
-cat > "$UMBRIEL_CONFIG" << 'EOF'
+cat > "$ANDROMEDA_CONFIG" << 'EOF'
 [general]
 xwayland = false
 show_cheatsheet = false
@@ -116,7 +116,7 @@ autostart = []
 workspaces = 3
 workspace_axis = "horizontal"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 for _ in $(seq 40); do
   [[ $("$WORKSPACE" --all | wc -l) -eq 3 ]] && break
   sleep 0.1
@@ -147,8 +147,8 @@ expect_inert_notch -1 notch "a vertical notch past the first workspace was not c
 
 # Restoring the default arrangement takes the horizontal wheel out of the filmstrip again: it no longer matches the
 # axis the workspaces are arranged along, while the vertical wheel keeps stepping.
-sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^workspace_axis = "horizontal"$/workspace_axis = "vertical"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 open_overview
 expect_inert_notch 1 notch-horizontal "a horizontal wheel notch stepped vertically arranged workspaces"
 expect_notch 1 2

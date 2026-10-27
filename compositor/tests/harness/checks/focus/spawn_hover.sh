@@ -5,8 +5,8 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -19,15 +19,15 @@ spawn_client() {
 wait_for_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.1
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 active_title() {
-  "$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
+  "$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
 }
 
 wait_for_active() {
@@ -36,11 +36,11 @@ wait_for_active() {
     [[ $(active_title) == "$want" ]] && return 0
     sleep 0.05
   done
-  echo "expected '$want' to be active, got: $("$UMBRIEL" windows --json)"
+  echo "expected '$want' to be active, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "scrolling"
@@ -55,7 +55,7 @@ curve = "linear"
 [input.focus]
 follows_mouse = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # This point is inside the first half-width tile once the windows map. Keep the pointer there while the second window
 # maps and takes keyboard focus on the right.

@@ -5,10 +5,10 @@
 #include "layout/layout.h"
 #include "view/floating.h"
 
-using umbriel::floatingFractionSize;
-using umbriel::floatingSizeFraction;
-using umbriel::nextFractionPreset;
-using umbriel::presetSnappedFraction;
+using andromeda::floatingFractionSize;
+using andromeda::floatingSizeFraction;
+using andromeda::nextFractionPreset;
+using andromeda::presetSnappedFraction;
 
 namespace {
   const std::vector<double> kPresets{1.0 / 3, 0.5, 2.0 / 3};
@@ -22,34 +22,34 @@ namespace {
 } // namespace
 
 // The rule, on exact fractions
-UMBRIEL_TEST(cyclingForwardPicksTheNextLargerPreset) {
+ANDROMEDA_TEST(cyclingForwardPicksTheNextLargerPreset) {
   CHECK(nextFractionPreset(kPresets, 0.4, 1) == 0.5);
   CHECK(nextFractionPreset(kPresets, 0.5, 1) == 2.0 / 3);
 }
 
-UMBRIEL_TEST(cyclingForwardWrapsToTheSmallestPreset) { CHECK(nextFractionPreset(kPresets, 0.9, 1) == 1.0 / 3); }
+ANDROMEDA_TEST(cyclingForwardWrapsToTheSmallestPreset) { CHECK(nextFractionPreset(kPresets, 0.9, 1) == 1.0 / 3); }
 
-UMBRIEL_TEST(cyclingBackwardPicksTheNextSmallerPreset) {
+ANDROMEDA_TEST(cyclingBackwardPicksTheNextSmallerPreset) {
   CHECK(nextFractionPreset(kPresets, 0.6, -1) == 0.5);
   CHECK(nextFractionPreset(kPresets, 0.4, -1) == 1.0 / 3);
 }
 
-UMBRIEL_TEST(cyclingBackwardWrapsToTheLargestPreset) { CHECK(nextFractionPreset(kPresets, 0.2, -1) == 2.0 / 3); }
+ANDROMEDA_TEST(cyclingBackwardWrapsToTheLargestPreset) { CHECK(nextFractionPreset(kPresets, 0.2, -1) == 2.0 / 3); }
 
-UMBRIEL_TEST(anExactPresetCyclesPastItself) {
+ANDROMEDA_TEST(anExactPresetCyclesPastItself) {
   // The epsilon guard: a window sitting exactly on a preset moves to the next
   // one instead of re-selecting its own size.
   CHECK(nextFractionPreset(kPresets, 0.5, -1) == 1.0 / 3);
   CHECK(nextFractionPreset(kPresets, 0.5, 1) == 2.0 / 3);
 }
 
-UMBRIEL_TEST(cyclingWithoutPresetsKeepsTheCurrentFraction) {
+ANDROMEDA_TEST(cyclingWithoutPresetsKeepsTheCurrentFraction) {
   CHECK(nextFractionPreset({}, 0.42, 1) == 0.42);
   CHECK(nextFractionPreset({}, 0.42, -1) == 0.42);
 }
 
 // The float basis: pixels, snapped back onto the preset that produced them
-UMBRIEL_TEST(aFloatSizeSnapsOntoThePresetThatProducedIt) {
+ANDROMEDA_TEST(aFloatSizeSnapsOntoThePresetThatProducedIt) {
   // A third of 700 is 233, which reads back as 0.3329: below 1/3, so an
   // unsnapped basis makes the rule hand back 1/3, the preset the window already
   // sits on, and the cycle stalls on the smallest size for good.
@@ -64,7 +64,7 @@ UMBRIEL_TEST(aFloatSizeSnapsOntoThePresetThatProducedIt) {
   CHECK_EQ(cycledPixels(427, 1280, 1), 640);
 }
 
-UMBRIEL_TEST(aFloatSizeNoPresetProducedKeepsItsMeasuredFraction) {
+ANDROMEDA_TEST(aFloatSizeNoPresetProducedKeepsItsMeasuredFraction) {
   // A pointer resize lands between presets. The cycle steps from where the
   // window actually is, not from a preset it never reached.
   CHECK(presetSnappedFraction(kPresets, 351, 700) == floatingSizeFraction(351, 700));
@@ -72,7 +72,7 @@ UMBRIEL_TEST(aFloatSizeNoPresetProducedKeepsItsMeasuredFraction) {
   CHECK_EQ(cycledPixels(351, 700, -1), 350);
 }
 
-UMBRIEL_TEST(aFloatCycleWrapsAtTheEnds) {
+ANDROMEDA_TEST(aFloatCycleWrapsAtTheEnds) {
   CHECK_EQ(cycledPixels(900, 1080, 1), 360);
   CHECK_EQ(cycledPixels(100, 1080, -1), 720);
 }

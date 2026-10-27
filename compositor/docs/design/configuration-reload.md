@@ -6,7 +6,7 @@ editing a configuration.
 
 ## Core contract
 
-A reload is transactional. Umbriel commits a new configuration only after the
+A reload is transactional. Andromeda commits a new configuration only after the
 complete file set parses and validates successfully.
 
 If a reload fails:
@@ -23,7 +23,7 @@ move focus, close overlays, or otherwise disturb the session.
 
 ## Implicit source discovery
 
-Without `-c`, Umbriel captures the lookup candidates from its startup
+Without `-c`, Andromeda captures the lookup candidates from its startup
 environment before applying configured environment variables. The order is the
 user path, every `$XDG_CONFIG_DIRS` path in order, then the packaged path. Each
 automatic or manual reload selects the first regular file from that fixed list.

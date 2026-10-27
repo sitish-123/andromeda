@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -521,4 +521,4 @@ namespace umbriel {
     return result;
   }
 
-} // namespace umbriel
+} // namespace andromeda

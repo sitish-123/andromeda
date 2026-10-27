@@ -4,22 +4,22 @@
 # title can replace an integer target with a named target on another statically configured output.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
-readonly LATE_FIFO="$UMBRIEL_RUNTIME_DIR/window-rule-workspace-late-control"
-readonly LATE_LOG="$UMBRIEL_RUNTIME_DIR/window-rule-workspace-late.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly LATE_FIFO="$ANDROMEDA_RUNTIME_DIR/window-rule-workspace-late-control"
+readonly LATE_LOG="$ANDROMEDA_RUNTIME_DIR/window-rule-workspace-late.log"
 
 focus_left_home() {
-  "$UMBRIEL" msg 'workspace-switch:"2"/HEADLESS-1' > /dev/null
+  "$ANDROMEDA" msg 'workspace-switch:"2"/HEADLESS-1' > /dev/null
 }
 
 spawn_client() {
-  APP_ID="$2" "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  APP_ID="$2" "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 workspace_location_of() {
   local title=$1 id name
-  id=$("$UMBRIEL" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .workspace')
+  id=$("$ANDROMEDA" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .workspace')
   [[ -n $id ]] || return 0
   name=$("$WORKSPACE" --all | awk -F'\t' -v id="$id" '$1 == id { print $2 }')
   printf '%s/%s\n' "${id%%:*}" "$name"
@@ -32,11 +32,11 @@ wait_for_location() {
     [[ $actual == "$expected" ]] && return 0
     sleep 0.1
   done
-  echo "expected '$title' on $expected, got '$actual': $("$UMBRIEL" windows --json)"
+  echo "expected '$title' on $expected, got '$actual': $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -84,9 +84,9 @@ default_workspace = 2
 match.title = "^late-ready$"
 default_workspace = "RIGHT_LATE"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-"$UMBRIEL" msg "workspace-switch:CHAT/HEADLESS-1" > /dev/null
+"$ANDROMEDA" msg "workspace-switch:CHAT/HEADLESS-1" > /dev/null
 spawn_client numeric-name numeric-name
 wait_for_location numeric-name HEADLESS-1/2
 

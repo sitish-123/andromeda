@@ -9,10 +9,10 @@
 #include <algorithm>
 
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
-namespace umbriel {
+namespace andromeda {
   namespace {
     // Event loops here and in change.cpp end at Overview; the slot table must agree.
     static_assert(static_cast<unsigned>(AnimationEvent::Overview) + 1 == FX_ANIMATION_SLOTS);
@@ -27,29 +27,29 @@ namespace umbriel {
     // Entering transitions fade in with progress and leaving ones fade out. Only alpha changes, uniformly, so the
     // window's shape and its analytic shadow are unaffected.
     constexpr const char* kBuiltinFade = R"(vec4 animation(vec2 uv) {
-    float alpha = umbriel_direction < 0.0 ? 1.0 - umbriel_clamped_progress : umbriel_clamped_progress;
-    return umbriel_sample(uv) * alpha;
+    float alpha = andromeda_direction < 0.0 ? 1.0 - andromeda_clamped_progress : andromeda_clamped_progress;
+    return andromeda_sample(uv) * alpha;
 })";
 
     // The drag slot's built-in program. uv spans the drawn rectangle (node plus
     // expand); the inverse lookup contracts by DragPhysics::kContraction per step,
     // so 22 steps reach 0.1 px on a 200 px displacement and most fragments stop
     // earlier. Uniform indices are constants for GLSL ES 1.00.
-    constexpr const char* kDeformation = R"(uniform vec2 umbriel_deformation[16];
+    constexpr const char* kDeformation = R"(uniform vec2 andromeda_deformation[16];
 vec2 physics_row(float t, vec2 a, vec2 b, vec2 c, vec2 d) {
   float u = 1.0 - t;
   return u * u * (u * a + 3.0 * t * b) + t * t * (3.0 * u * c + t * d);
 }
 vec2 physics_offset(vec2 p) {
   p = clamp(p, 0.0, 1.0);
-  vec2 a = physics_row(p.x, umbriel_deformation[0], umbriel_deformation[1], umbriel_deformation[2], umbriel_deformation[3]);
-  vec2 b = physics_row(p.x, umbriel_deformation[4], umbriel_deformation[5], umbriel_deformation[6], umbriel_deformation[7]);
-  vec2 c = physics_row(p.x, umbriel_deformation[8], umbriel_deformation[9], umbriel_deformation[10], umbriel_deformation[11]);
-  vec2 d = physics_row(p.x, umbriel_deformation[12], umbriel_deformation[13], umbriel_deformation[14], umbriel_deformation[15]);
+  vec2 a = physics_row(p.x, andromeda_deformation[0], andromeda_deformation[1], andromeda_deformation[2], andromeda_deformation[3]);
+  vec2 b = physics_row(p.x, andromeda_deformation[4], andromeda_deformation[5], andromeda_deformation[6], andromeda_deformation[7]);
+  vec2 c = physics_row(p.x, andromeda_deformation[8], andromeda_deformation[9], andromeda_deformation[10], andromeda_deformation[11]);
+  vec2 d = physics_row(p.x, andromeda_deformation[12], andromeda_deformation[13], andromeda_deformation[14], andromeda_deformation[15]);
   return physics_row(p.y, a, b, c, d);
 }
 vec4 animation(vec2 uv) {
-  vec2 inner = (uv - umbriel_expand) / (1.0 - 2.0 * umbriel_expand);
+  vec2 inner = (uv - andromeda_expand) / (1.0 - 2.0 * andromeda_expand);
   vec2 source = inner;
   for (int i = 0; i < 22; i++) {
     vec2 next = inner - physics_offset(source);
@@ -57,7 +57,7 @@ vec4 animation(vec2 uv) {
     source = next;
     if (done) break;
   }
-  return umbriel_sample(source * (1.0 - 2.0 * umbriel_expand) + umbriel_expand);
+  return andromeda_sample(source * (1.0 - 2.0 * andromeda_expand) + andromeda_expand);
 })";
 
     // Slide keeps per-buffer alpha: its opacity curve differs from the lifecycle progress.
@@ -98,7 +98,7 @@ vec4 animation(vec2 uv) {
       std::ranges::copy(value.shaderSeed(), parameters.random_seed);
       EffectRegistry& registry = effectRegistry();
       fx_effect_shader* shader = value.animating() ? registry.lifecycleEffect(event) : nullptr;
-      // A preset bound to this event gets the shared uniforms too: umbriel_time (when it reads it) and, for
+      // A preset bound to this event gets the shared uniforms too: andromeda_time (when it reads it) and, for
       // palette = true, the [colors] palette. The built-in fade has no preset and reads neither.
       if (shader != nullptr) {
         if (const EffectPreset* preset = registry.animationPreset(event)) {
@@ -351,8 +351,8 @@ vec4 animation(vec2 uv) {
   void EffectRegistry::fillTimeUniforms(
       fx_animation_parameters& parameters, float seconds, const EffectPreset& preset, const fx_effect_shader* shader
   ) const {
-    if (fx_effect_shader_reads(shader, "umbriel_time")) {
-      if (fx_uniform* time = fx_parameters_add_uniform(&parameters, "umbriel_time", FX_UNIFORM_FLOAT, 1)) {
+    if (fx_effect_shader_reads(shader, "andromeda_time")) {
+      if (fx_uniform* time = fx_parameters_add_uniform(&parameters, "andromeda_time", FX_UNIFORM_FLOAT, 1)) {
         time->floats[0] = seconds;
       }
     }
@@ -360,12 +360,12 @@ vec4 animation(vec2 uv) {
       return;
     }
     const auto palette = effectPalette(config().colors);
-    if (fx_uniform* colors = fx_parameters_add_uniform(&parameters, "umbriel_palette", FX_UNIFORM_VEC4, 4)) {
+    if (fx_uniform* colors = fx_parameters_add_uniform(&parameters, "andromeda_palette", FX_UNIFORM_VEC4, 4)) {
       for (size_t i = 0; i < palette.size(); ++i) {
         std::ranges::copy(palette[i], &colors->floats[i * 4]);
       }
     }
-    if (fx_uniform* count = fx_parameters_add_uniform(&parameters, "umbriel_palette_count", FX_UNIFORM_INT, 1)) {
+    if (fx_uniform* count = fx_parameters_add_uniform(&parameters, "andromeda_palette_count", FX_UNIFORM_INT, 1)) {
       count->ints[0] = static_cast<int32_t>(palette.size());
     }
   }
@@ -382,4 +382,4 @@ vec4 animation(vec2 uv) {
     bind(node, event, value, static_cast<float>(evaluateCurve(value.curve(), value.progress())), direction);
   }
 
-} // namespace umbriel
+} // namespace andromeda

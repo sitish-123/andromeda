@@ -1,5 +1,5 @@
 {
-  description = "xdg-desktop-portal backend for the Umbriel compositor.";
+  description = "xdg-desktop-portal backend for the Andromeda compositor.";
 
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
@@ -27,7 +27,7 @@
     in
     {
       overlays.default = final: prev: {
-        xdg-desktop-portal-umbriel = final.callPackage ./nix/package.nix { };
+        xdg-desktop-portal-andromeda = final.callPackage ./nix/package.nix { };
       };
 
       packages = forEachSystem (
@@ -41,7 +41,7 @@
         { pkgs, system, ... }:
         {
           default = pkgs.callPackage ./nix/devshell.nix {
-            xdg-desktop-portal-umbriel = self.packages.${system}.default;
+            xdg-desktop-portal-andromeda = self.packages.${system}.default;
           };
         }
       );

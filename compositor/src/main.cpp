@@ -25,7 +25,7 @@
 #include <vector>
 
 #ifdef __GLIBC__
-#ifdef UMBRIEL_USE_JEMALLOC
+#ifdef ANDROMEDA_USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #else
 #include <malloc.h>
@@ -46,15 +46,15 @@ namespace {
       }
     }
 
-    (void)umbriel::loadConfig(configPath);
-    const auto& diags = umbriel::configDiagnostics();
+    (void)andromeda::loadConfig(configPath);
+    const auto& diags = andromeda::configDiagnostics();
     if (diags.empty()) {
-      std::println("config: ok ({})", umbriel::configRootPath().string());
+      std::println("config: ok ({})", andromeda::configRootPath().string());
       return EXIT_SUCCESS;
     }
     for (const auto& d : diags) {
       const std::string loc = d.location();
-      if (d.severity == umbriel::ConfigDiagnostic::Severity::Error) {
+      if (d.severity == andromeda::ConfigDiagnostic::Severity::Error) {
         std::println(stderr, "error: {}{}", loc.empty() ? "" : loc + ": ", d.message);
       } else {
         std::println(stderr, "warning: {}{}", loc.empty() ? "" : loc + ": ", d.message);
@@ -65,18 +65,18 @@ namespace {
   }
 
   int printConfigSchema(bool json) {
-    const umbriel::registry::Descriptions keys = umbriel::registry::describeConfig(umbriel::Config{});
+    const andromeda::registry::Descriptions keys = andromeda::registry::describeConfig(andromeda::Config{});
     if (!json) {
-      std::print("{}", umbriel::configSchemaSummary(keys));
+      std::print("{}", andromeda::configSchemaSummary(keys));
       return EXIT_SUCCESS;
     }
     // Same rule as --version: a build outside git reports "unknown", which is no revision at all.
-    const std::string_view revision = umbriel::build_info::revision();
+    const std::string_view revision = andromeda::build_info::revision();
     const bool knownRevision = !revision.empty() && revision != "unknown";
     std::print(
         "{}",
-        umbriel::configSchemaJson(
-            keys, umbriel::build_info::version(), knownRevision ? std::optional(revision) : std::nullopt
+        andromeda::configSchemaJson(
+            keys, andromeda::build_info::version(), knownRevision ? std::optional(revision) : std::nullopt
         )
     );
     return EXIT_SUCCESS;
@@ -87,8 +87,8 @@ namespace {
     auto row = [stream](std::string_view cmd, std::string_view desc) {
       std::println(stream, "  {:<30} {}", cmd, desc);
     };
-    auto specRows = [&row](umbriel::IpcCommandGroup group) {
-      for (const auto& spec : umbriel::ipcCommands()) {
+    auto specRows = [&row](andromeda::IpcCommandGroup group) {
+      for (const auto& spec : andromeda::ipcCommands()) {
         if (spec.group != group) {
           continue;
         }
@@ -101,23 +101,23 @@ namespace {
       }
     };
 
-    std::println(stream, "umbriel {}: a wayland compositor\n", umbriel::build_info::version());
-    std::println(stream, "Usage: umbriel [-s <command>] [-c <config>]   run the compositor");
-    std::println(stream, "       umbriel <command> [args...]            run a command");
+    std::println(stream, "andromeda {}: a wayland compositor\n", andromeda::build_info::version());
+    std::println(stream, "Usage: andromeda [-s <command>] [-c <config>]   run the compositor");
+    std::println(stream, "       andromeda <command> [args...]            run a command");
 
     heading("Compositor options");
     row("-s <command>", "spawn <command> once the compositor starts");
     row("-c <config>", "use <config> instead of the default config path");
 
     heading("Control the running compositor");
-    specRows(umbriel::IpcCommandGroup::Control);
+    specRows(andromeda::IpcCommandGroup::Control);
 
     heading("Inspect the running compositor");
-    specRows(umbriel::IpcCommandGroup::Inspect);
+    specRows(andromeda::IpcCommandGroup::Inspect);
     row("outputs", "list outputs and modes");
     {
       std::string names;
-      for (const auto& name : umbriel::Ipc::kEventNames) {
+      for (const auto& name : andromeda::Ipc::kEventNames) {
         if (!names.empty()) {
           names += ", ";
         }
@@ -131,33 +131,33 @@ namespace {
     row("config validate [-c <config>]", "check the config file");
     row("config schema [--json]", "count or describe every config key");
 
-    if (std::ranges::any_of(umbriel::ipcCommands(), [](const auto& spec) {
-          return spec.group == umbriel::IpcCommandGroup::Harness;
+    if (std::ranges::any_of(andromeda::ipcCommands(), [](const auto& spec) {
+          return spec.group == andromeda::IpcCommandGroup::Harness;
         })) {
       heading("Test harness");
-      specRows(umbriel::IpcCommandGroup::Harness);
+      specRows(andromeda::IpcCommandGroup::Harness);
     }
 
     heading("Other");
     row("help | -h | --help", "show this help");
     row("-v | -V | --version", "print version");
 
-    std::println(stream, "\nRun `umbriel msg --help` to list all available actions for `msg` and keybinds.");
+    std::println(stream, "\nRun `andromeda msg --help` to list all available actions for `msg` and keybinds.");
   }
 } // namespace
 
-#ifdef UMBRIEL_USE_JEMALLOC
+#ifdef ANDROMEDA_USE_JEMALLOC
 // Read by jemalloc before its first allocation. Few arenas and fast dirty/muzzy decay bound fragmentation and return
 // freed pages to the OS promptly. The background thread runs decay even while the compositor is idle, otherwise pages
 // freed by a burst would wait for the next allocation to be returned.
 const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
 
-#define UMBRIEL_STRINGIFY_HELPER(x) #x
-#define UMBRIEL_STRINGIFY(x) UMBRIEL_STRINGIFY_HELPER(x)
+#define ANDROMEDA_STRINGIFY_HELPER(x) #x
+#define ANDROMEDA_STRINGIFY(x) ANDROMEDA_STRINGIFY_HELPER(x)
 #endif
 
 int main(int argc, char** argv) {
-#if defined(__GLIBC__) && !defined(UMBRIEL_USE_JEMALLOC)
+#if defined(__GLIBC__) && !defined(ANDROMEDA_USE_JEMALLOC)
   // glibc fallback when jemalloc is unavailable: a bounded arena count keeps a
   // long-running compositor from fragmenting across per-thread arenas.
   mallopt(M_ARENA_MAX, 2);
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
           return EXIT_FAILURE;
         }
       }
-      return umbriel::runOutputsCommand(json);
+      return andromeda::runOutputsCommand(json);
     }
     if (std::strcmp(argv[1], "help") == 0 || std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
       printHelp(stdout);
@@ -212,11 +212,11 @@ int main(int argc, char** argv) {
     }
     if (std::strcmp(argv[1], "--version") == 0 || std::strcmp(argv[1], "-v") == 0 || std::strcmp(argv[1], "-V") == 0) {
       constexpr std::string_view unknownRevision = "unknown";
-      const std::string_view revision = umbriel::build_info::revision();
+      const std::string_view revision = andromeda::build_info::revision();
       if (!revision.empty() && revision != unknownRevision) {
-        std::println("umbriel {} ({})", umbriel::build_info::version(), revision);
+        std::println("andromeda {} ({})", andromeda::build_info::version(), revision);
       } else {
-        std::println("umbriel {}", umbriel::build_info::version());
+        std::println("andromeda {}", andromeda::build_info::version());
       }
       return EXIT_SUCCESS;
     }
@@ -251,10 +251,10 @@ int main(int argc, char** argv) {
         printHelp(stderr);
         return EXIT_FAILURE;
       }
-      return umbriel::runIpcSubscribe(events);
+      return andromeda::runIpcSubscribe(events);
     }
 
-    if (const auto* spec = umbriel::findIpcCommand(argv[1])) {
+    if (const auto* spec = andromeda::findIpcCommand(argv[1])) {
       if (!spec->takesArg) {
         bool jf = false;
         for (int i = 2; i < argc; ++i) {
@@ -269,12 +269,12 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
           }
         }
-        return umbriel::runIpcCommand(*spec, {}, jf);
+        return andromeda::runIpcCommand(*spec, {}, jf);
       }
 
       // Help only when -h/--help is the immediate argument (not buried in spawn args).
       if (argc == 3 && isHelpFlag(argv[2])) {
-        std::println("Usage: umbriel {} {}", spec->name, spec->argSpec);
+        std::println("Usage: andromeda {} {}", spec->name, spec->argSpec);
         if (spec->name != "msg") {
           std::println("");
           std::println("{}", spec->description);
@@ -284,11 +284,11 @@ int main(int argc, char** argv) {
         std::println("Send an action to the running compositor.");
         std::println("Use `msg spawn <cmd...>` as shorthand for `msg spawn:<cmd...>`.");
         std::println("Available actions, grouped as the cheatsheet groups them:");
-        for (const umbriel::Group group : umbriel::fixedGroupOrder()) {
+        for (const andromeda::Group group : andromeda::fixedGroupOrder()) {
           std::vector<std::string> names;
           std::vector<std::string_view> summaries;
-          for (const auto& actionSpec : umbriel::actionSpecs()) {
-            if (umbriel::groupForAction(actionSpec.action) != group) {
+          for (const auto& actionSpec : andromeda::actionSpecs()) {
+            if (andromeda::groupForAction(actionSpec.action) != group) {
               continue;
             }
             names.emplace_back(
@@ -307,7 +307,7 @@ int main(int argc, char** argv) {
             width = std::max(width, name.size());
           }
           std::println("");
-          std::println("{}", umbriel::groupTitle(group));
+          std::println("{}", andromeda::groupTitle(group));
           for (size_t i = 0; i < names.size(); ++i) {
             std::println("  {:<{}}  {}", names[i], width, summaries[i]);
           }
@@ -354,7 +354,7 @@ int main(int argc, char** argv) {
           actionString += args[i];
         }
       }
-      return umbriel::runIpcCommand(*spec, actionString, jf);
+      return andromeda::runIpcCommand(*spec, actionString, jf);
     }
   }
 
@@ -385,12 +385,12 @@ int main(int argc, char** argv) {
   }
 
   try {
-    kLog.info("starting umbriel version={} commit={}", umbriel::build_info::version(), umbriel::build_info::revision());
-    if (!umbriel::loadConfig(configPath)) {
+    kLog.info("starting andromeda version={} commit={}", andromeda::build_info::version(), andromeda::build_info::revision());
+    if (!andromeda::loadConfig(configPath)) {
       kLog.error("initial configuration is invalid; refusing to start");
       return EXIT_FAILURE;
     }
-    umbriel::Server server;
+    andromeda::Server server;
 
     // SIGINT and SIGTERM are handled on the event loop by the server itself.
     // SIG_IGN for SIGCHLD reaps spawned children without a handler. Every fork
@@ -404,7 +404,7 @@ int main(int argc, char** argv) {
 
     // Startup allocates heavily (config, scene tree, xwayland, banners) and none of that peak is needed once the
     // session is up. Purge the excess pages so steady-state RSS tracks what the session actually uses.
-#ifdef UMBRIEL_USE_JEMALLOC
+#ifdef ANDROMEDA_USE_JEMALLOC
     // Log the effective configuration once so a wrong malloc_conf shows up in
     // the startup log instead of silently degrading allocator behavior.
     unsigned narenas = 0;
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
     kLog.info("jemalloc: narenas={} dirty_decay_ms={}ms", narenas, dirtyDecayMs);
 
     const int purgeResult =
-        mallctl("arena." UMBRIEL_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+        mallctl("arena." ANDROMEDA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
     if (purgeResult != 0) {
       kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
     }

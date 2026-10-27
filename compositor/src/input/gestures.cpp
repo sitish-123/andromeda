@@ -18,7 +18,7 @@
 // clang-format on
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     // Finger travel for a full overview open or close. One workspace of the three-finger switch travels the same
@@ -790,4 +790,4 @@ namespace umbriel {
     );
   }
 
-} // namespace umbriel
+} // namespace andromeda

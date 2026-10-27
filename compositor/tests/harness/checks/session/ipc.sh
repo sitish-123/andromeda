@@ -2,8 +2,8 @@
 # The IPC surface answers and returns well-formed JSON of the documented shape.
 set -euo pipefail
 
-printf '\n[screencast]\ndisable_dynamic_confirmation = true\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[screencast]\ndisable_dynamic_confirmation = true\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client() {
   foot --title="ipc-client" sh -c 'sleep 120' > /dev/null 2>&1 &
@@ -13,23 +13,23 @@ spawn_client() {
 wait_for_windows() {
   local want=$1
   for _ in $(seq 40); do
-    if [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]]; then
+    if [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]]; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected $want window(s), got $("$UMBRIEL" windows --json | jq 'length'): $("$UMBRIEL" windows --json)"
+  echo "expected $want window(s), got $("$ANDROMEDA" windows --json | jq 'length'): $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" <<'PY'
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" <<'PY'
 import json
 import socket
 import subprocess
 import sys
 import time
 
-socket_path, umbriel = sys.argv[1:]
+socket_path, andromeda = sys.argv[1:]
 
 
 def connect():
@@ -56,7 +56,7 @@ stalled.sendall(b"{")
 time.sleep(0.05)
 started = time.monotonic()
 probe = subprocess.run(
-    [umbriel, "windows", "--json"],
+    [andromeda, "windows", "--json"],
     check=False,
     capture_output=True,
     text=True,
@@ -99,7 +99,7 @@ PY
 spawn_client
 wait_for_windows 1
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 if ! jq -e 'type == "array"' <<< "$windows" > /dev/null; then
   echo "windows --json is not an array: $windows"
   exit 1
@@ -129,7 +129,7 @@ if [[ $(jq -r '.[0].pid' <<< "$windows") != "$CLIENT_PID" ]]; then
   exit 1
 fi
 
-workspaces=$("$UMBRIEL" workspaces --json)
+workspaces=$("$ANDROMEDA" workspaces --json)
 if ! jq -e '
   type == "array" and length >= 1
   and all(.[];
@@ -169,22 +169,22 @@ fi
 
 # The listing reports the effective mode, including a runtime override, rather
 # than only the mode last loaded from configuration.
-"$UMBRIEL" msg workspace-set-layout:dwindle > /dev/null
-workspaces=$("$UMBRIEL" workspaces --json)
+"$ANDROMEDA" msg workspace-set-layout:dwindle > /dev/null
+workspaces=$("$ANDROMEDA" workspaces --json)
 if ! jq -e '[.[] | select(.focused) | .layout] == ["dwindle"]' <<< "$workspaces" > /dev/null; then
   echo "focused workspace did not report its runtime layout override: $workspaces"
   exit 1
 fi
-workspace_human=$("$UMBRIEL" workspaces)
+workspace_human=$("$ANDROMEDA" workspaces)
 if ! grep -F "* HEADLESS-1: 1 [dwindle] (focused)" <<< "$workspace_human" > /dev/null; then
   echo "human workspace listing does not identify the focused layout: $workspace_human"
   exit 1
 fi
-"$UMBRIEL" msg workspace-set-layout:scrolling > /dev/null
+"$ANDROMEDA" msg workspace-set-layout:scrolling > /dev/null
 
 # The workspaces event family carries the layout mode, which no Wayland protocol exposes, so a bar follows
 # workspace-set-layout by subscribing instead of polling.
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" <<'PY'
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" <<'PY'
 import json
 import selectors
 import socket
@@ -192,7 +192,7 @@ import subprocess
 import sys
 import time
 
-socket_path, umbriel = sys.argv[1:]
+socket_path, andromeda = sys.argv[1:]
 
 
 def connect():
@@ -213,7 +213,7 @@ def read_one(client, buf):
 
 
 def action(*args):
-    subprocess.run([umbriel, "msg", *args], check=True, capture_output=True, text=True, timeout=5)
+    subprocess.run([andromeda, "msg", *args], check=True, capture_output=True, text=True, timeout=5)
 
 
 def focused_layout(payload):
@@ -255,7 +255,7 @@ action("workspace-set-layout:scrolling")
 
 # The CLI verb relays the same stream, one flushed line per event, so a script can read it live.
 stream = subprocess.Popen(
-    [umbriel, "subscribe", "workspaces"],
+    [andromeda, "subscribe", "workspaces"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
@@ -271,9 +271,9 @@ def relayed_line(seconds=5):
 try:
     first = relayed_line()
     if not first.strip():
-        raise SystemExit("umbriel subscribe printed no initial line")
+        raise SystemExit("andromeda subscribe printed no initial line")
     if json.loads(first).get("event") != "workspaces":
-        raise SystemExit(f"umbriel subscribe printed a foreign line: {first!r}")
+        raise SystemExit(f"andromeda subscribe printed a foreign line: {first!r}")
     action("workspace-set-layout:dwindle")
     relayed = None
     for _ in range(10):
@@ -284,7 +284,7 @@ try:
             relayed = line
             break
     if relayed is None:
-        raise SystemExit("umbriel subscribe did not relay the pushed event")
+        raise SystemExit("andromeda subscribe did not relay the pushed event")
 finally:
     selector.close()
     stream.terminate()
@@ -353,7 +353,7 @@ expect_screencast("output", 2, "selecting an output", "output", output_name)
 action(f"screencast-set-output:{output_name}")
 expect_screencast("output", 3, "reselecting an output", "output", output_name)
 window_id = json.loads(
-    subprocess.run([umbriel, "windows", "--json"], check=True, capture_output=True, text=True, timeout=5).stdout
+    subprocess.run([andromeda, "windows", "--json"], check=True, capture_output=True, text=True, timeout=5).stdout
 )[0]["id"]
 action("screencast-set-window")
 expect_screencast("window", 4, "selecting the focused window", "identifier", window_id)
@@ -368,55 +368,55 @@ expect_screencast("clear", 8, "clearing the output target")
 sub.close()
 
 # An unknown family is rejected by name, and the client exits instead of waiting on a stream that will never open.
-rejected = subprocess.run([umbriel, "subscribe", "definitely-not-an-event"], capture_output=True, text=True, timeout=5)
+rejected = subprocess.run([andromeda, "subscribe", "definitely-not-an-event"], capture_output=True, text=True, timeout=5)
 if rejected.returncode == 0:
-    raise SystemExit("umbriel subscribe accepted an unknown event")
+    raise SystemExit("andromeda subscribe accepted an unknown event")
 if "unknown subscription event: definitely-not-an-event" not in rejected.stderr:
-    raise SystemExit(f"umbriel subscribe did not name the unknown event: {rejected.stderr!r}")
+    raise SystemExit(f"andromeda subscribe did not name the unknown event: {rejected.stderr!r}")
 PY
 
-submap=$("$UMBRIEL" submap --json)
+submap=$("$ANDROMEDA" submap --json)
 if ! jq -e '. == null' <<< "$submap" > /dev/null; then
   echo "submap --json did not report the default context: $submap"
   exit 1
 fi
-if [[ $("$UMBRIEL" submap | wc -c) -ne 0 ]]; then
+if [[ $("$ANDROMEDA" submap | wc -c) -ne 0 ]]; then
   echo "human submap output printed text for the default context"
   exit 1
 fi
 
 # Submaps nest, so current means the top layer that handles keybinds. Popping
 # that layer must reveal the previous one before returning to the default map.
-"$UMBRIEL" msg submap:outer > /dev/null
-submap=$("$UMBRIEL" submap --json)
+"$ANDROMEDA" msg submap:outer > /dev/null
+submap=$("$ANDROMEDA" submap --json)
 if ! jq -e '. == "outer"' <<< "$submap" > /dev/null; then
   echo "submap --json did not report the active outer layer: $submap"
   exit 1
 fi
-if [[ $("$UMBRIEL" submap) != "outer" ]]; then
+if [[ $("$ANDROMEDA" submap) != "outer" ]]; then
   echo "human submap output did not report the active outer layer"
   exit 1
 fi
-"$UMBRIEL" msg submap:inner > /dev/null
-submap=$("$UMBRIEL" submap --json)
+"$ANDROMEDA" msg submap:inner > /dev/null
+submap=$("$ANDROMEDA" submap --json)
 if ! jq -e '. == "inner"' <<< "$submap" > /dev/null; then
   echo "submap --json did not report the nested top layer: $submap"
   exit 1
 fi
-"$UMBRIEL" msg submap:reset > /dev/null
-submap=$("$UMBRIEL" submap --json)
+"$ANDROMEDA" msg submap:reset > /dev/null
+submap=$("$ANDROMEDA" submap --json)
 if ! jq -e '. == "outer"' <<< "$submap" > /dev/null; then
   echo "submap reset did not reveal the previous layer: $submap"
   exit 1
 fi
-"$UMBRIEL" msg submap:reset > /dev/null
-submap=$("$UMBRIEL" submap --json)
+"$ANDROMEDA" msg submap:reset > /dev/null
+submap=$("$ANDROMEDA" submap --json)
 if ! jq -e '. == null' <<< "$submap" > /dev/null; then
   echo "submap reset did not restore the default context: $submap"
   exit 1
 fi
 
-layers=$("$UMBRIEL" layers --json)
+layers=$("$ANDROMEDA" layers --json)
 if ! jq -e 'type == "array"' <<< "$layers" > /dev/null; then
   echo "layers --json is not an array: $layers"
   exit 1
@@ -424,7 +424,7 @@ fi
 
 # Output management is a Wayland-client query rather than IPC, but it follows
 # the same JSON flag convention as the inspection commands.
-outputs=$("$UMBRIEL" outputs --json)
+outputs=$("$ANDROMEDA" outputs --json)
 if ! jq -e '
   type == "array" and length == 1
   and all(.[];
@@ -456,14 +456,14 @@ if ! jq -e '
   echo "outputs --json has an unexpected shape: $outputs"
   exit 1
 fi
-if [[ $("$UMBRIEL" outputs -j) != "$outputs" ]]; then
+if [[ $("$ANDROMEDA" outputs -j) != "$outputs" ]]; then
   echo "outputs -j differs from outputs --json"
   exit 1
 fi
 
 # The headless harness may have no physical keyboard, in which case the command
 # errors with "no keyboard". Exactly one of the two shapes must appear.
-if layouts=$("$UMBRIEL" keyboard-layouts --json 2>/dev/null); then
+if layouts=$("$ANDROMEDA" keyboard-layouts --json 2>/dev/null); then
   if ! jq -e '
     type == "object"
     and (has("names") and (.names | type == "array"))
@@ -473,7 +473,7 @@ if layouts=$("$UMBRIEL" keyboard-layouts --json 2>/dev/null); then
     exit 1
   fi
 else
-  err=$("$UMBRIEL" keyboard-layouts 2>&1 >/dev/null) || true
+  err=$("$ANDROMEDA" keyboard-layouts 2>&1 >/dev/null) || true
   if [[ $err != *"no keyboard"* ]]; then
     echo "keyboard-layouts neither returned layouts nor the no-keyboard error"
     exit 1
@@ -481,7 +481,7 @@ else
 fi
 
 # An unknown action must be rejected, not silently accepted.
-if "$UMBRIEL" msg definitely-not-an-action > /dev/null 2>&1; then
+if "$ANDROMEDA" msg definitely-not-an-action > /dev/null 2>&1; then
   echo "msg accepted an unknown action"
   exit 1
 fi
@@ -489,16 +489,16 @@ fi
 # Occupancy transitions are pushed by the workspace's own view list. A static
 # inventory keeps dynamic reconciliation, which pushes events of its own for
 # every add, prune, and renumber, out of the observation.
-printf '\n[output.HEADLESS-1]\nworkspaces = 2\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" <<'PY'
+printf '\n[output.HEADLESS-1]\nworkspaces = 2\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" <<'PY'
 import json
 import socket
 import subprocess
 import sys
 import time
 
-socket_path, umbriel = sys.argv[1:]
+socket_path, andromeda = sys.argv[1:]
 
 
 def read_one(client, buf):
@@ -513,7 +513,7 @@ def read_one(client, buf):
 
 
 def action(*args):
-    subprocess.run([umbriel, "msg", *args], check=True, capture_output=True, text=True, timeout=5)
+    subprocess.run([andromeda, "msg", *args], check=True, capture_output=True, text=True, timeout=5)
 
 
 def occupancy(payload):
@@ -562,14 +562,14 @@ action("workspace-switch:1")
 PY
 wait_for_windows 1
 
-python3 - "$UMBRIEL_SOCKET" "$UMBRIEL" <<'PY'
+python3 - "$ANDROMEDA_SOCKET" "$ANDROMEDA" <<'PY'
 import json
 import socket
 import subprocess
 import sys
 import time
 
-socket_path, umbriel = sys.argv[1:]
+socket_path, andromeda = sys.argv[1:]
 
 
 def connect():
@@ -639,7 +639,7 @@ if "err" in focused or "ok" not in focused:
 
 # Other actions can push windows events (focus changes schedule them), so skip
 # every line until the pushed overview event arrives.
-subprocess.run([umbriel, "msg", "overview-open"], check=True, capture_output=True, text=True, timeout=5)
+subprocess.run([andromeda, "msg", "overview-open"], check=True, capture_output=True, text=True, timeout=5)
 event = None
 deadline = time.monotonic() + 5
 while time.monotonic() < deadline:
@@ -653,7 +653,7 @@ while time.monotonic() < deadline:
 if event is None or event.get("data", {}).get("open") is not True:
     raise SystemExit(f"overview-open did not push an open event: {event!r}")
 sub.close()
-subprocess.run([umbriel, "msg", "overview-close"], check=True, capture_output=True, text=True, timeout=5)
+subprocess.run([andromeda, "msg", "overview-close"], check=True, capture_output=True, text=True, timeout=5)
 
 closed = request(f'{{"cmd":"msg","arg":"window-close:{real_id}"}}\n'.encode())
 if "err" in closed or "ok" not in closed:
@@ -666,65 +666,65 @@ wait_for_windows 0
 
 # settle holds its reply while an animation runs: a close answers only after its windows_out, and the next capture no
 # longer shows the snapshot.
-printf '\n[animation.windows_out]\nduration_ms = 1500\ncurve = "linear"\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-FILL_COLOR=0xFFFF0000 "$UMBRIEL_UNMAP_CLIENT" ipc-settle 600 400 > "$UMBRIEL_RUNTIME_DIR/ipc-settle.log" 2>&1 &
+printf '\n[animation.windows_out]\nduration_ms = 1500\ncurve = "linear"\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+FILL_COLOR=0xFFFF0000 "$ANDROMEDA_UNMAP_CLIENT" ipc-settle 600 400 > "$ANDROMEDA_RUNTIME_DIR/ipc-settle.log" 2>&1 &
 wait_for_windows 1
-"$UMBRIEL" settle
-settle_id=$("$UMBRIEL" windows --json | jq -r '.[0].id')
-"$UMBRIEL" msg "window-close:$settle_id" > /dev/null
+"$ANDROMEDA" settle
+settle_id=$("$ANDROMEDA" windows --json | jq -r '.[0].id')
+"$ANDROMEDA" msg "window-close:$settle_id" > /dev/null
 settle_start=${EPOCHREALTIME/[.,]/}
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 settle_ms=$(((${EPOCHREALTIME/[.,]/} - settle_start) / 1000))
 if ((settle_ms < 1400)); then
   echo "settle answered ${settle_ms} ms into a 1500 ms windows_out"
   exit 1
 fi
-grim "$UMBRIEL_RUNTIME_DIR/ipc-settle.png"
-settle_red=$("$UMBRIEL_PIXEL_PROBE" "$UMBRIEL_RUNTIME_DIR/ipc-settle.png" count 'r > 0.5 && g < 0.2 && b < 0.2')
+grim "$ANDROMEDA_RUNTIME_DIR/ipc-settle.png"
+settle_red=$("$ANDROMEDA_PIXEL_PROBE" "$ANDROMEDA_RUNTIME_DIR/ipc-settle.png" count 'r > 0.5 && g < 0.2 && b < 0.2')
 if ((settle_red > 0)); then
   echo "the close snapshot was still drawn after settle answered: $settle_red red pixels"
   exit 1
 fi
 # A frozen animation clock holds an opening fade however long real time passes; clock-advance moves it exactly, and an
 # animation that began while frozen counts from the frozen instant.
-printf '\n[animation.windows_in]\nduration_ms = 1000\ncurve = "linear"\nstyle = "fade"\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" clock-freeze
+printf '\n[animation.windows_in]\nduration_ms = 1000\ncurve = "linear"\nstyle = "fade"\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" clock-freeze
 # A frame at the frozen instant before the window opens, so the fade starts on an instant that has already ticked.
-grim "$UMBRIEL_RUNTIME_DIR/ipc-clock.png"
-FILL_COLOR=0xFFFF0000 "$UMBRIEL_UNMAP_CLIENT" ipc-clock 600 400 > "$UMBRIEL_RUNTIME_DIR/ipc-clock.log" 2>&1 &
+grim "$ANDROMEDA_RUNTIME_DIR/ipc-clock.png"
+FILL_COLOR=0xFFFF0000 "$ANDROMEDA_UNMAP_CLIENT" ipc-clock 600 400 > "$ANDROMEDA_RUNTIME_DIR/ipc-clock.log" 2>&1 &
 wait_for_windows 1
 sleep 0.3 # real time: frozen animation time must hold while real time passes
 clock_red() {
-  grim "$UMBRIEL_RUNTIME_DIR/ipc-clock.png"
-  "$UMBRIEL_PIXEL_PROBE" "$UMBRIEL_RUNTIME_DIR/ipc-clock.png" mean 20x20+630+350 | cut -d' ' -f1
+  grim "$ANDROMEDA_RUNTIME_DIR/ipc-clock.png"
+  "$ANDROMEDA_PIXEL_PROBE" "$ANDROMEDA_RUNTIME_DIR/ipc-clock.png" mean 20x20+630+350 | cut -d' ' -f1
 }
 if (($(clock_red) != 0)); then
   echo "the opening fade advanced while the animation clock was frozen"
   exit 1
 fi
 # settle refuses at once rather than waiting for an animation that cannot end.
-if frozen_settle=$(timeout 5 "$UMBRIEL" settle 2>&1) || [[ $frozen_settle != *"frozen animation clock"* ]]; then
+if frozen_settle=$(timeout 5 "$ANDROMEDA" settle 2>&1) || [[ $frozen_settle != *"frozen animation clock"* ]]; then
   echo "settle did not refuse a running animation on the frozen clock: ${frozen_settle:-no output}"
   exit 1
 fi
-"$UMBRIEL" clock-advance 500
+"$ANDROMEDA" clock-advance 500
 halfway=$(clock_red)
 if ((halfway < 120 || halfway > 136)); then
   echo "500 ms into a 1000 ms linear fade drew red $halfway, expected about 128"
   exit 1
 fi
-"$UMBRIEL" clock-advance 600
+"$ANDROMEDA" clock-advance 600
 if (($(clock_red) != 255)); then
   echo "the opening fade did not finish after its full duration on the frozen clock"
   exit 1
 fi
-"$UMBRIEL" clock-resume
-if "$UMBRIEL" clock-advance 10 2> /dev/null; then
+"$ANDROMEDA" clock-resume
+if "$ANDROMEDA" clock-advance 10 2> /dev/null; then
   echo "clock-advance accepted an unfrozen clock"
   exit 1
 fi
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 echo "IPC commands return documented JSON, human-readable listings, events, clean window lifecycle replies, settle, and the animation clock"

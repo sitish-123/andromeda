@@ -12,7 +12,7 @@
 #include <string>
 #include <wayland-client.h>
 
-namespace umbriel {
+namespace andromeda {
   namespace {
 
     struct ModeInfo {
@@ -406,4 +406,4 @@ namespace umbriel {
     return EXIT_SUCCESS;
   }
 
-} // namespace umbriel
+} // namespace andromeda

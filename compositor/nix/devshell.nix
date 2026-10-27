@@ -1,9 +1,9 @@
 {
   pkgs,
-  umbriel,
+  andromeda,
 }:
 pkgs.mkShell {
-  inputsFrom = [ umbriel ];
+  inputsFrom = [ andromeda ];
 
   # glibc rejects _FORTIFY_SOURCE at the debug profile's -O0, and werror
   # promotes that diagnostic to a build failure.
@@ -35,6 +35,6 @@ pkgs.mkShell {
   ];
 
   shellHook = ''
-    echo " Umbriel dev-shell | 'just --list' to see available tasks"
+    echo " Andromeda dev-shell | 'just --list' to see available tasks"
   '';
 }

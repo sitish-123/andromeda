@@ -3,27 +3,27 @@
 # A named scrolling-column creator keeps width ownership after its output disappears and returns.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly OWNER_FIFO="$UMBRIEL_RUNTIME_DIR/named-output-owner-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly OWNER_FIFO="$ANDROMEDA_RUNTIME_DIR/named-output-owner-control"
 
 spawn_client() {
-  "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_windows() {
   local expected=$1
   for _ in $(seq 80); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for $expected clients: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $expected clients: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_output() {
   local title=$1 expected=$2 output=
   for _ in $(seq 80); do
-    output=$("$UMBRIEL" windows --json | jq -r --arg title "$title" \
+    output=$("$ANDROMEDA" windows --json | jq -r --arg title "$title" \
       '.[] | select(.title == $title) | .workspace | split(":")[0]')
     [[ $output == "$expected" ]] && return 0
     sleep 0.1
@@ -35,7 +35,7 @@ wait_for_output() {
 wait_for_delta() {
   local first=$1 second=$2 expected=$3 windows first_x second_x
   for _ in $(seq 80); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     first_x=$(jq -r --arg title "$first" '.[] | select(.title == $title) | .x' <<< "$windows")
     second_x=$(jq -r --arg title "$second" '.[] | select(.title == $title) | .x' <<< "$windows")
     [[ -n $first_x && -n $second_x ]] && ((second_x - first_x == expected)) && return 0
@@ -45,7 +45,7 @@ wait_for_delta() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -80,7 +80,7 @@ default_output = "HEADLESS-2"
 match.title = "^named-output-after$"
 default_output = "HEADLESS-1"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client named-output-refuge
 wait_for_windows 1
@@ -88,7 +88,7 @@ mkfifo "$OWNER_FIFO"
 exec {owner_fd}<>"$OWNER_FIFO"
 APP_ID=named-output-owner TITLE_AFTER_MAP=named-output-owner-late \
   "$CLIENT" named-output-owner-placeholder 800 600 <&"$owner_fd" \
-  > "$UMBRIEL_RUNTIME_DIR/named-output-owner.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/named-output-owner.log" 2>&1 &
 wait_for_windows 2
 spawn_client named-output-peer
 wait_for_windows 3
@@ -96,11 +96,11 @@ wait_for_windows 3
 # The home column temporarily joins a populated, identically named refuge.
 # Settle its late width there, then verify exact restoration retains both the
 # creator's ownership and the newly resolved width.
-"$UMBRIEL" output-destroy HEADLESS-1 > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-1 > /dev/null
 wait_for_output named-output-owner-placeholder HEADLESS-2
 printf 'u' >&"$owner_fd"
 wait_for_output named-output-owner-late HEADLESS-2
-created=$("$UMBRIEL" output-create HEADLESS-1)
+created=$("$ANDROMEDA" output-create HEADLESS-1)
 [[ $created == HEADLESS-1 ]] || { echo "expected HEADLESS-1, got '$created'"; exit 1; }
 wait_for_output named-output-owner-late HEADLESS-1
 

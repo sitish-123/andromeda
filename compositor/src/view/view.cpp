@@ -15,7 +15,7 @@
 #include "scene/surface_blur.h"
 #include "server/server.h"
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 #include "view/maximize.h"
 #include "view/xdg_size.h"
@@ -30,7 +30,7 @@ extern "C" {
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
   namespace {
     constexpr Logger kLog("view");
     // Distance the built-in windows_in "slide" style starts an opener below its resting position.
@@ -1489,7 +1489,7 @@ namespace umbriel {
       parameters.transition_id = m_dragPhysics.transitionId();
       parameters.expand = dragPhysicsExpand();
       if (fx_uniform* sheet =
-              fx_parameters_add_uniform(&parameters, "umbriel_deformation", FX_UNIFORM_VEC2, DragPhysics::kPoints)) {
+              fx_parameters_add_uniform(&parameters, "andromeda_deformation", FX_UNIFORM_VEC2, DragPhysics::kPoints)) {
         const DragPhysics::Sheet displacement = m_dragPhysics.normalizedDisplacement();
         for (int i = 0; i < DragPhysics::kPoints; ++i) {
           sheet->floats[i * 2] = displacement[i][0];
@@ -1531,7 +1531,7 @@ namespace umbriel {
           .captureSurface = captureSurface,
           .gate = gate != nullptr ? *gate : ownGate,
           .seconds = m_effects.configured() && output != nullptr ? output->effectSeconds() : 0.0F,
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
           .clockAdvancing = !m_server->animationClockFrozen(),
 #endif
           .output = output,
@@ -2367,7 +2367,7 @@ namespace umbriel {
   }
 
   void View::updateBlur(int contentWidth, int contentHeight) {
-    UMBRIEL_ZONE("View::updateBlur");
+    ANDROMEDA_ZONE("View::updateBlur");
     if (m_toplevel->current.fullscreen && fullscreenOpaque()) {
       m_decoration.hideBlur();
       return;
@@ -2396,7 +2396,7 @@ namespace umbriel {
   }
 
   void View::updateShadow(int contentWidth, int contentHeight) {
-    UMBRIEL_ZONE("View::updateShadow");
+    ANDROMEDA_ZONE("View::updateShadow");
     const int borderTotal = borderInset();
     m_decoration.updateShadow(contentWidth, contentHeight, borderTotal, decorated() ? m_decoration.cornerRadius() : 0);
     m_decoration.setShadowAnimationSource(&m_contentTree->node);
@@ -3480,7 +3480,7 @@ namespace umbriel {
   }
 
   void View::handleCommit(bool reconfigureOpeningState) {
-    UMBRIEL_ZONE("View::handleCommit");
+    ANDROMEDA_ZONE("View::handleCommit");
     if (m_resizeCrossfade.pending()) {
       const auto& move = config().animation.windowsMove;
       m_resizeCrossfade.start(move.durationMs, move.curve);
@@ -4895,4 +4895,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

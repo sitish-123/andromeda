@@ -2,7 +2,7 @@
 #define _FX_OPENGL_H
 
 #include <GLES2/gl2.h>
-#include <umbrielfx/render/fx_renderer/fx_renderer.h>
+#include <andromedafx/render/fx_renderer/fx_renderer.h>
 #include <stdbool.h>
 #include <time.h>
 #include <wlr/render/egl.h>

@@ -162,13 +162,13 @@ namespace {
   }
 
   std::string paletteSocketPath() {
-    if (const char* configured = std::getenv("UMBRIEL_SOCKET"); configured != nullptr && configured[0] != '\0') {
+    if (const char* configured = std::getenv("ANDROMEDA_SOCKET"); configured != nullptr && configured[0] != '\0') {
       return configured;
     }
     const char* runtimeDir = std::getenv("XDG_RUNTIME_DIR");
     const char* waylandDisplay = std::getenv("WAYLAND_DISPLAY");
     if (runtimeDir != nullptr && runtimeDir[0] != '\0' && waylandDisplay != nullptr && waylandDisplay[0] != '\0') {
-      return std::string(runtimeDir) + "/umbriel-" + waylandDisplay + ".sock";
+      return std::string(runtimeDir) + "/andromeda-" + waylandDisplay + ".sock";
     }
     return {};
   }
@@ -227,10 +227,10 @@ namespace {
     static const std::string style = [] {
       GError* error = nullptr;
       GBytes* bytes =
-          g_resources_lookup_data("/dev/noctalia/umbriel/picker/style.css", G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
+          g_resources_lookup_data("/dev/noctalia/andromeda/picker/style.css", G_RESOURCE_LOOKUP_FLAGS_NONE, &error);
       if (bytes == nullptr) {
         std::cerr
-            << "umbriel-share-picker: unable to load style resource: "
+            << "andromeda-share-picker: unable to load style resource: "
             << (error != nullptr ? error->message : "unknown error")
             << '\n';
         g_clear_error(&error);
@@ -407,7 +407,7 @@ namespace {
         }
       }
     } catch (const json::exception& error) {
-      std::cerr << "umbriel-share-picker: invalid request JSON: " << error.what() << '\n';
+      std::cerr << "andromeda-share-picker: invalid request JSON: " << error.what() << '\n';
     }
 
     return state;
@@ -526,7 +526,7 @@ namespace {
     );
     gtk_image_set_pixel_size(GTK_IMAGE(icon), 32);
     gtk_box_append(GTK_BOX(fallback), icon);
-    GtkWidget* label = gtk_label_new(capture ? "Loading preview…" : "Switch target with an Umbriel action");
+    GtkWidget* label = gtk_label_new(capture ? "Loading preview…" : "Switch target with an Andromeda action");
     gtk_widget_add_css_class(label, "preview-caption");
     gtk_box_append(GTK_BOX(fallback), label);
     g_object_set_data(G_OBJECT(stack), "preview-label", label);
@@ -883,11 +883,11 @@ namespace {
     GtkWidget* window = gtk_application_window_new(app);
     state->window = window;
     state->display = gtk_widget_get_display(window);
-    gtk_widget_add_css_class(window, "umbriel-picker");
+    gtk_widget_add_css_class(window, "andromeda-picker");
     gtk_window_set_title(GTK_WINDOW(window), "Share a screen or window");
     gtk_window_set_default_size(GTK_WINDOW(window), 760, 560);
 
-    // No custom titlebar: Umbriel owns the window decorations and their visibility.
+    // No custom titlebar: Andromeda owns the window decorations and their visibility.
     gtk_window_set_child(GTK_WINDOW(window), makeContent(*state));
     gtk_window_set_default_widget(GTK_WINDOW(window), state->shareButton);
 
@@ -943,7 +943,7 @@ int main(int argc, char** argv) {
   g_setenv("GSK_RENDERER", "cairo", FALSE);
   gtk_init();
 
-  GtkApplication* app = gtk_application_new("dev.noctalia.UmbrielSharePicker", G_APPLICATION_NON_UNIQUE);
+  GtkApplication* app = gtk_application_new("dev.noctalia.AndromedaSharePicker", G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(onActivate), &state);
   const int status = g_application_run(G_APPLICATION(app), argc, argv);
   if (!state.responding) {

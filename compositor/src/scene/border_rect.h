@@ -9,7 +9,7 @@ struct wlr_scene_border;
 struct wlr_scene_node;
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
 
   struct BorderSnapshot {
     wlr_scene_border* node = nullptr;
@@ -34,4 +34,4 @@ namespace umbriel {
       BorderSnapshot ring, float opacity, std::vector<BorderSnapshot>& out
   );
 
-} // namespace umbriel
+} // namespace andromeda

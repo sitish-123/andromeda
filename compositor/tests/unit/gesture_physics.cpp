@@ -3,8 +3,8 @@
 #include "check.h"
 #include "input/swipe_tracker.h"
 
-using umbriel::GesturePhysics;
-using umbriel::SwipeTracker;
+using andromeda::GesturePhysics;
+using andromeda::SwipeTracker;
 
 namespace {
 
@@ -25,7 +25,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(overscrollIsContinuousAndBoundedAtBothEnds) {
+ANDROMEDA_TEST(overscrollIsContinuousAndBoundedAtBothEnds) {
   const double limit = GesturePhysics::kOverscrollLimit;
   CHECK_EQ(GesturePhysics::rubberBand(0.5, 0.0, 1.0, limit), 0.5);
   CHECK(GesturePhysics::rubberBand(1.5, 0.0, 1.0, limit) > 1.0);
@@ -39,7 +39,7 @@ UMBRIEL_TEST(overscrollIsContinuousAndBoundedAtBothEnds) {
   CHECK(std::abs(pastEnd - pastStart) < 1e-12);
 }
 
-UMBRIEL_TEST(releaseSpeedIsDampedToWhatTheContentStillMoves) {
+ANDROMEDA_TEST(releaseSpeedIsDampedToWhatTheContentStillMoves) {
   const double limit = GesturePhysics::kOverscrollLimit;
   CHECK_EQ(GesturePhysics::rubberBandDerivative(0.5, 0.0, 1.0, limit), 1.0);
   CHECK(GesturePhysics::rubberBandDerivative(1.5, 0.0, 1.0, limit) < 1.0);
@@ -52,7 +52,7 @@ UMBRIEL_TEST(releaseSpeedIsDampedToWhatTheContentStillMoves) {
   );
 }
 
-UMBRIEL_TEST(aStepLandsOnTheNearestStepThatExists) {
+ANDROMEDA_TEST(aStepLandsOnTheNearestStepThatExists) {
   CHECK_EQ(GesturePhysics::stepTarget(2.49, 0, 4), 2);
   CHECK_EQ(GesturePhysics::stepTarget(2.51, 0, 4), 3);
   CHECK_EQ(GesturePhysics::stepTarget(-10.0, 0, 4), 0);
@@ -63,13 +63,13 @@ UMBRIEL_TEST(aStepLandsOnTheNearestStepThatExists) {
   CHECK_EQ(GesturePhysics::stepTarget(-0.6, -1, 1), -1);
 }
 
-UMBRIEL_TEST(zoomScalingKeepsTravelReadableAtAnyZoom) {
+ANDROMEDA_TEST(zoomScalingKeepsTravelReadableAtAnyZoom) {
   CHECK_EQ(GesturePhysics::zoomScale(1), 1.0);
   CHECK(GesturePhysics::zoomScale(0.5) > 1);
   CHECK(GesturePhysics::zoomScale(0.5) < 2);
 }
 
-UMBRIEL_TEST(aDragThatStopsBeforeLettingGoFallsBack) {
+ANDROMEDA_TEST(aDragThatStopsBeforeLettingGoFallsBack) {
   // 0.4 of a step, then a pause long enough to drain the window: nothing is moving any more, so the release rounds back
   // to the step the gesture started on.
   const auto release = GesturePhysics::release(gestures(30.0, 4, 200), kStep, 0.0, -1.0, 1.0);
@@ -77,7 +77,7 @@ UMBRIEL_TEST(aDragThatStopsBeforeLettingGoFallsBack) {
   CHECK_EQ(release.velocity, 0.0);
 }
 
-UMBRIEL_TEST(aFlickLandsWhereItsProjectionSays) {
+ANDROMEDA_TEST(aFlickLandsWhereItsProjectionSays) {
   // 0.2 of a step, released while still moving: the projection carries it over the halfway point, which the distance
   // alone never reached.
   const auto release = GesturePhysics::release(gestures(10.0, 6), kStep, 0.0, -1.0, 1.0);
@@ -86,7 +86,7 @@ UMBRIEL_TEST(aFlickLandsWhereItsProjectionSays) {
   CHECK(release.velocity > 0.0);
 }
 
-UMBRIEL_TEST(aGestureCarriesThePositionItTookOver) {
+ANDROMEDA_TEST(aGestureCarriesThePositionItTookOver) {
   // A gesture that starts while a settle is still running begins from where the slide is on screen, so its landing is
   // relative to that: half a step behind the active workspace and released still lands on the previous one.
   const auto fromRest = GesturePhysics::release(gestures(0.0, 1, 200), kStep, 0.0, -1.0, 1.0);
@@ -97,14 +97,14 @@ UMBRIEL_TEST(aGestureCarriesThePositionItTookOver) {
   CHECK_EQ(carried.target, -1);
 }
 
-UMBRIEL_TEST(theReleaseKeepsTheSpeedTheGestureWasMovingAt) {
+ANDROMEDA_TEST(theReleaseKeepsTheSpeedTheGestureWasMovingAt) {
   const auto slow = GesturePhysics::release(gestures(5.0, 12), kStep, 0.0, -1.0, 1.0);
   const auto fast = GesturePhysics::release(gestures(20.0, 12), kStep, 0.0, -1.0, 1.0);
   CHECK(slow.velocity > 0.0);
   CHECK(fast.velocity > slow.velocity);
 }
 
-UMBRIEL_TEST(travelPastTheLastStepIsDampedAndSoIsItsRelease) {
+ANDROMEDA_TEST(travelPastTheLastStepIsDampedAndSoIsItsRelease) {
   // Three steps of travel into the end of a one-step range: the position stops just past the end, and the release
   // carries far less speed than the same gesture would with somewhere to go.
   const auto bounded = GesturePhysics::release(gestures(45.0, 20), kStep, 0.0, 0.0, 1.0);
@@ -116,7 +116,7 @@ UMBRIEL_TEST(travelPastTheLastStepIsDampedAndSoIsItsRelease) {
   CHECK(bounded.velocity < unbounded.velocity);
 }
 
-UMBRIEL_TEST(theOverviewSettlesOnTheSideTheProjectionPointsTo) {
+ANDROMEDA_TEST(theOverviewSettlesOnTheSideTheProjectionPointsTo) {
   // An open overview dragged a third of a step down and held still falls back open.
   const auto held = GesturePhysics::release(gestures(-20.0, 5, 200), kStep, 1.0, 0.0, 1.0);
   CHECK_EQ(held.target, 1);

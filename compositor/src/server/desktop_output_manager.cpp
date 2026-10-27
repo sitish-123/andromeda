@@ -19,7 +19,7 @@
 #include <string>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -304,4 +304,4 @@ namespace umbriel {
       .set_property = DesktopOutputManager::handleSetProperty,
   };
 
-} // namespace umbriel
+} // namespace andromeda

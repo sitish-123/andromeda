@@ -31,7 +31,7 @@ let
   version = lib.trim (builtins.readFile ../VERSION);
 in
 stdenv.mkDerivation {
-  pname = "umbriel";
+  pname = "andromeda";
   inherit version;
 
   src = ../.;
@@ -72,25 +72,25 @@ stdenv.mkDerivation {
 
   postPatch = ''
     substituteInPlace meson.build \
-      --replace-fail "umbriel_git_revision_config.set('VCS_TAG', 'unknown')" "umbriel_git_revision_config.set('VCS_TAG', '${rev}')"
+      --replace-fail "andromeda_git_revision_config.set('VCS_TAG', 'unknown')" "andromeda_git_revision_config.set('VCS_TAG', '${rev}')"
   '';
 
   postInstall = ''
-    if [ -f "$out/share/wayland-sessions/umbriel.desktop" ]; then
-      substituteInPlace "$out/share/wayland-sessions/umbriel.desktop" \
-        --replace-fail 'Exec=start-umbriel' "Exec=$out/bin/start-umbriel"
+    if [ -f "$out/share/wayland-sessions/andromeda.desktop" ]; then
+      substituteInPlace "$out/share/wayland-sessions/andromeda.desktop" \
+        --replace-fail 'Exec=start-andromeda' "Exec=$out/bin/start-andromeda"
     fi
-    wrapProgram $out/bin/umbriel \
+    wrapProgram $out/bin/andromeda \
       --prefix PATH : ${lib.makeBinPath [ xwayland-satellite ]} \
   '';
 
-  passthru.providedSessions = [ "umbriel" ];
+  passthru.providedSessions = [ "andromeda" ];
 
   meta = with lib; {
     description = "A Wayland compositor built on wlroots";
-    homepage = "https://github.com/noctalia-dev/umbriel";
+    homepage = "https://github.com/noctalia-dev/andromeda";
     license = licenses.mit;
     platforms = platforms.linux;
-    mainProgram = "umbriel";
+    mainProgram = "andromeda";
   };
 }

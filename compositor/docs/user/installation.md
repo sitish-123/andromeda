@@ -1,6 +1,6 @@
-# Installing Umbriel
+# Installing Andromeda
 
-Umbriel is packaged for several Linux distributions. Prefer a distribution
+Andromeda is packaged for several Linux distributions. Prefer a distribution
 package when one is available; it provides the simplest installation and
 upgrade path.
 
@@ -9,11 +9,11 @@ upgrade path.
 
 ## Arch Linux
 
-[`umbriel-git`](https://aur.archlinux.org/packages/umbriel-git) is available in
+[`andromeda-git`](https://aur.archlinux.org/packages/andromeda-git) is available in
 the AUR:
 
 ```sh
-yay -S umbriel-git
+yay -S andromeda-git
 ```
 
 ## Fedora
@@ -21,30 +21,30 @@ yay -S umbriel-git
 [Terra](https://wiki.fyralabs.com/Terra) provides nightly builds:
 
 ```sh
-sudo dnf install umbriel-nightly
+sudo dnf install andromeda-nightly
 ```
 
 ## openSUSE
 
 The [Noctalia OBS repository](https://build.opensuse.org/project/show/home:neifua:Noctalia)
 provides
-[`umbriel-git`](https://build.opensuse.org/package/show/home:neifua:Noctalia/umbriel-git).
+[`andromeda-git`](https://build.opensuse.org/package/show/home:neifua:Noctalia/andromeda-git).
 
 #### Tumbleweed
 ```sh
 sudo zypper addrepo --refresh --name Noctalia https://download.opensuse.org/repositories/home:neifua:Noctalia/openSUSE_Tumbleweed/home:neifua:Noctalia.repo
-sudo zypper refresh && sudo zypper install umbriel-git
+sudo zypper refresh && sudo zypper install andromeda-git
 ```
 
 #### Slowroll
 ```sh
 sudo zypper addrepo --refresh --name Noctalia https://download.opensuse.org/repositories/home:neifua:Noctalia/openSUSE_Slowroll/home:neifua:Noctalia.repo
-sudo zypper refresh && sudo zypper install umbriel-git
+sudo zypper refresh && sudo zypper install andromeda-git
 ```
 
 ## Debian and Ubuntu
 
-The NickH APT repository provides Umbriel for Debian-based distributions.
+The NickH APT repository provides Andromeda for Debian-based distributions.
 
 ### Install the repository signing key
 
@@ -71,18 +71,18 @@ sudo wget -O /etc/apt/sources.list.d/noctalia-resolute.sources \
   https://pkg.noctalia.dev/deb/noctalia-resolute.sources
 ```
 
-### Install Umbriel
+### Install Andromeda
 
 ```sh
 sudo apt update
-sudo apt install umbriel
+sudo apt install andromeda
 ```
 
 The repository provides `amd64` and `arm64` packages only.
 
 ## GNU Guix
 
-Umbriel and its XDG portal are available through the third-party
+Andromeda and its XDG portal are available through the third-party
 [`midnight`](https://codeberg.org/stampede/midnight) Guix channel. Add the
 channel to `~/.config/guix/channels.scm`:
 
@@ -98,9 +98,9 @@ channel to `~/.config/guix/channels.scm`:
         "640A 2C3C E948 22D3 394B 40C3 CAFA EECA 00FF 9B1E"))))
 ```
 
-Run `guix pull`, then install `umbriel` and
-`xdg-desktop-portal-umbriel`. Adding them to the system configuration makes the
-Umbriel session available to display managers.
+Run `guix pull`, then install `andromeda` and
+`xdg-desktop-portal-andromeda`. Adding them to the system configuration makes the
+Andromeda session available to display managers.
 
 ## Manual build
 
@@ -109,13 +109,13 @@ package when one is available.
 
 Install a C++23 compiler, Meson, Ninja, `just`, `pkg-config`,
 `wayland-scanner`, and the development packages listed in
-[`PACKAGING.md`](https://github.com/noctalia-dev/umbriel/blob/main/PACKAGING.md#dependencies).
+[`PACKAGING.md`](https://github.com/noctalia-dev/andromeda/blob/main/PACKAGING.md#dependencies).
 Then clone, build, and
-install Umbriel:
+install Andromeda:
 
 ```sh
-git clone https://github.com/noctalia-dev/umbriel.git
-cd umbriel
+git clone https://github.com/noctalia-dev/andromeda.git
+cd andromeda
 just release
 sudo just install
 ```
@@ -128,40 +128,40 @@ just prefix="$HOME/.local" release
 just install
 ```
 
-## Starting Umbriel
+## Starting Andromeda
 
-Installed display-manager sessions start Umbriel through `start-umbriel`.
-Select Umbriel from your display manager, or start it from a TTY:
+Installed display-manager sessions start Andromeda through `start-andromeda`.
+Select Andromeda from your display manager, or start it from a TTY:
 
 ```sh
-start-umbriel
+start-andromeda
 ```
 
 The launcher loads the login profile for supported shells such as bash, zsh,
 and fish. Environment variables from that profile, including `PATH`, are
-available to Umbriel and applications started in the session. Interactive
+available to Andromeda and applications started in the session. Interactive
 shell files such as `~/.zshrc` are not loaded. In a systemd-managed session,
 the launcher imports the login environment into the user manager before
-starting Umbriel. Login-profile values take precedence over values with the
+starting Andromeda. Login-profile values take precedence over values with the
 same names from `environment.d`; variables found only in the user manager
 remain available. The direct fallback inherits the same login environment
 without importing it.
 
-In a managed native session, Umbriel places startup, autostart, event, and
+In a managed native session, Andromeda places startup, autostart, event, and
 `spawn:` commands in scopes bound to the compositor service, so they are
 cleaned up when the session ends. This requires systemd 254 or newer.
 
-Run `umbriel` directly only for a nested development session or an explicitly
+Run `andromeda` directly only for a nested development session or an explicitly
 unmanaged launch.
 
 ## Logs
 
-Umbriel writes its main log to `$XDG_CACHE_HOME/umbriel/umbriel.log`. If
+Andromeda writes its main log to `$XDG_CACHE_HOME/andromeda/andromeda.log`. If
 `XDG_CACHE_HOME` is unset, the fallback path is
-`~/.cache/umbriel/umbriel.log`. The previous file is retained as
-`umbriel.log.1` when the current log reaches 1 MiB.
+`~/.cache/andromeda/andromeda.log`. The previous file is retained as
+`andromeda.log.1` when the current log reaches 1 MiB.
 
 When standard output or standard error is connected to a TTY, raw writes from
-Umbriel and its child processes are redirected to
-`$XDG_CACHE_HOME/umbriel/umbriel-stderr.log`, or
-`~/.cache/umbriel/umbriel-stderr.log` when `XDG_CACHE_HOME` is unset.
+Andromeda and its child processes are redirected to
+`$XDG_CACHE_HOME/andromeda/andromeda-stderr.log`, or
+`~/.cache/andromeda/andromeda-stderr.log` when `XDG_CACHE_HOME` is unset.

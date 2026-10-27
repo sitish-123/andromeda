@@ -3,18 +3,18 @@
 // returns 77 without an FP16-capable render node.
 #include "render_fixture.h"
 #include "render/fx_renderer/effect.h"
-#include "umbrielfx/render/effect.h"
-#include "umbrielfx/render/pass.h"
+#include "andromedafx/render/effect.h"
+#include "andromedafx/render/pass.h"
 #include <stdarg.h>
 #include <wlr/util/log.h>
 #include <wlr/util/transform.h>
 
 static const char *const kSources[] = {
-	[FX_EFFECT_ANIMATION] = "vec4 animation(vec2 uv) { return vec4(uv.x, umbriel_clamped_progress, 0.0, 1.0); }",
-	[FX_EFFECT_BORDER] = "vec4 border(vec2 uv) { return vec4(umbriel_border_distance(uv) < 0.0 ? 1.0 : 0.0, 0.0, 0.0, 1.0); }",
-	[FX_EFFECT_WINDOW] = "vec4 window(vec2 uv) { return umbriel_sample(uv).bgra; }",
-	[FX_EFFECT_SCREEN] = "vec4 screen(vec2 uv) { return umbriel_sample(uv) * 0.5; }",
-	[FX_EFFECT_CURSOR] = "vec4 cursor(vec2 uv) { return vec4(umbriel_pointer, 0.0, 1.0); }",
+	[FX_EFFECT_ANIMATION] = "vec4 animation(vec2 uv) { return vec4(uv.x, andromeda_clamped_progress, 0.0, 1.0); }",
+	[FX_EFFECT_BORDER] = "vec4 border(vec2 uv) { return vec4(andromeda_border_distance(uv) < 0.0 ? 1.0 : 0.0, 0.0, 0.0, 1.0); }",
+	[FX_EFFECT_WINDOW] = "vec4 window(vec2 uv) { return andromeda_sample(uv).bgra; }",
+	[FX_EFFECT_SCREEN] = "vec4 screen(vec2 uv) { return andromeda_sample(uv) * 0.5; }",
+	[FX_EFFECT_CURSOR] = "vec4 cursor(vec2 uv) { return vec4(andromeda_pointer, 0.0, 1.0); }",
 };
 
 static bool test_kinds(struct fixture *fixture) {
@@ -34,13 +34,13 @@ static bool test_kinds(struct fixture *fixture) {
 
 static bool test_reads(struct fixture *fixture) {
 	struct fx_effect_shader *timed = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(uv) * (0.5 + 0.5 * sin(umbriel_time)); }", "reads-time");
+		"vec4 window(vec2 uv) { return andromeda_sample(uv) * (0.5 + 0.5 * sin(andromeda_time)); }", "reads-time");
 	struct fx_effect_shader *still = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(uv); }", "reads-none");
+		"vec4 window(vec2 uv) { return andromeda_sample(uv); }", "reads-none");
 	bool ok = check(timed != NULL && still != NULL, "both window programs compile");
 	if (ok) {
-		ok &= check(fx_effect_shader_reads(timed, "umbriel_time"), "umbriel_time is an active uniform");
-		ok &= check(!fx_effect_shader_reads(still, "umbriel_time"), "an unused umbriel_time is eliminated");
+		ok &= check(fx_effect_shader_reads(timed, "andromeda_time"), "andromeda_time is an active uniform");
+		ok &= check(!fx_effect_shader_reads(still, "andromeda_time"), "an unused andromeda_time is eliminated");
 		ok &= check(!fx_effect_shader_reads(still, "no_such_uniform"), "unknown names are not read");
 	}
 	fx_effect_shader_unref(timed);
@@ -81,15 +81,15 @@ static bool render_animation(struct fixture *fixture, struct fx_effect_shader *s
 static bool test_long_running_trig(struct fixture *fixture) {
 	static const char *const sources[] = {
 		"const float zero = sin(0.0); const float one = cos(0.0);\n"
-		"vec4 animation(vec2 uv) { float a = umbriel_time * 1.8 + zero; "
+		"vec4 animation(vec2 uv) { float a = andromeda_time * 1.8 + zero; "
 		"return vec4(0.5 + 0.5 * vec3(sin(a), cos(a), sin(-a)), one); }",
-		"vec4 animation(vec2 uv) { float a = umbriel_time * 1.8; "
+		"vec4 animation(vec2 uv) { float a = andromeda_time * 1.8; "
 		"vec2 s = sin(vec2(a, -a)); vec2 c = cos(vec2(a, -a)); "
 		"return vec4(0.5 + 0.5 * vec3(s.x, c.y, s.y), 1.0); }",
-		"vec4 animation(vec2 uv) { float a = umbriel_time * 1.8; "
+		"vec4 animation(vec2 uv) { float a = andromeda_time * 1.8; "
 		"vec3 s = sin(vec3(a, a + 1.0, -a)); vec3 c = cos(vec3(-a, a, a + 1.0)); "
 		"return vec4(0.5 + 0.5 * vec3(s.x, c.y, s.z), 1.0); }",
-		"vec4 animation(vec2 uv) { float a = umbriel_time * 1.8; "
+		"vec4 animation(vec2 uv) { float a = andromeda_time * 1.8; "
 		"vec4 s = sin(vec4(a + 1.0, a, a + 2.0, -a)); vec4 c = cos(vec4(a + 1.0, -a, a, a + 2.0)); "
 		"return vec4(0.5 + 0.5 * vec3(s.y, c.z, s.w), 1.0); }",
 	};
@@ -102,7 +102,7 @@ static bool test_long_running_trig(struct fixture *fixture) {
 			return false;
 		}
 		struct fx_animation_parameters parameters = {0};
-		struct fx_uniform *time = fx_parameters_add_uniform(&parameters, "umbriel_time", FX_UNIFORM_FLOAT, 1);
+		struct fx_uniform *time = fx_parameters_add_uniform(&parameters, "andromeda_time", FX_UNIFORM_FLOAT, 1);
 		for (unsigned i = 0; i < sizeof(times) / sizeof(times[0]); i++) {
 			time->floats[0] = times[i];
 			uint8_t pixel[4];
@@ -187,20 +187,20 @@ static bool test_uniforms(struct fixture *fixture) {
 	ok &= check(pixel[2] > 250, "an unknown uniform name is ignored");
 	fx_effect_shader_unref(shader);
 
-	// The palette preamble: umbriel_palette_at wraps over the supplied entries and is transparent black without any.
+	// The palette preamble: andromeda_palette_at wraps over the supplied entries and is transparent black without any.
 	struct fx_effect_shader *palette = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return umbriel_palette_at(1.25); }", "palette");
+		"vec4 animation(vec2 uv) { return andromeda_palette_at(1.25); }", "palette");
 	ok &= check(palette != NULL, "palette program compiles");
 	struct fx_animation_parameters colours = { .progress = 1, .linear_progress = 1, .direction = 1 };
-	struct fx_uniform *entries = fx_parameters_add_uniform(&colours, "umbriel_palette", FX_UNIFORM_VEC4, 4);
-	struct fx_uniform *count = fx_parameters_add_uniform(&colours, "umbriel_palette_count", FX_UNIFORM_INT, 1);
+	struct fx_uniform *entries = fx_parameters_add_uniform(&colours, "andromeda_palette", FX_UNIFORM_VEC4, 4);
+	struct fx_uniform *count = fx_parameters_add_uniform(&colours, "andromeda_palette_count", FX_UNIFORM_INT, 1);
 	ok &= check(entries != NULL && count != NULL, "palette uniforms fit");
 	const float table[16] = { 1, 0, 0, 1,  0, 1, 0, 1,  0, 0, 1, 1,  1, 1, 0, 1 };
 	memcpy(entries->floats, table, sizeof(table));
 	count->ints[0] = 4;
 	ok &= render_animation(fixture, palette, &colours, 0, pixel);
 	// t = 1.25 wraps to 0.25 -> entry 1 (green).
-	ok &= check(pixel[1] > 250 && pixel[2] < 5, "umbriel_palette_at wraps into the palette");
+	ok &= check(pixel[1] > 250 && pixel[2] < 5, "andromeda_palette_at wraps into the palette");
 	struct fx_animation_parameters none = { .progress = 1, .linear_progress = 1, .direction = 1 };
 	ok &= render_animation(fixture, palette, &none, 0, pixel);
 	ok &= check(pixel[3] < 5, "without a palette the lookup is transparent black");
@@ -345,9 +345,9 @@ static bool blank(struct fixture *fixture, struct wlr_buffer *target, int x, int
 static bool test_expand(struct fixture *fixture) {
 	// Solid red everywhere the program is drawn: with expand, red must reach past the node box.
 	struct fx_effect_shader *shader = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return vec4(1.0, 0.0, 0.0, 1.0) * umbriel_expand.x * 4.0 + umbriel_sample(uv) * 0.0; }", "expand");
+		"vec4 animation(vec2 uv) { return vec4(1.0, 0.0, 0.0, 1.0) * andromeda_expand.x * 4.0 + andromeda_sample(uv) * 0.0; }", "expand");
 	struct fx_effect_shader *scaled = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return vec4(umbriel_scale, 0.0, 0.0, 1.0) + umbriel_sample(uv) * 0.0; }", "expand-scale");
+		"vec4 animation(vec2 uv) { return vec4(andromeda_scale, 0.0, 0.0, 1.0) + andromeda_sample(uv) * 0.0; }", "expand-scale");
 	struct wlr_buffer *target = create_output_buffer(fixture, DRM_FORMAT_ARGB8888, TEST_WIDTH, TEST_HEIGHT);
 	if (!check(shader != NULL && scaled != NULL && target != NULL, "expand programs compile and the target exists")) {
 		fx_effect_shader_unref(shader);
@@ -355,7 +355,7 @@ static bool test_expand(struct fixture *fixture) {
 		wlr_buffer_drop(target);
 		return false;
 	}
-	// expand = 2 logical px on an unscaled target: the drawn box is 8x8 at (4,4), so umbriel_expand.x == 0.25.
+	// expand = 2 logical px on an unscaled target: the drawn box is 8x8 at (4,4), so andromeda_expand.x == 0.25.
 	const struct wlr_box box = { .x = 6, .y = 6, .width = 4, .height = 4 };
 	bool ok = render_expand(fixture, target, shader, &box, &box, WL_OUTPUT_TRANSFORM_NORMAL, 2);
 	ok &= check(painted(fixture, target, 8, 8) && painted(fixture, target, 4, 4),
@@ -363,7 +363,7 @@ static bool test_expand(struct fixture *fixture) {
 	ok &= check(blank(fixture, target, 2, 2), "nothing is drawn past the expanded box");
 
 	// An 8x4 node at (4,6) on a 90-degree output: its buffer box is 4x8, and the
-	// 2 px margin holds on both buffer axes with umbriel_scale == 1.
+	// 2 px margin holds on both buffer axes with andromeda_scale == 1.
 	const struct wlr_box logical = { .x = 4, .y = 6, .width = 8, .height = 4 };
 	struct wlr_box rotated;
 	wlr_box_transform(&rotated, &logical, wlr_output_transform_invert(WL_OUTPUT_TRANSFORM_90), TEST_WIDTH, TEST_HEIGHT);
@@ -371,7 +371,7 @@ static bool test_expand(struct fixture *fixture) {
 	const int left = rotated.x - 2, right = rotated.x + rotated.width + 1;
 	const int top = rotated.y - 2, bottom = rotated.y + rotated.height + 1;
 	const int mid_x = rotated.x + rotated.width / 2, mid_y = rotated.y + rotated.height / 2;
-	ok &= check(painted(fixture, target, mid_x, mid_y), "the rotated node box is painted with umbriel_scale 1");
+	ok &= check(painted(fixture, target, mid_x, mid_y), "the rotated node box is painted with andromeda_scale 1");
 	ok &= check(painted(fixture, target, left, mid_y) && painted(fixture, target, right, mid_y),
 		"the rotated margin covers 2 px on the buffer x axis");
 	ok &= check(painted(fixture, target, mid_x, top) && painted(fixture, target, mid_x, bottom),
@@ -478,7 +478,7 @@ static bool test_occlusion(struct fixture *fixture) {
 	struct wlr_scene_rect *cover = wlr_scene_rect_create(&scene->tree, 8, 8, red);
 	wlr_scene_node_set_position(&cover->node, 8, 4);
 	struct fx_effect_shader *mirror = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(vec2(1.0 - uv.x, uv.y)); }", "occlusion");
+		"vec4 window(vec2 uv) { return andromeda_sample(vec2(1.0 - uv.x, uv.y)); }", "occlusion");
 	bool ok = check(mirror != NULL, "mirror program compiles");
 	struct fx_animation_parameters parameters = { .progress = 1, .linear_progress = 1, .direction = 1 };
 	wlr_scene_node_set_animation(&effect->node, FX_SLOT_WINDOW, mirror, &parameters);
@@ -562,7 +562,7 @@ static bool frame_damage_is(struct wlr_scene_output *scene_output, struct wlr_sw
 	return check(ok, message);
 }
 
-static const char kGainSource[] = "uniform float gain;\nvec4 window(vec2 uv) { return umbriel_sample(uv) * gain; }";
+static const char kGainSource[] = "uniform float gain;\nvec4 window(vec2 uv) { return andromeda_sample(uv) * gain; }";
 
 // A persistent parameter change damages only its own node's box.
 static bool test_damage_confinement(struct fixture *fixture) {
@@ -644,9 +644,9 @@ static bool test_whole_box_invalidation(struct fixture *fixture) {
 static bool test_transient_policy(struct fixture *fixture) {
 	struct wlr_swapchain *swapchain = create_swapchain(fixture);
 	struct fx_effect_shader *identity = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return umbriel_sample(uv); }", "transient-identity");
+		"vec4 animation(vec2 uv) { return andromeda_sample(uv); }", "transient-identity");
 	struct fx_effect_shader *clear = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return umbriel_sample(uv) * 0.0; }", "transient-clear");
+		"vec4 animation(vec2 uv) { return andromeda_sample(uv) * 0.0; }", "transient-clear");
 	bool ok = check(swapchain != NULL && identity != NULL && clear != NULL, "swapchain and transient programs");
 	if (!ok) {
 		wlr_swapchain_destroy(swapchain);
@@ -694,7 +694,7 @@ enum margin_removal { MARGIN_DISABLE, MARGIN_DISABLE_PARENT, MARGIN_DESTROY };
 static bool test_margin_damage(struct fixture *fixture) {
 	struct wlr_swapchain *swapchain = create_swapchain(fixture);
 	struct fx_effect_shader *shader = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return umbriel_sample(uv); }", "margin");
+		"vec4 animation(vec2 uv) { return andromeda_sample(uv); }", "margin");
 	bool ok = check(swapchain != NULL && shader != NULL, "swapchain and drag program");
 	if (!ok) {
 		wlr_swapchain_destroy(swapchain);
@@ -819,7 +819,7 @@ static bool test_offscreen_margin(struct fixture *fixture) {
 // the largest expand among its own slots.
 static bool test_effect_bounds(struct fixture *fixture) {
 	struct fx_effect_shader *shader = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return umbriel_sample(uv); }", "effect-bounds");
+		"vec4 animation(vec2 uv) { return andromeda_sample(uv); }", "effect-bounds");
 	bool ok = check(shader != NULL, "program compiles");
 	struct wlr_scene *scene = wlr_scene_create();
 	struct wlr_scene_tree *tree = wlr_scene_tree_create(&scene->tree);
@@ -847,8 +847,8 @@ static bool test_effect_bounds(struct fixture *fixture) {
 	return ok;
 }
 
-// A border program sees the client hole through umbriel_border_hole and
-// umbriel_border_distance, and its result is cut out of the hole.
+// A border program sees the client hole through andromeda_border_hole and
+// andromeda_border_distance, and its result is cut out of the hole.
 static bool test_border_geometry(struct fixture *fixture) {
 	struct wlr_scene *scene = wlr_scene_create();
 	struct wlr_scene_output *scene_output = wlr_scene_output_create(scene, fixture->output);
@@ -860,7 +860,7 @@ static bool test_border_geometry(struct fixture *fixture) {
 		(struct clipped_region){ .area = { 2, 2, 8, 8 } }, (struct fx_corner_radii){0}, (struct fx_corner_radii){0});
 	wlr_scene_node_set_position(&border->node, 2, 2);
 	struct fx_effect_shader *program = fx_effect_shader_create(fixture->renderer, FX_EFFECT_BORDER,
-		"vec4 border(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0) * step(0.0, umbriel_border_distance(uv)); }", "border-geometry");
+		"vec4 border(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0) * step(0.0, andromeda_border_distance(uv)); }", "border-geometry");
 	bool ok = check(program != NULL, "border program compiles");
 	struct fx_animation_parameters parameters = { .progress = 1, .linear_progress = 1, .direction = 1 };
 	wlr_scene_node_set_animation(&border->node, FX_SLOT_BORDER_EFFECT, program, &parameters);
@@ -909,7 +909,7 @@ static bool test_border_geometry_tree(struct fixture *fixture) {
 		(struct fx_corner_radii){0}, (struct fx_corner_radii){0});
 	wlr_scene_node_set_position(&border->node, -2, -2);
 	struct fx_effect_shader *program = fx_effect_shader_create(fixture->renderer, FX_EFFECT_BORDER,
-		"vec4 border(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0) * step(0.0, umbriel_border_distance(uv)); }",
+		"vec4 border(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0) * step(0.0, andromeda_border_distance(uv)); }",
 		"border-geometry-tree");
 	bool ok = check(program != NULL, "border program compiles");
 	struct fx_animation_parameters parameters = { .progress = 1, .linear_progress = 1, .direction = 1, .expand = 2 };
@@ -948,7 +948,7 @@ struct light_ring {
 
 static const char kLeftEdgeSource[] =
 	"uniform float edge;\n"
-	"vec4 border(vec2 uv) { return uv.x * umbriel_size.x < edge ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0); }";
+	"vec4 border(vec2 uv) { return uv.x * andromeda_size.x < edge ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0); }";
 
 // The buffer pixel under logical pixel (x, y) of a 16x16 output.
 static void light_probe_at(const struct light_ring *ring, int x, int y, int *bx, int *by) {
@@ -1210,7 +1210,7 @@ static bool test_in_place(struct fixture *fixture) {
 	wlr_scene_rect_set_corner_radius(window, 3);
 	// Swap red and blue of whatever is under the window: 0.25 red over blue becomes 0.75 red, 0.25 blue.
 	struct fx_effect_shader *program = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(uv).bgra; }", "in-place");
+		"vec4 window(vec2 uv) { return andromeda_sample(uv).bgra; }", "in-place");
 	bool ok = check(program != NULL, "window program compiles");
 	struct fx_animation_parameters parameters = { .progress = 1, .linear_progress = 1, .direction = 1 };
 	wlr_scene_node_set_animation(&window->node, FX_SLOT_WINDOW, program, &parameters);
@@ -1262,7 +1262,7 @@ static bool test_in_place(struct fixture *fixture) {
 static bool test_damage_expansion(struct fixture *fixture) {
 	struct wlr_swapchain *swapchain = create_swapchain(fixture);
 	struct fx_effect_shader *mirror = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(vec2(1.0 - uv.x, uv.y)); }", "mirror");
+		"vec4 window(vec2 uv) { return andromeda_sample(vec2(1.0 - uv.x, uv.y)); }", "mirror");
 	if (!check(swapchain != NULL && mirror != NULL, "swapchain and mirror program")) {
 		wlr_swapchain_destroy(swapchain);
 		fx_effect_shader_unref(mirror);
@@ -1409,8 +1409,8 @@ static bool test_capture_feedback(struct fixture *fixture) {
 	// Each frame adds 0.25 red to the previous result and moves the previous blue into green; the first
 	// frame sees its input as the previous result.
 	struct fx_effect_shader *accumulate = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { vec4 p = umbriel_sample_previous(uv); "
-		"return vec4(min(p.r + 0.25, 1.0), p.b, umbriel_sample(uv).b, 1.0); }", "accumulate");
+		"vec4 animation(vec2 uv) { vec4 p = andromeda_sample_previous(uv); "
+		"return vec4(min(p.r + 0.25, 1.0), p.b, andromeda_sample(uv).b, 1.0); }", "accumulate");
 	struct fx_effect_shader *green = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
 		"vec4 window(vec2 uv) { return vec4(0.0, 1.0, 0.0, 1.0); }", "green");
 	bool ok = check(accumulate != NULL && green != NULL, "programs compile");
@@ -1545,10 +1545,10 @@ static bool test_capture_policy_encoding(struct fixture *fixture) {
 static bool test_in_place_feedback(struct fixture *fixture) {
 	struct wlr_swapchain *swapchain = create_swapchain(fixture);
 	struct fx_effect_shader *feedback = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return vec4(min(umbriel_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
+		"vec4 window(vec2 uv) { return vec4(min(andromeda_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
 		"feedback");
 	struct fx_effect_shader *border_feedback = fx_effect_shader_create(fixture->renderer, FX_EFFECT_BORDER,
-		"vec4 border(vec2 uv) { return vec4(min(umbriel_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
+		"vec4 border(vec2 uv) { return vec4(min(andromeda_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
 		"border-feedback");
 	if (!check(swapchain != NULL && feedback != NULL && border_feedback != NULL, "swapchain and feedback programs")) {
 		wlr_swapchain_destroy(swapchain);
@@ -1601,7 +1601,7 @@ static bool test_in_place_feedback(struct fixture *fixture) {
 static bool test_expand_feedback(struct fixture *fixture) {
 	struct wlr_swapchain *swapchain = create_swapchain(fixture);
 	struct fx_effect_shader *feedback = fx_effect_shader_create(fixture->renderer, FX_EFFECT_ANIMATION,
-		"vec4 animation(vec2 uv) { return vec4(min(umbriel_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
+		"vec4 animation(vec2 uv) { return vec4(min(andromeda_sample_previous(uv).r + 0.0625, 1.0), 0.0, 0.0, 1.0); }",
 		"expand-feedback");
 	if (!check(swapchain != NULL && feedback != NULL, "swapchain and expand feedback program")) {
 		wlr_swapchain_destroy(swapchain);
@@ -1754,7 +1754,7 @@ static bool is_colour(const uint8_t pixel[4], int red, int green, int blue, cons
 static bool test_in_place_shape(struct fixture *fixture) {
 	// Mirrors the rectangle horizontally and swaps red and blue: red content turns blue, the blue desktop red.
 	struct fx_effect_shader *program = fx_effect_shader_create(fixture->renderer, FX_EFFECT_WINDOW,
-		"vec4 window(vec2 uv) { return umbriel_sample(vec2(1.0 - uv.x, uv.y)).bgra; }", "in-place-shape");
+		"vec4 window(vec2 uv) { return andromeda_sample(vec2(1.0 - uv.x, uv.y)).bgra; }", "in-place-shape");
 	struct wlr_buffer *content = create_output_buffer(fixture, DRM_FORMAT_ARGB8888, 16, 12);
 	struct wlr_render_pass *pass =
 		content != NULL ? wlr_renderer_begin_buffer_pass(fixture->renderer, content, NULL) : NULL;
@@ -1876,13 +1876,13 @@ static bool test_output_effects(struct fixture *fixture) {
 	const float blue[4] = { 0, 0, 1, 1 };
 	wlr_scene_rect_create(&scene->tree, TEST_WIDTH, TEST_HEIGHT, blue);
 	struct fx_effect_shader *screen = fx_effect_shader_create(fixture->renderer, FX_EFFECT_SCREEN,
-		"vec4 screen(vec2 uv) { return umbriel_sample(uv).bgra; }", "screen");
+		"vec4 screen(vec2 uv) { return andromeda_sample(uv).bgra; }", "screen");
 	struct fx_effect_shader *cursor = fx_effect_shader_create(fixture->renderer, FX_EFFECT_CURSOR,
-		"vec4 cursor(vec2 uv) { if (distance(uv, umbriel_pointer) >= 0.5) return umbriel_sample(uv);"
-		" return umbriel_sample(uv).r > 0.5 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0); }", "cursor");
+		"vec4 cursor(vec2 uv) { if (distance(uv, andromeda_pointer) >= 0.5) return andromeda_sample(uv);"
+		" return andromeda_sample(uv).r > 0.5 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0); }", "cursor");
 	// Paints only the texels within 0.15 uv of the pointer.
 	struct fx_effect_shader *marker = fx_effect_shader_create(fixture->renderer, FX_EFFECT_CURSOR,
-		"vec4 cursor(vec2 uv) { return distance(uv, umbriel_pointer) < 0.15 ? vec4(0.0, 1.0, 0.0, 1.0) : umbriel_sample(uv); }",
+		"vec4 cursor(vec2 uv) { return distance(uv, andromeda_pointer) < 0.15 ? vec4(0.0, 1.0, 0.0, 1.0) : andromeda_sample(uv); }",
 		"cursor-marker");
 	bool ok = check(screen != NULL && cursor != NULL && marker != NULL, "screen and cursor programs compile");
 	struct fx_animation_parameters parameters = { .progress = 1, .linear_progress = 1, .direction = 1 };

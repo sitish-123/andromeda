@@ -14,7 +14,7 @@ namespace {
   class Fixture {
   public:
     Fixture() {
-      char pattern[] = "/tmp/umbriel-shader-source-XXXXXX";
+      char pattern[] = "/tmp/andromeda-shader-source-XXXXXX";
       const char* created = mkdtemp(pattern);
       CHECK(created != nullptr);
       if (created == nullptr) {
@@ -31,11 +31,11 @@ namespace {
       CHECK(stream.good());
     }
 
-    umbriel::ShaderReadResult read(const std::string& text, std::string_view relative = "theme/config.toml") {
+    andromeda::ShaderReadResult read(const std::string& text, std::string_view relative = "theme/config.toml") {
       diagnostics.clear();
       const auto table = toml::parse(text, (directory / relative).string());
-      umbriel::Section section(table, "animation.windows_in", diagnostics);
-      return umbriel::readShaderSource(section, "shader", diagnostics);
+      andromeda::Section section(table, "animation.windows_in", diagnostics);
+      return andromeda::readShaderSource(section, "shader", diagnostics);
     }
 
     bool warned(std::string_view text) const {
@@ -45,11 +45,11 @@ namespace {
     }
 
     std::filesystem::path directory;
-    std::vector<umbriel::ConfigDiagnostic> diagnostics;
+    std::vector<andromeda::ConfigDiagnostic> diagnostics;
   };
 } // namespace
 
-UMBRIEL_TEST(shaderIsOptionalAndRemovedKeysAreUnknown) {
+ANDROMEDA_TEST(shaderIsOptionalAndRemovedKeysAreUnknown) {
   Fixture fixture;
   const auto empty = fixture.read("");
   CHECK(!empty.source);
@@ -64,7 +64,7 @@ UMBRIEL_TEST(shaderIsOptionalAndRemovedKeysAreUnknown) {
   }
 }
 
-UMBRIEL_TEST(shaderFileUsesDeclaringConfigDirectoryAndReloadsItsContents) {
+ANDROMEDA_TEST(shaderFileUsesDeclaringConfigDirectoryAndReloadsItsContents) {
   Fixture fixture;
   fixture.write("theme/effect.glsl", "first shader\n");
   fixture.write("effect.glsl", "wrong directory\n");
@@ -89,7 +89,7 @@ UMBRIEL_TEST(shaderFileUsesDeclaringConfigDirectoryAndReloadsItsContents) {
   CHECK(absolute.source == second.source);
 }
 
-UMBRIEL_TEST(shaderMissingFileRemainsAWatchDependencyAndCanAppearLater) {
+ANDROMEDA_TEST(shaderMissingFileRemainsAWatchDependencyAndCanAppearLater) {
   Fixture fixture;
   const auto missing = fixture.read("shader = 'new.glsl'");
   CHECK(!missing.source);
@@ -108,7 +108,7 @@ UMBRIEL_TEST(shaderMissingFileRemainsAWatchDependencyAndCanAppearLater) {
   CHECK(fixture.diagnostics.empty());
 }
 
-UMBRIEL_TEST(shaderRequiresAPathNotInlineSource) {
+ANDROMEDA_TEST(shaderRequiresAPathNotInlineSource) {
   Fixture fixture;
   CHECK(!fixture.read("shader = false").source);
   CHECK(fixture.warned("must be a string"));
@@ -119,7 +119,7 @@ UMBRIEL_TEST(shaderRequiresAPathNotInlineSource) {
   CHECK(fixture.warned("cannot read shader file"));
 }
 
-UMBRIEL_TEST(shaderInputIsBoundedAndRejectsBlankNulAndNonRegularFiles) {
+ANDROMEDA_TEST(shaderInputIsBoundedAndRejectsBlankNulAndNonRegularFiles) {
   Fixture fixture;
   fixture.write("theme/blank.glsl", "   ");
   CHECK(!fixture.read("shader = 'blank.glsl'").source);
@@ -131,9 +131,9 @@ UMBRIEL_TEST(shaderInputIsBoundedAndRejectsBlankNulAndNonRegularFiles) {
   CHECK(!fixture.read("shader = 'effect.glsl'").source);
   CHECK(fixture.warned("NUL"));
 
-  fixture.write("theme/effect.glsl", std::string(umbriel::kShaderSourceLimit, 'x'));
+  fixture.write("theme/effect.glsl", std::string(andromeda::kShaderSourceLimit, 'x'));
   CHECK(fixture.read("shader = 'effect.glsl'").source.has_value());
-  fixture.write("theme/effect.glsl", std::string(umbriel::kShaderSourceLimit + 1, 'x'));
+  fixture.write("theme/effect.glsl", std::string(andromeda::kShaderSourceLimit + 1, 'x'));
   CHECK(!fixture.read("shader = 'effect.glsl'").source);
   CHECK(fixture.warned("exceeds 256 KiB"));
 

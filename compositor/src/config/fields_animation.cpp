@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -291,4 +291,4 @@ namespace umbriel {
     return registry::table("animation", &Config::animation, animationFields());
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -67,7 +67,7 @@ select neighboring cards, and workspace or output actions keep their normal
 fallback behavior.
 
 Shortcut badges provide direct, unmodified key sequences for visible window
-cards. When there are more cards than keys, Umbriel creates multi-key labels.
+cards. When there are more cards than keys, Andromeda creates multi-key labels.
 Backspace removes the last key from a pending sequence. Escape clears the
 sequence first and closes the overview when no sequence is pending.
 

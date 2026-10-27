@@ -3,7 +3,7 @@
 #include <span>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -25,14 +25,14 @@ namespace umbriel {
     // The reply to clock-advance. The IPC server advances the clock and holds the reply until every output has drawn.
     static nlohmann::json clockAdvance(Server& server, std::string_view arg);
     static nlohmann::json clockResume(Server& server, std::string_view arg);
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     static nlohmann::json rendererRecover(Server& server, std::string_view arg);
     static nlohmann::json outputCommits(Server& server, std::string_view arg);
     static nlohmann::json effectFrames(Server& server, std::string_view arg);
 #endif
   };
 
-  // The `umbriel --help` section that lists a command.
+  // The `andromeda --help` section that lists a command.
   enum class IpcCommandGroup {
     Control,
     Inspect,
@@ -54,4 +54,4 @@ namespace umbriel {
   std::span<const IpcCommandSpec> ipcCommands();
   const IpcCommandSpec* findIpcCommand(std::string_view name);
 
-} // namespace umbriel
+} // namespace andromeda

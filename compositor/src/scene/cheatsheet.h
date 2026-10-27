@@ -4,7 +4,7 @@
 
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
   class Server;
 
   class Cheatsheet {
@@ -32,4 +32,4 @@ namespace umbriel {
     SurfaceShadow m_shadow;
   };
 
-} // namespace umbriel
+} // namespace andromeda

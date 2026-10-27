@@ -29,8 +29,8 @@ show_cheatsheet = false
 autostart = ["$runtime/bin/capture-environment"]
 
 [environment]
-UMBRIEL_TEST_ONE = "alpha beta"
-UMBRIEL_TEST_TWO = "literal;\$HOME's"
+ANDROMEDA_TEST_ONE = "alpha beta"
+ANDROMEDA_TEST_TWO = "literal;\$HOME's"
 PATH = "$runtime/hostile-bin"
 XDG_RUNTIME_DIR = "$runtime/hostile-runtime"
 DBUS_SESSION_BUS_ADDRESS = "unix:path=$runtime/hostile-dbus"
@@ -40,7 +40,7 @@ EOF
   cat > "$runtime/bin/xwayland-satellite" << 'EOF'
 #!/bin/sh
 [ "${DISPLAY+x}" != x ] || exit 1
-printf '%s\n' "$UMBRIEL_TEST_ONE" "$UMBRIEL_TEST_TWO" "$PATH" "${DISPLAY-unset}" "$1" \
+printf '%s\n' "$ANDROMEDA_TEST_ONE" "$ANDROMEDA_TEST_TWO" "$PATH" "${DISPLAY-unset}" "$1" \
   > "$FIXTURE_ROOT/xwayland-environment"
 exec "$SLEEP_BIN" 120
 EOF
@@ -48,8 +48,8 @@ EOF
   cat > "$runtime/bin/capture-environment" << 'EOF'
 #!/bin/sh
 printf '%s\n' \
-  "$UMBRIEL_TEST_ONE" \
-  "$UMBRIEL_TEST_TWO" \
+  "$ANDROMEDA_TEST_ONE" \
+  "$ANDROMEDA_TEST_TWO" \
   "$PATH" \
   "$XDG_RUNTIME_DIR" \
   "$DBUS_SESSION_BUS_ADDRESS" \
@@ -58,7 +58,7 @@ EOF
 
   cat > "$runtime/bin/capture-reloaded-environment" << 'EOF'
 #!/bin/sh
-printf '%s' "$UMBRIEL_TEST_ONE" > "$FIXTURE_ROOT/reloaded-environment"
+printf '%s' "$ANDROMEDA_TEST_ONE" > "$FIXTURE_ROOT/reloaded-environment"
 EOF
 
   cat > "$runtime/bin/systemctl" << 'EOF'
@@ -77,11 +77,11 @@ control_environment_is_original() {
     [ "$XDG_RUNTIME_DIR" = "$FIXTURE_ROOT" ] &&
     [ "$DBUS_SESSION_BUS_ADDRESS" = "unix:path=$FIXTURE_ROOT/control-dbus" ] &&
     [ "$SYSTEMD_BUS_ADDRESS" = "unix:path=$FIXTURE_ROOT/control-systemd" ] &&
-    [ "${UMBRIEL_TEST_ONE+x}" != x ] && [ "${UMBRIEL_TEST_TWO+x}" != x ] &&
+    [ "${ANDROMEDA_TEST_ONE+x}" != x ] && [ "${ANDROMEDA_TEST_TWO+x}" != x ] &&
     [ "$WAYLAND_DISPLAY" = wayland-0 ] && display_is_expected &&
-    [ "$XDG_CURRENT_DESKTOP" = umbriel ] && [ "$XDG_SESSION_DESKTOP" = umbriel ] &&
+    [ "$XDG_CURRENT_DESKTOP" = andromeda ] && [ "$XDG_SESSION_DESKTOP" = andromeda ] &&
     [ "$XDG_SESSION_TYPE" = wayland ] &&
-    [ "$UMBRIEL_SOCKET" = "$FIXTURE_ROOT/umbriel-$WAYLAND_DISPLAY.sock" ]
+    [ "$ANDROMEDA_SOCKET" = "$FIXTURE_ROOT/andromeda-$WAYLAND_DISPLAY.sock" ]
 }
 
 fail() {
@@ -103,8 +103,8 @@ fi
 
 record_configured() {
   case "$1" in
-    'UMBRIEL_TEST_ONE=alpha beta') file=one ;;
-    "UMBRIEL_TEST_TWO=literal;\$HOME's") file=two ;;
+    'ANDROMEDA_TEST_ONE=alpha beta') file=one ;;
+    "ANDROMEDA_TEST_TWO=literal;\$HOME's") file=two ;;
     "PATH=$FIXTURE_ROOT/hostile-bin") file=path ;;
     "XDG_RUNTIME_DIR=$FIXTURE_ROOT/hostile-runtime") file=runtime ;;
     "DBUS_SESSION_BUS_ADDRESS=unix:path=$FIXTURE_ROOT/hostile-dbus") file=dbus ;;
@@ -129,14 +129,14 @@ case "$action" in
     printf '%s\n' systemd-configured >> "$TRACE_DIR/order"
     ;;
   import-environment)
-    [ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE UMBRIEL_SOCKET" ] ||
+    [ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET" ] ||
       fail
     printf '%s\n' systemd-graphical >> "$TRACE_DIR/order"
     printf '%s' "${DISPLAY-}" > "$MANAGER_DIR/display"
     : > "$TRACE_DIR/systemd-graphical"
     ;;
   start)
-    [ "$*" = "--no-block umbriel-session.target" ] || fail
+    [ "$*" = "--no-block andromeda-session.target" ] || fail
     [ -e "$TRACE_DIR/systemd-graphical" ] || fail
     [ "$(cat "$MANAGER_DIR/one")" = "alpha beta" ] || fail
     [ "$(cat "$MANAGER_DIR/two")" = "literal;\$HOME's" ] || fail
@@ -165,15 +165,15 @@ set -eu
 [ "$XDG_RUNTIME_DIR" = "$FIXTURE_ROOT" ] || exit 1
 [ "$DBUS_SESSION_BUS_ADDRESS" = "unix:path=$FIXTURE_ROOT/control-dbus" ] || exit 1
 [ "$SYSTEMD_BUS_ADDRESS" = "unix:path=$FIXTURE_ROOT/control-systemd" ] || exit 1
-[ "${UMBRIEL_TEST_ONE+x}" != x ] && [ "${UMBRIEL_TEST_TWO+x}" != x ] || exit 1
+[ "${ANDROMEDA_TEST_ONE+x}" != x ] && [ "${ANDROMEDA_TEST_TWO+x}" != x ] || exit 1
 [ "$WAYLAND_DISPLAY" = wayland-0 ] || exit 1
 if [ "$EXPECT_DISPLAY" = true ]; then
   case "$DISPLAY" in :[0-9] | :[12][0-9] | :3[01]) ;; *) exit 1 ;; esac
 else
   [ "${DISPLAY+x}" != x ] || exit 1
 fi
-[ "$UMBRIEL_SOCKET" = "$FIXTURE_ROOT/umbriel-$WAYLAND_DISPLAY.sock" ] || exit 1
-[ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE UMBRIEL_SOCKET" ] ||
+[ "$ANDROMEDA_SOCKET" = "$FIXTURE_ROOT/andromeda-$WAYLAND_DISPLAY.sock" ] || exit 1
+[ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET" ] ||
   exit 1
 
 printf '%s\n' dbus-graphical >> "$TRACE_DIR/order"
@@ -208,17 +208,17 @@ start_private() {
     "WLR_HEADLESS_OUTPUTS=1"
   )
   local -a unset=(
-    -u WAYLAND_SOCKET -u DISPLAY -u UMBRIEL_SOCKET
+    -u WAYLAND_SOCKET -u DISPLAY -u ANDROMEDA_SOCKET
     -u XDG_CURRENT_DESKTOP -u XDG_SESSION_DESKTOP -u XDG_SESSION_TYPE
-    -u UMBRIEL_TEST_ONE -u UMBRIEL_TEST_TWO -u SYSTEMD_EXEC_PID
+    -u ANDROMEDA_TEST_ONE -u ANDROMEDA_TEST_TWO -u SYSTEMD_EXEC_PID
   )
 
   if [[ $nested == true ]]; then
     env "${unset[@]}" WAYLAND_DISPLAY=host-wayland "${environment[@]}" \
-      "$UMBRIEL" -c "$runtime/config.toml" > "$runtime/compositor.log" 2>&1 &
+      "$ANDROMEDA" -c "$runtime/config.toml" > "$runtime/compositor.log" 2>&1 &
   else
     env "${unset[@]}" -u WAYLAND_DISPLAY "${environment[@]}" \
-      "$UMBRIEL" -c "$runtime/config.toml" > "$runtime/compositor.log" 2>&1 &
+      "$ANDROMEDA" -c "$runtime/config.toml" > "$runtime/compositor.log" 2>&1 &
   fi
   PRIVATE_PID=$!
 }
@@ -292,10 +292,10 @@ assert_xwayland_environment "$NATIVE"
 grep -Fq "spawned 'session environment synchronization'" "$NATIVE/compositor.log"
 ! grep -Fq 'systemctl --user set-environment' "$NATIVE/compositor.log"
 
-sed -i 's/UMBRIEL_TEST_ONE = "alpha beta"/UMBRIEL_TEST_ONE = "reloaded"/' "$NATIVE/config.toml"
-env UMBRIEL_SOCKET="$NATIVE/umbriel-wayland-0.sock" "$UMBRIEL" msg config-reload > /dev/null
-env UMBRIEL_SOCKET="$NATIVE/umbriel-wayland-0.sock" \
-  "$UMBRIEL" msg "spawn:$NATIVE/bin/capture-reloaded-environment" > /dev/null
+sed -i 's/ANDROMEDA_TEST_ONE = "alpha beta"/ANDROMEDA_TEST_ONE = "reloaded"/' "$NATIVE/config.toml"
+env ANDROMEDA_SOCKET="$NATIVE/andromeda-wayland-0.sock" "$ANDROMEDA" msg config-reload > /dev/null
+env ANDROMEDA_SOCKET="$NATIVE/andromeda-wayland-0.sock" \
+  "$ANDROMEDA" msg "spawn:$NATIVE/bin/capture-reloaded-environment" > /dev/null
 wait_for_file "$NATIVE" "$NATIVE/reloaded-environment" true
 reloaded_value=$(< "$NATIVE/reloaded-environment")
 if [[ $reloaded_value != "alpha beta" ]]; then

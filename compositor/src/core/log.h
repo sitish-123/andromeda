@@ -55,7 +55,7 @@ private:
   const char* m_section;
 };
 
-// Opens (or rotates) ~/.cache/umbriel/umbriel.log. Also redirects fd 1/2 to ~/.cache/umbriel/umbriel-stderr.log (or
+// Opens (or rotates) ~/.cache/andromeda/andromeda.log. Also redirects fd 1/2 to ~/.cache/andromeda/andromeda-stderr.log (or
 // /dev/null) if either points at a TTY (greetd wires them to /dev/tty1), since synchronous VT writes on the compositor
 // main thread can turn a per-frame wlroots error into a hard livelock. Libraries that bypass wlr_log (glibc asserts,
 // mesa, dbus) inherit the redirected fds.

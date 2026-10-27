@@ -7,20 +7,20 @@
 # workspaces.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly BASE_CONFIG="$UMBRIEL_RUNTIME_DIR/layout-struts-base.toml"
-readonly PANEL_LOG="$UMBRIEL_RUNTIME_DIR/layout-struts-panel.log"
-readonly BACKGROUND_LOG="$UMBRIEL_RUNTIME_DIR/layout-struts-background.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/layout-struts.png"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly BASE_CONFIG="$ANDROMEDA_RUNTIME_DIR/layout-struts-base.toml"
+readonly PANEL_LOG="$ANDROMEDA_RUNTIME_DIR/layout-struts-panel.log"
+readonly BACKGROUND_LOG="$ANDROMEDA_RUNTIME_DIR/layout-struts-background.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/layout-struts.png"
 
-cp "$UMBRIEL_CONFIG" "$BASE_CONFIG"
+cp "$ANDROMEDA_CONFIG" "$BASE_CONFIG"
 
 # $1 selects the strut set, $2 the output's workspace axis: vertical workspaces
 # scroll horizontally, horizontal ones scroll vertically.
 write_config() {
-  cat "$BASE_CONFIG" > "$UMBRIEL_CONFIG"
-  cat >> "$UMBRIEL_CONFIG" <<'EOF'
+  cat "$BASE_CONFIG" > "$ANDROMEDA_CONFIG"
+  cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -37,7 +37,7 @@ corner_radius = 0
 mode = "dwindle"
 gap = 0
 EOF
-  cat >> "$UMBRIEL_CONFIG" <<EOF
+  cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [output.HEADLESS-1]
 workspaces = ["base", "override", "scroll-h", "scroll-v"]
@@ -45,7 +45,7 @@ workspace_axis = "$2"
 scale = ${3:-1.0}
 mode = "${4:-1280x720}"
 EOF
-  cat >> "$UMBRIEL_CONFIG" <<'EOF'
+  cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[workspace]]
 name = "scroll-h"
@@ -68,7 +68,7 @@ default_floating_size_px = { width = 200, height = 100 }
 default_position = { x = 0, y = 0, anchor = "top_left" }
 EOF
   if [[ $1 == with-struts ]]; then
-    cat >> "$UMBRIEL_CONFIG" <<'EOF'
+    cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout.struts]
 left = 17
@@ -94,12 +94,12 @@ EOF
 }
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
 box_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$1" '.[] | select(.title == $title) | "\(.w)x\(.h)+\(.x)+\(.y)"'
 }
 
@@ -184,7 +184,7 @@ capture_maximized_to_edges() {
 
 spawn_client() {
   local title=$1 width=${2:-400} height=${3:-300}
-  "$CLIENT" "$title" "$width" "$height" > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" "$width" "$height" > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
 }
 
 focus_window() {
@@ -192,7 +192,7 @@ focus_window() {
   for _ in $(seq 80); do
     id=$(field_of "$1" id)
     if [[ -n $id ]]; then
-      "$UMBRIEL" msg "window-focus-warp:$id" > /dev/null
+      "$ANDROMEDA" msg "window-focus-warp:$id" > /dev/null
       return 0
     fi
     sleep 0.1
@@ -202,7 +202,7 @@ focus_window() {
 }
 
 write_config with-struts vertical
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$LAYER_CLIENT" HEADLESS-1 40 > "$PANEL_LOG" 2>&1 &
 for _ in $(seq 80); do
@@ -227,41 +227,41 @@ assert_not_client_pixel "$SCREENSHOT" 17 70
 assert_not_client_pixel "$SCREENSHOT" 1257 71
 assert_not_client_pixel "$SCREENSHOT" 17 691
 
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 capture_maximized_to_edges strut-base
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box strut-base 1240 620 17 71
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 assert_size strut-base 1280 720
 grim -o HEADLESS-1 "$SCREENSHOT"
 assert_client_pixel "$SCREENSHOT" 0 0
 assert_client_pixel "$SCREENSHOT" 1279 0
 assert_client_pixel "$SCREENSHOT" 0 719
 assert_client_pixel "$SCREENSHOT" 1279 719
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 assert_box strut-base 1240 620 17 71
 
 spawn_client strut-float 200 100
 focus_window strut-float
 assert_box strut-float 200 100 0 40
 
-"$UMBRIEL" msg workspace-switch:override > /dev/null
+"$ANDROMEDA" msg workspace-switch:override > /dev/null
 spawn_client strut-override
 focus_window strut-override
 assert_box strut-override 1170 646 50 45
 
-"$UMBRIEL" msg workspace-switch:scroll-h > /dev/null
+"$ANDROMEDA" msg workspace-switch:scroll-h > /dev/null
 spawn_client strut-scroll-h
 focus_window strut-scroll-h
 assert_box strut-scroll-h 608 604 25 79
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 assert_box strut-scroll-h 1224 604 25 79
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 assert_box strut-scroll-h 608 604 25 79
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 capture_maximized_to_edges strut-scroll-h
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box strut-scroll-h 608 604 25 79
 
 # A maximize-to-edges window is presented against the usable area, past the
@@ -272,40 +272,40 @@ spawn_client strut-scroll-neighbor
 focus_window strut-scroll-neighbor
 assert_box strut-scroll-neighbor 608 604 641 79
 focus_window strut-scroll-h
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 capture_maximized_to_edges strut-scroll-h
 assert_box strut-scroll-neighbor 608 604 1288 79
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box strut-scroll-h 608 604 25 79
 assert_box strut-scroll-neighbor 608 604 641 79
 
 # Horizontally arranged workspaces turn the strip vertical for the scroll-v phase.
 write_config with-struts horizontal
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg workspace-switch:scroll-v > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-switch:scroll-v > /dev/null
 spawn_client strut-scroll-v
 focus_window strut-scroll-v
 assert_box strut-scroll-v 1224 298 25 79
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 capture_maximized_to_edges strut-scroll-v
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 assert_box strut-scroll-v 1224 298 25 79
 
 write_config without-struts horizontal
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 assert_box strut-scroll-v 1264 328 8 48
 
-"$UMBRIEL" msg workspace-switch:override > /dev/null
+"$ANDROMEDA" msg workspace-switch:override > /dev/null
 assert_box strut-override 1280 680 0 40
 
-"$UMBRIEL" msg workspace-switch:base > /dev/null
+"$ANDROMEDA" msg workspace-switch:base > /dev/null
 assert_box strut-base 1280 680 0 40
 assert_box strut-float 200 100 0 40
 # The truncated 915x500 logical box still covers the 1282x700 output.
 write_config without-struts horizontal 1.4 1282x700
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 focus_window strut-base
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 assert_size strut-base 915 500
 grim -o HEADLESS-1 "$SCREENSHOT"
 assert_image_size "$SCREENSHOT" 1282 700
@@ -315,7 +315,7 @@ assert_not_backdrop_pixel "$SCREENSHOT" 1281 699
 # Fully anchored layer surfaces round outward on both axes, allowing a
 # fractional-scale buffer to cover every physical output pixel.
 write_config without-struts horizontal 1.4 1282x702
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 "$LAYER_CLIENT" HEADLESS-1 0 log-configures > "$BACKGROUND_LOG" 2>&1 &
 for _ in $(seq 80); do
   if grep -q '^configured-size=916x502$' "$BACKGROUND_LOG" && grep -q '^ready$' "$BACKGROUND_LOG"; then

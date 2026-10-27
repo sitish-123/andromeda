@@ -13,7 +13,7 @@ extern "C" {
 #include <wlr/util/edges.h>
 }
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -458,14 +458,14 @@ namespace umbriel {
     if ((direction != -1 && direction != 1) || node == nullptr) {
       return false;
     }
-    Node* destination = findNode(umbriel::directionalNeighbor(m_targets, view, true, direction));
+    Node* destination = findNode(andromeda::directionalNeighbor(m_targets, view, true, direction));
     return swapLeafViews(node, destination);
   }
 
   bool DwindleLayout::expel(View* view, int direction) { return consume(view, direction); }
 
   bool DwindleLayout::moveViewVertical(View* view, int direction) {
-    return swapLeafViews(findNode(view), findNode(umbriel::directionalNeighbor(m_targets, view, false, direction)));
+    return swapLeafViews(findNode(view), findNode(andromeda::directionalNeighbor(m_targets, view, false, direction)));
   }
 
   bool DwindleLayout::swapViews(View* a, View* b) { return swapLeafViews(findNode(a), findNode(b)); }
@@ -561,11 +561,11 @@ namespace umbriel {
   }
 
   std::optional<View*> DwindleLayout::focusHorizontalLeaf(const View* view, int direction) const {
-    return umbriel::directionalNeighbor(m_targets, view, true, direction);
+    return andromeda::directionalNeighbor(m_targets, view, true, direction);
   }
 
   std::optional<View*> DwindleLayout::focusVerticalLeaf(const View* view, int direction) const {
-    return umbriel::directionalNeighbor(m_targets, view, false, direction);
+    return andromeda::directionalNeighbor(m_targets, view, false, direction);
   }
 
   std::vector<View*> DwindleLayout::focusPeers(const View* from, const View* target) const {
@@ -866,4 +866,4 @@ namespace umbriel {
     );
   }
 
-} // namespace umbriel
+} // namespace andromeda

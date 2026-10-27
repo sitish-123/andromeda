@@ -1,15 +1,15 @@
 #include "scene/border_rect.h"
 
 extern "C" {
-#include <umbrielfx/render/effect.h>
-#include <umbrielfx/types/fx/clipped_region.h>
+#include <andromedafx/render/effect.h>
+#include <andromedafx/types/fx/clipped_region.h>
 }
 
 // clang-format off
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   void applyBorderGeometry(wlr_scene_border* border, const BorderRing& ring, int innerWidth, int outerWidth) {
     if (border == nullptr) {
@@ -45,4 +45,4 @@ namespace umbriel {
     out.push_back(ring);
   }
 
-} // namespace umbriel
+} // namespace andromeda

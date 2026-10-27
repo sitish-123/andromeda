@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a focused improvement to the Umbriel desktop portal backend
+description: Suggest a focused improvement to the Andromeda desktop portal backend
 title: "[FEATURE] "
 labels: ["enhancement"]
 body:
@@ -10,7 +10,7 @@ body:
       options:
         - label: I searched existing issues and this is not a duplicate.
           required: true
-        - label: I confirmed this belongs in the portal backend rather than the Umbriel compositor, an application, or a desktop shell.
+        - label: I confirmed this belongs in the portal backend rather than the Andromeda compositor, an application, or a desktop shell.
           required: true
 
   - type: textarea

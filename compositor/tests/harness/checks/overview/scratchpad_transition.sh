@@ -2,11 +2,11 @@
 # Opening overview dismisses a visible scratchpad immediately instead of showing its ordinary hide fade underneath.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/overview-scratchpad-transition-client.log"
-readonly BEFORE="$UMBRIEL_RUNTIME_DIR/overview-scratchpad-transition-before.png"
-readonly EARLY="$UMBRIEL_RUNTIME_DIR/overview-scratchpad-transition-early.png"
-readonly SETTLED="$UMBRIEL_RUNTIME_DIR/overview-scratchpad-transition-settled.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/overview-scratchpad-transition-client.log"
+readonly BEFORE="$ANDROMEDA_RUNTIME_DIR/overview-scratchpad-transition-before.png"
+readonly EARLY="$ANDROMEDA_RUNTIME_DIR/overview-scratchpad-transition-early.png"
+readonly SETTLED="$ANDROMEDA_RUNTIME_DIR/overview-scratchpad-transition-settled.png"
 
 sample_rgb() {
   local image=$1 x=$2 y=$3
@@ -35,15 +35,15 @@ assert_white() {
 wait_for_empty_workspace() {
   local workspace=
   for _ in $(seq 60); do
-    workspace=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "overview-scratchpad-transition") | .workspace')
+    workspace=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "overview-scratchpad-transition") | .workspace')
     [[ -z $workspace ]] && return 0
     sleep 0.1
   done
-  echo "scratchpad window retained workspace '$workspace': $("$UMBRIEL" windows --json)"
+  echo "scratchpad window retained workspace '$workspace': $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -87,7 +87,7 @@ default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 default_position = { x = 430, y = 230, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" overview-scratchpad-transition 420 260 > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -99,21 +99,21 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-"$UMBRIEL" msg window-move-to-scratchpad > /dev/null
+"$ANDROMEDA" msg window-move-to-scratchpad > /dev/null
 wait_for_empty_workspace
-"$UMBRIEL" msg scratchpad-toggle > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle > /dev/null
 sleep 0.1
 grim "$BEFORE"
 assert_blue before-overview "$BEFORE"
 
-sed -i '0,/^enabled = false$/s//enabled = true/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg overview-open > /dev/null
+sed -i '0,/^enabled = false$/s//enabled = true/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
 sleep 0.1
 grim "$EARLY"
 
-sed -i '0,/^enabled = true$/s//enabled = false/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i '0,/^enabled = true$/s//enabled = false/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 grim "$SETTLED"
 assert_white settled-window "$SETTLED" 640 360
 assert_white settled-backdrop "$SETTLED" 40 40

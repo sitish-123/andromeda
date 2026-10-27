@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Drives the Super+P display-mode panel through every mode on a headless Umbriel with two outputs, through the same
+# Drives the Super+P display-mode panel through every mode on a headless Andromeda with two outputs, through the same
 # panel-open contexts a keybind uses, and records the compositor's state after each (modes.txt), plus a screenshot of
 # the panel (panel.png). Artifacts go to $OUT (default ./artifacts/display-mode).
 set -euo pipefail
@@ -11,7 +11,7 @@ with_noctalia '
   state() {
     local mirror enabled1 enabled2 x2
     mirror=$("$DESKTOP_CLIENT" state | awk "\$1 == \"HEADLESS-2\" {print \$2}")
-    read -r enabled1 enabled2 x2 < <("$UMBRIEL" outputs --json | jq -r "
+    read -r enabled1 enabled2 x2 < <("$ANDROMEDA" outputs --json | jq -r "
       [(.[] | select(.name == \"HEADLESS-1\") | .enabled),
        (.[] | select(.name == \"HEADLESS-2\") | .enabled),
        (.[] | select(.name == \"HEADLESS-2\") | .position.x)] | @tsv")

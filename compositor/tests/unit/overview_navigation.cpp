@@ -5,9 +5,9 @@
 #include <cmath>
 #include <cstdint>
 
-using umbriel::GesturePhysics;
-using umbriel::NavigationSource;
-using umbriel::OverviewNavigation;
+using andromeda::GesturePhysics;
+using andromeda::NavigationSource;
+using andromeda::OverviewNavigation;
 
 namespace {
 
@@ -28,7 +28,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(diagonalInputLocksOnceAndRetainsInitialTravel) {
+ANDROMEDA_TEST(diagonalInputLocksOnceAndRetainsInitialTravel) {
   OverviewNavigation nav;
   nav.update(7, 5, 10);
   CHECK_EQ(nav.axis(), OverviewNavigation::Axis::Pending);
@@ -44,7 +44,7 @@ UMBRIEL_TEST(diagonalInputLocksOnceAndRetainsInitialTravel) {
   CHECK_EQ(nav.position(), -20.0);
 }
 
-UMBRIEL_TEST(releaseAfterPauseDoesNotRetainFlickVelocity) {
+ANDROMEDA_TEST(releaseAfterPauseDoesNotRetainFlickVelocity) {
   OverviewNavigation nav;
   nav.update(0, 20, 100);
   nav.update(0, 20, 120);
@@ -53,7 +53,7 @@ UMBRIEL_TEST(releaseAfterPauseDoesNotRetainFlickVelocity) {
   CHECK_EQ(nav.projectedPosition(), 40.0);
 }
 
-UMBRIEL_TEST(filmstripReleaseLandsByDistanceAndSpeedTogether) {
+ANDROMEDA_TEST(filmstripReleaseLandsByDistanceAndSpeedTogether) {
   // 0.625 of a row released gently settles on the next row, not the one after.
   CHECK_EQ(landingRow(250, 1000), 1);
   // The same distance flicked hard carries across several rows.
@@ -62,7 +62,7 @@ UMBRIEL_TEST(filmstripReleaseLandsByDistanceAndSpeedTogether) {
   CHECK_EQ(landingRow(1000, 20000), 5);
 }
 
-UMBRIEL_TEST(travelCoversOneStepWhateverTheScreenMeasures) {
+ANDROMEDA_TEST(travelCoversOneStepWhateverTheScreenMeasures) {
   for (const auto source : {NavigationSource::Scroll, NavigationSource::Swipe}) {
     const auto travel = OverviewNavigation::travelFor(source);
     // One step of travel is one workspace, and at zoom 1 one viewport of strip on any screen.

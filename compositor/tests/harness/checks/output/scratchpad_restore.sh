@@ -4,8 +4,8 @@
 # after every monitor goes away and returns.
 set -euo pipefail
 
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
 readonly OUTPUT_LAYOUT_W=2560
 readonly OUTPUT_LAYOUT_H=720
 readonly SCRATCHPAD=restore
@@ -20,7 +20,7 @@ scale = 0
 [[scratchpad]]
 name = "restore"'
 
-BASELINE=$(< "$UMBRIEL_CONFIG")
+BASELINE=$(< "$ANDROMEDA_CONFIG")
 
 write_config() {
   {
@@ -29,15 +29,15 @@ write_config() {
     if [[ -n $1 ]]; then
       printf '\n%s\n' "$1"
     fi
-  } > "$UMBRIEL_CONFIG"
+  } > "$ANDROMEDA_CONFIG"
 }
 
-log_mark() { wc -l < "$UMBRIEL_LOG"; }
+log_mark() { wc -l < "$ANDROMEDA_LOG"; }
 
 wait_for_log_since() {
   local mark=$1 pattern=$2
   for _ in $(seq 40); do
-    if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q "$pattern"; then
+    if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q "$pattern"; then
       return 0
     fi
     sleep 0.25
@@ -51,7 +51,7 @@ expect_log_since() {
     return 0
   fi
   echo "$message"
-  tail -8 "$UMBRIEL_LOG" | sed 's/^/  | /'
+  tail -8 "$ANDROMEDA_LOG" | sed 's/^/  | /'
   exit 1
 }
 
@@ -59,7 +59,7 @@ reload_with() {
   local mark=
   mark=$(log_mark)
   write_config "$1"
-  "$UMBRIEL" msg config-reload > /dev/null
+  "$ANDROMEDA" msg config-reload > /dev/null
   shift
   for expected in "$@"; do
     expect_log_since "$mark" "${expected#*=}" "output ${expected%%=*} did not ${expected#*=} on reload"
@@ -69,7 +69,7 @@ reload_with() {
 wait_for_count() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     [[ $count == "$expected" ]] && return 0
     sleep 0.25
   done
@@ -78,7 +78,7 @@ wait_for_count() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg field "$1" '.[] | select(.title == "scratch-restore") | .[$field]'
 }
 
@@ -89,7 +89,7 @@ wait_for_field() {
     [[ $actual == "$expected" ]] && return 0
     sleep 0.1
   done
-  echo "expected scratch-restore field '$field' to be '$expected', got '$actual': $("$UMBRIEL" windows --json)"
+  echo "expected scratch-restore field '$field' to be '$expected', got '$actual': $("$ANDROMEDA" windows --json)"
   return 1
 }
 
@@ -110,7 +110,7 @@ start_panel() {
 }
 
 output_origin() {
-  "$UMBRIEL" outputs \
+  "$ANDROMEDA" outputs \
     | awk -v name="$1" '$1 == name { found = 1; next } found && /Position:/ { split($2, p, ","); print p[1], p[2]; exit }'
 }
 
@@ -127,7 +127,7 @@ move_pointer_to_output() {
 scratchpad_offset() {
   local output=$1 window_x window_y output_x output_y
   read -r window_x window_y < <(
-    "$UMBRIEL" windows --json \
+    "$ANDROMEDA" windows --json \
       | jq -r '.[] | select(.title == "scratch-restore") | "\(.x) \(.y)"'
   )
   read -r output_x output_y < <(output_origin "$output")
@@ -138,13 +138,13 @@ scratchpad_offset() {
 shows_scratchpad() {
   local output=$1 active=
   move_pointer_to_output "$output"
-  "$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+  "$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
   for _ in $(seq 10); do
-    active=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "scratch-restore") | .active')
+    active=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "scratch-restore") | .active')
     [[ $active == true ]] && break
     sleep 0.1
   done
-  "$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+  "$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
   [[ $active == true ]]
 }
 
@@ -154,12 +154,12 @@ default_output = "HEADLESS-2"
 default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 default_position = { x = 91, y = 73, anchor = "top_left" }'
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 foot --title=scratch-restore sh -c 'sleep 120' > /dev/null 2>&1 &
 wait_for_count 1
 move_pointer_to_output HEADLESS-2
-"$UMBRIEL" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
 if ! shows_scratchpad HEADLESS-2; then
   echo "scratchpad window could not be shown on HEADLESS-2"
   exit 1
@@ -202,18 +202,18 @@ fi
 
 # A visible maximized pad has manager-owned geometry. Restore it after its
 # output returns at a different mode and before the old exclusive zone returns.
-panel_log="$UMBRIEL_RUNTIME_DIR/scratchpad-restore-panel.log"
+panel_log="$ANDROMEDA_RUNTIME_DIR/scratchpad-restore-panel.log"
 start_panel "$panel_log"
 move_pointer_to_output HEADLESS-2
-"$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
 wait_for_field active true
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 wait_for_field x 1280
 wait_for_field y "$PANEL_HEIGHT"
 wait_for_field w 1280
 wait_for_field h "$((720 - PANEL_HEIGHT))"
 
-"$UMBRIEL" output-destroy HEADLESS-2 > /dev/null
+"$ANDROMEDA" output-destroy HEADLESS-2 > /dev/null
 if ! wait "$PANEL_PID"; then
   echo "exclusive-zone panel failed while HEADLESS-2 closed: $(< "$panel_log")"
   exit 1
@@ -226,8 +226,8 @@ wait_for_field h 720
 write_config '[output.HEADLESS-2]
 mode = "960x540"
 position = [1280, 0]'
-"$UMBRIEL" msg config-reload > /dev/null
-created=$("$UMBRIEL" output-create HEADLESS-2)
+"$ANDROMEDA" msg config-reload > /dev/null
+created=$("$ANDROMEDA" output-create HEADLESS-2)
 if [[ $created != HEADLESS-2 ]]; then
   echo "expected recreated output HEADLESS-2, got '$created'"
   exit 1
@@ -237,7 +237,7 @@ wait_for_field y 0
 wait_for_field w 960
 wait_for_field h 540
 
-"$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
 if ! shows_scratchpad HEADLESS-2; then
   echo "maximized scratchpad could not be toggled after returning to changed geometry"
   exit 1

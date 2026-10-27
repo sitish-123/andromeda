@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: [sudo] measure-idle.sh [seconds=60] [label] [process...=umbriel noctalia]
+# Usage: [sudo] measure-idle.sh [seconds=60] [label] [process...=andromeda noctalia]
 # Prints one TSV row per process: label, process, seconds, rss_kb, anon_kb, threads, cpu_permille, wakeups_per_s,
 # then whole-machine columns (same on every row): battery_mw, pkg_w, deep_idle, psr_active_pct.
 # battery_mw is "ac" unless discharging. deep_idle is the deepest package C-state residency turbostat can read on
@@ -10,7 +10,7 @@ set -euo pipefail
 secs=${1:-60}
 label=${2:-$(date -Iseconds)}
 shift $(($# < 2 ? $# : 2))
-if (($#)); then procs=("$@"); else procs=(umbriel noctalia); fi
+if (($#)); then procs=("$@"); else procs=(andromeda noctalia); fi
 tck=$(getconf CLK_TCK)
 bat=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1)
 psr=$(find /sys/kernel/debug/dri -name i915_edp_psr_status -o -name i915_psr_status 2>/dev/null | head -1 || true)

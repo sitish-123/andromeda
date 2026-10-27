@@ -6,7 +6,7 @@
 #include <format>
 #include <string>
 
-namespace umbriel {
+namespace andromeda {
   struct OkLab {
     float lightness = 0.0F;
     float a = 0.0F;
@@ -101,4 +101,4 @@ namespace umbriel {
     return std::format("#{:02X}{:02X}{:02X}{:02X}", byte(color[0]), byte(color[1]), byte(color[2]), byte(color[3]));
   }
 
-} // namespace umbriel
+} // namespace andromeda

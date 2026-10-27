@@ -22,7 +22,7 @@ let
   version = head (match ".*\n  version: '([0-9][^']+)'.*" (readFile ../meson.build));
 in
 stdenv.mkDerivation {
-  pname = "xdg-desktop-portal-umbriel";
+  pname = "xdg-desktop-portal-andromeda";
   inherit version;
 
   src = lib.cleanSource ./..;
@@ -51,7 +51,7 @@ stdenv.mkDerivation {
   mesonBuildType = "release";
 
   meta = with lib; {
-    description = "xdg-desktop-portal backend for the Umbriel compositor";
+    description = "xdg-desktop-portal backend for the Andromeda compositor";
     license = licenses.mit;
     platforms = platforms.linux;
   };

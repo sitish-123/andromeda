@@ -156,7 +156,7 @@ namespace xdpu {
           finish();
           return;
         }
-        capture.fd = memfd_create("umbriel-preview", MFD_CLOEXEC);
+        capture.fd = memfd_create("andromeda-preview", MFD_CLOEXEC);
         if (capture.fd < 0 || ftruncate(capture.fd, static_cast<off_t>(capture.size)) < 0) {
           finish();
           return;
@@ -251,7 +251,7 @@ namespace xdpu {
             }
           }
         } catch (const std::exception& error) {
-          g_warning("umbriel-share-picker: preview unavailable: %s", error.what());
+          g_warning("andromeda-share-picker: preview unavailable: %s", error.what());
         }
         {
           std::scoped_lock lock(mutex);

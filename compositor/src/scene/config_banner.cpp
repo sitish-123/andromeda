@@ -30,7 +30,7 @@ namespace {
   constexpr int kHangingIndent = 18;
 
   // Make a diagnostic file path short relative to the config root's directory.
-  std::string shortPath(const umbriel::ConfigDiagnostic& diag, const std::filesystem::path& configDir) {
+  std::string shortPath(const andromeda::ConfigDiagnostic& diag, const std::filesystem::path& configDir) {
     if (diag.file.empty()) {
       return {};
     }
@@ -53,14 +53,14 @@ namespace {
   }
 
   int onHideTimer(void* data) {
-    auto* banner = static_cast<umbriel::ConfigBanner*>(data);
+    auto* banner = static_cast<andromeda::ConfigBanner*>(data);
     banner->hide();
     return 0; // disarm
   }
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   ConfigBanner::ConfigBanner(Server& server, wlr_scene_tree* parent) : m_server(server), m_parent(parent) {}
 
@@ -193,7 +193,7 @@ namespace umbriel {
       footer += std::format("+{} more \xc2\xb7 ", total - shown);
     }
     footer +=
-        hasError ? "configuration not applied \xc2\xb7 run `umbriel config validate`" : "run `umbriel config validate`";
+        hasError ? "configuration not applied \xc2\xb7 run `andromeda config validate`" : "run `andromeda config validate`";
     markup += std::format("\n\n<span foreground='{}'>{}</span>", mutedColor, escapeMarkup(footer));
 
     // Transparent background: the panel rect behind provides the surface.
@@ -252,4 +252,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

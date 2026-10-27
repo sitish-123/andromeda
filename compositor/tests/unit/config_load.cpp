@@ -14,15 +14,15 @@
 #include <utility>
 #include <variant>
 
-using umbriel::ConfigDiagnostic;
-using umbriel::ConfigStore;
-using umbriel::ContentType;
-using umbriel::HdrMode;
-using umbriel::LayoutMode;
-using umbriel::ModifierKey;
-using umbriel::TrackLayout;
-using umbriel::VrrMode;
-using umbriel::WindowDragToggle;
+using andromeda::ConfigDiagnostic;
+using andromeda::ConfigStore;
+using andromeda::ContentType;
+using andromeda::HdrMode;
+using andromeda::LayoutMode;
+using andromeda::ModifierKey;
+using andromeda::TrackLayout;
+using andromeda::VrrMode;
+using andromeda::WindowDragToggle;
 
 namespace {
   bool containsDiagnostic(const ConfigStore& store, const std::string& text) {
@@ -38,7 +38,7 @@ namespace {
   public:
     TempConfig()
         : m_path(
-              std::filesystem::temp_directory_path() / ("umbriel-config-load-" + std::to_string(getpid()) + ".toml")
+              std::filesystem::temp_directory_path() / ("andromeda-config-load-" + std::to_string(getpid()) + ".toml")
           ),
           m_includePath(m_path.string() + ".include") {
       std::filesystem::remove(m_includePath);
@@ -72,7 +72,7 @@ namespace {
   class TempConfigTree {
   public:
     TempConfigTree()
-        : m_path(std::filesystem::temp_directory_path() / ("umbriel-config-tree-" + std::to_string(getpid()))) {
+        : m_path(std::filesystem::temp_directory_path() / ("andromeda-config-tree-" + std::to_string(getpid()))) {
       std::filesystem::remove_all(m_path);
       std::filesystem::create_directories(m_path);
     }
@@ -115,24 +115,24 @@ namespace {
   };
 } // namespace
 
-UMBRIEL_TEST(defaultConfigLookupPrefersUserThenSystem) {
+ANDROMEDA_TEST(defaultConfigLookupPrefersUserThenSystem) {
   const TempConfigTree tree;
   const std::filesystem::path userHome = tree.path("user");
   const std::filesystem::path systemDir = tree.path("system");
-  const std::filesystem::path systemConfig = systemDir / "umbriel/config.toml";
-  const std::filesystem::path userConfig = userHome / "umbriel/config.toml";
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  const std::filesystem::path systemConfig = systemDir / "andromeda/config.toml";
+  const std::filesystem::path userConfig = userHome / "andromeda/config.toml";
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
 
   CHECK_EQ(store.rootPath(), systemConfig);
   CHECK_EQ(store.config().layout.gap, 17);
   CHECK(!store.fileMissing());
 
-  tree.write("user/umbriel/config.toml", "[layout]\ngap = 19\n");
+  tree.write("user/andromeda/config.toml", "[layout]\ngap = 19\n");
   CHECK(store.load(nullptr));
 
   CHECK_EQ(store.rootPath(), userConfig);
@@ -140,53 +140,53 @@ UMBRIEL_TEST(defaultConfigLookupPrefersUserThenSystem) {
   CHECK(!store.fileMissing());
 }
 
-UMBRIEL_TEST(implicitConfigReloadAdoptsAndReleasesHigherPriorityUserPath) {
+ANDROMEDA_TEST(implicitConfigReloadAdoptsAndReleasesHigherPriorityUserPath) {
   const TempConfigTree tree;
   const std::filesystem::path userHome = tree.path("user");
   const std::filesystem::path systemDir = tree.path("system");
-  const std::filesystem::path systemConfig = systemDir / "umbriel/config.toml";
-  const std::filesystem::path userConfig = userHome / "umbriel/config.toml";
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  const std::filesystem::path systemConfig = systemDir / "andromeda/config.toml";
+  const std::filesystem::path userConfig = userHome / "andromeda/config.toml";
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
 
   CHECK_EQ(store.rootPath(), systemConfig);
   CHECK_EQ(store.config().layout.gap, 17);
 
-  tree.write("user/umbriel/config.toml", "[layout]\ngap = 19\n");
-  const umbriel::ConfigReloadResult adopted = store.reload();
+  tree.write("user/andromeda/config.toml", "[layout]\ngap = 19\n");
+  const andromeda::ConfigReloadResult adopted = store.reload();
 
   CHECK(adopted.success);
   CHECK_EQ(store.rootPath(), userConfig);
   CHECK_EQ(store.config().layout.gap, 19);
 
   std::filesystem::remove(userConfig);
-  const umbriel::ConfigReloadResult released = store.reload();
+  const andromeda::ConfigReloadResult released = store.reload();
 
   CHECK(released.success);
   CHECK_EQ(store.rootPath(), systemConfig);
   CHECK_EQ(store.config().layout.gap, 17);
 }
 
-UMBRIEL_TEST(malformedNewUserConfigKeepsActiveSystemConfigAndRetriesAfterCorrection) {
+ANDROMEDA_TEST(malformedNewUserConfigKeepsActiveSystemConfigAndRetriesAfterCorrection) {
   const TempConfigTree tree;
   const std::filesystem::path userHome = tree.path("user");
   const std::filesystem::path systemDir = tree.path("system");
-  const std::filesystem::path systemConfig = systemDir / "umbriel/config.toml";
-  const std::filesystem::path userConfig = userHome / "umbriel/config.toml";
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  const std::filesystem::path systemConfig = systemDir / "andromeda/config.toml";
+  const std::filesystem::path userConfig = userHome / "andromeda/config.toml";
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
   const uint64_t generation = store.generation();
 
-  tree.write("user/umbriel/config.toml", "[layout\n");
-  const umbriel::ConfigReloadResult malformed = store.reload();
+  tree.write("user/andromeda/config.toml", "[layout\n");
+  const andromeda::ConfigReloadResult malformed = store.reload();
 
   CHECK(!malformed.success);
   CHECK_EQ(store.rootPath(), systemConfig);
@@ -195,8 +195,8 @@ UMBRIEL_TEST(malformedNewUserConfigKeepsActiveSystemConfigAndRetriesAfterCorrect
   CHECK(std::ranges::find(store.watchPaths(), userConfig) != store.watchPaths().end());
   CHECK(std::ranges::find(store.watchPaths(), systemConfig) != store.watchPaths().end());
 
-  tree.write("user/umbriel/config.toml", "[layout]\ngap = 19\n");
-  const umbriel::ConfigReloadResult corrected = store.reload();
+  tree.write("user/andromeda/config.toml", "[layout]\ngap = 19\n");
+  const andromeda::ConfigReloadResult corrected = store.reload();
 
   CHECK(corrected.success);
   CHECK_EQ(store.rootPath(), userConfig);
@@ -204,24 +204,24 @@ UMBRIEL_TEST(malformedNewUserConfigKeepsActiveSystemConfigAndRetriesAfterCorrect
   CHECK_EQ(store.generation(), generation + 1);
 }
 
-UMBRIEL_TEST(implicitConfigReloadKeepsCandidatesCapturedAtInitialLoad) {
+ANDROMEDA_TEST(implicitConfigReloadKeepsCandidatesCapturedAtInitialLoad) {
   const TempConfigTree tree;
   const std::filesystem::path initialUserHome = tree.path("initial-user");
   const std::filesystem::path changedUserHome = tree.path("changed-user");
   const std::filesystem::path systemDir = tree.path("system");
-  const std::filesystem::path systemConfig = systemDir / "umbriel/config.toml";
-  const std::filesystem::path changedUserConfig = changedUserHome / "umbriel/config.toml";
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  const std::filesystem::path systemConfig = systemDir / "andromeda/config.toml";
+  const std::filesystem::path changedUserConfig = changedUserHome / "andromeda/config.toml";
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", initialUserHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(nullptr));
   const std::vector<std::filesystem::path> initialWatchPaths = store.watchPaths();
 
-  tree.write("changed-user/umbriel/config.toml", "[layout]\ngap = 29\n");
+  tree.write("changed-user/andromeda/config.toml", "[layout]\ngap = 29\n");
   const ScopedEnvironment changedConfigHome("XDG_CONFIG_HOME", changedUserHome.string());
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.rootPath(), systemConfig);
@@ -230,32 +230,32 @@ UMBRIEL_TEST(implicitConfigReloadKeepsCandidatesCapturedAtInitialLoad) {
   CHECK(std::ranges::find(store.watchPaths(), changedUserConfig) == store.watchPaths().end());
 }
 
-UMBRIEL_TEST(explicitConfigReloadStaysPinnedWhenUserConfigAppears) {
+ANDROMEDA_TEST(explicitConfigReloadStaysPinnedWhenUserConfigAppears) {
   const TempConfigTree tree;
   const std::filesystem::path userHome = tree.path("user");
   const std::filesystem::path systemDir = tree.path("system");
   const std::filesystem::path explicitConfig = tree.path("chosen.toml");
   tree.write("chosen.toml", "[layout]\ngap = 23\n");
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const std::string explicitPath = explicitConfig.string();
   CHECK(store.load(explicitPath.c_str()));
 
   CHECK_EQ(store.rootPath(), explicitConfig);
   CHECK_EQ(store.config().layout.gap, 23);
 
-  tree.write("user/umbriel/config.toml", "[layout]\ngap = 29\n");
-  const umbriel::ConfigReloadResult result = store.reload();
+  tree.write("user/andromeda/config.toml", "[layout]\ngap = 29\n");
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.rootPath(), explicitConfig);
   CHECK_EQ(store.config().layout.gap, 23);
 }
 
-UMBRIEL_TEST(sharedLayoutAndNumberReadersPreserveConfigBehavior) {
+ANDROMEDA_TEST(sharedLayoutAndNumberReadersPreserveConfigBehavior) {
   const TempConfig file;
   file.write(R"(
 unknown_root_key = true
@@ -293,9 +293,9 @@ center_underfull_strip = true
 preserve_split = false
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(store.config().layout.mode == LayoutMode::Dwindle);
@@ -321,23 +321,23 @@ preserve_split = false
   CHECK(containsDiagnostic(store, "unknown key general.prefer_no_csd"));
 }
 
-UMBRIEL_TEST(rejectsRemovedWidthPresetKey) {
+ANDROMEDA_TEST(rejectsRemovedWidthPresetKey) {
   const TempConfig file;
   file.write("[layout]\nwidth_presets = [0.75]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
   CHECK_EQ(store.config().layout.extentPresets.size(), size_t{3});
   CHECK(containsDiagnostic(store, "unknown key layout.width_presets"));
 }
 
-UMBRIEL_TEST(backgroundDefaultsOpaque) {
-  const umbriel::Config config;
+ANDROMEDA_TEST(backgroundDefaultsOpaque) {
+  const andromeda::Config config;
   CHECK_EQ(config.colors.background[3], 1.0F);
 }
 
-UMBRIEL_TEST(scratchpadDefinitionsLoadUniqueNames) {
+ANDROMEDA_TEST(scratchpadDefinitionsLoadUniqueNames) {
   const TempConfig file;
   file.write(R"(
 [[scratchpad]]
@@ -347,9 +347,9 @@ name = "term"
 name = "music"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().scratchpads.size(), size_t{2});
@@ -358,7 +358,7 @@ name = "music"
   CHECK(!containsDiagnostic(store, "unknown key scratchpad"));
 }
 
-UMBRIEL_TEST(scratchpadDefinitionsLoadSpawnWhenEmpty) {
+ANDROMEDA_TEST(scratchpadDefinitionsLoadSpawnWhenEmpty) {
   const TempConfig file;
   file.write(R"(
 [[scratchpad]]
@@ -373,9 +373,9 @@ name = "todo"
 spawn_when_empty = 7
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().scratchpads.size(), size_t{3});
@@ -385,14 +385,14 @@ spawn_when_empty = 7
   CHECK(containsDiagnostic(store, "ignoring scratchpad[2].spawn_when_empty (expected string)"));
 }
 
-UMBRIEL_TEST(scratchpadDefinitionsRequireValidUniqueNames) {
+ANDROMEDA_TEST(scratchpadDefinitionsRequireValidUniqueNames) {
   const TempConfig file;
   file.write("[[scratchpad]]\nname = \"kept\"\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
 
   const std::array invalid{
       std::pair{
@@ -413,14 +413,14 @@ UMBRIEL_TEST(scratchpadDefinitionsRequireValidUniqueNames) {
 
   for (const auto& [contents, expectedDiagnostic] : invalid) {
     file.write(contents);
-    const umbriel::ConfigReloadResult result = store.reload();
+    const andromeda::ConfigReloadResult result = store.reload();
     CHECK(!result.success);
     CHECK(store.config() == previous);
     CHECK(containsDiagnostic(store, expectedDiagnostic));
   }
 }
 
-UMBRIEL_TEST(scratchpadDefinitionsReportUnknownKeysWithoutDiscardingTheEntry) {
+ANDROMEDA_TEST(scratchpadDefinitionsReportUnknownKeysWithoutDiscardingTheEntry) {
   const TempConfig file;
   file.write(R"(
 [[scratchpad]]
@@ -428,9 +428,9 @@ name = "term"
 output = "DP-1"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().scratchpads.size(), size_t{1});
@@ -438,7 +438,7 @@ output = "DP-1"
   CHECK(containsDiagnostic(store, "unknown key scratchpad[0].output"));
 }
 
-UMBRIEL_TEST(implicitScratchpadActionsAcceptOnlyTheDefaultTarget) {
+ANDROMEDA_TEST(implicitScratchpadActionsAcceptOnlyTheDefaultTarget) {
   const TempConfig file;
   file.write(R"(
 [keybinds]
@@ -447,14 +447,14 @@ UMBRIEL_TEST(implicitScratchpadActionsAcceptOnlyTheDefaultTarget) {
 "Mod+3" = "scratchpad-focus-next:other"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   const auto countTarget = [&](std::string_view name) {
     size_t count = 0;
     for (const auto& keybind : store.config().keybinds) {
-      const auto* target = umbriel::payloadIf<umbriel::ScratchpadArg>(keybind);
+      const auto* target = andromeda::payloadIf<andromeda::ScratchpadArg>(keybind);
       count += target != nullptr && target->name == name ? 1U : 0U;
     }
     return count;
@@ -468,7 +468,7 @@ UMBRIEL_TEST(implicitScratchpadActionsAcceptOnlyTheDefaultTarget) {
   CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+3' (unknown scratchpad 'other')"));
 }
 
-UMBRIEL_TEST(namedScratchpadActionsRequireAConfiguredName) {
+ANDROMEDA_TEST(namedScratchpadActionsRequireAConfiguredName) {
   const TempConfig file;
   file.write(R"(
 [[scratchpad]]
@@ -481,14 +481,14 @@ name = "term"
 "Mod+4" = "window-move-to-scratchpad:default"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   const auto countTarget = [&](std::string_view name) {
     size_t count = 0;
     for (const auto& keybind : store.config().keybinds) {
-      const auto* target = umbriel::payloadIf<umbriel::ScratchpadArg>(keybind);
+      const auto* target = andromeda::payloadIf<andromeda::ScratchpadArg>(keybind);
       count += target != nullptr && target->name == name ? 1U : 0U;
     }
     return count;
@@ -505,16 +505,16 @@ name = "term"
   CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+4' (unknown scratchpad 'default')"));
 }
 
-UMBRIEL_TEST(dwindlePreserveSplitDefaultsToFalse) {
+ANDROMEDA_TEST(dwindlePreserveSplitDefaultsToFalse) {
   const TempConfig file;
   file.write("[layout]\n");
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
   CHECK(!store.config().layout.dwindle.preserveSplit);
 }
 
-UMBRIEL_TEST(layoutStrutsLoadGloballyAndPerWorkspace) {
+ANDROMEDA_TEST(layoutStrutsLoadGloballyAndPerWorkspace) {
   const TempConfig file;
   file.write(R"(
 [layout.struts]
@@ -535,9 +535,9 @@ left = 50
 bottom = -8
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().layout.struts.left, -12);
@@ -555,7 +555,7 @@ bottom = -8
   CHECK(containsDiagnostic(store, "unknown key layout.struts.surprise"));
 }
 
-UMBRIEL_TEST(masterLayoutReadersLoadGlobalAndWorkspaceSettings) {
+ANDROMEDA_TEST(masterLayoutReadersLoadGlobalAndWorkspaceSettings) {
   const TempConfig file;
   file.write(R"(
 [layout]
@@ -581,18 +581,18 @@ new_on_top = true
 new_becomes_master = false
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(store.config().layout.mode == LayoutMode::Master);
-  CHECK(store.config().layout.master.position == umbriel::MasterPosition::Right);
+  CHECK(store.config().layout.master.position == andromeda::MasterPosition::Right);
   CHECK_EQ(store.config().layout.master.defaultWidthFraction, 0.1);
   CHECK(!store.config().layout.master.newOnTop);
   CHECK(store.config().layout.master.newBecomesMaster);
   CHECK_EQ(store.config().workspaceRules.size(), size_t{1});
-  CHECK(store.config().workspaceRules[0].layout.master.position == umbriel::MasterPosition::Left);
+  CHECK(store.config().workspaceRules[0].layout.master.position == andromeda::MasterPosition::Left);
   CHECK(store.config().workspaceRules[0].layout.master.defaultWidthFraction.has_value());
   CHECK_EQ(*store.config().workspaceRules[0].layout.master.defaultWidthFraction, 0.7);
   CHECK(store.config().workspaceRules[0].layout.master.newOnTop == true);
@@ -602,23 +602,23 @@ new_becomes_master = false
   CHECK(containsDiagnostic(store, "unknown key layout.master.surprise"));
 }
 
-UMBRIEL_TEST(masterPositionAcceptsCenterAndRejectsOtherValues) {
+ANDROMEDA_TEST(masterPositionAcceptsCenterAndRejectsOtherValues) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[layout.master]\nposition = \"center\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().layout.master.position == umbriel::MasterPosition::Center);
+  CHECK(store.config().layout.master.position == andromeda::MasterPosition::Center);
 
   file.write("[layout.master]\nposition = \"middle\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().layout.master.position == umbriel::MasterPosition::Left);
+  CHECK(store.config().layout.master.position == andromeda::MasterPosition::Left);
 }
 
-UMBRIEL_TEST(scrollingDefaultExtentIsOptional) {
+ANDROMEDA_TEST(scrollingDefaultExtentIsOptional) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[layout.scrolling]\ncenter_underfull_strip = false\n");
@@ -640,9 +640,9 @@ UMBRIEL_TEST(scrollingDefaultExtentIsOptional) {
   CHECK(!store.config().layout.scrolling.defaultExtentFraction.has_value());
 }
 
-UMBRIEL_TEST(outputScrollingDefaultExtentUsesNarrowLayoutScope) {
+ANDROMEDA_TEST(outputScrollingDefaultExtentUsesNarrowLayoutScope) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(R"(
@@ -670,34 +670,34 @@ center_focused = true
   CHECK(!store.config().outputs[0].layout.scrolling.defaultExtentFraction.has_value());
 }
 
-UMBRIEL_TEST(outputWorkspaceAxisAcceptsOnlyItsTwoNames) {
+ANDROMEDA_TEST(outputWorkspaceAxisAcceptsOnlyItsTwoNames) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nworkspace_axis = \"horizontal\"\n");
   CHECK(store.reload().success);
   CHECK_EQ(store.config().outputs.size(), size_t{1});
-  CHECK(store.config().outputs[0].workspaceAxis == umbriel::WorkspaceAxis::Horizontal);
+  CHECK(store.config().outputs[0].workspaceAxis == andromeda::WorkspaceAxis::Horizontal);
   CHECK(!containsDiagnostic(store, "unknown key output.DP-1.workspace_axis"));
 
   file.write("[output.DP-1]\nworkspace_axis = \"sideways\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().outputs[0].workspaceAxis == umbriel::WorkspaceAxis::Vertical);
+  CHECK(store.config().outputs[0].workspaceAxis == andromeda::WorkspaceAxis::Vertical);
 
   file.write("[output.DP-1]\nworkspace_axis = true\n");
   CHECK(store.reload().success);
-  CHECK(store.config().outputs[0].workspaceAxis == umbriel::WorkspaceAxis::Vertical);
+  CHECK(store.config().outputs[0].workspaceAxis == andromeda::WorkspaceAxis::Vertical);
 
   file.write("[output.DP-1]\nenabled = true\n");
   CHECK(store.reload().success);
-  CHECK(store.config().outputs[0].workspaceAxis == umbriel::WorkspaceAxis::Vertical);
+  CHECK(store.config().outputs[0].workspaceAxis == andromeda::WorkspaceAxis::Vertical);
 }
 
 // The configurable strip direction is gone: both spellings are ordinary unknown keys.
-UMBRIEL_TEST(scrollingDirectionKeysAreUnknown) {
+ANDROMEDA_TEST(scrollingDirectionKeysAreUnknown) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(R"(
@@ -713,9 +713,9 @@ layout.scrolling.direction = "vertical"
   CHECK(containsDiagnostic(store, "unknown key workspace[0].layout.scrolling.direction"));
 }
 
-UMBRIEL_TEST(centerFocusedReadsItsModeVocabulary) {
+ANDROMEDA_TEST(centerFocusedReadsItsModeVocabulary) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(R"(
@@ -727,19 +727,19 @@ index = 1
 layout.scrolling.center_focused = "always"
 )");
   CHECK(store.reload().success);
-  CHECK(store.config().layout.scrolling.centerFocused == umbriel::CenterFocusedColumn::OnOverflow);
+  CHECK(store.config().layout.scrolling.centerFocused == andromeda::CenterFocusedColumn::OnOverflow);
   CHECK_EQ(store.config().workspaceRules.size(), size_t{1});
-  CHECK(store.config().workspaceRules[0].layout.scrolling.centerFocused == umbriel::CenterFocusedColumn::Always);
+  CHECK(store.config().workspaceRules[0].layout.scrolling.centerFocused == andromeda::CenterFocusedColumn::Always);
 
   file.write("[layout.scrolling]\ncenter_focused = \"sometimes\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().layout.scrolling.centerFocused == umbriel::CenterFocusedColumn::Never);
+  CHECK(store.config().layout.scrolling.centerFocused == andromeda::CenterFocusedColumn::Never);
   CHECK(!containsDiagnostic(store, "unknown key layout.scrolling.center_focused"));
 }
 
-UMBRIEL_TEST(modKeyIsUserConfigurable) {
+ANDROMEDA_TEST(modKeyIsUserConfigurable) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[general]\nmod_key = \"Ctrl\"\n");
@@ -755,9 +755,9 @@ UMBRIEL_TEST(modKeyIsUserConfigurable) {
   CHECK(!store.config().general.modKey.has_value());
 }
 
-UMBRIEL_TEST(keybindTableLoadsAllowWhenLocked) {
+ANDROMEDA_TEST(keybindTableLoadsAllowWhenLocked) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -770,7 +770,7 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenLocked) {
   // The file's binds sit among the built-ins, so they are found by what they spawn.
   const auto spawned = [&](std::string_view command) {
     return std::ranges::find_if(store.config().keybinds, [command](const auto& bind) {
-      const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind);
+      const auto* spawn = andromeda::payloadIf<andromeda::SpawnArg>(bind);
       return spawn != nullptr && spawn->command == command;
     });
   };
@@ -786,9 +786,9 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenLocked) {
   CHECK(!containsDiagnostic(store, "allow_when_locked"));
 }
 
-UMBRIEL_TEST(keybindTableLoadsAllowWhenInhibited) {
+ANDROMEDA_TEST(keybindTableLoadsAllowWhenInhibited) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -799,9 +799,9 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenInhibited) {
   CHECK(store.reload().success);
 
   const auto& binds = store.config().keybinds;
-  const auto toggle = std::ranges::find(binds, umbriel::KeybindAction::ShortcutsInhibitToggle, &umbriel::Keybind::action);
+  const auto toggle = std::ranges::find(binds, andromeda::KeybindAction::ShortcutsInhibitToggle, &andromeda::Keybind::action);
   const auto terminal = std::ranges::find_if(binds, [](const auto& bind) {
-    const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind);
+    const auto* spawn = andromeda::payloadIf<andromeda::SpawnArg>(bind);
     return spawn != nullptr && spawn->command == "terminal";
   });
   CHECK(toggle != binds.end());
@@ -816,9 +816,9 @@ UMBRIEL_TEST(keybindTableLoadsAllowWhenInhibited) {
   CHECK(!containsDiagnostic(store, "allow_when_inhibited"));
 }
 
-UMBRIEL_TEST(keybindTablePreservesWorkspaceReferenceKinds) {
+ANDROMEDA_TEST(keybindTablePreservesWorkspaceReferenceKinds) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -831,14 +831,14 @@ UMBRIEL_TEST(keybindTablePreservesWorkspaceReferenceKinds) {
   bool foundPosition = false;
   bool foundNumericName = false;
   for (const auto& bind : store.config().keybinds) {
-    const auto* workspace = umbriel::payloadIf<umbriel::WorkspaceArg>(bind);
+    const auto* workspace = andromeda::payloadIf<andromeda::WorkspaceArg>(bind);
     if (workspace == nullptr) {
       continue;
     }
-    if (const auto* index = std::get_if<umbriel::WorkspaceIndex>(&workspace->reference)) {
+    if (const auto* index = std::get_if<andromeda::WorkspaceIndex>(&workspace->reference)) {
       foundPosition = foundPosition || index->value == 2;
     }
-    if (const auto* name = std::get_if<umbriel::WorkspaceName>(&workspace->reference)) {
+    if (const auto* name = std::get_if<andromeda::WorkspaceName>(&workspace->reference)) {
       foundNumericName = foundNumericName || name->value == "2";
     }
   }
@@ -846,9 +846,9 @@ UMBRIEL_TEST(keybindTablePreservesWorkspaceReferenceKinds) {
   CHECK(foundNumericName);
 }
 
-UMBRIEL_TEST(keybindTableLoadsCooldown) {
+ANDROMEDA_TEST(keybindTableLoadsCooldown) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[keybinds]\n\"Mod+Return\" = { action = \"spawn:terminal\", cooldown_ms = 150 }\n");
@@ -862,9 +862,9 @@ UMBRIEL_TEST(keybindTableLoadsCooldown) {
   CHECK(containsDiagnostic(store, "cooldown_ms = 3600001 out of range, clamped to 3600000"));
 }
 
-UMBRIEL_TEST(keybindTableLoadsPostActionSubmaps) {
+ANDROMEDA_TEST(keybindTableLoadsPostActionSubmaps) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -884,7 +884,7 @@ UMBRIEL_TEST(keybindTableLoadsPostActionSubmaps) {
       continue;
     }
     CHECK(!bind.repeat);
-    resets = resets || umbriel::isSubmapReset(*bind.submapAfter);
+    resets = resets || andromeda::isSubmapReset(*bind.submapAfter);
     entersInner = entersInner || bind.submapAfter->name == "inner";
   }
   CHECK(resets);
@@ -903,9 +903,9 @@ UMBRIEL_TEST(keybindTableLoadsPostActionSubmaps) {
   CHECK(std::ranges::none_of(store.config().keybinds, [](const auto& bind) { return bind.submap == "outer"; }));
 }
 
-UMBRIEL_TEST(hotCornersLoadActionsAndValidate) {
+ANDROMEDA_TEST(hotCornersLoadActionsAndValidate) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -918,7 +918,7 @@ UMBRIEL_TEST(hotCornersLoadActionsAndValidate) {
   CHECK(store.config().hotCorners.corners[0].action.has_value());
   CHECK(
       store.config().hotCorners.corners[0].action
-      && store.config().hotCorners.corners[0].action->action == umbriel::KeybindAction::OverviewOpen
+      && store.config().hotCorners.corners[0].action->action == andromeda::KeybindAction::OverviewOpen
   );
   CHECK(!store.config().hotCorners.corners[1].enabled);
   CHECK(!store.config().hotCorners.corners[2].enabled);
@@ -927,7 +927,7 @@ UMBRIEL_TEST(hotCornersLoadActionsAndValidate) {
   CHECK(store.config().hotCorners.corners[3].action.has_value());
   CHECK(
       store.config().hotCorners.corners[3].action
-      && store.config().hotCorners.corners[3].action->action == umbriel::KeybindAction::Spawn
+      && store.config().hotCorners.corners[3].action->action == andromeda::KeybindAction::Spawn
   );
 
   file.write("[hot_corners.top_right]\nenabled = true\ndelay_ms = -1\naction = \"not-an-action\"\n");
@@ -938,9 +938,9 @@ UMBRIEL_TEST(hotCornersLoadActionsAndValidate) {
   CHECK(containsDiagnostic(store, "hot_corners.top_right.delay_ms = -1"));
 }
 
-UMBRIEL_TEST(implicitScratchpadHotCornersAcceptOnlyTheDefaultTarget) {
+ANDROMEDA_TEST(implicitScratchpadHotCornersAcceptOnlyTheDefaultTarget) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(R"(
@@ -962,9 +962,9 @@ action = "scratchpad-focus-next:missing"
   CHECK(corners[0].action.has_value());
   CHECK(corners[1].action.has_value());
   CHECK(!corners[2].action.has_value());
-  const auto* bare = corners[0].action ? umbriel::payloadIf<umbriel::ScratchpadArg>(*corners[0].action) : nullptr;
+  const auto* bare = corners[0].action ? andromeda::payloadIf<andromeda::ScratchpadArg>(*corners[0].action) : nullptr;
   const auto* explicitDefault =
-      corners[1].action ? umbriel::payloadIf<umbriel::ScratchpadArg>(*corners[1].action) : nullptr;
+      corners[1].action ? andromeda::payloadIf<andromeda::ScratchpadArg>(*corners[1].action) : nullptr;
   CHECK(bare != nullptr);
   CHECK(bare != nullptr && bare->name.empty());
   CHECK(explicitDefault != nullptr);
@@ -972,9 +972,9 @@ action = "scratchpad-focus-next:missing"
   CHECK(containsDiagnostic(store, "ignoring hot_corners.bottom_left.action (unknown scratchpad 'missing')"));
 }
 
-UMBRIEL_TEST(namedScratchpadHotCornersRequireAConfiguredName) {
+ANDROMEDA_TEST(namedScratchpadHotCornersRequireAConfiguredName) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(R"(
@@ -999,16 +999,16 @@ action = "window-restore-from-scratchpad:missing"
   CHECK(!corners[0].action.has_value());
   CHECK(corners[1].action.has_value());
   CHECK(!corners[2].action.has_value());
-  const auto* configured = corners[1].action ? umbriel::payloadIf<umbriel::ScratchpadArg>(*corners[1].action) : nullptr;
+  const auto* configured = corners[1].action ? andromeda::payloadIf<andromeda::ScratchpadArg>(*corners[1].action) : nullptr;
   CHECK(configured != nullptr);
   CHECK(configured != nullptr && configured->name == "term");
   CHECK(containsDiagnostic(store, "ignoring hot_corners.top_left.action (scratchpad name required)"));
   CHECK(containsDiagnostic(store, "ignoring hot_corners.bottom_left.action (unknown scratchpad 'missing')"));
 }
 
-UMBRIEL_TEST(overviewBackgroundBlurLoads) {
+ANDROMEDA_TEST(overviewBackgroundBlurLoads) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[overview]\nbackground_blur = false\n");
@@ -1016,9 +1016,9 @@ UMBRIEL_TEST(overviewBackgroundBlurLoads) {
   CHECK(!store.config().overview.backgroundBlur);
 }
 
-UMBRIEL_TEST(overviewScrollFactorLoadsIndependently) {
+ANDROMEDA_TEST(overviewScrollFactorLoadsIndependently) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[overview]\nscroll_factor_horizontal = 0.7\n");
   CHECK(store.reload().success);
@@ -1034,9 +1034,9 @@ UMBRIEL_TEST(overviewScrollFactorLoadsIndependently) {
   CHECK_EQ(store.config().overview.scrollFactorVertical, 1.0);
 }
 
-UMBRIEL_TEST(touchpadScrollFactorLoadsAsScalarOrTable) {
+ANDROMEDA_TEST(touchpadScrollFactorLoadsAsScalarOrTable) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[input.touchpad]\nscroll_factor = 1.5\n");
   CHECK(store.reload().success);
@@ -1059,27 +1059,27 @@ UMBRIEL_TEST(touchpadScrollFactorLoadsAsScalarOrTable) {
   CHECK(!store.config().input.touchpad.scrollFactor.has_value());
 }
 
-UMBRIEL_TEST(overviewWorkspaceCurveLoadsAndFallsBackToItsSpring) {
+ANDROMEDA_TEST(overviewWorkspaceCurveLoadsAndFallsBackToItsSpring) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[animation.overview]\nworkspace_curve = \"easeout\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().animation.overview.workspaceCurve.easing == umbriel::Easing::EaseOutCubic);
+  CHECK(store.config().animation.overview.workspaceCurve.easing == andromeda::Easing::EaseOutCubic);
   file.write("[animation.overview]\nworkspace_curve = \"spring:0.6,120\"\n");
   CHECK(store.reload().success);
-  CHECK(store.config().animation.overview.workspaceCurve.easing == umbriel::Easing::Spring);
+  CHECK(store.config().animation.overview.workspaceCurve.easing == andromeda::Easing::Spring);
   CHECK_EQ(store.config().animation.overview.workspaceCurve.spring.damping, 0.6);
   CHECK_EQ(store.config().animation.overview.workspaceCurve.spring.stiffness, 120.0);
   file.write("[animation.overview]\nduration_ms = 300\n");
   CHECK(store.reload().success);
-  CHECK(store.config().animation.overview.workspaceCurve.easing == umbriel::Easing::Spring);
+  CHECK(store.config().animation.overview.workspaceCurve.easing == andromeda::Easing::Spring);
   CHECK_EQ(store.config().animation.overview.workspaceCurve.spring.stiffness, 1000.0);
 }
 
-UMBRIEL_TEST(durationBesideASpringCurveIsReportedAsInert) {
+ANDROMEDA_TEST(durationBesideASpringCurveIsReportedAsInert) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   // A spring derives its own length, so the duration next to it reaches nothing and must not look honoured.
@@ -1107,9 +1107,9 @@ UMBRIEL_TEST(durationBesideASpringCurveIsReportedAsInert) {
   CHECK_EQ(store.config().animation.workspaces.durationMs, 200);
 }
 
-UMBRIEL_TEST(overviewWorkspaceWallpaperLoads) {
+ANDROMEDA_TEST(overviewWorkspaceWallpaperLoads) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[overview]\nzoom = 0.5\n");
@@ -1121,9 +1121,9 @@ UMBRIEL_TEST(overviewWorkspaceWallpaperLoads) {
   CHECK(!store.config().overview.workspaceWallpaper);
 }
 
-UMBRIEL_TEST(overviewShortcutConfigurationLoads) {
+ANDROMEDA_TEST(overviewShortcutConfigurationLoads) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[overview]\nshortcuts = false\nshortcut_keys = \"asdf\"\n");
@@ -1132,9 +1132,9 @@ UMBRIEL_TEST(overviewShortcutConfigurationLoads) {
   CHECK_EQ(store.config().overview.shortcutKeys, std::string{"asdf"});
 }
 
-UMBRIEL_TEST(overviewShortcutKeysRejectInvalidValues) {
+ANDROMEDA_TEST(overviewShortcutKeysRejectInvalidValues) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[overview]\nshortcut_keys = \"a\"\n");
@@ -1158,9 +1158,9 @@ UMBRIEL_TEST(overviewShortcutKeysRejectInvalidValues) {
   CHECK(containsDiagnostic(store, "expected string"));
 }
 
-UMBRIEL_TEST(colorsSectionOwnsEveryColor) {
+ANDROMEDA_TEST(colorsSectionOwnsEveryColor) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -1184,9 +1184,9 @@ UMBRIEL_TEST(colorsSectionOwnsEveryColor) {
 }
 
 // Per-window border colors override the global [colors.border] defaults and are read from window rules.
-UMBRIEL_TEST(windowRuleBorderColorsLoad) {
+ANDROMEDA_TEST(windowRuleBorderColorsLoad) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -1221,12 +1221,12 @@ UMBRIEL_TEST(windowRuleBorderColorsLoad) {
 
 // Colors are recognized only inside [colors]; anywhere else they are ordinary
 // unknown keys.
-UMBRIEL_TEST(colorKeysOutsideTheColorsSectionAreUnknown) {
+ANDROMEDA_TEST(colorKeysOutsideTheColorsSectionAreUnknown) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
-  const umbriel::Config defaults;
+  const andromeda::Config defaults;
   file.write("[appearance]\nborder_focused = \"#FFFFFFFF\"\nbackdrop_color = \"#000000FF\"\n");
   CHECK(store.reload().success);
   CHECK_EQ(store.config().colors.border.focused[0], defaults.colors.border.focused[0]);
@@ -1240,11 +1240,11 @@ UMBRIEL_TEST(colorKeysOutsideTheColorsSectionAreUnknown) {
   CHECK(containsDiagnostic(store, "overview.workspace_background"));
 }
 
-UMBRIEL_TEST(colorsRejectInvalidValues) {
+ANDROMEDA_TEST(colorsRejectInvalidValues) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::Config defaults;
+  const andromeda::Config defaults;
 
   file.write("[colors.overview]\nbadge = \"not-a-color\"\n");
   CHECK(store.reload().success);
@@ -1252,9 +1252,9 @@ UMBRIEL_TEST(colorsRejectInvalidValues) {
   CHECK(containsDiagnostic(store, "colors.overview.badge (invalid color"));
 }
 
-UMBRIEL_TEST(cornerRadiusClampsToItsRange) {
+ANDROMEDA_TEST(cornerRadiusClampsToItsRange) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[appearance]\ncorner_radius = 64\n");
@@ -1268,9 +1268,9 @@ UMBRIEL_TEST(cornerRadiusClampsToItsRange) {
   CHECK(containsDiagnostic(store, "appearance.corner_radius = 500 out of range, clamped to 100"));
 }
 
-UMBRIEL_TEST(middleClickPasteLoadsAndDefaultsEnabled) {
+ANDROMEDA_TEST(middleClickPasteLoadsAndDefaultsEnabled) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[input]\nmiddle_click_paste = false\n");
@@ -1286,9 +1286,9 @@ UMBRIEL_TEST(middleClickPasteLoadsAndDefaultsEnabled) {
   CHECK(store.config().input.middleClickPaste);
 }
 
-UMBRIEL_TEST(windowDragToggleReadsItsVocabularyAndDefaultsOff) {
+ANDROMEDA_TEST(windowDragToggleReadsItsVocabularyAndDefaultsOff) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[input]\nwindow_drag_toggle = \"floating\"\n");
@@ -1314,7 +1314,7 @@ UMBRIEL_TEST(windowDragToggleReadsItsVocabularyAndDefaultsOff) {
   CHECK(containsDiagnostic(store, "ignoring input.window_drag_toggle"));
 }
 
-UMBRIEL_TEST(outputNamesDifferingOnlyByCaseAreRejectedAsDuplicates) {
+ANDROMEDA_TEST(outputNamesDifferingOnlyByCaseAreRejectedAsDuplicates) {
   const TempConfig file;
   file.write(R"(
 [output.DP-1]
@@ -1324,16 +1324,16 @@ scale = 1.5
 scale = 2.0
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
   CHECK_EQ(store.config().outputs.size(), size_t{1});
   CHECK(containsDiagnostic(store, "duplicate output section"));
 }
 
-UMBRIEL_TEST(outputVrrPolicyLoadsAndDefaultsDisabled) {
+ANDROMEDA_TEST(outputVrrPolicyLoadsAndDefaultsDisabled) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nvrr = \"fullscreen\"\n");
@@ -1359,9 +1359,9 @@ UMBRIEL_TEST(outputVrrPolicyLoadsAndDefaultsDisabled) {
   CHECK(store.config().outputs[0].vrr == VrrMode::Disabled);
 }
 
-UMBRIEL_TEST(outputTearingPermissionLoadsAndDefaultsDisabled) {
+ANDROMEDA_TEST(outputTearingPermissionLoadsAndDefaultsDisabled) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\ntearing = true\n");
@@ -1383,9 +1383,9 @@ UMBRIEL_TEST(outputTearingPermissionLoadsAndDefaultsDisabled) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.tearing (expected boolean)"));
 }
 
-UMBRIEL_TEST(outputDirectScanoutPolicyLoadsAndDefaultsEnabled) {
+ANDROMEDA_TEST(outputDirectScanoutPolicyLoadsAndDefaultsEnabled) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\ndirect_scanout = false\n");
@@ -1407,9 +1407,9 @@ UMBRIEL_TEST(outputDirectScanoutPolicyLoadsAndDefaultsEnabled) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.direct_scanout (expected boolean)"));
 }
 
-UMBRIEL_TEST(outputHdrPolicyAndSdrWhiteLoad) {
+ANDROMEDA_TEST(outputHdrPolicyAndSdrWhiteLoad) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nhdr = \"on\"\nsdr_white = 300\n");
@@ -1439,9 +1439,9 @@ UMBRIEL_TEST(outputHdrPolicyAndSdrWhiteLoad) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.hdr"));
 }
 
-UMBRIEL_TEST(outputBitDepthLoadsAndDefaults8) {
+ANDROMEDA_TEST(outputBitDepthLoadsAndDefaults8) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\n");
@@ -1468,9 +1468,9 @@ UMBRIEL_TEST(outputBitDepthLoadsAndDefaults8) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.bit_depth"));
 }
 
-UMBRIEL_TEST(windowOutputPoliciesLoadAndRejectInvalidValues) {
+ANDROMEDA_TEST(windowOutputPoliciesLoadAndRejectInvalidValues) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\nmatch.app_id = \"^game$\"\nvrr = \"always\"\n");
@@ -1494,16 +1494,16 @@ UMBRIEL_TEST(windowOutputPoliciesLoadAndRejectInvalidValues) {
   CHECK(!store.config().windowRules[0].hdr);
 }
 
-UMBRIEL_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
+ANDROMEDA_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\ndefault_workspace = 2\n");
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
   const auto& positionTarget = store.config().windowRules[0].defaultWorkspace;
-  const auto* position = positionTarget ? std::get_if<umbriel::WorkspaceIndex>(&*positionTarget) : nullptr;
+  const auto* position = positionTarget ? std::get_if<andromeda::WorkspaceIndex>(&*positionTarget) : nullptr;
   CHECK(position != nullptr);
   CHECK(position != nullptr && position->value == 2);
   CHECK(!containsDiagnostic(store, "unknown key window_rule.default_workspace"));
@@ -1512,7 +1512,7 @@ UMBRIEL_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
   const auto& limitTarget = store.config().windowRules[0].defaultWorkspace;
-  const auto* limit = limitTarget ? std::get_if<umbriel::WorkspaceIndex>(&*limitTarget) : nullptr;
+  const auto* limit = limitTarget ? std::get_if<andromeda::WorkspaceIndex>(&*limitTarget) : nullptr;
   CHECK(limit != nullptr);
   CHECK(limit != nullptr && limit->value == 64);
 
@@ -1520,7 +1520,7 @@ UMBRIEL_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
   const auto& nameTarget = store.config().windowRules[0].defaultWorkspace;
-  const auto* name = nameTarget ? std::get_if<umbriel::WorkspaceName>(&*nameTarget) : nullptr;
+  const auto* name = nameTarget ? std::get_if<andromeda::WorkspaceName>(&*nameTarget) : nullptr;
   CHECK(name != nullptr);
   CHECK(name != nullptr && name->value == "CHAT");
 
@@ -1530,7 +1530,7 @@ UMBRIEL_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
   const auto& numericNameTarget = store.config().windowRules[0].defaultWorkspace;
-  const auto* numericName = numericNameTarget ? std::get_if<umbriel::WorkspaceName>(&*numericNameTarget) : nullptr;
+  const auto* numericName = numericNameTarget ? std::get_if<andromeda::WorkspaceName>(&*numericNameTarget) : nullptr;
   CHECK(numericName != nullptr);
   CHECK(numericName != nullptr && numericName->value == "2");
 
@@ -1556,9 +1556,9 @@ UMBRIEL_TEST(windowRuleWorkspaceTargetPreservesIntegerAndStringSelectors) {
   CHECK(!store.config().windowRules[0].defaultWorkspace.has_value());
 }
 
-UMBRIEL_TEST(windowRuleDefaultScratchpadTargetsConfiguredInventory) {
+ANDROMEDA_TEST(windowRuleDefaultScratchpadTargetsConfiguredInventory) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\ndefault_scratchpad = \"terminal\"\n[[scratchpad]]\nname = \"terminal\"\n");
@@ -1603,9 +1603,9 @@ UMBRIEL_TEST(windowRuleDefaultScratchpadTargetsConfiguredInventory) {
   CHECK(!store.config().windowRules[0].defaultScratchpad);
 }
 
-UMBRIEL_TEST(securityContextRulesLoadAndKeepTheManagerBlocked) {
+ANDROMEDA_TEST(securityContextRulesLoadAndKeepTheManagerBlocked) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -1665,9 +1665,9 @@ UMBRIEL_TEST(securityContextRulesLoadAndKeepTheManagerBlocked) {
   CHECK(containsDiagnostic(store, "ignoring security_context_rule (allow_globals is empty)"));
 }
 
-UMBRIEL_TEST(windowContentTypeMatcherLoadsFixedVocabulary) {
+ANDROMEDA_TEST(windowContentTypeMatcherLoadsFixedVocabulary) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   const auto checkValue = [&](const std::string& value, ContentType expected) {
@@ -1703,9 +1703,9 @@ UMBRIEL_TEST(windowContentTypeMatcherLoadsFixedVocabulary) {
   CHECK(store.config().windowRules.empty());
 }
 
-UMBRIEL_TEST(windowStartupMatcherLoadsBoolean) {
+ANDROMEDA_TEST(windowStartupMatcherLoadsBoolean) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\nmatch.at_startup = true\nopacity = 0.9\n");
@@ -1726,9 +1726,9 @@ UMBRIEL_TEST(windowStartupMatcherLoadsBoolean) {
   CHECK(!containsDiagnostic(store, "unknown key window_rule.opacity"));
 }
 
-UMBRIEL_TEST(windowStateMatchersLoadBooleans) {
+ANDROMEDA_TEST(windowStateMatchersLoadBooleans) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -1749,9 +1749,9 @@ UMBRIEL_TEST(windowStateMatchersLoadBooleans) {
   CHECK(!containsDiagnostic(store, "unknown key window_rule.match.is_scratchpad"));
 }
 
-UMBRIEL_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
+ANDROMEDA_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\nmatch.xdg_tag = \"^(game-launcher|game-running)$\"\nopacity = 0.9\n");
@@ -1780,9 +1780,9 @@ UMBRIEL_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
   CHECK(!containsDiagnostic(store, "unknown key window_rule.opacity"));
 }
 
-UMBRIEL_TEST(windowTearingOverrideLoadsAsAnOptionalBoolean) {
+ANDROMEDA_TEST(windowTearingOverrideLoadsAsAnOptionalBoolean) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[[window_rule]]\nmatch.app_id = \"^game$\"\ntearing = true\n");
@@ -1803,9 +1803,9 @@ UMBRIEL_TEST(windowTearingOverrideLoadsAsAnOptionalBoolean) {
   CHECK(!store.config().windowRules[0].allowTearing);
 }
 
-UMBRIEL_TEST(windowRuleFloatingSizeTablesLoadIndependentAxesAndClamp) {
+ANDROMEDA_TEST(windowRuleFloatingSizeTablesLoadIndependentAxesAndClamp) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write(
@@ -1853,9 +1853,9 @@ UMBRIEL_TEST(windowRuleFloatingSizeTablesLoadIndependentAxesAndClamp) {
   CHECK(!store.config().windowRules[0].defaultScrollingExtent);
 }
 
-UMBRIEL_TEST(outputEnabledFlagParsesAndDefaultsTrue) {
+ANDROMEDA_TEST(outputEnabledFlagParsesAndDefaultsTrue) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nenabled = false\n");
@@ -1877,9 +1877,9 @@ UMBRIEL_TEST(outputEnabledFlagParsesAndDefaultsTrue) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.enabled"));
 }
 
-UMBRIEL_TEST(outputWorkspaceInventoryPreservesCountAndNames) {
+ANDROMEDA_TEST(outputWorkspaceInventoryPreservesCountAndNames) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nworkspaces = 9\n[output.DP-2]\nworkspaces = [\"3\", \"CHAT\"]\n");
@@ -1898,9 +1898,9 @@ UMBRIEL_TEST(outputWorkspaceInventoryPreservesCountAndNames) {
   }
 }
 
-UMBRIEL_TEST(outputMinWorkspacesLoadsAndRequiresDynamicWorkspaces) {
+ANDROMEDA_TEST(outputMinWorkspacesLoadsAndRequiresDynamicWorkspaces) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\nmin_workspaces = 4\n");
@@ -1929,9 +1929,9 @@ UMBRIEL_TEST(outputMinWorkspacesLoadsAndRequiresDynamicWorkspaces) {
 
 // The wrap switch is an ordinary per-output boolean: it defaults off, survives a
 // reload without the key, and rejects a non-boolean the way its neighbours do.
-UMBRIEL_TEST(outputCyclicWorkspacesLoadsAndDefaultsOff) {
+ANDROMEDA_TEST(outputCyclicWorkspacesLoadsAndDefaultsOff) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[output.DP-1]\ncyclic_workspaces = true\n");
@@ -1953,9 +1953,9 @@ UMBRIEL_TEST(outputCyclicWorkspacesLoadsAndDefaultsOff) {
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.cyclic_workspaces (expected boolean)"));
 }
 
-UMBRIEL_TEST(dynamicNamedWorkspaceDeclarationsReserveEmptySentinelCapacity) {
+ANDROMEDA_TEST(dynamicNamedWorkspaceDeclarationsReserveEmptySentinelCapacity) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   const auto declarations = [](size_t count, std::string_view prefix, std::string_view output = {}) {
@@ -1988,7 +1988,7 @@ UMBRIEL_TEST(dynamicNamedWorkspaceDeclarationsReserveEmptySentinelCapacity) {
   CHECK(store.reload().success);
 }
 
-UMBRIEL_TEST(semanticColorsLoadFromTheirOwnSection) {
+ANDROMEDA_TEST(semanticColorsLoadFromTheirOwnSection) {
   const TempConfig file;
   file.write(R"(
 [colors]
@@ -2001,9 +2001,9 @@ warning = "#51525354"
 error = "#61626364"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
   const auto& colors = store.config().colors;
 
   CHECK(result.success);
@@ -2018,20 +2018,20 @@ error = "#61626364"
   CHECK(!containsDiagnostic(store, "unknown key colors"));
 }
 
-UMBRIEL_TEST(missingIncludesRemainPendingUntilTheyLoad) {
+ANDROMEDA_TEST(missingIncludesRemainPendingUntilTheyLoad) {
   const TempConfig file;
   file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult missing = store.reload();
+  const andromeda::ConfigReloadResult missing = store.reload();
 
   CHECK(missing.success);
   CHECK(store.missingIncludes());
   CHECK(containsDiagnostic(store, "include not found"));
 
   file.writeInclude("[colors]\naccent_primary = \"#123456FF\"\n");
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK(!store.missingIncludes());
@@ -2039,18 +2039,18 @@ UMBRIEL_TEST(missingIncludesRemainPendingUntilTheyLoad) {
   CHECK_EQ(store.config().colors.accentPrimary[0], 18.0F / 255.0F);
 }
 
-UMBRIEL_TEST(unknownIncludeKeysRejectReload) {
+ANDROMEDA_TEST(unknownIncludeKeysRejectReload) {
   // The merge erases `include` before the config readers run, so the merge is the only place that can report a typo in
   // this section. Every file's own `include` table is checked, not just the root's.
   const TempConfig file;
   file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\ndirs = [\"themes\"]\n");
   file.writeInclude("[include]\npaths = []\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
   const uint64_t generation = store.generation();
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(!loaded.success);
   CHECK(store.config() == previous);
@@ -2060,14 +2060,14 @@ UMBRIEL_TEST(unknownIncludeKeysRejectReload) {
   CHECK(!containsDiagnostic(store, "unknown key include.files"));
 }
 
-UMBRIEL_TEST(missingOptionalIncludesAreSilentWatchedAndLoadWhenCreated) {
+ANDROMEDA_TEST(missingOptionalIncludesAreSilentWatchedAndLoadWhenCreated) {
   const TempConfigTree tree;
   const std::filesystem::path optional = tree.path("generated/colors.toml");
   tree.write("config.toml", "[include.optional]\nfiles = [\"generated/colors.toml\"]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
-  const umbriel::ConfigReloadResult missing = store.reload();
+  const andromeda::ConfigReloadResult missing = store.reload();
 
   CHECK(missing.success);
   CHECK(!store.missingIncludes());
@@ -2075,7 +2075,7 @@ UMBRIEL_TEST(missingOptionalIncludesAreSilentWatchedAndLoadWhenCreated) {
   CHECK(std::ranges::find(store.watchPaths(), optional) != store.watchPaths().end());
 
   tree.write("generated/colors.toml", "[colors]\naccent_primary = \"#123456FF\"\n");
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK(!store.missingIncludes());
@@ -2083,29 +2083,29 @@ UMBRIEL_TEST(missingOptionalIncludesAreSilentWatchedAndLoadWhenCreated) {
   CHECK_EQ(store.config().colors.accentPrimary[0], 18.0F / 255.0F);
 }
 
-UMBRIEL_TEST(optionalIncludesExpandPathsAndApplyAfterRequiredIncludes) {
+ANDROMEDA_TEST(optionalIncludesExpandPathsAndApplyAfterRequiredIncludes) {
   const TempConfigTree tree;
   const ScopedEnvironment home("HOME", tree.path("home").string());
-  const ScopedEnvironment generated("UMBRIEL_OPTIONAL_INCLUDE", tree.path("generated.toml").string());
+  const ScopedEnvironment generated("ANDROMEDA_OPTIONAL_INCLUDE", tree.path("generated.toml").string());
   tree.write("required.toml", "[layout]\ngap = 11\n");
   tree.write("generated.toml", "[layout]\ngap = 22\n");
   tree.write("home/override.toml", "[layout]\ngap = 33\n");
   tree.write(
       "config.toml",
       "[include]\nfiles = [\"required.toml\"]\n"
-      "[include.optional]\nfiles = [\"$UMBRIEL_OPTIONAL_INCLUDE\", \"~/override.toml\"]\n"
+      "[include.optional]\nfiles = [\"$ANDROMEDA_OPTIONAL_INCLUDE\", \"~/override.toml\"]\n"
   );
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK_EQ(store.config().layout.gap, 33);
   CHECK(!containsDiagnostic(store, "unknown key include.optional"));
 }
 
-UMBRIEL_TEST(malformedOptionalIncludeRejectsReload) {
+ANDROMEDA_TEST(malformedOptionalIncludeRejectsReload) {
   const TempConfigTree tree;
   tree.write(
       "config.toml",
@@ -2113,13 +2113,13 @@ UMBRIEL_TEST(malformedOptionalIncludeRejectsReload) {
       "[include.optional]\nfiles = [\"generated.toml\"]\n"
   );
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const uint64_t generation = store.generation();
 
   tree.write("generated.toml", "[layout\n");
-  const umbriel::ConfigReloadResult malformed = store.reload();
+  const andromeda::ConfigReloadResult malformed = store.reload();
 
   CHECK(!malformed.success);
   CHECK_EQ(store.generation(), generation);
@@ -2127,7 +2127,7 @@ UMBRIEL_TEST(malformedOptionalIncludeRejectsReload) {
   CHECK(!store.diagnostics().empty());
 }
 
-UMBRIEL_TEST(mainFileOverridesIncludedFiles) {
+ANDROMEDA_TEST(mainFileOverridesIncludedFiles) {
   // Noctalia's rendered theme lands in an include file; the user's root config must win on conflicts while still
   // picking up keys the include alone provides. This is what lets users override generated theme colors.
   const TempConfig file;
@@ -2143,16 +2143,16 @@ files = [")"
   );
   file.writeInclude("[colors]\naccent_primary = \"#123456FF\"\nbackground = \"#222222FF\"\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK_EQ(store.config().colors.accentPrimary[0], 171.0F / 255.0F);
   CHECK_EQ(store.config().colors.background[0], 34.0F / 255.0F);
 }
 
-UMBRIEL_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
+ANDROMEDA_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
   // Rules are a collection every file contributes to, so an include and the including file both apply, in merge
   // order. Every other array is one value: appending would grow a fixed-arity array past what its reader accepts and
   // would make an overridden autostart list run the include's commands as well.
@@ -2172,16 +2172,16 @@ UMBRIEL_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
       "[[window_rule]]\nmatch.app_id = \"^from-root$\"\n"
   );
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   std::vector<std::string> patterns;
-  for (const umbriel::WindowRule& rule : store.config().windowRules) {
+  for (const andromeda::WindowRule& rule : store.config().windowRules) {
     patterns.push_back(rule.appIdPattern);
   }
   std::vector<std::string> namespaces;
-  for (const umbriel::LayerRule& rule : store.config().layerRules) {
+  for (const andromeda::LayerRule& rule : store.config().layerRules) {
     namespaces.push_back(rule.namespacePattern);
   }
   const std::vector<std::string> expectedPatterns{"^from-include$", "^from-root$"};
@@ -2189,7 +2189,7 @@ UMBRIEL_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
   const std::vector<std::string> expectedAutostart{"from-root"};
   const std::array<int, 2> expectedPosition{3072, 0};
   const auto output =
-      std::ranges::find_if(store.config().outputs, [](const umbriel::OutputRule& rule) { return rule.name == "DP-1"; });
+      std::ranges::find_if(store.config().outputs, [](const andromeda::OutputRule& rule) { return rule.name == "DP-1"; });
   const bool foundOutput = output != store.config().outputs.end();
 
   CHECK(loaded.success);
@@ -2203,7 +2203,7 @@ UMBRIEL_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
 
 // Decoration keys are read from a window rule like every other effect key, so a
 // per-window frame, corner radius, and shadow reach the resolve path.
-UMBRIEL_TEST(windowRuleDecorationKeysAreRead) {
+ANDROMEDA_TEST(windowRuleDecorationKeysAreRead) {
   const TempConfig file;
   file.write(
       "[[window_rule]]\n"
@@ -2214,16 +2214,16 @@ UMBRIEL_TEST(windowRuleDecorationKeysAreRead) {
       "shadow = false\n"
   );
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
   if (store.config().windowRules.empty()) {
     return;
   }
-  const umbriel::WindowRule& rule = store.config().windowRules.front();
+  const andromeda::WindowRule& rule = store.config().windowRules.front();
   CHECK(rule.borderWidth && *rule.borderWidth == 0);
   CHECK(rule.outerBorderWidth && *rule.outerBorderWidth == 6);
   CHECK(rule.cornerRadius && *rule.cornerRadius == 0);
@@ -2231,20 +2231,20 @@ UMBRIEL_TEST(windowRuleDecorationKeysAreRead) {
   CHECK(store.diagnostics().empty());
 }
 
-UMBRIEL_TEST(emptyRuleArrayDropsRulesFromIncludes) {
+ANDROMEDA_TEST(emptyRuleArrayDropsRulesFromIncludes) {
   const TempConfig file;
   file.write("window_rule = []\n[include]\nfiles = [\"" + file.includeName() + "\"]\n");
   file.writeInclude("[[window_rule]]\nmatch.app_id = \"^dropped$\"\ndefault_floating = true\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult loaded = store.reload();
+  const andromeda::ConfigReloadResult loaded = store.reload();
 
   CHECK(loaded.success);
   CHECK(store.config().windowRules.empty());
 }
 
-UMBRIEL_TEST(duplicateDeviceRuleAcrossIncludesIsRejected) {
+ANDROMEDA_TEST(duplicateDeviceRuleAcrossIncludesIsRejected) {
   // Device rules accumulate like any other collection, so restating one in a later file is the same duplicate the
   // reader already rejects within a single file, and the whole reload is refused rather than silently dropping the
   // include's other rules.
@@ -2256,7 +2256,7 @@ UMBRIEL_TEST(duplicateDeviceRuleAcrossIncludesIsRejected) {
       "[[input.device]]\nname = \"Acme Mouse\"\nsensitivity = -0.5\n"
   );
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   CHECK_EQ(store.config().input.devices.size(), size_t{2});
@@ -2268,14 +2268,14 @@ UMBRIEL_TEST(duplicateDeviceRuleAcrossIncludesIsRejected) {
       "[include]\nfiles = [\"input.toml\"]\n"
       "[[input.device]]\nname = \"Acme Keyboard\"\nrepeat_rate = 60\n"
   );
-  const umbriel::ConfigReloadResult duplicate = store.reload();
+  const andromeda::ConfigReloadResult duplicate = store.reload();
 
   CHECK(!duplicate.success);
   CHECK(containsDiagnostic(store, "duplicates device 'Acme Keyboard'"));
   CHECK_EQ(store.config().input.devices.size(), size_t{2});
 }
 
-UMBRIEL_TEST(activationPolicyLoadsGloballyAndPerWindow) {
+ANDROMEDA_TEST(activationPolicyLoadsGloballyAndPerWindow) {
   const TempConfig file;
   file.write(R"(
 [general]
@@ -2295,9 +2295,9 @@ match.app_id = "^centered$"
 default_position = { x = 0, y = 0 }
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(store.config().general.focusOnActivate);
@@ -2313,14 +2313,14 @@ default_position = { x = 0, y = 0 }
   CHECK(store.config().windowRules[0].defaultPosition.has_value());
   CHECK_EQ(store.config().windowRules[0].defaultPosition->x, 32);
   CHECK_EQ(store.config().windowRules[0].defaultPosition->y, 48);
-  CHECK(store.config().windowRules[0].defaultPosition->anchor == umbriel::WindowPositionAnchor::BottomLeft);
+  CHECK(store.config().windowRules[0].defaultPosition->anchor == andromeda::WindowPositionAnchor::BottomLeft);
   CHECK(store.config().windowRules[1].defaultPosition.has_value());
-  CHECK(store.config().windowRules[1].defaultPosition->anchor == umbriel::WindowPositionAnchor::Center);
+  CHECK(store.config().windowRules[1].defaultPosition->anchor == andromeda::WindowPositionAnchor::Center);
 }
 
-UMBRIEL_TEST(restoredMaximizePolicyLoadsAndDefaultsOff) {
+ANDROMEDA_TEST(restoredMaximizePolicyLoadsAndDefaultsOff) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[general]\nhonor_restored_maximize = true\n");
@@ -2332,9 +2332,9 @@ UMBRIEL_TEST(restoredMaximizePolicyLoadsAndDefaultsOff) {
   CHECK(!store.config().general.honorRestoredMaximize);
 }
 
-UMBRIEL_TEST(screencastDynamicConfirmationDefaultsOnAndCanBeDisabled) {
+ANDROMEDA_TEST(screencastDynamicConfirmationDefaultsOnAndCanBeDisabled) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   file.write("[screencast]\ndisable_dynamic_confirmation = true\n");
@@ -2346,7 +2346,7 @@ UMBRIEL_TEST(screencastDynamicConfirmationDefaultsOnAndCanBeDisabled) {
   CHECK(!store.config().screenCast.disableDynamicConfirmation);
 }
 
-UMBRIEL_TEST(deviceInputOverridesLoadAndMatchExactNames) {
+ANDROMEDA_TEST(deviceInputOverridesLoadAndMatchExactNames) {
   const TempConfig file;
   file.write(R"(
 [input.keyboard]
@@ -2398,14 +2398,14 @@ scroll_button = "MouseBack"
 scroll_button_lock = false
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
   const auto& input = store.config().input;
 
   CHECK(result.success);
   CHECK(input.mouse.accelProfile.has_value());
-  CHECK(input.mouse.accelProfile->kind == umbriel::AccelProfile::Kind::Custom);
+  CHECK(input.mouse.accelProfile->kind == andromeda::AccelProfile::Kind::Custom);
   CHECK_EQ(input.mouse.accelProfile->step, 0.2);
   CHECK_EQ(input.mouse.accelProfile->points, std::vector<double>({0.0, 0.5, 1.0, 2.0}));
   CHECK_EQ(input.mouse.sensitivity, 0.25);
@@ -2414,7 +2414,7 @@ scroll_button_lock = false
   CHECK(input.mouse.leftHanded == std::optional<bool>(true));
   CHECK(input.touchpad.accelProfile.has_value());
   if (input.touchpad.accelProfile.has_value()) {
-    CHECK(input.touchpad.accelProfile->kind == umbriel::AccelProfile::Kind::Adaptive);
+    CHECK(input.touchpad.accelProfile->kind == andromeda::AccelProfile::Kind::Adaptive);
   }
   CHECK(input.touchpad.sensitivity == std::optional<double>(0.1));
   CHECK(input.touchpad.scrollFactor.has_value());
@@ -2422,8 +2422,8 @@ scroll_button_lock = false
   CHECK(input.touchpad.scrollFactor->vertical == std::optional<double>(0.6));
   CHECK(input.touchpad.disableWhileTyping == std::optional<bool>(true));
   CHECK(input.touchpad.disableOnExternalMouse == std::optional<bool>(true));
-  CHECK(input.touchpad.clickMethod == std::optional(umbriel::ClickMethod::ButtonAreas));
-  CHECK(input.touchpad.tapButtonMap == std::optional(umbriel::TapButtonMap::LeftMiddleRight));
+  CHECK(input.touchpad.clickMethod == std::optional(andromeda::ClickMethod::ButtonAreas));
+  CHECK(input.touchpad.tapButtonMap == std::optional(andromeda::TapButtonMap::LeftMiddleRight));
   CHECK(input.touchpad.leftHanded == std::optional<bool>(true));
   CHECK_EQ(input.devices.size(), size_t{3});
 
@@ -2444,19 +2444,19 @@ scroll_button_lock = false
     CHECK(touchpad->leftHanded == std::optional<bool>(false));
     CHECK(touchpad->accelProfile.has_value());
     if (touchpad->accelProfile.has_value()) {
-      CHECK(touchpad->accelProfile->kind == umbriel::AccelProfile::Kind::Flat);
+      CHECK(touchpad->accelProfile->kind == andromeda::AccelProfile::Kind::Flat);
     }
     CHECK(touchpad->sensitivity == std::optional<double>(-0.5));
     CHECK(touchpad->disableWhileTyping == std::optional<bool>(false));
-    CHECK(touchpad->clickMethod == std::optional(umbriel::ClickMethod::ClickFinger));
-    CHECK(touchpad->tapButtonMap == std::optional(umbriel::TapButtonMap::LeftRightMiddle));
+    CHECK(touchpad->clickMethod == std::optional(andromeda::ClickMethod::ClickFinger));
+    CHECK(touchpad->tapButtonMap == std::optional(andromeda::TapButtonMap::LeftRightMiddle));
   }
 
   const auto* mouse = input.findDevice("Acme Gaming Mouse");
   CHECK(mouse != nullptr);
   if (mouse != nullptr) {
     CHECK(mouse->accelProfile.has_value());
-    CHECK(mouse->accelProfile->kind == umbriel::AccelProfile::Kind::Flat);
+    CHECK(mouse->accelProfile->kind == andromeda::AccelProfile::Kind::Flat);
     CHECK(mouse->sensitivity == std::optional<double>(-0.5));
     CHECK(!mouse->clickMethod.has_value());
     CHECK(mouse->scrollButton == std::optional<uint32_t>(BTN_SIDE));
@@ -2468,50 +2468,50 @@ scroll_button_lock = false
   CHECK(input.findDevice("Acme") == nullptr);
 }
 
-UMBRIEL_TEST(mouseAccelerationPreservesDeviceProfileByDefault) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(mouseAccelerationPreservesDeviceProfileByDefault) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.mouse.accelProfile.has_value());
   CHECK_EQ(defaults.input.mouse.sensitivity, 0.0);
 }
 
-UMBRIEL_TEST(mouseScrollButtonDefaultsToUnset) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(mouseScrollButtonDefaultsToUnset) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.mouse.scrollButton.has_value());
   CHECK(!defaults.input.mouse.scrollButtonLock.has_value());
 }
 
-UMBRIEL_TEST(touchpadAccelerationDefaultsToUnset) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(touchpadAccelerationDefaultsToUnset) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.touchpad.accelProfile.has_value());
   CHECK(!defaults.input.touchpad.sensitivity.has_value());
 }
 
-UMBRIEL_TEST(touchpadScrollFactorDefaultsToUnset) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(touchpadScrollFactorDefaultsToUnset) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.touchpad.scrollFactor.has_value());
 }
 
-UMBRIEL_TEST(touchpadDisableWhileTypingDefaultsToUnset) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(touchpadDisableWhileTypingDefaultsToUnset) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.touchpad.disableWhileTyping.has_value());
 }
 
-UMBRIEL_TEST(touchpadDisableOnExternalMouseDefaultsToUnset) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(touchpadDisableOnExternalMouseDefaultsToUnset) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.touchpad.disableOnExternalMouse.has_value());
 }
 
-UMBRIEL_TEST(touchpadTapDefaultsToEnabled) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(touchpadTapDefaultsToEnabled) {
+  const andromeda::Config defaults;
   CHECK(defaults.input.touchpad.tap == std::optional<bool>(true));
 }
 
-UMBRIEL_TEST(cursorFollowsFocusDefaultsToDisabled) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(cursorFollowsFocusDefaultsToDisabled) {
+  const andromeda::Config defaults;
   CHECK(!defaults.input.cursor.followsFocus);
 }
 
-UMBRIEL_TEST(hardwareCursorCanBeDisabled) {
+ANDROMEDA_TEST(hardwareCursorCanBeDisabled) {
   const TempConfig file;
   file.write(R"(
 [input.cursor]
@@ -2520,9 +2520,9 @@ follows_focus = true
 hide_when_typing = true
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.cursor.hardwareCursor);
@@ -2533,16 +2533,16 @@ hide_when_typing = true
   CHECK(!containsDiagnostic(store, "unknown key input.cursor.hide_when_typing"));
 }
 
-UMBRIEL_TEST(cursorHideTimeoutLoads) {
+ANDROMEDA_TEST(cursorHideTimeoutLoads) {
   const TempConfig file;
   file.write(R"(
 [input.cursor]
 hide_timeout_ms = 1500
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().input.cursor.hideTimeoutMs, 1500);
@@ -2554,64 +2554,64 @@ hide_timeout_ms = 1500
   CHECK(containsDiagnostic(store, "unknown key input.cursor.hide_timeout"));
 }
 
-UMBRIEL_TEST(invalidCustomAccelerationCurveIsRejected) {
+ANDROMEDA_TEST(invalidCustomAccelerationCurveIsRejected) {
   const TempConfig file;
   file.write(R"(
 [input.mouse]
 accel_profile = "custom 0.2 1.0"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.mouse.accelProfile.has_value());
   CHECK(containsDiagnostic(store, "custom <step> <points...>"));
 }
 
-UMBRIEL_TEST(invalidClickMethodIsRejectedAndStillClaimsTheKey) {
+ANDROMEDA_TEST(invalidClickMethodIsRejectedAndStillClaimsTheKey) {
   const TempConfig file;
   file.write(R"(
 [input.touchpad]
 click_method = "button-areas"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.touchpad.clickMethod.has_value());
   CHECK(!containsDiagnostic(store, "unknown key input.touchpad.click_method"));
 }
 
-UMBRIEL_TEST(invalidTapButtonMapIsRejectedAndStillClaimsTheKey) {
+ANDROMEDA_TEST(invalidTapButtonMapIsRejectedAndStillClaimsTheKey) {
   const TempConfig file;
   file.write(R"(
 [input.touchpad]
 tap_button_map = "lmr"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.touchpad.tapButtonMap.has_value());
   CHECK(!containsDiagnostic(store, "unknown key input.touchpad.tap_button_map"));
 }
 
-UMBRIEL_TEST(scrollButtonRejectsEvdevCodesAndStillClaimsTheKey) {
+ANDROMEDA_TEST(scrollButtonRejectsEvdevCodesAndStillClaimsTheKey) {
   const TempConfig file;
   file.write(R"(
 [input.mouse]
 scroll_button = 275
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.mouse.scrollButton.has_value());
@@ -2622,7 +2622,7 @@ scroll_button = 275
   CHECK(!store.config().input.mouse.scrollButton.has_value());
 }
 
-UMBRIEL_TEST(scrollButtonReportsBindsItTakesOver) {
+ANDROMEDA_TEST(scrollButtonReportsBindsItTakesOver) {
   const TempConfig file;
   file.write(R"(
 [input.mouse]
@@ -2633,9 +2633,9 @@ scroll_button = "MouseBack"
 "Mod+MouseForward" = "overview-close"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(store.config().input.mouse.scrollButton == std::optional<uint32_t>(BTN_SIDE));
@@ -2652,7 +2652,7 @@ scroll_button = "MouseBack"
   CHECK(!containsDiagnostic(store, "claims MouseBack for scrolling"));
 }
 
-UMBRIEL_TEST(keyboardOptionsLoadGloballyAndPerDevice) {
+ANDROMEDA_TEST(keyboardOptionsLoadGloballyAndPerDevice) {
   const TempConfig file;
   file.write(R"(
 [input.keyboard]
@@ -2665,9 +2665,9 @@ layout = "us,fr"
 options = "grp:win_space_toggle"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
   const auto& input = store.config().input;
 
   CHECK(result.success);
@@ -2684,11 +2684,11 @@ options = "grp:win_space_toggle"
   }
 }
 
-UMBRIEL_TEST(keyboardTrackLayoutLoadsAndRejectsUnknownValues) {
+ANDROMEDA_TEST(keyboardTrackLayoutLoadsAndRejectsUnknownValues) {
   const TempConfig file;
   file.write("[input.keyboard]\ntrack_layout = \"window\"\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
   CHECK_EQ(store.config().input.keyboard.trackLayout, TrackLayout::Window);
@@ -2699,7 +2699,7 @@ UMBRIEL_TEST(keyboardTrackLayoutLoadsAndRejectsUnknownValues) {
   CHECK_EQ(store.config().input.keyboard.trackLayout, TrackLayout::Global);
 }
 
-UMBRIEL_TEST(tabletConfigLoads) {
+ANDROMEDA_TEST(tabletConfigLoads) {
   const TempConfig file;
   file.write(R"(
 [input.tablet]
@@ -2711,9 +2711,9 @@ left_handed = true
 calibration_matrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
   const auto& tablet = store.config().input.tablet;
 
   CHECK(result.success);
@@ -2728,16 +2728,16 @@ calibration_matrix = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
   }
 }
 
-UMBRIEL_TEST(tabletCalibrationMatrixRejectsWrongShape) {
+ANDROMEDA_TEST(tabletCalibrationMatrixRejectsWrongShape) {
   const TempConfig file;
   file.write(R"(
 [input.tablet]
 calibration_matrix = [1.0, 2.0, 3.0, 4.0, 5.0]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(!store.config().input.tablet.calibrationMatrix.has_value());
@@ -2750,15 +2750,15 @@ calibration_matrix = [1.0, 2.0, 3.0, "x", 5.0, 6.0]
 )");
 
   store.setRootPath(stringElement.path(), true);
-  const umbriel::ConfigReloadResult second = store.reload();
+  const andromeda::ConfigReloadResult second = store.reload();
 
   CHECK(second.success);
   CHECK(!store.config().input.tablet.calibrationMatrix.has_value());
   CHECK(containsDiagnostic(store, "calibration_matrix"));
 }
 
-UMBRIEL_TEST(tabletConfigDefaults) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(tabletConfigDefaults) {
+  const andromeda::Config defaults;
   const auto& tablet = defaults.input.tablet;
   CHECK(tablet.enabled);
   CHECK_EQ(tablet.mapToOutput, std::string{});
@@ -2768,7 +2768,7 @@ UMBRIEL_TEST(tabletConfigDefaults) {
   CHECK(!tablet.calibrationMatrix.has_value());
 }
 
-UMBRIEL_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackContentChanges) {
+ANDROMEDA_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackContentChanges) {
   const TempConfigTree tree;
   const std::array sections{"windows_in", "windows_out", "windows_move",  "workspaces", "overview",
                             "scratchpad", "border",      "dim_unfocused", "layers"};
@@ -2780,7 +2780,7 @@ UMBRIEL_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackConten
   tree.write("theme/animation.toml", theme);
   tree.write("theme/effect.glsl", "first shader");
   tree.write("effect.glsl", "wrong source directory");
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto& animation = store.config().animation;
@@ -2790,7 +2790,7 @@ UMBRIEL_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackConten
   for (const auto* effect : effects) {
     CHECK_EQ(*effect, std::string("reveal"));
   }
-  const umbriel::EffectPreset* reveal = umbriel::findEffectPreset(store.config().effects, "reveal");
+  const andromeda::EffectPreset* reveal = andromeda::findEffectPreset(store.config().effects, "reveal");
   CHECK(reveal != nullptr);
   if (reveal != nullptr) {
     CHECK_EQ(reveal->shader.code, std::string("first shader"));
@@ -2804,7 +2804,7 @@ UMBRIEL_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackConten
   CHECK(edited.success);
   CHECK(edited.effects.effects);
   CHECK(!edited.effects.animation);
-  reveal = umbriel::findEffectPreset(store.config().effects, "reveal");
+  reveal = andromeda::findEffectPreset(store.config().effects, "reveal");
   CHECK(reveal != nullptr && reveal->shader.code == "edited shader");
 
   tree.write("theme/replacement.glsl", "replacement shader");
@@ -2817,13 +2817,13 @@ UMBRIEL_TEST(animationEffectsResolveIncludedPresetsAcrossAllEventsAndTrackConten
   CHECK(std::ranges::find(store.watchPaths(), tree.path("theme/effect.glsl")) == store.watchPaths().end());
   CHECK(store.config().animation.layers.effect.empty());
   CHECK_EQ(store.config().animation.windowsIn.effect, std::string("reveal"));
-  reveal = umbriel::findEffectPreset(store.config().effects, "reveal");
+  reveal = andromeda::findEffectPreset(store.config().effects, "reveal");
   CHECK(reveal != nullptr && reveal->shader.code == "replacement shader");
 }
 
-UMBRIEL_TEST(removedAnimationShaderKeyIsUnknown) {
+ANDROMEDA_TEST(removedAnimationShaderKeyIsUnknown) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[animation.windows_in]\nshader = \"reveal.glsl\"\n");
   CHECK(store.reload().success);
@@ -2831,7 +2831,7 @@ UMBRIEL_TEST(removedAnimationShaderKeyIsUnknown) {
   CHECK(store.config().animation.windowsIn.effect.empty());
 }
 
-UMBRIEL_TEST(animationUsesCanonicalTopLevelNamespace) {
+ANDROMEDA_TEST(animationUsesCanonicalTopLevelNamespace) {
   const TempConfig file;
   file.write(R"(
 [animation]
@@ -2867,28 +2867,28 @@ dim = 0.4
 blur = true
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
   const auto& animation = store.config().animation;
 
   CHECK(result.success);
   CHECK(!animation.enabled);
   CHECK_EQ(animation.durationMs, 320);
-  CHECK(animation.curve.easing == umbriel::Easing::Linear);
+  CHECK(animation.curve.easing == andromeda::Easing::Linear);
   CHECK(!animation.windowsIn.enabled);
   CHECK_EQ(animation.windowsIn.durationMs, 450);
-  CHECK(animation.windowsIn.curve.easing == umbriel::Easing::CustomBezier);
+  CHECK(animation.windowsIn.curve.easing == andromeda::Easing::CustomBezier);
   CHECK_EQ(animation.windowsIn.style, std::string{"zoom"});
   CHECK_EQ(animation.windowsIn.scale, 0.7);
-  CHECK(animation.windowsOut.curve.easing == umbriel::Easing::Spring);
+  CHECK(animation.windowsOut.curve.easing == andromeda::Easing::Spring);
   CHECK_EQ(animation.windowsOut.style, std::string{"popin"});
   CHECK_EQ(animation.windowsOut.scale, 0.6);
   CHECK(!animation.overview.enabled);
   CHECK_EQ(animation.overview.durationMs, 700);
-  CHECK(animation.overview.curve.easing == umbriel::Easing::CustomBezier);
+  CHECK(animation.overview.curve.easing == andromeda::Easing::CustomBezier);
   // The shared curve reaches every duration-based event, but the filmstrip settle keeps its spring until asked.
-  CHECK(animation.overview.workspaceCurve.easing == umbriel::Easing::Spring);
+  CHECK(animation.overview.workspaceCurve.easing == andromeda::Easing::Spring);
   CHECK_EQ(animation.overview.workspaceCurve.spring.stiffness, 1000.0);
   CHECK_EQ(animation.windowsMove.durationMs, 320);
   CHECK_EQ(animation.scratchpad.dim, 0.4);
@@ -2912,7 +2912,7 @@ enabled = true
   CHECK(containsDiagnostic(store, "unknown key animation.fade"));
 }
 
-UMBRIEL_TEST(environmentRequiresStringValuesAndPortableNames) {
+ANDROMEDA_TEST(environmentRequiresStringValuesAndPortableNames) {
   const TempConfig file;
   file.write(R"(
 [environment]
@@ -2926,9 +2926,9 @@ WLR_DRM_DEVICES = "/dev/dri/card0"
 WLR_RENDER_DRM_DEVICE = "/dev/dri/renderD128"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().environment.variables.size(), size_t{4});
@@ -2956,12 +2956,12 @@ WLR_RENDER_DRM_DEVICE = "/dev/dri/renderD128"
   CHECK(containsDiagnostic(store, R"(ignoring environment key "9INVALID" (expected [A-Za-z_][A-Za-z0-9_]*))"));
   CHECK(containsDiagnostic(store, R"(ignoring environment key "HAS-HYPHEN" (expected [A-Za-z_][A-Za-z0-9_]*))"));
   CHECK(containsDiagnostic(store, "ignoring environment.NOT_A_STRING (expected string)"));
-  CHECK(containsDiagnostic(store, "ignoring environment.WAYLAND_DISPLAY (reserved by Umbriel)"));
+  CHECK(containsDiagnostic(store, "ignoring environment.WAYLAND_DISPLAY (reserved by Andromeda)"));
   CHECK(!containsDiagnostic(store, "unknown key environment.DXVK_HDR"));
   CHECK(!containsDiagnostic(store, "unknown key environment._PRIVATE"));
 }
 
-UMBRIEL_TEST(drmConfigurationLoadsAndNormalizesSelectors) {
+ANDROMEDA_TEST(drmConfigurationLoadsAndNormalizesSelectors) {
   const TempConfig file;
   file.write(R"(
 [drm]
@@ -2972,9 +2972,9 @@ ignored_devices = [
 ignored_pci_addresses = ["0000:01:00.0", "0000:01:00.0"]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK(store.config().drm.configured());
@@ -2991,42 +2991,42 @@ ignored_pci_addresses = ["0000:AB:0C.7"]
   CHECK_EQ(store.config().drm.ignoredPciAddresses, std::vector<std::string>{"0000:ab:0c.7"});
 }
 
-UMBRIEL_TEST(emptyDrmTableKeepsTheCompatibilityPath) {
+ANDROMEDA_TEST(emptyDrmTableKeepsTheCompatibilityPath) {
   const TempConfig file;
   file.write("[drm]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   CHECK(store.reload().success);
   CHECK(!store.config().drm.configured());
 }
 
-UMBRIEL_TEST(drmPathsPreserveSymlinkSensitiveComponents) {
+ANDROMEDA_TEST(drmPathsPreserveSymlinkSensitiveComponents) {
   const TempConfig file;
   file.write(R"(
 [drm]
 ignored_devices = ["/dev/dri/excluded/../card0"]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
 
   CHECK(store.reload().success);
   CHECK_EQ(store.config().drm.ignoredDevices, std::vector<std::string>{"/dev/dri/excluded/../card0"});
 }
 
-UMBRIEL_TEST(drmConfigurationRejectsUnsafeSelectors) {
+ANDROMEDA_TEST(drmConfigurationRejectsUnsafeSelectors) {
   const TempConfig file;
   file.write(R"(
 [drm]
 ignored_pci_addresses = ["0000:01:00.0"]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
 
   file.write(R"(
 [drm]
@@ -3036,7 +3036,7 @@ render_device = "/dev/dri/renderD128"
 surprise = true
 )");
 
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(!result.success);
   CHECK(store.config() == previous);
@@ -3047,13 +3047,13 @@ surprise = true
   CHECK(containsDiagnostic(store, "unknown key drm.surprise"));
 }
 
-UMBRIEL_TEST(initialConfigErrorsDoNotCommitDefaults) {
+ANDROMEDA_TEST(initialConfigErrorsDoNotCommitDefaults) {
   const TempConfig file;
   file.write("[drm]\nignored_pci_addresses = [\"invalid\"]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
 
   CHECK(!store.load(file.path().c_str()));
   CHECK_EQ(store.generation(), generation);
@@ -3061,11 +3061,11 @@ UMBRIEL_TEST(initialConfigErrorsDoNotCommitDefaults) {
   CHECK(containsDiagnostic(store, "invalid drm.ignored_pci_addresses entry"));
 }
 
-UMBRIEL_TEST(initialNonDrmErrorsKeepCompatibilityDefaults) {
+ANDROMEDA_TEST(initialNonDrmErrorsKeepCompatibilityDefaults) {
   const TempConfig file;
   file.write("workspace = \"invalid\"\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(store.load(file.path().c_str()));
@@ -3074,18 +3074,18 @@ UMBRIEL_TEST(initialNonDrmErrorsKeepCompatibilityDefaults) {
   CHECK(containsDiagnostic(store, "workspace must be a [[workspace]] array of tables"));
 }
 
-UMBRIEL_TEST(initialSyntaxErrorsFailClosedEvenWithoutRecognizableDrmPolicy) {
+ANDROMEDA_TEST(initialSyntaxErrorsFailClosedEvenWithoutRecognizableDrmPolicy) {
   const TempConfig file;
   file.write("workspace =\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
   CHECK_EQ(store.generation(), generation);
 }
 
-UMBRIEL_TEST(initialErrorsCannotDiscardRequestedDrmPolicy) {
+ANDROMEDA_TEST(initialErrorsCannotDiscardRequestedDrmPolicy) {
   const TempConfig file;
   file.write(R"(
 workspace = "invalid"
@@ -3094,7 +3094,7 @@ workspace = "invalid"
 ignored_pci_addresses = ["0000:01:00.0"]
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3102,14 +3102,14 @@ ignored_pci_addresses = ["0000:01:00.0"]
   CHECK(containsDiagnostic(store, "workspace must be a [[workspace]] array of tables"));
 }
 
-UMBRIEL_TEST(initialSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
+ANDROMEDA_TEST(initialSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
   const TempConfig file;
   file.write(R"(
 [drm]
 ignored_devices = ["/dev/dri/card0"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3117,7 +3117,7 @@ ignored_devices = ["/dev/dri/card0"
   CHECK(containsDiagnostic(store, "Error while parsing array"));
 }
 
-UMBRIEL_TEST(initialIncludedSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
+ANDROMEDA_TEST(initialIncludedSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
   const TempConfig file;
   file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\n");
   file.writeInclude(R"(
@@ -3125,7 +3125,7 @@ UMBRIEL_TEST(initialIncludedSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
 ignored_pci_addresses = ["0000:01:00.0"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3133,15 +3133,15 @@ ignored_pci_addresses = ["0000:01:00.0"
   CHECK(containsDiagnostic(store, "Error while parsing array"));
 }
 
-UMBRIEL_TEST(invalidIncludeDirectivesCannotDiscardDrmPolicy) {
+ANDROMEDA_TEST(invalidIncludeDirectivesCannotDiscardDrmPolicy) {
   const TempConfigTree tree;
   const std::filesystem::path root = tree.path("config.toml");
   tree.write("hardware.toml", "[drm]\nignored_pci_addresses = [\"0000:01:00.0\"]\n");
   tree.write("config.toml", "[include]\nfiles = [\"hardware.toml\"]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   CHECK(store.load(root.c_str()));
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
   const uint64_t generation = store.generation();
 
   constexpr std::array invalidIncludes{
@@ -3166,13 +3166,13 @@ UMBRIEL_TEST(invalidIncludeDirectivesCannotDiscardDrmPolicy) {
   }
 }
 
-UMBRIEL_TEST(initialUnreadableConfigCannotSilentlyDiscardDrmPolicy) {
+ANDROMEDA_TEST(initialUnreadableConfigCannotSilentlyDiscardDrmPolicy) {
   const TempConfig file;
   file.write("[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
   std::filesystem::permissions(file.path(), std::filesystem::perms::none);
   CHECK(access(file.path().c_str(), R_OK) != 0);
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3180,14 +3180,14 @@ UMBRIEL_TEST(initialUnreadableConfigCannotSilentlyDiscardDrmPolicy) {
   CHECK(containsDiagnostic(store, "File could not be opened for reading"));
 }
 
-UMBRIEL_TEST(initialInaccessibleConfigCannotSilentlyDiscardDrmPolicy) {
+ANDROMEDA_TEST(initialInaccessibleConfigCannotSilentlyDiscardDrmPolicy) {
   const TempConfigTree tree;
   tree.write("restricted/config.toml", "[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
   const std::filesystem::path restricted = tree.path("restricted");
   const std::filesystem::path configPath = restricted / "config.toml";
   std::filesystem::permissions(restricted, std::filesystem::perms::none);
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
   const bool loaded = store.load(configPath.c_str());
   std::filesystem::permissions(restricted, std::filesystem::perms::owner_all);
@@ -3197,18 +3197,18 @@ UMBRIEL_TEST(initialInaccessibleConfigCannotSilentlyDiscardDrmPolicy) {
   CHECK(containsDiagnostic(store, "cannot inspect config file"));
 }
 
-UMBRIEL_TEST(defaultConfigLookupDoesNotSkipInaccessibleUserPolicy) {
+ANDROMEDA_TEST(defaultConfigLookupDoesNotSkipInaccessibleUserPolicy) {
   const TempConfigTree tree;
   const std::filesystem::path userHome = tree.path("user");
-  const std::filesystem::path userConfig = userHome / "umbriel/config.toml";
+  const std::filesystem::path userConfig = userHome / "andromeda/config.toml";
   const std::filesystem::path systemDir = tree.path("system");
-  tree.write("user/umbriel/config.toml", "[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
-  tree.write("system/umbriel/config.toml", "[layout]\ngap = 17\n");
+  tree.write("user/andromeda/config.toml", "[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
   const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
   std::filesystem::permissions(userConfig.parent_path(), std::filesystem::perms::none);
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
   const bool loaded = store.load(nullptr);
   std::filesystem::permissions(userConfig.parent_path(), std::filesystem::perms::owner_all);
@@ -3219,11 +3219,11 @@ UMBRIEL_TEST(defaultConfigLookupDoesNotSkipInaccessibleUserPolicy) {
   CHECK(containsDiagnostic(store, "cannot inspect config file"));
 }
 
-UMBRIEL_TEST(missingPolicyIncludeRequiresRootDrmIntentMarker) {
+ANDROMEDA_TEST(missingPolicyIncludeRequiresRootDrmIntentMarker) {
   const TempConfig file;
   file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\n\n[drm]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3232,11 +3232,11 @@ UMBRIEL_TEST(missingPolicyIncludeRequiresRootDrmIntentMarker) {
   CHECK(containsDiagnostic(store, "cannot safely load DRM policy while an include is missing"));
 }
 
-UMBRIEL_TEST(missingOptionalPolicyIncludeRequiresRootDrmIntentMarker) {
+ANDROMEDA_TEST(missingOptionalPolicyIncludeRequiresRootDrmIntentMarker) {
   const TempConfig file;
   file.write("[include.optional]\nfiles = [\"" + file.includeName() + "\"]\n\n[drm]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(!store.load(file.path().c_str()));
@@ -3245,14 +3245,14 @@ UMBRIEL_TEST(missingOptionalPolicyIncludeRequiresRootDrmIntentMarker) {
   CHECK(containsDiagnostic(store, "cannot safely load DRM policy while an include is missing"));
 }
 
-UMBRIEL_TEST(inaccessibleIncludeCannotBeTreatedAsMissing) {
+ANDROMEDA_TEST(inaccessibleIncludeCannotBeTreatedAsMissing) {
   const TempConfigTree tree;
   tree.write("config.toml", "[include]\nfiles = [\"restricted/hardware.toml\"]\n");
   tree.write("restricted/hardware.toml", "[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
   const std::filesystem::path restricted = tree.path("restricted");
   std::filesystem::permissions(restricted, std::filesystem::perms::none);
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
   const bool loaded = store.load(tree.path("config.toml").c_str());
   std::filesystem::permissions(restricted, std::filesystem::perms::owner_all);
@@ -3263,13 +3263,13 @@ UMBRIEL_TEST(inaccessibleIncludeCannotBeTreatedAsMissing) {
   CHECK(containsDiagnostic(store, "cannot inspect included config file"));
 }
 
-UMBRIEL_TEST(initialMissingExplicitConfigFailsWithoutCommittingDefaults) {
+ANDROMEDA_TEST(initialMissingExplicitConfigFailsWithoutCommittingDefaults) {
   const TempConfig file;
   std::filesystem::remove(file.path());
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
 
   CHECK(!store.load(file.path().c_str()));
   CHECK_EQ(store.generation(), generation);
@@ -3277,7 +3277,7 @@ UMBRIEL_TEST(initialMissingExplicitConfigFailsWithoutCommittingDefaults) {
   CHECK(containsDiagnostic(store, "config file not found"));
 }
 
-UMBRIEL_TEST(eventsLoadCanonicalLidCommands) {
+ANDROMEDA_TEST(eventsLoadCanonicalLidCommands) {
   const TempConfig file;
   file.write(R"(
 [events]
@@ -3285,9 +3285,9 @@ lid_close = "systemctl suspend"
 lid_open = "notify-send awake"
 )");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
-  const umbriel::ConfigReloadResult result = store.reload();
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
   CHECK_EQ(store.config().events.lidClose, std::string{"systemctl suspend"});
@@ -3295,19 +3295,19 @@ lid_open = "notify-send awake"
   CHECK(store.diagnostics().empty());
 }
 
-UMBRIEL_TEST(packagedAnimationDefaultsMatchCompiledDefaults) {
-  ConfigStore& store = umbriel::configStore();
-  store.setRootPath(UMBRIEL_EXAMPLE_CONFIG, true);
-  const umbriel::ConfigReloadResult result = store.reload();
+ANDROMEDA_TEST(packagedAnimationDefaultsMatchCompiledDefaults) {
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(ANDROMEDA_EXAMPLE_CONFIG, true);
+  const andromeda::ConfigReloadResult result = store.reload();
 
   CHECK(result.success);
-  CHECK(store.config().animation == umbriel::Config{}.animation);
+  CHECK(store.config().animation == andromeda::Config{}.animation);
 }
 
-UMBRIEL_TEST(effectPresetsClaimOnlyTheirKindsKeys) {
+ANDROMEDA_TEST(effectPresetsClaimOnlyTheirKindsKeys) {
   const TempConfigTree tree;
-  tree.write("pulse.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
-  tree.write("glow.glsl", "vec4 cursor(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("pulse.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
+  tree.write("glow.glsl", "vec4 cursor(vec2 uv) { return andromeda_sample(uv); }");
   tree.write(
       "config.toml",
       "[effects]\nmax_fps = 60\nin_capture = true\n"
@@ -3317,17 +3317,17 @@ UMBRIEL_TEST(effectPresetsClaimOnlyTheirKindsKeys) {
       "[effects.preset.pulse.light]\nspread = 40\nintensity = 2\nthreshold = 0.25\n"
       "[effects.preset.glow]\nkind = \"cursor\"\nshader = \"glow.glsl\"\nradius = 96\npadding = 3\n"
   );
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto& effects = store.config().effects;
   CHECK_EQ(effects.maxFps, 60);
   CHECK(effects.inCapture);
   CHECK_EQ(effects.presets.size(), size_t{2});
-  const umbriel::EffectPreset* pulse = umbriel::findEffectPreset(effects, "pulse");
+  const andromeda::EffectPreset* pulse = andromeda::findEffectPreset(effects, "pulse");
   CHECK(pulse != nullptr);
   if (pulse != nullptr) {
-    CHECK(pulse->kind == umbriel::EffectKind::Border);
+    CHECK(pulse->kind == andromeda::EffectKind::Border);
     CHECK_EQ(pulse->padding, 12);
     CHECK(pulse->speed == 2.5F);
     CHECK(!pulse->animated);
@@ -3341,7 +3341,7 @@ UMBRIEL_TEST(effectPresetsClaimOnlyTheirKindsKeys) {
     CHECK(pulse->shader.file == tree.path("pulse.glsl"));
     CHECK(!pulse->inert());
   }
-  const umbriel::EffectPreset* glow = umbriel::findEffectPreset(effects, "glow");
+  const andromeda::EffectPreset* glow = andromeda::findEffectPreset(effects, "glow");
   CHECK(glow != nullptr);
   if (glow != nullptr) {
     CHECK_EQ(glow->radius, 96);
@@ -3351,33 +3351,33 @@ UMBRIEL_TEST(effectPresetsClaimOnlyTheirKindsKeys) {
   CHECK_EQ(std::ranges::count(store.watchPaths(), tree.path("pulse.glsl")), 1);
 }
 
-UMBRIEL_TEST(effectPresetsNeedAKindAndKeepTheirNameWithoutAShader) {
+ANDROMEDA_TEST(effectPresetsNeedAKindAndKeepTheirNameWithoutAShader) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write(
       "[effects.preset.nokind]\nshader = \"x.glsl\"\n[effects.preset.missing]\nkind = \"screen\"\nshader = "
       "\"absent.glsl\"\n[effects.preset.off]\nkind = \"screen\"\n"
   );
   CHECK(store.reload().success);
-  CHECK(umbriel::findEffectPreset(store.config().effects, "nokind") == nullptr);
+  CHECK(andromeda::findEffectPreset(store.config().effects, "nokind") == nullptr);
   CHECK(
       containsDiagnostic(store, "ignoring effects.preset.nokind (kind must be animation|border|window|screen|cursor)")
   );
-  const umbriel::EffectPreset* missing = umbriel::findEffectPreset(store.config().effects, "missing");
+  const andromeda::EffectPreset* missing = andromeda::findEffectPreset(store.config().effects, "missing");
   CHECK(missing != nullptr && missing->inert());
   CHECK(containsDiagnostic(store, "cannot read shader file"));
-  CHECK(umbriel::findEffectPreset(store.config().effects, "off") == nullptr);
+  CHECK(andromeda::findEffectPreset(store.config().effects, "off") == nullptr);
   CHECK(containsDiagnostic(store, "ignoring effects.preset.off ('off' is reserved)"));
 }
 
-UMBRIEL_TEST(effectSelectorsLoadAtEveryLevel) {
+ANDROMEDA_TEST(effectSelectorsLoadAtEveryLevel) {
   const TempConfigTree tree;
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
-  tree.write("w.glsl", "vec4 window(vec2 uv) { return umbriel_sample(uv); }");
-  tree.write("s.glsl", "vec4 screen(vec2 uv) { return umbriel_sample(uv); }");
-  tree.write("c.glsl", "vec4 cursor(vec2 uv) { return umbriel_sample(uv); }");
-  tree.write("o.glsl", "vec4 animation(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
+  tree.write("w.glsl", "vec4 window(vec2 uv) { return andromeda_sample(uv); }");
+  tree.write("s.glsl", "vec4 screen(vec2 uv) { return andromeda_sample(uv); }");
+  tree.write("c.glsl", "vec4 cursor(vec2 uv) { return andromeda_sample(uv); }");
+  tree.write("o.glsl", "vec4 animation(vec2 uv) { return andromeda_sample(uv); }");
   tree.write(
       "config.toml",
       "[effects]\nborder = \"ring\"\nwindow = \"lines\"\nscreen = \"vig\"\ncursor = \"glow\"\n"
@@ -3391,7 +3391,7 @@ UMBRIEL_TEST(effectSelectorsLoadAtEveryLevel) {
       "[animation.windows_in]\neffect = \"open\"\n"
       "[animation.windows_drag]\nphysics = true\n"
   );
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto& config = store.config();
@@ -3407,13 +3407,13 @@ UMBRIEL_TEST(effectSelectorsLoadAtEveryLevel) {
   CHECK_EQ(config.animation.windowsIn.effect, std::string("open"));
   CHECK(config.animation.windowsDrag.physics);
   CHECK(!containsDiagnostic(store, "unknown key"));
-  const umbriel::EffectPreset* ring = umbriel::findEffectPreset(config.effects, "ring");
+  const andromeda::EffectPreset* ring = andromeda::findEffectPreset(config.effects, "ring");
   CHECK(ring != nullptr && ring->overlay == "lines");
 }
 
-UMBRIEL_TEST(effectReferencesAreValidatedAfterEverySectionIsRead) {
+ANDROMEDA_TEST(effectReferencesAreValidatedAfterEverySectionIsRead) {
   const TempConfigTree tree;
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
   tree.write(
       "config.toml",
       // Forward reference: the selector precedes the preset in the file and the preset comes from an include.
@@ -3428,7 +3428,7 @@ UMBRIEL_TEST(effectReferencesAreValidatedAfterEverySectionIsRead) {
       "[effects.preset.ring]\nkind = \"border\"\nshader = \"a.glsl\"\noverlay = \"nope\"\n"
       "[effects.preset.ring2]\nkind = \"border\"\nshader = \"a.glsl\"\noverlay = \"ring\"\n"
   );
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto& config = store.config();
@@ -3452,46 +3452,46 @@ UMBRIEL_TEST(effectReferencesAreValidatedAfterEverySectionIsRead) {
   CHECK(containsDiagnostic(
       store, "ignoring animation.windows_out.effect (effect 'ring' is a border preset, not an animation preset)"
   ));
-  const umbriel::EffectPreset* ring = umbriel::findEffectPreset(config.effects, "ring");
+  const andromeda::EffectPreset* ring = andromeda::findEffectPreset(config.effects, "ring");
   CHECK(ring != nullptr && ring->overlay.empty());
   CHECK(containsDiagnostic(store, "ignoring effects.preset.ring.overlay (unknown effect 'nope')"));
   // An overlay must name a window preset: a border preset is the wrong kind.
-  const umbriel::EffectPreset* ring2 = umbriel::findEffectPreset(config.effects, "ring2");
+  const andromeda::EffectPreset* ring2 = andromeda::findEffectPreset(config.effects, "ring2");
   CHECK(ring2 != nullptr && ring2->overlay.empty());
   CHECK(containsDiagnostic(
       store, "ignoring effects.preset.ring2.overlay (effect 'ring' is a border preset, not a window preset)"
   ));
 }
 
-UMBRIEL_TEST(effectPaletteFollowsTheColorsSectionOrder) {
-  umbriel::Config config;
+ANDROMEDA_TEST(effectPaletteFollowsTheColorsSectionOrder) {
+  andromeda::Config config;
   config.colors.accentPrimary = {1, 0, 0, 1};
   config.colors.accentSecondary = {0, 1, 0, 1};
   config.colors.warning = {0, 0, 1, 1};
   config.colors.error = {1, 1, 0, 1};
-  const auto palette = umbriel::effectPalette(config.colors);
+  const auto palette = andromeda::effectPalette(config.colors);
   CHECK(palette[0] == config.colors.accentPrimary);
   CHECK(palette[1] == config.colors.accentSecondary);
   CHECK(palette[2] == config.colors.warning);
   CHECK(palette[3] == config.colors.error);
 }
 
-UMBRIEL_TEST(effectReloadsFlagOnlyEffectDependentState) {
+ANDROMEDA_TEST(effectReloadsFlagOnlyEffectDependentState) {
   const TempConfigTree tree;
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
   tree.write(
       "config.toml",
       "[effects.preset.ring]\nkind = \"border\"\nshader = \"a.glsl\"\n[effects]\nborder = \"ring\"\n"
       "[output.\"HEADLESS-1\"]\nenabled = true\n"
   );
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto same = store.reload();
   CHECK(same.success);
   CHECK(!same.effects.effects);
   CHECK(!same.effects.any());
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv) * 0.5; }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv) * 0.5; }");
   const auto edited = store.reload();
   CHECK(edited.success);
   CHECK(edited.effects.effects);
@@ -3509,9 +3509,9 @@ UMBRIEL_TEST(effectReloadsFlagOnlyEffectDependentState) {
   CHECK_EQ(output.effects.summary(), std::string("effects"));
 }
 
-UMBRIEL_TEST(effectSelectorNonStringValueWarnsAndLeavesSettingUnset) {
+ANDROMEDA_TEST(effectSelectorNonStringValueWarnsAndLeavesSettingUnset) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[[window_rule]]\nmatch.app_id = \"^foot$\"\nborder_effect = 3\n");
   CHECK(store.reload().success);
@@ -3523,9 +3523,9 @@ UMBRIEL_TEST(effectSelectorNonStringValueWarnsAndLeavesSettingUnset) {
   CHECK(!config.windowRules[0].borderEffect);
 }
 
-UMBRIEL_TEST(effectSelectorOnADroppedWindowRuleRecordsNoReference) {
+ANDROMEDA_TEST(effectSelectorOnADroppedWindowRuleRecordsNoReference) {
   const TempConfig file;
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   file.write("[[window_rule]]\nmatch.app_id = \"[\"\nborder_effect = \"off\"\n");
   CHECK(store.reload().success);
@@ -3534,9 +3534,9 @@ UMBRIEL_TEST(effectSelectorOnADroppedWindowRuleRecordsNoReference) {
   CHECK(!containsDiagnostic(store, "border_effect"));
 }
 
-UMBRIEL_TEST(duplicateOutputSectionDoesNotCorruptASurvivingScreenEffectReference) {
+ANDROMEDA_TEST(duplicateOutputSectionDoesNotCorruptASurvivingScreenEffectReference) {
   const TempConfigTree tree;
-  tree.write("vig.glsl", "vec4 screen(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("vig.glsl", "vec4 screen(vec2 uv) { return andromeda_sample(uv); }");
   tree.write(
       "config.toml",
       "[effects.preset.vig]\nkind = \"screen\"\nshader = \"vig.glsl\"\n"
@@ -3544,13 +3544,13 @@ UMBRIEL_TEST(duplicateOutputSectionDoesNotCorruptASurvivingScreenEffectReference
       "[output.\"HDMI-A-1\"]\nscreen_effect = \"vig\"\n"
       "[output.\"dp-1\"]\nenabled = true\n"
   );
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const auto& config = store.config();
   CHECK_EQ(config.outputs.size(), size_t{2});
   const auto hdmi =
-      std::ranges::find_if(config.outputs, [](const umbriel::OutputRule& rule) { return rule.name == "HDMI-A-1"; });
+      std::ranges::find_if(config.outputs, [](const andromeda::OutputRule& rule) { return rule.name == "HDMI-A-1"; });
   CHECK(hdmi != config.outputs.end());
   if (hdmi != config.outputs.end()) {
     CHECK(hdmi->screenEffect == "vig");
@@ -3561,16 +3561,16 @@ UMBRIEL_TEST(duplicateOutputSectionDoesNotCorruptASurvivingScreenEffectReference
   CHECK(!containsDiagnostic(store, "screen_effect (unknown effect 'nope')"));
 }
 
-UMBRIEL_TEST(duplicateEffectPresetsAcrossIncludesAreRejected) {
+ANDROMEDA_TEST(duplicateEffectPresetsAcrossIncludesAreRejected) {
   const TempConfigTree tree;
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
   tree.write("theme.toml", "[effects.preset.ring]\nkind = \"border\"\nshader = \"a.glsl\"\n");
   tree.write("config.toml", "[include]\nfiles = [\"theme.toml\"]\n[effects]\nborder = \"ring\"\n");
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   const uint64_t generation = store.generation();
-  const umbriel::Config previous = store.config();
+  const andromeda::Config previous = store.config();
 
   tree.write(
       "config.toml",
@@ -3585,14 +3585,14 @@ UMBRIEL_TEST(duplicateEffectPresetsAcrossIncludesAreRejected) {
   CHECK_EQ(store.generation(), generation);
 }
 
-UMBRIEL_TEST(initialDuplicateEffectPresetsKeepCompatibilityDefaults) {
+ANDROMEDA_TEST(initialDuplicateEffectPresetsKeepCompatibilityDefaults) {
   const TempConfigTree tree;
   const std::string preset = "[effects.preset.ring]\nkind = \"border\"\nshader = \"a.glsl\"\n";
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
   tree.write("theme.toml", preset);
   tree.write("config.toml", "[include]\nfiles = [\"theme.toml\"]\n" + preset);
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
   CHECK(store.load(tree.path("config.toml").c_str()));
@@ -3604,15 +3604,15 @@ UMBRIEL_TEST(initialDuplicateEffectPresetsKeepCompatibilityDefaults) {
   }));
 }
 
-UMBRIEL_TEST(duplicateEffectPresetsInSiblingIncludesNameTheFirstSibling) {
+ANDROMEDA_TEST(duplicateEffectPresetsInSiblingIncludesNameTheFirstSibling) {
   const TempConfigTree tree;
   const std::string preset = "[effects.preset.ring]\nkind = \"border\"\nshader = \"a.glsl\"\n";
-  tree.write("a.glsl", "vec4 border(vec2 uv) { return umbriel_sample(uv); }");
+  tree.write("a.glsl", "vec4 border(vec2 uv) { return andromeda_sample(uv); }");
   tree.write("first.toml", preset);
   tree.write("second.toml", preset);
   tree.write("config.toml", "[include]\nfiles = [\"first.toml\", \"second.toml\"]\n");
 
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(!store.reload().success);
   const auto isDuplicate = [](const ConfigDiagnostic& diagnostic) {
@@ -3629,16 +3629,16 @@ UMBRIEL_TEST(duplicateEffectPresetsInSiblingIncludesNameTheFirstSibling) {
   CHECK(duplicate->file.ends_with("second.toml"));
 }
 
-UMBRIEL_TEST(bundledEffectPresetsDefineWithoutSelecting) {
+ANDROMEDA_TEST(bundledEffectPresetsDefineWithoutSelecting) {
   const TempConfigTree tree;
   std::string includes = "[include]\nfiles = [\n";
   for (const char* effect :
        {"animation/reveal", "animation/squash", "border/pulse", "window/scanlines", "screen/vignette", "cursor/glow"}) {
-    includes += std::format("  \"{}/examples/effects/{}/effect.toml\",\n", UMBRIEL_SOURCE_ROOT, effect);
+    includes += std::format("  \"{}/examples/effects/{}/effect.toml\",\n", ANDROMEDA_SOURCE_ROOT, effect);
   }
   includes += "]\n";
   tree.write("config.toml", includes);
-  ConfigStore& store = umbriel::configStore();
+  ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
   CHECK(store.reload().success);
   CHECK(!containsDiagnostic(store, "unknown key"));
@@ -3646,10 +3646,10 @@ UMBRIEL_TEST(bundledEffectPresetsDefineWithoutSelecting) {
   const auto& effects = store.config().effects;
   CHECK_EQ(effects.presets.size(), size_t{6});
   CHECK(effects.border.empty() && effects.window.empty() && effects.screen.empty() && effects.cursor.empty());
-  const umbriel::EffectPreset* pulse = umbriel::findEffectPreset(effects, "pulse");
-  CHECK(pulse != nullptr && pulse->kind == umbriel::EffectKind::Border && pulse->light.has_value());
-  const umbriel::EffectPreset* glow = umbriel::findEffectPreset(effects, "glow");
-  CHECK(glow != nullptr && glow->kind == umbriel::EffectKind::Cursor && glow->radius > 0);
+  const andromeda::EffectPreset* pulse = andromeda::findEffectPreset(effects, "pulse");
+  CHECK(pulse != nullptr && pulse->kind == andromeda::EffectKind::Border && pulse->light.has_value());
+  const andromeda::EffectPreset* glow = andromeda::findEffectPreset(effects, "glow");
+  CHECK(glow != nullptr && glow->kind == andromeda::EffectKind::Cursor && glow->radius > 0);
 }
 
 int main() { return RUN_TESTS(); }

@@ -50,7 +50,7 @@ namespace {
     Buffer buffer;
     const int stride = width * 4;
     buffer.size = static_cast<size_t>(stride * height);
-    const int fd = memfd_create("umbriel-popup-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-popup-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(buffer.size)) < 0) {
       if (fd >= 0) {
         close(fd);

@@ -21,7 +21,7 @@ binding anything else:
 "Mod+F1" = "none"
 ```
 
-A settings app edits these binds through Umbriel and saves them in
+A settings app edits these binds through Andromeda and saves them in
 `settings.toml`, which wins over `config.toml`; see
 [Configuration](configuration.md#settings-made-in-a-settings-app).
 
@@ -88,7 +88,7 @@ Use this only for actions that are safe without an unlocked session.
 
 ## Keyboard shortcuts inhibition
 
-Games and remote desktop clients can ask Umbriel to pass keyboard shortcuts
+Games and remote desktop clients can ask Andromeda to pass keyboard shortcuts
 through. Pointer and wheel binds are unaffected.
 
 Keep one escape binding available:
@@ -128,13 +128,13 @@ The optional `submap` field applies a transition after the action. Use
 `"Escape" = "submap:reset"` always matches, even outside a submap, so use it
 only when bare Escape should be consumed globally.
 
-Run `umbriel submap` to print the active layer, or subscribe to `submap` events
+Run `andromeda submap` to print the active layer, or subscribe to `submap` events
 for a panel or script.
 
 ## Keyboard layouts
 
 Bindings normally match the symbol produced by the active layout. When several
-layouts are configured, Umbriel also checks the same physical key for a
+layouts are configured, Andromeda also checks the same physical key for a
 printable ASCII symbol in the other layouts. This keeps binds such as `Mod+T`
 working after switching to a non-Latin layout.
 
@@ -167,7 +167,7 @@ Hot corners are inactive while the output's focused window is fullscreen.
 
 The cheatsheet lists active keybinds. It opens at startup when
 `general.show_cheatsheet` is enabled. Use `cheatsheet-toggle`,
-`cheatsheet-open`, or `cheatsheet-close` from a bind or `umbriel msg`.
+`cheatsheet-open`, or `cheatsheet-close` from a bind or `andromeda msg`.
 
 Any non-modifier key or mouse button closes it. Normal bound actions still run.
 

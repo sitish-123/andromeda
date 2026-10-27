@@ -162,8 +162,8 @@ namespace {
       platform.focusCompositorWindow(entry.windowId);
       return;
     }
-    // Umbriel's exact-id action preserves the switcher's pointer-warp intent without changing taskbar activation.
-    if (compositors::isUmbriel() && !entry.windowId.empty()) {
+    // Andromeda's exact-id action preserves the switcher's pointer-warp intent without changing taskbar activation.
+    if (compositors::isAndromeda() && !entry.windowId.empty()) {
       platform.focusCompositorWindow(entry.windowId, true);
       return;
     }

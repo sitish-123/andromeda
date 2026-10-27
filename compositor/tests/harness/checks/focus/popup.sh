@@ -6,10 +6,10 @@ set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly LEFT_BUTTON=272
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly POPUP_CLIENT="${UMBRIEL_POPUP_CLIENT:-./build-debug/tests/popup-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/popup-client.log"
-readonly POINTER_LOG="$UMBRIEL_RUNTIME_DIR/popup-pointer.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POPUP_CLIENT="${ANDROMEDA_POPUP_CLIENT:-./build-debug/tests/popup-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/popup-client.log"
+readonly POINTER_LOG="$ANDROMEDA_RUNTIME_DIR/popup-pointer.log"
 
 if [[ ! -x $POINTER || ! -x $POPUP_CLIENT ]]; then
   echo "popup focus clients are not built"
@@ -26,20 +26,20 @@ wait_for_log() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
 curve = "linear"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$POPUP_CLIENT" > "$CLIENT_LOG" 2>&1 &
 wait_for_log ready
 
 windows='[]'
 for _ in $(seq 50); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   if jq -e 'any(.[]; .title == "popup-focus-regression")' <<< "$windows" > /dev/null; then
     break
   fi
@@ -63,7 +63,7 @@ printf 'window=%s x=%s y=%s state=%s\n' "$window_id" "$window_x" "$window_y" "$w
 pointer_pid=$!
 wait_for_log popup-mapped
 
-"$UMBRIEL" msg "window-focus:$window_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$window_id" > /dev/null
 sleep 0.2 # real time: the popup is never dismissed
 if grep -qx 'popup-done' "$CLIENT_LOG" 2>/dev/null; then
   echo "redundant toplevel focus dismissed its popup: $(< "$CLIENT_LOG")"

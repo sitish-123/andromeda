@@ -2,20 +2,20 @@
 # A title change after map must not reapply an unchanged default_scrolling_extent rule.
 set -euo pipefail
 
-readonly TITLE_FIFO="$UMBRIEL_RUNTIME_DIR/title-width.fifo"
+readonly TITLE_FIFO="$ANDROMEDA_RUNTIME_DIR/title-width.fifo"
 
 window_field() {
-  "$UMBRIEL" windows --json | jq -r --arg field "$1" '.[] | select(.app_id == "helium") | .[$field]'
+  "$ANDROMEDA" windows --json | jq -r --arg field "$1" '.[] | select(.app_id == "helium") | .[$field]'
 }
 
 window_width() { window_field w; }
 
 wait_for_title() {
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.app_id == "helium") | .title') == helium-navigated ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq -r '.[] | select(.app_id == "helium") | .title') == helium-navigated ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for helium title change: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for helium title change: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
@@ -26,11 +26,11 @@ wait_for_field() {
     [[ $actual == "$expected" ]] && return 0
     sleep 0.1
   done
-  echo "expected helium field '$field' to be '$expected', got '$actual': $("$UMBRIEL" windows --json)"
+  echo "expected helium field '$field' to be '$expected', got '$actual': $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[window_rule]]
 match.app_id = "^helium$"
@@ -45,7 +45,7 @@ default_position = { x = 20, y = 20, anchor = "bottom_right" }
 match.title = "^unrelated-title-rule$"
 opacity = 0.9
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$TITLE_FIFO"
 # TITLE_FIFO is a shell-local, so it still needs an explicit export to the client.
@@ -60,15 +60,15 @@ for _ in $(seq 60); do
 done
 initial_width=$(window_width)
 if [[ $initial_width != 942 ]]; then
-  echo "default_scrolling_extent did not produce the expected initial width: $("$UMBRIEL" windows --json)"
+  echo "default_scrolling_extent did not produce the expected initial width: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-"$UMBRIEL" msg window-set-primary-extent:0.25 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-set-primary-extent:0.25 > /dev/null
+"$ANDROMEDA" settle
 manual_width=$(window_width)
 if (( manual_width >= initial_width )); then
-  echo "window-set-primary-extent did not shrink helium: $("$UMBRIEL" windows --json)"
+  echo "window-set-primary-extent did not shrink helium: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
@@ -76,13 +76,13 @@ echo helium-navigated > "$TITLE_FIFO"
 wait_for_title
 final_width=$(window_width)
 if [[ $final_width != "$manual_width" ]]; then
-  echo "title change reset manual width from $manual_width to $final_width: $("$UMBRIEL" windows --json)"
+  echo "title change reset manual width from $manual_width to $final_width: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
 # The late floating geometry stays symbolic while tiled. Its anchor must be evaluated against the saved 300x200 size,
 # not the current tiled geometry.
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_for_field floating true
 wait_for_field w 300
 wait_for_field h 200

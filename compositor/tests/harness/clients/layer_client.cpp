@@ -80,7 +80,7 @@ namespace {
     Buffer buffer{.width = width, .height = height};
     const int stride = width * 4;
     buffer.size = static_cast<size_t>(stride * height);
-    const int fd = memfd_create("umbriel-layer-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-layer-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(buffer.size)) < 0) {
       if (fd >= 0) {
         close(fd);
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
   }
   state.surface = wl_compositor_create_surface(state.compositor);
   state.layerSurface = zwlr_layer_shell_v1_get_layer_surface(
-      state.layerShell, state.surface, (*selected)->resource, layer, "umbriel-output-restore-regression"
+      state.layerShell, state.surface, (*selected)->resource, layer, "andromeda-output-restore-regression"
   );
   zwlr_layer_surface_v1_add_listener(state.layerSurface, &kLayerSurfaceListener, &state);
   if (state.keyboardInteractivity != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {

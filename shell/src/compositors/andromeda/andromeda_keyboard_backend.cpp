@@ -1,6 +1,6 @@
-#include "compositors/umbriel/umbriel_keyboard_backend.h"
+#include "compositors/andromeda/andromeda_keyboard_backend.h"
 
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 
 #include <utility>
 
@@ -38,19 +38,19 @@ namespace {
 
 } // namespace
 
-UmbrielKeyboardBackend::UmbrielKeyboardBackend(compositors::umbriel::UmbrielRuntime& runtime)
-    : compositors::umbriel::UmbrielEventHandler(runtime) {}
+AndromedaKeyboardBackend::AndromedaKeyboardBackend(compositors::andromeda::AndromedaRuntime& runtime)
+    : compositors::andromeda::AndromedaEventHandler(runtime) {}
 
-bool UmbrielKeyboardBackend::isAvailable() const noexcept { return m_runtime.available(); }
+bool AndromedaKeyboardBackend::isAvailable() const noexcept { return m_runtime.available(); }
 
-bool UmbrielKeyboardBackend::cycleLayout() const {
+bool AndromedaKeyboardBackend::cycleLayout() const {
   if (!isAvailable()) {
     return false;
   }
   return m_runtime.requestAction("keyboard-layout-next");
 }
 
-std::optional<KeyboardLayoutState> UmbrielKeyboardBackend::layoutState() const {
+std::optional<KeyboardLayoutState> AndromedaKeyboardBackend::layoutState() const {
   if (!isAvailable()) {
     return std::nullopt;
   }
@@ -62,7 +62,7 @@ std::optional<KeyboardLayoutState> UmbrielKeyboardBackend::layoutState() const {
   return parseLayoutState(response->at("ok"));
 }
 
-std::optional<std::string> UmbrielKeyboardBackend::currentLayoutName() const {
+std::optional<std::string> AndromedaKeyboardBackend::currentLayoutName() const {
   const auto state = layoutState();
   if (!state.has_value() || state->currentIndex < 0 || state->currentIndex >= static_cast<int>(state->names.size())) {
     return std::nullopt;
@@ -70,9 +70,9 @@ std::optional<std::string> UmbrielKeyboardBackend::currentLayoutName() const {
   return state->names[static_cast<std::size_t>(state->currentIndex)];
 }
 
-void UmbrielKeyboardBackend::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
+void AndromedaKeyboardBackend::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
-void UmbrielKeyboardBackend::handleEvent(std::string_view event, const nlohmann::json& /*data*/) {
+void AndromedaKeyboardBackend::handleEvent(std::string_view event, const nlohmann::json& /*data*/) {
   if (event != "keyboard_layout") {
     return;
   }

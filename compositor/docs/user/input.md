@@ -66,7 +66,7 @@ options = "grp:alt_shift_toggle"
 layouts and variants are reported in the log and fall back to the system
 default. Run `xkbcli list` to inspect available values.
 
-Run `umbriel keyboard-layouts` to list the configured layouts. The active one
+Run `andromeda keyboard-layouts` to list the configured layouts. The active one
 is prefixed with `*`.
 
 #### Layout switching
@@ -78,7 +78,7 @@ Bind `keyboard-layout-next` to cycle configured physical keyboard layouts:
 "Mod+Shift+K" = "keyboard-layout-next"
 ```
 
-`umbriel msg keyboard-layout-next` provides the same action for scripts.
+`andromeda msg keyboard-layout-next` provides the same action for scripts.
 Physical keyboards that provide the selected layout stay synchronized. Virtual
 keyboards retain their application-provided keymap.
 
@@ -286,6 +286,6 @@ or a layout change places a different window there. This follows the actual
 seat focus across tiled, floating, and pinned windows, including pinned windows
 whose owning workspace is inactive.
 
-`follows_mouse_max_scroll` limits how far Umbriel may scroll a layout to reveal
+`follows_mouse_max_scroll` limits how far Andromeda may scroll a layout to reveal
 that window, measured in viewport widths. `0.0` allows only fully visible
 windows. Omit the key for no limit.

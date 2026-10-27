@@ -15,18 +15,18 @@ readonly SOURCE=client-move-source
 readonly TARGET=client-move-target
 readonly MOVE_DX=260
 readonly MOVE_DY=140
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly SOURCE_LOG="$UMBRIEL_RUNTIME_DIR/client-move-source.log"
-readonly TARGET_LOG="$UMBRIEL_RUNTIME_DIR/client-move-target.log"
-readonly POINTER_LOG="$UMBRIEL_RUNTIME_DIR/client-move-pointer.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly SOURCE_LOG="$ANDROMEDA_RUNTIME_DIR/client-move-source.log"
+readonly TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/client-move-target.log"
+readonly POINTER_LOG="$ANDROMEDA_RUNTIME_DIR/client-move-pointer.log"
 
 if [[ ! -x $POINTER || ! -x $OBSERVER ]]; then
   echo "input helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -51,27 +51,27 @@ default_floating = true
 default_floating_size_px = { width = 300, height = 200 }
 default_position = { x = 840, y = 410, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 await_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "expected $expected windows, got $("$UMBRIEL" windows --json | jq -c 'map(.title)')"
+  echo "expected $expected windows, got $("$ANDROMEDA" windows --json | jq -c 'map(.title)')"
   return 1
 }
 
 window_box() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" \
     '.[] | select(.title == $title) | "\(.x) \(.y) \(.w) \(.h)"'
 }
 
 wait_for_position() {
   local title=$1 expected_x=$2 expected_y=$3 actual=
   for _ in $(seq 40); do
-    actual=$("$UMBRIEL" windows --json | jq -r --arg title "$title" \
+    actual=$("$ANDROMEDA" windows --json | jq -r --arg title "$title" \
       '.[] | select(.title == $title) | "\(.x) \(.y)"')
     [[ $actual == "$expected_x $expected_y" ]] && return 0
     sleep 0.1
@@ -131,15 +131,15 @@ fi
 
 # A window that moves under a stationary cursor must see the pointer where it
 # is drawn before the next press, not where it was before the move.
-source_id=$("$UMBRIEL" windows --json | jq -r --arg title "$SOURCE" '.[] | select(.title == $title) | .id')
-"$UMBRIEL" msg "window-focus:$source_id" > /dev/null
+source_id=$("$ANDROMEDA" windows --json | jq -r --arg title "$SOURCE" '.[] | select(.title == $title) | .id')
+"$ANDROMEDA" msg "window-focus:$source_id" > /dev/null
 hover_x=$((expected_x + source_w - 20))
 hover_y=$((expected_y + source_h - 20))
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" move "$hover_x" "$hover_y" > "$POINTER_LOG" 2>&1 || {
   echo "pointer client failed: $(< "$POINTER_LOG")"
   exit 1
 }
-"$UMBRIEL" msg window-center > /dev/null
+"$ANDROMEDA" msg window-center > /dev/null
 for _ in $(seq 40); do
   read -r centered_x centered_y _ _ < <(window_box "$SOURCE")
   [[ "$centered_x $centered_y" != "$expected_x $expected_y" ]] && break
@@ -166,8 +166,8 @@ if [[ $position != "$expected_position" ]]; then
 fi
 
 readonly IGNORED=client-move-ignored
-readonly IGNORED_LOG="$UMBRIEL_RUNTIME_DIR/client-move-ignored.log"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+readonly IGNORED_LOG="$ANDROMEDA_RUNTIME_DIR/client-move-ignored.log"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [input]
 client_window_drag = false
@@ -178,7 +178,7 @@ default_floating = true
 default_floating_size_px = { width = 300, height = 200 }
 default_position = { x = 60, y = 480, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 "$OBSERVER" "$IGNORED" move-on-press > "$IGNORED_LOG" 2>&1 &
 await_windows 3
 read -r ignored_x ignored_y ignored_w ignored_h < <(window_box "$IGNORED")

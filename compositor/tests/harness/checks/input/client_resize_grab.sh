@@ -4,7 +4,7 @@
 # its client. The compositor must resize through the requested layout edge,
 # finish on the raw release, and restore ordinary input for the next surface.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly BTN_LEFT=272
 readonly OUTPUT_W=1280
@@ -12,18 +12,18 @@ readonly OUTPUT_H=720
 readonly SOURCE=client-resize-source
 readonly TARGET=client-resize-target
 readonly RESIZE_DX=120
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly SOURCE_LOG="$UMBRIEL_RUNTIME_DIR/client-resize-source.log"
-readonly TARGET_LOG="$UMBRIEL_RUNTIME_DIR/client-resize-target.log"
-readonly POINTER_LOG="$UMBRIEL_RUNTIME_DIR/client-resize-pointer.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly SOURCE_LOG="$ANDROMEDA_RUNTIME_DIR/client-resize-source.log"
+readonly TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/client-resize-target.log"
+readonly POINTER_LOG="$ANDROMEDA_RUNTIME_DIR/client-resize-pointer.log"
 
 if [[ ! -x $POINTER || ! -x $OBSERVER ]]; then
   echo "input helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -40,35 +40,35 @@ enabled = false
 default_extent_fraction = 0.35
 center_underfull_strip = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 await_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "expected $expected windows, got $("$UMBRIEL" windows --json | jq -c 'map(.title)')"
+  echo "expected $expected windows, got $("$ANDROMEDA" windows --json | jq -c 'map(.title)')"
   return 1
 }
 
 window_box() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" \
     '.[] | select(.title == $title) | "\(.x) \(.y) \(.w) \(.h)"'
 }
 
 wait_for_layout() {
   local expected_width=$1 expected_target_x=$2 actual_width= actual_target_x=
   for _ in $(seq 40); do
-    actual_width=$("$UMBRIEL" windows --json | jq -r --arg title "$SOURCE" \
+    actual_width=$("$ANDROMEDA" windows --json | jq -r --arg title "$SOURCE" \
       '.[] | select(.title == $title) | .w')
-    actual_target_x=$("$UMBRIEL" windows --json | jq -r --arg title "$TARGET" \
+    actual_target_x=$("$ANDROMEDA" windows --json | jq -r --arg title "$TARGET" \
       '.[] | select(.title == $title) | .x')
     [[ $actual_width == "$expected_width" && $actual_target_x == "$expected_target_x" ]] && return 0
     sleep 0.1
   done
   echo "expected source width $expected_width and target x $expected_target_x, got $actual_width and $actual_target_x"
-  echo "windows: $("$UMBRIEL" windows --json | jq -c '[.[] | {title, x, y, w, h}]')"
+  echo "windows: $("$ANDROMEDA" windows --json | jq -c '[.[] | {title, x, y, w, h}]')"
   return 1
 }
 
@@ -134,19 +134,19 @@ echo "client-requested tiled resize changed the layout and released input to its
 kill "$source_pid" "$target_pid"
 wait "$source_pid" "$target_pid" 2>/dev/null || true
 await_windows 0
-"$UMBRIEL" msg workspace-set-layout:dwindle > /dev/null
-readonly PATTERN="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+"$ANDROMEDA" msg workspace-set-layout:dwindle > /dev/null
+readonly PATTERN="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
 HOLD_SIZE=1 "$PATTERN" "$SOURCE" 1200 700 > "$SOURCE_LOG" 2>&1 &
 await_windows 1
 HOLD_SIZE=1 "$PATTERN" "$TARGET" 1200 700 > "$TARGET_LOG" 2>&1 &
 await_windows 2
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 read -r source_x source_y source_w source_h < <(window_box "$SOURCE")
 read -r target_x target_y target_w target_h < <(window_box "$TARGET")
 resize_start_x=$((target_x - 30))
 resize_y=$((source_y + 200))
-readonly HELD="$UMBRIEL_RUNTIME_DIR/resize-held.png"
-readonly RELEASED="$UMBRIEL_RUNTIME_DIR/resize-released.png"
+readonly HELD="$ANDROMEDA_RUNTIME_DIR/resize-held.png"
+readonly RELEASED="$ANDROMEDA_RUNTIME_DIR/resize-released.png"
 
 impure_pixels() {
   magick "$1" -alpha off -crop "120x1+$2+$resize_y" +repage -depth 8 txt:- |
@@ -158,7 +158,7 @@ pointer_hold "$OUTPUT_W" "$OUTPUT_H" \
   -- release 273 mod none
 grim -o HEADLESS-1 "$HELD"
 pointer_release
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim -o HEADLESS-1 "$RELEASED"
 read -r target_x target_y target_w target_h < <(window_box "$TARGET")
 for sample_x in "$((source_x + 40))" "$((target_x + 40))"; do

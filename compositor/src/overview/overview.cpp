@@ -2,7 +2,7 @@
 
 #include "overview/preview_geometry.h"
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
 #include "config/config.h"
@@ -39,7 +39,7 @@ extern "C" {
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("overview");
@@ -3328,4 +3328,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -7,21 +7,21 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] &&
 fi
 
 if [ -n "${MANAGERPID:-}" ] && [ "${SYSTEMD_EXEC_PID:-}" = "$$" ]; then
-  exec ${drs} @UMBRIEL_EXECUTABLE@ "$@"
+  exec ${drs} @ANDROMEDA_EXECUTABLE@ "$@"
 fi
 
 login_reentry=false
-if [ "${UMBRIEL_LOGIN_REENTRY:-}" = 1 ]; then
+if [ "${ANDROMEDA_LOGIN_REENTRY:-}" = 1 ]; then
   login_reentry=true
-  unset UMBRIEL_LOGIN_REENTRY
-  unset WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY UMBRIEL_SOCKET \
+  unset ANDROMEDA_LOGIN_REENTRY
+  unset WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY ANDROMEDA_SOCKET \
     XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE
 fi
 
 if [ "$login_reentry" = false ]; then
   if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${WAYLAND_SOCKET:-}" ] ||
     [ -n "${DISPLAY:-}" ]; then
-    exec ${drs} @UMBRIEL_EXECUTABLE@ "$@"
+    exec ${drs} @ANDROMEDA_EXECUTABLE@ "$@"
   fi
 
   login_shell_kind=
@@ -50,27 +50,27 @@ if [ "$login_reentry" = false ]; then
   # shell once so its noninteractive login profile can extend the environment.
   case "$login_shell_kind" in
     fish)
-      UMBRIEL_LOGIN_REENTRY=1 exec "$SHELL" -l -c 'exec $argv' "$0" "$@"
+      ANDROMEDA_LOGIN_REENTRY=1 exec "$SHELL" -l -c 'exec $argv' "$0" "$@"
       ;;
     bourne)
-      UMBRIEL_LOGIN_REENTRY=1 exec "$SHELL" -l -c 'exec "$@"' "$SHELL" "$0" "$@"
+      ANDROMEDA_LOGIN_REENTRY=1 exec "$SHELL" -l -c 'exec "$@"' "$SHELL" "$0" "$@"
       ;;
   esac
 fi
 
 if ! command -v systemctl >/dev/null 2>&1 ||
   ! systemctl --user show-environment >/dev/null 2>&1; then
-  exec ${drs} @UMBRIEL_EXECUTABLE@ "$@"
+  exec ${drs} @ANDROMEDA_EXECUTABLE@ "$@"
 fi
 
-if systemctl --user --quiet is-active umbriel.service; then
-  echo "An Umbriel session is already running." >&2
+if systemctl --user --quiet is-active andromeda.service; then
+  echo "An Andromeda session is already running." >&2
   exit 1
 fi
 
 systemctl --user reset-failed
 systemctl --user unset-environment WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY \
-  XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE UMBRIEL_SOCKET
+  XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET
 # Import the login-profile environment before starting the managed session.
 session_environment_names() {
   awk 'BEGIN {
@@ -86,11 +86,11 @@ if command -v dbus-update-activation-environment >/dev/null 2>&1; then
   session_environment_names | xargs -r dbus-update-activation-environment
 fi
 
-systemctl --user --wait start umbriel.service
-umbriel_status=$?
+systemctl --user --wait start andromeda.service
+andromeda_status=$?
 
-systemctl --user start --job-mode=replace-irreversibly umbriel-shutdown.target
+systemctl --user start --job-mode=replace-irreversibly andromeda-shutdown.target
 systemctl --user unset-environment WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY \
-  XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE UMBRIEL_SOCKET
+  XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET
 
-exit "$umbriel_status"
+exit "$andromeda_status"

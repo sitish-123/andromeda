@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace umbriel {
+namespace andromeda {
   // wlroots emits a key event before applying that key to its modifier state.
   // Include the modifier represented by the current press when matching.
   [[nodiscard]] bool modifierTapPressMatches(uint32_t modifiers, uint32_t pressedModifier, uint32_t expected);
@@ -28,4 +28,4 @@ namespace umbriel {
     uint32_t m_keycode = 0;
   };
 
-} // namespace umbriel
+} // namespace andromeda

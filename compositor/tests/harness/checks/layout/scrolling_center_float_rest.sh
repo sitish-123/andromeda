@@ -11,7 +11,7 @@ spawn_titled() {
   CLIENT_PID[$1]=$!
 }
 
-window_count() { "$UMBRIEL" windows --json | jq 'length'; }
+window_count() { "$ANDROMEDA" windows --json | jq 'length'; }
 
 wait_for_count() {
   for _ in $(seq 80); do
@@ -23,14 +23,14 @@ wait_for_count() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg t "$1" --arg f "$2" \
       '[.[] | select(.title == $t) | .[$f]] | if length == 1 then .[0] | tostring else "missing" end'
 }
 
 id_of() { field_of "$1" id; }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -44,7 +44,7 @@ center_underfull_strip = true
 match.title = "^F2$"
 default_floating = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # T1 is column 0 and stays tiled for the whole check, never adjacent to the column that detaches (T2, the middle
 # one): removing T2 does not renumber T1's column, so T1.x is a clean readout of the strip's scroll offset alone,
@@ -55,17 +55,17 @@ spawn_titled T2
 wait_for_count 2
 spawn_titled T3
 wait_for_count 3
-"$UMBRIEL" msg "window-focus:$(id_of T2)" > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg "window-focus:$(id_of T2)" > /dev/null
+"$ANDROMEDA" settle
 
 t1_x_centered=$(field_of T1 x)
 if [[ $t1_x_centered == "missing" ]]; then
-  echo "T1 did not map: $("$UMBRIEL" windows --json)"
+  echo "T1 did not map: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-"$UMBRIEL" msg window-toggle-floating > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" settle
 
 t1_x_after_detach=$(field_of T1 x)
 if [[ $t1_x_after_detach != "$t1_x_centered" ]]; then
@@ -77,11 +77,11 @@ fi
 # throughout, mirroring the reported episode.
 spawn_titled F2
 wait_for_count 4
-"$UMBRIEL" msg "window-focus:$(id_of F2)" > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg "window-focus:$(id_of F2)" > /dev/null
+"$ANDROMEDA" settle
 kill -TERM "${CLIENT_PID[F2]}" 2>/dev/null || true
 wait_for_count 3
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 t1_x_final=$(field_of T1 x)
 if [[ $t1_x_final != "$t1_x_centered" ]]; then
@@ -91,10 +91,10 @@ fi
 
 # T3 is the last column, so its centered rest lies past maxScroll. Once it floats, T1 is alone and the strip has to
 # center it rather than keep resting where T3 was.
-"$UMBRIEL" msg "window-focus:$(id_of T3)" > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" msg window-toggle-floating > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg "window-focus:$(id_of T3)" > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" settle
 t1_x=$(field_of T1 x)
 t1_w=$(field_of T1 w)
 if ((t1_x != (1280 - t1_w) / 2)); then

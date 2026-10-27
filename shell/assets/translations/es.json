@@ -1385,7 +1385,7 @@
         "shell": "Shell",
         "system": "Sistema",
         "templates": "Plantillas",
-        "umbriel": "Umbriel",
+        "andromeda": "Andromeda",
         "wallpaper": "Fondo de Pantalla"
       }
     },
@@ -3246,8 +3246,8 @@
           "description": "Formato de hora predeterminado para la interfaz del shell sin configuración propia",
           "label": "Formato de hora"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "Abre el lanzador al escribir en la vista general de Umbriel; utiliza una superficie diminuta para el foco del teclado mientras la vista general está abierta",
+        "andromeda-overview-type-to-launch": {
+          "description": "Abre el lanzador al escribir en la vista general de Andromeda; utiliza una superficie diminuta para el foco del teclado mientras la vista general está abierta",
           "label": "Escribe para lanzar"
         },
         "window-switcher-mru": {

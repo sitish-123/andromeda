@@ -5,20 +5,20 @@
 # define without selecting: including them all compiles none, and selecting them
 # all compiles each on the GPU without diagnostics.
 set -euo pipefail
-readonly BASE="$UMBRIEL_RUNTIME_DIR/registry-base.toml"
-readonly USED="$UMBRIEL_RUNTIME_DIR/used.glsl"
-readonly BROKEN="$UMBRIEL_RUNTIME_DIR/broken.glsl"
-readonly IDLE="$UMBRIEL_RUNTIME_DIR/idle.glsl"
-readonly SHOWN="$UMBRIEL_RUNTIME_DIR/shown.glsl"
-cp "$UMBRIEL_CONFIG" "$BASE"
-echo 'vec4 screen(vec2 uv) { return umbriel_sample(uv); }' > "$USED"
+readonly BASE="$ANDROMEDA_RUNTIME_DIR/registry-base.toml"
+readonly USED="$ANDROMEDA_RUNTIME_DIR/used.glsl"
+readonly BROKEN="$ANDROMEDA_RUNTIME_DIR/broken.glsl"
+readonly IDLE="$ANDROMEDA_RUNTIME_DIR/idle.glsl"
+readonly SHOWN="$ANDROMEDA_RUNTIME_DIR/shown.glsl"
+cp "$ANDROMEDA_CONFIG" "$BASE"
+echo 'vec4 screen(vec2 uv) { return andromeda_sample(uv); }' > "$USED"
 echo 'this is not GLSL' > "$BROKEN"
-echo 'vec4 animation(vec2 uv) { return umbriel_sample(uv); }' > "$IDLE"
-echo 'vec4 animation(vec2 uv) { return umbriel_sample(uv) * umbriel_clamped_progress; }' > "$SHOWN"
+echo 'vec4 animation(vec2 uv) { return andromeda_sample(uv); }' > "$IDLE"
+echo 'vec4 animation(vec2 uv) { return andromeda_sample(uv) * andromeda_clamped_progress; }' > "$SHOWN"
 
 write_config() {
-  cp "$BASE" "$UMBRIEL_CONFIG"
-  cat >> "$UMBRIEL_CONFIG" <<EOF
+  cp "$BASE" "$ANDROMEDA_CONFIG"
+  cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [effects]
 screen = "used"
@@ -38,12 +38,12 @@ shader = "$SHOWN"
 enabled = false
 effect = "idle"
 EOF
-  printf '%s\n' "$@" >> "$UMBRIEL_CONFIG"
-  "$UMBRIEL" msg config-reload > /dev/null
+  printf '%s\n' "$@" >> "$ANDROMEDA_CONFIG"
+  "$ANDROMEDA" msg config-reload > /dev/null
 }
 
-compiled() { grep -c "Compiling $1 shader: $2\$" "$UMBRIEL_LOG" || true; }
-diagnosed() { grep -c "effect preset '$1' ($2) failed to compile; rendering plainly" "$UMBRIEL_LOG" || true; }
+compiled() { grep -c "Compiling $1 shader: $2\$" "$ANDROMEDA_LOG" || true; }
+diagnosed() { grep -c "effect preset '$1' ($2) failed to compile; rendering plainly" "$ANDROMEDA_LOG" || true; }
 expect() {
   if [[ $2 != "$3" ]]; then
     echo "$1: got $2, expected $3"
@@ -76,11 +76,11 @@ expect "compilations of a preset no event names" "$(compiled animation "$SHOWN")
 write_config '[animation.windows_move]' 'effect = "shown"'
 expect "compilations of a preset an enabled event names" "$(compiled animation "$SHOWN")" 1
 
-readonly EFFECTS="$(cd "$UMBRIEL_REPO/examples/effects" && pwd)"
-readonly LOG_MARK=$(($(wc -l < "$UMBRIEL_LOG") + 1))
+readonly EFFECTS="$(cd "$ANDROMEDA_REPO/examples/effects" && pwd)"
+readonly LOG_MARK=$(($(wc -l < "$ANDROMEDA_LOG") + 1))
 write_bundled() {
-  cp "$BASE" "$UMBRIEL_CONFIG"
-  cat >> "$UMBRIEL_CONFIG" <<EOF
+  cp "$BASE" "$ANDROMEDA_CONFIG"
+  cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [include]
 files = [
@@ -92,14 +92,14 @@ files = [
   "$EFFECTS/cursor/glow/effect.toml",
 ]
 EOF
-  printf '%s\n' "$@" >> "$UMBRIEL_CONFIG"
-  "$UMBRIEL" msg config-reload > /dev/null
-  "$UMBRIEL" settle > /dev/null
+  printf '%s\n' "$@" >> "$ANDROMEDA_CONFIG"
+  "$ANDROMEDA" msg config-reload > /dev/null
+  "$ANDROMEDA" settle > /dev/null
 }
 open_window() {
-  "$UMBRIEL_UNMAP_CLIENT" "$1" 400 300 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$ANDROMEDA_UNMAP_CLIENT" "$1" 400 300 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
   for _ in $(seq 80); do
-    "$UMBRIEL" windows --json | jq -e --arg t "$1" '.[] | select(.title == $t)' > /dev/null && return
+    "$ANDROMEDA" windows --json | jq -e --arg t "$1" '.[] | select(.title == $t)' > /dev/null && return
     sleep 0.025
   done
   echo "the $1 client never mapped"
@@ -108,22 +108,22 @@ open_window() {
 
 write_bundled
 open_window plain
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" settle > /dev/null
 expect "compilations of included but unselected bundled presets" \
-  "$(tail -n +"$LOG_MARK" "$UMBRIEL_LOG" | grep -c "Compiling .* shader: $EFFECTS/" || true)" 0
+  "$(tail -n +"$LOG_MARK" "$ANDROMEDA_LOG" | grep -c "Compiling .* shader: $EFFECTS/" || true)" 0
 expect "effect instances of included but unselected bundled presets" \
-  "$("$UMBRIEL" effect-frames --json | jq '[.outputs[].eligible] | add')" 0
+  "$("$ANDROMEDA" effect-frames --json | jq '[.outputs[].eligible] | add')" 0
 
 write_bundled '[effects]' 'border = "pulse"' 'window = "scanlines"' 'screen = "vignette"' 'cursor = "glow"' \
   '[animation.windows_in]' 'effect = "reveal"' '[animation.windows_move]' 'effect = "squash"'
 expect "compilations of every selected bundled preset" \
-  "$(tail -n +"$LOG_MARK" "$UMBRIEL_LOG" | grep -c "Compiling .* shader: $EFFECTS/" || true)" 6
-if tail -n +"$LOG_MARK" "$UMBRIEL_LOG" | grep -Eq "failed to compile|unknown key|ignoring effects"; then
+  "$(tail -n +"$LOG_MARK" "$ANDROMEDA_LOG" | grep -c "Compiling .* shader: $EFFECTS/" || true)" 6
+if tail -n +"$LOG_MARK" "$ANDROMEDA_LOG" | grep -Eq "failed to compile|unknown key|ignoring effects"; then
   echo "a bundled preset failed to compile or produced configuration diagnostics:"
-  tail -n +"$LOG_MARK" "$UMBRIEL_LOG" | grep -E "failed to compile|unknown key|ignoring effects"
+  tail -n +"$LOG_MARK" "$ANDROMEDA_LOG" | grep -E "failed to compile|unknown key|ignoring effects"
   exit 1
 fi
 open_window bundled
-"$UMBRIEL" settle > /dev/null
+"$ANDROMEDA" settle > /dev/null
 echo "only enabled references compiled, programs and failures retained across reload, repairs recompiled, bundled" \
   "presets compiled only once selected"

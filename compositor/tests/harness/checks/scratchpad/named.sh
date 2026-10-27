@@ -5,10 +5,10 @@
 # another visible scratchpad only on the output they are summoned to.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 readonly BTN_LEFT=272
-readonly BASELINE="$(< "$UMBRIEL_CONFIG")"
+readonly BASELINE="$(< "$ANDROMEDA_CONFIG")"
 readonly DEFAULT_WINDOW=named-scratchpad-default
 readonly TERM_A=named-scratchpad-term-a
 readonly TERM_B=named-scratchpad-term-b
@@ -18,10 +18,10 @@ write_config() {
   {
     printf '%s\n' "$BASELINE"
     printf '%s\n' "$1"
-  } > "$UMBRIEL_CONFIG"
+  } > "$ANDROMEDA_CONFIG"
 }
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 field_of() {
   windows | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
@@ -80,12 +80,12 @@ wait_for_term_active() {
 focus_window() {
   local id=
   id=$(field_of "$1" id)
-  "$UMBRIEL" msg "window-focus:$id" > /dev/null
+  "$ANDROMEDA" msg "window-focus:$id" > /dev/null
 }
 
 expect_rejected() {
   local action=$1 expected=$2 output=
-  if output=$("$UMBRIEL" msg "$action" 2>&1); then
+  if output=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to be rejected with '$expected'"
     return 1
   fi
@@ -122,17 +122,17 @@ default_position = { x = 240, y = 180, anchor = "top_left" }
 
 # With no definitions, bare actions address the implicit default scratchpad.
 write_config "$COMMON_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 "$POINTER" 2560 720 move 640 360
 
-"$CLIENT" "$DEFAULT_WINDOW" > "$UMBRIEL_RUNTIME_DIR/$DEFAULT_WINDOW.log" 2>&1 &
+"$CLIENT" "$DEFAULT_WINDOW" > "$ANDROMEDA_RUNTIME_DIR/$DEFAULT_WINDOW.log" 2>&1 &
 wait_for_count 1
 focus_window "$DEFAULT_WINDOW"
-"$UMBRIEL" msg window-move-to-scratchpad > /dev/null
+"$ANDROMEDA" msg window-move-to-scratchpad > /dev/null
 wait_for_field "$DEFAULT_WINDOW" scratchpad default
-"$UMBRIEL" msg scratchpad-toggle > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle > /dev/null
 wait_for_field "$DEFAULT_WINDOW" active true
-"$UMBRIEL" msg scratchpad-toggle > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle > /dev/null
 
 # Defining any named scratchpad removes the implicit default. Its existing
 # member returns to its saved workspace during the inventory reconciliation.
@@ -143,7 +143,7 @@ name = \"term\"
 
 [[scratchpad]]
 name = \"music\""
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_field "$DEFAULT_WINDOW" scratchpad ""
 if [[ -z $(field_of "$DEFAULT_WINDOW" workspace) ]]; then
   echo "the removed implicit default did not restore its window: $(windows)"
@@ -155,34 +155,34 @@ expect_rejected scratchpad-toggle:missing "unknown scratchpad"
 for title in "$TERM_A" "$TERM_B"; do
   expected_count=$(windows | jq 'length')
   expected_count=$((expected_count + 1))
-  "$CLIENT" "$title" > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   wait_for_count "$expected_count"
   focus_window "$title"
-  "$UMBRIEL" msg window-move-to-scratchpad:term > /dev/null
+  "$ANDROMEDA" msg window-move-to-scratchpad:term > /dev/null
   wait_for_field "$title" scratchpad term
 done
 
-"$CLIENT" "$MUSIC" > "$UMBRIEL_RUNTIME_DIR/$MUSIC.log" 2>&1 &
+"$CLIENT" "$MUSIC" > "$ANDROMEDA_RUNTIME_DIR/$MUSIC.log" 2>&1 &
 wait_for_count 4
 focus_window "$MUSIC"
-"$UMBRIEL" msg window-move-to-scratchpad:music > /dev/null
+"$ANDROMEDA" msg window-move-to-scratchpad:music > /dev/null
 wait_for_field "$MUSIC" scratchpad music
 
 # Show term on the left, then invoke it from the right. A visible global
 # scratchpad is summoned rather than hidden when the invoking output changes.
-"$UMBRIEL" msg scratchpad-toggle:term > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:term > /dev/null
 wait_for_field "$TERM_A" active true
 "$POINTER" 2560 720 move 1920 360
-"$UMBRIEL" msg scratchpad-toggle:term > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:term > /dev/null
 wait_for_x_range "$TERM_A" 1280 2560
 wait_for_x_range "$TERM_B" 1280 2560
 wait_for_term_active
 
 # Showing music on the occupied right output hides term. A focus request for
 # the hidden term pad must not take focus back from music.
-"$UMBRIEL" msg scratchpad-toggle:music > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:music > /dev/null
 wait_for_field "$MUSIC" active true
-"$UMBRIEL" msg scratchpad-focus-next:term > /dev/null
+"$ANDROMEDA" msg scratchpad-focus-next:term > /dev/null
 for _ in $(seq 5); do
   sleep 0.1
   if [[ $(field_of "$MUSIC" active) != true
@@ -196,12 +196,12 @@ done
 # Summoning term to the free left output leaves music visible on the right.
 # Both names must then accept focus independently.
 "$POINTER" 2560 720 move 640 360
-"$UMBRIEL" msg scratchpad-toggle:term > /dev/null
+"$ANDROMEDA" msg scratchpad-toggle:term > /dev/null
 wait_for_x_range "$TERM_A" 0 1280
 wait_for_x_range "$TERM_B" 0 1280
-"$UMBRIEL" msg scratchpad-focus-next:music > /dev/null
+"$ANDROMEDA" msg scratchpad-focus-next:music > /dev/null
 wait_for_field "$MUSIC" active true
-"$UMBRIEL" msg scratchpad-focus-next:term > /dev/null
+"$ANDROMEDA" msg scratchpad-focus-next:term > /dev/null
 wait_for_term_active
 
 # Separate the two term members on the left, then drag one onto the right.
@@ -228,7 +228,7 @@ fi
 # Starting a drag from maximize-to-edges restores the dragged member's
 # floating box. The whole scratchpad still follows it to the destination.
 focus_window "$TERM_A"
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 wait_for_field "$TERM_A" x 1280
 wait_for_field "$TERM_A" y 0
 wait_for_field "$TERM_A" w 1280
@@ -244,7 +244,7 @@ wait_for_field "$TERM_B" y 300
 
 # Regular floating maximize follows the same drag contract.
 focus_window "$TERM_A"
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field "$TERM_A" x 0
 wait_for_field "$TERM_A" y 0
 wait_for_field "$TERM_A" w 1280
@@ -262,12 +262,12 @@ wait_for_field "$TERM_B" y 300
 # fullscreen. One maximize toggle after exiting must therefore restore the
 # pre-maximize box, rather than maximize an already output-sized window again.
 focus_window "$TERM_A"
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field "$TERM_A" x 1280
 wait_for_field "$TERM_A" y 0
 wait_for_field "$TERM_A" w 1280
 wait_for_field "$TERM_A" h 720
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_field "$TERM_A" x 1280
 wait_for_field "$TERM_A" y 0
 wait_for_field "$TERM_A" w 1280
@@ -280,12 +280,12 @@ wait_for_field "$TERM_A" w 1280
 wait_for_field "$TERM_A" h 720
 wait_for_field "$TERM_B" x 520
 wait_for_field "$TERM_B" y 300
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_field "$TERM_A" x 0
 wait_for_field "$TERM_A" y 0
 wait_for_field "$TERM_A" w 1280
 wait_for_field "$TERM_A" h 720
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field "$TERM_A" x 140
 wait_for_field "$TERM_A" y 300
 wait_for_field "$TERM_A" w 360

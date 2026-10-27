@@ -3,9 +3,9 @@
 # windows_move must not reshape a stationary-neighbour or lone-window lifecycle snapshot.
 set -euo pipefail
 
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/tiled-close-no-reflow.png"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/tiled-close-no-reflow.png"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#000000FF"
@@ -40,13 +40,13 @@ enabled = true
 duration_ms = 150
 curve = "linear"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn() {
   local title=$1 color=$2 width=${3:-600}
-  FILL_COLOR="$color" "$UMBRIEL_UNMAP_CLIENT" "$title" "$width" 700 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR="$color" "$ANDROMEDA_UNMAP_CLIENT" "$title" "$width" 700 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 80); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && return 0
     sleep 0.025
   done
@@ -76,35 +76,35 @@ is_black() {
 }
 
 spawn tiled-close-survivor 0xFFFF0000
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 spawn tiled-close-static 0xFF0000FF
 closing=$window
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 # Animation time only moves by clock-advance: samples land 800 ms into each 2000 ms windows_out timeline.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 
 id=$(jq -r .id <<< "$closing")
 x=$(jq -r .x <<< "$closing")
 y=$(jq -r .y <<< "$closing")
 w=$(jq -r .w <<< "$closing")
 h=$(jq -r .h <<< "$closing")
-"$UMBRIEL" msg "window-close:$id" > /dev/null
+"$ANDROMEDA" msg "window-close:$id" > /dev/null
 for _ in $(seq 80); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/tiled-close-static.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/tiled-close-static.log" && break
   sleep 0.025
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/tiled-close-static.log"; then
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/tiled-close-static.log"; then
   echo "closing tile did not unmap"
   exit 1
 fi
 for _ in $(seq 80); do
-  if ! "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "tiled-close-static")' > /dev/null; then
+  if ! "$ANDROMEDA" windows --json | jq -e 'any(.[]; .title == "tiled-close-static")' > /dev/null; then
     break
   fi
   sleep 0.025
 done
-if "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "tiled-close-static")' > /dev/null; then
+if "$ANDROMEDA" windows --json | jq -e 'any(.[]; .title == "tiled-close-static")' > /dev/null; then
   echo "compositor did not observe the closing tile unmap"
   exit 1
 fi
@@ -113,7 +113,7 @@ near_x=$((x + w / 4))
 far_x=$((x + 3 * w / 4))
 mid_y=$((y + h / 2))
 
-"$UMBRIEL" clock-advance 800
+"$ANDROMEDA" clock-advance 800
 grim "$IMAGE"
 read -r near_red near_green near_blue < <(sample "$near_x" "$mid_y")
 read -r far_red far_green far_blue < <(sample "$far_x" "$mid_y")
@@ -126,8 +126,8 @@ if ! is_blue "$far_red" "$far_green" "$far_blue"; then
   exit 1
 fi
 
-"$UMBRIEL" clock-advance 2000
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 2000
+"$ANDROMEDA" settle
 grim "$IMAGE"
 read -r near_red near_green near_blue < <(sample "$near_x" "$mid_y")
 read -r far_red far_green far_blue < <(sample "$far_x" "$mid_y")
@@ -138,7 +138,7 @@ if ! is_black "$near_red" "$near_green" "$near_blue" \
 fi
 
 # Close the remaining tile as well. This is the reported final-window case, with no neighbour at all.
-lone=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "tiled-close-survivor")')
+lone=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "tiled-close-survivor")')
 if [[ -z $lone ]]; then
   echo "surviving tile disappeared before the lone close phase"
   exit 1
@@ -148,22 +148,22 @@ x=$(jq -r .x <<< "$lone")
 y=$(jq -r .y <<< "$lone")
 w=$(jq -r .w <<< "$lone")
 h=$(jq -r .h <<< "$lone")
-"$UMBRIEL" msg "window-close:$id" > /dev/null
+"$ANDROMEDA" msg "window-close:$id" > /dev/null
 for _ in $(seq 80); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/tiled-close-survivor.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/tiled-close-survivor.log" && break
   sleep 0.025
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/tiled-close-survivor.log"; then
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/tiled-close-survivor.log"; then
   echo "lone closing tile did not unmap"
   exit 1
 fi
 for _ in $(seq 80); do
-  if ! "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "tiled-close-survivor")' > /dev/null; then
+  if ! "$ANDROMEDA" windows --json | jq -e 'any(.[]; .title == "tiled-close-survivor")' > /dev/null; then
     break
   fi
   sleep 0.025
 done
-if "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "tiled-close-survivor")' > /dev/null; then
+if "$ANDROMEDA" windows --json | jq -e 'any(.[]; .title == "tiled-close-survivor")' > /dev/null; then
   echo "compositor did not observe the lone closing tile unmap"
   exit 1
 fi
@@ -172,7 +172,7 @@ near_x=$((x + w / 4))
 far_x=$((x + 3 * w / 4))
 mid_y=$((y + h / 2))
 
-"$UMBRIEL" clock-advance 800
+"$ANDROMEDA" clock-advance 800
 grim "$IMAGE"
 read -r near_red near_green near_blue < <(sample "$near_x" "$mid_y")
 read -r far_red far_green far_blue < <(sample "$far_x" "$mid_y")
@@ -182,8 +182,8 @@ if ! is_red "$near_red" "$near_green" "$near_blue" \
   exit 1
 fi
 
-"$UMBRIEL" clock-advance 2000
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 2000
+"$ANDROMEDA" settle
 grim "$IMAGE"
 read -r near_red near_green near_blue < <(sample "$near_x" "$mid_y")
 read -r far_red far_green far_blue < <(sample "$far_x" "$mid_y")

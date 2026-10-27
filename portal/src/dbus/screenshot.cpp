@@ -91,9 +91,9 @@ namespace xdpu {
     std::optional<std::filesystem::path> runtimeDir() {
       const char* runtime = std::getenv("XDG_RUNTIME_DIR");
       if (runtime == nullptr || *runtime == '\0') {
-        return std::filesystem::path{"/tmp"} / "xdg-desktop-portal-umbriel";
+        return std::filesystem::path{"/tmp"} / "xdg-desktop-portal-andromeda";
       }
-      return std::filesystem::path{runtime} / "xdg-desktop-portal-umbriel";
+      return std::filesystem::path{runtime} / "xdg-desktop-portal-andromeda";
     }
 
     std::optional<std::string> savePng(WaylandContext::ScreenshotResult& shot) {
@@ -453,7 +453,7 @@ namespace xdpu {
         const uint32_t stride = cap.constraints.bufferWidth * 4;
         cap.mappingSize = static_cast<size_t>(stride) * cap.constraints.bufferHeight;
 
-        cap.fd = memfd_create("umbriel-screenshot", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+        cap.fd = memfd_create("andromeda-screenshot", MFD_CLOEXEC | MFD_ALLOW_SEALING);
         if (cap.fd < 0 || ftruncate(cap.fd, static_cast<off_t>(cap.mappingSize)) < 0) {
           std::fprintf(stderr, "screenshot: memfd allocation failed: %s\n", std::strerror(errno));
           finish(failureResponse, {});

@@ -33,7 +33,7 @@
 #include "workspace/workspace.h"
 
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
 #include <algorithm>
@@ -42,7 +42,7 @@ extern "C" {
 #include <drm_fourcc.h>
 #include <format>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("output");
@@ -145,7 +145,7 @@ namespace umbriel {
     fx_effect_shader* cursor = suspended ? nullptr : registry.preset(settings.cursor, EffectKind::Cursor);
     const EffectPreset* cursorPreset = cursor != nullptr ? registry.presetConfig(settings.cursor) : nullptr;
     bool advancing = true;
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     advancing = !m_server->animationClockFrozen();
 #endif
     m_outputEffectsTimed = false;
@@ -153,7 +153,7 @@ namespace umbriel {
     const auto bind = [&](const void* owner, const EffectPreset& preset, fx_effect_shader* shader, bool visible) {
       fx_animation_parameters parameters{};
       registry.fillTimeUniforms(parameters, m_effectSeconds, preset, shader);
-      const bool readsTime = fx_effect_shader_reads(shader, "umbriel_time");
+      const bool readsTime = fx_effect_shader_reads(shader, "andromeda_time");
       m_outputEffectsTimed = m_outputEffectsTimed || (readsTime && visible);
       registry.updateInstance(
           owner, {.output = this, .visible = visible, .readsTime = readsTime, .advancing = advancing}
@@ -1292,7 +1292,7 @@ namespace umbriel {
   }
 
   void Output::flushDirty() {
-    UMBRIEL_ZONE("Output::flushDirty");
+    ANDROMEDA_ZONE("Output::flushDirty");
     // Server-wide chrome is recorded on the Server and flushed by whichever
     // output frames first; each of these is idempotent and cheap.
     Dirty pending = m_dirty | m_server->takeDirty();
@@ -1325,7 +1325,7 @@ namespace umbriel {
   }
 
   void Output::handleFrame() {
-    UMBRIEL_ZONE("Output::handleFrame");
+    ANDROMEDA_ZONE("Output::handleFrame");
     // A failed DRM commit can immediately queue another frame after logind revokes device access. Stop before that
     // retry loop can keep the final event-loop dispatch alive. A null session belongs to a nested or headless backend
     // and remains renderable.
@@ -1363,7 +1363,7 @@ namespace umbriel {
     const EffectRegistry& effects = m_server->effects();
     bool stampEffectTime =
         effectFrame || (effectEligible() == 0 && (effects.persistentReferenced() || effects.active()));
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     stampEffectTime = stampEffectTime || m_server->animationClockFrozen();
 #endif
     if (stampEffectTime) {
@@ -1478,7 +1478,7 @@ namespace umbriel {
       if (effectFrame) {
         ++m_effectFrames;
       }
-      UMBRIEL_ZONE("Output::render");
+      ANDROMEDA_ZONE("Output::render");
 
       wlr_output_state state{};
       wlr_output_state_init(&state);
@@ -1778,4 +1778,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

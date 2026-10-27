@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phone calls on the desktop, through the shell, against a real umbriel-linkd, a present headless phone, and a desktop
+# Phone calls on the desktop, through the shell, against a real andromeda-linkd, a present headless phone, and a desktop
 # MPRIS test player. Proves: a ringing call shows an incoming-call notification with the contact's name, or the
 # number when there is no name; Mute ringer and Decline reach the phone as call-action; the desktop's playing player is
 # paused while the call rings or is active and resumed when it is idle; a declined call ends and its notification goes;
@@ -24,15 +24,15 @@ with_noctalia '
     for _ in $(seq 150); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   phone_saw() { grep -q "$1" "$OUT/hold.jsonl"; }
   player_calls() { [[ $(grep -cx "$1" "$OUT/player-calls.txt" 2> /dev/null) -ge $2 ]]; }
-  link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}" 2>&1; }
+  link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}" 2>&1; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
@@ -43,7 +43,7 @@ with_noctalia '
   python3 "$E2E/mpris_test_player.py" "$OUT/player-calls.txt" &
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
@@ -82,7 +82,7 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in call-ringing-contact call-ringing-number call-declined; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

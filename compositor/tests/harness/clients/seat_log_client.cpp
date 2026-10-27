@@ -263,7 +263,7 @@ namespace {
   bool createBuffer(State& state) {
     const int stride = state.width * 4;
     const size_t size = static_cast<size_t>(stride) * static_cast<size_t>(state.height);
-    const int fd = memfd_create("umbriel-seat-log-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-seat-log-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(size)) < 0) {
       return false;
     }

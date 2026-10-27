@@ -2290,9 +2290,9 @@ void GreeterSurface::loadPreferences() {
     if (const auto index = greeter::findSessionIndex(m_sessions, *initialSession)) {
       m_selectedSession = *index;
     }
-  } else if (const auto umbriel = greeter::findSessionIndex(m_sessions, "Umbriel")) {
+  } else if (const auto andromeda = greeter::findSessionIndex(m_sessions, "Andromeda")) {
     // Nothing chosen yet: this desktop's own session, not whichever .desktop file sorts first.
-    m_selectedSession = *umbriel;
+    m_selectedSession = *andromeda;
   }
 
   if (prefs.scheme.has_value()) {

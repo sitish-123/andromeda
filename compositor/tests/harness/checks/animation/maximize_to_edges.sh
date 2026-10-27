@@ -3,11 +3,11 @@
 # A solid client on the black headless output makes its presented width measurable before, during, and after the action.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/maximize-to-edges-animation-client.log"
-readonly BEFORE="$UMBRIEL_RUNTIME_DIR/maximize-to-edges-before.png"
-readonly DURING="$UMBRIEL_RUNTIME_DIR/maximize-to-edges-during.png"
-readonly AFTER="$UMBRIEL_RUNTIME_DIR/maximize-to-edges-after.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/maximize-to-edges-animation-client.log"
+readonly BEFORE="$ANDROMEDA_RUNTIME_DIR/maximize-to-edges-before.png"
+readonly DURING="$ANDROMEDA_RUNTIME_DIR/maximize-to-edges-during.png"
+readonly AFTER="$ANDROMEDA_RUNTIME_DIR/maximize-to-edges-after.png"
 
 presented_width() {
   magick "$1" -alpha off -crop 1280x1+0+360 +repage -fuzz 2% \
@@ -15,7 +15,7 @@ presented_width() {
     -format '%[fx:round(w*mean)]' info:
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 2000
@@ -29,14 +29,14 @@ corner_radius = 0
 [layout.scrolling]
 default_extent_fraction = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Animation time only moves by clock-advance: the sample lands halfway through the 2000 ms linear timeline.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 "$CLIENT" "maximize-to-edges-animation" 1280 720 > "$CLIENT_LOG" 2>&1 &
 
 for _ in $(seq 60); do
-  "$UMBRIEL" windows --json | jq -e '.[] | select(.title == "maximize-to-edges-animation")' > /dev/null && break
+  "$ANDROMEDA" windows --json | jq -e '.[] | select(.title == "maximize-to-edges-animation")' > /dev/null && break
   sleep 0.05
 done
 if ! grep -q '^mapped$' "$CLIENT_LOG"; then
@@ -44,18 +44,18 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-"$UMBRIEL" clock-advance 2500
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 2500
+"$ANDROMEDA" settle
 grim "$BEFORE"
 before_width=$(presented_width "$BEFORE")
 
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
-"$UMBRIEL" clock-advance 1000
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" clock-advance 1000
 grim "$DURING"
 during_width=$(presented_width "$DURING")
 
-"$UMBRIEL" clock-advance 2000
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 2000
+"$ANDROMEDA" settle
 grim "$AFTER"
 after_width=$(presented_width "$AFTER")
 

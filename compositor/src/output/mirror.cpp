@@ -10,7 +10,7 @@ extern "C" {
 #include <wlr/util/transform.h>
 }
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -109,4 +109,4 @@ namespace umbriel {
     return ok;
   }
 
-} // namespace umbriel
+} // namespace andromeda

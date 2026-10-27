@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick Share inside umbriel-linkd, driven over D-Bus org.umbriel.Link1.QuickShare, with a sender in a second network
+# Quick Share inside andromeda-linkd, driven over D-Bus org.andromeda.Link1.QuickShare, with a sender in a second network
 # namespace. Proves: hidden by default (no mDNS service); setting Visible advertises it; an offer reaches D-Bus as the
 # Offer signal with the sender, PIN, and files, and nothing is written before Accept; Accept saves the file in
 # XDG_DOWNLOAD_DIR and emits Finished with its path; Decline reaches the sender as a rejection; visibility survives a
@@ -59,23 +59,23 @@ DOWNLOADS=$RUNTIME/home/Incoming
 head -c 5000000 /dev/urandom > "$RUNTIME/files/photo.jpg"
 echo "decline me" > "$RUNTIME/files/nope.txt"
 
-QS_IFACE=org.umbriel.Link1.QuickShare
-prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get "$QS_IFACE" "$1"; }
+QS_IFACE=org.andromeda.Link1.QuickShare
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get "$QS_IFACE" "$1"; }
 set_visible() {
-  gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Set "$QS_IFACE" Visible "<$1>" > /dev/null
+  gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Set "$QS_IFACE" Visible "<$1>" > /dev/null
 }
-qs() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "$QS_IFACE.$1" "${@:2}" > /dev/null; }
+qs() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "$QS_IFACE.$1" "${@:2}" > /dev/null; }
 start_linkd() {
-  XDG_STATE_HOME=$RUNTIME/state "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/state "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
   LINKD=$!
   for _ in $(seq 100); do prop Visible > /dev/null 2>&1 && return; sleep 0.05; done
-  fail "umbriel-linkd did not come up"
+  fail "andromeda-linkd did not come up"
 }
-discover() { in_phone "$BIN/umbriel-quickshare" --name Phone discover --seconds 2; }
-send() { in_phone "$BIN/umbriel-quickshare" --name "Test Phone" send "$@" 2>> "$OUT/send.log"; }
+discover() { in_phone "$BIN/andromeda-quickshare" --name Phone discover --seconds 2; }
+send() { in_phone "$BIN/andromeda-quickshare" --name "Test Phone" send "$@" 2>> "$OUT/send.log"; }
 wait_signal() { for _ in $(seq 100); do grep -q "$1" "$OUT/signals.txt" && return; sleep 0.1; done; fail "no $1 signal"; }
 
-gdbus monitor --session -d org.umbriel.Link1 -o /org/umbriel/Link1 > "$OUT/signals.txt" 2>&1 &
+gdbus monitor --session -d org.andromeda.Link1 -o /org/andromeda/Link1 > "$OUT/signals.txt" 2>&1 &
 start_linkd
 [[ $(prop Visible) == "(<false>,)" ]] || fail "visible by default: $(prop Visible)"
 [[ -z $(discover) ]] || fail "a hidden desktop advertises"
@@ -113,9 +113,9 @@ grep -q '"rejected":2' "$RUNTIME/send2.jsonl" || fail "decline not reported to t
 wait_signal "Finished (uint64 $ID, 'declined'"
 record "{\"step\":\"decline\",\"id\":$ID}"
 
-in_phone "$BIN/umbriel-quickshare" --name "Phone Receiver" receive --dir "$RUNTIME/phone-in" --port 47300 --consent accept \
+in_phone "$BIN/andromeda-quickshare" --name "Phone Receiver" receive --dir "$RUNTIME/phone-in" --port 47300 --consent accept \
   > "$RUNTIME/phone-recv.jsonl" 2>> "$OUT/phone-recv.log" &
-in_phone "$BIN/umbriel-quickshare" --name "Picky Phone" receive --dir "$RUNTIME/phone-in" --port 47301 --consent decline \
+in_phone "$BIN/andromeda-quickshare" --name "Picky Phone" receive --dir "$RUNTIME/phone-in" --port 47301 --consent decline \
   > "$RUNTIME/phone-decline.jsonl" 2>> "$OUT/phone-recv.log" &
 qs StartDiscovery
 nearby_id() { prop Nearby | grep -o "('[^']*', '$1')" | cut -d"'" -f2; }
@@ -123,7 +123,7 @@ for _ in $(seq 100); do [[ -n $(nearby_id "Phone Receiver") && -n $(nearby_id "P
 PEER=$(nearby_id "Phone Receiver")
 [[ -n $PEER ]] || fail "discovery did not find the receiver: $(prop Nearby)"
 [[ -z $(nearby_id "$NAME") ]] || fail "the desktop lists itself as nearby"
-bus_call() { busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.umbriel.Link1 /org/umbriel/Link1 "$QS_IFACE" "$@"; }
+bus_call() { busctl --address="$DBUS_SESSION_BUS_ADDRESS" call org.andromeda.Link1 /org/andromeda/Link1 "$QS_IFACE" "$@"; }
 SEND=$(bus_call Send "sa(hs)" "$PEER" 1 3 photo.jpg 3< "$RUNTIME/files/photo.jpg" | awk '{print $2}')
 wait_signal "SendFinished (uint64 $SEND, 'sent'"
 grep -q "SendPin (uint64 $SEND, 'Phone Receiver'" "$OUT/signals.txt" || fail "no SendPin for send $SEND"

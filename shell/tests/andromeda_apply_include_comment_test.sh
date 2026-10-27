@@ -10,7 +10,7 @@ set -euo pipefail
 apply_sh=${1:?apply.sh path}
 
 fail() {
-  printf '%s\n' "umbriel_apply_include_comment_test: FAIL: $*" >&2
+  printf '%s\n' "andromeda_apply_include_comment_test: FAIL: $*" >&2
   exit 1
 }
 
@@ -25,11 +25,11 @@ run_apply() {
   local name=$1
   shift
   local home="$work_dir/$name"
-  mkdir -p "$home/umbriel"
-  printf '%s\n' "$@" >"$home/umbriel/config.toml"
+  mkdir -p "$home/andromeda"
+  printf '%s\n' "$@" >"$home/andromeda/config.toml"
   XDG_CONFIG_HOME="$home" bash "$apply_sh" \
     || fail "$name: apply.sh exited non-zero"
-  files_line "$home/umbriel/config.toml"
+  files_line "$home/andromeda/config.toml"
 }
 
 expect() {
@@ -48,15 +48,15 @@ expect_error() {
   local name=$1
   shift
   local home="$work_dir/$name"
-  mkdir -p "$home/umbriel"
-  printf '%s\n' "$@" >"$home/umbriel/config.toml"
+  mkdir -p "$home/andromeda"
+  printf '%s\n' "$@" >"$home/andromeda/config.toml"
   local before status=0
-  before=$(cat "$home/umbriel/config.toml")
+  before=$(cat "$home/andromeda/config.toml")
   XDG_CONFIG_HOME="$home" bash "$apply_sh" 2>/dev/null || status=$?
   if [ "$status" != 2 ]; then
     fail "$name: expected exit 2, got $status"
   fi
-  if [ "$(cat "$home/umbriel/config.toml")" != "$before" ]; then
+  if [ "$(cat "$home/andromeda/config.toml")" != "$before" ]; then
     fail "$name: config rewritten despite the error"
   fi
 }
@@ -66,12 +66,12 @@ expect_config() {
   local want=$2
   shift 2
   local home="$work_dir/$name"
-  mkdir -p "$home/umbriel"
-  printf '%s\n' "$@" >"$home/umbriel/config.toml"
+  mkdir -p "$home/andromeda"
+  printf '%s\n' "$@" >"$home/andromeda/config.toml"
   XDG_CONFIG_HOME="$home" bash "$apply_sh" \
     || fail "$name: apply.sh exited non-zero"
   local got
-  got=$(cat "$home/umbriel/config.toml")
+  got=$(cat "$home/andromeda/config.toml")
   if [ "$got" != "$want" ]; then
     fail "$name: expected $(printf '%q' "$want") got $(printf '%q' "$got")"
   fi

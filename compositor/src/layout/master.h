@@ -9,7 +9,7 @@
 
 struct wlr_box;
 
-namespace umbriel {
+namespace andromeda {
 
   class View;
 
@@ -100,4 +100,4 @@ namespace umbriel {
     bool m_geometryStale = true;
   };
 
-} // namespace umbriel
+} // namespace andromeda

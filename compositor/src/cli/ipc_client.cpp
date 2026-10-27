@@ -14,17 +14,17 @@
 #include <unistd.h>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     std::string resolveSocketPath() {
-      if (const char* sock = std::getenv("UMBRIEL_SOCKET"); sock != nullptr && sock[0] != '\0') {
+      if (const char* sock = std::getenv("ANDROMEDA_SOCKET"); sock != nullptr && sock[0] != '\0') {
         return sock;
       }
       const char* runtimeDir = std::getenv("XDG_RUNTIME_DIR");
       const char* waylandDisplay = std::getenv("WAYLAND_DISPLAY");
       if (runtimeDir != nullptr && runtimeDir[0] != '\0' && waylandDisplay != nullptr && waylandDisplay[0] != '\0') {
-        return std::string(runtimeDir) + "/umbriel-" + waylandDisplay + ".sock";
+        return std::string(runtimeDir) + "/andromeda-" + waylandDisplay + ".sock";
       }
       return {};
     }
@@ -33,7 +33,7 @@ namespace umbriel {
     int connectToCompositor() {
       std::string socketPath = resolveSocketPath();
       if (socketPath.empty()) {
-        std::println(stderr, "error: cannot find umbriel socket (is the compositor running?)");
+        std::println(stderr, "error: cannot find andromeda socket (is the compositor running?)");
         return -1;
       }
 
@@ -53,7 +53,7 @@ namespace umbriel {
       socketPath.copy(addr.sun_path, socketPath.size());
 
       if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        std::println(stderr, "error: cannot connect to umbriel socket (is the compositor running?)");
+        std::println(stderr, "error: cannot connect to andromeda socket (is the compositor running?)");
         close(fd);
         return -1;
       }
@@ -206,4 +206,4 @@ namespace umbriel {
     return EXIT_SUCCESS;
   }
 
-} // namespace umbriel
+} // namespace andromeda

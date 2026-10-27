@@ -57,7 +57,7 @@ with_noctalia '
   start_mock
   wtype -k Escape
   wait_for "L1: a key press did not arm face unlock" verifying
-  grep -q "^VerifyStartFor umbriel-lock" "$OUT/calls.txt" || fail "L1: wrong PAM service"
+  grep -q "^VerifyStartFor andromeda-lock" "$OUT/calls.txt" || fail "L1: wrong PAM service"
   match_unlocks L3
   case_done L1-L3
 

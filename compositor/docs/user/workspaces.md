@@ -62,7 +62,7 @@ never pruned.
 
 ### Change workspaces on reload
 
-Workspace changes apply on a valid configuration reload. Umbriel preserves
+Workspace changes apply on a valid configuration reload. Andromeda preserves
 matching names and positions where possible. Windows from a removed workspace
 move to the nearest remaining workspace.
 
@@ -109,7 +109,7 @@ beyond the current count selects the last workspace.
 
 ## Inspect workspace state
 
-Run `umbriel workspaces` to list workspaces and their effective layout:
+Run `andromeda workspaces` to list workspaces and their effective layout:
 
 ```text
 * DP-1: 1 [scrolling] (focused)
@@ -117,7 +117,7 @@ Run `umbriel workspaces` to list workspaces and their effective layout:
 * DP-2: WEB [master]
 ```
 
-Use `umbriel workspaces --json` for scripts. Each entry includes its stable
+Use `andromeda workspaces --json` for scripts. Each entry includes its stable
 `id`, display `name`, one-based `index`, `output`, active and focused states,
 and effective `layout`.
 

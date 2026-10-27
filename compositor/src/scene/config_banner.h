@@ -7,7 +7,7 @@
 struct wl_event_source;
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
   struct ConfigDiagnostic;
   class Server;
 
@@ -39,4 +39,4 @@ namespace umbriel {
     bool m_persistent = false; // true when errors present
   };
 
-} // namespace umbriel
+} // namespace andromeda

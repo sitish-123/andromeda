@@ -1398,7 +1398,7 @@
         "shell": "Shell",
         "system": "Sistema",
         "templates": "Template",
-        "umbriel": "Umbriel",
+        "andromeda": "Andromeda",
         "wallpaper": "Sfondo"
       }
     },
@@ -3283,8 +3283,8 @@
           "description": "Formato ora predefinito per la shell UI senza impostazione propria",
           "label": "Formato ora"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "Apri il launcher mentre digiti in nella Overview di Umbriel; utilizza una piccola area di focus della tastiera mentre l'Overview è aperta",
+        "andromeda-overview-type-to-launch": {
+          "description": "Apri il launcher mentre digiti in nella Overview di Andromeda; utilizza una piccola area di focus della tastiera mentre l'Overview è aperta",
           "label": "Digita per avviare"
         },
         "window-switcher-current-workspace-only": {

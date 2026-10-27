@@ -3,7 +3,7 @@
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
 #include "compositors/niri/niri_runtime.h"
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/key_symbols.h"
 #include "core/log.h"
@@ -61,7 +61,7 @@ namespace {
 bool OverviewLauncherCapture::initialize(
     WaylandConnection& wayland, RenderContext* renderContext, CompositorPlatform& platform, PanelManager& panelManager
 ) {
-  if ((!compositors::isNiri() && !compositors::isUmbriel()) || !platform.tracksOverviewState()) {
+  if ((!compositors::isNiri() && !compositors::isAndromeda()) || !platform.tracksOverviewState()) {
     return true;
   }
 
@@ -199,8 +199,8 @@ bool OverviewLauncherCapture::sendOverviewAction(const char* actionName) const {
   if (m_platform == nullptr || actionName == nullptr || actionName[0] == '\0') {
     return false;
   }
-  if (compositors::isUmbriel()) {
-    return m_platform->umbrielRuntime().requestAction(actionName);
+  if (compositors::isAndromeda()) {
+    return m_platform->andromedaRuntime().requestAction(actionName);
   }
   if (compositors::isNiri()) {
     return m_platform->niriRuntime().requestAction(nlohmann::json{{actionName, nlohmann::json::object()}});
@@ -212,30 +212,30 @@ bool OverviewLauncherCapture::handleOverviewKey(const KeyboardEvent& event) cons
   if (!event.pressed || event.preedit) {
     return false;
   }
-  const bool isUmbriel = compositors::isUmbriel();
+  const bool isAndromeda = compositors::isAndromeda();
 
   if (KeySymbol::isEnter(event.sym) || KeySymbol::isEscape(event.sym)) {
-    const auto* action = isUmbriel ? "overview-toggle" : "ToggleOverview";
+    const auto* action = isAndromeda ? "overview-toggle" : "ToggleOverview";
     (void)sendOverviewAction(action);
     return true;
   }
   if (KeySymbol::isLeft(event.sym)) {
-    const auto* action = isUmbriel ? "window-focus-left" : "FocusColumnLeft";
+    const auto* action = isAndromeda ? "window-focus-left" : "FocusColumnLeft";
     (void)sendOverviewAction(action);
     return true;
   }
   if (KeySymbol::isRight(event.sym)) {
-    const auto* action = isUmbriel ? "window-focus-right" : "FocusColumnRight";
+    const auto* action = isAndromeda ? "window-focus-right" : "FocusColumnRight";
     (void)sendOverviewAction(action);
     return true;
   }
   if (KeySymbol::isUp(event.sym)) {
-    const auto* action = isUmbriel ? "window-focus-or-workspace-up" : "FocusWorkspaceUp";
+    const auto* action = isAndromeda ? "window-focus-or-workspace-up" : "FocusWorkspaceUp";
     (void)sendOverviewAction(action);
     return true;
   }
   if (KeySymbol::isDown(event.sym)) {
-    const auto* action = isUmbriel ? "window-focus-or-workspace-down" : "FocusWorkspaceDown";
+    const auto* action = isAndromeda ? "window-focus-or-workspace-down" : "FocusWorkspaceDown";
     (void)sendOverviewAction(action);
     return true;
   }
@@ -275,7 +275,7 @@ bool OverviewLauncherCapture::handleKeyboardEvent(const KeyboardEvent& event) {
 
   // Open on the compositor's focused output. The exclusive-keyboard capture
   // surface that received the keystroke is not reliably on the focused monitor
-  // (Umbriel can route it to a fixed output), so prefer the focus source and
+  // (Andromeda can route it to a fixed output), so prefer the focus source and
   // fall back to the surface's own output.
   wl_output* target = instance->output;
   if (m_platform != nullptr) {

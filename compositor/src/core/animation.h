@@ -7,7 +7,7 @@
 #include <optional>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
 
@@ -279,4 +279,4 @@ namespace umbriel {
     bool m_animating = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

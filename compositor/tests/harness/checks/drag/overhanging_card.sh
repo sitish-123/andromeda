@@ -5,7 +5,7 @@
 # horizontally arranged workspaces the strip scrolls vertically and its cards
 # overhang the preview's bottom edge instead of its left one.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly BTN_LEFT=272
 readonly OUTPUT_W=1280
@@ -15,7 +15,7 @@ readonly OVERVIEW_X=320
 readonly OVERVIEW_Y=180
 # The zoom below scales the output to a 640x360 preview centred on both axes.
 readonly PREVIEW_BOTTOM=540
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -27,14 +27,14 @@ spawn_client() {
 
 wait_for_count() {
   for _ in $(seq 300); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $1 ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $1 ]] && return 0
     sleep 0.05
   done
   echo "timed out waiting for $1 window(s)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 insert_hint = "#FF0000FF"
@@ -52,20 +52,20 @@ zoom = 0.5
 [output."HEADLESS-1"]
 workspace_axis = "vertical"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # Animation time only moves by clock-advance.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 
 # Runs every animation to its end. A resize crossfade starts only once its client commits, which happens in real time,
 # so advance until a settle probe succeeds.
 finish() {
   for _ in $(seq 20); do
-    "$UMBRIEL" clock-advance 2000 > /dev/null
-    if timeout 0.3 "$UMBRIEL" settle > /dev/null 2>&1; then
+    "$ANDROMEDA" clock-advance 2000 > /dev/null
+    if timeout 0.3 "$ANDROMEDA" settle > /dev/null 2>&1; then
       return 0
     fi
   done
-  echo "animations never finished: $("$UMBRIEL" windows --json)"
+  echo "animations never finished: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
@@ -77,10 +77,10 @@ finish
 
 # Keep the source column alive after detaching the dragged view so the strip's
 # scroll range and the target card's projection remain stable.
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 finish
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 source_column_x=$(jq -r '.[] | select(.title == "overhang-7") | .x' <<< "$windows")
 source_sibling_x=$(jq -r '.[] | select(.title == "overhang-6") | .x' <<< "$windows")
 if (( source_column_x != source_sibling_x )); then
@@ -109,14 +109,14 @@ if (( sample_w < 40 )); then
   exit 1
 fi
 
-"$UMBRIEL" msg overview-open > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
 finish
 pointer_hold "$OUTPUT_W" "$OUTPUT_H" move "$start_x" "$start_y" press "$BTN_LEFT" move "$drop_x" "$drop_y" \
   -- release "$BTN_LEFT"
 # Once the pointer holds at the drop point, animation time brings in the hint.
-"$UMBRIEL" clock-advance 500 > /dev/null
+"$ANDROMEDA" clock-advance 500 > /dev/null
 
-screenshot="$UMBRIEL_RUNTIME_DIR/drag-overhanging-card.png"
+screenshot="$ANDROMEDA_RUNTIME_DIR/drag-overhanging-card.png"
 grim "$screenshot"
 red=$(magick "$screenshot" -crop "${sample_w}x50+${sample_x}+195" \
   -format '%[fx:round(255*mean.r)]' info:)
@@ -130,10 +130,10 @@ if (( red < green + 35 )); then
 fi
 
 finish
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 finish
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r source_x source_y source_w < <(
   jq -r '.[] | select(.title == "overhang-7") | "\(.x) \(.y) \(.w)"' <<< "$windows"
 )
@@ -148,25 +148,25 @@ fi
 # Arrange the workspaces horizontally: the strip now scrolls vertically, so later columns hang below the preview's
 # bottom edge. A drop down there is only reachable because hit ownership extends across the output along the
 # scrolling axis, and its projection must still name the column it points at.
-sed -i 's/^workspace_axis = "vertical"$/workspace_axis = "horizontal"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/^workspace_axis = "vertical"$/workspace_axis = "horizontal"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # overhang-7 shares its column with overhang-4, so detaching it cannot collapse a column and shift the stack under the
 # pointer mid-drag. Focusing it also scrolls that column into the preview.
 source_id=$(jq -r '.[] | select(.title == "overhang-7") | .id' <<< "$windows")
-"$UMBRIEL" msg "window-focus:$source_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$source_id" > /dev/null
 stack_rows=0
 for _ in $(seq 30); do
-  stack_rows=$("$UMBRIEL" windows --json | jq '[.[] | .y] | unique | length')
+  stack_rows=$("$ANDROMEDA" windows --json | jq '[.[] | .y] | unique | length')
   ((stack_rows >= 5)) && break
   sleep 0.1
 done
 if ((stack_rows < 5)); then
-  echo "the strip never stacked its columns vertically: $("$UMBRIEL" windows --json)"
+  echo "the strip never stacked its columns vertically: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r source_x source_y source_h < <(
   jq -r '.[] | select(.title == "overhang-7") | "\(.x) \(.y) \(.h)"' <<< "$windows"
 )
@@ -195,15 +195,15 @@ if ((press_y <= OVERVIEW_Y + 5 || press_y >= 535)); then
   exit 1
 fi
 
-"$UMBRIEL" msg overview-open > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
 finish
 pointer_hold "$OUTPUT_W" "$OUTPUT_H" move "$press_x" "$press_y" press "$BTN_LEFT" move "$drop_x" "$drop_y" \
   -- release "$BTN_LEFT"
-"$UMBRIEL" clock-advance 500 > /dev/null
+"$ANDROMEDA" clock-advance 500 > /dev/null
 
 # The stack hint for the first row is a bar along the column's leading cross edge, projected into the overhanging
 # part of the preview. The dragged card trails to the right of the pointer, so it cannot cover that bar.
-vertical_shot="$UMBRIEL_RUNTIME_DIR/drag-overhanging-card-vertical.png"
+vertical_shot="$ANDROMEDA_RUNTIME_DIR/drag-overhanging-card-vertical.png"
 grim "$vertical_shot"
 hint_sample="45x30+$((OVERVIEW_X + target_x / 2 + 8))+$((target_top + 15))"
 vertical_red=$(magick "$vertical_shot" -crop "$hint_sample" -format '%[fx:round(255*mean.r)]' info:)
@@ -216,10 +216,10 @@ if ((vertical_red < vertical_green + 35)); then
 fi
 
 finish
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 finish
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r moved_x moved_y moved_h < <(
   jq -r '.[] | select(.title == "overhang-7") | "\(.x) \(.y) \(.h)"' <<< "$windows"
 )

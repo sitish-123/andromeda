@@ -1,7 +1,7 @@
 # Overview rendering
 
 This note records rendering and interaction details that are too specific for
-the main configuration guide but remain part of Umbriel's observable behavior.
+the main configuration guide but remain part of Andromeda's observable behavior.
 
 ## Live content
 

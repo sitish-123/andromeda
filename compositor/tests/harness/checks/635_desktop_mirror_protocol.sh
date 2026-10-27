@@ -4,9 +4,9 @@
 # requests, and an output-management disable of a mirror ends it.
 set -euo pipefail
 
-readonly DESKTOP=${UMBRIEL_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
-readonly OUTPUT_MANAGEMENT=${UMBRIEL_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/displays.toml
+readonly DESKTOP=${ANDROMEDA_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
+readonly OUTPUT_MANAGEMENT=${ANDROMEDA_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/displays.toml
 
 expect_state() {
   local expected=$1 state=
@@ -52,7 +52,7 @@ fi
 expect_state "HEADLESS-2 HEADLESS-1"
 "$OUTPUT_MANAGEMENT" apply disable HEADLESS-2 > /dev/null
 expect_state "HEADLESS-2 -"
-enabled=$("$UMBRIEL" outputs --json | jq -r '.[] | select(.name == "HEADLESS-2") | .enabled')
+enabled=$("$ANDROMEDA" outputs --json | jq -r '.[] | select(.name == "HEADLESS-2") | .enabled')
 if [[ $enabled != false ]]; then
   echo "an output-management disable of a mirror left it enabled='$enabled'"
   exit 1

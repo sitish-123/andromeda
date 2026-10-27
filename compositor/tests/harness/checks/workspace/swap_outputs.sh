@@ -9,12 +9,12 @@
 # seat stay on the invoking output; with one they follow the focused window.
 set -euo pipefail
 
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 readonly OFFSET=1280
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     exit 1
   fi
@@ -22,7 +22,7 @@ accepts() {
 
 rejects_with() {
   local action=$1 expected=$2 out=
-  if out=$("$UMBRIEL" msg "$action" 2>&1); then
+  if out=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to fail, got: $out"
     exit 1
   fi
@@ -37,14 +37,14 @@ spawn_client() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" --arg field "$2" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" --arg field "$2" \
     '.[] | select(.title == $title) | .[$field]'
 }
 
 wait_for_windows() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     if [[ $count == "$expected" ]]; then
       return 0
     fi
@@ -68,7 +68,7 @@ wait_for_workspace() {
 }
 
 box_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" \
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" \
     '.[] | select(.title == $title) | "\(.workspace) \(.x) \(.y) \(.w) \(.h)"'
 }
 
@@ -93,7 +93,7 @@ workspace_id_named() {
 assert_seat_on() {
   local workspace=$1 title=$2 want="$1 $2" actual=
   for _ in $(seq 50); do
-    actual=$("$UMBRIEL" windows --json \
+    actual=$("$ANDROMEDA" windows --json \
       | jq -r '[.[] | select(.active)] | if length == 1 then "\(.[0].workspace) \(.[0].title)" else "count=\(length)" end')
     if [[ $actual == "$want" ]]; then
       break
@@ -110,7 +110,7 @@ assert_seat_on() {
   fi
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout.scrolling]
 default_extent_fraction = 0.5
@@ -129,7 +129,7 @@ workspaces = ["LEFT"]
 position = [1280, 0]
 workspaces = ["RIGHT"]
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 left=$(workspace_id_named LEFT)
 right=$(workspace_id_named RIGHT)
@@ -156,7 +156,7 @@ accepts "workspace-switch:RIGHT/HEADLESS-2"
 spawn_client lone
 wait_for_windows 4
 accepts "workspace-switch:LEFT/HEADLESS-1"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 top_before=$(box_of stack-top)
 bottom_before=$(box_of stack-bottom)
@@ -169,7 +169,7 @@ fi
 
 accepts workspace-swap-active-output-next
 wait_for_workspace stack-top "$right"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 assert_box stack-top "$right" "$OFFSET" "$top_before"
 assert_box stack-bottom "$right" "$OFFSET" "$bottom_before"
 assert_box wide "$right" "$OFFSET" "$wide_before"
@@ -179,7 +179,7 @@ assert_box lone "$left" "-$OFFSET" "$lone_before"
 accepts "workspace-switch:RIGHT/HEADLESS-2"
 accepts workspace-swap-active-output-left
 wait_for_workspace stack-top "$left"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 assert_box stack-top "$left" 0 "$top_before"
 assert_box stack-bottom "$left" 0 "$bottom_before"
 assert_box wide "$left" 0 "$wide_before"
@@ -193,7 +193,7 @@ accepts "workspace-switch:LEFT/HEADLESS-1"
 accepts "workspace-set-layout:dwindle"
 accepts "window-focus:$(field_of wide id)"
 accepts "window-modify-primary-extent:0.15"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 top_dwindle=$(box_of stack-top)
 bottom_dwindle=$(box_of stack-bottom)
 wide_dwindle=$(box_of wide)
@@ -201,7 +201,7 @@ lone_dwindle=$(box_of lone)
 
 accepts workspace-swap-active-output-next
 wait_for_workspace stack-top "$right"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 assert_box stack-top "$right" "$OFFSET" "$top_dwindle"
 assert_box stack-bottom "$right" "$OFFSET" "$bottom_dwindle"
 assert_box wide "$right" "$OFFSET" "$wide_dwindle"
@@ -223,7 +223,7 @@ rejects_with workspace-swap-active-output-left "no output to the left"
 # directions.
 accepts workspace-swap-active-output-next
 wait_for_workspace lone "$left"
-sed -i 's/follows_focus = false/follows_focus = true/' "$UMBRIEL_CONFIG"
+sed -i 's/follows_focus = false/follows_focus = true/' "$ANDROMEDA_CONFIG"
 accepts config-reload
 accepts "window-focus:$(field_of lone id)"
 assert_seat_on "$left" lone

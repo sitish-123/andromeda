@@ -2,32 +2,32 @@
 # Late title rules preserve named scrolling-column width ownership and may reclassify a member.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/named-width-control"
-readonly RECLASSIFY_FIFO="$UMBRIEL_RUNTIME_DIR/named-reclassify-control"
-readonly ORDER_FIFO="$UMBRIEL_RUNTIME_DIR/named-order-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/named-width-control"
+readonly RECLASSIFY_FIFO="$ANDROMEDA_RUNTIME_DIR/named-reclassify-control"
+readonly ORDER_FIFO="$ANDROMEDA_RUNTIME_DIR/named-order-control"
 
 spawn_client() {
-  "$CLIENT" "$1" 800 600 > "$UMBRIEL_RUNTIME_DIR/$1.log" 2>&1 &
+  "$CLIENT" "$1" 800 600 > "$ANDROMEDA_RUNTIME_DIR/$1.log" 2>&1 &
 }
 
 wait_for_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $expected ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $expected ]] && return 0
     sleep 0.1
   done
-  echo "timed out waiting for $expected clients: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $expected clients: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 column_delta() {
-  "$UMBRIEL" windows --json | jq \
+  "$ANDROMEDA" windows --json | jq \
     '([.[] | select(.title == "named-width-unrelated") | .x][0])
       - ([.[] | select(.title == "named-width-owner") | .x][0])'
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -87,7 +87,7 @@ default_workspace = 2
 match.title = "^named-order-after$"
 default_workspace = 2
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client named-width-owner
 wait_for_windows 1
@@ -97,11 +97,11 @@ wait_for_windows 2
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
 APP_ID=named-width-joiner TITLE_AFTER_MAP=named-width-late \
-  "$CLIENT" named-width-placeholder 800 600 <&"$control_fd" > "$UMBRIEL_RUNTIME_DIR/named-width-joiner.log" 2>&1 &
+  "$CLIENT" named-width-placeholder 800 600 <&"$control_fd" > "$ANDROMEDA_RUNTIME_DIR/named-width-joiner.log" 2>&1 &
 wait_for_windows 3
 
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   owner_x=$(jq -r '.[] | select(.title == "named-width-owner") | .x' <<< "$windows")
   joiner_x=$(jq -r '.[] | select(.title == "named-width-placeholder") | .x' <<< "$windows")
   [[ -n $owner_x && $owner_x == "$joiner_x" && $(column_delta) -eq 318 ]] && break
@@ -115,7 +115,7 @@ fi
 
 printf 'u' >&"$control_fd"
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   title=$(jq -r '.[] | select(.title == "named-width-late") | .title' <<< "$windows")
   [[ $title == named-width-late ]] && break
   sleep 0.1
@@ -134,12 +134,12 @@ mkfifo "$RECLASSIFY_FIFO"
 exec {reclassify_fd}<>"$RECLASSIFY_FIFO"
 APP_ID=named-reclass-joiner TITLE_AFTER_MAP=named-reclass-late \
   "$CLIENT" named-reclass-placeholder 800 600 <&"$reclassify_fd" \
-  > "$UMBRIEL_RUNTIME_DIR/named-reclass-joiner.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/named-reclass-joiner.log" 2>&1 &
 wait_for_windows 5
 printf 'u' >&"$reclassify_fd"
 
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   old_x=$(jq -r '.[] | select(.title == "named-reclass-owner") | .x' <<< "$windows")
   new_x=$(jq -r '.[] | select(.title == "named-reclass-late") | .x' <<< "$windows")
   [[ -n $old_x && -n $new_x && $old_x != "$new_x" ]] && break
@@ -153,7 +153,7 @@ fi
 spawn_client named-reclass-follower
 wait_for_windows 6
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   old_x=$(jq -r '.[] | select(.title == "named-reclass-owner") | .x' <<< "$windows")
   new_x=$(jq -r '.[] | select(.title == "named-reclass-late") | .x' <<< "$windows")
   follower_x=$(jq -r '.[] | select(.title == "named-reclass-follower") | .x' <<< "$windows")
@@ -168,7 +168,7 @@ fi
 spawn_client named-reclass-after
 wait_for_windows 7
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   new_x=$(jq -r '.[] | select(.title == "named-reclass-late") | .x' <<< "$windows")
   after_x=$(jq -r '.[] | select(.title == "named-reclass-after") | .x' <<< "$windows")
   [[ -n $new_x && -n $after_x ]] && ((after_x - new_x == 509)) && break
@@ -186,15 +186,15 @@ wait_for_windows 8
 mkfifo "$ORDER_FIFO"
 exec {order_fd}<>"$ORDER_FIFO"
 APP_ID=named-order-joiner TITLE_AFTER_MAP=named-order-late \
-  "$CLIENT" named-order-placeholder 800 600 <&"$order_fd" > "$UMBRIEL_RUNTIME_DIR/named-order-joiner.log" 2>&1 &
+  "$CLIENT" named-order-placeholder 800 600 <&"$order_fd" > "$ANDROMEDA_RUNTIME_DIR/named-order-joiner.log" 2>&1 &
 wait_for_windows 9
-order_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "named-order-placeholder") | .id')
-"$UMBRIEL" msg "window-focus:$order_id" > /dev/null
-"$UMBRIEL" msg window-consume-or-expel-right > /dev/null
+order_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "named-order-placeholder") | .id')
+"$ANDROMEDA" msg "window-focus:$order_id" > /dev/null
+"$ANDROMEDA" msg window-consume-or-expel-right > /dev/null
 spawn_client named-order-after
 wait_for_windows 10
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   owner_x=$(jq -r '.[] | select(.title == "named-order-owner") | .x' <<< "$windows")
   order_x=$(jq -r '.[] | select(.title == "named-order-placeholder") | .x' <<< "$windows")
   after_x=$(jq -r '.[] | select(.title == "named-order-after") | .x' <<< "$windows")
@@ -210,7 +210,7 @@ fi
 
 printf 'u' >&"$order_fd"
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   owner_x=$(jq -r '.[] | select(.title == "named-order-owner") | .x' <<< "$windows")
   order_x=$(jq -r '.[] | select(.title == "named-order-late") | .x' <<< "$windows")
   after_x=$(jq -r '.[] | select(.title == "named-order-after") | .x' <<< "$windows")

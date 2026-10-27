@@ -1,6 +1,6 @@
 #include "input/keyboard_layout.h"
 
-namespace umbriel {
+namespace andromeda {
   std::optional<xkb_layout_index_t> layoutGroupNamed(xkb_keymap* keymap, std::string_view name) {
     if (keymap == nullptr || name.empty()) {
       return std::nullopt;
@@ -27,4 +27,4 @@ namespace umbriel {
     return layoutGroupNamed(target, sourceName);
   }
 
-} // namespace umbriel
+} // namespace andromeda

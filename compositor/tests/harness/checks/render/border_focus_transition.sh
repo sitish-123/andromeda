@@ -4,10 +4,10 @@
 # overview round trip must reveal the borders settled rather than replaying.
 set -euo pipefail
 
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/border-focus-transition.png"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/border-focus-transition.png"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#000000FF"
@@ -44,12 +44,12 @@ match.title = "^focus-border-b$"
 default_floating = true
 default_position = { x = 800, y = 120, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 for title in focus-border-a focus-border-b; do
-  "$UMBRIEL_UNMAP_CLIENT" "$title" 300 300 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$ANDROMEDA_UNMAP_CLIENT" "$title" 300 300 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 80); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && break
     sleep 0.025
   done
@@ -59,7 +59,7 @@ done
 border_position() {
   local title=$1
   local window
-  window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+  window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
   jq -r '"\(.x + (.w / 2 | floor)) \(.y - 8)"' <<< "$window"
 }
 
@@ -83,21 +83,21 @@ assert_color() {
   }
 }
 
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "focus-border-a")')
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "focus-border-a")')
 a_id=$(jq -r .id <<< "$window")
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "focus-border-b")')
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "focus-border-b")')
 b_id=$(jq -r .id <<< "$window")
 
-"$UMBRIEL" msg "window-focus:$a_id" > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg "window-focus:$a_id" > /dev/null
+"$ANDROMEDA" settle
 grim "$IMAGE"
 assert_color focus-border-a red
 assert_color focus-border-b blue
 
 # Animation time only moves by clock-advance; advancing 1000 ms finishes every border and overview timeline.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" msg "window-focus:$b_id" > /dev/null
-"$UMBRIEL" clock-advance 350
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" msg "window-focus:$b_id" > /dev/null
+"$ANDROMEDA" clock-advance 350
 grim "$IMAGE"
 assert_color focus-border-a mixed
 assert_color focus-border-b mixed
@@ -105,12 +105,12 @@ assert_color focus-border-b mixed
 # Opening the overview clears focus on the hidden windows and closing restores it; the reveal must show the settled
 # result instead of the transition.
 overview_round_trip() {
-  "$UMBRIEL" clock-advance 1000
-  "$UMBRIEL" settle
-  "$UMBRIEL" msg overview-open > /dev/null
-  "$UMBRIEL" clock-advance 600
-  "$UMBRIEL" msg overview-close > /dev/null
-  "$UMBRIEL" clock-advance 600
+  "$ANDROMEDA" clock-advance 1000
+  "$ANDROMEDA" settle
+  "$ANDROMEDA" msg overview-open > /dev/null
+  "$ANDROMEDA" clock-advance 600
+  "$ANDROMEDA" msg overview-close > /dev/null
+  "$ANDROMEDA" clock-advance 600
   grim "$IMAGE"
   assert_color focus-border-a blue
   assert_color focus-border-b red
@@ -120,7 +120,7 @@ overview_round_trip
 # A shell's overview-scoped capture layer holds the keyboard exclusively while the overview is open and is dropped
 # on the closed event. That event must go out as the close starts, so focus returns while the windows are still
 # hidden.
-"$UMBRIEL" subscribe overview | while read -r event; do
+"$ANDROMEDA" subscribe overview | while read -r event; do
   if [[ $(jq -r .data.open <<< "$event") == true ]]; then
     "$LAYER_CLIENT" HEADLESS-1 0 bottom-layer keyboard=exclusive > /dev/null 2>&1 &
     capture=$!
@@ -131,20 +131,20 @@ overview_round_trip
 done &
 overview_round_trip
 
-"$UMBRIEL" clock-advance 1000
-"$UMBRIEL" clock-resume
+"$ANDROMEDA" clock-advance 1000
+"$ANDROMEDA" clock-resume
 
 # A zero-width border has nothing to fade, so a focus change leaves no animation running and settle succeeds on a
 # frozen clock.
-sed -i 's/^border_width = 20$/border_width = 0/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" settle
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" msg "window-focus:$a_id" > /dev/null
-if ! timeout 5 "$UMBRIEL" settle; then
+sed -i 's/^border_width = 20$/border_width = 0/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" msg "window-focus:$a_id" > /dev/null
+if ! timeout 5 "$ANDROMEDA" settle; then
   echo "a focus change animated a zero-width border"
   exit 1
 fi
-"$UMBRIEL" clock-resume
+"$ANDROMEDA" clock-resume
 
 echo "focus border colors interpolate during focus changes and settle across the overview"

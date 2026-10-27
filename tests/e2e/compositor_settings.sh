@@ -4,7 +4,7 @@
 #   - a value config.toml sets beats the value Settings saved (Settings wins),
 #   - clearing a key does not fall back to what config.toml says,
 #   - a non-input key (appearance, layout, animation) cannot be changed,
-#   - Settings has no Window Style, Layout, Overview, or Behavior page on Umbriel, or they paint identically,
+#   - Settings has no Window Style, Layout, Overview, or Behavior page on Andromeda, or they paint identically,
 #   - `settings-open window-style` on a closed window lands elsewhere because the page did not exist yet.
 # Writes settings.toml, the helper's transcript, and one screenshot per page to $OUT
 # (default ./artifacts/compositor-settings).
@@ -12,8 +12,8 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/compositor-settings}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
-printf '\n[appearance]\nborder_width = 6\n' >> "$RUNTIME/umbriel.toml"
-run "$UMBRIEL" msg config-reload > /dev/null
+printf '\n[appearance]\nborder_width = 6\n' >> "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
 
 SRC=$ROOT/shell
 BUILD=$SRC/build-debug

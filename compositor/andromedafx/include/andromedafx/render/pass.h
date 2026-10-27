@@ -10,7 +10,7 @@
 
 #include "render/egl.h"
 #include "types/fx/clipped_region.h"
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 
 struct fx_gles_render_pass {
 	struct wlr_render_pass base;

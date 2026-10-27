@@ -9,7 +9,7 @@
 #include <string_view>
 #include <variant>
 
-namespace umbriel {
+namespace andromeda {
 
   struct OutputIdentity;
 
@@ -57,4 +57,4 @@ namespace umbriel {
   // which wins over displays.toml for that output. A damaged or missing file reads as false.
   [[nodiscard]] bool documentSetsOutput(const std::filesystem::path& configRoot, std::string_view name);
 
-} // namespace umbriel
+} // namespace andromeda

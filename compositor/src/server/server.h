@@ -84,7 +84,7 @@ struct wlr_virtual_keyboard_manager_v1;
 struct wlr_virtual_pointer_manager_v1;
 struct wlr_virtual_pointer_v1;
 
-namespace umbriel {
+namespace andromeda {
   enum class ContentType;
   struct ConfigEffects;
 
@@ -226,7 +226,7 @@ namespace umbriel {
     // Milliseconds on the clock every animation ticks from. It follows the monotonic clock unless a test build froze
     // it.
     [[nodiscard]] uint64_t animationClockMsec() const;
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     void freezeAnimationClock();
     // Moves a frozen clock forward and schedules a frame on every output. False when the clock is not frozen.
     bool advanceAnimationClock(uint64_t ms);
@@ -786,7 +786,7 @@ namespace umbriel {
     std::optional<ScreenCastCommand> m_pendingScreenCastCommand;
     bool m_screenCastActive = false;
     bool m_screenCastDynamicConfirmed = false;
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     std::optional<uint64_t> m_frozenAnimationClockMsec;
     int64_t m_animationClockOffsetMsec = 0;
 #endif
@@ -891,4 +891,4 @@ namespace umbriel {
     std::vector<std::unique_ptr<LayerSurface>> m_layerSurfaces;
   };
 
-} // namespace umbriel
+} // namespace andromeda

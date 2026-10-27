@@ -3,22 +3,22 @@
 # clocks keep their configured durations for every duration ordering.
 set -euo pipefail
 
-readonly SHOTS="$UMBRIEL_RUNTIME_DIR/tiled-close-duration-alignment"
+readonly SHOTS="$ANDROMEDA_RUNTIME_DIR/tiled-close-duration-alignment"
 readonly MARKER_PIXELS=1000
 mkdir -p "$SHOTS"
 
-cat > "$UMBRIEL_RUNTIME_DIR/duration-close-green.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/duration-close-green.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
     return vec4(0.0, 1.0, 0.0, 1.0);
 }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/duration-move-blue.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/duration-move-blue.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
     return vec4(0.0, 0.0, 1.0, 1.0);
 }
 GLSL
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#000000FF"
@@ -62,30 +62,30 @@ effect = "windows_move_duration_move_blue"
 [animation.workspaces]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Animation time only moves by clock-advance. Frames are sampled every STEP_MS from the frozen instant the closer
 # unmapped, so each sample time is exact.
 readonly STEP_MS=50
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 
 # Writes the green, blue, and red pixel counts and the green bounding box of one frame. Frames are analyzed in the
 # background while capture continues.
 analyze_frame() {
   local image=$1
   {
-    "$UMBRIEL_PIXEL_PROBE" "$image" count \
+    "$ANDROMEDA_PIXEL_PROBE" "$image" count \
       'g > 0.8 && r < 0.2 && b < 0.2' 'b > 0.8 && r < 0.2 && g < 0.2' 'r > 0.8 && g < 0.2 && b < 0.2'
-    "$UMBRIEL_PIXEL_PROBE" "$image" bbox 'g > 0.8 && r < 0.2 && b < 0.2'
+    "$ANDROMEDA_PIXEL_PROBE" "$image" bbox 'g > 0.8 && r < 0.2 && b < 0.2'
   } > "$image.txt"
 }
 
 spawn() {
   local title=$1 color=$2
-  FILL_COLOR="$color" "$UMBRIEL_UNMAP_CLIENT" "$title" 1280 720 \
-    > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR="$color" "$ANDROMEDA_UNMAP_CLIENT" "$title" 1280 720 \
+    > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 100); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && return 0
     sleep 0.025
   done
@@ -98,8 +98,8 @@ set_durations() {
   sed -i \
     -e "s/^duration_ms = [0-9][0-9]* # close-duration$/duration_ms = $close_ms # close-duration/" \
     -e "s/^duration_ms = [0-9][0-9]* # move-duration$/duration_ms = $move_ms # move-duration/" \
-    "$UMBRIEL_CONFIG"
-  "$UMBRIEL" msg config-reload > /dev/null
+    "$ANDROMEDA_CONFIG"
+  "$ANDROMEDA" msg config-reload > /dev/null
   sleep 0.15
 }
 
@@ -121,8 +121,8 @@ run_case() {
   ((move_ms > max_duration)) && max_duration=$move_ms
 
   set_durations "$close_ms" "$move_ms"
-  "$UMBRIEL" msg "workspace-switch:$workspace" > /dev/null
-  "$UMBRIEL" clock-advance 100
+  "$ANDROMEDA" msg "workspace-switch:$workspace" > /dev/null
+  "$ANDROMEDA" clock-advance 100
 
   spawn "$survivor_title" 0xFFFF0000
   spawn "$closer_title" 0xFF000000
@@ -130,24 +130,24 @@ run_case() {
   closer_id=$(jq -r .id <<< "$window")
 
   # Opening the second tile also reflows the survivor. Let that independent movement finish before measuring close.
-  "$UMBRIEL" clock-advance "$((move_ms + 200))"
+  "$ANDROMEDA" clock-advance "$((move_ms + 200))"
 
-  "$UMBRIEL" msg "window-close:$closer_id" > /dev/null
+  "$ANDROMEDA" msg "window-close:$closer_id" > /dev/null
   for _ in $(seq 100); do
-    "$UMBRIEL" windows --json | jq -e --arg title "$closer_title" 'any(.[]; .title == $title)' > /dev/null || break
+    "$ANDROMEDA" windows --json | jq -e --arg title "$closer_title" 'any(.[]; .title == $title)' > /dev/null || break
     sleep 0.02
   done
 
   local elapsed=1 count=0
   local -a sample_times=() analyzers=()
-  "$UMBRIEL" clock-advance 1
+  "$ANDROMEDA" clock-advance 1
   while ((elapsed <= max_duration + 300)); do
     grim "$SHOTS/$phase-$count.png"
     analyze_frame "$SHOTS/$phase-$count.png" &
     analyzers+=($!)
     sample_times[$count]=$elapsed
     count=$((count + 1))
-    "$UMBRIEL" clock-advance "$STEP_MS"
+    "$ANDROMEDA" clock-advance "$STEP_MS"
     elapsed=$((elapsed + STEP_MS))
   done
   local analyzer
@@ -155,11 +155,11 @@ run_case() {
     wait "$analyzer"
   done
 
-  if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/$closer_title.log"; then
+  if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/$closer_title.log"; then
     echo "$phase: closing client did not unmap"
     return 1
   fi
-  if "$UMBRIEL" windows --json | jq -e --arg title "$closer_title" \
+  if "$ANDROMEDA" windows --json | jq -e --arg title "$closer_title" \
       'any(.[]; .title == $title)' > /dev/null; then
     echo "$phase: compositor retained the closing client"
     return 1

@@ -1,6 +1,6 @@
 #pragma once
 
-// Minimal zero-dependency test harness. UMBRIEL_TEST(descriptiveName) { CHECK(condition); CHECK_EQ(actual, expected); }
+// Minimal zero-dependency test harness. ANDROMEDA_TEST(descriptiveName) { CHECK(condition); CHECK_EQ(actual, expected); }
 // int main() { return RUN_TESTS(); } Cases self-register, every failure is reported (a failing CHECK does not stop the
 // case), and failures print file, line, the expressions, and both values.
 
@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace umbriel::test {
+namespace andromeda::test {
 
   struct Case {
     std::string_view name;
@@ -65,33 +65,33 @@ namespace umbriel::test {
     return 1;
   }
 
-} // namespace umbriel::test
+} // namespace andromeda::test
 
-#define UMBRIEL_TEST(name)                                                                                             \
+#define ANDROMEDA_TEST(name)                                                                                             \
   static void name();                                                                                                  \
-  static const ::umbriel::test::Registrar kRegistrar##name(#name, &name);                                              \
+  static const ::andromeda::test::Registrar kRegistrar##name(#name, &name);                                              \
   static void name()
 
 #define CHECK(expr)                                                                                                    \
   do {                                                                                                                 \
     if (!(expr)) {                                                                                                     \
-      ::umbriel::test::reportFailure(__FILE__, __LINE__, "CHECK(" #expr ") failed");                                   \
+      ::andromeda::test::reportFailure(__FILE__, __LINE__, "CHECK(" #expr ") failed");                                   \
     }                                                                                                                  \
   } while (false)
 
 #define CHECK_EQ(actualExpr, expectedExpr)                                                                             \
   do {                                                                                                                 \
-    const auto& umbrielCheckActual = (actualExpr);                                                                     \
-    const auto& umbrielCheckExpected = (expectedExpr);                                                                 \
-    if (!(umbrielCheckActual == umbrielCheckExpected)) {                                                               \
-      ::umbriel::test::reportFailure(                                                                                  \
+    const auto& andromedaCheckActual = (actualExpr);                                                                     \
+    const auto& andromedaCheckExpected = (expectedExpr);                                                                 \
+    if (!(andromedaCheckActual == andromedaCheckExpected)) {                                                               \
+      ::andromeda::test::reportFailure(                                                                                  \
           __FILE__, __LINE__,                                                                                          \
           std::format(                                                                                                 \
               "CHECK_EQ({}, {}) failed: got {}, want {}", #actualExpr, #expectedExpr,                                  \
-              ::umbriel::test::describe(umbrielCheckActual), ::umbriel::test::describe(umbrielCheckExpected)           \
+              ::andromeda::test::describe(andromedaCheckActual), ::andromeda::test::describe(andromedaCheckExpected)           \
           )                                                                                                            \
       );                                                                                                               \
     }                                                                                                                  \
   } while (false)
 
-#define RUN_TESTS() ::umbriel::test::runAll()
+#define RUN_TESTS() ::andromeda::test::runAll()

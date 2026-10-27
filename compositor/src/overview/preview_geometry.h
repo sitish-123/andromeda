@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstddef>
 
-namespace umbriel {
+namespace andromeda {
 
   // Gap between workspace thumbnails, as a fraction of the scaled row height.
   inline constexpr double kPreviewRowGapFraction = 0.1;
@@ -42,4 +42,4 @@ namespace umbriel {
     return static_cast<int>(std::lround((horizontal ? grid.baseX : grid.baseY) + offset));
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -2,10 +2,10 @@
 
 #include "check.h"
 
-using umbriel::maximizeRequestTargetsEdges;
+using andromeda::maximizeRequestTargetsEdges;
 
-UMBRIEL_TEST(freshClientMaximizeTargetsColumn) { CHECK(!maximizeRequestTargetsEdges(false)); }
+ANDROMEDA_TEST(freshClientMaximizeTargetsColumn) { CHECK(!maximizeRequestTargetsEdges(false)); }
 
-UMBRIEL_TEST(clientCanLeaveEdgesMaximize) { CHECK(maximizeRequestTargetsEdges(true)); }
+ANDROMEDA_TEST(clientCanLeaveEdgesMaximize) { CHECK(maximizeRequestTargetsEdges(true)); }
 
 int main() { return RUN_TESTS(); }

@@ -8,8 +8,8 @@
 # for tiling on unpin.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly STATE_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly STATE_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 for binary in "$CLIENT" "$STATE_CLIENT"; do
   if [[ ! -x $binary ]]; then
@@ -18,7 +18,7 @@ for binary in "$CLIENT" "$STATE_CLIENT"; do
   fi
 done
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -49,10 +49,10 @@ default_pinned = true
 match.title = "^pinned-tiled$"
 default_floating = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg t "$1" --arg f "$2" '.[] | select(.title == $t) | .[$f]'
+  "$ANDROMEDA" windows --json | jq -r --arg t "$1" --arg f "$2" '.[] | select(.title == $t) | .[$f]'
 }
 
 wait_mapped() {
@@ -76,17 +76,17 @@ wait_gone() {
 }
 
 width_of() {
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
   field_of "$1" w
 }
 
 # The client reports every presentation, so its first line is the size it
 # answered the opening configure with, before the window was in the layout.
 first_configured_width() {
-  sed -n '1s/^mapped \([0-9]\{1,\}\)x.*/\1/p' "$UMBRIEL_RUNTIME_DIR/$1.log"
+  sed -n '1s/^mapped \([0-9]\{1,\}\)x.*/\1/p' "$ANDROMEDA_RUNTIME_DIR/$1.log"
 }
 
-"$CLIENT" alone-width > "$UMBRIEL_RUNTIME_DIR/alone-width.log" 2>&1 &
+"$CLIENT" alone-width > "$ANDROMEDA_RUNTIME_DIR/alone-width.log" 2>&1 &
 alone_width_pid=$!
 wait_mapped alone-width
 alone=$(width_of alone-width)
@@ -100,7 +100,7 @@ if ((opening != alone)); then
   exit 1
 fi
 
-"$CLIENT" neighbor > "$UMBRIEL_RUNTIME_DIR/neighbor.log" 2>&1 &
+"$CLIENT" neighbor > "$ANDROMEDA_RUNTIME_DIR/neighbor.log" 2>&1 &
 neighbor_pid=$!
 wait_mapped neighbor
 shared=$(width_of alone-width)
@@ -131,7 +131,7 @@ fi
 kill "$alone_width_pid"
 wait_gone alone-width
 
-readonly MAX_LOG="$UMBRIEL_RUNTIME_DIR/alone-max.log"
+readonly MAX_LOG="$ANDROMEDA_RUNTIME_DIR/alone-max.log"
 env LOG_CONFIGURES=1 "$STATE_CLIENT" alone-max > "$MAX_LOG" 2>&1 &
 alone_max_pid=$!
 wait_mapped alone-max
@@ -151,7 +151,7 @@ if [[ -z $maximized_line || -z $mapped_line || $maximized_line -ge $mapped_line 
 fi
 maximized_width=$(sed -n '1s/^configured-size=\([0-9]\{1,\}\)x.*/\1/p' "$MAX_LOG")
 
-"$STATE_CLIENT" max-neighbor > "$UMBRIEL_RUNTIME_DIR/max-neighbor.log" 2>&1 &
+"$STATE_CLIENT" max-neighbor > "$ANDROMEDA_RUNTIME_DIR/max-neighbor.log" 2>&1 &
 max_neighbor_pid=$!
 wait_mapped max-neighbor
 for _ in $(seq 40); do
@@ -174,7 +174,7 @@ wait_gone alone-max
 wait_gone max-neighbor
 
 for title in pinned-default pinned-tiled; do
-  log="$UMBRIEL_RUNTIME_DIR/$title.log"
+  log="$ANDROMEDA_RUNTIME_DIR/$title.log"
   env LOG_CONFIGURES=1 "$STATE_CLIENT" "$title" > "$log" 2>&1 &
   pid=$!
   wait_mapped "$title"
@@ -187,7 +187,7 @@ for title in pinned-default pinned-tiled; do
     echo "the pinned window '$title' did not open floating"
     exit 1
   fi
-  "$UMBRIEL" msg window-toggle-pinned > /dev/null
+  "$ANDROMEDA" msg window-toggle-pinned > /dev/null
   for _ in $(seq 40); do
     [[ $(field_of "$title" floating) == false ]] && break
     sleep 0.1

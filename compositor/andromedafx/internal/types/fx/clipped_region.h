@@ -1,7 +1,7 @@
 #ifndef TYPES_FX_CLIPPED_REGION_H
 #define TYPES_FX_CLIPPED_REGION_H
 #include <wlr/util/box.h>
-#include <umbrielfx/types/fx/clipped_region.h>
+#include <andromedafx/types/fx/clipped_region.h>
 
 struct fx_corner_fradii {
     float top_left;

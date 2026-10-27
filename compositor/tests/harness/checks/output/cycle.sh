@@ -9,10 +9,10 @@
 # observed on the pushed workspaces event stream, not only in a poll.
 set -euo pipefail
 
-readonly EVENTS="$UMBRIEL_RUNTIME_DIR/workspace-events.log"
+readonly EVENTS="$ANDROMEDA_RUNTIME_DIR/workspace-events.log"
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     exit 1
   fi
@@ -23,11 +23,11 @@ spawn_client() {
 }
 
 focused_output() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .output'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .output'
 }
 
 window_output() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .workspace | split(":")[0]'
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .workspace | split(":")[0]'
 }
 
 # The last pushed event, which only reports the new monitor once the stream has
@@ -63,7 +63,7 @@ wait_for_window_output() {
   exit 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -74,8 +74,8 @@ position = [0, 0]
 [output.HEADLESS-2]
 position = [1280, 0]
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" subscribe workspaces > "$EVENTS" &
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" subscribe workspaces > "$EVENTS" &
 for _ in $(seq 40); do
   [[ -s $EVENTS ]] && break
   sleep 0.05
@@ -99,7 +99,7 @@ esac
 
 # The cycle starts on the monitor at the end of the layout, where the matching
 # direction has nowhere to go.
-if out=$("$UMBRIEL" msg "$edge_action" 2>&1); then
+if out=$("$ANDROMEDA" msg "$edge_action" 2>&1); then
   echo "expected '$edge_action' to fail on the $first edge, got: $out"
   exit 1
 fi

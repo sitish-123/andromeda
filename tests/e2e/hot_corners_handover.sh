@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# On Umbriel the compositor owns hot corners. A shell started with its own [hot_corners] configured hands them over
+# On Andromeda the compositor owns hot corners. A shell started with its own [hot_corners] configured hands them over
 # once: the compositor's hot_corners settings then carry the translated actions (launcher becomes
 # "shell:panel-toggle launcher", overview becomes "overview-toggle") with the shell's delay, and the shell turns its
 # own corners off. Started again, the shell leaves the compositor's corners as they are. Writes settings.txt and

@@ -41,7 +41,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("server");
@@ -737,7 +737,7 @@ namespace umbriel {
     const ConfigReloadResult result = reloadConfig();
     if (result.success) {
       if (result.change.drm) {
-        kLog.warn("DRM configuration changed; restart Umbriel to apply it");
+        kLog.warn("DRM configuration changed; restart Andromeda to apply it");
       }
       if (result.change.keybinds) {
         m_bindCooldowns.clear();
@@ -3437,4 +3437,4 @@ namespace umbriel {
 
     wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, view->m_captureSource);
   }
-} // namespace umbriel
+} // namespace andromeda

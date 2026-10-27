@@ -1,5 +1,5 @@
 project(
-  'xdg-desktop-portal-umbriel',
+  'xdg-desktop-portal-andromeda',
   ['c', 'cpp'],
   version: '0.1.0',
   meson_version: '>=1.3',
@@ -79,11 +79,11 @@ daemon_sources = files(
   'src/dbus/session.cpp',
   'src/wayland/wayland.cpp',
   'src/pipewire/pipewire.cpp',
-  'src/umbriel/ipc.cpp',
+  'src/andromeda/ipc.cpp',
 )
 
 executable(
-  'xdg-desktop-portal-umbriel',
+  'xdg-desktop-portal-andromeda',
   daemon_sources + protocol_sources + [defaults_h],
   include_directories: [include_directories('src'), include_directories('.')],
   dependencies: [
@@ -109,7 +109,7 @@ if gtk4_dep.found()
     source_dir: 'src/picker',
   )
   executable(
-    'umbriel-share-picker',
+    'andromeda-share-picker',
     files(
       'src/picker/main.cpp',
       'src/picker/previews.cpp',
@@ -125,22 +125,22 @@ endif
 
 # --- data files --------------------------------------------------------------
 
-install_data('data/umbriel.portal',
+install_data('data/andromeda.portal',
   install_dir: get_option('datadir') / 'xdg-desktop-portal' / 'portals')
 
-install_data('data/umbriel-portals.conf',
+install_data('data/andromeda-portals.conf',
   install_dir: get_option('datadir') / 'xdg-desktop-portal')
 
 configure_file(
-  input: 'data/org.freedesktop.impl.portal.desktop.umbriel.service.in',
-  output: 'org.freedesktop.impl.portal.desktop.umbriel.service',
+  input: 'data/org.freedesktop.impl.portal.desktop.andromeda.service.in',
+  output: 'org.freedesktop.impl.portal.desktop.andromeda.service',
   configuration: conf_data,
   install_dir: get_option('datadir') / 'dbus-1' / 'services',
 )
 
 configure_file(
-  input: 'data/xdg-desktop-portal-umbriel.service.in',
-  output: 'xdg-desktop-portal-umbriel.service',
+  input: 'data/xdg-desktop-portal-andromeda.service.in',
+  output: 'xdg-desktop-portal-andromeda.service',
   configuration: conf_data,
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
 )

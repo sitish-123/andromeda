@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
   namespace {
 
     const OutputRule* findOutputRule(const Config& config, const std::string& name) {
@@ -346,4 +346,4 @@ namespace umbriel {
     add(effects, "effects");
     return out;
   }
-} // namespace umbriel
+} // namespace andromeda

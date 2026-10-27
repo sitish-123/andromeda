@@ -17,18 +17,18 @@ extern "C" {
 
 namespace {
 
-  using umbriel::CheatsheetRow;
-  using umbriel::Group;
+  using andromeda::CheatsheetRow;
+  using andromeda::Group;
 
-  const char* wheelName(umbriel::WheelDirection dir) {
+  const char* wheelName(andromeda::WheelDirection dir) {
     switch (dir) {
-    case umbriel::WheelDirection::Up:
+    case andromeda::WheelDirection::Up:
       return "WheelUp";
-    case umbriel::WheelDirection::Down:
+    case andromeda::WheelDirection::Down:
       return "WheelDown";
-    case umbriel::WheelDirection::Left:
+    case andromeda::WheelDirection::Left:
       return "WheelLeft";
-    case umbriel::WheelDirection::Right:
+    case andromeda::WheelDirection::Right:
       return "WheelRight";
     default:
       return nullptr;
@@ -73,7 +73,7 @@ namespace {
     return raw;
   }
 
-  std::string buildChordLabel(const umbriel::Keybind& bind) {
+  std::string buildChordLabel(const andromeda::Keybind& bind) {
     std::string result;
     auto appendMod = [&](const char* name) {
       if (!result.empty()) {
@@ -103,11 +103,11 @@ namespace {
     if (!result.empty()) {
       result += '+';
     }
-    if (bind.wheel != umbriel::WheelDirection::None) {
+    if (bind.wheel != andromeda::WheelDirection::None) {
       const char* name = wheelName(bind.wheel);
       result += name != nullptr ? name : "Wheel?";
     } else if (bind.mouseButton != 0) {
-      const char* name = umbriel::mouseButtonName(bind.mouseButton);
+      const char* name = andromeda::mouseButtonName(bind.mouseButton);
       result += name != nullptr ? name : "Mouse?";
     } else {
       char buf[64];
@@ -144,11 +144,11 @@ namespace {
     return {std::move(base), std::string(rest)};
   }
 
-  std::string workspaceReferenceLabel(const umbriel::WorkspaceReference& reference) {
-    if (const auto* index = std::get_if<umbriel::WorkspaceIndex>(&reference)) {
+  std::string workspaceReferenceLabel(const andromeda::WorkspaceReference& reference) {
+    if (const auto* index = std::get_if<andromeda::WorkspaceIndex>(&reference)) {
       return std::to_string(index->value);
     }
-    const auto* name = std::get_if<umbriel::WorkspaceName>(&reference);
+    const auto* name = std::get_if<andromeda::WorkspaceName>(&reference);
     if (name == nullptr) {
       return {};
     }
@@ -159,50 +159,50 @@ namespace {
 
   // Empty unless the bind targets a workspace. Used to collapse the runs of
   // per-digit positional workspace binds into a single row.
-  std::string workspaceSelectorName(const umbriel::Keybind& bind) {
-    const auto* workspace = umbriel::payloadIf<umbriel::WorkspaceArg>(bind);
+  std::string workspaceSelectorName(const andromeda::Keybind& bind) {
+    const auto* workspace = andromeda::payloadIf<andromeda::WorkspaceArg>(bind);
     return workspace != nullptr ? workspaceReferenceLabel(workspace->reference) : std::string{};
   }
 
   // Driven by the spec's argument kind and the bind's payload variant, so the
   // set of parameterized actions lives in exactly one place: the spec table.
-  std::string actionLabel(const umbriel::Keybind& bind) {
-    for (const auto& spec : umbriel::actionSpecs()) {
+  std::string actionLabel(const andromeda::Keybind& bind) {
+    for (const auto& spec : andromeda::actionSpecs()) {
       if (spec.action != bind.action) {
         continue;
       }
       std::string name(spec.name);
       switch (spec.argKind) {
-      case umbriel::ActionArgKind::None:
+      case andromeda::ActionArgKind::None:
         return name;
-      case umbriel::ActionArgKind::Command:
-        if (const auto* spawn = umbriel::payloadIf<umbriel::SpawnArg>(bind)) {
+      case andromeda::ActionArgKind::Command:
+        if (const auto* spawn = andromeda::payloadIf<andromeda::SpawnArg>(bind)) {
           return name + ": " + spawn->command;
         }
-        if (const auto* submap = umbriel::payloadIf<umbriel::SubmapArg>(bind)) {
+        if (const auto* submap = andromeda::payloadIf<andromeda::SubmapArg>(bind)) {
           return name + ": " + (submap->name.empty() ? "unnamed" : submap->name);
         }
         return name;
-      case umbriel::ActionArgKind::Fraction:
-        if (const auto* fraction = umbriel::payloadIf<umbriel::FractionArg>(bind)) {
+      case andromeda::ActionArgKind::Fraction:
+        if (const auto* fraction = andromeda::payloadIf<andromeda::FractionArg>(bind)) {
           return std::format("{}: {:.2g}", name, fraction->fraction);
         }
         return name;
-      case umbriel::ActionArgKind::FractionDelta:
-        if (const auto* fraction = umbriel::payloadIf<umbriel::FractionArg>(bind)) {
+      case andromeda::ActionArgKind::FractionDelta:
+        if (const auto* fraction = andromeda::payloadIf<andromeda::FractionArg>(bind)) {
           return std::format("{}: {:+.2g}", name, fraction->fraction);
         }
         return name;
-      case umbriel::ActionArgKind::LayoutMode:
-        if (const auto* arg = umbriel::payloadIf<umbriel::LayoutModeArg>(bind)) {
+      case andromeda::ActionArgKind::LayoutMode:
+        if (const auto* arg = andromeda::payloadIf<andromeda::LayoutModeArg>(bind)) {
           if (arg->mode.has_value()) {
-            const auto modeName = [](umbriel::LayoutMode mode) {
+            const auto modeName = [](andromeda::LayoutMode mode) {
               switch (mode) {
-              case umbriel::LayoutMode::Scrolling:
+              case andromeda::LayoutMode::Scrolling:
                 return "scrolling";
-              case umbriel::LayoutMode::Dwindle:
+              case andromeda::LayoutMode::Dwindle:
                 return "dwindle";
-              case umbriel::LayoutMode::Master:
+              case andromeda::LayoutMode::Master:
                 return "master";
               }
               return "scrolling";
@@ -212,8 +212,8 @@ namespace {
           return name + ": toggle";
         }
         return name;
-      case umbriel::ActionArgKind::Workspace:
-        if (const auto* workspace = umbriel::payloadIf<umbriel::WorkspaceArg>(bind)) {
+      case andromeda::ActionArgKind::Workspace:
+        if (const auto* workspace = andromeda::payloadIf<andromeda::WorkspaceArg>(bind)) {
           std::string label = name + ": " + workspaceReferenceLabel(workspace->reference);
           if (!workspace->output.empty()) {
             label += "/" + workspace->output;
@@ -221,28 +221,28 @@ namespace {
           return label;
         }
         return name;
-      case umbriel::ActionArgKind::Output:
-      case umbriel::ActionArgKind::OptionalOutput:
-        if (const auto* output = umbriel::payloadIf<umbriel::OutputArg>(bind);
+      case andromeda::ActionArgKind::Output:
+      case andromeda::ActionArgKind::OptionalOutput:
+        if (const auto* output = andromeda::payloadIf<andromeda::OutputArg>(bind);
             output != nullptr && !output->output.empty()) {
           return name + ": " + output->output;
         }
         return name;
-      case umbriel::ActionArgKind::OptionalScratchpad:
-        if (const auto* scratchpad = umbriel::payloadIf<umbriel::ScratchpadArg>(bind);
+      case andromeda::ActionArgKind::OptionalScratchpad:
+        if (const auto* scratchpad = andromeda::payloadIf<andromeda::ScratchpadArg>(bind);
             scratchpad != nullptr && !scratchpad->name.empty()) {
           return name + ": " + scratchpad->name;
         }
         return name;
-      case umbriel::ActionArgKind::WindowId:
-      case umbriel::ActionArgKind::OptionalWindowId:
-        if (const auto* window = umbriel::payloadIf<umbriel::WindowIdArg>(bind);
+      case andromeda::ActionArgKind::WindowId:
+      case andromeda::ActionArgKind::OptionalWindowId:
+        if (const auto* window = andromeda::payloadIf<andromeda::WindowIdArg>(bind);
             window != nullptr && !window->id.empty()) {
           return name + ": " + window->id;
         }
         return name;
-      case umbriel::ActionArgKind::SkipConfirmation:
-        if (const auto* quit = umbriel::payloadIf<umbriel::QuitArg>(bind); quit != nullptr && quit->skipConfirmation) {
+      case andromeda::ActionArgKind::SkipConfirmation:
+        if (const auto* quit = andromeda::payloadIf<andromeda::QuitArg>(bind); quit != nullptr && quit->skipConfirmation) {
           return name + ": skip-confirmation";
         }
         return name;
@@ -278,8 +278,8 @@ namespace {
     }
   }
 
-  Group groupForActionImpl(umbriel::KeybindAction action) {
-    using A = umbriel::KeybindAction;
+  Group groupForActionImpl(andromeda::KeybindAction action) {
+    using A = andromeda::KeybindAction;
     switch (action) {
     case A::Spawn:
       return Group::Apps;
@@ -433,7 +433,7 @@ namespace {
   struct MergeKey {
     std::string submap;
     std::string submapAfter;
-    umbriel::KeybindAction action;
+    andromeda::KeybindAction action;
     std::string actionLabel;
     uint32_t modifiers;
     bool useMod;
@@ -455,7 +455,7 @@ namespace {
 
 } // namespace
 
-namespace umbriel {
+namespace andromeda {
 
   size_t cheatsheetChordColumns(std::string_view chord) {
     size_t columns = 0;
@@ -722,4 +722,4 @@ namespace umbriel {
     return rows;
   }
 
-} // namespace umbriel
+} // namespace andromeda

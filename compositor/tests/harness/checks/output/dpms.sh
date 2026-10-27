@@ -7,28 +7,28 @@
 # which the header directive above asks the harness for.
 set -euo pipefail
 
-POINTER=${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}
+POINTER=${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}
 readonly KEY_O=24
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [keybinds]
 "Mod+O" = { action = "dpms-off", repeat = false }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-log_mark() { wc -l < "$UMBRIEL_LOG"; }
+log_mark() { wc -l < "$ANDROMEDA_LOG"; }
 
 wait_for_log_since() {
   local mark=$1 pattern=$2
   for _ in $(seq 40); do
-    if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q "$pattern"; then
+    if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q "$pattern"; then
       return 0
     fi
     sleep 0.1
   done
   echo "timed out waiting for log: $pattern"
-  tail -12 "$UMBRIEL_LOG" | sed 's/^/  | /'
+  tail -12 "$ANDROMEDA_LOG" | sed 's/^/  | /'
   return 1
 }
 
@@ -37,7 +37,7 @@ failures=0
 assert_no_log_since() {
   local mark=$1 pattern=$2 message=$3
   sleep 0.1
-  if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q "$pattern"; then
+  if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q "$pattern"; then
     echo "$message"
     failures=$((failures + 1))
   fi
@@ -56,14 +56,14 @@ assert_no_log_since "$mark" "output 'HEADLESS-2': applied mode=" \
 
 # Restore a known state even if the assertion above failed and both outputs are
 # already awake.
-"$UMBRIEL" msg dpms-on > /dev/null
+"$ANDROMEDA" msg dpms-on > /dev/null
 
 # A named action is case-insensitive, changes only the requested monitor, and
 # stays in effect during activity on the monitor that remains awake.
 mark=$(log_mark)
-"$UMBRIEL" msg dpms-off:headless-2 > /dev/null
+"$ANDROMEDA" msg dpms-off:headless-2 > /dev/null
 wait_for_log_since "$mark" "output 'HEADLESS-2': powered off"
-if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q "output 'HEADLESS-1': powered off"; then
+if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q "output 'HEADLESS-1': powered off"; then
   echo "named DPMS action also powered off HEADLESS-1"
   exit 1
 fi
@@ -75,14 +75,14 @@ assert_no_log_since "$mark" "output 'HEADLESS-2': applied mode=" \
 
 # Reapply the named off state so the explicit on transition below is observable
 # even during the pre-fix sensitivity run, where pointer motion already woke it.
-"$UMBRIEL" msg dpms-off:headless-2 > /dev/null
+"$ANDROMEDA" msg dpms-off:headless-2 > /dev/null
 mark=$(log_mark)
-"$UMBRIEL" msg dpms-on:headless-2 > /dev/null
+"$ANDROMEDA" msg dpms-on:headless-2 > /dev/null
 wait_for_log_since "$mark" "output 'HEADLESS-2': applied mode="
 
 # A bare action changes all configured monitors.
 mark=$(log_mark)
-"$UMBRIEL" msg dpms-off > /dev/null
+"$ANDROMEDA" msg dpms-off > /dev/null
 wait_for_log_since "$mark" "output 'HEADLESS-1': powered off"
 wait_for_log_since "$mark" "output 'HEADLESS-2': powered off"
 

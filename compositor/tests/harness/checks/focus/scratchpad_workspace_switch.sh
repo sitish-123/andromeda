@@ -4,13 +4,13 @@
 # switch; explicit actions use refocusExplicit().
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 readonly SCRATCHPAD=switch
 readonly WS1=scratchpad-switch-ws1
 readonly WS2=scratchpad-switch-ws2
 readonly SCRATCH=scratchpad-switch-foreground
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -26,9 +26,9 @@ match.title = "^scratchpad-switch-foreground$"
 default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 field_of() {
   windows | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
@@ -56,27 +56,27 @@ wait_for_field() {
   return 1
 }
 
-"$CLIENT" "$WS1" > "$UMBRIEL_RUNTIME_DIR/$WS1.log" 2>&1 &
+"$CLIENT" "$WS1" > "$ANDROMEDA_RUNTIME_DIR/$WS1.log" 2>&1 &
 wait_for_count 1
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-"$CLIENT" "$WS2" > "$UMBRIEL_RUNTIME_DIR/$WS2.log" 2>&1 &
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+"$CLIENT" "$WS2" > "$ANDROMEDA_RUNTIME_DIR/$WS2.log" 2>&1 &
 wait_for_count 2
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
 wait_for_field "$WS1" active true
 
-"$CLIENT" "$SCRATCH" 420 260 > "$UMBRIEL_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
+"$CLIENT" "$SCRATCH" 420 260 > "$ANDROMEDA_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
 wait_for_count 3
 scratch_id=$(field_of "$SCRATCH" id)
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
-"$UMBRIEL" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-move-to-scratchpad:$SCRATCHPAD" > /dev/null
 wait_for_field "$SCRATCH" scratchpad "$SCRATCHPAD"
-"$UMBRIEL" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
+"$ANDROMEDA" msg "scratchpad-toggle:$SCRATCHPAD" > /dev/null
 wait_for_field "$SCRATCH" active true
-"$UMBRIEL" msg "window-focus:$scratch_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$scratch_id" > /dev/null
 wait_for_field "$SCRATCH" active true
 
 # The workspace switch under test: focus must stay on the foreground scratchpad.
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 wait_for_field "$SCRATCH" active true
 for _ in $(seq 5); do
   sleep 0.1

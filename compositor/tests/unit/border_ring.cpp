@@ -2,17 +2,17 @@
 
 #include "check.h"
 
-using umbriel::makeBorderRing;
-using umbriel::nestedRadius;
+using andromeda::makeBorderRing;
+using andromeda::nestedRadius;
 
-UMBRIEL_TEST(nestedRadiusStaysRounded) {
+ANDROMEDA_TEST(nestedRadiusStaysRounded) {
   CHECK_EQ(nestedRadius(0, 4), 0);
   CHECK_EQ(nestedRadius(4, 4), 2);
   CHECK_EQ(nestedRadius(1, 9), 1);
   CHECK_EQ(nestedRadius(10, 4), 7);
 }
 
-UMBRIEL_TEST(roundedRingIncludesRasterMargin) {
+ANDROMEDA_TEST(roundedRingIncludesRasterMargin) {
   constexpr int kWidth = 200;
   constexpr int kHeight = 120;
   constexpr int kThickness = 4;
@@ -25,7 +25,7 @@ UMBRIEL_TEST(roundedRingIncludesRasterMargin) {
   CHECK_EQ(ring.box.height, kHeight + 2 * kExtent);
 }
 
-UMBRIEL_TEST(ringHoleMatchesTheWindow) {
+ANDROMEDA_TEST(ringHoleMatchesTheWindow) {
   constexpr int kWidth = 200;
   constexpr int kHeight = 120;
   constexpr int kThickness = 4;
@@ -38,7 +38,7 @@ UMBRIEL_TEST(ringHoleMatchesTheWindow) {
   CHECK_EQ(ring.hole.height, kHeight);
 }
 
-UMBRIEL_TEST(ringUsesSmoothNestedRadii) {
+ANDROMEDA_TEST(ringUsesSmoothNestedRadii) {
   constexpr int kRadius = 8;
   const auto ring = makeBorderRing(200, 120, kRadius, 1, 8);
 
@@ -48,7 +48,7 @@ UMBRIEL_TEST(ringUsesSmoothNestedRadii) {
   CHECK_EQ(static_cast<int>(ring.outer.bottom_left), kRadius);
 }
 
-UMBRIEL_TEST(squareRingKeepsSquareOuterEdge) {
+ANDROMEDA_TEST(squareRingKeepsSquareOuterEdge) {
   const auto ring = makeBorderRing(200, 120, 0, 4, 0);
 
   CHECK_EQ(static_cast<int>(ring.outer.top_left), 0);
@@ -57,7 +57,7 @@ UMBRIEL_TEST(squareRingKeepsSquareOuterEdge) {
   CHECK_EQ(ring.hole.x, 5);
 }
 
-UMBRIEL_TEST(paddingGrowsTheRingBoxAroundTheSameHole) {
+ANDROMEDA_TEST(paddingGrowsTheRingBoxAroundTheSameHole) {
   const auto plain = makeBorderRing(200, 120, 10, 4, 0);
   const auto padded = makeBorderRing(200, 120, 10, 4, 0, 16);
   CHECK_EQ(padded.box.x, plain.box.x - 16);
@@ -72,7 +72,7 @@ UMBRIEL_TEST(paddingGrowsTheRingBoxAroundTheSameHole) {
   CHECK_EQ(padded.outer.top_left, plain.outer.top_left);
 }
 
-UMBRIEL_TEST(paddingAloneSetsTheExtentOfARinglessBorder) {
+ANDROMEDA_TEST(paddingAloneSetsTheExtentOfARinglessBorder) {
   const auto ring = makeBorderRing(200, 120, 0, 0, 0, 12);
   CHECK_EQ(ring.box.x, -12);
   CHECK_EQ(ring.box.y, -12);
@@ -82,7 +82,7 @@ UMBRIEL_TEST(paddingAloneSetsTheExtentOfARinglessBorder) {
   CHECK_EQ(ring.hole.y, 12);
 }
 
-UMBRIEL_TEST(negativePaddingIsClampedToZero) {
+ANDROMEDA_TEST(negativePaddingIsClampedToZero) {
   const auto plain = makeBorderRing(200, 120, 10, 4, 0);
   const auto negative = makeBorderRing(200, 120, 10, 4, 0, -8);
   CHECK_EQ(negative.box.x, plain.box.x);

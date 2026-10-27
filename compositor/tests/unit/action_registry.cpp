@@ -4,13 +4,13 @@
 
 #include <cstddef>
 
-using umbriel::actionHandlerFor;
-using umbriel::actionRegistryComplete;
-using umbriel::KeybindAction;
+using andromeda::actionHandlerFor;
+using andromeda::actionRegistryComplete;
+using andromeda::KeybindAction;
 
-UMBRIEL_TEST(everyAdvertisedActionHasExactlyOneHandler) { CHECK(actionRegistryComplete()); }
+ANDROMEDA_TEST(everyAdvertisedActionHasExactlyOneHandler) { CHECK(actionRegistryComplete()); }
 
-UMBRIEL_TEST(everyActionEnumValueHasAHandler) {
+ANDROMEDA_TEST(everyActionEnumValueHasAHandler) {
   CHECK(actionHandlerFor(KeybindAction::None) == nullptr);
   for (size_t index = 1; index < static_cast<size_t>(KeybindAction::Count); ++index) {
     CHECK(actionHandlerFor(static_cast<KeybindAction>(index)) != nullptr);

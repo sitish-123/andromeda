@@ -7,7 +7,7 @@
 // clang-format on
 #include <pixman.h>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -129,4 +129,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

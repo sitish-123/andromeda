@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <linux/input-event-codes.h>
 
-using umbriel::rawShortcutKeysym;
+using andromeda::rawShortcutKeysym;
 
 namespace {
 
@@ -53,7 +53,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(fallsBackToAsciiFromAnotherConfiguredLayout) {
+ANDROMEDA_TEST(fallsBackToAsciiFromAnotherConfiguredLayout) {
   Keymap keymap("us,de,ru");
   CHECK(keymap.get() != nullptr);
   if (keymap.get() == nullptr) {
@@ -65,7 +65,7 @@ UMBRIEL_TEST(fallsBackToAsciiFromAnotherConfiguredLayout) {
   CHECK_EQ(rawShortcutKeysym(keymap.get(), keycode, 2), xkb_keysym_t{XKB_KEY_a});
 }
 
-UMBRIEL_TEST(keepsAsciiSymbolFromActiveLayout) {
+ANDROMEDA_TEST(keepsAsciiSymbolFromActiveLayout) {
   Keymap keymap("us,de,ru");
   CHECK(keymap.get() != nullptr);
   if (keymap.get() == nullptr) {
@@ -77,7 +77,7 @@ UMBRIEL_TEST(keepsAsciiSymbolFromActiveLayout) {
   CHECK_EQ(rawShortcutKeysym(keymap.get(), keycode, 1), xkb_keysym_t{XKB_KEY_z});
 }
 
-UMBRIEL_TEST(doesNotInventAnUnconfiguredLatinLayout) {
+ANDROMEDA_TEST(doesNotInventAnUnconfiguredLatinLayout) {
   Keymap keymap("ru");
   CHECK(keymap.get() != nullptr);
   if (keymap.get() == nullptr) {

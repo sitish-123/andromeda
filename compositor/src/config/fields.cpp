@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -139,4 +139,4 @@ namespace umbriel {
     );
   }
 
-} // namespace umbriel
+} // namespace andromeda

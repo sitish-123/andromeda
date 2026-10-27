@@ -7,7 +7,7 @@
 #include <optional>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
   // Validation uses the same inventory rules as runtime resolution.
   [[nodiscard]] bool workspaceRuleTargetExists(const Config& config, const WorkspaceConfig& rule);
@@ -52,4 +52,4 @@ namespace umbriel {
   // Workspace count a dynamic output never shrinks below.
   [[nodiscard]] size_t resolveDynamicWorkspaceMinimum(const Config& config, const OutputIdentity& identity);
 
-} // namespace umbriel
+} // namespace andromeda

@@ -5,10 +5,10 @@
 struct wlr_output;
 struct wlr_output_mode;
 
-namespace umbriel {
+namespace andromeda {
 
   // Whether an output that has no matching config section exposes enough
-  // information for Umbriel to choose a safe initial mode automatically.
+  // information for Andromeda to choose a safe initial mode automatically.
   [[nodiscard]] bool outputCanAutoEnable(wlr_output* output);
 
   // The advertised mode a configured `mode` names, or nullptr when the output advertises no mode at that resolution.
@@ -24,4 +24,4 @@ namespace umbriel {
   // is null for a custom mode, which the preferred advertised mode still replaces.
   [[nodiscard]] wlr_output_mode* preferredFallbackMode(wlr_output* output, const wlr_output_mode* staged);
 
-} // namespace umbriel
+} // namespace andromeda

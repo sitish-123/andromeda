@@ -5,7 +5,7 @@
 #include "view/view.h"
 #include "wlr.h"
 
-namespace umbriel {
+namespace andromeda {
 
   void Cursor::handleNewConstraint(wlr_pointer_constraint_v1* constraint) {
     wlr_surface* focused = m_server->seat()->wlr()->pointer_state.focused_surface;
@@ -157,4 +157,4 @@ namespace umbriel {
     return true;
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -1,6 +1,6 @@
 # Border rendering
 
-Umbriel renders each decorated window with one `umbrielfx` `wlr_scene_border` node.
+Andromeda renders each decorated window with one `andromedafx` `wlr_scene_border` node.
 The node owns both color bands and submits one draw through the dedicated
 `border.frag` shader. The regular rounded-rectangle shader is not part of the
 window border path.
@@ -58,7 +58,7 @@ zero inner width selects the outer color.
 
 ## CPU clipping
 
-`umbrielfx` limits fragment work by subtracting areas that are certainly inside the
+`andromedafx` limits fragment work by subtracting areas that are certainly inside the
 transparent content hole. Rounded corners must remain shader-owned.
 `apply_clip_region` uses the explicit content radii and subtracts only a central
 horizontal and vertical cross. Integer truncation of a diagonal approximation
@@ -74,7 +74,7 @@ that renders at the exact output scale can report a pixel count one short of
 that box, and shrinking the destination leaves a line of background inside the
 hole that neither the border nor the surface paints.
 
-Texel alignment is recovered from the source box instead. `umbrielfx` snaps a source
+Texel alignment is recovered from the source box instead. `andromedafx` snaps a source
 box to integer texels and then adopts the destination extent whenever the two
 are within one texel, so sampling lands on texel centers rather than between
 them, which is what keeps subpixel-hinted text sharp.
@@ -102,7 +102,7 @@ the fetch byte-identical to a build without the clamp.
 The content edge is a shader contour, so the client surfaces inside the hole
 have to follow the same arc or their square corners cover it. Each scene buffer
 carries `corner_box`, the rounded rectangle its radii describe, in node-relative
-coordinates. Umbriel gives every buffer under a toplevel's surface tree the same
+coordinates. Andromeda gives every buffer under a toplevel's surface tree the same
 box, the window's content box, and the fragment shader clips to it and rounds
 its corners.
 

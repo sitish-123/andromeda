@@ -2,12 +2,12 @@
 # A hidden scratchpad view remains rendered while its opacity falls, then leaves the scene when the fade completes.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_POPUP_CLIENT:-./build-debug/tests/popup-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/scratchpad-hide-fade-client.log"
-readonly BEFORE="$UMBRIEL_RUNTIME_DIR/scratchpad-hide-before.png"
-readonly DURING="$UMBRIEL_RUNTIME_DIR/scratchpad-hide-during.png"
-readonly AFTER="$UMBRIEL_RUNTIME_DIR/scratchpad-hide-after.png"
+readonly CLIENT="${ANDROMEDA_POPUP_CLIENT:-./build-debug/tests/popup-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/scratchpad-hide-fade-client.log"
+readonly BEFORE="$ANDROMEDA_RUNTIME_DIR/scratchpad-hide-before.png"
+readonly DURING="$ANDROMEDA_RUNTIME_DIR/scratchpad-hide-during.png"
+readonly AFTER="$ANDROMEDA_RUNTIME_DIR/scratchpad-hide-after.png"
 
 sample_blue() {
   magick "$1" -crop 20x20+630+350 -format '%[fx:round(255*mean.b)]' info:
@@ -17,7 +17,7 @@ pointer() {
   "$POINTER" 1280 720 "$@"
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 2000
@@ -40,7 +40,7 @@ border_width = 0
 outer_border_width = 0
 corner_radius = 0
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 pointer move 0 0
 "$CLIENT" > "$CLIENT_LOG" 2>&1 &
@@ -55,11 +55,11 @@ fi
 
 # Animation time only moves by clock-advance: 2000 ms finishes any scratchpad fade, and the mid-fade sample lands at
 # 300 ms of the hide.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL" msg window-move-to-scratchpad > /dev/null
-"$UMBRIEL" clock-advance 2000
-"$UMBRIEL" msg scratchpad-toggle > /dev/null
-"$UMBRIEL" clock-advance 2000
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA" msg window-move-to-scratchpad > /dev/null
+"$ANDROMEDA" clock-advance 2000
+"$ANDROMEDA" msg scratchpad-toggle > /dev/null
+"$ANDROMEDA" clock-advance 2000
 grim "$BEFORE"
 before_blue=$(sample_blue "$BEFORE")
 if (( before_blue < 80 )); then
@@ -80,8 +80,8 @@ fi
 enters_before_hide=$(grep -c '^pointer-enter$' "$CLIENT_LOG")
 pointer move 0 0
 
-"$UMBRIEL" msg scratchpad-toggle > /dev/null
-"$UMBRIEL" clock-advance 300
+"$ANDROMEDA" msg scratchpad-toggle > /dev/null
+"$ANDROMEDA" clock-advance 300
 pointer move 630 350
 sleep 0.1
 enters_during_fade=$(grep -c '^pointer-enter$' "$CLIENT_LOG")
@@ -96,7 +96,7 @@ if (( during_blue < 40 )); then
   exit 1
 fi
 
-"$UMBRIEL" clock-advance 2000
+"$ANDROMEDA" clock-advance 2000
 grim "$AFTER"
 after_blue=$(sample_blue "$AFTER")
 if (( after_blue > 10 )); then

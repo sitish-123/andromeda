@@ -4,9 +4,9 @@
 # "none" unbinds a built-in chord, a malformed chord or action is refused, and an empty action restores the built-in.
 set -euo pipefail
 
-readonly DESKTOP=${UMBRIEL_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/settings.toml
-trap 'rm -f "$SAVED"; "$UMBRIEL" msg config-reload > /dev/null' EXIT
+readonly DESKTOP=${ANDROMEDA_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/settings.toml
+trap 'rm -f "$SAVED"; "$ANDROMEDA" msg config-reload > /dev/null' EXIT
 
 bind_of() { "$DESKTOP" keybinds-state | grep "^$1=" || true; }
 expect_bind() {

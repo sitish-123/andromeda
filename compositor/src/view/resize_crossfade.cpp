@@ -6,7 +6,7 @@
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -174,4 +174,4 @@ namespace umbriel {
     self->m_fade.snap(1.0);
   }
 
-} // namespace umbriel
+} // namespace andromeda

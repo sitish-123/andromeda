@@ -6,7 +6,7 @@
 #include <optional>
 #include <utility>
 
-namespace umbriel {
+namespace andromeda {
 
   template <typename Probe>
   [[nodiscard]] std::optional<uint32_t> selectHdrRenderFormat(uint32_t currentFormat, Probe&& accepts) {
@@ -25,4 +25,4 @@ namespace umbriel {
     return std::nullopt;
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace umbriel {
+namespace andromeda {
 
   // Physics shared by the touchpad gestures that settle on a step: the three-finger workspace switch, the four-finger
   // overview open and close, and the filmstrip inside the overview. On release, the accumulated finger travel is
@@ -84,4 +84,4 @@ namespace umbriel {
     }
   };
 
-} // namespace umbriel
+} // namespace andromeda

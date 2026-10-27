@@ -1,7 +1,7 @@
 #ifndef FX_RENDER_PASS_H
 #define FX_RENDER_PASS_H
 
-#include <umbrielfx/render/pass.h>
+#include <andromedafx/render/pass.h>
 #include <stdbool.h>
 #include <wlr/render/pass.h>
 #include <wlr/util/box.h>

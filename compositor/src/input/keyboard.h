@@ -12,7 +12,7 @@ struct wlr_input_device;
 struct wlr_input_method_keyboard_grab_v2;
 struct wlr_keyboard;
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
 
@@ -85,4 +85,4 @@ namespace umbriel {
     std::unordered_set<uint32_t> m_consumedKeycodes;
   };
 
-} // namespace umbriel
+} // namespace andromeda

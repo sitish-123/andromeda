@@ -6,9 +6,9 @@ window, and its apps in their own windows).
 
 | Directory | Component | From |
 |---|---|---|
-| `compositor/` | Umbriel: windows, layouts, effects, input, outputs, motion | fork of [noctalia-dev/umbriel](https://github.com/noctalia-dev/umbriel) |
+| `compositor/` | Andromeda: windows, layouts, effects, input, outputs, motion | fork of [noctalia-dev/andromeda](https://github.com/noctalia-dev/andromeda) |
 | `shell/` | Noctalia: bar, launcher, lock, notifications, settings, system services | fork of [noctalia-dev/noctalia](https://github.com/noctalia-dev/noctalia) |
-| `portal/` | xdg-desktop-portal backend: screen cast, screenshots, settings, shortcuts | fork of xdg-desktop-portal-umbriel |
+| `portal/` | xdg-desktop-portal backend: screen cast, screenshots, settings, shortcuts | fork of xdg-desktop-portal-andromeda |
 | `link/` | Link: the desktop daemon, the mirror and apps viewers, and the Android app | this repository |
 | `protocol/` | The private compositor/shell protocol and Link's wire format | this repository |
 | `session/`, `pkg/` | systemd user units, firewall profile, packaging | this repository |
@@ -23,13 +23,13 @@ SigLevel = Optional TrustAll
 Server = https://github.com/sitish-kumar/andromeda/releases/latest/download
 ```
 
-Then install, log out, and choose **Umbriel** on the login screen:
+Then install, log out, and choose **Andromeda** on the login screen:
 
 ```sh
 sudo pacman -Sy andromeda
 ```
 
-That is the whole desktop, phone features included. One opt-in extra, `sudo pacman -S umbriel-power-git`, turns on
+That is the whole desktop, phone features included. One opt-in extra, `sudo pacman -S andromeda-power-git`, turns on
 laptop power saving (PCIe ASPM, runtime power management, USB autosuspend); it changes kernel defaults and can upset
 some USB devices, so it is not installed by default. Every dependency comes from the official Arch repositories.
 Packages are not signed yet, hence `SigLevel`; they are served over HTTPS from this repository's releases.

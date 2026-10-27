@@ -1,4 +1,4 @@
-// LD_PRELOAD into Umbriel: fails the next N frame commits (a buffer, no modeset) on output $FAIL_COMMIT_OUTPUT, N read
+// LD_PRELOAD into Andromeda: fails the next N frame commits (a buffer, no modeset) on output $FAIL_COMMIT_OUTPUT, N read
 // from and counted down in $FAIL_COMMIT_FILE, standing in for a DRM commit that returns EBUSY. Logs every other commit
 // it passes on to stderr as "commit-shim: <output> committed=<wlr_output_state_field mask>".
 #define _GNU_SOURCE

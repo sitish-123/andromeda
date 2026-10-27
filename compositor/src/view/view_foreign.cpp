@@ -9,7 +9,7 @@
 #include "wlr.h"
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("view");
@@ -179,4 +179,4 @@ namespace umbriel {
     m_captureSourceDestroy.link.next = nullptr;
     m_captureSource = nullptr;
   }
-} // namespace umbriel
+} // namespace andromeda

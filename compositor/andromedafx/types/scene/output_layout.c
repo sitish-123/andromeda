@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <wlr/types/wlr_output_layout.h>
-#include "umbrielfx/types/wlr_scene.h"
+#include "andromedafx/types/wlr_scene.h"
 
 struct wlr_scene_output_layout {
 	struct wlr_output_layout *layout;

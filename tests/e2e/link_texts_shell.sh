@@ -9,7 +9,7 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-texts-shell}
 source "$(dirname "$0")/lib.sh"
 LINK_BIN=${LINK_BIN:-$ROOT/link/target/debug}
-POINTER=${POINTER:-$(dirname "$UMBRIEL")/tests/pointer-client}
+POINTER=${POINTER:-$(dirname "$ANDROMEDA")/tests/pointer-client}
 boot_headless 1
 rm -f "$OUT"/*.png "$OUT/steps.txt" "$OUT/phone.log" "$OUT/hold.jsonl"
 
@@ -27,20 +27,20 @@ with_noctalia '
     fail "$what"
   }
   say() { printf "%s\n" "$*" >&3; }
-  prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+  prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
   # The pointer leaves after each click so nothing paints hovered.
   click() { "$POINTER" 1280 720 move "$1" "$2" click 272 move 5 715 > /dev/null; }
   # wtype drops a key sent right after it uploads its keymap, so it waits first.
   type_into() { click "$1" "$2"; wtype -s 300 "$3"; }
   shot() { sleep 1.5; grim "$OUT/$1.png"; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
     >> "$OUT/phone.log" 2>&1 || fail "pairing"
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
@@ -64,7 +64,7 @@ PY
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --texts "$RUNTIME/texts.json" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --texts "$RUNTIME/texts.json" \
     --contacts "$RUNTIME/contacts.json" hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   wait_for "no texts on D-Bus" eval "prop Texts | grep -qF \"See you at six\""
   msg panel-open control-center devices > /dev/null

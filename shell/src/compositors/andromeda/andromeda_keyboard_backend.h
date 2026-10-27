@@ -1,7 +1,7 @@
 #pragma once
 
 #include "compositors/keyboard_backend.h"
-#include "compositors/umbriel/umbriel_event_handler.h"
+#include "compositors/andromeda/andromeda_event_handler.h"
 
 #include <functional>
 #include <nlohmann/json.hpp>
@@ -9,15 +9,15 @@
 #include <string>
 #include <string_view>
 
-namespace compositors::umbriel {
-  class UmbrielRuntime;
-} // namespace compositors::umbriel
+namespace compositors::andromeda {
+  class AndromedaRuntime;
+} // namespace compositors::andromeda
 
-class UmbrielKeyboardBackend : public compositors::umbriel::UmbrielEventHandler {
+class AndromedaKeyboardBackend : public compositors::andromeda::AndromedaEventHandler {
 public:
   using ChangeCallback = std::function<void()>;
 
-  explicit UmbrielKeyboardBackend(compositors::umbriel::UmbrielRuntime& runtime);
+  explicit AndromedaKeyboardBackend(compositors::andromeda::AndromedaRuntime& runtime);
 
   [[nodiscard]] bool isAvailable() const noexcept;
   [[nodiscard]] bool cycleLayout() const;

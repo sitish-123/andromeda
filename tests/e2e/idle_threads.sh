@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Counts the shell's threads on an idle desktop (a headless Umbriel, a clock-only bar), 5 s after it answers IPC and
+# Counts the shell's threads on an idle desktop (a headless Andromeda, a clock-only bar), 5 s after it answers IPC and
 # again 40 s later, once on-demand workers have had time to exit. Named pools (disk I/O, render) grow and shrink on
 # their own, so the check is on unnamed "noctalia" threads, the always-on workers plus the main thread: at most MAX_WORKERS. Writes
 # threads.txt (counts and per-name tally) to $OUT (default ./artifacts/idle-threads).

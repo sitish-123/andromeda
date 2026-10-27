@@ -12,7 +12,7 @@
 #include "wlr.h"
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("output");
@@ -225,4 +225,4 @@ namespace umbriel {
     return fullArea;
   }
 
-} // namespace umbriel
+} // namespace andromeda

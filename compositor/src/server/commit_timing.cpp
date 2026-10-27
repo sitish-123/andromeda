@@ -7,7 +7,7 @@
 #include <chrono>
 #include <limits>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -204,7 +204,7 @@ namespace umbriel {
 
   // The addon also marks a surface that already has timing state.
   const wlr_addon_interface CommitTimingManager::kAddonInterface = {
-      .name = "umbriel_commit_timing_v1",
+      .name = "andromeda_commit_timing_v1",
       .destroy = CommitTimingManager::handleSurfaceDestroyed,
   };
 
@@ -218,4 +218,4 @@ namespace umbriel {
       .destroy = CommitTimingManager::handleTimerDestroy,
   };
 
-} // namespace umbriel
+} // namespace andromeda

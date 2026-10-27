@@ -4,15 +4,15 @@
 # survivor snaps immediately without shortening the close lifecycle.
 set -euo pipefail
 
-readonly SHOTS="$UMBRIEL_RUNTIME_DIR/tiled-close-shader-visibility"
+readonly SHOTS="$ANDROMEDA_RUNTIME_DIR/tiled-close-shader-visibility"
 readonly OUT_MS=1500
 readonly MOVE_MS=1250
 readonly REBASE_TOLERANCE=24
 mkdir -p "$SHOTS"
 
-cat > "$UMBRIEL_RUNTIME_DIR/phased-close.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/phased-close.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
-    float progress = umbriel_clamped_progress;
+    float progress = andromeda_clamped_progress;
     if (progress < 0.25) {
         return vec4(0.0, 0.0, 0.5, 0.5);
     }
@@ -25,14 +25,14 @@ vec4 animation(vec2 uv) {
     return vec4(0.0);
 }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/move-marker.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/move-marker.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
-    vec4 source = umbriel_sample(uv);
+    vec4 source = andromeda_sample(uv);
     return vec4(source.r, source.g, max(source.b, source.a * 0.4), source.a);
 }
 GLSL
 
-cat >> "$UMBRIEL_CONFIG" <<EOF
+cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [colors]
 backdrop = "#000000FF"
@@ -81,21 +81,21 @@ effect = "windows_move_move_marker"
 [animation.workspaces]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # Animation time only moves by clock-advance. Samples land every 100 ms after the close request.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 
 # Runs every started animation to its end.
 finish() {
-  "$UMBRIEL" clock-advance 3000
-  "$UMBRIEL" settle
+  "$ANDROMEDA" clock-advance 3000
+  "$ANDROMEDA" settle
 }
 
 spawn() {
   local title=$1 color=$2
-  FILL_COLOR="$color" "$UMBRIEL_UNMAP_CLIENT" "$title" 1280 720 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR="$color" "$ANDROMEDA_UNMAP_CLIENT" "$title" 1280 720 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 100); do
-    window=$("$UMBRIEL" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
+    window=$("$ANDROMEDA" windows --json | jq -c --arg title "$title" '.[] | select(.title == $title)')
     [[ -n $window ]] && return 0
     sleep 0.025
   done
@@ -106,8 +106,8 @@ spawn() {
 wait_unmapped() {
   local title=$1
   for _ in $(seq 100); do
-    if grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/$title.log" \
-        && ! "$UMBRIEL" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
+    if grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/$title.log" \
+        && ! "$ANDROMEDA" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
       return 0
     fi
     sleep 0.025
@@ -120,11 +120,11 @@ wait_unmapped() {
 color_pixels() {
   local image=$1
   shift
-  "$UMBRIEL_PIXEL_PROBE" "$image" count "$@"
+  "$ANDROMEDA_PIXEL_PROBE" "$image" count "$@"
 }
 
 red_bounds() {
-  "$UMBRIEL_PIXEL_PROBE" "$1" bbox 'r > 0.08'
+  "$ANDROMEDA_PIXEL_PROBE" "$1" bbox 'r > 0.08'
 }
 
 # Writes "early middle late move x y w h" for <base>.png to <base>.txt.
@@ -150,7 +150,7 @@ verify_close() {
   local expected_x=$4 expected_y=$5 expected_width=$6 expected_height=$7
   local closing id image i
   local before="$SHOTS/$phase-before.png"
-  closing=$("$UMBRIEL" windows --json | jq -c --arg title "$closing_title" '.[] | select(.title == $title)')
+  closing=$("$ANDROMEDA" windows --json | jq -c --arg title "$closing_title" '.[] | select(.title == $title)')
   if [[ -z $closing ]]; then
     echo "$phase: closing tile disappeared before the close request"
     return 1
@@ -161,13 +161,13 @@ verify_close() {
   before_box=$(red_bounds "$before")
 
   id=$(jq -r .id <<< "$closing")
-  "$UMBRIEL" msg "window-close:$id" > /dev/null
+  "$ANDROMEDA" msg "window-close:$id" > /dev/null
   wait_unmapped "$closing_title"
 
   # Each frame is measured in the background while the next one is captured.
   local -a probes=()
   for i in $(seq 0 29); do
-    ((i > 0)) && "$UMBRIEL" clock-advance 100
+    ((i > 0)) && "$ANDROMEDA" clock-advance 100
     grim "$SHOTS/$phase-$i.png"
     measure_frame "$SHOTS/$phase-$i" &
     probes+=($!)
@@ -298,34 +298,34 @@ spawn shader-visible-master-close "$CLOSER_COLOR"
 finish
 verify_close ordinary shader-visible-master-close animated 0 0 1280 720
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-sed -i 's/^mode = "master"$/mode = "scrolling"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+sed -i 's/^mode = "master"$/mode = "scrolling"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 finish
 spawn shader-visible-consume-survivor "$SURVIVOR_COLOR"
 finish
 spawn shader-visible-consume-close "$CLOSER_COLOR"
 finish
-"$UMBRIEL" msg window-consume-left > /dev/null
-"$UMBRIEL" clock-advance 280
+"$ANDROMEDA" msg window-consume-left > /dev/null
+"$ANDROMEDA" clock-advance 280
 verify_close consume shader-visible-consume-close animated 0 0 640 720
 
-"$UMBRIEL" msg workspace-switch:3 > /dev/null
+"$ANDROMEDA" msg workspace-switch:3 > /dev/null
 finish
 spawn shader-visible-expel-survivor "$SURVIVOR_COLOR"
 finish
 spawn shader-visible-expel-close "$CLOSER_COLOR"
 finish
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 finish
-"$UMBRIEL" msg window-consume-or-expel-right > /dev/null
-"$UMBRIEL" clock-advance 80
+"$ANDROMEDA" msg window-consume-or-expel-right > /dev/null
+"$ANDROMEDA" clock-advance 80
 verify_close expel shader-visible-expel-close animated 0 0 640 720
 
-"$UMBRIEL" msg workspace-switch:4 > /dev/null
-sed -i 's/^mode = "scrolling"$/mode = "master"/' "$UMBRIEL_CONFIG"
-sed -i '/\[animation.windows_move\]/,/^$/s/^enabled = true$/enabled = false/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-switch:4 > /dev/null
+sed -i 's/^mode = "scrolling"$/mode = "master"/' "$ANDROMEDA_CONFIG"
+sed -i '/\[animation.windows_move\]/,/^$/s/^enabled = true$/enabled = false/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 finish
 spawn shader-visible-disabled-survivor "$SURVIVOR_COLOR"
 finish

@@ -15,7 +15,7 @@
 #include <print>
 #include <string>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     const char* layerName(uint32_t layer) {
@@ -659,7 +659,7 @@ namespace umbriel {
   }
 
   nlohmann::json IpcCommands::clockFreeze([[maybe_unused]] Server& server, std::string_view /*arg*/) {
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     server.freezeAnimationClock();
 #endif
     return nlohmann::json{{"ok", nullptr}};
@@ -670,13 +670,13 @@ namespace umbriel {
   }
 
   nlohmann::json IpcCommands::clockResume([[maybe_unused]] Server& server, std::string_view /*arg*/) {
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
     server.resumeAnimationClock();
 #endif
     return nlohmann::json{{"ok", nullptr}};
   }
 
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
   nlohmann::json IpcCommands::rendererRecover(Server& server, std::string_view /*arg*/) {
     server.emitRendererLostForTest();
     server.emitRendererLostForTest();
@@ -725,7 +725,7 @@ namespace umbriel {
        &IpcCommands::zoom, nullptr},
       {"keyboard-layouts", "", "list keyboard layouts", IpcCommandGroup::Inspect, false, &IpcCommands::keyboardLayouts,
        &printKeyboardLayouts},
-#ifdef UMBRIEL_TEST_IPC
+#ifdef ANDROMEDA_TEST_IPC
       {"settle", "", "wait until no layout or animation is pending and every output has drawn a frame",
        IpcCommandGroup::Harness, false, &IpcCommands::settle, nullptr, 35},
       {"clock-freeze", "", "stop animation time", IpcCommandGroup::Harness, false, &IpcCommands::clockFreeze, nullptr},
@@ -753,4 +753,4 @@ namespace umbriel {
     return nullptr;
   }
 
-} // namespace umbriel
+} // namespace andromeda

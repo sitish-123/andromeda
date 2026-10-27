@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem with the Umbriel desktop portal backend
+description: Report a problem with the Andromeda desktop portal backend
 title: "[BUG] "
 labels: ["bug"]
 body:
@@ -10,7 +10,7 @@ body:
       options:
         - label: I searched existing issues and this is not a duplicate.
           required: true
-        - label: I confirmed the problem is specific to this portal backend, not the Umbriel compositor or an application.
+        - label: I confirmed the problem is specific to this portal backend, not the Andromeda compositor or an application.
           required: true
 
   - type: textarea
@@ -41,10 +41,10 @@ body:
     id: environment
     attributes:
       label: Versions and environment
-      description: Include the portal version or commit, Umbriel version, distribution, and session type.
+      description: Include the portal version or commit, Andromeda version, distribution, and session type.
       placeholder: |
         Portal:
-        Umbriel:
+        Andromeda:
         Distribution:
         Session:
     validations:

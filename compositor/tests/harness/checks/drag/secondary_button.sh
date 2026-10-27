@@ -8,7 +8,7 @@ readonly BTN_LEFT=272
 readonly BTN_RIGHT=273
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
 pointer() {
   "$POINTER" "$OUTPUT_W" "$OUTPUT_H" "$@"
@@ -20,14 +20,14 @@ spawn_client() {
 
 wait_for_count() {
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $1 ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $1 ]] && return 0
     sleep 0.25
   done
   echo "timed out waiting for $1 window(s)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [input]
 # The secondary button is free to retarget a drag; this check is about the
@@ -37,7 +37,7 @@ window_drag_toggle = "none"
 [layout.scrolling]
 default_extent_fraction = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 for id in $(seq 1 4); do
   spawn_client "$id"
@@ -45,11 +45,11 @@ for id in $(seq 1 4); do
 done
 
 for _ in $(seq 1 3); do
-  "$UMBRIEL" msg window-focus-left > /dev/null
+  "$ANDROMEDA" msg window-focus-left > /dev/null
 done
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r source_x source_y source_w source_h < <(
   jq -r '.[] | select(.title == "secondary-button-1") | "\(.x) \(.y) \(.w) \(.h)"' <<< "$windows"
 )
@@ -66,9 +66,9 @@ start_y=$((source_y + source_h / 2))
 pointer move "$start_x" "$start_y" mod logo press "$BTN_LEFT" \
   move 1000 "$start_y" press "$BTN_RIGHT" release "$BTN_RIGHT" \
   move 1270 "$start_y" release "$BTN_LEFT" mod none
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 source_x=$(jq -r '.[] | select(.title == "secondary-button-1") | .x' <<< "$windows")
 rightmost_other=$(jq -r '[.[] | select(.title != "secondary-button-1") | .x] | max' <<< "$windows")
 if (( source_x <= rightmost_other )); then

@@ -5,8 +5,8 @@
 # running each assertion, which also covers listener lifetime.
 set -euo pipefail
 
-readonly GLOBAL_CLIENT="${UMBRIEL_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
-readonly SECURITY_CONTEXT_CLIENT="${UMBRIEL_SECURITY_CONTEXT_CLIENT:-./build-debug/tests/security-context-client}"
+readonly GLOBAL_CLIENT="${ANDROMEDA_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
+readonly SECURITY_CONTEXT_CLIENT="${ANDROMEDA_SECURITY_CONTEXT_CLIENT:-./build-debug/tests/security-context-client}"
 
 if [[ ! -x $GLOBAL_CLIENT || ! -x $SECURITY_CONTEXT_CLIENT ]]; then
   echo "required harness clients are not built"

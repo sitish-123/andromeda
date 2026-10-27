@@ -9,7 +9,7 @@
 #include <utility>
 #include <wayland-server-core.h>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("config");
@@ -223,4 +223,4 @@ namespace umbriel {
     return 0;
   }
 
-} // namespace umbriel
+} // namespace andromeda

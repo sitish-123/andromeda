@@ -20,8 +20,8 @@ gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-pr
 g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/output-transform" \
   "$(dirname "$0")/output_transform.cpp" "$SRC/src/wayland/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
 : > "$OUT/mode.txt"
-commits() { run "$UMBRIEL" output-commits --json | jq ".\"${1:-HEADLESS-2}\""; }
-copies_since() { tail -n +"$(($1 + 1))" "$OUT/umbriel.log" | grep -c '^commit-shim: HEADLESS-2 committed=0x1$' || true; }
+commits() { run "$ANDROMEDA" output-commits --json | jq ".\"${1:-HEADLESS-2}\""; }
+copies_since() { tail -n +"$(($1 + 1))" "$OUT/andromeda.log" | grep -c '^commit-shim: HEADLESS-2 committed=0x1$' || true; }
 check() {
   local label=$1 from=$2 source_before=$3 copies
   sleep 0.5 # real time: a copy scheduled after the change lands within a frame
@@ -33,22 +33,22 @@ check() {
     || echo "FAIL $label: the mirror kept the black frame of the change" >> "$OUT/mode.txt"
 }
 
-printf '\n[output.HEADLESS-2]\nmirror = "HEADLESS-1"\n' >> "$RUNTIME/umbriel.toml"
-run "$UMBRIEL" msg config-reload > /dev/null
-for _ in $(seq 50); do grep -q "output 'HEADLESS-2': mirroring" "$OUT/umbriel.log" && break; sleep 0.1; done
-run "$UMBRIEL" settle > /dev/null
+printf '\n[output.HEADLESS-2]\nmirror = "HEADLESS-1"\n' >> "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
+for _ in $(seq 50); do grep -q "output 'HEADLESS-2': mirroring" "$OUT/andromeda.log" && break; sleep 0.1; done
+run "$ANDROMEDA" settle > /dev/null
 sleep 0.5 # real time: the first copy lands
 
-from=$(wc -l < "$OUT/umbriel.log") source_before=$(commits HEADLESS-1)
+from=$(wc -l < "$OUT/andromeda.log") source_before=$(commits HEADLESS-1)
 echo 1000000 > "$RUNTIME/fail-count"
 run "$RUNTIME/output-transform" HEADLESS-2 1 >> "$OUT/mode.txt"
 check "transform through output management" "$from" "$source_before"
 
-from=$(wc -l < "$OUT/umbriel.log") source_before=$(commits HEADLESS-1)
+from=$(wc -l < "$OUT/andromeda.log") source_before=$(commits HEADLESS-1)
 echo 1000000 > "$RUNTIME/fail-count"
-printf 'mode = "1024x768"\n' >> "$RUNTIME/umbriel.toml"
-run "$UMBRIEL" msg config-reload > /dev/null
-for _ in $(seq 50); do grep -q "output 'HEADLESS-2': applied mode=1024x768" "$OUT/umbriel.log" && break; sleep 0.1; done
+printf 'mode = "1024x768"\n' >> "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
+for _ in $(seq 50); do grep -q "output 'HEADLESS-2': applied mode=1024x768" "$OUT/andromeda.log" && break; sleep 0.1; done
 check "mode through config reload" "$from" "$source_before"
 
 cat "$OUT/mode.txt"

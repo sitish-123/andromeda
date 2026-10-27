@@ -17,7 +17,7 @@ The inventory maintains these invariants:
 - With `workspaces.empty_above` enabled, it also has a distinct leading empty
   anonymous workspace while capacity permits, including before the first view
   maps.
-- Outside a workspace slide, an occupied sentinel causes Umbriel to add a new
+- Outside a workspace slide, an occupied sentinel causes Andromeda to add a new
   empty workspace at that edge when capacity remains. At the limit, the
   occupied edge persists until another slot becomes available.
 - Other empty inactive anonymous workspaces are removed, except that the count
@@ -41,13 +41,13 @@ ordinary case-insensitive identity matching. An unscoped name therefore
 produces an independent workspace on every dynamic output.
 
 On initial construction, named members follow declaration order near the top,
-after the optional leading sentinel. On reload, Umbriel first preserves every
+after the optional leading sentinel. On reload, Andromeda first preserves every
 existing desired member by exact name. Below the output limit, newly added names
 enter in declaration order at the same top insertion point. At the limit, a
 name can instead claim an eligible empty anonymous workspace in place.
 Reordering declarations alone does not move existing workspaces.
 
-When a name is no longer desired on an output, Umbriel clears its `named` flag
+When a name is no longer desired on an output, Andromeda clears its `named` flag
 and assigns the anonymous label for its current position. The workspace keeps
 its identity and windows, then participates in normal dynamic reconciliation.
 It survives while populated or active and may be pruned once empty and
@@ -93,7 +93,7 @@ Mapping a window, activating a workspace, or running a layout command can
 replace the scene under a stationary pointer without crossing a window border.
 
 Clients learn the pointer position only from `wl_pointer.enter` and `motion`,
-and a button event carries no coordinates. Umbriel therefore hit-tests again
+and a button event carries no coordinates. Andromeda therefore hit-tests again
 before delivering every press and sends a motion when the surface under the
 cursor has moved. It also re-resolves the pointer after any output frame whose
 scene changed, once animations, gestures, and the overview on that output have
@@ -101,7 +101,7 @@ settled, so hover state follows content that moved under a still cursor. That
 refresh never changes keyboard focus, and it pauses while a button is held so an
 implicit grab keeps the coordinate space of its press.
 
-With `follows_mouse` enabled, Umbriel does not override the established focus
+With `follows_mouse` enabled, Andromeda does not override the established focus
 immediately. The focus transition or successful command instead invalidates the
 previous hover decision once. The next eligible pointer motion can therefore
 select a newly revealed view even when both the old and new pointer coordinates
@@ -118,7 +118,7 @@ This distinction matters when a second window maps away from the cursor and
 when returning to a workspace whose remembered focused window is elsewhere. It
 also covers explicit strip scrolling, column resizing or reordering, and leaving
 fullscreen when it reveals a different window. Fullscreen exits behave the same
-whether Umbriel runs a configured action or a client such as a browser or media
+whether Andromeda runs a configured action or a client such as a browser or media
 player leaves video fullscreen through XDG shell. In each case, a small motion
 inside the window under the pointer is sufficient; the pointer does not need to
 leave and re-enter its border.
@@ -128,7 +128,7 @@ When it must cross into a surviving column with several rows, it resolves those
 rows through the global focus history. Visual row order describes placement,
 not which member the user focused before opening the window that just closed.
 
-Closing a focused tiled window is a bounded exception. Umbriel records the
+Closing a focused tiled window is a bounded exception. Andromeda records the
 pointer position only when the closing view owns keyboard focus, is visibly
 beneath the pointer, and the position lies inside its current presented box. It
 chooses the normal layout replacement before detaching the view, then flushes the
@@ -144,7 +144,7 @@ an animation as another hover transition, including a moving scrolling strip.
 Wayland data-device drags install pointer and keyboard grabs. Normal hover
 focus is suspended while the drag owns pointer motion, and keyboard enters are
 suppressed until the drag finishes. When the initiating button release destroys
-the grab, Umbriel reruns pointer processing at the unchanged cursor position.
+the grab, Andromeda reruns pointer processing at the unchanged cursor position.
 
 With `follows_mouse` enabled, that refresh selects the window under the pointer
 when it is not already focused. Activation, border state, and keyboard focus
@@ -155,13 +155,13 @@ client cursor while retaining the existing window focus.
 ## Static inventory
 
 A number defines exact anonymous positions. An ordered string list defines an
-exact named inventory. During a configuration reload, Umbriel preserves
+exact named inventory. During a configuration reload, Andromeda preserves
 workspace identity in two passes:
 
 1. Match named entries in the new inventory by name.
 2. Match any remaining entries by position.
 
-Umbriel creates entries that have no match. When an old workspace is removed,
+Andromeda creates entries that have no match. When an old workspace is removed,
 its windows move to the surviving workspace at the same position, or to the
 last workspace when that position no longer exists. If the active workspace is
 removed, that destination becomes active.
@@ -179,7 +179,7 @@ Switching from a static inventory to dynamic workspaces keeps every populated
 workspace and the active workspace. Entries whose explicit names remain
 declared for the dynamic output keep those names; other members are anonymous.
 Other empty anonymous workspaces are removed. The survivors are renumbered,
-matching named entries are materialized, and Umbriel appends empty anonymous
+matching named entries are materialized, and Andromeda appends empty anonymous
 workspaces until the count reaches `min_workspaces` and, while capacity permits,
 the inventory ends in an empty sentinel. The optional leading empty workspace
 is restored when another slot remains. At 64 occupied survivors, missing edge

@@ -2,7 +2,7 @@
 
 #include "scene/effect_registry.h"
 extern "C" {
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 }
 
 #include "config/resolve.h"
@@ -17,7 +17,7 @@ extern "C" {
 
 #include <algorithm>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("layer");
@@ -486,4 +486,4 @@ namespace umbriel {
     new Popup(popup, m_scene->tree);
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace umbriel {
+namespace andromeda {
 
   wlr_fbox zoomBox(double pointerX, double pointerY, double width, double height, double factor) {
     const double w = width / factor;
@@ -54,4 +54,4 @@ namespace umbriel {
     return ok;
   }
 
-} // namespace umbriel
+} // namespace andromeda

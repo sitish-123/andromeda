@@ -11,7 +11,7 @@ extern "C" {
 struct wlr_scene_rect;
 struct wlr_scene_tree;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -54,4 +54,4 @@ namespace umbriel {
     bool m_visible = false;
   };
 
-} // namespace umbriel
+} // namespace andromeda

@@ -8,7 +8,7 @@
 
 struct wlr_surface;
 
-namespace umbriel {
+namespace andromeda {
 
   // The named XKB layout last used by each keyboard-focusable surface when
   // input.keyboard.track_layout is "window".
@@ -44,4 +44,4 @@ namespace umbriel {
     std::unordered_map<wlr_surface*, Entry*> m_entries;
   };
 
-} // namespace umbriel
+} // namespace andromeda

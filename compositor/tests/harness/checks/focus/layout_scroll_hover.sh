@@ -5,32 +5,32 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 spawn_client() { "$CLIENT" "$1" 1200 700 > /dev/null 2>&1 & }
 
 wait_for_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.05
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_active() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end') == "$want" ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end') == "$want" ]] && return 0
     sleep 0.05
   done
-  echo "expected '$want' to be active: $("$UMBRIEL" windows --json)"
+  echo "expected '$want' to be active: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "scrolling"
@@ -45,7 +45,7 @@ curve = "linear"
 [input.focus]
 follows_mouse = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 count=0
 for title in scene-scroll-a scene-scroll-b scene-scroll-c; do
@@ -63,7 +63,7 @@ sleep 0.1
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" move 600 360
 wait_for_active scene-scroll-b
 for _ in $(seq 13); do
-  "$UMBRIEL" msg layout-scroll-right > /dev/null
+  "$ANDROMEDA" msg layout-scroll-right > /dev/null
 done
 sleep 0.1
 wait_for_active scene-scroll-b

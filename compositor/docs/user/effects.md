@@ -1,20 +1,20 @@
 # Effects
 
-Effects are GLSL programs Umbriel runs on animation events, on the focused
+Effects are GLSL programs Andromeda runs on animation events, on the focused
 window's border, on windows, on whole outputs, and around the pointer. Every
-effect is off until you select one. Umbriel ships a small set; each is a
+effect is off until you select one. Andromeda ships a small set; each is a
 preset you include and then name where it should apply.
 
 ## Use a bundled effect
 
-Bundled presets install under `share/umbriel/effects/<kind>/<name>/`. Include a
+Bundled presets install under `share/andromeda/effects/<kind>/<name>/`. Include a
 preset's `effect.toml`, then select its name. For an installation under `/usr`:
 
 ```toml
 [include]
 files = [
-  "/usr/share/umbriel/effects/border/pulse/effect.toml",
-  "/usr/share/umbriel/effects/animation/reveal/effect.toml",
+  "/usr/share/andromeda/effects/border/pulse/effect.toml",
+  "/usr/share/andromeda/effects/animation/reveal/effect.toml",
 ]
 
 [effects]
@@ -118,8 +118,8 @@ without `shader` is inert as well. `off` is a reserved name.
 | `shader` | all | none | Path to the GLSL source, at most 256 KiB. Without it the preset is inert. |
 | `palette` | all | `false` | Supply `[colors]` accent and status colors to the program. |
 | `padding` | border | `0` | Transparent space around the ring the effect may paint, 0 to 1024. |
-| `speed` | border | `1.0` | Multiplier on `umbriel_time`, 0 to 10. `0` holds `umbriel_time` at zero. |
-| `animated` | border | `true` | `false` freezes `umbriel_time` at zero. |
+| `speed` | border | `1.0` | Multiplier on `andromeda_time`, 0 to 10. `0` holds `andromeda_time` at zero. |
+| `animated` | border | `true` | `false` freezes `andromeda_time` at zero. |
 | `overlay` | border | `""` | A window preset drawn on the window while the border effect applies. |
 | `light.spread` | border | `80` | How far light from the ring spills, 1 to 256 logical pixels. Defining `[effects.preset.<name>.light]` enables light. |
 | `light.intensity` | border | `1.0` | Light gain, 0 to 4. |
@@ -162,22 +162,22 @@ Every kind sees:
 
 | Name | Meaning |
 | --- | --- |
-| `umbriel_sample(vec2 uv)` | The input under the drawn rectangle: the captured window for animations, the native ring for borders, the pixels already on screen for window, screen, and cursor effects. |
-| `umbriel_sample_previous(vec2 uv)` | This effect's previous result. Using it allocates two extra buffers for each window or output it runs on. |
-| `umbriel_size` | Drawn width and height in logical pixels. |
-| `umbriel_scale` | Buffer pixels per logical pixel. |
-| `umbriel_expand` | How far the drawn rectangle extends past the window on each side, as a fraction of its width and height. `(0, 0)` except for an animation running while drag physics deforms the window. |
-| `umbriel_time` | Seconds on the animation clock, times the border's `speed`. Held as a single-precision float that is never wrapped, so fine time-based motion loses precision after long uptimes. `sin` and `cos` reduce their argument to one revolution, so they stay correct at large angles. |
-| `umbriel_palette_count` | `4` for palette presets, `0` otherwise. |
-| `umbriel_palette_at(float t)` | The palette color at `t`, blended between neighboring colors from the wrapping sequence `accent_primary`, `accent_secondary`, `warning`, `error`. Transparent black when there is no palette. |
+| `andromeda_sample(vec2 uv)` | The input under the drawn rectangle: the captured window for animations, the native ring for borders, the pixels already on screen for window, screen, and cursor effects. |
+| `andromeda_sample_previous(vec2 uv)` | This effect's previous result. Using it allocates two extra buffers for each window or output it runs on. |
+| `andromeda_size` | Drawn width and height in logical pixels. |
+| `andromeda_scale` | Buffer pixels per logical pixel. |
+| `andromeda_expand` | How far the drawn rectangle extends past the window on each side, as a fraction of its width and height. `(0, 0)` except for an animation running while drag physics deforms the window. |
+| `andromeda_time` | Seconds on the animation clock, times the border's `speed`. Held as a single-precision float that is never wrapped, so fine time-based motion loses precision after long uptimes. `sin` and `cos` reduce their argument to one revolution, so they stay correct at large angles. |
+| `andromeda_palette_count` | `4` for palette presets, `0` otherwise. |
+| `andromeda_palette_at(float t)` | The palette color at `t`, blended between neighboring colors from the wrapping sequence `accent_primary`, `accent_secondary`, `warning`, `error`. Transparent black when there is no palette. |
 
-Animations add `umbriel_progress`, `umbriel_clamped_progress`,
-`umbriel_linear_progress`, `umbriel_direction`, and `umbriel_random_seed`
-([Animation](animation.md#custom-effects)). Borders add `umbriel_border_hole`
-(the client rectangle in `uv`), `umbriel_border_radius` (its corner radii in
-logical pixels), and `umbriel_border_distance(vec2 uv)`, the signed distance
+Animations add `andromeda_progress`, `andromeda_clamped_progress`,
+`andromeda_linear_progress`, `andromeda_direction`, and `andromeda_random_seed`
+([Animation](animation.md#custom-effects)). Borders add `andromeda_border_hole`
+(the client rectangle in `uv`), `andromeda_border_radius` (its corner radii in
+logical pixels), and `andromeda_border_distance(vec2 uv)`, the signed distance
 in logical pixels to the client rectangle, negative inside it; the client hole
-is always cut out of a border's result. Cursor effects add `umbriel_pointer`,
+is always cut out of a border's result. Cursor effects add `andromeda_pointer`,
 the pointer position in `uv`.
 
 ### What a window effect sees
@@ -207,7 +207,7 @@ trusted local GPU code; keep them small and side-effect free.
 
 Nothing here costs anything until selected. A border effect renders the ring
 through a capture and one program pass per frame on the focused window, and
-requests extra frames only while its program reads `umbriel_time` and its
+requests extra frames only while its program reads `andromeda_time` and its
 clock advances, capped by `max_fps`. Light adds a second program pass and a
 blurred pyramid where the ring draws, and a blend on every output its light
 reaches. A window effect copies the pixels under the window and runs one pass

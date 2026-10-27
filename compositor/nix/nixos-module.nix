@@ -1,4 +1,4 @@
-{ xdg-desktop-portal-umbriel }:
+{ xdg-desktop-portal-andromeda }:
 {
   config,
   pkgs,
@@ -7,27 +7,27 @@
   ...
 }:
 let
-  cfg = config.programs.umbriel;
+  cfg = config.programs.andromeda;
 in
 {
   # Disable the nixpkgs module to avoid conflicts
-  disabledModules = [ "programs/wayland/umbriel.nix" ];
+  disabledModules = [ "programs/wayland/andromeda.nix" ];
 
-  options.programs.umbriel = {
-    enable = lib.mkEnableOption "Umbriel, a Wayland compositor built on wlroots.";
+  options.programs.andromeda = {
+    enable = lib.mkEnableOption "Andromeda, a Wayland compositor built on wlroots.";
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
       default = null;
-      description = "The umbriel package to install.";
+      description = "The andromeda package to install.";
     };
 
     portalPackage = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = xdg-desktop-portal-umbriel.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      defaultText = lib.literalExpression "the xdg-desktop-portal-umbriel flake's package";
+      default = xdg-desktop-portal-andromeda.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      defaultText = lib.literalExpression "the xdg-desktop-portal-andromeda flake's package";
       description = ''
-        The xdg-desktop-portal-umbriel package to install.
+        The xdg-desktop-portal-andromeda package to install.
       '';
     };
   };
@@ -40,7 +40,7 @@ in
         assertions = [
           {
             assertion = cfg.package != null;
-            message = "programs.umbriel.package cannot be null when programs.umbriel.enable is true";
+            message = "programs.andromeda.package cannot be null when programs.andromeda.enable is true";
           }
         ];
       }
@@ -52,12 +52,12 @@ in
           pkgs.tomlplusplus
         ];
 
-        # Required for greetd / noctalia-greeter to discover the session (Name=Umbriel).
+        # Required for greetd / noctalia-greeter to discover the session (Name=Andromeda).
         # Plain systemPackages .desktop files are not enough; NixOS aggregates via this.
         services.displayManager.sessionPackages = [ cfg.package ];
 
         systemd.packages = [ cfg.package ];
-        systemd.user.services.umbriel = {
+        systemd.user.services.andromeda = {
           restartIfChanged = false;
           enableDefaultPath = false;
         };
@@ -67,8 +67,8 @@ in
         xdg.portal = {
           enable = lib.mkDefault true;
           extraPortals = [ cfg.portalPackage ];
-          config.umbriel.default = lib.mkDefault [
-            "umbriel"
+          config.andromeda.default = lib.mkDefault [
+            "andromeda"
             "gtk"
           ];
         };

@@ -1,6 +1,6 @@
 # Maintainer design notes
 
-The main documentation explains how to configure and use Umbriel. The notes in
+The main documentation explains how to configure and use Andromeda. The notes in
 this directory preserve detailed contracts and implementation constraints for
 people changing the compositor.
 

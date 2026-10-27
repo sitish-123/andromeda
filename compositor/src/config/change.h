@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace umbriel {
+namespace andromeda {
 
   // Which source sections a reload altered. Runtime effects are derived
   // separately because one section can invalidate several subsystems.
@@ -114,4 +114,4 @@ namespace umbriel {
     ConfigEffects effects;
   };
 
-} // namespace umbriel
+} // namespace andromeda

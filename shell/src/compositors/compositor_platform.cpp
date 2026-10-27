@@ -22,10 +22,10 @@
 #include "compositors/triad/triad_output_backend.h"
 #include "compositors/triad/triad_runtime.h"
 #include "compositors/triad/triad_workspace_backend.h"
-#include "compositors/umbriel/umbriel_keyboard_backend.h"
-#include "compositors/umbriel/umbriel_output_backend.h"
-#include "compositors/umbriel/umbriel_runtime.h"
-#include "compositors/umbriel/umbriel_workspace_backend.h"
+#include "compositors/andromeda/andromeda_keyboard_backend.h"
+#include "compositors/andromeda/andromeda_output_backend.h"
+#include "compositors/andromeda/andromeda_runtime.h"
+#include "compositors/andromeda/andromeda_workspace_backend.h"
 #include "compositors/workspace_alert_service.h"
 #include "core/log.h"
 #include "core/process/process.h"
@@ -355,10 +355,10 @@ namespace {
           },
           true
       );
-    case compositors::CompositorKind::Umbriel:
+    case compositors::CompositorKind::Andromeda:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.umbriel()](WaylandConnection& wayland, bool on) {
-            return wayland.setOutputsPower(on) || compositors::umbriel::setOutputPower(runtime, on);
+          [&runtime = runtimeRegistry.andromeda()](WaylandConnection& wayland, bool on) {
+            return wayland.setOutputsPower(on) || compositors::andromeda::setOutputPower(runtime, on);
           }
       );
     case compositors::CompositorKind::Dwl:
@@ -381,8 +381,8 @@ namespace {
       return std::make_unique<FocusedOutputAdapter<SwayOutputBackend>>(runtimeRegistry.sway());
     case compositors::CompositorKind::Triad:
       return std::make_unique<FocusedOutputAdapter<TriadOutputBackend>>(runtimeRegistry.triad());
-    case compositors::CompositorKind::Umbriel:
-      return std::make_unique<FocusedOutputAdapter<UmbrielOutputBackend>>(runtimeRegistry.umbriel());
+    case compositors::CompositorKind::Andromeda:
+      return std::make_unique<FocusedOutputAdapter<AndromedaOutputBackend>>(runtimeRegistry.andromeda());
     case compositors::CompositorKind::Dwl:
     case compositors::CompositorKind::Labwc:
     case compositors::CompositorKind::Kde:
@@ -400,8 +400,8 @@ namespace {
       return std::make_unique<TriadWorkspaceBackend>(runtimeRegistry.triad());
     case compositors::CompositorKind::Niri:
       return std::make_unique<NiriWorkspaceBackend>(runtimeRegistry.niri());
-    case compositors::CompositorKind::Umbriel:
-      return std::make_unique<UmbrielWorkspaceBackend>(runtimeRegistry.umbriel());
+    case compositors::CompositorKind::Andromeda:
+      return std::make_unique<AndromedaWorkspaceBackend>(runtimeRegistry.andromeda());
     case compositors::CompositorKind::Hyprland:
     case compositors::CompositorKind::Sway:
     case compositors::CompositorKind::Mango:
@@ -427,8 +427,8 @@ namespace {
       return std::make_unique<KeyboardLayoutBackendAdapter<SwayKeyboardBackend>>(runtimeRegistry.sway());
     case compositors::CompositorKind::Triad:
       return std::make_unique<KeyboardLayoutBackendAdapter<TriadKeyboardBackend>>(runtimeRegistry.triad());
-    case compositors::CompositorKind::Umbriel:
-      return std::make_unique<KeyboardLayoutBackendAdapter<UmbrielKeyboardBackend>>(runtimeRegistry.umbriel());
+    case compositors::CompositorKind::Andromeda:
+      return std::make_unique<KeyboardLayoutBackendAdapter<AndromedaKeyboardBackend>>(runtimeRegistry.andromeda());
     case compositors::CompositorKind::Dwl:
     case compositors::CompositorKind::Labwc:
     case compositors::CompositorKind::Kde:
@@ -674,12 +674,12 @@ const compositors::niri::NiriRuntime& CompositorPlatform::niriRuntime() const no
   return m_runtimeRegistry->niri();
 }
 
-compositors::umbriel::UmbrielRuntime& CompositorPlatform::umbrielRuntime() noexcept {
-  return m_runtimeRegistry->umbriel();
+compositors::andromeda::AndromedaRuntime& CompositorPlatform::andromedaRuntime() noexcept {
+  return m_runtimeRegistry->andromeda();
 }
 
-const compositors::umbriel::UmbrielRuntime& CompositorPlatform::umbrielRuntime() const noexcept {
-  return m_runtimeRegistry->umbriel();
+const compositors::andromeda::AndromedaRuntime& CompositorPlatform::andromedaRuntime() const noexcept {
+  return m_runtimeRegistry->andromeda();
 }
 
 bool CompositorPlatform::hasXdgShell() const noexcept { return m_wayland.hasXdgShell(); }
@@ -1580,9 +1580,9 @@ bool CompositorPlatform::requestSessionExit() const {
       return true;
     }
     break;
-  case compositors::CompositorKind::Umbriel:
-    // noctalia's session menu is its own confirmation, so bypass umbriel's.
-    if (m_runtimeRegistry->umbriel().requestAction("session-quit:skip-confirmation")) {
+  case compositors::CompositorKind::Andromeda:
+    // noctalia's session menu is its own confirmation, so bypass andromeda's.
+    if (m_runtimeRegistry->andromeda().requestAction("session-quit:skip-confirmation")) {
       return true;
     }
     break;

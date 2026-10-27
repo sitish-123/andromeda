@@ -82,7 +82,7 @@ public:
       const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
   )>;
   // Advertised with a selection served for another device, so reading the shell's own selection never pulls it.
-  static constexpr const char* kRemoteMimeType = "application/x-umbriel-link-remote";
+  static constexpr const char* kRemoteMimeType = "application/x-andromeda-link-remote";
 
   explicit ClipboardService(security::StorageKeyProvider& storageKeyProvider);
   ~ClipboardService();

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # xwayland-satellite requests fullscreen before the initial surface commit when an X11 game window already matches an
-# output. Umbriel must carry that pending request into the initial configure so the game maps as a square, borderless
+# output. Andromeda must carry that pending request into the initial configure so the game maps as a square, borderless
 # fullscreen surface instead of an output-sized rounded tile.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/fullscreen-chrome-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/fullscreen-chrome.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/fullscreen-chrome-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/fullscreen-chrome.png"
 
 if [[ ! -x $CLIENT ]]; then
   echo "subsurface client not built at $CLIENT"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -24,7 +24,7 @@ border_width = 12
 outer_border_width = 0
 corner_radius = 64
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 env INITIAL_FULLSCREEN=1 "$CLIENT" fullscreen-chrome > "$CLIENT_LOG" 2>&1 &
 
@@ -43,7 +43,7 @@ if [[ $first_configure != "first-configure 1280 720 fullscreen" ]]; then
 fi
 
 window_box() {
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "fullscreen-chrome") | "\(.x) \(.y) \(.w) \(.h)"'
+  "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "fullscreen-chrome") | "\(.x) \(.y) \(.w) \(.h)"'
 }
 
 box=
@@ -60,7 +60,7 @@ if [[ ! $box =~ ^-?[0-9]+\ -?[0-9]+\ 1280\ 720$ ]]; then
 fi
 read -r win_x win_y _ _ <<< "$box"
 
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim "$SCREENSHOT"
 
 sample() {

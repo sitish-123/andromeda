@@ -6,7 +6,7 @@
 #include <string_view>
 #include <sys/types.h>
 
-namespace umbriel {
+namespace andromeda {
 
   // Identity shared by a GPU's card and render nodes. physicalDevice is the
   // parent sysfs device, so selecting either node applies to the whole GPU.
@@ -56,4 +56,4 @@ namespace umbriel {
   // such as nvidiactl and nvidia-modeset do not identify one physical GPU.
   [[nodiscard]] bool isNvidiaGpuDeviceNode(std::string_view node);
 
-} // namespace umbriel
+} // namespace andromeda

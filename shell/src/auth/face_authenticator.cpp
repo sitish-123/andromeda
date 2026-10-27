@@ -21,7 +21,7 @@ namespace {
   const sdbus::ObjectPath kGazePath{"/com/gundulabs/Gaze"};
   constexpr auto kGazeInterface = "com.gundulabs.Gaze";
   // gazed classifies any service it does not know as a screen lock: no confirmation, lock-screen start delay.
-  constexpr auto kPamService = "umbriel-lock";
+  constexpr auto kPamService = "andromeda-lock";
 
   const sdbus::ServiceName kDbusBusName{"org.freedesktop.DBus"};
   const sdbus::ObjectPath kDbusPath{"/org/freedesktop/DBus"};

@@ -20,7 +20,7 @@ struct wlr_scene_tree;
 struct wlr_scene_rect;
 struct wlr_scene_blur;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -151,4 +151,4 @@ namespace umbriel {
     View* m_focusedView = nullptr;
   };
 
-} // namespace umbriel
+} // namespace andromeda

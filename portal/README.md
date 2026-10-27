@@ -1,6 +1,6 @@
-# xdg-desktop-portal-umbriel
+# xdg-desktop-portal-andromeda
 
-An [xdg-desktop-portal](https://github.com/flatpak/xdg-desktop-portal) backend for the [Umbriel](https://github.com/noctalia-dev/umbriel) compositor.
+An [xdg-desktop-portal](https://github.com/flatpak/xdg-desktop-portal) backend for the [Andromeda](https://github.com/noctalia-dev/andromeda) compositor.
 
 ## Supported interfaces
 
@@ -62,8 +62,8 @@ to select or deselect them, including across tabs. Space toggles a focused card 
 multiple-selection mode, Enter shares, and Escape cancels.
 
 Window decorations are delegated to the compositor: the picker sets `GTK_CSD=0`
-and draws no titlebar, so Umbriel owns the border and corner clipping. Controls
-follow Umbriel's live palette and corner radius, with GTK theme colors as a
+and draws no titlebar, so Andromeda owns the border and corner clipping. Controls
+follow Andromeda's live palette and corner radius, with GTK theme colors as a
 fallback. The picker defaults to Cairo rendering to avoid GPU renderer startup
 and shutdown overhead; explicit `GTK_CSD` or `GSK_RENDERER` settings still take
 precedence.
@@ -75,17 +75,17 @@ thumbnail is handed to the UI on the main loop. Each capture session is destroye
 and its cleanup acknowledged before the worker goes idle. Snapshots load
 asynchronously, remain in memory,
 and are discarded when the picker closes. Sources without a supported preview
-remain selectable with a placeholder. Window capture requires Umbriel's fix for output membership and frame
+remain selectable with a placeholder. Window capture requires Andromeda's fix for output membership and frame
 pacing across the desktop and capture scenes. Older compositor builds can leave
 applications waiting for frame callbacks after a window capture ends.
 
 ## Configuration
 
-The config file lives at `$XDG_CONFIG_HOME/xdg-desktop-portal-umbriel/config.toml` (or the system-installed default).
+The config file lives at `$XDG_CONFIG_HOME/xdg-desktop-portal-andromeda/config.toml` (or the system-installed default).
 
 ```toml
 [screencast]
-chooser_cmd = "/usr/local/libexec/umbriel-share-picker"
+chooser_cmd = "/usr/local/libexec/andromeda-share-picker"
 max_fps = 0
 
 [screenshot]
@@ -99,17 +99,17 @@ Applications can request hidden, embedded, or metadata cursors for a screencast.
 
 ## Changeable screencast targets
 
-Every share with exactly one selected screen or window can be changed later with Umbriel actions. The selected source
+Every share with exactly one selected screen or window can be changed later with Andromeda actions. The selected source
 starts sharing immediately. Shares containing several selected sources remain fixed because one target action cannot
 unambiguously identify which stream to replace.
 
-The first set or follow action while a changeable share is active opens a confirmation panel in Umbriel. Dismissing
+The first set or follow action while a changeable share is active opens a confirmation panel in Andromeda. Dismissing
 the panel cancels that action and asks again the next time. After confirmation, later target changes are immediate
-until the share ends. This protection can be disabled with Umbriel's
+until the share ends. This protection can be disabled with Andromeda's
 `screencast.disable_dynamic_confirmation` setting. Following lasts only for the active portal session. Window
 following can expose any application you focus, so use it only when every window you may visit is safe to share.
 
-Configure any of these Umbriel actions as keybinds or event actions:
+Configure any of these Andromeda actions as keybinds or event actions:
 
 - `screencast-set-window` selects the focused window and switches to manual mode.
 - `screencast-set-window:<window-id>` selects a window by its IPC identifier and switches to manual mode.

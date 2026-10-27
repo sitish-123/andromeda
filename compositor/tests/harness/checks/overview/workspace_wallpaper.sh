@@ -3,16 +3,16 @@
 # the same pixels fall back to the flat `colors.overview.workspace_background` fill and the real bottom layer stays.
 set -euo pipefail
 
-readonly LAYER="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly LAYER_LOG="$UMBRIEL_RUNTIME_DIR/wallpaper-background.log"
-readonly BOTTOM_LOG="$UMBRIEL_RUNTIME_DIR/wallpaper-bottom.log"
-readonly MIRRORED="$UMBRIEL_RUNTIME_DIR/overview-wallpaper-on.png"
-readonly FLAT="$UMBRIEL_RUNTIME_DIR/overview-wallpaper-off.png"
-readonly HORIZONTAL="$UMBRIEL_RUNTIME_DIR/overview-wallpaper-horizontal.png"
-readonly HORIZONTAL_FLAT="$UMBRIEL_RUNTIME_DIR/overview-wallpaper-horizontal-flat.png"
-readonly BASE_CONFIG="$UMBRIEL_RUNTIME_DIR/wallpaper-base.toml"
+readonly LAYER="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly LAYER_LOG="$ANDROMEDA_RUNTIME_DIR/wallpaper-background.log"
+readonly BOTTOM_LOG="$ANDROMEDA_RUNTIME_DIR/wallpaper-bottom.log"
+readonly MIRRORED="$ANDROMEDA_RUNTIME_DIR/overview-wallpaper-on.png"
+readonly FLAT="$ANDROMEDA_RUNTIME_DIR/overview-wallpaper-off.png"
+readonly HORIZONTAL="$ANDROMEDA_RUNTIME_DIR/overview-wallpaper-horizontal.png"
+readonly HORIZONTAL_FLAT="$ANDROMEDA_RUNTIME_DIR/overview-wallpaper-horizontal-flat.png"
+readonly BASE_CONFIG="$ANDROMEDA_RUNTIME_DIR/wallpaper-base.toml"
 
-cp "$UMBRIEL_CONFIG" "$BASE_CONFIG"
+cp "$ANDROMEDA_CONFIG" "$BASE_CONFIG"
 cat >> "$BASE_CONFIG" <<'EOF'
 
 [colors.overview]
@@ -30,8 +30,8 @@ enabled = false
 background_blur = false
 EOF
 
-cp "$BASE_CONFIG" "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+cp "$BASE_CONFIG" "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # The layer client fills a full-output background surface with 0xFF5577AA, and a 200x200 top-left bottom-layer surface
 # with 0xFF00FF00.
@@ -69,21 +69,21 @@ assert_rgb() {
   fi
 }
 
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 grim "$MIRRORED"
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 assert_rgb "wallpaper mirrored" "$MIRRORED" 632 352 85 119 170
 assert_rgb "bottom layer mirrored" "$MIRRORED" 344 204 0 255 0
 # The real bottom layer is hidden while its copies stand in, so its own corner shows the wallpaper.
 assert_rgb "bottom layer hidden" "$MIRRORED" 40 40 85 119 170
 
-{ cat "$BASE_CONFIG"; printf 'workspace_wallpaper = false\n'; } > "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+{ cat "$BASE_CONFIG"; printf 'workspace_wallpaper = false\n'; } > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 grim "$FLAT"
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 assert_rgb "wallpaper disabled" "$FLAT" 632 352 255 0 0
 assert_rgb "bottom layer kept" "$FLAT" 40 40 0 255 0
 
@@ -99,15 +99,15 @@ write_horizontal_config() {
 workspaces = 2
 workspace_axis = "horizontal"
 EOF
-  } > "$UMBRIEL_CONFIG"
+  } > "$ANDROMEDA_CONFIG"
 }
 
 write_horizontal_config true
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 grim "$HORIZONTAL"
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 # The active preview still spans 320,180 to 960,540, and the second steps 640 + 0.1 * 1280 * 0.5 = 704 px along X, so
 # it enters the output at x = 1024 with the same vertical band. Each preview mirrors the bottom-layer surface into its
 # own top-left corner as a 100x100 square, which is where the copies become traceable.
@@ -121,11 +121,11 @@ assert_rgb "bottom layer hidden" "$HORIZONTAL" 40 40 85 119 170
 # With the mirrors off, each preview shows the flat fill instead, which draws the preview's own bounds: the adjacent
 # fill sits to the right, and it stops at the gap rather than bleeding across it.
 write_horizontal_config false
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 grim "$HORIZONTAL_FLAT"
-"$UMBRIEL" msg overview-close > /dev/null
+"$ANDROMEDA" msg overview-close > /dev/null
 assert_rgb "active fill" "$HORIZONTAL_FLAT" 632 352 255 0 0
 assert_rgb "adjacent fill beside" "$HORIZONTAL_FLAT" 1100 352 255 0 0
 assert_rgb "gap between previews" "$HORIZONTAL_FLAT" 990 352 85 119 170

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Measures the shell's main-loop wakeups on a static desktop (a headless Umbriel, a clock-only bar) over 30 s with
+# Measures the shell's main-loop wakeups on a static desktop (a headless Andromeda, a clock-only bar) over 30 s with
 # NOCTALIA_IDLE_PROFILE, and reports wakeups per second plus the poll sources behind them. The total varies with the
 # sandbox (WirePlumber retries without a PipeWire socket), so only the clock is asserted: at most MAX_CLOCK wakeups
 # per second (default 1.1). BAR_START adds widgets for manual runs. Writes wakeups.txt and profile.txt to $OUT

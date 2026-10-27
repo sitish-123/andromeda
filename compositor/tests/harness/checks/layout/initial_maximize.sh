@@ -2,7 +2,7 @@
 # Saved client maximization is ignored by default and honored only when configured.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 wait_for_log() {
   local log=$1 pattern=$2
@@ -38,8 +38,8 @@ stop_client() {
   wait "$CLIENT_PID" 2>/dev/null || true
 }
 
-readonly DEFAULT_LOG="$UMBRIEL_RUNTIME_DIR/initial-maximize-default.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/initial-maximize-control"
+readonly DEFAULT_LOG="$ANDROMEDA_RUNTIME_DIR/initial-maximize-default.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/initial-maximize-control"
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
 env LOG_CONFIGURES=1 REQUEST_MAXIMIZED=1 REQUEST_MAXIMIZED_AFTER_MAP=1 MAXIMIZE_ON_STDIN=1 \
@@ -70,7 +70,7 @@ fi
 stop_client
 
 # kitty restores maximize one dispatch after its first frame, before acknowledging the opening configure.
-readonly FRAME_LOG="$UMBRIEL_RUNTIME_DIR/initial-maximize-after-frame.log"
+readonly FRAME_LOG="$ANDROMEDA_RUNTIME_DIR/initial-maximize-after-frame.log"
 env LOG_CONFIGURES=1 REQUEST_MAXIMIZED_AFTER_FRAME=1 MAXIMIZE_ON_STDIN=1 \
   "$CLIENT" initial-maximize-after-frame <&"$control_fd" > "$FRAME_LOG" 2>&1 &
 CLIENT_PID=$!
@@ -93,10 +93,10 @@ if grep -q '^configured-maximized$' "$FRAME_LOG"; then
 fi
 stop_client
 
-printf '\nhonor_restored_maximize = true\n\n[animation]\nenabled = false\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\nhonor_restored_maximize = true\n\n[animation]\nenabled = false\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
-readonly HONORED_LOG="$UMBRIEL_RUNTIME_DIR/initial-maximize-honored.log"
+readonly HONORED_LOG="$ANDROMEDA_RUNTIME_DIR/initial-maximize-honored.log"
 spawn_maximized_client initial-maximize-honored "$HONORED_LOG" REQUEST_MAXIMIZED_AFTER_CONFIGURE=1 || exit 1
 wait_for_log "$HONORED_LOG" '^configured-maximized$' || exit 1
 assert_maximized_before_map "$HONORED_LOG"

@@ -561,7 +561,7 @@ namespace xdpu {
     }
 
     return sdbus::Variant{sdbus::Struct<std::string, uint32_t, sdbus::Variant>{
-        "umbriel", static_cast<uint32_t>(kRestoreDataVersion), sdbus::Variant{entries}
+        "andromeda", static_cast<uint32_t>(kRestoreDataVersion), sdbus::Variant{entries}
     }};
   }
 

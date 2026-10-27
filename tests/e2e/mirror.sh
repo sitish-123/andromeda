@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Runs the Umbriel fork nested in the current session with two outputs, WL-2 mirroring WL-1, and a green foot window.
+# Runs the Andromeda fork nested in the current session with two outputs, WL-2 mirroring WL-1, and a green foot window.
 # Captures both nested output windows from the host and asserts the mirror shows the source's pixels. Needs a running
 # host Wayland session. Artifacts go to $OUT (default ./artifacts/mirror).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
-UMBRIEL=${UMBRIEL:-$ROOT/compositor/build-debug/umbriel}
+ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-debug/andromeda}
 PROBE=${PROBE:-$ROOT/compositor/build-debug/tests/pixel-probe}
 OUT=${OUT:-$(pwd)/artifacts/mirror}
 GREEN='g > 0.9 && r < 0.1 && b < 0.1'
@@ -22,13 +22,13 @@ show_cheatsheet = false
 mirror = "WL-1"
 CONF
 
-before=$(umbriel windows --json | jq '[.[].id]')
-WLR_WL_OUTPUTS=2 "$UMBRIEL" -c "$CONFIG" -s 'foot --config=/dev/null --override=colors-dark.background=00ff00' \
-  > "$OUT/umbriel.log" 2>&1 &
+before=$(andromeda windows --json | jq '[.[].id]')
+WLR_WL_OUTPUTS=2 "$ANDROMEDA" -c "$CONFIG" -s 'foot --config=/dev/null --override=colors-dark.background=00ff00' \
+  > "$OUT/andromeda.log" 2>&1 &
 NESTED=$!
 
 geometry() {
-  umbriel windows --json | jq -r --argjson before "$before" --arg title "$1" \
+  andromeda windows --json | jq -r --argjson before "$before" --arg title "$1" \
     '.[] | select((.id as $id | $before | index($id) | not) and (.title | endswith($title))) | "\(.x),\(.y) \(.w)x\(.h)"'
 }
 for _ in $(seq 50); do

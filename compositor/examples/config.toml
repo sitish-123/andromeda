@@ -1,9 +1,9 @@
-# Umbriel starting configuration
+# Andromeda starting configuration
 #
-# Copy this file to ~/.config/umbriel/config.toml. Most changes apply when the
-# file is saved. Check edits with `umbriel config validate`.
+# Copy this file to ~/.config/andromeda/config.toml. Most changes apply when the
+# file is saved. Check edits with `andromeda config validate`.
 #
-# Complete reference: https://docs.noctalia.dev/umbriel/
+# Complete reference: https://docs.noctalia.dev/andromeda/
 #
 # Commented settings below are examples, not built-in defaults.
 
@@ -11,7 +11,7 @@
 # Includes
 
 # Optional split configuration
-# https://docs.noctalia.dev/umbriel/configuration/#include
+# https://docs.noctalia.dev/andromeda/configuration/#include
 [include]
 files = []
 
@@ -22,7 +22,7 @@ files = []
 # General
 
 # Optional session examples. XWayland support is enabled by default.
-# https://docs.noctalia.dev/umbriel/configuration/#general
+# https://docs.noctalia.dev/andromeda/configuration/#general
 # [general]
 # autostart = ["noctalia", "kitty"]
 # xwayland = false
@@ -32,11 +32,11 @@ files = []
 
 # Remove the laptop panel from the desktop while the lid is closed, then
 # restore it when the lid opens. Replace eDP-1 with the name from
-# `umbriel outputs`.
-# https://docs.noctalia.dev/umbriel/configuration/#events
+# `andromeda outputs`.
+# https://docs.noctalia.dev/andromeda/configuration/#events
 # [events]
-# lid_close = "umbriel msg output-disable:eDP-1"
-# lid_open = "umbriel msg output-enable:eDP-1"
+# lid_close = "andromeda msg output-disable:eDP-1"
+# lid_open = "andromeda msg output-enable:eDP-1"
 
 # ==============================================================================
 # Screencast
@@ -44,15 +44,15 @@ files = []
 # By default, the first target-changing action during an active share asks for
 # confirmation. Disable that protection only if immediate keybind changes are
 # preferred.
-# https://docs.noctalia.dev/umbriel/configuration/#screencast
+# https://docs.noctalia.dev/andromeda/configuration/#screencast
 # [screencast]
 # disable_dynamic_confirmation = true
 
 # ==============================================================================
 # Outputs
 
-# Outputs are machine-specific. Run `umbriel outputs` to find names and modes.
-# https://docs.noctalia.dev/umbriel/outputs/
+# Outputs are machine-specific. Run `andromeda outputs` to find names and modes.
+# https://docs.noctalia.dev/andromeda/outputs/
 #
 # [output.DP-1]
 # mode = "2560x1440@144"
@@ -64,7 +64,7 @@ files = []
 # ==============================================================================
 # Appearance
 # Blur uses a smaller radius than the built-in default.
-# https://docs.noctalia.dev/umbriel/appearance/
+# https://docs.noctalia.dev/andromeda/appearance/
 [appearance.blur]
 radius = 3
 
@@ -76,16 +76,16 @@ radius = 3
 # Effects
 # Every effect is off until a preset is selected. Include a bundled preset
 # (adjust /usr for the package prefix), then select it by name.
-# https://docs.noctalia.dev/umbriel/effects/
+# https://docs.noctalia.dev/andromeda/effects/
 # [include]
-# files = ["/usr/share/umbriel/effects/border/pulse/effect.toml"]
+# files = ["/usr/share/andromeda/effects/border/pulse/effect.toml"]
 # [effects]
 # border = "pulse"
 
 # ==============================================================================
 # Input
 # Enable NumLock when a physical keyboard connects.
-# https://docs.noctalia.dev/umbriel/input/
+# https://docs.noctalia.dev/andromeda/input/
 [input.keyboard]
 numlock_toggle = true
 
@@ -102,8 +102,8 @@ numlock_toggle = true
 # Keybinds
 # Defining this table replaces the built-in bind set, so every active bind that
 # should remain available is listed here.
-# Syntax: https://docs.noctalia.dev/umbriel/keybinds/
-# Actions: https://docs.noctalia.dev/umbriel/actions/
+# Syntax: https://docs.noctalia.dev/andromeda/keybinds/
+# Actions: https://docs.noctalia.dev/andromeda/actions/
 [keybinds]
 
 # Applications and session
@@ -174,7 +174,7 @@ numlock_toggle = true
 # New scrolling-layout windows start at half the output width. Without this
 # setting, each application chooses its starting width. Stacked columns retain
 # their most recently focused row when focus leaves and later returns.
-# https://docs.noctalia.dev/umbriel/layout/
+# https://docs.noctalia.dev/andromeda/layout/
 [layout]
 extent_presets = [0.333, 0.5, 0.667]
 
@@ -184,7 +184,7 @@ default_extent_fraction = 0.5
 # ==============================================================================
 # Window rules
 # Rules combine in order, with later values overriding earlier ones.
-# https://docs.noctalia.dev/umbriel/window-rules/
+# https://docs.noctalia.dev/andromeda/window-rules/
 
 # Blur windows using the non-optimized path so translucent windows include
 # overlapping windows behind them.
@@ -198,7 +198,7 @@ default_floating = true
 default_floating_size_px = { width = 1020, height = 900 }
 
 [[window_rule]]
-match.app_id = "^dev.noctalia.UmbrielSharePicker$"
+match.app_id = "^dev.noctalia.AndromedaSharePicker$"
 default_floating = true
 default_floating_size_px = { width = 800, height = 600 }
 
@@ -238,7 +238,7 @@ default_pinned = true
 
 # ==============================================================================
 # Layer rules
-# https://docs.noctalia.dev/umbriel/layer-rules/
+# https://docs.noctalia.dev/andromeda/layer-rules/
 [[layer_rule]]
 match.namespace = "^noctalia-(bar-[^\"]+|notification|dock|panel|attached-panel|osd|desktop-widget-[^\"]*)$"
 blur = true
@@ -250,8 +250,8 @@ blur_optimized = false
 # Overview
 # Built-in overview and animation values are used. The top-left hot corner opens
 # the overview after a short delay.
-# Overview: https://docs.noctalia.dev/umbriel/workspaces-overview/
-# Animation: https://docs.noctalia.dev/umbriel/animation/
+# Overview: https://docs.noctalia.dev/andromeda/workspaces-overview/
+# Animation: https://docs.noctalia.dev/andromeda/animation/
 [hot_corners.top_left]
 enabled = true
 delay_ms = 500

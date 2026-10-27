@@ -20,14 +20,14 @@
 
 #include "render/egl.h"
 #include "render/fx_renderer/shaders.h"
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 #include "render/fx_renderer/fx_renderer.h"
 #include "render/fx_renderer/util.h"
 #include "render/pass.h"
 #include "render/tracy.h"
-#include "umbrielfx/render/fx_renderer/fx_offscreen_buffers.h"
-#include "umbrielfx/render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/render/pass.h"
+#include "andromedafx/render/fx_renderer/fx_offscreen_buffers.h"
+#include "andromedafx/render/fx_renderer/fx_renderer.h"
+#include "andromedafx/render/pass.h"
 #include "util/time.h"
 
 static const struct wlr_renderer_impl renderer_impl;
@@ -590,7 +590,7 @@ struct wlr_renderer *fx_renderer_create_egl(struct wlr_egl *egl) {
 	renderer->exts_str = exts_str;
 	renderer->drm_fd = -1;
 
-	wlr_log(WLR_INFO, "Creating umbrielfx renderer");
+	wlr_log(WLR_INFO, "Creating andromedafx renderer");
 	const char *gl_version = (const char *)glGetString(GL_VERSION);
 	wlr_log(WLR_INFO, "Using %s", gl_version);
 	int gles_major = 0;

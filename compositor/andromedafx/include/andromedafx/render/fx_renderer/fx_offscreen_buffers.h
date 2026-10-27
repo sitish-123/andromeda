@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/util/addon.h>
-#include <umbrielfx/render/effect.h>
+#include <andromedafx/render/effect.h>
 
 // Scratch buffers sized to the current render target.
 struct fx_target_buffers {

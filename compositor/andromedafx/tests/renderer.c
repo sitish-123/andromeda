@@ -10,7 +10,7 @@
 #include <wlr/render/wlr_texture.h>
 #include <xf86drm.h>
 
-#include "umbrielfx/render/fx_renderer/fx_renderer.h"
+#include "andromedafx/render/fx_renderer/fx_renderer.h"
 
 #define CREATE_CYCLES 8
 

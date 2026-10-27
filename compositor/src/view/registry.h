@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   class View;
 
@@ -34,4 +34,4 @@ namespace umbriel {
     std::vector<std::unique_ptr<View>> m_views;
   };
 
-} // namespace umbriel
+} // namespace andromeda

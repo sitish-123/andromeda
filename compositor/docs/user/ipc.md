@@ -1,16 +1,16 @@
 # IPC
 
-Umbriel exposes a local UNIX socket for queries, actions, and event
-subscriptions. Most users should use the `umbriel` command rather than connect
+Andromeda exposes a local UNIX socket for queries, actions, and event
+subscriptions. Most users should use the `andromeda` command rather than connect
 to the socket directly.
 
-`UMBRIEL_SOCKET` contains the socket path. Without it, use
-`$XDG_RUNTIME_DIR/umbriel-$WAYLAND_DISPLAY.sock`.
+`ANDROMEDA_SOCKET` contains the socket path. Without it, use
+`$XDG_RUNTIME_DIR/andromeda-$WAYLAND_DISPLAY.sock`.
 
 Each request and reply is one JSON object per line:
 
 ```sh
-printf '{"cmd":"workspaces"}\n' | socat -t 5 STDIO "$UMBRIEL_SOCKET"
+printf '{"cmd":"workspaces"}\n' | socat -t 5 STDIO "$ANDROMEDA_SOCKET"
 ```
 
 Replies use `{"ok": ...}` or `{"err": "..."}`.
@@ -19,11 +19,11 @@ Replies use `{"ok": ...}` or `{"err": "..."}`.
 
 | Request | CLI |
 | --- | --- |
-| `{"cmd":"windows"}` | `umbriel windows --json` |
-| `{"cmd":"workspaces"}` | `umbriel workspaces --json` |
-| `{"cmd":"submap"}` | `umbriel submap --json` |
-| `{"cmd":"layers"}` | `umbriel layers --json` |
-| `{"cmd":"msg","arg":"<action>"}` | `umbriel msg <action>` |
+| `{"cmd":"windows"}` | `andromeda windows --json` |
+| `{"cmd":"workspaces"}` | `andromeda workspaces --json` |
+| `{"cmd":"submap"}` | `andromeda submap --json` |
+| `{"cmd":"layers"}` | `andromeda layers --json` |
+| `{"cmd":"msg","arg":"<action>"}` | `andromeda msg <action>` |
 
 Window entries include IDs, application identity, process ID, geometry,
 workspace, and scratchpad membership. XWayland windows report an unknown client
@@ -119,32 +119,32 @@ See [Appearance](appearance.md#colors) for the meaning of each value.
 The CLI exposes the same event stream:
 
 ```sh
-umbriel subscribe workspaces
-umbriel subscribe workspaces,windows
-umbriel subscribe submap
-umbriel subscribe screencast
+andromeda subscribe workspaces
+andromeda subscribe workspaces,windows
+andromeda subscribe submap
+andromeda subscribe screencast
 ```
 
-It writes one JSON line per event until Umbriel exits or the reader closes:
+It writes one JSON line per event until Andromeda exits or the reader closes:
 
 ```sh
-umbriel subscribe workspaces |
+andromeda subscribe workspaces |
   jq -r '.data[] | select(.focused) | "\(.output) \(.name) \(.layout)"'
 ```
 
 ## Inspection commands
 
-`umbriel outputs`, `umbriel color`, `umbriel tearing`, `umbriel layers`, and
-`umbriel keyboard-layouts` print human-readable state. Each accepts `--json`.
-`umbriel config validate` checks a configuration and `umbriel config schema`
+`andromeda outputs`, `andromeda color`, `andromeda tearing`, `andromeda layers`, and
+`andromeda keyboard-layouts` print human-readable state. Each accepts `--json`.
+`andromeda config validate` checks a configuration and `andromeda config schema`
 lists the keys it accepts, both without a running compositor.
 
 ## Virtual outputs
 
 | Request | CLI |
 | --- | --- |
-| `{"cmd":"output-create","arg":"<name>"}` | `umbriel output-create <name>` |
-| `{"cmd":"output-destroy","arg":"<name>"}` | `umbriel output-destroy <name>` |
+| `{"cmd":"output-create","arg":"<name>"}` | `andromeda output-create <name>` |
+| `{"cmd":"output-destroy","arg":"<name>"}` | `andromeda output-destroy <name>` |
 
 `output-create` replies with the new output's name. Both commands reply with an
 error for a name that is invalid, already taken, or unknown, and

@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace umbriel {
+namespace andromeda {
 
   ShaderReadResult
   readShaderSource(Section& section, std::string_view key, std::vector<ConfigDiagnostic>& diagnostics) {
@@ -162,4 +162,4 @@ namespace umbriel {
     return std::nullopt;
   }
 
-} // namespace umbriel
+} // namespace andromeda

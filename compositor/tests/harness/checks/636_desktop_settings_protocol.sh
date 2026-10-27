@@ -4,10 +4,10 @@
 # to config.toml or the built-in default.
 set -euo pipefail
 
-readonly DESKTOP=${UMBRIEL_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/settings.toml
-BASELINE=$(< "$UMBRIEL_CONFIG")
-trap 'printf "%s\n" "$BASELINE" > "$UMBRIEL_CONFIG"; rm -f "$SAVED"; "$UMBRIEL" msg config-reload > /dev/null' EXIT
+readonly DESKTOP=${ANDROMEDA_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/settings.toml
+BASELINE=$(< "$ANDROMEDA_CONFIG")
+trap 'printf "%s\n" "$BASELINE" > "$ANDROMEDA_CONFIG"; rm -f "$SAVED"; "$ANDROMEDA" msg config-reload > /dev/null' EXIT
 
 setting() { "$DESKTOP" settings-state | grep "^$1=" || true; }
 expect_setting() {
@@ -39,8 +39,8 @@ fi
 "$DESKTOP" settings-set appearance.border_width 0
 expect_setting "appearance.border_width=0 customized"
 
-printf '\n[input.keyboard]\nrepeat_rate = 40\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[input.keyboard]\nrepeat_rate = 40\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 expect_setting "input.keyboard.repeat_rate=40"
 "$DESKTOP" settings-set input.keyboard.repeat_rate 30
 expect_setting "input.keyboard.repeat_rate=30 customized"

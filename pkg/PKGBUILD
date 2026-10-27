@@ -1,6 +1,6 @@
 pkgbase=desktop-git
-pkgname=(andromeda umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
-  umbriel-power-git noctalia-greeter-desktop-git)
+pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
+  andromeda-power-git noctalia-greeter-desktop-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r0
@@ -44,22 +44,23 @@ build() {
 }
 
 package_andromeda() {
-  pkgdesc='Andromeda desktop: the Umbriel compositor, Noctalia shell, portal, and Link phone continuity'
+  pkgdesc='Andromeda desktop: the Andromeda compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
-  depends=(umbriel-desktop-git noctalia-desktop-git xdg-desktop-portal-umbriel-git umbriel-link-git
+  depends=(andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
     noctalia-greeter-desktop-git scrcpy android-tools gst-plugin-va gst-libav)
-  optdepends=('umbriel-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
+  optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
 }
 
-package_umbriel-desktop-git() {
-  pkgdesc='Umbriel Wayland compositor, desktop fork'
+package_andromeda-compositor-git() {
+  pkgdesc='Andromeda Wayland compositor'
   depends=(wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
     xwayland-satellite)
-  provides=(umbriel)
-  conflicts=(umbriel)
+  provides=(andromeda-compositor)
+  conflicts=(andromeda-compositor umbriel umbriel-desktop-git)
+  replaces=(umbriel-desktop-git)
   meson install -C build-compositor --destdir "$pkgdir"
-  install -Dm644 desktop/session/background.slice.d/umbriel-lp-e-cores.conf \
-    "$pkgdir/usr/lib/systemd/user/background.slice.d/umbriel-lp-e-cores.conf"
+  install -Dm644 desktop/session/background.slice.d/andromeda-lp-e-cores.conf \
+    "$pkgdir/usr/lib/systemd/user/background.slice.d/andromeda-lp-e-cores.conf"
   install -Dm644 desktop/compositor/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
@@ -74,55 +75,60 @@ package_noctalia-desktop-git() {
   conflicts=(noctalia)
   meson install -C build-shell --destdir "$pkgdir"
   install -Dm644 desktop/session/noctalia.service "$pkgdir/usr/lib/systemd/user/noctalia.service"
-  install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
-  ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/noctalia.service"
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/noctalia.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
-package_xdg-desktop-portal-umbriel-git() {
-  pkgdesc='xdg-desktop-portal backend for Umbriel (ScreenCast, Screenshot)'
+package_xdg-desktop-portal-andromeda-git() {
+  pkgdesc='xdg-desktop-portal backend for Andromeda (ScreenCast, Screenshot)'
   depends=(xdg-desktop-portal sdbus-cpp libpipewire wayland libdrm mesa cairo tomlplusplus gtk4)
-  provides=(xdg-desktop-portal-umbriel xdg-desktop-portal-impl)
-  conflicts=(xdg-desktop-portal-umbriel)
+  provides=(xdg-desktop-portal-andromeda xdg-desktop-portal-impl)
+  conflicts=(xdg-desktop-portal-andromeda xdg-desktop-portal-umbriel-git)
+  replaces=(xdg-desktop-portal-umbriel-git)
   meson install -C build-portal --destdir "$pkgdir"
   install -Dm644 desktop/portal/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
-package_umbriel-link-git() {
-  pkgdesc='Umbriel Link daemon: phone and desktop continuity'
+package_andromeda-link-git() {
+  pkgdesc='Andromeda Link daemon: phone and desktop continuity'
   depends=(glibc gcc-libs dbus fuse3 gtk4 gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4)
   optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
     'networkmanager: joining the phone'"'"'s hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi'
     'gst-plugin-va: hardware decoding of the mirrored phone screen'
     'gst-libav: software decoding of the mirrored phone screen without VA-API'
-    'scrcpy: phone apps in their own windows (umbriel-link-apps)'
-    'android-tools: adb for umbriel-link-apps')
-  backup=(etc/ufw/applications.d/umbriel-link)
-  install=umbriel-link.install
-  install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
-  install -Dm644 desktop/link/dist/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
-  install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
-  ln -s ../umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-linkd.service"
-  install -Dm755 desktop/link/target/release/umbriel-link-mount "$pkgdir/usr/bin/umbriel-link-mount"
-  install -Dm755 desktop/link/target/release/umbriel-link-mirror "$pkgdir/usr/bin/umbriel-link-mirror"
-  install -Dm755 desktop/link/target/release/umbriel-link-apps "$pkgdir/usr/bin/umbriel-link-apps"
-  install -Dm644 desktop/link/dist/umbriel-link-mount.service "$pkgdir/usr/lib/systemd/user/umbriel-link-mount.service"
-  ln -s ../umbriel-link-mount.service \
-    "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-link-mount.service"
-  install -Dm644 desktop/link/dist/org.umbriel.Link1.service "$pkgdir/usr/share/dbus-1/services/org.umbriel.Link1.service"
-  install -Dm644 desktop/link/api/org.umbriel.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.umbriel.Link1.xml"
-  install -Dm644 desktop/link/dist/umbriel-link.ufw "$pkgdir/etc/ufw/applications.d/umbriel-link"
-  install -Dm644 desktop/link/dist/60-umbriel-link-bluetooth.conf \
-    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-umbriel-link-bluetooth.conf"
+    'scrcpy: phone apps in their own windows (andromeda-link-apps)'
+    'android-tools: adb for andromeda-link-apps')
+  conflicts=(umbriel-link-git)
+  replaces=(umbriel-link-git)
+  backup=(etc/ufw/applications.d/andromeda-link)
+  install=andromeda-link.install
+  install -Dm755 desktop/link/target/release/andromeda-linkd "$pkgdir/usr/bin/andromeda-linkd"
+  install -Dm644 desktop/link/dist/andromeda-linkd.service "$pkgdir/usr/lib/systemd/user/andromeda-linkd.service"
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../andromeda-linkd.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-linkd.service"
+  install -Dm755 desktop/link/target/release/andromeda-link-mount "$pkgdir/usr/bin/andromeda-link-mount"
+  install -Dm755 desktop/link/target/release/andromeda-link-mirror "$pkgdir/usr/bin/andromeda-link-mirror"
+  install -Dm755 desktop/link/target/release/andromeda-link-apps "$pkgdir/usr/bin/andromeda-link-apps"
+  install -Dm644 desktop/link/dist/andromeda-link-mount.service "$pkgdir/usr/lib/systemd/user/andromeda-link-mount.service"
+  ln -s ../andromeda-link-mount.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-link-mount.service"
+  install -Dm644 desktop/link/dist/org.andromeda.Link1.service "$pkgdir/usr/share/dbus-1/services/org.andromeda.Link1.service"
+  install -Dm644 desktop/link/api/org.andromeda.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.Link1.xml"
+  install -Dm644 desktop/link/dist/andromeda-link.ufw "$pkgdir/etc/ufw/applications.d/andromeda-link"
+  install -Dm644 desktop/link/dist/60-andromeda-link-bluetooth.conf \
+    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
-package_umbriel-power-git() {
-  pkgdesc='Umbriel static kernel power policy: PCIe ASPM, runtime PM, USB autosuspend, HDA power save'
+package_andromeda-power-git() {
+  pkgdesc='Andromeda static kernel power policy: PCIe ASPM, runtime PM, USB autosuspend, HDA power save'
   depends=(systemd)
-  install -Dm644 desktop/session/power/umbriel-power.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/umbriel-power.conf"
-  install -Dm644 desktop/session/power/60-umbriel-power.rules "$pkgdir/usr/lib/udev/rules.d/60-umbriel-power.rules"
-  install -Dm644 desktop/session/power/umbriel-power.modprobe "$pkgdir/usr/lib/modprobe.d/umbriel-power.conf"
+  conflicts=(umbriel-power-git)
+  replaces=(umbriel-power-git)
+  install -Dm644 desktop/session/power/andromeda-power.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/andromeda-power.conf"
+  install -Dm644 desktop/session/power/60-andromeda-power.rules "$pkgdir/usr/lib/udev/rules.d/60-andromeda-power.rules"
+  install -Dm644 desktop/session/power/andromeda-power.modprobe "$pkgdir/usr/lib/modprobe.d/andromeda-power.conf"
 }
 
 package_noctalia-greeter-desktop-git() {

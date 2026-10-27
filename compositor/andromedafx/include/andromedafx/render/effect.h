@@ -1,5 +1,5 @@
-#ifndef UMBRIELFX_EFFECT_H
-#define UMBRIELFX_EFFECT_H
+#ifndef ANDROMEDAFX_EFFECT_H
+#define ANDROMEDAFX_EFFECT_H
 
 #include <stdbool.h>
 #include <stdint.h>

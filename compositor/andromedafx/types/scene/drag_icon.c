@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include "wlr/types/wlr_compositor.h"
-#include "umbrielfx/types/wlr_scene.h"
+#include "andromedafx/types/wlr_scene.h"
 #include <wlr/types/wlr_data_device.h>
 
 struct wlr_scene_drag_icon {

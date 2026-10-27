@@ -18,7 +18,7 @@
 #include <variant>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   struct ConfigReloadResult;
 
@@ -95,7 +95,7 @@ namespace umbriel {
     bool operator==(const WorkspaceConfig&) const = default;
   };
 
-  // A user-defined scratchpad. An empty list means that Umbriel provides the
+  // A user-defined scratchpad. An empty list means that Andromeda provides the
   // implicit scratchpad named "default" instead.
   struct ScratchpadConfig {
     std::string name;
@@ -516,8 +516,8 @@ namespace umbriel {
   };
 
   struct Config {
-    // Every color Umbriel draws, each an independent literal. `background`
-    // through `error` are the palette Umbriel's own panels paint with: the
+    // Every color Andromeda draws, each an independent literal. `background`
+    // through `error` are the palette Andromeda's own panels paint with: the
     // cheatsheet, the diagnostics banner, the quit confirmation, and overview
     // badge text.
     struct Colors {
@@ -1001,7 +1001,7 @@ namespace umbriel {
     bool operator==(const Config&) const = default;
   };
 
-  // Palette order shaders see through umbriel_palette_at: accent_primary, accent_secondary, warning, error.
+  // Palette order shaders see through andromeda_palette_at: accent_primary, accent_secondary, warning, error.
   [[nodiscard]] inline std::array<std::array<float, 4>, 4> effectPalette(const Config::Colors& colors) {
     return {colors.accentPrimary, colors.accentSecondary, colors.warning, colors.error};
   }
@@ -1014,4 +1014,4 @@ namespace umbriel {
   [[nodiscard]] const std::filesystem::path& configRootPath();
   [[nodiscard]] bool configFileMissing();
   [[nodiscard]] bool configHasMissingIncludes();
-} // namespace umbriel
+} // namespace andromeda

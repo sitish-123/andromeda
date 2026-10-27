@@ -100,7 +100,7 @@ namespace {
   wl_buffer* shmBuffer(State& state, int width, int height, uint32_t argb) {
     const int stride = width * 4;
     const auto size = static_cast<size_t>(stride) * static_cast<size_t>(height);
-    const int fd = memfd_create("umbriel-surface-protocols-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-surface-protocols-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(size)) < 0) {
       return nullptr;
     }

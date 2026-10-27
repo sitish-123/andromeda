@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <string>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -91,4 +91,4 @@ namespace umbriel {
       .destroy = DesktopShell::handleDestroy,
   };
 
-} // namespace umbriel
+} // namespace andromeda

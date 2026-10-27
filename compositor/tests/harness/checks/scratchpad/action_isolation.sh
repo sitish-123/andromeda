@@ -4,9 +4,9 @@
 # layout-relative actions from reaching the workspace focus retained behind it.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly CLOSE_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLOSE_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 readonly BTN_LEFT=272
 readonly PREFIX=scratchpad-actions
 readonly LEFT="${PREFIX}-bg-left"
@@ -15,7 +15,7 @@ readonly BOTTOM="${PREFIX}-bg-bottom"
 readonly SCRATCH="${PREFIX}-foreground"
 readonly CLOSE_SCRATCH="${PREFIX}-close"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -49,9 +49,9 @@ default_output = "HEADLESS-1"
 default_floating = true
 default_floating_size_px = { width = 420, height = 260 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 field_of() {
   windows | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
@@ -59,7 +59,7 @@ field_of() {
 
 accepts() {
   local action=$1 out
-  if ! out=$("$UMBRIEL" msg "$action" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to be accepted, got: $out"
     return 1
   fi
@@ -105,7 +105,7 @@ wait_for_stack() {
 }
 
 active_workspace() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .name'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .name'
 }
 
 wait_for_workspace() {
@@ -148,7 +148,7 @@ assert_isolated() {
   local action=$1 current_background current_scratch
   accepts "$action"
   # Every compared field except size is compositor state, final once the action is handled and the layout settled.
-  "$UMBRIEL" settle
+  "$ANDROMEDA" settle
   current_background=$(background_signature)
   current_scratch=$(scratch_signature)
   if [[ $current_background != "$baseline_background" || $current_scratch != "$baseline_scratch" ]]; then
@@ -159,7 +159,7 @@ assert_isolated() {
 
 rejects_without_focus_escape() {
   local action=$1 expected=$2 out current_background current_scratch
-  if out=$("$UMBRIEL" msg "$action" 2>&1); then
+  if out=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to reject with '$expected', but it succeeded"
     return 1
   fi
@@ -256,7 +256,7 @@ accepts workspace-switch:ONE/HEADLESS-1
 
 background_count=0
 for title in "$LEFT" "$TOP" "$BOTTOM"; do
-  "$CLIENT" "$title" > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   background_count=$((background_count + 1))
   wait_for_count "$background_count"
 done
@@ -268,7 +268,7 @@ accepts window-consume-left
 wait_for_stack
 accepts "window-focus:$(field_of "$TOP" id)"
 
-"$CLIENT" "$SCRATCH" > "$UMBRIEL_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
+"$CLIENT" "$SCRATCH" > "$ANDROMEDA_RUNTIME_DIR/$SCRATCH.log" 2>&1 &
 scratch_pid=$!
 wait_for_count 4
 wait_for_field "$SCRATCH" w 420
@@ -290,7 +290,7 @@ wait_for_straddled_scratch
 # focus that the action-isolation assertions exercise.
 "$POINTER" 2880 900 move 640 360
 accepts "window-focus:$scratch_id"
-if [[ $("$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .output') != HEADLESS-1 ]]; then
+if [[ $("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .output') != HEADLESS-1 ]]; then
   echo "pointer did not remain on HEADLESS-1 while the HEADLESS-2 scratchpad held seat focus"
   exit 1
 fi
@@ -359,7 +359,7 @@ fi
 # close, so replace it with the harness client that unmaps on close.
 kill "$scratch_pid"
 wait_for_count 3
-"$CLOSE_CLIENT" "$CLOSE_SCRATCH" 420 260 > "$UMBRIEL_RUNTIME_DIR/$CLOSE_SCRATCH.log" 2>&1 &
+"$CLOSE_CLIENT" "$CLOSE_SCRATCH" 420 260 > "$ANDROMEDA_RUNTIME_DIR/$CLOSE_SCRATCH.log" 2>&1 &
 wait_for_count 4
 close_scratch_id=$(field_of "$CLOSE_SCRATCH" id)
 accepts "window-focus:$close_scratch_id"
@@ -369,8 +369,8 @@ accepts scratchpad-toggle:actions
 wait_for_field "$CLOSE_SCRATCH" active true
 accepts window-close
 wait_for_count 3
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/$CLOSE_SCRATCH.log"; then
-  echo "window-close did not reach the seat-focused scratchpad: $(< "$UMBRIEL_RUNTIME_DIR/$CLOSE_SCRATCH.log")"
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/$CLOSE_SCRATCH.log"; then
+  echo "window-close did not reach the seat-focused scratchpad: $(< "$ANDROMEDA_RUNTIME_DIR/$CLOSE_SCRATCH.log")"
   exit 1
 fi
 if [[ $(background_geometry) != "$baseline_geometry" ]]; then

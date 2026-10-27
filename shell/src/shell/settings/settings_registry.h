@@ -328,7 +328,7 @@ namespace settings {
     const SettingsControl* compositorSettings = nullptr;
     bool niriBackdropSupported = false;             // hide niri backdrop entries when false
     bool niriOverviewTypeToLaunchSupported = false; // show niri-only type-to-launch integration
-    bool umbrielOverviewTypeToLaunchSupported = false;
+    bool andromedaOverviewTypeToLaunchSupported = false;
     bool screencopySupported = false;           // lockscreen blurred desktop + screenshot features
     bool ddcutilAvailable = false;              // disable ddcutil toggle when ddcutil is not on PATH
     bool systemdUserManaged = false;            // disable systemd app launching when the shell is not a user unit
@@ -367,10 +367,10 @@ namespace settings {
   [[nodiscard]] std::string settingsSectionLabelKey(SettingsSection section);
   [[nodiscard]] std::string_view sectionGlyph(SettingsSection section);
   [[nodiscard]] std::optional<SettingsSection> settingsSectionFromId(std::string_view id);
-  // Entries for compositor settings carry {"umbriel", <config key parts>...}; they commit through the compositor's
+  // Entries for compositor settings carry {"andromeda", <config key parts>...}; they commit through the compositor's
   // settings manager instead of settings.toml. Returns the dotted compositor key, or nothing for a shell path.
   [[nodiscard]] std::optional<std::string> compositorSettingKey(const std::vector<std::string>& path);
-  // Maps ids of merged sections (templates, osd, umbriel) to the page that now holds them.
+  // Maps ids of merged sections (templates, osd, andromeda) to the page that now holds them.
   [[nodiscard]] std::string canonicalSettingsSectionId(std::string_view id);
   [[nodiscard]] SettingsCategory settingsSectionCategory(SettingsSection section);
   [[nodiscard]] std::string_view settingsCategoryId(SettingsCategory category);

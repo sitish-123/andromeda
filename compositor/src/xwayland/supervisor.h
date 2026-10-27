@@ -10,7 +10,7 @@
 struct wl_event_loop;
 struct wl_event_source;
 
-namespace umbriel {
+namespace andromeda {
 
   // Keeps an xwayland-satellite process (a separate program that owns an X display) alive for the session: picks a
   // display number, spawns it, notices when it dies, and restarts it within a failure budget so a satellite that cannot
@@ -57,4 +57,4 @@ namespace umbriel {
     std::chrono::steady_clock::time_point m_spawnTime;
   };
 
-} // namespace umbriel
+} // namespace andromeda

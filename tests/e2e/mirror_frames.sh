@@ -10,12 +10,12 @@ OUT=${OUT:-$(pwd)/artifacts/mirror-frames}
 source "$(dirname "$0")/lib.sh"
 boot_headless 2
 
-commits() { run "$UMBRIEL" output-commits --json | jq '."HEADLESS-1"'; }
+commits() { run "$ANDROMEDA" output-commits --json | jq '."HEADLESS-1"'; }
 
 : > "$OUT/frames.txt"
-printf '\n[output.HEADLESS-2]\nscale = 1.5\nposition = [0, 0]\n' >> "$RUNTIME/umbriel.toml"
+printf '\n[output.HEADLESS-2]\nscale = 1.5\nposition = [0, 0]\n' >> "$RUNTIME/andromeda.toml"
 for _ in $(seq 50); do
-  [[ $(run "$UMBRIEL" outputs --json | jq '.[] | select(.name == "HEADLESS-2") | .position.x') == 0 ]] && break
+  [[ $(run "$ANDROMEDA" outputs --json | jq '.[] | select(.name == "HEADLESS-2") | .position.x') == 0 ]] && break
   sleep 0.1
 done
 run env WAYLAND_DEBUG=1 foot --config=/dev/null \

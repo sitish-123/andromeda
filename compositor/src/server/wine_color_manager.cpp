@@ -23,7 +23,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -1155,7 +1155,7 @@ namespace umbriel {
   }
 
   void WineColorManager::applySurfaceDescriptions() {
-    UMBRIEL_ZONE("WineColorManager::applySurfaceDescriptions");
+    ANDROMEDA_ZONE("WineColorManager::applySurfaceDescriptions");
     m_impl->applySurfaceDescriptions();
   }
 
@@ -1184,4 +1184,4 @@ namespace umbriel {
     return probe->needsCompatibility;
   }
 
-} // namespace umbriel
+} // namespace andromeda

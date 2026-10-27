@@ -7,7 +7,7 @@ extern "C" {
 #include <wlr/util/box.h>
 }
 
-namespace umbriel {
+namespace andromeda {
 
   class Server;
   class View;
@@ -54,4 +54,4 @@ namespace umbriel {
       bool animate
   );
 
-} // namespace umbriel
+} // namespace andromeda

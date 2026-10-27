@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clipboard sync through the shell against a real umbriel-linkd and a present headless phone. Proves: a desktop copy
+# Clipboard sync through the shell against a real andromeda-linkd and a present headless phone. Proves: a desktop copy
 # (wl-copy) reaches the phone at once as inline text; a phone offer becomes the desktop selection without moving any
 # bytes (no clip-pull or clip-data in the transcript) until wl-paste pulls it, as text and as a PNG, byte for byte;
 # neither side echoes: the desktop offers nothing back after a paste, and the phone's core refuses to offer back the
@@ -26,30 +26,30 @@ with_noctalia '
     fail "$what"
   }
   say() { printf "%s\n" "$*" >&3; }
-  link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
+  link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
   count() { grep -c "\"cbor\":\"[0-9a-f]*$(printf %s "$1" | xxd -p)" "$OUT/transcript.jsonl" || true; }
   offered_to_phone() { grep -c "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" || true; }
   offered_to_desktop() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
   mkdir -p "$RUNTIME/src"
 
-  XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  dbus-monitor --session "type='"'"'signal'"'"',interface='"'"'org.umbriel.Link1'"'"'" > "$OUT/signals.txt" 2>&1 &
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  dbus-monitor --session "type='"'"'signal'"'"',interface='"'"'org.andromeda.Link1'"'"'" > "$OUT/signals.txt" 2>&1 &
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
     >> "$OUT/phone.log" 2>&1 || fail "pairing"
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
-  GRANTS=$(gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Grants)
+  GRANTS=$(gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Grants)
   [[ $GRANTS == *clipboard*files*notifications*media*ring*calls* ]] || fail "default grants: $GRANTS"
   step "default grants: $GRANTS"
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     --downloads "$RUNTIME/phone-downloads" hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
 
@@ -92,7 +92,7 @@ with_noctalia '
     "$PULLS_BEFORE" "$DATA_BEFORE" "$PULLS_AFTER" "$DATA_AFTER" "$IMAGE_BYTES" "$OUT/counts.json"
 
   link SetGrant "$ID" clipboard false > /dev/null || fail "SetGrant clipboard"
-  wait_for "Grants did not drop the clipboard" eval "gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Grants | grep -vq clipboard"
+  wait_for "Grants did not drop the clipboard" eval "gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Grants | grep -vq clipboard"
   PHONE_OFFERS=$(offered_to_phone); DESKTOP_OFFERS=$(offered_to_desktop)
   printf "not for the phone" | wl-copy
   printf "not for the desktop" > "$RUNTIME/src/denied.txt"
@@ -108,7 +108,7 @@ with_noctalia '
   wait_for "a file offer without the files grant was not declined" grep -q "\"status\":\"declined\"" "$OUT/hold.jsonl"
   step "files grant off: the offer was declined"
 
-  "$BIN/umbriel-link-phone" check-transcript "$SCHEMA" "$OUT/transcript.jsonl" > "$OUT/schema.txt" \
+  "$BIN/andromeda-link-phone" check-transcript "$SCHEMA" "$OUT/transcript.jsonl" > "$OUT/schema.txt" \
     || fail "transcript violates the schema: $(cat "$OUT/schema.txt")"
   step "transcript: $(cat "$OUT/schema.txt")"
 '

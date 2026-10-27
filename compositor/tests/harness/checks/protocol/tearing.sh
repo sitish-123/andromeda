@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# The tearing-control protocol is only a client hint. Umbriel must additionally require a fullscreen surface and the
+# The tearing-control protocol is only a client hint. Andromeda must additionally require a fullscreen surface and the
 # output opt-in. A per-window override can veto an async hint or force eligibility for a vsync-hinted client. The
 # headless backend accepts the tearing state without performing a physical page flip, so this check observes the exact
-# state Umbriel submitted through its diagnostics. Backend rejection and the synchronized retry are unit-tested.
+# state Andromeda submitted through its diagnostics. Backend rejection and the synchronized retry are unit-tested.
 set -euo pipefail
 
-readonly GLOBAL_CLIENT="${UMBRIEL_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly BASELINE="$(< "$UMBRIEL_CONFIG")"
+readonly GLOBAL_CLIENT="${ANDROMEDA_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly BASELINE="$(< "$ANDROMEDA_CONFIG")"
 CLIENT_PID=
 CLIENT_LOG=
 
@@ -19,15 +19,15 @@ fi
 "$GLOBAL_CLIENT" wp_tearing_control_manager_v1 present 1
 
 write_config() {
-  printf '%s\n%s\n' "$BASELINE" "$1" > "$UMBRIEL_CONFIG"
-  "$UMBRIEL" msg config-reload > /dev/null
+  printf '%s\n%s\n' "$BASELINE" "$1" > "$ANDROMEDA_CONFIG"
+  "$ANDROMEDA" msg config-reload > /dev/null
 }
 
 wait_for_state() {
   local filter=$1
   local state=
   for _ in $(seq 100); do
-    state=$("$UMBRIEL" tearing --json)
+    state=$("$ANDROMEDA" tearing --json)
     if jq -e "$filter" <<< "$state" > /dev/null; then
       printf '%s\n' "$state"
       return 0
@@ -41,7 +41,7 @@ wait_for_state() {
 start_client() {
   local title=$1
   local hint=$2
-  CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/$title.log"
+  CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/$title.log"
   env TEARING_HINT="$hint" REQUEST_FULLSCREEN=1 REDRAW_ON_CLOSE=1 APP_ID="$title" \
     "$CLIENT" "$title" > "$CLIENT_LOG" 2>&1 &
   CLIENT_PID=$!
@@ -61,7 +61,7 @@ start_client() {
 redraw_client() {
   local before count
   before=$(grep -c '^redrawn$' "$CLIENT_LOG" || true)
-  "$UMBRIEL" msg window-close > /dev/null
+  "$ANDROMEDA" msg window-close > /dev/null
   for _ in $(seq 80); do
     count=$(grep -c '^redrawn$' "$CLIENT_LOG" || true)
     if ((count > before)); then
@@ -129,7 +129,7 @@ wait_for_state '
   and .surfaces[0].eligible == true
 ' > /dev/null
 
-tearing_human=$("$UMBRIEL" tearing)
+tearing_human=$("$ANDROMEDA" tearing)
 if ! grep -F "tearing control: yes" <<< "$tearing_human" > /dev/null \
     || ! grep -F "output HEADLESS-1: allowed yes, requested yes, last commit async" <<< "$tearing_human" > /dev/null \
     || ! grep -F "hint async, rule inherit, fullscreen yes, eligible yes" <<< "$tearing_human" > /dev/null; then
@@ -137,7 +137,7 @@ if ! grep -F "tearing control: yes" <<< "$tearing_human" > /dev/null \
   exit 1
 fi
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_state '.surfaces[0].fullscreen == false' > /dev/null
 redraw_client
 wait_for_state '
@@ -149,7 +149,7 @@ wait_for_state '
   and .surfaces[0].eligible == false
 ' > /dev/null
 
-"$UMBRIEL" msg window-toggle-fullscreen > /dev/null
+"$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_state '.surfaces[0].fullscreen == true' > /dev/null
 redraw_client
 wait_for_state '

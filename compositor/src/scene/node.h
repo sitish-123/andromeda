@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace umbriel {
+namespace andromeda {
 
   enum class SceneNodeKind : uint8_t {
     View,
@@ -39,4 +39,4 @@ namespace umbriel {
     return node;
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -7,9 +7,9 @@
 #include "render/fx_renderer/shaders.h"
 #include "render/pass.h"
 #include "render/tracy.h"
-#include "umbrielfx/render/fx_renderer/fx_offscreen_buffers.h"
-#include "umbrielfx/render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/types/fx/blur_data.h"
+#include "andromedafx/render/fx_renderer/fx_offscreen_buffers.h"
+#include "andromedafx/render/fx_renderer/fx_renderer.h"
+#include "andromedafx/types/fx/blur_data.h"
 #include "util/matrix.h"
 
 #include <GLES2/gl2ext.h>
@@ -740,25 +740,25 @@ static void draw_animation_texture(
   if (shader->kind == FX_EFFECT_BORDER) {
     static const struct fx_effect_geometry no_hole = {0};
     const struct fx_effect_geometry* border = geometry != NULL ? geometry : &no_hole;
-    struct fx_uniform hole = {.name = "umbriel_border_hole", .type = FX_UNIFORM_VEC4, .count = 1};
+    struct fx_uniform hole = {.name = "andromeda_border_hole", .type = FX_UNIFORM_VEC4, .count = 1};
     hole.floats[0] = logical_box->width > 0 ? (float)border->hole.x / logical_box->width : 0;
     hole.floats[1] = logical_box->height > 0 ? (float)border->hole.y / logical_box->height : 0;
     hole.floats[2] = logical_box->width > 0 ? (float)border->hole.width / logical_box->width : 0;
     hole.floats[3] = logical_box->height > 0 ? (float)border->hole.height / logical_box->height : 0;
     fx_effect_shader_bind_uniform(shader, &hole);
-    struct fx_uniform radius = {.name = "umbriel_border_radius", .type = FX_UNIFORM_VEC4, .count = 1};
+    struct fx_uniform radius = {.name = "andromeda_border_radius", .type = FX_UNIFORM_VEC4, .count = 1};
     memcpy(radius.floats, border->radius, sizeof(border->radius));
     fx_effect_shader_bind_uniform(shader, &radius);
   }
   if (shader->kind == FX_EFFECT_WINDOW || shader->kind == FX_EFFECT_CURSOR) {
-    struct fx_uniform corners = {.name = "umbriel_corner_radius", .type = FX_UNIFORM_VEC4, .count = 1};
+    struct fx_uniform corners = {.name = "andromeda_corner_radius", .type = FX_UNIFORM_VEC4, .count = 1};
     if (corner_radius != NULL) {
       memcpy(corners.floats, corner_radius, 4 * sizeof(*corner_radius));
     }
     fx_effect_shader_bind_uniform(shader, &corners);
   }
   if (shader->kind == FX_EFFECT_CURSOR) {
-    struct fx_uniform at = {.name = "umbriel_pointer", .type = FX_UNIFORM_VEC2, .count = 1};
+    struct fx_uniform at = {.name = "andromeda_pointer", .type = FX_UNIFORM_VEC2, .count = 1};
     if (pointer != NULL) {
       memcpy(at.floats, pointer, 2 * sizeof(*pointer));
     }
@@ -1297,7 +1297,7 @@ void fx_render_pass_effect_in_place(struct fx_gles_render_pass* pass, const stru
   if (pass->fx_offscreen_buffers == NULL) {
     return;
   }
-  // umbriel_mask rounds umbriel_size, so the drawn box is the node box.
+  // andromeda_mask rounds andromeda_size, so the drawn box is the node box.
   struct fx_effect_composite in_place = *composite;
   in_place.expand = 0;
   in_place.replace = true;
@@ -1385,8 +1385,8 @@ bool fx_render_pass_end_animation_shadow(
         " for (int i = -8; i <= 8; i++) {\n"
         "  float distance = float(i) / 4.0;\n"
         "  float weight = exp(-0.5 * distance * distance);\n"
-        "  a += umbriel_sample(clamp(uv + float(i) * shadow_step,\n"
-        "       vec2(0.5) / umbriel_size, vec2(1.0) - vec2(0.5) / umbriel_size)).a * weight;\n"
+        "  a += andromeda_sample(clamp(uv + float(i) * shadow_step,\n"
+        "       vec2(0.5) / andromeda_size, vec2(1.0) - vec2(0.5) / andromeda_size)).a * weight;\n"
         "  total += weight;\n"
         " } return vec4(a / total);\n"
         "}\n",
@@ -1398,15 +1398,15 @@ bool fx_render_pass_end_animation_shadow(
         "uniform sampler2D shadow_mask; uniform vec4 shadow_color;\n"
         "uniform bool shadow_nearest;\n"
         "float shadow_sample(vec2 uv) {\n"
-        " if (!shadow_nearest) return umbriel_sample(uv).a;\n"
-        " vec2 p = uv * umbriel_size - 0.5; vec2 f = fract(p);\n"
-        " vec2 lo = vec2(0.5) / umbriel_size; vec2 hi = vec2(1.0) - lo;\n"
-        " vec2 base = (floor(p) + 0.5) / umbriel_size;\n"
-        " vec2 step = vec2(1.0) / umbriel_size;\n"
-        " float a = umbriel_sample(clamp(base, lo, hi)).a;\n"
-        " float b = umbriel_sample(clamp(base + vec2(step.x, 0.0), lo, hi)).a;\n"
-        " float c = umbriel_sample(clamp(base + vec2(0.0, step.y), lo, hi)).a;\n"
-        " float d = umbriel_sample(clamp(base + step, lo, hi)).a;\n"
+        " if (!shadow_nearest) return andromeda_sample(uv).a;\n"
+        " vec2 p = uv * andromeda_size - 0.5; vec2 f = fract(p);\n"
+        " vec2 lo = vec2(0.5) / andromeda_size; vec2 hi = vec2(1.0) - lo;\n"
+        " vec2 base = (floor(p) + 0.5) / andromeda_size;\n"
+        " vec2 step = vec2(1.0) / andromeda_size;\n"
+        " float a = andromeda_sample(clamp(base, lo, hi)).a;\n"
+        " float b = andromeda_sample(clamp(base + vec2(step.x, 0.0), lo, hi)).a;\n"
+        " float c = andromeda_sample(clamp(base + vec2(0.0, step.y), lo, hi)).a;\n"
+        " float d = andromeda_sample(clamp(base + step, lo, hi)).a;\n"
         " return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n"
         "}\n"
         "vec4 animation(vec2 uv) {\n"
@@ -1417,7 +1417,7 @@ bool fx_render_pass_end_animation_shadow(
         "  float distance = float(i) / 4.0;\n"
         "  float weight = exp(-0.5 * distance * distance);\n"
         "  a += shadow_sample(clamp(uv - shadow_offset + float(i) * shadow_step,\n"
-        "       vec2(0.5) / umbriel_size, vec2(1.0) - vec2(0.5) / umbriel_size)) * weight;\n"
+        "       vec2(0.5) / andromeda_size, vec2(1.0) - vec2(0.5) / andromeda_size)) * weight;\n"
         "  total += weight;\n"
         " } return shadow_color * (a / total) * hole;\n"
         "}\n",

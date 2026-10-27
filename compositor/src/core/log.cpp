@@ -295,10 +295,10 @@ namespace {
     const char* cacheHome = std::getenv("XDG_CACHE_HOME");
     const char* home = std::getenv("HOME");
     if (cacheHome != nullptr && cacheHome[0] != '\0') {
-      return std::string(cacheHome) + "/umbriel";
+      return std::string(cacheHome) + "/andromeda";
     }
     if (home != nullptr && home[0] != '\0') {
-      return std::string(home) + "/.cache/umbriel";
+      return std::string(home) + "/.cache/andromeda";
     }
     return {};
   }
@@ -315,7 +315,7 @@ namespace {
 
     int fd = -1;
     if (!cacheDir.empty()) {
-      const std::string path = cacheDir + "/umbriel-stderr.log";
+      const std::string path = cacheDir + "/andromeda-stderr.log";
       fd = ::open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
     }
     if (fd < 0) {
@@ -357,8 +357,8 @@ void initLogFile() {
     return;
   }
 
-  const std::string logPath = dir + "/umbriel.log";
-  const std::string backupPath = dir + "/umbriel.log.1";
+  const std::string logPath = dir + "/andromeda.log";
+  const std::string backupPath = dir + "/andromeda.log.1";
 
   std::scoped_lock lock(gLogMutex);
   closeLogFileUnlocked();

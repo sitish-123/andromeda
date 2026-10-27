@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   class Section;
 
@@ -101,4 +101,4 @@ namespace umbriel {
   [[nodiscard]] std::optional<std::string>
   effectReferenceError(const Effects& effects, std::string_view name, EffectKind kind, bool allowOff);
 
-} // namespace umbriel
+} // namespace andromeda

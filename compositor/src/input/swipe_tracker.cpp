@@ -3,7 +3,7 @@
 #include <cmath>
 #include <ranges>
 
-namespace umbriel {
+namespace andromeda {
 
   void SwipeTracker::push(double delta, uint32_t timeMsec) {
     // For the events we care about, timestamps should always increase monotonically.
@@ -61,4 +61,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

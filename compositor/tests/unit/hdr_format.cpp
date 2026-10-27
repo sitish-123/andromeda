@@ -5,9 +5,9 @@
 #include <optional>
 #include <vector>
 
-using umbriel::selectHdrRenderFormat;
+using andromeda::selectHdrRenderFormat;
 
-UMBRIEL_TEST(rejectedXrgbFallsBackToXbgr) {
+ANDROMEDA_TEST(rejectedXrgbFallsBackToXbgr) {
   std::vector<uint32_t> probed;
   const auto selected = selectHdrRenderFormat(DRM_FORMAT_XRGB8888, [&](uint32_t format) {
     probed.push_back(format);
@@ -20,7 +20,7 @@ UMBRIEL_TEST(rejectedXrgbFallsBackToXbgr) {
   CHECK_EQ(probed[1], uint32_t{DRM_FORMAT_XBGR2101010});
 }
 
-UMBRIEL_TEST(acceptedXrgbShortCircuitsSelection) {
+ANDROMEDA_TEST(acceptedXrgbShortCircuitsSelection) {
   std::vector<uint32_t> probed;
   const auto selected = selectHdrRenderFormat(DRM_FORMAT_XRGB8888, [&](uint32_t format) {
     probed.push_back(format);
@@ -31,7 +31,7 @@ UMBRIEL_TEST(acceptedXrgbShortCircuitsSelection) {
   CHECK_EQ(probed.size(), size_t{1});
 }
 
-UMBRIEL_TEST(currentXbgrIsRetriedFirst) {
+ANDROMEDA_TEST(currentXbgrIsRetriedFirst) {
   std::vector<uint32_t> probed;
   const auto selected = selectHdrRenderFormat(DRM_FORMAT_XBGR2101010, [&](uint32_t format) {
     probed.push_back(format);
@@ -42,7 +42,7 @@ UMBRIEL_TEST(currentXbgrIsRetriedFirst) {
   CHECK_EQ(probed.size(), size_t{1});
 }
 
-UMBRIEL_TEST(rejectedTenBitFormatsReturnNothing) {
+ANDROMEDA_TEST(rejectedTenBitFormatsReturnNothing) {
   std::vector<uint32_t> probed;
   const auto selected = selectHdrRenderFormat(DRM_FORMAT_XRGB8888, [&](uint32_t format) {
     probed.push_back(format);

@@ -9,7 +9,7 @@ struct wl_client;
 struct wl_global;
 struct wl_resource;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -50,4 +50,4 @@ namespace umbriel {
     std::vector<wl_resource*> m_resources;
   };
 
-} // namespace umbriel
+} // namespace andromeda

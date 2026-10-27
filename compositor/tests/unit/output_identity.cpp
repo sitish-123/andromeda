@@ -3,12 +3,12 @@
 
 #include <string>
 
-using umbriel::outputDescriptor;
-using umbriel::OutputIdentity;
-using umbriel::OutputNameMatch;
-using umbriel::outputNameMatch;
-using umbriel::outputNamesEqual;
-using umbriel::validVirtualOutputName;
+using andromeda::outputDescriptor;
+using andromeda::OutputIdentity;
+using andromeda::OutputNameMatch;
+using andromeda::outputNameMatch;
+using andromeda::outputNamesEqual;
+using andromeda::validVirtualOutputName;
 
 namespace {
   // A display that fills in every EDID string.
@@ -26,18 +26,18 @@ namespace {
   }
 } // namespace
 
-UMBRIEL_TEST(connectorStillMatches) {
+ANDROMEDA_TEST(connectorStillMatches) {
   CHECK(matches(kMonitor, "HDMI-A-1"));
   CHECK(matches(kPanel, "eDP-1"));
   CHECK(matches(kBare, "HEADLESS-1"));
   CHECK(!matches(kMonitor, "HDMI-A-2"));
 }
 
-UMBRIEL_TEST(descriptorMatches) {
+ANDROMEDA_TEST(descriptorMatches) {
   CHECK_EQ(outputDescriptor(kMonitor), std::string("Microstep MSI G2712F CD6T084401192"));
   CHECK(matches(kMonitor, "Microstep MSI G2712F CD6T084401192"));
 }
-UMBRIEL_TEST(matchKindDistinguishesConnectorAndDescriptor) {
+ANDROMEDA_TEST(matchKindDistinguishesConnectorAndDescriptor) {
   CHECK(outputNameMatch(kMonitor, "hdmi-a-1") == OutputNameMatch::Connector);
   CHECK(outputNameMatch(kMonitor, "microstep msi g2712f cd6t084401192") == OutputNameMatch::Descriptor);
   CHECK(outputNameMatch(kMonitor, "HDMI-A-2") == OutputNameMatch::None);
@@ -45,23 +45,23 @@ UMBRIEL_TEST(matchKindDistinguishesConnectorAndDescriptor) {
 
 // A missing field becomes "Unknown" rather than collapsing the separators, so
 // the descriptor stays a stable three-part string.
-UMBRIEL_TEST(missingFieldsBecomeUnknown) {
+ANDROMEDA_TEST(missingFieldsBecomeUnknown) {
   CHECK_EQ(outputDescriptor(kPanel), std::string("Najing CEC Panda FPD Technology CO. ltd 0x0036 Unknown"));
   CHECK(matches(kPanel, "Najing CEC Panda FPD Technology CO. ltd 0x0036 Unknown"));
 }
 
-UMBRIEL_TEST(matchingIsCaseInsensitive) {
+ANDROMEDA_TEST(matchingIsCaseInsensitive) {
   CHECK(matches(kMonitor, "hdmi-a-1"));
   CHECK(matches(kMonitor, "microstep msi g2712f cd6t084401192"));
   CHECK(matches(kMonitor, "MICROSTEP MSI G2712F CD6T084401192"));
 }
-UMBRIEL_TEST(outputNameEqualityUsesTheSameAsciiCaseFolding) {
+ANDROMEDA_TEST(outputNameEqualityUsesTheSameAsciiCaseFolding) {
   CHECK(outputNamesEqual("DP-1", "dp-1"));
   CHECK(!outputNamesEqual("DP-1", "DP-2"));
   CHECK(!outputNamesEqual("DP-1", "DP-10"));
 }
 
-UMBRIEL_TEST(virtualOutputNamesExcludeTargetSeparators) {
+ANDROMEDA_TEST(virtualOutputNamesExcludeTargetSeparators) {
   CHECK(validVirtualOutputName("sunshine"));
   CHECK(validVirtualOutputName("Stream_2.4k-60"));
   CHECK(!validVirtualOutputName(""));
@@ -73,14 +73,14 @@ UMBRIEL_TEST(virtualOutputNamesExcludeTargetSeparators) {
 }
 
 // The guard that stops every EDID-less output answering to the same string.
-UMBRIEL_TEST(outputWithoutEdidMatchesOnlyItsConnector) {
+ANDROMEDA_TEST(outputWithoutEdidMatchesOnlyItsConnector) {
   CHECK(!matches(kBare, "Unknown Unknown Unknown"));
   CHECK(matches(kBare, "HEADLESS-1"));
 }
 
 // Two panels on the same connector are the whole point: a rule written for one
 // desk must not apply at the other.
-UMBRIEL_TEST(sameConnectorDifferentPanelsAreDistinguishable) {
+ANDROMEDA_TEST(sameConnectorDifferentPanelsAreDistinguishable) {
   constexpr OutputIdentity home{
       .connector = "HDMI-A-1", .make = "Microstep", .model = "MSI G2712F", .serial = "CD6T084401192"
   };
@@ -97,7 +97,7 @@ UMBRIEL_TEST(sameConnectorDifferentPanelsAreDistinguishable) {
   CHECK(matches(office, "HDMI-A-1"));
 }
 
-UMBRIEL_TEST(partialDescriptorsDoNotMatch) {
+ANDROMEDA_TEST(partialDescriptorsDoNotMatch) {
   CHECK(!matches(kMonitor, "Microstep"));
   CHECK(!matches(kMonitor, "MSI G2712F"));
   CHECK(!matches(kMonitor, "Microstep MSI G2712F"));

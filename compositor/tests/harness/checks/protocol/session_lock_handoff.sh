@@ -6,9 +6,9 @@
 # bounded surface deadline.
 set -euo pipefail
 
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly LOCK_CLIENT="${UMBRIEL_LOCK_CLIENT:-./build-debug/tests/lock-client}"
-readonly PROBE="${UMBRIEL_PIXEL_PROBE:-./build-debug/tests/pixel-probe}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly LOCK_CLIENT="${ANDROMEDA_LOCK_CLIENT:-./build-debug/tests/lock-client}"
+readonly PROBE="${ANDROMEDA_PIXEL_PROBE:-./build-debug/tests/pixel-probe}"
 
 wait_for_line() {
   local file=$1 line=$2 attempts=${3:-100}
@@ -32,21 +32,21 @@ assert_pixel() {
   fi
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#00000000"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 for output in HEADLESS-1 HEADLESS-2; do
-  log="$UMBRIEL_RUNTIME_DIR/background-$output.log"
+  log="$ANDROMEDA_RUNTIME_DIR/background-$output.log"
   "$LAYER_CLIENT" "$output" 0 > "$log" 2>&1 &
   wait_for_line "$log" ready
 done
 
-first_log="$UMBRIEL_RUNTIME_DIR/lock-ready.log"
-first_fifo="$UMBRIEL_RUNTIME_DIR/lock-ready-control"
+first_log="$ANDROMEDA_RUNTIME_DIR/lock-ready.log"
+first_fifo="$ANDROMEDA_RUNTIME_DIR/lock-ready-control"
 mkfifo "$first_fifo"
 exec {first_fd}<> "$first_fifo"
 "$LOCK_CLIENT" --defer-commit <&"$first_fd" > "$first_log" 2>&1 &
@@ -58,7 +58,7 @@ if grep -q '^locked$' "$first_log"; then
 fi
 
 for output in HEADLESS-1 HEADLESS-2; do
-  image="$UMBRIEL_RUNTIME_DIR/pending-$output.png"
+  image="$ANDROMEDA_RUNTIME_DIR/pending-$output.png"
   grim -o "$output" "$image"
   assert_pixel "$image" 85 119 170 "pending lock hid the desktop on $output"
 done
@@ -66,7 +66,7 @@ done
 echo commit >&"$first_fd"
 wait_for_line "$first_log" locked
 for output in HEADLESS-1 HEADLESS-2; do
-  image="$UMBRIEL_RUNTIME_DIR/ready-$output.png"
+  image="$ANDROMEDA_RUNTIME_DIR/ready-$output.png"
   grim -o "$output" "$image"
   assert_pixel "$image" 16 32 48 "ready lock surface was not presented on $output"
 done
@@ -76,8 +76,8 @@ wait_for_line "$first_log" unlocked
 wait "$first_pid"
 exec {first_fd}>&-
 
-timeout_log="$UMBRIEL_RUNTIME_DIR/lock-timeout.log"
-timeout_fifo="$UMBRIEL_RUNTIME_DIR/lock-timeout-control"
+timeout_log="$ANDROMEDA_RUNTIME_DIR/lock-timeout.log"
+timeout_fifo="$ANDROMEDA_RUNTIME_DIR/lock-timeout-control"
 mkfifo "$timeout_fifo"
 exec {timeout_fd}<> "$timeout_fifo"
 "$LOCK_CLIENT" --defer-commit <&"$timeout_fd" > "$timeout_log" 2>&1 &
@@ -92,7 +92,7 @@ fi
 wait_for_line "$timeout_log" locked 200
 
 for output in HEADLESS-1 HEADLESS-2; do
-  image="$UMBRIEL_RUNTIME_DIR/timeout-$output.png"
+  image="$ANDROMEDA_RUNTIME_DIR/timeout-$output.png"
   grim -o "$output" "$image"
   assert_pixel "$image" 0 0 0 "secure timeout blank was not opaque on $output"
 done

@@ -13,7 +13,7 @@ OM=$ROOT/compositor/build-debug/tests/output-management-client
 DISPLAYS=$RUNTIME/displays.toml
 : > "$OUT/position.txt"
 result() { echo "$1" | tee -a "$OUT/position.txt"; }
-position() { run "$UMBRIEL" outputs --json | jq -r ".[] | select(.name == \"$1\") | \"\(.position.x),\(.position.y)\""; }
+position() { run "$ANDROMEDA" outputs --json | jq -r ".[] | select(.name == \"$1\") | \"\(.position.x),\(.position.y)\""; }
 # Headless outputs are all 1280x720 at scale 1.
 apart() {
   local a b
@@ -22,12 +22,12 @@ apart() {
   (( ${a%,*} - ${b%,*} >= 1280 || ${b%,*} - ${a%,*} >= 1280 || ${a#*,} - ${b#*,} >= 720 || ${b#*,} - ${a#*,} >= 720 ))
 }
 wait_log() {
-  for _ in $(seq 50); do grep -q "$1" "$OUT/umbriel.log" && return 0; sleep 0.1; done
+  for _ in $(seq 50); do grep -q "$1" "$OUT/andromeda.log" && return 0; sleep 0.1; done
   return 1
 }
 
-sed -i 's/files = \["input.toml"\]/files = ["input.toml", "displays.toml"]/' "$RUNTIME/umbriel.toml"
-run "$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/files = \["input.toml"\]/files = ["input.toml", "displays.toml"]/' "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
 run "$DESKTOP_CLIENT" mirror HEADLESS-2 HEADLESS-1
 wait_log "output 'HEADLESS-2': mirroring 'HEADLESS-1'"
 run "$OM" apply enable HEADLESS-1 > /dev/null
@@ -37,7 +37,7 @@ saved=$(awk '/^\[output.HEADLESS-2\]/{on=1; next} /^\[/{on=0} on && /^position/'
   || result "FAIL apply persisted the mirror's position: $saved"
 run "$DESKTOP_CLIENT" clear HEADLESS-2
 wait_log "output 'HEADLESS-2': stopped mirroring"
-run "$UMBRIEL" settle > /dev/null
+run "$ANDROMEDA" settle > /dev/null
 apart && result "PASS clearing the mirror leaves HEADLESS-2 beside HEADLESS-1" \
   || result "FAIL clearing the mirror stacked HEADLESS-2 on HEADLESS-1"
 
@@ -50,19 +50,19 @@ mirror = "HEADLESS-1"
 position = [0, 0]
 TOML
 cp "$DISPLAYS" "$OUT/displays-stacked.toml"
-from=$(wc -l < "$OUT/umbriel.log")
-run "$UMBRIEL" msg config-reload > /dev/null
+from=$(wc -l < "$OUT/andromeda.log")
+run "$ANDROMEDA" msg config-reload > /dev/null
 for _ in $(seq 50); do
-  tail -n +"$((from + 1))" "$OUT/umbriel.log" | grep -q "output 'HEADLESS-2': mirroring 'HEADLESS-1'" && break
+  tail -n +"$((from + 1))" "$OUT/andromeda.log" | grep -q "output 'HEADLESS-2': mirroring 'HEADLESS-1'" && break
   sleep 0.1
 done
-from=$(wc -l < "$OUT/umbriel.log")
+from=$(wc -l < "$OUT/andromeda.log")
 run "$DESKTOP_CLIENT" clear HEADLESS-2
 for _ in $(seq 50); do
-  tail -n +"$((from + 1))" "$OUT/umbriel.log" | grep -q "output 'HEADLESS-2': stopped mirroring" && break
+  tail -n +"$((from + 1))" "$OUT/andromeda.log" | grep -q "output 'HEADLESS-2': stopped mirroring" && break
   sleep 0.1
 done
-run "$UMBRIEL" settle > /dev/null
+run "$ANDROMEDA" settle > /dev/null
 apart && result "PASS a stacked saved position is not reused when the mirror ends" \
   || result "FAIL a stacked saved position put HEADLESS-2 on HEADLESS-1"
 

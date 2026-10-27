@@ -8,7 +8,7 @@
 
 #include <cassert>
 
-namespace umbriel {
+namespace andromeda {
 
   Popup::Popup(wlr_xdg_popup* popup, wlr_scene_tree* parentTree, wlr_scene_tree* captureTree) : m_popup(popup) {
     if (parentTree == nullptr) {
@@ -113,4 +113,4 @@ namespace umbriel {
     delete this;
   }
 
-} // namespace umbriel
+} // namespace andromeda

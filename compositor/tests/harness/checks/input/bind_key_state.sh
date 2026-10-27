@@ -7,17 +7,17 @@ set -euo pipefail
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly KEY_L=38
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly LEFT_LOG="$UMBRIEL_RUNTIME_DIR/bind-key-left.log"
-readonly RIGHT_LOG="$UMBRIEL_RUNTIME_DIR/bind-key-right.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly LEFT_LOG="$ANDROMEDA_RUNTIME_DIR/bind-key-left.log"
+readonly RIGHT_LOG="$ANDROMEDA_RUNTIME_DIR/bind-key-right.log"
 
 if [[ ! -x $POINTER || ! -x $OBSERVER ]]; then
   echo "input helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -26,20 +26,20 @@ curve = "linear"
 [keybinds]
 "Mod+L" = "window-focus-right"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 await_windows() {
   local expected=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') == "$expected" ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') == "$expected" ]] && return 0
     sleep 0.1
   done
-  echo "expected $expected windows, got $("$UMBRIEL" windows --json | jq -c 'map(.title)')"
+  echo "expected $expected windows, got $("$ANDROMEDA" windows --json | jq -c 'map(.title)')"
   return 1
 }
 
 focused_title() {
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.focused) | .title'
+  "$ANDROMEDA" windows --json | jq -r '.[] | select(.focused) | .title'
 }
 
 "$OBSERVER" bind-key-left > "$LEFT_LOG" 2>&1 &
@@ -50,8 +50,8 @@ await_windows 2
 # Start from the left window without a key having been involved. The headless
 # harness has no keyboard until a virtual one appears, so focus is read from the
 # compositor rather than from a keyboard enter.
-"$UMBRIEL" msg window-focus-left > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-focus-left > /dev/null
+"$ANDROMEDA" settle
 if [[ $(focused_title) != 'bind-key-left' ]]; then
   echo "expected the left window focused, got '$(focused_title)'"
   exit 1

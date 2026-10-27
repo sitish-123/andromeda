@@ -3,13 +3,13 @@
 # centered over the window another process exported.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly PARENT_LOG="$UMBRIEL_RUNTIME_DIR/foreign-parent.log"
-readonly CHILD_LOG="$UMBRIEL_RUNTIME_DIR/foreign-child.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly PARENT_LOG="$ANDROMEDA_RUNTIME_DIR/foreign-parent.log"
+readonly CHILD_LOG="$ANDROMEDA_RUNTIME_DIR/foreign-child.log"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 wait_for_window_count() {
@@ -34,7 +34,7 @@ wait_for_position() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF2'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF2'
 
 [animation]
 enabled = false
@@ -44,7 +44,7 @@ match.title = "^foreign-parent$"
 default_floating = true
 default_position = { x = 0, y = 0, anchor = "top_left" }
 EOF2
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # The observer keeps its own 640x480, so the parent covers 0,0 to 640,480, and prints the handle it exported.
 EXPORT_TOPLEVEL=1 "$OBSERVER" foreign-parent > "$PARENT_LOG" 2>&1 &

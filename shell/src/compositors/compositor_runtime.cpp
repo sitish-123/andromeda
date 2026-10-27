@@ -5,14 +5,14 @@
 #include "compositors/niri/niri_runtime.h"
 #include "compositors/sway/sway_runtime.h"
 #include "compositors/triad/triad_runtime.h"
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 
 namespace compositors {
 
   CompositorRuntimeRegistry::CompositorRuntimeRegistry()
       : m_hyprland(std::make_unique<hyprland::HyprlandRuntime>()), m_mango(std::make_unique<mango::MangoRuntime>()),
         m_niri(std::make_unique<niri::NiriRuntime>()), m_sway(std::make_unique<sway::SwayRuntime>()),
-        m_triad(std::make_unique<triad::TriadRuntime>()), m_umbriel(std::make_unique<umbriel::UmbrielRuntime>()) {}
+        m_triad(std::make_unique<triad::TriadRuntime>()), m_andromeda(std::make_unique<andromeda::AndromedaRuntime>()) {}
 
   CompositorRuntimeRegistry::~CompositorRuntimeRegistry() = default;
 
@@ -36,8 +36,8 @@ namespace compositors {
 
   const triad::TriadRuntime& CompositorRuntimeRegistry::triad() const noexcept { return *m_triad; }
 
-  umbriel::UmbrielRuntime& CompositorRuntimeRegistry::umbriel() noexcept { return *m_umbriel; }
+  andromeda::AndromedaRuntime& CompositorRuntimeRegistry::andromeda() noexcept { return *m_andromeda; }
 
-  const umbriel::UmbrielRuntime& CompositorRuntimeRegistry::umbriel() const noexcept { return *m_umbriel; }
+  const andromeda::AndromedaRuntime& CompositorRuntimeRegistry::andromeda() const noexcept { return *m_andromeda; }
 
 } // namespace compositors

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace umbriel {
+namespace andromeda {
   namespace {
     // Spring sheet tuning: stiffness pulls each mass home, coupling ties it to its neighbours, damping
     // bleeds energy, pointer response scales how far a motion loads the sheet.
@@ -251,4 +251,4 @@ namespace umbriel {
 
   float DragPhysics::maxVelocity() const { return largestComponent(m_velocity); }
 
-} // namespace umbriel
+} // namespace andromeda

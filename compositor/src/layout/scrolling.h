@@ -6,7 +6,7 @@
 
 struct wlr_box;
 
-namespace umbriel {
+namespace andromeda {
 
   class View;
 
@@ -132,4 +132,4 @@ namespace umbriel {
     int m_lastAvailableCross = 0;
   };
 
-} // namespace umbriel
+} // namespace andromeda

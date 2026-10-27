@@ -2,9 +2,9 @@
 # A border whose rigid position is outside the output must survive when drag physics pulls it back on screen,
 # including nested border/window effects on a rotated, fractionally scaled output.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/drag-edge.png"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+source "$ANDROMEDA_HARNESS_LIB"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/drag-edge.png"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [colors]
 backdrop = "#000000FF"
@@ -30,21 +30,21 @@ match.title = "^edge$"
 default_floating = true
 default_position = { x = 150, y = 150, anchor = "top_left" }
 EOF
-readonly BASE="$UMBRIEL_RUNTIME_DIR/edge-base.toml"
-cp "$UMBRIEL_CONFIG" "$BASE"
-cat > "$UMBRIEL_RUNTIME_DIR/ring.glsl" <<'GLSL'
+readonly BASE="$ANDROMEDA_RUNTIME_DIR/edge-base.toml"
+cp "$ANDROMEDA_CONFIG" "$BASE"
+cat > "$ANDROMEDA_RUNTIME_DIR/ring.glsl" <<'GLSL'
 vec4 border(vec2 uv) { return vec4(1.0, 0.0, 0.0, 1.0); }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/window.glsl" <<'GLSL'
-vec4 window(vec2 uv) { return umbriel_sample(uv); }
+cat > "$ANDROMEDA_RUNTIME_DIR/window.glsl" <<'GLSL'
+vec4 window(vec2 uv) { return andromeda_sample(uv); }
 GLSL
 for mode in normal rotated; do
-  cp "$BASE" "$UMBRIEL_CONFIG"
+  cp "$BASE" "$ANDROMEDA_CONFIG"
   case "$mode" in
     normal) output_w=1280; output_h=720; scale=1; transform=normal ;;
     rotated) output_w=576; output_h=1024; scale=1.25; transform=90
-      sed -i 's/x = 150/x = 80/' "$UMBRIEL_CONFIG"
-      cat >> "$UMBRIEL_CONFIG" <<'EOF'
+      sed -i 's/x = 150/x = 80/' "$ANDROMEDA_CONFIG"
+      cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 [effects]
 border = "ring"
 window = "window"
@@ -58,22 +58,22 @@ shader = "window.glsl"
 EOF
       ;;
   esac
-  cat >> "$UMBRIEL_CONFIG" <<EOF
+  cat >> "$ANDROMEDA_CONFIG" <<EOF
 [output."HEADLESS-1"]
 scale = $scale
 transform = "$transform"
 EOF
-  "$UMBRIEL" msg config-reload > /dev/null
+  "$ANDROMEDA" msg config-reload > /dev/null
 
   for edge in left right top bottom; do
-    FILL_COLOR=0xFF00FF00 "$UMBRIEL_UNMAP_CLIENT" edge 400 300 > "$UMBRIEL_RUNTIME_DIR/$edge.log" 2>&1 &
+    FILL_COLOR=0xFF00FF00 "$ANDROMEDA_UNMAP_CLIENT" edge 400 300 > "$ANDROMEDA_RUNTIME_DIR/$edge.log" 2>&1 &
     for _ in $(seq 80); do
-      window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "edge")')
+      window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "edge")')
       [[ -n $window ]] && break
       sleep 0.025
     done
     [[ -n $window ]]
-    "$UMBRIEL" settle > /dev/null
+    "$ANDROMEDA" settle > /dev/null
     read -r x y w h id < <(jq -r '"\(.x) \(.y) \(.w) \(.h) \(.id)"' <<< "$window")
     gx=$((x + 40)); gy=$((y + 40)); dx=0; dy=0
     case "$edge" in
@@ -82,23 +82,23 @@ EOF
       top) gy=$((y + h - 40)); dy=$((-20 - y)); strip="100x100+$((x + w / 2))+0" ;;
       bottom) dy=$((output_h - h + 20 - y)); strip="100x100+$((x + w / 2))+$((output_h - 100))" ;;
     esac
-    "$UMBRIEL" clock-freeze
+    "$ANDROMEDA" clock-freeze
     pointer_hold "$output_w" "$output_h" move "$gx" "$gy" mod super press 272 \
       move $((gx + dx / 3)) $((gy + dy / 3)) \
       move $((gx + 2 * dx / 3)) $((gy + 2 * dy / 3)) \
       move $((gx + dx)) $((gy + dy)) -- release 272 mod none
-    "$UMBRIEL" clock-advance 16 > /dev/null
+    "$ANDROMEDA" clock-advance 16 > /dev/null
     grim -s 1 "$IMAGE"
-    red=$("$UMBRIEL_PIXEL_PROBE" "$IMAGE" count 'r > 0.8 && g < 0.2 && b < 0.2' "$strip")
+    red=$("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" count 'r > 0.8 && g < 0.2 && b < 0.2' "$strip")
     if ((red < 100)); then
       echo "$mode $edge border was clipped before deformation: $red red pixels"
       exit 1
     fi
     pointer_release
-    "$UMBRIEL" msg "window-close:$id" > /dev/null
-    "$UMBRIEL" clock-resume
+    "$ANDROMEDA" msg "window-close:$id" > /dev/null
+    "$ANDROMEDA" clock-resume
     for _ in $(seq 80); do
-      [[ $("$UMBRIEL" windows --json | jq length) == 0 ]] && break
+      [[ $("$ANDROMEDA" windows --json | jq length) == 0 ]] && break
       sleep 0.025
     done
   done

@@ -125,12 +125,12 @@ default_extent_fraction = 0.4
 A workspace rule can override both global and output defaults. Reloading these
 settings affects new columns only.
 
-When focus moves to a hidden column, Umbriel scrolls just far enough to reveal
+When focus moves to a hidden column, Andromeda scrolls just far enough to reveal
 it. Dragged windows show an insertion preview and can be dropped into a new or
 existing column.
 
 Closing a focused column moves focus to the nearest surviving column. When that
-column contains stacked windows, Umbriel restores its most recently focused
+column contains stacked windows, Andromeda restores its most recently focused
 member instead of always selecting its first row.
 
 With `follows_mouse = true`, closing a focused window beneath the pointer instead
@@ -222,7 +222,7 @@ it by a signed amount, and `window-cycle-*` walks the configured presets.
 ### Client minimum sizes
 
 Applications may enforce a minimum size larger than their assigned tile.
-Umbriel clips oversized content rather than allowing it to cover neighboring
+Andromeda clips oversized content rather than allowing it to cover neighboring
 tiles. Application-specific minimums must be disabled in that application's
 settings when smaller tiles are required.
 

@@ -1,11 +1,11 @@
 // Guards the scene struct layout: every field wlroots declares must sit at the
-// same offset in umbrielfx's version. umbrielfx allocates every node through its
+// same offset in andromedafx's version. andromedafx allocates every node through its
 // own vendored helpers, so this keeps a helper that ever resolves to libwlroots
 // from corrupting memory before the startup guard catches it.
 //
 // Built twice, once against each header, and the two outputs are compared.
 // The same field list compiles on both sides, so a field wlroots adds that
-// umbrielfx lacks breaks the build rather than the renderer.
+// andromedafx lacks breaks the build rather than the renderer.
 
 #include <stddef.h>
 #include <stdio.h>

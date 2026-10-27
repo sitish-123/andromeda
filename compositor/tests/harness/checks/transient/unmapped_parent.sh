@@ -2,16 +2,16 @@
 # A parent request sent before the parent maps must still make the child open floating.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/unmapped-transient-parent.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/unmapped-transient-parent.log"
 
 wait_for_window_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.1
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
@@ -20,7 +20,7 @@ client_pid=$!
 
 wait_for_window_count 2
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 if ! jq -e '
   length == 2
   and (.[] | select(.title == "transient-parent") | .floating) == false
@@ -38,7 +38,7 @@ wait_for_window_count 0
 TRANSIENT_SUITE=unmapped-parent-cleared "$CLIENT" transient-child 600 500 > "$CLIENT_LOG" 2>&1 &
 wait_for_window_count 2
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 if ! jq -e '
   length == 2
   and all(.[]; .floating == false)

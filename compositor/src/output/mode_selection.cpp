@@ -8,7 +8,7 @@ extern "C" {
 #include <wlr/types/wlr_output.h>
 }
 
-namespace umbriel {
+namespace andromeda {
 
   bool outputCanAutoEnable(wlr_output* output) {
     if (wl_list_empty(&output->modes)) {
@@ -66,4 +66,4 @@ namespace umbriel {
     return preferred == staged ? nullptr : preferred;
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -3,33 +3,33 @@
 # affordance. Releasing it must give the client's own cursor back from what the
 # compositor recorded, without a pointer leave and enter round trip.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly BEFORE="$UMBRIEL_RUNTIME_DIR/mod-cursor-before.png"
-readonly DURING="$UMBRIEL_RUNTIME_DIR/mod-cursor-during.png"
-readonly AFTER="$UMBRIEL_RUNTIME_DIR/mod-cursor-after.png"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly BEFORE="$ANDROMEDA_RUNTIME_DIR/mod-cursor-before.png"
+readonly DURING="$ANDROMEDA_RUNTIME_DIR/mod-cursor-during.png"
+readonly AFTER="$ANDROMEDA_RUNTIME_DIR/mod-cursor-after.png"
 
 if [[ ! -x $POINTER ]] || ! command -v foot > /dev/null; then
   echo "cursor helpers are not available"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
 curve = "linear"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 foot --config=/dev/null --title=mod-cursor sh -c 'sleep 120' > /dev/null 2>&1 &
 
 window=''
 for _ in $(seq 60); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "mod-cursor")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "mod-cursor")')
   [[ -n $window ]] && break
   sleep 0.1
 done
@@ -63,7 +63,7 @@ if [[ $before == "$during" ]]; then
 fi
 
 pointer_release
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 after=$(cursor_hash "$AFTER")
 if [[ $before != "$after" ]]; then
   echo "releasing mod did not restore the client cursor: before=$before during=$during after=$after"

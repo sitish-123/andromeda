@@ -5,9 +5,9 @@
 # was configured to whenever its surface holds those pixels.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/stale-geometry-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/stale-geometry.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/stale-geometry-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/stale-geometry.png"
 # The child surface covers the whole window box with opaque blue.
 readonly CONTENT_COLOR=0000FF
 
@@ -16,15 +16,15 @@ if [[ ! -x $CLIENT ]]; then
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title stale-geometry ".[] | select(.title == \$title) | .$1"
+  "$ANDROMEDA" windows --json | jq -r --arg title stale-geometry ".[] | select(.title == \$title) | .$1"
 }
 
 pixel_color() {
@@ -54,12 +54,12 @@ if ! grep -qx mapped "$CLIENT_LOG" || [[ -z $pinned ]]; then
 fi
 
 # Full width is a configure the client answers with a wider buffer while its declared geometry stays behind.
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 for _ in $(seq 60); do
   [[ $(drawn_size) != "$pinned" ]] && break
   sleep 0.05
 done
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 drawn=$(drawn_size)
 if [[ $(pinned_size) != "$pinned" ]]; then
   echo "client stopped pinning its geometry, so this check observes nothing: $(tr '\n' '|' < "$CLIENT_LOG")"

@@ -17,7 +17,7 @@ struct wlr_output;
 struct wlr_scene_node;
 struct wlr_renderer;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -55,7 +55,7 @@ namespace umbriel {
     // taken on the first call, so the millisecond count backing it can exceed a float's exact
     // integer range without the returned value losing precision.
     [[nodiscard]] float clockSeconds() const;
-    // Adds `umbriel_time` when `shader` reads it, and the `[colors]` palette for palette presets.
+    // Adds `andromeda_time` when `shader` reads it, and the `[colors]` palette for palette presets.
     void fillTimeUniforms(
         fx_animation_parameters& parameters, float seconds, const EffectPreset& preset, const fx_effect_shader* shader
     ) const;
@@ -125,4 +125,4 @@ namespace umbriel {
     return static_cast<float>(static_cast<double>(nowMsec - epochMsec) / 1000.0);
   }
 
-} // namespace umbriel
+} // namespace andromeda

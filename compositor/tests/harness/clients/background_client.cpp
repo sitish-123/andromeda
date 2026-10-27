@@ -110,7 +110,7 @@ namespace {
   bool createBuffer(State& state) {
     constexpr int stride = kSize * 4;
     constexpr size_t size = stride * kSize;
-    const int fd = memfd_create("umbriel-background-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-background-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(size)) < 0) {
       return false;
     }

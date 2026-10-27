@@ -10,7 +10,7 @@
 struct wl_event_loop;
 struct wl_event_source;
 
-namespace umbriel {
+namespace andromeda {
 
   class ConfigWatcher {
   public:
@@ -34,4 +34,4 @@ namespace umbriel {
     std::set<std::filesystem::path> m_files;
   };
 
-} // namespace umbriel
+} // namespace andromeda

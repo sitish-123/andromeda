@@ -8,10 +8,10 @@ set -euo pipefail
 readonly BTN_LEFT=272 # evdev BTN_LEFT
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
-printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 if [[ ! -x $POINTER ]]; then
   echo "pointer client not built at $POINTER"
@@ -30,7 +30,7 @@ pointer() {
 
 wait_for_count() {
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $1 ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $1 ]] && return 0
     sleep 0.25
   done
   echo "timed out waiting for $1 window(s)"
@@ -39,7 +39,7 @@ wait_for_count() {
 
 # x of the focused window on the active workspace, or "none".
 focused_x() {
-  "$UMBRIEL" windows --json | jq -r \
+  "$ANDROMEDA" windows --json | jq -r \
     '[.[] | select(.focused and .active) | .x] | if length == 1 then .[0] else "none" end'
 }
 
@@ -50,14 +50,14 @@ wait_for_focus_at() {
     sleep 0.25
   done
   echo "expected the window at x=$want to be focused, focus is at $(focused_x)"
-  echo "  windows: $("$UMBRIEL" windows --json | jq -c '[.[] | {x, focused, active}]')"
+  echo "  windows: $("$ANDROMEDA" windows --json | jq -c '[.[] | {x, focused, active}]')"
   return 1
 }
 
 wait_for_window_x() {
   local id=$1 want=$2 actual=none
   for _ in $(seq 40); do
-    actual=$("$UMBRIEL" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .x')
+    actual=$("$ANDROMEDA" windows --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .x')
     [[ $actual == "$want" ]] && return 0
     sleep 0.25
   done
@@ -83,7 +83,7 @@ wait_for_focus_at 10
 # Motion alone must not move focus: follows_mouse is off by default. This also
 # proves the next assertion is the click's doing and not the hover's.
 pointer move "$RIGHT_X" "$MID_Y"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 if [[ $(focused_x) != "10" ]]; then
   echo "hovering moved focus with follows_mouse off: focus is at $(focused_x)"
   exit 1
@@ -99,11 +99,11 @@ wait_for_focus_at 10
 # A switcher-style focus moves the cursor with the selected window. Ordinary
 # focus remains focus-only, so this sequence leaves keyboard focus on the left
 # while the cursor stays over the right. The click must return focus to right.
-right_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.x == 646) | .id')
-left_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.x == 10) | .id')
-"$UMBRIEL" msg "window-focus-warp:$right_id" > /dev/null
+right_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.x == 646) | .id')
+left_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.x == 10) | .id')
+"$ANDROMEDA" msg "window-focus-warp:$right_id" > /dev/null
 wait_for_focus_at 646
-"$UMBRIEL" msg "window-focus:$left_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$left_id" > /dev/null
 wait_for_focus_at 10
 pointer click "$BTN_LEFT"
 wait_for_focus_at 646
@@ -113,7 +113,7 @@ wait_for_focus_at 646
 # to the left window under the cursor.
 pointer move "$LEFT_X" "$MID_Y" click "$BTN_LEFT"
 wait_for_focus_at 10
-"$UMBRIEL" msg window-focus-right > /dev/null
+"$ANDROMEDA" msg window-focus-right > /dev/null
 wait_for_focus_at 646
 pointer click "$BTN_LEFT"
 wait_for_focus_at 10
@@ -122,34 +122,34 @@ wait_for_focus_at 10
 # newly focused right window. Disable follow-warp without moving the cursor,
 # then focus left and click without pointer motion. Focus must return to the
 # right window under the cursor.
-printf '\n[input.cursor]\nfollows_focus = true\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg window-focus-right > /dev/null
+printf '\n[input.cursor]\nfollows_focus = true\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg window-focus-right > /dev/null
 wait_for_focus_at 646
-sed -i 's/follows_focus = true/follows_focus = false/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg "window-focus:$left_id" > /dev/null
+sed -i 's/follows_focus = true/follows_focus = false/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg "window-focus:$left_id" > /dev/null
 wait_for_focus_at 10
 pointer click "$BTN_LEFT"
 wait_for_focus_at 646
 
 # Restore follow-warp for workspace restoration and workspace-transfer checks.
-sed -i 's/follows_focus = false/follows_focus = true/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/follows_focus = false/follows_focus = true/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Workspace focus history is local to the focused output. Returning to that
 # output's previous workspace is still focus navigation, so follows_focus must
 # move the cursor to its restored focused window. Leave a second window under
 # the old pointer position, then click without motion after the transition.
-"$UMBRIEL" msg window-focus-left > /dev/null
+"$ANDROMEDA" msg window-focus-left > /dev/null
 wait_for_focus_at 10
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 spawn_client
 wait_for_count 3
 pointer move "$RIGHT_X" "$MID_Y"
-"$UMBRIEL" msg workspace-focus-last > /dev/null
+"$ANDROMEDA" msg workspace-focus-last > /dev/null
 wait_for_focus_at 10
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 pointer click "$BTN_LEFT"
 wait_for_focus_at 10
 
@@ -157,17 +157,17 @@ wait_for_focus_at 10
 # window already there. The cursor must
 # follow the moved window, so a focus-only detour followed by an unmoved click
 # returns focus to it.
-printf '\n[input.focus]\nfollows_mouse = true\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-destination_id=$("$UMBRIEL" windows --json | jq -r \
+printf '\n[input.focus]\nfollows_mouse = true\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+destination_id=$("$ANDROMEDA" windows --json | jq -r \
   --arg left "$left_id" --arg right "$right_id" '.[] | select(.id != $left and .id != $right) | .id')
-"$UMBRIEL" msg "window-move-to-workspace:2" > /dev/null
+"$ANDROMEDA" msg "window-move-to-workspace:2" > /dev/null
 wait_for_window_x "$left_id" 646
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 wait_for_focus_at 646
-sed -i 's/follows_focus = true/follows_focus = false/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
-"$UMBRIEL" msg "window-focus:$destination_id" > /dev/null
+sed -i 's/follows_focus = true/follows_focus = false/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg "window-focus:$destination_id" > /dev/null
 wait_for_focus_at 10
 pointer click "$BTN_LEFT"
 wait_for_focus_at 646

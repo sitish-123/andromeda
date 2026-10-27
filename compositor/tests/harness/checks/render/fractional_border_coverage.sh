@@ -4,11 +4,11 @@
 # background in the stripe is an antialiasing error rather than a curve.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/fractional-border-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/fractional-border.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/fractional-border-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/fractional-border.png"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -25,7 +25,7 @@ corner_radius = 24
 [output."HEADLESS-1"]
 scale = 1.25
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" fractional-border 1024 576 > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -36,11 +36,11 @@ if ! grep -q '^mapped$' "$CLIENT_LOG"; then
   echo "fractional border client never mapped: $(cat "$CLIENT_LOG")"
   exit 1
 fi
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "fractional-border")')
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "fractional-border")')
 if [[ -z $window ]]; then
-  echo "fractional border client was not registered: $("$UMBRIEL" windows --json)"
+  echo "fractional border client was not registered: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 x=$(jq -r '.x' <<< "$window")

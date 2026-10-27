@@ -1,5 +1,5 @@
 [screencast]
-chooser_cmd = "@libexecdir@/umbriel-share-picker"
+chooser_cmd = "@libexecdir@/andromeda-share-picker"
 max_fps = 0
 
 [screenshot]

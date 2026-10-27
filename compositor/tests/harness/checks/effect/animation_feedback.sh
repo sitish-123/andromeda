@@ -3,29 +3,29 @@
 # begin from the current target, and remain isolated between simultaneous targets.
 set -euo pipefail
 
-readonly SHADER="${UMBRIEL_CONFIG%/*}/feedback.glsl"
-readonly PASSTHROUGH="${UMBRIEL_CONFIG%/*}/feedback-passthrough.glsl"
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/feedback.png"
+readonly SHADER="${ANDROMEDA_CONFIG%/*}/feedback.glsl"
+readonly PASSTHROUGH="${ANDROMEDA_CONFIG%/*}/feedback-passthrough.glsl"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/feedback.png"
 
 cat > "$SHADER" <<'GLSL'
 vec4 animation(vec2 uv) {
-    vec4 source = umbriel_sample(uv);
-    vec4 previous = umbriel_sample_previous(uv);
+    vec4 source = andromeda_sample(uv);
+    vec4 previous = andromeda_sample_previous(uv);
     if (uv.y < 0.2) {
         return previous;
     }
     if (uv.x >= 0.5) {
         return source;
     }
-    float base = umbriel_size.x < 500.0 ? 0.05 : 0.55;
-    if (umbriel_linear_progress < 0.2) {
+    float base = andromeda_size.x < 500.0 ? 0.05 : 0.55;
+    if (andromeda_linear_progress < 0.2) {
         return vec4(base, 0.0, 0.0, 1.0);
     }
-    if (umbriel_linear_progress < 0.4) {
+    if (andromeda_linear_progress < 0.4) {
         float red = abs(previous.r - base) < 0.03 ? base + 0.1 : previous.r;
         return vec4(red, 0.0, 0.0, 1.0);
     }
-    if (umbriel_linear_progress < 0.6) {
+    if (andromeda_linear_progress < 0.6) {
         float red = abs(previous.r - (base + 0.1)) < 0.03 ? base + 0.2 : previous.r;
         return vec4(red, 0.0, 0.0, 1.0);
     }
@@ -34,10 +34,10 @@ vec4 animation(vec2 uv) {
 GLSL
 
 cat > "$PASSTHROUGH" <<'GLSL'
-vec4 animation(vec2 uv) { return umbriel_sample(uv); }
+vec4 animation(vec2 uv) { return andromeda_sample(uv); }
 GLSL
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [appearance]
 border_width = 0
@@ -75,16 +75,16 @@ match.title = "^feedback-large$"
 default_floating = true
 default_position = { x = 700, y = 80, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Animation time only moves by clock-advance. Opening frames are drawn at 700, 2100, 3500, and 4550 ms of the 7000 ms
 # timeline, one in each feedback phase; the closing sample lands 150 ms into its 1200 ms timeline.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL_UNMAP_CLIENT" feedback-small 320 360 > "$UMBRIEL_RUNTIME_DIR/feedback-small.log" 2>&1 &
-"$UMBRIEL_UNMAP_CLIENT" feedback-large 650 360 > "$UMBRIEL_RUNTIME_DIR/feedback-large.log" 2>&1 &
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA_UNMAP_CLIENT" feedback-small 320 360 > "$ANDROMEDA_RUNTIME_DIR/feedback-small.log" 2>&1 &
+"$ANDROMEDA_UNMAP_CLIENT" feedback-large 650 360 > "$ANDROMEDA_RUNTIME_DIR/feedback-large.log" 2>&1 &
 
 for _ in $(seq 80); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   small=$(jq -c '.[] | select(.title == "feedback-small")' <<< "$windows")
   large=$(jq -c '.[] | select(.title == "feedback-large")' <<< "$windows")
   [[ -n $small && -n $large ]] && break
@@ -95,10 +95,10 @@ if [[ -z ${small:-} || -z ${large:-} ]]; then
   exit 1
 fi
 
-"$UMBRIEL" clock-advance 700
-"$UMBRIEL" clock-advance 1400
-"$UMBRIEL" clock-advance 1400
-"$UMBRIEL" clock-advance 1050
+"$ANDROMEDA" clock-advance 700
+"$ANDROMEDA" clock-advance 1400
+"$ANDROMEDA" clock-advance 1400
+"$ANDROMEDA" clock-advance 1050
 grim "$IMAGE"
 
 sample() {
@@ -136,8 +136,8 @@ if ! (( initial_red > 70 && initial_red < 100 && initial_green > 100 && initial_
 fi
 
 small_id=$(jq -r .id <<< "$small")
-"$UMBRIEL" msg "window-close:$small_id" > /dev/null
-"$UMBRIEL" clock-advance 150
+"$ANDROMEDA" msg "window-close:$small_id" > /dev/null
+"$ANDROMEDA" clock-advance 150
 grim "$IMAGE"
 read -r closing_red closing_green closing_blue <<< "$(sample "$small" 0.25 0.55)"
 if ! (( closing_red > 52 && closing_red < 76 && closing_green < 8 && closing_blue < 8 )); then

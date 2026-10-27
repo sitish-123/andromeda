@@ -4,15 +4,15 @@
 # the output's workspaces; out-of-range and unknown values are refused; an empty value removes the saved key.
 set -euo pipefail
 
-readonly DESKTOP=${UMBRIEL_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
-readonly DISPLAYS=$(dirname "$UMBRIEL_CONFIG")/displays.toml
-trap 'rm -f "$DISPLAYS"; "$UMBRIEL" msg config-reload > /dev/null' EXIT
+readonly DESKTOP=${ANDROMEDA_DESKTOP_CLIENT:-./build-debug/tests/desktop-client}
+readonly DISPLAYS=$(dirname "$ANDROMEDA_CONFIG")/displays.toml
+trap 'rm -f "$DISPLAYS"; "$ANDROMEDA" msg config-reload > /dev/null' EXIT
 
 # As the default config does; outputs.md documents the include.
-printf '\n[include.optional]\nfiles = ["displays.toml"]\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[include.optional]\nfiles = ["displays.toml"]\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
-output=$("$UMBRIEL" workspaces --json | jq -r '.[0].output')
+output=$("$ANDROMEDA" workspaces --json | jq -r '.[0].output')
 prop_of() { "$DESKTOP" properties-state | grep "^$output $1=" | cut -d= -f2- || true; }
 expect_prop() {
   local got=
@@ -48,7 +48,7 @@ fi
 expect_prop workspaces 3
 count=
 for _ in $(seq 40); do
-  count=$("$UMBRIEL" workspaces --json | jq --arg o "$output" '[.[] | select(.output == $o)] | length')
+  count=$("$ANDROMEDA" workspaces --json | jq --arg o "$output" '[.[] | select(.output == $o)] | length')
   [[ $count == 3 ]] && break
   sleep 0.1
 done

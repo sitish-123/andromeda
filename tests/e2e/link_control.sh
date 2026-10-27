@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The phone as the desktop's remote, through the shell, against a real umbriel-linkd and a present headless phone, with
+# The phone as the desktop's remote, through the shell, against a real andromeda-linkd and a present headless phone, with
 # a fullscreen GTK 4 window that logs what reaches it. Proves:
 # 1. Remote input without the desktop's input grant is dropped; nothing reaches the window.
 # 2. With the grant: moves arrive as the same relative motion, left and right clicks as buttons 1 and 3, a scroll as a
@@ -29,8 +29,8 @@ with_noctalia '
     for _ in $(seq 150); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   phone_saw() { [[ $(grep -c "$1" "$OUT/hold.jsonl") -ge ${2:-1} ]]; }
   logged() { grep -q "$1" "$OUT/linkd.log"; }
@@ -47,10 +47,10 @@ with_noctalia '
   listed() { grep "\"event\":\"commands\"" "$OUT/hold.jsonl" | tail -1 | grep -q "$1"; }
   pinged() { grep -A2 "member=Pinged" "$OUT/signals.txt" | grep -q "$1"; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd RUST_LOG=info,zbus=warn "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  dbus-monitor --session "type=signal,interface=org.umbriel.Link1" > "$OUT/signals.txt" 2>&1 &
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd RUST_LOG=info,zbus=warn "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  dbus-monitor --session "type=signal,interface=org.andromeda.Link1" > "$OUT/signals.txt" 2>&1 &
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
@@ -60,7 +60,7 @@ with_noctalia '
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
@@ -154,7 +154,7 @@ with_noctalia '
   kill "$hold"
   wait "$hold" || true
 '
-"$LINK_BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
+"$LINK_BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in ping-toast devices-tab settings-commands; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

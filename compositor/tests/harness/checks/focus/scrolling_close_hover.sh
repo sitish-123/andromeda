@@ -5,8 +5,8 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 pointer_pid=
 cleanup() {
@@ -19,10 +19,10 @@ trap cleanup EXIT
 
 spawn_client() {
   local title=$1
-  "$CLIENT" "$title" 1200 700 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" 1200 700 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
 }
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_count() {
   local want=$1
@@ -64,7 +64,7 @@ wait_for_row_at_pointer() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "scrolling"
@@ -76,17 +76,17 @@ curve = "linear"
 [input.focus]
 follows_mouse = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client scroll-hover-top
 wait_for_count 1
 spawn_client scroll-hover-middle
 wait_for_count 2
-"$UMBRIEL" msg window-consume-left > /dev/null
+"$ANDROMEDA" msg window-consume-left > /dev/null
 spawn_client scroll-hover-bottom
 wait_for_count 3
-"$UMBRIEL" msg window-consume-left > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg window-consume-left > /dev/null
+"$ANDROMEDA" settle
 
 middle_id=$(field_of scroll-hover-middle id)
 middle_x=$(field_of scroll-hover-middle x)
@@ -97,21 +97,21 @@ pointer_y=$((bottom_y - 30))
 # Keep the virtual pointer alive and stationary through the close. The lower part of the middle row is inherited by
 # the bottom row after the remaining rows expand, while normal close replacement selects the top row.
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" move "$pointer_x" "$pointer_y" pause 10000 \
-  > "$UMBRIEL_RUNTIME_DIR/scrolling-close-pointer.log" 2>&1 &
+  > "$ANDROMEDA_RUNTIME_DIR/scrolling-close-pointer.log" 2>&1 &
 pointer_pid=$!
 wait_for_active scroll-hover-middle
 
-"$UMBRIEL" msg "window-close:$middle_id" > /dev/null
+"$ANDROMEDA" msg "window-close:$middle_id" > /dev/null
 for _ in $(seq 40); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/scroll-hover-middle.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/scroll-hover-middle.log" && break
   sleep 0.1
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/scroll-hover-middle.log"; then
-  echo "middle row did not unmap: $(< "$UMBRIEL_RUNTIME_DIR/scroll-hover-middle.log")"
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/scroll-hover-middle.log"; then
+  echo "middle row did not unmap: $(< "$ANDROMEDA_RUNTIME_DIR/scroll-hover-middle.log")"
   exit 1
 fi
 wait_for_count 2
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 wait_for_row_at_pointer scroll-hover-bottom "$pointer_y"
 wait_for_active scroll-hover-bottom
 

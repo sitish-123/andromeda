@@ -4,11 +4,11 @@
 # later replacement refreshes dynamic rules without replaying opening behavior.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/xdg-tag-client.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/xdg-tag-control"
-readonly BEFORE_SHOT="$UMBRIEL_RUNTIME_DIR/xdg-tag-before.png"
-readonly AFTER_SHOT="$UMBRIEL_RUNTIME_DIR/xdg-tag-after.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/xdg-tag-client.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/xdg-tag-control"
+readonly BEFORE_SHOT="$ANDROMEDA_RUNTIME_DIR/xdg-tag-before.png"
+readonly AFTER_SHOT="$ANDROMEDA_RUNTIME_DIR/xdg-tag-after.png"
 CLIENT_PID=
 
 if [[ ! -x $CLIENT ]]; then
@@ -16,7 +16,7 @@ if [[ ! -x $CLIENT ]]; then
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -44,7 +44,7 @@ match.xdg_tag = "^game-launcher$"
 default_floating = true
 opacity = 0.9
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
@@ -71,7 +71,7 @@ fi
 
 windows=
 for _ in $(seq 80); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   jq -e '
     length == 1
     and .[0].app_id == "xdg-tag-client"
@@ -89,8 +89,8 @@ if ! jq -e '
   echo "initial xdg tag or opening rule was not applied: $windows"
   exit 1
 fi
-if ! "$UMBRIEL" windows | grep -Fq '[xdg_tag=game-launcher]'; then
-  echo "human-readable window output did not expose the xdg tag: $("$UMBRIEL" windows)"
+if ! "$ANDROMEDA" windows | grep -Fq '[xdg_tag=game-launcher]'; then
+  echo "human-readable window output did not expose the xdg tag: $("$ANDROMEDA" windows)"
   exit 1
 fi
 
@@ -113,7 +113,7 @@ before_green=$(
 
 printf 'u' >&"$control_fd"
 for _ in $(seq 80); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   if grep -q '^xdg-tag-updated$' "$CLIENT_LOG" \
       && jq -e '
         length == 1
@@ -133,8 +133,8 @@ if ! grep -q '^xdg-tag-updated$' "$CLIENT_LOG" \
   echo "post-map xdg tag did not reach IPC or replayed an opening rule: $windows; client log: $(< "$CLIENT_LOG")"
   exit 1
 fi
-if ! "$UMBRIEL" windows | grep -Fq '[xdg_tag=game-running]'; then
-  echo "human-readable window output did not refresh the xdg tag: $("$UMBRIEL" windows)"
+if ! "$ANDROMEDA" windows | grep -Fq '[xdg_tag=game-running]'; then
+  echo "human-readable window output did not refresh the xdg tag: $("$ANDROMEDA" windows)"
   exit 1
 fi
 

@@ -4,18 +4,18 @@
 # resumes the window and its frames.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_BACKGROUND_CLIENT:-./build-debug/tests/background-client}"
-NORMAL_LOG="$UMBRIEL_RUNTIME_DIR/background-normal.log"
-GAME_LOG="$UMBRIEL_RUNTIME_DIR/background-game.log"
-RULED_LOG="$UMBRIEL_RUNTIME_DIR/background-ruled.log"
+readonly CLIENT="${ANDROMEDA_BACKGROUND_CLIENT:-./build-debug/tests/background-client}"
+NORMAL_LOG="$ANDROMEDA_RUNTIME_DIR/background-normal.log"
+GAME_LOG="$ANDROMEDA_RUNTIME_DIR/background-game.log"
+RULED_LOG="$ANDROMEDA_RUNTIME_DIR/background-ruled.log"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[window_rule]]
 match.title = "^background-ruled$"
 background_frames = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" background-normal > "$NORMAL_LOG" 2>&1 &
 CONTENT_TYPE=game "$CLIENT" background-game > "$GAME_LOG" 2>&1 &
@@ -28,12 +28,12 @@ for log in "$NORMAL_LOG" "$GAME_LOG" "$RULED_LOG"; do
   done
   grep -q '^mapped$' "$log" || { echo "client never mapped: $(cat "$log")"; exit 1; }
 done
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 frames() { grep -c '^frame$' "$1" || true; }
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" settle
 for _ in $(seq 40); do
   grep -q '^suspended$' "$NORMAL_LOG" && break
   sleep 0.05
@@ -62,8 +62,8 @@ if ((game_hidden < 5 || ruled_hidden < 5)); then
   exit 1
 fi
 
-"$UMBRIEL" msg workspace-switch:1 > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" settle
 for _ in $(seq 40); do
   grep -q '^resumed$' "$NORMAL_LOG" && break
   sleep 0.05

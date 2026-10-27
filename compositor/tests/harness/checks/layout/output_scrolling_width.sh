@@ -4,11 +4,11 @@
 # reload updates the default for future columns without resizing existing ones.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
 
 window_state() {
   local title=$1
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -c --arg title "$title" '[.[] | select(.title == $title)]'
 }
 
@@ -31,10 +31,10 @@ wait_for_window() {
 
 spawn_client() {
   local title=$1
-  "$CLIENT" "$title" 640 480 > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  "$CLIENT" "$title" 640 480 > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -67,7 +67,7 @@ default_output = "HEADLESS-1"
 match.app_id = "^output-width-right-"
 default_output = "HEADLESS-2"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Both headless outputs are 1280 logical pixels wide. With zero gap and border,
 # their 0.25 and 0.75 defaults produce exact 320 and 960 pixel columns.
@@ -81,8 +81,8 @@ wait_for_window output-width-right-old 960 HEADLESS-2
 # exactly 800 pixels.
 sed -i \
   's/^layout\.scrolling\.default_extent_fraction = 0\.75$/layout.scrolling.default_extent_fraction = 0.625/' \
-  "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+  "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client output-width-right-new
 wait_for_window output-width-right-new 800 HEADLESS-2

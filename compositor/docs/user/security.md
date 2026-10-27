@@ -2,9 +2,9 @@
 
 ## Session locking
 
-Umbriel keeps the current desktop visible while an `ext-session-lock-v1` client
+Andromeda keeps the current desktop visible while an `ext-session-lock-v1` client
 prepares a mapped lock surface for every active output. The client has up to
-three seconds to provide those surfaces. Umbriel then switches every output to
+three seconds to provide those surfaces. Andromeda then switches every output to
 the lock scene and reports the session as locked only after each active output
 has presented a secure frame.
 
@@ -16,12 +16,12 @@ by a crashed locker.
 
 ## Sandboxed Wayland clients
 
-Umbriel supports version 1 of the
+Andromeda supports version 1 of the
 [Wayland security-context protocol](https://wayland.app/protocols/security-context-v1).
 It is always enabled.
 
 A sandbox engine can create a restricted Wayland connection and label it with
-the sandbox engine, application, and instance. Umbriel then limits the
+the sandbox engine, application, and instance. Andromeda then limits the
 protocols available through that connection. This does not create the sandbox
 or display permission prompts.
 
@@ -29,7 +29,7 @@ or display permission prompts.
 
 Restricted clients retain the protocols needed for ordinary windows, rendering,
 focused input, clipboard use, output discovery, idle inhibition, and activation.
-Umbriel withholds compositor-wide authority, including:
+Andromeda withholds compositor-wide authority, including:
 
 - Screen and window capture
 - Virtual input and input-method ownership
@@ -60,7 +60,7 @@ allow_globals = [
 ]
 ```
 
-Umbriel supports both data-control variants. Existing clipboard managers often
+Andromeda supports both data-control variants. Existing clipboard managers often
 use the `zwlr_` variant, so grant both unless the application is known to use
 only `ext_`.
 
@@ -90,7 +90,7 @@ processes, devices, networking, D-Bus, X11, or other host interfaces.
 For the restriction to matter, the sandbox must expose only its restricted
 Wayland socket. It must also control access to:
 
-- Umbriel IPC through `$UMBRIEL_SOCKET`
+- Andromeda IPC through `$ANDROMEDA_SOCKET`
 - Host D-Bus services
 - X11 through `$DISPLAY`
 - Devices and other host resources

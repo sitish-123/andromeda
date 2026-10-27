@@ -3,10 +3,10 @@
 # while staying stable for clients that remain connected across a reload.
 set -euo pipefail
 
-readonly GLOBAL_CLIENT="${UMBRIEL_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
+readonly GLOBAL_CLIENT="${ANDROMEDA_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
 readonly PRIMARY_SELECTION=zwp_primary_selection_device_manager_v1
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/primary-selection-client.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/primary-selection-control"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/primary-selection-client.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/primary-selection-control"
 
 if [[ ! -x $GLOBAL_CLIENT ]]; then
   echo "global client not built at $GLOBAL_CLIENT"
@@ -19,8 +19,8 @@ query_global() {
 
 query_global present
 
-printf '\n[input]\nmiddle_click_paste = false\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[input]\nmiddle_click_paste = false\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 query_global absent
 
 mkfifo "$CONTROL_FIFO"
@@ -42,8 +42,8 @@ if ! grep -q '^ready$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-sed -i 's/middle_click_paste = false/middle_click_paste = true/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/middle_click_paste = false/middle_click_paste = true/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 query_global present
 
 printf '\n' >&"$control_fd"

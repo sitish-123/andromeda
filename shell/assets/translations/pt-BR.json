@@ -1398,7 +1398,7 @@
         "shell": "Shell",
         "system": "Sistema",
         "templates": "Modelos",
-        "umbriel": "Umbriel",
+        "andromeda": "Andromeda",
         "wallpaper": "Papel de Parede"
       }
     },
@@ -3283,8 +3283,8 @@
           "description": "Formato de hora padrão para a interface do usuário do shell sem configuração própria",
           "label": "Formato da Hora"
         },
-        "umbriel-overview-type-to-launch": {
-          "description": "Abrir o Launcher enquanto digite na Overveiw do Umbriel; utiliza uma pequena superfície de foco de teclado enquanto a Overview está aberta",
+        "andromeda-overview-type-to-launch": {
+          "description": "Abrir o Launcher enquanto digite na Overveiw do Andromeda; utiliza uma pequena superfície de foco de teclado enquanto a Overview está aberta",
           "label": "Digitar para Abrir Launcher"
         },
         "window-switcher-current-workspace-only": {

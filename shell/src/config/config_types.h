@@ -1146,7 +1146,7 @@ struct ShellConfig {
   bool telemetryEnabled = false;
   bool setupWizardEnabled = true;
   bool niriOverviewTypeToLaunchEnabled = false;
-  bool umbrielOverviewTypeToLaunchEnabled = false;
+  bool andromedaOverviewTypeToLaunchEnabled = false;
   bool polkitAgent = false;
   bool automountDrives = true;
   PasswordMaskStyle passwordMaskStyle = PasswordMaskStyle::CircleFilled;

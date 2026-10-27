@@ -2,25 +2,25 @@
 # xdg_toplevel_drag_manager_v1 is offered, and a window torn off during a data-device drag floats under the pointer
 # at the offset its client gave, is never a drop target itself, and stays where the drop left it.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
-readonly CLIENT="${UMBRIEL_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
-readonly LOG="$UMBRIEL_RUNTIME_DIR/toplevel-drag.log"
+readonly CLIENT="${ANDROMEDA_SURFACE_PROTOCOLS_CLIENT:-./build-debug/tests/surface-protocols-client}"
+readonly LOG="$ANDROMEDA_RUNTIME_DIR/toplevel-drag.log"
 readonly LEFT_BUTTON=272
 
-cat >> "$UMBRIEL_CONFIG" <<'CONF'
+cat >> "$ANDROMEDA_CONFIG" <<'CONF'
 
 [animation]
 enabled = false
 CONF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" toplevel-drag tabs > "$LOG" 2>&1 &
 await_events "$LOG" mapped 1 "the tab window"
-"$UMBRIEL" settle
-read -r x y w h < <("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "tabs") | "\(.x) \(.y) \(.w) \(.h)"')
+"$ANDROMEDA" settle
+read -r x y w h < <("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "tabs") | "\(.x) \(.y) \(.w) \(.h)"')
 
-torn() { "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "tabs-torn") | "\(.x) \(.y) \(.floating)"'; }
+torn() { "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "tabs-torn") | "\(.x) \(.y) \(.floating)"'; }
 expect_torn_at() {
   local position
   for _ in $(seq 40); do

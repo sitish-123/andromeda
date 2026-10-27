@@ -10,10 +10,10 @@ boot_headless 1
 with_noctalia '
   sleep 2 # real time: the bar and wallpaper settle
   grim "$OUT/before.png"
-  "$UMBRIEL" msg fps-overlay-toggle > /dev/null
+  "$ANDROMEDA" msg fps-overlay-toggle > /dev/null
   sleep 2.5 # real time: two readout refreshes, so the second shows a full second of presents
   grim "$OUT/overlay.png"
-  "$UMBRIEL" msg fps-overlay-toggle > /dev/null
+  "$ANDROMEDA" msg fps-overlay-toggle > /dev/null
   sleep 0.5
   grim "$OUT/after.png"
 '

@@ -4,10 +4,10 @@
 set -euo pipefail
 
 readonly BTN_LEFT=272
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/drop.png"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/drop.png"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -27,11 +27,11 @@ match.title = "^floater$"
 default_floating = true
 default_position = { x = 100, y = 100, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-position() { "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "floater") | "\(.x) \(.y)"'; }
+position() { "$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "floater") | "\(.x) \(.y)"'; }
 
-"$UMBRIEL_UNMAP_CLIENT" floater 300 200 > "$UMBRIEL_RUNTIME_DIR/floater.log" 2>&1 &
+"$ANDROMEDA_UNMAP_CLIENT" floater 300 200 > "$ANDROMEDA_RUNTIME_DIR/floater.log" 2>&1 &
 for _ in $(seq 80); do
   [[ $(position) == "100 100" ]] && break
   sleep 0.025
@@ -45,10 +45,10 @@ blue_at() { magick "$IMAGE" -crop "4x4+$1+$2" -format '%[fx:round(mean.b*255)]\n
 
 # The 1280x720 output previews at half size from 320,180, so the card spans 370,230 to 520,330. Dragging it by
 # 100,50 on screen moves the window by 200,100.
-"$UMBRIEL" msg overview-open > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
 "$POINTER" 1280 720 move 445 280 press "$BTN_LEFT" move 495 305 move 545 330 pause 300 release "$BTN_LEFT"
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim "$IMAGE"
 dropped=$(blue_at 600 370)
 vacated=$(blue_at 380 240)
@@ -57,8 +57,8 @@ if ((dropped < 100 || vacated > 20)); then
   exit 1
 fi
 
-"$UMBRIEL" msg overview-close > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle
 if [[ $(position) != "300 200" ]]; then
   echo "the window did not keep its dropped position: $(position)"
   exit 1

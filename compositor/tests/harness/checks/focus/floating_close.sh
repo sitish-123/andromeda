@@ -3,31 +3,31 @@
 # Overlay only unmaps (View stays alive) so we can catch missing unmap-time refocus.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 wait_for_window_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.1
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 wait_for_focus() {
   local want=$1
   for _ in $(seq 40); do
-    if [[ $("$UMBRIEL" windows --json | jq -r --arg id "$want" '.[] | select(.id == $id) | .focused') == true ]]; then
+    if [[ $("$ANDROMEDA" windows --json | jq -r --arg id "$want" '.[] | select(.id == $id) | .focused') == true ]]; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected $want to be focused: $("$UMBRIEL" windows --json)"
+  echo "expected $want to be focused: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -40,11 +40,11 @@ mode = "scrolling"
 match.app_id = "^float-close-overlay$"
 default_floating = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
-readonly FIRST_LOG="$UMBRIEL_RUNTIME_DIR/first.log"
-readonly ANCHOR_LOG="$UMBRIEL_RUNTIME_DIR/anchor.log"
-readonly NEIGHBOR_LOG="$UMBRIEL_RUNTIME_DIR/neighbor.log"
+readonly FIRST_LOG="$ANDROMEDA_RUNTIME_DIR/first.log"
+readonly ANCHOR_LOG="$ANDROMEDA_RUNTIME_DIR/anchor.log"
+readonly NEIGHBOR_LOG="$ANDROMEDA_RUNTIME_DIR/neighbor.log"
 
 "$CLIENT" "float-close-first" > "$FIRST_LOG" 2>&1 &
 wait_for_window_count 1
@@ -53,7 +53,7 @@ wait_for_window_count 2
 "$CLIENT" "float-close-neighbor" > "$NEIGHBOR_LOG" 2>&1 &
 wait_for_window_count 3
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 first_id=$(jq -r '.[] | select(.title == "float-close-first") | .id' <<< "$windows")
 anchor_id=$(jq -r '.[] | select(.title == "float-close-anchor") | .id' <<< "$windows")
 neighbor_id=$(jq -r '.[] | select(.title == "float-close-neighbor") | .id' <<< "$windows")
@@ -65,10 +65,10 @@ if [[ $(jq -r --arg id "$first_id" '.[] | select(.id == $id) | .floating' <<< "$
 fi
 
 # Focus the middle-created window so MRU restore differs from creation order.
-"$UMBRIEL" msg "window-focus:$anchor_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$anchor_id" > /dev/null
 wait_for_focus "$anchor_id"
 
-APP_ID=float-close-overlay "$CLIENT" "float-close-overlay" > "$UMBRIEL_RUNTIME_DIR/overlay.log" 2>&1 &
+APP_ID=float-close-overlay "$CLIENT" "float-close-overlay" > "$ANDROMEDA_RUNTIME_DIR/overlay.log" 2>&1 &
 overlay_pid=$!
 wait_for_window_count 4
 
@@ -76,7 +76,7 @@ wait_for_window_count 4
 overlay_id=""
 overlay_floating=""
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   overlay_id=$(jq -r '.[] | select(.title == "float-close-overlay") | .id // empty' <<< "$windows")
   if [[ -n $overlay_id ]]; then
     overlay_floating=$(jq -r --arg id "$overlay_id" '.[] | select(.id == $id) | .floating // empty' <<< "$windows")
@@ -87,22 +87,22 @@ for _ in $(seq 60); do
   sleep 0.1
 done
 if [[ -z $overlay_id ]]; then
-  echo "overlay never appeared: $("$UMBRIEL" windows --json)"
+  echo "overlay never appeared: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 if [[ $overlay_floating != true ]]; then
-  echo "overlay did not map floating: $("$UMBRIEL" windows --json)"
+  echo "overlay did not map floating: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 wait_for_focus "$overlay_id"
 
-"$UMBRIEL" msg "window-close:$overlay_id" > /dev/null
+"$ANDROMEDA" msg "window-close:$overlay_id" > /dev/null
 for _ in $(seq 40); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/overlay.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/overlay.log" && break
   sleep 0.1
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/overlay.log"; then
-  echo "overlay never unmapped in response to the close request: $(cat "$UMBRIEL_RUNTIME_DIR/overlay.log")"
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/overlay.log"; then
+  echo "overlay never unmapped in response to the close request: $(cat "$ANDROMEDA_RUNTIME_DIR/overlay.log")"
   exit 1
 fi
 # Must refocus at unmap, and keep overlay alive so destroy fallback cannot hide it.
@@ -113,7 +113,7 @@ if ! kill -0 "$overlay_pid" 2>/dev/null; then
 fi
 wait_for_focus "$anchor_id"
 sleep 0.1
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 if [[ $(jq -r --arg id "$anchor_id" '.[] | select(.id == $id) | .focused' <<< "$windows") != true ]]; then
   echo "focus was not restored to the previously focused window at unmap time: $windows"
   exit 1

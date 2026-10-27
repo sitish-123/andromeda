@@ -5,14 +5,14 @@
 # frames detail to compare.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/zoom-client.log"
-readonly PLAIN="$UMBRIEL_RUNTIME_DIR/zoom-plain.png"
-readonly ZOOMED="$UMBRIEL_RUNTIME_DIR/zoom-zoomed.png"
-readonly EXPECTED="$UMBRIEL_RUNTIME_DIR/zoom-expected.png"
-readonly RESET="$UMBRIEL_RUNTIME_DIR/zoom-reset.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/zoom-client.log"
+readonly PLAIN="$ANDROMEDA_RUNTIME_DIR/zoom-plain.png"
+readonly ZOOMED="$ANDROMEDA_RUNTIME_DIR/zoom-zoomed.png"
+readonly EXPECTED="$ANDROMEDA_RUNTIME_DIR/zoom-expected.png"
+readonly RESET="$ANDROMEDA_RUNTIME_DIR/zoom-reset.png"
 
-cat >> "$UMBRIEL_CONFIG" <<CONF
+cat >> "$ANDROMEDA_CONFIG" <<CONF
 
 [animation]
 duration_ms = 1
@@ -21,7 +21,7 @@ curve = "linear"
 [colors]
 backdrop = "#00FF00FF"
 CONF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" "zoom-target" > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -29,12 +29,12 @@ for _ in $(seq 60); do
   sleep 0.05
 done
 grep -q '^mapped$' "$CLIENT_LOG" || { echo "client never mapped: $(cat "$CLIENT_LOG")"; exit 1; }
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim "$PLAIN"
 
-zoom_field() { "$UMBRIEL" zoom --json | jq -r ".[0].$1"; }
-for _ in 1 2 3; do "$UMBRIEL" msg zoom-in > /dev/null; done
-"$UMBRIEL" settle
+zoom_field() { "$ANDROMEDA" zoom --json | jq -r ".[0].$1"; }
+for _ in 1 2 3; do "$ANDROMEDA" msg zoom-in > /dev/null; done
+"$ANDROMEDA" settle
 factor=$(zoom_field factor)
 awk -v f="$factor" 'BEGIN {exit !(f > 1.95 && f < 1.96)}' || { echo "three zoom-in steps gave factor $factor"; exit 1; }
 grim "$ZOOMED"
@@ -48,8 +48,8 @@ unchanged=$(rmse "$ZOOMED" "$PLAIN")
 awk -v m="$magnified" -v u="$unchanged" 'BEGIN {exit !(m < 0.05 && u > 3 * m)}' \
   || { echo "the magnified frame is not the view enlarged: vs expected $magnified, vs plain $unchanged"; exit 1; }
 
-"$UMBRIEL" msg zoom-reset > /dev/null
-"$UMBRIEL" settle
+"$ANDROMEDA" msg zoom-reset > /dev/null
+"$ANDROMEDA" settle
 awk -v f="$(zoom_field factor)" 'BEGIN {exit !(f == 1)}' || { echo "zoom-reset left factor $(zoom_field factor)"; exit 1; }
 grim "$RESET"
 restored=$(rmse "$RESET" "$PLAIN")

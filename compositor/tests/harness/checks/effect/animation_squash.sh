@@ -2,9 +2,9 @@
 # Hold layout still while the opening timeline exercises the bundled shader.
 # Its middle frame must compress the client, then restore the same edge pixels.
 set -euo pipefail
-readonly EXAMPLES="$(cd "$UMBRIEL_REPO/examples/effects/animation" && pwd)"
-readonly IMAGE="$UMBRIEL_RUNTIME_DIR/squash.png"
-cat >> "$UMBRIEL_CONFIG" <<EOF
+readonly EXAMPLES="$(cd "$ANDROMEDA_REPO/examples/effects/animation" && pwd)"
+readonly IMAGE="$ANDROMEDA_RUNTIME_DIR/squash.png"
+cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [animation]
 duration_ms = 2400
@@ -28,18 +28,18 @@ softness = 24
 offset_x = 0
 offset_y = 0
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # Animation time only moves by clock-advance: the middle sample lands at 1000 ms of the 2400 ms timeline.
-"$UMBRIEL" clock-freeze
-"$UMBRIEL_UNMAP_CLIENT" squash-example 700 700 > "$UMBRIEL_RUNTIME_DIR/client.log" 2>&1 &
+"$ANDROMEDA" clock-freeze
+"$ANDROMEDA_UNMAP_CLIENT" squash-example 700 700 > "$ANDROMEDA_RUNTIME_DIR/client.log" 2>&1 &
 for _ in $(seq 80); do
-  window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "squash-example")')
+  window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "squash-example")')
   [[ -n $window ]] && break
   sleep 0.025
 done
 [[ -n $window ]]
-"$UMBRIEL" clock-advance 150
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "squash-example")')
+"$ANDROMEDA" clock-advance 150
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "squash-example")')
 x=$(jq -r '.x + (.w / 2 | floor)' <<< "$window")
 top=$(jq -r '.y + 4' <<< "$window")
 middle=$(jq -r '.y + (.h / 2 | floor)' <<< "$window")
@@ -47,7 +47,7 @@ bottom=$(jq -r '.y + .h - 6' <<< "$window")
 blue_at() {
   magick "$IMAGE" -crop "2x2+$x+$1" -format '%[fx:round(mean.b*255)]' info:
 }
-"$UMBRIEL" clock-advance 850
+"$ANDROMEDA" clock-advance 850
 grim "$IMAGE"
 if (( $(blue_at "$top") > 10 || $(blue_at "$bottom") > 10 || $(blue_at "$middle") < 130 )); then
   echo "squash did not compress both edges while preserving the center"
@@ -60,8 +60,8 @@ for edge in "$top" "$bottom"; do
     exit 1
   fi
 done
-"$UMBRIEL" clock-advance 2400
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 2400
+"$ANDROMEDA" settle
 grim "$IMAGE"
 if (( $(blue_at "$top") < 130 || $(blue_at "$bottom") < 130 || $(blue_at "$middle") < 130 )); then
   echo "squash did not restore edge and center pixels at x=$x y=$top,$middle,$bottom"

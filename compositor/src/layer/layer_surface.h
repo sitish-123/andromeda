@@ -13,7 +13,7 @@ struct wlr_scene_tree;
 struct wlr_surface;
 struct wlr_xdg_popup;
 
-namespace umbriel {
+namespace andromeda {
 
   class Output;
   class Server;
@@ -89,4 +89,4 @@ namespace umbriel {
     wl_listener m_newPopup{};
   };
 
-} // namespace umbriel
+} // namespace andromeda

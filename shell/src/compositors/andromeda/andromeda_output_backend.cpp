@@ -1,6 +1,6 @@
-#include "compositors/umbriel/umbriel_output_backend.h"
+#include "compositors/andromeda/andromeda_output_backend.h"
 
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 #include "util/string_utils.h"
 
 #include <nlohmann/json.hpp>
@@ -9,12 +9,12 @@
 #include <string_view>
 #include <utility>
 
-UmbrielOutputBackend::UmbrielOutputBackend(compositors::umbriel::UmbrielRuntime& runtime)
-    : compositors::umbriel::UmbrielEventHandler(runtime) {}
+AndromedaOutputBackend::AndromedaOutputBackend(compositors::andromeda::AndromedaRuntime& runtime)
+    : compositors::andromeda::AndromedaEventHandler(runtime) {}
 
-std::optional<std::string> UmbrielOutputBackend::focusedOutputName() const { return m_focusedOutput; }
+std::optional<std::string> AndromedaOutputBackend::focusedOutputName() const { return m_focusedOutput; }
 
-void UmbrielOutputBackend::handleEvent(std::string_view event, const nlohmann::json& data) {
+void AndromedaOutputBackend::handleEvent(std::string_view event, const nlohmann::json& data) {
   // Full snapshot: follow the single focused workspace, which names the focused
   // output even when that workspace is empty.
   if (event != "workspaces" || !data.is_array()) {
@@ -35,10 +35,10 @@ void UmbrielOutputBackend::handleEvent(std::string_view event, const nlohmann::j
   }
 }
 
-void UmbrielOutputBackend::handleStreamReset() { m_focusedOutput.reset(); }
+void AndromedaOutputBackend::handleStreamReset() { m_focusedOutput.reset(); }
 
-namespace compositors::umbriel {
+namespace compositors::andromeda {
 
-  bool setOutputPower(UmbrielRuntime& runtime, bool on) { return runtime.requestAction(on ? "dpms-on" : "dpms-off"); }
+  bool setOutputPower(AndromedaRuntime& runtime, bool on) { return runtime.requestAction(on ? "dpms-on" : "dpms-off"); }
 
-} // namespace compositors::umbriel
+} // namespace compositors::andromeda

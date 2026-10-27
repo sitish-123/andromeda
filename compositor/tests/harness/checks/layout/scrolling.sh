@@ -11,12 +11,12 @@ spawn_client() {
 wait_for_windows() {
   local want=$1
   for _ in $(seq 40); do
-    if [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]]; then
+    if [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]]; then
       return 0
     fi
     sleep 0.25
   done
-  echo "timed out waiting for $want window(s), saw: $("$UMBRIEL" windows --json)"
+  echo "timed out waiting for $want window(s), saw: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
@@ -26,7 +26,7 @@ wait_for_x() {
   local message=$3
   local current=0
   for _ in $(seq 40); do
-    current=$("$UMBRIEL" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .x')
+    current=$("$ANDROMEDA" windows --json | jq -r --arg title "$title" '.[] | select(.title == $title) | .x')
     [[ $current -eq $want ]] && return 0
     sleep 0.1
   done
@@ -42,8 +42,8 @@ readonly EXPECT_W=624
 readonly EXPECT_H=700
 readonly EXPECT_CENTER_X=$(( (1280 - EXPECT_W) / 2 ))
 
-printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\ncenter_focused = "never"\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\ncenter_focused = "never"\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client a
 wait_for_windows 1
@@ -51,7 +51,7 @@ wait_for_windows 1
 spawn_client b
 wait_for_windows 2
 
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 
 if ! jq -e 'all(.[]; .floating == false)' <<< "$windows" > /dev/null; then
   echo "expected both windows tiled: $windows"
@@ -84,43 +84,43 @@ if ! jq -e '[.[].x] | unique | length == 2' <<< "$windows" > /dev/null; then
 fi
 
 # Reloading the focus policy applies it to the currently focused column.
-"$UMBRIEL" msg window-focus-right > /dev/null
+"$ANDROMEDA" msg window-focus-right > /dev/null
 wait_for_x harness-b 646 "expected disabled center_focused to leave the last column at its bounded position"
-sed -i 's/center_focused = "never"/center_focused = "always"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/center_focused = "never"/center_focused = "always"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_x harness-b "$EXPECT_CENTER_X" "enabling center_focused did not center the focused column on reload"
-sed -i 's/center_focused = "always"/center_focused = "never"/' "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+sed -i 's/center_focused = "always"/center_focused = "never"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 wait_for_x harness-b 646 "disabling center_focused did not restore the bounded focused-column position"
 
 # Floating toggle round trip: the focused window flips and comes back.
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 for _ in $(seq 20); do
-  [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.floating)] | length') -eq 1 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq '[.[] | select(.floating)] | length') -eq 1 ]] && break
   sleep 0.2
 done
-if [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.floating)] | length') -ne 1 ]]; then
-  echo "window-toggle-floating did not float the focused window: $("$UMBRIEL" windows --json)"
+if [[ $("$ANDROMEDA" windows --json | jq '[.[] | select(.floating)] | length') -ne 1 ]]; then
+  echo "window-toggle-floating did not float the focused window: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-"$UMBRIEL" msg window-toggle-floating > /dev/null
+"$ANDROMEDA" msg window-toggle-floating > /dev/null
 for _ in $(seq 20); do
-  [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.floating)] | length') -eq 0 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq '[.[] | select(.floating)] | length') -eq 0 ]] && break
   sleep 0.2
 done
-if [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.floating)] | length') -ne 0 ]]; then
-  echo "window-toggle-floating did not re-tile the focused window: $("$UMBRIEL" windows --json)"
+if [[ $("$ANDROMEDA" windows --json | jq '[.[] | select(.floating)] | length') -ne 0 ]]; then
+  echo "window-toggle-floating did not re-tile the focused window: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
 # An odd effective gap leaves one indivisible pixel between two half-width columns. The layout assigns that pixel to
 # one column, so their combined span still fits exactly and changing focus cannot nudge the strip by one pixel.
-printf '\n[layout]\ngap = 5\n' >> "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+printf '\n[layout]\ngap = 5\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 odd_ready=false
 for _ in $(seq 40); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   if jq -e '([.[].w] | add) + 9 == 1266' <<< "$windows" > /dev/null; then
     odd_ready=true
     break
@@ -132,12 +132,12 @@ if [[ $odd_ready != true ]]; then
   exit 1
 fi
 odd_geometry=$(jq -c 'sort_by(.title) | map({title, x, w})' <<< "$windows")
-"$UMBRIEL" msg window-focus-left > /dev/null
+"$ANDROMEDA" msg window-focus-left > /dev/null
 sleep 0.1
-left_geometry=$("$UMBRIEL" windows --json | jq -c 'sort_by(.title) | map({title, x, w})')
-"$UMBRIEL" msg window-focus-right > /dev/null
+left_geometry=$("$ANDROMEDA" windows --json | jq -c 'sort_by(.title) | map({title, x, w})')
+"$ANDROMEDA" msg window-focus-right > /dev/null
 sleep 0.1
-right_geometry=$("$UMBRIEL" windows --json | jq -c 'sort_by(.title) | map({title, x, w})')
+right_geometry=$("$ANDROMEDA" windows --json | jq -c 'sort_by(.title) | map({title, x, w})')
 if [[ $left_geometry != "$odd_geometry" || $right_geometry != "$odd_geometry" ]]; then
   echo "odd-gap focus shifted window geometry: initial=$odd_geometry left=$left_geometry right=$right_geometry"
   exit 1

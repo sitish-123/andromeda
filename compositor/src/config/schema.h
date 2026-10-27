@@ -6,9 +6,9 @@
 #include <string>
 #include <string_view>
 
-namespace umbriel {
+namespace andromeda {
 
-  // Options per top-level section, for `umbriel config schema`. Tables, maps, and arrays of tables only group options
+  // Options per top-level section, for `andromeda config schema`. Tables, maps, and arrays of tables only group options
   // and are not counted.
   [[nodiscard]] std::string configSchemaSummary(const registry::Descriptions& keys);
   // `{"version": ..., "revision": ..., "options": [...]}`, sorted by path. `version` stays the same across many
@@ -17,4 +17,4 @@ namespace umbriel {
       const registry::Descriptions& keys, std::string_view version, std::optional<std::string_view> revision
   );
 
-} // namespace umbriel
+} // namespace andromeda

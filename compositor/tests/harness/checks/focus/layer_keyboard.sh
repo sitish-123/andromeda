@@ -3,16 +3,16 @@
 # quick terminals, and panels rely on. Unlike an exclusive layer it holds no grab, so focusing a window afterward
 # moves the keyboard back.
 set -euo pipefail
-source "$UMBRIEL_HARNESS_LIB"
+source "$ANDROMEDA_HARNESS_LIB"
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly LAYER_CLIENT="${UMBRIEL_LAYER_CLIENT:-./build-debug/tests/layer-client}"
-readonly WINDOW_LOG="$UMBRIEL_RUNTIME_DIR/layer-focus-window.log"
-readonly PANEL_LOG="$UMBRIEL_RUNTIME_DIR/layer-focus-panel.log"
-readonly KEYBOARD_LOG="$UMBRIEL_RUNTIME_DIR/layer-focus-keyboard.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly LAYER_CLIENT="${ANDROMEDA_LAYER_CLIENT:-./build-debug/tests/layer-client}"
+readonly WINDOW_LOG="$ANDROMEDA_RUNTIME_DIR/layer-focus-window.log"
+readonly PANEL_LOG="$ANDROMEDA_RUNTIME_DIR/layer-focus-panel.log"
+readonly KEYBOARD_LOG="$ANDROMEDA_RUNTIME_DIR/layer-focus-keyboard.log"
 
 if [[ ! -x $POINTER || ! -x $OBSERVER || ! -x $LAYER_CLIENT ]]; then
   echo "layer focus helpers are not available"
@@ -36,12 +36,12 @@ refuse_events() {
 "$OBSERVER" layer-focus-window > "$WINDOW_LOG" 2>&1 &
 window_id=
 for _ in $(seq 60); do
-  window_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "layer-focus-window") | .id')
+  window_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "layer-focus-window") | .id')
   [[ -n $window_id && $window_id != null ]] && break
   sleep 0.1
 done
 if [[ -z $window_id || $window_id == null ]]; then
-  echo "the observer window was not registered: $("$UMBRIEL" windows --json | jq -c 'map(.title)')"
+  echo "the observer window was not registered: $("$ANDROMEDA" windows --json | jq -c 'map(.title)')"
   exit 1
 fi
 # The window is focused because it just mapped, so the enter also proves the keyboard reached the seat.
@@ -55,7 +55,7 @@ await_events "$PANEL_LOG" ready 1 "the panel"
 await_events "$PANEL_LOG" keyboard-enter 1 "the panel"
 await_events "$WINDOW_LOG" keyboard-leave 1 "the window"
 
-"$UMBRIEL" msg "window-focus:$window_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$window_id" > /dev/null
 await_events "$WINDOW_LOG" keyboard-enter 2 "the window"
 await_events "$PANEL_LOG" keyboard-leave 1 "the panel"
 refuse_events "$PANEL_LOG" keyboard-enter 1 "the panel"

@@ -6,11 +6,11 @@ set -euo pipefail
 
 readonly BTN_LEFT=272
 readonly TITLE=floating-drag-maximize-restore
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/floating-drag-maximize-restore.log"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/floating-drag-maximize-restore.log"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -29,10 +29,10 @@ default_floating = true
 default_floating_size_px = { width = 480, height = 300 }
 default_position = { x = 173, y = 109, anchor = "top_left" }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 ipc_box() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$TITLE" '.[] | select(.title == $title) | "\(.w)x\(.h)+\(.x)+\(.y)"'
 }
 
@@ -50,17 +50,17 @@ wait_for_box() {
 "$CLIENT" "$TITLE" 480 300 > "$CLIENT_LOG" 2>&1 &
 wait_for_box 480x300+173+109
 
-window_id=$("$UMBRIEL" windows --json | jq -r --arg title "$TITLE" '.[] | select(.title == $title) | .id')
-"$UMBRIEL" msg "window-focus-warp:$window_id" > /dev/null
+window_id=$("$ANDROMEDA" windows --json | jq -r --arg title "$TITLE" '.[] | select(.title == $title) | .id')
+"$ANDROMEDA" msg "window-focus-warp:$window_id" > /dev/null
 
 # Grab the center and move by exactly +320,+180 without changing workspace.
 "$POINTER" 1280 720 move 413 259 mod logo press "$BTN_LEFT" move 733 439 release "$BTN_LEFT" mod none
 wait_for_box 480x300+493+289
 
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_box 1280x720+0+0
 
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_box 480x300+493+289
 
 echo "floating maximize restored the exact same-workspace drag position"

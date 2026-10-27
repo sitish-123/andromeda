@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/umbriel"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/andromeda"
 config_file="$config_dir/config.toml"
 theme_file="$config_dir/noctalia.toml"
 

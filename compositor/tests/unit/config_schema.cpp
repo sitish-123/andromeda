@@ -1,4 +1,4 @@
-// `umbriel config schema` prints what the registry declares. Values a declaration states by hand, rather than taking
+// `andromeda config schema` prints what the registry declares. Values a declaration states by hand, rather than taking
 // from the field it reads, must agree with the reader.
 
 #include "check.h"
@@ -14,19 +14,19 @@
 #include <unistd.h>
 #include <vector>
 
-using umbriel::registry::Descriptions;
-using umbriel::registry::KeyDescription;
+using andromeda::registry::Descriptions;
+using andromeda::registry::KeyDescription;
 
 namespace {
 
   const std::filesystem::path& configPath() {
     static const std::filesystem::path path =
-        std::filesystem::temp_directory_path() / ("umbriel-config-schema-" + std::to_string(getpid()) + ".toml");
+        std::filesystem::temp_directory_path() / ("andromeda-config-schema-" + std::to_string(getpid()) + ".toml");
     return path;
   }
 
   struct Loaded {
-    umbriel::Config config;
+    andromeda::Config config;
     std::vector<std::string> messages;
   };
 
@@ -35,9 +35,9 @@ namespace {
       std::ofstream out(configPath());
       out << document;
     }
-    (void)umbriel::loadConfig(configPath().c_str());
-    Loaded loaded{.config = umbriel::config(), .messages = {}};
-    for (const auto& diagnostic : umbriel::configDiagnostics()) {
+    (void)andromeda::loadConfig(configPath().c_str());
+    Loaded loaded{.config = andromeda::config(), .messages = {}};
+    for (const auto& diagnostic : andromeda::configDiagnostics()) {
       loaded.messages.push_back(diagnostic.message);
     }
     std::filesystem::remove(configPath());
@@ -118,8 +118,8 @@ namespace {
 } // namespace
 
 // Every stated default, written into a config, draws no diagnostic and loads as the built-in value.
-UMBRIEL_TEST(statedDefaultsLoadAsTheBuiltInValues) {
-  const Descriptions builtIn = umbriel::registry::describeConfig(umbriel::Config{});
+ANDROMEDA_TEST(statedDefaultsLoadAsTheBuiltInValues) {
+  const Descriptions builtIn = andromeda::registry::describeConfig(andromeda::Config{});
   toml::table document;
   int written = 0;
   for (const KeyDescription& key : builtIn) {
@@ -147,13 +147,13 @@ UMBRIEL_TEST(statedDefaultsLoadAsTheBuiltInValues) {
 
   const Loaded loaded = load(document);
   if (!loaded.messages.empty()) {
-    umbriel::test::reportFailure(__FILE__, __LINE__, "stated defaults draw diagnostics:" + joined(loaded.messages));
+    andromeda::test::reportFailure(__FILE__, __LINE__, "stated defaults draw diagnostics:" + joined(loaded.messages));
   }
-  const Descriptions reloaded = umbriel::registry::describeConfig(loaded.config);
+  const Descriptions reloaded = andromeda::registry::describeConfig(loaded.config);
   CHECK_EQ(reloaded.size(), builtIn.size());
   for (size_t index = 0; index < builtIn.size() && index < reloaded.size(); ++index) {
     if (reloaded[index].defaultValue != builtIn[index].defaultValue) {
-      umbriel::test::reportFailure(
+      andromeda::test::reportFailure(
           __FILE__, __LINE__,
           std::format(
               "{} states {} but loads as {}", builtIn[index].path, builtIn[index].defaultValue.dump(),
@@ -164,17 +164,17 @@ UMBRIEL_TEST(statedDefaultsLoadAsTheBuiltInValues) {
   }
   // A default a declaration states by hand is checked by the config it loads into, not by describing that config
   // back through the same declaration. Colors are compared above: a built-in color is not an exact n/255.
-  umbriel::Config withDefaults = loaded.config;
-  const umbriel::Config empty = load(toml::table{}).config;
+  andromeda::Config withDefaults = loaded.config;
+  const andromeda::Config empty = load(toml::table{}).config;
   withDefaults.colors = empty.colors;
   CHECK(withDefaults == empty);
 }
 
 // The JSON a tool caches by revision: fixed root keys, one entry per path in sorted order, integer bounds for integer
 // keys, and no default where a key has none.
-UMBRIEL_TEST(jsonIsSortedAndTyped) {
+ANDROMEDA_TEST(jsonIsSortedAndTyped) {
   const auto json = nlohmann::ordered_json::parse(
-      umbriel::configSchemaJson(umbriel::registry::describeConfig(umbriel::Config{}), "0.1.0", std::nullopt)
+      andromeda::configSchemaJson(andromeda::registry::describeConfig(andromeda::Config{}), "0.1.0", std::nullopt)
   );
   std::vector<std::string> roots;
   for (const auto& [key, value] : json.items()) {
@@ -187,12 +187,12 @@ UMBRIEL_TEST(jsonIsSortedAndTyped) {
   for (const auto& option : json["options"]) {
     const std::string path = option["path"];
     if (!(previous < path)) {
-      umbriel::test::reportFailure(__FILE__, __LINE__, std::format("{} is out of order or repeated", path));
+      andromeda::test::reportFailure(__FILE__, __LINE__, std::format("{} is out of order or repeated", path));
     }
     previous = path;
     for (const char* bound : {"min", "max"}) {
       if (option["type"] == "int" && option.contains(bound) && !option[bound].is_number_integer()) {
-        umbriel::test::reportFailure(__FILE__, __LINE__, std::format("{} has a non-integer {}", path, bound));
+        andromeda::test::reportFailure(__FILE__, __LINE__, std::format("{} has a non-integer {}", path, bound));
       }
     }
     if (path == "input.touchpad.natural_scroll") {
@@ -204,9 +204,9 @@ UMBRIEL_TEST(jsonIsSortedAndTyped) {
 }
 
 // Every value a key lists is one its reader accepts without complaint.
-UMBRIEL_TEST(listedValuesAreAccepted) {
+ANDROMEDA_TEST(listedValuesAreAccepted) {
   int tried = 0;
-  for (const KeyDescription& key : umbriel::registry::describeConfig(umbriel::Config{})) {
+  for (const KeyDescription& key : andromeda::registry::describeConfig(andromeda::Config{})) {
     for (const std::string_view value : key.values) {
       std::string concrete;
       const toml::table document = documentSetting(key.path, nlohmann::ordered_json(value), concrete);
@@ -214,7 +214,7 @@ UMBRIEL_TEST(listedValuesAreAccepted) {
       ++tried;
       for (const std::string& message : loaded.messages) {
         if (message.contains(concrete)) {
-          umbriel::test::reportFailure(
+          andromeda::test::reportFailure(
               __FILE__, __LINE__, std::format(R"({} = "{}" is listed but rejected: {})", key.path, value, message)
           );
         }

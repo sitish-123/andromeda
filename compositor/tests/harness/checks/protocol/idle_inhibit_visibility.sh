@@ -3,8 +3,8 @@
 # workspace becomes inactive while its process and protocol objects stay alive.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_IDLE_INHIBIT_CLIENT:-./build-debug/tests/idle-inhibit-client}"
-CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/idle-inhibit-client.log"
+readonly CLIENT="${ANDROMEDA_IDLE_INHIBIT_CLIENT:-./build-debug/tests/idle-inhibit-client}"
+CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/idle-inhibit-client.log"
 
 "$CLIENT" > "$CLIENT_LOG" 2>&1 &
 
@@ -23,7 +23,7 @@ if grep -q '^idled$' "$CLIENT_LOG"; then
   exit 1
 fi
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 for _ in $(seq 40); do
   grep -q '^idled$' "$CLIENT_LOG" && break
   sleep 0.05

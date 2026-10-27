@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# File transfers through the shell against a real umbriel-linkd and a present headless phone: a phone's offer becomes a
+# File transfers through the shell against a real andromeda-linkd and a present headless phone: a phone's offer becomes a
 # notification whose Accept action accepts it over D-Bus, the transfer shows a progress notification, and the result
 # a notification whose Open and Show in folder actions open the received file and its folder through the default
 # handlers (a recording stand-in in the private HOME); a declined offer reaches the phone as declined; link-send-file
@@ -39,20 +39,20 @@ with_noctalia '
   PHONE_DL=$RUNTIME/phone-downloads
   mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
 
-  XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --code "$CODE" --addr "127.0.0.1:$PORT" \
     >> "$OUT/phone.log" 2>&1 || fail "pairing"
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --downloads "$PHONE_DL" hold --on-offer accept \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --downloads "$PHONE_DL" hold --on-offer accept \
     < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
 

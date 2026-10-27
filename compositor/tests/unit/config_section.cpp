@@ -3,8 +3,8 @@
 
 #include <string>
 
-using umbriel::ConfigDiagnostic;
-using umbriel::Section;
+using andromeda::ConfigDiagnostic;
+using andromeda::Section;
 
 namespace {
 
@@ -24,7 +24,7 @@ namespace {
 
 } // namespace
 
-UMBRIEL_TEST(readsEveryScalarKind) {
+ANDROMEDA_TEST(readsEveryScalarKind) {
   const auto table = toml::parse(R"(
     count = 7
     ratio = 0.5
@@ -56,7 +56,7 @@ UMBRIEL_TEST(readsEveryScalarKind) {
   CHECK_EQ(static_cast<int>(diagnostics.size()), 0);
 }
 
-UMBRIEL_TEST(absentKeysLeaveTargetsAlone) {
+ANDROMEDA_TEST(absentKeysLeaveTargetsAlone) {
   const auto table = toml::parse("other = 1");
   std::vector<ConfigDiagnostic> diagnostics;
   int count = 42;
@@ -68,7 +68,7 @@ UMBRIEL_TEST(absentKeysLeaveTargetsAlone) {
   CHECK_EQ(count, 42);
 }
 
-UMBRIEL_TEST(unknownKeysAreReportedWithoutAParallelList) {
+ANDROMEDA_TEST(unknownKeysAreReportedWithoutAParallelList) {
   // The whole point: nothing here declares the vocabulary. Asking for "count" is
   // what makes "count" known, so the two cannot drift apart.
   const auto table = toml::parse(R"(
@@ -85,7 +85,7 @@ UMBRIEL_TEST(unknownKeysAreReportedWithoutAParallelList) {
   CHECK(!contains(diagnostics, "demo.count"));
 }
 
-UMBRIEL_TEST(emptySectionNameReportsTopLevelKeysWithoutLeadingDot) {
+ANDROMEDA_TEST(emptySectionNameReportsTopLevelKeysWithoutLeadingDot) {
   const auto table = toml::parse("typo = 2");
   std::vector<ConfigDiagnostic> diagnostics;
   {
@@ -95,7 +95,7 @@ UMBRIEL_TEST(emptySectionNameReportsTopLevelKeysWithoutLeadingDot) {
   CHECK(!contains(diagnostics, "unknown key .typo"));
 }
 
-UMBRIEL_TEST(unknownKeysAreReportedEvenWhenTheReaderStopsEarly) {
+ANDROMEDA_TEST(unknownKeysAreReportedEvenWhenTheReaderStopsEarly) {
   // Emitted from the destructor, so a reader that returns before asking for
   // everything still reports what it never claimed.
   const auto table = toml::parse("typo = 1");
@@ -107,7 +107,7 @@ UMBRIEL_TEST(unknownKeysAreReportedEvenWhenTheReaderStopsEarly) {
   CHECK(contains(diagnostics, "unknown key demo.typo"));
 }
 
-UMBRIEL_TEST(freeformSuppressesTheWholeReport) {
+ANDROMEDA_TEST(freeformSuppressesTheWholeReport) {
   // Sections whose keys are user-chosen names, not a fixed vocabulary.
   const auto table = toml::parse(R"(
     ANYTHING = "1"
@@ -121,7 +121,7 @@ UMBRIEL_TEST(freeformSuppressesTheWholeReport) {
   CHECK_EQ(static_cast<int>(diagnostics.size()), 0);
 }
 
-UMBRIEL_TEST(wrongTypesAreReportedAndIgnored) {
+ANDROMEDA_TEST(wrongTypesAreReportedAndIgnored) {
   const auto table = toml::parse(R"(
     count = "not a number"
     ratio = "nope"
@@ -158,7 +158,7 @@ UMBRIEL_TEST(wrongTypesAreReportedAndIgnored) {
   CHECK(contains(diagnostics, "ignoring demo.tint (expected color string)"));
 }
 
-UMBRIEL_TEST(anIntegerIsNotABoolean) {
+ANDROMEDA_TEST(anIntegerIsNotABoolean) {
   // TOML has a real boolean type; `flag = 1` is a mistake worth reporting rather
   // than silently coercing.
   const auto table = toml::parse("flag = 1");
@@ -172,7 +172,7 @@ UMBRIEL_TEST(anIntegerIsNotABoolean) {
   CHECK(contains(diagnostics, "expected boolean"));
 }
 
-UMBRIEL_TEST(outOfRangeValuesClampAndSaySo) {
+ANDROMEDA_TEST(outOfRangeValuesClampAndSaySo) {
   const auto table = toml::parse(R"(
     high = 500
     low = -10
@@ -194,7 +194,7 @@ UMBRIEL_TEST(outOfRangeValuesClampAndSaySo) {
   CHECK(contains(diagnostics, "demo.low = -10 out of range, clamped to 0"));
 }
 
-UMBRIEL_TEST(inRangeValuesDoNotWarn) {
+ANDROMEDA_TEST(inRangeValuesDoNotWarn) {
   const auto table = toml::parse("edge = 100");
   std::vector<ConfigDiagnostic> diagnostics;
   int edge = 0;
@@ -207,7 +207,7 @@ UMBRIEL_TEST(inRangeValuesDoNotWarn) {
   CHECK_EQ(static_cast<int>(diagnostics.size()), 0);
 }
 
-UMBRIEL_TEST(notANumberIsRejectedRatherThanClamped) {
+ANDROMEDA_TEST(notANumberIsRejectedRatherThanClamped) {
   // std::clamp on a NaN would propagate it into the config.
   const auto table = toml::parse("ratio = nan");
   std::vector<ConfigDiagnostic> diagnostics;
@@ -220,7 +220,7 @@ UMBRIEL_TEST(notANumberIsRejectedRatherThanClamped) {
   CHECK(contains(diagnostics, "expected number"));
 }
 
-UMBRIEL_TEST(invalidColorsAreReportedWithTheOffendingText) {
+ANDROMEDA_TEST(invalidColorsAreReportedWithTheOffendingText) {
   const auto table = toml::parse(R"(tint = "octarine")");
   std::vector<ConfigDiagnostic> diagnostics;
   std::array<float, 4> tint{};
@@ -231,7 +231,7 @@ UMBRIEL_TEST(invalidColorsAreReportedWithTheOffendingText) {
   CHECK(contains(diagnostics, "invalid color 'octarine'"));
 }
 
-UMBRIEL_TEST(optionalTargetsStayUnsetWhenTheKeyIsAbsent) {
+ANDROMEDA_TEST(optionalTargetsStayUnsetWhenTheKeyIsAbsent) {
   const auto table = toml::parse("present = 5");
   std::vector<ConfigDiagnostic> diagnostics;
   std::optional<int> present;
@@ -253,7 +253,7 @@ UMBRIEL_TEST(optionalTargetsStayUnsetWhenTheKeyIsAbsent) {
   CHECK(!absentFlag.has_value());
 }
 
-UMBRIEL_TEST(nestedTablesReportUnderTheirFullPath) {
+ANDROMEDA_TEST(nestedTablesReportUnderTheirFullPath) {
   const auto table = toml::parse(R"(
     [inner]
     depth = 2
@@ -269,7 +269,7 @@ UMBRIEL_TEST(nestedTablesReportUnderTheirFullPath) {
   CHECK(contains(diagnostics, "unknown key outer.inner.typo"));
 }
 
-UMBRIEL_TEST(aNestedKeyThatIsNotATableIsReportedNotDescendedInto) {
+ANDROMEDA_TEST(aNestedKeyThatIsNotATableIsReportedNotDescendedInto) {
   const auto table = toml::parse("inner = 5");
   std::vector<ConfigDiagnostic> diagnostics;
   bool entered = false;
@@ -281,7 +281,7 @@ UMBRIEL_TEST(aNestedKeyThatIsNotATableIsReportedNotDescendedInto) {
   CHECK(contains(diagnostics, "ignoring outer.inner (expected table)"));
 }
 
-UMBRIEL_TEST(anAbsentNestedTableIsNotAnError) {
+ANDROMEDA_TEST(anAbsentNestedTableIsNotAnError) {
   const auto table = toml::parse("");
   std::vector<ConfigDiagnostic> diagnostics;
   bool entered = false;
@@ -293,7 +293,7 @@ UMBRIEL_TEST(anAbsentNestedTableIsNotAnError) {
   CHECK_EQ(static_cast<int>(diagnostics.size()), 0);
 }
 
-UMBRIEL_TEST(diagnosticsCarryTheSourcePositionOfTheOffendingKey) {
+ANDROMEDA_TEST(diagnosticsCarryTheSourcePositionOfTheOffendingKey) {
   const auto table = toml::parse("\n\ntypo = 1\n");
   std::vector<ConfigDiagnostic> diagnostics;
   {

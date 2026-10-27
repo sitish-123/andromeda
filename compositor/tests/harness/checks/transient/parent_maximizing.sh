@@ -3,14 +3,14 @@
 # taking, not the one it has yet to leave, and stays there once the parent gets there.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly OBSERVER="${UMBRIEL_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
-readonly PARENT_LOG="$UMBRIEL_RUNTIME_DIR/maximizing-parent.log"
-readonly CHILD_LOG="$UMBRIEL_RUNTIME_DIR/maximizing-child.log"
-readonly PARENT_FIFO="$UMBRIEL_RUNTIME_DIR/maximizing-parent-control"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly OBSERVER="${ANDROMEDA_SEAT_LOG_CLIENT:-./build-debug/tests/seat-log-client}"
+readonly PARENT_LOG="$ANDROMEDA_RUNTIME_DIR/maximizing-parent.log"
+readonly CHILD_LOG="$ANDROMEDA_RUNTIME_DIR/maximizing-child.log"
+readonly PARENT_FIFO="$ANDROMEDA_RUNTIME_DIR/maximizing-parent-control"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 field_of() {
@@ -50,7 +50,7 @@ wait_for_position() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF2'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF2'
 
 [animation]
 enabled = false
@@ -60,7 +60,7 @@ match.title = "^maximizing-parent$"
 default_floating = true
 default_position = { x = 0, y = 0, anchor = "top_left" }
 EOF2
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # The parent keeps its own 640x480 at 0,0 and leaves the configure that maximizes it unanswered until told to, so it
 # stays at that size with the maximize pending.
@@ -78,7 +78,7 @@ if [[ -z $handle ]]; then
   echo "the parent never received its xdg-foreign handle: $(cat "$PARENT_LOG")"
   exit 1
 fi
-"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize-to-edges > /dev/null
 
 # The 400x300 dialog centers over the whole 1280x720 output the parent is taking, at 440,210, not over its old box.
 TRANSIENT_FOREIGN_HANDLE=$handle "$CLIENT" maximizing-child 400 300 > "$CHILD_LOG" 2>&1 &

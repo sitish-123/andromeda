@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# A browser or media player leaves video fullscreen through an xdg-toplevel client request, not Umbriel's fullscreen
+# A browser or media player leaves video fullscreen through an xdg-toplevel client request, not Andromeda's fullscreen
 # action. The next motion inside a tile revealed beneath the stationary pointer must refresh hover focus.
 set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/client-fullscreen-control"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/client-fullscreen.log"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/client-fullscreen-control"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/client-fullscreen.log"
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_count() {
   local want=$1
@@ -43,7 +43,7 @@ wait_for_configured_state() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "scrolling"
@@ -58,7 +58,7 @@ curve = "linear"
 [input.focus]
 follows_mouse = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
@@ -70,7 +70,7 @@ wait_for_count 2
 
 "$POINTER" "$OUTPUT_W" "$OUTPUT_H" move 322 360
 left_id=$(windows | jq -r '.[] | select(.title == "client-fullscreen-left") | .id')
-"$UMBRIEL" msg "window-focus:$left_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$left_id" > /dev/null
 wait_for_query \
   '[.[] | select(.title == "client-fullscreen-left" and .active)] | length == 1' \
   "left tile did not take pointer focus"

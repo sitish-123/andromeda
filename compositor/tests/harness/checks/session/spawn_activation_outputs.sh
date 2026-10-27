@@ -4,13 +4,13 @@
 # the other output must activate that view instead of mistaking its per-workspace focus for global keyboard focus.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly TARGET_LOG="$UMBRIEL_RUNTIME_DIR/spawn-output-target.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/spawn-output-control"
-readonly TOKEN_FILE="$UMBRIEL_RUNTIME_DIR/spawn-output-token"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/spawn-output-target.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/spawn-output-control"
+readonly TOKEN_FILE="$ANDROMEDA_RUNTIME_DIR/spawn-output-token"
 
-sed -i '/autostart = \[\]/a focus_on_activate = false' "$UMBRIEL_CONFIG"
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+sed -i '/autostart = \[\]/a focus_on_activate = false' "$ANDROMEDA_CONFIG"
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[window_rule]]
 match.app_id = "^spawn-output-target$"
@@ -20,16 +20,16 @@ default_output = "HEADLESS-1"
 match.app_id = "^spawn-output-other$"
 default_output = "HEADLESS-2"
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
 APP_ID=spawn-output-target REMAP_ON_STDIN=1 ACTIVATION_TOKEN_FILE="$TOKEN_FILE" \
   "$CLIENT" spawn-output-target <&"$control_fd" > "$TARGET_LOG" 2>&1 &
-APP_ID=spawn-output-other "$CLIENT" spawn-output-other > "$UMBRIEL_RUNTIME_DIR/spawn-output-other.log" 2>&1 &
+APP_ID=spawn-output-other "$CLIENT" spawn-output-other > "$ANDROMEDA_RUNTIME_DIR/spawn-output-other.log" 2>&1 &
 
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   [[ $(jq 'length' <<< "$windows") -eq 2 ]] && break
   sleep 0.1
 done
@@ -40,9 +40,9 @@ if [[ -z $target_id || -z $other_id ]]; then
   exit 1
 fi
 
-"$UMBRIEL" msg "window-focus:$other_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$other_id" > /dev/null
 for _ in $(seq 40); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   target=$(jq -c --arg id "$target_id" '.[] | select(.id == $id)' <<< "$windows")
   other=$(jq -c --arg id "$other_id" '.[] | select(.id == $id)' <<< "$windows")
   [[ $(jq -r '.focused' <<< "$target") == true && $(jq -r '.active' <<< "$target") == false \
@@ -55,10 +55,10 @@ if [[ $(jq -r '.focused' <<< "$target") != true || $(jq -r '.active' <<< "$targe
   exit 1
 fi
 
-"$UMBRIEL" msg \
+"$ANDROMEDA" msg \
   "spawn:printf '%s\n' \"\$XDG_ACTIVATION_TOKEN\" > '$TOKEN_FILE'; printf a > '$CONTROL_FIFO'" > /dev/null
 for _ in $(seq 60); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   [[ $(jq -r --arg id "$target_id" '.[] | select(.id == $id) | .active' <<< "$windows") == true ]] && break
   sleep 0.1
 done

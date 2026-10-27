@@ -1,5 +1,5 @@
 project(
-  'umbriel',
+  'andromeda',
   ['c', 'cpp'],
   version: files('VERSION'),
   meson_version: '>=1.3',
@@ -17,47 +17,47 @@ add_project_arguments(
 )
 git_program = find_program('git', required: false)
 if git_program.found()
-  umbriel_git_revision_h = vcs_tag(
+  andromeda_git_revision_h = vcs_tag(
     input: 'src/core/git_revision.h.in',
-    output: 'umbriel_git_revision.h',
+    output: 'andromeda_git_revision.h',
     command: [git_program, 'describe', '--tags', '--always', '--dirty=-dirty', '--abbrev=12'],
     fallback: 'unknown',
   )
 else
-  umbriel_git_revision_config = configuration_data()
-  umbriel_git_revision_config.set('VCS_TAG', 'unknown')
-  umbriel_git_revision_h = configure_file(
+  andromeda_git_revision_config = configuration_data()
+  andromeda_git_revision_config.set('VCS_TAG', 'unknown')
+  andromeda_git_revision_h = configure_file(
     input: 'src/core/git_revision.h.in',
-    output: 'umbriel_git_revision.h',
-    configuration: umbriel_git_revision_config,
+    output: 'andromeda_git_revision.h',
+    configuration: andromeda_git_revision_config,
   )
 endif
 
-umbriel_data_dir = get_option('prefix') / get_option('datadir')
-umbriel_data_dir_config = configuration_data()
-umbriel_data_dir_config.set_quoted('UMBRIEL_DATA_DIR', umbriel_data_dir)
+andromeda_data_dir = get_option('prefix') / get_option('datadir')
+andromeda_data_dir_config = configuration_data()
+andromeda_data_dir_config.set_quoted('ANDROMEDA_DATA_DIR', andromeda_data_dir)
 configure_file(
   input: 'src/config/data_dir.h.in',
-  output: 'umbriel_data_dir.h',
-  configuration: umbriel_data_dir_config,
+  output: 'andromeda_data_dir.h',
+  configuration: andromeda_data_dir_config,
 )
 add_project_arguments(
   '-DWLR_USE_UNSTABLE',
   language: 'c',
 )
 
-# Version floors here are the union of the compositor's needs and umbrielfx's.
+# Version floors here are the union of the compositor's needs and andromedafx's.
 wayland_server_dep = dependency('wayland-server', version: '>=1.24')
 wayland_client_dep = dependency('wayland-client')
 wayland_protocols_dep = dependency('wayland-protocols', version: '>=1.47')
-# umbrielfx compiles against wlroots' private struct layouts, so it is pinned to
+# andromedafx compiles against wlroots' private struct layouts, so it is pinned to
 # one minor series rather than tracking whatever is installed. The floor is
 # 0.20.1: its scene surface code reads `wlr_surface_output.suspended`.
 wlroots_dep = dependency('wlroots-0.20', version: ['>=0.20.1', '<0.21.0'])
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
 
-# Unit tests, harness clients, and umbrielfx's checks are defined only when
+# Unit tests, harness clients, and andromedafx's checks are defined only when
 # `tests` resolves to enabled. Auto mode covers unsanitized debug builds, so a
 # distribution release build defines no test targets and `meson install` never
 # builds one.
@@ -72,11 +72,11 @@ build_tests = tests_opt.enabled() or (
 # expose them.
 test_ipc_opt = get_option('test_ipc')
 if test_ipc_opt.enabled() or (test_ipc_opt.auto() and get_option('buildtype') == 'debug')
-  add_project_arguments('-DUMBRIEL_TEST_IPC', language: 'cpp')
+  add_project_arguments('-DANDROMEDA_TEST_IPC', language: 'cpp')
 endif
 
 if cpp.get_define('WLR_HAS_SESSION', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
-  error('Umbriel requires wlroots built with session support')
+  error('Andromeda requires wlroots built with session support')
 endif
 wlr_has_drm_backend = cpp.get_define(
   'WLR_HAS_DRM_BACKEND',
@@ -84,7 +84,7 @@ wlr_has_drm_backend = cpp.get_define(
   dependencies: wlroots_dep,
 ) == '1'
 if cpp.get_define('WLR_HAS_LIBINPUT_BACKEND', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
-  error('Umbriel requires wlroots built with the libinput backend')
+  error('Andromeda requires wlroots built with the libinput backend')
 endif
 
 # jemalloc keeps a long-running compositor's heap compact: fewer arenas and fast page decay bound RSS. It interposes malloc only on glibc, so other libc builds
@@ -102,7 +102,7 @@ if is_glibc
   jemalloc_dep = dependency('jemalloc', required: jemalloc_option)
   if jemalloc_dep.found()
     jemalloc_deps += [jemalloc_dep]
-    jemalloc_cpp_args += ['-DUMBRIEL_USE_JEMALLOC=1']
+    jemalloc_cpp_args += ['-DANDROMEDA_USE_JEMALLOC=1']
   endif
 endif
 
@@ -121,13 +121,13 @@ if native_drm_policy_supported
   native_drm_policy_deps += libudev_dep
 endif
 add_project_arguments(
-  '-DUMBRIEL_HAS_NATIVE_DRM_POLICY=' + native_drm_policy_supported.to_int().to_string(),
+  '-DANDROMEDA_HAS_NATIVE_DRM_POLICY=' + native_drm_policy_supported.to_int().to_string(),
   language: 'cpp',
 )
 
 wayland_scanner = find_program('wayland-scanner')
 
-# umbrielfx's vendored layer-shell scene helper needs this server header, so it
+# andromedafx's vendored layer-shell scene helper needs this server header, so it
 # is generated before the subdir that consumes it.
 layer_shell_protocol_h = custom_target(
   'wlr-layer-shell-unstable-v1-protocol.h',
@@ -167,9 +167,9 @@ if tracy_dep.found()
   add_project_arguments('-DTRACY_ENABLE', '-DTRACY_ON_DEMAND', language: 'cpp')
 endif
 
-# Umbriel's fork of the wlroots scene graph and renderer. No installed package
+# Andromeda's fork of the wlroots scene graph and renderer. No installed package
 # can supply it, so it is never probed for.
-subdir('umbrielfx')
+subdir('andromedafx')
 
 # wlroots cursor-shape header pulls enum defs from wayland-protocols.
 wayland_protocols_enums = declare_dependency(
@@ -574,7 +574,7 @@ ext_workspace_client_c = custom_target(
 
 # Logic with no dependency on the compositor: string parsing and layout geometry. Built once and linked by both the
 # compositor and the tests, so a test never recompiles a translation unit. Keep this list free of anything needing
-# umbrielfx, pango, or a running server.
+# andromedafx, pango, or a running server.
 pure_sources = files(
   'src/config/change.cpp',
   'src/config/resolve.cpp',
@@ -610,27 +610,27 @@ pure_sources = files(
   'src/view/drag_physics.cpp',
 )
 
-umbriel_pure_deps = [
+andromeda_pure_deps = [
   wlroots_dep,
   xkbcommon_dep,
-  umbrielfx_dep,
+  andromedafx_dep,
   tomlplusplus_dep,
   layer_shell_protocol_dep,
 ]
 
-umbriel_pure = static_library(
-  'umbriel-pure',
+andromeda_pure = static_library(
+  'andromeda-pure',
   pure_sources,
   include_directories: include_directories('src'),
-  dependencies: umbriel_pure_deps,
+  dependencies: andromeda_pure_deps,
 )
 
 # What a test needs to use the pure layer: the library, the include root, and
-# the dependencies its headers pull in (umbrielfx for the border ring's corner radii).
-umbriel_pure_dep = declare_dependency(
-  link_with: umbriel_pure,
+# the dependencies its headers pull in (andromedafx for the border ring's corner radii).
+andromeda_pure_dep = declare_dependency(
+  link_with: andromeda_pure,
   include_directories: include_directories('src'),
-  dependencies: umbriel_pure_deps,
+  dependencies: andromeda_pure_deps,
 )
 
 # The compositor itself. main.cpp is deliberately not here: everything lives in a library so a test can link any of it without re-listing or recompiling sources,
@@ -711,8 +711,8 @@ core_sources = files(
   'src/server/ipc_commands.cpp',
 )
 
-umbriel_core_deps = [
-  umbrielfx_dep,
+andromeda_core_deps = [
+  andromedafx_dep,
   wlroots_dep,
   wayland_server_dep,
   wayland_client_dep,
@@ -729,8 +729,8 @@ umbriel_core_deps = [
   layer_shell_protocol_dep,
 ]
 
-umbriel_core = static_library(
-  'umbriel-core',
+andromeda_core = static_library(
+  'andromeda-core',
   core_sources + [
     output_mgmt_client_h,
     output_mgmt_client_c,
@@ -740,27 +740,27 @@ umbriel_core = static_library(
     desktop_server_c,
   ] + staging_server_sources,
   include_directories: include_directories('src'),
-  link_with: umbriel_pure,
-  dependencies: umbriel_core_deps,
+  link_with: andromeda_pure,
+  dependencies: andromeda_core_deps,
 )
 
-# A test over compositor code links this and nothing else. It is far heavier than umbriel_pure_dep (umbrielfx, pango, cairo), so prefer the pure layer wherever the
+# A test over compositor code links this and nothing else. It is far heavier than andromeda_pure_dep (andromedafx, pango, cairo), so prefer the pure layer wherever the
 # code under test allows it.
-umbriel_core_dep = declare_dependency(
-  link_with: umbriel_core,
+andromeda_core_dep = declare_dependency(
+  link_with: andromeda_core,
   include_directories: include_directories('src'),
-  dependencies: umbriel_core_deps,
+  dependencies: andromeda_core_deps,
 )
 
 # build_info.cpp is the only unit compiled against the generated revision header
-# and the version define, and it stays out of umbriel_core so a new commit
+# and the version define, and it stays out of andromeda_core so a new commit
 # rebuilds one small object and relinks the compositor instead of the library
 # every test links.
-umbriel = executable(
-  'umbriel',
-  ['src/main.cpp', 'src/core/build_info.cpp', umbriel_git_revision_h],
-  cpp_args: jemalloc_cpp_args + ['-DUMBRIEL_VERSION="' + meson.project_version() + '"'],
-  dependencies: [umbriel_core_dep] + jemalloc_deps,
+andromeda = executable(
+  'andromeda',
+  ['src/main.cpp', 'src/core/build_info.cpp', andromeda_git_revision_h],
+  cpp_args: jemalloc_cpp_args + ['-DANDROMEDA_VERSION="' + meson.project_version() + '"'],
+  dependencies: [andromeda_core_dep] + jemalloc_deps,
   install: true,
 )
 
@@ -772,53 +772,53 @@ if build_tests
 endif
 
 install_data(
-  'data/umbriel.desktop',
+  'data/andromeda.desktop',
   install_dir: get_option('datadir') / 'wayland-sessions',
 )
 
-umbriel_session_config = configuration_data()
-umbriel_session_config.set(
-  'UMBRIEL_EXECUTABLE',
-  get_option('prefix') / get_option('bindir') / 'umbriel',
+andromeda_session_config = configuration_data()
+andromeda_session_config.set(
+  'ANDROMEDA_EXECUTABLE',
+  get_option('prefix') / get_option('bindir') / 'andromeda',
 )
-start_umbriel = configure_file(
-  input: 'data/start-umbriel.in',
-  output: 'start-umbriel',
-  configuration: umbriel_session_config,
+start_andromeda = configure_file(
+  input: 'data/start-andromeda.in',
+  output: 'start-andromeda',
+  configuration: andromeda_session_config,
   install: true,
   install_dir: get_option('bindir'),
   install_mode: 'rwxr-xr-x',
 )
 if build_tests
   test_session_config = configuration_data()
-  test_session_config.set('UMBRIEL_EXECUTABLE', '/bin/sh')
-  test_start_umbriel = configure_file(
-    input: 'data/start-umbriel.in',
-    output: 'test-start-umbriel',
+  test_session_config.set('ANDROMEDA_EXECUTABLE', '/bin/sh')
+  test_start_andromeda = configure_file(
+    input: 'data/start-andromeda.in',
+    output: 'test-start-andromeda',
     configuration: test_session_config,
   )
   test(
     'session-launcher',
     find_program('bash'),
-    args: [files('tests/session_launcher.sh'), start_umbriel, test_start_umbriel],
+    args: [files('tests/session_launcher.sh'), start_andromeda, test_start_andromeda],
   )
 endif
 configure_file(
-  input: 'data/umbriel.service.in',
-  output: 'umbriel.service',
-  configuration: umbriel_session_config,
+  input: 'data/andromeda.service.in',
+  output: 'andromeda.service',
+  configuration: andromeda_session_config,
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
 )
 
 install_data(
-  'data/umbriel-session.target',
-  'data/umbriel-shutdown.target',
+  'data/andromeda-session.target',
+  'data/andromeda-shutdown.target',
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
 )
 
 install_data(
   'examples/config.toml',
-  install_dir: get_option('datadir') / 'umbriel',
+  install_dir: get_option('datadir') / 'andromeda',
 )
 # Bundled effect presets: each directory holds the preset's shader and an
 # effect.toml that defines it without selecting it. Users include the TOML and
@@ -827,6 +827,6 @@ foreach effect : ['animation/reveal', 'animation/squash', 'border/pulse', 'windo
   install_data(
     'examples/effects' / effect / 'shader.glsl',
     'examples/effects' / effect / 'effect.toml',
-    install_dir: get_option('datadir') / 'umbriel' / 'effects' / effect,
+    install_dir: get_option('datadir') / 'andromeda' / 'effects' / effect,
   )
 endforeach

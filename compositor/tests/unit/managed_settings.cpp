@@ -10,12 +10,12 @@
 #include <string_view>
 #include <unistd.h>
 
-using umbriel::documentSetsKey;
-using umbriel::editManagedSetting;
-using umbriel::managedSettingKeys;
-using umbriel::managedSettingValue;
-using umbriel::ManagedSettingValue;
-using umbriel::parseManagedSetting;
+using andromeda::documentSetsKey;
+using andromeda::editManagedSetting;
+using andromeda::managedSettingKeys;
+using andromeda::managedSettingValue;
+using andromeda::ManagedSettingValue;
+using andromeda::parseManagedSetting;
 
 namespace {
   bool accepts(std::string_view key, std::string_view text) { return parseManagedSetting(key, text).value.has_value(); }
@@ -38,20 +38,20 @@ namespace {
   }
 } // namespace
 
-UMBRIEL_TEST(unknownKeysAreRejected) {
+ANDROMEDA_TEST(unknownKeysAreRejected) {
   CHECK(!accepts("input.touchpad.nope", "true"));
   CHECK(!accepts("general.autostart", "x"));
   CHECK(!parseManagedSetting("input.nope", "").error.empty());
 }
 
-UMBRIEL_TEST(booleansAreStrict) {
+ANDROMEDA_TEST(booleansAreStrict) {
   CHECK(accepts("input.touchpad.tap", "true"));
   CHECK(accepts("input.touchpad.tap", "false"));
   CHECK(!accepts("input.touchpad.tap", "yes"));
   CHECK(!accepts("input.touchpad.tap", "1"));
 }
 
-UMBRIEL_TEST(rangesIncludeTheirEdgesOnly) {
+ANDROMEDA_TEST(rangesIncludeTheirEdgesOnly) {
   CHECK(accepts("input.keyboard.repeat_rate", "0"));
   CHECK(accepts("input.keyboard.repeat_rate", "1000"));
   CHECK(!accepts("input.keyboard.repeat_rate", "1001"));
@@ -61,19 +61,19 @@ UMBRIEL_TEST(rangesIncludeTheirEdgesOnly) {
   CHECK(!accepts("input.touchpad.sensitivity", "1.01"));
 }
 
-UMBRIEL_TEST(malformedNumbersAreRejected) {
+ANDROMEDA_TEST(malformedNumbersAreRejected) {
   CHECK(!accepts("input.touchpad.sensitivity", "0.3x"));
   CHECK(!accepts("input.keyboard.repeat_rate", "25.5"));
   CHECK(!accepts("input.keyboard.repeat_rate", " 25"));
 }
 
-UMBRIEL_TEST(choicesAreClosed) {
+ANDROMEDA_TEST(choicesAreClosed) {
   CHECK(accepts("input.touchpad.accel_profile", "adaptive"));
   CHECK(!accepts("input.touchpad.accel_profile", "custom 0.2 0 1"));
   CHECK(!accepts("input.mouse.scroll_button", "MouseSide"));
 }
 
-UMBRIEL_TEST(layoutTextCannotBreakTheDocument) {
+ANDROMEDA_TEST(layoutTextCannotBreakTheDocument) {
   CHECK(accepts("input.keyboard.options", "grp:alt_shift_toggle,caps:escape"));
   CHECK(accepts("input.keyboard.variant", "colemak_dh"));
   CHECK(!accepts("input.keyboard.layout", "us\"\n[general]"));
@@ -81,7 +81,7 @@ UMBRIEL_TEST(layoutTextCannotBreakTheDocument) {
   CHECK(!accepts("input.cursor.theme", "Bibata\nx"));
 }
 
-UMBRIEL_TEST(emptyValueRemovesTheKey) {
+ANDROMEDA_TEST(emptyValueRemovesTheKey) {
   const auto parsed = parseManagedSetting("input.touchpad.tap", "");
   CHECK(parsed.value.has_value() && std::holds_alternative<std::monostate>(*parsed.value));
   const std::string before = editManagedSetting("", "input.touchpad.tap", ManagedSettingValue{false});
@@ -90,7 +90,7 @@ UMBRIEL_TEST(emptyValueRemovesTheKey) {
   CHECK(!documentSetsKey(after, "input.touchpad.tap"));
 }
 
-UMBRIEL_TEST(editsKeepUnrelatedKeys) {
+ANDROMEDA_TEST(editsKeepUnrelatedKeys) {
   std::string doc =
       editManagedSetting("[input.mouse]\nleft_handed = true\n", "input.touchpad.tap", ManagedSettingValue{false});
   doc = editManagedSetting(doc, "input.keyboard.layout", ManagedSettingValue{std::string("us")});
@@ -99,21 +99,21 @@ UMBRIEL_TEST(editsKeepUnrelatedKeys) {
   CHECK(documentSetsKey(doc, "input.keyboard.layout"));
 }
 
-UMBRIEL_TEST(unsetOptionalsReadBackEmpty) {
-  const umbriel::Config defaults;
+ANDROMEDA_TEST(unsetOptionalsReadBackEmpty) {
+  const andromeda::Config defaults;
   CHECK_EQ(managedSettingValue(defaults, "input.touchpad.natural_scroll"), std::string());
   CHECK_EQ(managedSettingValue(defaults, "input.touchpad.tap"), std::string("true"));
   CHECK_EQ(managedSettingValue(defaults, "input.nope"), std::string());
 }
 
-UMBRIEL_TEST(brokenDocumentsSetNothing) {
+ANDROMEDA_TEST(brokenDocumentsSetNothing) {
   CHECK(!documentSetsKey("[input.touchpad\ntap = ", "input.touchpad.tap"));
   CHECK(!documentSetsKey("", "input.touchpad.tap"));
 }
 
-UMBRIEL_TEST(everyKeyRoundTripsThroughTheConfigReader) {
+ANDROMEDA_TEST(everyKeyRoundTripsThroughTheConfigReader) {
   const std::filesystem::path path =
-      std::filesystem::temp_directory_path() / ("umbriel-managed-settings-" + std::to_string(getpid()) + ".toml");
+      std::filesystem::temp_directory_path() / ("andromeda-managed-settings-" + std::to_string(getpid()) + ".toml");
   for (const std::string_view key : managedSettingKeys()) {
     std::string_view sample = xkbSample(key);
     ManagedSettingValue value;
@@ -132,7 +132,7 @@ UMBRIEL_TEST(everyKeyRoundTripsThroughTheConfigReader) {
     }
     CHECK(!sample.empty());
     std::ofstream(path) << editManagedSetting("", key, value);
-    umbriel::ConfigStore& store = umbriel::configStore();
+    andromeda::ConfigStore& store = andromeda::configStore();
     CHECK(store.load(path.c_str()));
     if (!store.diagnostics().empty()) {
       std::println(stderr, "{}: {}", key, store.diagnostics().front().message);

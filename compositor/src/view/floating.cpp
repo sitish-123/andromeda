@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-namespace umbriel {
+namespace andromeda {
 
   void FloatingGeometry::rememberPositionFraction(FloatingPoint origin, const wlr_box& usable) {
     if (usable.width <= 0 || usable.height <= 0) {
@@ -60,4 +60,4 @@ namespace umbriel {
     m_edges = 0;
   }
 
-} // namespace umbriel
+} // namespace andromeda

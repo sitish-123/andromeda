@@ -1,10 +1,10 @@
 # Actions
 
 Actions are the compositor's verbs. Bind one under `[keybinds]`, attach it to a
-[hot corner](keybinds.md#hot-corners), or run it with `umbriel msg <action>`.
-`umbriel msg --help` prints this same list, with the same wording and the same
+[hot corner](keybinds.md#hot-corners), or run it with `andromeda msg <action>`.
+`andromeda msg --help` prints this same list, with the same wording and the same
 grouping. See [Keybinds](keybinds.md) for chord syntax and [IPC](ipc.md) for the
-socket behind `umbriel msg`, including the event stream that reports what an
+socket behind `andromeda msg`, including the event stream that reports what an
 action changed.
 
 ## Argument forms
@@ -17,8 +17,8 @@ are required, `[bracket]` forms are optional.
 | `<cmd>` | Command line, run through the shell: `spawn:kitty` |
 | `<name>` | Submap to enter; `submap:reset` leaves one level |
 | `<workspace>[/<output>]` | Bare digits select a 1-based position, other text selects a name, and double quotes force a name; append `/output` to scope either form |
-| `<output>` | Connector or monitor name from `umbriel outputs` |
-| `<window-id>` | Window id from `umbriel windows` |
+| `<output>` | Connector or monitor name from `andromeda outputs` |
+| `<window-id>` | Window id from `andromeda windows` |
 | `[<window-id>]` | The same id; the bare action targets the focused window |
 | `[<output>]` | Connector or monitor name. Bare `dpms-off` and `dpms-on` target every configured output |
 | `[<scratchpad>]` | Scratchpad name. The bare form selects the implicit `default` scratchpad, which exists only when no named scratchpads are configured |
@@ -38,7 +38,7 @@ are required, `[bracket]` forms are optional.
 Select one screen or window normally. The selected source starts sharing immediately, and the actions below can later
 change it while keeping the same PipeWire stream alive. Shares containing several selected sources remain fixed.
 
-The first set or follow action during an active share opens an Umbriel confirmation panel. Enter, or repeat a
+The first set or follow action during an active share opens an Andromeda confirmation panel. Enter, or repeat a
 target-changing action, to approve it. Any other key or pointer click dismisses the panel and cancels only that pending
 action. A later action asks again. Once approved, target changes are immediate until the share ends. Set
 [`screencast.disable_dynamic_confirmation`](configuration.md#screencast) to `true` to skip this protection.
@@ -257,7 +257,7 @@ See [Layout](layout.md) for geometry, directions, and resizing behavior.
 - Floating and pinned behavior is described in [Layout](layout.md) and
   [Scratchpads](scratchpad.md).
 - An action unavailable in the active layout does nothing from a keybind and
-  returns an explanatory error through `umbriel msg`.
+  returns an explanatory error through `andromeda msg`.
 - `spawn:` supplies an activation token so the launched application can request
   focus. Autostart commands do not receive one.
 - Bare `session-quit` asks for confirmation. Use

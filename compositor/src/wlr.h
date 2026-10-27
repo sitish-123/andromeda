@@ -2,10 +2,10 @@
 #include "wlr_color.h"
 
 extern "C" {
-#include <umbrielfx/render/fx_renderer/fx_renderer.h>
-#include <umbrielfx/types/wlr_scene.h>
+#include <andromedafx/render/fx_renderer/fx_renderer.h>
+#include <andromedafx/types/wlr_scene.h>
 #include <wlr/backend.h>
-#if UMBRIEL_HAS_NATIVE_DRM_POLICY
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
 #include <wlr/backend/drm.h>
 #endif
 #include <wlr/backend/headless.h>

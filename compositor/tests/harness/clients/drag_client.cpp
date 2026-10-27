@@ -57,7 +57,7 @@ namespace {
     Buffer buffer;
     const int stride = width * 4;
     buffer.size = static_cast<size_t>(stride * height);
-    const int fd = memfd_create("umbriel-drag-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-drag-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(buffer.size)) < 0) {
       if (fd >= 0) {
         close(fd);
@@ -95,7 +95,7 @@ namespace {
   void sourceTarget(void*, wl_data_source*, const char*) {}
 
   void sourceSend(void*, wl_data_source*, const char*, int32_t fd) {
-    constexpr std::string_view payload = "umbriel drag regression";
+    constexpr std::string_view payload = "andromeda drag regression";
     size_t offset = 0;
     while (offset < payload.size()) {
       const ssize_t size = write(fd, payload.data() + offset, payload.size() - offset);
@@ -312,7 +312,7 @@ int main(int argc, char* argv[]) {
 
   state.surface = wl_compositor_create_surface(state.compositor);
   state.layerSurface = zwlr_layer_shell_v1_get_layer_surface(
-      state.layerShell, state.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "umbriel-drag-regression"
+      state.layerShell, state.surface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "andromeda-drag-regression"
   );
   zwlr_layer_surface_v1_add_listener(state.layerSurface, &kLayerSurfaceListener, &state);
   zwlr_layer_surface_v1_set_size(state.layerSurface, kSurfaceSize, kSurfaceSize);

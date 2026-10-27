@@ -8,12 +8,12 @@
 #include <sys/types.h>
 #include <utility>
 
-namespace umbriel {
+namespace andromeda {
 
   // True only for the process systemd started directly. Descendants inherit
   // SYSTEMD_EXEC_PID, so comparing it with the current pid prevents nested or
   // manually launched compositors from attaching applications to a host
-  // Umbriel session.
+  // Andromeda session.
   [[nodiscard]] bool isDirectSystemdService(pid_t currentPid, const char* systemdExecPid);
 
   // Return the deepest service or scope unit from cgroup file contents.
@@ -47,4 +47,4 @@ namespace umbriel {
       const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command
   );
 
-} // namespace umbriel
+} // namespace andromeda

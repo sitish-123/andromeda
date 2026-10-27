@@ -5,11 +5,11 @@
 # targets report useful errors.
 set -euo pipefail
 
-readonly BASELINE="$(< "$UMBRIEL_CONFIG")"
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly BASELINE="$(< "$ANDROMEDA_CONFIG")"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
 accepts() {
-  if ! out=$("$UMBRIEL" msg "$1" 2>&1); then
+  if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"
     return 1
   fi
@@ -17,7 +17,7 @@ accepts() {
 
 rejects_with() {
   local action=$1 expected=$2
-  if out=$("$UMBRIEL" msg "$action" 2>&1); then
+  if out=$("$ANDROMEDA" msg "$action" 2>&1); then
     echo "expected '$action' to be rejected, but it succeeded"
     return 1
   fi
@@ -28,13 +28,13 @@ rejects_with() {
 }
 
 write_config() {
-  printf '%s\n\n%s\n' "$BASELINE" "$1" > "$UMBRIEL_CONFIG"
-  "$UMBRIEL" msg config-reload > /dev/null
+  printf '%s\n\n%s\n' "$BASELINE" "$1" > "$ANDROMEDA_CONFIG"
+  "$ANDROMEDA" msg config-reload > /dev/null
 }
 
 expect_focused() {
   local output=$1 name=$2 named=$3 snapshot
-  snapshot=$("$UMBRIEL" workspaces --json)
+  snapshot=$("$ANDROMEDA" workspaces --json)
   if ! jq -e --arg output "$output" --arg name "$name" --argjson named "$named" '
     [.[] | select(.focused)] as $focused
     | ($focused | length) == 1
@@ -49,7 +49,7 @@ expect_focused() {
 
 expect_workspace() {
   local output=$1 index=$2 name=$3 named=$4 snapshot
-  snapshot=$("$UMBRIEL" workspaces --json)
+  snapshot=$("$ANDROMEDA" workspaces --json)
   if ! jq -e --arg output "$output" --argjson index "$index" --arg name "$name" --argjson named "$named" '
     any(.[]; .output == $output and .index == $index and .name == $name and .named == $named)
   ' <<< "$snapshot" > /dev/null; then
@@ -60,7 +60,7 @@ expect_workspace() {
 
 expect_workspace_layout() {
   local output=$1 index=$2 layout=$3 snapshot
-  snapshot=$("$UMBRIEL" workspaces --json)
+  snapshot=$("$ANDROMEDA" workspaces --json)
   if ! jq -e --arg output "$output" --argjson index "$index" --arg layout "$layout" '
     any(.[]; .output == $output and .index == $index and .layout == $layout)
   ' <<< "$snapshot" > /dev/null; then
@@ -173,7 +173,7 @@ default_workspace = "vesktop"'
 foot --title=fixed-inventory-source sh -c 'sleep 120' > /dev/null 2>&1 &
 source_id=
 for _ in $(seq 40); do
-  source_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "fixed-inventory-source") | .id')
+  source_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "fixed-inventory-source") | .id')
   [[ -n $source_id ]] && break
   sleep 0.1
 done
@@ -181,15 +181,15 @@ if [[ -z $source_id ]]; then
   echo "fixed-inventory source window did not map"
   exit 1
 fi
-"$UMBRIEL" msg "window-focus-warp:$source_id" > /dev/null
-source_workspace=$("$UMBRIEL" windows --json | jq -r --arg id "$source_id" '.[] | select(.id == $id) | .workspace')
+"$ANDROMEDA" msg "window-focus-warp:$source_id" > /dev/null
+source_workspace=$("$ANDROMEDA" windows --json | jq -r --arg id "$source_id" '.[] | select(.id == $id) | .workspace')
 if [[ $source_workspace != HEADLESS-2:* ]]; then
   echo "fixed-inventory source did not map on HEADLESS-2: $source_workspace"
   exit 1
 fi
-fixed_nine_id=$("$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .index == 9) | .id')
+fixed_nine_id=$("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .index == 9) | .id')
 accepts "workspace-move-to-output-left"
-snapshot=$("$UMBRIEL" workspaces --json)
+snapshot=$("$ANDROMEDA" workspaces --json)
 if ! jq -e '
   [.[] | select(.output == "HEADLESS-1")] as $fixed
   | ($fixed | length) == 9 and all($fixed[]; .named == false)
@@ -197,7 +197,7 @@ if ! jq -e '
   echo "workspace transfer changed the fixed inventory: $snapshot"
   exit 1
 fi
-transferred_workspace=$("$UMBRIEL" windows --json | jq -r --arg id "$source_id" '.[] | select(.id == $id) | .workspace')
+transferred_workspace=$("$ANDROMEDA" windows --json | jq -r --arg id "$source_id" '.[] | select(.id == $id) | .workspace')
 if ! jq -e --arg id "$fixed_nine_id" --arg transferred "$transferred_workspace" '
   $id == $transferred
     and any(.[]; .id == $id and .output == "HEADLESS-1" and .index == 9 and .name == "9" and .named == false)
@@ -227,7 +227,7 @@ default_workspace = "vesktop"'
 foot --title=full-fixed-source sh -c 'sleep 120' > /dev/null 2>&1 &
 full_source_id=
 for _ in $(seq 40); do
-  full_source_id=$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "full-fixed-source") | .id')
+  full_source_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "full-fixed-source") | .id')
   [[ -n $full_source_id ]] && break
   sleep 0.1
 done
@@ -235,14 +235,14 @@ if [[ -z $full_source_id ]]; then
   echo "full fixed-inventory source window did not map"
   exit 1
 fi
-"$UMBRIEL" msg "window-focus-warp:$full_source_id" > /dev/null
-full_source_workspace=$("$UMBRIEL" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace')
+"$ANDROMEDA" msg "window-focus-warp:$full_source_id" > /dev/null
+full_source_workspace=$("$ANDROMEDA" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace')
 rejects_with "workspace-move-to-output-left" "output has no empty fixed workspace"
-if [[ $("$UMBRIEL" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace') != "$full_source_workspace" ]]; then
+if [[ $("$ANDROMEDA" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace') != "$full_source_workspace" ]]; then
   echo "rejected full fixed-inventory transfer moved the source window"
   exit 1
 fi
-snapshot=$("$UMBRIEL" workspaces --json)
+snapshot=$("$ANDROMEDA" workspaces --json)
 if ! jq -e '
   [.[] | select(.output == "HEADLESS-1")]
   | length == 1 and .[0].index == 1 and .[0].name == "1" and .[0].named == false
@@ -264,11 +264,11 @@ workspaces = "dynamic"
 [[workspace]]
 name = "vesktop"
 output = "HEADLESS-2"'
-"$UMBRIEL" msg "window-focus-warp:$full_source_id" > /dev/null
-fixed_two_id=$("$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .name == "TWO") | .id')
+"$ANDROMEDA" msg "window-focus-warp:$full_source_id" > /dev/null
+fixed_two_id=$("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .name == "TWO") | .id')
 accepts "workspace-move-to-output-left"
-transferred_workspace=$("$UMBRIEL" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace')
-snapshot=$("$UMBRIEL" workspaces --json)
+transferred_workspace=$("$ANDROMEDA" windows --json | jq -r --arg id "$full_source_id" '.[] | select(.id == $id) | .workspace')
+snapshot=$("$ANDROMEDA" workspaces --json)
 if ! jq -e --arg id "$fixed_two_id" --arg transferred "$transferred_workspace" '
   $id == $transferred
     and any(.[]; .id == $id and .output == "HEADLESS-1" and .index == 2 and .name == "TWO" and .named == true)
@@ -278,9 +278,9 @@ if ! jq -e --arg id "$fixed_two_id" --arg transferred "$transferred_workspace" '
 fi
 
 # Protocol create requests cannot extend a fixed inventory either.
-before_create=$("$UMBRIEL" workspaces --json | jq -c 'sort_by(.output, .index)')
+before_create=$("$ANDROMEDA" workspaces --json | jq -c 'sort_by(.output, .index)')
 "$WORKSPACE" --create HEADLESS-1 EXTERNAL
-after_create=$("$UMBRIEL" workspaces --json | jq -c 'sort_by(.output, .index)')
+after_create=$("$ANDROMEDA" workspaces --json | jq -c 'sort_by(.output, .index)')
 if [[ $after_create != "$before_create" ]]; then
   echo "protocol create request changed a fixed inventory: before=$before_create after=$after_create"
   exit 1

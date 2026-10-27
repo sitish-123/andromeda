@@ -11,7 +11,7 @@
 #include "wlr.h"
 // clang-format on
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr int kFadeMs = 100;
@@ -124,4 +124,4 @@ namespace umbriel {
     wlr_scene_rect_set_color(m_rect, color);
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -25,19 +25,19 @@ namespace xdpu {
     uint64_t serial = 0;
   };
 
-  class UmbrielIpc {
+  class AndromedaIpc {
   public:
     using ScreenCastHandler = std::function<void(const ScreenCastCommand&)>;
     using FocusHandler = std::function<void(const std::optional<std::string>&)>;
 
-    UmbrielIpc(
+    AndromedaIpc(
         Loop& loop, ScreenCastHandler screenCastHandler, FocusHandler focusedWindowHandler,
         FocusHandler focusedOutputHandler
     );
-    ~UmbrielIpc();
+    ~AndromedaIpc();
 
-    UmbrielIpc(const UmbrielIpc&) = delete;
-    UmbrielIpc& operator=(const UmbrielIpc&) = delete;
+    AndromedaIpc(const AndromedaIpc&) = delete;
+    AndromedaIpc& operator=(const AndromedaIpc&) = delete;
 
     [[nodiscard]] bool connected() const;
     void setScreenCastActive(bool active);

@@ -4,7 +4,7 @@
 #include <charconv>
 #include <ranges>
 
-namespace umbriel {
+namespace andromeda {
 
   bool sameDrmPhysicalDevice(const DrmDeviceIdentity& first, const DrmDeviceIdentity& second) {
     if (first.pciAddress && second.pciAddress) {
@@ -118,4 +118,4 @@ namespace umbriel {
     });
   }
 
-} // namespace umbriel
+} // namespace andromeda

@@ -8,13 +8,13 @@
 # background shows through where its content should be.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/csd-crop-client.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/csd-crop.png"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/csd-crop-client.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/csd-crop.png"
 
 # A pinned float fixes both content edges, and a one-logical-pixel margin at
 # scale 5/4 puts the crop a quarter texel off the grid on every side.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -41,7 +41,7 @@ default_position = { x = 9, y = 9, anchor = "top_left" }
 [output."HEADLESS-1"]
 scale = 1.25
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" csd-crop 602 402 1 > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -52,14 +52,14 @@ if ! grep -q '^mapped ' "$CLIENT_LOG"; then
   echo "csd crop client never mapped: $(cat "$CLIENT_LOG")"
   exit 1
 fi
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 read -r window_w window_h buffer_w surface_w margin < <(
   sed -n 's/^mapped \([0-9]*\)x\([0-9]*\) buffer \([0-9]*\)x[0-9]* surface \([0-9]*\)x[0-9]* margin \([0-9]*\) .*/\1 \2 \3 \4 \5/p' \
     "$CLIENT_LOG" | tail -1
 )
 
-window=$("$UMBRIEL" windows --json | jq -c '.[] | select(.title == "csd-crop")')
+window=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "csd-crop")')
 if [[ -z $window ]]; then
   echo "csd crop window missing from IPC"
   exit 1

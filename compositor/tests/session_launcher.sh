@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly SOURCE_LAUNCHER=${1:?usage: session_launcher.sh <start-umbriel>}
-readonly SOURCE_DIRECT_LAUNCHER=${2:?usage: session_launcher.sh <start-umbriel> <direct-start-umbriel>}
+readonly SOURCE_LAUNCHER=${1:?usage: session_launcher.sh <start-andromeda>}
+readonly SOURCE_DIRECT_LAUNCHER=${2:?usage: session_launcher.sh <start-andromeda> <direct-start-andromeda>}
 readonly TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TEST_DIR"' EXIT
 
@@ -28,8 +28,8 @@ readonly NESTED_SESSION_ENV="$TEST_DIR/nested-session-environment"
 readonly EXTERNAL_ENV="$TEST_DIR/external-environment"
 readonly EXTERNAL_ARGUMENTS="$TEST_DIR/external-arguments"
 readonly EXTERNAL_SESSION_ENV="$TEST_DIR/external-session-environment"
-readonly LAUNCHER="$TEST_DIR/start-umbriel"
-readonly DIRECT_LAUNCHER="$TEST_DIR/direct-start-umbriel"
+readonly LAUNCHER="$TEST_DIR/start-andromeda"
+readonly DIRECT_LAUNCHER="$TEST_DIR/direct-start-andromeda"
 readonly DIRECT_TARGET="$TEST_DIR/direct-target"
 readonly INJECTION_MARKER="$TEST_DIR/injected"
 readonly DRS_INJECTION_MARKER="$TEST_DIR/drs-injected"
@@ -44,59 +44,59 @@ login_shell=$BASH
 printf '%s\n' "$login_shell" > "$TEST_HOME/shells"
 
 cat > "$TEST_HOME/.bash_profile" <<'EOF'
-printf 'profile\n' >> "$UMBRIEL_TEST_PROFILE_TRACE"
-export UMBRIEL_LOGIN_PROFILE_MARKER='from login profile'
-export PATH="$UMBRIEL_TEST_PROFILE_BIN:$UMBRIEL_TEST_BIN:$UMBRIEL_TEST_HOST_PATH"
+printf 'profile\n' >> "$ANDROMEDA_TEST_PROFILE_TRACE"
+export ANDROMEDA_LOGIN_PROFILE_MARKER='from login profile'
+export PATH="$ANDROMEDA_TEST_PROFILE_BIN:$ANDROMEDA_TEST_BIN:$ANDROMEDA_TEST_HOST_PATH"
 export DISPLAY=:from-login-profile
 export WAYLAND_DISPLAY=profile-wayland
 export WAYLAND_SOCKET=42
-export UMBRIEL_SOCKET=profile-umbriel
+export ANDROMEDA_SOCKET=profile-andromeda
 export XDG_CURRENT_DESKTOP=profile-current
 export XDG_SESSION_DESKTOP=profile-session
 export XDG_SESSION_TYPE=profile-type
 EOF
 
-cat > "$PROFILE_BIN/umbriel-session-profile-path-probe" <<'EOF'
+cat > "$PROFILE_BIN/andromeda-session-profile-path-probe" <<'EOF'
 #!/bin/sh
-printf 'launched\n' > "$UMBRIEL_TEST_PROFILE_EXEC_TRACE"
+printf 'launched\n' > "$ANDROMEDA_TEST_PROFILE_EXEC_TRACE"
 EOF
 
 cat > "$TEST_BIN/systemctl" <<'EOF'
 #!/bin/sh
 if [ "${2:-}" = "show-environment" ]; then
-  [ "${UMBRIEL_TEST_SYSTEMD_AVAILABLE:-true}" = true ]
+  [ "${ANDROMEDA_TEST_SYSTEMD_AVAILABLE:-true}" = true ]
   exit $?
 fi
 if [ "${3:-}" = "is-active" ]; then
   exit 1
 fi
 if [ "${2:-}" = "import-environment" ]; then
-  printf '%s\n' "$@" > "$UMBRIEL_TEST_IMPORT_TRACE"
-  service_path=$UMBRIEL_TEST_MANAGER_PATH
+  printf '%s\n' "$@" > "$ANDROMEDA_TEST_IMPORT_TRACE"
+  service_path=$ANDROMEDA_TEST_MANAGER_PATH
   for name in "$@"; do
     if [ "$name" = PATH ]; then
       service_path=$PATH
       break
     fi
   done
-  printf '%s\n' "$service_path" > "$UMBRIEL_TEST_SERVICE_PATH"
+  printf '%s\n' "$service_path" > "$ANDROMEDA_TEST_SERVICE_PATH"
   exit 0
 fi
-if [ "${3:-}" = "start" ] && [ "${4:-}" = "umbriel.service" ]; then
-  printf '%s\n' "${UMBRIEL_LOGIN_PROFILE_MARKER:-missing}" > "$UMBRIEL_TEST_SERVICE_ENV"
+if [ "${3:-}" = "start" ] && [ "${4:-}" = "andromeda.service" ]; then
+  printf '%s\n' "${ANDROMEDA_LOGIN_PROFILE_MARKER:-missing}" > "$ANDROMEDA_TEST_SERVICE_ENV"
   {
     printf 'WAYLAND_DISPLAY=%s\n' "${WAYLAND_DISPLAY-unset}"
     printf 'WAYLAND_SOCKET=%s\n' "${WAYLAND_SOCKET-unset}"
     printf 'DISPLAY=%s\n' "${DISPLAY-unset}"
-    printf 'UMBRIEL_SOCKET=%s\n' "${UMBRIEL_SOCKET-unset}"
+    printf 'ANDROMEDA_SOCKET=%s\n' "${ANDROMEDA_SOCKET-unset}"
     printf 'XDG_CURRENT_DESKTOP=%s\n' "${XDG_CURRENT_DESKTOP-unset}"
     printf 'XDG_SESSION_DESKTOP=%s\n' "${XDG_SESSION_DESKTOP-unset}"
     printf 'XDG_SESSION_TYPE=%s\n' "${XDG_SESSION_TYPE-unset}"
-  } > "$UMBRIEL_TEST_SERVICE_SESSION_ENV"
-  IFS= read -r service_path < "$UMBRIEL_TEST_SERVICE_PATH"
+  } > "$ANDROMEDA_TEST_SERVICE_SESSION_ENV"
+  IFS= read -r service_path < "$ANDROMEDA_TEST_SERVICE_PATH"
   (
     export PATH="$service_path"
-    umbriel-session-profile-path-probe
+    andromeda-session-profile-path-probe
   ) 2>/dev/null || :
   exit 0
 fi
@@ -105,48 +105,48 @@ EOF
 
 cat > "$TEST_BIN/dbus-update-activation-environment" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$@" > "$UMBRIEL_TEST_DBUS_IMPORT_TRACE"
-printf '%s\n' "${UMBRIEL_LOGIN_PROFILE_MARKER:-missing}" > "$UMBRIEL_TEST_DBUS_ENV"
+printf '%s\n' "$@" > "$ANDROMEDA_TEST_DBUS_IMPORT_TRACE"
+printf '%s\n' "${ANDROMEDA_LOGIN_PROFILE_MARKER:-missing}" > "$ANDROMEDA_TEST_DBUS_ENV"
 EOF
 
 cat > "$DIRECT_TARGET" <<'EOF'
 #!/bin/sh
-printf '%s\n' "${UMBRIEL_LOGIN_PROFILE_MARKER:-missing}" > "$UMBRIEL_TEST_DIRECT_ENV"
-printf '%s\n' "$@" > "$UMBRIEL_TEST_DIRECT_ARGUMENTS"
+printf '%s\n' "${ANDROMEDA_LOGIN_PROFILE_MARKER:-missing}" > "$ANDROMEDA_TEST_DIRECT_ENV"
+printf '%s\n' "$@" > "$ANDROMEDA_TEST_DIRECT_ARGUMENTS"
 {
   printf 'WAYLAND_DISPLAY=%s\n' "${WAYLAND_DISPLAY-unset}"
   printf 'WAYLAND_SOCKET=%s\n' "${WAYLAND_SOCKET-unset}"
   printf 'DISPLAY=%s\n' "${DISPLAY-unset}"
-  printf 'UMBRIEL_SOCKET=%s\n' "${UMBRIEL_SOCKET-unset}"
+  printf 'ANDROMEDA_SOCKET=%s\n' "${ANDROMEDA_SOCKET-unset}"
   printf 'XDG_CURRENT_DESKTOP=%s\n' "${XDG_CURRENT_DESKTOP-unset}"
   printf 'XDG_SESSION_DESKTOP=%s\n' "${XDG_SESSION_DESKTOP-unset}"
   printf 'XDG_SESSION_TYPE=%s\n' "${XDG_SESSION_TYPE-unset}"
-} > "$UMBRIEL_TEST_SESSION_ENV"
+} > "$ANDROMEDA_TEST_SESSION_ENV"
 EOF
 
 chmod 700 "$TEST_BIN/systemctl" "$TEST_BIN/dbus-update-activation-environment" \
-  "$PROFILE_BIN/umbriel-session-profile-path-probe"
+  "$PROFILE_BIN/andromeda-session-profile-path-probe"
 
 env -i \
   HOME="$TEST_HOME" \
   SHELL="$login_shell" \
-  USER="${USER:-umbriel-test}" \
-  LOGNAME="${LOGNAME:-umbriel-test}" \
+  USER="${USER:-andromeda-test}" \
+  LOGNAME="${LOGNAME:-andromeda-test}" \
   PATH="$TEST_BIN:$PATH" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$TEST_DIR/nonexistent-bus" \
-  UMBRIEL_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
-  UMBRIEL_TEST_IMPORT_TRACE="$IMPORT_TRACE" \
-  UMBRIEL_TEST_SERVICE_ENV="$SERVICE_ENV" \
-  UMBRIEL_TEST_SERVICE_PATH="$SERVICE_PATH" \
-  UMBRIEL_TEST_SERVICE_SESSION_ENV="$SERVICE_SESSION_ENV" \
-  UMBRIEL_TEST_DBUS_ENV="$DBUS_ENV" \
-  UMBRIEL_TEST_DBUS_IMPORT_TRACE="$DBUS_IMPORT_TRACE" \
-  UMBRIEL_TEST_PROFILE_BIN="$PROFILE_BIN" \
-  UMBRIEL_TEST_PROFILE_EXEC_TRACE="$PROFILE_EXEC_TRACE" \
-  UMBRIEL_TEST_BIN="$TEST_BIN" \
-  UMBRIEL_TEST_HOST_PATH="$PATH" \
-  UMBRIEL_TEST_MANAGER_PATH="$MANAGER_PATH" \
-  UMBRIEL_TEST_SYSTEMD_AVAILABLE=true \
+  ANDROMEDA_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
+  ANDROMEDA_TEST_IMPORT_TRACE="$IMPORT_TRACE" \
+  ANDROMEDA_TEST_SERVICE_ENV="$SERVICE_ENV" \
+  ANDROMEDA_TEST_SERVICE_PATH="$SERVICE_PATH" \
+  ANDROMEDA_TEST_SERVICE_SESSION_ENV="$SERVICE_SESSION_ENV" \
+  ANDROMEDA_TEST_DBUS_ENV="$DBUS_ENV" \
+  ANDROMEDA_TEST_DBUS_IMPORT_TRACE="$DBUS_IMPORT_TRACE" \
+  ANDROMEDA_TEST_PROFILE_BIN="$PROFILE_BIN" \
+  ANDROMEDA_TEST_PROFILE_EXEC_TRACE="$PROFILE_EXEC_TRACE" \
+  ANDROMEDA_TEST_BIN="$TEST_BIN" \
+  ANDROMEDA_TEST_HOST_PATH="$PATH" \
+  ANDROMEDA_TEST_MANAGER_PATH="$MANAGER_PATH" \
+  ANDROMEDA_TEST_SYSTEMD_AVAILABLE=true \
   drs="touch $DRS_INJECTION_MARKER" \
   "$LAUNCHER" plain "two words" 'semi;colon' "quote'and\"double"
 
@@ -154,7 +154,7 @@ if [[ ! -f $PROFILE_TRACE || $(< "$PROFILE_TRACE") != profile ]]; then
   echo "login profile did not run exactly once"
   exit 1
 fi
-if ! grep -Fxq UMBRIEL_LOGIN_PROFILE_MARKER "$IMPORT_TRACE"; then
+if ! grep -Fxq ANDROMEDA_LOGIN_PROFILE_MARKER "$IMPORT_TRACE"; then
   echo "profile variable was not included in the systemd environment import"
   exit 1
 fi
@@ -186,7 +186,7 @@ if ! grep -Fxq PATH "$DBUS_IMPORT_TRACE"; then
   echo "login PATH was not included in the D-Bus environment import"
   exit 1
 fi
-if ! grep -Fxq UMBRIEL_LOGIN_PROFILE_MARKER "$DBUS_IMPORT_TRACE"; then
+if ! grep -Fxq ANDROMEDA_LOGIN_PROFILE_MARKER "$DBUS_IMPORT_TRACE"; then
   echo "profile variable was not included in the D-Bus environment import"
   exit 1
 fi
@@ -194,7 +194,7 @@ cat > "$TEST_DIR/expected-native-session-environment" <<'EOF'
 WAYLAND_DISPLAY=unset
 WAYLAND_SOCKET=unset
 DISPLAY=unset
-UMBRIEL_SOCKET=unset
+ANDROMEDA_SOCKET=unset
 XDG_CURRENT_DESKTOP=unset
 XDG_SESSION_DESKTOP=unset
 XDG_SESSION_TYPE=unset
@@ -207,18 +207,18 @@ fi
 env -i \
   HOME="$TEST_HOME" \
   SHELL="$login_shell" \
-  USER="${USER:-umbriel-test}" \
-  LOGNAME="${LOGNAME:-umbriel-test}" \
+  USER="${USER:-andromeda-test}" \
+  LOGNAME="${LOGNAME:-andromeda-test}" \
   PATH="$TEST_BIN:$PATH" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$TEST_DIR/nonexistent-bus" \
-  UMBRIEL_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
-  UMBRIEL_TEST_DIRECT_ENV="$DIRECT_ENV" \
-  UMBRIEL_TEST_DIRECT_ARGUMENTS="$DIRECT_ARGUMENTS" \
-  UMBRIEL_TEST_SESSION_ENV="$DIRECT_SESSION_ENV" \
-  UMBRIEL_TEST_PROFILE_BIN="$PROFILE_BIN" \
-  UMBRIEL_TEST_BIN="$TEST_BIN" \
-  UMBRIEL_TEST_HOST_PATH="$PATH" \
-  UMBRIEL_TEST_SYSTEMD_AVAILABLE=false \
+  ANDROMEDA_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
+  ANDROMEDA_TEST_DIRECT_ENV="$DIRECT_ENV" \
+  ANDROMEDA_TEST_DIRECT_ARGUMENTS="$DIRECT_ARGUMENTS" \
+  ANDROMEDA_TEST_SESSION_ENV="$DIRECT_SESSION_ENV" \
+  ANDROMEDA_TEST_PROFILE_BIN="$PROFILE_BIN" \
+  ANDROMEDA_TEST_BIN="$TEST_BIN" \
+  ANDROMEDA_TEST_HOST_PATH="$PATH" \
+  ANDROMEDA_TEST_SYSTEMD_AVAILABLE=false \
   drs="touch $DRS_INJECTION_MARKER" \
   "$DIRECT_LAUNCHER" "$DIRECT_TARGET" plain "two words" 'semi;colon' "quote'and\"double" "$DANGEROUS_ARGUMENT"
 
@@ -247,18 +247,18 @@ fi
 env -i \
   HOME="$TEST_HOME" \
   SHELL="$login_shell" \
-  USER="${USER:-umbriel-test}" \
-  LOGNAME="${LOGNAME:-umbriel-test}" \
+  USER="${USER:-andromeda-test}" \
+  LOGNAME="${LOGNAME:-andromeda-test}" \
   PATH="$TEST_BIN:$PATH" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$TEST_DIR/nonexistent-bus" \
   WAYLAND_DISPLAY=wayland-test \
-  UMBRIEL_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
-  UMBRIEL_TEST_DIRECT_ENV="$NESTED_ENV" \
-  UMBRIEL_TEST_DIRECT_ARGUMENTS="$NESTED_ARGUMENTS" \
-  UMBRIEL_TEST_SESSION_ENV="$NESTED_SESSION_ENV" \
-  UMBRIEL_TEST_BIN="$TEST_BIN" \
-  UMBRIEL_TEST_HOST_PATH="$PATH" \
-  UMBRIEL_TEST_SYSTEMD_AVAILABLE=false \
+  ANDROMEDA_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
+  ANDROMEDA_TEST_DIRECT_ENV="$NESTED_ENV" \
+  ANDROMEDA_TEST_DIRECT_ARGUMENTS="$NESTED_ARGUMENTS" \
+  ANDROMEDA_TEST_SESSION_ENV="$NESTED_SESSION_ENV" \
+  ANDROMEDA_TEST_BIN="$TEST_BIN" \
+  ANDROMEDA_TEST_HOST_PATH="$PATH" \
+  ANDROMEDA_TEST_SYSTEMD_AVAILABLE=false \
   drs="touch $DRS_INJECTION_MARKER" \
   "$DIRECT_LAUNCHER" "$DIRECT_TARGET" nested
 
@@ -282,18 +282,18 @@ fi
 env -i \
   HOME="$TEST_HOME" \
   SHELL="$login_shell" \
-  USER="${USER:-umbriel-test}" \
-  LOGNAME="${LOGNAME:-umbriel-test}" \
+  USER="${USER:-andromeda-test}" \
+  LOGNAME="${LOGNAME:-andromeda-test}" \
   PATH="$TEST_BIN:$PATH" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$TEST_DIR/nonexistent-bus" \
   MANAGERPID=1 \
-  UMBRIEL_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
-  UMBRIEL_TEST_DIRECT_ENV="$EXTERNAL_ENV" \
-  UMBRIEL_TEST_DIRECT_ARGUMENTS="$EXTERNAL_ARGUMENTS" \
-  UMBRIEL_TEST_SESSION_ENV="$EXTERNAL_SESSION_ENV" \
-  UMBRIEL_TEST_BIN="$TEST_BIN" \
-  UMBRIEL_TEST_HOST_PATH="$PATH" \
-  UMBRIEL_TEST_SYSTEMD_AVAILABLE=false \
+  ANDROMEDA_TEST_PROFILE_TRACE="$PROFILE_TRACE" \
+  ANDROMEDA_TEST_DIRECT_ENV="$EXTERNAL_ENV" \
+  ANDROMEDA_TEST_DIRECT_ARGUMENTS="$EXTERNAL_ARGUMENTS" \
+  ANDROMEDA_TEST_SESSION_ENV="$EXTERNAL_SESSION_ENV" \
+  ANDROMEDA_TEST_BIN="$TEST_BIN" \
+  ANDROMEDA_TEST_HOST_PATH="$PATH" \
+  ANDROMEDA_TEST_SYSTEMD_AVAILABLE=false \
   drs="touch $DRS_INJECTION_MARKER" \
   /bin/sh -c 'SYSTEMD_EXEC_PID=$$; export SYSTEMD_EXEC_PID; exec "$@"' \
     sh "$DIRECT_LAUNCHER" "$DIRECT_TARGET" external

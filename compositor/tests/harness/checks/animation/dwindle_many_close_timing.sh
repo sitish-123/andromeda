@@ -3,26 +3,26 @@
 # must keep following windows_move for its whole clock instead of pinning at the first overshoot of a non-linear curve.
 set -euo pipefail
 
-readonly SHOTS="$UMBRIEL_RUNTIME_DIR/dwindle-many-close-timing"
+readonly SHOTS="$ANDROMEDA_RUNTIME_DIR/dwindle-many-close-timing"
 readonly OUT_MS=${DWINDLE_OUT_MS:-1370}
 readonly MOVE_MS=${DWINDLE_MOVE_MS:-1030}
 readonly MOVE_CURVE=${DWINDLE_MOVE_CURVE:-snappy}
 readonly SAMPLE_MS=50
 mkdir -p "$SHOTS"
 
-cat > "$UMBRIEL_RUNTIME_DIR/dwindle-transparent-close.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/dwindle-transparent-close.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
     return vec4(0.0);
 }
 GLSL
-cat > "$UMBRIEL_RUNTIME_DIR/dwindle-move-marker.glsl" <<'GLSL'
+cat > "$ANDROMEDA_RUNTIME_DIR/dwindle-move-marker.glsl" <<'GLSL'
 vec4 animation(vec2 uv) {
-    vec4 source = umbriel_sample(uv);
+    vec4 source = andromeda_sample(uv);
     return vec4(source.rgb * 0.78 + vec3(0.22), source.a);
 }
 GLSL
 
-cat >> "$UMBRIEL_CONFIG" <<EOF
+cat >> "$ANDROMEDA_CONFIG" <<EOF
 
 [colors]
 backdrop = "#000000FF"
@@ -63,16 +63,16 @@ effect = "windows_move_dwindle_move_marker"
 [animation.workspaces]
 enabled = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # Animation time only moves by clock-advance. Samples land every SAMPLE_MS after the close.
-"$UMBRIEL" clock-freeze
+"$ANDROMEDA" clock-freeze
 
 spawn() {
   local title=$1 color=$2
-  FILL_COLOR="$color" "$UMBRIEL_UNMAP_CLIENT" "$title" 1280 720 \
-    > "$UMBRIEL_RUNTIME_DIR/$title.log" 2>&1 &
+  FILL_COLOR="$color" "$ANDROMEDA_UNMAP_CLIENT" "$title" 1280 720 \
+    > "$ANDROMEDA_RUNTIME_DIR/$title.log" 2>&1 &
   for _ in $(seq 100); do
-    if "$UMBRIEL" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
+    if "$ANDROMEDA" windows --json | jq -e --arg title "$title" 'any(.[]; .title == $title)' > /dev/null; then
       return 0
     fi
     sleep 0.025
@@ -82,7 +82,7 @@ spawn() {
 }
 
 window_id() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .id'
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" '.[] | select(.title == $title) | .id'
 }
 
 colour_bounds() {
@@ -93,11 +93,11 @@ colour_bounds() {
     blue) expression='b > 0.75 && r < 0.48 && g < 0.48' ;;
     yellow) expression='r > 0.75 && g > 0.75 && b < 0.48' ;;
   esac
-  "$UMBRIEL_PIXEL_PROBE" "$file" bbox "$expression"
+  "$ANDROMEDA_PIXEL_PROBE" "$file" bbox "$expression"
 }
 
 move_marker_pixels() {
-  "$UMBRIEL_PIXEL_PROBE" "$1" count 'r > 0.9 && g > 0.12 && g < 0.4 && b > 0.12 && b < 0.4'
+  "$ANDROMEDA_PIXEL_PROBE" "$1" count 'r > 0.9 && g > 0.12 && g < 0.4 && b > 0.12 && b < 0.4'
 }
 
 # Writes each survivor's box, one line per colour, then the move marker count for <base>.png to <base>.txt.
@@ -116,8 +116,8 @@ spawn dwindle-survivor-red 0xFFFF0000
 spawn dwindle-survivor-green 0xFF00FF00
 spawn dwindle-survivor-blue 0xFF0000FF
 spawn dwindle-survivor-yellow 0xFFFFFF00
-"$UMBRIEL" clock-advance 3000
-"$UMBRIEL" settle
+"$ANDROMEDA" clock-advance 3000
+"$ANDROMEDA" settle
 
 grim "$SHOTS/before.png"
 readonly CLOSE_ID=$(window_id dwindle-close-root)
@@ -126,12 +126,12 @@ if [[ -z $CLOSE_ID ]]; then
   exit 1
 fi
 
-"$UMBRIEL" msg "window-close:$CLOSE_ID" > /dev/null
+"$ANDROMEDA" msg "window-close:$CLOSE_ID" > /dev/null
 for _ in $(seq 100); do
-  grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/dwindle-close-root.log" && break
+  grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/dwindle-close-root.log" && break
   sleep 0.025
 done
-if ! grep -q '^unmapped$' "$UMBRIEL_RUNTIME_DIR/dwindle-close-root.log"; then
+if ! grep -q '^unmapped$' "$ANDROMEDA_RUNTIME_DIR/dwindle-close-root.log"; then
   echo "root dwindle leaf did not unmap"
   exit 1
 fi
@@ -141,7 +141,7 @@ frame_count=$(((OUT_MS + 350) / SAMPLE_MS + 1))
 declare -a sample_times=() probes=()
 # Each frame is measured in the background while the next one is captured.
 for ((i = 0; i < frame_count; i++)); do
-  ((i > 0)) && "$UMBRIEL" clock-advance "$SAMPLE_MS"
+  ((i > 0)) && "$ANDROMEDA" clock-advance "$SAMPLE_MS"
   grim "$SHOTS/frame-$i.png"
   sample_times[$i]=$((i * SAMPLE_MS))
   measure_frame "$SHOTS/frame-$i" &

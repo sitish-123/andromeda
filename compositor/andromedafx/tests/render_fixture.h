@@ -1,5 +1,5 @@
-#ifndef UMBRIELFX_TESTS_RENDER_FIXTURE_H
-#define UMBRIELFX_TESTS_RENDER_FIXTURE_H
+#ifndef ANDROMEDAFX_TESTS_RENDER_FIXTURE_H
+#define ANDROMEDAFX_TESTS_RENDER_FIXTURE_H
 
 #include <assert.h>
 #include <drm_fourcc.h>
@@ -24,12 +24,12 @@
 
 #include "render/color.h"
 #include "render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/render/fx_renderer/fx_renderer.h"
-#include "umbrielfx/render/fx_renderer/fx_offscreen_buffers.h"
-#include "umbrielfx/render/pass.h"
-#include "umbrielfx/types/fx/blur_data.h"
+#include "andromedafx/render/fx_renderer/fx_renderer.h"
+#include "andromedafx/render/fx_renderer/fx_offscreen_buffers.h"
+#include "andromedafx/render/pass.h"
+#include "andromedafx/types/fx/blur_data.h"
 #include <wlr/render/swapchain.h>
-#include <umbrielfx/types/wlr_scene.h>
+#include <andromedafx/types/wlr_scene.h>
 
 #define TEST_WIDTH 16
 #define TEST_HEIGHT 16
@@ -92,7 +92,7 @@ static bool fixture_init(struct fixture *fixture) {
 		return false;
 	}
 
-	const char *requested_device = getenv("UMBRIELFX_TEST_DRM_DEVICE");
+	const char *requested_device = getenv("ANDROMEDAFX_TEST_DRM_DEVICE");
 	if (requested_device != NULL &&
 			fixture_try_device(fixture, requested_device)) {
 		goto create_output;

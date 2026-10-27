@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Media both ways, through the shell, against a real umbriel-linkd and a present headless phone. Proves: a track
-# playing on the phone appears as the MPRIS player umbriel_link_<device> that playerctl reads (title, artist, status,
+# Media both ways, through the shell, against a real andromeda-linkd and a present headless phone. Proves: a track
+# playing on the phone appears as the MPRIS player andromeda_link_<device> that playerctl reads (title, artist, status,
 # position, volume, artwork file) and that the shell's bar, media tab, and lock screen show with no shell change;
 # playerctl's play-pause, seek, volume, and next reach the phone as media-command, and the phone's new state comes
 # back; the player goes when the phone stops it or the session ends. The reverse: a desktop MPRIS test player is sent
@@ -37,26 +37,26 @@ with_noctalia '
     for _ in $(seq 150); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  phone() { "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   pc() { playerctl -p "$PLAYER" "$@" 2> /dev/null || true; }
   phone_saw() { grep -q "$1" "$OUT/hold.jsonl"; }
   calls() { grep -qx "$1" "$OUT/player-calls.txt" 2> /dev/null; }
 
-  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
-  wait_for "shell never saw umbriel-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/umbriel-link/devices.json")
+  XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+  wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
   read -r _ CODE _ <<< "$(msg link-pairing)"
   phone --transcript "$OUT/transcript.jsonl" pair --code "$CODE" --addr "127.0.0.1:$PORT" >> "$OUT/phone.log" || fail "pairing"
   wait_for "phone not listed" eval "[[ \$(msg link-devices) == *\"E2E Phone\" ]]"
   ID=$(msg link-devices | cut -d" " -f1)
-  PLAYER=umbriel_link_$ID
+  PLAYER=andromeda_link_$ID
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
     hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
@@ -101,7 +101,7 @@ with_noctalia '
   wait_for "the desktop player never reached the phone" phone_saw "\"event\":\"media-player\".*\"player\":\"e2e\".*\"title\":\"Desk Session\""
   grep "\"player\":\"e2e\"" "$OUT/hold.jsonl" | tail -1 | grep -q "\"state\":\"playing\"" || fail "the desktop player is not playing on the phone"
   grep "\"player\":\"e2e\"" "$OUT/hold.jsonl" | tail -1 | grep -q "\"volume\":50" || fail "the desktop volume did not reach the phone"
-  grep -q "\"player\":\"$PLAYER\"\|\"player\":\"umbriel_link" "$OUT/hold.jsonl" && fail "the daemon sent the phone its own exported player"
+  grep -q "\"player\":\"$PLAYER\"\|\"player\":\"andromeda_link" "$OUT/hold.jsonl" && fail "the daemon sent the phone its own exported player"
   step "desktop player on the phone: $(grep "\"player\":\"e2e\"" "$OUT/hold.jsonl" | tail -1)"
 
   say "media-command {\"player\":\"e2e\",\"command\":\"pause\"}"
@@ -129,7 +129,7 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/andromeda-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in media-bar media-tab media-lock-screen; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

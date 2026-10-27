@@ -5,21 +5,21 @@
 # per identity, and opening effects, which wait for the title to settle.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/unmap-client}"
-readonly DIM_LOG="$UMBRIEL_RUNTIME_DIR/dim-blank-title.log"
-readonly FLOAT_LOG="$UMBRIEL_RUNTIME_DIR/float-blank-title.log"
-readonly TAG_LOG="$UMBRIEL_RUNTIME_DIR/blank-tag.log"
-readonly DIM_FIFO="$UMBRIEL_RUNTIME_DIR/dim-blank-title-control"
-readonly FLOAT_FIFO="$UMBRIEL_RUNTIME_DIR/float-blank-title-control"
-readonly BEFORE_SHOT="$UMBRIEL_RUNTIME_DIR/dim-blank-title-before.png"
-readonly AFTER_SHOT="$UMBRIEL_RUNTIME_DIR/dim-blank-title-after.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/unmap-client}"
+readonly DIM_LOG="$ANDROMEDA_RUNTIME_DIR/dim-blank-title.log"
+readonly FLOAT_LOG="$ANDROMEDA_RUNTIME_DIR/float-blank-title.log"
+readonly TAG_LOG="$ANDROMEDA_RUNTIME_DIR/blank-tag.log"
+readonly DIM_FIFO="$ANDROMEDA_RUNTIME_DIR/dim-blank-title-control"
+readonly FLOAT_FIFO="$ANDROMEDA_RUNTIME_DIR/float-blank-title-control"
+readonly BEFORE_SHOT="$ANDROMEDA_RUNTIME_DIR/dim-blank-title-before.png"
+readonly AFTER_SHOT="$ANDROMEDA_RUNTIME_DIR/dim-blank-title-after.png"
 
 if [[ ! -x $CLIENT ]]; then
   echo "unmap-client is not built"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -48,7 +48,7 @@ default_floating = true
 match.xdg_tag = "^$"
 default_floating = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 # The inotify watcher reloads this append 150ms later. Its generation bump invalidates the per-identity rule cache, so
 # let it land before the clients: an assertion here must observe the title change, not a reload.
 sleep 0.3 # real time: inotify reload timer
@@ -56,7 +56,7 @@ sleep 0.3 # real time: inotify reload timer
 await_window() {
   local filter=$1 message=$2 windows=
   for _ in $(seq 80); do
-    windows=$("$UMBRIEL" windows --json)
+    windows=$("$ANDROMEDA" windows --json)
     jq -e "$filter" <<< "$windows" > /dev/null && return 0
     sleep 0.05
   done
@@ -81,7 +81,7 @@ exec {dim_fd}<>"$DIM_FIFO"
 env APP_ID=dim-blank-title NO_TITLE=1 TITLE_AFTER_MAP= \
   "$CLIENT" dim-blank-title 800 600 <&"$dim_fd" > "$DIM_LOG" 2>&1 &
 await_window 'length == 1 and .[0].app_id == "dim-blank-title"' "titleless window did not map" || exit 1
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 grim "$BEFORE_SHOT"
 before_green=$(window_green "$BEFORE_SHOT")
 

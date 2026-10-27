@@ -4,11 +4,11 @@
 # must refresh dynamic rules without replaying one-shot opening behavior.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/content-type-client.log"
-readonly CONTROL_FIFO="$UMBRIEL_RUNTIME_DIR/content-type-control"
-readonly BEFORE_SHOT="$UMBRIEL_RUNTIME_DIR/content-type-before.png"
-readonly AFTER_SHOT="$UMBRIEL_RUNTIME_DIR/content-type-after.png"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/content-type-client.log"
+readonly CONTROL_FIFO="$ANDROMEDA_RUNTIME_DIR/content-type-control"
+readonly BEFORE_SHOT="$ANDROMEDA_RUNTIME_DIR/content-type-before.png"
+readonly AFTER_SHOT="$ANDROMEDA_RUNTIME_DIR/content-type-after.png"
 CLIENT_PID=
 
 if [[ ! -x $CLIENT ]]; then
@@ -16,7 +16,7 @@ if [[ ! -x $CLIENT ]]; then
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -40,7 +40,7 @@ opacity = 0.5
 match.content_type = "video"
 default_floating = false
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$CONTROL_FIFO"
 exec {control_fd}<>"$CONTROL_FIFO"
@@ -68,7 +68,7 @@ fi
 
 windows=
 for _ in $(seq 80); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   jq -e '
     length == 1
     and .[0].app_id == "content-type-client"
@@ -86,8 +86,8 @@ if ! jq -e '
   echo "initial subsurface content type or opening rule was not applied: $windows"
   exit 1
 fi
-if ! "$UMBRIEL" windows | grep -Fq '[content_type=game]'; then
-  echo "human-readable window output did not expose the content type: $("$UMBRIEL" windows)"
+if ! "$ANDROMEDA" windows | grep -Fq '[content_type=game]'; then
+  echo "human-readable window output did not expose the content type: $("$ANDROMEDA" windows)"
   exit 1
 fi
 
@@ -103,7 +103,7 @@ before_green=$(
 
 printf 'u' >&"$control_fd"
 for _ in $(seq 80); do
-  windows=$("$UMBRIEL" windows --json)
+  windows=$("$ANDROMEDA" windows --json)
   if grep -q '^content-type-updated$' "$CLIENT_LOG" \
       && jq -e '
         length == 1

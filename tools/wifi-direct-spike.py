@@ -136,7 +136,7 @@ def main() -> int:
     call(p2p, P2P_IFACE, "StopFind")
 
     settings = {
-        "connection": {"id": GLib.Variant("s", "umbriel-p2p-spike"), "type": GLib.Variant("s", "wifi-p2p"),
+        "connection": {"id": GLib.Variant("s", "andromeda-p2p-spike"), "type": GLib.Variant("s", "wifi-p2p"),
                        "autoconnect": GLib.Variant("b", False)},
         "wifi-p2p": {"peer": GLib.Variant("s", hwaddr)},
         "ipv4": {"method": GLib.Variant("s", "auto")},

@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace umbriel::configmerge {
+namespace andromeda::configmerge {
 
   struct MergeResult {
     toml::table merged;
@@ -24,4 +24,4 @@ namespace umbriel::configmerge {
   [[nodiscard]] MergeResult mergeWithIncludes(const std::filesystem::path& rootFile);
   void deepMerge(toml::table& base, toml::table&& overlay);
 
-} // namespace umbriel::configmerge
+} // namespace andromeda::configmerge

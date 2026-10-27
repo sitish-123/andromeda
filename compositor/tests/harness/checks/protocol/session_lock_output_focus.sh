@@ -6,12 +6,12 @@
 # from where the windows actually land, so the check does not depend on the headless layout order.
 set -euo pipefail
 
-readonly WINDOW_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly LOCK_CLIENT="${UMBRIEL_LOCK_CLIENT:-./build-debug/tests/lock-client}"
-readonly LOCK_LOG="$UMBRIEL_RUNTIME_DIR/lock-client.log"
-readonly LOCK_FIFO="$UMBRIEL_RUNTIME_DIR/lock-control"
+readonly WINDOW_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly LOCK_CLIENT="${ANDROMEDA_LOCK_CLIENT:-./build-debug/tests/lock-client}"
+readonly LOCK_LOG="$ANDROMEDA_RUNTIME_DIR/lock-client.log"
+readonly LOCK_FIFO="$ANDROMEDA_RUNTIME_DIR/lock-control"
 
-windows() { "$UMBRIEL" windows --json; }
+windows() { "$ANDROMEDA" windows --json; }
 
 wait_for_windows() {
   local want=$1
@@ -35,18 +35,18 @@ window_output() {
 
 # The workspace the compositor reports as focused is the active one on the
 # pointer's output, which is how this check observes where the cursor sits.
-cursor_output() { "$UMBRIEL" workspaces --json | jq -r '.[] | select(.focused) | .output'; }
+cursor_output() { "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.focused) | .output'; }
 
-"$WINDOW_CLIENT" lock-focus-stay > "$UMBRIEL_RUNTIME_DIR/lock-focus-stay.log" 2>&1 &
+"$WINDOW_CLIENT" lock-focus-stay > "$ANDROMEDA_RUNTIME_DIR/lock-focus-stay.log" 2>&1 &
 wait_for_windows 1
 stay_output=$(window_output lock-focus-stay)
 
-"$UMBRIEL" msg output-focus-right > /dev/null
+"$ANDROMEDA" msg output-focus-right > /dev/null
 for _ in $(seq 40); do
   [[ $(cursor_output) != "$stay_output" ]] && break
   sleep 0.05
 done
-"$WINDOW_CLIENT" lock-focus-target > "$UMBRIEL_RUNTIME_DIR/lock-focus-target.log" 2>&1 &
+"$WINDOW_CLIENT" lock-focus-target > "$ANDROMEDA_RUNTIME_DIR/lock-focus-target.log" 2>&1 &
 wait_for_windows 2
 target_output=$(window_output lock-focus-target)
 if [[ -z $stay_output || $stay_output == "$target_output" ]]; then
@@ -56,13 +56,13 @@ fi
 
 # Park the cursor back on the first output, then move keyboard focus to the
 # second output's window without the pointer following it.
-"$UMBRIEL" msg output-focus-left > /dev/null
+"$ANDROMEDA" msg output-focus-left > /dev/null
 for _ in $(seq 40); do
   [[ $(cursor_output) == "$stay_output" ]] && break
   sleep 0.05
 done
 target_id=$(windows | jq -r '.[] | select(.title == "lock-focus-target") | .id')
-"$UMBRIEL" msg "window-focus:$target_id" > /dev/null
+"$ANDROMEDA" msg "window-focus:$target_id" > /dev/null
 for _ in $(seq 40); do
   [[ $(active_title) == lock-focus-target ]] && break
   sleep 0.05
@@ -72,7 +72,7 @@ if [[ $(active_title) != lock-focus-target ]]; then
   exit 1
 fi
 if [[ $(cursor_output) != "$stay_output" ]]; then
-  echo "the cursor is not on $stay_output, so focus and pointer are not on different outputs: $("$UMBRIEL" workspaces --json)"
+  echo "the cursor is not on $stay_output, so focus and pointer are not on different outputs: $("$ANDROMEDA" workspaces --json)"
   exit 1
 fi
 

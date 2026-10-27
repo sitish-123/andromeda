@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <wlr/util/log.h>
 
-#include "umbrielfx/types/linked_node.h"
+#include "andromedafx/types/linked_node.h"
 
 struct link {
     struct linked_node *node_1;

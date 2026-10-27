@@ -105,7 +105,7 @@ namespace {
     Buffer buffer;
     const int stride = width * 4;
     buffer.size = static_cast<size_t>(stride) * static_cast<size_t>(height);
-    const int fd = memfd_create("umbriel-subsurface-client", MFD_CLOEXEC);
+    const int fd = memfd_create("andromeda-subsurface-client", MFD_CLOEXEC);
     if (fd < 0 || ftruncate(fd, static_cast<off_t>(buffer.size)) < 0) {
       if (fd >= 0) {
         close(fd);

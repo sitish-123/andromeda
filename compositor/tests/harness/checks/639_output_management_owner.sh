@@ -6,16 +6,16 @@
 # logged.
 set -euo pipefail
 
-readonly OUTPUT_MANAGEMENT=${UMBRIEL_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
-readonly SAVED=$(dirname "$UMBRIEL_CONFIG")/displays.toml
+readonly OUTPUT_MANAGEMENT=${ANDROMEDA_OUTPUT_MANAGEMENT_CLIENT:-./build-debug/tests/output-management-client}
+readonly SAVED=$(dirname "$ANDROMEDA_CONFIG")/displays.toml
 
-log_mark() { wc -l < "$UMBRIEL_LOG"; }
-log_since() { tail -n +"$1" "$UMBRIEL_LOG"; }
+log_mark() { wc -l < "$ANDROMEDA_LOG"; }
+log_since() { tail -n +"$1" "$ANDROMEDA_LOG"; }
 
 position_of() {
   for _ in $(seq 40); do
     local p
-    p=$("$UMBRIEL" outputs --json | jq -r --arg n "$1" '.[] | select(.name == $n) | "\(.position.x),\(.position.y)"')
+    p=$("$ANDROMEDA" outputs --json | jq -r --arg n "$1" '.[] | select(.name == $n) | "\(.position.x),\(.position.y)"')
     [[ -n $p ]] && { echo "$p"; return 0; }
     sleep 0.1
   done
@@ -38,11 +38,11 @@ fi
 
 # config.toml now claims HEADLESS-2.
 {
-  cat "$UMBRIEL_CONFIG"
+  cat "$ANDROMEDA_CONFIG"
   printf '\n[output.HEADLESS-2]\nenabled = true\n'
-} > "$UMBRIEL_CONFIG.tmp"
-mv "$UMBRIEL_CONFIG.tmp" "$UMBRIEL_CONFIG"
-"$UMBRIEL" msg config-reload > /dev/null
+} > "$ANDROMEDA_CONFIG.tmp"
+mv "$ANDROMEDA_CONFIG.tmp" "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 
 mark=$(log_mark)
 "$OUTPUT_MANAGEMENT" apply enable HEADLESS-2 30 40 > /dev/null

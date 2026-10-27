@@ -5,8 +5,8 @@ set -euo pipefail
 
 readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
-readonly POINTER="${UMBRIEL_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
 
 spawn_client() {
   "$CLIENT" "$1" 1200 700 > /dev/null 2>&1 &
@@ -15,15 +15,15 @@ spawn_client() {
 wait_for_count() {
   local want=$1
   for _ in $(seq 60); do
-    [[ $("$UMBRIEL" windows --json | jq 'length') -eq $want ]] && return 0
+    [[ $("$ANDROMEDA" windows --json | jq 'length') -eq $want ]] && return 0
     sleep 0.05
   done
-  echo "expected $want windows, got: $("$UMBRIEL" windows --json)"
+  echo "expected $want windows, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
 active_title() {
-  "$UMBRIEL" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
+  "$ANDROMEDA" windows --json | jq -r '[.[] | select(.active) | .title] | if length == 1 then .[0] else "none" end'
 }
 
 wait_for_active() {
@@ -32,11 +32,11 @@ wait_for_active() {
     [[ $(active_title) == "$want" ]] && return 0
     sleep 0.01
   done
-  echo "expected '$want' to be active, got: $("$UMBRIEL" windows --json)"
+  echo "expected '$want' to be active, got: $("$ANDROMEDA" windows --json)"
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "scrolling"
@@ -52,7 +52,7 @@ curve = "linear"
 [input.focus]
 follows_mouse = true
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 count=0
 for title in hover-stability-a hover-stability-b hover-stability-c; do
@@ -64,7 +64,7 @@ wait_for_active hover-stability-c
 
 # The last column rests centered at x=264. The previous column extends from x=-499 to x=252, leaving the trigger
 # point inside it. Wait for map-time position animations so this starting presentation is deterministic.
-"$UMBRIEL" settle
+"$ANDROMEDA" settle
 
 # Keep one virtual pointer alive for the whole sequence. Establish pointer focus on C, cross once into B, then move
 # only one pixel vertically while B's reveal carries A horizontally underneath x=20.
@@ -81,7 +81,7 @@ while kill -0 "$pointer_pid" 2>/dev/null; do
   if [[ $current != hover-stability-b ]]; then
     kill "$pointer_pid" 2>/dev/null || true
     wait "$pointer_pid" 2>/dev/null || true
-    echo "hover focus cascaded from B to '$current' while the strip animated: $("$UMBRIEL" windows --json)"
+    echo "hover focus cascaded from B to '$current' while the strip animated: $("$ANDROMEDA" windows --json)"
     exit 1
   fi
   sleep 0.01
@@ -89,7 +89,7 @@ done
 wait "$pointer_pid"
 
 if [[ $(active_title) != hover-stability-b ]]; then
-  echo "hover focus did not remain on B after its reveal: $("$UMBRIEL" windows --json)"
+  echo "hover focus did not remain on B after its reveal: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 

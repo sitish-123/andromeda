@@ -42,8 +42,8 @@ namespace compositors {
   namespace niri {
     class NiriRuntime;
   }
-  namespace umbriel {
-    class UmbrielRuntime;
+  namespace andromeda {
+    class AndromedaRuntime;
   }
 } // namespace compositors
 
@@ -191,8 +191,8 @@ public:
   [[nodiscard]] compositors::niri::NiriRuntime& niriRuntime() noexcept;
   [[nodiscard]] const compositors::niri::NiriRuntime& niriRuntime() const noexcept;
 
-  [[nodiscard]] compositors::umbriel::UmbrielRuntime& umbrielRuntime() noexcept;
-  [[nodiscard]] const compositors::umbriel::UmbrielRuntime& umbrielRuntime() const noexcept;
+  [[nodiscard]] compositors::andromeda::AndromedaRuntime& andromedaRuntime() noexcept;
+  [[nodiscard]] const compositors::andromeda::AndromedaRuntime& andromedaRuntime() const noexcept;
 
 private:
   struct WorkspaceModelSnapshot {

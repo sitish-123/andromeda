@@ -6,7 +6,7 @@
 #include <cmath>
 #include <format>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -246,4 +246,4 @@ namespace umbriel {
     return *this;
   }
 
-} // namespace umbriel
+} // namespace andromeda

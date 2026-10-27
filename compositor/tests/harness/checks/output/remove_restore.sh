@@ -4,9 +4,9 @@
 # and workspace once the monitors come back.
 set -euo pipefail
 
-readonly WORKSPACE="${UMBRIEL_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
+readonly WORKSPACE="${ANDROMEDA_WORKSPACE_CLIENT:-./build-debug/tests/workspace-client}"
 
-BASELINE="$(< "$UMBRIEL_CONFIG")"$'\n[animation]\nduration_ms = 1'
+BASELINE="$(< "$ANDROMEDA_CONFIG")"$'\n[animation]\nduration_ms = 1'
 
 write_config() {
   {
@@ -14,15 +14,15 @@ write_config() {
     if [[ -n $1 ]]; then
       printf '\n%s\n' "$1"
     fi
-  } > "$UMBRIEL_CONFIG"
+  } > "$ANDROMEDA_CONFIG"
 }
 
-log_mark() { wc -l < "$UMBRIEL_LOG"; }
+log_mark() { wc -l < "$ANDROMEDA_LOG"; }
 
 wait_for_log_since() {
   local mark=$1 pattern=$2
   for _ in $(seq 40); do
-    if tail -n +"$((mark + 1))" "$UMBRIEL_LOG" | grep -q "$pattern"; then
+    if tail -n +"$((mark + 1))" "$ANDROMEDA_LOG" | grep -q "$pattern"; then
       return 0
     fi
     sleep 0.25
@@ -36,7 +36,7 @@ expect_log_since() {
     return 0
   fi
   echo "$message"
-  tail -8 "$UMBRIEL_LOG" | sed 's/^/  | /'
+  tail -8 "$ANDROMEDA_LOG" | sed 's/^/  | /'
   exit 1
 }
 
@@ -47,7 +47,7 @@ spawn_client() {
 wait_for_count() {
   local expected=$1 count=
   for _ in $(seq 40); do
-    count=$("$UMBRIEL" windows --json | jq 'length')
+    count=$("$ANDROMEDA" windows --json | jq 'length')
     [[ $count == "$expected" ]] && return 0
     sleep 0.25
   done
@@ -56,7 +56,7 @@ wait_for_count() {
 }
 
 field_of() {
-  "$UMBRIEL" windows --json | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
+  "$ANDROMEDA" windows --json | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
 workspace_of() { field_of "$1" workspace; }
@@ -120,15 +120,15 @@ wait_for_active_workspace() {
 
 move_to_workspace() {
   local title=$1 selector=$2
-  "$UMBRIEL" msg "window-focus:$(field_of "$title" id)" > /dev/null
-  "$UMBRIEL" msg "window-move-to-workspace:$selector" > /dev/null
+  "$ANDROMEDA" msg "window-focus:$(field_of "$title" id)" > /dev/null
+  "$ANDROMEDA" msg "window-move-to-workspace:$selector" > /dev/null
   wait_for_output "$title" "${selector#*/}"
 }
 
 # The setup below leans on three dynamic-group rules: an emptied workspace is reaped and the rest renumber, the active
 # workspace is never reaped, and a running slide suspends both.
 write_config ''
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # Two windows per output, each on its own dynamic workspace. HEADLESS-2's pair is spawned in reverse of the order its
 # workspaces are created in.
@@ -156,10 +156,10 @@ fi
 
 # Windows are visited most-recently-focused first; this pins the order they leave in and come back in.
 for window in second-ws1 second-ws2 first-ws2 first-ws1; do
-  "$UMBRIEL" msg "window-focus:$(field_of "$window" id)" > /dev/null
+  "$ANDROMEDA" msg "window-focus:$(field_of "$window" id)" > /dev/null
 done
 # Off first-ws1's workspace: the active workspace is never reaped, and this one has to be.
-"$UMBRIEL" msg workspace-switch:3/HEADLESS-1 > /dev/null
+"$ANDROMEDA" msg workspace-switch:3/HEADLESS-1 > /dev/null
 
 # Every monitor goes away at once, the way a suspend takes them; the windows have nowhere to go.
 mark=$(log_mark)
@@ -167,7 +167,7 @@ write_config '[output.HEADLESS-1]
 enabled = false
 [output.HEADLESS-2]
 enabled = false'
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 for output in HEADLESS-1 HEADLESS-2; do
   expect_log_since "$mark" "output '$output': disabled by config" "$output was not disabled on reload"
 done
@@ -179,7 +179,7 @@ done
 mark=$(log_mark)
 write_config '[output.HEADLESS-2]
 enabled = false'
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 expect_log_since "$mark" "output 'HEADLESS-1': applied mode=" "HEADLESS-1 was not re-enabled on reload"
 wait_for_active_workspace HEADLESS-1 3
 wait_for_home first-ws1 "${HOME[first-ws1]}"
@@ -190,7 +190,7 @@ wait_for_output second-ws2 HEADLESS-1
 # A window that sat out on another output still knows where it belongs.
 mark=$(log_mark)
 write_config ''
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 expect_log_since "$mark" "output 'HEADLESS-2': applied mode=" "HEADLESS-2 was not re-enabled on reload"
 for window in first-ws1 first-ws2 second-ws1 second-ws2; do
   wait_for_home "$window" "${HOME[$window]}"

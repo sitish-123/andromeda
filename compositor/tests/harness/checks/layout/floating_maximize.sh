@@ -7,10 +7,10 @@
 # usable-area snapshot, so no custom mode here.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/float-maximize.log"
+readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/float-maximize.log"
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
@@ -20,10 +20,10 @@ match.title = "^float-maximize$"
 default_floating = true
 default_floating_size = { width = 0.5, height = 0.5 }
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 field_of() {
-  "$UMBRIEL" windows --json \
+  "$ANDROMEDA" windows --json \
     | jq -r --arg title "$1" --arg field "$2" '.[] | select(.title == $title) | .[$field]'
 }
 
@@ -51,28 +51,28 @@ assert_box() {
 wait_for_field float-maximize floating true
 assert_box 640 360 320 180
 
-"$UMBRIEL" msg "window-focus-warp:$(field_of float-maximize id)" > /dev/null
+"$ANDROMEDA" msg "window-focus-warp:$(field_of float-maximize id)" > /dev/null
 
 # The verb reaches the float instead of bailing on the missing column, and the
 # window moves to the usable origin rather than growing in place off the edge.
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 assert_box 1280 720 0 0
 
 # Restoring returns the exact pre-maximize box, not merely something smaller.
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 assert_box 640 360 320 180
 
 # Resizing a maximized float drops maximization and keeps the new size, so the
 # next toggle has to maximize. If the state survived, this would restore 640.
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field float-maximize w 1280
-"$UMBRIEL" msg window-modify-primary-extent:-0.2 > /dev/null
+"$ANDROMEDA" msg window-modify-primary-extent:-0.2 > /dev/null
 wait_for_field float-maximize w 1024
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field float-maximize w 1280
 
 # That maximize captured the resized box, so restoring lands on 1024, not 640.
-"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field float-maximize w 1024
 wait_for_field float-maximize h 720
 

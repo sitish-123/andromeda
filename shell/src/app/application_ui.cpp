@@ -113,8 +113,8 @@ namespace {
   constexpr Logger kLog("app");
 
   [[nodiscard]] bool overviewTypeToLaunchEnabled(const ConfigService& configService) {
-    if (compositors::isUmbriel()) {
-      return configService.config().shell.umbrielOverviewTypeToLaunchEnabled;
+    if (compositors::isAndromeda()) {
+      return configService.config().shell.andromedaOverviewTypeToLaunchEnabled;
     } else if (compositors::isNiri()) {
       return configService.config().shell.niriOverviewTypeToLaunchEnabled;
     }

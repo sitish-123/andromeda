@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("focus");
@@ -440,4 +440,4 @@ namespace umbriel {
     return view;
   }
 
-} // namespace umbriel
+} // namespace andromeda

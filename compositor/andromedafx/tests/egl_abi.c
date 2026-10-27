@@ -1,4 +1,4 @@
-// wlroots' multi-GPU renderer reads umbrielfx's EGL objects directly. Exercise
+// wlroots' multi-GPU renderer reads andromedafx's EGL objects directly. Exercise
 // that shared layout through the linked library without opening a GPU. Missing
 // BGRA support deliberately stops initialization after its EGL import check.
 #include <stdarg.h>

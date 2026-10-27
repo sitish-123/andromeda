@@ -1,6 +1,6 @@
 # Prints every fixed sleep of 0.2 s or more that sits outside a polling loop and lacks a trailing
-# "# real time: <reason>". Animation timing uses `umbriel clock-freeze`/`clock-advance`, end states use
-# `umbriel settle`, and client state is polled; only compositor timers, helper-client pauses, and proofs that nothing
+# "# real time: <reason>". Animation timing uses `andromeda clock-freeze`/`clock-advance`, end states use
+# `andromeda settle`, and client state is polled; only compositor timers, helper-client pauses, and proofs that nothing
 # reacts within a window of real time keep a sleep.
 # Usage: awk -f sleep-lint.awk checks/*.sh
 FNR == 1 { depth = 0; heredoc = "" }

@@ -12,7 +12,7 @@ extern "C" {
 
 struct wlr_scene_node;
 
-namespace umbriel {
+namespace andromeda {
 
   // Preset names selected for one window; empty when the selector is off.
   struct ViewEffectNames {
@@ -76,4 +76,4 @@ namespace umbriel {
     std::vector<const void*> m_owners; // nodes registered in the ledger
   };
 
-} // namespace umbriel
+} // namespace andromeda

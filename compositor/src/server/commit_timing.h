@@ -16,7 +16,7 @@ struct wlr_surface;
 struct wp_commit_timing_manager_v1_interface;
 struct wp_commit_timer_v1_interface;
 
-namespace umbriel {
+namespace andromeda {
 
   // Serves wp_commit_timing_manager_v1: a content update with a timestamp is held until CLOCK_MONOTONIC, the
   // presentation clock, reaches it, so it is presented at the first refresh at or after that time and never before.
@@ -72,4 +72,4 @@ namespace umbriel {
     std::vector<std::unique_ptr<Surface>> m_surfaces;
   };
 
-} // namespace umbriel
+} // namespace andromeda

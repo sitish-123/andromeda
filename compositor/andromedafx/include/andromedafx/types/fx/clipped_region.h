@@ -1,5 +1,5 @@
-#ifndef UMBRIELFX_TYPES_FX_CLIPPED_REGION_H
-#define UMBRIELFX_TYPES_FX_CLIPPED_REGION_H
+#ifndef ANDROMEDAFX_TYPES_FX_CLIPPED_REGION_H
+#define ANDROMEDAFX_TYPES_FX_CLIPPED_REGION_H
 
 #include <linux/stddef.h>
 #include <wlr/util/box.h>
@@ -96,4 +96,4 @@ struct clipped_region {
 
 struct clipped_region clipped_region_get_default(void);
 
-#endif // !UMBRIELFX_TYPES_FX_CLIPPED_REGION_H
+#endif // !ANDROMEDAFX_TYPES_FX_CLIPPED_REGION_H

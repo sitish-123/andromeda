@@ -29,7 +29,7 @@
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
     constexpr Logger kLog("cursor");
@@ -328,12 +328,12 @@ namespace umbriel {
     if (!corner.enabled || !corner.action) {
       return nullptr;
     }
-    const Output* umbrielOutput = m_server->outputFromWlr(output);
+    const Output* andromedaOutput = m_server->outputFromWlr(output);
     View* focused = View::fromSurface(seat->keyboard_state.focused_surface);
     if (focused != nullptr
         && focused->mapped()
         && focused->onActiveWorkspace()
-        && focused->currentOutput() == umbrielOutput
+        && focused->currentOutput() == andromedaOutput
         && (focused->layoutFullscreen() || focused->toplevel()->current.fullscreen)) {
       return nullptr;
     }
@@ -2439,4 +2439,4 @@ namespace umbriel {
     grab->workspace->markArrange(false);
   }
 
-} // namespace umbriel
+} // namespace andromeda

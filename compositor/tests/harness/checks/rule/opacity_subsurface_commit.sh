@@ -3,17 +3,17 @@
 # child surface. Firefox presents its visible content through exactly this path.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/subsurface-opacity.log"
-readonly FOCUS_LOG="$UMBRIEL_RUNTIME_DIR/subsurface-focus-target.log"
-readonly SCREENSHOT="$UMBRIEL_RUNTIME_DIR/rule-opacity-subsurface-commit.png"
+readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/subsurface-opacity.log"
+readonly FOCUS_LOG="$ANDROMEDA_RUNTIME_DIR/subsurface-focus-target.log"
+readonly SCREENSHOT="$ANDROMEDA_RUNTIME_DIR/rule-opacity-subsurface-commit.png"
 
 if [[ ! -x $CLIENT ]]; then
   echo "subsurface client not built at $CLIENT"
   exit 1
 fi
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 duration_ms = 1
@@ -36,7 +36,7 @@ match.app_id = "^subsurface-opacity$"
 match.is_focused = false
 opacity = 0.5
 EOF
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 "$CLIENT" "subsurface-opacity" 640 480 animate > "$CLIENT_LOG" 2>&1 &
 for _ in $(seq 60); do
@@ -52,10 +52,10 @@ fi
 # Firefox-like child redraw independently before measuring its visible content.
 "$CLIENT" "subsurface-focus-target" 640 480 > "$FOCUS_LOG" 2>&1 &
 for _ in $(seq 60); do
-  [[ $("$UMBRIEL" windows --json | jq 'length') -eq 2 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq 'length') -eq 2 ]] && break
   sleep 0.05
 done
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 if [[ $(jq 'length' <<< "$windows") -ne 2 ]]; then
   echo "timed out waiting for both windows: $windows"
   exit 1
@@ -66,7 +66,7 @@ if [[ $(jq -r '.[] | select(.title == "subsurface-opacity") | .focused' <<< "$wi
 fi
 
 sleep 0.5 # real time: let the desynchronized child commit on its own schedule
-windows=$("$UMBRIEL" windows --json)
+windows=$("$ANDROMEDA" windows --json)
 read -r win_x win_y win_w win_h <<< "$(
   jq -r '.[] | select(.title == "subsurface-opacity") | "\(.x) \(.y) \(.w) \(.h)"' <<< "$windows"
 )"

@@ -7,7 +7,7 @@ struct wlr_scene_shadow;
 struct wlr_scene_tree;
 struct wlr_scene_node;
 
-namespace umbriel {
+namespace andromeda {
 
   struct ShadowSnapshot {
     wlr_scene_tree* tree = nullptr;
@@ -45,4 +45,4 @@ namespace umbriel {
     std::optional<bool> m_enabled;
   };
 
-} // namespace umbriel
+} // namespace andromeda

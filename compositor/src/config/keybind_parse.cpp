@@ -23,7 +23,7 @@ extern "C" {
 #include <system_error>
 #include <utility>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
@@ -895,4 +895,4 @@ namespace umbriel {
     return {};
   }
 
-} // namespace umbriel
+} // namespace andromeda

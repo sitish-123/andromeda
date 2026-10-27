@@ -5,7 +5,7 @@
 # with nothing enrolled it waits for the password; a face that gives up shows the reason and posts nothing. With the
 # patched Gaze the greeter registers gdm-face as a marker host; gazed's match answers the open prompt with
 # GAZE_CONFIRMED, and a password typed at once is posted at once. Under Ryoku (G8-G12): keys reach the password field
-# after taps anywhere, Enter on an empty field sends nothing, the session list picks the session that starts (Umbriel
+# after taps anywhere, Enter on an empty field sends nothing, the session list picks the session that starts (Andromeda
 # when nothing was chosen), a match waits while a list is open, and a face that gives up says so. Writes
 # requests-*.jsonl and greeter-*.log to $OUT (default ./artifacts/face-greeter).
 set -euo pipefail
@@ -49,8 +49,10 @@ start() {
   MOCK_SCENARIOS=$2 python3 "$MOCK" "$sock" "$OUT/requests-$case.jsonl" > "$OUT/mock-$case.log" 2>&1 &
   mock=$!
   wait_for "$case: the mock did not start" grep -q ready "$OUT/mock-$case.log"
-  mkdir -p "$RUNTIME/greeter-state"
-  run env NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" NOCTALIA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
+  mkdir -p "$RUNTIME/greeter-state" "$RUNTIME/share/wayland-sessions"
+  # The repo's session entry, not the installed one, which may predate it.
+  cp "$ROOT/compositor/data/andromeda.desktop" "$RUNTIME/share/wayland-sessions/"
+  run env XDG_DATA_DIRS="$RUNTIME/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" NOCTALIA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
   greeter=$!
   wait_for "$case: no session opened on start" atleast create_session 1
   sleep 1.6 # real time: the entry animation drops typed keys until it ends
@@ -121,7 +123,7 @@ run wtype right
 run wtype -k Return
 wait_for "G8: typing after taps did not reach the password" posted_atleast right 1
 wait_for "G8: no session after the password" atleast start_session 1
-started_with umbriel || fail "G8: the default session was not Umbriel ($(requests | grep start_session))"
+started_with andromeda || fail "G8: the default session was not Andromeda ($(requests | grep start_session))"
 stop
 
 start G9 race
@@ -139,7 +141,7 @@ click 1000 111
 run wtype right
 run wtype -k Return
 wait_for "G10: no session after picking one" atleast start_session 1
-started_with umbriel && fail "G10: the picked session did not start ($(requests | grep start_session))"
+started_with andromeda && fail "G10: the picked session did not start ($(requests | grep start_session))"
 stop
 
 start G11 race

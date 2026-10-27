@@ -9,11 +9,11 @@
 #include <format>
 #include <vector>
 
-namespace umbriel {
+namespace andromeda {
 
   namespace {
 
-    constexpr std::string_view kHeader = "# Written by Umbriel when settings are changed from a settings app.\n"
+    constexpr std::string_view kHeader = "# Written by Andromeda when settings are changed from a settings app.\n"
                                          "# Loaded after config.toml and its includes, so these values win.\n\n";
 
     enum class Kind : uint8_t { Bool, Int, Real, Choice, Layout, Text, Action };
@@ -566,4 +566,4 @@ namespace umbriel {
     }
   }
 
-} // namespace umbriel
+} // namespace andromeda

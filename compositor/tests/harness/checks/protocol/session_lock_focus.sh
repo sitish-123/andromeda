@@ -5,32 +5,32 @@
 # workspace switch is what the user sees when the lock screen disappears.
 set -euo pipefail
 
-readonly WINDOW_CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly LOCK_CLIENT="${UMBRIEL_LOCK_CLIENT:-./build-debug/tests/lock-client}"
-readonly LOCK_LOG="$UMBRIEL_RUNTIME_DIR/lock-client.log"
-readonly LOCK_FIFO="$UMBRIEL_RUNTIME_DIR/lock-control"
+readonly WINDOW_CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly LOCK_CLIENT="${ANDROMEDA_LOCK_CLIENT:-./build-debug/tests/lock-client}"
+readonly LOCK_LOG="$ANDROMEDA_RUNTIME_DIR/lock-client.log"
+readonly LOCK_FIFO="$ANDROMEDA_RUNTIME_DIR/lock-control"
 
 active_workspace() {
-  "$UMBRIEL" workspaces --json | jq -r '.[] | select(.active) | .name'
+  "$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .name'
 }
 
-"$WINDOW_CLIENT" lock-focus-window > "$UMBRIEL_RUNTIME_DIR/lock-focus-window.log" 2>&1 &
+"$WINDOW_CLIENT" lock-focus-window > "$ANDROMEDA_RUNTIME_DIR/lock-focus-window.log" 2>&1 &
 for _ in $(seq 60); do
-  [[ $("$UMBRIEL" windows --json | jq 'length') -eq 1 ]] && break
+  [[ $("$ANDROMEDA" windows --json | jq 'length') -eq 1 ]] && break
   sleep 0.05
 done
-if [[ $("$UMBRIEL" windows --json | jq 'length') -ne 1 ]]; then
-  echo "the window never mapped: $("$UMBRIEL" windows --json)"
+if [[ $("$ANDROMEDA" windows --json | jq 'length') -ne 1 ]]; then
+  echo "the window never mapped: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 
-"$UMBRIEL" msg workspace-switch:2 > /dev/null
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 for _ in $(seq 40); do
   [[ $(active_workspace) == 2 ]] && break
   sleep 0.05
 done
 if [[ $(active_workspace) != 2 ]]; then
-  echo "the empty workspace never became active: $("$UMBRIEL" workspaces --json)"
+  echo "the empty workspace never became active: $("$ANDROMEDA" workspaces --json)"
   exit 1
 fi
 
@@ -63,9 +63,9 @@ if [[ $after != 2 ]]; then
   echo "unlocking left workspace '$after' active instead of the empty workspace 2"
   exit 1
 fi
-active_windows=$("$UMBRIEL" windows --json | jq '[.[] | select(.active)] | length')
+active_windows=$("$ANDROMEDA" windows --json | jq '[.[] | select(.active)] | length')
 if [[ $active_windows -ne 0 ]]; then
-  echo "unlocking activated a window on another workspace: $("$UMBRIEL" windows --json)"
+  echo "unlocking activated a window on another workspace: $("$ANDROMEDA" windows --json)"
   exit 1
 fi
 

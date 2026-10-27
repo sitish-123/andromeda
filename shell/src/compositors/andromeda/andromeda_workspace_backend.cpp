@@ -1,6 +1,6 @@
-#include "compositors/umbriel/umbriel_workspace_backend.h"
+#include "compositors/andromeda/andromeda_workspace_backend.h"
 
-#include "compositors/umbriel/umbriel_runtime.h"
+#include "compositors/andromeda/andromeda_runtime.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -18,33 +18,33 @@ namespace {
 
 } // namespace
 
-UmbrielWorkspaceBackend::UmbrielWorkspaceBackend(compositors::umbriel::UmbrielRuntime& runtime)
-    : compositors::umbriel::UmbrielEventHandler(runtime) {}
+AndromedaWorkspaceBackend::AndromedaWorkspaceBackend(compositors::andromeda::AndromedaRuntime& runtime)
+    : compositors::andromeda::AndromedaEventHandler(runtime) {}
 
-UmbrielWorkspaceBackend::~UmbrielWorkspaceBackend() { cleanup(); }
+AndromedaWorkspaceBackend::~AndromedaWorkspaceBackend() { cleanup(); }
 
-void UmbrielWorkspaceBackend::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
+void AndromedaWorkspaceBackend::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
-void UmbrielWorkspaceBackend::setOverviewChangeCallback(ChangeCallback callback) {
+void AndromedaWorkspaceBackend::setOverviewChangeCallback(ChangeCallback callback) {
   m_overviewChangeCallback = std::move(callback);
 }
 
-bool UmbrielWorkspaceBackend::canTrackOverviewState() const noexcept { return m_runtime.available(); }
+bool AndromedaWorkspaceBackend::canTrackOverviewState() const noexcept { return m_runtime.available(); }
 
-int UmbrielWorkspaceBackend::pollFd() const noexcept { return m_runtime.pollFd(); }
+int AndromedaWorkspaceBackend::pollFd() const noexcept { return m_runtime.pollFd(); }
 
-short UmbrielWorkspaceBackend::pollEvents() const noexcept { return m_runtime.pollEvents(); }
+short AndromedaWorkspaceBackend::pollEvents() const noexcept { return m_runtime.pollEvents(); }
 
-int UmbrielWorkspaceBackend::pollTimeoutMs() const noexcept { return m_runtime.pollTimeoutMs(); }
+int AndromedaWorkspaceBackend::pollTimeoutMs() const noexcept { return m_runtime.pollTimeoutMs(); }
 
-void UmbrielWorkspaceBackend::dispatchPoll(short revents) { m_runtime.dispatchPoll(revents); }
+void AndromedaWorkspaceBackend::dispatchPoll(short revents) { m_runtime.dispatchPoll(revents); }
 
-std::string UmbrielWorkspaceBackend::workspaceKey(const std::string& id, const std::string& name) {
+std::string AndromedaWorkspaceBackend::workspaceKey(const std::string& id, const std::string& name) {
   return name.empty() ? id : name;
 }
 
-const UmbrielWorkspaceBackend::WorkspaceList*
-UmbrielWorkspaceBackend::cachedWorkspaces(const std::string& outputName) const {
+const AndromedaWorkspaceBackend::WorkspaceList*
+AndromedaWorkspaceBackend::cachedWorkspaces(const std::string& outputName) const {
   for (const auto& [cachedOutput, workspaces] : m_workspacesByOutput) {
     if (cachedOutput == outputName) {
       return &workspaces;
@@ -53,7 +53,7 @@ UmbrielWorkspaceBackend::cachedWorkspaces(const std::string& outputName) const {
   return nullptr;
 }
 
-std::string UmbrielWorkspaceBackend::workspaceKeyForId(const std::string& workspaceId) const {
+std::string AndromedaWorkspaceBackend::workspaceKeyForId(const std::string& workspaceId) const {
   for (const auto& [cachedOutput, workspaces] : m_workspacesByOutput) {
     (void)cachedOutput;
     for (const auto& [id, name] : workspaces) {
@@ -65,7 +65,7 @@ std::string UmbrielWorkspaceBackend::workspaceKeyForId(const std::string& worksp
   return workspaceId;
 }
 
-void UmbrielWorkspaceBackend::apply(std::vector<Workspace>& workspaces, const std::string& outputName) const {
+void AndromedaWorkspaceBackend::apply(std::vector<Workspace>& workspaces, const std::string& outputName) const {
   for (auto& workspace : workspaces) {
     workspace.occupied =
         std::ranges::any_of(m_windows, [&](const auto& window) { return window.second.workspaceId == workspace.id; });
@@ -87,7 +87,7 @@ void UmbrielWorkspaceBackend::apply(std::vector<Workspace>& workspaces, const st
   m_workspacesByOutput.emplace_back(outputName, std::move(refreshed));
 }
 
-std::vector<std::string> UmbrielWorkspaceBackend::workspaceKeys(const std::string& outputName) const {
+std::vector<std::string> AndromedaWorkspaceBackend::workspaceKeys(const std::string& outputName) const {
   std::vector<std::string> result;
   if (!outputName.empty()) {
     if (const auto* workspaces = cachedWorkspaces(outputName)) {
@@ -112,7 +112,7 @@ std::vector<std::string> UmbrielWorkspaceBackend::workspaceKeys(const std::strin
 }
 
 std::unordered_map<std::string, std::vector<std::string>>
-UmbrielWorkspaceBackend::appIdsByWorkspace(const std::string& outputName) const {
+AndromedaWorkspaceBackend::appIdsByWorkspace(const std::string& outputName) const {
   std::unordered_map<std::string, std::vector<std::string>> result;
   std::unordered_map<std::string, std::unordered_set<std::string>> seen;
   for (const auto& window : workspaceWindows(outputName)) {
@@ -127,14 +127,14 @@ UmbrielWorkspaceBackend::appIdsByWorkspace(const std::string& outputName) const 
   return result;
 }
 
-std::vector<WorkspaceWindow> UmbrielWorkspaceBackend::workspaceWindows(const std::string& outputName) const {
+std::vector<WorkspaceWindow> AndromedaWorkspaceBackend::workspaceWindows(const std::string& outputName) const {
   std::vector<WorkspaceWindow> result;
   result.reserve(m_windows.size());
   const std::string prefix = outputName.empty() ? std::string{} : outputName + ":";
   for (const auto& [windowId, window] : m_windows) {
     if (window.workspaceId.empty()) {
       // Scratchpad windows carry no workspace and are intentionally hidden in
-      // Umbriel's UX.
+      // Andromeda's UX.
       continue;
     }
     if (!prefix.empty() && !window.workspaceId.starts_with(prefix)) {
@@ -155,19 +155,19 @@ std::vector<WorkspaceWindow> UmbrielWorkspaceBackend::workspaceWindows(const std
   return result;
 }
 
-bool UmbrielWorkspaceBackend::focusWindowById(const std::string& windowId, bool warpPointer) {
+bool AndromedaWorkspaceBackend::focusWindowById(const std::string& windowId, bool warpPointer) {
   return m_runtime.requestAction(std::string(warpPointer ? "window-focus-warp:" : "window-focus:") + windowId);
 }
 
-std::optional<std::string> UmbrielWorkspaceBackend::focusedWindowId() const { return m_focusedWindowId; }
+std::optional<std::string> AndromedaWorkspaceBackend::focusedWindowId() const { return m_focusedWindowId; }
 
-bool UmbrielWorkspaceBackend::closeWindowById(const std::string& windowId) {
+bool AndromedaWorkspaceBackend::closeWindowById(const std::string& windowId) {
   return m_runtime.requestAction("window-close:" + windowId);
 }
 
-void UmbrielWorkspaceBackend::cleanup() { m_runtime.cleanup(); }
+void AndromedaWorkspaceBackend::cleanup() { m_runtime.cleanup(); }
 
-void UmbrielWorkspaceBackend::handleStreamReset() {
+void AndromedaWorkspaceBackend::handleStreamReset() {
   const bool overviewWasOpen = m_overviewKnown && m_overviewOpen;
   m_windows.clear();
   m_workspacesByOutput.clear();
@@ -179,7 +179,7 @@ void UmbrielWorkspaceBackend::handleStreamReset() {
   }
 }
 
-void UmbrielWorkspaceBackend::handleEvent(std::string_view event, const nlohmann::json& data) {
+void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohmann::json& data) {
   if (event == "windows") {
     if (!data.is_array()) {
       return;
@@ -232,13 +232,13 @@ void UmbrielWorkspaceBackend::handleEvent(std::string_view event, const nlohmann
   // "keyboard_layout" belongs to the keyboard backend.
 }
 
-void UmbrielWorkspaceBackend::notifyChanged() const {
+void AndromedaWorkspaceBackend::notifyChanged() const {
   if (m_changeCallback) {
     m_changeCallback();
   }
 }
 
-void UmbrielWorkspaceBackend::notifyOverviewChanged() const {
+void AndromedaWorkspaceBackend::notifyOverviewChanged() const {
   if (m_overviewChangeCallback) {
     m_overviewChangeCallback();
   }

@@ -8,15 +8,15 @@ set -euo pipefail
 
 # The harness instance is not this check's child, so there is no pid to signal
 # and liveness can only be observed over IPC.
-answers_ipc() { "$UMBRIEL" windows > /dev/null 2>&1; }
+answers_ipc() { "$ANDROMEDA" windows > /dev/null 2>&1; }
 
 # The first invocation opens the dialog and must NOT terminate the compositor.
-if ! "$UMBRIEL" msg session-quit > /dev/null 2>&1; then
+if ! "$ANDROMEDA" msg session-quit > /dev/null 2>&1; then
   echo "msg session-quit was rejected"
   exit 1
 fi
 # settle replies only after a frame drawn past the request; a compositor that quit fails it and the IPC probe below.
-"$UMBRIEL" settle > /dev/null 2>&1 || true
+"$ANDROMEDA" settle > /dev/null 2>&1 || true
 if ! answers_ipc; then
   echo "compositor stopped answering IPC after a single session-quit"
   exit 1
@@ -25,7 +25,7 @@ fi
 # A second invocation confirms and shuts down. The IPC reply may be lost as the
 # display terminates, so tolerate a failed msg; the harness asserts that this
 # instance exited with status 0.
-"$UMBRIEL" msg session-quit > /dev/null 2>&1 || true
+"$ANDROMEDA" msg session-quit > /dev/null 2>&1 || true
 quit=false
 for _ in $(seq 40); do
   if ! answers_ipc; then
@@ -40,7 +40,7 @@ if [[ $quit != true ]]; then
 fi
 
 # sockaddr_un caps paths at 108 bytes and the compositor appends
-# "/umbriel-wayland-0.sock" (23) to XDG_RUNTIME_DIR, so keep the root short.
+# "/andromeda-wayland-0.sock" (23) to XDG_RUNTIME_DIR, so keep the root short.
 RUNTIME_DIR=$(mktemp -d /tmp/umq.XXXXXXXX)
 SERVER_PID=
 
@@ -55,7 +55,7 @@ trap cleanup EXIT
 
 LOG=$RUNTIME_DIR/compositor.log
 CONFIG=$RUNTIME_DIR/config.toml
-SOCKET=$RUNTIME_DIR/umbriel-wayland-0.sock
+SOCKET=$RUNTIME_DIR/andromeda-wayland-0.sock
 cat > "$CONFIG" << 'EOF'
 [general]
 xwayland = false
@@ -68,9 +68,9 @@ env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
   WLR_BACKENDS=headless \
   WLR_LIBINPUT_NO_DEVICES=1 \
   WLR_HEADLESS_OUTPUTS=1 \
-  "$UMBRIEL" -c "$CONFIG" > "$LOG" 2>&1 &
+  "$ANDROMEDA" -c "$CONFIG" > "$LOG" 2>&1 &
 SERVER_PID=$!
-export UMBRIEL_SOCKET=$SOCKET
+export ANDROMEDA_SOCKET=$SOCKET
 
 for _ in $(seq 40); do
   [[ -S $SOCKET ]] && break
@@ -88,7 +88,7 @@ if [[ ! -S $SOCKET ]]; then
 fi
 
 # The bypass form terminates in a single call.
-"$UMBRIEL" msg session-quit:skip-confirmation > /dev/null 2>&1 || true
+"$ANDROMEDA" msg session-quit:skip-confirmation > /dev/null 2>&1 || true
 for _ in $(seq 40); do
   kill -0 "$SERVER_PID" 2>/dev/null || break
   sleep 0.25

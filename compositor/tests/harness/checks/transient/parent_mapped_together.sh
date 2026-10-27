@@ -3,11 +3,11 @@
 # arranged yet when the dialog is placed.
 set -euo pipefail
 
-readonly CLIENT="${UMBRIEL_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
-readonly CLIENT_LOG="$UMBRIEL_RUNTIME_DIR/transient-mapped-together.log"
+readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
+readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/transient-mapped-together.log"
 
 windows() {
-  "$UMBRIEL" windows --json
+  "$ANDROMEDA" windows --json
 }
 
 wait_for_window_count() {
@@ -32,7 +32,7 @@ wait_for_position() {
   return 1
 }
 
-cat >> "$UMBRIEL_CONFIG" <<'EOF2'
+cat >> "$ANDROMEDA_CONFIG" <<'EOF2'
 
 [animation]
 enabled = false
@@ -41,7 +41,7 @@ enabled = false
 default_extent_fraction = 0.5
 center_underfull_strip = false
 EOF2
-"$UMBRIEL" msg config-reload > /dev/null
+"$ANDROMEDA" msg config-reload > /dev/null
 
 # The output is 1280x720 with an edge pad of 10, so the parent's column is 624 wide and 700 high at 10,10, and its
 # 400x300 dialog lands at 122,210. Placed before the arrange, it would center on the output, at 440,210.

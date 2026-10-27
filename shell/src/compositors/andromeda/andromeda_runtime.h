@@ -8,21 +8,21 @@
 #include <string_view>
 #include <vector>
 
-namespace compositors::umbriel {
+namespace compositors::andromeda {
 
-  class UmbrielEventHandler;
+  class AndromedaEventHandler;
 
-  // Owns the Umbriel IPC: stateless one-shot requests (fresh socket per call)
+  // Owns the Andromeda IPC: stateless one-shot requests (fresh socket per call)
   // plus a single persistent event-stream socket whose messages are fanned out
-  // to every registered UmbrielEventHandler. Backends are handlers and forward
+  // to every registered AndromedaEventHandler. Backends are handlers and forward
   // their poll hooks here.
-  class UmbrielRuntime {
+  class AndromedaRuntime {
   public:
-    UmbrielRuntime() = default;
-    ~UmbrielRuntime();
+    AndromedaRuntime() = default;
+    ~AndromedaRuntime();
 
-    UmbrielRuntime(const UmbrielRuntime&) = delete;
-    UmbrielRuntime& operator=(const UmbrielRuntime&) = delete;
+    AndromedaRuntime(const AndromedaRuntime&) = delete;
+    AndromedaRuntime& operator=(const AndromedaRuntime&) = delete;
 
     [[nodiscard]] bool available() const;
     [[nodiscard]] std::optional<nlohmann::json>
@@ -33,8 +33,8 @@ namespace compositors::umbriel {
 
     // Event-stream dispatch. Handlers register on construction; the runtime owns
     // the socket and delivers each parsed event to every registered handler.
-    void registerEventHandler(UmbrielEventHandler* handler);
-    void unregisterEventHandler(UmbrielEventHandler* handler);
+    void registerEventHandler(AndromedaEventHandler* handler);
+    void unregisterEventHandler(AndromedaEventHandler* handler);
     [[nodiscard]] int pollFd() const noexcept { return m_eventSocketFd; }
     [[nodiscard]] short pollEvents() const noexcept { return POLLIN | POLLHUP | POLLERR; }
     [[nodiscard]] int pollTimeoutMs() const noexcept;
@@ -58,11 +58,11 @@ namespace compositors::umbriel {
 
     mutable bool m_resolved = false;
     mutable std::string m_socketPath;
-    std::vector<UmbrielEventHandler*> m_eventHandlers;
+    std::vector<AndromedaEventHandler*> m_eventHandlers;
     int m_eventSocketFd = -1;
     std::vector<char> m_readBuffer;
     std::chrono::steady_clock::time_point m_nextReconnectAt;
     std::chrono::seconds m_reconnectBackoff{2};
   };
 
-} // namespace compositors::umbriel
+} // namespace compositors::andromeda
