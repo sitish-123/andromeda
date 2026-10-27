@@ -9,10 +9,12 @@ boot_headless 1
 export NOCTALIA_PROFILE=1
 
 with_noctalia '
-  rebuilds() { grep -c "profile prepareFrame rebuildContent:" "$OUT/noctalia.log" || true; }
+  rebuilds() { grep -cE "profile prepareFrame (buildScene|rebuildContent):" "$OUT/noctalia.log" || true; }
   "$NOCTALIA" msg settings-open default-apps > /dev/null
   for _ in $(seq 100); do (( $(rebuilds) > 0 )) && break; sleep 0.1; done
-  sleep 1; opened=$(rebuilds)
+  # The theme resolves again about a second after the open; wait until a full second passes without a build.
+  opened=$(rebuilds)
+  for _ in $(seq 10); do sleep 1; (( $(rebuilds) == opened )) && break; opened=$(rebuilds); done
   sleep 3; idle=$(rebuilds) # real time: an idle page must not rebuild
   list=$RUNTIME/home/.config/mimeapps.list
   printf "[Default Applications]\nx-scheme-handler/http=e2e.desktop\n" > "$list.tmp" && mv "$list.tmp" "$list"
