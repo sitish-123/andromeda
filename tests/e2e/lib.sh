@@ -9,7 +9,8 @@ trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' 
 # boot_headless OUTPUTS: start Andromeda with that many headless outputs; its log goes to $OUT/andromeda.log.
 boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
-  printf '[plugins]\nauto_update = "none"\n' > "$RUNTIME/home/.config/noctalia/config.toml"
+  # No first-run wizard: it takes the keyboard from the window under test.
+  printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
   printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$RUNTIME/andromeda.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
   cat > "$RUNTIME/bus.conf" <<'CONF'
