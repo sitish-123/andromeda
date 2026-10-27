@@ -164,9 +164,11 @@ location.sunset
 lockscreen.allow_empty_password
 lockscreen.blur_intensity
 lockscreen.enabled
+lockscreen.face
 lockscreen.fingerprint
 lockscreen.lock_before_suspend
 lockscreen.monitors
+lockscreen.style
 lockscreen.tint_intensity
 lockscreen.wallpaper
 lockscreen_widgets.enabled
@@ -319,6 +321,7 @@ shell.shadow.direction
 shell.show_location
 shell.telemetry_enabled
 shell.time_format
+shell.window_switcher.current_workspace_only
 shell.window_switcher.mru
 shell.window_switcher.show_all_outputs
 shell.window_switcher.show_app_icon

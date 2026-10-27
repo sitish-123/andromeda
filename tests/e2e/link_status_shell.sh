@@ -43,13 +43,13 @@ with_noctalia '
   "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold --status 42,1,wifi \
     < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   hold=$!
-  wait_for "no status on D-Bus" eval "prop DeviceStatus | grep -qF \"(uint32 42, true, '"'"'wifi'"'"')\""
+  wait_for "no status on D-Bus" eval "prop DeviceStatus | grep -qF \"(uint32 42, true, '"'"'wifi'"'"', -1)\""
   sleep 1.5 # real time: the bar and the Devices tab repaint
   grim "$OUT/status-devices.png"
   step "status: $(prop DeviceStatus)"
 
-  say "status 7 0 cellular"
-  wait_for "the changed status never arrived" eval "prop DeviceStatus | grep -qF \"(uint32 7, false, '"'"'cellular'"'"')\""
+  say "status 7 0 cellular 3"
+  wait_for "the changed status never arrived" eval "prop DeviceStatus | grep -qF \"(uint32 7, false, '"'"'cellular'"'"', 3)\""
   sleep 1.5 # real time: repaint
   grim "$OUT/status-changed.png"
   step "changed: $(prop DeviceStatus)"
