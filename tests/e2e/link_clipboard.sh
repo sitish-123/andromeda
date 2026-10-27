@@ -70,11 +70,12 @@ with_noctalia '
   wait_for "no ClipboardOffered for the phone text" eval "(( \$(offered_to_desktop) > $BEFORE ))"
   sleep 0.5 # real time: the shell takes the selection
   PULLS_BEFORE=$(count clip-pull); DATA_BEFORE=$(count clip-data)
-  [[ $PULLS_BEFORE == 0 && $DATA_BEFORE == 0 ]] || fail "bytes moved before the paste: $PULLS_BEFORE pulls, $DATA_BEFORE streams"
+  # Clipboard history reads text from the phone, which is small, as soon as it is offered.
+  [[ $PULLS_BEFORE == 1 && $DATA_BEFORE == 1 ]] || fail "history read moved $PULLS_BEFORE pulls, $DATA_BEFORE streams"
   PHONE_OFFERS=$(offered_to_phone)
   [[ $(wl-paste -n -t "text/plain;charset=utf-8") == "copied on the phone" ]] || fail "wl-paste got $(wl-paste -n)"
   PULLS_AFTER=$(count clip-pull); DATA_AFTER=$(count clip-data)
-  [[ $PULLS_AFTER == 1 && $DATA_AFTER == 1 ]] || fail "one paste moved $PULLS_AFTER pulls and $DATA_AFTER streams"
+  [[ $PULLS_AFTER == 2 && $DATA_AFTER == 2 ]] || fail "one paste moved $PULLS_AFTER pulls and $DATA_AFTER streams"
   sleep 1 # real time: long enough for a clip-offer the desktop should not send back
   [[ $(offered_to_phone) == "$PHONE_OFFERS" ]] || fail "the desktop echoed the phone clip back"
   step "phone text pulled only on paste (pulls $PULLS_BEFORE to $PULLS_AFTER, streams $DATA_BEFORE to $DATA_AFTER), no echo"
@@ -83,7 +84,7 @@ with_noctalia '
   say "clip $RUNTIME/src/shot.png image/png"
   wait_for "no ClipboardOffered for the phone image" eval "(( \$(offered_to_desktop) > $BEFORE + 1 ))"
   sleep 0.5 # real time: the shell takes the selection
-  [[ $(count clip-data) == 1 ]] || fail "the image moved before the paste"
+  [[ $(count clip-data) == "$DATA_AFTER" ]] || fail "the image moved before the paste"
   wl-paste -t image/png > "$RUNTIME/pasted.png"
   cmp -s "$RUNTIME/src/shot.png" "$RUNTIME/pasted.png" || fail "the pasted image differs"
   IMAGE_BYTES=$(stat -c %s "$RUNTIME/pasted.png")
