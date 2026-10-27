@@ -4,7 +4,7 @@
 # bytes (no clip-pull or clip-data in the transcript) until wl-paste pulls it, as text and as a PNG, byte for byte;
 # neither side echoes: the desktop offers nothing back after a paste, and the phone's core refuses to offer back the
 # text it just received; with the clipboard grant off nothing crosses either way, and with the files grant off an
-# offer of files is declined. Every message is validated against protocol/link-v1/messages.cddl. Writes steps.txt,
+# offer of files is declined. Every message is validated against link/api/messages.cddl. Writes steps.txt,
 # counts.json, transcript.jsonl, signals.txt, hold.jsonl, linkd.log, and phone.log to $OUT
 # (default ./artifacts/link-clipboard).
 set -euo pipefail
@@ -16,7 +16,7 @@ rm -f "$OUT"/*.txt "$OUT"/*.jsonl "$OUT/counts.json"
 
 with_noctalia '
   BIN='"$LINK_BIN"'
-  SCHEMA='"$ROOT"'/protocol/link-v1/messages.cddl
+  SCHEMA='"$ROOT"'/link/api/messages.cddl
   fail() { echo "FAIL: $*" >&2; exit 1; }
   msg() { "$NOCTALIA" msg "$@" 2>&1 || true; }
   step() { printf "%s\n" "$*" >> "$OUT/steps.txt"; }

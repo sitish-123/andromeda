@@ -14,7 +14,7 @@ makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
   gstreamer gst-plugins-base-libs)
-url=https://github.com/sitish-kumar/andromeda
+url=https://github.com/sitish-123/andromeda
 # `just package` and the release workflow build a local checkout; anyone else builds the published repository.
 source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}")
 sha256sums=(SKIP)
@@ -25,6 +25,7 @@ pkgver() {
 }
 
 prepare() {
+  git -C desktop submodule update --init link
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
 }
 
@@ -99,19 +100,19 @@ package_umbriel-link-git() {
   backup=(etc/ufw/applications.d/umbriel-link)
   install=umbriel-link.install
   install -Dm755 desktop/link/target/release/umbriel-linkd "$pkgdir/usr/bin/umbriel-linkd"
-  install -Dm644 desktop/session/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
+  install -Dm644 desktop/link/dist/umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-linkd.service"
   install -d "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants"
   ln -s ../umbriel-linkd.service "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-linkd.service"
   install -Dm755 desktop/link/target/release/umbriel-link-mount "$pkgdir/usr/bin/umbriel-link-mount"
   install -Dm755 desktop/link/target/release/umbriel-link-mirror "$pkgdir/usr/bin/umbriel-link-mirror"
   install -Dm755 desktop/link/target/release/umbriel-link-apps "$pkgdir/usr/bin/umbriel-link-apps"
-  install -Dm644 desktop/session/umbriel-link-mount.service "$pkgdir/usr/lib/systemd/user/umbriel-link-mount.service"
+  install -Dm644 desktop/link/dist/umbriel-link-mount.service "$pkgdir/usr/lib/systemd/user/umbriel-link-mount.service"
   ln -s ../umbriel-link-mount.service \
     "$pkgdir/usr/lib/systemd/user/umbriel-session.target.wants/umbriel-link-mount.service"
-  install -Dm644 desktop/session/org.umbriel.Link1.service "$pkgdir/usr/share/dbus-1/services/org.umbriel.Link1.service"
-  install -Dm644 desktop/protocol/link-v1/org.umbriel.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.umbriel.Link1.xml"
-  install -Dm644 desktop/session/umbriel-link.ufw "$pkgdir/etc/ufw/applications.d/umbriel-link"
-  install -Dm644 desktop/session/60-umbriel-link-bluetooth.conf \
+  install -Dm644 desktop/link/dist/org.umbriel.Link1.service "$pkgdir/usr/share/dbus-1/services/org.umbriel.Link1.service"
+  install -Dm644 desktop/link/api/org.umbriel.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.umbriel.Link1.xml"
+  install -Dm644 desktop/link/dist/umbriel-link.ufw "$pkgdir/etc/ufw/applications.d/umbriel-link"
+  install -Dm644 desktop/link/dist/60-umbriel-link-bluetooth.conf \
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-umbriel-link-bluetooth.conf"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

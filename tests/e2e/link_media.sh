@@ -6,7 +6,7 @@
 # back; the player goes when the phone stops it or the session ends. The reverse: a desktop MPRIS test player is sent
 # to the phone as media-player (with its state, commands, and volume), a phone command pauses it, seeks it, sets its
 # volume, and skips it, each landing on the player and its new state reaching the phone. Every message is validated
-# against protocol/link-v1/messages.cddl. Writes media-*.png, steps.txt, hold.jsonl, player-calls.txt, transcript.jsonl,
+# against link/api/messages.cddl. Writes media-*.png, steps.txt, hold.jsonl, player-calls.txt, transcript.jsonl,
 # linkd.log, and noctalia.log to $OUT (default ./artifacts/link-media).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-media}
@@ -129,7 +129,7 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in media-bar media-tab media-lock-screen; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

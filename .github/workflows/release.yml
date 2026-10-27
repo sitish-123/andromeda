@@ -68,7 +68,7 @@ jobs:
           KEYSTORE: ${{ secrets.LINK_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/link-release.jks"
       - name: App
-        working-directory: link/android
+        working-directory: link/apps/android
         env:
           LINK_KEYSTORE: ${{ runner.temp }}/link-release.jks
           LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}

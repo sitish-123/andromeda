@@ -7,7 +7,7 @@
 # nothing; the 65th live notification removes the oldest; Do Not Disturb holds the toast back; a PNG whose header
 # claims 4096x4096 shows the phone glyph instead of being decoded; a hostile phone's 16385-byte icon and 4-action post
 # close the session with protocol-error and reach nothing; D-Bus refuses an oversized reply and a disconnected phone.
-# Every message of the honest phone is validated against protocol/link-v1/messages.cddl, and the hostile ones fail it.
+# Every message of the honest phone is validated against link/api/messages.cddl, and the hostile ones fail it.
 # Writes notification-*.png, steps.txt, signals.txt, hold.jsonl, transcript.jsonl, hostile.jsonl, linkd.log, and
 # noctalia.log to $OUT (default ./artifacts/link-notifications).
 set -euo pipefail
@@ -163,9 +163,9 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
-if "$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
+if "$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
   echo "FAIL: the schema accepts the hostile posts" >&2
   exit 1
 fi

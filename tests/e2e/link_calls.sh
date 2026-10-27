@@ -3,7 +3,7 @@
 # MPRIS test player. Proves: a ringing call shows an incoming-call notification with the contact's name, or the
 # number when there is no name; Mute ringer and Decline reach the phone as call-action; the desktop's playing player is
 # paused while the call rings or is active and resumed when it is idle; a declined call ends and its notification goes;
-# D-Bus refuses an unknown action. Every message is validated against protocol/link-v1/messages.cddl. Writes call-*.png,
+# D-Bus refuses an unknown action. Every message is validated against link/api/messages.cddl. Writes call-*.png,
 # steps.txt, hold.jsonl, player-calls.txt, transcript.jsonl, linkd.log, and noctalia.log to $OUT (default
 # ./artifacts/link-calls).
 set -euo pipefail
@@ -82,7 +82,7 @@ with_noctalia '
 '
 cat "$OUT/steps.txt"
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in call-ringing-contact call-ringing-number call-declined; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

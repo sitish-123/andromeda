@@ -5,7 +5,7 @@
 # stopped; the phone rings the desktop, which plays the alarm sound at full volume although UI sounds are off (the
 # recording of the sink is loud), shows a Stop notification, and reports ringing to the phone; Stop on the desktop
 # silences it and tells the phone, and the phone can stop the desktop too. Every message is validated against
-# protocol/link-v1/messages.cddl. Writes ring-*.png, ring.wav, volume.txt, steps.txt, hold.jsonl, transcript.jsonl,
+# link/api/messages.cddl. Writes ring-*.png, ring.wav, volume.txt, steps.txt, hold.jsonl, transcript.jsonl,
 # linkd.log, and noctalia.log to $OUT (default ./artifacts/link-ring).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-ring}
@@ -105,7 +105,7 @@ ffmpeg -hide_banner -i "$OUT/ring.wav" -af volumedetect -f null - 2>&1 | grep -E
 max=$(sed -n "s/.*max_volume: \(-\?[0-9.]*\) dB/\1/p" "$OUT/volume.txt")
 awk -v m="$max" 'BEGIN {exit !(m > -12)}' || { echo "FAIL: the ring is not loud (max $max dB)" >&2; exit 1; }
 BIN=${LINK_BIN:-$ROOT/link/target/debug}
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" \
+"$BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in ring-phone-ringing ring-desktop-ringing; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }

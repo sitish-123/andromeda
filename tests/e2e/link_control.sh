@@ -9,7 +9,7 @@
 #    nothing; with the commands grant off the phone gets an empty list and a run is dropped.
 # 4. A phone's ping shows a desktop notification; the desktop's ping reaches the phone.
 # 5. The Devices tab shows Ping and the new switches, and Settings, Phones, the Commands card.
-# Every message is validated against protocol/link-v1/messages.cddl. Writes steps.txt, window.jsonl, hold.jsonl,
+# Every message is validated against link/api/messages.cddl. Writes steps.txt, window.jsonl, hold.jsonl,
 # signals.txt, transcript.jsonl, linkd.log, noctalia.log, and *.png to $OUT (default ./artifacts/link-control).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-control}
@@ -154,7 +154,7 @@ with_noctalia '
   kill "$hold"
   wait "$hold" || true
 '
-"$LINK_BIN/umbriel-link-phone" check-transcript "$ROOT/protocol/link-v1/messages.cddl" "$OUT/transcript.jsonl" \
+"$LINK_BIN/umbriel-link-phone" check-transcript "$ROOT/link/api/messages.cddl" "$OUT/transcript.jsonl" \
   | tee "$OUT/transcript-check.json" || { echo "FAIL: the transcript violates the schema" >&2; exit 1; }
 for shot in ping-toast devices-tab settings-commands; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }
