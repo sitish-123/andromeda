@@ -236,6 +236,26 @@ namespace notification_dbus {
     return false;
   }
 
+  static bool notifyBoolHint(const std::map<std::string, sdbus::Variant>& hints, const std::string& key) {
+    if (auto it = hints.find(key); it != hints.end()) {
+      try {
+        return it->second.get<bool>();
+      } catch (...) {
+      }
+    }
+    return false;
+  }
+
+  static std::optional<std::string> notifyGroupFromHints(const std::map<std::string, sdbus::Variant>& hints) {
+    if (auto it = hints.find("x-andromeda-group"); it != hints.end()) {
+      try {
+        return StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
+      } catch (...) {
+      }
+    }
+    return std::nullopt;
+  }
+
   std::vector<std::string> sanitizeNotifyActions(const std::vector<std::string>& actions) {
     std::vector<std::string> sanitized;
     sanitized.reserve(actions.size() - (actions.size() % 2));
@@ -433,11 +453,13 @@ namespace notification_dbus {
             .timeout = timeout,
             .origin = NotificationOrigin::External,
             .transient = notifyTransientFromHints(hints),
+            .suppressSound = notifyBoolHint(hints, "suppress-sound"),
             .actions = sanitizedActions,
             .icon = notifyIcon(app_name, app_icon, hints),
             .imageData = notifyImageDataFromHints(hints),
             .category = notifyCategoryFromHints(hints),
             .desktopEntry = notifyDesktopEntryFromHints(hints),
+            .group = notifyGroupFromHints(hints),
         }
     );
   }

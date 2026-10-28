@@ -66,7 +66,8 @@ struct Notification {
   std::optional<NotificationImageData> imageData;
   std::optional<std::string> category;
   std::optional<std::string> desktopEntry;
-  TimePoint receivedTime;              // add/replace time used for duplicate burst suppression
+  std::optional<std::string> group; // hint x-andromeda-group "<source>/<app>"; absent = group by app name
+  TimePoint receivedTime;             // add/replace time used for duplicate burst suppression
   std::optional<TimePoint> expiryTime; // absent = never expires
   /// Wall-clock receive time (history UI, persistence). Optional for pre-migration / corrupt rows.
   std::optional<WallTimePoint> receivedWallClock;

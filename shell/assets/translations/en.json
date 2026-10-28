@@ -495,6 +495,9 @@
     },
     "notifications": {
       "clear-all": "Clear all notifications",
+      "clear-group": "Clear group",
+      "collapse-group": "Show less",
+      "group-more": "+ {count} more",
       "dnd-off": "Turn Do Not Disturb Off",
       "dnd-on": "Turn Do Not Disturb On",
       "empty-body": "Recent notifications will show here.",

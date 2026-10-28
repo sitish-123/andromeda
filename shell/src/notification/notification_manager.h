@@ -59,11 +59,13 @@ struct NotificationRequest {
   // Internal notifications are toast-only by default; set this for one-shot alerts (calendar
   // reminders) whose whole value is lost if the toast is missed.
   bool persistInHistory = false;
+  bool suppressSound = false;
   std::vector<std::string> actions;
   std::optional<std::string> icon = std::nullopt;
   std::optional<NotificationImageData> imageData = std::nullopt;
   std::optional<std::string> category = std::nullopt;
   std::optional<std::string> desktopEntry = std::nullopt;
+  std::optional<std::string> group = std::nullopt;
   std::optional<uint32_t> forcedId = std::nullopt;
 };
 

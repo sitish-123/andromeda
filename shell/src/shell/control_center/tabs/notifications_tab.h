@@ -21,6 +21,14 @@ class VirtualListView;
 class Label;
 class NotificationHistoryAdapter;
 
+struct NotificationListRow {
+  uint32_t id = 0;
+  std::string groupKey;
+  // Set only on the first row of a group of two or more.
+  std::string groupLabel;
+  std::size_t hiddenCount = 0;
+};
+
 class NotificationsTab : public Tab {
 public:
   NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform);
@@ -41,6 +49,8 @@ private:
   void removeNotificationEntry(uint32_t id, bool wasActive);
   void toggleDoNotDisturb();
   void toggleNotificationExpanded(uint32_t id);
+  void toggleGroupExpanded(const std::string& key);
+  void clearGroup(const std::string& key);
   void invokeNotificationAction(uint32_t id, const std::string& actionKey);
   bool refreshDataSnapshot();
   void syncDndButton();
@@ -59,8 +69,8 @@ private:
   CompositorPlatform* m_platform = nullptr;
   IconResolver m_iconResolver;
   std::unique_ptr<NotificationHistoryAdapter> m_adapter;
-  // Notification ids from the current filter snapshot, looked up with findHistoryEntry().
-  std::vector<uint32_t> m_filtered;
+  // Rows from the current filter snapshot, grouped; ids are looked up with findHistoryEntry().
+  std::vector<NotificationListRow> m_filtered;
   Flex* m_root = nullptr;
   VirtualListView* m_list = nullptr;
   Flex* m_emptyCard = nullptr;
@@ -71,6 +81,7 @@ private:
   Segmented* m_filter = nullptr;
   std::size_t m_filterIndex = 0;
   std::unordered_set<uint32_t> m_expandedIds;
+  std::unordered_set<std::string> m_expandedGroups;
   std::uint64_t m_lastSerial = 0;
   /// Wall-clock coarse slot so relative times (e.g. "2 min ago") refresh without churning every frame.
   std::int64_t m_lastRelativeTimeSlot = -1;

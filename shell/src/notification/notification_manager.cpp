@@ -279,6 +279,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   auto& imageData = request.imageData;
   auto& category = request.category;
   auto& desktopEntry = request.desktopEntry;
+  auto& group = request.group;
   const auto& forcedId = request.forcedId;
 
   if (actions.size() > kMaxNotificationActions * 2) {
@@ -343,7 +344,8 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
            || n.icon != icon
            || n.imageData != imageData
            || n.category != category
-           || n.desktopEntry != desktopEntry);
+           || n.desktopEntry != desktopEntry
+           || n.group != group);
 
       n.origin = origin;
       n.transient = transient;
@@ -362,6 +364,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
       n.imageData = std::move(imageData);
       n.category = std::move(category);
       n.desktopEntry = std::move(desktopEntry);
+      n.group = std::move(group);
       n.receivedTime = now;
       n.expiryTime = scheduleExpiry(now, timeout);
       n.receivedWallClock = wallNow;
@@ -421,6 +424,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           .imageData = std::move(imageData),
           .category = std::move(category),
           .desktopEntry = std::move(desktopEntry),
+          .group = std::move(group),
           .receivedTime = now,
           .expiryTime = scheduleExpiry(now, timeout),
           .receivedWallClock = wallNow,
@@ -443,7 +447,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
     }
   }
   const bool dndAllowsSound = !m_doNotDisturb || dndPolicy == NotificationDndPolicy::Bypass;
-  if (dndAllowsSound && m_soundPlayer != nullptr && dispatch.playSound) {
+  if (dndAllowsSound && m_soundPlayer != nullptr && dispatch.playSound && !request.suppressSound) {
     m_soundPlayer->play(SoundPlayer::kEventNotification);
   }
 

@@ -464,6 +464,9 @@ namespace {
     } else {
       j["desktop_entry"] = nullptr;
     }
+    if (n.group.has_value()) {
+      j["group"] = *n.group;
+    }
     j["received_wall_ms"] = wallToMillis(n.receivedWallClock);
     j["expiry_wall_ms"] = wallToMillis(n.expiryWallClock);
     return j;
@@ -497,6 +500,9 @@ namespace {
     }
     if (j.contains("desktop_entry") && !j["desktop_entry"].is_null()) {
       n.desktopEntry = j["desktop_entry"].get<std::string>();
+    }
+    if (j.contains("group") && j["group"].is_string()) {
+      n.group = j["group"].get<std::string>();
     }
     const int64_t rw = j.value("received_wall_ms", int64_t{0});
     if (rw > 0) {
