@@ -26,7 +26,7 @@ namespace settings {
       auto status = ui::row(
           {.align = FlexAlign::Center, .gap = Style::spaceXs * scale},
           ui::box({
-              .fill = colorSpecFromRole(phone.connected ? ColorRole::Primary : ColorRole::Outline),
+              .fill = colorSpecFromRole(phone.connected ? ColorRole::Primary : ColorRole::OutlineVariant),
               .radius = 4.0F * scale,
               .width = 8.0F * scale,
               .height = 8.0F * scale,

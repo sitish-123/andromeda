@@ -80,7 +80,7 @@ namespace settings {
       return Button::ButtonPalette{
           .normal = {.bg = clear, .border = clear, .label = primary},
           .hover = {.bg = colorSpecFromRole(ColorRole::Hover), .border = clear, .label = colorSpecFromRole(ColorRole::OnHover)},
-          .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceVariant), .border = clear, .label = primary},
+          .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceContainer), .border = clear, .label = primary},
           .disabled = {.bg = clear, .border = clear, .label = primary},
       };
     }
@@ -346,7 +346,7 @@ namespace settings {
 
       auto body = ui::row(
           {.align = FlexAlign::Stretch, .gap = kGuideGap * scale},
-          ui::box({.fill = colorSpecFromRole(ColorRole::Outline), .width = kGuideWidth * scale}),
+          ui::box({.fill = colorSpecFromRole(ColorRole::OutlineVariant), .width = kGuideWidth * scale}),
           std::move(items)
       );
       body->setPadding(kSidebarGap * scale, 0.0F, Style::spaceXs * scale, kGuideInset * scale);
