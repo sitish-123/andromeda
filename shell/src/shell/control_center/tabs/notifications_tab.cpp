@@ -1228,6 +1228,10 @@ bool NotificationsTab::refreshDataSnapshot() {
       }
       group->second.push_back(&historyEntry.notification);
     }
+    std::erase_if(m_expandedGroups, [&groups](const std::string& key) {
+      const auto group = std::ranges::find(groups, key, &decltype(groups)::value_type::first);
+      return group == groups.end() || group->second.size() < 2;
+    });
     for (const auto& [key, notifications] : groups) {
       const bool grouped = notifications.size() > 1;
       const bool collapsed = grouped && !m_expandedGroups.contains(key);
