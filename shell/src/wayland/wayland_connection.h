@@ -43,7 +43,6 @@ struct ext_workspace_manager_v1;
 struct org_kde_plasma_virtual_desktop_management;
 struct zdwl_ipc_manager_v2;
 struct zwp_virtual_keyboard_manager_v1;
-struct zwlr_virtual_pointer_manager_v1;
 struct zwp_text_input_manager_v3;
 struct hyprland_focus_grab_manager_v1;
 struct hyprland_toplevel_mapping_manager_v1;
@@ -233,9 +232,6 @@ public:
   [[nodiscard]] zwp_virtual_keyboard_manager_v1* virtualKeyboardManager() const noexcept {
     return m_virtualKeyboardManager;
   }
-  [[nodiscard]] zwlr_virtual_pointer_manager_v1* virtualPointerManager() const noexcept {
-    return m_virtualPointerManager;
-  }
   [[nodiscard]] wl_pointer* pointer() const noexcept;
   [[nodiscard]] wl_shm* shm() const noexcept;
   [[nodiscard]] wl_subcompositor* subcompositor() const noexcept;
@@ -382,7 +378,6 @@ private:
   const DataControlOps* m_dataControlOps = nullptr;
   zwp_text_input_manager_v3* m_textInputManager = nullptr;
   zwp_virtual_keyboard_manager_v1* m_virtualKeyboardManager = nullptr;
-  zwlr_virtual_pointer_manager_v1* m_virtualPointerManager = nullptr;
   ClipboardService* m_clipboardService = nullptr;
   TextInputService* m_textInputService = nullptr;
   VirtualKeyboardService* m_virtualKeyboardService = nullptr;

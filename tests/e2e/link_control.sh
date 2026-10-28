@@ -4,13 +4,14 @@
 # 1. Remote input without the desktop's input grant is dropped; nothing reaches the window.
 # 2. With the grant: moves arrive as the same relative motion, left and right clicks as buttons 1 and 3, a scroll as a
 #    downward scroll, the presenter's keys (page-down, page-up, f5, escape) as those keysyms, and Unicode text as the
-#    entry's text, through the shell's virtual pointer and keyboard.
+#    entry's text, through andromeda-link-session's virtual pointer and keyboard.
 # 3. Commands set over D-Bus reach the phone by name; running one by id runs its line here; an unknown id runs
 #    nothing; with the commands grant off the phone gets an empty list and a run is dropped.
 # 4. A phone's ping shows a desktop notification; the desktop's ping reaches the phone.
 # 5. The Devices tab shows Ping and the new switches, and Settings, Phones, the Commands card.
 # Every message is validated against link/api/messages.cddl. Writes steps.txt, window.jsonl, hold.jsonl,
-# signals.txt, transcript.jsonl, linkd.log, noctalia.log, and *.png to $OUT (default ./artifacts/link-control).
+# signals.txt, transcript.jsonl, linkd.log, session.log, noctalia.log, and *.png to $OUT
+# (default ./artifacts/link-control).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-control}
 source "$(dirname "$0")/lib.sh"
@@ -49,6 +50,9 @@ with_noctalia '
 
   XDG_STATE_HOME=$RUNTIME/linkd RUST_LOG=info,zbus=warn "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+  wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
+  grep -q "input through wlr-virtual-pointer" "$OUT/session.log" || fail "link-session has no input backend"
   dbus-monitor --session "type=signal,interface=org.andromeda.Link1" > "$OUT/signals.txt" 2>&1 &
   PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"

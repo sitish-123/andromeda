@@ -1691,7 +1691,6 @@ void Application::initSessionBusServices() {
     try {
       m_linkService =
           std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService, m_soundPlayer);
-      m_linkService->setRemoteInput(&m_remoteInput);
       m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
         m_bar.refresh();
         if (shouldRefreshControlCenter()) {

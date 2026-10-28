@@ -19,7 +19,6 @@
 class ClipboardService;
 class IpcService;
 class NotificationManager;
-class RemoteInputService;
 class SessionBus;
 class SoundPlayer;
 
@@ -128,7 +127,6 @@ public:
   );
   void ping(const std::string& deviceId);
   // A phone with the input grant moves this pointer and types through it.
-  void setRemoteInput(RemoteInputService* input) noexcept { m_remoteInput = input; }
   [[nodiscard]] const std::vector<LinkCommand>& commands() const noexcept { return m_commands; }
   void setCommands(const std::vector<LinkCommand>& commands);
   void registerIpc(IpcService& ipc, std::function<void()> showPairing);
@@ -166,28 +164,14 @@ private:
   void onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total);
   void onFinished(const std::string& transferId, const std::string& status, const std::vector<std::string>& paths);
   void callTransfer(const char* method, const std::string& transferId);
-  void onLocalClipboard(
-      const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
-  );
-  void onClipboardOffered(
-      const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes, std::uint64_t size
-  );
   void closeTransferNotification(std::uint32_t& id);
-  void onNotificationPosted(
-      const std::string& deviceId, const std::string& id, const std::string& app, const std::string& title,
-      const std::string& text, const std::vector<std::uint8_t>& icon,
-      const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
-  );
-  void onNotificationRemoved(const std::string& deviceId, const std::string& id);
   void onNotificationClosed(std::uint32_t id, CloseReason reason);
   void onRingRequested(const std::string& deviceId, bool on);
   void onHotspot(const std::string& deviceId, const std::string& ssid);
-  void onRemoteInput(const std::string& action, std::int32_t dx, std::int32_t dy, const std::string& detail);
   void onPinged(const std::string& deviceId, const std::string& message);
   void
   onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
   void stopRinging();
-  [[nodiscard]] std::uint32_t mirroredId(const std::string& deviceId, const std::string& id) const;
   [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
 
   struct ReceivedShare {
@@ -210,15 +194,6 @@ private:
     std::vector<std::string> paths;
   };
 
-  struct MirroredNotification {
-    std::string deviceId;
-    std::string id;
-    // The phone action behind the inline reply field, if the notification takes a reply.
-    std::string replyAction;
-    // An action ran on the phone, so closing the notification here is not a dismissal.
-    bool acted = false;
-  };
-
   std::unique_ptr<sdbus::IProxy> m_daemon;
   std::unique_ptr<sdbus::IProxy> m_link;
   NotificationManager& m_notifications;
@@ -235,12 +210,7 @@ private:
   std::map<std::string, std::unordered_map<std::string, std::string>> m_contactNames;
   std::vector<LinkNearby> m_nearby;
   std::vector<LinkCommand> m_commands;
-  RemoteInputService* m_remoteInput = nullptr;
   bool m_localSendVisible = false;
-  // Hash of the last clipboard offered, so a re-read of the same selection is not offered again.
-  std::size_t m_lastClipboardHash = 0;
-  // Phone notifications by the id of the desktop notification that shows them.
-  std::unordered_map<std::uint32_t, MirroredNotification> m_mirrored;
   std::weak_ptr<SoundPlayer> m_sounds;
   std::set<std::string> m_phonesRinging;
   /// The notice shown while the laptop is on a phone's hotspot, replaced when it leaves.

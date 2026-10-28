@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phone notifications on the desktop, through the shell, against a real andromeda-linkd and a present headless phone.
+# Phone notifications on the desktop, through andromeda-link-session and the shell's notification server, against a real andromeda-linkd and a present headless phone.
 # Proves: a post reaches D-Bus NotificationPosted with its icon and actions and shows as a toast with the app icon; a
 # button runs its action on the phone, and the inline reply sends the typed text with the reply action; dismissing on
 # the desktop dismisses on the phone, whose removal comes back as NotificationRemoved; a removal on the phone closes
@@ -8,8 +8,8 @@
 # claims 4096x4096 shows the phone glyph instead of being decoded; a hostile phone's 16385-byte icon and 4-action post
 # close the session with protocol-error and reach nothing; D-Bus refuses an oversized reply and a disconnected phone.
 # Every message of the honest phone is validated against link/api/messages.cddl, and the hostile ones fail it.
-# Writes notification-*.png, steps.txt, signals.txt, hold.jsonl, transcript.jsonl, hostile.jsonl, linkd.log, and
-# noctalia.log to $OUT (default ./artifacts/link-notifications).
+# Writes notification-*.png, steps.txt, signals.txt, hold.jsonl, transcript.jsonl, hostile.jsonl, linkd.log,
+# session.log, and noctalia.log to $OUT (default ./artifacts/link-notifications).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-notifications}
 source "$(dirname "$0")/lib.sh"
@@ -61,6 +61,8 @@ with_noctalia '
 
   XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+  wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
   PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
   wait_for "no pairing window" eval "[[ \$(msg link-pairing) == open\ * ]]"
@@ -131,7 +133,7 @@ with_noctalia '
 
   post bomb-1 Photos "Header bomb" "A PNG claiming 4096x4096" "\"icon_file\":\"$RUNTIME/bomb.png\""
   wait_for "no NotificationPosted for bomb-1" heard NotificationPosted bomb-1
-  wait_for "the shell did not refuse the 4096x4096 icon" grep -q "icon of 4096x4096 ignored" "$OUT/noctalia.log"
+  wait_for "link-session did not refuse the 4096x4096 icon" grep -q "icon of 4096x4096 ignored" "$OUT/session.log"
   shot bomb-glyph
   step "bomb icon: refused from its header, shown with the phone glyph"
 
