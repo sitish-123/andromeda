@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A minimal org.freedesktop.Notifications server for sessions without one. Logs each call as a JSON line to LOG and
-reads commands from stdin: `invoke ID KEY` emits ActionInvoked, `dismiss ID` emits NotificationClosed with reason 2.
+reads commands from stdin: `invoke ID KEY` emits ActionInvoked, `dismiss ID` emits NotificationClosed with reason 2,
+`lock on|off` sets org.freedesktop.ScreenSaver's state and emits ActiveChanged, as the shell's lock screen does.
 Usage: link_notifier.py LOG."""
 import json
 import sys
@@ -26,6 +27,15 @@ XML = """
 """
 PATH = "/org/freedesktop/Notifications"
 INTERFACE = "org.freedesktop.Notifications"
+LOCK_XML = """
+<node><interface name="org.freedesktop.ScreenSaver">
+  <method name="GetActive"><arg type="b" direction="out"/></method>
+  <signal name="ActiveChanged"><arg type="b"/></signal>
+</interface></node>
+"""
+LOCK_PATH = "/org/freedesktop/ScreenSaver"
+LOCK_INTERFACE = "org.freedesktop.ScreenSaver"
+locked = False
 
 log = open(sys.argv[1], "a", buffering=1)
 connection = None
@@ -69,7 +79,15 @@ def command(source, _condition):
         emit("ActionInvoked", (int(words[1]), words[2]))
     elif words[:1] == ["dismiss"]:
         emit("NotificationClosed", (int(words[1]), 2))
+    elif words[:1] == ["lock"]:
+        global locked
+        locked = words[1] == "on"
+        connection.emit_signal(None, LOCK_PATH, LOCK_INTERFACE, "ActiveChanged", GLib.Variant("(b)", (locked,)))
     return True
+
+
+def lock_call(_connection, _sender, _path, _interface, _method, _params, invocation):
+    invocation.return_value(GLib.Variant("(b)", (locked,)))
 
 
 def acquired(bus, _name):
@@ -80,6 +98,8 @@ def acquired(bus, _name):
 
 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
 bus.register_object(PATH, Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0], call, None, None)
+bus.register_object(LOCK_PATH, Gio.DBusNodeInfo.new_for_xml(LOCK_XML).interfaces[0], lock_call, None, None)
+Gio.bus_own_name_on_connection(bus, LOCK_INTERFACE, Gio.BusNameOwnerFlags.NONE, None, None)
 Gio.bus_own_name_on_connection(bus, INTERFACE, Gio.BusNameOwnerFlags.NONE, acquired, None)
 GLib.io_add_watch(GLib.IOChannel.unix_new(sys.stdin.fileno()), GLib.IO_IN | GLib.IO_HUP,
                   lambda channel, condition: command(sys.stdin, condition))

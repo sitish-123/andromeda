@@ -4,7 +4,7 @@
 # button runs its action on the phone, and the inline reply sends the typed text with the reply action; dismissing on
 # the desktop dismisses on the phone, whose removal comes back as NotificationRemoved; a removal on the phone closes
 # the desktop's notification without a dismissal going back; a reconnect's re-post of unchanged notifications emits
-# nothing; the 65th live notification removes the oldest; Do Not Disturb holds the toast back; a PNG whose header
+# nothing; 65 more live notifications remove none; Do Not Disturb holds the toast back; a PNG whose header
 # claims 4096x4096 shows the phone glyph instead of being decoded; a hostile phone's 16385-byte icon and 4-action post
 # close the session with protocol-error and reach nothing; D-Bus refuses an oversized reply and a disconnected phone.
 # Every message of the honest phone is validated against link/api/messages.cddl, and the hostile ones fail it.
@@ -140,8 +140,8 @@ with_noctalia '
   for n in $(seq 0 64); do post "cap-$n" Flood "Item $n" "Filling the limit"; done
   wait_for "no NotificationPosted for cap-64" heard NotificationPosted cap-64
   removed_first=$(grep -A3 "member=NotificationRemoved" "$OUT/signals.txt" | grep -c "string \"chat-1\"" || true)
-  [[ $removed_first == 1 ]] || fail "the 65th live notification did not remove the oldest (chat-1)"
-  step "cap: 65th live notification removed the oldest, chat-1"
+  [[ $removed_first == 0 ]] || fail "the 65th live notification removed the oldest (chat-1): the store has no cap"
+  step "no cap: 65 more live notifications removed none"
 
   OUTPUT=$(link NotificationAction "$ID" chat-2 0 "$(head -c 4097 /dev/zero | tr "\0" a)") && fail "an oversized reply was sent"
   [[ $OUTPUT == *Error.Rejected* ]] || fail "an oversized reply was not rejected: $OUTPUT"
