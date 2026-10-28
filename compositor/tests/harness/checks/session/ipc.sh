@@ -456,7 +456,9 @@ if ! jq -e '
   echo "outputs --json has an unexpected shape: $outputs"
   exit 1
 fi
-if [[ $("$ANDROMEDA" outputs -j) != "$outputs" ]]; then
+# The commit counters advance between the two calls.
+steady='del(.[].direct_scanout.commits, .[].direct_scanout.scanout_commits, .[].direct_scanout.commit_seq)'
+if [[ $("$ANDROMEDA" outputs -j | jq -c "$steady") != "$(jq -c "$steady" <<< "$outputs")" ]]; then
   echo "outputs -j differs from outputs --json"
   exit 1
 fi
