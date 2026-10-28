@@ -209,7 +209,8 @@ int main(int argc, char** argv) {
   };
 
   const bool needsKeyboard = std::ranges::any_of(args, [](const std::string& command) {
-    return command == "mod" || command == "tap" || command == "key-press" || command == "key-release";
+    return command == "mod" || command == "lock" || command == "tap" || command == "key-press"
+        || command == "key-release";
   });
   VirtualKeyboard keyboard;
   if (needsKeyboard && !initializeKeyboard(keyboard, state, display)) {

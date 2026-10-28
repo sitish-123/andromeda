@@ -25,7 +25,8 @@ with_noctalia '
   echo "idle shell wakeups/s: $idle" | tee "$OUT/result.txt"
   ((idle <= 10)) || { echo "FAIL: idle shell woke $idle times per second"; exit 1; }
 
-  '"$KEYS"' 1280 720 tap 58 > /dev/null
+  # A virtual keyboard sets lock state with its modifiers request; wlroots does not update it from a key.
+  '"$KEYS"' 1280 720 lock caps > /dev/null
   for _ in $(seq 50); do layer_present noctalia-osd && break; sleep 0.1; done
   layer_present noctalia-osd || { echo "FAIL: Caps Lock did not reach the shell"; exit 1; }
 '
