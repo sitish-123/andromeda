@@ -40,7 +40,7 @@ build() {
   meson compile -C build-greeter
   # makepkg's -flto=auto turns ring's C objects into GCC LTO bitcode, which the Rust linker cannot read.
   CFLAGS="${CFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
-    -p link-mount -p link-mirror -p link-app
+    -p link-mount -p link-mirror -p link-app -p link-session
 }
 
 package_andromeda() {
@@ -113,6 +113,12 @@ package_andromeda-link-git() {
   install -Dm644 desktop/link/dist/andromeda-link-mount.service "$pkgdir/usr/lib/systemd/user/andromeda-link-mount.service"
   ln -s ../andromeda-link-mount.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-link-mount.service"
+  install -Dm755 desktop/link/target/release/andromeda-link-session "$pkgdir/usr/bin/andromeda-link-session"
+  install -Dm644 desktop/link/dist/andromeda-link-session.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-link-session.service"
+  install -d "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants"
+  ln -s ../andromeda-link-session.service \
+    "$pkgdir/usr/lib/systemd/user/graphical-session.target.wants/andromeda-link-session.service"
   install -Dm644 desktop/link/dist/org.andromeda.Link1.service "$pkgdir/usr/share/dbus-1/services/org.andromeda.Link1.service"
   install -Dm644 desktop/link/api/org.andromeda.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.Link1.xml"
   install -Dm644 desktop/link/dist/andromeda-link.ufw "$pkgdir/etc/ufw/applications.d/andromeda-link"

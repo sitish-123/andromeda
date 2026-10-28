@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Clipboard sync through the shell against a real andromeda-linkd and a present headless phone. Proves: a desktop copy
-# (wl-copy) reaches the phone at once as inline text; a phone offer becomes the desktop selection without moving any
+# Clipboard sync through andromeda-link-session's ext-data-control-v1 backend, beside the shell's clipboard history,
+# against a real andromeda-linkd and a present headless phone. Proves: a desktop copy (wl-copy) reaches the phone at once as inline text; a phone offer becomes the desktop selection without moving any
 # bytes (no clip-pull or clip-data in the transcript) until wl-paste pulls it, as text and as a PNG, byte for byte;
 # neither side echoes: the desktop offers nothing back after a paste, and the phone's core refuses to offer back the
 # text it just received; with the clipboard grant off nothing crosses either way, and with the files grant off an
 # offer of files is declined. Every message is validated against link/api/messages.cddl. Writes steps.txt,
-# counts.json, transcript.jsonl, signals.txt, hold.jsonl, linkd.log, and phone.log to $OUT
+# counts.json, transcript.jsonl, signals.txt, hold.jsonl, linkd.log, session.log, and phone.log to $OUT
 # (default ./artifacts/link-clipboard).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-clipboard}
@@ -34,6 +34,9 @@ with_noctalia '
 
   XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+  wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
+  grep -q "clipboard through ext-data-control-v1" "$OUT/session.log" || fail "link-session has no clipboard backend"
   dbus-monitor --session "type='"'"'signal'"'"',interface='"'"'org.andromeda.Link1'"'"'" > "$OUT/signals.txt" 2>&1 &
   PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"

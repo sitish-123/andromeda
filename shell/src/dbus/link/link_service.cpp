@@ -9,10 +9,8 @@
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
 #include "pipewire/sound_player.h"
-#include "render/core/image_decoder.h"
 #include "util/string_utils.h"
 #include "wayland/clipboard_service.h"
-#include "wayland/remote_input_service.h"
 
 #include <algorithm>
 #include <array>
@@ -24,16 +22,13 @@
 #include <filesystem>
 #include <format>
 #include <glib.h>
-#include <linux/input-event-codes.h>
 #include <map>
 #include <ranges>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
 #include <string_view>
-#include <sys/mman.h>
 #include <unistd.h>
 #include <utility>
-#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace {
 
@@ -49,41 +44,11 @@ namespace {
   // The daemon's window length; it reports the close itself through Pairing.
   constexpr auto kPairingWindow = std::chrono::seconds(120);
 
-  // A mirrored notification's buttons are "phone:<the phone's action id>"; its reply field is the shell's inline reply.
-  constexpr std::string_view kPhoneActionPrefix = "phone:";
-  constexpr std::string_view kInlineReplyPrefix = "inline-reply::";
   constexpr auto kRingSound = "alarm-clock-elapsed";
   // The sound is shorter than this, so the gap between repeats stays short.
   constexpr auto kRingRepeat = std::chrono::milliseconds(2500);
   // A ring stops by itself after this, as link/ARCHITECTURE.md says.
   constexpr auto kRingLimit = std::chrono::minutes(2);
-  // Phone icons are drawn at 64 px; the bound keeps a small hostile PNG from inflating into a huge bitmap.
-  constexpr std::uint32_t kMaxIconSide = 256;
-  constexpr std::array<std::pair<std::string_view, std::uint32_t>, 15> kRemoteKeys{{
-      {"enter", XKB_KEY_Return},
-      {"backspace", XKB_KEY_BackSpace},
-      {"delete", XKB_KEY_Delete},
-      {"escape", XKB_KEY_Escape},
-      {"tab", XKB_KEY_Tab},
-      {"space", XKB_KEY_space},
-      {"left", XKB_KEY_Left},
-      {"right", XKB_KEY_Right},
-      {"up", XKB_KEY_Up},
-      {"down", XKB_KEY_Down},
-      {"home", XKB_KEY_Home},
-      {"end", XKB_KEY_End},
-      {"page-up", XKB_KEY_Page_Up},
-      {"page-down", XKB_KEY_Page_Down},
-      {"f5", XKB_KEY_F5},
-  }};
-  constexpr std::array<std::pair<std::string_view, std::uint32_t>, 3> kRemoteButtons{{
-      {"left", BTN_LEFT},
-      {"right", BTN_RIGHT},
-      {"middle", BTN_MIDDLE},
-  }};
-
-  constexpr std::array<std::uint8_t, 16> kPngHeader{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n',
-                                                    0,    0,   0,   13,  'I',  'H',  'D',  'R'};
 
   using VariantMap = std::map<std::string, sdbus::Variant>;
 
@@ -118,10 +83,6 @@ namespace {
     return unit == 0 ? std::format("{} {}", bytes, kUnits[0]) : std::format("{:.1f} {}", size, kUnits[unit]);
   }
 
-  // The protocol's limits on a clipboard offer.
-  constexpr std::size_t kMaxClipboardBytes = 64U << 20U;
-  constexpr std::size_t kMaxClipboardTypes = 16;
-
   std::string fileUri(const std::filesystem::path& path) {
     gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
     if (uri == nullptr) {
@@ -130,41 +91,6 @@ namespace {
     std::string out(uri);
     g_free(uri);
     return out;
-  }
-
-  std::uint32_t readBigEndian(const std::uint8_t* bytes) {
-    return (std::uint32_t{bytes[0]} << 24)
-        | (std::uint32_t{bytes[1]} << 16)
-        | (std::uint32_t{bytes[2]} << 8)
-        | std::uint32_t{bytes[3]};
-  }
-
-  // The PNG's size is read from its header before anything is decoded.
-  std::optional<NotificationImageData> decodeIcon(const std::vector<std::uint8_t>& png) {
-    if (png.size() < kPngHeader.size() + 8
-        || !std::ranges::equal(kPngHeader, png | std::views::take(kPngHeader.size()))) {
-      return std::nullopt;
-    }
-    const std::uint32_t width = readBigEndian(&png[16]);
-    const std::uint32_t height = readBigEndian(&png[20]);
-    if (width == 0 || height == 0 || width > kMaxIconSide || height > kMaxIconSide) {
-      kLog.info("phone notification icon of {}x{} ignored", width, height);
-      return std::nullopt;
-    }
-    auto decoded = decodeRasterImage(png.data(), png.size());
-    if (!decoded) {
-      kLog.info("phone notification icon: {}", decoded.error());
-      return std::nullopt;
-    }
-    return NotificationImageData{
-        .width = decoded->width,
-        .height = decoded->height,
-        .rowStride = decoded->width * 4,
-        .hasAlpha = true,
-        .bitsPerSample = 8,
-        .channels = 4,
-        .data = std::move(decoded->pixels),
-    };
   }
 
 } // namespace
@@ -242,28 +168,11 @@ LinkService::LinkService(
       .call([this](const std::string& transferId, const std::string& status, const std::vector<std::string>& paths) {
         onFinished(transferId, status, paths);
       });
-  m_link->uponSignal("ClipboardOffered")
-      .onInterface(kLinkInterface)
-      .call([this](
-                const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes,
-                std::uint64_t size
-            ) { onClipboardOffered(deviceId, id, mimeTypes, size); });
-  m_clipboard.setSelectionListener([this](
-                                       const std::vector<std::string>& mimeTypes, const std::string& dataMimeType,
-                                       const std::vector<std::uint8_t>& data
-                                   ) { onLocalClipboard(mimeTypes, dataMimeType, data); });
   m_notifications.addInternalActionCallback(
       [this](std::uint32_t id, const std::string& action, const std::string& activationToken, const std::string&) {
         onAction(id, action, activationToken);
       }
   );
-  m_link->uponSignal("NotificationPosted")
-      .onInterface(kLinkInterface)
-      .call([this](
-                const std::string& deviceId, const std::string& id, const std::string& app, const std::string& title,
-                const std::string& text, const std::vector<std::uint8_t>& icon,
-                const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
-            ) { onNotificationPosted(deviceId, id, app, title, text, icon, actions); });
   m_link->uponSignal("Call")
       .onInterface(kLinkInterface)
       .call([this](
@@ -284,18 +193,9 @@ LinkService::LinkService(
   m_link->uponSignal("Hotspot")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& ssid) { onHotspot(deviceId, ssid); });
-  m_link->uponSignal("RemoteInput")
-      .onInterface(kLinkInterface)
-      .call([this](
-                const std::string& /*deviceId*/, const std::string& action, std::int32_t dx, std::int32_t dy,
-                const std::string& detail
-            ) { onRemoteInput(action, dx, dy, detail); });
   m_link->uponSignal("Pinged")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& message) { onPinged(deviceId, message); });
-  m_link->uponSignal("NotificationRemoved")
-      .onInterface(kLinkInterface)
-      .call([this](const std::string& deviceId, const std::string& id) { onNotificationRemoved(deviceId, id); });
   m_notifications.addEventCallback([this](const Notification& notification, NotificationEvent event) {
     if (event != NotificationEvent::Closed) {
       return;
@@ -638,62 +538,6 @@ bool LinkService::granted(const std::string& deviceId, std::string_view feature)
   return it != m_grants.end() && std::ranges::contains(it->second, feature);
 }
 
-void LinkService::onLocalClipboard(
-    const std::vector<std::string>& mimeTypes, const std::string& dataMimeType, const std::vector<std::uint8_t>& data
-) {
-  const bool anyone = std::ranges::any_of(m_devices, [this](const LinkDevice& device) {
-    return device.connected && granted(device.id, "clipboard");
-  });
-  if (!m_available || !anyone || data.size() > kMaxClipboardBytes) {
-    return;
-  }
-  const std::size_t hash =
-      std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char*>(data.data()), data.size()));
-  if (hash == m_lastClipboardHash) {
-    return;
-  }
-  m_lastClipboardHash = hash;
-  // The first type is the one the bytes are; the daemon offers the rest as its alternatives.
-  std::vector<std::string> offered{dataMimeType};
-  for (const auto& mimeType : mimeTypes) {
-    if (mimeType != dataMimeType && mimeType.contains('/')) {
-      offered.push_back(mimeType);
-    }
-  }
-  offered.resize(std::min<std::size_t>(offered.size(), kMaxClipboardTypes));
-  const int fd = memfd_create("link-clipboard", MFD_CLOEXEC);
-  if (fd < 0) {
-    kLog.warn("memfd for the clipboard: {}", std::strerror(errno));
-    return;
-  }
-  sdbus::UnixFd memfd{fd, sdbus::adopt_fd};
-  if (::write(fd, data.data(), data.size()) != static_cast<ssize_t>(data.size()) || ::lseek(fd, 0, SEEK_SET) != 0) {
-    kLog.warn("writing the clipboard memfd: {}", std::strerror(errno));
-    return;
-  }
-  m_link->callMethodAsync("OfferClipboard")
-      .onInterface(kLinkInterface)
-      .withArguments(offered, memfd)
-      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("OfferClipboard", error); });
-}
-
-void LinkService::onClipboardOffered(
-    const std::string& deviceId, std::uint64_t id, const std::vector<std::string>& mimeTypes, std::uint64_t /*size*/
-) {
-  // The daemon forwards only offers from devices holding the clipboard grant.
-  const bool offered = m_clipboard.offerRemote(mimeTypes, [this, deviceId, id](const std::string& mimeType, int fd) {
-    m_link->callMethodAsync("PullClipboard")
-        .onInterface(kLinkInterface)
-        .withArguments(deviceId, id, mimeType, sdbus::UnixFd{fd, sdbus::adopt_fd})
-        .uponReplyInvoke([](std::optional<sdbus::Error> error, std::uint64_t /*bytes*/) {
-          logFailure("PullClipboard", error);
-        });
-  });
-  if (!offered) {
-    kLog.warn("could not take the selection for {}'s clipboard", deviceId);
-  }
-}
-
 void LinkService::callTransfer(const char* method, const std::string& transferId) {
   m_link->callMethodAsync(method)
       .onInterface(kLinkInterface)
@@ -873,50 +717,6 @@ void LinkService::onFinished(
   }
 }
 
-void LinkService::onNotificationPosted(
-    const std::string& deviceId, const std::string& id, const std::string& app, const std::string& title,
-    const std::string& text, const std::vector<std::uint8_t>& icon,
-    const std::vector<sdbus::Struct<std::string, std::string, bool>>& actions
-) {
-  NotificationRequest request;
-  request.replacesId = mirroredId(deviceId, id);
-  request.appName = app;
-  request.summary = title.empty() ? app : title;
-  request.body = text;
-  request.origin = NotificationOrigin::Internal;
-  request.persistInHistory = true;
-  // A glyph icon takes precedence over image data, so it is only the fallback.
-  request.imageData = decodeIcon(icon);
-  if (!request.imageData.has_value()) {
-    request.icon = std::string("noctalia-glyph:device-mobile");
-  }
-  MirroredNotification mirrored{.deviceId = deviceId, .id = id};
-  for (const auto& action : actions) {
-    if (!action.get<2>()) {
-      request.actions.push_back(std::string(kPhoneActionPrefix) + action.get<0>());
-      request.actions.push_back(action.get<1>());
-    } else if (mirrored.replyAction.empty()) {
-      // The shell offers one reply field per notification, so a second reply action is left out.
-      mirrored.replyAction = action.get<0>();
-      request.actions.emplace_back("inline-reply");
-      request.actions.push_back(action.get<1>());
-    }
-  }
-  if (const std::uint32_t shown = m_notifications.addOrReplace(std::move(request)); shown != 0) {
-    m_mirrored[shown] = std::move(mirrored);
-  }
-  kLog.debug("{}: phone notification from {} shown", deviceName(deviceId), app);
-}
-
-void LinkService::onNotificationRemoved(const std::string& deviceId, const std::string& id) {
-  const std::uint32_t shown = mirroredId(deviceId, id);
-  if (shown == 0) {
-    return;
-  }
-  m_mirrored.erase(shown);
-  (void)m_notifications.close(shown, CloseReason::ClosedByCall);
-}
-
 void LinkService::ring(const std::string& deviceId, bool on) {
   m_link->callMethodAsync("Ring")
       .onInterface(kLinkInterface)
@@ -968,35 +768,6 @@ void LinkService::setCommands(const std::vector<LinkCommand>& commands) {
       .onInterface(kLinkInterface)
       .withArguments(lines)
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetCommands", error); });
-}
-
-void LinkService::onRemoteInput(
-    const std::string& action, std::int32_t dx, std::int32_t dy, const std::string& detail
-) {
-  if (m_remoteInput == nullptr) {
-    return;
-  }
-  const auto button = std::ranges::find(kRemoteButtons, detail, &std::pair<std::string_view, std::uint32_t>::first);
-  const bool known = button != kRemoteButtons.end();
-  if (action == "move") {
-    (void)m_remoteInput->move(dx, dy);
-  } else if (action == "scroll") {
-    (void)m_remoteInput->scroll(dx, dy);
-  } else if ((action == "press" || action == "release") && known) {
-    (void)m_remoteInput->button(button->second, action == "press");
-  } else if (action == "click" && known) {
-    (void)m_remoteInput->button(button->second, true);
-    (void)m_remoteInput->button(button->second, false);
-  } else if (action == "key") {
-    const auto key = std::ranges::find(kRemoteKeys, detail, &std::pair<std::string_view, std::uint32_t>::first);
-    if (key != kRemoteKeys.end()) {
-      (void)m_remoteInput->key(key->second);
-    }
-  } else if (action == "text") {
-    (void)m_remoteInput->text(detail);
-  } else {
-    kLog.debug("remote input {} {} ignored", action, detail);
-  }
 }
 
 void LinkService::onPinged(const std::string& deviceId, const std::string& message) {
@@ -1101,7 +872,7 @@ void LinkService::stopRinging() {
   notify();
 }
 
-void LinkService::onNotificationClosed(std::uint32_t id, CloseReason reason) {
+void LinkService::onNotificationClosed(std::uint32_t id, CloseReason /*reason*/) {
   if (const auto call = m_callDevices.find(id); call != m_callDevices.end()) {
     m_callNotifications.erase(call->second);
     m_callDevices.erase(call);
@@ -1110,28 +881,7 @@ void LinkService::onNotificationClosed(std::uint32_t id, CloseReason reason) {
   if (id != 0 && id == m_ringNotification) {
     m_ringNotification = 0;
     stopRinging();
-    return;
   }
-  const auto it = m_mirrored.find(id);
-  if (it == m_mirrored.end()) {
-    return;
-  }
-  const MirroredNotification mirrored = std::move(it->second);
-  m_mirrored.erase(it);
-  if (reason != CloseReason::Dismissed || mirrored.acted) {
-    return;
-  }
-  m_link->callMethodAsync("NotificationDismiss")
-      .onInterface(kLinkInterface)
-      .withArguments(mirrored.deviceId, mirrored.id)
-      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("NotificationDismiss", error); });
-}
-
-std::uint32_t LinkService::mirroredId(const std::string& deviceId, const std::string& id) const {
-  const auto it = std::ranges::find_if(m_mirrored, [&](const auto& entry) {
-    return entry.second.deviceId == deviceId && entry.second.id == id;
-  });
-  return it != m_mirrored.end() ? it->first : 0;
 }
 
 void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
@@ -1145,24 +895,6 @@ void LinkService::onAction(std::uint32_t id, const std::string& action, const st
   if (id != 0 && id == m_ringNotification) {
     m_ringNotification = 0;
     stopRinging();
-    return;
-  }
-  if (const auto mirrored = m_mirrored.find(id); mirrored != m_mirrored.end()) {
-    std::string phoneAction;
-    std::string replyText;
-    if (action.starts_with(kInlineReplyPrefix) && !mirrored->second.replyAction.empty()) {
-      phoneAction = mirrored->second.replyAction;
-      replyText = action.substr(kInlineReplyPrefix.size());
-    } else if (action.starts_with(kPhoneActionPrefix)) {
-      phoneAction = action.substr(kPhoneActionPrefix.size());
-    } else {
-      return;
-    }
-    mirrored->second.acted = true;
-    m_link->callMethodAsync("NotificationAction")
-        .onInterface(kLinkInterface)
-        .withArguments(mirrored->second.deviceId, mirrored->second.id, phoneAction, replyText)
-        .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("NotificationAction", error); });
     return;
   }
   if (const auto transfer = m_transferActions.find(id); transfer != m_transferActions.end()) {

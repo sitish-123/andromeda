@@ -6,7 +6,7 @@
 # Wi-Fi, 82%, charging, 3 bars, and the player; the seam shows a notification with Reply, a missed call, and the
 # phone's file offer. Text typed in the composer and Send clipboard both reach the phone.
 # Writes app-down.png, app-empty.png, app-pairing.png, app-away.png, app-player.png, app-light.png, app-dark.png, steps.txt,
-# hold.jsonl, linkd.log, app.log, and phone.log to $OUT (default ./artifacts/link-app).
+# hold.jsonl, linkd.log, session.log, app.log, and phone.log to $OUT (default ./artifacts/link-app).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-app}
 source "$(dirname "$0")/lib.sh"
@@ -38,6 +38,8 @@ with_noctalia '
 
   XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
+  "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+  wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
   PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   shot empty
   step "empty: the service runs and no phone is paired"
@@ -83,7 +85,7 @@ with_noctalia '
   step "composer: $(grep "\"event\":\"received\"" "$OUT/hold.jsonl" | tail -1)"
 
   printf "INV-2026-1043, Rs 13,000" | wl-copy
-  wait_for "the shell never synced the copy" eval "(( \$(clips) >= 1 ))"
+  wait_for "link-session never synced the copy" eval "(( \$(clips) >= 1 ))"
   before=$(clips)
   # GTK does not match wtype modifiers to shortcuts, so Send clipboard runs through GTK actions on D-Bus.
   gdbus call --session --dest org.andromeda.Link --object-path /org/andromeda/Link/window/1 \
