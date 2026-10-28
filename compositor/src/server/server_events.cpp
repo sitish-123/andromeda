@@ -2873,7 +2873,7 @@ namespace andromeda {
     }
   }
 
-  void Server::reassignOutputViews(Output* source, Output* destination) {
+  void Server::reassignOutputViews(Output* source, Output* destination, bool joinActive) {
     if (source == nullptr || source == destination) {
       return;
     }
@@ -3017,8 +3017,9 @@ namespace andromeda {
       for (const EvacuatedWorkspace& batch : workspaces) {
         const bool hasOrdinaryViews =
             std::ranges::any_of(batch.views, [](const View* view) { return !view->pinned(); });
-        Workspace* refuge =
-            hasOrdinaryViews ? displacedWorkspaceDestination(batch.origin, destination, source) : targetWorkspace;
+        Workspace* refuge = hasOrdinaryViews && !joinActive
+            ? displacedWorkspaceDestination(batch.origin, destination, source)
+            : targetWorkspace;
         const bool separate = refuge != nullptr && refuge->displacedWorkspace() != nullptr;
         const auto hold = refuge != nullptr ? refuge->reserveForLaunch() : nullptr;
         bool capturedLayout = false;

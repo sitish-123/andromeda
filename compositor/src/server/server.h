@@ -494,7 +494,9 @@ namespace andromeda {
     void removeOutput(Output* output);
     // Sends closed to every layer surface on `output`, for an output leaving the desktop for good or to mirror.
     void closeLayerSurfaces(wlr_output* output);
-    void reassignOutputViews(Output* source, Output* destination);
+    // With `joinActive`, views join destination's active workspace instead of separate refuge workspaces, so a
+    // mirror shows them.
+    void reassignOutputViews(Output* source, Output* destination, bool joinActive = false);
     void scheduleDisplacedViewRestore();
     void rememberKeyboardInputSource(Keyboard& keyboard);
     void refreshKeyboardLeds();

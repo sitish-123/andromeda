@@ -130,7 +130,7 @@ namespace andromeda {
       }
       if (output->mirrorSource() != source) {
         if (source != nullptr) {
-          reassignOutputViews(output.get(), source);
+          reassignOutputViews(output.get(), source, true);
         }
         output->setMirrorSource(source);
       }
@@ -139,7 +139,7 @@ namespace andromeda {
 
   void Server::setOutputMirror(Output& target, Output* source) {
     if (source != nullptr) {
-      reassignOutputViews(&target, source);
+      reassignOutputViews(&target, source, true);
     }
     target.setMirrorSource(source);
     const std::string targetName = savedOutputName(target.identity());
