@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The renderer's input color transform support enables the standard version 2 color-management global and the Wine
-# compatibility global. Builds with wayland-protocols 1.49 expose version 3 to Wine clients for Windows BT.2100.
+# Renderer color transforms enable the same color-management global for native and Wine clients.
+# Builds with wayland-protocols 1.49 expose version 3 for Windows BT.2100.
 set -euo pipefail
 
 readonly GLOBAL_CLIENT="${ANDROMEDA_GLOBAL_CLIENT:-./build-debug/tests/global-client}"
@@ -19,11 +19,11 @@ if [[ $COLOR_MANAGER_VERSION != 2 && $COLOR_MANAGER_VERSION != 3 ]]; then
   exit 1
 fi
 
-"$GLOBAL_CLIENT" wp_color_manager_v1 present 2
+"$GLOBAL_CLIENT" wp_color_manager_v1 present "$COLOR_MANAGER_VERSION"
 bash -c 'exec -a wine "$@"' _ \
   "$GLOBAL_CLIENT" wp_color_manager_v1 present "$COLOR_MANAGER_VERSION"
 
-echo "wp_color_manager_v1 version 2 advertised normally; Wine compatibility version $COLOR_MANAGER_VERSION advertised"
+echo "wp_color_manager_v1 version $COLOR_MANAGER_VERSION advertised to native and Wine clients"
 
 # TOML cannot redefine [output.HEADLESS-1], so each phase below replaces the
 # whole config rather than appending to the previous one. Holding the pristine
@@ -84,6 +84,26 @@ if ! grep -F "fallback: display does not advertise PQ" <<< "$color_human" > /dev
   exit 1
 fi
 
+# A live SDR white selection targets the preferred or named output and lasts until a reload changes output state.
+sdr_white() { "$ANDROMEDA" color --json | jq '.outputs[0].sdr_white'; }
+sdr_white_is() { "$ANDROMEDA" color --json | jq -e --argjson nits "$1" '.outputs[0].sdr_white == $nits' > /dev/null; }
+"$ANDROMEDA" msg output-sdr-white:150 > /dev/null
+if ! sdr_white_is 150; then
+  echo "preferred-output SDR white was not selected: $(sdr_white)"
+  exit 1
+fi
+"$ANDROMEDA" msg output-sdr-white:120/HEADLESS-1 > /dev/null
+if "$ANDROMEDA" msg output-sdr-white:300/missing-output > /dev/null 2>&1 || ! sdr_white_is 120; then
+  echo "named-output SDR white was not selected exactly once: $(sdr_white)"
+  exit 1
+fi
+printf '%s\n\n[output.HEADLESS-1]\nhdr = "on"\nsdr_white = 250\n' "$BASELINE" > "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+if ! sdr_white_is 250; then
+  echo "output-state reload did not restore the configured SDR white: $(sdr_white)"
+  exit 1
+fi
+
 kill -TERM "$CLIENT_PID"
 wait "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=
@@ -122,7 +142,7 @@ if ! jq -e '
 fi
 
 # The overview mirrors client buffers into raw scene buffers. Their color must match the normal scene surface even
-# after Wine's compatibility metadata is repaired at the render boundary.
+# after the surface's committed color description is resolved for the mirror.
 normal_shot="$ANDROMEDA_RUNTIME_DIR/wine-scrgb-normal.png"
 overview_shot="$ANDROMEDA_RUNTIME_DIR/wine-scrgb-overview.png"
 window_json=$("$ANDROMEDA" windows --json | jq '.[] | select(.title == "wine-scrgb")')

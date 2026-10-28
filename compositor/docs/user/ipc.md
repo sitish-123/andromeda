@@ -1,11 +1,8 @@
 # IPC
 
-Andromeda exposes a local UNIX socket for queries, actions, and event
-subscriptions. Most users should use the `andromeda` command rather than connect
-to the socket directly.
+Andromeda exposes a local UNIX socket for queries, actions, and event subscriptions. Most users should use the `andromeda` command rather than connect to the socket directly.
 
-`ANDROMEDA_SOCKET` contains the socket path. Without it, use
-`$XDG_RUNTIME_DIR/andromeda-$WAYLAND_DISPLAY.sock`.
+`ANDROMEDA_SOCKET` contains the socket path. Without it, use `$XDG_RUNTIME_DIR/andromeda-$WAYLAND_DISPLAY.sock`.
 
 Each request and reply is one JSON object per line:
 
@@ -17,51 +14,105 @@ Replies use `{"ok": ...}` or `{"err": "..."}`.
 
 ## Queries
 
-| Request | CLI |
-| --- | --- |
-| `{"cmd":"windows"}` | `andromeda windows --json` |
-| `{"cmd":"workspaces"}` | `andromeda workspaces --json` |
-| `{"cmd":"submap"}` | `andromeda submap --json` |
-| `{"cmd":"layers"}` | `andromeda layers --json` |
-| `{"cmd":"msg","arg":"<action>"}` | `andromeda msg <action>` |
+| Request                                       | CLI                                        |
+| --------------------------------------------- | ------------------------------------------ |
+| `{"cmd":"effects"}`                           | `andromeda effects --json`                   |
+| `{"cmd":"windows"}`                           | `andromeda windows --json`                   |
+| `{"cmd":"focused-window"}`                    | `andromeda focused-window --json`            |
+| `{"cmd":"workspaces"}`                        | `andromeda workspaces --json`                |
+| `{"cmd":"submap"}`                            | `andromeda submap --json`                    |
+| `{"cmd":"layers"}`                            | `andromeda layers --json`                    |
+| `{"cmd":"outputs"}`                           | `andromeda outputs --json`                   |
+| `{"cmd":"input-capture-permissions"}`         | `andromeda input-capture-permissions --json` |
+| `{"cmd":"input-capture-revoke","arg":"<id>"}` | `andromeda input-capture-revoke <id>`        |
+| `{"cmd":"msg","arg":"<action>"}`              | `andromeda msg <action>`                     |
 
-Window entries include IDs, application identity, process ID, geometry,
-workspace, and scratchpad membership. XWayland windows report an unknown client
-PID because they share the xwayland-satellite connection.
+Window entries include IDs, application identity, process ID, geometry, output, workspace, and scratchpad membership. X11 windows report the process ID they publish as `_NET_WM_PID`, or `-1` when they publish none. A member of a [tab group](layout.md#tab-groups) reports `tabbed`, its place among the group's tabs as `tab_index` (from 0, `-1` outside a group), and `tab_hidden` while its group shows another tab; the plain listing marks it `tab` instead of `tile`.
 
-Workspace entries include a stable ID, display name, index, output, layout,
-occupancy, and active and focused states. Use the `named` boolean instead of
-guessing from the display name; an explicitly named workspace may still be
-called `"2"`.
+`{"cmd":"focused-window"}` answers with the focused window's listing entry: the window the window actions act on. The seat's focused window wins (for a modal dialog, the dialog itself; for a visible scratchpad window holding the keyboard, that window); while a layer surface or the overview holds the keyboard, the answer falls back to the pointer output's active workspace's remembered focus; and the reply is `{"err": "no focused window"}` while a scratchpad owns the seat with no window focused, or when nothing is focused. The entry is exactly a `windows` entry for that window; its `focused` member stays the workspace-local remembered focus and does not select which window the query answers about.
+
+Window state follows what Andromeda has decided, ahead of the client's redraw, the same way geometry reports layout targets:
+
+| Field                | Meaning                                                                                                                                                                                                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `floating`           | Outside the tiled layout                                                                                                                                                                                                                                                     |
+| `snap`               | Snapped region (`left`, `right`, `top`, `bottom`, `top_left`, `top_right`, `bottom_left`, `bottom_right`), or `null`; retained under maximize and fullscreen                                                                                                                 |
+| `title_bar`          | Andromeda's server-side title bar is enabled for this window in its current state                                                                                                                                                                                              |
+| `fullscreen`         | Fullscreen                                                                                                                                                                                                                                                                   |
+| `maximized`          | Maximized by `window-toggle-maximize` (a full-width column for a tiled window) or by maximize-to-edges                                                                                                                                                                       |
+| `maximized_to_edges` | Maximized without gaps, struts, or borders                                                                                                                                                                                                                                   |
+| `pinned`             | Pinned above other windows on every workspace of its output                                                                                                                                                                                                                  |
+| `minimizable`        | Supports minimize in its current placement: a mapped, unattached floating window on a workspace, outside a scratchpad and not pinned. Matches the minimize capability offered to the application; fullscreen or an active move or resize can still reject a minimize request |
+| `minimized`          | Hidden by `window-minimize`, the application, or a taskbar; see [Minimize](layout.md#minimize)                                                                                                                                                                               |
+| `visible`            | On its output's active workspace (or pinned), not a hidden tab, not minimized, and not in a hidden scratchpad; it may still be scrolled out of view                                                                                                                          |
+| `parent`             | ID of the window the client named as its parent, or `""`                                                                                                                                                                                                                     |
+| `column`, `row`      | Place in a scrolling strip, from 0; `-1` for floating windows and other layouts                                                                                                                                                                                              |
+
+Workspace entries include a stable ID, display name, index, output, layout, occupancy, and active and focused states. The `layout` field is `"scrolling"`, `"dwindle"`, `"master"`, or `"floating"`. Use the `named` boolean instead of guessing from the display name; an explicitly named workspace may still be called `"2"`. `window_count` counts its mapped windows, `focused_window` is the ID of the window it last focused (`""` when none), `urgent` is set while any of its windows is urgent, and `layout_override` is set while a runtime `workspace-set-layout` replaces the configured layout.
+
+Layer entries describe layer-shell surfaces such as panels, launchers, and wallpapers: `layer`, `namespace`, `output`, `mapped`, `pid`, `keyboard_interactivity` (`none`, `exclusive`, or `on_demand`), `focused` while the surface holds the keyboard, `exclusive_zone`, `anchor` (the anchored edges), `margin`, and the arranged geometry `x`, `y`, `w`, and `h` in layout coordinates.
+
+Output entries list every connected output, including disabled ones: `name`, `description`, `make`, `model`, `serial`, `config_name` (the [monitor identity](outputs.md), or `null` when the display reports none), `physical_size`, `enabled` (part of the desktop), `powered` (enabled and not switched off by DPMS), `focused`, `active_workspace` (its ID), `position`, `logical_size`, `usable_area` (the part layer-shell exclusive zones leave, in layout coordinates), `transform`, `scale`, `adaptive_sync` (`null` when the output cannot use variable refresh), `hdr_active`, `direct_scanout`, and `modes`, each with `width`, `height`, `refresh_mhz`, `preferred`, and `current`. A disabled output reports a zero `logical_size` and `usable_area`.
+
+`direct_scanout` is `null` while the output is disabled or powered off. Otherwise it holds `active`, `reason` (why the output composites, or `null` while active), and `window` (the scanned-out window's `id`, `app_id`, and `title`, or `null`). Queries report the latest scene buffer accepted by the backend immediately. A successful commit does not guarantee physical presentation. Failed builds, rejected commits, and bufferless cursor or output-property commits do not update this state.
+
+Three diagnostic fields retain successful scene-buffer commit history for each output:
+
+| Field             | Meaning                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commits`         | Number of accepted scene-buffer commits, composed or scanned out.                                                                                   |
+| `scanout_commits` | Number of those commits that used direct scanout, including brief episodes.                                                                         |
+| `commit_seq`      | The backend's 32-bit commit sequence for the latest accepted scene buffer. It can wrap and can skip numbers used by commits without a scene buffer. |
+
+The counters survive configuration reloads and power cycles. They reset when Andromeda restarts or the output is destroyed and recreated. Compare snapshots from the same output lifetime to measure activity during a game session. A zero increase in `scanout_commits` means no direct scanout commits occurred during that interval.
+
+Scanout-triggered subscription notifications and routine log messages still wait until a state has held for half a second. Counter increments alone do not trigger subscription events. Other output events can carry a newer snapshot before that interval expires. Poll `outputs` when immediate state or updated counters are needed. See [direct scanout](outputs.md#direct-scanout) for the reasons.
+
+## Effect inspection
+
+`andromeda effects` prints tables; `--json` exposes `presets`, `pools`, `cursor`, and `owners`. Presets and pools keep their configuration declaration order, including includes. Each preset has `name`, `kind`, and current-source `state`: `inert` means missing or empty source, `unreferenced` means no registry entry, `failed` means compilation failed, and `compiled` means a usable program. Border presets also report their configured `overlay`.
+
+Pools have `name`, `kind`, `policy`, and ordered `members`, each with `name` and `held`. Holds count unsuppressed mapped windows, present outputs (including disabled outputs), and the session cursor, independently of visibility or focus. Owners list mapped windows, sorted by stable `id`, followed by present outputs, sorted by `name`. Window owners have `type`, `id`, `app_id`, and `slots` with `border` and `window`; output owners have `type`, `name`, and `slots.screen`. The single cursor appears separately in `cursor`.
+
+Each slot reports `name` (the underlying selected preset), `pool` (empty for a plain preset), `source` (`default`, `rule`, or `runtime`), and `suppressed`. Border slots also have `overlay`. An empty pool retains its pool name with an empty selected name. Suppressed and failed selections retain their names. `windows --json` and `subscribe windows` expose these same slot shapes as `border_effect` and `window_effect`; the window text table is unchanged.
+
+Inspection never picks, compiles, or binds an effect. Use `effects`, not `outputs`, for screen selections. See [Effects](effects.md) and [Actions](actions.md) for configuration and runtime changes.
+
+## Input capture permissions
+
+`input-capture-permissions` lists remembered grants with `id`, `application`, `capabilities`, and `persist_mode`. Application identifiers can be empty and are not verified display names. The reply never contains restore credentials.
+
+`input-capture-revoke <id>` forgets a grant and stops its live capture sessions. `input-capture-revoke all` forgets every grant. Revoking an already forgotten valid ID succeeds. A state-write error is reported even though matching live capture sessions are stopped. See [Input capture](security.md#input-capture) for approval lifetimes and the state file location.
 
 ## Event stream
 
 Subscribe with:
 
 ```json
-{"cmd":"subscribe","events":["workspaces","windows"]}
+{ "cmd": "subscribe", "events": ["workspaces", "windows"] }
 ```
 
-The connection first receives the current state of each family, then a new
-snapshot whenever that family changes:
+The connection first receives the current state of each family, then a new snapshot whenever that family changes:
 
 ```json
-{"event":"workspaces","data":[]}
+{ "event": "workspaces", "data": [] }
 ```
 
-| Family | Changes reported |
-| --- | --- |
-| `theme` | Colors and corner radius |
-| `overview` | Overview opened, or started closing |
-| `keyboard_layout` | Active keyboard layout |
-| `windows` | Window identity, geometry, focus, state, workspace, or scratchpad |
-| `workspaces` | Inventory, layout, activity, occupancy, output, or focus |
-| `submap` | Active keybind submap |
-| `screencast` | Manual target and focus-following screencast commands |
+| Family            | Changes reported                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`           | Colors and corner radius                                                                                                                          |
+| `overview`        | Overview opened, or started closing                                                                                                               |
+| `keyboard_layout` | Active keyboard layout                                                                                                                            |
+| `windows`         | Window identity, geometry, focus, state, visibility, parent, workspace, scratchpad, or effect selection                                           |
+| `workspaces`      | Inventory, layout, activity, occupancy, window count, focused window, urgency, output, or focus                                                   |
+| `submap`          | Active keybind submap                                                                                                                             |
+| `screencast`      | Manual target and focus-following screencast commands                                                                                             |
+| `layers`          | Layer-shell surfaces appearing, mapping, closing, moving, resizing, or taking and losing the keyboard                                             |
+| `outputs`         | Outputs appearing or leaving, enablement, power, mode, position, scale, transform, variable refresh, HDR, usable area, focus, or active workspace |
 
-Payloads are full snapshots rather than deltas. Replace local state with the
-newest event instead of trying to merge increments. Identical consecutive
-payloads are omitted.
+Payloads are full snapshots rather than deltas. Replace local state with the newest event instead of trying to merge increments. Identical consecutive payloads are omitted.
+
+Floating-window moves and windows carried by `xdg-toplevel-drag-v1` are reported while the drag is still held; `x` and `y` follow the drag position, including when a carried window normally belongs to the tiled layout. Outside a drag, positions report layout targets rather than animation progress. Size updates follow committed client geometry, including mouse and keyboard resizes.
 
 An unknown family returns an error and closes the subscription.
 
@@ -78,38 +129,39 @@ The `screencast` event carries a monotonically increasing serial and one of six 
 {"event":"screencast","data":{"serial":17,"kind":"clear"}}
 ```
 
-Every command advances the serial, even when it selects the same source or mode again. Portal backends use that edge
-so a newly authorized manual stream stays empty until the user performs another target action.
+Every command advances the serial, even when it selects the same source or mode again. Portal backends use that edge so a newly authorized manual stream stays empty until the user performs another target action.
 
 ### Theme payload
 
-The `theme` event mirrors `[colors]`, `[colors.border]`,
-`[colors.overview]`, and `appearance.corner_radius`:
+The `theme` event mirrors `[colors]`, `[colors.border]`, `[colors.overview]`, and `appearance.corner_radius`:
 
 ```json
-{"event":"theme","data":{
-  "background":"#141419FF",
-  "text_primary":"#E8E8EAFF",
-  "text_muted":"#8A8A92FF",
-  "accent_primary":"#7AA3FFFF",
-  "accent_secondary":"#F5C96BFF",
-  "warning":"#F5C96BFF",
-  "error":"#FF6B6BFF",
-  "insert_hint":"#7FC8FF80",
-  "backdrop":"#000000FF",
-  "shadow":"#0000007F",
-  "border":{
-    "focused":"#7AA3FFFF",
-    "unfocused":"#292933FF",
-    "outer":"#1A1A1FFF"
-  },
-  "overview":{
-    "background_tint":"#10101430",
-    "workspace_background":"#00000044",
-    "badge":"#7AA3FFFF"
-  },
-  "corner_radius":10
-}}
+{
+  "event": "theme",
+  "data": {
+    "background": "#141419FF",
+    "text_primary": "#E8E8EAFF",
+    "text_muted": "#8A8A92FF",
+    "accent_primary": "#7AA3FFFF",
+    "accent_secondary": "#F5C96BFF",
+    "warning": "#F5C96BFF",
+    "error": "#FF6B6BFF",
+    "insert_hint": "#7FC8FF80",
+    "backdrop": "#000000FF",
+    "shadow": "#0000007F",
+    "border": {
+      "focused": "#7AA3FFFF",
+      "unfocused": "#292933FF",
+      "outer": "#1A1A1FFF"
+    },
+    "overview": {
+      "background_tint": "#10101430",
+      "workspace_background": "#00000044",
+      "badge": "#7AA3FFFF"
+    },
+    "corner_radius": 10
+  }
+}
 ```
 
 See [Appearance](appearance.md#colors) for the meaning of each value.
@@ -132,21 +184,49 @@ andromeda subscribe workspaces |
   jq -r '.data[] | select(.focused) | "\(.output) \(.name) \(.layout)"'
 ```
 
+## Audio input
+
+An external analyser, such as Noctalia, can supply a shared 64-band spectrum to [effect shaders](effects.md#audio-input). Keep a dedicated Unix socket connection to `$ANDROMEDA_SOCKET` open and send complete newline-delimited JSON snapshots. For example, a silent snapshot is:
+
+```json
+{
+  "cmd": "effect-audio",
+  "version": 2,
+  "bands": [
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]
+}
+```
+
+`version` must be integer `2`; `bands` must contain exactly 64 finite numbers from 0 to 1, ordered low to high. This is a normalized spectrum coordinate, not a promise of exact frequency centers or edges. Noctalia's existing 64-band subscriber output passes through unchanged. Only version 2 is accepted, with exactly the `cmd`, `version`, and `bands` fields.
+
+Each request, including its newline, is limited to 4,096 bytes. The first accepted snapshot claims the feed; another producer receives an error while that connection owns it. Audio connections accept only `effect-audio` requests.
+
+Wait for `{"ok":true}` before sending another snapshot. Send at most 60 per second and replace unsent snapshots with the latest values. An acknowledgment means accepted, not displayed.
+
+Send the analyser's current values on changes and a heartbeat every 100 ms while unchanged. Values should decay or clear to zero when capture stops, and old values must be cleared when switching sources. Zero-valued snapshots keep the feed available, so an idle analyser can keep the connection open.
+
+Availability reports feed freshness. Gain, smoothing, and source selection belong to the analyser. Andromeda does not start or supervise it or capture audio.
+
+Disconnect, malformed or oversized input, or 250 ms without a snapshot closes the feed and clears all bands and availability. Lock and inactive sessions also disconnect the producer and reject audio until active and unlocked. Reconnect with a fresh snapshot to resume. Use a dedicated socket client; `andromeda msg` does not provide this streaming interface.
+
 ## Inspection commands
 
-`andromeda outputs`, `andromeda color`, `andromeda tearing`, `andromeda layers`, and
-`andromeda keyboard-layouts` print human-readable state. Each accepts `--json`.
-`andromeda config validate` checks a configuration and `andromeda config schema`
-lists the keys it accepts, both without a running compositor.
+`andromeda outputs`, `andromeda color`, `andromeda tearing`, `andromeda layers`, and `andromeda keyboard-layouts` print human-readable state. Each accepts `--json`.
+
+## Config commands
+
+`andromeda config validate` checks a configuration and `andromeda config schema` lists the keys it accepts, both without a running compositor.
+
+`andromeda config-replace <path>` loads and watches a different configuration file in the running compositor. The path must be absolute. On success, the new file and its includes replace the previous watch set, and later reloads use the new file. A missing, unreadable, or invalid file returns an error and leaves the active configuration and watch set unchanged. Warnings do not reject a replacement.
 
 ## Virtual outputs
 
-| Request | CLI |
-| --- | --- |
-| `{"cmd":"output-create","arg":"<name>"}` | `andromeda output-create <name>` |
-| `{"cmd":"output-destroy","arg":"<name>"}` | `andromeda output-destroy <name>` |
+| Request                                         | CLI                                   |
+| ----------------------------------------------- | ------------------------------------- |
+| `{"cmd":"output-create","arg":"<name> [mode]"}` | `andromeda output-create <name> [mode]` |
+| `{"cmd":"output-destroy","arg":"<name>"}`       | `andromeda output-destroy <name>`       |
 
-`output-create` replies with the new output's name. Both commands reply with an
-error for a name that is invalid, already taken, or unknown, and
-`output-destroy` refuses outputs backed by a real display. See
-[Virtual outputs](outputs.md#virtual-outputs).
+`output-create` replies with the new output's name. Its optional mode is in the `WIDTHxHEIGHT[@HZ]` form. Both commands reply with an error for a name that is invalid, already taken, or unknown, and `output-destroy` refuses outputs backed by a real display. See [Virtual outputs](outputs.md#virtual-outputs).

@@ -1,5 +1,6 @@
 #include "input/text_input.h"
 
+#include "input/input_capture.h"
 #include "input/seat.h"
 #include "layer/layer_surface.h"
 #include "server/server.h"
@@ -217,6 +218,7 @@ namespace andromeda {
     }
 
     m_inputMethod = inputMethod;
+    m_server->refreshKeyboardLeds();
     m_inputMethodCommit.notify = onInputMethodCommit;
     wl_signal_add(&inputMethod->events.commit, &m_inputMethodCommit);
     m_inputMethodGrabKeyboard.notify = onInputMethodGrabKeyboard;
@@ -253,7 +255,8 @@ namespace andromeda {
 
   void InputMethodRelay::handleInputMethodGrabKeyboard(wlr_input_method_keyboard_grab_v2* grab) {
     wlr_keyboard* keyboard = wlr_seat_get_keyboard(m_server->seat()->wlr());
-    if (keyboard != nullptr && grabForKeyboard(keyboard) == grab) {
+    const bool capturing = m_server->inputCapture() != nullptr && (m_server->inputCapture()->capabilities() & 1U) != 0;
+    if (!capturing && keyboard != nullptr && grabForKeyboard(keyboard) == grab) {
       wlr_input_method_keyboard_grab_v2_set_keyboard(grab, keyboard);
     }
     removeListener(m_grabDestroy);
@@ -264,11 +267,14 @@ namespace andromeda {
   void InputMethodRelay::handleGrabDestroy() {
     wlr_input_method_keyboard_grab_v2* grab = m_inputMethod != nullptr ? m_inputMethod->keyboard_grab : nullptr;
     removeListener(m_grabDestroy);
-    if (grab != nullptr && grab->keyboard != nullptr) {
+    if (grab != nullptr
+        && grab->keyboard != nullptr
+        && (m_server->inputCapture() == nullptr || (m_server->inputCapture()->capabilities() & 1U) == 0)) {
       wlr_seat* seat = m_server->seat()->wlr();
       wlr_seat_set_keyboard(seat, grab->keyboard);
       wlr_seat_keyboard_notify_modifiers(seat, &grab->keyboard->modifiers);
     }
+    m_server->refreshKeyboardLeds();
   }
 
   void InputMethodRelay::handleInputMethodDestroy() {
@@ -278,6 +284,7 @@ namespace andromeda {
     removeListener(m_inputMethodNewPopup);
     removeListener(m_grabDestroy);
     m_inputMethod = nullptr;
+    m_server->refreshKeyboardLeds();
     updateTextInputFocus();
     updateActiveTextInput();
   }
@@ -361,13 +368,17 @@ namespace andromeda {
     }
 
     const wlr_text_input_v3_state& current = m_activeTextInput->current;
-    if ((m_activeTextInput->active_features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) != 0) {
+    // A client may first set surrounding text or content type in a commit after the one
+    // that enables the text input (Chromium sends surrounding text that way). wlroots fixes
+    // active_features at the enable commit, so check what the client has set instead, as
+    // the cursor rectangle below already does.
+    if ((current.features & WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT) != 0) {
       wlr_input_method_v2_send_surrounding_text(
           m_inputMethod, current.surrounding.text, current.surrounding.cursor, current.surrounding.anchor
       );
     }
     wlr_input_method_v2_send_text_change_cause(m_inputMethod, current.text_change_cause);
-    if ((m_activeTextInput->active_features & WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE) != 0) {
+    if ((current.features & WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE) != 0) {
       wlr_input_method_v2_send_content_type(m_inputMethod, current.content_type.hint, current.content_type.purpose);
     }
     wlr_input_method_v2_send_done(m_inputMethod);

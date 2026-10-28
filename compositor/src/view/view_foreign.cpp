@@ -28,13 +28,13 @@ namespace andromeda {
 
   void View::updateForeignIdentity() {
     if (m_foreign != nullptr) {
-      wlr_foreign_toplevel_handle_v1_set_title(m_foreign, m_toplevel->title != nullptr ? m_toplevel->title : "");
-      wlr_foreign_toplevel_handle_v1_set_app_id(m_foreign, m_toplevel->app_id != nullptr ? m_toplevel->app_id : "");
+      wlr_foreign_toplevel_handle_v1_set_title(m_foreign, title() != nullptr ? title() : "");
+      wlr_foreign_toplevel_handle_v1_set_app_id(m_foreign, appId() != nullptr ? appId() : "");
     }
     if (m_extForeign != nullptr) {
       const wlr_ext_foreign_toplevel_handle_v1_state state = {
-          .title = m_toplevel->title,
-          .app_id = m_toplevel->app_id,
+          .title = title(),
+          .app_id = appId(),
       };
       wlr_ext_foreign_toplevel_handle_v1_update_state(m_extForeign, &state);
     }
@@ -45,8 +45,8 @@ namespace andromeda {
     if (m_foreign == nullptr) {
       return;
     }
-    wlr_foreign_toplevel_handle_v1_set_maximized(m_foreign, m_toplevel->current.maximized);
-    wlr_foreign_toplevel_handle_v1_set_fullscreen(m_foreign, m_toplevel->current.fullscreen);
+    wlr_foreign_toplevel_handle_v1_set_maximized(m_foreign, currentMaximized());
+    wlr_foreign_toplevel_handle_v1_set_fullscreen(m_foreign, currentFullscreen());
   }
 
   void View::enterForeignOutput() {
@@ -89,32 +89,54 @@ namespace andromeda {
     self->handleForeignClose();
   }
 
+  void View::onForeignMinimize(wl_listener* listener, void* data) {
+    View* self = wl_container_of(listener, self, m_foreignMinimize);
+    self->handleForeignMinimize(data);
+  }
+
   void View::onForeignDestroy(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_foreignDestroy);
     self->handleForeignDestroy();
   }
 
   void View::handleSetTitle() {
+    syncSsdFrame();
     updateForeignIdentity();
+    if (m_workspace != nullptr) {
+      m_workspace->tabs().memberChanged(this);
+    }
     // A title the client set settles the opening rules even when it is empty: an empty title is matchable, an absent
     // one is not. applyWindowRules refreshes dynamic effects itself.
-    if (!m_initialRulesSettled && m_toplevel->title != nullptr) {
-      m_initialRulesSettled = true;
-      applyWindowRules(m_initialRules);
-      return;
+    if (!m_initialTitleRulesSettled && title() != nullptr) {
+      m_initialTitleRulesSettled = true;
+      m_initialRulesAppId = ruleText(appId());
+      m_initialRulesTitle = ruleText(title());
+      applyWindowRules();
+    } else {
+      applyDynamicRules();
     }
-    applyDynamicRules();
+    // A rule may opt this dialog, or the dialogs of this window, out of attaching by title.
+    if (m_mapped) {
+      reconcileAttachment();
+      reconcileDialogAttachments();
+    }
   }
 
   void View::handleSetAppId() {
-    kLog.debug("app_id='{}'", m_toplevel->app_id != nullptr ? m_toplevel->app_id : "");
+    kLog.debug("app_id='{}'", appId() != nullptr ? appId() : "");
     updateForeignIdentity();
-    if (!m_initialRulesSettled) {
+    // A tab without a title is labelled with its app id.
+    if (m_workspace != nullptr) {
+      m_workspace->tabs().memberChanged(this);
+    }
+    if (!m_initialTitleRulesSettled) {
       // Title hasn't arrived yet. If no rule cares about title, we can settle now.
       // Otherwise only update non-disruptive effects; disruptive rules wait for the title.
       if (!anyWindowRuleHasTitlePattern(config())) {
-        m_initialRulesSettled = true;
-        applyWindowRules(m_initialRules);
+        m_initialTitleRulesSettled = true;
+        m_initialRulesAppId = ruleText(appId());
+        m_initialRulesTitle = ruleText(title());
+        applyWindowRules();
       } else {
         applyDynamicRules();
       }
@@ -122,6 +144,8 @@ namespace andromeda {
       applyDynamicRules();
     }
     if (m_mapped) {
+      reconcileAttachment();
+      reconcileDialogAttachments();
       if (Output* output = currentOutput()) {
         output->updateHdr();
       }
@@ -135,8 +159,8 @@ namespace andromeda {
     Workspace* workspace = m_workspace;
     kLog.debug(
         "foreign-toplevel activate app_id='{}' mapped={} visible={} workspace='{}' other_workspace={}",
-        m_toplevel->app_id != nullptr ? m_toplevel->app_id : "", m_mapped, m_onActiveWorkspace,
-        workspace != nullptr ? workspace->name() : "", workspace != nullptr && !workspace->active()
+        appId() != nullptr ? appId() : "", m_mapped, m_onActiveWorkspace, workspace != nullptr ? workspace->name() : "",
+        workspace != nullptr && !workspace->active()
     );
     m_server->focusView(this, FocusReason::ForeignActivation);
     Overview* overview = m_server->overview();
@@ -145,14 +169,28 @@ namespace andromeda {
     }
   }
 
-  void View::handleForeignClose() { wlr_xdg_toplevel_send_close(m_toplevel); }
+  void View::handleForeignClose() { requestClose(); }
+
+  void View::handleForeignMinimize(void* data) {
+    if (!m_mapped) {
+      return;
+    }
+    // Unminimizing shows the window where it was without focusing it; a taskbar activates separately.
+    if (static_cast<wlr_foreign_toplevel_handle_v1_minimized_event*>(data)->minimized) {
+      requestMinimize();
+    } else {
+      setMinimized(false);
+    }
+  }
 
   void View::handleForeignDestroy() {
     wl_list_remove(&m_foreignActivate.link);
     wl_list_remove(&m_foreignClose.link);
+    wl_list_remove(&m_foreignMinimize.link);
     wl_list_remove(&m_foreignDestroy.link);
     m_foreignActivate.link.next = nullptr;
     m_foreignClose.link.next = nullptr;
+    m_foreignMinimize.link.next = nullptr;
     m_foreignDestroy.link.next = nullptr;
     m_foreign = nullptr;
     m_foreignOutput = nullptr;

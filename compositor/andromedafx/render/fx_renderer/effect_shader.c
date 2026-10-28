@@ -1,13 +1,14 @@
+#include "render/egl.h"
 #include "render/fx_renderer/effect.h"
+#include "render/fx_renderer/fx_renderer.h"
+#include "render/fx_renderer/shaders.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/util/log.h>
 
-#include "render/egl.h"
-#include "render/fx_renderer/fx_renderer.h"
-#include "render/fx_renderer/shaders.h"
+_Static_assert(FX_AUDIO_BANDS == 64, "audio shader coordinates require 64 bands");
 
 // Shared by every kind. Its names are the shared preamble contract.
 static const char kPreamble[] =
@@ -19,12 +20,24 @@ static const char kPreamble[] =
     "#define cos(x) cos(mod((x), 6.283185307179586))\n"
     "varying vec2 v_texcoord;\n"
     "uniform sampler2D andromeda_texture;\n"
+    "uniform sampler2D andromeda_incoming_texture;\n"
     "uniform mat3 andromeda_sample_matrix;\n"
     "uniform sampler2D andromeda_previous_texture;\n"
     "uniform mat3 andromeda_previous_sample_matrix;\n"
     "uniform vec2 andromeda_size;\n"
     "uniform float andromeda_scale;\n"
     "uniform float andromeda_time;\n"
+    "uniform sampler2D andromeda_audio_bands;\n"
+    "uniform float andromeda_audio_ready;\n"
+    "float andromeda_audio_available() { return andromeda_audio_ready; }\n"
+    "float andromeda_audio_entry(float index) {\n"
+    "  return texture2D(andromeda_audio_bands, vec2((index + 0.5) / 64.0, 0.5)).r;\n"
+    "}\n"
+    "float andromeda_audio_spectrum(float position) {\n"
+    "  float index = clamp(position, 0.0, 1.0) * 63.0;\n"
+    "  float low = floor(index);\n"
+    "  return mix(andromeda_audio_entry(low), andromeda_audio_entry(min(low + 1.0, 63.0)), index - low);\n"
+    "}\n"
     "uniform vec2 andromeda_expand;\n"
     "uniform vec4 andromeda_palette[4];\n"
     "uniform int andromeda_palette_count;\n"
@@ -33,6 +46,12 @@ static const char kPreamble[] =
     "  vec2 p = (vec3(uv, 1.0) * andromeda_sample_matrix).xy;\n"
     "  if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) return vec4(0.0);\n"
     "  return texture2D(andromeda_texture, p);\n"
+    "}\n"
+    "vec4 andromeda_sample_incoming(vec2 uv) {\n"
+    "  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);\n"
+    "  vec2 p = (vec3(uv, 1.0) * andromeda_sample_matrix).xy;\n"
+    "  if (any(lessThan(p, vec2(0.0))) || any(greaterThan(p, vec2(1.0)))) return vec4(0.0);\n"
+    "  return texture2D(andromeda_incoming_texture, p);\n"
     "}\n"
     "vec4 andromeda_sample_previous(vec2 uv) {\n"
     "  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(0.0);\n"
@@ -57,12 +76,11 @@ static const char kPreamble[] =
     "  return mix(from, to, scaled - index);\n"
     "}\n";
 
-static const char kAnimationSection[] =
-    "uniform float andromeda_progress;\n"
-    "uniform float andromeda_linear_progress;\n"
-    "uniform float andromeda_direction;\n"
-    "uniform vec4 andromeda_random_seed;\n"
-    "#define andromeda_clamped_progress clamp(andromeda_progress, 0.0, 1.0)\n";
+static const char kAnimationSection[] = "uniform float andromeda_progress;\n"
+                                        "uniform float andromeda_linear_progress;\n"
+                                        "uniform float andromeda_direction;\n"
+                                        "uniform vec4 andromeda_random_seed;\n"
+                                        "#define andromeda_clamped_progress clamp(andromeda_progress, 0.0, 1.0)\n";
 static const char kAnimationSuffix[] = "\nvoid main() { gl_FragColor = animation(v_texcoord); }\n";
 
 // Hole and radii describe the client rectangle inside the drawn rectangle. The
@@ -79,11 +97,11 @@ static const char kBorderSection[] =
     "  vec2 q = abs(p) - half_size + r;\n"
     "  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;\n"
     "}\n";
-// The client hole is always cut out of the result, half a logical pixel soft.
+// The client hole is always cut out of the result with one buffer pixel of antialiasing.
 static const char kBorderSuffix[] =
     "\nvoid main() {\n"
     "  vec4 c = border(v_texcoord);\n"
-    "  gl_FragColor = c * smoothstep(-0.5, 0.5, andromeda_border_distance(v_texcoord));\n"
+    "  gl_FragColor = c * smoothstep(-0.5, 0.5, andromeda_border_distance(v_texcoord) * andromeda_scale);\n"
     "}\n";
 
 // In-place kinds write back through the rounded mask of the drawn rectangle:
@@ -105,7 +123,10 @@ static const char kWindowSuffix[] =
     "\nvoid main() { gl_FragColor = mix(andromeda_sample(v_texcoord), window(v_texcoord), andromeda_mask(v_texcoord)); }\n";
 static const char kScreenSuffix[] = "\nvoid main() { gl_FragColor = screen(v_texcoord); }\n";
 // The cursor kind is in place too, so it needs the mask helper before its own uniform.
-static const char kCursorSection[] = "uniform vec2 andromeda_pointer;\n";
+static const char kCursorSection[] = "uniform vec2 andromeda_pointer;\n"
+                                     "uniform int andromeda_pointer_count;\n"
+                                     "uniform vec4 andromeda_pointer_history[8];\n"
+                                     "uniform vec4 andromeda_pointer_path[64];\n";
 static const char kCursorSuffix[] =
     "\nvoid main() { gl_FragColor = mix(andromeda_sample(v_texcoord), cursor(v_texcoord), andromeda_mask(v_texcoord)); }\n";
 
@@ -268,55 +289,66 @@ static GLenum gl_type(enum fx_uniform_type type) {
   return 0;
 }
 
-void fx_effect_shader_bind_uniform(struct fx_effect_shader* shader, const struct fx_uniform* uniform) {
-  struct fx_effect_uniform* cached = (struct fx_effect_uniform*)fx_effect_shader_uniform(shader, uniform->name);
+void fx_effect_shader_bind_uniform_data(
+    struct fx_effect_shader* shader, const char* name, enum fx_uniform_type type, unsigned element_count,
+    const void* data, size_t data_bytes
+) {
+  struct fx_effect_uniform* cached = (struct fx_effect_uniform*)fx_effect_shader_uniform(shader, name);
   if (cached == NULL) {
     return;
   }
-  const bool integer = uniform->type == FX_UNIFORM_INT || uniform->type == FX_UNIFORM_BOOL;
-  // count is bounded by the entry's own arrays.
-  const unsigned capacity = integer ? sizeof(uniform->ints) / sizeof(uniform->ints[0])
-                                    : FX_UNIFORM_FLOATS_MAX / fx_uniform_components(uniform->type);
-  if (cached->type != gl_type(uniform->type) || uniform->count == 0 || uniform->count > capacity) {
+  const unsigned components = fx_uniform_components(type);
+  const size_t component_bytes = type == FX_UNIFORM_INT || type == FX_UNIFORM_BOOL ? sizeof(int32_t) : sizeof(float);
+  const size_t capacity = data_bytes / component_bytes / components;
+  if (cached->type != gl_type(type) || element_count == 0 || element_count > capacity || data == NULL) {
     if (!cached->warned) {
       cached->warned = true;
       wlr_log(
           WLR_ERROR, "Effect uniform '%s' does not match the program's declaration or its own storage; ignoring it",
-          uniform->name
+          name
       );
     }
     return;
   }
   // Drivers drop array elements a program cannot reach, so the active size may be below the declared one.
-  GLsizei count = (GLsizei)uniform->count;
-  if (count > cached->size) {
+  const unsigned active_count = (unsigned)cached->size;
+  const GLsizei count = (GLsizei)(element_count < active_count ? element_count : active_count);
+  if (element_count > active_count) {
     if (!cached->warned) {
       cached->warned = true;
       wlr_log(
           WLR_INFO, "Effect shader '%s': uniform '%s' supplies %u elements, the program reads %d; binding %d",
-          shader->label, uniform->name, uniform->count, (int)cached->size, (int)cached->size
+          shader->label, name, element_count, (int)cached->size, (int)cached->size
       );
     }
-    count = cached->size;
   }
-  switch (uniform->type) {
+  switch (type) {
   case FX_UNIFORM_FLOAT:
-    glUniform1fv(cached->location, count, uniform->floats);
+    glUniform1fv(cached->location, count, data);
     break;
   case FX_UNIFORM_VEC2:
-    glUniform2fv(cached->location, count, uniform->floats);
+    glUniform2fv(cached->location, count, data);
     break;
   case FX_UNIFORM_VEC3:
-    glUniform3fv(cached->location, count, uniform->floats);
+    glUniform3fv(cached->location, count, data);
     break;
   case FX_UNIFORM_VEC4:
-    glUniform4fv(cached->location, count, uniform->floats);
+    glUniform4fv(cached->location, count, data);
     break;
   case FX_UNIFORM_INT:
   case FX_UNIFORM_BOOL:
-    glUniform1iv(cached->location, count, uniform->ints);
+    glUniform1iv(cached->location, count, data);
     break;
   }
+}
+
+void fx_effect_shader_bind_uniform(struct fx_effect_shader* shader, const struct fx_uniform* uniform) {
+  const bool integer = uniform->type == FX_UNIFORM_INT || uniform->type == FX_UNIFORM_BOOL;
+  fx_effect_shader_bind_uniform_data(
+      shader, uniform->name, uniform->type, uniform->count,
+      integer ? (const void*)uniform->ints : (const void*)uniform->floats,
+      integer ? sizeof(uniform->ints) : sizeof(uniform->floats)
+  );
 }
 
 // Uniform state persists on a program between draws. Optional inputs a caller
@@ -332,15 +364,18 @@ static void reset_optional_uniforms(struct fx_effect_shader* shader) {
   }
 }
 
-void fx_effect_shader_bind_parameters(struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters) {
+void fx_effect_shader_bind_parameters(
+    struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters
+) {
   reset_optional_uniforms(shader);
   for (unsigned i = 0; i < parameters->uniform_count && i < FX_UNIFORMS_MAX; i++) {
     fx_effect_shader_bind_uniform(shader, &parameters->uniforms[i]);
   }
 }
 
-struct fx_effect_shader*
-fx_effect_shader_create(struct wlr_renderer* renderer, enum fx_effect_kind kind, const char* source, const char* label) {
+struct fx_effect_shader* fx_effect_shader_create(
+    struct wlr_renderer* renderer, enum fx_effect_kind kind, const char* source, const char* label
+) {
   if (source == NULL || !wlr_renderer_is_fx(renderer)) {
     return NULL;
   }
@@ -365,7 +400,7 @@ fx_effect_shader_create(struct wlr_renderer* renderer, enum fx_effect_kind kind,
     return NULL;
   }
   snprintf(fragment, length, "%s%s%s%s%s%s", kPreamble, section, extra, line, source, suffix);
-  wlr_log(WLR_DEBUG, "Compiling %s shader: %s", kind_name(kind), label);
+  wlr_log(WLR_INFO, "Compiling %s shader: %s", kind_name(kind), label);
   shader->program = link_program(fragment);
   free(fragment);
   if (shader->program == 0) {
@@ -385,6 +420,8 @@ fx_effect_shader_create(struct wlr_renderer* renderer, enum fx_effect_kind kind,
   shader->position = glGetAttribLocation(shader->program, "pos");
   shader->tex = glGetUniformLocation(shader->program, "andromeda_texture");
   shader->sample_matrix = glGetUniformLocation(shader->program, "andromeda_sample_matrix");
+  shader->audio_tex = glGetUniformLocation(shader->program, "andromeda_audio_bands");
+  shader->incoming_tex = glGetUniformLocation(shader->program, "andromeda_incoming_texture");
   shader->previous_tex = glGetUniformLocation(shader->program, "andromeda_previous_texture");
   shader->previous_sample_matrix = glGetUniformLocation(shader->program, "andromeda_previous_sample_matrix");
   shader->progress = glGetUniformLocation(shader->program, "andromeda_progress");

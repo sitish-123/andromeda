@@ -16,6 +16,7 @@ extern "C" {
 #undef static
 }
 
+using andromeda::FormatCommitResult;
 using andromeda::FormatSequenceOps;
 using andromeda::FormatSequenceParams;
 using andromeda::FormatSequenceResult;
@@ -36,6 +37,7 @@ namespace {
         .configuredModeSpec = nullptr,
         .automaticMode = {},
         .preferredMode = nullptr,
+        .keptLiveMode = nullptr,
         .modeFallbackAlreadyWarned = false,
         .vrrDroppedTier = std::nullopt,
         .earlyHdrFail = {},
@@ -56,6 +58,7 @@ namespace {
     std::vector<Call> calls;
     std::vector<bool> testResults;
     std::vector<bool> commitResults;
+    std::vector<size_t> retryCommitIndices;
     std::vector<uint32_t> nonPrimaryFormats;
     size_t testIndex = 0;
     size_t commitIndex = 0;
@@ -112,7 +115,12 @@ namespace {
           .commit =
               [this] {
                 calls.push_back({Kind::Commit, stagedFormat, stagedVrr});
-                return next(commitResults, commitIndex, true);
+                const size_t index = commitIndex;
+                const bool committed = next(commitResults, commitIndex, true);
+                if (std::ranges::find(retryCommitIndices, index) != retryCommitIndices.end()) {
+                  return FormatCommitResult::Retry;
+                }
+                return committed ? FormatCommitResult::Committed : FormatCommitResult::Rejected;
               },
           .clearImageDescription = [this] { imageDescCleared = true; },
           .stageMode = [this](wlr_output_mode* m) { stagedMode = m; },
@@ -126,9 +134,10 @@ namespace {
 
 } // namespace
 
-// SDR8 baseline: XR24 is committed directly, without a test.
+// SDR8 baseline: XR24 must pass its test before it is committed.
 ANDROMEDA_TEST(sdr8CommitsXr24) {
   MockOps m;
+  m.testResults = {true};
 
   const FormatSequenceResult r = runFormatSequence(sdr8Params(), m.ops());
 
@@ -136,8 +145,46 @@ ANDROMEDA_TEST(sdr8CommitsXr24) {
   CHECK(!r.usedModeFallback);
   CHECK(r.committedTier == FormatTier::Sdr8);
   CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XRGB8888});
-  CHECK_EQ(m.count(Kind::Test), size_t{0});
+  CHECK_EQ(m.count(Kind::Test), size_t{1});
   CHECK_EQ(m.count(Kind::Commit), size_t{1});
+}
+
+ANDROMEDA_TEST(sdr8StageFailureSkipsTestAndCommit) {
+  MockOps m;
+  m.nonPrimaryFormats = {DRM_FORMAT_XRGB8888};
+  m.testResults = {true};
+
+  const FormatSequenceResult r = runFormatSequence(sdr8Params(), m.ops());
+
+  CHECK(!r.committed);
+  CHECK(!r.retry);
+  CHECK_EQ(m.count(Kind::Test), size_t{0});
+  CHECK_EQ(m.count(Kind::Commit), size_t{0});
+}
+
+// A rejected VRR swapchain must retry without VRR before rendering a frame.
+ANDROMEDA_TEST(sdr8TestRejectionRetriesWithoutVrr) {
+  MockOps m;
+  m.testResults = {false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.tryVrrOn = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.vrrDropped);
+  CHECK(!r.usedModeFallback);
+  CHECK_EQ(m.count(Kind::Test), size_t{2});
+  const auto commits = m.commits();
+  CHECK_EQ(commits.size(), size_t{1});
+  if (commits.size() == 1) {
+    CHECK(!commits[0].vrr);
+  }
+  CHECK_EQ(m.vrrWarnings.size(), size_t{1});
+  if (m.vrrWarnings.size() == 1) {
+    CHECK(m.vrrWarnings[0] == FormatTier::Sdr8);
+  }
 }
 
 // SDR10: XR30 fails its test, XB30 passes and is the only commit.
@@ -182,6 +229,7 @@ ANDROMEDA_TEST(sdr10PrefersActiveXB30) {
 // the reason is set, and XR24 commits.
 ANDROMEDA_TEST(sdr10BothRejectedSetsFallbackReasonAndCommitsSdr8) {
   MockOps m;
+  m.testResults = {false, false, true};
 
   FormatSequenceParams p = sdr8Params();
   p.bitDepth = 10;
@@ -215,6 +263,7 @@ ANDROMEDA_TEST(nonPrimaryFormatIsNotTested) {
 // VRR retry: XR24 commit fails with VRR and succeeds without it.
 ANDROMEDA_TEST(vrrRetryCommitsWithoutVrr) {
   MockOps m;
+  m.testResults = {true};
   m.commitResults = {false, true};
 
   FormatSequenceParams p = sdr8Params();
@@ -298,6 +347,7 @@ ANDROMEDA_TEST(sdr10WithVrrDoesNotWarn) {
 // The VRR warning is not repeated when the same tier dropped VRR last time.
 ANDROMEDA_TEST(vrrWarningNotRepeatedForSameTier) {
   MockOps m;
+  m.testResults = {true};
   m.commitResults = {false, true};
 
   FormatSequenceParams p = sdr8Params();
@@ -314,6 +364,7 @@ ANDROMEDA_TEST(vrrWarningNotRepeatedForSameTier) {
 // The VRR warning comes back when a different tier drops VRR.
 ANDROMEDA_TEST(vrrWarningRepeatsWhenTierChanges) {
   MockOps m;
+  m.testResults = {true};
   m.commitResults = {false, true};
 
   FormatSequenceParams p = sdr8Params();
@@ -346,7 +397,7 @@ ANDROMEDA_TEST(sdr10CommitFailureFallsThroughToSdr8) {
   CHECK_EQ(commits.size(), size_t{2});
   CHECK_EQ(commits[0].format, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK_EQ(commits[1].format, uint32_t{DRM_FORMAT_XRGB8888});
-  CHECK_EQ(m.count(Kind::Test), size_t{1});
+  CHECK_EQ(m.count(Kind::Test), size_t{2});
 }
 
 // HDR commit failure drops to SDR10 without committing the other HDR format.
@@ -369,6 +420,26 @@ ANDROMEDA_TEST(hdrCommitFailureFallsThroughToSdr10) {
   CHECK(m.imageDescCleared);
   CHECK_EQ(m.count(Kind::StageHdr), size_t{1});
   CHECK_EQ(m.count(Kind::Commit), size_t{2});
+}
+
+// A render/build failure is not evidence that HDR or its selected format is
+// unsupported. Stop before capability fallbacks so the frame can retry.
+ANDROMEDA_TEST(retryableHdrApplyFailureStopsBeforeSdrFallback) {
+  MockOps m;
+  m.testResults = {true};
+  m.commitResults = {true};
+  m.retryCommitIndices = {0};
+
+  FormatSequenceParams p = sdr8Params();
+  p.hdrRequested = true;
+  p.imageDescAvailable = true;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(!r.committed);
+  CHECK(r.retry);
+  CHECK(!m.imageDescCleared);
+  CHECK_EQ(m.count(Kind::Commit), size_t{1});
 }
 
 // A failed HDR+VRR commit retries the same format without VRR
@@ -429,7 +500,7 @@ ANDROMEDA_TEST(hdrBothCommitsFailFallsThroughToSdr8) {
   CHECK_EQ(commits[0].format, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK_EQ(commits[1].format, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK_EQ(commits[2].format, uint32_t{DRM_FORMAT_XRGB8888});
-  CHECK_EQ(m.count(Kind::Test), size_t{1});
+  CHECK_EQ(m.count(Kind::Test), size_t{2});
 }
 
 // A weak pre-commit test can accept VRR even though the real commit rejects it.
@@ -535,7 +606,7 @@ ANDROMEDA_TEST(sdr10BothCommitsFailFallsThroughToSdr8) {
   CHECK_EQ(commits[0].format, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK_EQ(commits[1].format, uint32_t{DRM_FORMAT_XRGB2101010});
   CHECK_EQ(commits[2].format, uint32_t{DRM_FORMAT_XRGB8888});
-  CHECK_EQ(m.count(Kind::Test), size_t{1});
+  CHECK_EQ(m.count(Kind::Test), size_t{2});
 }
 
 // HDR fail -> SDR10: All HDR formats fail their tests, XB30 SDR10 commits.
@@ -562,6 +633,7 @@ ANDROMEDA_TEST(hdrFailFollowedBySdr10Success) {
 // commit is the SDR8 last resort.
 ANDROMEDA_TEST(tierTestsDoNotCommit) {
   MockOps m;
+  m.testResults = {false, false, false, false, false, false, false, false, true};
 
   FormatSequenceParams p = sdr8Params();
   p.hdrRequested = true;
@@ -573,8 +645,8 @@ ANDROMEDA_TEST(tierTestsDoNotCommit) {
 
   CHECK(r.committed);
   CHECK(r.committedTier == FormatTier::Sdr8);
-  // 2 formats, 2 VRR passes.
-  CHECK_EQ(m.count(Kind::Test), size_t{8});
+  // 2 formats, 2 VRR passes per 10-bit tier, then SDR8.
+  CHECK_EQ(m.count(Kind::Test), size_t{9});
   CHECK_EQ(m.count(Kind::Commit), size_t{1});
 }
 
@@ -608,6 +680,7 @@ ANDROMEDA_TEST(modeFallbackRetriesOnPreferredMode) {
   static wlr_output_mode preferred{};
 
   MockOps m;
+  m.testResults = {true};
   m.commitResults = {false, true};
 
   static const andromeda::OutputMode spec{1280, 720, 60000};
@@ -624,6 +697,86 @@ ANDROMEDA_TEST(modeFallbackRetriesOnPreferredMode) {
   CHECK(m.stagedMode == &preferred);
 }
 
+// Backend rejection must reach the preferred mode before scene building can
+// turn the rejected SDR8 swapchain into a retryable rendering failure.
+ANDROMEDA_TEST(rejectedSdr8SwapchainReachesPreferredModeBeforeSceneBuild) {
+  wlr_output_mode preferred{};
+  preferred.width = 3440;
+  preferred.height = 1440;
+  preferred.refresh = 59973;
+  const andromeda::OutputMode spec{3440, 1440, 360097};
+
+  MockOps m;
+  m.nonPrimaryFormats = {DRM_FORMAT_XRGB2101010};
+  FormatSequenceOps ops = m.ops();
+  ops.test = [&] {
+    m.calls.push_back({Kind::Test, m.stagedFormat, m.stagedVrr});
+    if (m.stagedMode == nullptr) {
+      return false;
+    }
+    CHECK(m.stagedMode == &preferred);
+    CHECK_EQ(m.stagedFormat, uint32_t{DRM_FORMAT_XBGR2101010});
+    return true;
+  };
+  ops.stageMode = [&](wlr_output_mode* mode) {
+    CHECK(mode == &preferred);
+    CHECK_EQ(m.count(Kind::Test), size_t{3});
+    CHECK_EQ(m.stagedFormat, uint32_t{DRM_FORMAT_XRGB8888});
+    CHECK_EQ(m.count(Kind::Commit), size_t{0});
+    m.stagedMode = mode;
+  };
+  ops.commit = [&] {
+    m.calls.push_back({Kind::Commit, m.stagedFormat, m.stagedVrr});
+    return m.stagedMode == &preferred ? FormatCommitResult::Committed : FormatCommitResult::Retry;
+  };
+
+  FormatSequenceParams p = sdr8Params();
+  p.hdrRequested = true;
+  p.imageDescAvailable = true;
+  p.bitDepth = 10;
+  p.configuredModeSpec = &spec;
+  p.preferredMode = &preferred;
+
+  const FormatSequenceResult r = runFormatSequence(p, ops);
+
+  CHECK(r.committed);
+  CHECK(!r.retry);
+  CHECK(r.usedModeFallback);
+  CHECK(r.modeFallbackWarnedNow);
+  CHECK(m.modeFallbackWarned);
+  CHECK(m.stagedMode == &preferred);
+  CHECK(r.committedTier == FormatTier::Hdr);
+  CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XBGR2101010});
+  CHECK(r.hdrFail.empty());
+  CHECK(r.sdr10Fail.empty());
+  CHECK_EQ(m.count(Kind::Test), size_t{4});
+  CHECK_EQ(m.count(Kind::Commit), size_t{1});
+}
+
+// An accepted output state followed by a rendering failure still retries the
+// same mode, instead of downgrading to the preferred mode.
+ANDROMEDA_TEST(retryableSdr8SceneFailureDoesNotChangeMode) {
+  wlr_output_mode preferred{};
+  const andromeda::OutputMode spec{3440, 1440, 360097};
+  MockOps m;
+  m.testResults = {true};
+  m.retryCommitIndices = {0};
+
+  FormatSequenceParams p = sdr8Params();
+  p.configuredModeSpec = &spec;
+  p.preferredMode = &preferred;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(!r.committed);
+  CHECK(r.retry);
+  CHECK(!r.usedModeFallback);
+  CHECK(!m.modeFallbackWarned);
+  CHECK(m.stagedMode == nullptr);
+  CHECK_EQ(m.count(Kind::Test), size_t{1});
+  CHECK_EQ(m.count(Kind::Commit), size_t{1});
+}
+
 // Mode fallback reruns the complete HDR -> SDR10 -> SDR8 sequence on the
 // preferred mode, and the reasons produced by the first mode do not leak into
 // the result. First mode: HDR and SDR10 fail their tests, SDR8 fails to commit.
@@ -636,6 +789,7 @@ ANDROMEDA_TEST(modeFallbackRerunsFullSequenceAndResetsReasons) {
   m.testResults = {
       false, false, // Mode 1: HDR XR30, XB30
       false, false, // Mode 1: SDR10 XR30, XB30
+      true,         // Mode 1: SDR8 XR24, then commit rejection
       false, false, // Mode 2: HDR XR30, XB30
       false, true,  // Mode 2: SDR10 XR30, XB30
   };
@@ -662,7 +816,7 @@ ANDROMEDA_TEST(modeFallbackRerunsFullSequenceAndResetsReasons) {
   CHECK(r.committedTier == FormatTier::Sdr10);
   CHECK_EQ(r.committedFormat, uint32_t{DRM_FORMAT_XBGR2101010});
   CHECK_EQ(m.count(Kind::StageHdr), size_t{4});
-  CHECK_EQ(m.count(Kind::Test), size_t{8});
+  CHECK_EQ(m.count(Kind::Test), size_t{9});
   CHECK_EQ(m.count(Kind::Commit), size_t{2});
 }
 
@@ -672,8 +826,8 @@ ANDROMEDA_TEST(modeFallbackClearsSdr10ReasonOnPreferredCommit) {
   static wlr_output_mode preferred{};
 
   MockOps m;
-  m.testResults = {false, false, true}; // Mode 1: XR30, XB30. Mode 2: XR30.
-  m.commitResults = {false, true};      // Mode 1: XR24. Mode 2: XR30.
+  m.testResults = {false, false, true, true}; // Mode 1: XR30, XB30, XR24. Mode 2: XR30.
+  m.commitResults = {false, true};            // Mode 1: XR24. Mode 2: XR30.
 
   static const andromeda::OutputMode spec{1280, 720, 60000};
   FormatSequenceParams p = sdr8Params();
@@ -693,9 +847,75 @@ ANDROMEDA_TEST(modeFallbackClearsSdr10ReasonOnPreferredCommit) {
   CHECK_EQ(m.count(Kind::Commit), size_t{2});
 }
 
+// A kernel may refuse to change connector properties without a modeset, so a
+// rejected sequence on a kept live mode stages that mode and runs once more.
+ANDROMEDA_TEST(rejectedKeptLiveModeRetriesWithTheModeStaged) {
+  static wlr_output_mode live{};
+  static wlr_output_mode preferred{};
+  static const andromeda::OutputMode spec{1280, 720, 60000};
+
+  MockOps m;
+  m.testResults = {false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.configuredModeSpec = &spec;
+  p.preferredMode = &preferred;
+  p.keptLiveMode = &live;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(r.usedLiveModeRetry);
+  CHECK(m.stagedMode == &live);
+  CHECK(!r.usedModeFallback);
+  CHECK(!m.modeFallbackWarned);
+}
+
+ANDROMEDA_TEST(rejectedRetryOnKeptLiveModeFallsBackToPreferredMode) {
+  static wlr_output_mode live{};
+  static wlr_output_mode preferred{};
+  static const andromeda::OutputMode spec{1280, 720, 60000};
+
+  MockOps m;
+  m.testResults = {false, false, true};
+
+  FormatSequenceParams p = sdr8Params();
+  p.configuredModeSpec = &spec;
+  p.preferredMode = &preferred;
+  p.keptLiveMode = &live;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(r.committed);
+  CHECK(m.stagedMode == &preferred);
+  CHECK(r.usedModeFallback);
+  CHECK_EQ(m.count(Kind::Test), size_t{3});
+}
+
+// A retryable scene failure is not a backend rejection, so it keeps the live
+// mode instead of forcing a modeset.
+ANDROMEDA_TEST(retryableSceneFailureOnKeptLiveModeDoesNotStageIt) {
+  wlr_output_mode live{};
+  MockOps m;
+  m.testResults = {true};
+  m.retryCommitIndices = {0};
+
+  FormatSequenceParams p = sdr8Params();
+  p.keptLiveMode = &live;
+
+  const FormatSequenceResult r = runFormatSequence(p, m.ops());
+
+  CHECK(!r.committed);
+  CHECK(r.retry);
+  CHECK(!r.usedLiveModeRetry);
+  CHECK(m.stagedMode == nullptr);
+  CHECK_EQ(m.count(Kind::Commit), size_t{1});
+}
+
 // No preferred mode (headless): Nothing commits, no fallback, uncommitted.
 ANDROMEDA_TEST(noPreferredModeYieldsUncommitted) {
   MockOps m;
+  m.testResults = {true};
   m.commitResults = {false};
 
   static const andromeda::OutputMode spec{1280, 720, 60000};

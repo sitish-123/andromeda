@@ -25,7 +25,12 @@ namespace andromeda {
         std::string_view& hdrFail, std::string_view& sdr10Fail
     ) {
       const auto commitStaged = [&](FormatTier tier, uint32_t fmt, bool vrr) -> bool {
-        if (!ops.commit()) {
+        const FormatCommitResult commit = ops.commit();
+        if (commit == FormatCommitResult::Retry) {
+          result.retry = true;
+          return false;
+        }
+        if (commit == FormatCommitResult::Rejected) {
           return false;
         }
         result.committedTier = tier;
@@ -41,6 +46,9 @@ namespace andromeda {
                                     const std::function<bool(uint32_t, bool)>& stage) -> bool {
         if (commitStaged(tier, fmt, vrr)) {
           return true;
+        }
+        if (result.retry) {
+          return false;
         }
         return vrr && stage(fmt, false) && commitStaged(tier, fmt, false);
       };
@@ -63,6 +71,9 @@ namespace andromeda {
           }
           if (commitTenBit(FormatTier::Hdr, *accepted, vrr, ops.stageHdr)) {
             return true;
+          }
+          if (result.retry) {
+            return false;
           }
           hdrFail = "HDR commit rejected by backend";
           ops.clearImageDescription();
@@ -90,6 +101,9 @@ namespace andromeda {
           if (commitTenBit(FormatTier::Sdr10, *accepted, vrr, ops.stageSdr)) {
             return true;
           }
+          if (result.retry) {
+            return false;
+          }
           sdr10Fail = "10-bit SDR commit rejected by backend";
           return false;
         }
@@ -98,18 +112,33 @@ namespace andromeda {
         return false;
       };
 
-      // SDR8. The last resort, so it is committed without a test, retrying once without VRR.
+      // Test SDR8 too, so a rejected swapchain reaches capability fallbacks
+      // instead of becoming a retryable scene-build failure.
       const auto trySdr8Formats = [&]() -> bool {
         for (const bool vrr : vrrPasses(params.tryVrrOn)) {
-          ops.stageSdr(DRM_FORMAT_XRGB8888, vrr);
+          if (!ops.stageSdr(DRM_FORMAT_XRGB8888, vrr) || !ops.test()) {
+            continue;
+          }
           if (commitStaged(FormatTier::Sdr8, DRM_FORMAT_XRGB8888, vrr)) {
             return true;
+          }
+          if (result.retry) {
+            return false;
           }
         }
         return false;
       };
 
-      return tryHdrFormats() || trySdr10Formats() || trySdr8Formats();
+      if (tryHdrFormats()) {
+        return true;
+      }
+      if (result.retry) {
+        return false;
+      }
+      if (trySdr10Formats()) {
+        return true;
+      }
+      return !result.retry && trySdr8Formats();
     }
 
   } // namespace
@@ -121,8 +150,20 @@ namespace andromeda {
 
     result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
 
+    const auto rerunOnMode = [&](wlr_output_mode* mode) {
+      ops.stageMode(mode);
+      hdrFail = params.earlyHdrFail;
+      sdr10Fail = {};
+      result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
+    };
+
+    if (!result.committed && !result.retry && params.keptLiveMode != nullptr) {
+      result.usedLiveModeRetry = true;
+      rerunOnMode(params.keptLiveMode);
+    }
+
     const bool modeStaged = params.configuredModeSpec != nullptr || !params.automaticMode.empty();
-    if (!result.committed && modeStaged && params.preferredMode != nullptr) {
+    if (!result.committed && !result.retry && modeStaged && params.preferredMode != nullptr) {
       result.usedModeFallback = true;
       if (!params.modeFallbackAlreadyWarned) {
         result.modeFallbackWarnedNow = true;
@@ -135,11 +176,7 @@ namespace andromeda {
         ops.warnModeFallback(requested, *params.preferredMode);
       }
 
-      ops.stageMode(params.preferredMode);
-
-      hdrFail = params.earlyHdrFail;
-      sdr10Fail = {};
-      result.committed = runSequenceForCurrentMode(params, ops, result, hdrFail, sdr10Fail);
+      rerunOnMode(params.preferredMode);
     }
 
     result.hdrFail = hdrFail;

@@ -3,6 +3,8 @@
 
 extern "C" {
 #include <andromedafx/render/fx_renderer/fx_renderer.h>
+#include <andromedafx/types/linux_drm_syncobj.h>
+#include <andromedafx/types/scene_capture.h>
 #include <andromedafx/types/wlr_scene.h>
 #include <wlr/backend.h>
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
@@ -13,9 +15,11 @@ extern "C" {
 #include <wlr/backend/multi.h>
 #include <wlr/backend/session.h>
 #include <wlr/backend/wayland.h>
+#include <wlr/interfaces/wlr_ext_image_capture_source_v1.h>
 #include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
+#include <wlr/render/drm_syncobj.h>
 #include <wlr/render/swapchain.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_alpha_modifier_v1.h>
@@ -96,4 +100,13 @@ extern "C" {
 #define namespace namespace_
 #include <wlr/types/wlr_layer_shell_v1.h>
 #undef namespace
+
+// xcb pulls in pthread.h, which declares a C++ class; include it before shadowing the keyword.
+#include <wlr/xwayland/server.h>
+#include <xcb/xcb.h>
+#include <xcb/xcb_ewmh.h>
+#include <xcb/xcb_icccm.h>
+#define class class_
+#include <wlr/xwayland/xwayland.h>
+#undef class
 }

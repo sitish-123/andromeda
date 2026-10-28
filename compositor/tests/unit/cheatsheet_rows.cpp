@@ -58,7 +58,7 @@ namespace {
 
   Keybind layoutBind(uint32_t keysym, andromeda::LayoutMode mode) {
     Keybind result = bind(KeybindAction::WorkspaceSetLayout, keysym);
-    result.payload = andromeda::LayoutModeArg{.mode = mode};
+    result.payload = andromeda::LayoutModeArg{.mode = mode, .toggleSequence = {}};
     return result;
   }
 
@@ -382,6 +382,38 @@ ANDROMEDA_TEST(degenerateInputsAreSafe) {
   // Nonsense column counts fall back to one column rather than dividing by it.
   CHECK_EQ(andromeda::balancedColumnHeight(blocks, 0), 10);
   CHECK_EQ(andromeda::balancedColumnHeight(blocks, -3), 10);
+}
+
+ANDROMEDA_TEST(effectActionLabelsPreserveSelectorsAndTargets) {
+  for (const auto& [action, label] : std::vector<std::pair<std::string, std::string>>{
+           {"effect-window-cycle:/window-1", "effect-window-cycle: /window-1"},
+           {"effect-border-set:border/window-1", "effect-border-set: border/window…"},
+           {"effect-screen-set:cinema/vendor/panel", "effect-screen-set: cinema/vendor…"},
+           {"effect-cursor-set:halo", "effect-cursor-set: halo"},
+           {"effect-cursor-cycle", "effect-cursor-cycle"}
+       }) {
+    Keybind binding;
+    CHECK(andromeda::parseChord("Mod+e", binding));
+    CHECK(andromeda::parseAction(action, binding));
+    const auto rows = buildCheatsheetRows(std::vector{binding});
+    CHECK_EQ(rows.size(), size_t{1});
+    CHECK_EQ(rows.front().action, label);
+  }
+}
+
+ANDROMEDA_TEST(floatingLayoutModeIsNamedInTheActionLabel) {
+  const std::vector<Keybind> binds = {layoutBind(XKB_KEY_f, andromeda::LayoutMode::Floating)};
+  const auto rows = buildCheatsheetRows(binds);
+  CHECK_EQ(rows.size(), size_t{1});
+  CHECK(rows[0].action.contains("floating"));
+}
+
+ANDROMEDA_TEST(snapActionLabelsNameTheRegion) {
+  Keybind binding = bind(KeybindAction::WindowSnap, XKB_KEY_h);
+  binding.payload = andromeda::SnapRegionArg{.region = andromeda::SnapRegion::BottomLeft};
+  const auto rows = buildCheatsheetRows(std::vector<Keybind>{binding});
+  CHECK_EQ(rows.size(), size_t{1});
+  CHECK(rows[0].action.contains("bottom_left"));
 }
 
 int main() { return RUN_TESTS(); }

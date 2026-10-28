@@ -35,7 +35,7 @@ namespace {
       std::ofstream out(configPath());
       out << document;
     }
-    (void)andromeda::loadConfig(configPath().c_str());
+    andromeda::loadConfig(configPath().c_str());
     Loaded loaded{.config = andromeda::config(), .messages = {}};
     for (const auto& diagnostic : andromeda::configDiagnostics()) {
       loaded.messages.push_back(diagnostic.message);
@@ -205,11 +205,26 @@ ANDROMEDA_TEST(jsonIsSortedAndTyped) {
 
 // Every value a key lists is one its reader accepts without complaint.
 ANDROMEDA_TEST(listedValuesAreAccepted) {
+  const auto shaderPath = configPath().string() + ".glsl";
+  {
+    std::ofstream shader(shaderPath);
+    shader << "vec4 animation(vec2 uv) { return andromeda_sample(uv); }";
+  }
   int tried = 0;
   for (const KeyDescription& key : andromeda::registry::describeConfig(andromeda::Config{})) {
     for (const std::string_view value : key.values) {
       std::string concrete;
-      const toml::table document = documentSetting(key.path, nlohmann::ordered_json(value), concrete);
+      // A string array lists the values its entries may take.
+      const nlohmann::ordered_json setting =
+          key.type == "string_array" ? nlohmann::ordered_json::array({value}) : nlohmann::ordered_json(value);
+      toml::table document = documentSetting(key.path, setting, concrete);
+      if (key.path == "animation.workspaces.style" && value == "reveal") {
+        document.at_path("animation.workspaces").as_table()->insert("effect", "wipe");
+        document.insert(
+            "effects",
+            toml::table{{"preset", toml::table{{"wipe", toml::table{{"kind", "animation"}, {"shader", shaderPath}}}}}}
+        );
+      }
       const Loaded loaded = load(document);
       ++tried;
       for (const std::string& message : loaded.messages) {
@@ -221,11 +236,81 @@ ANDROMEDA_TEST(listedValuesAreAccepted) {
       }
     }
   }
+  std::filesystem::remove(shaderPath);
   CHECK(tried > 50);
+}
+
+ANDROMEDA_TEST(outputSdrTransferSchemaListsCanonicalValuesAndDefault) {
+  const auto descriptions = andromeda::registry::describeConfig(andromeda::Config{});
+  bool found = false;
+  for (const auto& key : descriptions) {
+    if (key.path == "output.<name>.sdr_transfer") {
+      found = true;
+      CHECK_EQ(key.type, std::string_view{"enum"});
+      CHECK(key.values == std::vector<std::string_view>({"gamma22", "srgb"}));
+      CHECK(key.defaultValue == "gamma22");
+    }
+  }
+  CHECK(found);
+}
+
+ANDROMEDA_TEST(effectPoolSchemaReportsMembersPoliciesAndRequiredKind) {
+  const auto descriptions = andromeda::registry::describeConfig(andromeda::Config{});
+  bool kind = false;
+  bool choose = false;
+  bool selection = false;
+  for (const auto& key : descriptions) {
+    if (key.path == "effects.pool.<name>.kind") {
+      kind = true;
+      CHECK(key.values == std::vector<std::string_view>({"border", "window", "screen", "cursor"}));
+      CHECK(key.defaultValue.is_null());
+    } else if (key.path == "effects.pool.<name>.choose") {
+      choose = true;
+      CHECK_EQ(key.type, std::string_view("string_array"));
+      CHECK(key.defaultValue.is_null());
+    } else if (key.path == "effects.pool.<name>.selection") {
+      selection = true;
+      CHECK(key.values == std::vector<std::string_view>({"unused_first", "round_robin", "random"}));
+      CHECK(key.defaultValue == "unused_first");
+    }
+  }
+  CHECK(kind && choose && selection);
 }
 
 int main() {
   // The documents are partial configs; their unrelated complaints are filtered, not worth printing.
   setConsoleLogging(false);
   return RUN_TESTS();
+}
+
+ANDROMEDA_TEST(pointerConfinementBooleanParsesAndReloads) {
+  const auto enabled = load(toml::parse("[[window_rule]]\nconfine_pointer = true\n"));
+  CHECK(enabled.messages.empty());
+  CHECK(enabled.config.windowRules.at(0).confinePointer.value_or(false));
+  const auto disabled = load(toml::parse("[[window_rule]]\nconfine_pointer = false\n"));
+  CHECK(disabled.messages.empty());
+  CHECK(disabled.config.windowRules != enabled.config.windowRules);
+  CHECK(disabled.config.windowRules.at(0).confinePointer.has_value());
+  CHECK(!*disabled.config.windowRules.at(0).confinePointer);
+  const auto invalid = load(toml::parse("[[window_rule]]\nconfine_pointer = \"yes\"\n"));
+  CHECK(std::ranges::any_of(invalid.messages, [](const auto& message) { return message.contains("confine_pointer"); }));
+}
+
+ANDROMEDA_TEST(shortcutsInhibitionRuleParsesAndParticipatesInReloads) {
+  const auto enabled = load(toml::parse("[[window_rule]]\nallow_shortcuts_inhibit = true\n"));
+  CHECK(enabled.messages.empty());
+  CHECK(enabled.config.windowRules.at(0).allowShortcutsInhibit.value_or(false));
+  const auto disabled = load(toml::parse("[[window_rule]]\nallow_shortcuts_inhibit = false\n"));
+  CHECK(disabled.messages.empty());
+  CHECK(disabled.config.windowRules != enabled.config.windowRules);
+  CHECK(disabled.config.windowRules.at(0).allowShortcutsInhibit.has_value());
+  CHECK(!disabled.config.windowRules.at(0).allowShortcutsInhibit.value_or(true));
+  const auto omitted = load(toml::parse("[[window_rule]]\n"));
+  CHECK(omitted.messages.empty());
+  CHECK(!omitted.config.windowRules.at(0).allowShortcutsInhibit.has_value());
+  const auto invalid = load(toml::parse("[[window_rule]]\nallow_shortcuts_inhibit = \"false\"\n"));
+  CHECK(std::ranges::any_of(invalid.messages, [](const auto& message) {
+    return message.contains("allow_shortcuts_inhibit") && message.contains("expected boolean");
+  }));
+  CHECK(std::ranges::none_of(invalid.messages, [](const auto& message) { return message.contains("unknown key"); }));
 }

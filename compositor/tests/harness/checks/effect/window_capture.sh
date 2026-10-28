@@ -129,7 +129,7 @@ corner_radius = 0
 [appearance.shadow]
 enabled = false
 [effects]
-window = "tint"
+window = ""
 in_capture = false
 [effects.preset.tint]
 kind = "window"
@@ -140,6 +140,7 @@ default_floating = true
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 spawn cap-snapshot
+"$ANDROMEDA" msg "effect-window-set:tint/$id" > /dev/null
 "$ANDROMEDA" settle > /dev/null
 if ! "$ANDROMEDA" effect-frames --json | jq -e '.outputs[0].eligible > 0' > /dev/null; then
   echo "the display did not keep the window effect eligible before the close while in_capture = false"
@@ -152,6 +153,17 @@ for _ in $(seq 100); do
   sleep 0.02
 done
 "$ANDROMEDA" clock-advance 1
+# capture-runtime-prune: no owner remains; force preparation to prune the
+# runtime-only program while the frozen closing copy still holds its version.
+printf '\n[effects.pool.snapshot_unused]\nkind = "window"\nchoose = []\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" effects --json | jq -e '.presets[] | select(.name == "tint") | .state == "unreferenced"' > /dev/null || { echo "capture-runtime-prune"; exit 1; }
+# Remove every effect definition while the copied shader is still visible.
+# Its retained requirements must continue to update output capture policy.
+awk '/^\[effects.preset.tint\]$/ {skip=1; next} /^\[effects.pool.snapshot_unused\]$/ {skip=1; next} /^\[/ {skip=0} !skip {print}' "$ANDROMEDA_CONFIG" > "$ANDROMEDA_RUNTIME_DIR/snapshot-no-definitions.toml"
+cp "$ANDROMEDA_RUNTIME_DIR/snapshot-no-definitions.toml" "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" effects --json | jq -e '(.presets | length) == 0 and (.pools | length) == 0' > /dev/null || { echo "capture-no-definitions"; exit 1; }
 read -r r g b < <(centre)
 if (( r > 40 )); then
   echo "in_capture = false still showed the effect on a fading close snapshot: $r $g $b"

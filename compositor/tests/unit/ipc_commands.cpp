@@ -3,6 +3,7 @@
 #include "check.h"
 
 #include <cstdio>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unistd.h>
@@ -56,6 +57,10 @@ namespace {
         {"bit_depth_fallback_reason", ""},
         {"supported_transfer_functions", nlohmann::json::array()},
         {"supported_primaries", nlohmann::json::array()},
+        {"mastering_display_primaries", nullptr},
+        {"mastering_luminance", nullptr},
+        {"max_cll", 0.0},
+        {"max_fall", 0.0},
     };
     output.merge_patch(outputOverrides);
     return {
@@ -154,6 +159,168 @@ ANDROMEDA_TEST(colorHumanDepthIgnoresActivityFlags) {
       *spec, colorPayload({{"hdr_active", true}, {"bit_depth_active", true}, {"render_format", "XR24"}})
   );
   CHECK(out.contains("bit depth: 8 (configured 8)"));
+}
+
+ANDROMEDA_TEST(colorHumanShowsCommittedHdrOutputMetadata) {
+  const andromeda::IpcCommandSpec* spec = andromeda::findIpcCommand("color");
+  CHECK(spec != nullptr && spec->printHuman != nullptr);
+  if (spec == nullptr || spec->printHuman == nullptr) {
+    return;
+  }
+
+  const std::string out = captureHumanOutput(
+      *spec,
+      colorPayload({
+          {"hdr_active", true},
+          {"mastering_luminance", {{"min", 0.005}, {"max", 400.0}}},
+          {"max_cll", 400.0},
+          {"max_fall", 200.0},
+      })
+  );
+  CHECK(out.contains("output metadata: 0.005 to 400 cd/m2; MaxCLL: 400; MaxFALL: 200"));
+}
+
+ANDROMEDA_TEST(parsesOutputCreateNameOnly) {
+  std::string name;
+  std::optional<andromeda::OutputMode> mode;
+  std::string error;
+  CHECK(andromeda::parseOutputCreateArg("stream", name, mode, error));
+  CHECK_EQ(name, "stream");
+  CHECK(!mode.has_value());
+  CHECK(error.empty());
+}
+
+ANDROMEDA_TEST(parsesOutputCreateMode) {
+  std::string name;
+  std::optional<andromeda::OutputMode> mode;
+  std::string error;
+  CHECK(andromeda::parseOutputCreateArg("  stream   2560x1440@120  ", name, mode, error));
+  CHECK_EQ(name, "stream");
+  CHECK(mode.has_value());
+  if (mode.has_value()) {
+    CHECK_EQ(mode->width, 2560);
+    CHECK_EQ(mode->height, 1440);
+    CHECK_EQ(mode->refreshMHz, 120000);
+  }
+  CHECK(error.empty());
+}
+
+ANDROMEDA_TEST(parsesOutputCreateModeWithoutRefresh) {
+  std::string name;
+  std::optional<andromeda::OutputMode> mode;
+  std::string error;
+  CHECK(andromeda::parseOutputCreateArg("stream 400x300", name, mode, error));
+  CHECK(mode.has_value());
+  if (mode.has_value()) {
+    CHECK_EQ(mode->width, 400);
+    CHECK_EQ(mode->height, 300);
+    CHECK_EQ(mode->refreshMHz, 0);
+  }
+}
+
+ANDROMEDA_TEST(rejectsOutputCreateInvalidMode) {
+  std::string name;
+  std::optional<andromeda::OutputMode> mode;
+  std::string error;
+  CHECK(!andromeda::parseOutputCreateArg("stream 1920x1080p", name, mode, error));
+  CHECK(!error.empty());
+  CHECK(!mode.has_value());
+}
+
+ANDROMEDA_TEST(rejectsOutputCreateExtraArguments) {
+  std::string name;
+  std::optional<andromeda::OutputMode> mode;
+  std::string error;
+  CHECK(!andromeda::parseOutputCreateArg("stream 1920x1080 extra", name, mode, error));
+  CHECK(!error.empty());
+
+  error.clear();
+  CHECK(!andromeda::parseOutputCreateArg("   ", name, mode, error));
+  CHECK(!error.empty());
+}
+
+ANDROMEDA_TEST(effectsCommandReportsStatesSuppressionAndDeclarationOrder) {
+  const auto* spec = andromeda::findIpcCommand("effects");
+  CHECK(spec != nullptr && spec->printHuman != nullptr && spec->handle == &andromeda::IpcCommands::effects);
+  if (spec == nullptr || spec->printHuman == nullptr) {
+    return;
+  }
+  CHECK(!spec->takesArg);
+  const nlohmann::json slot = {
+      {"name", "zebra"},
+      {"pool", "zpool"},
+      {"source", "runtime"},
+      {"suppressed", true},
+  };
+  const nlohmann::json payload = {
+      {"presets",
+       {{{"name", "zebra"}, {"kind", "border"}, {"state", "compiled"}, {"overlay", "glow"}},
+        {{"name", "alpha"}, {"kind", "window"}, {"state", "failed"}},
+        {{"name", "blank"}, {"kind", "cursor"}, {"state", "inert"}},
+        {{"name", "spare"}, {"kind", "screen"}, {"state", "unreferenced"}}}},
+      {"pools",
+       {{{"name", "zpool"},
+         {"kind", "border"},
+         {"policy", "unused_first"},
+         {"members", {{{"name", "zebra"}, {"held", 2}}, {{"name", "alpha"}, {"held", 0}}}}},
+        {{"name", "apool"}, {"kind", "window"}, {"policy", "random"}, {"members", nlohmann::json::array()}}}},
+      {"cursor", slot},
+      {"owners",
+       {{{"type", "window"}, {"id", "window-1"}, {"app_id", "terminal"}, {"slots", {{"border", slot}}}},
+        {{"type", "output"}, {"name", "vendor/panel"}, {"slots", {{"screen", slot}}}}}},
+  };
+  const std::string output = captureHumanOutput(*spec, payload);
+  CHECK(output.find("zebra\tborder\tcompiled\tglow") < output.find("alpha\twindow\tfailed"));
+  CHECK(output.contains("blank\tcursor\tinert"));
+  CHECK(output.contains("spare\tscreen\tunreferenced"));
+  CHECK(output.find("zpool\tborder\tunused_first") < output.find("apool\twindow\trandom"));
+  CHECK(output.contains("zebra (2), alpha (0)"));
+  CHECK(output.contains("cursor\tcursor\tzebra\tzpool\truntime\tyes"));
+  CHECK(output.contains("window window-1 (terminal)\tborder"));
+  CHECK(output.contains("output vendor/panel\tscreen"));
+  CHECK_EQ(captureHumanOutput(*spec, payload), output);
+}
+
+ANDROMEDA_TEST(audioRequestsAcceptOnlyTheCompleteBoundedSpectrumContract) {
+  using andromeda::IpcCommands;
+  auto bands = nlohmann::json::array();
+  for (int i = 0; i < FX_AUDIO_BANDS; ++i) {
+    bands.push_back(static_cast<double>(i) / (FX_AUDIO_BANDS - 1));
+  }
+  nlohmann::json request = {{"cmd", "effect-audio"}, {"version", 2}, {"bands", bands}};
+  const auto audio = IpcCommands::parseAudioSpectrum(request);
+  CHECK(audio.has_value());
+  for (int i = 0; i < FX_AUDIO_BANDS; ++i) {
+    CHECK_EQ((*audio)[i], static_cast<float>(i) / (FX_AUDIO_BANDS - 1));
+  }
+  CHECK_EQ((*audio)[FX_AUDIO_BANDS], 1.0F);
+  for (const auto& value :
+       {nlohmann::json(-0.01), nlohmann::json(1.01), nlohmann::json(true), nlohmann::json("0.5"),
+        nlohmann::json(nullptr), nlohmann::json(std::numeric_limits<double>::infinity()),
+        nlohmann::json(std::numeric_limits<double>::quiet_NaN())}) {
+    request["bands"][63] = value;
+    CHECK(!IpcCommands::parseAudioSpectrum(request));
+  }
+  request["bands"] = bands;
+  for (const auto& version : {nlohmann::json(0), nlohmann::json(1), nlohmann::json(2.0), nlohmann::json(true)}) {
+    request["version"] = version;
+    CHECK(!IpcCommands::parseAudioSpectrum(request));
+  }
+  request["version"] = 2;
+  request["level"] = 0.5;
+  CHECK(!IpcCommands::parseAudioSpectrum(request));
+  request.erase("level");
+  request["bands"].erase(63);
+  CHECK(!IpcCommands::parseAudioSpectrum(request));
+  request["bands"] = bands;
+  request["bands"].push_back(0);
+  CHECK(!IpcCommands::parseAudioSpectrum(request));
+  request["bands"] = 0;
+  CHECK(!IpcCommands::parseAudioSpectrum(request));
+  request.erase("bands");
+  CHECK(!IpcCommands::parseAudioSpectrum(request));
+  CHECK(!IpcCommands::parseAudioSpectrum(nlohmann::json::array()));
+  CHECK(!IpcCommands::parseAudioSpectrum(nullptr));
 }
 
 int main() { return RUN_TESTS(); }

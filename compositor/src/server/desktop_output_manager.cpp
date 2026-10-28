@@ -264,7 +264,7 @@ namespace andromeda {
       reject("cannot write " + file.string());
       return;
     }
-    m_server.handleConfigReload();
+    m_server.handleConfigReload(reloadConfig());
   }
 
   void DesktopOutputManager::propertiesChanged() {

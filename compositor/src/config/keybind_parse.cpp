@@ -19,6 +19,7 @@ extern "C" {
 #include <cstddef>
 #include <format>
 #include <iterator>
+#include <ranges>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -132,6 +133,22 @@ namespace andromeda {
       return true;
     }
 
+    std::optional<LayoutMode> layoutModeNamed(std::string_view name) {
+      if (name == "scrolling") {
+        return LayoutMode::Scrolling;
+      }
+      if (name == "dwindle") {
+        return LayoutMode::Dwindle;
+      }
+      if (name == "floating") {
+        return LayoutMode::Floating;
+      }
+      if (name == "master") {
+        return LayoutMode::Master;
+      }
+      return std::nullopt;
+    }
+
     bool parseWorkspaceArg(std::string_view arg, WorkspaceArg& workspace) {
       std::string_view selector = arg;
       const size_t separator = selector.find('/');
@@ -174,6 +191,66 @@ namespace andromeda {
       return true;
     }
 
+    // A signed pixel count; std::from_chars rejects a leading '+', so it is stripped first.
+    bool parseSignedPixels(std::string_view text, int& output) {
+      if (!text.empty() && text.front() == '+') {
+        text.remove_prefix(1);
+      }
+      const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), output);
+      return error == std::errc{} && end == text.data() + text.size();
+    }
+
+    // Splits `<first>/<second>/.../[/<window-id>]` into `required` leading parts and an optional non-empty window id.
+    std::optional<std::vector<std::string_view>>
+    splitWithOptionalWindowId(std::string_view arg, std::size_t required, std::string& windowId) {
+      std::vector<std::string_view> tokens;
+      for (const auto token : arg | std::views::split('/')) {
+        tokens.emplace_back(token.begin(), token.end());
+      }
+      if (tokens.size() < required || tokens.size() > required + 1) {
+        return std::nullopt;
+      }
+      if (tokens.size() > required) {
+        // A trailing slash names no window; it must not fall back to the focused one.
+        if (tokens.back().empty()) {
+          return std::nullopt;
+        }
+        windowId = std::string(tokens.back());
+      }
+      return tokens;
+    }
+
+    bool parseWindowMoveToArg(std::string_view arg, WindowMoveToArg& output) {
+      std::string windowId;
+      const auto tokens = splitWithOptionalWindowId(arg, 3, windowId);
+      if (!tokens) {
+        return false;
+      }
+      const std::optional<WindowPositionAnchor> anchor = windowPositionAnchorFromName((*tokens)[0]);
+      WindowPosition position;
+      if (!anchor || !parseSignedPixels((*tokens)[1], position.x) || !parseSignedPixels((*tokens)[2], position.y)) {
+        return false;
+      }
+      position.anchor = *anchor;
+      output.id = std::move(windowId);
+      output.position = position;
+      return true;
+    }
+
+    bool parseWindowMoveByArg(std::string_view arg, WindowMoveByArg& output) {
+      std::string windowId;
+      const auto tokens = splitWithOptionalWindowId(arg, 2, windowId);
+      int deltaX = 0;
+      int deltaY = 0;
+      if (!tokens || !parseSignedPixels((*tokens)[0], deltaX) || !parseSignedPixels((*tokens)[1], deltaY)) {
+        return false;
+      }
+      output.id = std::move(windowId);
+      output.deltaX = deltaX;
+      output.deltaY = deltaY;
+      return true;
+    }
+
     constexpr ActionSpec kActionSpecs[] = {
         {"cheatsheet-close", "", "Hide the keybind cheatsheet", KeybindAction::CheatsheetClose},
         {"cheatsheet-open", "", "Show the keybind cheatsheet", KeybindAction::CheatsheetOpen},
@@ -181,8 +258,19 @@ namespace andromeda {
         {"column-center", "", "Center the focused column in the viewport", KeybindAction::ColumnCenter},
         {"column-focus-first", "", "Focus the first column in the workspace", KeybindAction::ColumnFocusFirst},
         {"column-focus-last", "", "Focus the last column in the workspace", KeybindAction::ColumnFocusLast},
+        {"column-focus-tab", "<index>", "Focus a tab of the focused tab group by its position",
+         KeybindAction::ColumnFocusTab, ActionArgKind::TabIndex},
+        {"column-focus-tab-next", "", "Focus the next tab in the focused tab group", KeybindAction::ColumnFocusTabNext},
+        {"column-focus-tab-previous", "", "Focus the previous tab in the focused tab group",
+         KeybindAction::ColumnFocusTabPrevious},
+        {"column-hide-tab-bar", "", "Hide the focused tab group's bar; its tabs take the space",
+         KeybindAction::ColumnHideTabBar},
         {"column-move-left", "", "Move the focused column one position left", KeybindAction::ColumnMoveLeft},
         {"column-move-right", "", "Move the focused column one position right", KeybindAction::ColumnMoveRight},
+        {"column-move-tab-next", "", "Move the focused tab one place later among its tabs",
+         KeybindAction::ColumnMoveTabNext},
+        {"column-move-tab-previous", "", "Move the focused tab one place earlier among its tabs",
+         KeybindAction::ColumnMoveTabPrevious},
         {"column-move-to-first", "", "Move the focused column to the first position", KeybindAction::ColumnMoveToFirst},
         {"column-move-to-last", "", "Move the focused column to the last position", KeybindAction::ColumnMoveToLast},
         {"column-move-to-output-down", "", "Move the focused column to the output below",
@@ -199,11 +287,51 @@ namespace andromeda {
          KeybindAction::ColumnMoveToWorkspaceNext},
         {"column-move-to-workspace-previous", "", "Move the focused column to the previous workspace",
          KeybindAction::ColumnMoveToWorkspacePrevious},
+        {"column-set-display", "<normal|tabbed>", "Show the rows around the focused window as tabs or stacked",
+         KeybindAction::ColumnSetDisplay, ActionArgKind::ColumnDisplay},
+        {"column-show-tab-bar", "", "Show the focused tab group's bar", KeybindAction::ColumnShowTabBar},
+        {"column-toggle-tab-bar", "", "Show or hide the focused tab group's bar", KeybindAction::ColumnToggleTabBar},
+        {"column-toggle-tabbed", "", "Tab the rows around the focused window, or stack its tabs",
+         KeybindAction::ColumnToggleTabbed},
         {"config-reload", "", "Reload the configuration file", KeybindAction::ConfigReload},
+        {"cursor-hide", "", "Hide the cursor until pointer activity", KeybindAction::CursorHide},
+        {"cursor-show", "", "Show the cursor and restart its inactivity timeout", KeybindAction::CursorShow},
         {"dpms-off", "[<output>]", "Power off one output, or every output when bare", KeybindAction::DpmsOff,
          ActionArgKind::OptionalOutput},
         {"dpms-on", "[<output>]", "Power on one output, or every output when bare", KeybindAction::DpmsOn,
          ActionArgKind::OptionalOutput},
+        {"effect-border-cycle", "[<pool>][/<window-id>]", "Cycle the current or named border pool",
+         KeybindAction::EffectBorderCycle, ActionArgKind::WindowEffectCycle},
+        {"effect-border-reset", "[<window-id>]", "Clear runtime state and resolve configuration",
+         KeybindAction::EffectBorderReset, ActionArgKind::OptionalWindowId},
+        {"effect-border-set", "<name>[/<window-id>]", "Select a border preset/pool, or suppress with off",
+         KeybindAction::EffectBorderSet, ActionArgKind::WindowEffectSet},
+        {"effect-border-toggle", "[<window-id>]", "Toggle border-slot suppression", KeybindAction::EffectBorderToggle,
+         ActionArgKind::OptionalWindowId},
+        {"effect-cursor-cycle", "[<pool>]", "Cycle the current or named cursor pool", KeybindAction::EffectCursorCycle,
+         ActionArgKind::CursorEffectCycle},
+        {"effect-cursor-reset", "", "Clear runtime state and resolve configuration", KeybindAction::EffectCursorReset,
+         ActionArgKind::None},
+        {"effect-cursor-set", "<name>", "Select a cursor preset/pool, or suppress with off",
+         KeybindAction::EffectCursorSet, ActionArgKind::CursorEffectSet},
+        {"effect-cursor-toggle", "", "Toggle cursor-slot suppression", KeybindAction::EffectCursorToggle,
+         ActionArgKind::None},
+        {"effect-screen-cycle", "[<pool>][/<output>]", "Cycle the current or named screen pool",
+         KeybindAction::EffectScreenCycle, ActionArgKind::ScreenEffectCycle},
+        {"effect-screen-reset", "[<output>]", "Clear runtime state and resolve configuration",
+         KeybindAction::EffectScreenReset, ActionArgKind::OptionalOutput},
+        {"effect-screen-set", "<name>[/<output>]", "Select a screen preset/pool, or suppress with off",
+         KeybindAction::EffectScreenSet, ActionArgKind::ScreenEffectSet},
+        {"effect-screen-toggle", "[<output>]", "Toggle screen-slot suppression", KeybindAction::EffectScreenToggle,
+         ActionArgKind::OptionalOutput},
+        {"effect-window-cycle", "[<pool>][/<window-id>]", "Cycle the current or named window pool",
+         KeybindAction::EffectWindowCycle, ActionArgKind::WindowEffectCycle},
+        {"effect-window-reset", "[<window-id>]", "Clear runtime state and resolve configuration",
+         KeybindAction::EffectWindowReset, ActionArgKind::OptionalWindowId},
+        {"effect-window-set", "<name>[/<window-id>]", "Select a window preset/pool, or suppress with off",
+         KeybindAction::EffectWindowSet, ActionArgKind::WindowEffectSet},
+        {"effect-window-toggle", "[<window-id>]", "Toggle window-slot suppression", KeybindAction::EffectWindowToggle,
+         ActionArgKind::OptionalWindowId},
         {"fps-overlay-toggle", "", "Show or hide each output's refresh rate and presented frames",
          KeybindAction::FpsOverlayToggle},
         {"keyboard-layout-next", "", "Switch one keyboard to its next configured layout",
@@ -217,6 +345,8 @@ namespace andromeda {
         {"layout-scroll-left", "", "Scroll the strip toward its start", KeybindAction::LayoutScrollLeft},
         {"layout-scroll-right", "", "Scroll the strip toward its end", KeybindAction::LayoutScrollRight},
         {"layout-scroll-up", "", "Scroll the strip toward its start", KeybindAction::LayoutScrollUp},
+        {"layout-toggle-split", "", "Toggle the focused tile's dwindle split direction",
+         KeybindAction::LayoutToggleSplit},
         {"output-disable", "<output>", "Remove an output from the desktop", KeybindAction::OutputDisable,
          ActionArgKind::Output},
         {"output-enable", "<output>", "Add an output to the desktop", KeybindAction::OutputEnable,
@@ -227,6 +357,8 @@ namespace andromeda {
         {"output-focus-previous", "", "Focus the previous output, wrapping around", KeybindAction::OutputFocusPrevious},
         {"output-focus-right", "", "Focus the output to the right", KeybindAction::OutputFocusRight},
         {"output-focus-up", "", "Focus the output above", KeybindAction::OutputFocusUp},
+        {"output-sdr-white", "<nits>[/<output>]", "Set an output's live SDR reference white in cd/m2",
+         KeybindAction::OutputSdrWhite, ActionArgKind::SdrWhite},
         {"output-toggle", "<output>", "Add or remove an output from the desktop", KeybindAction::OutputToggle,
          ActionArgKind::Output},
         {"overview-close", "", "Close the workspace overview", KeybindAction::OverviewClose},
@@ -236,6 +368,10 @@ namespace andromeda {
          KeybindAction::ScratchpadFocusNext, ActionArgKind::OptionalScratchpad},
         {"scratchpad-toggle", "[<scratchpad>]", "Show or hide the selected scratchpad windows",
          KeybindAction::ScratchpadToggle, ActionArgKind::OptionalScratchpad},
+        {"scratchpad-window-show-next", "[<scratchpad>]", "Show only the next scratchpad window",
+         KeybindAction::ScratchpadWindowShowNext, ActionArgKind::OptionalScratchpad},
+        {"scratchpad-window-show-previous", "[<scratchpad>]", "Show only the previous scratchpad window",
+         KeybindAction::ScratchpadWindowShowPrevious, ActionArgKind::OptionalScratchpad},
         {"screencast-clear", "", "Pause the screencast and stop following", KeybindAction::ScreenCastClear},
         {"screencast-follow-output", "", "Follow the focused output", KeybindAction::ScreenCastFollowOutput},
         {"screencast-follow-stop", "", "Stop following and keep the current target",
@@ -258,6 +394,10 @@ namespace andromeda {
         {"window-center", "", "Center the focused floating window on its output", KeybindAction::WindowCenter},
         {"window-close", "[<window-id>]", "Close the focused window, or the given window", KeybindAction::WindowClose,
          ActionArgKind::OptionalWindowId},
+        {"window-consume-from-left", "", "Pull the left column's window into the focused column",
+         KeybindAction::WindowConsumeFromLeft},
+        {"window-consume-from-right", "", "Pull the right column's window into the focused column",
+         KeybindAction::WindowConsumeFromRight},
         {"window-consume-left", "", "Stack the focused window into the column left", KeybindAction::WindowConsumeLeft},
         {"window-consume-or-expel-left", "", "Split the window out, or stack it into the column left",
          KeybindAction::WindowConsumeOrExpelLeft},
@@ -298,6 +438,10 @@ namespace andromeda {
         {"window-focus-up", "", "Focus the next window up in the column", KeybindAction::WindowFocusUp},
         {"window-focus-warp", "<window-id>", "Focus or reveal a window and warp the cursor to it",
          KeybindAction::WindowFocusWarpId, ActionArgKind::WindowId},
+        {"window-kill", "[<window-id>]", "Kill the process owning the focused or given window",
+         KeybindAction::WindowKill, ActionArgKind::OptionalWindowId},
+        {"window-minimize", "[<window-id>]", "Minimize the focused floating window, or the given window",
+         KeybindAction::WindowMinimize, ActionArgKind::OptionalWindowId},
         {"window-modify-height-down", "<delta>", "Resize the focused window from its bottom edge",
          KeybindAction::WindowModifyHeightDown, ActionArgKind::FractionDelta},
         {"window-modify-height-up", "<delta>", "Resize the focused window from its top edge",
@@ -310,7 +454,12 @@ namespace andromeda {
          KeybindAction::WindowModifyWidthLeft, ActionArgKind::FractionDelta},
         {"window-modify-width-right", "<delta>", "Resize the focused column from its right edge",
          KeybindAction::WindowModifyWidthRight, ActionArgKind::FractionDelta},
-        {"window-move-down", "", "Move the focused window down in its column", KeybindAction::WindowMoveDown},
+        {"window-move-by", "<delta-x>/<delta-y>[/<window-id>]", "Move the floating window by logical pixels",
+         KeybindAction::WindowMoveBy, ActionArgKind::WindowMoveBy},
+        {"window-move-down", "", "Move down in its column, or a float to the bottom edge",
+         KeybindAction::WindowMoveDown},
+        {"window-move-left", "", "Move the focused window left, or a float to the left edge",
+         KeybindAction::WindowMoveLeft},
         {"window-move-or-output-down", "", "Move down, or the column to the output below",
          KeybindAction::WindowMoveOrOutputDown},
         {"window-move-or-output-left", "", "Move the column left, or to the output left",
@@ -323,6 +472,10 @@ namespace andromeda {
          KeybindAction::WindowMoveOrWorkspaceDown},
         {"window-move-or-workspace-up", "", "Move up, or to the previous workspace at the edge",
          KeybindAction::WindowMoveOrWorkspaceUp},
+        {"window-move-right", "", "Move the focused window right, or a float to the right edge",
+         KeybindAction::WindowMoveRight},
+        {"window-move-to", "<anchor>/<x>/<y>[/<window-id>]", "Move the floating window to an anchored position",
+         KeybindAction::WindowMoveTo, ActionArgKind::WindowMoveTo},
         {"window-move-to-output-down", "", "Move the focused window to the output below",
          KeybindAction::WindowMoveToOutputDown},
         {"window-move-to-output-left", "", "Move the focused window to the output left",
@@ -350,16 +503,25 @@ namespace andromeda {
          KeybindAction::WindowMoveToWorkspaceSilentNext},
         {"window-move-to-workspace-silent-previous", "", "Move the focused window to the previous workspace silently",
          KeybindAction::WindowMoveToWorkspaceSilentPrevious},
-        {"window-move-up", "", "Move the focused window up in its column", KeybindAction::WindowMoveUp},
+        {"window-move-up", "", "Move up in its column, or a float to the top edge", KeybindAction::WindowMoveUp},
         {"window-restore-from-scratchpad", "[<scratchpad>]", "Return a scratchpad window to its saved workspace",
          KeybindAction::WindowRestoreFromScratchpad, ActionArgKind::OptionalScratchpad},
+        {"window-restore-minimized", "", "Restore the latest minimized window on this workspace",
+         KeybindAction::WindowRestoreMinimized},
         {"window-set-primary-extent", "<fraction>", "Set the focused area's primary extent fraction",
          KeybindAction::WindowSetPrimaryExtent, ActionArgKind::Fraction},
         {"window-set-secondary-extent", "<fraction>", "Set the focused area's secondary extent fraction",
          KeybindAction::WindowSetSecondaryExtent, ActionArgKind::Fraction},
+        {"window-snap", "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right>",
+         "Snap the floating window, or restore it when already there", KeybindAction::WindowSnap,
+         ActionArgKind::SnapRegion},
+        {"window-swap-down", "", "Swap with the window below", KeybindAction::WindowSwapDown},
+        {"window-swap-left", "", "Swap with the window to the left", KeybindAction::WindowSwapLeft},
         {"window-swap-next", "", "Swap with the next window in layout order", KeybindAction::WindowSwapNext},
         {"window-swap-previous", "", "Swap with the previous window in layout order",
          KeybindAction::WindowSwapPrevious},
+        {"window-swap-right", "", "Swap with the window to the right", KeybindAction::WindowSwapRight},
+        {"window-swap-up", "", "Swap with the window above", KeybindAction::WindowSwapUp},
         {"window-toggle-floating", "[<window-id>]", "Float or tile the focused window, or the given window",
          KeybindAction::ToggleFloating, ActionArgKind::OptionalWindowId},
         {"window-toggle-fullscreen", "", "Toggle fullscreen or exit a window covering the focus",
@@ -370,6 +532,7 @@ namespace andromeda {
         {"window-toggle-pinned", "", "Pin the focused window above other windows", KeybindAction::TogglePinned},
         {"window-toggle-scratchpad", "[<scratchpad>]", "Move the focused window to or from a scratchpad",
          KeybindAction::WindowToggleScratchpad, ActionArgKind::OptionalScratchpad},
+        {"window-unsnap", "", "Restore the floating window's size before snapping", KeybindAction::WindowUnsnap},
         {"workspace-focus-last", "", "Focus the previously active workspace", KeybindAction::WorkspaceFocusLast},
         {"workspace-move-down", "", "Move the focused workspace down the list", KeybindAction::WorkspaceMoveDown},
         {"workspace-move-to-output-down", "", "Move every workspace window to the output below",
@@ -383,8 +546,8 @@ namespace andromeda {
         {"workspace-move-up", "", "Move the focused workspace up the list", KeybindAction::WorkspaceMoveUp},
         {"workspace-next", "", "Switch to the next workspace on this output", KeybindAction::WorkspaceNext},
         {"workspace-previous", "", "Switch to the previous workspace on this output", KeybindAction::WorkspacePrevious},
-        {"workspace-set-layout", "<scrolling|dwindle|master|toggle>", "Set the active workspace's layout mode",
-         KeybindAction::WorkspaceSetLayout, ActionArgKind::LayoutMode},
+        {"workspace-set-layout", "<scrolling|dwindle|master|floating|toggle[:mode1,mode2,...]>",
+         "Set the active workspace's layout mode", KeybindAction::WorkspaceSetLayout, ActionArgKind::LayoutMode},
         {"workspace-swap-active-output-down", "", "Swap active workspace windows with the output below",
          KeybindAction::WorkspaceSwapActiveOutputDown},
         {"workspace-swap-active-output-left", "", "Swap active workspace windows with the output left",
@@ -399,6 +562,8 @@ namespace andromeda {
          KeybindAction::WorkspaceSwapActiveOutputUp},
         {"workspace-switch", "<workspace>[/<output>]", "Switch to the selected workspace",
          KeybindAction::WorkspaceSwitch, ActionArgKind::Workspace},
+        {"workspace-toggle-show-desktop", "", "Minimize or restore the workspace's floating windows",
+         KeybindAction::WorkspaceToggleShowDesktop},
         {"zoom-in", "", "Magnify the screen around the pointer", KeybindAction::ZoomIn},
         {"zoom-out", "", "Magnify the screen less, down to off", KeybindAction::ZoomOut},
         {"zoom-reset", "", "Turn the screen magnifier off", KeybindAction::ZoomReset},
@@ -442,6 +607,17 @@ namespace andromeda {
       return "MouseForward";
     default:
       return nullptr;
+    }
+  }
+
+  uint32_t canonicalMouseButton(uint32_t button) {
+    switch (button) {
+    case BTN_BACK:
+      return BTN_SIDE;
+    case BTN_FORWARD:
+      return BTN_EXTRA;
+    default:
+      return button;
     }
   }
 
@@ -530,7 +706,7 @@ namespace andromeda {
             || fractionPtr != arg.data() + arg.size()
             || !std::isfinite(fraction)
             || fraction < 0.1
-            || fraction > 1.0) {
+            || fraction > kMaxWideFraction) {
           break;
         }
         output.action = spec.action;
@@ -568,6 +744,38 @@ namespace andromeda {
         }
         output.action = spec.action;
         output.payload = std::move(workspace);
+        return true;
+      }
+      case ActionArgKind::WindowEffectSet:
+      case ActionArgKind::WindowEffectCycle:
+      case ActionArgKind::ScreenEffectSet:
+      case ActionArgKind::ScreenEffectCycle:
+      case ActionArgKind::CursorEffectSet:
+      case ActionArgKind::CursorEffectCycle: {
+        const bool cycle = spec.argKind == ActionArgKind::WindowEffectCycle
+            || spec.argKind == ActionArgKind::ScreenEffectCycle
+            || spec.argKind == ActionArgKind::CursorEffectCycle;
+        const bool cursor =
+            spec.argKind == ActionArgKind::CursorEffectSet || spec.argKind == ActionArgKind::CursorEffectCycle;
+        if (!(cycle && value == spec.name) && !takeActionArg(value, spec, arg)) {
+          break;
+        }
+        const size_t slash = arg.find('/');
+        const std::string_view name = arg.substr(0, slash);
+        const std::string_view target = slash == std::string_view::npos ? std::string_view{} : arg.substr(slash + 1);
+        if ((!cycle && name.empty())
+            || (cycle && name == kEffectOff)
+            || (slash != std::string_view::npos && (cursor || target.empty()))) {
+          break;
+        }
+        output.action = spec.action;
+        if (cursor) {
+          output.payload = EffectCursorArg{.name = std::string(name)};
+        } else if (spec.argKind == ActionArgKind::ScreenEffectSet || spec.argKind == ActionArgKind::ScreenEffectCycle) {
+          output.payload = EffectScreenArg{.name = std::string(name), .output = std::string(target)};
+        } else {
+          output.payload = EffectWindowArg{.name = std::string(name), .id = std::string(target)};
+        }
         return true;
       }
       case ActionArgKind::Output:
@@ -620,6 +828,35 @@ namespace andromeda {
           return true;
         }
         break;
+      case ActionArgKind::SnapRegion:
+        if (takeActionArg(value, spec, arg)) {
+          if (const auto region = snapRegionNamed(arg)) {
+            output.action = spec.action;
+            output.payload = SnapRegionArg{.region = *region};
+            return true;
+          }
+        }
+        break;
+      case ActionArgKind::ColumnDisplay:
+        if (takeActionArg(value, spec, arg) && (arg == "normal" || arg == "tabbed")) {
+          output.action = spec.action;
+          output.payload = ColumnDisplayArg{.display = arg == "tabbed" ? ColumnDisplay::Tabbed : ColumnDisplay::Normal};
+          return true;
+        }
+        break;
+      case ActionArgKind::TabIndex: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        int index = 0;
+        const auto [indexPtr, indexError] = std::from_chars(arg.data(), arg.data() + arg.size(), index);
+        if (indexError != std::errc{} || indexPtr != arg.data() + arg.size() || index == 0) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = TabIndexArg{.index = index};
+        return true;
+      }
       case ActionArgKind::SkipConfirmation:
         if (value == spec.name) {
           output.action = spec.action;
@@ -632,33 +869,135 @@ namespace andromeda {
           return true;
         }
         break;
-      case ActionArgKind::LayoutMode:
-        if (takeActionArg(value, spec, arg)) {
-          if (arg == "scrolling") {
-            output.action = spec.action;
-            output.payload = LayoutModeArg{.mode = LayoutMode::Scrolling};
-            return true;
-          }
-          if (arg == "dwindle") {
-            output.action = spec.action;
-            output.payload = LayoutModeArg{.mode = LayoutMode::Dwindle};
-            return true;
-          }
-          if (arg == "master") {
-            output.action = spec.action;
-            output.payload = LayoutModeArg{.mode = LayoutMode::Master};
-            return true;
-          }
-          if (arg == "toggle") {
-            output.action = spec.action;
-            output.payload = LayoutModeArg{};
-            return true;
-          }
+      case ActionArgKind::SdrWhite: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
         }
-        break;
+        // Split at the first '/', so an output name may itself contain one, as effect targets do.
+        const size_t slash = arg.find('/');
+        const std::string_view nitsText = arg.substr(0, slash);
+        const std::string_view target = slash == std::string_view::npos ? std::string_view{} : arg.substr(slash + 1);
+        double nits = 0.0;
+        const auto [nitsPtr, nitsError] = std::from_chars(nitsText.data(), nitsText.data() + nitsText.size(), nits);
+        // The same span the config's `output.<name>.sdr_white` accepts.
+        if (nitsError != std::errc{}
+            || nitsPtr != nitsText.data() + nitsText.size()
+            || !std::isfinite(nits)
+            || nits < 80.0
+            || nits > 1000.0
+            || (slash != std::string_view::npos && target.empty())) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = SdrWhiteArg{.nits = nits, .output = std::string(target)};
+        return true;
+      }
+      case ActionArgKind::LayoutMode: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        if (const auto mode = layoutModeNamed(arg)) {
+          output.action = spec.action;
+          output.payload = LayoutModeArg{.mode = mode, .toggleSequence = {}};
+          return true;
+        }
+        if (arg == "toggle") {
+          output.action = spec.action;
+          output.payload = LayoutModeArg{};
+          return true;
+        }
+        constexpr std::string_view kTogglePrefix = "toggle:";
+        if (!arg.starts_with(kTogglePrefix)) {
+          break;
+        }
+        std::vector<LayoutMode> sequence;
+        for (const auto token : arg.substr(kTogglePrefix.size()) | std::views::split(',')) {
+          const auto mode = layoutModeNamed(std::string_view(token.begin(), token.end()));
+          if (!mode || std::ranges::contains(sequence, *mode)) {
+            return false;
+          }
+          sequence.push_back(*mode);
+        }
+        if (sequence.size() < 2) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = LayoutModeArg{.mode = std::nullopt, .toggleSequence = std::move(sequence)};
+        return true;
+      }
+      case ActionArgKind::WindowMoveTo: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        WindowMoveToArg payload;
+        if (!parseWindowMoveToArg(arg, payload)) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = std::move(payload);
+        return true;
+      }
+      case ActionArgKind::WindowMoveBy: {
+        if (!takeActionArg(value, spec, arg)) {
+          break;
+        }
+        WindowMoveByArg payload;
+        if (!parseWindowMoveByArg(arg, payload)) {
+          break;
+        }
+        output.action = spec.action;
+        output.payload = std::move(payload);
+        return true;
+      }
       }
     }
     return false;
+  }
+
+  std::optional<EffectActionReference> effectActionReference(const Keybind& bind) {
+    std::string_view name;
+    EffectKind kind = EffectKind::Window;
+    bool poolRequired = false;
+    switch (bind.action) {
+    case KeybindAction::EffectWindowSet:
+    case KeybindAction::EffectWindowCycle:
+      if (const auto* arg = payloadIf<EffectWindowArg>(bind)) {
+        name = arg->name;
+      }
+      kind = EffectKind::Window;
+      poolRequired = bind.action == KeybindAction::EffectWindowCycle;
+      break;
+    case KeybindAction::EffectBorderSet:
+    case KeybindAction::EffectBorderCycle:
+      if (const auto* arg = payloadIf<EffectWindowArg>(bind)) {
+        name = arg->name;
+      }
+      kind = EffectKind::Border;
+      poolRequired = bind.action == KeybindAction::EffectBorderCycle;
+      break;
+    case KeybindAction::EffectScreenSet:
+    case KeybindAction::EffectScreenCycle:
+      if (const auto* arg = payloadIf<EffectScreenArg>(bind)) {
+        name = arg->name;
+      }
+      kind = EffectKind::Screen;
+      poolRequired = bind.action == KeybindAction::EffectScreenCycle;
+      break;
+    case KeybindAction::EffectCursorSet:
+    case KeybindAction::EffectCursorCycle:
+      if (const auto* arg = payloadIf<EffectCursorArg>(bind)) {
+        name = arg->name;
+      }
+      kind = EffectKind::Cursor;
+      poolRequired = bind.action == KeybindAction::EffectCursorCycle;
+      break;
+    default:
+      return std::nullopt;
+    }
+    if (name.empty() || name == kEffectOff) {
+      return std::nullopt;
+    }
+    return EffectActionReference{.name = name, .kind = kind, .poolRequired = poolRequired};
   }
 
   std::vector<Keybind> defaultKeybinds() {
@@ -698,6 +1037,8 @@ namespace andromeda {
 
     add(KeybindAction::WindowConsumeLeft, XKB_KEY_comma);
     add(KeybindAction::WindowConsumeRight, XKB_KEY_period);
+    add(KeybindAction::WindowConsumeFromLeft, XKB_KEY_comma, WLR_MODIFIER_CTRL);
+    add(KeybindAction::WindowConsumeFromRight, XKB_KEY_period, WLR_MODIFIER_CTRL);
     add(KeybindAction::WindowCyclePrimaryExtent, XKB_KEY_r);
     add(KeybindAction::WindowCyclePrimaryExtentBack, XKB_KEY_r, WLR_MODIFIER_SHIFT);
     add(KeybindAction::ToggleFullscreen, XKB_KEY_f);
@@ -705,6 +1046,7 @@ namespace andromeda {
     add(KeybindAction::ToggleMaximizeToEdges, XKB_KEY_m);
     add(KeybindAction::ToggleFloating, XKB_KEY_t);
     add(KeybindAction::TogglePinned, XKB_KEY_p);
+    add(KeybindAction::ColumnToggleTabbed, XKB_KEY_w);
     // Holding the overview key would thrash open/close.
     add(KeybindAction::OverviewToggle, XKB_KEY_o).repeat = false;
     add(KeybindAction::ZoomIn, XKB_KEY_equal, WLR_MODIFIER_ALT);
@@ -888,8 +1230,24 @@ namespace andromeda {
           return withArg("dwindle");
         case LayoutMode::Master:
           return withArg("master");
+        case LayoutMode::Floating:
+          return withArg("floating");
         }
       }
+      return {};
+    // Not editable from a settings app yet: such binds are left out of what it is sent.
+    case ActionArgKind::SnapRegion:
+    case ActionArgKind::ColumnDisplay:
+    case ActionArgKind::TabIndex:
+    case ActionArgKind::WindowEffectSet:
+    case ActionArgKind::WindowEffectCycle:
+    case ActionArgKind::ScreenEffectSet:
+    case ActionArgKind::ScreenEffectCycle:
+    case ActionArgKind::CursorEffectSet:
+    case ActionArgKind::CursorEffectCycle:
+    case ActionArgKind::SdrWhite:
+    case ActionArgKind::WindowMoveTo:
+    case ActionArgKind::WindowMoveBy:
       return {};
     }
     return {};

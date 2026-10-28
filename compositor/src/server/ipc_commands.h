@@ -1,6 +1,12 @@
 #pragma once
+
+#include "config/value_parse.h"
+#include "scene/effect_audio.h"
+
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace andromeda {
@@ -9,16 +15,23 @@ namespace andromeda {
 
   struct IpcCommands {
     static nlohmann::json keyboardLayouts(Server& server, std::string_view arg);
+    static nlohmann::json inputCapturePermissions(Server& server, std::string_view arg);
+    static nlohmann::json inputCaptureRevoke(Server& server, std::string_view arg);
+    [[nodiscard]] static std::optional<EffectAudio> parseAudioSpectrum(const nlohmann::json& request);
+    static nlohmann::json effects(Server& server, std::string_view arg);
     static nlohmann::json windows(Server& server, std::string_view arg);
+    static nlohmann::json focusedWindow(Server& server, std::string_view arg);
     static nlohmann::json workspaces(Server& server, std::string_view arg);
     static nlohmann::json submap(Server& server, std::string_view arg);
     static nlohmann::json layers(Server& server, std::string_view arg);
+    static nlohmann::json outputs(Server& server, std::string_view arg);
     static nlohmann::json color(Server& server, std::string_view arg);
     static nlohmann::json zoom(Server& server, std::string_view arg);
     static nlohmann::json tearing(Server& server, std::string_view arg);
     static nlohmann::json msg(Server& server, std::string_view arg);
     static nlohmann::json outputCreate(Server& server, std::string_view arg);
     static nlohmann::json outputDestroy(Server& server, std::string_view arg);
+    static nlohmann::json configReplace(Server& server, std::string_view arg);
     // The reply to a settle request. The IPC server holds the request until the compositor is settled.
     static nlohmann::json settle(Server& server, std::string_view arg);
     static nlohmann::json clockFreeze(Server& server, std::string_view arg);
@@ -28,7 +41,12 @@ namespace andromeda {
 #ifdef ANDROMEDA_TEST_IPC
     static nlohmann::json rendererRecover(Server& server, std::string_view arg);
     static nlohmann::json outputCommits(Server& server, std::string_view arg);
+    static nlohmann::json swipeForTest(Server& server, std::string_view arg);
+    static nlohmann::json animationCaptureFail(Server& server, std::string_view arg);
+    static nlohmann::json blurCompositeSplit(Server& server, std::string_view arg);
+    static nlohmann::json planeCursor(Server& server, std::string_view arg);
     static nlohmann::json effectFrames(Server& server, std::string_view arg);
+    static nlohmann::json cursorState(Server& server, std::string_view arg);
 #endif
   };
 
@@ -53,5 +71,10 @@ namespace andromeda {
 
   std::span<const IpcCommandSpec> ipcCommands();
   const IpcCommandSpec* findIpcCommand(std::string_view name);
+
+  // Splits an output-create argument into the output name and its optional mode, in the config `mode` format
+  // ("WIDTHxHEIGHT[@HZ]"). Returns false with `error` set on anything else.
+  bool
+  parseOutputCreateArg(std::string_view arg, std::string& name, std::optional<OutputMode>& mode, std::string& error);
 
 } // namespace andromeda

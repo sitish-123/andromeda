@@ -47,8 +47,11 @@ add_project_arguments(
 )
 
 # Version floors here are the union of the compositor's needs and andromedafx's.
-wayland_server_dep = dependency('wayland-server', version: '>=1.24')
-wayland_client_dep = dependency('wayland-client')
+# Some distros install the wayland headers under a subdirectory added with `-I`, which makes
+# GCC report `-Winvalid-offsetof` from every `wl_container_of` expansion. Treat them as
+# system headers so the warning stays suppressed regardless of the install layout.
+wayland_server_dep = dependency('wayland-server', version: '>=1.24', include_type: 'system')
+wayland_client_dep = dependency('wayland-client', include_type: 'system')
 wayland_protocols_dep = dependency('wayland-protocols', version: '>=1.47')
 # andromedafx compiles against wlroots' private struct layouts, so it is pinned to
 # one minor series rather than tracking whatever is installed. The floor is
@@ -83,8 +86,15 @@ wlr_has_drm_backend = cpp.get_define(
   prefix: '#include <wlr/config.h>',
   dependencies: wlroots_dep,
 ) == '1'
+add_project_arguments(
+  '-DANDROMEDA_HAS_DRM_BACKEND=' + wlr_has_drm_backend.to_int().to_string(),
+  language: 'cpp',
+)
 if cpp.get_define('WLR_HAS_LIBINPUT_BACKEND', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
   error('Andromeda requires wlroots built with the libinput backend')
+endif
+if cpp.get_define('WLR_HAS_XWAYLAND', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
+  error('Andromeda requires wlroots built with Xwayland support')
 endif
 
 # jemalloc keeps a long-running compositor's heap compact: fewer arenas and fast page decay bound RSS. It interposes malloc only on glibc, so other libc builds
@@ -106,15 +116,23 @@ if is_glibc
   endif
 endif
 
-xkbcommon_dep = dependency('xkbcommon')
-libinput_dep = dependency('libinput', version: '>=1.23')
+xkbcommon_dep = dependency('xkbcommon', version: '>=1.10.0')
+libinput_dep = dependency('libinput', version: '>=1.29')
+libeis_dep = dependency('libeis-1.0', version: '>=1.3')
 pixman_dep = dependency('pixman-1', version: '>=0.43.0')
 tomlplusplus_dep = dependency('tomlplusplus')
 nlohmann_json_dep = dependency('nlohmann_json')
 cairo_dep = dependency('cairo')
 pangocairo_dep = dependency('pangocairo')
 libdrm_dep = dependency('libdrm', version: '>=2.4.129')
+libdisplay_info_dep = dependency('libdisplay-info', version: '>=0.3.0')
 libudev_dep = dependency('libudev', required: false)
+# sd-bus reads the systemd-localed keymap a keyboard without XKB config uses.
+libsystemd_dep = dependency('libsystemd', version: '>=243', required: get_option('localed'))
+xcb_dep = dependency('xcb')
+xcb_icccm_dep = dependency('xcb-icccm')
+xcb_ewmh_dep = dependency('xcb-ewmh')
+xcb_shape_dep = dependency('xcb-shape')
 native_drm_policy_supported = wlr_has_drm_backend and libudev_dep.found()
 native_drm_policy_deps = []
 if native_drm_policy_supported
@@ -122,10 +140,30 @@ if native_drm_policy_supported
 endif
 add_project_arguments(
   '-DANDROMEDA_HAS_NATIVE_DRM_POLICY=' + native_drm_policy_supported.to_int().to_string(),
+  '-DANDROMEDA_HAS_SD_BUS=' + libsystemd_dep.found().to_int().to_string(),
   language: 'cpp',
 )
 
 wayland_scanner = find_program('wayland-scanner')
+
+input_capture_server_h = custom_target(
+  'andromeda-input-capture-v1-server-protocol.h',
+  input: 'protocols/andromeda-input-capture-v1.xml',
+  output: 'andromeda-input-capture-v1-server-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+input_capture_client_h = custom_target(
+  'andromeda-input-capture-v1-client-protocol.h',
+  input: 'protocols/andromeda-input-capture-v1.xml',
+  output: 'andromeda-input-capture-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+input_capture_protocol_c = custom_target(
+  'andromeda-input-capture-v1-protocol.c',
+  input: 'protocols/andromeda-input-capture-v1.xml',
+  output: 'andromeda-input-capture-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
 
 # andromedafx's vendored layer-shell scene helper needs this server header, so it
 # is generated before the subdir that consumes it.
@@ -244,6 +282,26 @@ xdg_shell_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+toplevel_drag_xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-toplevel-drag/xdg-toplevel-drag-v1.xml'
+toplevel_drag_server_h = custom_target(
+  'xdg-toplevel-drag-v1-server-protocol.h',
+  input: toplevel_drag_xml,
+  output: 'xdg-toplevel-drag-v1-server-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+toplevel_drag_client_h = custom_target(
+  'xdg-toplevel-drag-v1-client-protocol.h',
+  input: toplevel_drag_xml,
+  output: 'xdg-toplevel-drag-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+toplevel_drag_c = custom_target(
+  'xdg-toplevel-drag-v1-protocol.c',
+  input: toplevel_drag_xml,
+  output: 'xdg-toplevel-drag-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 text_input_client_h = custom_target(
   'text-input-unstable-v3-client-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/text-input/text-input-unstable-v3.xml',
@@ -254,6 +312,19 @@ text_input_client_c = custom_target(
   'text-input-unstable-v3-client-protocol.c',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/text-input/text-input-unstable-v3.xml',
   output: 'text-input-unstable-v3-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+legacy_decoration_client_h = custom_target(
+  'server-decoration-client-protocol.h',
+  input: 'protocols/server-decoration.xml',
+  output: 'server-decoration-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+legacy_decoration_client_c = custom_target(
+  'server-decoration-client-protocol.c',
+  input: 'protocols/server-decoration.xml',
+  output: 'server-decoration-client-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
@@ -293,6 +364,19 @@ xdg_toplevel_tag_client_c = custom_target(
   'xdg-toplevel-tag-v1-client-protocol.c',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-toplevel-tag/xdg-toplevel-tag-v1.xml',
   output: 'xdg-toplevel-tag-v1-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+xdg_dialog_client_h = custom_target(
+  'xdg-dialog-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-dialog/xdg-dialog-v1.xml',
+  output: 'xdg-dialog-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+xdg_dialog_client_c = custom_target(
+  'xdg-dialog-v1-client-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-dialog/xdg-dialog-v1.xml',
+  output: 'xdg-dialog-v1-client-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
@@ -350,7 +434,7 @@ tearing_control_client_c = custom_target(
 
 # Staging protocols the compositor serves itself, since wlroots has no helper for them yet.
 staging_server_sources = []
-foreach name : ['fifo', 'commit-timing', 'xdg-toplevel-drag']
+foreach name : ['fifo', 'commit-timing']
   xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging' / name / name + '-v1.xml'
   staging_server_sources += custom_target(
     name + '-v1-protocol.h',
@@ -365,13 +449,6 @@ foreach name : ['fifo', 'commit-timing', 'xdg-toplevel-drag']
     command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
   )
 endforeach
-# xdg-toplevel-drag refers to xdg_toplevel_interface, which wlroots does not export.
-staging_server_sources += custom_target(
-  'xdg-shell-protocol.c',
-  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/xdg-shell/xdg-shell.xml',
-  output: 'xdg-shell-protocol.c',
-  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
-)
 
 desktop_client_h = custom_target(
   'desktop-unstable-v1-client-protocol.h',
@@ -405,6 +482,18 @@ color_management_server_c = custom_target(
   output: 'color-management-v1-server-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
+xdg_output_server_h = custom_target(
+  'xdg-output-unstable-v1-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/xdg-output/xdg-output-unstable-v1.xml',
+  output: 'xdg-output-unstable-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+xdg_output_server_c = custom_target(
+  'xdg-output-unstable-v1-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/xdg-output/xdg-output-unstable-v1.xml',
+  output: 'xdg-output-unstable-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
 
 viewporter_client_h = custom_target(
   'viewporter-client-protocol.h',
@@ -432,6 +521,73 @@ fractional_scale_client_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+linux_dmabuf_client_h = custom_target(
+  'linux-dmabuf-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
+  output: 'linux-dmabuf-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+linux_dmabuf_client_c = custom_target(
+  'linux-dmabuf-v1-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
+  output: 'linux-dmabuf-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+linux_drm_syncobj_client_h = custom_target(
+  'linux-drm-syncobj-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml',
+  output: 'linux-drm-syncobj-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+linux_drm_syncobj_client_c = custom_target(
+  'linux-drm-syncobj-v1-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml',
+  output: 'linux-drm-syncobj-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+ext_image_capture_source_client_h = custom_target(
+  'ext-image-capture-source-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml',
+  output: 'ext-image-capture-source-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+
+ext_image_capture_source_client_c = custom_target(
+  'ext-image-capture-source-v1-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml',
+  output: 'ext-image-capture-source-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+ext_image_copy_capture_client_h = custom_target(
+  'ext-image-copy-capture-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
+  output: 'ext-image-copy-capture-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+
+ext_image_copy_capture_client_c = custom_target(
+  'ext-image-copy-capture-v1-client-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
+  output: 'ext-image-copy-capture-v1-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+ext_foreign_toplevel_list_client_h = custom_target(
+  'ext-foreign-toplevel-list-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
+  output: 'ext-foreign-toplevel-list-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+ext_foreign_toplevel_list_client_c = custom_target(
+  'ext-foreign-toplevel-list-v1-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
+  output: 'ext-foreign-toplevel-list-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 idle_inhibit_client_h = custom_target(
   'idle-inhibit-unstable-v1-client-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml',
@@ -444,6 +600,23 @@ idle_inhibit_client_c = custom_target(
   output: 'idle-inhibit-unstable-v1-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
+constraint_client_protocols = []
+foreach protocol : ['pointer-constraints', 'relative-pointer']
+  protocol_xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable' / protocol / (protocol + '-unstable-v1.xml')
+  constraint_client_protocols += custom_target(
+    protocol + '-unstable-v1-client-protocol.h',
+    input: protocol_xml,
+    output: protocol + '-unstable-v1-client-protocol.h',
+    command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  )
+  constraint_client_protocols += custom_target(
+    protocol + '-unstable-v1-protocol.c',
+    input: protocol_xml,
+    output: protocol + '-unstable-v1-protocol.c',
+    command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  )
+endforeach
+
 keyboard_shortcuts_inhibit_client_h = custom_target(
   'keyboard-shortcuts-inhibit-unstable-v1-client-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml',
@@ -588,26 +761,39 @@ pure_sources = files(
   'src/input/modifier_tap.cpp',
   'src/input/swipe_tracker.cpp',
   'src/input/keyboard_layout.cpp',
+  'src/input/keyboard_leds.cpp',
+  'src/input/keyboard_state.cpp',
+  'src/input/input_capture_geometry.cpp',
   'src/input/surface_layouts.cpp',
+  'src/input/shortcuts_inhibit.cpp',
   'src/input/shortcut_keysym.cpp',
+  'src/input/xcursor_matcher.cpp',
   'src/layout/layout.cpp',
+  'src/scene/ssd_frame_geometry.cpp',
   'src/layout/layout_motion.cpp',
   'src/layout/scrolling.cpp',
   'src/layout/dwindle.cpp',
   'src/layout/master.cpp',
+  'src/layout/floating.cpp',
   'src/output/direction.cpp',
   'src/output/display_store.cpp',
   'src/output/identity.cpp',
   'src/output/enable_overrides.cpp',
   'src/output/format_sequence.cpp',
+  'src/output/gamma_transition.cpp',
   'src/output/mode_selection.cpp',
+  'src/output/cursor_plane_pace.cpp',
+  'src/server/allocator_policy.cpp',
   'src/server/drm_policy.cpp',
   'src/scene/cheatsheet_rows.cpp',
+  'src/scene/effect_selection.cpp',
   'src/overview/shortcut_labels.cpp',
   'src/view/border_ring.cpp',
   'src/view/effects_rules.cpp',
   'src/view/floating.cpp',
+  'src/view/snap.cpp',
   'src/view/drag_physics.cpp',
+  'src/xwayland/xsettings.cpp',
 )
 
 andromeda_pure_deps = [
@@ -657,24 +843,32 @@ core_sources = files(
   'src/config/config_watcher.cpp',
   'src/config/schema.cpp',
   'src/layout/drop_target.cpp',
-  'src/server/wine_color_manager.cpp',
+  'src/server/color_manager.cpp',
+  'src/server/color_description.cpp',
   'src/server/backend_manager.cpp',
   'src/server/desktop_settings_manager.cpp',
   'src/server/desktop_output_manager.cpp',
   'src/server/desktop_shell.cpp',
   'src/server/fifo.cpp',
   'src/server/commit_timing.cpp',
-  'src/server/toplevel_drag.cpp',
+  'src/server/allocator.cpp',
   'src/server/server.cpp',
   'src/server/server_events.cpp',
   'src/server/server_keybinds.cpp',
   'src/server/server_outputs.cpp',
+  'src/server/syncobj_acquire_barrier.cpp',
+  'src/server/syncobj_superseded_release.cpp',
+  'src/server/syncobj_unmap_release.cpp',
   'src/server/actions.cpp',
   'src/output/mirror.cpp',
   'src/output/zoom.cpp',
+  'src/server/effects.cpp',
   'src/output/output.cpp',
+  'src/output/hdr_metadata.cpp',
   'src/input/seat.cpp',
+  'src/input/toplevel_drag.cpp',
   'src/input/keyboard.cpp',
+  'src/input/system_keymap.cpp',
   'src/input/text_input.cpp',
   'src/input/cursor.cpp',
   'src/input/gestures.cpp',
@@ -683,16 +877,33 @@ core_sources = files(
   'src/view/decoration.cpp',
   'src/view/effects.cpp',
   'src/view/presentation.cpp',
-  'src/view/resize_crossfade.cpp',
   'src/view/registry.cpp',
   'src/server/focus.cpp',
-  'src/xwayland/supervisor.cpp',
+  'src/xwayland/xwayland.cpp',
+  'src/xwayland/shape.cpp',
+  'src/input/eis.cpp',
+  'src/input/input_capture.cpp',
+  'src/input/input_capture_permissions.cpp',
+  'src/input/eis_socket.cpp',
+  'src/xwayland/window.cpp',
+  'src/xwayland/unmanaged.cpp',
+  'src/xwayland/outputs.cpp',
   'src/core/process.cpp',
   'src/core/process_syscall.cpp',
   'src/view/view_foreign.cpp',
+  'src/view/view_role.cpp',
+  'src/view/view_animation.cpp',
+  'src/view/view_attachment.cpp',
+  'src/view/view_chrome.cpp',
+  'src/view/view_floating.cpp',
+  'src/view/view_snap.cpp',
+  'src/view/view_lifecycle.cpp',
+  'src/view/view_rules.cpp',
+  'src/view/view_state.cpp',
   'src/view/popup.cpp',
   'src/layer/layer_surface.cpp',
   'src/scene/surface_blur.cpp',
+  'src/scene/surface_shape.cpp',
   'src/scene/hint_rect.cpp',
   'src/scene/border_rect.cpp',
   'src/scene/surface_shadow.cpp',
@@ -701,17 +912,22 @@ core_sources = files(
   'src/scene/quit_confirm.cpp',
   'src/scene/cheatsheet.cpp',
   'src/scene/text_buffer.cpp',
+  'src/scene/tab_bar.cpp',
+  'src/scene/ssd_frame.cpp',
+  'src/scene/tab_bar_style.cpp',
+  'src/scene/tab_label_cache.cpp',
   'src/lock/session_lock.cpp',
   'src/overview/overview.cpp',
   'src/workspace/workspace.cpp',
+  'src/workspace/tab_presenter.cpp',
   'src/workspace/scratchpad.cpp',
-  'src/cli/outputs.cpp',
   'src/cli/ipc_client.cpp',
   'src/server/ipc.cpp',
   'src/server/ipc_commands.cpp',
 )
 
 andromeda_core_deps = [
+  libeis_dep,
   andromedafx_dep,
   wlroots_dep,
   wayland_server_dep,
@@ -724,20 +940,31 @@ andromeda_core_deps = [
   cairo_dep,
   pangocairo_dep,
   libdrm_dep,
+  libdisplay_info_dep,
   native_drm_policy_deps,
+  libsystemd_dep,
   nlohmann_json_dep,
   layer_shell_protocol_dep,
+  xcb_dep,
+  xcb_icccm_dep,
+  xcb_ewmh_dep,
+  xcb_shape_dep,
 ]
 
 andromeda_core = static_library(
   'andromeda-core',
   core_sources + [
-    output_mgmt_client_h,
-    output_mgmt_client_c,
+    input_capture_server_h,
+    input_capture_protocol_c,
+    toplevel_drag_server_h,
+    toplevel_drag_c,
+    xdg_shell_client_c,
     color_management_server_h,
     color_management_server_c,
     desktop_server_h,
     desktop_server_c,
+    xdg_output_server_h,
+    xdg_output_server_c,
   ] + staging_server_sources,
   include_directories: include_directories('src'),
   link_with: andromeda_pure,
@@ -766,6 +993,7 @@ andromeda = executable(
 
 # Unit tests and the harness clients check.sh drives.
 if build_tests
+  xcb_render_dep = dependency('xcb-render')
   subdir('tests')
   alias_target('unit-tests', unit_test_targets)
   alias_target('harness-clients', harness_client_targets)
@@ -823,7 +1051,7 @@ install_data(
 # Bundled effect presets: each directory holds the preset's shader and an
 # effect.toml that defines it without selecting it. Users include the TOML and
 # select the name.
-foreach effect : ['animation/reveal', 'animation/squash', 'border/pulse', 'window/scanlines', 'screen/vignette', 'cursor/glow']
+foreach effect : ['animation/reveal', 'animation/squash', 'animation/workspace_wipe', 'border/pulse', 'border/audio', 'window/scanlines', 'screen/vignette', 'cursor/glow', 'cursor/trail', 'cursor/trail-path']
   install_data(
     'examples/effects' / effect / 'shader.glsl',
     'examples/effects' / effect / 'effect.toml',

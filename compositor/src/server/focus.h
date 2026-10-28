@@ -1,6 +1,9 @@
 #pragma once
 
+#include "scene/ssd_frame_geometry.h"
+
 #include <cstdint>
+#include <optional>
 
 struct wlr_surface;
 
@@ -10,6 +13,13 @@ namespace andromeda {
   class Output;
   class Server;
   class View;
+  class Workspace;
+
+  struct SsdFrameHit {
+    View* view = nullptr;
+    SsdFramePart part = SsdFramePart::None;
+    uint32_t edges = 0;
+  };
 
   // Why focus is moving. The reason decides whether the layout scrolls to reveal the newly focused window, which is not
   // something the focus mechanism can infer: an interactive grab must not scroll (the tile is about to move and a
@@ -38,6 +48,7 @@ namespace andromeda {
     explicit FocusManager(Server& server) : m_server(server) {}
 
     void focusView(View* view, FocusReason reason = FocusReason::Startup);
+    void xwaylandHintsChanged(View* view);
 
     // A data-device drag suppresses seat keyboard enters while its grab is
     // active. Replay the view whose activation chrome already won once that
@@ -72,6 +83,7 @@ namespace andromeda {
 
     // Hit-test the scene. Returns the view under the point, or nullptr with `layer` set when a layer surface is there
     // instead. `surface` receives the wlr_surface under the point in either case, with `sx`/`sy` surface-local.
+    [[nodiscard]] std::optional<SsdFrameHit> ssdFrameAt(double lx, double ly) const;
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr);
 
   private:
@@ -79,6 +91,32 @@ namespace andromeda {
     void refocusFallback(Output* preferred);
 
     Server& m_server;
+    // The last raise decision focusView made. retainCurrentKeyboardFocus replays it, so a focus kept through a
+    // popup grab or a seat handoff restacks exactly as the transition that selected the view did.
+    bool m_lastRaise = true;
   };
+
+  // The pointer output's active workspace: the target of explicit workspace and
+  // layout actions, which intentionally follow the pointer.
+  Workspace* activeWorkspace(Server& server);
+
+  // The view holding the seat's keyboard focus, if any.
+  View* seatFocusedWindow(Server& server);
+
+  // Scratchpad focus follows the seat, not the pointer-selected output. A
+  // cursor on another monitor must not expose that monitor's remembered
+  // workspace focus to window-relative actions.
+  View* focusedScratchpadWindow(Server& server);
+
+  // Whether a detached scratchpad owns the seat: its window holds the keyboard,
+  // or no window does while a scratchpad is active on the pointer output.
+  bool scratchpadHoldsFocus(Server& server);
+
+  // The window window-relative actions act on: the seat's focused view, else
+  // none while a scratchpad holds the seat (the pointer output's remembered
+  // focus must not leak), else the active workspace's remembered focus. A
+  // layer surface or the overview borrowing the keyboard leaves the answer on
+  // that remembered focus.
+  View* focusedWindow(Server& server);
 
 } // namespace andromeda

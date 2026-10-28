@@ -58,7 +58,7 @@ window_id=$("$ANDROMEDA" windows --json | jq -r --arg title "$TITLE" '.[] | sele
 wait_for_box 480x300+493+289
 
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
-wait_for_box 1280x720+0+0
+wait_for_box 1264x704+8+8
 
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_box 480x300+493+289

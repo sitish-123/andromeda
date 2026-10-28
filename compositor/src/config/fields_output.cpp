@@ -74,13 +74,16 @@ namespace andromeda {
       using registry::KeyDescription;
       using O = OutputRule;
       static const registry::Fields<O::Layout::Scrolling> scrolling{
-          registry::real("default_extent_fraction", 0.1, 1.0, &O::Layout::Scrolling::defaultExtentFraction),
+          registry::real(
+              "default_extent_fraction", 0.1, kMaxWideFraction, &O::Layout::Scrolling::defaultExtentFraction
+          ),
       };
       static const registry::Fields<O::Layout> layout{
           registry::table("scrolling", &O::Layout::scrolling, scrolling),
       };
       static const registry::Fields<O> fields{
           boolean("enabled", &O::enabled),
+          boolean("focus_at_startup", &O::focusAtStartup),
           boolean("tearing", &O::allowTearing),
           boolean("direct_scanout", &O::directScanout),
           optionalEffectField("screen_effect", &O::screenEffect),
@@ -137,6 +140,10 @@ namespace andromeda {
           registry::choice("vrr", &O::vrr, vrrModes()),
           registry::choice("hdr", &O::hdr, hdrModes()),
           registry::real("sdr_white", 80.0, 1000.0, &O::sdrWhite),
+          registry::choice(
+              "sdr_transfer", &O::sdrTransfer,
+              {{.name = "gamma22", .value = SdrTransfer::Gamma22}, {.name = "srgb", .value = SdrTransfer::Srgb}}
+          ),
           custom<O>(
               "bit_depth", KeyDescription("int").withRange(8, 10),
               [](const toml::node& node, const std::string& path, O& target, registry::ReadContext&) {

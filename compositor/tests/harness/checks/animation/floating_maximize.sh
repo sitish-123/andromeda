@@ -97,7 +97,7 @@ fi
 "$ANDROMEDA" clock-advance 2000
 "$ANDROMEDA" settle
 read -r maximized_x maximized_y maximized_w maximized_h < <(capture_box maximized)
-assert_exact_box maximized "$maximized_x" "$maximized_y" "$maximized_w" "$maximized_h" 0 0 1280 720
+assert_exact_box maximized "$maximized_x" "$maximized_y" "$maximized_w" "$maximized_h" 8 8 1264 704
 
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
 "$ANDROMEDA" clock-advance 150

@@ -1,5 +1,7 @@
 #include "scene/cheatsheet_rows.h"
 
+#include "config/window_position.h"
+
 // clang-format off
 // See keybind_parse.cpp: <cmath> must precede the wayland chain.
 #include <cmath>
@@ -195,21 +197,45 @@ namespace {
         return name;
       case andromeda::ActionArgKind::LayoutMode:
         if (const auto* arg = andromeda::payloadIf<andromeda::LayoutModeArg>(bind)) {
-          if (arg->mode.has_value()) {
-            const auto modeName = [](andromeda::LayoutMode mode) {
-              switch (mode) {
-              case andromeda::LayoutMode::Scrolling:
-                return "scrolling";
-              case andromeda::LayoutMode::Dwindle:
-                return "dwindle";
-              case andromeda::LayoutMode::Master:
-                return "master";
-              }
+          const auto modeName = [](andromeda::LayoutMode mode) {
+            switch (mode) {
+            case andromeda::LayoutMode::Scrolling:
               return "scrolling";
-            };
+            case andromeda::LayoutMode::Dwindle:
+              return "dwindle";
+            case andromeda::LayoutMode::Master:
+              return "master";
+            case andromeda::LayoutMode::Floating:
+              return "floating";
+            }
+            return "scrolling";
+          };
+          if (arg->mode.has_value()) {
             return name + ": " + modeName(*arg->mode);
           }
-          return name + ": toggle";
+          std::string label = name + ": toggle";
+          char separator = ':';
+          for (const auto mode : arg->toggleSequence) {
+            label += separator;
+            label += modeName(mode);
+            separator = ',';
+          }
+          return label;
+        }
+        return name;
+      case andromeda::ActionArgKind::SnapRegion:
+        if (const auto* arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind)) {
+          return name + ": " + std::string(andromeda::snapRegionName(arg->region));
+        }
+        return name;
+      case andromeda::ActionArgKind::ColumnDisplay:
+        if (const auto* arg = andromeda::payloadIf<andromeda::ColumnDisplayArg>(bind)) {
+          return name + (arg->display == andromeda::ColumnDisplay::Tabbed ? ": tabbed" : ": normal");
+        }
+        return name;
+      case andromeda::ActionArgKind::TabIndex:
+        if (const auto* arg = andromeda::payloadIf<andromeda::TabIndexArg>(bind)) {
+          return std::format("{}: {}", name, arg->index);
         }
         return name;
       case andromeda::ActionArgKind::Workspace:
@@ -219,6 +245,33 @@ namespace {
             label += "/" + workspace->output;
           }
           return label;
+        }
+        return name;
+      case andromeda::ActionArgKind::WindowEffectSet:
+      case andromeda::ActionArgKind::WindowEffectCycle:
+        if (const auto* arg = andromeda::payloadIf<andromeda::EffectWindowArg>(bind)) {
+          std::string value = arg->name;
+          if (!arg->id.empty()) {
+            value += "/" + arg->id;
+          }
+          return value.empty() ? name : name + ": " + value;
+        }
+        return name;
+      case andromeda::ActionArgKind::ScreenEffectSet:
+      case andromeda::ActionArgKind::ScreenEffectCycle:
+        if (const auto* arg = andromeda::payloadIf<andromeda::EffectScreenArg>(bind)) {
+          std::string value = arg->name;
+          if (!arg->output.empty()) {
+            value += "/" + arg->output;
+          }
+          return value.empty() ? name : name + ": " + value;
+        }
+        return name;
+      case andromeda::ActionArgKind::CursorEffectSet:
+      case andromeda::ActionArgKind::CursorEffectCycle:
+        if (const auto* arg = andromeda::payloadIf<andromeda::EffectCursorArg>(bind)) {
+          std::string value = arg->name;
+          return value.empty() ? name : name + ": " + value;
         }
         return name;
       case andromeda::ActionArgKind::Output:
@@ -244,6 +297,37 @@ namespace {
       case andromeda::ActionArgKind::SkipConfirmation:
         if (const auto* quit = andromeda::payloadIf<andromeda::QuitArg>(bind); quit != nullptr && quit->skipConfirmation) {
           return name + ": skip-confirmation";
+        }
+        return name;
+      case andromeda::ActionArgKind::SdrWhite:
+        if (const auto* arg = andromeda::payloadIf<andromeda::SdrWhiteArg>(bind)) {
+          std::string value = std::format("{:g}", arg->nits);
+          if (!arg->output.empty()) {
+            value += "/" + arg->output;
+          }
+          return name + ": " + value;
+        }
+        return name;
+      case andromeda::ActionArgKind::WindowMoveTo:
+        if (const auto* moveTo = andromeda::payloadIf<andromeda::WindowMoveToArg>(bind); moveTo != nullptr) {
+          std::string val(andromeda::windowPositionAnchorName(moveTo->position.anchor));
+          val += "/" + std::to_string(moveTo->position.x);
+          val += "/" + std::to_string(moveTo->position.y);
+          if (!moveTo->id.empty()) {
+            val += "/" + moveTo->id;
+          }
+          return name + ": " + val;
+        }
+        return name;
+      case andromeda::ActionArgKind::WindowMoveBy:
+        if (const auto* moveBy = andromeda::payloadIf<andromeda::WindowMoveByArg>(bind); moveBy != nullptr) {
+          std::string val;
+          val += std::to_string(moveBy->deltaX);
+          val += "/" + std::to_string(moveBy->deltaY);
+          if (!moveBy->id.empty()) {
+            val += "/" + moveBy->id;
+          }
+          return name + ": " + val;
         }
         return name;
       }
@@ -296,6 +380,9 @@ namespace {
     case A::WindowFocusOrOutputRight:
     case A::ColumnFocusFirst:
     case A::ColumnFocusLast:
+    case A::ColumnFocusTab:
+    case A::ColumnFocusTabNext:
+    case A::ColumnFocusTabPrevious:
     case A::WindowFocusUp:
     case A::WindowFocusDown:
     case A::WindowFocusOrWorkspaceUp:
@@ -319,10 +406,14 @@ namespace {
     case A::ColumnCenter:
     case A::WindowMoveUp:
     case A::WindowMoveDown:
+    case A::WindowMoveLeft:
+    case A::WindowMoveRight:
     case A::WindowMoveOrWorkspaceUp:
     case A::WindowMoveOrWorkspaceDown:
     case A::WindowMoveOrOutputUp:
     case A::WindowMoveOrOutputDown:
+    case A::WindowConsumeFromLeft:
+    case A::WindowConsumeFromRight:
     case A::WindowConsumeLeft:
     case A::WindowConsumeOrExpelLeft:
     case A::WindowConsumeRight:
@@ -339,7 +430,11 @@ namespace {
     case A::WindowModifyHeightDown:
     case A::WindowCycleSecondaryExtent:
     case A::WindowCycleSecondaryExtentBack:
+    case A::WindowSnap:
+    case A::WindowUnsnap:
     case A::WindowCenter:
+    case A::WindowMoveTo:
+    case A::WindowMoveBy:
     case A::LayoutScrollLeft:
     case A::LayoutScrollRight:
     case A::LayoutScrollUp:
@@ -357,23 +452,41 @@ namespace {
     case A::ColumnMoveToOutputDown:
     case A::WindowSwapNext:
     case A::WindowSwapPrevious:
+    case A::WindowSwapLeft:
+    case A::WindowSwapRight:
+    case A::WindowSwapUp:
+    case A::WindowSwapDown:
     case A::LayoutMasterCountIncrease:
     case A::LayoutMasterCountDecrease:
+    case A::LayoutToggleSplit:
       return Group::MoveSize;
     case A::WindowClose:
+    case A::WindowKill:
+    case A::WindowMinimize:
+    case A::WindowRestoreMinimized:
     case A::ToggleFloating:
     case A::ToggleMaximize:
     case A::ToggleMaximizeToEdges:
     case A::ToggleFullscreen:
     case A::TogglePinned:
+    case A::ColumnToggleTabbed:
+    case A::ColumnSetDisplay:
+    case A::ColumnMoveTabNext:
+    case A::ColumnMoveTabPrevious:
+    case A::ColumnToggleTabBar:
+    case A::ColumnShowTabBar:
+    case A::ColumnHideTabBar:
       return Group::Windows;
     case A::WindowMoveToScratchpad:
     case A::WindowRestoreFromScratchpad:
     case A::WindowToggleScratchpad:
     case A::ScratchpadToggle:
     case A::ScratchpadFocusNext:
+    case A::ScratchpadWindowShowNext:
+    case A::ScratchpadWindowShowPrevious:
       return Group::Scratchpad;
     case A::WorkspaceSwitch:
+    case A::WorkspaceToggleShowDesktop:
     case A::ColumnMoveToWorkspace:
     case A::ColumnMoveToWorkspaceNext:
     case A::ColumnMoveToWorkspacePrevious:
@@ -411,11 +524,14 @@ namespace {
     case A::OverviewClose:
       return Group::Overview;
     case A::ConfigReload:
+    case A::CursorHide:
+    case A::CursorShow:
     case A::DpmsOff:
     case A::DpmsOn:
     case A::OutputDisable:
     case A::OutputEnable:
     case A::OutputToggle:
+    case A::OutputSdrWhite:
     case A::SessionQuit:
     case A::Submap:
     case A::CheatsheetToggle:

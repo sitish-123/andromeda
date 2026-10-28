@@ -628,24 +628,16 @@ namespace andromeda {
     // Where the swipe would coast to a stop under deceleration.
     const double projected = m_scrollStart - m_scrollTracker.projectedEndPos() * m_scrollScale;
 
-    const auto maxScroll = static_cast<double>(scrolling->maxScroll(m_viewportPrimary));
     const auto columnCount = static_cast<int>(scrolling->columns().size());
 
-    // Snapping points are the scroll offsets aligning each column flush with either viewport edge,
-    // folded into the strip range. Release settles on the point closest to the projected position,
-    // so a flick commits whatever column it would decelerate past, not merely the one under the
-    // fingers.
+    // Snapping points are each column's resting offsets (ScrollingLayout::snapScrolls). Release settles on the point
+    // closest to the projected position, so a flick commits whatever column it would decelerate past, not merely the
+    // one under the fingers.
     int best = -1;
     double bestDist = 1e18;
     double bestSnap = currentScroll;
     for (int i = 0; i < columnCount; ++i) {
-      const auto x = static_cast<double>(scrolling->columnX(i, m_viewportPrimary));
-      const auto w = static_cast<double>(scrolling->columnWidth(i, m_viewportPrimary));
-      const double snaps[2] = {
-          std::clamp(x, 0.0, maxScroll),
-          std::clamp(x + w - static_cast<double>(m_viewportPrimary), 0.0, maxScroll),
-      };
-      for (const double snap : snaps) {
+      for (const double snap : scrolling->snapScrolls(i, m_viewportPrimary)) {
         const double dist = std::abs(snap - projected);
         if (dist < bestDist) {
           bestDist = dist;
@@ -684,18 +676,21 @@ namespace andromeda {
       return;
     }
 
-    // Park the strip exactly on the chosen snap first, so the reveal below keeps it there instead of
-    // re-deriving an anchor from the overscrolled position.
+    // Park the strip exactly on the chosen snap before selecting its column. Gesture focus must keep this placement
+    // instead of revealing the column again from the overscrolled position.
     scrolling->setScroll(bestSnap);
 
     View* focused = workspace->focusedView();
     if (focused != nullptr && scrolling->columnOf(focused) == best) {
-      // Snap back / settle: target column already focused.
-      workspace->ensureFocusedVisible();
+      // Settle on the column already focused: no side to derive, since focus lands where it started. The pair of the
+      // last focus move is the one to judge, and a pair that fits keeps the snap.
+      workspace->reevaluateFocusedColumn();
       workspace->markArrange(true);
     } else if (!scrolling->columns()[static_cast<size_t>(best)].views.empty()) {
-      View* target = scrolling->columns()[static_cast<size_t>(best)].views.front();
-      m_server->focusView(target, FocusReason::Directional);
+      // A tab group is entered on the tab it shows, as a directional focus move enters it.
+      View* target = columnEntry(scrolling->columns()[static_cast<size_t>(best)]);
+      m_server->focusView(target, FocusReason::Gesture);
+      workspace->markArrange(true);
     } else {
       workspace->ensureFocusedVisible();
       workspace->markArrange(true);

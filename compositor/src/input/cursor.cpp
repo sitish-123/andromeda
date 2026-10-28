@@ -4,7 +4,10 @@
 #include "core/log.h"
 #include "input/event_time.h"
 #include "input/gestures.h"
+#include "input/input_capture.h"
 #include "input/seat.h"
+#include "input/toplevel_drag.h"
+#include "input/xcursor_matcher.h"
 #include "layer/layer_surface.h"
 #include "layout/drop_target.h"
 #include "layout/layout.h"
@@ -15,25 +18,37 @@
 #include "scene/cheatsheet.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
+#include "scene/ssd_frame.h"
 #include "server/server.h"
-#include "server/toplevel_drag.h"
+#include "view/size_hints.h"
 #include "view/view.h"
-#include "view/xdg_size.h"
 // clang-format off
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <ctime>
+#include <drm_fourcc.h>
 #include <linux/input-event-codes.h>
+#include <limits>
 #include "wlr.h"
 // clang-format on
 #include "wlr/util/edges.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
+#include "xwayland/xwayland.h"
 
 namespace andromeda {
 
   namespace {
     constexpr Logger kLog("cursor");
     constexpr double kHotCornerExtent = 8.0;
+    constexpr int kDataDragEdgeScrollTickMs = 16;
+    constexpr uint32_t kDataDragEdgeScrollMaxElapsedMs = 50;
+    // Mod+right-click pairing and the motion threshold that promotes its
+    // deferred resize grab share one boundary: inside it a press may still
+    // pair up, so no grab may run and drop the layout's maximize bookkeeping.
+    constexpr uint32_t kDoubleClickMsec = 300;
+    constexpr double kDoubleClickSlop = 8.0;
 
     // Panels (top/overlay) keep working inside the overview. Background- and bottom-layer surfaces are part of the
     // inert backdrop behind the filmstrip, so their clicks belong to the overview instead.
@@ -47,6 +62,24 @@ namespace andromeda {
 
     bool isXdgPopupSurface(wlr_surface* surface) {
       return surface != nullptr && wlr_xdg_popup_try_from_wlr_surface(wlr_surface_get_root_surface(surface)) != nullptr;
+    }
+
+    // The tab bar slot under a layout point on that output's active workspace. A bar is compositor-drawn, so the scene
+    // hit test never reports it: what the hit test did find wins when it sits above the bar. Windows, their popups, X11
+    // menus, and top or overlay panels do; background and bottom layer surfaces, a wallpaper, lie below it.
+    std::optional<TabHit> tabBarHitAt(
+        Server& server, double lx, double ly, const wlr_surface* hitSurface, const View* hitView,
+        const LayerSurface* hitLayer
+    ) {
+      const bool covered =
+          hitView != nullptr || (hitLayer != nullptr ? overviewPassthroughLayer(hitLayer) : hitSurface != nullptr);
+      if (covered) {
+        return std::nullopt;
+      }
+      Output* output = server.outputFromWlr(wlr_output_layout_output_at(server.outputLayout(), lx, ly));
+      WorkspaceGroup* group = output != nullptr ? output->workspaceGroup() : nullptr;
+      Workspace* workspace = group != nullptr ? group->active() : nullptr;
+      return workspace != nullptr ? workspace->tabs().tabAt(lx, ly) : std::nullopt;
     }
 
     // `[input.touchpad] scroll_factor` (overridden per direction by `horizontal`/`vertical`) scales a touchpad's smooth
@@ -64,7 +97,10 @@ namespace andromeda {
       return factor ? (vertical ? factor->vertical : factor->horizontal).value_or(1.0) : 1.0;
     }
 
-    bool surfaceLocalCoordinates(wlr_scene* scene, wlr_surface* target, double lx, double ly, double* sx, double* sy) {
+    // `scale` is the surface-local units per layout unit in `target`.
+    bool surfaceLocalCoordinates(
+        wlr_scene* scene, wlr_surface* target, double scale, double lx, double ly, double* sx, double* sy
+    ) {
       if (target == nullptr) {
         return false;
       }
@@ -96,8 +132,8 @@ namespace andromeda {
       if (!position.found) {
         return false;
       }
-      *sx = lx - position.x;
-      *sy = ly - position.y;
+      *sx = (lx - position.x) * scale;
+      *sy = (ly - position.y) * scale;
       return true;
     }
 
@@ -144,12 +180,24 @@ namespace andromeda {
     wl_signal_add(&m_cursor->events.tablet_tool_button, &m_tabletToolButton);
 
     m_constraintDestroy.link.next = nullptr;
+    m_clientCursorOwnerDestroy.notify = onClientCursorOwnerDestroy;
+    m_clientCursorOwnerDestroy.link.next = nullptr;
     m_clientCursorDestroy.notify = onClientCursorDestroy;
     m_clientCursorDestroy.link.next = nullptr;
+    m_clientCursorClientCommit.notify = onClientCursorClientCommit;
+    m_clientCursorClientCommit.link.next = nullptr;
+    m_clientCursorCommit.notify = onClientCursorCommit;
+    m_clientCursorCommit.link.next = nullptr;
     updateHideTimer();
   }
 
   Cursor::~Cursor() {
+    if (m_snapDwellTimer != nullptr) {
+      wl_event_source_remove(m_snapDwellTimer);
+    }
+    if (m_dataDragEdgeScrollTimer != nullptr) {
+      wl_event_source_remove(m_dataDragEdgeScrollTimer);
+    }
     if (m_hotCornerTimer != nullptr) {
       wl_event_source_remove(m_hotCornerTimer);
     }
@@ -159,8 +207,17 @@ namespace andromeda {
     if (m_constraintDestroy.link.next != nullptr) {
       wl_list_remove(&m_constraintDestroy.link);
     }
+    if (m_clientCursorOwnerDestroy.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorOwnerDestroy.link);
+    }
     if (m_clientCursorDestroy.link.next != nullptr) {
       wl_list_remove(&m_clientCursorDestroy.link);
+    }
+    if (m_clientCursorClientCommit.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorClientCommit.link);
+    }
+    if (m_clientCursorCommit.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorCommit.link);
     }
     wl_list_remove(&m_motion.link);
     wl_list_remove(&m_motionAbsolute.link);
@@ -183,6 +240,9 @@ namespace andromeda {
   void Cursor::attachInputDevice(wlr_input_device* device) { wlr_cursor_attach_input_device(m_cursor, device); }
   void Cursor::resetWheelAccumulation() { m_wheelAccum[0] = m_wheelAccum[1] = 0; }
 
+  void Cursor::handleDataDragStarted() { updateDataDragEdgeScroll(); }
+  void Cursor::handleDataDragEnded() { cancelDataDragEdgeScroll(); }
+
   void Cursor::applyConfig() {
     const Config::Input::Cursor& configured = config().input.cursor;
     updateHideTimer();
@@ -203,15 +263,38 @@ namespace andromeda {
     m_xcursorTheme = configured.theme;
     m_xcursorSize = configured.size;
 
-    if (m_activeXcursorManager == oldManager) {
+    const bool hasXwaylandClientCursor = m_clientCursorFromXwayland && m_clientCursorSurface != nullptr;
+    if (hasXwaylandClientCursor) {
+      if (const std::optional<std::string> match = matchXwaylandCursor()) {
+        m_clientCursorShape = *match;
+      } else {
+        m_clientCursorShape.clear();
+      }
+    }
+
+    if (m_compositorOwnsCursor) {
+      setXcursor(m_compositorCursorName.c_str());
+    } else if (hasXwaylandClientCursor) {
+      applyClientCursor();
+    } else if (m_activeXcursorManager == oldManager) {
       setXcursor(m_activeXcursorName.c_str());
     } else if (m_server->seat()->wlr()->pointer_state.focused_surface == nullptr) {
       setXcursor("default");
+    }
+    if (hasXwaylandClientCursor && !m_clientCursorShape.empty()) {
+      finishClientCursorFrame();
+    }
+    // Xwayland's default cursor is a buffer of the manager's image, so it moves over before the old manager dies.
+    if (Xwayland* xwayland = m_server->xwayland()) {
+      xwayland->applyCursor(manager);
     }
     wlr_xcursor_manager_destroy(oldManager);
   }
 
   void Cursor::noteActivity() {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 2U) != 0) {
+      return;
+    }
     if (m_cursorHidden) {
       m_cursorHidden = false;
       forwardEffectPointer();
@@ -330,11 +413,18 @@ namespace andromeda {
     }
     const Output* andromedaOutput = m_server->outputFromWlr(output);
     View* focused = View::fromSurface(seat->keyboard_state.focused_surface);
+    // Corner handling precedes pointer-output refocus. Use the destination's remembered focus when the seat is
+    // elsewhere, including click-to-focus sessions where crossing outputs does not move keyboard focus at all.
+    if (andromedaOutput != nullptr && (focused == nullptr || focused->currentOutput() != andromedaOutput)) {
+      const WorkspaceGroup* group = andromedaOutput->workspaceGroup();
+      const Workspace* workspace = group != nullptr ? group->active() : nullptr;
+      focused = workspace != nullptr ? workspace->focusedView() : nullptr;
+    }
     if (focused != nullptr
         && focused->mapped()
         && focused->onActiveWorkspace()
         && focused->currentOutput() == andromedaOutput
-        && (focused->layoutFullscreen() || focused->toplevel()->current.fullscreen)) {
+        && (focused->layoutFullscreen() || focused->currentFullscreen())) {
       return nullptr;
     }
     if (cornerIndex != nullptr) {
@@ -401,17 +491,196 @@ namespace andromeda {
     return 0;
   }
 
-  void Cursor::setCursorSurface(wlr_surface* surface, int32_t hotspotX, int32_t hotspotY) {
-    forgetClientCursor();
-    m_clientCursorKnown = true;
-    m_clientCursorSurface = surface;
+  bool Cursor::tiledMoveDragActive() const {
+    const auto* grab = std::get_if<MoveGrab>(&m_grab);
+    return grab != nullptr && grab->view != nullptr && !grab->pending && grab->target == DragTarget::Tiled;
+  }
+
+  Workspace* Cursor::dataDragEdgeScrollTarget(double* speed) const {
+    *speed = 0;
+    const Config::Input::DragEdgeScroll& edge = config().input.dragEdgeScroll;
+    if (!edge.enabled
+        || m_server->sessionLocked()
+        || (m_server->seat()->wlr()->drag == nullptr && !tiledMoveDragActive())
+        || (m_server->overview() != nullptr && m_server->overview()->active())) {
+      return nullptr;
+    }
+
+    wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y);
+    Output* output = m_server->outputFromWlr(wlrOutput);
+    WorkspaceGroup* group = output != nullptr ? output->workspaceGroup() : nullptr;
+    Workspace* workspace = group != nullptr ? group->active() : nullptr;
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr || scrolling->columns().empty()) {
+      return nullptr;
+    }
+
+    const wlr_box area = workspace->usableArea();
+    const bool vertical = workspace->scrollingVertical();
+    const double origin = vertical ? area.y : area.x;
+    const double extent = vertical ? area.height : area.width;
+    if (extent <= 0) {
+      return nullptr;
+    }
+    const double trigger = std::min(static_cast<double>(edge.triggerZone), extent / 2.0);
+    const double position = vertical ? m_cursor->y : m_cursor->x;
+    if (position < origin + trigger) {
+      *speed = -edge.maxSpeed * std::clamp((origin + trigger - position) / trigger, 0.0, 1.0);
+    } else if (position > origin + extent - trigger) {
+      *speed = edge.maxSpeed * std::clamp((position - (origin + extent - trigger)) / trigger, 0.0, 1.0);
+    }
+    if (*speed == 0) {
+      return nullptr;
+    }
+
+    const double oldScroll = scrolling->scroll();
+    const auto maximum = static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent()));
+    if (maximum <= 0) {
+      return nullptr;
+    }
+    if ((*speed < 0 && oldScroll <= 0) || (*speed > 0 && oldScroll >= maximum)) {
+      return nullptr;
+    }
+    return workspace;
+  }
+
+  void Cursor::updateDataDragEdgeScroll() {
+    const Config::Input::DragEdgeScroll& edge = config().input.dragEdgeScroll;
+    double speed = 0;
+    Workspace* workspace = dataDragEdgeScrollTarget(&speed);
+    const int direction = (speed > 0) - (speed < 0);
+    const int previousDirection = (m_dataDragEdgeScrollSpeed > 0) - (m_dataDragEdgeScrollSpeed < 0);
+    if (workspace == nullptr) {
+      cancelDataDragEdgeScroll();
+      return;
+    }
+    if (workspace == m_dataDragEdgeScrollWorkspace && direction == previousDirection) {
+      m_dataDragEdgeScrollSpeed = speed;
+      return;
+    }
+    if (m_dataDragEdgeScrollTimer == nullptr) {
+      m_dataDragEdgeScrollTimer =
+          wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDataDragEdgeScrollTimer, this);
+      if (m_dataDragEdgeScrollTimer == nullptr) {
+        return;
+      }
+    }
+    m_dataDragEdgeScrollWorkspace = workspace;
+    m_dataDragEdgeScrollSpeed = speed;
+    m_dataDragEdgeScrollLastMsec = 0;
+    m_dataDragEdgeScrollPending = true;
+    if (edge.delayMs > 0) {
+      wl_event_source_timer_update(m_dataDragEdgeScrollTimer, edge.delayMs);
+    } else {
+      handleDataDragEdgeScrollTimer();
+    }
+  }
+
+  void Cursor::cancelDataDragEdgeScroll() {
+    if (m_dataDragEdgeScrollTimer != nullptr) {
+      wl_event_source_timer_update(m_dataDragEdgeScrollTimer, 0);
+    }
+    m_dataDragEdgeScrollWorkspace = nullptr;
+    m_dataDragEdgeScrollSpeed = 0;
+    m_dataDragEdgeScrollLastMsec = 0;
+    m_dataDragEdgeScrollPending = false;
+  }
+
+  int Cursor::onDataDragEdgeScrollTimer(void* data) {
+    return static_cast<Cursor*>(data)->handleDataDragEdgeScrollTimer();
+  }
+
+  int Cursor::handleDataDragEdgeScrollTimer() {
+    double speed = 0;
+    Workspace* workspace = dataDragEdgeScrollTarget(&speed);
+    const int direction = (speed > 0) - (speed < 0);
+    const int activeDirection = (m_dataDragEdgeScrollSpeed > 0) - (m_dataDragEdgeScrollSpeed < 0);
+    if (workspace == nullptr) {
+      cancelDataDragEdgeScroll();
+      return 0;
+    }
+    if (workspace != m_dataDragEdgeScrollWorkspace || direction != activeDirection) {
+      updateDataDragEdgeScroll();
+      return 0;
+    }
+    m_dataDragEdgeScrollSpeed = speed;
+
+    const uint32_t now = monotonicMsec();
+    if (m_dataDragEdgeScrollPending) {
+      m_dataDragEdgeScrollPending = false;
+      m_dataDragEdgeScrollLastMsec = now;
+      wl_event_source_timer_update(m_dataDragEdgeScrollTimer, kDataDragEdgeScrollTickMs);
+      return 0;
+    }
+
+    const uint32_t elapsed = std::min(now - m_dataDragEdgeScrollLastMsec, kDataDragEdgeScrollMaxElapsedMs);
+    m_dataDragEdgeScrollLastMsec = now;
+    if (elapsed == 0) {
+      wl_event_source_timer_update(m_dataDragEdgeScrollTimer, kDataDragEdgeScrollTickMs);
+      return 0;
+    }
+    ScrollingLayout* scrolling = workspace->scrollingLayout();
+    if (scrolling == nullptr) {
+      cancelDataDragEdgeScroll();
+      return 0;
+    }
+    const auto maximum = static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent()));
+    const double oldScroll = scrolling->scroll();
+    const double nextScroll = std::clamp(oldScroll + speed * static_cast<double>(elapsed) / 1000.0, 0.0, maximum);
+    if (nextScroll == oldScroll) {
+      cancelDataDragEdgeScroll();
+      return 0;
+    }
+    scrolling->setScroll(nextScroll);
+    workspace->markArrange(false);
+    wl_event_source_timer_update(m_dataDragEdgeScrollTimer, kDataDragEdgeScrollTickMs);
+    return 0;
+  }
+
+  void Cursor::setCursorSurface(wlr_surface* surface, int32_t hotspotX, int32_t hotspotY, wl_client* owner) {
+    const bool sameSurface = m_clientCursorKnown && surface != nullptr && surface == m_clientCursorSurface;
+    const bool sameHotspot = sameSurface && hotspotX == m_clientCursorHotspotX && hotspotY == m_clientCursorHotspotY;
+    const bool keepPromotion = sameHotspot && m_clientCursorFromXwayland && !m_clientCursorShape.empty();
+    if (!sameSurface) {
+      forgetClientCursor();
+      m_clientCursorKnown = true;
+      m_clientCursorOwner = owner;
+      if (owner != nullptr) {
+        wl_client_add_destroy_listener(owner, &m_clientCursorOwnerDestroy);
+      }
+      m_clientCursorSurface = surface;
+      if (surface != nullptr) {
+        Xwayland* xwayland = m_server->xwayland();
+        m_clientCursorFromXwayland = xwayland != nullptr && xwayland->ownsSurface(surface);
+        wl_signal_add(&surface->events.destroy, &m_clientCursorDestroy);
+        if (m_clientCursorFromXwayland) {
+          wl_signal_add(&surface->events.client_commit, &m_clientCursorClientCommit);
+          wl_signal_add(&surface->events.commit, &m_clientCursorCommit);
+          if (surface->buffer != nullptr) {
+            captureXwaylandCursorImage(&surface->buffer->base);
+          }
+        }
+      }
+    }
     m_clientCursorHotspotX = hotspotX;
     m_clientCursorHotspotY = hotspotY;
-    if (surface != nullptr) {
-      wl_signal_add(&surface->events.destroy, &m_clientCursorDestroy);
+    // Xwayland may commit a static cursor before assigning it to the pointer.
+    // Inspect that already-current buffer now; later animation and cursor
+    // changes arrive through m_clientCursorCommit.
+    if ((!sameSurface || !sameHotspot) && m_clientCursorFromXwayland && !m_clientCursorPixels.empty()) {
+      handleClientCursorCommit();
+      if (m_compositorOwnsCursor || !m_clientCursorShape.empty()) {
+        return;
+      }
+    } else if (!sameHotspot) {
+      m_clientCursorShape.clear();
     }
     if (m_compositorOwnsCursor) {
       // Replayed when the override ends.
+      return;
+    }
+    if (keepPromotion) {
+      setXcursor(m_clientCursorShape.c_str());
       return;
     }
     if (!m_cursorHidden) {
@@ -421,9 +690,13 @@ namespace andromeda {
     m_activeXcursorName.clear();
   }
 
-  void Cursor::setCursorShape(const char* name) {
+  void Cursor::setCursorShape(const char* name, wl_client* owner) {
     forgetClientCursor();
     m_clientCursorKnown = true;
+    m_clientCursorOwner = owner;
+    if (owner != nullptr) {
+      wl_client_add_destroy_listener(owner, &m_clientCursorOwnerDestroy);
+    }
     m_clientCursorShape = name;
     if (m_compositorOwnsCursor) {
       return;
@@ -447,25 +720,179 @@ namespace andromeda {
     m_activeXcursorName.clear();
   }
 
+  void Cursor::captureXwaylandCursorImage(wlr_buffer* buffer) {
+    m_clientCursorPixels.clear();
+    m_clientCursorImageWidth = 0;
+    m_clientCursorImageHeight = 0;
+    if (buffer == nullptr || buffer->width <= 0 || buffer->height <= 0) {
+      return;
+    }
+
+    void* pixels = nullptr;
+    uint32_t format = DRM_FORMAT_INVALID;
+    size_t stride = 0;
+    if (!wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ, &pixels, &format, &stride)) {
+      return;
+    }
+
+    constexpr size_t kBytesPerPixel = sizeof(uint32_t);
+    const auto width = static_cast<uint32_t>(buffer->width);
+    const auto height = static_cast<uint32_t>(buffer->height);
+    const bool widthOverflows = width > std::numeric_limits<size_t>::max() / kBytesPerPixel;
+    const size_t rowBytes = widthOverflows ? 0 : static_cast<size_t>(width) * kBytesPerPixel;
+    const bool sizeOverflows = rowBytes == 0 || height > std::numeric_limits<size_t>::max() / rowBytes;
+    if (format == DRM_FORMAT_ARGB8888 && pixels != nullptr && stride >= rowBytes && !sizeOverflows) {
+      m_clientCursorPixels.resize(rowBytes * height);
+      const auto* source = static_cast<const uint8_t*>(pixels);
+      for (uint32_t y = 0; y < height; ++y) {
+        std::memcpy(
+            m_clientCursorPixels.data() + static_cast<size_t>(y) * rowBytes, source + static_cast<size_t>(y) * stride,
+            rowBytes
+        );
+      }
+      m_clientCursorImageWidth = width;
+      m_clientCursorImageHeight = height;
+    }
+    wlr_buffer_end_data_ptr_access(buffer);
+  }
+
+  std::optional<std::string> Cursor::matchXwaylandCursor() const {
+    if (!m_clientCursorFromXwayland
+        || m_clientCursorSurface == nullptr
+        || m_clientCursorSurface->current.scale != 1
+        || m_clientCursorSurface->current.transform != WL_OUTPUT_TRANSFORM_NORMAL
+        || m_clientCursorSurface->current.viewport.has_src
+        || m_clientCursorSurface->current.viewport.has_dst
+        || m_clientCursorPixels.empty()
+        || m_clientCursorSurface->current.width != static_cast<int>(m_clientCursorImageWidth)
+        || m_clientCursorSurface->current.height != static_cast<int>(m_clientCursorImageHeight)
+        || m_clientCursorHotspotX < 0
+        || m_clientCursorHotspotY < 0) {
+      return std::nullopt;
+    }
+
+    return matchXcursorManagerImage(
+        m_xcursorManager,
+        {
+            .width = m_clientCursorImageWidth,
+            .height = m_clientCursorImageHeight,
+            .hotspotX = static_cast<uint32_t>(m_clientCursorHotspotX),
+            .hotspotY = static_cast<uint32_t>(m_clientCursorHotspotY),
+            .pixels = m_clientCursorPixels.data(),
+            .stride = static_cast<size_t>(m_clientCursorImageWidth) * sizeof(uint32_t),
+        },
+        m_clientCursorShape
+    );
+  }
+
+  void Cursor::finishClientCursorFrame() const {
+    if (m_clientCursorSurface == nullptr) {
+      return;
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    wlr_surface_send_frame_done(m_clientCursorSurface, &now);
+  }
+
+  void Cursor::handleClientCursorCommit() {
+    const bool wasPromoted = !m_clientCursorShape.empty();
+    if (const std::optional<std::string> match = matchXwaylandCursor()) {
+      m_clientCursorShape = *match;
+      if (!m_compositorOwnsCursor) {
+        setXcursor(m_clientCursorShape.c_str());
+      }
+      // Xwayland waits for this callback before committing an animated cursor's
+      // next frame. wlroots no longer owns the source surface after promotion.
+      finishClientCursorFrame();
+      return;
+    }
+
+    m_clientCursorShape.clear();
+    if (!m_compositorOwnsCursor) {
+      if (wasPromoted && !m_cursorHidden) {
+        wlr_cursor_set_surface(m_cursor, m_clientCursorSurface, m_clientCursorHotspotX, m_clientCursorHotspotY);
+      }
+      m_activeXcursorManager = nullptr;
+      m_activeXcursorName.clear();
+    }
+    // wlroots paces a visible raw surface. When Andromeda has detached it for a
+    // compositor override or cursor hiding, complete Xwayland's callback here.
+    if (m_compositorOwnsCursor || m_cursorHidden) {
+      finishClientCursorFrame();
+    }
+  }
+
   void Cursor::forgetClientCursor() {
+    if (m_clientCursorOwnerDestroy.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorOwnerDestroy.link);
+      m_clientCursorOwnerDestroy.link.next = nullptr;
+    }
     if (m_clientCursorDestroy.link.next != nullptr) {
       wl_list_remove(&m_clientCursorDestroy.link);
       m_clientCursorDestroy.link.next = nullptr;
     }
+    if (m_clientCursorClientCommit.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorClientCommit.link);
+      m_clientCursorClientCommit.link.next = nullptr;
+    }
+    if (m_clientCursorCommit.link.next != nullptr) {
+      wl_list_remove(&m_clientCursorCommit.link);
+      m_clientCursorCommit.link.next = nullptr;
+    }
     m_clientCursorKnown = false;
+    m_clientCursorOwner = nullptr;
     m_clientCursorSurface = nullptr;
     m_clientCursorHotspotX = 0;
     m_clientCursorHotspotY = 0;
     m_clientCursorShape.clear();
+    m_clientCursorFromXwayland = false;
+    m_clientCursorPixels.clear();
+    m_clientCursorImageWidth = 0;
+    m_clientCursorImageHeight = 0;
+  }
+
+  void Cursor::onClientCursorOwnerDestroy(wl_listener* listener, void* /*data*/) {
+    Cursor* self;
+    self = wl_container_of(listener, self, m_clientCursorOwnerDestroy);
+    self->forgetClientCursor();
+    if (!self->m_compositorOwnsCursor) {
+      self->setXcursor("default");
+    }
   }
 
   void Cursor::onClientCursorDestroy(wl_listener* listener, void* /*data*/) {
     Cursor* self;
     self = wl_container_of(listener, self, m_clientCursorDestroy);
+    const bool promoted = self->m_clientCursorSurface != nullptr && !self->m_clientCursorShape.empty();
     self->forgetClientCursor();
+    if (promoted && !self->m_compositorOwnsCursor) {
+      self->setXcursor("default");
+    }
+  }
+
+  void Cursor::onClientCursorClientCommit(wl_listener* listener, void* /*data*/) {
+    Cursor* self;
+    self = wl_container_of(listener, self, m_clientCursorClientCommit);
+    wlr_surface_state& pending = self->m_clientCursorSurface->pending;
+    if ((pending.committed & WLR_SURFACE_STATE_BUFFER) != 0) {
+      self->captureXwaylandCursorImage(pending.buffer);
+    }
+  }
+
+  void Cursor::onClientCursorCommit(wl_listener* listener, void* /*data*/) {
+    Cursor* self;
+    self = wl_container_of(listener, self, m_clientCursorCommit);
+    self->m_clientCursorHotspotX -= self->m_clientCursorSurface->current.dx;
+    self->m_clientCursorHotspotY -= self->m_clientCursorSurface->current.dy;
+    self->handleClientCursorCommit();
   }
 
   void Cursor::notePointerFocusChange(wlr_surface* newSurface) {
+    if (newSurface != nullptr
+        && m_clientCursorOwner != nullptr
+        && wl_resource_get_client(newSurface->resource) == m_clientCursorOwner) {
+      return;
+    }
     forgetClientCursor();
     if (newSurface == nullptr && !m_compositorOwnsCursor) {
       setXcursor("default");
@@ -480,6 +907,38 @@ namespace andromeda {
     m_activeXcursorName = name;
   }
 
+#ifdef ANDROMEDA_TEST_IPC
+  std::string Cursor::clientCursorSourceForTest() const {
+    if (!m_clientCursorKnown) {
+      return "none";
+    }
+    if (!m_clientCursorShape.empty()) {
+      return "xcursor";
+    }
+    return m_clientCursorSurface != nullptr ? "surface" : "hidden";
+  }
+
+  std::optional<Cursor::RenderedCursorStateForTest> Cursor::renderedCursorStateForTest() const {
+    wlr_output* output = wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y);
+    if (output == nullptr) {
+      return std::nullopt;
+    }
+
+    wlr_output_cursor* outputCursor = nullptr;
+    wl_list_for_each(outputCursor, &output->cursors, link) {
+      if (outputCursor->enabled && outputCursor->visible && outputCursor->texture != nullptr) {
+        return RenderedCursorStateForTest{
+            .textureWidth = outputCursor->texture->width,
+            .textureHeight = outputCursor->texture->height,
+            .renderWidth = outputCursor->width,
+            .renderHeight = outputCursor->height,
+        };
+      }
+    }
+    return std::nullopt;
+  }
+#endif
+
   bool Cursor::isPassthrough() const { return std::holds_alternative<PassthroughGrab>(m_grab); }
 
   View* Cursor::grabbedView() const {
@@ -490,6 +949,9 @@ namespace andromeda {
       return grab->view;
     }
     if (const auto* grab = std::get_if<TiledResizeGrab>(&m_grab)) {
+      return grab->view;
+    }
+    if (const auto* grab = std::get_if<PendingResizeGrab>(&m_grab)) {
       return grab->view;
     }
     return nullptr;
@@ -508,15 +970,28 @@ namespace andromeda {
     return grab != nullptr && !grab->pending && grab->target == DragTarget::Tiled;
   }
 
+  bool Cursor::isResizingView(const View* view) const {
+    if (view == nullptr) {
+      return false;
+    }
+    if (const auto* grab = std::get_if<FloatingResizeGrab>(&m_grab)) {
+      return grab->view == view;
+    }
+    const auto* grab = std::get_if<TiledResizeGrab>(&m_grab);
+    return grab != nullptr && grab->view == view;
+  }
+
   bool Cursor::isResizingWorkspace(const Workspace* workspace) const {
     const auto* grab = std::get_if<TiledResizeGrab>(&m_grab);
     return workspace != nullptr && grab != nullptr && grab->workspace == workspace;
   }
 
-  bool Cursor::beginMove(View* view, uint32_t button) {
+  bool Cursor::beginMove(View* view, uint32_t button, bool deferUntilThreshold) {
     if (view == nullptr || !view->mapped() || button == 0) {
       return false;
     }
+    // An attached dialog's place is its parent's, so dragging it drags the window it lives in.
+    view = view->placementRoot();
     if (!isPassthrough()) {
       resetMode();
     }
@@ -528,6 +1003,9 @@ namespace andromeda {
       tiled = false;
     }
 
+    if (!tiled && (view->snapRegion() || view->floatingMaximized())) {
+      deferUntilThreshold = true;
+    }
     setActiveConstraint(nullptr);
     const bool pinned = !tiled && view->pinned();
     // A pinned window is floating, but it remembers whether it was tiled when
@@ -535,15 +1013,23 @@ namespace andromeda {
     const bool tiledUnderneath = tiled || (pinned && view->restoresTiledOnUnpin());
     MoveGrab grab{
         .view = view,
-        .offsetX = m_cursor->x - view->sceneTree()->node.x,
-        .offsetY = m_cursor->y - view->sceneTree()->node.y,
+        .offsetX = m_cursor->x - view->layoutX(),
+        .offsetY = m_cursor->y - view->layoutY(),
         .target = tiled ? DragTarget::Tiled : (pinned ? DragTarget::Pinned : DragTarget::Floating),
+        .floatingLayout = !tiled
+            && !pinned
+            && view->workspace() != nullptr
+            && view->workspace()->layoutMode() == LayoutMode::Floating,
         .unpinned = tiledUnderneath ? DragTarget::Tiled : DragTarget::Floating,
         .sourceWorkspace = tiled ? view->workspace() : nullptr,
         .sourceColumn = -1,
         .sourceWidth = std::nullopt,
         .drop = {},
-        .pending = tiled,
+        .snap = std::nullopt,
+        .preDragX = view->layoutTargetX(),
+        .preDragY = view->layoutTargetY(),
+        .preDragArea = view->floatingUsableArea(),
+        .pending = tiled || deferUntilThreshold,
         .startX = m_cursor->x,
         .startY = m_cursor->y,
         .lastX = m_cursor->x,
@@ -567,6 +1053,36 @@ namespace andromeda {
     return true;
   }
 
+  void Cursor::beginToplevelDrag(View* view, int x, int y, bool tileOnDrop) {
+    const uint32_t button = m_server->seat()->wlr()->pointer_state.grab_button;
+    if (!beginMove(view, button)) {
+      return;
+    }
+    m_toplevelDrag = true;
+    auto& grab = std::get<MoveGrab>(m_grab);
+    grab.offsetX = x;
+    grab.offsetY = y;
+    if (tileOnDrop && !view->pinned()) {
+      grab.target = DragTarget::Tiled;
+      grab.sourceWorkspace = view->workspace();
+    }
+    if (grab.pending) {
+      beginDrag(grab);
+    }
+    processMotion(monotonicMsec(), m_cursor->x, m_cursor->y, false);
+  }
+
+  void Cursor::finishToplevelDrag(bool place) {
+    if (!m_toplevelDrag) {
+      return;
+    }
+    if (place && !m_server->sessionLocked()) {
+      finishMove();
+    } else {
+      resetMode();
+    }
+  }
+
   bool Cursor::beginResize(View* view, uint32_t edges, uint32_t button) {
     if (view == nullptr || !view->mapped() || button == 0) {
       return false;
@@ -576,7 +1092,7 @@ namespace andromeda {
     }
     bool tiled = view->tiled();
     if (ScratchpadManager* scratchpad = m_server->scratchpadManager();
-        scratchpad != nullptr && scratchpad->contains(view)) {
+        scratchpad != nullptr && !view->attached() && scratchpad->contains(view)) {
       view->setFloating(true);
       tiled = false;
     }
@@ -592,18 +1108,10 @@ namespace andromeda {
       if (edges != 0) {
         resolvedEdges = layout.resolveResizeEdges(view, edges, m_cursor->x, m_cursor->y);
       } else {
-        const wlr_box presented = workspace->presentedTiledBox(view);
-        const wlr_box visible = workspace->usableArea();
-        wlr_box reachable{};
-        if (wlr_box_intersection(&reachable, &presented, &visible)) {
-          resolvedEdges = layout.sanitizeResizeEdges(view, resizeEdgesForPoint(reachable, m_cursor->x, m_cursor->y));
-        }
+        resolvedEdges = tiledResizeEdges(view, m_cursor->x, m_cursor->y);
       }
       if (resolvedEdges == 0) {
-        if (workspace->focusedView() == view) {
-          workspace->ensureFocusedVisible();
-          workspace->markArrange(true);
-        }
+        revealClickedTile(view);
         refreshInteractiveCursor();
         return false;
       }
@@ -618,7 +1126,7 @@ namespace andromeda {
         return false;
       }
       if (session->unmaximizeOnBegin()) {
-        wlr_xdg_toplevel_set_maximized(view->toplevel(), false);
+        view->setMaximizedState(false);
       }
       m_grab = TiledResizeGrab{
           .view = view,
@@ -641,17 +1149,15 @@ namespace andromeda {
       view->setMaximizedToEdges(false, false);
     }
 
-    const wlr_box& geometry = view->toplevel()->base->geometry;
-    const double borderX =
-        (view->sceneTree()->node.x + geometry.x) + ((edges & WLR_EDGE_RIGHT) != 0 ? geometry.width : 0);
-    const double borderY =
-        (view->sceneTree()->node.y + geometry.y) + ((edges & WLR_EDGE_BOTTOM) != 0 ? geometry.height : 0);
+    const wlr_box& geometry = view->geometryBox();
+    const double borderX = (view->layoutX() + geometry.x) + ((edges & WLR_EDGE_RIGHT) != 0 ? geometry.width : 0);
+    const double borderY = (view->layoutY() + geometry.y) + ((edges & WLR_EDGE_BOTTOM) != 0 ? geometry.height : 0);
     m_grab = FloatingResizeGrab{
         .view = view,
         .offsetX = m_cursor->x - borderX,
         .offsetY = m_cursor->y - borderY,
-        .geometryX = geometry.x + view->sceneTree()->node.x,
-        .geometryY = geometry.y + view->sceneTree()->node.y,
+        .geometryX = geometry.x + view->layoutX(),
+        .geometryY = geometry.y + view->layoutY(),
         .geometryWidth = geometry.width,
         .geometryHeight = geometry.height,
         .edges = edges,
@@ -664,17 +1170,23 @@ namespace andromeda {
 
   std::optional<uint32_t>
   Cursor::clientPointerGrabButton(const View* view, wlr_seat_client* seatClient, uint32_t serial) const {
-    if (view == nullptr || seatClient == nullptr || !isPassthrough()) {
+    if (view == nullptr || !isPassthrough()) {
       return std::nullopt;
     }
     wlr_seat* seat = m_server->seat()->wlr();
     wlr_surface* focused = seat->pointer_state.focused_surface;
-    if (seatClient->seat != seat
-        || seat->drag != nullptr
+    if (seat->drag != nullptr
         || wlr_seat_pointer_has_grab(seat)
         || focused == nullptr
-        || wlr_surface_get_root_surface(focused) != view->toplevel()->base->surface
-        || !wlr_seat_validate_pointer_grab_serial(seat, focused, serial)) {
+        || wlr_surface_get_root_surface(focused) != view->rootSurface()
+        || seat->pointer_state.button_count != 1) {
+      return std::nullopt;
+    }
+    // X11 requests carry no seat client or serial; the pressed pointer on the window is their only credential.
+    if (seatClient == nullptr) {
+      return view->xwayland() ? std::optional(seat->pointer_state.grab_button) : std::nullopt;
+    }
+    if (seatClient->seat != seat || !wlr_seat_validate_pointer_grab_serial(seat, focused, serial)) {
       return std::nullopt;
     }
     return seat->pointer_state.grab_button;
@@ -682,13 +1194,24 @@ namespace andromeda {
 
   void Cursor::beginClientMove(View* view, wlr_seat_client* seatClient, uint32_t serial) {
     const std::optional<uint32_t> button = clientPointerGrabButton(view, seatClient, serial);
-    if (!button.has_value() || *button == 0 || !beginMove(view, *button)) {
+    if (!button.has_value()
+        || *button == 0
+        || !m_clientPointerPress
+        || m_clientPointerPress->button != *button
+        || m_clientPointerPress->serial != m_server->seat()->wlr()->pointer_state.grab_serial
+        || !beginMove(view, *button, true)) {
       return;
     }
+    auto& grab = std::get<MoveGrab>(m_grab);
+    grab.startX = m_clientPointerPress->x;
+    grab.startY = m_clientPointerPress->y;
     // xdg-shell transfers this device away from the client for an accepted
     // interactive operation. The notify variant also retires wlroots' implicit
     // button grab; m_grabButton keeps the raw release needed to finish ours.
     wlr_seat_pointer_notify_clear_focus(m_server->seat()->wlr());
+    // The client may already have crossed the threshold before requesting the move. Promote it now without another
+    // motion event, keeping the current pointer grip instead of jumping back to the press position.
+    processMotion(monotonicMsec(), m_cursor->x, m_cursor->y, false);
   }
 
   void Cursor::beginClientResize(View* view, wlr_seat_client* seatClient, uint32_t serial, uint32_t edges) {
@@ -752,7 +1275,9 @@ namespace andromeda {
   }
 
   void Cursor::resetMode() {
+    clearSnapPreview();
     m_server->hideInsertHint();
+    cancelDataDragEdgeScroll();
     View* view = grabbedView();
     if (std::holds_alternative<ScrollDragGrab>(m_grab)) {
       m_server->gestures()->endPointerScroll(true, 0);
@@ -767,10 +1292,18 @@ namespace andromeda {
     if (std::holds_alternative<FloatingResizeGrab>(m_grab) && view != nullptr) {
       view->finishFloatingResize();
     }
+    m_toplevelDrag = false;
     m_grab = PassthroughGrab{};
     m_grabButton = 0;
     if (restoreDragPresentation && view != nullptr) {
       view->restoreHomePresentation();
+      // A drag abandoned outside its drop path (session lock mid-drag, the
+      // toplevel-drag detach endings) never runs finishFloatMove. Settle here
+      // exactly like a drop: nothing else re-clamps where the drag parked the
+      // window, and the margin must hold without waiting for a usable change.
+      if (view->floating()) {
+        view->settleFloatingDrop(view->layoutX(), view->layoutY());
+      }
     }
     // Resize scaling belongs to the grab, including every sibling tile it resizes. Clear it before restoring clips:
     // an unchanged clip otherwise keeps the scaled source/destination until the client commits again.
@@ -789,6 +1322,17 @@ namespace andromeda {
   }
 
   void Cursor::cancelStaleTiledResize() {
+    if (const auto* pending = std::get_if<PendingResizeGrab>(&m_grab); pending != nullptr) {
+      // The deferred press carries press-time edges; a layout swap since then
+      // makes them mean something else.
+      if (pending->view == nullptr
+          || (pending->layout != nullptr
+              && (pending->view->workspace() != pending->workspace
+                  || &pending->workspace->layout() != pending->layout))) {
+        resetMode();
+      }
+      return;
+    }
     const auto* grab = std::get_if<TiledResizeGrab>(&m_grab);
     if (grab != nullptr
         && (grab->workspace == nullptr
@@ -801,7 +1345,10 @@ namespace andromeda {
   void Cursor::cancelLayoutInteraction() {
     // An axis change keeps the same layout object, so cancelStaleTiledResize()
     // cannot see it; the session's edges would still mean the old orientation.
-    if (std::holds_alternative<ScrollDragGrab>(m_grab) || std::holds_alternative<TiledResizeGrab>(m_grab)) {
+    // A deferred resize press stores the same kind of press-time edges.
+    if (std::holds_alternative<ScrollDragGrab>(m_grab)
+        || std::holds_alternative<TiledResizeGrab>(m_grab)
+        || std::holds_alternative<PendingResizeGrab>(m_grab)) {
       resetMode();
     }
   }
@@ -841,19 +1388,28 @@ namespace andromeda {
     noteActivity();
     m_server->notifyInputActivity();
 
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      if (m_server->physicalInputDevice(&event->pointer->base)) {
+        if (capture->captureMotion(
+                event->time_msec, m_cursor->x, m_cursor->y, event->delta_x, event->delta_y, canCaptureInput()
+            )) {
+          return;
+        }
+      } else if ((capture->capabilities() & 2U) != 0) {
+        return;
+      }
+    }
+
     wlr_relative_pointer_manager_v1_send_relative_motion(
         m_server->relativePointerManager(), m_server->seat()->wlr(), static_cast<uint64_t>(event->time_msec) * 1000,
         event->delta_x, event->delta_y, event->unaccel_dx, event->unaccel_dy
     );
 
+    if (m_activeConstraint != nullptr && !constraintSurfaceActive()) {
+      clearConstraint();
+    }
     if (m_activeConstraint != nullptr && m_activeConstraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED) {
-      // Workspace switch (etc.) can hide the locking surface without pointer motion.
-      // Drop the lock so the cursor can move and become visible again.
-      if (!constraintSurfaceActive()) {
-        clearConstraint();
-      } else {
-        return;
-      }
+      return;
     }
 
     double dx = event->delta_x;
@@ -864,6 +1420,8 @@ namespace andromeda {
       }
     }
 
+    confineRuleDelta(&dx, &dy);
+    promotePendingModRightResize(m_cursor->x + dx, m_cursor->y + dy);
     const double oldX = m_cursor->x;
     const double oldY = m_cursor->y;
     wlr_cursor_move(m_cursor, &event->pointer->base, dx, dy);
@@ -874,39 +1432,119 @@ namespace andromeda {
     auto* event = static_cast<wlr_pointer_motion_absolute_event*>(data);
     noteActivity();
     m_server->notifyInputActivity();
+    if (m_activeConstraint != nullptr && !constraintSurfaceActive()) {
+      clearConstraint();
+    }
     if (m_activeConstraint != nullptr && m_activeConstraint->type == WLR_POINTER_CONSTRAINT_V1_LOCKED) {
-      if (!constraintSurfaceActive()) {
-        clearConstraint();
-      } else {
-        return;
-      }
+      return;
     }
 
     double lx = 0;
     double ly = 0;
     wlr_cursor_absolute_to_layout_coords(m_cursor, &event->pointer->base, event->x, event->y, &lx, &ly);
 
-    const double oldX = m_cursor->x;
-    const double oldY = m_cursor->y;
-    if (m_activeConstraint != nullptr && m_activeConstraint->type == WLR_POINTER_CONSTRAINT_V1_CONFINED) {
-      double dx = lx - m_cursor->x;
-      double dy = ly - m_cursor->y;
-      if (!confineDelta(&dx, &dy)) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      if (m_server->physicalInputDevice(&event->pointer->base)) {
+        if (capture->captureAbsoluteMotion(
+                event->time_msec, m_cursor->x, m_cursor->y, lx, ly, canCaptureInput(), &event->pointer->base
+            )) {
+          return;
+        }
+      } else if ((capture->capabilities() & 2U) != 0) {
         return;
       }
-      wlr_cursor_move(m_cursor, &event->pointer->base, dx, dy);
-    } else {
-      wlr_cursor_warp_absolute(m_cursor, &event->pointer->base, event->x, event->y);
     }
+
+    const double oldX = m_cursor->x;
+    const double oldY = m_cursor->y;
+    double dx = lx - m_cursor->x;
+    double dy = ly - m_cursor->y;
+    if (m_activeConstraint != nullptr
+        && m_activeConstraint->type == WLR_POINTER_CONSTRAINT_V1_CONFINED
+        && !confineDelta(&dx, &dy)) {
+      return;
+    }
+    confineRuleDelta(&dx, &dy);
+    promotePendingModRightResize(m_cursor->x + dx, m_cursor->y + dy);
+    wlr_cursor_move(m_cursor, &event->pointer->base, dx, dy);
     processMotion(event->time_msec, oldX, oldY);
   }
 
   void Cursor::handleButton(void* data) {
     auto* event = static_cast<wlr_pointer_button_event*>(data);
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 2U) != 0) {
+      m_server->notifyIdleActivity();
+      if (m_server->physicalInputDevice(&event->pointer->base)) {
+        capture->captureButton(event->time_msec, event->button, event->state == WL_POINTER_BUTTON_STATE_PRESSED);
+      }
+      return;
+    }
     processButton(event->time_msec, event->button, event->state);
   }
 
+  bool Cursor::canCaptureInput() const {
+    const wlr_seat* seat = m_server->seat()->wlr();
+    return isPassthrough()
+        && m_activeConstraint == nullptr
+        && !m_server->gestures()->movingContent()
+        && seat->pointer_state.button_count == 0
+        && seat->drag == nullptr
+        && seat->keyboard_state.grab == seat->keyboard_state.default_grab
+        && wl_list_empty(&seat->touch_state.touch_points)
+        && !m_server->sessionLocked()
+        && m_server->sessionLock() == nullptr
+        && (m_server->session() == nullptr || m_server->session()->active)
+        && (m_server->quitConfirm() == nullptr || !m_server->quitConfirm()->visible())
+        && (m_server->overview() == nullptr || !m_server->overview()->active())
+        && (m_server->cheatsheet() == nullptr || !m_server->cheatsheet()->visible());
+  }
+
+  void Cursor::setInputCaptured(bool captured) {
+    if (captured) {
+      cancelHotCorner();
+      m_server->cancelModifierTap();
+      clearPointerFocus();
+      hideCursor();
+    } else {
+      noteActivity();
+      refreshPointerFocus();
+    }
+  }
+
+  bool Cursor::isModRightDoubleClick(uint32_t timeMsec, const View* view) const {
+    return m_lastModRightClick.view == view
+        && timeMsec - m_lastModRightClick.timeMsec <= kDoubleClickMsec
+        && std::abs(m_cursor->x - m_lastModRightClick.x) <= kDoubleClickSlop
+        && std::abs(m_cursor->y - m_lastModRightClick.y) <= kDoubleClickSlop;
+  }
+
+  void Cursor::recordModRightClick(uint32_t timeMsec, View* view) {
+    m_lastModRightClick = ModRightClick{timeMsec, m_cursor->x, m_cursor->y, view};
+  }
+
+  void Cursor::promotePendingModRightResize(double nextX, double nextY) {
+    const auto* pending = std::get_if<PendingResizeGrab>(&m_grab);
+    if (pending == nullptr) {
+      return;
+    }
+    if (m_server->sessionLocked()) {
+      resetMode();
+      return;
+    }
+    if (std::abs(nextX - pending->startX) <= kDoubleClickSlop
+        && std::abs(nextY - pending->startY) <= kDoubleClickSlop) {
+      return;
+    }
+    const PendingResizeGrab grab = *pending;
+    // A drag is not a double-click's first press.
+    m_lastModRightClick = ModRightClick{};
+    beginResize(grab.view, grab.edges, grab.button);
+  }
+
   void Cursor::processButton(uint32_t timeMsec, uint32_t button, wl_pointer_button_state state) {
+    if (state == WL_POINTER_BUTTON_STATE_RELEASED && m_clientPointerPress && m_clientPointerPress->button == button) {
+      m_clientPointerPress.reset();
+    }
     noteActivity();
     if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
       m_server->notifyInputActivity();
@@ -960,6 +1598,28 @@ namespace andromeda {
         return;
       }
     }
+    if (state == WL_POINTER_BUTTON_STATE_RELEASED && button == BTN_LEFT && m_ssdButtonPress.view != nullptr) {
+      const SsdButtonPress press = m_ssdButtonPress;
+      m_ssdButtonPress = {};
+      if (press.view->ssdFrame() != nullptr)
+        press.view->ssdFrame()->setPressed(SsdFramePart::None);
+      const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+      if (hit
+          && hit->view == press.view
+          && hit->part == press.part
+          && m_server->exclusiveKeyboardLayer() == nullptr
+          && !press.view->blocked()) {
+        if (press.part == SsdFramePart::Close) {
+          press.view->requestClose();
+        } else if (press.part == SsdFramePart::Maximize && press.view->ssdFrame()->maximizeEnabled()) {
+          const bool maximized =
+              press.view->maximizedToEdges() || press.view->scheduledMaximized() || press.view->floatingMaximized();
+          press.view->setMaximizedLikeClientRequest(!maximized);
+        } else if (press.part == SsdFramePart::Minimize) {
+          press.view->requestMinimize();
+        }
+      }
+    }
     if (state == WL_POINTER_BUTTON_STATE_RELEASED && std::erase(m_swallowedButtons, button) > 0) {
       return;
     }
@@ -968,6 +1628,9 @@ namespace andromeda {
     // from a panel over the overview. Otherwise the drag icon and both input grabs remain active indefinitely.
     if (wlr_seat* seat = m_server->seat()->wlr(); seat->drag != nullptr) {
       m_server->seat()->notifyPointerModifiers();
+      if (state == WL_POINTER_BUTTON_STATE_RELEASED) {
+        m_server->seat()->toplevelDrags().dropWithoutTarget(button);
+      }
       wlr_seat_pointer_notify_button(seat, timeMsec, button, state);
       if (seat->drag == nullptr) {
         // The drag grab suppressed normal pointer motion. Re-run hit testing at
@@ -991,9 +1654,9 @@ namespace andromeda {
         if (button == grab->button) {
           m_server->gestures()->endPointerScroll(m_server->sessionLocked(), timeMsec);
           resetMode();
-          // The grab cleared client focus on press and consumed every motion; re-run hit testing so hover/focus is
-          // correct without further motion.
-          processMotion(timeMsec, m_cursor->x, m_cursor->y);
+          // The grab cleared client focus on press and consumed every motion. Restore pointer delivery at the final
+          // position without letting this synthetic pass override the column selected by the gesture.
+          processMotion(timeMsec, m_cursor->x, m_cursor->y, false);
         }
         return;
       }
@@ -1044,7 +1707,7 @@ namespace andromeda {
       if (auto* grab = std::get_if<TiledResizeGrab>(&m_grab)) {
         if (grab->workspace != nullptr) {
           if (grab->workspace->focusedView() == grab->view) {
-            grab->workspace->ensureFocusedVisible();
+            grab->workspace->reevaluateFocusedColumn();
           }
           grab->workspace->markArrange(true);
         }
@@ -1055,18 +1718,22 @@ namespace andromeda {
         resetMode();
         return;
       }
+      if (const auto* pending = std::get_if<PendingResizeGrab>(&m_grab)) {
+        revealClickedTile(pending->view);
+        // A deferred Mod+right resize that never left the click's slop ends as
+        // a plain click. Its press reached no client, so swallow the release
+        // too rather than deliver an unmatched one; the click pair stays
+        // recorded for the double-click.
+        resetMode();
+        return;
+      }
       m_server->seat()->notifyPointerModifiers();
       wlr_seat_pointer_notify_button(m_server->seat()->wlr(), timeMsec, button, state);
 
       // After the final release, realign pointer focus (pinned by the implicit grab) with the surface under the cursor,
-      // so a press without intervening motion targets it. The overview keeps the desktop inert, so focus goes nowhere.
+      // retaining panel focus in overview so release-driven menus keep their pointer anchor.
       if (m_server->seat()->wlr()->pointer_state.button_count == 0) {
-        const Overview* overview = m_server->overview();
-        if (overview != nullptr && overview->active() && !m_server->sessionLocked()) {
-          clearPointerFocus();
-        } else {
-          refreshPointerFocus();
-        }
+        refreshPointerFocus();
       }
 
       resetMode();
@@ -1102,6 +1769,75 @@ namespace andromeda {
       return;
     }
 
+    // Scene hit testing lets covered chrome stay covered by windows and panels.
+    if (m_server->exclusiveKeyboardLayer() == nullptr
+        && isPassthrough()
+        && !wlr_seat_pointer_has_grab(m_server->seat()->wlr())) {
+      if (const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y)) {
+        View* target = hit->view;
+        clearPointerFocus();
+        if (button == BTN_LEFT && hit->part == SsdFramePart::Resize) {
+          m_server->focusView(target, FocusReason::Grab);
+          if (beginResize(target, hit->edges, button))
+            return;
+        } else if (button == BTN_LEFT && hit->part == SsdFramePart::TitleBar) {
+          m_server->focusView(target, FocusReason::PointerPress);
+          const double dx = m_cursor->x - m_lastTitleBarClick.x;
+          const double dy = m_cursor->y - m_lastTitleBarClick.y;
+          if (m_lastTitleBarClick.view == target
+              && timeMsec - m_lastTitleBarClick.timeMsec <= kDoubleClickMsec
+              && dx * dx + dy * dy <= kDoubleClickSlop * kDoubleClickSlop) {
+            m_lastTitleBarClick = {};
+            const bool maximized =
+                target->maximizedToEdges() || target->scheduledMaximized() || target->floatingMaximized();
+            target->setMaximizedLikeClientRequest(!maximized);
+          } else {
+            m_lastTitleBarClick = {timeMsec, m_cursor->x, m_cursor->y, target};
+            if (beginMove(target, button, true))
+              return;
+          }
+        } else if (
+            button == BTN_LEFT
+            && !target->blocked()
+            && (hit->part == SsdFramePart::Close
+                || hit->part == SsdFramePart::Minimize
+                || (hit->part == SsdFramePart::Maximize && target->ssdFrame()->maximizeEnabled()))
+        ) {
+          m_server->focusView(target, FocusReason::PointerPress);
+          m_ssdButtonPress = {target, hit->part};
+          target->ssdFrame()->setPressed(hit->part);
+        }
+        m_swallowedButtons.push_back(button);
+        return;
+      }
+    }
+
+    // A press on a tab bar is the compositor's: no client sees it or its release. The left button selects the tab and
+    // holds it, so dragging it past the threshold pulls it out of its column like any tiled window.
+    if (const std::optional<TabHit> hit = tabBarHitAt(*m_server, m_cursor->x, m_cursor->y, surface, view, layer)) {
+      const bool keyboardFree = m_server->exclusiveKeyboardLayer() == nullptr;
+      Workspace* home = hit->tab->workspace();
+      if (hit->part != TabBarPart::Tab) {
+        // A cycle button selects the tab before or after the one on show, wrapping at the ends.
+        if (button == BTN_LEFT && keyboardFree && home != nullptr) {
+          if (View* target = home->tabs().cycleFrom(hit->tab, hit->part == TabBarPart::PreviousTab ? -1 : 1)) {
+            m_server->focusView(target, FocusReason::PointerPress);
+          }
+        }
+      } else if (button == BTN_LEFT && keyboardFree) {
+        m_server->focusView(hit->tab, FocusReason::PointerPress);
+        if (beginMove(hit->tab, button)) {
+          return;
+        }
+      } else if (
+          button == BTN_MIDDLE && keyboardFree && home != nullptr && home->layoutConfig().tabs.middleClickCloses
+      ) {
+        hit->tab->requestClose();
+      }
+      m_swallowedButtons.push_back(button);
+      return;
+    }
+
     const bool modHeld = (m_server->keyboardModifiers() & m_server->modKey()) != 0;
     if (button == BTN_LEFT && modHeld && view != nullptr) {
       m_server->focusView(view, FocusReason::Grab);
@@ -1110,7 +1846,45 @@ namespace andromeda {
     }
     if (button == BTN_RIGHT && modHeld && view != nullptr) {
       m_server->focusView(view, FocusReason::Grab);
-      beginResize(view, view->tiled() ? 0 : floatResizeEdges(view), button);
+      if (config().input.modRightDoubleClick == ModRightDoubleClick::None) {
+        beginResize(view, view->tiled() ? 0 : floatResizeEdges(view), button);
+        return;
+      }
+      // A second Mod+right-click on the same window within the double-click
+      // window applies the opposite maximize state with a titlebar
+      // double-click's semantics. The direction is read at this press: the
+      // first press only holds a deferred grab (below), so no grab has
+      // perturbed the maximize state in between.
+      if (isModRightDoubleClick(timeMsec, view)) {
+        // Completing a pair clears the record so a third rapid click starts a
+        // fresh window. No grab owns this press, so its release would reach the
+        // client unmatched; swallow both like the tab-bar path does.
+        m_lastModRightClick = ModRightClick{};
+        m_swallowedButtons.push_back(button);
+        const bool wasMaximized = view->maximizedToEdges() || view->scheduledMaximized() || view->floatingMaximized();
+        view->setMaximizedLikeClientRequest(!wasMaximized);
+        return;
+      }
+      recordModRightClick(timeMsec, view);
+      // Defer the grab until the pointer leaves the slop: a grab would drop the
+      // maximize state the second click reads. Edges are snapshotted at the
+      // press point; a press proposing none is a plain click.
+      const uint32_t edges = view->tiled() ? tiledResizeEdges(view, m_cursor->x, m_cursor->y) : floatResizeEdges(view);
+      if (edges != 0) {
+        m_grab = PendingResizeGrab{
+            .view = view,
+            .button = button,
+            .startX = m_cursor->x,
+            .startY = m_cursor->y,
+            .edges = edges,
+            .workspace = view->tiled() ? view->workspace() : nullptr,
+            .layout = view->tiled() && view->workspace() != nullptr ? &view->workspace()->layout() : nullptr,
+        };
+        m_grabButton = button;
+        updateInteractiveCursor(view);
+      } else if (view->tiled()) {
+        revealClickedTile(view);
+      }
       return;
     }
 
@@ -1124,7 +1898,10 @@ namespace andromeda {
     }
 
     m_server->seat()->notifyPointerModifiers();
-    wlr_seat_pointer_notify_button(seat, timeMsec, button, state);
+    const uint32_t serial = wlr_seat_pointer_notify_button(seat, timeMsec, button, state);
+    if (state == WL_POINTER_BUTTON_STATE_PRESSED && serial != 0 && seat->pointer_state.button_count == 1) {
+      m_clientPointerPress = ClientPointerPress{.button = button, .serial = serial, .x = m_cursor->x, .y = m_cursor->y};
+    }
     if (layer != nullptr) {
       if (!isXdgPopupSurface(surface)) {
         layer->focus();
@@ -1134,7 +1911,8 @@ namespace andromeda {
         if (!isXdgPopupSurface(surface)) {
           m_server->focusView(view, FocusReason::PointerPress);
         }
-      } else {
+      } else if (surface == nullptr || wlr_xwayland_surface_try_from_wlr_surface(surface) == nullptr) {
+        // A press on an override-redirect X11 menu leaves the keyboard with the menu.
         wlr_output* wlrOutput = wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y);
         m_server->refocusExplicit(m_server->outputFromWlr(wlrOutput));
       }
@@ -1143,6 +1921,13 @@ namespace andromeda {
 
   void Cursor::handleAxis(void* data) {
     auto* event = static_cast<wlr_pointer_axis_event*>(data);
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 2U) != 0) {
+      m_server->notifyIdleActivity();
+      if (m_server->physicalInputDevice(&event->pointer->base)) {
+        capture->captureAxis(event->time_msec, event->orientation, event->delta, event->delta_discrete);
+      }
+      return;
+    }
     noteActivity();
     if (event->delta == 0 && event->delta_discrete == 0) {
       m_server->notifyIdleActivity();
@@ -1226,6 +2011,10 @@ namespace andromeda {
     }
 
     const int orientation = isVertical ? 0 : 1;
+    // An unmodified wheel over a tab bar steps through its tabs.
+    if (!armed && effective == 0 && scrollTabBar(event, orientation)) {
+      return;
+    }
     if (!armed) {
       m_wheelAccum[orientation] = 0;
       const double scale = touchpadScrollFactor(event->pointer, isVertical);
@@ -1258,7 +2047,35 @@ namespace andromeda {
     }
   }
 
+  bool Cursor::scrollTabBar(const wlr_pointer_axis_event* event, int orientation) {
+    double sx = 0;
+    double sy = 0;
+    wlr_surface* surface = nullptr;
+    LayerSurface* layer = nullptr;
+    View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    const std::optional<TabHit> hit = tabBarHitAt(*m_server, m_cursor->x, m_cursor->y, surface, view, layer);
+    Workspace* workspace = hit ? hit->tab->workspace() : nullptr;
+    if (workspace == nullptr || !workspace->layoutConfig().tabs.scrollSwitchesTabs) {
+      return false;
+    }
+    double& accumulated = m_wheelAccum[orientation];
+    accumulated +=
+        event->delta_discrete != 0 ? static_cast<double>(event->delta_discrete) / 120.0 : event->delta / 15.0;
+    while (std::abs(accumulated) >= 1.0) {
+      const int direction = accumulated < 0 ? -1 : 1;
+      accumulated -= direction;
+      if (View* target = workspace->tabs().stepFrom(hit->tab, direction)) {
+        m_server->focusView(target, FocusReason::PointerPress);
+      }
+    }
+    return true;
+  }
+
   void Cursor::handleFrame() {
+    if (InputCapture* capture = m_server->inputCapture();
+        capture != nullptr && capture->captureFrame(monotonicMsec())) {
+      return;
+    }
     if (Overview* overview = m_server->overview()) {
       overview->handleTouchpadFrame();
     }
@@ -1296,6 +2113,9 @@ namespace andromeda {
   }
 
   void Cursor::handleTouchDown(void* data) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      capture->suspend();
+    }
     auto* event = static_cast<wlr_touch_down_event*>(data);
     m_server->notifyInputActivity();
     m_server->cancelModifierTap();
@@ -1319,6 +2139,23 @@ namespace andromeda {
         overview->handleButton(BTN_LEFT, false, lx, ly, event->time_msec);
       }
       return;
+    }
+
+    if (!m_server->sessionLocked() && m_server->exclusiveKeyboardLayer() == nullptr) {
+      // A tap on a tab bar selects that tab, as a left click does.
+      if (const std::optional<TabHit> hit = tabBarHitAt(*m_server, lx, ly, surface, view, layer)) {
+        if (hit->part != TabBarPart::Tab) {
+          Workspace* home = hit->tab->workspace();
+          if (View* target = home != nullptr
+                  ? home->tabs().cycleFrom(hit->tab, hit->part == TabBarPart::PreviousTab ? -1 : 1)
+                  : nullptr) {
+            m_server->focusView(target, FocusReason::PointerPress);
+          }
+        } else {
+          m_server->focusView(hit->tab, FocusReason::PointerPress);
+        }
+        return;
+      }
     }
 
     if (surface != nullptr) {
@@ -1363,7 +2200,7 @@ namespace andromeda {
 
     double sx = 0;
     double sy = 0;
-    if (!surfaceLocalCoordinates(m_server->scene(), point->surface, lx, ly, &sx, &sy)) {
+    if (!surfaceLocalCoordinates(m_server->scene(), point->surface, surfaceScale(point->surface), lx, ly, &sx, &sy)) {
       kLog.warn(
           "touch motion id={} could not map target surface {} at layout=({}, {})", event->touch_id,
           static_cast<void*>(point->surface), lx, ly
@@ -1399,6 +2236,9 @@ namespace andromeda {
   void Cursor::processMotion(uint32_t timeMsec, double oldX, double oldY, bool allowFocusChange) {
     updateHotCorner();
     forwardEffectPointer();
+    if (const wlr_drag* drag = m_server->seat()->wlr()->drag; drag != nullptr && drag->dropped) {
+      return;
+    }
     if (auto* grab = std::get_if<ScrollDragGrab>(&m_grab)) {
       if (m_server->sessionLocked()) {
         m_server->gestures()->endPointerScroll(true, timeMsec);
@@ -1453,7 +2293,17 @@ namespace andromeda {
         }
         processMove();
         updateDropTarget();
-        return;
+        if (config().input.windowSnapping && grab->target == DragTarget::Floating && !m_toplevelDrag) {
+          updateSnapPreview();
+        } else {
+          clearSnapPreview();
+        }
+        updateDataDragEdgeScroll();
+        // A toplevel drag moves a real window while wlroots keeps delivering
+        // data-device enter and motion to the surfaces underneath it.
+        if (!m_toplevelDrag) {
+          return;
+        }
       }
     }
     if (std::holds_alternative<FloatingResizeGrab>(m_grab)) {
@@ -1472,16 +2322,26 @@ namespace andromeda {
         return;
       }
     }
+    if (std::holds_alternative<PendingResizeGrab>(m_grab)) {
+      // Motion inside the slop belongs to the deferred press, not to clients
+      // or focus-follows-mouse.
+      if (!m_server->sessionLocked()) {
+        return;
+      }
+      resetMode();
+    }
 
     wlr_seat* seat = m_server->seat()->wlr();
+    updateDataDragEdgeScroll();
     if (seat->drag == nullptr
         && seat->pointer_state.button_count > 0
         && seat->pointer_state.focused_surface != nullptr) {
       // Keep an implicit grab in the coordinate space established by the press. Re-resolving against the scene
       // would turn compositor-driven window animation into apparent pointer travel and make small clicks look like
       // client drags.
-      const double sx = seat->pointer_state.sx + (m_cursor->x - oldX);
-      const double sy = seat->pointer_state.sy + (m_cursor->y - oldY);
+      const double scale = surfaceScale(seat->pointer_state.focused_surface);
+      const double sx = seat->pointer_state.sx + ((m_cursor->x - oldX) * scale);
+      const double sy = seat->pointer_state.sy + ((m_cursor->y - oldY) * scale);
       wlr_seat_pointer_notify_motion(seat, timeMsec, sx, sy);
       updateConstraintForSurface(seat->pointer_state.focused_surface);
       return;
@@ -1518,10 +2378,22 @@ namespace andromeda {
           &m_server->dragIconTree()->node, static_cast<int>(m_cursor->x), static_cast<int>(m_cursor->y)
       );
     }
-    if (seat->drag != nullptr && m_server->toplevelDragManager() != nullptr) {
-      m_server->toplevelDragManager()->pointerMoved(m_cursor->x, m_cursor->y);
-    }
 
+    const auto frameHit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+    View* frameView = frameHit ? frameHit->view : nullptr;
+    if (m_ssdHoverView != frameView && m_ssdHoverView != nullptr && m_ssdHoverView->ssdFrame() != nullptr) {
+      m_ssdHoverView->ssdFrame()->setHovered(SsdFramePart::None);
+    }
+    m_ssdHoverView = frameView;
+    if (frameView != nullptr)
+      frameView->ssdFrame()->setHovered(frameHit->part);
+    if (m_ssdButtonPress.view != nullptr && m_ssdButtonPress.view->ssdFrame() != nullptr) {
+      m_ssdButtonPress.view->ssdFrame()->setPressed(
+          frameHit && frameView == m_ssdButtonPress.view && frameHit->part == m_ssdButtonPress.part
+              ? m_ssdButtonPress.part
+              : SsdFramePart::None
+      );
+    }
     updateConstraintForSurface(surface);
     updateInteractiveCursor(view);
   }
@@ -1535,8 +2407,11 @@ namespace andromeda {
       // `focused` in the workspaces payload is the active workspace of the cursor's output, so crossing heads changes
       // it even when no workspace activates: a switch to a workspace already active elsewhere only warps the cursor.
       m_server->scheduleIpcWorkspacesEvent();
+      wlr_seat* seat = m_server->seat()->wlr();
       if (allowFocusChange
           && config().input.focus.followsMouse
+          && !wlr_seat_pointer_has_grab(seat)
+          && !wlr_seat_keyboard_has_grab(seat)
           && !m_server->sessionLocked()
           && m_server->exclusiveKeyboardLayer() == nullptr) {
         m_server->refocusExplicit(m_server->outputFromWlr(pointerOutput));
@@ -1547,26 +2422,57 @@ namespace andromeda {
   View* Cursor::hoverFocus(
       View* view, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer, double oldX, double oldY
   ) {
-    if (m_server->seat()->wlr()->drag != nullptr
+    wlr_seat* seat = m_server->seat()->wlr();
+    // Hover must preserve a popup's seat grabs. Transferring keyboard focus would cancel the grab and dismiss it.
+    // Leave explicit focus actions and outside clicks free to transfer focus through their normal paths.
+    if (seat->drag != nullptr
+        || wlr_seat_pointer_has_grab(seat)
+        || wlr_seat_keyboard_has_grab(seat)
         || m_server->sessionLocked()
         || *layer != nullptr
         || view == nullptr
         || !view->mapped()) {
       return view;
     }
+    Workspace* workspace = view->workspace();
+    const bool scrollRefocus = workspace != nullptr && workspace->scrollHoverFocusDeferred();
+    if (scrollRefocus) {
+      // Keep the refresh through rapid scroll retargets and zero-distance synthetic motion, such as button release.
+      if (workspace->arrangePending()
+          || workspace->layoutMotionActive()
+          || m_server->gestures()->movingContent()
+          || (oldX == m_cursor->x && oldY == m_cursor->y)) {
+        return view;
+      }
+      workspace->resumeScrollHoverFocus();
+    }
     // Consume the invalidation only after every hover-focus eligibility gate. PointerHover never arms it, so layout
     // motion caused by this focus cannot turn into another focus on the next input event.
-    const bool refocus = m_hoverFocusInvalidated;
+    const bool refocus = scrollRefocus || m_hoverFocusInvalidated;
     m_hoverFocusInvalidated = false;
     wlr_surface* oldSurface = nullptr;
     double oldSx = 0;
     double oldSy = 0;
     View* oldView = m_server->viewAt(oldX, oldY, &oldSurface, &oldSx, &oldSy);
-    const bool entered = refocus || view != oldView;
+    // A transient can open while the pointer remains over its parent. Refreshing hover within that ancestor must
+    // leave the child focused so the pointer can reach it; crossing back into the ancestor still transfers focus.
+    bool hoveredAncestor = false;
+    const View* focused = View::fromSurface(seat->keyboard_state.focused_surface);
+    if (!scrollRefocus && refocus && view == oldView && focused != nullptr && focused->workspace() == workspace) {
+      for (const View* parent = focused->transientParent(); parent != nullptr; parent = parent->transientParent()) {
+        if (parent == view) {
+          hoveredAncestor = true;
+          break;
+        }
+      }
+    }
+    // Keyboard focus is an escape from rule confinement. While the pointer remains inside that window, an
+    // invalidated hover must not immediately focus it again. A real re-entry (or a click) can still focus it.
+    const bool entered = view != oldView || (refocus && !hoveredAncestor && !ruleConstraintApplies(*view));
     // Workspace focus is remembered independently from the seat. A pinned window from another workspace can own the
-    // seat while this view remains its active workspace's remembered focus, so only seat-global activation makes this
-    // handoff redundant.
-    const bool alreadyFocused = view->activated();
+    // seat while this view remains its active workspace's remembered focus, so only seat-global activation of the
+    // window that would take the keyboard (a dialog attached to this one) makes this handoff redundant.
+    const bool alreadyFocused = view->placementRoot()->inputDelegate()->activated();
     if (entered && !alreadyFocused) {
       m_server->focusView(view, FocusReason::PointerHover);
       // Scroll may have moved another surface under the cursor; refresh hit-test for
@@ -1623,7 +2529,7 @@ namespace andromeda {
         || wl_resource_get_client(watch->v2->focused_surface->resource) != event->seat_client->client) {
       return;
     }
-    watch->cursor->setCursorSurface(event->surface, event->hotspot_x, event->hotspot_y);
+    watch->cursor->setCursorSurface(event->surface, event->hotspot_x, event->hotspot_y, event->seat_client->client);
   }
 
   Cursor::TabletToolState* Cursor::toolState(wlr_tablet_tool* tool) {
@@ -1686,7 +2592,8 @@ namespace andromeda {
     if (state->v2->focused_surface != nullptr && (state->tipDown || wlr_tablet_tool_v2_has_implicit_grab(state->v2))) {
       double sx = 0;
       double sy = 0;
-      surfaceLocalCoordinates(m_server->scene(), state->v2->focused_surface, m_cursor->x, m_cursor->y, &sx, &sy);
+      wlr_surface* focused = state->v2->focused_surface;
+      surfaceLocalCoordinates(m_server->scene(), focused, surfaceScale(focused), m_cursor->x, m_cursor->y, &sx, &sy);
       wlr_tablet_v2_tablet_tool_notify_motion(state->v2, sx, sy);
       forwardEffectPointer();
       return;
@@ -1722,6 +2629,9 @@ namespace andromeda {
   }
 
   void Cursor::handleTabletToolAxis(void* data) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      capture->suspend();
+    }
     auto* event = static_cast<wlr_tablet_tool_axis_event*>(data);
     noteActivity();
     m_server->notifyInputActivity();
@@ -1762,6 +2672,9 @@ namespace andromeda {
   }
 
   void Cursor::handleTabletToolProximity(void* data) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      capture->suspend();
+    }
     auto* event = static_cast<wlr_tablet_tool_proximity_event*>(data);
     noteActivity();
     if (event->state == WLR_TABLET_TOOL_PROXIMITY_IN) {
@@ -1805,6 +2718,9 @@ namespace andromeda {
   }
 
   void Cursor::handleTabletToolTip(void* data) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      capture->suspend();
+    }
     auto* event = static_cast<wlr_tablet_tool_tip_event*>(data);
     noteActivity();
     if (event->state == WLR_TABLET_TOOL_TIP_DOWN) {
@@ -1849,6 +2765,9 @@ namespace andromeda {
   }
 
   void Cursor::handleTabletToolButton(void* data) {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr) {
+      capture->suspend();
+    }
     auto* event = static_cast<wlr_tablet_tool_button_event*>(data);
     noteActivity();
     if (event->state == WLR_BUTTON_PRESSED) {
@@ -1886,7 +2805,8 @@ namespace andromeda {
       return;
     }
     grab->view->setDragPosition(
-        static_cast<int>(m_cursor->x - grab->offsetX), static_cast<int>(m_cursor->y - grab->offsetY)
+        static_cast<int>(m_cursor->x - grab->offsetX), static_cast<int>(m_cursor->y - grab->offsetY),
+        grab->floatingLayout
     );
     if (grab->physics) {
       grab->view->moveDragPhysics(m_cursor->x - grab->lastX, m_cursor->y - grab->lastY);
@@ -1908,6 +2828,22 @@ namespace andromeda {
   }
 
   void Cursor::beginDrag(MoveGrab& grab) {
+    if (grab.target == DragTarget::Floating && (grab.view->floatingMaximized() || grab.view->snapRegion())) {
+      View* view = grab.view;
+      const int width = view->floatingSize()[0];
+      const double fraction = width > 0 ? std::clamp((grab.startX - view->layoutX()) / width, 0.0, 1.0) : 0.5;
+      view->restoreMaximizedForMove();
+      view->unsnap(false);
+      grab.preDragX = view->layoutTargetX();
+      grab.preDragY = view->layoutTargetY();
+      const auto restored = view->floatingSize();
+      grab.offsetX = fraction * restored[0];
+      const int h = view->titleBarHeight();
+      if (h > 0)
+        grab.offsetY = std::clamp(grab.offsetY, -static_cast<double>(h), -1.0);
+      view->setDragPosition(m_cursor->x - grab.offsetX, m_cursor->y - grab.offsetY, grab.floatingLayout);
+    }
+    m_lastTitleBarClick = {};
     grab.pending = false;
     if (grab.sourceWorkspace != nullptr) {
       grab.sourceWorkspace->layoutDetach(grab.view);
@@ -1916,6 +2852,7 @@ namespace andromeda {
     grab.physics = grab.view->beginDragPhysics(grab.offsetX, grab.offsetY);
     grab.lastX = m_cursor->x;
     grab.lastY = m_cursor->y;
+    updateInteractiveCursor(grab.view);
   }
 
   void Cursor::updateDropTarget() {
@@ -1959,6 +2896,102 @@ namespace andromeda {
     grab->view->raiseToTop();
   }
 
+  void Cursor::clearSnapPreview() {
+    if (m_snapDwellTimer != nullptr) {
+      wl_event_source_timer_update(m_snapDwellTimer, 0);
+    }
+    if (auto* grab = std::get_if<MoveGrab>(&m_grab)) {
+      if (grab->snap) {
+        m_server->hideInsertHint();
+      }
+      grab->snap.reset();
+      grab->snapOutput = nullptr;
+      grab->dwellOutput = nullptr;
+      grab->dwellEdges = 0;
+      grab->dwellReady = false;
+    }
+  }
+
+  int Cursor::onSnapDwellTimer(void* data) {
+    auto* self = static_cast<Cursor*>(data);
+    if (auto* grab = std::get_if<MoveGrab>(&self->m_grab)) {
+      grab->dwellReady = true;
+      self->updateSnapPreview();
+    }
+    return 0;
+  }
+
+  void Cursor::updateSnapPreview() {
+    auto* grab = std::get_if<MoveGrab>(&m_grab);
+    if (grab == nullptr
+        || grab->pending
+        || grab->target != DragTarget::Floating
+        || m_toplevelDrag
+        || !config().input.windowSnapping
+        || m_server->seat()->wlr()->drag != nullptr
+        || !grab->view->canSnap()) {
+      clearSnapPreview();
+      return;
+    }
+    Output* output =
+        m_server->outputFromWlr(wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y));
+    if (output == nullptr || output->workspaceGroup() == nullptr) {
+      clearSnapPreview();
+      return;
+    }
+    const wlr_box area = output->layoutBox();
+    uint32_t shared = 0;
+    const auto adjacent = [&](double x, double y) {
+      wlr_output* other = wlr_output_layout_output_at(m_server->outputLayout(), x, y);
+      return other != nullptr && other != output->wlr();
+    };
+    if (m_cursor->x - area.x < kSnapEdge && adjacent(area.x - 1, m_cursor->y))
+      shared |= WLR_EDGE_LEFT;
+    if (area.x + area.width - m_cursor->x <= kSnapEdge && adjacent(area.x + area.width, m_cursor->y))
+      shared |= WLR_EDGE_RIGHT;
+    if (m_cursor->y - area.y < kSnapEdge && adjacent(m_cursor->x, area.y - 1))
+      shared |= WLR_EDGE_TOP;
+    if (area.y + area.height - m_cursor->y <= kSnapEdge && adjacent(m_cursor->x, area.y + area.height))
+      shared |= WLR_EDGE_BOTTOM;
+    if (grab->dwellOutput != output || grab->dwellEdges != shared) {
+      if (m_snapDwellTimer != nullptr)
+        wl_event_source_timer_update(m_snapDwellTimer, 0);
+      grab->dwellOutput = output;
+      grab->dwellEdges = shared;
+      grab->dwellReady = false;
+      if (shared != 0) {
+        if (m_snapDwellTimer == nullptr) {
+          m_snapDwellTimer =
+              wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onSnapDwellTimer, this);
+        }
+        if (m_snapDwellTimer != nullptr)
+          wl_event_source_timer_update(m_snapDwellTimer, kSnapDwellMs);
+      }
+    }
+    const auto hit = snapZoneAt(area, m_cursor->x, m_cursor->y, grab->dwellReady ? 0 : shared);
+    if (!hit) {
+      grab->snap.reset();
+      grab->snapOutput = nullptr;
+      m_server->hideInsertHint();
+      return;
+    }
+    const Workspace* workspace = output->workspaceGroup()->active();
+    const auto* layout = workspace != nullptr ? &workspace->layoutConfig() : nullptr;
+    std::optional<wlr_box> content = grab->view->floatingSnappedBox(*hit, output->usableArea(), layout);
+    if (!content || content->width <= 0 || content->height <= 0) {
+      grab->snap.reset();
+      grab->snapOutput = nullptr;
+      m_server->hideInsertHint();
+      return;
+    }
+    const int bar = grab->view->titleBarHeight();
+    content->y -= bar;
+    content->height += bar;
+    grab->snap = hit;
+    grab->snapOutput = output;
+    m_server->insertHint().show(output, *content, config().appearance.cornerRadius);
+  }
+
   void Cursor::finishMove() {
     auto* grab = std::get_if<MoveGrab>(&m_grab);
     if (grab == nullptr || grab->view == nullptr || !grab->view->mapped()) {
@@ -1972,12 +3005,19 @@ namespace andromeda {
     // Where the drag left the window. Read before the state change: becoming
     // floating re-places the window at its remembered origin, immediately when
     // position animations are off.
-    const int dropX = view->sceneTree()->node.x;
-    const int dropY = view->sceneTree()->node.y;
+    const int dropX = view->layoutX();
+    const int dropY = view->layoutY();
     // State first, placement second: a window that refused the drag's target
     // (a fullscreen window cannot be pinned) is still tiled here and drops back
     // into the layout rather than staying detached.
-    applyDragTarget(*grab);
+    Output* destination =
+        m_server->outputFromWlr(wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y));
+    Workspace* workspace = destination != nullptr ? destination->workspaceGroup()->active() : nullptr;
+    if (grab->target == DragTarget::Tiled && workspace != nullptr && workspace->layoutMode() == LayoutMode::Floating) {
+      view->floatForLayout();
+    } else {
+      applyDragTarget(*grab);
+    }
     if (view->tiled()) {
       finishTileMove();
     } else {
@@ -2032,6 +3072,13 @@ namespace andromeda {
   }
 
   void Cursor::finishFloatMove(int x, int y) {
+    const auto* grab = std::get_if<MoveGrab>(&m_grab);
+    const auto snap = grab != nullptr && config().input.windowSnapping ? grab->snap : std::nullopt;
+    Output* snapOutput = grab != nullptr ? grab->snapOutput : nullptr;
+    const int preDragX = grab != nullptr ? grab->preDragX : x;
+    const int preDragY = grab != nullptr ? grab->preDragY : y;
+    const wlr_box preDragArea = grab != nullptr ? grab->preDragArea : wlr_box{};
+    const bool floatingLayout = grab != nullptr && grab->floatingLayout;
     View* view = grabbedView();
     if (view == nullptr || !view->mapped()) {
       resetMode();
@@ -2049,12 +3096,28 @@ namespace andromeda {
         target->exitFullscreenForIncomingView(view);
       }
     }
-    // Drag presentation moves only the scene node. Commit its final position
-    // after any workspace transfer so later restores use the dropped origin.
-    view->setPosition(x, y);
-    view->rememberFloatingPosition();
+    // Commit the final position after any workspace transfer, including drags whose target was deferred until
+    // release, so later restores use the dropped origin. A free drop settles into the grabbable margin here (animated,
+    // exactly at release), since the drag itself may have parked the window mostly out of frame.
+    const wlr_box usable = view->floatingUsableArea();
+    const FloatingPoint settled = view->settleFloatingDrop(x, y);
 
     resetMode();
+    if (snap && snapOutput == output && view->canSnap()) {
+      FloatingGeometry normalPosition;
+      normalPosition.rememberPositionFraction({preDragX, preDragY}, preDragArea);
+      // The restore is a placement too: the remembered fraction can resolve outside the margin on a smaller output.
+      const FloatingPoint restore = view->grabbableOrigin(
+          normalPosition.restoredOrigin(usable).value_or(FloatingPoint{preDragX, preDragY}), usable
+      );
+      if (!floatingLayout) {
+        view->setPosition(restore.x, restore.y);
+      }
+      if (!view->snapTo(*snap, floatingLayout ? std::optional{restore} : std::nullopt)) {
+        // Client constraints can change after the preview was drawn. Keep the free drop when it no longer fits.
+        view->setPosition(settled.x, settled.y);
+      }
+    }
     m_server->focusView(view, FocusReason::DragDrop);
   }
 
@@ -2082,6 +3145,7 @@ namespace andromeda {
       beginDrag(*grab);
     }
 
+    clearSnapPreview();
     if (toggle == WindowDragToggle::Pinned) {
       grab->target = grab->target == DragTarget::Pinned ? grab->unpinned : DragTarget::Pinned;
     } else {
@@ -2132,7 +3196,7 @@ namespace andromeda {
     int newRight = grab->geometryX + grab->geometryWidth;
     int newTop = grab->geometryY;
     int newBottom = grab->geometryY + grab->geometryHeight;
-    const XdgSizeHints hints = xdgSizeHints(grab->view->toplevel());
+    const SizeHints hints = grab->view->sizeHints();
 
     if ((grab->edges & WLR_EDGE_TOP) != 0) {
       newTop = static_cast<int>(borderY);
@@ -2173,13 +3237,49 @@ namespace andromeda {
     grab->view->resizeFloating(newRight - newLeft, newBottom - newTop);
   }
 
+  void Cursor::revealClickedTile(View* view) {
+    Workspace* workspace = view->workspace();
+    if (view->tiled() && workspace != nullptr && workspace->focusedView() == view) {
+      workspace->ensureFocusedVisible();
+      workspace->markArrange(true);
+    }
+  }
+
+  uint32_t Cursor::tiledResizeEdges(View* view, double x, double y) const {
+    Workspace* workspace = view->workspace();
+    if (workspace == nullptr || workspace->group() == nullptr || workspace->group()->output() == nullptr) {
+      return 0;
+    }
+    const wlr_box presented = workspace->presentedTiledBox(view);
+    const wlr_box visible = workspace->usableArea();
+    wlr_box reachable{};
+    if (!wlr_box_intersection(&reachable, &presented, &visible)) {
+      return 0;
+    }
+    return workspace->layout().sanitizeResizeEdges(view, resizeEdgesForPoint(reachable, x, y));
+  }
+
+  void Cursor::forgetView(const View* view) {
+    if (m_lastTitleBarClick.view == view)
+      m_lastTitleBarClick = {};
+    if (m_ssdButtonPress.view == view)
+      m_ssdButtonPress = {};
+    if (m_ssdHoverView == view)
+      m_ssdHoverView = nullptr;
+    // Only the click pair sits outside the grab machinery: the deferred press
+    // is a grab and handleUnmap's resetMode() drops it.
+    if (m_lastModRightClick.view == view) {
+      m_lastModRightClick = ModRightClick{};
+    }
+  }
+
   uint32_t Cursor::floatResizeEdges(View* view) const {
     if (view == nullptr || view->sceneTree() == nullptr) {
       return WLR_EDGE_RIGHT | WLR_EDGE_BOTTOM;
     }
-    const wlr_box& geo = view->toplevel()->base->geometry;
-    const int x = view->sceneTree()->node.x + geo.x;
-    const int y = view->sceneTree()->node.y + geo.y;
+    const wlr_box& geo = view->geometryBox();
+    const int x = view->layoutX() + geo.x;
+    const int y = view->layoutY() + geo.y;
     const wlr_box box{.x = x, .y = y, .width = geo.width, .height = geo.height};
     return resizeEdgesForPoint(box, m_cursor->x, m_cursor->y);
   }
@@ -2195,9 +3295,9 @@ namespace andromeda {
       if (view->sceneTree() == nullptr) {
         return 0;
       }
-      const wlr_box& geo = view->toplevel()->base->geometry;
-      const double left = view->sceneTree()->node.x + geo.x;
-      const double top = view->sceneTree()->node.y + geo.y;
+      const wlr_box& geo = view->geometryBox();
+      const double left = view->layoutX() + geo.x;
+      const double top = view->layoutY() + geo.y;
       const double right = left + geo.width;
       const double bottom = top + geo.height;
       const double distLeft = std::abs(m_cursor->x - left);
@@ -2301,6 +3401,11 @@ namespace andromeda {
       return;
     }
     wlr_seat* seat = m_server->seat()->wlr();
+    // Drop placement can change the scene before wlroots releases its grab.
+    // Retargeting then would invalidate the offer the recipient must finish.
+    if (seat->drag != nullptr && seat->drag->dropped) {
+      return;
+    }
     if (surface == seat->pointer_state.focused_surface) {
       wlr_seat_pointer_notify_motion(seat, timeMsec, sx, sy);
     } else {
@@ -2312,16 +3417,26 @@ namespace andromeda {
     if (pointerFocusPinned()) {
       return;
     }
-    wlr_seat_pointer_clear_focus(m_server->seat()->wlr());
+    wlr_seat_pointer_notify_clear_focus(m_server->seat()->wlr());
   }
 
   void Cursor::clearPointerFocusOverridingGrab() { wlr_seat_pointer_clear_focus(m_server->seat()->wlr()); }
 
   void Cursor::refreshPointerFocus() {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 2U) != 0) {
+      return;
+    }
     double sx = 0;
     double sy = 0;
     wlr_surface* surface = nullptr;
-    m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy);
+    LayerSurface* layer = nullptr;
+    m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+    if (const Overview* overview = m_server->overview(); overview != nullptr
+        && overview->active()
+        && !m_server->sessionLocked()
+        && (overview->dragging() || !overviewPassthroughLayer(layer))) {
+      surface = nullptr;
+    }
     const bool stale = !pointerFocusPinned() && pointerContentsStale(surface, sx, sy);
     setPointerFocus(surface, sx, sy, monotonicMsec());
     if (stale) {
@@ -2330,14 +3445,44 @@ namespace andromeda {
   }
 
   void Cursor::refreshPointerContents(const Output* output) {
-    const wlr_seat* seat = m_server->seat()->wlr();
+    wlr_seat* seat = m_server->seat()->wlr();
     if (output == nullptr
-        || !isPassthrough()
         || m_cursorHidden
-        || seat->drag != nullptr
-        || seat->pointer_state.button_count != 0
         || std::ranges::any_of(m_tools, [](const auto& tool) { return tool->inProximity; })
         || wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y) != output->wlr()) {
+      return;
+    }
+    if (seat->drag != nullptr) {
+      updateDataDragEdgeScroll();
+      if (seat->drag->dropped) {
+        return;
+      }
+      if (m_server->sessionLocked()) {
+        wlr_seat_pointer_notify_clear_focus(seat);
+        wlr_seat_pointer_notify_frame(seat);
+        return;
+      }
+      double sx = 0;
+      double sy = 0;
+      wlr_surface* surface = nullptr;
+      m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy);
+      if (surface != nullptr) {
+        const uint32_t timeMsec = monotonicMsec();
+        wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
+        wlr_seat_pointer_notify_motion(seat, timeMsec, sx, sy);
+      } else {
+        wlr_seat_pointer_notify_clear_focus(seat);
+      }
+      wlr_seat_pointer_notify_frame(seat);
+      return;
+    }
+    if (tiledMoveDragActive()) {
+      // The compositor owns drop targeting during a window move; client pointer focus stays suspended.
+      updateDataDragEdgeScroll();
+      updateDropTarget();
+      return;
+    }
+    if (!isPassthrough() || seat->pointer_state.button_count != 0) {
       return;
     }
     // Content still in motion would flicker hover state on every frame. The next press resolves it regardless.
@@ -2380,14 +3525,18 @@ namespace andromeda {
       resizeEdges = grab->edges;
     } else if (const auto* grab = std::get_if<TiledResizeGrab>(&m_grab)) {
       resizeEdges = grab->edges;
+    } else if (const auto* grab = std::get_if<PendingResizeGrab>(&m_grab)) {
+      resizeEdges = grab->edges;
     }
     if (resizeEdges != 0) {
       const char* name = wlr_xcursor_get_resize_name(static_cast<enum wlr_edges>(resizeEdges));
       setCompositorCursor(name != nullptr ? name : "default");
       return;
     }
-    if (std::holds_alternative<MoveGrab>(m_grab)) {
-      setCompositorCursor("grabbing");
+    if (const auto* grab = std::get_if<MoveGrab>(&m_grab)) {
+      if (!grab->pending) {
+        setCompositorCursor("grabbing");
+      }
       return;
     }
 
@@ -2403,6 +3552,23 @@ namespace andromeda {
       return;
     }
 
+    if (!modHeld) {
+      if (const auto hit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y)) {
+        const char* name = "default";
+        if (hit->part == SsdFramePart::Resize) {
+          name = wlr_xcursor_get_resize_name(static_cast<enum wlr_edges>(hit->edges));
+        } else if (
+            !hit->view->blocked()
+            && (hit->part == SsdFramePart::Close
+                || hit->part == SsdFramePart::Minimize
+                || (hit->part == SsdFramePart::Maximize && hit->view->ssdFrame()->maximizeEnabled()))
+        ) {
+          name = "pointer";
+        }
+        setCompositorCursor(name != nullptr ? name : "default");
+        return;
+      }
+    }
     setCompositorCursor(nullptr);
   }
 
@@ -2435,7 +3601,7 @@ namespace andromeda {
     }
     const wlr_box usable = grab->workspace->tiledArea();
     grab->session->applyDelta(m_cursor->x - grab->startX, m_cursor->y - grab->startY, usable);
-    wlr_xdg_toplevel_set_maximized(grab->view->toplevel(), false);
+    grab->view->setMaximizedState(false);
     grab->workspace->markArrange(false);
   }
 

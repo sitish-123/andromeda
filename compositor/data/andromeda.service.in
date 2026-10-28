@@ -1,12 +1,13 @@
 [Unit]
 Description=Andromeda Wayland compositor
 Documentation=https://github.com/noctalia-dev/andromeda
-Wants=graphical-session-pre.target
+Wants=graphical-session-pre.target andromeda-session.target
 After=graphical-session-pre.target
+BindsTo=graphical-session.target
 PartOf=andromeda-session.target
-Before=andromeda-session.target
+Before=andromeda-session.target graphical-session.target
 
 [Service]
-Type=simple
+Type=notify
 Slice=session.slice
 ExecStart=@ANDROMEDA_EXECUTABLE@

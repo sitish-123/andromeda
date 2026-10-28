@@ -8,13 +8,14 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/node.h"
+#include "scene/ssd_frame.h"
 #include "server/server.h"
-#include "server/toplevel_drag.h"
 #include "view/view.h"
 #include "wlr.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -22,17 +23,6 @@ namespace andromeda {
 
   namespace {
     constexpr Logger kLog("focus");
-
-    struct InputRefusal {
-      std::vector<std::pair<wlr_scene_buffer*, wlr_scene_buffer_point_accepts_input_func_t>> saved;
-    };
-
-    bool acceptsNoInput(wlr_scene_buffer* /*buffer*/, double* /*sx*/, double* /*sy*/) { return false; }
-
-    void refuseInput(wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
-      static_cast<InputRefusal*>(data)->saved.emplace_back(buffer, buffer->point_accepts_input);
-      buffer->point_accepts_input = acceptsNoInput;
-    }
 
     constexpr std::string_view focusReasonName(FocusReason reason) {
       switch (reason) {
@@ -63,10 +53,14 @@ namespace andromeda {
     if (view == nullptr || m_server.sessionLocked()) {
       return;
     }
-    while (View* modal = view->modalChild()) {
-      view = modal;
-    }
+    // Focus policy (workspace, MRU, reveal) belongs to the window that holds the placement; the keyboard goes to the
+    // dialog attached on top of it, if any.
+    view = view->placementRoot();
+    View* seatTarget = view->inputDelegate();
 
+    if (!seatTarget->acceptsKeyboardFocus()) {
+      return;
+    }
     // PointerHover gate: reject focus entirely when revealing would exceed the configured max scroll fraction. Must run
     // before any side effects (MRU, seat focus) so an over-limit hover focuses nothing.
     if (reason == FocusReason::PointerHover && view->tiled()) {
@@ -78,9 +72,14 @@ namespace andromeda {
       }
     }
 
+    // Focusing a window shows it.
+    if (view->minimized()) {
+      view->setMinimized(false);
+    }
+
     if (Workspace* workspace = view->workspace()) {
       if (WorkspaceGroup* group = workspace->group(); group != nullptr && !view->pinned() && !workspace->active()) {
-        const char* appId = view->toplevel()->app_id != nullptr ? view->toplevel()->app_id : "";
+        const char* appId = view->appId() != nullptr ? view->appId() : "";
         // A group without a live output still has to activate; only the log's output name degrades.
         const Output* output = group->output();
         const char* outputName = output != nullptr && output->wlr() != nullptr ? output->wlr()->name : "<none>";
@@ -100,6 +99,9 @@ namespace andromeda {
       m_server.scratchpadManager()->noteFocus(view);
     }
 
+    View* previous = View::fromSurface(m_server.seat()->wlr()->keyboard_state.focused_surface);
+    // Read the rule before changing activation: a match.is_focused rule stops matching as soon as focus moves.
+    const bool leavingConfinement = previous != nullptr && previous != seatTarget && previous->confinePointer();
     m_server.registry().promote(view);
     view->setUrgent(false);
 
@@ -107,6 +109,10 @@ namespace andromeda {
       view->applyDeferredUnfullscreen();
     }
 
+    // Raise is decided once: only a hover under follows_mouse may focus without lifting the window. Every other
+    // reason (clicks, keybinds, activation, workspace switches, mapping) raises.
+    const bool raise = !(reason == FocusReason::PointerHover && !config().input.focus.hoverRaises);
+    m_lastRaise = raise;
     // Keep workspace focus while exclusive layer-shell holds the seat; refocus applies it later. focus() also returns
     // the seat to a layer that was uncovered by a fullscreen window leaving, and clears the previous window's
     // activation chrome. Overview owns the seat the same way, but keeps the chrome so card borders track the focused
@@ -115,23 +121,29 @@ namespace andromeda {
     if (LayerSurface* layer = exclusiveKeyboardLayer()) {
       layer->focus();
     } else {
-      view->applySeatFocus(!overviewActive);
+      seatTarget->applySeatFocus(!overviewActive, raise);
     }
     Workspace* workspace = view->workspace();
     if (workspace != nullptr && (!view->pinned() || workspace->active())) {
-      workspace->setFocusedView(view);
+      workspace->setFocusedView(view, raise, reason != FocusReason::PointerHover);
     }
     m_server.refreshOutputPolicies();
     if (overviewActive) {
       m_server.overview()->onFocusChanged();
     }
-    // Pointer presses and compositor grabs already align focus with their target. Keyboard and activation-driven focus
-    // can instead replace the scene beneath a stationary pointer, so let the next eligible hover refresh it once.
+    // Pointer presses, compositor grabs, and completed gestures already align focus with their target. Keyboard and
+    // activation-driven focus can instead replace the scene beneath a stationary pointer, so let the next eligible
+    // hover refresh it once.
     if (reason != FocusReason::PointerHover
         && reason != FocusReason::PointerPress
         && reason != FocusReason::Grab
-        && reason != FocusReason::DragDrop) {
-      m_server.cursor()->invalidateHoverFocus();
+        && reason != FocusReason::DragDrop
+        && reason != FocusReason::Gesture) {
+      if (leavingConfinement) {
+        m_server.cursor()->releaseRuleConfinement(*previous);
+      } else {
+        m_server.cursor()->invalidateHoverFocus();
+      }
     }
 
     // Derive reveal policy from the focus reason.
@@ -157,6 +169,16 @@ namespace andromeda {
       // No reveal: the finger already chose where the strip rests, and a reveal
       // would drag it somewhere else on release.
       break;
+    }
+  }
+
+  void FocusManager::xwaylandHintsChanged(View* view) {
+    if (view->mapped()
+        && !view->acceptsKeyboardFocus()
+        && view->rootSurface() != nullptr
+        && m_server.seat()->wlr()->keyboard_state.focused_surface == view->rootSurface()) {
+      clearKeyboardFocus();
+      refocus();
     }
   }
 
@@ -205,7 +227,12 @@ namespace andromeda {
     };
 
     if (View* view = View::fromSurface(focusedSurface)) {
-      if (!view->mapped() || (!view->onActiveWorkspace() && !view->pinned())) {
+      // A window with a dialog attached hands the keyboard to the dialog instead of keeping it.
+      if (!view->mapped()
+          || !view->acceptsKeyboardFocus()
+          || view->blocked()
+          || view->placementRoot()->minimized()
+          || (!view->onActiveWorkspace() && !view->pinned())) {
         return false;
       }
 
@@ -224,9 +251,9 @@ namespace andromeda {
 
       // The seat surface is already correct. Refresh only the owner's chrome
       // and stacking so a popup or input grab keeps the exact focused surface.
-      view->applySeatFocus(false);
+      view->applySeatFocus(false, m_lastRaise);
       if (Workspace* workspace = view->workspace(); workspace != nullptr && (!view->pinned() || workspace->active())) {
-        workspace->setFocusedView(view);
+        workspace->setFocusedView(view->placementRoot(), m_lastRaise, false);
       }
       m_server.refreshOutputPolicies();
       return true;
@@ -261,6 +288,10 @@ namespace andromeda {
     if (retainCurrentKeyboardFocus()) {
       return;
     }
+    if (ScratchpadManager* pad = m_server.scratchpadManager();
+        pad != nullptr && pad->refocusActive(m_server.outputFromWlr(m_server.preferredOutput()))) {
+      return;
+    }
     // Focus that last sat on a scratchpad still visible on the pointer output
     // returns there, e.g. when an exclusive layer releases the seat.
     if (ScratchpadManager* pad = m_server.scratchpadManager()) {
@@ -288,12 +319,19 @@ namespace andromeda {
         && pad->outputFor(focused) == preferred) {
       return;
     }
+    Output* scratchpadOutput = preferred != nullptr ? preferred : m_server.outputFromWlr(m_server.preferredOutput());
+    if (pad != nullptr && pad->refocusActive(scratchpadOutput)) {
+      return;
+    }
     refocusExplicit(preferred);
   }
 
   void FocusManager::refocusExplicit(Output* preferred) {
     if (m_server.sessionLocked()) {
       return;
+    }
+    if (ScratchpadManager* pad = m_server.scratchpadManager()) {
+      pad->deactivateOn(preferred != nullptr ? preferred : m_server.outputFromWlr(m_server.preferredOutput()));
     }
     if (LayerSurface* layer = exclusiveKeyboardLayer()) {
       layer->focus();
@@ -313,13 +351,19 @@ namespace andromeda {
         return false;
       }
       if (View* focused = workspace->focusedView()) {
-        if (focused->mapped() && focused->onActiveWorkspace()) {
+        if (focused->mapped()
+            && focused->onActiveWorkspace()
+            && !focused->minimized()
+            && focused->inputDelegate()->acceptsKeyboardFocus()) {
           focusView(focused);
           return true;
         }
       }
-      for (const auto& entry : m_server.registry().all()) {
-        if (entry->mapped() && entry->workspace() == workspace) {
+      for (const auto& entry : m_server.registry().placementRoots()) {
+        if (entry->mapped()
+            && !entry->minimized()
+            && entry->workspace() == workspace
+            && entry->inputDelegate()->acceptsKeyboardFocus()) {
           focusView(entry.get());
           return true;
         }
@@ -350,8 +394,8 @@ namespace andromeda {
       if (entry.get() == except || !entry->mapped()) {
         continue;
       }
-      if (entry->toplevel()->scheduled.activated) {
-        wlr_xdg_toplevel_set_activated(entry->toplevel(), false);
+      if (entry->scheduledActivated()) {
+        entry->setActivatedState(false);
       }
       entry->setBorderFocused(false);
       entry->setForeignActivated(false);
@@ -379,24 +423,47 @@ namespace andromeda {
     clearKeyboardFocus();
   }
 
+  std::optional<SsdFrameHit> FocusManager::ssdFrameAt(double lx, double ly) const {
+    if (m_server.sessionLocked())
+      return std::nullopt;
+    const View* carried = m_server.cursor()->toplevelDragView();
+    double sx = 0;
+    double sy = 0;
+    wlr_scene_node* node = wlr_scene_node_at_excluding(
+        &m_server.scene()->tree.node, lx, ly, &sx, &sy, carried != nullptr ? &carried->sceneTree()->node : nullptr
+    );
+    if (node == nullptr)
+      return std::nullopt;
+    for (wlr_scene_tree* tree = node->parent; tree != nullptr; tree = tree->node.parent) {
+      SceneNode* tag = sceneNodeFrom(tree->node.data);
+      if (tag == nullptr)
+        continue;
+      if (tag->kind != SceneNodeKind::View)
+        return std::nullopt;
+      auto* view = static_cast<View*>(tag);
+      if (!view->mapped()
+          || (!view->pinned() && !view->onActiveWorkspace())
+          || view->ssdFrame() == nullptr
+          || !view->ssdFrame()->contains(node))
+        return std::nullopt;
+      const auto point = view->ssdFramePointAt(lx, ly);
+      if (point.part == SsdFramePart::None)
+        return std::nullopt;
+      return SsdFrameHit{view, point.part, point.edges};
+    }
+    return std::nullopt;
+  }
+
   View*
   FocusManager::viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer) {
     if (layer != nullptr) {
       *layer = nullptr;
     }
 
-    // A window a toplevel drag carries sits under the pointer but takes no part in picking the drop target. Refusing
-    // input for the lookup, instead of disabling the node, sends the client no output leave and enter.
-    ToplevelDragManager* toplevelDrags = m_server.toplevelDragManager();
-    View* carried = toplevelDrags != nullptr ? toplevelDrags->draggedView() : nullptr;
-    InputRefusal refusal;
-    if (carried != nullptr) {
-      wlr_scene_node_for_each_buffer(&carried->sceneTree()->node, refuseInput, &refusal);
-    }
-    wlr_scene_node* node = wlr_scene_node_at(&m_server.scene()->tree.node, lx, ly, sx, sy);
-    for (const auto& [buffer, accepts] : refusal.saved) {
-      buffer->point_accepts_input = accepts;
-    }
+    const View* carried = m_server.cursor()->toplevelDragView();
+    wlr_scene_node* node = wlr_scene_node_at_excluding(
+        &m_server.scene()->tree.node, lx, ly, sx, sy, carried != nullptr ? &carried->sceneTree()->node : nullptr
+    );
     if (node == nullptr || node->type != WLR_SCENE_NODE_BUFFER) {
       return nullptr;
     }
@@ -437,7 +504,51 @@ namespace andromeda {
       *surface = nullptr;
       return nullptr;
     }
+    // A window with a dialog attached gets no pointer, the way it gets no keyboard. The view is still reported so a
+    // press on it focuses the dialog and a Mod-drag moves it.
+    if (view->blocked()) {
+      *surface = nullptr;
+    }
     return view;
+  }
+
+  Workspace* activeWorkspace(Server& server) {
+    Output* output = server.outputFromWlr(server.preferredOutput());
+    if (output == nullptr || output->workspaceGroup() == nullptr) {
+      return nullptr;
+    }
+    return output->workspaceGroup()->active();
+  }
+
+  View* seatFocusedWindow(Server& server) {
+    return View::fromSurface(server.seat()->wlr()->keyboard_state.focused_surface);
+  }
+
+  View* focusedScratchpadWindow(Server& server) {
+    View* view = seatFocusedWindow(server);
+    ScratchpadManager* scratchpad = server.scratchpadManager();
+    return view != nullptr && scratchpad != nullptr && scratchpad->contains(view) ? view : nullptr;
+  }
+
+  bool scratchpadHoldsFocus(Server& server) {
+    if (focusedScratchpadWindow(server) != nullptr) {
+      return true;
+    }
+    ScratchpadManager* scratchpad = server.scratchpadManager();
+    return seatFocusedWindow(server) == nullptr
+        && scratchpad != nullptr
+        && !scratchpad->activeOn(server.outputFromWlr(server.preferredOutput())).empty();
+  }
+
+  View* focusedWindow(Server& server) {
+    if (View* view = seatFocusedWindow(server)) {
+      return view;
+    }
+    if (scratchpadHoldsFocus(server)) {
+      return nullptr;
+    }
+    Workspace* workspace = activeWorkspace(server);
+    return workspace != nullptr ? workspace->focusedView() : nullptr;
   }
 
 } // namespace andromeda

@@ -3,9 +3,12 @@
 #include "config/effects.h"
 #include "config/keybind_parse.h"
 #include "config/value_parse.h"
+#include "config/window_position.h"
 #include "core/animation.h"
 #include "layout/layout.h"
+#include "scene/ssd_frame_geometry.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -29,6 +32,8 @@ namespace andromeda {
     Horizontal,
   };
 
+  enum class TitleBarMode : uint8_t { On, Negotiated, Forced, Off };
+
   enum class ModifierKey {
     Super,
     Alt,
@@ -44,6 +49,32 @@ namespace andromeda {
     Floating = 1 << 1,
     Pinned = 1 << 2,
     All = Tiled | Floating | Pinned,
+  };
+
+  // Which maximize state a tiled window's own maximize request enters (client_maximize).
+  enum class ClientMaximize : uint8_t {
+    Column,
+    Edges,
+  };
+
+  // What a tab bar draws in each slot.
+  enum class TabBarLook : uint8_t {
+    Titles,
+    Indicator,
+  };
+
+  // What a tab bar does with more tabs than its max_tabs.
+  enum class TabOverflow : uint8_t {
+    // Keep the slots at their size and scroll the strip.
+    Scroll,
+    // Narrow the slots until every tab fits.
+    Shrink,
+  };
+
+  enum class TitleAlign : uint8_t {
+    Left,
+    Center,
+    Right,
   };
 
   struct AccelProfile {
@@ -64,14 +95,17 @@ namespace andromeda {
     LayoutStrutOverrides struts;
     std::optional<std::vector<double>> extentPresets;
     std::optional<FullscreenExitScope> newExitsFullscreen;
+    std::optional<ClientMaximize> clientMaximize;
     struct Scrolling {
       std::optional<double> defaultExtentFraction;
       std::optional<bool> centerUnderfullStrip;
       std::optional<CenterFocusedColumn> centerFocused;
+      std::optional<bool> centerOnOverviewSelect;
       bool operator==(const Scrolling&) const = default;
     } scrolling;
     struct Dwindle {
       std::optional<bool> preserveSplit;
+      std::optional<bool> newTowardCursor;
       bool operator==(const Dwindle&) const = default;
     } dwindle;
     struct Master {
@@ -81,6 +115,14 @@ namespace andromeda {
       std::optional<MasterPosition> position;
       bool operator==(const Master&) const = default;
     } master;
+    struct Tabs {
+      std::optional<ColumnDisplay> defaultDisplay;
+      std::optional<NewTabPosition> newTabPosition;
+      std::optional<bool> wrapFocus;
+      std::optional<bool> scrollSwitchesTabs;
+      std::optional<bool> middleClickCloses;
+      bool operator==(const Tabs&) const = default;
+    } tabs;
 
     bool operator==(const WorkspaceLayoutOverrides&) const = default;
   };
@@ -110,16 +152,19 @@ namespace andromeda {
     LayoutStruts struts;
     std::vector<double> extentPresets{1.0 / 3, 0.5, 2.0 / 3};
     FullscreenExitScope newExitsFullscreen = FullscreenExitScope::None;
+    ClientMaximize clientMaximize = ClientMaximize::Column;
     struct Scrolling {
       std::optional<double> defaultExtentFraction;
       bool centerUnderfullStrip = true;
       CenterFocusedColumn centerFocused = CenterFocusedColumn::Never;
+      bool centerOnOverviewSelect = false;
       // Axis-agnostic layout state is preserved when config reload changes direction.
       ScrollingDirection direction = ScrollingDirection::Horizontal;
       bool operator==(const Scrolling&) const = default;
     } scrolling;
     struct Dwindle {
       bool preserveSplit = false;
+      bool newTowardCursor = false;
       bool operator==(const Dwindle&) const = default;
     } dwindle;
     struct Master {
@@ -129,6 +174,22 @@ namespace andromeda {
       MasterPosition position = MasterPosition::Left;
       bool operator==(const Master&) const = default;
     } master;
+    struct Tabs {
+      ColumnDisplay defaultDisplay = ColumnDisplay::Normal;
+      NewTabPosition newTabPosition = NewTabPosition::End;
+      bool wrapFocus = true;
+      bool scrollSwitchesTabs = true;
+      bool middleClickCloses = false;
+      // Derived from [appearance.tab_bar]; set by resolve function. The bar's space is part of the layout.
+      int barHeight = 24;
+      // [appearance.tab_bar] gap, or the layout gap when that is -1.
+      int barGap = 8;
+      TabBarPosition barPosition = TabBarPosition::Top;
+      bool hideWhenSingle = false;
+      // Whether bars are drawn unless a group says otherwise.
+      bool barVisible = true;
+      bool operator==(const Tabs&) const = default;
+    } tabs;
     // Derived from gap + appearance border widths; set by resolve function.
     int totalGap = 0; // gap + 2 * totalBorderWidth
     int edgePad = 0;  // gap + totalBorderWidth
@@ -163,6 +224,14 @@ namespace andromeda {
     Window,
   };
 
+  // How a touchpad device turns motion into scroll events: two fingers anywhere on the surface, or along
+  // its edges. `none` disables scrolling. Device support varies; unset keeps the device's libinput default.
+  enum class ScrollMethod : uint8_t {
+    TwoFinger,
+    Edge,
+    None,
+  };
+
   // How a touchpad turns a physical press into a button: soft button areas along
   // the bottom edge, or the finger count at press time.
   enum class ClickMethod : uint8_t {
@@ -176,10 +245,23 @@ namespace andromeda {
     LeftMiddleRight,
   };
 
+  enum class DragLock : uint8_t {
+    Off,
+    Timeout,
+    Sticky,
+  };
+
   enum class WindowDragToggle : uint8_t {
     None,
     Floating,
     Pinned,
+  };
+
+  // What a second Mod+right-click on the same window does; "none" disables the
+  // gesture and keeps the button a pure resize drag.
+  enum class ModRightDoubleClick : uint8_t {
+    None,
+    Maximize,
   };
 
   enum class HdrMode {
@@ -187,6 +269,10 @@ namespace andromeda {
     On,
     Auto,
     Fullscreen,
+  };
+  enum class SdrTransfer {
+    Gamma22,
+    Srgb,
   };
   [[nodiscard]] constexpr std::string_view hdrModeName(HdrMode mode) {
     switch (mode) {
@@ -228,6 +314,7 @@ namespace andromeda {
     std::optional<double> scale;
     std::optional<int> transform;
     VrrMode vrr = VrrMode::Disabled;
+    bool focusAtStartup = false;
     // Global safety gate. Even a client async hint or a window-rule override
     // cannot request tearing unless the owning output enables it.
     bool allowTearing = false;
@@ -235,6 +322,7 @@ namespace andromeda {
     bool directScanout = true;
     HdrMode hdr = HdrMode::Off;
     float sdrWhite = 203.0F;
+    SdrTransfer sdrTransfer = SdrTransfer::Gamma22;
     std::optional<std::string> screenEffect; // "off" disables the default
     // Render bit depth for SDR output: 8 (default) or 10 for 10-bit SDR.
     int bitDepth = 8;
@@ -265,25 +353,6 @@ namespace andromeda {
     bool operator==(const OutputRule&) const = default;
   };
 
-  enum class WindowPositionAnchor {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-    Top,
-    Bottom,
-    Left,
-    Right,
-    Center,
-  };
-
-  struct WindowPosition {
-    int x = 0;
-    int y = 0;
-    WindowPositionAnchor anchor = WindowPositionAnchor::Center;
-    bool operator==(const WindowPosition&) const = default;
-  };
-
   enum class ContentType {
     None,
     Photo,
@@ -310,26 +379,53 @@ namespace andromeda {
   struct WindowRuleState {
     bool focused = false;
     bool floating = false;
+    bool maximizedToEdges = false;
     bool pinned = false;
     bool scratchpad = false;
     bool alone = false;
+    // Stricter than alone: floating windows are included.
+    bool onlyWindow = false;
+    // The client named a parent window for it.
+    bool dialog = false;
+    // A live image-copy session reads this window's capture source: a window screencast or screenshot.
+    bool castTarget = false;
 
     [[nodiscard]] bool operator==(const WindowRuleState& other) const = default;
   };
 
+  // The alternatives of one selector, written as a single string or as an array of them; a value matches when any one
+  // of them matches it. The regexes are derived, so equality is decided by the patterns alone.
+  struct RegexPatterns {
+    std::vector<std::string> patterns;
+    std::vector<std::regex> regexes;
+
+    // Throws `std::regex_error` on a pattern that does not compile, for the caller to report.
+    RegexPatterns& add(std::string pattern) {
+      regexes.emplace_back(pattern);
+      patterns.push_back(std::move(pattern));
+      return *this;
+    }
+    // A list with no pattern, or only an empty one, places no constraint.
+    [[nodiscard]] bool constrains() const {
+      return std::ranges::any_of(patterns, [](const std::string& pattern) { return !pattern.empty(); });
+    }
+    [[nodiscard]] bool operator==(const RegexPatterns& other) const { return patterns == other.patterns; }
+  };
+
   struct WindowRule {
-    std::string appIdPattern;
-    std::string titlePattern;
-    std::string xdgTagPattern;
-    std::regex appIdRegex;
-    std::regex titleRegex;
-    std::regex xdgTagRegex;
+    RegexPatterns appIdPatterns;
+    RegexPatterns titlePatterns;
+    RegexPatterns xdgTagPatterns;
     std::optional<ContentType> matchContentType;
     std::optional<bool> matchFocused;
     std::optional<bool> matchFloating;
+    std::optional<bool> matchMaximizedToEdges;
     std::optional<bool> matchPinned;
     std::optional<bool> matchScratchpad;
     std::optional<bool> matchAlone;
+    std::optional<bool> matchOnlyWindow;
+    std::optional<bool> matchDialog;
+    std::optional<bool> matchCastTarget;
     std::optional<bool> matchAtStartup;
     std::optional<std::string> defaultOutput;
     std::optional<bool> defaultFloating;
@@ -344,25 +440,34 @@ namespace andromeda {
     std::optional<std::string> defaultScratchpad;
     std::optional<std::string> defaultScrollingColumn;
     std::optional<int> defaultScrollingColumnOrder;
+    std::optional<ColumnDisplay> defaultColumnDisplay;
     std::optional<bool> defaultFullscreen;
     std::optional<bool> defaultMaximizeToEdges;
     std::optional<bool> defaultMaximize;
     std::optional<bool> defaultFocused;
     std::optional<bool> defaultPinned;
     std::optional<bool> focusOnActivate;
+    // Lets a modal dialog hang on its parent's frame (true, the default) or opens it as an ordinary window (false).
+    std::optional<bool> attachToParent;
+    std::optional<bool> confinePointer;
+    // Whether matching windows may activate client-requested keyboard shortcut inhibition (true by default).
+    std::optional<bool> allowShortcutsInhibit;
+    // Keep a hidden window unsuspended and pace its frame callbacks at its output's refresh rate, for clients whose
+    // non-rendering work stalls without them.
+    std::optional<bool> backgroundRender;
     std::optional<VrrMode> vrr;
     // Overrides the client's tearing-control hint. Omitted follows the hint,
     // true forces async preference, and false vetoes it.
     std::optional<bool> allowTearing;
-    // Keeps frame callbacks flowing while the window is on a hidden workspace, for games whose network loop runs on
-    // them and that do not declare the game content type.
-    std::optional<bool> backgroundFrames;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity; // 0.0-1.0
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
     std::optional<bool> blurOptimized;
+    std::optional<TitleBarMode> titleBar;
+    // Overrides [appearance.title_bar] buttons, read from the title outward.
+    std::optional<std::vector<TitleBarButton>> titleBarButtons;
     // Overrides [colors.border] for windows this rule matches.
     std::optional<std::array<float, 4>> borderColorFocused;
     std::optional<std::array<float, 4>> borderColorUnfocused;
@@ -377,18 +482,21 @@ namespace andromeda {
     std::optional<std::string> borderEffect;
     std::optional<std::string> windowEffect;
 
-    // The compiled regexes are derived from the app ID, title, and XDG tag patterns and
-    // are not comparable, so equality is decided by the patterns themselves.
+    // See RegexPatterns: the regexes are derived from the patterns, so equality compares the patterns alone.
     [[nodiscard]] bool operator==(const WindowRule& other) const {
-      return appIdPattern == other.appIdPattern
-          && titlePattern == other.titlePattern
-          && xdgTagPattern == other.xdgTagPattern
+      return appIdPatterns == other.appIdPatterns
+          && titlePatterns == other.titlePatterns
+          && xdgTagPatterns == other.xdgTagPatterns
           && matchContentType == other.matchContentType
           && matchFocused == other.matchFocused
           && matchFloating == other.matchFloating
+          && matchMaximizedToEdges == other.matchMaximizedToEdges
           && matchPinned == other.matchPinned
           && matchScratchpad == other.matchScratchpad
           && matchAlone == other.matchAlone
+          && matchOnlyWindow == other.matchOnlyWindow
+          && matchDialog == other.matchDialog
+          && matchCastTarget == other.matchCastTarget
           && matchAtStartup == other.matchAtStartup
           && defaultOutput == other.defaultOutput
           && defaultFloating == other.defaultFloating
@@ -403,21 +511,27 @@ namespace andromeda {
           && defaultScratchpad == other.defaultScratchpad
           && defaultScrollingColumn == other.defaultScrollingColumn
           && defaultScrollingColumnOrder == other.defaultScrollingColumnOrder
+          && defaultColumnDisplay == other.defaultColumnDisplay
           && defaultFullscreen == other.defaultFullscreen
           && defaultMaximizeToEdges == other.defaultMaximizeToEdges
           && defaultMaximize == other.defaultMaximize
           && defaultFocused == other.defaultFocused
           && defaultPinned == other.defaultPinned
           && focusOnActivate == other.focusOnActivate
+          && attachToParent == other.attachToParent
+          && confinePointer == other.confinePointer
+          && allowShortcutsInhibit == other.allowShortcutsInhibit
+          && backgroundRender == other.backgroundRender
           && vrr == other.vrr
           && allowTearing == other.allowTearing
-          && backgroundFrames == other.backgroundFrames
           && hdr == other.hdr
           && opacity == other.opacity
           && blur == other.blur
           && blurPopups == other.blurPopups
           && blurIgnoreAlpha == other.blurIgnoreAlpha
           && blurOptimized == other.blurOptimized
+          && titleBar == other.titleBar
+          && titleBarButtons == other.titleBarButtons
           && borderColorFocused == other.borderColorFocused
           && borderColorUnfocused == other.borderColorUnfocused
           && borderColorOuter == other.borderColorOuter
@@ -445,21 +559,27 @@ namespace andromeda {
     std::optional<std::string> defaultScratchpad;
     std::optional<std::string> defaultScrollingColumn;
     std::optional<int> defaultScrollingColumnOrder;
+    std::optional<ColumnDisplay> defaultColumnDisplay;
     std::optional<bool> defaultFullscreen;
     std::optional<bool> defaultMaximizeToEdges;
     std::optional<bool> defaultMaximize;
     std::optional<bool> defaultFocused;
     std::optional<bool> defaultPinned;
     std::optional<bool> focusOnActivate;
+    std::optional<bool> attachToParent;
+    std::optional<bool> confinePointer;
+    std::optional<bool> allowShortcutsInhibit;
+    std::optional<bool> backgroundRender;
     std::optional<VrrMode> vrr;
     std::optional<bool> allowTearing;
-    std::optional<bool> backgroundFrames;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
     std::optional<bool> blurOptimized;
+    std::optional<TitleBarMode> titleBar;
+    std::optional<std::vector<TitleBarButton>> titleBarButtons;
     std::optional<std::array<float, 4>> borderColorFocused;
     std::optional<std::array<float, 4>> borderColorUnfocused;
     std::optional<std::array<float, 4>> borderColorOuter;
@@ -472,17 +592,28 @@ namespace andromeda {
     bool operator==(const ResolvedWindowRule&) const = default;
   };
 
+  // The layer-shell layers a `[[layer_rule]]` can select with `match.layer`.
+  enum class LayerShellLayer {
+    Background,
+    Bottom,
+    Top,
+    Overlay,
+  };
+
   struct LayerRule {
-    std::string namespacePattern;
-    std::regex namespaceRegex;
+    RegexPatterns namespacePatterns;
+    std::optional<LayerShellLayer> matchLayer;
+    std::optional<bool> matchAtStartup;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> ignoreAlpha;
     std::optional<bool> optimized;
 
-    // See WindowRule: the regex is derived from the pattern.
+    // See WindowRule: the regexes are derived from the patterns.
     [[nodiscard]] bool operator==(const LayerRule& other) const {
-      return namespacePattern == other.namespacePattern
+      return namespacePatterns == other.namespacePatterns
+          && matchLayer == other.matchLayer
+          && matchAtStartup == other.matchAtStartup
           && blur == other.blur
           && blurPopups == other.blurPopups
           && ignoreAlpha == other.ignoreAlpha
@@ -501,16 +632,14 @@ namespace andromeda {
   // Grants extra globals to security-context clients whose metadata matches.
   // Additive only: the base allowed set cannot be narrowed from configuration.
   struct SecurityContextRule {
-    std::string sandboxEnginePattern;
-    std::string appIdPattern;
-    std::regex sandboxEngineRegex;
-    std::regex appIdRegex;
+    RegexPatterns sandboxEnginePatterns;
+    RegexPatterns appIdPatterns;
     std::vector<std::string> allowGlobals;
 
     // See WindowRule: the regexes are derived from the patterns.
     [[nodiscard]] bool operator==(const SecurityContextRule& other) const {
-      return sandboxEnginePattern == other.sandboxEnginePattern
-          && appIdPattern == other.appIdPattern
+      return sandboxEnginePatterns == other.sandboxEnginePatterns
+          && appIdPatterns == other.appIdPatterns
           && allowGlobals == other.allowGlobals;
     }
   };
@@ -521,6 +650,16 @@ namespace andromeda {
     // cheatsheet, the diagnostics banner, the quit confirmation, and overview
     // badge text.
     struct Colors {
+      struct TitleBar {
+        std::array<float, 4> background{0.1607843F, 0.1607843F, 0.2F, 1.0F};
+        std::array<float, 4> backgroundUnfocused{0.1019608F, 0.1019608F, 0.1215686F, 1.0F};
+        std::array<float, 4> text{0.9098039F, 0.9098039F, 0.9176471F, 1.0F};
+        std::array<float, 4> textUnfocused{0.5411765F, 0.5411765F, 0.5725490F, 1.0F};
+        std::array<float, 4> close{1.0F, 0.4196078F, 0.4196078F, 1.0F};
+        std::array<float, 4> maximize{0.4784314F, 0.6392157F, 1.0F, 1.0F};
+        std::array<float, 4> minimize{1.0F, 0.8196078F, 0.4F, 1.0F};
+        bool operator==(const TitleBar&) const = default;
+      } titleBar;
       std::array<float, 4> background{0.0784314F, 0.0784314F, 0.0980392F, 1.0F};
       std::array<float, 4> textPrimary{0.9098039F, 0.9098039F, 0.9176471F, 1.0F};
       std::array<float, 4> textMuted{0.5411765F, 0.5411765F, 0.5725490F, 1.0F};
@@ -551,10 +690,36 @@ namespace andromeda {
         bool operator==(const Overview&) const = default;
       } overview;
 
+      struct TabBar {
+        // Every tab that is neither shown nor urgent.
+        std::array<float, 4> background{0.1019608F, 0.1019608F, 0.1215686F, 1.0F};
+        std::array<float, 4> text{0.5411765F, 0.5411765F, 0.5725490F, 1.0F};
+        // The shown tab of the focused column.
+        std::array<float, 4> active{0.4784314F, 0.6392157F, 1.0F, 1.0F};
+        std::array<float, 4> activeText{0.0784314F, 0.0784314F, 0.0980392F, 1.0F};
+        // The shown tab of any other column.
+        std::array<float, 4> activeUnfocused{0.1607843F, 0.1607843F, 0.2F, 1.0F};
+        std::array<float, 4> activeUnfocusedText{0.9098039F, 0.9098039F, 0.9176471F, 1.0F};
+        // A hidden tab whose window asks for attention.
+        std::array<float, 4> urgent{1.0F, 0.4196078F, 0.4196078F, 1.0F};
+        std::array<float, 4> urgentText{0.0784314F, 0.0784314F, 0.0980392F, 1.0F};
+        bool operator==(const TabBar&) const = default;
+      } tabBar;
+
       bool operator==(const Colors&) const = default;
     } colors;
 
     struct Appearance {
+      struct TitleBar {
+        TitleBarMode mode = TitleBarMode::Off;
+        int height = 28;
+        std::string font = "sans 10";
+        TitleBarButtonSide buttonPosition = TitleBarButtonSide::Right;
+        int buttonCornerRadius = -1;
+        // Read from the title outward: the last one sits at the bar's edge.
+        std::vector<TitleBarButton> buttons{TitleBarButton::Minimize, TitleBarButton::Maximize, TitleBarButton::Close};
+        bool operator==(const TitleBar&) const = default;
+      } titleBar;
       int borderWidth = 2;
       int outerBorderWidth = 0;
       int cornerRadius = 10;
@@ -565,7 +730,7 @@ namespace andromeda {
       struct Blur {
         bool enabled = true;
         bool optimized = true;
-        int passes = 3;
+        int passes = 2;
         int radius = 5;
         double noise = 0.02;
         double brightness = 0.9;
@@ -580,6 +745,36 @@ namespace andromeda {
         int offsetY = 2;
         bool operator==(const Shadow&) const = default;
       } shadow;
+      // The strip a tabbed column draws across one edge.
+      struct TabBar {
+        // Titles shows each tab's title in its slot; indicator draws the slots alone, as a thin strip.
+        TabBarLook style = TabBarLook::Titles;
+        TabBarPosition position = TabBarPosition::Top;
+        // Thickness: the bar's height on the top or bottom edge, its width on the left or right.
+        int height = 24;
+        // A Pango font description.
+        std::string font = "sans 10";
+        // Space a title keeps from either end of its slot.
+        int padding = 8;
+        // Space between neighbouring slots.
+        int tabGap = 2;
+        // Space between the bar and its window; -1 follows the layout gap.
+        int gap = -1;
+        // -1 follows corner_radius.
+        int cornerRadius = -1;
+        // {title}, {app_id} and {index} are replaced; a window without a title shows its app id instead.
+        std::string titleFormat = "{title}";
+        TitleAlign titleAlign = TitleAlign::Center;
+        // A tabbed column of one window draws no bar and gives up its space.
+        bool hideWhenSingle = false;
+        // False draws no bar for any tab group the user has not shown one for; the tabs keep working, and take its
+        // space.
+        bool visible = true;
+        // Slots the bar shows at once; 0 shows every tab.
+        int maxTabs = 0;
+        TabOverflow overflow = TabOverflow::Scroll;
+        bool operator==(const TabBar&) const = default;
+      } tabBar;
       bool preferNoCsd = true;
 
       [[nodiscard]] int totalBorderWidth() const { return borderWidth + outerBorderWidth; }
@@ -618,11 +813,20 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 900.0}};
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 800.0}};
         bool operator==(const WindowsMove&) const = default;
       } windowsMove;
 
+      // The size half of a tiled window's layout change; windows_move keeps the position.
+      struct WindowsResize {
+        bool enabled = true;
+        int durationMs = 250;
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 900.0}};
+        bool operator==(const WindowsResize&) const = default;
+      } windowsResize;
+
       struct Workspaces {
+        std::string style = "slide";
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
@@ -649,11 +853,17 @@ namespace andromeda {
         AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 800.0}};
         double dim = 0.8;
         bool blur = false;
-        double scale = 0.0;
-        bool maximize = false;
-        bool fullscreen = false;
         bool operator==(const Scratchpad&) const = default;
       } scratchpad;
+
+      // The shade over a window while a modal dialog is attached to it. `dim` stays without the fade when disabled.
+      struct Dialogs {
+        bool enabled = true;
+        int durationMs = 250;
+        AnimationCurve curve{.easing = Easing::EaseOutCubic};
+        double dim = 0.3;
+        bool operator==(const Dialogs&) const = default;
+      } dialogs;
 
       struct Border {
         std::string effect;
@@ -683,6 +893,14 @@ namespace andromeda {
       struct WindowsDrag {
         // Deform the window like an elastic sheet while it is dragged by the pointer.
         bool physics = false;
+        // Spring sheet tuning (see view/drag_physics.h); the defaults are the
+        // values the simulation shipped with.
+        double stiffness = 36.0;
+        double damping = 6.5;
+        double coupling = 100.0;
+        double pointerResponse = 2.0;
+        double maxDisplacementPx = 200.0;
+        double settleAfterPauseS = 0.25;
         bool operator==(const WindowsDrag&) const = default;
       } windowsDrag;
 
@@ -766,14 +984,18 @@ namespace andromeda {
       LayoutStruts struts;
       std::vector<double> extentPresets{1.0 / 3, 0.5, 2.0 / 3};
       FullscreenExitScope newExitsFullscreen = FullscreenExitScope::None;
+      ClientMaximize clientMaximize = ClientMaximize::Column;
       struct Scrolling {
         std::optional<double> defaultExtentFraction;
         bool centerUnderfullStrip = true;
         CenterFocusedColumn centerFocused = CenterFocusedColumn::Never;
+        // Center the column picked in the overview on close, like column-center, whatever centerFocused says.
+        bool centerOnOverviewSelect = false;
         bool operator==(const Scrolling&) const = default;
       } scrolling;
       struct Dwindle {
         bool preserveSplit = false;
+        bool newTowardCursor = false;
         bool operator==(const Dwindle&) const = default;
       } dwindle;
       struct Master {
@@ -783,6 +1005,14 @@ namespace andromeda {
         MasterPosition position = MasterPosition::Left;
         bool operator==(const Master&) const = default;
       } master;
+      struct Tabs {
+        ColumnDisplay defaultDisplay = ColumnDisplay::Normal;
+        NewTabPosition newTabPosition = NewTabPosition::End;
+        bool wrapFocus = true;
+        bool scrollSwitchesTabs = true;
+        bool middleClickCloses = false;
+        bool operator==(const Tabs&) const = default;
+      } tabs;
       bool operator==(const Layout&) const = default;
     } layout;
 
@@ -810,12 +1040,19 @@ namespace andromeda {
       // Symbolic `Mod` in keybinds. Unset preserves the runtime default:
       // Super on DRM, Alt when running nested.
       std::optional<ModifierKey> modKey;
-      // Spawn and manage xwayland-satellite for X11 app support. Requires restart.
+      // Start wlroots' Xwayland server (lazily) for X11 app support. Requires restart.
       bool xwayland = true;
+      // Present outputs to X11 clients at their physical resolution, so they render at native size instead of being
+      // upscaled on scaled outputs. Requires restart.
+      bool xwaylandNativeResolution = false;
+      // Run an XSETTINGS manager in Xwayland that announces the X screen scale and cursor theme. Requires restart.
+      bool xwaylandXsettings = true;
       // Show the keybinds cheatsheet overlay on startup.
       bool showCheatsheet = true;
       // Honor activation requests by focusing and revealing the target window.
       bool focusOnActivate = false;
+      // Hang a modal dialog on its parent's frame, so it follows the parent and holds its input.
+      bool attachModalDialogs = true;
       // Honor maximized state restored by a client while its window opens.
       bool honorRestoredMaximize = false;
       bool operator==(const General&) const = default;
@@ -850,9 +1087,15 @@ namespace andromeda {
       // Let a client start an interactive move from its own drag area
       // (xdg_toplevel.move), such as a CSD title bar or Chromium tab strip.
       bool clientWindowDrag = true;
+      // Preview and apply half or quarter placement while dragging to output edges.
+      bool windowSnapping = true;
       // Retarget an interactive window drag with the free mouse button: float
       // it, pin it, or leave the drag alone.
       WindowDragToggle windowDragToggle = WindowDragToggle::None;
+      // What a second Mod+right-click on the same window within the
+      // double-click window does. "none" keeps Mod+right-click a pure resize
+      // drag.
+      ModRightDoubleClick modRightDoubleClick = ModRightDoubleClick::None;
 
       struct Keyboard {
         // Comma-separated XKB layout list ("us,de"); the first entry is active at startup. `options` carries XKB option
@@ -861,6 +1104,7 @@ namespace andromeda {
         std::string layout;
         std::string variant;
         std::string options;
+        std::string model;
         int repeatRate = 25;
         int repeatDelay = 600;
         bool numlockToggle = false;
@@ -871,7 +1115,10 @@ namespace andromeda {
       } keyboard;
 
       struct Touchpad {
+        bool enabled = true;
         std::optional<bool> tap = true;
+        std::optional<bool> tapAndDrag;
+        std::optional<DragLock> dragLock;
         std::optional<bool> naturalScroll;
         // Three-finger swipe direction; unset follows the device's natural scroll setting.
         std::optional<bool> naturalSwipe;
@@ -890,6 +1137,7 @@ namespace andromeda {
         std::optional<ScrollFactor> scrollFactor;
         std::optional<bool> disableWhileTyping;
         std::optional<bool> disableOnExternalMouse;
+        std::optional<ScrollMethod> scrollMethod;
         std::optional<ClickMethod> clickMethod;
         std::optional<TapButtonMap> tapButtonMap;
         bool operator==(const Touchpad&) const = default;
@@ -921,9 +1169,21 @@ namespace andromeda {
         bool operator==(const Cursor&) const = default;
       } cursor;
 
+      // Auto-scroll a scrolling layout while a data drag sits near one of its ends.
+      struct DragEdgeScroll {
+        bool enabled = true;
+        int triggerZone = 30;
+        int delayMs = 100;
+        double maxSpeed = 1500.0;
+        bool operator==(const DragEdgeScroll&) const = default;
+      } dragEdgeScroll;
+
       struct Focus {
         bool followsMouse = false;
         std::optional<double> followsMouseMaxScroll;
+        // false narrows hover to focus alone: raising is left to clicks, keybinds, and activation, so sweeping the
+        // pointer across a larger window underneath cannot bury the window above it.
+        bool hoverRaises = true;
         bool operator==(const Focus&) const = default;
       } focus;
 
@@ -951,14 +1211,19 @@ namespace andromeda {
         std::optional<std::string> layout;
         std::optional<std::string> variant;
         std::optional<std::string> options;
+        std::optional<std::string> model;
         std::optional<int> repeatRate;
         std::optional<int> repeatDelay;
+        std::optional<bool> enabled;
         std::optional<bool> tap;
+        std::optional<bool> tapAndDrag;
+        std::optional<DragLock> dragLock;
         std::optional<bool> naturalScroll;
         std::optional<bool> leftHanded;
         std::optional<AccelProfile> accelProfile;
         std::optional<double> sensitivity;
         std::optional<bool> disableWhileTyping;
+        std::optional<ScrollMethod> scrollMethod;
         std::optional<ClickMethod> clickMethod;
         std::optional<TapButtonMap> tapButtonMap;
         std::optional<uint32_t> scrollButton;
@@ -1007,7 +1272,8 @@ namespace andromeda {
   }
 
   [[nodiscard]] const Config& config();
-  [[nodiscard]] bool loadConfig(const char* explicitPath);
+  void loadConfig(const char* explicitPath);
+  [[nodiscard]] ConfigReloadResult replaceConfig(const std::filesystem::path& explicitPath, std::string& errors);
   [[nodiscard]] ConfigReloadResult reloadConfig();
   [[nodiscard]] const std::vector<std::filesystem::path>& configWatchPaths();
   [[nodiscard]] const std::vector<ConfigDiagnostic>& configDiagnostics();

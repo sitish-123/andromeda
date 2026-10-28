@@ -10,12 +10,14 @@
   wlroots_0_20,
   libxkbcommon,
   libinput,
+  libei,
   systemd,
   pixman,
   cairo,
   pango,
   libGL,
   libdrm,
+  libdisplay-info,
   libgbm,
   libxcb,
   libxcb-wm,
@@ -23,7 +25,7 @@
   jemalloc,
   tomlplusplus,
   nlohmann_json,
-  xwayland-satellite,
+  xwayland,
   makeBinaryWrapper,
   rev ? "unknown",
 }:
@@ -50,13 +52,15 @@ stdenv.mkDerivation {
     wlroots_0_20
     libxkbcommon
     libinput
-    # Supplies libudev for the optional native DRM policy support.
+    libei
+    # Supplies libudev for the optional native DRM policy support and sd-bus for the systemd-localed keymap.
     systemd
     pixman
     tomlplusplus
     libGL
     nlohmann_json
     libdrm
+    libdisplay-info
     libgbm
     libxcb
     libxcb-wm
@@ -81,7 +85,7 @@ stdenv.mkDerivation {
         --replace-fail 'Exec=start-andromeda' "Exec=$out/bin/start-andromeda"
     fi
     wrapProgram $out/bin/andromeda \
-      --prefix PATH : ${lib.makeBinPath [ xwayland-satellite ]} \
+      --prefix PATH : ${lib.makeBinPath [ xwayland ]} \
   '';
 
   passthru.providedSessions = [ "andromeda" ];

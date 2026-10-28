@@ -4,7 +4,6 @@
 set -euo pipefail
 
 HARNESS_PATH=$PATH
-HARNESS_SLEEP=$(command -v sleep)
 WORK_ROOT=$(mktemp -d /tmp/ume.XXXXXXXX)
 PRIVATE_PID=
 
@@ -37,14 +36,6 @@ DBUS_SESSION_BUS_ADDRESS = "unix:path=$runtime/hostile-dbus"
 SYSTEMD_BUS_ADDRESS = "unix:path=$runtime/hostile-systemd"
 EOF
 
-  cat > "$runtime/bin/xwayland-satellite" << 'EOF'
-#!/bin/sh
-[ "${DISPLAY+x}" != x ] || exit 1
-printf '%s\n' "$ANDROMEDA_TEST_ONE" "$ANDROMEDA_TEST_TWO" "$PATH" "${DISPLAY-unset}" "$1" \
-  > "$FIXTURE_ROOT/xwayland-environment"
-exec "$SLEEP_BIN" 120
-EOF
-
   cat > "$runtime/bin/capture-environment" << 'EOF'
 #!/bin/sh
 printf '%s\n' \
@@ -67,7 +58,7 @@ set -eu
 
 display_is_expected() {
   if [ "$EXPECT_DISPLAY" = true ]; then
-    case "$DISPLAY" in :[0-9] | :[12][0-9] | :3[01]) return 0 ;; *) return 1 ;; esac
+    case "$DISPLAY" in :[0-9] | :[0-9][0-9]) return 0 ;; *) return 1 ;; esac
   fi
   [ "${DISPLAY+x}" != x ]
 }
@@ -129,7 +120,7 @@ case "$action" in
     printf '%s\n' systemd-configured >> "$TRACE_DIR/order"
     ;;
   import-environment)
-    [ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET" ] ||
+    [ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET" ] ||
       fail
     printf '%s\n' systemd-graphical >> "$TRACE_DIR/order"
     printf '%s' "${DISPLAY-}" > "$MANAGER_DIR/display"
@@ -168,12 +159,12 @@ set -eu
 [ "${ANDROMEDA_TEST_ONE+x}" != x ] && [ "${ANDROMEDA_TEST_TWO+x}" != x ] || exit 1
 [ "$WAYLAND_DISPLAY" = wayland-0 ] || exit 1
 if [ "$EXPECT_DISPLAY" = true ]; then
-  case "$DISPLAY" in :[0-9] | :[12][0-9] | :3[01]) ;; *) exit 1 ;; esac
+  case "$DISPLAY" in :[0-9] | :[0-9][0-9]) ;; *) exit 1 ;; esac
 else
   [ "${DISPLAY+x}" != x ] || exit 1
 fi
 [ "$ANDROMEDA_SOCKET" = "$FIXTURE_ROOT/andromeda-$WAYLAND_DISPLAY.sock" ] || exit 1
-[ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE ANDROMEDA_SOCKET" ] ||
+[ "$*" = "WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET" ] ||
   exit 1
 
 printf '%s\n' dbus-graphical >> "$TRACE_DIR/order"
@@ -181,8 +172,7 @@ printf '%s\n' dbus-graphical >> "$TRACE_DIR/order"
 EOF
 
   chmod +x "$runtime/bin/capture-environment" "$runtime/bin/capture-reloaded-environment" \
-    "$runtime/bin/xwayland-satellite" "$runtime/bin/systemctl" "$runtime/bin/systemd-run" \
-    "$runtime/bin/dbus-update-activation-environment"
+    "$runtime/bin/systemctl" "$runtime/bin/systemd-run" "$runtime/bin/dbus-update-activation-environment"
 }
 
 start_private() {
@@ -202,7 +192,6 @@ start_private() {
     "MANAGER_DIR=$runtime/manager"
     "SYSTEMCTL_UNAVAILABLE=$unavailable"
     "EXPECT_DISPLAY=$expect_display"
-    "SLEEP_BIN=$HARNESS_SLEEP"
     "WLR_BACKENDS=headless"
     "WLR_LIBINPUT_NO_DEVICES=1"
     "WLR_HEADLESS_OUTPUTS=1"
@@ -269,27 +258,14 @@ assert_autostart_environment() {
   [[ ${values[5]} == "unix:path=$runtime/hostile-systemd" ]]
 }
 
-assert_xwayland_environment() {
-  local runtime=$1
-  mapfile -t values < "$runtime/xwayland-environment"
-  [[ ${values[0]} == "alpha beta" ]]
-  [[ ${values[1]} == "literal;\$HOME's" ]]
-  [[ ${values[2]} == "$runtime/hostile-bin" ]]
-  [[ ${values[3]} == unset ]]
-  [[ ${values[4]} == "$(< "$runtime/manager/display")" ]]
-}
-
 NATIVE=$WORK_ROOT/native
 write_fixture "$NATIVE" true
 start_private "$NATIVE" false false true
 wait_for_file "$NATIVE" "$NATIVE/trace/target-inherited"
 wait_for_file "$NATIVE" "$NATIVE/trace/dbus-graphical"
 wait_for_file "$NATIVE" "$NATIVE/autostart-environment" true
-wait_for_file "$NATIVE" "$NATIVE/xwayland-environment" true
 assert_autostart_environment "$NATIVE"
-assert_xwayland_environment "$NATIVE"
 [[ $(< "$NATIVE/trace/order") == $'systemd-graphical\nsystemd-configured\ndbus-graphical\ntarget' ]]
-grep -Fq "spawned 'session environment synchronization'" "$NATIVE/compositor.log"
 ! grep -Fq 'systemctl --user set-environment' "$NATIVE/compositor.log"
 
 sed -i 's/ANDROMEDA_TEST_ONE = "alpha beta"/ANDROMEDA_TEST_ONE = "reloaded"/' "$NATIVE/config.toml"

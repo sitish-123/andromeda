@@ -2,18 +2,19 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "scene/node.h"
+#include "view/chrome_attachment.h"
 #include "view/decoration.h"
 #include "view/deferred_unfullscreen.h"
 #include "view/drag_physics.h"
 #include "view/effects.h"
 #include "view/floating.h"
 #include "view/presentation.h"
-#include "view/resize_crossfade.h"
+#include "view/snap.h"
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -35,31 +36,92 @@ struct wlr_scene_rect;
 struct wlr_subsurface;
 struct wlr_surface;
 struct wlr_xdg_popup;
+struct wlr_xdg_dialog_v1;
 struct wlr_xdg_toplevel;
+struct wlr_xwayland_surface;
+struct wlr_xwayland_surface_configure_event;
 
 namespace andromeda {
 
   class Server;
+  class SsdFrame;
   class ScratchpadManager;
-  class WineColorManager;
+  class ColorManager;
   class Workspace;
   enum class LayoutAttachOrigin;
   struct ResolvedWindowRule;
+  struct WorkspaceLaunchAnchor;
+  struct DisplacedWorkspace;
+  struct SizeHints;
+  struct XwaylandRegion;
 
   class View : public SceneNode, public Animatable {
   public:
     View(Server& server, wlr_xdg_toplevel* toplevel);
+    View(Server& server, wlr_xwayland_surface* xsurface);
     ~View();
 
     View(const View&) = delete;
     View& operator=(const View&) = delete;
 
+    // The shell role behind this window: exactly one of these is non-null.
     [[nodiscard]] wlr_xdg_toplevel* toplevel() const { return m_toplevel; }
+    [[nodiscard]] wlr_xwayland_surface* xwaylandSurface() const { return m_xsurface; }
+    [[nodiscard]] bool xwayland() const { return m_xsurface != nullptr; }
+    // X pixels per layout unit in an X11 window: the scale of its output when X11 clients see outputs at their
+    // physical resolution, else 1.
+    [[nodiscard]] double xwaylandScale() const { return m_xScale; }
+    [[nodiscard]] wlr_surface* rootSurface() const;
+    // Null when the client has not set one. X11 windows report their WM_CLASS class as the app id.
+    [[nodiscard]] const char* title() const;
+    [[nodiscard]] const char* appId() const;
+    // Role state. For xdg toplevels `scheduled` is what the next configure carries and `current` what the client
+    // acknowledged; an X11 window has no acknowledgement, so both read the state last sent to it.
+    [[nodiscard]] bool scheduledFullscreen() const;
+    [[nodiscard]] bool currentFullscreen() const;
+    [[nodiscard]] bool scheduledMaximized() const;
+    [[nodiscard]] bool currentMaximized() const;
+    [[nodiscard]] bool scheduledActivated() const;
+    [[nodiscard]] bool acceptsKeyboardFocus() const;
+    void setActivatedState(bool activated);
+    // Take X input focus back for an X11 window that stayed activated while one of its menus held it; a no-op for xdg
+    // toplevels.
+    void reclaimXwaylandFocus();
+    // Tell the client nothing of it is visible, so it can stop drawing and animating; a no-op for X11 windows.
+    void setSuspendedState(bool suspended);
+    // True once the client has been sent the suspended state; always false for X11 windows and xdg clients older than
+    // version 6, which cannot receive it.
+    [[nodiscard]] bool suspended() const;
+    // True while the latest configure is still queued, or sent but not yet acknowledged and committed. Always false for
+    // X11 windows, which acknowledge nothing.
+    [[nodiscard]] bool configureOutstanding() const;
+    // True while the shared scene draws the window: its frame and every ancestor are enabled.
+    [[nodiscard]] bool presented() const;
+    // Presented, and not behind the lock screen or on a powered-off output.
+    [[nodiscard]] bool seen() const;
+    // Suspends a mapped window that is neither presented nor drawn off the scene, and resumes it otherwise. Callers
+    // schedule it through Server::scheduleSuspensionSync.
+    void syncSuspendedState();
+    void setFullscreenState(bool fullscreen);
+    void setMaximizedState(bool maximized);
+    void requestClose();
+    // The client's window geometry in surface-local coordinates.
+    [[nodiscard]] wlr_box geometryBox() const;
+    [[nodiscard]] SizeHints sizeHints() const;
+    struct ClientSize {
+      int width = 0;
+      int height = 0;
+    };
+    // The size the compositor last configured (0 before any configure), and the size the client last committed to.
+    [[nodiscard]] ClientSize scheduledSize() const;
+    [[nodiscard]] ClientSize currentSize() const;
+    using SurfaceIterator = void (*)(wlr_surface* surface, int sx, int sy, void* data);
+    // Every surface of the window, and every xdg popup surface under it (X11 menus are separate windows).
+    void forEachSurface(SurfaceIterator iterator, void* data) const;
+    void forEachPopupSurface(SurfaceIterator iterator, void* data) const;
     [[nodiscard]] const std::optional<std::string>& xdgTag() const { return m_xdgTag; }
     // The themed icon name from xdg-toplevel-icon; empty without one.
     [[nodiscard]] const std::string& iconName() const { return m_iconName; }
-    // A mapped child of this window that xdg-dialog marked modal, which takes the focus this window is given.
-    [[nodiscard]] View* modalChild() const;
     [[nodiscard]] ContentType contentType() const { return m_contentType; }
     // The view's frame: it carries the position, parent, stacking order, and visibility of the whole window. Its
     // content tree (surfaces, borders, backdrop, blur, and animation effects) sits at (0, 0) inside it, above the
@@ -69,43 +131,69 @@ namespace andromeda {
     // `border`, and `surface`, gated by `gate` and driven by `cardOutput`.
     void syncAnimationEffects(
         wlr_scene_tree* target = nullptr, wlr_scene_node* border = nullptr, wlr_scene_node* surface = nullptr,
-        const BorderEffectGate* gate = nullptr, Output* cardOutput = nullptr
+        const BorderEffectGate* gate = nullptr, Output* cardOutput = nullptr, float scale = 1.0F
     );
     [[nodiscard]] ViewEffects& effects() { return m_effects; }
+    [[nodiscard]] EffectSlot& effectSlot(EffectKind kind) { return m_effects.slot(kind); }
+    [[nodiscard]] const EffectSlot& effectSlot(EffectKind kind) const { return m_effects.slot(kind); }
+    [[nodiscard]] bool effectSelectionPending() const { return m_effectSelectionIdle != nullptr; }
+    void refreshEffectSelection();
     [[nodiscard]] wlr_scene_tree* captureTree() const;
     [[nodiscard]] bool mapped() const { return m_mapped; }
-    [[nodiscard]] bool xwayland() const { return m_xwayland; }
-    // The pid of the application process, or -1 when it is unknown. XWayland views all share the xwayland-satellite
-    // connection, so their client pid identifies the satellite rather than the application and is never reported.
+    // The pid of the application process, or -1 when it is unknown (an X11 client that sets no _NET_WM_PID).
     [[nodiscard]] pid_t pid() const;
-    [[nodiscard]] Workspace* workspace() const { return m_workspace; }
+    // An attached dialog reports its placement root's workspace, output, visibility, and pinned state.
+    [[nodiscard]] Workspace* workspace() const {
+      return m_attachedTo != nullptr ? m_attachedTo->workspace() : m_workspace;
+    }
     // The output currently presenting this view. Unassigned views follow the
     // preferred output until they are attached to a workspace.
     [[nodiscard]] Output* currentOutput() const;
     // Effective optional window-rule override used by tearing diagnostics.
     [[nodiscard]] std::optional<bool> tearingRuleOverride();
-    [[nodiscard]] bool onActiveWorkspace() const { return m_onActiveWorkspace; }
-    // Out of sight: on an inactive workspace, behind the lock screen, or on an output that is powered off.
-    [[nodiscard]] bool hidden() const;
-    // Whether frame callbacks keep flowing while this window is hidden, instead of it being suspended.
-    [[nodiscard]] bool wantsBackgroundFrames();
-    // A configure is scheduled, unacknowledged, or acknowledged without the commit that applies it.
-    [[nodiscard]] bool configurePending() const;
+    [[nodiscard]] bool confinePointer();
+    [[nodiscard]] bool allowsShortcutsInhibit();
+    // A `background_render` rule applies, or the window declares the `game` content type: while hidden, the window
+    // stays unsuspended and gets frame callbacks at its output's refresh rate.
+    [[nodiscard]] bool backgroundRender() const { return m_backgroundRender || m_contentType == ContentType::Game; }
+    [[nodiscard]] bool onActiveWorkspace() const {
+      return m_attachedTo != nullptr ? m_attachedTo->onActiveWorkspace() : m_onActiveWorkspace;
+    }
     [[nodiscard]] bool tiled() const { return m_tiled; }
     [[nodiscard]] bool floating() const { return !m_tiled; }
+    [[nodiscard]] bool layoutFloated() const { return m_layoutFloated; }
     [[nodiscard]] bool isAloneInLayout() const;
+    [[nodiscard]] bool isOnlyWindowOnWorkspace() const;
     [[nodiscard]] const std::optional<std::string>& namedScrollingColumnName() const {
       return m_namedScrollingColumnName;
     }
     [[nodiscard]] std::optional<int> namedScrollingColumnOrder() const { return m_namedScrollingColumnOrder; }
-    [[nodiscard]] bool pinned() const { return m_pinned; }
+    [[nodiscard]] bool pinned() const { return m_attachedTo != nullptr ? m_attachedTo->pinned() : m_pinned; }
     // True when unpinning puts the window back in the tiled layout, because
     // that is where it was pinned from.
     [[nodiscard]] bool restoresTiledOnUnpin() const { return m_restoreTiledAfterUnpin; }
     [[nodiscard]] bool maximizedToEdges() const { return m_maximizedToEdges; }
+    [[nodiscard]] bool floatingMaximized() const { return m_floatingMaximized; }
     // Fullscreen for layout purposes follows the state already scheduled for the next configure.
     [[nodiscard]] bool layoutFullscreen() const;
     [[nodiscard]] bool urgent() const { return m_urgent; }
+    // The mapped window the client named as this one's parent (xdg parent or X11 WM_TRANSIENT_FOR), or null.
+    [[nodiscard]] View* shellParent() const;
+    // Modal dialog attachment. An attached dialog has no placement of its own: it lives inside the window it is
+    // attached to, which holds its workspace, output, and visibility.
+    [[nodiscard]] bool attached() const { return m_attachedTo != nullptr; }
+    // The dialogs attached to this window, oldest first.
+    [[nodiscard]] std::span<View* const> attachments() const { return m_attachments; }
+    // The window at the bottom of this one's attachment chain, which is where its placement lives; itself when it is
+    // not attached.
+    [[nodiscard]] View* placementRoot();
+    [[nodiscard]] const View* placementRoot() const;
+    // The window that takes this one's input: its topmost attached dialog, recursively; itself when none is attached.
+    [[nodiscard]] View* inputDelegate();
+    // A window with a dialog attached is shaded and gets no input of its own.
+    [[nodiscard]] bool blocked() const { return !m_attachments.empty(); }
+    // The toplevel's xdg-dialog-v1 object. Its modality can change or go away while the window is mapped.
+    void setDialog(wlr_xdg_dialog_v1* dialog);
     // The window id the ext-foreign-toplevel protocol hands to clients, which the IPC surface reuses verbatim for its
     // own window identity. Null only while no ext handle exists (the handle lives for the whole map lifetime).
     [[nodiscard]] const char* extForeignIdentifier() const {
@@ -131,6 +219,12 @@ namespace andromeda {
     // Border colors after this window's rule overrides; overview cards draw with the same ones.
     [[nodiscard]] const Config::Colors::Border& borderColors() const { return m_decoration.borderColors(); }
     // Border widths and corner_radius after this window's rule overrides; overview cards draw with the same ones.
+    void setXdgDecorationPreference(std::optional<bool> serverSide);
+    void setLegacyDecorationPreference(std::optional<bool> serverSide);
+    [[nodiscard]] int titleBarHeight() const;
+    void syncSsdFrame();
+    [[nodiscard]] SsdFramePoint ssdFramePointAt(double lx, double ly) const;
+    [[nodiscard]] SsdFrame* ssdFrame() const { return m_ssdFrame.get(); }
     [[nodiscard]] int decorationBorderWidth() const { return m_decoration.borderWidth(); }
     [[nodiscard]] int decorationOuterBorderWidth() const { return m_decoration.outerBorderWidth(); }
     [[nodiscard]] int decorationCornerRadius() const { return m_decoration.cornerRadius(); }
@@ -146,8 +240,14 @@ namespace andromeda {
     // Mechanism only: applies seat keyboard, activation chrome, and raise. Policy lives in Server::focusView; do not
     // call from input/event code. `withKeyboard` is false while overview owns the seat: chrome and activation still
     // update, the keyboard enter is deferred to the close.
-    void applySeatFocus(bool withKeyboard = true);
+    // `raise` lifts the view to the top of its stack; a hover that only focuses passes false so the visual order
+    // keeps the window the pointer swept across underneath.
+    void applySeatFocus(bool withKeyboard = true, bool raise = true);
     void setForeignActivated(bool activated);
+    // The X screen moved relative to the layout: send an X11 window its geometry again.
+    void resyncXwaylandGeometry();
+    // The shell role is gone: tears the view down and removes it from the server, which deletes it.
+    void roleDestroyed();
     void setUrgent(bool urgent);
     // Activation can arrive after the XDG role exists but before its first buffer. Preserve its provenance until map,
     // when the window's final metadata is available for rule matching.
@@ -190,13 +290,36 @@ namespace andromeda {
       // True while this view is still at home and only carries a clean
       // snapshot taken before foreign refugees entered its layout.
       bool layoutProtectionOnly = false;
+      std::shared_ptr<const DisplacedWorkspace> workspaceOrigin;
     };
     [[nodiscard]] const std::optional<DisplacedHome>& displacedHome() const { return m_displacedHome; }
     void markDisplaced(DisplacedHome home) { m_displacedHome = std::move(home); }
     void clearDisplaced() { m_displacedHome.reset(); }
 
     void setOnActiveWorkspace(bool active);
-    void syncSuspended();
+    // A member of a tabbed column other than the one it shows. It keeps its layout slot and stays mapped and configured
+    // at that size, but its frame stays disabled whatever else asks to enable it.
+    void setTabHidden(bool hidden);
+    [[nodiscard]] bool tabHidden() const { return m_tabHidden; }
+    // Minimized: hidden, but keeping its workspace, floating box, stacking slot, and taskbar entries. Focusing the
+    // window shows it again.
+    [[nodiscard]] bool minimized() const { return m_minimized; }
+    // Only a mapped, unattached floating window on a workspace can be minimized; tiled, pinned, and scratchpad
+    // windows cannot.
+    [[nodiscard]] bool minimizable() const;
+    // Hide or show without checking eligibility. Hiding the focused window hands focus to a replacement.
+    void setMinimized(bool minimized);
+    // Minimize when eligible and not fullscreen or grabbed. True when the window is minimized afterwards.
+    bool requestMinimize();
+    // Orders minimized windows by when they were hidden; larger is more recent.
+    [[nodiscard]] uint64_t minimizeSerial() const { return m_minimizeSerial; }
+    // True while nothing may show the frame: a tiled opener waiting for the arrange that places it, a hidden tab, or a
+    // minimized window.
+    [[nodiscard]] bool presentationSuppressed() const { return m_tiledOpeningDeferred || m_tabHidden || m_minimized; }
+    // Chrome carried beside the borders, its scene nodes under chromeParent(). Replacing it destroys the previous one.
+    void setChromeAttachment(std::unique_ptr<ViewChromeAttachment> attachment);
+    [[nodiscard]] ViewChromeAttachment* chromeAttachment() const { return m_chromeAttachment.get(); }
+    [[nodiscard]] wlr_scene_tree* chromeParent() const { return m_contentTree; }
     // Scratchpad membership: selects the scratchpad border palette and animation event, and matches is_scratchpad.
     void setInScratchpad(bool scratchpad);
     void animateTo(int x, int y);
@@ -223,20 +346,32 @@ namespace andromeda {
     // supplies the target buffer is still outstanding, compositor presentation remains authoritative until it lands.
     void completeLayoutMotion(const wlr_box& target);
     void endLayoutMotion();
+    // Where the frame is now in layout coordinates, mid-animation included, without the workspace slide offset. Frames
+    // sit directly under trees anchored at the layout origin (a workspace tree moves only by its slide offset), so this
+    // is the frame node's own position; an attached dialog's frame sits at an offset inside its parent's.
+    [[nodiscard]] int layoutX() const;
+    [[nodiscard]] int layoutY() const;
     // The authoritative layout position: where the window's slot is, not where its scene node happens to be
     // mid-animation. Workspace slides and arrange reflows move nodes without touching the animation targets, so window
     // listings that order by position must read these instead.
-    [[nodiscard]] int layoutTargetX() const { return static_cast<int>(std::lround(m_posX.target())); }
-    [[nodiscard]] int layoutTargetY() const { return static_cast<int>(std::lround(m_posY.target())); }
+    [[nodiscard]] int layoutTargetX() const;
+    [[nodiscard]] int layoutTargetY() const;
     // The box this window is headed for: the output when fullscreen, its presented slot when tiled, which is the usable
     // area when maximized to edges, else its own position at the size it is resizing to. Valid ahead of the animation
     // that carries the node there and of the client's resize, and settles a pending arrange to get there.
     [[nodiscard]] wlr_box targetBox() const;
-    // Move the scene nodes without touching the position animation: an
-    // interactive drag tracks the pointer 1:1 and owns the position itself.
-    void setDragPosition(int x, int y);
+    // Track the pointer directly. Floating workspace moves also update the authoritative position; other drags keep
+    // their layout target until release.
+    void setDragPosition(int x, int y, bool updateTarget);
     // Keep at least clamp(size / 4, 10, 75) pixels per axis on-screen.
     void clampFloatingPosition();
+    // keepTitleBarReachable of clampFloatingOrigin for this frame: the origin a floating placement must land at so
+    // the window stays grabbable inside `usable`. Restores computed from remembered fractions go through here.
+    [[nodiscard]] FloatingPoint grabbableOrigin(FloatingPoint origin, const wlr_box& usable) const;
+    // The settle every drag ending runs, released or abandoned: clamp the last
+    // position into the grabbable margin, animate there, remember it. Returns
+    // where the window landed.
+    FloatingPoint settleFloatingDrop(int x, int y);
     // clampFloatingPosition for a requested but uncommitted size, snapping an axis the size fills to the usable edge.
     // Animates, settling with the presented size.
     void clampFloatingPositionForSize(int width, int height);
@@ -263,6 +398,24 @@ namespace andromeda {
     [[nodiscard]] std::array<int, 2> floatingRestoreSize() const;
     // The home output's usable area.
     [[nodiscard]] wlr_box floatingUsableArea() const;
+    // `usable` less the margin a maximized tile keeps (struts, then gap and border), so the border stays on screen.
+    // A client capped below that box by its maximum size keeps the capped size, centered in it.
+    [[nodiscard]] wlr_box
+    floatingMaximizedBox(const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
+    // The usable area inside the layout struts and the gap plus border margin; `usable` when that leaves nothing.
+    [[nodiscard]] wlr_box floatingMarginArea(const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
+    // Put a maximized float back in the box its settings give it now, after a layout, border, strut, or usable area
+    // change. Does nothing unless that box moved, so every arrange can ask.
+    void refitFloatingMaximized();
+    [[nodiscard]] std::optional<SnapRegion> snapRegion() const { return m_snapRegion; }
+    [[nodiscard]] std::optional<wlr_box>
+    floatingSnappedBox(SnapRegion region, const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
+    [[nodiscard]] bool canSnap() const;
+    // A pointer drop can preserve its normal restore origin without moving the frame away from the release point.
+    bool snapTo(SnapRegion region, std::optional<FloatingPoint> restoreOrigin = std::nullopt);
+    void unsnap(bool animate = true);
+    void clearSnapState();
+    void refitFloatingSnapped();
     // The usable area an opening window is sized against: the target output's,
     // then its full layout box, then whatever sits under the cursor. A hotplug
     // race can leave an output with no usable area computed yet.
@@ -275,6 +428,13 @@ namespace andromeda {
     void restoreFloatingPosition(bool rememberRestored = true);
     // Center the floating window on its output's usable area. False when not floating.
     bool centerFloating();
+    // Place the floating window at an anchored position in its output's usable area. False when not floating.
+    bool moveFloatingTo(const WindowPosition& position);
+    // Shift the floating window by logical pixels, clamped to its output's usable area. False when not floating.
+    bool moveFloatingBy(int deltaX, int deltaY);
+    // Move the floating window to one edge of its output's usable area, inside the layout struts, gap and borders, and
+    // keep its position on the other axis. False when not floating or already there.
+    bool moveFloatingToEdge(wlr_edges edge);
     // Animate the presented size toward a layout-assigned size. Called by Workspace::arrange when it configures the
     // client, so the animation owns the presented size before the clip can report the final size.
     void beginResizeAnimation(int width, int height, bool allowFullscreen = false);
@@ -302,6 +462,14 @@ namespace andromeda {
     // output's usable area and restores to the box it had before; tiled windows
     // toggle their column's full-width state.
     void toggleMaximized();
+    // Apply the maximize state a client request would carry (what a titlebar
+    // double-click produces): a tiled window honors the workspace's
+    // client_maximize, and a floating window keeps the default behavior
+    // whatever it says. handleRequestMaximize ends here too, so the gesture and
+    // a client request pick the same target. The direction is explicit because
+    // the gesture computes the opposite of the current state at its second
+    // press.
+    void setMaximizedLikeClientRequest(bool maximized);
     // Restore a floating maximized window to its saved box before a pointer
     // move takes ownership of its position.
     void restoreMaximizedForMove();
@@ -314,7 +482,9 @@ namespace andromeda {
     // places the window itself (an interactive drag drops it at its own target).
     enum class TilePlacement : uint8_t { Layout, Detached };
     void setFloating(bool floating, bool focus = true, TilePlacement placement = TilePlacement::Layout);
-    void toggleFloating();
+    void toggleFloating(bool focus = true);
+    void floatForLayout();
+    void adoptLayoutFloat();
     void togglePinned();
     // Restore the global pinned scene layer after temporary drag reparenting.
     void restorePinnedSceneParent();
@@ -328,22 +498,65 @@ namespace andromeda {
     void setSceneParent(wlr_scene_tree* parent);
     // Advances this view's animations; returns true while any is still running.
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Views; }
-    bool tickAnimations(uint64_t nowMsec) override;
+    bool tickAnimations(double nowMsec) override;
     [[nodiscard]] bool hasActiveAnimations() const override;
     [[nodiscard]] bool animatesOn(const Output* output) const override;
 
   private:
     friend class Cursor;
     friend class ScratchpadManager;
-    friend class WineColorManager;
+    friend class ColorManager;
     friend class Output;
     friend class Server;
     friend class Popup;
+    // Size and place a maximized float in `box`, sliding there when `animate`, and remember it as its maximized box.
+    void placeFloatingMaximized(const wlr_box& box, bool animate);
     friend class Overview;
     friend class Workspace;
+    friend class XwaylandWindow;
 
     // Move the frame, and a lent shadow with it.
     void setScenePosition(int x, int y);
+    // Shared by both constructors once the role pointer is set.
+    void initCommon();
+    // Role mechanism behind the opening and configure paths.
+    [[nodiscard]] bool requestedFullscreen() const;
+    [[nodiscard]] bool requestedMaximized() const;
+    // Send a size configure and return its serial; X11 configures carry none and return 0.
+    uint32_t configureSize(int width, int height);
+    // Take a size the client chose as the scheduled one, without sending a configure.
+    void adoptScheduledSize(int width, int height);
+    [[nodiscard]] bool configureSettled(uint32_t serial) const;
+    // Retire the floating size request once the client has answered it.
+    [[nodiscard]] bool retireFloatingSizeRequest();
+    [[nodiscard]] bool roleInitialized() const;
+    [[nodiscard]] bool openingConfigurePending() const;
+    // Resend the current role state, answering a client request the compositor declined.
+    void reassertRoleState();
+    void setTiledState(uint32_t edges);
+    [[nodiscard]] bool shellParentRequested() const;
+    // A window without a parent or dialog-like X11 window type opens tiled unless it has a fixed size and does not
+    // request fullscreen.
+    [[nodiscard]] bool looksTiled() const;
+    // X11 windows are positioned by the compositor: the X server must know where the window is on screen, because
+    // override-redirect menus place themselves relative to it. Deduplicated, so animation frames cost nothing.
+    void sendXwaylandConfigure(int width, int height);
+    void syncXwaylandConfigure();
+    // How the X11 window's output maps into X coordinates.
+    [[nodiscard]] XwaylandRegion xwaylandRegion() const;
+    // Draws the X11 window's surface at `scale` X pixels per layout unit.
+    void applyXwaylandScale(double scale);
+    // Reproject the X11 bounding shape after a buffer crop, scale, commit, or ShapeNotify.
+    void syncXwaylandShape();
+    // An X11 length in layout units, rounded as the scene rounds the drawn surface.
+    [[nodiscard]] int xToLayoutLength(int length) const;
+    void handleXwaylandRequestConfigure(const wlr_xwayland_surface_configure_event* event);
+    void handleXwaylandRequestActivate();
+    void handleXwaylandSetHints();
+    static void onXwaylandRequestConfigure(wl_listener* listener, void* data);
+    static void onXwaylandRequestActivate(wl_listener* listener, void* data);
+    static void onXwaylandSetHints(wl_listener* listener, void* data);
+    static void onXwaylandShapeChanged(wl_listener* listener, void* data);
     // Lend the shadow to the workspace's tile shadow layer while the frame is in the tiled layer, or take it back.
     void syncShadowPool();
 
@@ -365,21 +578,25 @@ namespace andromeda {
 
     static void onMap(wl_listener* listener, void* data);
     static void onUnmap(wl_listener* listener, void* data);
+    static int onLaunchPlacementTimeout(void* data);
     static void onRootSurfaceDestroy(wl_listener* listener, void* data);
     static void onCommit(wl_listener* listener, void* data);
-    static void onConfigure(wl_listener* listener, void* data);
-    static void onClientCommit(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);
     static void onRequestMove(wl_listener* listener, void* data);
     static void onRequestResize(wl_listener* listener, void* data);
     static void onRequestMaximize(wl_listener* listener, void* data);
+    static void onRequestMinimize(wl_listener* listener, void* data);
     static void onAcceptClientMaximizeRequests(void* data);
+    static void onEffectSelectionIdle(void* data);
     static void onRequestFullscreen(wl_listener* listener, void* data);
     static void onSetParent(wl_listener* listener, void* data);
+    static void onDialogSetModal(wl_listener* listener, void* data);
+    static void onDialogDestroy(wl_listener* listener, void* data);
     static void onSetTitle(wl_listener* listener, void* data);
     static void onSetAppId(wl_listener* listener, void* data);
     static void onForeignActivate(wl_listener* listener, void* data);
     static void onForeignClose(wl_listener* listener, void* data);
+    static void onForeignMinimize(wl_listener* listener, void* data);
     static void onForeignDestroy(wl_listener* listener, void* data);
     static void onExtForeignDestroy(wl_listener* listener, void* data);
     static void onViewSurfaceCommit(wl_listener* listener, void* data);
@@ -389,17 +606,15 @@ namespace andromeda {
 
     static void onCaptureSourceDestroy(wl_listener* listener, void* data);
     void handleMap();
-    void handleUnmap();
+    void handleUnmap(bool animateClose = true);
     void handleCommit(bool reconfigureOpeningState = false);
-    // Capture the outgoing frame when the client commits the size a layout motion requested.
-    void handleClientCommit();
     void setXdgTag(std::string_view tag);
     void setIconName(std::string_view name);
     void syncContentType(wlr_surface* committedSurface = nullptr);
-    void handleDestroy();
     void handleRequestMove(void* data);
     void handleRequestResize(void* data);
     void handleRequestMaximize();
+    void handleRequestMinimize(void* data);
     void setMaximized(bool maximized, bool animate = true);
     void handleRequestFullscreen();
     void recordOpeningParentRequest(bool parentRequested);
@@ -410,11 +625,20 @@ namespace andromeda {
     void handleSetAppId();
     void handleForeignActivate();
     void handleForeignClose();
+    void handleForeignMinimize(void* data);
+    // Drop the minimized state of a window that can no longer be minimized, and offer the client and the title bar
+    // minimize only while it can be.
+    void syncMinimizeEligibility();
     void handleForeignDestroy();
     void handleExtForeignDestroy();
     void handleCaptureSourceDestroy();
     void updateBorderGeometry();
     void updateBorderGeometry(int contentWidth, int contentHeight);
+    // Lay the chrome attachment out around content of that size, which is remembered for later relayouts.
+    void layoutChromeAttachment(int contentWidth, int contentHeight);
+    [[nodiscard]] float chromeAlpha() const {
+      return (fadeComposited() ? 1.0F : m_fadeAlpha) * m_dragOpacity * m_overviewOpacity;
+    }
     void applyCornerRadius();
     void reloadBackdropColor() { m_presentation.reloadBackdropColor(); }
     void refreshConfigChrome();
@@ -440,7 +664,6 @@ namespace andromeda {
     // The lifecycle fade runs through a whole-window shader, so buffers and borders stay opaque under it.
     [[nodiscard]] bool fadeComposited() const;
     void applyEffectiveOpacity();
-    void flushPendingEffectiveOpacity();
     void watchViewSurfaceTree(wlr_surface* root, wlr_subsurface* attachment = nullptr);
     void watchViewSurface(wlr_surface* surface, wlr_subsurface* attachment);
     void clearViewSurfaceWatches();
@@ -541,8 +764,8 @@ namespace andromeda {
     void setSurfaceTreeClip(const wlr_box* clip);
     void unconstrainPopup(wlr_xdg_popup* popup);
     // Push the current output's scale to every surface of this toplevel (fractional-scale + preferred buffer scale,
-    // popups included). Clients like xwayland-satellite size and map pointer coordinates by this, so it must follow the
-    // view across outputs and track scale changes.
+    // popups included). Scale-aware clients size and map pointer coordinates by this, so it must follow the view across
+    // outputs and track scale changes.
     void notifyOutputScale();
     // Keep floats visually at the last requested size while client geometry lags.
     void syncFloatingSurfaceClip();
@@ -563,8 +786,29 @@ namespace andromeda {
     // The output box a fullscreen window covers: its workspace's output, else the one under it.
     [[nodiscard]] wlr_box fullscreenArea() const;
     void setPinned(bool pinned, bool focus);
-    [[nodiscard]] View* xdgParent() const;
     [[nodiscard]] View* transientParent() const;
+    // A modal dialog attaches to its shell parent: one marked modal through xdg-dialog-v1, or one another client
+    // parented through xdg-foreign, which is how a portal parents its dialogs. `general.attach_modal_dialogs` and the
+    // `attach_to_parent` rule action opt out.
+    [[nodiscard]] bool wantsAttach();
+    // Attach or detach to match wantsAttach(). The only caller of attach() and detach().
+    void reconcileAttachment();
+    // Re-check the dialogs this window parents, whose `attach_to_parent` can come from this window's rules.
+    void reconcileDialogAttachments();
+    // Leave whatever placement this view has, then hang its frame in `parent`'s attachment tree.
+    void attach(View* parent);
+    // Leave the parent and become an ordinary float where the dialog showed.
+    void detach();
+    // Remove this view from its parent's attachments, keeping the frame where it shows, and return the old parent.
+    View* unlinkAttachment();
+    // This view is going away: hand its attachments to its own parent, or let them go as floats.
+    void releaseAttachments();
+    // Centre every attachment on this view's presented box, kept on its output, and present it there.
+    void layoutAttachments();
+    // Fade the shade in while a dialog is attached and out once none is; animation.dialogs times it.
+    void retargetModalShade();
+    void syncModalShade();
+    void releaseDialog();
     [[nodiscard]] bool inheritScratchpadFromParent(bool restoreTiled);
     void syncTransientSceneParent();
     void raiseTransientTree();
@@ -573,7 +817,14 @@ namespace andromeda {
     void enterForeignOutput();
     void enterForeignOutput(Output* output);
     void leaveForeignOutput();
-    void applyWindowRules(const ResolvedWindowRule& initiallyApplied);
+    bool assignLaunchOrigin(
+        std::string_view token, std::shared_ptr<WorkspaceLaunchAnchor> workspace, uint32_t timeoutMsec,
+        std::string_view scratchpad
+    );
+    bool consumeLaunchActivation(std::string_view token);
+    bool cancelLaunchOrigin(std::string_view token);
+    void clearLaunchPlacement(bool reconcile, bool clearToken);
+    void applyWindowRules();
     bool attachToAvailableWorkspace(const ResolvedWindowRule& rule, LayoutAttachOrigin origin);
     // `resolved` lets a caller that already resolved the rules pass them in, avoiding a second regex pass.
     void applyDynamicRules(const ResolvedWindowRule* resolved = nullptr);
@@ -591,7 +842,8 @@ namespace andromeda {
     // window did not open alone after all.
     void settleOpeningAloneState();
     // Re-applies dynamic effects after a float, pin, scratchpad, or alone transition, because those states select
-    // rules. A transition that also moved focus has already refreshed them, so this is a no-op there.
+    // rules. A transition that also moved focus has already refreshed them, so this is a no-op there. Also keeps the
+    // minimized state and the client's minimize capability in line with the new state.
     void refreshStateRuleEffects();
     // The live window state the `match.is_*` selectors test.
     [[nodiscard]] WindowRuleState ruleState() const;
@@ -633,10 +885,13 @@ namespace andromeda {
       Maximize,
     };
     AloneSeed m_aloneOpeningSeed = AloneSeed::None;
-    // One-shot effects already applied at map. Late identity resolution only
-    // reapplies a field when its resolved value changes.
+    // Latest settled opening rules, plus every earlier resolution considered. The history keeps an earlier one-shot
+    // value from replaying when independent identity signals temporarily remove and then restore it.
     ResolvedWindowRule m_initialRules;
+    std::vector<ResolvedWindowRule> m_initialRuleHistory;
     WindowRuleState m_initialRuleState;
+    std::optional<std::string> m_initialRulesAppId;
+    std::optional<std::string> m_initialRulesTitle;
     std::optional<std::string> m_initialRulesXdgTag;
     ContentType m_initialRulesContentType = ContentType::None;
     std::optional<std::string> m_namedScrollingColumnName;
@@ -644,29 +899,77 @@ namespace andromeda {
     // True for the member that created its current named scrolling column.
     // Its own late width rule still applies after peers have joined.
     bool m_ownsNamedScrollingColumnExtent = false;
+    // The display the column this window opens in takes, from its opening rules.
+    std::optional<ColumnDisplay> m_ruleColumnDisplay;
 
     Server* m_server = nullptr;
     wlr_xdg_toplevel* m_toplevel = nullptr;
+    wlr_xwayland_surface* m_xsurface = nullptr;
+    // The state last sent to an X11 window, which has no configure acknowledgement to read it back from.
+    struct {
+      bool fullscreen = false;
+      bool maximized = false;
+      bool activated = false;
+    } m_xState;
+    // The X11 window geometry last configured, in X coordinates.
+    struct {
+      int x = INT_MIN;
+      int y = INT_MIN;
+      int width = 0;
+      int height = 0;
+    } m_xConfigured;
+    double m_xScale = 1.0;
+    // The size the compositor wants an X11 window at (0 = the client's own), the counterpart of xdg's scheduled size.
+    ClientSize m_xScheduled;
+    // The size of the emulated RandR mode a fullscreen X11 window switched to, in X pixels, while it fills the output
+    // that way.
+    std::optional<ClientSize> m_xFullscreenSize;
+    // The size an X11 window had when a size request was sent. X11 clients with resize increments pick a nearby legal
+    // size, so a commit at any other size answers the request.
+    ClientSize m_xFloatingRequestBase;
     std::optional<std::string> m_xdgTag;
     std::string m_iconName;
     ContentType m_contentType = ContentType::None;
     wlr_scene_tree* m_sceneTree = nullptr;
     wlr_scene_tree* m_contentTree = nullptr;
+    // The last child of the frame, so attached dialogs draw above everything else of this window.
+    wlr_scene_tree* m_attachmentTree = nullptr;
+    // Shades this window while a dialog is attached: above its content and borders, below the attachment tree.
+    wlr_scene_rect* m_modalShade = nullptr;
+    // 0 to 1 of animation.dialogs.dim.
+    AnimatedValue m_modalShadeAlpha{0.0};
     // A separate scene containing only client-owned surfaces. Window capture
     // must never sample the composited desktop behind translucent content.
     wlr_scene* m_captureScene = nullptr;
     ViewDecoration m_decoration;
+    std::unique_ptr<ViewChromeAttachment> m_chromeAttachment;
+    std::unique_ptr<SsdFrame> m_ssdFrame;
+    std::optional<bool> m_xdgDecorationPreference;
+    std::optional<bool> m_legacyDecorationPreference;
+    std::optional<TitleBarMode> m_titleBarMode;
+    [[nodiscard]] bool wantsTitleBar(TitleBarMode mode) const;
+    void refreshTitleBar();
+    // A window rule's title_bar_buttons, which replaces [appearance.title_bar] buttons.
+    std::optional<std::vector<TitleBarButton>> m_titleBarButtons;
+    // Hand the frame the configured buttons this window can use now: minimize only while it can minimize.
+    void syncTitleBarButtons();
+    int m_chromeContentWidth = 0;
+    int m_chromeContentHeight = 0;
+    bool m_tabHidden = false;
+    bool m_minimized = false;
+    uint64_t m_minimizeSerial = 0;
     ViewEffects m_effects;
     ViewPresentation m_presentation;
-    ResizeCrossfade m_resizeCrossfade;
     DragPhysics m_dragPhysics;
-    uint64_t m_dragPhysicsMsec = 0; // animation clock at the sheet's last tick
+    double m_dragPhysicsMsec = 0; // animation clock at the sheet's last tick
     // The frame-local grab and the content tree's drawn bounds the sheet was last fitted to.
     double m_dragGrabX = 0;
     double m_dragGrabY = 0;
     wlr_box m_dragBounds{};
     bool m_dragSlotBound = false; // the content tree carries the drag slot
     wlr_box m_presentedBox{};
+    // Last committed content size considered for the windows event stream.
+    ClientSize m_ipcContentSize;
     // Last unscaled box supplied by the workspace. A tiled popin or zoom presents an inset inside this logical box,
     // so a later layout change must animate from the logical box rather than scaling the inset a second time.
     wlr_box m_presentedTiledBox{};
@@ -674,10 +977,22 @@ namespace andromeda {
     wlr_ext_foreign_toplevel_handle_v1* m_extForeign = nullptr;
     wlr_output* m_foreignOutput = nullptr;
     wlr_ext_image_capture_source_v1* m_captureSource = nullptr;
+    wlr_xdg_dialog_v1* m_dialog = nullptr;
     Workspace* m_workspace = nullptr;
+    // The window whose attachment tree holds this one, and the dialogs attached to this one, oldest first: the last is
+    // topmost and takes the input.
+    View* m_attachedTo = nullptr;
+    std::vector<View*> m_attachments;
     std::optional<DisplacedHome> m_displacedHome;
 
     bool m_mapped = false;
+    bool m_hasEverMapped = false;
+    bool m_launchPlacementPending = false;
+    std::shared_ptr<WorkspaceLaunchAnchor> m_launchWorkspace;
+    std::string m_launchScratchpad;
+    std::optional<std::string> m_launchToken;
+    std::string m_launchWorkspaceId;
+    wl_event_source* m_launchPlacementTimer = nullptr;
     // The raw pre-map set_parent request. wlroots discards an unmapped target,
     // but its presence still determines the window's opening layout policy.
     bool m_openingParentRequested = false;
@@ -688,9 +1003,9 @@ namespace andromeda {
     // only through the first root commit after the opening gate.
     bool m_consumeRestoredMaximizeRequest = false;
     wl_event_source* m_acceptClientMaximizeIdle = nullptr;
+    wl_event_source* m_effectSelectionIdle = nullptr;
     // Configure serial whose acknowledgement opens the gate when one was outstanding after the map dispatch.
     std::optional<uint32_t> m_acceptClientMaximizeSerial;
-    bool m_xwayland = false;
     // False until the first setPosition/animateTo places the node; the initial
     // placement snaps (avoids animating from the default (0,0) world origin).
     bool m_positioned = false;
@@ -702,6 +1017,7 @@ namespace andromeda {
       uint32_t serial = 0;
       int width = 0;
       int height = 0;
+      ClientSize base;
     };
     std::optional<TiledSizeRequest> m_tiledSizeRequest;
     float m_layoutMotionDirection = 1.0F;
@@ -711,9 +1027,15 @@ namespace andromeda {
     double m_openingScale = 1.0;
     int m_openingSlide = 0;
     bool m_tiled = false;
+    // Floating because its workspace floats every window; tiles again when moved to a tiling layout.
+    bool m_layoutFloated = false;
     bool m_floatingMaximized = false;
     bool m_maximizedToEdges = false;
     bool m_restoreMaximizedToEdges = false;
+    std::optional<SnapRegion> m_snapRegion;
+    wlr_box m_snapRestoreBox{};
+    bool m_hasSnapRestoreBox = false;
+    wlr_box m_snappedBox{};
     wlr_box m_fullscreenRestoreBox{};
     bool m_hasFullscreenRestoreBox = false;
     bool m_pinned = false;
@@ -727,6 +1049,9 @@ namespace andromeda {
     // Inactive client unfullscreen requests wait briefly for xdg or foreign activation. Any later client request or
     // compositor-driven fullscreen change clears the parked request.
     DeferredUnfullscreen m_deferredUnfullscreen;
+    // An X11 window entered through the compositor toggle stays fullscreen until another compositor action releases
+    // it. This prevents Wine from immediately undoing the explicit user action with a contradictory EWMH request.
+    bool m_xCompositorFullscreen = false;
     bool m_onActiveWorkspace = false;
     bool m_inScratchpad = false;
     bool m_urgent = false;
@@ -743,18 +1068,20 @@ namespace andromeda {
     float m_fadeAlpha = 1.0F;
     bool m_borderFocusedState = false;
     bool m_focusDimInitialized = false;
-    // Window rules: unsettled means title was empty at map, so a later
-    // handleSetTitle re-applies all rule effects one more time.
-    bool m_initialRulesSettled = false;
+    // Opening identity can settle independently. The first title and first
+    // non-none content type each get one chance to add one-shot rule effects.
+    bool m_initialTitleRulesSettled = false;
+    bool m_initialContentTypeRulesSettled = false;
     float m_ruleOpacity = 1.0F;
+    bool m_backgroundRender = false;
+    bool m_allowShortcutsInhibit = true;
     float m_dragOpacity = 1.0F;
     float m_overviewOpacity = 1.0F;
-    // wlroots restores a committed scene buffer to the client-provided alpha. Root and subsurface watches set this so
-    // compositor-managed opacity is restored on the frame after every scene helper commit listener has run.
-    bool m_effectiveOpacityCommitPending = false;
     std::vector<std::unique_ptr<ViewSurfaceWatch>> m_viewSurfaceWatches;
     bool m_hasMaximizeRestoreBox = false;
     wlr_box m_maximizeRestoreBox{};
+    // The box a maximized float was last placed in, so a refit acts only when its settings moved it.
+    wlr_box m_floatingMaximizedBox{};
     FloatingGeometry m_floating;
     // Unapplied floating defaults stay in their configured units until the first float transition.
     std::optional<int> m_pendingFloatingWidthPx;
@@ -770,21 +1097,30 @@ namespace andromeda {
     wl_listener m_unmap{};
     wl_listener m_rootSurfaceDestroy{};
     wl_listener m_commit{};
-    wl_listener m_configure{};
-    wl_listener m_clientCommit{};
     wl_listener m_destroy{};
     wl_listener m_requestMove{};
     wl_listener m_requestResize{};
     wl_listener m_requestMaximize{};
+    wl_listener m_requestMinimize{};
     wl_listener m_requestFullscreen{};
     wl_listener m_setParent{};
     wl_listener m_setTitle{};
     wl_listener m_setAppId{};
     wl_listener m_foreignActivate{};
     wl_listener m_foreignClose{};
+    wl_listener m_foreignMinimize{};
     wl_listener m_foreignDestroy{};
     wl_listener m_extForeignDestroy{};
     wl_listener m_captureSourceDestroy{};
+    wl_listener m_xRequestConfigure{};
+    wl_listener m_xRequestActivate{};
+    wl_listener m_xSetHints{};
+    wl_listener m_xShapeChanged{};
+    wl_listener m_setDecorations{};
+    static void onSetDecorations(wl_listener* listener, void* data);
+    void handleSetDecorations();
+    wl_listener m_dialogSetModal{};
+    wl_listener m_dialogDestroy{};
   };
 
 } // namespace andromeda

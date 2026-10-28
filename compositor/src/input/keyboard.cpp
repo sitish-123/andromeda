@@ -3,7 +3,10 @@
 #include "config/config.h"
 #include "core/log.h"
 #include "input/cursor.h"
+#include "input/eis.h"
+#include "input/input_capture.h"
 #include "input/keyboard_layout.h"
+#include "input/keyboard_state.h"
 #include "input/seat.h"
 #include "input/shortcut_keysym.h"
 #include "input/text_input.h"
@@ -26,19 +29,15 @@ namespace andromeda {
 
   Keyboard::Keyboard(Server& server, wlr_input_device* device)
       : m_server(&server), m_keyboard(wlr_keyboard_from_input_device(device)),
-        m_virtual(wlr_input_device_get_virtual_keyboard(device) != nullptr),
+        m_virtual(
+            wlr_input_device_get_virtual_keyboard(device) != nullptr
+            || (server.eisInput() != nullptr && server.eisInput()->ownsDevice(device))
+        ),
         m_deviceName(device->name != nullptr ? device->name : "") {
     if (m_virtual) {
       m_server->inputMethodRelay()->canonicalizeOwnedKeyboardKeymap(m_keyboard);
     }
     applyConfig();
-    if (!m_virtual && config().input.keyboard.numlockToggle && m_keyboard->keymap != nullptr) {
-      const xkb_mod_index_t numLock = xkb_keymap_mod_get_index(m_keyboard->keymap, XKB_MOD_NAME_NUM);
-      if (numLock != XKB_MOD_INVALID) {
-        wlr_keyboard_notify_modifiers(m_keyboard, 0, 0, 1U << numLock, 0);
-      }
-    }
-
     m_modifiers.notify = onModifiers;
     wl_signal_add(&m_keyboard->events.modifiers, &m_modifiers);
     m_key.notify = onKey;
@@ -53,24 +52,49 @@ namespace andromeda {
     }
     const Config::Input& input = config().input;
     const Config::Input::Device* device = input.findDevice(m_deviceName);
-    const std::string& layout = device != nullptr && device->layout ? *device->layout : input.keyboard.layout;
-    const std::string& variant = device != nullptr && device->variant ? *device->variant : input.keyboard.variant;
-    const std::string& options = device != nullptr && device->options ? *device->options : input.keyboard.options;
+
+    const bool enabled = device != nullptr ? device->enabled.value_or(true) : true;
+    libinput_device* libinputDevice =
+        wlr_input_device_is_libinput(&m_keyboard->base) ? wlr_libinput_get_device_handle(&m_keyboard->base) : nullptr;
+    // A device that is also a pointer, touch, or tablet device has one send-events mode, owned by that device's path.
+    const bool sharedDevice = libinputDevice != nullptr
+        && (libinput_device_has_capability(libinputDevice, LIBINPUT_DEVICE_CAP_POINTER) != 0
+            || libinput_device_has_capability(libinputDevice, LIBINPUT_DEVICE_CAP_TOUCH) != 0
+            || libinput_device_has_capability(libinputDevice, LIBINPUT_DEVICE_CAP_TABLET_TOOL) != 0
+            || libinput_device_has_capability(libinputDevice, LIBINPUT_DEVICE_CAP_TABLET_PAD) != 0);
+    if (libinputDevice != nullptr && !sharedDevice) {
+      if ((libinput_device_config_send_events_get_modes(libinputDevice) & LIBINPUT_CONFIG_SEND_EVENTS_DISABLED) != 0) {
+        libinput_device_config_send_events_set_mode(
+            libinputDevice, enabled ? LIBINPUT_CONFIG_SEND_EVENTS_ENABLED : LIBINPUT_CONFIG_SEND_EVENTS_DISABLED
+        );
+      } else if (!enabled) {
+        kLog.warn("input: '{}' cannot be disabled", m_deviceName);
+      }
+    }
+
+    const XkbNames names = resolveXkbNames(input.keyboard, device, m_server->systemKeymap());
     const int repeatRate = device != nullptr && device->repeatRate ? *device->repeatRate : input.keyboard.repeatRate;
     const int repeatDelay =
         device != nullptr && device->repeatDelay ? *device->repeatDelay : input.keyboard.repeatDelay;
     xkb_context* context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    const xkb_rule_names names{
+    const xkb_rule_names rules{
         .rules = nullptr,
-        .model = nullptr,
-        .layout = layout.empty() ? nullptr : layout.c_str(),
-        .variant = variant.empty() ? nullptr : variant.c_str(),
-        .options = options.empty() ? nullptr : options.c_str(),
+        .model = names.model.empty() ? nullptr : names.model.c_str(),
+        .layout = names.layout.empty() ? nullptr : names.layout.c_str(),
+        .variant = names.variant.empty() ? nullptr : names.variant.c_str(),
+        .options = names.options.empty() ? nullptr : names.options.c_str(),
     };
     xkb_keymap* keymap =
-        context == nullptr ? nullptr : xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        context == nullptr ? nullptr : xkb_keymap_new_from_names(context, &rules, XKB_KEYMAP_COMPILE_NO_FLAGS);
     if (keymap != nullptr) {
-      wlr_keyboard_set_keymap(m_keyboard, keymap);
+      // Restoring lock state emits a synthetic modifiers event. It must not
+      // select an inactive keyboard as the user's current input source.
+      m_syncingLayout = true;
+      const bool applied = setKeyboardKeymapPreservingState(m_keyboard, keymap);
+      m_syncingLayout = false;
+      if (!applied) {
+        wlr_log(WLR_ERROR, "failed to apply keyboard keymap");
+      }
       xkb_keymap_unref(keymap);
     } else {
       wlr_log(WLR_ERROR, "failed to create keyboard keymap");
@@ -79,8 +103,8 @@ namespace andromeda {
       xkb_context_unref(context);
     }
     wlr_keyboard_set_repeat_info(m_keyboard, repeatRate, repeatDelay);
-    // A new keymap starts in group zero. Record it without treating initial
-    // setup or a config reload as a user-driven layout transition.
+    // A changed keymap starts in group zero; an identical map keeps its state.
+    // Record either without treating config reload as a user layout transition.
     m_lastNotifiedLayout = m_keyboard->xkb_state == nullptr
         ? XKB_LAYOUT_INVALID
         : xkb_state_serialize_layout(m_keyboard->xkb_state, XKB_STATE_LAYOUT_EFFECTIVE);
@@ -209,9 +233,39 @@ namespace andromeda {
     self->handleDestroy();
   }
 
+  void Keyboard::prepareInputCapture(bool ending) {
+    cancelRepeat();
+    if (ending) {
+      for (size_t index = 0; index < m_keyboard->num_keycodes; ++index) {
+        m_consumedKeycodes.insert(m_keyboard->keycodes[index]);
+      }
+      return;
+    }
+    if (wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab(); grab != nullptr) {
+      for (size_t index = 0; index < m_keyboard->num_keycodes; ++index) {
+        const uint32_t keycode = m_keyboard->keycodes[index];
+        if (!m_consumedKeycodes.contains(keycode)) {
+          wlr_input_method_keyboard_grab_v2_send_key(grab, 0, keycode, WL_KEYBOARD_KEY_STATE_RELEASED);
+        }
+      }
+      wlr_keyboard_modifiers neutral{};
+      wlr_input_method_keyboard_grab_v2_send_modifiers(grab, &neutral);
+    }
+  }
+
   void Keyboard::handleModifiers() {
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 1U) != 0) {
+      if (!m_syncingLayout && !m_server->syncingKeyboardLocks() && !m_virtual) {
+        m_server->rememberKeyboardInputSource(*this);
+      }
+      if (!m_virtual) {
+        capture->captureModifiers(m_keyboard);
+      }
+      return;
+    }
     wlr_seat* seat = m_server->seat()->wlr();
-    if (m_syncingLayout) {
+    if (m_syncingLayout || m_server->syncingKeyboardLocks()) {
+      m_server->refreshKeyboardLeds();
       // A config reload can remap the seat's current keyboard to a differently
       // ordered matching group. Forward that current state, but never select or
       // forward a sibling keyboard merely because it was synchronized.
@@ -227,6 +281,10 @@ namespace andromeda {
       }
       return;
     }
+    if (!m_virtual && m_server->eisInput() != nullptr) {
+      m_server->eisInput()->updateModifiers(m_keyboard->modifiers);
+    }
+    m_server->rememberKeyboardInputSource(*this);
     cancelRepeat();
     m_server->notifyIdleActivity();
     wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab();
@@ -255,6 +313,16 @@ namespace andromeda {
 
   void Keyboard::handleKey(void* data) {
     auto* event = static_cast<wlr_keyboard_key_event*>(data);
+    if (InputCapture* capture = m_server->inputCapture();
+        capture != nullptr && (capture->capabilities() & 1U) != 0 && m_virtual) {
+      if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        m_consumedKeycodes.insert(event->keycode);
+      } else {
+        m_consumedKeycodes.erase(event->keycode);
+      }
+      return;
+    }
+    m_server->rememberKeyboardInputSource(*this);
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
       m_server->notifyInputActivity();
     } else {
@@ -274,7 +342,47 @@ namespace andromeda {
     std::optional<Keybind> modifierTap;
     // An XF86 key can arrive from a dedicated hotkey device while its modifiers are held on the main keyboard. Match
     // against the combined seat-wide state so those chords behave like keys on one device.
-    uint32_t modifiers = m_server->keyboardModifiers();
+    uint32_t modifiers = m_server->keyboardModifiers(true);
+    if (QuitConfirm* confirm = m_server->quitConfirm();
+        confirm != nullptr && confirm->visible() && confirm->kind() == QuitConfirm::Kind::InputCapture && m_virtual) {
+      if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+        m_consumedKeycodes.insert(event->keycode);
+      } else {
+        m_consumedKeycodes.erase(event->keycode);
+      }
+      return;
+    }
+    if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && capture->active()) {
+      cancelRepeat();
+      const bool pressed = event->state == WL_KEYBOARD_KEY_STATE_PRESSED;
+      if (!m_virtual && pressed) {
+        const bool escape =
+            (modifiers & (WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT)) == (WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT)
+            && std::ranges::any_of(std::span(syms, nsyms > 0 ? static_cast<size_t>(nsyms) : 0), [](xkb_keysym_t sym) {
+                 return sym == XKB_KEY_Escape;
+               });
+        bool vt = false;
+        for (int index = 0; index < nsyms && !escape; ++index) {
+          vt = m_server->handleVtSwitch(syms[index], modifiers) || vt;
+        }
+        if (escape || vt) {
+          capture->suspend();
+          m_consumedKeycodes.insert(event->keycode);
+          return;
+        }
+      }
+      if ((capture->capabilities() & 1U) != 0) {
+        if (pressed) {
+          m_consumedKeycodes.insert(event->keycode);
+        } else {
+          m_consumedKeycodes.erase(event->keycode);
+        }
+        if (!m_virtual) {
+          capture->captureKey(event->time_msec, m_keyboard, event->keycode, pressed);
+        }
+        return;
+      }
+    }
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
       if (!modifierOnly && nsyms > 0) {
         m_server->cursor()->noteTyping();
@@ -293,15 +401,20 @@ namespace andromeda {
           handled = true;
         }
       }
-      // Modal confirmation: Enter or a matching action confirms, while any other non-modifier key cancels. The press is
-      // consumed either way, reaching neither binds nor clients. Modifier-only presses pass through so held chords stay
-      // intact.
+      // Modal confirmation consumes non-modifier presses before binds or clients.
+      // Enter or a matching action confirms; input capture can also offer R to
+      // remember approval. Modifier-only presses keep held chords intact.
       bool confirmationConsumed = false;
       if (QuitConfirm* confirm = m_server->quitConfirm(); confirm != nullptr && confirm->visible()) {
         if (!modifierOnly) {
           bool confirmed = false;
+          bool rememberCapture = false;
           for (int i = 0; i < nsyms; ++i) {
             confirmed = confirmed || syms[i] == XKB_KEY_Return || syms[i] == XKB_KEY_KP_Enter;
+            if (!m_virtual && confirm->canRememberInputCapture() && (syms[i] == XKB_KEY_r || syms[i] == XKB_KEY_R)) {
+              confirmed = true;
+              rememberCapture = true;
+            }
           }
           // Repeating the quit action or any target-changing screencast action confirms its corresponding panel.
           // matchKeybind mirrors handleKeybind without running the action, so the pending screencast command remains
@@ -313,7 +426,7 @@ namespace andromeda {
             }
             if (confirm->kind() == QuitConfirm::Kind::SessionQuit) {
               confirmed = matched->action == KeybindAction::SessionQuit;
-            } else {
+            } else if (confirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
               confirmed = matched->action == KeybindAction::ScreenCastSetOutput
                   || matched->action == KeybindAction::ScreenCastSetWindow
                   || matched->action == KeybindAction::ScreenCastFollowWindow
@@ -322,7 +435,11 @@ namespace andromeda {
           }
           if (confirmed) {
             if (confirm->kind() == QuitConfirm::Kind::SessionQuit) {
-              m_server->stop();
+              m_server->requestSessionExit();
+            } else if (confirm->kind() == QuitConfirm::Kind::InputEmulation) {
+              m_server->confirmInputEmulation();
+            } else if (confirm->kind() == QuitConfirm::Kind::InputCapture) {
+              m_server->confirmInputCapture(rememberCapture);
             } else {
               m_server->confirmScreenCastDynamic();
             }
@@ -441,8 +558,10 @@ namespace andromeda {
   void Keyboard::armRepeat(const Keybind& bind, uint32_t keycode) {
     const int32_t rate = m_keyboard->repeat_info.rate;
     const int32_t delay = m_keyboard->repeat_info.delay;
-    const bool repeatable =
-        bind.action != KeybindAction::ScratchpadToggle && bind.action != KeybindAction::ScratchpadFocusNext;
+    const bool repeatable = bind.action != KeybindAction::ScratchpadToggle
+        && bind.action != KeybindAction::ScratchpadFocusNext
+        && bind.action != KeybindAction::ScratchpadWindowShowNext
+        && bind.action != KeybindAction::ScratchpadWindowShowPrevious;
     if (!bind.repeat || !repeatable || rate <= 0 || delay <= 0) {
       cancelRepeat();
       return;

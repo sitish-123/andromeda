@@ -99,9 +99,6 @@ readonly COMMON_CONFIG='
 [animation]
 enabled = false
 
-[animation.scratchpad]
-scale = 0
-
 [output.HEADLESS-1]
 mode = "1280x720"
 position = [0, 0]
@@ -245,10 +242,10 @@ wait_for_field "$TERM_B" y 300
 # Regular floating maximize follows the same drag contract.
 focus_window "$TERM_A"
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
-wait_for_field "$TERM_A" x 0
-wait_for_field "$TERM_A" y 0
-wait_for_field "$TERM_A" w 1280
-wait_for_field "$TERM_A" h 720
+wait_for_field "$TERM_A" x 10
+wait_for_field "$TERM_A" y 10
+wait_for_field "$TERM_A" w 1260
+wait_for_field "$TERM_A" h 700
 "$POINTER" 2560 720 \
   move 320 360 mod logo press "$BTN_LEFT" move 1500 360 release "$BTN_LEFT" mod none
 wait_for_field "$TERM_A" x 1420
@@ -263,10 +260,10 @@ wait_for_field "$TERM_B" y 300
 # pre-maximize box, rather than maximize an already output-sized window again.
 focus_window "$TERM_A"
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
-wait_for_field "$TERM_A" x 1280
-wait_for_field "$TERM_A" y 0
-wait_for_field "$TERM_A" w 1280
-wait_for_field "$TERM_A" h 720
+wait_for_field "$TERM_A" x 1290
+wait_for_field "$TERM_A" y 10
+wait_for_field "$TERM_A" w 1260
+wait_for_field "$TERM_A" h 700
 "$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 wait_for_field "$TERM_A" x 1280
 wait_for_field "$TERM_A" y 0
@@ -281,10 +278,10 @@ wait_for_field "$TERM_A" h 720
 wait_for_field "$TERM_B" x 520
 wait_for_field "$TERM_B" y 300
 "$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
-wait_for_field "$TERM_A" x 0
-wait_for_field "$TERM_A" y 0
-wait_for_field "$TERM_A" w 1280
-wait_for_field "$TERM_A" h 720
+wait_for_field "$TERM_A" x 10
+wait_for_field "$TERM_A" y 10
+wait_for_field "$TERM_A" w 1260
+wait_for_field "$TERM_A" h 700
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null
 wait_for_field "$TERM_A" x 140
 wait_for_field "$TERM_A" y 300

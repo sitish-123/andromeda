@@ -129,3 +129,158 @@ if (( r < 240 || g > 15 || b > 15 )); then
 fi
 echo "inert preset recovery, palette updates without recompilation, light layer reloads, and screen palette updates" \
   "verified"
+
+# reload-runtime: an IPC-only pool keeps its override, cached member and
+# prepared programs through unrelated and effect-source reloads while suppressed.
+sed -i 's/^screen = "tint"$/screen = ""/' "$ANDROMEDA_CONFIG"
+cat > "$ANDROMEDA_RUNTIME_DIR/runtime-reload.glsl" <<'GLSL'
+vec4 border(vec2 uv) { return vec4(0.0, 1.0, 0.0, 1.0); }
+GLSL
+cat > "$ANDROMEDA_RUNTIME_DIR/runtime-reload-overlay.glsl" <<'GLSL'
+vec4 window(vec2 uv) { return vec4(1.0, 0.0, 0.0, 1.0); }
+GLSL
+cat >> "$ANDROMEDA_CONFIG" <<'EOF_CONFIG'
+[effects.preset.runtime_reload_z]
+kind = "border"
+shader = "runtime-reload.glsl"
+overlay = "runtime_reload_overlay"
+[effects.preset.runtime_reload_a]
+kind = "border"
+shader = "runtime-reload.glsl"
+[effects.preset.runtime_reload_overlay]
+kind = "window"
+shader = "runtime-reload-overlay.glsl"
+[effects.pool.runtime_reload]
+kind = "border"
+choose = ["runtime_reload_z", "runtime_reload_a"]
+selection = "round_robin"
+EOF_CONFIG
+"$ANDROMEDA" msg config-reload > /dev/null
+reload_id=$(jq -r .id <<< "$window")
+"$ANDROMEDA" msg "effect-border-set:runtime_reload/$reload_id" > /dev/null
+"$ANDROMEDA" msg "effect-border-toggle:$reload_id" > /dev/null
+slot_before=$("$ANDROMEDA" windows --json | jq -c --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect')
+sed -i 's/^accent_primary = "#FF0000FF"$/accent_primary = "#FFFFFFFF"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+# Editing a member forces effects reconciliation, unlike the palette-only reload.
+printf '\n// changed source\n' >> "$ANDROMEDA_RUNTIME_DIR/runtime-reload.glsl"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
+slot_after=$("$ANDROMEDA" windows --json | jq -c --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect')
+if [[ $slot_before != "$slot_after" ]] || ! jq -e '.name == "runtime_reload_z" and .pool == "runtime_reload" and .source == "runtime" and .suppressed' <<< "$slot_after" > /dev/null; then
+  echo "reload-runtime-slot: suppressed override changed: $slot_before -> $slot_after"
+  exit 1
+fi
+"$ANDROMEDA" effects --json | jq -e '[.presets[] | select(.name | startswith("runtime_reload_")) | .state] == ["compiled", "compiled", "compiled"]' > /dev/null || { echo "reload-runtime-prepared"; exit 1; }
+"$ANDROMEDA" msg "effect-border-toggle:$reload_id" > /dev/null
+"$ANDROMEDA" settle > /dev/null
+grim "$IMAGE"
+read -r r g b < <(probe)
+if (( g < 240 || r > 15 || b > 15 )); then
+  echo "reload-runtime-pixel: restored override did not render: $r $g $b"
+  exit 1
+fi
+"$ANDROMEDA" windows --json | jq -e --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect | .name == "runtime_reload_z" and (.suppressed | not)' > /dev/null || { echo "reload-runtime-no-pick"; exit 1; }
+
+read -r r g b < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" pixel "$((x + w / 2))" "$((y + 20))")
+if (( r < 240 || g > 15 || b > 15 )); then
+  echo "reload-runtime-overlay: overlay did not render after suppressed reload: $r $g $b"
+  exit 1
+fi
+# Removing the held member repairs the assignment, retaining the pool override.
+sed -i 's/^choose = \["runtime_reload_z", "runtime_reload_a"\]$/choose = ["runtime_reload_a"]/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
+"$ANDROMEDA" windows --json | jq -e --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect | .name == "runtime_reload_a" and .pool == "runtime_reload" and .source == "runtime" and (.suppressed | not)' > /dev/null || { echo "reload-removed-member"; exit 1; }
+# Inactive member history is not itself a compilation root.
+"$ANDROMEDA" effects --json | jq -e '.presets[] | select(.name == "runtime_reload_z") | .state == "unreferenced"' > /dev/null || { echo "reload-history-not-root"; exit 1; }
+sed -i 's/^choose = \["runtime_reload_a"\]$/choose = ["runtime_reload_z", "runtime_reload_a"]/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" windows --json | jq -e --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect.name == "runtime_reload_a"' > /dev/null || { echo "reload-retains-valid-member"; exit 1; }
+# Deleting a pool, or changing a plain preset to the wrong kind, drops only the
+# invalid runtime selector and resolves the configured border default again.
+sed -i 's/^\[effects.pool.runtime_reload\]$/[effects.pool.runtime_reload_removed]/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" windows --json | jq -e --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect | .name == "later" and .pool == "" and .source == "default"' > /dev/null || { echo "reload-deleted-override"; exit 1; }
+"$ANDROMEDA" msg "effect-border-set:runtime_reload_z/$reload_id" > /dev/null
+sed -i '/^\[effects.preset.runtime_reload_z\]$/,/^\[/s/^kind = "border"$/kind = "window"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" windows --json | jq -e --arg id "$reload_id" '.[] | select(.id == $id) | .border_effect | .name == "later" and .pool == "" and .source == "default"' > /dev/null || { echo "reload-wrong-kind-override"; exit 1; }
+
+# An unrelated chrome refresh must preserve focus while repainting. Temporarily
+# unfocusing the current window would consume an otherwise untouched rule pool.
+cat > "$ANDROMEDA_RUNTIME_DIR/chrome-z.glsl" <<'GLSL'
+vec4 window(vec2 uv) { return vec4(1.0, 0.0, 0.0, 1.0); }
+GLSL
+cat > "$ANDROMEDA_RUNTIME_DIR/chrome-a.glsl" <<'GLSL'
+vec4 window(vec2 uv) { return vec4(0.0, 1.0, 0.0, 1.0); }
+GLSL
+cat > "$ANDROMEDA_RUNTIME_DIR/chrome-focused.glsl" <<'GLSL'
+vec4 window(vec2 uv) { return vec4(0.0, 0.0, 1.0, 1.0); }
+GLSL
+cat >> "$ANDROMEDA_CONFIG" <<'EOF_CHROME'
+[effects.preset.chrome_z]
+kind = "window"
+shader = "chrome-z.glsl"
+[effects.preset.chrome_a]
+kind = "window"
+shader = "chrome-a.glsl"
+[effects.preset.chrome_focused]
+kind = "window"
+shader = "chrome-focused.glsl"
+[effects.pool.chrome_idle]
+kind = "window"
+choose = [] # chrome pool starts inert during rule/chrome setup
+selection = "round_robin"
+[effects.pool.chrome_focus]
+kind = "window"
+choose = ["chrome_focused"]
+[[window_rule]]
+match.title = "^reload$"
+window_effect = "chrome_idle"
+[[window_rule]]
+match.title = "^reload$"
+match.is_focused = true
+window_effect = "chrome_focus"
+[[window_rule]]
+match.title = "^chrome-helper$"
+default_floating = true
+default_position = { x = 800, y = 440, anchor = "top_left" }
+EOF_CHROME
+"$ANDROMEDA" msg config-reload > /dev/null
+FILL_COLOR=0xFF0000FF "$ANDROMEDA_UNMAP_CLIENT" chrome-helper 200 160 > "$ANDROMEDA_RUNTIME_DIR/chrome-helper.log" 2>&1 &
+for _ in $(seq 80); do
+  chrome_helper=$("$ANDROMEDA" windows --json | jq -c '.[] | select(.title == "chrome-helper")')
+  [[ -n $chrome_helper ]] && break
+  sleep 0.025
+done
+[[ -n $chrome_helper ]]
+chrome_id=$(jq -r .id <<< "$chrome_helper")
+"$ANDROMEDA" msg "window-focus:$reload_id" > /dev/null
+"$ANDROMEDA" settle > /dev/null
+# This changes only effects, so the initially empty round-robin pool has never
+# made a handout.
+sed -i 's/^choose = \[\] # chrome pool starts inert during rule\/chrome setup$/choose = ["chrome_z", "chrome_a"]/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
+chrome_before=$("$ANDROMEDA" windows --json | jq -c --arg id "$reload_id" '.[] | select(.id == $id) | .window_effect')
+sed -i 's/^accent_primary = "#FFFFFFFF"$/accent_primary = "#808080FF"/' "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" settle > /dev/null
+chrome_after=$("$ANDROMEDA" windows --json | jq -c --arg id "$reload_id" '.[] | select(.id == $id) | .window_effect')
+if [[ $chrome_before != "$chrome_after" ]] || ! jq -e '.name == "chrome_focused" and .pool == "chrome_focus"' <<< "$chrome_after" > /dev/null; then
+  echo "reload-chrome-focused-stable: color reload changed the focused owner: $chrome_before -> $chrome_after"
+  exit 1
+fi
+# Target an unfocused helper: choosing the untouched pool must not unfocus the
+# first owner, and a fresh round-robin pick must still start at its first member.
+"$ANDROMEDA" msg "effect-window-set:chrome_idle/$chrome_id" > /dev/null
+"$ANDROMEDA" settle > /dev/null
+"$ANDROMEDA" windows --json | jq -e --arg id "$chrome_id" '.[] | select(.id == $id) | .window_effect | .name == "chrome_z" and .pool == "chrome_idle"' > /dev/null || { echo "reload-chrome-no-policy-pick"; exit 1; }
+read -r cx cy cw ch < <("$ANDROMEDA" windows --json | jq -r --arg id "$chrome_id" '.[] | select(.id == $id) | "\(.x) \(.y) \(.w) \(.h)"')
+grim "$IMAGE"
+read -r r g b < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" pixel "$((cx + cw / 2))" "$((cy + ch / 2))")
+if (( r < 240 || g > 15 || b > 15 )); then
+  echo "reload-chrome-first-member-pixel: fresh owner did not draw the first member: $r $g $b"
+  exit 1
+fi

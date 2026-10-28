@@ -2,8 +2,10 @@
 
 #include "config/effects.h"
 #include "core/animation.h"
+#include "scene/effect_audio.h"
 #include "scene/effect_ledger.h"
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -12,6 +14,7 @@
 #include <vector>
 
 struct fx_effect_shader;
+struct fx_effect_requirements;
 struct fx_animation_parameters;
 struct wlr_output;
 struct wlr_scene_node;
@@ -40,6 +43,7 @@ namespace andromeda {
     // The program for `name`, or null when the preset is off, inert, of another kind, or failed to compile.
     [[nodiscard]] fx_effect_shader* preset(std::string_view name, EffectKind kind) const;
     [[nodiscard]] const EffectPreset* presetConfig(std::string_view name) const;
+    [[nodiscard]] std::string_view programState(std::string_view name) const;
     // The preset bound to an animation event through `effect =`, or null.
     [[nodiscard]] fx_effect_shader* animationEffect(AnimationEvent event) const;
     // The program a lifecycle fade composes through: the event's preset, or for windows_in and windows_out without
@@ -61,20 +65,23 @@ namespace andromeda {
     ) const;
 
     [[nodiscard]] bool active() const { return m_ledger.active() > 0; }
-    // True when a referenced preset of a persistent kind compiled, so views may attach instances.
-    [[nodiscard]] bool persistentReferenced() const { return m_persistentReferenced; }
-    // True when a referenced in-place preset (window, overlay, screen or cursor) compiled.
-    [[nodiscard]] bool inPlaceReferenced() const { return m_inPlaceReferenced; }
-    // True while the default cursor preset compiled and effects are not suspended: only then does motion reach outputs.
+    // Prepared programs and retained snapshots both keep rendering requirements alive.
+    [[nodiscard]] bool persistentReferenced() const { return m_persistentReferenced || m_retainedPersistent > 0; }
+    [[nodiscard]] bool inPlaceReferenced() const { return m_inPlaceReferenced || m_retainedInPlace > 0; }
+    // Pointer motion reaches outputs only while the selected cursor effect is active.
     [[nodiscard]] bool cursorEffectActive() const { return m_cursorActive; }
     [[nodiscard]] EffectLedger& ledger() { return m_ledger; }
     void setSuspended(bool suspended);
+    void setAudio(const EffectAudio& audio);
+    [[nodiscard]] const EffectAudio& audio() const { return m_audio; }
     // Records an instance; schedules its output's effect frame when that output gains its first eligible instance.
     void updateInstance(const void* owner, const EffectInstanceState& state);
     void removeInstance(const void* owner);
     void removeOutput(const Output* output);
-    // Keeps the scene's light layer while a compiled border preset has `light`, and removes it otherwise.
+    // Keep the light layer while prepared programs or snapshots require it.
     void syncLightLayer();
+    void retainRequirements(const fx_effect_requirements& requirements);
+    void releaseRequirements(const fx_effect_requirements& requirements);
     // Pushes the output-level effect settings to every output.
     void applyOutputEffects();
     // Forwards the pointer to every output's cursor slot; call only while cursorEffectActive().
@@ -103,9 +110,13 @@ namespace andromeda {
     bool m_persistentReferenced = false;
     bool m_inPlaceReferenced = false;
     bool m_cursorActive = false;
+    unsigned m_retainedPersistent = 0;
+    unsigned m_retainedInPlace = 0;
+    unsigned m_retainedLight = 0;
     const wlr_output* m_pointerWlrOutput = nullptr; // under the pointer at the last forward
     bool m_pointerVisible = false;
     EffectLedger m_ledger;
+    EffectAudio m_audio{}; // bands and availability
     mutable uint64_t m_clockEpochMsec = 0;
     mutable bool m_clockEpochSet = false;
   };

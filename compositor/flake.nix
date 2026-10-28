@@ -22,7 +22,7 @@
         "aarch64-linux"
       ];
 
-      rev = self.shortRev or self.dirtyShortRev;
+      rev = self.shortRev or self.dirtyShortRev or "local";
 
       forEachSystem =
         perSystem: nixpkgs.lib.genAttrs systems (system: perSystem nixpkgs.legacyPackages.${system});
@@ -44,6 +44,8 @@
 
       packages = forEachSystem (pkgs: {
         default = pkgs.callPackage ./nix/package.nix { inherit rev; };
+        xdg-desktop-portal-andromeda =
+          xdg-desktop-portal-andromeda.packages.${pkgs.stdenv.hostPlatform.system}.default;
       });
 
       devShells = forEachSystem (pkgs: {

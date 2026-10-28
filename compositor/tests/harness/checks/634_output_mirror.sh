@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # harness: outputs=2
-# `mirror` makes an output leave the desktop and show another output's frames. Its window moves to the source, the
-# mirror stops being a wl_output clients can address, and removing the key brings the output and its window back.
+# `mirror` makes an output leave the desktop and show another output's frames. Its window moves to a workspace of its
+# own on the source, as on unplug; the mirror stops being a wl_output clients can address, and removing the key brings
+# the output and its window back.
 # The mirror's own pixels need a real renderer on a visible output; tests/unit/mirror_placement.cpp pins the geometry.
 set -euo pipefail
 
@@ -48,7 +49,8 @@ if ! wait_for_log_since "$mark" "output 'HEADLESS-2': mirroring 'HEADLESS-1'"; t
   tail -8 "$ANDROMEDA_LOG" | sed 's/^/  | /'
   exit 1
 fi
-wait_for_workspace 'HEADLESS-1:1'
+wait_for_workspace 'HEADLESS-1:2'
+"$ANDROMEDA" msg workspace-switch:2 > /dev/null
 "$ANDROMEDA" settle > /dev/null
 grim -o HEADLESS-1 "$SOURCE_SHOT"
 source_green=$("$ANDROMEDA_PIXEL_PROBE" "$SOURCE_SHOT" count "$GREEN")

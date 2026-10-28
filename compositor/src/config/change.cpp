@@ -51,6 +51,7 @@ namespace andromeda {
           && lhs.hdr == rhs.hdr
           && lhs.sdrWhite == rhs.sdrWhite
           && lhs.mirror == rhs.mirror
+          && lhs.sdrTransfer == rhs.sdrTransfer
           && lhs.bitDepth == rhs.bitDepth;
     }
 
@@ -66,6 +67,12 @@ namespace andromeda {
       const OutputRule& lhs = before != nullptr ? *before : defaults;
       const OutputRule& rhs = after != nullptr ? *after : defaults;
       return lhs.screenEffect == rhs.screenEffect;
+    }
+
+    bool selectsScreenEffect(const Config& settings) {
+      return std::ranges::any_of(settings.outputs, [](const OutputRule& rule) {
+        return rule.screenEffect.has_value();
+      });
     }
 
     bool sameAnimationEffects(const Config::Animation& before, const Config::Animation& after) {
@@ -84,6 +91,10 @@ namespace andromeda {
       return std::ranges::any_of(rules, [](const WindowRule& rule) {
         return rule.borderEffect.has_value() || rule.windowEffect.has_value();
       });
+    }
+
+    bool decidesAttachment(const std::vector<WindowRule>& rules) {
+      return std::ranges::any_of(rules, [](const WindowRule& rule) { return rule.attachToParent.has_value(); });
     }
 
     bool sameOutputDirectScanoutPolicy(const OutputRule* before, const OutputRule* after) {
@@ -118,15 +129,19 @@ namespace andromeda {
 
         const WindowRule& lhs = before.windowRules[beforeIndex++];
         const WindowRule& rhs = after.windowRules[afterIndex++];
-        if (lhs.appIdPattern != rhs.appIdPattern
-            || lhs.titlePattern != rhs.titlePattern
-            || lhs.xdgTagPattern != rhs.xdgTagPattern
+        if (lhs.appIdPatterns != rhs.appIdPatterns
+            || lhs.titlePatterns != rhs.titlePatterns
+            || lhs.xdgTagPatterns != rhs.xdgTagPatterns
             || lhs.matchContentType != rhs.matchContentType
             || lhs.matchFocused != rhs.matchFocused
             || lhs.matchFloating != rhs.matchFloating
+            || lhs.matchMaximizedToEdges != rhs.matchMaximizedToEdges
             || lhs.matchPinned != rhs.matchPinned
             || lhs.matchScratchpad != rhs.matchScratchpad
             || lhs.matchAlone != rhs.matchAlone
+            || lhs.matchOnlyWindow != rhs.matchOnlyWindow
+            || lhs.matchDialog != rhs.matchDialog
+            || lhs.matchCastTarget != rhs.matchCastTarget
             || lhs.matchAtStartup != rhs.matchAtStartup
             || lhs.allowTearing != rhs.allowTearing) {
           return false;
@@ -167,6 +182,26 @@ namespace andromeda {
 
   } // namespace
 
+  std::vector<std::string> configuredEffectActionRoots(const Config& config) {
+    std::vector<std::string> roots;
+    const auto add = [&roots](const Keybind& bind) {
+      if (const auto reference = effectActionReference(bind)) {
+        roots.emplace_back(reference->name);
+      }
+    };
+    for (const auto& bind : config.keybinds) {
+      add(bind);
+    }
+    for (const auto& corner : config.hotCorners.corners) {
+      if (corner.enabled && corner.action) {
+        add(*corner.action);
+      }
+    }
+    std::ranges::sort(roots);
+    roots.erase(std::ranges::unique(roots).begin(), roots.end());
+    return roots;
+  }
+
   ConfigEffects ConfigEffects::between(const Config& before, const Config& after) {
     // A new descriptor rule can override an existing connector rule for a live
     // output. Without runtime identities here, a name-set change must
@@ -188,6 +223,8 @@ namespace andromeda {
     const bool focusDim = before.animation.enabled != after.animation.enabled
         || before.animation.dimUnfocused != after.animation.dimUnfocused;
     const bool effectsChanged = before.effects != after.effects
+        || configuredEffectActionRoots(before) != configuredEffectActionRoots(after)
+        || (outputNamesChanged && (selectsScreenEffect(before) || selectsScreenEffect(after)))
         || outputProjectionChanged(before, after, sameOutputScreenEffect)
         || !sameAnimationEffects(before.animation, after.animation)
         || (before.windowRules != after.windowRules
@@ -201,7 +238,9 @@ namespace andromeda {
             || outputLayout
             || before.layout != after.layout
             || before.workspaceRules != after.workspaceRules
-            || before.appearance.totalBorderWidth() != after.appearance.totalBorderWidth(),
+            || before.appearance.totalBorderWidth() != after.appearance.totalBorderWidth()
+            || before.appearance.tabBar != after.appearance.tabBar
+            || before.appearance.titleBar != after.appearance.titleBar,
         .sceneBlur = sceneBlur,
         // [colors] owns the border, backdrop, insert-hint, and shadow colors, so
         // any color edit refreshes window chrome.
@@ -215,6 +254,9 @@ namespace andromeda {
         .overviewPresentation = before.overview != after.overview || before.colors != after.colors,
         .internalUi = before.colors != after.colors || before.general.modKey != after.general.modKey,
         .effects = effectsChanged,
+        .dialogAttachment = before.general.attachModalDialogs != after.general.attachModalDialogs
+            || (before.windowRules != after.windowRules
+                && (decidesAttachment(before.windowRules) || decidesAttachment(after.windowRules))),
     };
   }
 
@@ -233,6 +275,7 @@ namespace andromeda {
         .overviewPresentation = true,
         .internalUi = true,
         .effects = true,
+        .dialogAttachment = true,
     };
   }
 
@@ -344,6 +387,7 @@ namespace andromeda {
     add(input, "input");
     add(overviewPresentation, "overview presentation");
     add(effects, "effects");
+    add(dialogAttachment, "dialog attachment");
     return out;
   }
 } // namespace andromeda

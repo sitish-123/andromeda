@@ -1,13 +1,18 @@
 #pragma once
+#include "config/change.h"
+#include "config/value_parse.h"
 #include "core/animation.h"
 #include "core/application_scope.h"
 #include "core/dirty.h"
+#include "input/keyboard_layout.h"
 #include "input/lid_state.h"
 #include "input/modifier_tap.h"
+#include "input/shortcuts_inhibit.h"
 #include "input/surface_layouts.h"
 #include "output/enable_overrides.h"
 #include "scene/border_rect.h"
 #include "scene/effect_registry.h"
+#include "scene/effect_selection.h"
 #include "scene/surface_shadow.h"
 #include "server/focus.h"
 #include "view/registry.h"
@@ -15,12 +20,14 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include <wayland-server-core.h>
@@ -29,13 +36,14 @@ struct wlr_allocator;
 struct wlr_backend;
 struct wlr_box;
 struct wlr_compositor;
-struct wlr_color_manager_v1;
 struct wlr_content_type_manager_v1;
 struct wlr_image_description_v1_data;
 struct wlr_ext_foreign_toplevel_handle_v1;
 struct wlr_ext_foreign_toplevel_list_v1;
 struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1;
 struct wlr_export_dmabuf_manager_v1;
+struct wlr_ext_image_copy_capture_session_v1;
+struct wlr_ext_image_capture_source_v1;
 struct wlr_foreign_toplevel_manager_v1;
 struct wlr_idle_inhibit_manager_v1;
 struct wlr_idle_notifier_v1;
@@ -52,6 +60,7 @@ struct wlr_relative_pointer_manager_v1;
 struct wlr_renderer;
 struct wlr_scene;
 struct wlr_scene_buffer;
+struct wlr_scene_blur;
 struct wlr_scene_output_layout;
 struct wlr_scene_rect;
 struct wlr_scene_tree;
@@ -103,12 +112,13 @@ namespace andromeda {
     uint64_t serial = 0;
   };
 
-  // Slow tick that ferries wl_surface.frame callbacks to hidden toplevels that want them (View::wantsBackgroundFrames).
-  // wlroots' scene helper only walks enabled scene nodes, so a hidden view otherwise never receives another frame_done
-  // and any client that gates its game/network loop on the frame callback stalls until it becomes visible again
-  // (Overwatch under Proton-CachyOS times out its server heartbeat within ~30 s of alt-tab). Other hidden toplevels are
-  // suspended instead, and the timer is disarmed while no hidden view wants it.
+  // Slow tick that ferries wl_surface.frame callbacks to mapped toplevels that are off the rendered scene but could not
+  // be told they are suspended (X11 windows and xdg clients older than version 6). wlroots' scene helper only walks
+  // enabled scene nodes, so such a view otherwise never receives another frame_done and a client that gates its
+  // game/network loop on the frame callback stalls. A suspended view gets none: clients such as Firefox detect
+  // occlusion only from a long callback gap, and a slow tick reads as a slow display that drops video frames.
   inline constexpr int kBackgroundFrameIntervalMs = 100;
+  inline constexpr std::string_view kLaunchTokenEnvironment = "ANDROMEDA_LAUNCH_TOKEN";
 
   // The pid of the process owning a surface's Wayland connection, or -1 when the surface has no client or the kernel
   // cannot represent that pid in the compositor's pid namespace.
@@ -118,22 +128,27 @@ namespace andromeda {
   struct Keybind;
 
   class Cursor;
+  class EisInput;
+  class InputCapture;
   class BackendManager;
   class FocusManager;
-  class XwaylandSupervisor;
+  class Xwayland;
   class ConfigWatcher;
   class DesktopSettingsManager;
   class DesktopOutputManager;
   class CommitTimingManager;
   class DesktopShell;
   class FifoManager;
-  class ToplevelDragManager;
   struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
-  class WineColorManager;
+  class ColorManager;
+  class SyncobjAcquireBarrier;
+  class SyncobjSupersededRelease;
+  class SyncobjUnmapRelease;
   class HintRect;
   class Keyboard;
+  class KeyboardLeds;
   class LayerSurface;
   class Output;
   class Overview;
@@ -142,6 +157,8 @@ namespace andromeda {
   class View;
   class Workspace;
   class WorkspaceGroup;
+  struct DisplacedWorkspace;
+  struct WorkspaceLaunchAnchor;
   class ScratchpadManager;
   class ConfigBanner;
   class FpsOverlay;
@@ -162,9 +179,17 @@ namespace andromeda {
     bool start(const char* startupCmd = nullptr);
     void run();
     void stop();
+    void requestSessionExit();
     [[nodiscard]] bool stopping() const { return m_stopping; }
 
     [[nodiscard]] wl_display* display() const { return m_display; }
+    [[nodiscard]] wlr_compositor* compositor() const { return m_compositor; }
+    // Null when general.xwayland is off or the Xwayland server could not be created.
+    [[nodiscard]] Xwayland* xwayland() const { return m_xwayland.get(); }
+    [[nodiscard]] EisInput* eisInput() const { return m_eisInput.get(); }
+    [[nodiscard]] InputCapture* inputCapture() const { return m_inputCapture.get(); }
+    [[nodiscard]] bool physicalInputDevice(const wlr_input_device* device) const;
+    [[nodiscard]] bool keyboardKeyConsumed(wlr_keyboard* keyboard, uint32_t keycode) const;
     [[nodiscard]] wlr_backend* backend() const { return m_backend; }
     [[nodiscard]] wlr_session* session() const { return m_session; }
     [[nodiscard]] wlr_renderer* renderer() const { return m_renderer; }
@@ -174,10 +199,11 @@ namespace andromeda {
     // The security-context metadata for a restricted client, or null for a
     // client on the ordinary socket.
     [[nodiscard]] const wlr_security_context_v1_state* clientSecurityContext(const wl_client* client) const;
-    [[nodiscard]] wlr_color_manager_v1* colorManager() const { return m_colorManager; }
     [[nodiscard]] wlr_export_dmabuf_manager_v1* exportDmabufManager() const { return m_exportDmabufManager; }
+    // True while a live cursor session is attached to a capture source of this output.
+    [[nodiscard]] bool hasCopyCaptureFor(const wlr_output* output) const;
     [[nodiscard]] wlr_tearing_control_manager_v1* tearingControlManager() const { return m_tearingControlManager; }
-    [[nodiscard]] WineColorManager* wineColorManager() const { return m_wineColorManager.get(); }
+    [[nodiscard]] ColorManager* colorManager() const { return m_colorManager.get(); }
     [[nodiscard]] const wlr_image_description_v1_data* surfaceImageDescription(wlr_surface* surface) const;
     [[nodiscard]] const wlr_image_description_v1_data* surfaceTreeHdrDescription(wlr_surface* surface) const;
     void updateColorPreferences();
@@ -204,6 +230,8 @@ namespace andromeda {
     // Above top panels, below overlay/lock (fullscreen xdg views).
     [[nodiscard]] wlr_scene_tree* fullscreenTree() const { return m_fullscreenTree; }
     [[nodiscard]] wlr_scene_tree* pinnedTree() const { return m_pinnedTree; }
+    // Override-redirect X11 windows (menus, tooltips, drag icons), above every window.
+    [[nodiscard]] wlr_scene_tree* xwaylandUnmanagedTree() const { return m_xwaylandUnmanagedTree; }
     [[nodiscard]] wlr_scene_tree* imPopupTree() const { return m_imPopupTree; }
     [[nodiscard]] wlr_scene_tree* lockTree() const { return m_lockTree; }
     [[nodiscard]] wlr_scene_tree* shellLayerTree(uint32_t layer) const;
@@ -214,18 +242,36 @@ namespace andromeda {
     [[nodiscard]] Cursor* cursor() const { return m_cursor.get(); }
     [[nodiscard]] EffectRegistry& effects() { return m_effects; }
     [[nodiscard]] const EffectRegistry& effects() const { return m_effects; }
+    [[nodiscard]] EffectSlot& cursorEffectSlot() { return m_cursorEffectSlot; }
+    [[nodiscard]] const EffectSlot& cursorEffectSlot() const { return m_cursorEffectSlot; }
+    [[nodiscard]] EffectHoldCounts effectHoldCounts(const EffectPool& pool, const EffectSlot* excluded = nullptr) const;
+    [[nodiscard]] std::vector<std::string> runtimeEffectSelectors() const;
+    [[nodiscard]] std::vector<View*> sortedEffectViews() const;
+    void resolveEffectSlot(EffectSlot& slot, EffectKind kind, bool active = true);
+    void resolveOutputEffect(Output& output);
+    void reconcileEffectSelections();
+    [[nodiscard]] EffectSlotActionResult
+    applyEffectAction(EffectSlot& slot, EffectKind kind, EffectSlotAction action, std::string_view argument);
+    // Nested callbacks can change focus/rules while rendering. Such changes
+    // defer effect selection to the owning view's idle callback.
+    [[nodiscard]] bool handlingOutputFrame() const { return m_outputFrameDepth != 0; }
+    void beginOutputFrame() { ++m_outputFrameDepth; }
+    void endOutputFrame() { --m_outputFrameDepth; }
+
     // Central animation tick: advances every registered owner once per msec and
     // reports whether anything is still animating.
-    bool tickAnimations(uint64_t nowMsec);
-    void flushPendingViewOpacities();
+    bool tickAnimations(double nowMsec);
     [[nodiscard]] bool animationsActive() const;
     [[nodiscard]] bool animationsActiveFor(const Output* output) const;
     // No animation is running, no workspace has an arrange waiting for the next frame, and every mapped window has
     // committed its latest configure.
     [[nodiscard]] bool settled() const;
-    // Milliseconds on the clock every animation ticks from. It follows the monotonic clock unless a test build froze
-    // it.
+    // Whole milliseconds on the clock every animation ticks from, for timers and effect time. It follows the monotonic
+    // clock unless a test build froze it.
     [[nodiscard]] uint64_t animationClockMsec() const;
+    // The animation clock, in fractional milliseconds, at a CLOCK_MONOTONIC instant such as an output's latest vblank.
+    // Frames tick from it, so motion steps keep sub-millisecond spacing.
+    [[nodiscard]] double animationFrameClockMsec(double monotonicMsec) const;
 #ifdef ANDROMEDA_TEST_IPC
     void freezeAnimationClock();
     // Moves a frozen clock forward and schedules a frame on every output. False when the clock is not frozen.
@@ -234,6 +280,7 @@ namespace andromeda {
     void resumeAnimationClock();
     [[nodiscard]] bool animationClockFrozen() const { return m_frozenAnimationClockMsec.has_value(); }
     void emitRendererLostForTest();
+    [[nodiscard]] bool injectPlaneCursor(std::string_view spec, std::string* error);
 #endif
     [[nodiscard]] Ipc* ipc() const { return m_ipc.get(); }
     [[nodiscard]] const ScreenCastCommand& screenCastCommand() const { return m_screenCastCommand; }
@@ -245,6 +292,8 @@ namespace andromeda {
     bool followScreenCastOutput(std::string* error = nullptr);
     void stopFollowingScreenCast();
     void confirmScreenCastDynamic();
+    void confirmInputEmulation();
+    void confirmInputCapture(bool remember = false);
     void dismissConfirmation();
     // Owners register themselves for the frame tick. The registry is kept in phase order, so the three traversals above
     // never re-state which owners exist or in what order they run.
@@ -284,11 +333,14 @@ namespace andromeda {
     [[nodiscard]] std::span<const std::unique_ptr<View>> views() const { return m_registry.all(); }
     [[nodiscard]] ViewRegistry& registry() { return m_registry; }
     [[nodiscard]] std::span<const std::unique_ptr<LayerSurface>> layerSurfaces() const { return m_layerSurfaces; }
-    [[nodiscard]] bool isXwaylandSurface(const wlr_surface* surface) const;
+    // Registers a view created for a new toplevel of either shell role.
+    View& adoptView(std::unique_ptr<View> view);
 
     // Runs a parsed action. Shared by the keybind path and the IPC `msg` command.
     bool executeKeybindAction(const Keybind& bind, std::string* error = nullptr, bool* cooldownBlocked = nullptr);
     bool cooldownAllows(const Keybind& bind);
+    // Re-evaluates alone rules on every workspace whose arrange is still pending.
+    void refreshPendingAloneRules();
     // Record that something server-wide became stale. The work happens once, in a fixed order, at the top of the next
     // frame (see Output::flushDirty). Schedules a frame on every output, so recording is always enough.
     void markDirty(Dirty what);
@@ -302,10 +354,18 @@ namespace andromeda {
     void relayoutCheatsheet();
     void relayoutQuitConfirm();
     void spawn(const char* command, const char* description = nullptr, bool withActivationToken = false);
-    void handleConfigReload();
+    void handleConfigReload(const ConfigReloadResult& result);
     // Re-evaluate application idle inhibitors after a surface's presentation
     // visibility changes.
     void updateIdleInhibit();
+    // Re-derive every toplevel's suspended state once the current dispatch settles, so a transition that hides and
+    // shows a window within one dispatch never reaches the client.
+    void scheduleSuspensionSync();
+    // True while `view`'s client must keep drawing although its frame is hidden: an overview card or a toplevel capture
+    // draws its content off the shared scene, or a `background_render` rule asks for it.
+    [[nodiscard]] bool viewRenderedOffscreen(const View& view) const;
+    // True while a live image-copy session reads `view`'s toplevel capture source.
+    [[nodiscard]] bool viewCaptured(const View& view) const;
     // Lock the next group on one physical keyboard, then synchronize matching
     // named layouts across the remaining keyboards.
     bool cycleKeyboardLayout();
@@ -315,8 +375,10 @@ namespace andromeda {
 
     // The one way keyboard focus reaches a surface. Toplevels, layer-shell
     // surfaces and the lock screen all route through here so that
-    // input.keyboard.track_layout sees every focus change.
-    void notifyKeyboardEnter(wlr_surface* surface);
+    // input.keyboard.track_layout sees every focus change. Bypass delivers the
+    // enter through an active keyboard grab instead of letting the grab swallow it.
+    enum class KeyboardGrab : uint8_t { Respect, Bypass };
+    void notifyKeyboardEnter(wlr_surface* surface, KeyboardGrab grab = KeyboardGrab::Respect);
     void notifyKeyboardClearFocus();
     // Drop every keyboard's consumed-press bookkeeping, for transitions that
     // eat the matching releases.
@@ -329,6 +391,8 @@ namespace andromeda {
     // The canonical physical keyboard's layout vocabulary and effective group.
     // Nullopt when no configured physical keyboard exists.
     [[nodiscard]] std::optional<KeyboardLayoutState> keyboardLayoutState() const;
+    // systemd-localed's keymap, for keyboards whose config sets no XKB names. Empty when unused or unavailable.
+    [[nodiscard]] const XkbNames& systemKeymap() const { return m_systemKeymap; }
     void notifyKeyboardLayoutIpc();
     void notifyOverviewChanged();
     void notifySubmapChanged();
@@ -338,13 +402,21 @@ namespace andromeda {
     // Same coalescing for the workspace list: layout mode, activation, names and membership all land in one payload,
     // so a switch that renames, reindexes and reactivates emits once.
     void scheduleIpcWorkspacesEvent();
+    // Same coalescing for the layer-shell surface list.
+    void scheduleIpcLayersEvent();
+    // Same coalescing for the output list.
+    void scheduleIpcOutputsEvent();
 
     // Focus lives in FocusManager; these forward so call sites that already
     // hold a Server do not need a second reference.
     void focusView(View* view, FocusReason reason = FocusReason::Startup) { m_focus.focusView(view, reason); }
+    void xwaylandHintsChanged(View* view) { m_focus.xwaylandHintsChanged(view); }
     void restoreActivatedViewKeyboardFocus() { m_focus.restoreActivatedViewKeyboardFocus(); }
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr) {
       return m_focus.viewAt(lx, ly, surface, sx, sy, layer);
+    }
+    [[nodiscard]] std::optional<SsdFrameHit> ssdFrameAt(double lx, double ly) const {
+      return m_focus.ssdFrameAt(lx, ly);
     }
     std::optional<Keybind> handleKeybind(uint32_t keysym, uint32_t rawKeysym, uint32_t modifiers);
     // The bind this press would fire, without running it. Null when nothing
@@ -353,9 +425,11 @@ namespace andromeda {
     // Combined state across independent keyboard devices. Media and brightness
     // keys commonly come from a device separate from held modifiers. An input
     // method's mirrored keyboard is not independent and is excluded.
-    [[nodiscard]] uint32_t keyboardModifiers() const;
+    [[nodiscard]] uint32_t keyboardModifiers(bool includeCaptured = false) const;
     [[nodiscard]] bool keyboardShortcutsInhibited() const;
     bool toggleKeyboardShortcutsInhibit();
+    // Reconcile existing client inhibitors after a window's rule or the user's override changes.
+    void refreshKeyboardShortcutsInhibitors();
     bool handleWheelBind(WheelDirection direction, uint32_t modifiers);
     // Null when no bind matched or its action declined. A throttled bind still
     // returns its chord so the caller can consume the press.
@@ -370,7 +444,6 @@ namespace andromeda {
     void refreshSurfaceScales();
     // Re-evaluate each output's policy after keyboard focus or a dynamic window rule changes.
     void refreshOutputPolicies();
-    void updateBackgroundFrameTimer();
     // Suspends every view out of sight (View::hidden) and resumes the rest; after a lock or output power change.
     void syncSuspendedViews();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
@@ -381,7 +454,6 @@ namespace andromeda {
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
     [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
-    [[nodiscard]] ToplevelDragManager* toplevelDragManager() const { return m_toplevelDragManager.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
@@ -389,6 +461,15 @@ namespace andromeda {
     [[nodiscard]] wlr_output* preferredOutput() const;
     [[nodiscard]] Output* outputFromWlr(wlr_output* output) const;
     [[nodiscard]] Output* outputFromName(const std::string& name) const;
+    // Named workspaces on enabled outputs, with native local names taking precedence over displaced ones. A qualifier
+    // for an unavailable output identifies a displaced workspace's original output; positions remain output-local.
+    [[nodiscard]] std::expected<Workspace*, std::string> resolveNamedWorkspace(
+        std::string_view name, WorkspaceGroup* preferred = nullptr, std::string_view output = {}
+    ) const;
+    // Acquire a temporary destination for an absent workspace, including when a scratchpad return outlives its refuge.
+    Workspace* displacedWorkspaceDestination(
+        const std::shared_ptr<const DisplacedWorkspace>& home, Output* preferred, Output* excluded = nullptr
+    );
     [[nodiscard]] wlr_box usableAreaAt(double lx, double ly) const;
     void updateOutputManagerConfig();
     // Change logical desktop membership through the same atomic transaction as
@@ -405,8 +486,9 @@ namespace andromeda {
     [[nodiscard]] wlr_tablet_v2_tablet* tabletV2FromWlr(const wlr_tablet* tablet) const;
 
     // Create and destroy headless outputs at runtime, which is how a test drives a monitor being unplugged and coming
-    // back. Returns the new output's name, or an empty string with `error` set.
-    std::string createHeadlessOutput(const std::string& name, std::string* error);
+    // back. `mode` sizes the new output and paces its frames; without one it starts at 1280x720. Returns the new
+    // output's name, or an empty string with `error` set.
+    std::string createHeadlessOutput(const std::string& name, std::optional<OutputMode> mode, std::string* error);
     bool destroyOutput(const std::string& name, std::string* error);
 
     void removeOutput(Output* output);
@@ -414,6 +496,9 @@ namespace andromeda {
     void closeLayerSurfaces(wlr_output* output);
     void reassignOutputViews(Output* source, Output* destination);
     void scheduleDisplacedViewRestore();
+    void rememberKeyboardInputSource(Keyboard& keyboard);
+    void refreshKeyboardLeds();
+    [[nodiscard]] bool syncingKeyboardLocks() const;
     void removeKeyboard(Keyboard* keyboard);
     void removeView(View* view);
     void removeLayerSurface(LayerSurface* layerSurface, wlr_output* output);
@@ -450,7 +535,8 @@ namespace andromeda {
     // is dropped.
     [[nodiscard]] CloseSnapshotId animateCloseSnapshot(
         Output* output, wlr_scene_tree* tree, wlr_scene_tree* content, std::vector<BorderSnapshot> borders,
-        const wlr_box& box, std::optional<CloseSnapshotOverrides> overrides = std::nullopt, ShadowSnapshot shadow = {}
+        const wlr_box& box, std::optional<CloseSnapshotOverrides> overrides = std::nullopt, ShadowSnapshot shadow = {},
+        int topExtension = 0
     );
     // Place a snapshot's captured box at a canvas origin in output-root coordinates, or hide it while its workspace
     // is not showing.
@@ -459,9 +545,14 @@ namespace andromeda {
     [[nodiscard]] bool closeSnapshotAlive(CloseSnapshotId id) const;
 
   private:
+    friend class EisInput;
+    void requestInputEmulation(uint64_t id, std::string_view name);
+    void cancelInputEmulation(uint64_t id);
+    void requestInputCapture(uint64_t id, std::string_view name, uint32_t persistMode);
+    void cancelInputCapture(uint64_t id);
+    void inputCaptureStateChanged(bool active);
+    static void onSessionActive(wl_listener* listener, void* data);
     friend class Output;
-
-    enum class SpawnClass { Application, SessionHelper };
 
     bool requestScreenCastCommand(ScreenCastCommandKind kind, std::string value, std::string* error);
 
@@ -473,8 +564,10 @@ namespace andromeda {
     static void onSetXdgToplevelTag(wl_listener* listener, void* data);
     static void onSetXdgToplevelIcon(wl_listener* listener, void* data);
     static void onSystemBellRing(wl_listener* listener, void* data);
+    static void onNewXdgDialog(wl_listener* listener, void* data);
     static void onNewXdgPopup(wl_listener* listener, void* data);
     static void onNewXdgDecoration(wl_listener* listener, void* data);
+    static void onNewLegacyDecoration(wl_listener* listener, void* data);
     static void onNewLayerSurface(wl_listener* listener, void* data);
     static void onNewSessionLock(wl_listener* listener, void* data);
     static void onNewPointerConstraint(wl_listener* listener, void* data);
@@ -486,9 +579,11 @@ namespace andromeda {
     static void onNewIdleInhibitor(wl_listener* listener, void* data);
     static void onIdleInhibitorDestroy(wl_listener* listener, void* data);
     static void onNewShortcutsInhibitor(wl_listener* listener, void* data);
+    [[nodiscard]] bool clientShortcutsInhibitAllowed(wlr_surface* surface) const;
     static void onShortcutsInhibitorDestroy(wl_listener* listener, void* data);
     static void onNewImageCopySession(wl_listener* listener, void* data);
     static void onImageCopySessionDestroy(wl_listener* listener, void* data);
+    void refreshCaptureRuleEffects(const wlr_ext_image_capture_source_v1* source);
     static void onNewActivationToken(wl_listener* listener, void* data);
     static void onActivationTokenDestroy(wl_listener* listener, void* data);
     static void onRequestActivate(wl_listener* listener, void* data);
@@ -512,15 +607,23 @@ namespace andromeda {
     static void onRendererLost(wl_listener* listener, void* data);
     static void onRendererRecoveryIdle(void* data);
     static int onBackgroundFrameTimer(void* data);
+    static int onBackgroundRenderTimer(void* data);
+    // Arms the background-render tick for the fastest refresh among hidden `background_render` windows, or disarms it
+    // when there are none.
+    void armBackgroundRenderTimer();
     static int onStartupRulesTimer(void* data);
     static int onTerminateSignal(int signal, void* data);
     static void onIpcWindowsIdle(void* data);
     static void onIpcWorkspacesIdle(void* data);
+    static void onIpcLayersIdle(void* data);
+    static void onIpcOutputsIdle(void* data);
+    static void onLayerKeyboardFocusChange(wl_listener* listener, void* data);
     static void onDisplacedRestoreIdle(void* data);
-
-    void spawnCommand(const char* command, const char* description, bool withActivationToken, SpawnClass spawnClass);
+    static void onSuspensionSyncIdle(void* data);
 
     void trackActivationToken(wlr_xdg_activation_token_v1* token, bool compositorIssued);
+    void assignLaunchOriginFromEnvironment(View& view);
+    bool claimLaunchOrigin(View& view, wlr_xdg_activation_token_v1* token);
 
     void addOutput(wlr_output* output);
     void addKeyboard(wlr_input_device* device);
@@ -578,6 +681,10 @@ namespace andromeda {
     void beginSessionLock(wlr_session_lock_v1* lock);
     void recreateRenderer();
     void applyConfig(const ConfigEffects& effects);
+    // Recompile every keyboard's keymap from the current config and system keymap.
+    void applyKeyboardConfig();
+    // Re-read the system keymap when the config uses it; true when it changed.
+    bool refreshSystemKeymap();
     void showConfigDiagnostics();
     void clearNormalFocus() { m_focus.clearNormalFocus(); }
     void setLockBlankEnabled(bool enabled);
@@ -588,6 +695,7 @@ namespace andromeda {
     [[nodiscard]] bool initialOutputEnabled(const Output& output);
     void rememberOutputEnableOverride(const Output& output, bool enabled);
     void restoreDisplacedViews();
+    void refreshDisplacedWorkspace(Workspace& workspace);
     [[nodiscard]] WorkspaceGroup* workspaceGroupFromHandle(wlr_ext_workspace_group_handle_v1* handle) const;
 
     struct IdleInhibitorWatch {
@@ -597,10 +705,18 @@ namespace andromeda {
     struct ShortcutsInhibitorWatch {
       Server* server = nullptr;
       wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = nullptr;
+      // Preserve the user's manual deactivation while a rule temporarily prevents client inhibition.
+      bool requestedActive = true;
       wl_listener destroy{};
     };
     struct ImageCopySessionWatch {
       Server* server = nullptr;
+      // Owned by wlroots; freed at the end of session_destroy, after the destroy
+      // signal has been emitted. This listener runs during that emission and erases
+      // the watch, so the pointer stays valid for every use below.
+      wlr_ext_image_copy_capture_session_v1* session = nullptr;
+      // Identity only; never dereferenced, so output teardown order cannot dangle.
+      wlr_output* output = nullptr;
       wl_listener destroy{};
     };
     struct PointerDevice {
@@ -620,9 +736,17 @@ namespace andromeda {
       wl_listener destroy{};
     };
     struct ActivationTokenWatch {
+      Server* server = nullptr;
       std::chrono::steady_clock::time_point createdAt;
       bool compositorIssued = false;
       bool inputBacked = false;
+      bool pointerBacked = false;
+      bool launchClaimed = false;
+      std::shared_ptr<WorkspaceLaunchAnchor> launchWorkspace;
+      std::string launchScratchpad;
+      std::string tokenName;
+      std::string launchOutputName;
+      std::string launchWorkspaceId;
       wl_listener destroy{};
     };
 
@@ -631,16 +755,22 @@ namespace andromeda {
     std::unique_ptr<BackendManager> m_backendManager;
     wlr_backend* m_backend = nullptr;
     wlr_session* m_session = nullptr;
+    wl_listener m_sessionActive{};
     wlr_renderer* m_renderer = nullptr;
     wlr_allocator* m_allocator = nullptr;
     wlr_compositor* m_compositor = nullptr;
     wlr_output_layout* m_outputLayout = nullptr;
     wlr_scene* m_scene = nullptr;
-    wlr_color_manager_v1* m_colorManager = nullptr;
     wlr_content_type_manager_v1* m_contentTypeManager = nullptr;
     wlr_security_context_manager_v1* m_securityContextManager = nullptr;
-    std::unique_ptr<WineColorManager> m_wineColorManager;
+    std::unique_ptr<ColorManager> m_colorManager;
+    std::unique_ptr<SyncobjAcquireBarrier> m_syncobjAcquireBarrier;
+    std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
+    std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
     EffectRegistry m_effects;
+    EffectSelection m_effectSelection;
+    EffectSlot m_cursorEffectSlot;
+    unsigned m_outputFrameDepth = 0;
     wlr_scene_output_layout* m_sceneLayout = nullptr;
     wlr_xdg_shell* m_xdgShell = nullptr;
     wlr_xdg_toplevel_tag_manager_v1* m_xdgToplevelTagManager = nullptr;
@@ -663,6 +793,7 @@ namespace andromeda {
     wlr_idle_inhibit_manager_v1* m_idleInhibitManager = nullptr;
     wlr_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
     wlr_idle_notifier_v1* m_idleNotifier = nullptr;
+    bool m_idleInhibited = false;
     wlr_xdg_activation_v1* m_xdgActivation = nullptr;
     wlr_gamma_control_manager_v1* m_gammaManager = nullptr;
     wlr_output_manager_v1* m_outputManager = nullptr;
@@ -679,6 +810,7 @@ namespace andromeda {
     wlr_scene_tree* m_effectLightTree = nullptr;
     wlr_scene_tree* m_fullscreenTree = nullptr;
     wlr_scene_tree* m_pinnedTree = nullptr;
+    wlr_scene_tree* m_xwaylandUnmanagedTree = nullptr;
     wlr_scene_tree* m_imPopupTree = nullptr;
     wlr_scene_tree* m_lockTree = nullptr;
     wlr_scene_rect* m_lockBlank = nullptr;
@@ -700,8 +832,8 @@ namespace andromeda {
     };
     std::vector<BindCooldown> m_bindCooldowns;
     std::vector<std::string> m_activeSubmaps;
-    // Same-msec dedupe: several outputs can call tickAnimations per vblank.
-    uint64_t m_lastAnimTickMsec = 0;
+    // The last tick's instant: an output's earlier one is skipped, and several outputs can tick per vblank.
+    double m_lastAnimTickMsec = 0;
     std::chrono::steady_clock::time_point m_startTime;
 
     // A fading copy of a closed window's scene tree. Owns that tree and destroys it once the fade completes.
@@ -710,7 +842,7 @@ namespace andromeda {
       CloseSnapshot(
           Server& server, CloseSnapshotId id, Output* output, wlr_scene_tree* tree, wlr_scene_tree* content,
           std::vector<BorderSnapshot> borders, const wlr_box& box, int durationMs, const AnimationCurve& curve,
-          std::string_view style, double scale, AnimationEvent event, ShadowSnapshot shadow
+          std::string_view style, double scale, AnimationEvent event, ShadowSnapshot shadow, int topExtension
       );
       ~CloseSnapshot() override;
 
@@ -720,7 +852,7 @@ namespace andromeda {
       void present(int canvasX, int canvasY, bool visible);
 
       [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
-      bool tickAnimations(uint64_t nowMsec) override;
+      bool tickAnimations(double nowMsec) override;
       [[nodiscard]] bool hasActiveAnimations() const override { return m_alpha.animating() || m_slide.animating(); }
       [[nodiscard]] bool animatesOn(const Output* output) const override { return m_output == output; }
 
@@ -741,6 +873,8 @@ namespace andromeda {
       int m_canvasX = 0;
       int m_canvasY = 0;
       bool m_visible = true;
+      // A snapshot under the output's background layer is part of the shared blur input until its final frame.
+      bool m_blurBackground = false;
       // popin/zoom end scale; 1.0 = no shrink.
       double m_shrinkTo = 1.0;
       // Each copied buffer with its captured opacity, position and size relative to the content tree.
@@ -753,8 +887,26 @@ namespace andromeda {
         int height = 0;
       };
       std::vector<Buffer> m_buffers;
+      struct Rect {
+        wlr_scene_rect* node = nullptr;
+        std::array<float, 4> color{};
+        wlr_box box{};
+        int radius = 0;
+      };
+      std::vector<Rect> m_rects;
+      struct Blur {
+        wlr_scene_blur* node = nullptr;
+        float baseAlpha = 1.0F;
+        wlr_box box{};
+        std::array<int, 4> radii{};
+      };
+      std::vector<Blur> m_blurs;
+      int m_topExtension = 0;
       std::vector<BorderSnapshot> m_borders;
       ShadowSnapshot m_shadow;
+      bool m_retainedPersistent = false;
+      bool m_retainedInPlace = false;
+      bool m_retainedLight = false;
       int m_shadowWidth = 0;
       int m_shadowHeight = 0;
       wlr_box m_shadowHole{};
@@ -780,7 +932,6 @@ namespace andromeda {
     std::unique_ptr<DesktopShell> m_desktopShell;
     std::unique_ptr<FifoManager> m_fifoManager;
     std::unique_ptr<CommitTimingManager> m_commitTimingManager;
-    std::unique_ptr<ToplevelDragManager> m_toplevelDragManager;
     std::unique_ptr<Ipc> m_ipc;
     ScreenCastCommand m_screenCastCommand;
     std::optional<ScreenCastCommand> m_pendingScreenCastCommand;
@@ -801,25 +952,43 @@ namespace andromeda {
     bool m_nested = false;
     bool m_stopping = false;
     bool m_applicationScopesRequired = false;
+    bool m_sessionShutdownAvailable = false;
+    bool m_sessionExitRequested = false;
+    int m_sessionExitResultFd = -1;
+    wl_event_source* m_sessionExitResultSource = nullptr;
     std::string m_socketName;
     std::string m_systemdRunExecutable;
+    std::string m_systemctlExecutable;
     std::string m_applicationScopePartOfProperty;
     std::string m_applicationScopeBindsToProperty;
+    std::string m_applicationScopeAfterProperty;
     SystemdControlEnvironment m_systemdControlEnvironment;
     ApplicationScopeEnvironmentArguments m_applicationScopeEnvironmentArguments;
     uint64_t m_nextApplicationScopeId = 1;
 
-    std::unique_ptr<XwaylandSupervisor> m_xwayland;
+    std::unique_ptr<Xwayland> m_xwayland;
+    std::unique_ptr<EisInput> m_eisInput;
+    std::unique_ptr<InputCapture> m_inputCapture;
+    uint64_t m_pendingCaptureId = 0;
+    uint32_t m_inputCaptureCapabilities = 0;
+    uint64_t m_pendingInputId = 0;
+    std::string m_pendingInputName;
+    std::unordered_set<std::string> m_allowedInputNames;
+    std::unordered_set<std::string> m_deniedInputNames;
     wl_event_source* m_backgroundFrameTimer = nullptr;
-    bool m_backgroundFramesArmed = false;
+    // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.
+    wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
     // Non-null while a windows-event idle callback is pending. The idle source
     // removes itself when it runs, so a non-null pointer means "already queued".
     wl_event_source* m_ipcWindowsIdle = nullptr;
     wl_event_source* m_ipcWorkspacesIdle = nullptr;
+    wl_event_source* m_ipcLayersIdle = nullptr;
+    wl_event_source* m_ipcOutputsIdle = nullptr;
     wl_event_source* m_lidStateReconcileIdle = nullptr;
     wl_event_source* m_displacedRestoreIdle = nullptr;
+    wl_event_source* m_suspensionSyncIdle = nullptr;
     // Coalesces renderer-loss notifications until their signal dispatch and
     // active render calls have unwound.
     wl_event_source* m_rendererRecoveryIdle = nullptr;
@@ -845,8 +1014,10 @@ namespace andromeda {
     wl_listener m_setXdgToplevelTag{};
     wl_listener m_setXdgToplevelIcon{};
     wl_listener m_systemBellRing{};
+    wl_listener m_newXdgDialog{};
     wl_listener m_newXdgPopup{};
     wl_listener m_newXdgDecoration{};
+    wl_listener m_newLegacyDecoration{};
     wl_listener m_newLayerSurface{};
     wl_listener m_newSessionLock{};
     wl_listener m_newPointerConstraint{};
@@ -855,6 +1026,9 @@ namespace andromeda {
     wl_listener m_newIdleInhibitor{};
     wl_listener m_newShortcutsInhibitor{};
     wl_listener m_newImageCopySession{};
+    // Live ext-image-copy-capture sessions, the cursor-metadata pacing gate reads them per output, then
+    // per client, to find the cursor session attached to that output's source.
+    std::vector<std::unique_ptr<ImageCopySessionWatch>> m_imageCopySessions;
     wl_listener m_newActivationToken{};
     wl_listener m_requestActivate{};
     wl_listener m_workspaceCommit{};
@@ -866,12 +1040,18 @@ namespace andromeda {
     wl_listener m_toplevelCaptureRequest{};
     wl_listener m_rendererLost{};
     wl_listener m_padKeyboardFocusChange{};
+    // The IPC layer listing reports which layer surface holds the keyboard.
+    wl_listener m_layerKeyboardFocusChange{};
 
     std::vector<std::unique_ptr<Output>> m_outputs;
     std::vector<std::unique_ptr<Keyboard>> m_keyboards;
+    std::unique_ptr<KeyboardLeds> m_keyboardLeds;
     std::vector<std::unique_ptr<ShortcutsInhibitorWatch>> m_shortcutsInhibitors;
+    ManualShortcutsInhibit m_manualShortcutsInhibit;
     SurfaceLayoutMemory m_surfaceLayouts;
+    XkbNames m_systemKeymap;
     Keyboard* m_keyboardLayoutSource = nullptr;
+    Keyboard* m_keyboardInputSource = nullptr;
     ModifierTapState m_modifierTap;
     std::vector<std::unique_ptr<PointerDevice>> m_pointers;
     std::vector<std::unique_ptr<TouchDevice>> m_touchDevices;

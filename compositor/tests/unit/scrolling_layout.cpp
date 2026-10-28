@@ -6,6 +6,7 @@
 // See keybind_parse.cpp: <cmath> must precede the wayland chain.
 #include <cmath>
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <wlr/util/box.h>
 #include <wlr/util/edges.h>
@@ -135,12 +136,16 @@ ANDROMEDA_TEST(consumeRightStacksIntoTheNextColumn) {
 ANDROMEDA_TEST(expelRightUndoesConsumeLeft) {
   Fixture fixture;
   fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFraction(0, 1.0 / 3));
+  CHECK(fixture.layout.setWidthFraction(1, 2.0 / 3));
   CHECK(fixture.layout.consume(stub(1), -1));
   CHECK(fixture.layout.expel(stub(1), 1));
 
   CHECK_EQ(fixture.layout.columns().size(), size_t{2});
   CHECK_EQ(fixture.layout.columnOf(stub(0)), 0);
   CHECK_EQ(fixture.layout.columnOf(stub(1)), 1);
+  CHECK_EQ(fixture.layout.columns()[0].widthFrac, 1.0 / 3);
+  CHECK_EQ(fixture.layout.columns()[1].widthFrac, 2.0 / 3);
 }
 
 ANDROMEDA_TEST(expelLeftUndoesConsumeRight) {
@@ -152,6 +157,30 @@ ANDROMEDA_TEST(expelLeftUndoesConsumeRight) {
   CHECK_EQ(fixture.layout.columns().size(), size_t{2});
   CHECK_EQ(fixture.layout.columnOf(stub(0)), 0);
   CHECK_EQ(fixture.layout.columnOf(stub(1)), 1);
+}
+
+ANDROMEDA_TEST(expelForgetsTheExtentOfARemovedRow) {
+  Fixture fixture;
+  fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFraction(1, 2.0 / 3));
+  CHECK(fixture.layout.consume(stub(1), -1));
+  fixture.layout.removeView(stub(1));
+  fixture.layout.insertViewIntoColumn(stub(1), 0, 1);
+  CHECK(fixture.layout.expel(stub(1), 1));
+
+  CHECK_EQ(fixture.layout.columns()[1].widthFrac, 0.5);
+}
+
+ANDROMEDA_TEST(expelRestoresTheExtentAFullWidthColumnHadBefore) {
+  Fixture fixture;
+  fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFraction(1, 1.0 / 3));
+  CHECK(fixture.layout.toggleFullWidth(1));
+  CHECK(fixture.layout.consume(stub(1), -1));
+  CHECK(fixture.layout.expel(stub(1), 1));
+
+  CHECK_EQ(fixture.layout.columns()[1].widthFrac, 1.0 / 3);
+  CHECK(!fixture.layout.isFullWidth(1));
 }
 
 ANDROMEDA_TEST(expelRightFailsOnASingleViewColumn) {
@@ -498,7 +527,7 @@ ANDROMEDA_TEST(widthFractionsAreClamped) {
   Fixture fixture;
   fixture.addColumns(1);
   CHECK(fixture.layout.setWidthFraction(0, 5.0));
-  CHECK(fixture.layout.widthFraction(0) <= 1.0);
+  CHECK(fixture.layout.widthFraction(0) == 4.0);
   CHECK(fixture.layout.setWidthFraction(0, -1.0));
   CHECK(fixture.layout.widthFraction(0) > 0.0);
   // Out-of-range column indices are rejected, not clamped into a neighbour.
@@ -591,6 +620,22 @@ ANDROMEDA_TEST(constraintsNeverExceedTheViewport) {
   fixture.addColumns(1);
   fixture.layout.setConstraints([](const View*) { return LayoutConstraints{.minWidth = 99999}; });
   CHECK_EQ(fixture.layout.columnWidth(0, kViewport), kViewport);
+}
+
+ANDROMEDA_TEST(clientMinHintKeepsAWideColumnAtItsOwnExtent) {
+  Fixture fixture;
+  fixture.addColumns(1);
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{.minWidth = 99999}; });
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  CHECK_EQ(fixture.layout.columnWidth(0, kViewport), 2532);
+}
+
+ANDROMEDA_TEST(clientMaxHintCapsAWideColumn) {
+  Fixture fixture;
+  fixture.addColumns(1);
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{.maxWidth = 2000}; });
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  CHECK_EQ(fixture.layout.columnWidth(0, kViewport), 2000);
 }
 
 ANDROMEDA_TEST(fullscreenColumnFillsTheUsableAreaIgnoringFractions) {
@@ -914,6 +959,20 @@ ANDROMEDA_TEST(snapVisibleCentersFullWidthColumn) {
   CHECK_EQ(fixture.layout.scroll(), expected);
 }
 
+// A gesture released onto a fullscreen column rests covering the viewport, not with an edge pad of strip showing on
+// either side of it.
+ANDROMEDA_TEST(snapScrollsCoverTheViewportWithAFullscreenColumn) {
+  Fixture fixture;
+  fixture.addColumns(2);
+  fixture.layout.setConstraints([](const View* view) { return LayoutConstraints{.fullscreen = view == stub(1)}; });
+  const auto cover = static_cast<double>(fixture.layout.columnX(1, kViewport) + fixture.config.edgePad);
+  CHECK(cover < static_cast<double>(fixture.layout.maxScroll(kViewport)));
+
+  const std::array<double, 2> snaps = fixture.layout.snapScrolls(1, kViewport);
+  CHECK_EQ(snaps[0], cover);
+  CHECK_EQ(snaps[1], cover);
+}
+
 ANDROMEDA_TEST(centerFocusedCentersAnInteriorColumn) {
   Fixture fixture;
   fixture.addColumns(3);
@@ -1006,6 +1065,338 @@ ANDROMEDA_TEST(onOverflowMeasuresTheRightHandColumnWhenFocusMovesLeft) {
       + fixture.layout.columnWidth(1, kViewport) / 2
       - static_cast<int>(std::lround(fixture.layout.scroll()));
   CHECK_EQ(centeredX, kViewport / 2);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// A move keeps focus on the window and only changes its index, so OnOverflow needs the index the column came from.
+// Without it the move falls back to a fit and the moved column stays off center.
+ANDROMEDA_TEST(onOverflowCentersAMovedColumn) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  for (int column = 0; column < 3; ++column) {
+    CHECK(fixture.layout.setWidthFromPixels(column, kViewport, 700));
+  }
+
+  // column-move-to-first: 700 + gap + 700 overruns the 1260 viewport, so the move centers.
+  fixture.layout.activateColumn(2, kViewport);
+  fixture.layout.moveColumn(2, 0);
+  fixture.layout.activateColumn(fixture.layout.columnOf(stub(2)), kViewport, 2);
+
+  const int centeredX = fixture.layout.columnX(0, kViewport)
+      + fixture.layout.columnWidth(0, kViewport) / 2
+      - static_cast<int>(std::lround(fixture.layout.scroll()));
+  CHECK_EQ(centeredX, kViewport / 2);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// Closing the focused column leaves no side of its own, so the survivor inherits the side the dying column was on and
+// is judged against the column that took its place. The reveal focus triggers cannot do that while the dying column is
+// still in the layout, so it only fits the survivor, and the removal re-judges it on the geometry it leaves.
+ANDROMEDA_TEST(onOverflowJudgesTheSurvivorOfAClosedColumnAgainstItsReplacement) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  for (int column = 0; column < 3; ++column) {
+    CHECK(fixture.layout.setWidthFromPixels(column, kViewport, 700));
+  }
+
+  // Focusing column 1 centers it: 700 + gap + 700 overruns the 1260 viewport.
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 432.0);
+
+  // Closing column 1: focus falls to column 0, which only gets fitted while column 1 is still in the layout.
+  fixture.layout.noteRemovalOfFocusedColumn(1);
+  fixture.layout.activateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+  CHECK(!fixture.layout.centeredRest());
+
+  // Column 2 took the removed column's place, and 700 + gap + 700 still overruns the viewport.
+  fixture.layout.removeView(stub(1));
+  fixture.layout.reevaluateAfterRemoval(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), -280.0);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// Removing the focused column can leave a lone survivor, which has no pair left to overflow against. It rests at the
+// strip start, so center_underfull_strip alone decides whether it ends up centered or flush left.
+ANDROMEDA_TEST(onOverflowRestsTheLoneSurvivorOfARemovedColumnAtTheStripStart) {
+  for (const bool centerUnderfullStrip : {false, true}) {
+    Fixture fixture;
+    fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+    fixture.config.scrolling.centerUnderfullStrip = centerUnderfullStrip;
+    fixture.addColumns(2);
+    for (int column = 0; column < 2; ++column) {
+      CHECK(fixture.layout.setWidthFromPixels(column, kViewport, 700));
+    }
+
+    // 700 + gap + 700 overruns the 1260 viewport, so focusing column 0 from column 1 centers it.
+    fixture.layout.activateColumn(1, kViewport);
+    fixture.layout.activateColumn(0, kViewport);
+    CHECK_EQ(fixture.layout.scroll(), -280.0);
+    CHECK(fixture.layout.centeredRest());
+
+    fixture.layout.noteRemovalOfFocusedColumn(0);
+    fixture.layout.removeView(stub(0));
+    fixture.layout.reevaluateAfterRemoval(0, kViewport);
+    CHECK_EQ(fixture.layout.scroll(), 0.0);
+    CHECK(!fixture.layout.centeredRest());
+    CHECK_EQ(fixture.layout.columnX(0, kViewport), centerUnderfullStrip ? 280 : 0);
+  }
+}
+
+// on_overflow centers a column because it and the one it came from cannot share the viewport. A lone column has no such
+// pair, so even a fullscreen one is not a centered rest.
+ANDROMEDA_TEST(onOverflowJudgesNoPairForALoneColumn) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(1);
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{.fullscreen = true}; });
+
+  fixture.layout.reevaluateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), static_cast<double>(fixture.config.edgePad));
+  CHECK(!fixture.layout.centeredRest());
+}
+
+// When the last tiled column closes and focus passes to a floating window, no survivor is judged. A later close of an
+// unfocused column must not replay that judgment on whatever column is focused by then.
+ANDROMEDA_TEST(onOverflowForgetsAClosedColumnWithNoTiledSurvivor) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.layout.insertView(stub(0), 0);
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.noteRemovalOfFocusedColumn(0);
+  fixture.layout.removeView(stub(0));
+  fixture.layout.reevaluateAfterRemoval(-1, kViewport);
+
+  for (int column = 0; column < 4; ++column) {
+    fixture.layout.insertView(stub(column + 1), column);
+  }
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 900));
+  for (int column = 1; column < 4; ++column) {
+    CHECK(fixture.layout.setWidthFromPixels(column, kViewport, 400));
+  }
+  // 400 + gap + 400 fits, so focusing column 1 from column 2 leaves it uncentered.
+  fixture.layout.activateColumn(2, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  const double scroll = fixture.layout.scroll();
+  CHECK(!fixture.layout.centeredRest());
+
+  fixture.layout.removeView(stub(4));
+  fixture.layout.reevaluateAfterRemoval(fixture.layout.columnOf(stub(2)), kViewport);
+  CHECK_EQ(fixture.layout.scroll(), scroll);
+  CHECK(!fixture.layout.centeredRest());
+}
+
+// A width change has to be judged by the geometry it produced, not by the one the last focus step saw, or the focused
+// column stays uncentered until focus happens to leave and come back. Once the pair fits again the centered rest has to
+// go with it, which the fit alone would not do: the column is already fully visible.
+ANDROMEDA_TEST(onOverflowFollowsTheFocusedColumnWidth) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(2);
+  // 624 + gap + 624 fills the 1260 viewport exactly, so the pair fits.
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 624));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 624));
+  fixture.layout.activateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+
+  // 700 + gap + 624 overruns the viewport, so the focused column centers.
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 700));
+  fixture.layout.reevaluateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), -280.0);
+  CHECK(fixture.layout.centeredRest());
+
+  // Back to a pair that fits: the column belongs at the edge again.
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 624));
+  fixture.layout.reevaluateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+  CHECK(!fixture.layout.centeredRest());
+}
+
+// The last column has no column after it to stand in for a side, so the one before it is measured instead.
+ANDROMEDA_TEST(onOverflowRecenterAfterTheLastFocusedColumnWidens) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 624));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 624));
+  fixture.layout.activateColumn(1, kViewport);
+
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 700));
+  fixture.layout.reevaluateColumn(1, kViewport);
+
+  CHECK_EQ(fixture.layout.scroll(), 356.0);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// A width change is judged by the pair the focus move was judged by, not by a neighbor picked at resize time: with
+// three columns in the way, the pair that overflows is the one focus came from.
+ANDROMEDA_TEST(onOverflowMeasuresTheSideFocusCameFromAfterAWidthChange) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 800));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 400));
+  CHECK(fixture.layout.setWidthFromPixels(2, kViewport, 500));
+
+  // 800 + gap + 400 fits, so focusing column 1 from column 0 leaves it flush right.
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+
+  // 800 + gap + 500 overruns the viewport while the pair with column 2 still fits, so the focused column centers on the
+  // side focus came from.
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 500));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 432.0);
+  CHECK(fixture.layout.centeredRest());
+
+  // The side is remembered, so the next change is judged by the same pair rather than by a new one.
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 700));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 532.0);
+  CHECK(fixture.layout.centeredRest());
+
+  // Back to a pair that fits: the two go back side by side at the edge focus came from, where the focus move left them.
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 400));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+  CHECK(!fixture.layout.centeredRest());
+}
+
+// A fullscreen lane is wider than the viewport, so it centers; handing the strip back at the restored extent is a width
+// change, so the snap judges it too.
+ANDROMEDA_TEST(onOverflowFollowsAFullscreenTransition) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  for (int column = 0; column < 3; ++column) {
+    CHECK(fixture.layout.setWidthFromPixels(column, kViewport, 700));
+  }
+
+  // 700 + gap + 700 overruns the 1260 viewport.
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 432.0);
+
+  fixture.layout.setConstraints([](const View* view) { return LayoutConstraints{.fullscreen = view == stub(1)}; });
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), static_cast<double>(fixture.layout.columnX(1, kViewport) + fixture.config.edgePad));
+  CHECK(fixture.layout.centeredRest());
+
+  // A plain snap would land the column flush against the right edge instead of centering it again.
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{}; });
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 432.0);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// Leaving maximize-to-edges makes the pair fit, so the restore is the documented one: the pair side by side at the edge
+// focus came from, not at whichever edge the lane left the strip against.
+ANDROMEDA_TEST(onOverflowPutsThePairBackWhenAMaximizedToEdgesLaneGoesAway) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  // Two 624 wide columns and the gap between them fill the 1260 viewport exactly, so the pair fits.
+  fixture.addColumns(3);
+
+  fixture.layout.activateColumn(2, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 636.0);
+  CHECK(!fixture.layout.centeredRest());
+
+  fixture.layout.setConstraints([](const View* view) {
+    return LayoutConstraints{.maximizedToEdges = view == stub(1)};
+  });
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), static_cast<double>(fixture.layout.columnX(1, kViewport) + fixture.config.edgePad));
+  CHECK(fixture.layout.centeredRest());
+
+  // Focus came from the right, so the restored pair fills the viewport.
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{}; });
+  fixture.layout.snapVisible(1, kViewport);
+  const int scroll = static_cast<int>(std::lround(fixture.layout.scroll()));
+  CHECK_EQ(fixture.layout.columnX(1, kViewport) - scroll, 0);
+  CHECK_EQ(fixture.layout.columnX(2, kViewport) + fixture.layout.columnWidth(2, kViewport) - scroll, kViewport);
+  CHECK(!fixture.layout.centeredRest());
+}
+
+// The centering a lane needed was the policy's, so a round trip must not leave it holding one it would take back on the
+// next width change and read the user's own column-center as a leftover.
+ANDROMEDA_TEST(onOverflowLeavesAColumnCenterAloneAfterAFullscreenRoundTrip) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 400));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 700));
+  CHECK(fixture.layout.setWidthFromPixels(2, kViewport, 500));
+
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.activateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+
+  fixture.layout.setConstraints([](const View* view) { return LayoutConstraints{.fullscreen = view == stub(1)}; });
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK(fixture.layout.centeredRest());
+
+  fixture.layout.setConstraints([](const View*) { return LayoutConstraints{}; });
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK(!fixture.layout.centeredRest());
+
+  CHECK(fixture.layout.centerColumn(1, kViewport));
+  const double centered = fixture.layout.scroll();
+  CHECK(centered > 0.0);
+
+  // 500 + gap + 700 still fits, so there is no pair to judge and no centering of the policy's to take back.
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 500));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), centered);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// A column-center is the user's own, so OnOverflow gives up only the rest it took itself: a width change that keeps the
+// pair fitting must leave a manual centering where it is.
+ANDROMEDA_TEST(onOverflowKeepsAManualCenteredRestAcrossAWidthChange) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 700));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 300));
+  CHECK(fixture.layout.setWidthFromPixels(2, kViewport, 700));
+
+  // 700 + gap + 300 fits, so focusing column 0 from column 1 leaves it flush left.
+  fixture.layout.activateColumn(1, kViewport);
+  fixture.layout.activateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), 0.0);
+
+  CHECK(fixture.layout.centerColumn(0, kViewport));
+  const double centered = fixture.layout.scroll();
+  CHECK(centered < 0.0);
+
+  // 800 + gap + 300 fits too, so there is no pair to judge and no centering of the policy's to take back.
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 800));
+  fixture.layout.reevaluateColumn(0, kViewport);
+  CHECK_EQ(fixture.layout.scroll(), centered);
+  CHECK(fixture.layout.centeredRest());
+}
+
+// A rest under Never is the user's own, so a width change must not undo a column-center.
+ANDROMEDA_TEST(neverKeepsACenteredRestAcrossAWidthChange) {
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::Never;
+  fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 624));
+  CHECK(fixture.layout.setWidthFromPixels(1, kViewport, 624));
+  fixture.layout.activateColumn(0, kViewport);
+  fixture.layout.centerColumn(0, kViewport);
+  const double centered = fixture.layout.scroll();
+  CHECK(centered < 0.0);
+
+  CHECK(fixture.layout.setWidthFromPixels(0, kViewport, 700));
+  fixture.layout.reevaluateColumn(0, kViewport);
+
+  CHECK_EQ(fixture.layout.scroll(), centered);
   CHECK(fixture.layout.centeredRest());
 }
 
@@ -1612,6 +2003,160 @@ ANDROMEDA_TEST(snapshotUsesMemberIdsInsteadOfCapturedViewPointers) {
   CHECK_EQ(restored.layout.columns()[0].views[0], stub(10));
   CHECK_EQ(restored.layout.columns()[1].views[0], stub(11));
   CHECK_EQ(restored.layout.columns()[1].views[1], stub(12));
+}
+
+// wide columns: a scrolling column may span more than one viewport, panned through with scroll actions.
+ANDROMEDA_TEST(wideFractionSpansMultipleViewports) {
+  Fixture fixture;
+  fixture.addColumns(1);
+  // Slot arithmetic: round(fraction * (viewport + totalGap)) - totalGap.
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  CHECK(fixture.layout.widthFraction(0) == 2.0);
+  CHECK_EQ(fixture.layout.columnWidth(0, kViewport), 2532);
+
+  // The wide ceiling is 4.0; the floor stays 0.1.
+  CHECK(fixture.layout.setWidthFraction(0, 5.0));
+  CHECK(fixture.layout.widthFraction(0) == 4.0);
+  CHECK(fixture.layout.setWidthFraction(0, 0.0));
+  CHECK(fixture.layout.widthFraction(0) == 0.1);
+}
+
+ANDROMEDA_TEST(wideLoneColumnScrollsAndSnapsAtBothEnds) {
+  Fixture fixture;
+  fixture.addColumns(1);
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  const int width = fixture.layout.columnWidth(0, kViewport);
+  CHECK_EQ(width, 2532);
+  CHECK_EQ(fixture.layout.maxScroll(kViewport), width - kViewport);
+
+  // A wide column has two real rest points: flush with each viewport edge.
+  const auto snap = fixture.layout.snapScrolls(0, kViewport);
+  CHECK(snap[0] != snap[1]);
+  CHECK(snap[0] == fixture.layout.columnX(0, kViewport));
+  CHECK(snap[1] == fixture.layout.columnX(0, kViewport) + width - kViewport);
+
+  // A viewport-wide column still rests at the single covering offset.
+  Fixture full;
+  full.addColumns(1);
+  CHECK(full.layout.setWidthFraction(0, 1.0));
+  const auto cover = full.layout.snapScrolls(0, kViewport);
+  CHECK(cover[0] == cover[1]);
+}
+
+ANDROMEDA_TEST(ensureVisibleKeepsAPannedWideColumn) {
+  Fixture fixture;
+  fixture.addColumns(1);
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  const int width = fixture.layout.columnWidth(0, kViewport);
+  const int x = fixture.layout.columnX(0, kViewport);
+
+  // Already inside the pan range: refocusing must not yank the strip away from where the user panned.
+  fixture.layout.setScroll(x + 600.0);
+  fixture.layout.ensureVisible(0, kViewport);
+  CHECK(fixture.layout.scroll() == x + 600.0);
+
+  // Past the trailing edge: clamped to right-flush.
+  fixture.layout.setScroll(x + width);
+  fixture.layout.ensureVisible(0, kViewport);
+  CHECK(fixture.layout.scroll() == x + width - kViewport);
+}
+
+ANDROMEDA_TEST(activateColumnPansAWideColumnFromTheEntrySide) {
+  Fixture fixture;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFraction(1, 2.0));
+  const int x = fixture.layout.columnX(1, kViewport);
+  const int width = fixture.layout.columnWidth(1, kViewport);
+
+  // Focus arriving from the right neighbor lands the trailing edge...
+  fixture.layout.setScroll(0.0);
+  fixture.layout.activateColumn(1, kViewport, 2);
+  CHECK(fixture.layout.scroll() == x + width - kViewport);
+
+  // ...and from the left neighbor, the leading edge. Parked past the trailing edge first, where the clamp fallback
+  // would give trailing: only the entry-side rule lands leading here.
+  fixture.layout.setScroll(x + width);
+  fixture.layout.activateColumn(1, kViewport, 0);
+  CHECK(fixture.layout.scroll() == x);
+}
+
+ANDROMEDA_TEST(alwaysPolicyDoesNotRecenterAPannableColumn) {
+  // A column wider than the viewport pans, so Always centering must not yank the strip to its midpoint on refocus.
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::Always;
+  fixture.addColumns(1);
+  CHECK(fixture.layout.setWidthFraction(0, 2.0));
+  const int x = fixture.layout.columnX(0, kViewport);
+
+  fixture.layout.setScroll(x + 600.0);
+  fixture.layout.ensureVisible(0, kViewport);
+  CHECK(fixture.layout.scroll() == x + 600.0);
+}
+
+ANDROMEDA_TEST(snapVisibleKeepsAnEntrySideLanding) {
+  // A forced snap (a fullscreen or maximize-to-edges extent change) must not overwrite the edge the focus move landed:
+  // the pan rule owns the strip even when the snap forces.
+  Fixture fixture;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFraction(1, 2.0));
+  const int x = fixture.layout.columnX(1, kViewport);
+  const int width = fixture.layout.columnWidth(1, kViewport);
+
+  fixture.layout.setScroll(0.0);
+  fixture.layout.activateColumn(1, kViewport, 2);
+  CHECK(fixture.layout.scroll() == x + width - kViewport);
+
+  fixture.layout.snapVisible(1, kViewport);
+  CHECK(fixture.layout.scroll() == x + width - kViewport);
+}
+
+ANDROMEDA_TEST(widthGrowthKeepsTheLeadingEdge) {
+  // Never policy: growing a focused column past the viewport anchors its leading edge instead of recentring.
+  Fixture fixture;
+  fixture.addColumns(3);
+  CHECK(fixture.layout.setWidthFraction(1, 1.0));
+  fixture.layout.activateColumn(1, kViewport, 0);
+  const auto x = static_cast<double>(fixture.layout.columnX(1, kViewport));
+  CHECK(fixture.layout.scroll() == x);
+  CHECK(fixture.layout.setWidthFraction(1, 2.0));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  CHECK(fixture.layout.scroll() == x);
+}
+
+ANDROMEDA_TEST(wideningAPolicyCenteredColumnFollowsThePanRule) {
+  // OnOverflow centered this column because its pair overflowed. Widening it past the viewport must not "undo" that
+  // centering to the neighbor's edge: the pan rule owns the strip and lands the nearest edge of the pan range.
+  Fixture fixture;
+  fixture.config.scrolling.centerFocused = CenterFocusedColumn::OnOverflow;
+  fixture.addColumns(2);
+  CHECK(fixture.layout.setWidthFraction(0, 0.9));
+  CHECK(fixture.layout.setWidthFraction(1, 0.9));
+  fixture.layout.activateColumn(1, kViewport, 0);
+  CHECK(fixture.layout.setWidthFraction(1, 2.0));
+  fixture.layout.reevaluateColumn(1, kViewport);
+  const auto leading = static_cast<double>(fixture.layout.columnX(1, kViewport));
+  CHECK(fixture.layout.scroll() == leading);
+}
+
+ANDROMEDA_TEST(justOverTheViewportStillPans) {
+  // Between one viewport and the fullscreen overhang lies a band of user-set fractions; those columns pan too.
+  Fixture fixture;
+  fixture.addColumns(1);
+  CHECK(fixture.layout.setWidthFraction(0, 1.01));
+  CHECK_EQ(fixture.layout.columnWidth(0, kViewport), 1273);
+  const auto snap = fixture.layout.snapScrolls(0, kViewport);
+  CHECK(snap[0] != snap[1]);
+}
+
+ANDROMEDA_TEST(snapshotRoundTripKeepsWideFractions) {
+  Fixture source;
+  source.addColumns(1);
+  CHECK(source.layout.setWidthFraction(0, 1.5));
+  const auto capture = source.layout.captureState();
+
+  Fixture restored;
+  CHECK(restored.layout.restoreState(*capture.snapshot, capture.members));
+  CHECK(restored.layout.widthFraction(0) == 1.5);
 }
 
 int main() { return RUN_TESTS(); }

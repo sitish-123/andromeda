@@ -5,9 +5,14 @@
 #include "core/log.h"
 #include "desktop-unstable-v1-protocol.h"
 #include "input/cursor.h"
+#include "input/eis.h"
 #include "input/gestures.h"
+#include "input/input_capture.h"
 #include "input/keyboard.h"
+#include "input/keyboard_leds.h"
 #include "input/seat.h"
+#include "input/system_keymap.h"
+#include "input/text_input.h"
 #include "layer/layer_surface.h"
 #include "layout/scrolling.h"
 #include "lock/session_lock.h"
@@ -20,6 +25,7 @@
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
+#include "server/allocator.h"
 #include "server/backend_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
@@ -31,11 +37,15 @@
 #include "wlr.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
+#include "xwayland/xwayland.h"
 
 #include <algorithm>
 #include <array>
+#include <fstream>
+#include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
@@ -62,8 +72,51 @@ namespace andromeda {
       if (surface == nullptr) {
         return nullptr;
       }
+      if (View* view = View::fromSurface(surface)) {
+        return view;
+      }
       wlr_surface* root = wlr_surface_get_root_surface(surface);
       return viewForToplevel(server, wlr_xdg_toplevel_try_from_wlr_surface(root));
+    }
+
+    bool sameWaylandClient(const wlr_surface* first, const wlr_surface* second) {
+      if (first == nullptr || second == nullptr || first->resource == nullptr || second->resource == nullptr) {
+        return false;
+      }
+      return wl_resource_get_client(first->resource) == wl_resource_get_client(second->resource);
+    }
+
+    std::optional<std::string> processEnvironmentValue(pid_t pid, std::string_view name) {
+      if (pid <= 0 || name.empty()) {
+        return std::nullopt;
+      }
+      constexpr size_t kMaximumEnvironmentSize = 1024 * 1024;
+      std::ifstream stream("/proc/" + std::to_string(pid) + "/environ", std::ios::binary);
+      if (!stream) {
+        return std::nullopt;
+      }
+      std::string environment(kMaximumEnvironmentSize, '\0');
+      stream.read(environment.data(), static_cast<std::streamsize>(environment.size()));
+      const auto size = static_cast<size_t>(stream.gcount());
+      if (size == environment.size()) {
+        return std::nullopt;
+      }
+      environment.resize(size);
+      const std::string prefix = std::string(name) + "=";
+      size_t offset = 0;
+      while (offset < environment.size()) {
+        const size_t end = environment.find('\0', offset);
+        const size_t length = (end == std::string::npos ? environment.size() : end) - offset;
+        const std::string_view entry(environment.data() + offset, length);
+        if (entry.starts_with(prefix)) {
+          return std::string(entry.substr(prefix.size()));
+        }
+        if (end == std::string::npos) {
+          break;
+        }
+        offset = end + 1;
+      }
+      return std::nullopt;
     }
 
     const char* deviceName(const wlr_input_device* device) {
@@ -144,6 +197,8 @@ namespace andromeda {
         return;
       }
       watch->pendingMode = resolvedDecorationMode(watch->decoration);
+      if (View* view = View::fromSurface(surface->surface))
+        view->setXdgDecorationPreference(watch->pendingMode == WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
       // set_mode schedules a configure; that asserts unless the xdg_surface is ready.
       if (surface->initialized) {
         clearDecorationCommit(watch);
@@ -167,10 +222,41 @@ namespace andromeda {
       XdgDecorationWatch* watch;
       watch = wl_container_of(listener, watch, destroy);
       if (watch->decoration != nullptr) {
+        if (watch->decoration->toplevel != nullptr && watch->decoration->toplevel->base != nullptr) {
+          if (View* view = View::fromSurface(watch->decoration->toplevel->base->surface))
+            view->setXdgDecorationPreference(std::nullopt);
+        }
         watch->decoration->data = nullptr;
       }
       wl_list_remove(&watch->requestMode.link);
       clearDecorationCommit(watch);
+      wl_list_remove(&watch->destroy.link);
+      delete watch;
+    }
+
+    struct LegacyDecorationWatch {
+      wlr_server_decoration* decoration = nullptr;
+      wl_listener mode{};
+      wl_listener destroy{};
+    };
+
+    void applyLegacyDecorationMode(wlr_server_decoration* decoration) {
+      if (View* view = View::fromSurface(decoration->surface))
+        view->setLegacyDecorationPreference(decoration->mode == WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
+    }
+
+    void onLegacyDecorationMode(wl_listener* listener, void*) {
+      LegacyDecorationWatch* watch;
+      watch = wl_container_of(listener, watch, mode);
+      applyLegacyDecorationMode(watch->decoration);
+    }
+
+    void onLegacyDecorationDestroy(wl_listener* listener, void*) {
+      LegacyDecorationWatch* watch;
+      watch = wl_container_of(listener, watch, destroy);
+      if (View* view = View::fromSurface(watch->decoration->surface))
+        view->setLegacyDecorationPreference(std::nullopt);
+      wl_list_remove(&watch->mode.link);
       wl_list_remove(&watch->destroy.link);
       delete watch;
     }
@@ -209,6 +295,53 @@ namespace andromeda {
           kLog.warn("input: failed to apply {} to '{}'", setting, deviceName(device));
         } else {
           kLog.warn("input: failed to restore the default left-handed state for '{}'", deviceName(device));
+        }
+      }
+    }
+
+    void applyScrollMethod(
+        libinput_device* libinputDevice, const wlr_input_device* device, std::optional<ScrollMethod> configured,
+        std::string_view setting
+    ) {
+      const uint32_t methods = libinput_device_config_scroll_get_methods(libinputDevice);
+      if (methods == 0) {
+        if (configured) {
+          kLog.warn("input: '{}' does not support {}", deviceName(device), setting);
+        }
+        return;
+      }
+      // applyScrollButton() runs first and owns on-button-down scrolling; restoring the default here would undo it.
+      if (!configured
+          && libinput_device_config_scroll_get_method(libinputDevice) == LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN) {
+        return;
+      }
+      enum libinput_config_scroll_method method = libinput_device_config_scroll_get_default_method(libinputDevice);
+      if (configured) {
+        enum libinput_config_scroll_method requested = LIBINPUT_CONFIG_SCROLL_2FG;
+        const char* requestedName = "two_finger";
+        switch (*configured) {
+        case ScrollMethod::TwoFinger:
+          break;
+        case ScrollMethod::Edge:
+          requested = LIBINPUT_CONFIG_SCROLL_EDGE;
+          requestedName = "edge";
+          break;
+        case ScrollMethod::None:
+          requested = LIBINPUT_CONFIG_SCROLL_NO_SCROLL;
+          requestedName = "none";
+          break;
+        }
+        if (requested != LIBINPUT_CONFIG_SCROLL_NO_SCROLL && (methods & requested) == 0) {
+          kLog.warn("input: '{}' does not support the {} scroll method", deviceName(device), requestedName);
+          return;
+        }
+        method = requested;
+      }
+      if (libinput_device_config_scroll_set_method(libinputDevice, method) != LIBINPUT_CONFIG_STATUS_SUCCESS) {
+        if (configured) {
+          kLog.warn("input: failed to apply {} to '{}'", setting, deviceName(device));
+        } else {
+          kLog.warn("input: failed to restore the default scroll method for '{}'", deviceName(device));
         }
       }
     }
@@ -421,7 +554,21 @@ namespace andromeda {
 
       const Config::Input& input = config().input;
       const Config::Input::Device* override = input.findDevice(device->name != nullptr ? device->name : "");
+
       const bool isTouchpad = libinput_device_config_tap_get_finger_count(libinputDevice) > 0;
+      const bool enabled =
+          override != nullptr && override->enabled ? *override->enabled : !isTouchpad || input.touchpad.enabled;
+      if ((libinput_device_config_send_events_get_modes(libinputDevice) & LIBINPUT_CONFIG_SEND_EVENTS_DISABLED) != 0) {
+        libinput_device_config_send_events_set_mode(
+            libinputDevice, enabled ? LIBINPUT_CONFIG_SEND_EVENTS_ENABLED : LIBINPUT_CONFIG_SEND_EVENTS_DISABLED
+        );
+      } else if (!enabled) {
+        kLog.warn("input: '{}' cannot be disabled", deviceName(device));
+      }
+      if (!enabled) {
+        return;
+      }
+
       if (isTouchpad) {
         const std::optional<bool>& tap = override != nullptr && override->tap ? override->tap : input.touchpad.tap;
         const auto tapState =
@@ -432,6 +579,45 @@ namespace andromeda {
           kLog.warn(
               "input: failed to apply {} to '{}'",
               override != nullptr && override->tap ? "input.device.tap" : "input.touchpad.tap", deviceName(device)
+          );
+        }
+        const bool hasTapDragOverride = override != nullptr && override->tapAndDrag.has_value();
+        const std::optional<bool>& tapAndDrag = hasTapDragOverride ? override->tapAndDrag : input.touchpad.tapAndDrag;
+        const auto tapDragState =
+            tapAndDrag.value_or(
+                libinput_device_config_tap_get_default_drag_enabled(libinputDevice) == LIBINPUT_CONFIG_DRAG_ENABLED
+            )
+            ? LIBINPUT_CONFIG_DRAG_ENABLED
+            : LIBINPUT_CONFIG_DRAG_DISABLED;
+        if (libinput_device_config_tap_set_drag_enabled(libinputDevice, tapDragState)
+            != LIBINPUT_CONFIG_STATUS_SUCCESS) {
+          kLog.warn(
+              "input: failed to apply {} to '{}'",
+              hasTapDragOverride ? "input.device.tap_and_drag" : "input.touchpad.tap_and_drag", deviceName(device)
+          );
+        }
+        const bool hasDragLockOverride = override != nullptr && override->dragLock.has_value();
+        const std::optional<DragLock>& dragLock = hasDragLockOverride ? override->dragLock : input.touchpad.dragLock;
+        enum libinput_config_drag_lock_state dragLockState =
+            libinput_device_config_tap_get_default_drag_lock_enabled(libinputDevice);
+        if (dragLock) {
+          switch (*dragLock) {
+          case DragLock::Off:
+            dragLockState = LIBINPUT_CONFIG_DRAG_LOCK_DISABLED;
+            break;
+          case DragLock::Timeout:
+            dragLockState = LIBINPUT_CONFIG_DRAG_LOCK_ENABLED_TIMEOUT;
+            break;
+          case DragLock::Sticky:
+            dragLockState = LIBINPUT_CONFIG_DRAG_LOCK_ENABLED_STICKY;
+            break;
+          }
+        }
+        if (libinput_device_config_tap_set_drag_lock_enabled(libinputDevice, dragLockState)
+            != LIBINPUT_CONFIG_STATUS_SUCCESS) {
+          kLog.warn(
+              "input: failed to apply {} to '{}'",
+              hasDragLockOverride ? "input.device.drag_lock" : "input.touchpad.drag_lock", deviceName(device)
           );
         }
         if ((libinput_device_config_send_events_get_modes(libinputDevice)
@@ -535,6 +721,17 @@ namespace andromeda {
                                                             : "input.mouse.scroll_button_lock"
       );
 
+      const bool hasMethodOverride = override != nullptr && override->scrollMethod.has_value();
+      const bool ruleOwnsScrollButton = override != nullptr && override->scrollButton.has_value();
+      const std::optional<ScrollMethod> scrollMethod = hasMethodOverride ? override->scrollMethod
+          : ruleOwnsScrollButton                                         ? std::nullopt
+          : isTouchpad                                                   ? input.touchpad.scrollMethod
+                                                                         : std::nullopt;
+      applyScrollMethod(
+          libinputDevice, device, scrollMethod,
+          hasMethodOverride ? "input.device.scroll_method" : "input.touchpad.scroll_method"
+      );
+
       const std::optional<AccelProfile> accelProfile = override != nullptr && override->accelProfile
           ? override->accelProfile
           : isTouchpad ? input.touchpad.accelProfile
@@ -589,6 +786,9 @@ namespace andromeda {
         }
       }
     }
+    if (effects.effects) {
+      reconcileEffectSelections();
+    }
     if (effects.animation || effects.effects) {
       effectRegistry().prepare(m_renderer);
     }
@@ -612,14 +812,7 @@ namespace andromeda {
       }
     }
     if (effects.input) {
-      m_surfaceLayouts.clear();
-      for (const auto& keyboard : m_keyboards) {
-        keyboard->applyConfig();
-      }
-      if (m_keyboardLayoutSource != nullptr) {
-        syncKeyboardLayout(m_keyboardLayoutSource);
-        notifyKeyboardLayoutIpc();
-      }
+      applyKeyboardConfig();
       for (const auto& pointer : m_pointers) {
         applyPointerConfig(pointer->device);
       }
@@ -669,8 +862,8 @@ namespace andromeda {
       updateOutputManagerConfig();
       // A disabled output must not keep keyboard focus: pull it onto a live one.
       refocus();
-      // Scale may have changed; every surface must hear about it or clients
-      // like xwayland-satellite keep mapping input with the stale scale.
+      // Scale may have changed; every surface must hear about it or scale-aware
+      // clients keep mapping input with the stale scale.
       refreshSurfaceScales();
     }
     if (effects.tearingPolicy) {
@@ -699,13 +892,9 @@ namespace andromeda {
       m_cursor->cancelStaleTiledResize();
     }
     if (effects.viewChrome) {
-      for (const auto& view : m_registry.all()) {
-        if (view->mapped()) {
-          view->refreshConfigChrome();
-        }
+      for (View* view : sortedEffectViews()) {
+        view->refreshConfigChrome();
       }
-      // The view refresh cleared every focus ring; put the active one back.
-      refocus();
       // Screen and cursor presets take their palette from [colors] too.
       m_effects.applyOutputEffects();
       markDirty(Dirty::Backdrop);
@@ -714,14 +903,17 @@ namespace andromeda {
       }
     }
     if (effects.effects && !effects.viewChrome) {
-      for (const auto& view : m_registry.all()) {
-        if (view->mapped()) {
-          view->applyDynamicRules();
-        }
+      for (View* view : sortedEffectViews()) {
+        view->applyDynamicRules();
       }
     }
     if (effects.animation && m_scratchpadManager != nullptr) {
       m_scratchpadManager->applyConfig();
+    }
+    // A maximized scratchpad window follows the gap, border, and struts it is sized with; no workspace arrange reaches
+    // it.
+    if ((effects.workspaceLayout || effects.viewChrome) && m_scratchpadManager != nullptr) {
+      m_scratchpadManager->refitMaximized();
     }
     if (effects.layerEffects) {
       for (const auto& layer : m_layerSurfaces) {
@@ -730,12 +922,60 @@ namespace andromeda {
         }
       }
     }
+    if (effects.dialogAttachment) {
+      // Focus moves promote views in the registry, so walk a snapshot.
+      std::vector<View*> views;
+      views.reserve(m_registry.all().size());
+      for (const auto& view : m_registry.all()) {
+        views.push_back(view.get());
+      }
+      for (View* view : views) {
+        if (view->mapped()) {
+          view->reconcileAttachment();
+        }
+      }
+    }
   }
 
-  void Server::handleConfigReload() {
+  void Server::applyKeyboardConfig() {
+    m_surfaceLayouts.clear();
+    for (const auto& keyboard : m_keyboards) {
+      keyboard->applyConfig();
+      if (m_inputCapture != nullptr && !keyboard->virtualDevice()) {
+        m_inputCapture->updateKeymap(keyboard->wlr());
+      }
+      // A rebuilt keymap can gain locks absent from its predecessor. Reapply
+      // shared state after the per-device restoration has finished.
+      refreshKeyboardLeds();
+    }
+    if (m_eisInput != nullptr) {
+      m_eisInput->applyConfig();
+    }
+    if (m_keyboardLayoutSource != nullptr) {
+      syncKeyboardLayout(m_keyboardLayoutSource);
+      notifyKeyboardLayoutIpc();
+    }
+  }
+
+  bool Server::refreshSystemKeymap() {
+    XkbNames names = usesSystemXkbNames(config().input) ? querySystemKeymap() : XkbNames{};
+    if (names == m_systemKeymap) {
+      return false;
+    }
+    if (!names.empty()) {
+      kLog.info(
+          "using the systemd-localed keymap: layout='{}' variant='{}' options='{}' model='{}'", names.layout,
+          names.variant, names.options, names.model
+      );
+    }
+    m_systemKeymap = std::move(names);
+    return true;
+  }
+
+  void Server::handleConfigReload(const ConfigReloadResult& result) {
     cancelModifierTap();
-    const ConfigReloadResult result = reloadConfig();
     if (result.success) {
+      const bool systemKeymapChanged = refreshSystemKeymap();
       if (result.change.drm) {
         kLog.warn("DRM configuration changed; restart Andromeda to apply it");
       }
@@ -757,6 +997,9 @@ namespace andromeda {
       if (m_desktopOutputManager != nullptr) {
         m_desktopOutputManager->propertiesChanged();
       }
+      if (systemKeymapChanged && !result.effects.input) {
+        applyKeyboardConfig();
+      }
       if ((result.change.colors || result.change.appearance) && m_ipc != nullptr) {
         m_ipc->notifyThemeChanged();
       }
@@ -774,20 +1017,24 @@ namespace andromeda {
     }
   }
 
-  // Sends frame callbacks to hidden-workspace toplevels (see kBackgroundFrameIntervalMs).
+  // Sends frame callbacks to toplevels off the rendered scene that could not be suspended (see
+  // kBackgroundFrameIntervalMs).
   int Server::onBackgroundFrameTimer(void* data) {
     auto* self = static_cast<Server*>(data);
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    bool sent = false;
     for (const auto& view : self->m_registry.all()) {
-      if (!view->mapped() || !view->hidden() || !(view->wantsBackgroundFrames() || view->configurePending())) {
+      // A presented view gets its callbacks from the outputs that draw it, including the outgoing workspace mid-slide,
+      // and a background_render view from its own faster tick. A suspended one gets them only to commit a configure it
+      // still owes, such as a resize while hidden.
+      if (!view->mapped()
+          || view->seen()
+          || view->backgroundRender()
+          || (view->suspended() && !view->configureOutstanding())) {
         continue;
       }
-      sent = true;
-      wlr_xdg_surface_for_each_surface(
-          view->toplevel()->base,
+      view->forEachSurface(
           [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* userData) {
             wlr_surface_send_frame_done(surface, static_cast<timespec*>(userData));
           },
@@ -795,8 +1042,7 @@ namespace andromeda {
       );
     }
 
-    self->m_backgroundFramesArmed = sent;
-    if (sent) {
+    if (self->m_backgroundFrameTimer != nullptr) {
       wl_event_source_timer_update(self->m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
     return 0;
@@ -804,28 +1050,102 @@ namespace andromeda {
 
   void Server::syncSuspendedViews() {
     for (const auto& view : m_registry.all()) {
-      view->syncSuspended();
+      view->syncSuspendedState();
+    }
+    armBackgroundRenderTimer();
+  }
+
+  namespace {
+    // A hidden background_render window's callback interval: its output's refresh period, or 60 Hz when the output
+    // reports none (headless and nested outputs).
+    int backgroundRenderIntervalMs(const View& view) {
+      const Output* output = view.currentOutput();
+      const int refreshMhz = output != nullptr ? output->wlr()->refresh : 0;
+      if (refreshMhz <= 0) {
+        return 16;
+      }
+      return std::max(1, (1'000'000 + refreshMhz / 2) / refreshMhz);
+    }
+
+    bool needsBackgroundRender(const View& view) {
+      return view.mapped() && view.backgroundRender() && !view.seen();
+    }
+  } // namespace
+
+  int Server::onBackgroundRenderTimer(void* data) {
+    auto* self = static_cast<Server*>(data);
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (const auto& view : self->m_registry.all()) {
+      if (!needsBackgroundRender(*view)) {
+        continue;
+      }
+      view->forEachSurface(
+          [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* userData) {
+            wlr_surface_send_frame_done(surface, static_cast<timespec*>(userData));
+          },
+          &now
+      );
+    }
+    self->armBackgroundRenderTimer();
+    return 0;
+  }
+
+  void Server::armBackgroundRenderTimer() {
+    if (m_backgroundRenderTimer == nullptr) {
+      return;
+    }
+    int interval = 0;
+    for (const auto& view : m_registry.all()) {
+      if (needsBackgroundRender(*view)) {
+        const int candidate = backgroundRenderIntervalMs(*view);
+        interval = interval == 0 ? candidate : std::min(interval, candidate);
+      }
+    }
+    // Zero disarms the timer.
+    wl_event_source_timer_update(m_backgroundRenderTimer, interval);
+  }
+
+  void Server::scheduleSuspensionSync() {
+    if (m_stopping || m_suspensionSyncIdle != nullptr) {
+      return;
+    }
+    m_suspensionSyncIdle = wl_event_loop_add_idle(wl_display_get_event_loop(m_display), onSuspensionSyncIdle, this);
+    if (m_suspensionSyncIdle == nullptr) {
+      kLog.error("failed to register suspension sync idle source");
     }
   }
 
-  void Server::updateBackgroundFrameTimer() {
-    if (m_backgroundFrameTimer == nullptr) {
-      return;
+  void Server::onSuspensionSyncIdle(void* data) {
+    auto* server = static_cast<Server*>(data);
+    server->m_suspensionSyncIdle = nullptr;
+    for (const auto& view : server->m_registry.all()) {
+      view->syncSuspendedState();
     }
-    const bool wanted = std::ranges::any_of(m_registry.all(), [](const auto& view) {
-      return view->mapped() && view->hidden() && (view->wantsBackgroundFrames() || view->configurePending());
-    });
-    if (wanted == m_backgroundFramesArmed) {
-      return;
+    server->armBackgroundRenderTimer();
+  }
+
+  bool Server::viewRenderedOffscreen(const View& view) const {
+    if (view.backgroundRender() || (m_overview != nullptr && m_overview->presentsLive(&view))) {
+      return true;
     }
-    m_backgroundFramesArmed = wanted;
-    wl_event_source_timer_update(m_backgroundFrameTimer, wanted ? kBackgroundFrameIntervalMs : 0);
+    return viewCaptured(view);
+  }
+
+  bool Server::viewCaptured(const View& view) const {
+    return view.m_captureSource != nullptr
+        && std::ranges::any_of(m_imageCopySessions, [&view](const std::unique_ptr<ImageCopySessionWatch>& watch) {
+             return watch->session != nullptr && watch->session->source == view.m_captureSource;
+           });
   }
 
   int Server::onStartupRulesTimer(void* data) {
     auto* self = static_cast<Server*>(data);
     for (const auto& view : self->m_registry.all()) {
       view->refreshStartupRuleEffects();
+    }
+    for (const auto& layer : self->m_layerSurfaces) {
+      layer->refreshStartupRuleEffects();
     }
     return 0;
   }
@@ -867,7 +1187,7 @@ namespace andromeda {
       stop();
       return;
     }
-    wlr_allocator* newAllocator = wlr_allocator_autocreate(m_backend, newRenderer);
+    wlr_allocator* newAllocator = createAllocator(m_backend, newRenderer);
     if (newAllocator == nullptr) {
       kLog.error("could not recreate allocator after GPU reset, terminating");
       wlr_renderer_destroy(newRenderer);
@@ -887,9 +1207,24 @@ namespace andromeda {
     wl_list_remove(&m_rendererLost.link);
     wl_signal_add(&newRenderer->events.lost, &m_rendererLost);
 
+    for (const auto& output : m_outputs) {
+      if (auto* group = output->workspaceGroup()) {
+        group->cancelReveal();
+      }
+    }
     m_renderer = newRenderer;
     m_allocator = newAllocator;
     effectRegistry().prepare(m_renderer);
+    // Rebind existing caches before the old renderer invalidates its programs.
+    // A frozen clock may deduplicate every subsequent animation tick.
+    for (const auto& view : m_registry.all()) {
+      if (view->mapped()) {
+        view->syncAnimationEffects();
+      }
+    }
+    if (m_overview != nullptr) {
+      m_overview->refreshEffectBindings();
+    }
 
     // Point the compositor at the new renderer so clients' shm/dma-buf textures get
     // re-imported on next attach.
@@ -1004,7 +1339,20 @@ namespace andromeda {
   void Server::onNewXdgToplevel(wl_listener* listener, void* data) {
     Server* self;
     self = wl_container_of(listener, self, m_newXdgToplevel);
-    self->m_registry.add(std::make_unique<View>(*self, static_cast<wlr_xdg_toplevel*>(data)));
+    View& view = self->adoptView(std::make_unique<View>(*self, static_cast<wlr_xdg_toplevel*>(data)));
+    wlr_server_decoration* decoration = nullptr;
+    wl_list_for_each(decoration, &self->m_serverDecorationManager->decorations, link) {
+      if (decoration->surface == view.rootSurface()) {
+        view.setLegacyDecorationPreference(decoration->mode == WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
+        break;
+      }
+    }
+  }
+
+  View& Server::adoptView(std::unique_ptr<View> view) {
+    View& adopted = m_registry.add(std::move(view));
+    assignLaunchOriginFromEnvironment(adopted);
+    return adopted;
   }
 
   void Server::onSetXdgToplevelTag(wl_listener* listener, void* data) {
@@ -1036,6 +1384,13 @@ namespace andromeda {
     }
   }
 
+  void Server::onNewXdgDialog(wl_listener* /*listener*/, void* data) {
+    auto* dialog = static_cast<wlr_xdg_dialog_v1*>(data);
+    if (View* view = View::fromSurface(dialog->xdg_toplevel->base->surface)) {
+      view->setDialog(dialog);
+    }
+  }
+
   void Server::onNewXdgPopup(wl_listener* /*listener*/, void* data) {
     auto* popup = static_cast<wlr_xdg_popup*>(data);
     // Layer-shell popups (and any popup without a parent yet) are handled
@@ -1061,6 +1416,16 @@ namespace andromeda {
     (void)self;
   }
 
+  void Server::onNewLegacyDecoration(wl_listener*, void* data) {
+    auto* decoration = static_cast<wlr_server_decoration*>(data);
+    auto* watch = new LegacyDecorationWatch{.decoration = decoration};
+    watch->mode.notify = onLegacyDecorationMode;
+    wl_signal_add(&decoration->events.mode, &watch->mode);
+    watch->destroy.notify = onLegacyDecorationDestroy;
+    wl_signal_add(&decoration->events.destroy, &watch->destroy);
+    applyLegacyDecorationMode(decoration);
+  }
+
   void Server::onNewLayerSurface(wl_listener* listener, void* data) {
     Server* self;
     self = wl_container_of(listener, self, m_newLayerSurface);
@@ -1069,6 +1434,7 @@ namespace andromeda {
       return;
     }
     self->m_layerSurfaces.push_back(std::move(surface));
+    self->scheduleIpcLayersEvent();
   }
 
   void Server::onNewSessionLock(wl_listener* listener, void* data) {
@@ -1170,7 +1536,6 @@ namespace andromeda {
     watch->destroy.notify = onIdleInhibitorDestroy;
     wl_signal_add(&inhibitor->events.destroy, &watch->destroy);
     self->updateIdleInhibit();
-    kLog.debug("idle inhibitor added");
   }
 
   void Server::onIdleInhibitorDestroy(wl_listener* listener, void* /*data*/) {
@@ -1180,17 +1545,21 @@ namespace andromeda {
     wl_list_remove(&watch->destroy.link);
     delete watch;
     server->updateIdleInhibit();
-    kLog.debug("idle inhibitor removed");
   }
 
   void Server::onNewImageCopySession(wl_listener* listener, void* data) {
     Server* self;
     self = wl_container_of(listener, self, m_newImageCopySession);
     auto* session = static_cast<wlr_ext_image_copy_capture_session_v1*>(data);
-    auto* watch = new ImageCopySessionWatch();
+    auto watch = std::make_unique<ImageCopySessionWatch>();
     watch->server = self;
+    watch->session = session;
+    watch->output = wlr_output_try_from_ext_image_capture_source_v1(session->source);
     watch->destroy.notify = onImageCopySessionDestroy;
     wl_signal_add(&session->events.destroy, &watch->destroy);
+    self->m_imageCopySessions.push_back(std::move(watch));
+    self->scheduleSuspensionSync();
+    self->refreshCaptureRuleEffects(session->source);
   }
 
   // The session's render lock is released after this signal; the frame it schedules runs from an idle, without it.
@@ -1198,10 +1567,25 @@ namespace andromeda {
     ImageCopySessionWatch* watch;
     watch = wl_container_of(listener, watch, destroy);
     Server* server = watch->server;
+    wlr_ext_image_capture_source_v1* source = watch->session->source;
     wl_list_remove(&watch->destroy.link);
-    delete watch;
+    std::erase_if(server->m_imageCopySessions, [watch](const std::unique_ptr<ImageCopySessionWatch>& entry) {
+      return entry.get() == watch;
+    });
     for (const auto& output : server->m_outputs) {
       output->scheduleEffectCaptureRelease();
+    }
+    server->scheduleSuspensionSync();
+    server->refreshCaptureRuleEffects(source);
+  }
+
+  // `match.is_cast_target` follows the sessions on a window's source. Output sources match no view and change nothing.
+  // Closing a cast window ends its session from inside ~View, while the registry holds the dying entry as null.
+  void Server::refreshCaptureRuleEffects(const wlr_ext_image_capture_source_v1* source) {
+    for (const auto& view : m_registry.all()) {
+      if (view != nullptr && view->m_captureSource == source) {
+        view->refreshStateRuleEffects();
+      }
     }
   }
 
@@ -1215,8 +1599,8 @@ namespace andromeda {
     watch->destroy.notify = onShortcutsInhibitorDestroy;
     wl_signal_add(&inhibitor->events.destroy, &watch->destroy);
     self->m_shortcutsInhibitors.push_back(std::move(watch));
-    wlr_keyboard_shortcuts_inhibitor_v1_activate(inhibitor);
-    kLog.debug("keyboard shortcuts inhibitor activated");
+    self->refreshKeyboardShortcutsInhibitors();
+    kLog.debug("keyboard shortcuts inhibitor {}", inhibitor->active ? "activated" : "blocked by window rule");
   }
 
   void Server::onShortcutsInhibitorDestroy(wl_listener* listener, void* /*data*/) {
@@ -1233,6 +1617,12 @@ namespace andromeda {
     PointerDevice* watch;
     watch = wl_container_of(listener, watch, destroy);
     Server* server = watch->server;
+    if (server->m_inputCapture != nullptr) {
+      server->m_inputCapture->forgetAbsoluteDevice(watch->device);
+      if ((server->m_inputCapture->capabilities() & 2U) != 0) {
+        server->m_inputCapture->suspend();
+      }
+    }
     wl_list_remove(&watch->destroy.link);
     std::erase_if(server->m_pointers, [watch](const std::unique_ptr<PointerDevice>& pointer) {
       return pointer.get() == watch;
@@ -1272,15 +1662,28 @@ namespace andromeda {
         static_cast<const void*>(token != nullptr ? token->seat : nullptr),
         static_cast<const void*>(token != nullptr ? token->surface : nullptr),
         surfaceClientPid(token != nullptr ? token->surface : nullptr),
-        source != nullptr && source->toplevel()->app_id != nullptr ? source->toplevel()->app_id : "",
+        source != nullptr && source->appId() != nullptr ? source->appId() : "",
         token != nullptr && token->app_id != nullptr ? token->app_id : "", static_cast<const void*>(event->surface),
-        surfaceClientPid(event->surface),
-        target != nullptr && target->toplevel()->app_id != nullptr ? target->toplevel()->app_id : "",
+        surfaceClientPid(event->surface), target != nullptr && target->appId() != nullptr ? target->appId() : "",
         target != nullptr && target->mapped(), target != nullptr && target->onActiveWorkspace(), targetKeyboardFocused,
         targetPointerFocused, targetWorkspace != nullptr ? targetWorkspace->name() : "",
         targetWorkspace != nullptr && targetWorkspace->active(),
         targetWorkspace != nullptr && !targetWorkspace->active(), self->m_sessionLocked
     );
+    bool launchStartup = false;
+    if (target != nullptr && token != nullptr) {
+      const bool assigned = self->claimLaunchOrigin(*target, token);
+      const bool associated = tokenName != nullptr && target->consumeLaunchActivation(tokenName);
+      launchStartup = assigned || associated;
+    }
+    if (launchStartup && target != nullptr && !target->mapped()) {
+      target->deferActivation(trusted);
+      kLog.debug(
+          "xdg-activation startup placement target_app_id='{}' mapped={} action=defer",
+          target != nullptr && target->appId() != nullptr ? target->appId() : "", target != nullptr && target->mapped()
+      );
+      return;
+    }
     if (self->m_sessionLocked) {
       return;
     }
@@ -1295,20 +1698,29 @@ namespace andromeda {
       if (entry->toplevel() == toplevel) {
         const std::optional<bool> rulePolicy = entry->resolvedRules().focusOnActivate;
         const bool focusOnActivate = rulePolicy.value_or(trusted || config().general.focusOnActivate);
+        Output* preferredOutput = self->outputFromWlr(self->preferredOutput());
+        Workspace* preferredWorkspace = preferredOutput != nullptr && preferredOutput->workspaceGroup() != nullptr
+            ? preferredOutput->workspaceGroup()->active()
+            : nullptr;
+        const bool launchAway = launchStartup
+            && (self->m_scratchpadManager != nullptr && self->m_scratchpadManager->contains(entry.get())
+                    ? self->m_scratchpadManager->activeOn(preferredOutput)
+                        != self->m_scratchpadManager->nameFor(entry.get())
+                    : entry->workspace() != preferredWorkspace);
         const bool alreadyFocused = entry->activated();
         kLog.debug(
             "xdg-activation policy target_app_id='{}' trusted={} compositor_issued={} input_backed={} mapped={} "
             "focus_on_activate={} already_focused={} action={}",
-            entry->toplevel()->app_id != nullptr ? entry->toplevel()->app_id : "", trusted,
-            watch != nullptr && watch->compositorIssued, watch != nullptr && watch->inputBacked, entry->mapped(),
-            focusOnActivate, alreadyFocused,
-            alreadyFocused ? "none" : (entry->mapped() ? (focusOnActivate ? "focus" : "urgent") : "defer")
+            entry->appId() != nullptr ? entry->appId() : "", trusted, watch != nullptr && watch->compositorIssued,
+            watch != nullptr && watch->inputBacked, entry->mapped(), focusOnActivate, alreadyFocused,
+            alreadyFocused ? "none"
+                           : (entry->mapped() ? (focusOnActivate && !launchAway ? "focus" : "urgent") : "defer")
         );
         if (alreadyFocused) {
           entry->setUrgent(false);
         } else if (!entry->mapped()) {
           entry->deferActivation(trusted);
-        } else if (focusOnActivate) {
+        } else if (focusOnActivate && !launchAway) {
           self->focusView(entry.get(), FocusReason::XdgActivation);
         } else {
           entry->setUrgent(true);
@@ -1331,7 +1743,7 @@ namespace andromeda {
         "app_id_hint='{}' source_mapped={} source_visible={} source_keyboard_focused={} source_pointer_focused={}",
         tokenName != nullptr ? tokenName : "<unknown>", token->serial, static_cast<const void*>(token->seat),
         static_cast<const void*>(token->surface), surfaceClientPid(token->surface),
-        source != nullptr && source->toplevel()->app_id != nullptr ? source->toplevel()->app_id : "",
+        source != nullptr && source->appId() != nullptr ? source->appId() : "",
         token->app_id != nullptr ? token->app_id : "", source != nullptr && source->mapped(),
         source != nullptr && source->onActiveWorkspace(),
         source != nullptr
@@ -1348,21 +1760,151 @@ namespace andromeda {
   }
 
   void Server::trackActivationToken(wlr_xdg_activation_token_v1* token, bool compositorIssued) {
-    auto* watch = new ActivationTokenWatch{
-        .createdAt = std::chrono::steady_clock::now(),
-        .compositorIssued = compositorIssued,
-        .inputBacked = !compositorIssued && token->seat != nullptr && token->surface != nullptr,
-    };
+    auto* watch = new ActivationTokenWatch();
+    watch->server = this;
+    watch->createdAt = std::chrono::steady_clock::now();
+    watch->compositorIssued = compositorIssued;
+    watch->inputBacked = !compositorIssued && token->seat != nullptr && token->surface != nullptr;
+    watch->pointerBacked = watch->inputBacked && token->seat->pointer_state.grab_serial == token->serial;
+    if (const char* tokenName = wlr_xdg_activation_token_v1_get_name(token)) {
+      watch->tokenName = tokenName;
+    }
+
+    Workspace* launchWorkspace = nullptr;
+    if (compositorIssued) {
+      if (Output* output = outputFromWlr(preferredOutput()); output != nullptr && output->workspaceGroup() != nullptr) {
+        launchWorkspace = output->workspaceGroup()->active();
+        if (m_scratchpadManager != nullptr) {
+          watch->launchScratchpad = m_scratchpadManager->activeOn(output);
+        }
+      }
+    } else if (watch->inputBacked) {
+      if (View* source = viewForSurface(*this, token->surface); source != nullptr) {
+        if (m_scratchpadManager != nullptr) {
+          watch->launchScratchpad = m_scratchpadManager->nameFor(source);
+        }
+        launchWorkspace = source->workspace();
+        if (source->pinned() || launchWorkspace == nullptr) {
+          if (Output* output = source->currentOutput(); output != nullptr && output->workspaceGroup() != nullptr) {
+            launchWorkspace = output->workspaceGroup()->active();
+          }
+        }
+      } else if (
+          LayerSurface* source = LayerSurface::fromSurface(token->surface);
+          source != nullptr && source->output() != nullptr && source->output()->workspaceGroup() != nullptr
+      ) {
+        launchWorkspace = source->output()->workspaceGroup()->active();
+        if (m_scratchpadManager != nullptr) {
+          watch->launchScratchpad = m_scratchpadManager->activeOn(source->output());
+        }
+      }
+    }
+    if (launchWorkspace != nullptr && launchWorkspace->group() != nullptr) {
+      watch->launchWorkspace = launchWorkspace->reserveForLaunch();
+      watch->launchWorkspaceId = launchWorkspace->id();
+      if (Output* output = launchWorkspace->group()->output(); output != nullptr && output->wlr()->name != nullptr) {
+        watch->launchOutputName = output->wlr()->name;
+      }
+    }
     watch->destroy.notify = onActivationTokenDestroy;
     wl_signal_add(&token->events.destroy, &watch->destroy);
     token->data = watch;
   }
 
+  bool Server::claimLaunchOrigin(View& view, wlr_xdg_activation_token_v1* token) {
+    auto* watch = token != nullptr ? static_cast<ActivationTokenWatch*>(token->data) : nullptr;
+    if (watch == nullptr || watch->launchClaimed || watch->launchWorkspace == nullptr) {
+      return false;
+    }
+    watch->launchClaimed = true;
+    std::shared_ptr<WorkspaceLaunchAnchor> launchWorkspace = watch->launchWorkspace;
+    Workspace* workspace = launchWorkspace->workspace;
+    WorkspaceGroup* sourceGroup = workspace != nullptr ? workspace->group() : nullptr;
+    WorkspaceGroup* targetGroup = sourceGroup;
+    std::string launchOutputName = watch->launchOutputName;
+    std::string launchWorkspaceId = watch->launchWorkspaceId;
+    bool pointerDrop = false;
+    if (watch->launchScratchpad.empty()
+        && watch->pointerBacked
+        && sameWaylandClient(token->surface, view.rootSurface())) {
+      Output* output = outputFromWlr(preferredOutput());
+      Workspace* pointerWorkspace =
+          output != nullptr && output->workspaceGroup() != nullptr ? output->workspaceGroup()->active() : nullptr;
+      if (pointerWorkspace != nullptr
+          && pointerWorkspace->group() != nullptr
+          && pointerWorkspace->group() != sourceGroup) {
+        launchWorkspace = pointerWorkspace->reserveForLaunch();
+        workspace = pointerWorkspace;
+        targetGroup = pointerWorkspace->group();
+        launchWorkspaceId = pointerWorkspace->id();
+        launchOutputName = output->wlr()->name != nullptr ? output->wlr()->name : "";
+        pointerDrop = true;
+      }
+    }
+    const char* tokenName = wlr_xdg_activation_token_v1_get_name(token);
+    uint32_t timeoutMsec = 0;
+    if (token->activation != nullptr && token->activation->token_timeout_msec > 0) {
+      const auto age =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - watch->createdAt)
+              .count();
+      const uint32_t configured = token->activation->token_timeout_msec;
+      timeoutMsec = age >= 0 && static_cast<uint64_t>(age) < configured ? configured - static_cast<uint32_t>(age) : 1;
+    }
+    const bool assigned = workspace != nullptr
+        && tokenName != nullptr
+        && view.assignLaunchOrigin(tokenName, std::move(launchWorkspace), timeoutMsec, watch->launchScratchpad);
+    watch->launchWorkspace.reset();
+    if (sourceGroup != nullptr && !m_stopping) {
+      sourceGroup->reconcileDynamic();
+    }
+    if (targetGroup != nullptr && targetGroup != sourceGroup && !m_stopping) {
+      targetGroup->reconcileDynamic();
+    }
+    kLog.debug(
+        "launch placement token='{}' output='{}' workspace='{}' scratchpad='{}' target_app_id='{}' pointer_drop={} "
+        "assigned={}",
+        tokenName != nullptr ? tokenName : "<unknown>", launchOutputName, launchWorkspaceId, watch->launchScratchpad,
+        view.appId() != nullptr ? view.appId() : "", pointerDrop, assigned
+    );
+    return assigned;
+  }
+
+  void Server::assignLaunchOriginFromEnvironment(View& view) {
+    if (m_xdgActivation == nullptr || view.pid() <= 0) {
+      return;
+    }
+    const std::optional<std::string> tokenName = processEnvironmentValue(view.pid(), kLaunchTokenEnvironment);
+    if (!tokenName || tokenName->empty()) {
+      return;
+    }
+    wlr_xdg_activation_token_v1* token = wlr_xdg_activation_v1_find_token(m_xdgActivation, tokenName->c_str());
+    const auto* watch = token != nullptr ? static_cast<ActivationTokenWatch*>(token->data) : nullptr;
+    if (watch == nullptr || !watch->compositorIssued) {
+      return;
+    }
+    claimLaunchOrigin(view, token);
+  }
+
   void Server::onActivationTokenDestroy(wl_listener* listener, void* /*data*/) {
     ActivationTokenWatch* watch;
     watch = wl_container_of(listener, watch, destroy);
+    Workspace* workspace = watch->launchWorkspace != nullptr ? watch->launchWorkspace->workspace : nullptr;
+    WorkspaceGroup* group = workspace != nullptr ? workspace->group() : nullptr;
+    Server* server = watch->server;
+    const std::string tokenName = watch->tokenName;
+    watch->launchWorkspace.reset();
     wl_list_remove(&watch->destroy.link);
     delete watch;
+    if (server != nullptr && !tokenName.empty()) {
+      for (const auto& entry : server->m_registry.all()) {
+        if (entry->cancelLaunchOrigin(tokenName)) {
+          break;
+        }
+      }
+    }
+    if (group != nullptr && server != nullptr && !server->m_stopping) {
+      group->reconcileDynamic();
+    }
   }
 
   void Server::onWorkspaceCommit(wl_listener* listener, void* data) {
@@ -1461,6 +2003,10 @@ namespace andromeda {
         break;
       }
     }
+    if (inhibited != m_idleInhibited) {
+      m_idleInhibited = inhibited;
+      kLog.debug("idle {}", inhibited ? "inhibited" : "no longer inhibited");
+    }
     wlr_idle_notifier_v1_set_inhibited(m_idleNotifier, inhibited);
   }
 
@@ -1486,6 +2032,12 @@ namespace andromeda {
   }
 
   void Server::beginSessionLock(wlr_session_lock_v1* lock) {
+    if (m_inputCapture != nullptr) {
+      m_inputCapture->suspend();
+    }
+    if (m_pendingCaptureId != 0) {
+      dismissConfirmation();
+    }
     if (m_sessionLock != nullptr) {
       kLog.info("denying session lock; one is already active");
       wlr_session_lock_v1_destroy(lock);
@@ -1511,6 +2063,13 @@ namespace andromeda {
         }
       }
 
+      dismissConfirmation();
+      if (m_inputCapture != nullptr) {
+        m_inputCapture->suspend();
+      }
+      if (m_eisInput != nullptr) {
+        m_eisInput->setSessionLocked(true);
+      }
       m_sessionLocked = true;
       m_effects.setSuspended(true);
       m_effects.applyOutputEffects();
@@ -1536,6 +2095,9 @@ namespace andromeda {
 
   void Server::unlockSession() {
     m_sessionLocked = false;
+    if (m_eisInput != nullptr) {
+      m_eisInput->setSessionLocked(false);
+    }
     m_effects.setSuspended(false);
     m_effects.applyOutputEffects();
     for (const auto& output : m_outputs) {
@@ -1646,6 +2208,10 @@ namespace andromeda {
     if (!seatHasKeyboard && keyboard->wlr()->keymap != nullptr) {
       wlr_seat_set_keyboard(seat, keyboard->wlr());
     }
+    m_keyboardLeds->add(keyboard->wlr(), keyboard->virtualDevice(), config().input.keyboard.numlockToggle);
+    if (m_inputCapture != nullptr && !keyboard->virtualDevice()) {
+      m_inputCapture->addKeyboard(keyboard->wlr());
+    }
   }
 
   bool Server::cycleKeyboardLayout() {
@@ -1744,6 +2310,8 @@ namespace andromeda {
   }
 
   void Server::scheduleIpcWorkspacesEvent() {
+    // Outputs report their active workspace and focus, which move with the workspace list.
+    scheduleIpcOutputsEvent();
     if (m_ipc == nullptr || m_ipcWorkspacesIdle != nullptr) {
       return;
     }
@@ -1759,6 +2327,48 @@ namespace andromeda {
     if (server->m_ipc != nullptr) {
       server->m_ipc->notifyWorkspacesChanged();
     }
+  }
+
+  void Server::scheduleIpcLayersEvent() {
+    if (m_ipc == nullptr || m_ipcLayersIdle != nullptr) {
+      return;
+    }
+    m_ipcLayersIdle = wl_event_loop_add_idle(wl_display_get_event_loop(m_display), onIpcLayersIdle, this);
+    if (m_ipcLayersIdle == nullptr) {
+      kLog.error("failed to register IPC layers idle source");
+    }
+  }
+
+  void Server::onIpcLayersIdle(void* data) {
+    auto* server = static_cast<Server*>(data);
+    server->m_ipcLayersIdle = nullptr;
+    if (server->m_ipc != nullptr) {
+      server->m_ipc->notifyLayersChanged();
+    }
+  }
+
+  void Server::scheduleIpcOutputsEvent() {
+    if (m_ipc == nullptr || m_ipcOutputsIdle != nullptr) {
+      return;
+    }
+    m_ipcOutputsIdle = wl_event_loop_add_idle(wl_display_get_event_loop(m_display), onIpcOutputsIdle, this);
+    if (m_ipcOutputsIdle == nullptr) {
+      kLog.error("failed to register IPC outputs idle source");
+    }
+  }
+
+  void Server::onIpcOutputsIdle(void* data) {
+    auto* server = static_cast<Server*>(data);
+    server->m_ipcOutputsIdle = nullptr;
+    if (server->m_ipc != nullptr) {
+      server->m_ipc->notifyOutputsChanged();
+    }
+  }
+
+  void Server::onLayerKeyboardFocusChange(wl_listener* listener, void* /*data*/) {
+    Server* self;
+    self = wl_container_of(listener, self, m_layerKeyboardFocusChange);
+    self->scheduleIpcLayersEvent();
   }
 
   void Server::addPointer(wlr_input_device* device) {
@@ -2032,7 +2642,7 @@ namespace andromeda {
       wlr_output* output = nullptr;
       if (cfg.mapToFocusedWindow) {
         if (View* view = View::fromSurface(m_seat->wlr()->keyboard_state.focused_surface)) {
-          const wlr_box geo = view->toplevel()->base->geometry;
+          const wlr_box geo = view->geometryBox();
           if (geo.width > 0 && geo.height > 0) {
             region = {view->layoutTargetX(), view->layoutTargetY(), geo.width, geo.height};
           }
@@ -2195,6 +2805,7 @@ namespace andromeda {
         entry->setMirrorSource(nullptr);
       }
     }
+    const bool hadRuntimeEffect = output->screenEffectSlot().runtimeSelector.has_value();
     m_overview->onOutputRemoved(output);
     m_gestures->cancelForOutput(output);
     if (!m_cursor->isPassthrough()) {
@@ -2235,6 +2846,9 @@ namespace andromeda {
       m_sessionLock->forgetOutput(output->wlr());
     }
     std::erase_if(m_outputs, [output](const std::unique_ptr<Output>& entry) { return entry.get() == output; });
+    if (hadRuntimeEffect && !m_stopping) {
+      m_effects.prepare(m_renderer);
+    }
     markDirty(Dirty::Banner | Dirty::Cheatsheet | Dirty::QuitConfirm);
     if (m_sessionLocked) {
       updateLockBlank();
@@ -2267,8 +2881,16 @@ namespace andromeda {
     Workspace* targetWorkspace = destination != nullptr && destination->workspaceGroup() != nullptr
         ? destination->workspaceGroup()->active()
         : nullptr;
+    if (sourceGroup != nullptr) {
+      for (size_t index = 0; index < sourceGroup->workspaceCount(); ++index) {
+        sourceGroup->workspaceAt(index)->invalidateLaunchReservations();
+      }
+    }
     const char* sourceName = source->wlr()->name;
-    if (sourceGroup != nullptr && sourceGroup->active() != nullptr && sourceName != nullptr) {
+    if (sourceGroup != nullptr
+        && sourceGroup->active() != nullptr
+        && !sourceGroup->active()->displacedWorkspace()
+        && sourceName != nullptr) {
       const auto existing = std::ranges::find_if(m_displacedWorkspaceSelections, [sourceName](const auto& selection) {
         return selection.outputName == sourceName;
       });
@@ -2282,14 +2904,26 @@ namespace andromeda {
       }
     }
     const auto rememberWorkspace = [this](Workspace* workspace, Output* output, bool tiledOnly) {
-      if (workspace == nullptr || output == nullptr || output->wlr()->name == nullptr) {
-        return;
+      std::shared_ptr<const DisplacedWorkspace> origin = workspace->displacedWorkspace();
+      if (!origin) {
+        const OutputIdentity identity = output->identity();
+        origin = std::make_shared<const DisplacedWorkspace>(DisplacedWorkspace{
+            .outputName = std::string(identity.connector),
+            .outputMake = std::string(identity.make),
+            .outputModel = std::string(identity.model),
+            .outputSerial = std::string(identity.serial),
+            .workspaceName = workspace->name(),
+            .workspaceIndex = workspace->index(),
+            .workspaceNamed = workspace->named(),
+            .configGeneration = configStore().generation(),
+            .layoutModeOverride = workspace->layoutModeOverride(),
+        });
       }
       const wlr_box outputBox = output->layoutBox();
       const LayoutCapture capture = workspace->scrollingLayout() != nullptr
           ? workspace->scrollingLayout()->captureStateForViewport(workspace->scrollViewportExtent())
           : workspace->layout().captureState();
-      for (const auto& view : m_registry.all()) {
+      for (const auto& view : m_registry.placementRoots()) {
         if (view->workspace() != workspace || view->displacedHome()) {
           continue;
         }
@@ -2303,10 +2937,10 @@ namespace andromeda {
           view->rememberFloatingPosition();
         }
         View::DisplacedHome home{
-            .outputName = output->wlr()->name,
-            .workspaceName = workspace->name(),
-            .workspaceIndex = workspace->index(),
-            .workspaceNamed = workspace->named(),
+            .outputName = origin->outputName,
+            .workspaceName = origin->workspaceName,
+            .workspaceIndex = origin->workspaceIndex,
+            .workspaceNamed = origin->workspaceNamed,
             .layoutSnapshot = nullptr,
             .layoutMember = 0,
             .ownsNamedScrollingColumnExtent = view->m_ownsNamedScrollingColumnExtent,
@@ -2316,6 +2950,7 @@ namespace andromeda {
             .floatingOutputPosition = std::nullopt,
             .configGeneration = configStore().generation(),
             .layoutProtectionOnly = tiledOnly,
+            .workspaceOrigin = origin,
         };
         if (view->floating() && outputBox.width > 0 && outputBox.height > 0) {
           home.floatingOutputPosition = {{
@@ -2329,11 +2964,12 @@ namespace andromeda {
         }
         view->markDisplaced(std::move(home));
       }
+      return origin;
     };
 
     if (sourceGroup != nullptr) {
       std::vector<View*> leaving;
-      for (const auto& view : m_registry.all()) {
+      for (const auto& view : m_registry.placementRoots()) {
         Workspace* workspace = view->workspace();
         if (workspace == nullptr || workspace->group() != sourceGroup) {
           continue;
@@ -2341,37 +2977,180 @@ namespace andromeda {
         leaving.push_back(view.get());
       }
 
-      // Capture every source workspace before the first move. Moving a view can
-      // collapse and renumber a dynamic workspace group.
+      struct EvacuatedWorkspace {
+        std::shared_ptr<WorkspaceLaunchAnchor> source;
+        std::shared_ptr<const DisplacedWorkspace> origin;
+        ResolvedLayoutConfig layout;
+        std::optional<LayoutMode> layoutOverride;
+        LayoutCapture capture;
+        std::vector<View*> views;
+        View* focused = nullptr;
+      };
+      std::vector<EvacuatedWorkspace> workspaces;
+      // Capture every source before moving a view. Reservation anchors keep
+      // dynamic reconciliation from deleting the batches still being moved.
       for (size_t index = 0; index < sourceGroup->workspaceCount(); ++index) {
-        rememberWorkspace(sourceGroup->workspaceAt(index), source, false);
-      }
-      // Refugees alter the destination's tiled structure. Preserve its native
-      // members before the first refugee joins, so a later loss of that output
-      // does not snapshot an already mixed layout.
-      const bool contaminatesDestination = !leaving.empty();
-      if (contaminatesDestination && targetWorkspace != nullptr) {
-        rememberWorkspace(targetWorkspace, destination, true);
+        Workspace* workspace = sourceGroup->workspaceAt(index);
+        refreshDisplacedWorkspace(*workspace);
+        EvacuatedWorkspace batch{
+            .source = workspace->reserveForLaunch(),
+            .origin = rememberWorkspace(workspace, source, false),
+            .layout = workspace->layoutConfig(),
+            .layoutOverride = workspace->layoutModeOverride(),
+            .capture = workspace->scrollingLayout() != nullptr
+                ? workspace->scrollingLayout()->captureStateForViewport(workspace->scrollViewportExtent())
+                : workspace->layout().captureState(),
+            .views = {},
+            .focused = workspace->focusedView(),
+        };
+        for (View* view : leaving) {
+          if (view->workspace() == workspace) {
+            batch.views.push_back(view);
+          }
+        }
+        if (!batch.views.empty()) {
+          workspaces.push_back(std::move(batch));
+        }
       }
 
-      for (View* view : leaving) {
-        if (view->displacedHome() && view->displacedHome()->layoutProtectionOnly) {
-          View::DisplacedHome home = *view->displacedHome();
-          home.layoutProtectionOnly = false;
-          view->markDisplaced(std::move(home));
+      bool protectedFallback = false;
+      for (const EvacuatedWorkspace& batch : workspaces) {
+        const bool hasOrdinaryViews =
+            std::ranges::any_of(batch.views, [](const View* view) { return !view->pinned(); });
+        Workspace* refuge =
+            hasOrdinaryViews ? displacedWorkspaceDestination(batch.origin, destination, source) : targetWorkspace;
+        const bool separate = refuge != nullptr && refuge->displacedWorkspace() != nullptr;
+        const auto hold = refuge != nullptr ? refuge->reserveForLaunch() : nullptr;
+        bool capturedLayout = false;
+        if (separate) {
+          refuge->applyLayoutConfig(batch.layout);
+          if (batch.layoutOverride) {
+            refuge->overrideLayoutMode(*batch.layoutOverride);
+          }
+          capturedLayout = batch.capture.snapshot != nullptr
+              && refuge->layout().restoreState(*batch.capture.snapshot, batch.capture.members);
+        } else if (refuge != nullptr && !protectedFallback) {
+          // Only exhausted inventories need to mix with a native workspace.
+          // Keep its clean layout available for the existing restore path.
+          rememberWorkspace(refuge, refuge->group()->output(), true);
+          protectedFallback = true;
         }
-        const bool floating = view->floating();
-        view->setWorkspace(targetWorkspace);
-        if (floating && targetWorkspace != nullptr) {
-          // This output is only a refuge while the recorded home is absent. Present the saved geometry here without
-          // replacing it, since another output can disappear before this animation finishes during VT deactivation.
-          view->restoreFloatingPosition(false);
+        for (View* view : batch.views) {
+          if (view->displacedHome() && view->displacedHome()->layoutProtectionOnly) {
+            View::DisplacedHome home = *view->displacedHome();
+            home.layoutProtectionOnly = false;
+            view->markDisplaced(std::move(home));
+          }
+          const bool floating = view->floating();
+          Workspace* target = view->pinned() ? targetWorkspace : refuge;
+          view->setWorkspace(target, !capturedLayout || target != refuge);
+          if (floating && target != nullptr) {
+            view->restoreFloatingPosition(false);
+          }
+        }
+        if (separate) {
+          refuge->setFocusedView(batch.focused);
+          if (capturedLayout && refuge->scrollingLayout() != nullptr) {
+            refuge->scrollingLayout()->restoreSnapshotViewport(
+                *batch.capture.snapshot, refuge->scrollViewportExtent(), false
+            );
+          }
+          refuge->markArrange(false);
         }
       }
     }
     if (m_scratchpadManager != nullptr) {
       m_scratchpadManager->moveOutput(source, destination);
     }
+    if (sourceGroup != nullptr) {
+      // A disabled output draws no frame to finish its now-empty layouts.
+      sourceGroup->reconcileDynamic();
+      sourceGroup->flushArrange();
+    }
+  }
+
+  void Server::refreshDisplacedWorkspace(Workspace& workspace) {
+    const auto& origin = workspace.displacedWorkspace();
+    if (!origin) {
+      return;
+    }
+    const auto belongsToOrigin = [&origin](const View::DisplacedHome& home) {
+      return home.outputName == origin->outputName
+          && home.workspaceName == origin->workspaceName
+          && home.workspaceIndex == origin->workspaceIndex
+          && home.workspaceNamed == origin->workspaceNamed;
+    };
+    // An unmapped peer still needs its slot in the original complete snapshot.
+    // Otherwise the live temporary layout is authoritative, including edits
+    // and new members made while the original output was absent.
+    if (std::ranges::any_of(m_registry.all(), [&belongsToOrigin](const auto& view) {
+          return !view->mapped()
+              && view->displacedHome()
+              && view->displacedHome()->layoutSnapshot
+              && belongsToOrigin(*view->displacedHome());
+        })) {
+      return;
+    }
+    const LayoutCapture capture = workspace.scrollingLayout() != nullptr
+        ? workspace.scrollingLayout()->captureStateForViewport(workspace.scrollViewportExtent())
+        : workspace.layout().captureState();
+    for (const LayoutMember& member : capture.members) {
+      View* view = member.view;
+      if (view == nullptr || !view->mapped() || !view->displacedHome() || !belongsToOrigin(*view->displacedHome())) {
+        continue;
+      }
+      View::DisplacedHome home = *view->displacedHome();
+      home.layoutSnapshot = capture.snapshot;
+      home.layoutMember = member.id;
+      home.layoutModeOverride = workspace.layoutModeOverride();
+      home.configGeneration = configStore().generation();
+      home.ownsNamedScrollingColumnExtent = view->m_ownsNamedScrollingColumnExtent;
+      view->markDisplaced(std::move(home));
+    }
+  }
+
+  Workspace* Server::displacedWorkspaceDestination(
+      const std::shared_ptr<const DisplacedWorkspace>& home, Output* preferred, Output* excluded
+  ) {
+    const auto onOutput = [&](Output* output) -> Workspace* {
+      if (output == nullptr
+          || output == excluded
+          || !output->desktopEnabled()
+          || !output->wlr()->enabled
+          || output->workspaceGroup() == nullptr) {
+        return nullptr;
+      }
+      return output->workspaceGroup()->displacedDestination(home);
+    };
+    if (Workspace* workspace = onOutput(preferred)) {
+      return workspace;
+    }
+    for (const auto& output : m_outputs) {
+      if (output.get() != preferred) {
+        if (Workspace* workspace = onOutput(output.get())) {
+          return workspace;
+        }
+      }
+    }
+    if (preferred != nullptr
+        && preferred != excluded
+        && preferred->wlr()->enabled
+        && preferred->workspaceGroup() != nullptr) {
+      kLog.warn(
+          "all enabled outputs reached the workspace limit; merging displaced workspace {} from {}",
+          home->workspaceName, home->outputName
+      );
+      WorkspaceGroup* group = preferred->workspaceGroup();
+      if (!group->active()->displacedWorkspace()) {
+        return group->active();
+      }
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        if (!group->workspaceAt(index)->displacedWorkspace()) {
+          return group->workspaceAt(index);
+        }
+      }
+    }
+    return nullptr;
   }
 
   // Deferred to idle: outputs come back one at a time, and a returning one has no workspace group until addOutput is
@@ -2396,6 +3175,25 @@ namespace andromeda {
     Output* fallback = outputFromWlr(preferredOutput());
     if (fallback == nullptr) {
       return;
+    }
+    const auto nativeFallback = [](WorkspaceGroup* group) -> Workspace* {
+      if (group->active() != nullptr && !group->active()->displacedWorkspace()) {
+        return group->active();
+      }
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        Workspace* workspace = group->workspaceAt(index);
+        if (!workspace->displacedWorkspace()) {
+          return workspace;
+        }
+      }
+      return nullptr;
+    };
+    for (const auto& output : m_outputs) {
+      if (WorkspaceGroup* group = output->workspaceGroup()) {
+        for (size_t index = 0; index < group->workspaceCount(); ++index) {
+          refreshDisplacedWorkspace(*group->workspaceAt(index));
+        }
+      }
     }
     std::vector<View*> displaced;
     for (const auto& entry : m_registry.all()) {
@@ -2454,29 +3252,50 @@ namespace andromeda {
 
       Output* target = outputFromName(groupHome.outputName);
       WorkspaceGroup* targetGroup = target != nullptr ? target->workspaceGroup() : nullptr;
-      if (targetGroup == nullptr) {
-        WorkspaceGroup* fallbackGroup = fallback->workspaceGroup();
-        Workspace* refuge = fallbackGroup != nullptr ? fallbackGroup->active() : nullptr;
-        if (refuge != nullptr) {
-          for (size_t index = first; index < last; ++index) {
-            View* view = displaced[index];
-            if (view->workspace() != nullptr) {
-              continue;
-            }
-            const bool floating = view->floating();
-            view->setWorkspace(refuge);
-            if (floating) {
-              view->restoreFloatingPosition(false);
-            }
+      const bool homeAvailable = targetGroup != nullptr;
+      Workspace* workspace = nullptr;
+      std::shared_ptr<WorkspaceLaunchAnchor> refugeHold;
+      if (!homeAvailable) {
+        for (size_t index = first; index < last; ++index) {
+          View* view = displaced[index];
+          if (view->pinned() && view->workspace() == nullptr) {
+            view->setWorkspace(fallback->workspaceGroup()->active());
+            view->restoreFloatingPosition(false);
             ++restored;
           }
         }
-        first = last;
-        continue;
-      }
-
-      Workspace* workspace = nullptr;
-      if (groupHome.workspaceNamed) {
+        const bool needsRefuge = std::ranges::any_of(
+            displaced.begin() + static_cast<std::ptrdiff_t>(first),
+            displaced.begin() + static_cast<std::ptrdiff_t>(last),
+            [](const View* view) { return !view->pinned() && view->workspace() == nullptr; }
+        );
+        if (!needsRefuge) {
+          first = last;
+          continue;
+        }
+        workspace = groupHome.workspaceOrigin ? displacedWorkspaceDestination(groupHome.workspaceOrigin, fallback)
+                                              : fallback->workspaceGroup()->active();
+        if (workspace == nullptr || !workspace->displacedWorkspace()) {
+          if (workspace != nullptr) {
+            for (size_t index = first; index < last; ++index) {
+              View* view = displaced[index];
+              if (view->workspace() == nullptr) {
+                const bool floating = view->floating();
+                view->setWorkspace(workspace);
+                if (floating) {
+                  view->restoreFloatingPosition(false);
+                }
+                ++restored;
+              }
+            }
+          }
+          first = last;
+          continue;
+        }
+        refugeHold = workspace->reserveForLaunch();
+        targetGroup = workspace->group();
+        target = targetGroup->output();
+      } else if (groupHome.workspaceNamed) {
         workspace = targetGroup->workspaceNamed(groupHome.workspaceName);
       } else {
         if (targetGroup->dynamic()) {
@@ -2490,13 +3309,16 @@ namespace andromeda {
           }
         }
         workspace = targetGroup->workspaceAt(groupHome.workspaceIndex);
-        if (targetGroup->dynamic() && workspace != nullptr && workspace->named()) {
+        if (targetGroup->dynamic() && workspace != nullptr && (workspace->named() || workspace->displacedWorkspace())) {
           workspace = targetGroup->insertDynamicWorkspace(groupHome.workspaceIndex);
         }
       }
+      if (workspace != nullptr && workspace->displacedWorkspace() && homeAvailable) {
+        workspace = nullptr;
+      }
       const bool selectorMatched = workspace != nullptr;
       if (workspace == nullptr) {
-        workspace = targetGroup->active();
+        workspace = nativeFallback(targetGroup);
       }
       if (workspace == nullptr) {
         first = last;
@@ -2645,13 +3467,14 @@ namespace andromeda {
           });
       const bool retainLayoutProtection =
           exact != nullptr && exact->representative.layoutProtectionOnly && foreignRefugeesRemain;
-      const auto retainHome = [exact, retainLayoutProtection, snapshotMemberIsUnmapped, selectorMatched,
-                               workspace](const View* view) {
+      const auto retainHome = [exact, retainLayoutProtection, snapshotMemberIsUnmapped, selectorMatched, workspace,
+                               homeAvailable](const View* view) {
         const auto& home = view->displacedHome();
         if (!home) {
           return false;
         }
-        return (retainLayoutProtection && home->layoutProtectionOnly)
+        return !homeAvailable
+            || (retainLayoutProtection && home->layoutProtectionOnly)
             || (snapshotMemberIsUnmapped && home->layoutSnapshot.get() == exact->snapshot.get())
             || (!view->mapped()
                 && selectorMatched
@@ -2661,6 +3484,9 @@ namespace andromeda {
 
       for (size_t index = first; index < last; ++index) {
         View* view = displaced[index];
+        if (!homeAvailable && view->pinned()) {
+          continue;
+        }
         if (std::ranges::find(exactViews, view) != exactViews.end()) {
           if (!retainHome(view)) {
             view->clearDisplaced();
@@ -2681,10 +3507,14 @@ namespace andromeda {
           const wlr_box outputBox = target->layoutBox();
           if (outputBox.width > 0 && outputBox.height > 0) {
             view->cancelPositionAnimation();
-            view->setPosition(
-                outputBox.x + static_cast<int>(std::lround((*home.floatingOutputPosition)[0] * outputBox.width)),
-                outputBox.y + static_cast<int>(std::lround((*home.floatingOutputPosition)[1] * outputBox.height))
-            );
+            // The fractions are proportional to the output box; on a smaller output the result can resolve outside
+            // the grabbable margin, so the placement is clamped like any other restore.
+            const FloatingPoint restored{
+                .x = outputBox.x + static_cast<int>(std::lround((*home.floatingOutputPosition)[0] * outputBox.width)),
+                .y = outputBox.y + static_cast<int>(std::lround((*home.floatingOutputPosition)[1] * outputBox.height)),
+            };
+            const FloatingPoint origin = view->grabbableOrigin(restored, view->floatingUsableArea());
+            view->setPosition(origin.x, origin.y);
           }
         } else if (floating && moved) {
           view->restoreFloatingPosition(true);
@@ -2705,7 +3535,7 @@ namespace andromeda {
     WorkspaceGroup* fallbackGroup = fallback->workspaceGroup();
     Workspace* refuge = fallbackGroup != nullptr ? fallbackGroup->active() : nullptr;
     if (refuge != nullptr) {
-      for (const auto& entry : m_registry.all()) {
+      for (const auto& entry : m_registry.placementRoots()) {
         View* view = entry.get();
         if (!view->mapped()
             || view->workspace() != nullptr
@@ -2749,13 +3579,16 @@ namespace andromeda {
           }
         }
         workspace = group->workspaceAt(selection->workspaceIndex);
-        if (workspace != nullptr && workspace->named()) {
+        if (workspace != nullptr && (workspace->named() || workspace->displacedWorkspace())) {
           Workspace* inserted = group->insertDynamicWorkspace(selection->workspaceIndex);
           workspace = inserted != nullptr ? inserted : group->active();
         }
       }
       if (workspace == nullptr && group->workspaceCount() > 0) {
         workspace = group->workspaceAt(std::min(selection->workspaceIndex, group->workspaceCount() - 1));
+      }
+      if (workspace != nullptr && workspace->displacedWorkspace()) {
+        workspace = nativeFallback(group);
       }
       if (workspace == nullptr) {
         ++selection;
@@ -2817,8 +3650,17 @@ namespace andromeda {
     return true;
   }
 
-  void Server::notifyKeyboardEnter(wlr_surface* surface) {
+  void Server::notifyKeyboardEnter(wlr_surface* surface, KeyboardGrab grab) {
+    if (m_inputCapture != nullptr && (m_inputCapture->capabilities() & 1U) != 0) {
+      return;
+    }
     wlr_seat* seat = m_seat->wlr();
+    wlr_surface* previous = seat->keyboard_state.focused_surface;
+    const bool leavesXwayland = m_xwayland != nullptr
+        && previous != nullptr
+        && wlr_xwayland_surface_try_from_wlr_surface(previous) != nullptr
+        && surface != nullptr
+        && wlr_xwayland_surface_try_from_wlr_surface(surface) == nullptr;
 
     if (config().input.keyboard.trackLayout == TrackLayout::Window) {
       if (const auto state = keyboardLayoutState();
@@ -2843,9 +3685,23 @@ namespace andromeda {
       }
     }
 
+    // An active grab's enter handler decides where focus goes; an xdg_popup grab ignores it entirely.
+    const auto enter =
+        [seat,
+         grab](wlr_surface* target, const uint32_t* keycodes, size_t count, const wlr_keyboard_modifiers* modifiers) {
+          if (grab == KeyboardGrab::Bypass) {
+            wlr_seat_keyboard_enter(seat, target, keycodes, count, modifiers);
+          } else {
+            wlr_seat_keyboard_notify_enter(seat, target, keycodes, count, modifiers);
+          }
+        };
+
     wlr_keyboard* keyboard = wlr_seat_get_keyboard(seat);
     if (keyboard == nullptr) {
-      wlr_seat_keyboard_notify_enter(seat, surface, nullptr, 0, nullptr);
+      enter(surface, nullptr, 0, nullptr);
+      if (leavesXwayland) {
+        m_xwayland->scheduleFocusClear();
+      }
       return;
     }
 
@@ -2860,7 +3716,10 @@ namespace andromeda {
       }
     }
     if (consumed == nullptr || consumed->empty()) {
-      wlr_seat_keyboard_notify_enter(seat, surface, keyboard->keycodes, keyboard->num_keycodes, &keyboard->modifiers);
+      enter(surface, keyboard->keycodes, keyboard->num_keycodes, &keyboard->modifiers);
+      if (leavesXwayland) {
+        m_xwayland->scheduleFocusClear();
+      }
       return;
     }
     std::array<uint32_t, WLR_KEYBOARD_KEYS_CAP> forwarded{};
@@ -2870,7 +3729,10 @@ namespace andromeda {
         forwarded[count++] = keyboard->keycodes[i];
       }
     }
-    wlr_seat_keyboard_notify_enter(seat, surface, forwarded.data(), count, &keyboard->modifiers);
+    enter(surface, forwarded.data(), count, &keyboard->modifiers);
+    if (leavesXwayland) {
+      m_xwayland->scheduleFocusClear();
+    }
   }
 
   void Server::forgetConsumedKeycodes() {
@@ -2891,17 +3753,45 @@ namespace andromeda {
     wlr_seat_keyboard_notify_clear_focus(seat);
   }
 
+  void Server::rememberKeyboardInputSource(Keyboard& keyboard) {
+    if (m_inputMethodRelay == nullptr || !m_inputMethodRelay->ownsKeyboard(keyboard.wlr())) {
+      m_keyboardInputSource = &keyboard;
+    }
+    if (!m_stopping && m_keyboardLeds != nullptr) {
+      m_keyboardLeds->update(keyboard.wlr());
+    }
+  }
+
+  bool Server::syncingKeyboardLocks() const { return m_keyboardLeds != nullptr && m_keyboardLeds->syncing(); }
+
+  void Server::refreshKeyboardLeds() {
+    if (!m_stopping && m_keyboardLeds != nullptr) {
+      m_keyboardLeds->update();
+    }
+  }
+
   void Server::removeKeyboard(Keyboard* keyboard) {
+    if (m_inputCapture != nullptr) {
+      m_inputCapture->removeKeyboard(keyboard->wlr());
+    }
     wlr_seat* seat = m_seat->wlr();
     const bool seatKeyboardRemoved = wlr_seat_get_keyboard(seat) == keyboard->wlr();
     const bool sourceRemoved = m_keyboardLayoutSource == keyboard;
+    if (m_keyboardInputSource == keyboard) {
+      m_keyboardInputSource = nullptr;
+    }
+    if (m_keyboardLeds != nullptr) {
+      m_keyboardLeds->remove(keyboard->wlr());
+    }
     std::erase_if(m_keyboards, [keyboard](const std::unique_ptr<Keyboard>& entry) { return entry.get() == keyboard; });
     if (seatKeyboardRemoved) {
-      wlr_keyboard* replacement = nullptr;
-      for (const auto& entry : m_keyboards) {
-        if (entry->wlr()->keymap != nullptr) {
-          replacement = entry->wlr();
-          break;
+      wlr_keyboard* replacement = m_keyboardInputSource != nullptr ? m_keyboardInputSource->wlr() : nullptr;
+      if (replacement == nullptr) {
+        for (const auto& entry : m_keyboards) {
+          if (entry->wlr()->keymap != nullptr) {
+            replacement = entry->wlr();
+            break;
+          }
         }
       }
       // Detach wlroots' later destroy listener so it cannot clear the replacement.
@@ -2930,7 +3820,7 @@ namespace andromeda {
     for (const auto& output : m_outputs) {
       output->forgetHdrView(view);
     }
-    const bool hadKeyboardFocus = m_seat->wlr()->keyboard_state.focused_surface == view->toplevel()->base->surface;
+    const bool hadKeyboardFocus = m_seat->wlr()->keyboard_state.focused_surface == view->rootSurface();
     if (m_scratchpadManager != nullptr) {
       m_scratchpadManager->remove(view);
     }
@@ -2944,6 +3834,7 @@ namespace andromeda {
       view->detachWorkspace();
     }
     const bool restoreAfterRemoval = view->displacedHome().has_value();
+    m_cursor->forgetView(view);
     m_registry.remove(view);
     if (restoreAfterRemoval) {
       scheduleDisplacedViewRestore();
@@ -2963,6 +3854,7 @@ namespace andromeda {
       return entry.get() == layerSurface;
     });
     arrangeLayers(output);
+    scheduleIpcLayersEvent();
   }
 
   void Server::onOutputPowerSetMode(wl_listener* listener, void* data) {
@@ -3002,9 +3894,23 @@ namespace andromeda {
       self->updateOutputManagerConfig();
     }
     self->m_cursor->handleOutputLayoutChange();
+    if (self->m_xwayland != nullptr) {
+      self->m_xwayland->handleOutputLayoutChange();
+    }
+    if (self->m_eisInput != nullptr) {
+      self->m_eisInput->updateOutputs();
+    }
+    if (self->m_inputCapture != nullptr) {
+      self->m_inputCapture->updateOutputs();
+    }
   }
 
   void Server::updateOutputManagerConfig() {
+    // Every output state change that output management publishes also changes the IPC output listing.
+    scheduleIpcOutputsEvent();
+    if (m_inputCapture != nullptr && !m_deferOutputManagerConfig) {
+      m_inputCapture->updateOutputs();
+    }
     if (m_outputManager == nullptr || m_deferOutputManagerConfig) {
       return;
     }
@@ -3097,22 +4003,61 @@ namespace andromeda {
       wlr_output_state_set_enabled(&states[i].base, false);
     }
 
-    const auto buildSceneStates =
-        [this](wlr_output_swapchain_manager& manager, wlr_backend_output_state* pending, size_t pendingLen) {
-          for (size_t i = 0; i < pendingLen; ++i) {
-            Output* output = outputFromWlr(pending[i].output);
-            if (output == nullptr) {
-              return false;
-            }
-            wlr_scene_output_state_options options{};
-            options.swapchain = wlr_output_swapchain_manager_get_swapchain(&manager, pending[i].output);
-            if (!wlr_scene_output_build_state(output->sceneOutput(), &pending[i].base, &options)) {
-              kLog.error("failed to build output-management scene state for '{}'", pending[i].output->name);
-              return false;
-            }
+    struct SceneRectDestroy {
+      void operator()(wlr_scene_rect* rect) const {
+        if (rect != nullptr) {
+          wlr_scene_node_destroy(&rect->node);
+        }
+      }
+    };
+    std::vector<std::unique_ptr<wlr_scene_rect, SceneRectDestroy>> configuredFrameMasks;
+    const auto buildSceneStates = [this, &configuredFrameMasks](
+                                      wlr_output_swapchain_manager& manager, wlr_backend_output_state* pending,
+                                      size_t pendingLen
+                                  ) {
+      configuredFrameMasks.clear();
+      for (size_t i = 0; i < pendingLen; ++i) {
+        Output* output = outputFromWlr(pending[i].output);
+        if (output == nullptr) {
+          return false;
+        }
+        const bool enabled = (pending[i].base.committed & WLR_OUTPUT_STATE_ENABLED) != 0 ? pending[i].base.enabled
+                                                                                         : pending[i].output->enabled;
+        const bool unbound = wlr_output_layout_get(m_outputLayout, pending[i].output) == nullptr;
+        if (enabled && (m_sessionLocked || unbound)) {
+          wlr_scene_rect* mask = output->createConfiguredFrameMask(pending[i].base);
+          if (mask == nullptr) {
+            return false;
           }
-          return true;
-        };
+          configuredFrameMasks.emplace_back(mask);
+        }
+        // This frame is built without the reveal pair, so resume native slide first.
+        if (WorkspaceGroup* group = output->workspaceGroup()) {
+          group->abandonReveal();
+        }
+        // The pending mode, scale or transform may resize the optimized blur cache.
+        output->markBlurBackgroundDirty();
+        wlr_scene_output_state_options options{};
+        options.swapchain = wlr_output_swapchain_manager_get_swapchain(&manager, pending[i].output);
+        if (!wlr_scene_output_build_state(output->sceneOutput(), &pending[i].base, &options)) {
+          kLog.error("failed to build output-management scene state for '{}'", pending[i].output->name);
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const auto commitSceneStates = [this](wlr_backend_output_state* pending, size_t pendingLen) {
+      std::vector<std::unique_ptr<Output::SceneCommit>> observations;
+      observations.reserve(pendingLen);
+      for (size_t i = 0; i < pendingLen; ++i) {
+        if (Output* output = outputFromWlr(pending[i].output)) {
+          observations.push_back(std::make_unique<Output::SceneCommit>(*output, pending[i].base));
+        }
+      }
+      // Each output's successful commit event is authoritative even if a later child backend fails the group.
+      return wlr_backend_commit(m_backend, pending, pendingLen);
+    };
 
     struct BackendSnapshot {
       wlr_output* output = nullptr;
@@ -3181,7 +4126,7 @@ namespace andromeda {
         // logical layout transaction is complete.
         m_deferOutputManagerConfig = true;
         commitAttempted = true;
-        ok = wlr_backend_commit(m_backend, states, statesLen);
+        ok = commitSceneStates(states, statesLen);
         if (ok) {
           wlr_output_swapchain_manager_apply(&swapchainManager);
         }
@@ -3201,7 +4146,7 @@ namespace andromeda {
             wlr_output_swapchain_manager_prepare(&rollbackManager, rollbackStates.data(), rollbackStates.size());
         if (restoredAsGroup) {
           restoredAsGroup = buildSceneStates(rollbackManager, rollbackStates.data(), rollbackStates.size())
-              && wlr_backend_commit(m_backend, rollbackStates.data(), rollbackStates.size());
+              && commitSceneStates(rollbackStates.data(), rollbackStates.size());
         }
         if (restoredAsGroup) {
           wlr_output_swapchain_manager_apply(&rollbackManager);
@@ -3215,7 +4160,8 @@ namespace andromeda {
         }
         rollbackStates.clear();
 
-        const auto restoreEnabled = [this, &buildSceneStates, &stageSnapshot](const BackendSnapshot& snapshot) {
+        const auto restoreEnabled = [this, &buildSceneStates, &commitSceneStates,
+                                     &stageSnapshot](const BackendSnapshot& snapshot) {
           wlr_backend_output_state restore{};
           restore.output = snapshot.output;
           wlr_output_state_init(&restore.base);
@@ -3225,7 +4171,7 @@ namespace andromeda {
           wlr_output_swapchain_manager_init(&manager, m_backend);
           bool restored = wlr_output_swapchain_manager_prepare(&manager, &restore, 1);
           if (restored) {
-            restored = buildSceneStates(manager, &restore, 1) && wlr_backend_commit(m_backend, &restore, 1);
+            restored = buildSceneStates(manager, &restore, 1) && commitSceneStates(&restore, 1);
           }
           if (restored) {
             wlr_output_swapchain_manager_apply(&manager);
@@ -3433,6 +4379,10 @@ namespace andromeda {
       }
       view->m_captureSourceDestroy.notify = View::onCaptureSourceDestroy;
       wl_signal_add(&view->m_captureSource->events.destroy, &view->m_captureSourceDestroy);
+    }
+
+    if (Output* output = view->currentOutput()) {
+      andromedafx_scene_capture_source_set_scale(view->m_captureSource, output->wlr()->scale);
     }
 
     wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, view->m_captureSource);

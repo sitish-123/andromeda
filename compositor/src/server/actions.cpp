@@ -13,6 +13,7 @@
 #include "scene/fps_overlay.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_shell.h"
+#include "server/focus.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -21,9 +22,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <csignal>
+#include <cstdint>
+#include <cstring>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string_view>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -37,14 +44,6 @@ namespace andromeda {
     template <wlr_direction D> bool actionOutputFocus(Server& server, const Keybind& bind, std::string* error);
     template <wlr_direction D> bool actionColumnMoveToOutput(Server& server, const Keybind& bind, std::string* error);
     void finishWorkspaceTransfer(Server& server, View& focused);
-
-    Workspace* activeWorkspace(Server& server) {
-      Output* output = server.outputFromWlr(server.preferredOutput());
-      if (output == nullptr || output->workspaceGroup() == nullptr) {
-        return nullptr;
-      }
-      return output->workspaceGroup()->active();
-    }
 
     std::optional<std::string_view> scratchpadName(Server& server, const Keybind& bind, std::string* error) {
       const auto* arg = payloadIf<ScratchpadArg>(bind);
@@ -80,108 +79,41 @@ namespace andromeda {
       return true;
     }
 
-    std::string workspaceNameToken(std::string_view name) {
-      const bool needsQuotes =
-          !name.empty() && std::ranges::all_of(name, [](char value) { return value >= '0' && value <= '9'; });
-      return needsQuotes ? "\"" + std::string(name) + "\"" : std::string(name);
-    }
-
-    // Resolve a typed workspace reference against the current output layout. Indices stay on the preferred output;
-    // names resolve globally, using that output only to disambiguate duplicates. An output qualifier confines either
-    // kind to exactly one group.
+    // Positions stay on the selected output; names follow a displaced workspace's original output when qualified.
     std::expected<Workspace*, std::string> resolveWorkspaceSelector(Server& server, const Keybind& bind) {
       const auto* selector = payloadIf<WorkspaceArg>(bind);
       if (selector == nullptr) {
         return std::unexpected(std::string("action carries no workspace selector"));
+      }
+      Output* preferred = server.outputFromWlr(server.preferredOutput());
+      WorkspaceGroup* group = preferred != nullptr ? preferred->workspaceGroup() : nullptr;
+      if (const auto* name = std::get_if<WorkspaceName>(&selector->reference)) {
+        return server.resolveNamedWorkspace(name->value, group, selector->output);
       }
       if (!selector->output.empty()) {
         Output* output = server.outputFromName(selector->output);
         if (output == nullptr) {
           return std::unexpected("unknown output: " + selector->output);
         }
-        WorkspaceGroup* group = output->workspaceGroup();
+        group = output->workspaceGroup();
         if (group == nullptr) {
           return std::unexpected("output has no workspace group: " + selector->output);
         }
-        Workspace* target = nullptr;
-        std::string reference;
-        if (const auto* index = std::get_if<WorkspaceIndex>(&selector->reference)) {
-          reference = std::to_string(index->value);
-          if (index->value > 0) {
-            target = group->workspaceAtClamped(index->value - 1);
-          }
-        } else if (const auto* name = std::get_if<WorkspaceName>(&selector->reference)) {
-          reference = name->value;
-          target = group->workspaceNamed(name->value);
-        }
-        if (target == nullptr) {
-          return std::unexpected("unknown workspace on output " + selector->output + ": " + reference);
-        }
-        return target;
       }
-
-      Output* preferred = server.outputFromWlr(server.preferredOutput());
-      WorkspaceGroup* preferredGroup = preferred != nullptr ? preferred->workspaceGroup() : nullptr;
-
-      if (const auto* index = std::get_if<WorkspaceIndex>(&selector->reference)) {
-        Workspace* target = index->value > 0 && preferredGroup != nullptr
-            ? preferredGroup->workspaceAtClamped(index->value - 1)
-            : nullptr;
-        if (target == nullptr) {
-          return std::unexpected("unknown workspace position: " + std::to_string(index->value));
-        }
-        return target;
-      }
-
-      const auto* name = std::get_if<WorkspaceName>(&selector->reference);
-      if (name == nullptr) {
+      const auto* index = std::get_if<WorkspaceIndex>(&selector->reference);
+      if (index == nullptr) {
         return std::unexpected(std::string("action carries an invalid workspace selector"));
       }
-
-      Workspace* target = nullptr;
-      bool ambiguous = false;
-      for (const auto& output : server.outputs()) {
-        WorkspaceGroup* group = output->workspaceGroup();
-        Workspace* match = group != nullptr ? group->workspaceNamed(name->value) : nullptr;
-        if (match == nullptr) {
-          continue;
-        }
-        if (target != nullptr) {
-          ambiguous = true;
-        } else {
-          target = match;
-        }
-      }
-
+      Workspace* target = index->value > 0 && group != nullptr ? group->workspaceAtClamped(index->value - 1) : nullptr;
       if (target == nullptr) {
-        return std::unexpected("unknown workspace: " + name->value);
-      }
-
-      if (ambiguous) {
-        Workspace* preferredMatch = preferredGroup != nullptr ? preferredGroup->workspaceNamed(name->value) : nullptr;
-        if (preferredMatch == nullptr) {
-          const std::string token = workspaceNameToken(name->value);
-          return std::unexpected("ambiguous workspace: " + name->value + " (qualify it as " + token + "/<output>)");
-        }
-        return preferredMatch;
+        return std::unexpected(
+            selector->output.empty()
+                ? "unknown workspace position: " + std::to_string(index->value)
+                : "unknown workspace on output " + selector->output + ": " + std::to_string(index->value)
+        );
       }
       return target;
     }
-
-    View* seatFocusedWindow(Server& server) {
-      return View::fromSurface(server.seat()->wlr()->keyboard_state.focused_surface);
-    }
-
-    // Scratchpad focus follows the seat, not the pointer-selected output. A
-    // cursor on another monitor must not expose that monitor's remembered
-    // workspace focus to window-relative actions.
-    View* focusedScratchpadWindow(Server& server) {
-      View* view = seatFocusedWindow(server);
-      ScratchpadManager* scratchpad = server.scratchpadManager();
-      return view != nullptr && scratchpad != nullptr && scratchpad->contains(view) ? view : nullptr;
-    }
-
-    bool scratchpadHoldsFocus(Server& server) { return focusedScratchpadWindow(server) != nullptr; }
 
     // Layout-relative window actions have no workspace target while a detached
     // scratchpad owns the seat. Explicit workspace and layout actions continue
@@ -190,12 +122,80 @@ namespace andromeda {
       return scratchpadHoldsFocus(server) ? nullptr : activeWorkspace(server);
     }
 
-    View* focusedWindow(Server& server) {
-      if (View* view = seatFocusedWindow(server)) {
-        return view;
+    // Window IDs are ext-foreign-toplevel identifiers, the same strings
+    // clients receive from the protocol and the IPC surface reuses.
+    std::expected<View*, std::string> viewByForeignIdentifier(Server& server, std::string_view id) {
+      for (const auto& view : server.views()) {
+        if (!view->mapped()) {
+          continue;
+        }
+        const char* identifier = view->extForeignIdentifier();
+        if (identifier != nullptr && id == identifier) {
+          return view.get();
+        }
       }
-      Workspace* workspace = activeWorkspace(server);
-      return workspace != nullptr ? workspace->focusedView() : nullptr;
+      return std::unexpected("unknown window: " + std::string(id));
+    }
+
+    // The window id an action carries, or empty when it names none.
+    std::string_view windowIdArg(const Keybind& bind) {
+      const auto* arg = payloadIf<WindowIdArg>(bind);
+      return arg != nullptr ? std::string_view(arg->id) : std::string_view{};
+    }
+
+    // Which focused window a window action addresses when it names none.
+    enum class FocusSource : uint8_t {
+      Seat,       // the keyboard focus, else the active workspace's focused window
+      Scratchpad, // the keyboard focus while it is a scratchpad window, else none
+      Workspace,  // the active workspace's focused window, whatever holds the keyboard
+      Layout,     // the same, but none while a scratchpad window holds the keyboard
+      Recent,     // the most recently focused mapped window on any active workspace
+    };
+
+    // The window whose place an action changes: the one `id` names, else the focused window `source` picks, which
+    // may be null. An attached dialog's place is its parent's, so an action aimed at it acts on the window it lives
+    // in. An `id` naming no mapped window is an error.
+    std::expected<View*, std::string>
+    placementTarget(Server& server, std::string_view id, FocusSource source = FocusSource::Seat) {
+      const auto root = [](View* view) { return view != nullptr ? view->placementRoot() : nullptr; };
+      if (!id.empty()) {
+        return viewByForeignIdentifier(server, id).transform(root);
+      }
+      switch (source) {
+      case FocusSource::Seat:
+        return root(focusedWindow(server));
+      case FocusSource::Scratchpad:
+        return root(focusedScratchpadWindow(server));
+      case FocusSource::Workspace: {
+        if (seatFocusedWindow(server) == nullptr && scratchpadHoldsFocus(server)) {
+          return nullptr;
+        }
+        Workspace* workspace = activeWorkspace(server);
+        return workspace != nullptr ? workspace->focusedView() : nullptr;
+      }
+      case FocusSource::Layout: {
+        Workspace* workspace = windowActionWorkspace(server);
+        return workspace != nullptr ? workspace->focusedView() : nullptr;
+      }
+      case FocusSource::Recent:
+        for (const auto& view : server.registry().placementRoots()) {
+          if (view->mapped() && !view->minimized() && view->onActiveWorkspace()) {
+            return view.get();
+          }
+        }
+        return nullptr;
+      }
+      return nullptr;
+    }
+
+    // The window an action addresses itself, not its place: its client (close, kill, screencast) or its own effects.
+    // The one `id` names, else the focused window that FocusSource::Seat picks, which may be null. An `id` naming no
+    // mapped window is an error.
+    std::expected<View*, std::string> clientTarget(Server& server, std::string_view id) {
+      if (!id.empty()) {
+        return viewByForeignIdentifier(server, id);
+      }
+      return focusedWindow(server);
     }
 
     const std::vector<double>& floatingPresetsFor(View& view) {
@@ -212,7 +212,7 @@ namespace andromeda {
       if (!axis) {
         return;
       }
-      const auto& presets = floatingPresetsFor(view);
+      const auto presets = boundedPresets(floatingPresetsFor(view), 1.0);
       const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
       const double next = nextFractionPreset(presets, current, Direction);
       view.resizeFloatingFractions(
@@ -226,7 +226,14 @@ namespace andromeda {
     void moveViewToWorkspace(Server& server, View& view, Workspace& target, bool follow = true) {
       Workspace* source = view.workspace();
       const bool workspaceChanged = source != &target;
-      Output* sourceOutput = source != nullptr && source->group() != nullptr ? source->group()->output() : nullptr;
+      ScratchpadManager* scratchpad = server.scratchpadManager();
+      const bool fromScratchpad = scratchpad != nullptr && scratchpad->contains(&view);
+      Output* sourceOutput = fromScratchpad                 ? scratchpad->outputFor(&view)
+          : source != nullptr && source->group() != nullptr ? source->group()->output()
+                                                            : nullptr;
+      if (fromScratchpad && !scratchpad->restoreToWorkspace(&view, &target)) {
+        return;
+      }
       const bool floating = view.floating();
       std::optional<double> widthFrac;
       bool fullWidth = false;
@@ -245,7 +252,9 @@ namespace andromeda {
       if (floating) {
         view.rememberFloatingPosition();
       }
-      view.moveToWorkspace(&target, true, LayoutAttachOrigin::MovedView); // layoutAttach self-guards on tiled()
+      if (!fromScratchpad) {
+        view.moveToWorkspace(&target, true, LayoutAttachOrigin::MovedView); // layoutAttach self-guards on tiled()
+      }
       if (workspaceChanged && !view.tiled()) {
         // layoutAttach only handles tiled arrivals.
         target.exitFullscreenForIncomingView(&view);
@@ -283,35 +292,16 @@ namespace andromeda {
       }
     }
 
-    // Move the focused tiled column as one structural unit. Rebuild it only
-    // after snapshotting because every view transfer mutates the source layout.
-    // A floating focus has no column, so it follows the single-window behavior
-    // used by the directional output actions.
-    bool moveFocusedColumnToWorkspace(Server& server, Workspace& source, Workspace& target) {
-      if (&source == &target) {
-        return false;
-      }
-      View* focused = source.focusedView();
-      if (focused == nullptr) {
-        return false;
-      }
-      const int columnIndex = source.layout().columnOf(focused);
-      const auto& sourceColumns = source.layout().columns();
-      if (columnIndex < 0 || columnIndex >= static_cast<int>(sourceColumns.size())) {
-        moveViewToWorkspace(server, *focused, target);
-        return true;
-      }
-
-      const Column column = sourceColumns[static_cast<size_t>(columnIndex)];
+    void rebuildTransferredColumn(Workspace& target, const Column& column, int targetIndex) {
       if (column.views.empty()) {
-        return false;
+        return;
       }
-
-      target.exitFullscreenForIncomingView(focused);
-
-      const int focusedTargetColumn = target.layout().columnOf(target.focusedView());
-      const int targetIndex =
-          focusedTargetColumn >= 0 ? focusedTargetColumn + 1 : static_cast<int>(target.layout().columns().size());
+      if (target.layoutMode() == LayoutMode::Floating) {
+        for (View* view : column.views) {
+          view->moveToWorkspace(&target);
+        }
+        return;
+      }
       View* first = column.views.front();
       first->moveToWorkspace(&target, /*attachToLayout=*/false);
       target.layout().insertView(first, targetIndex);
@@ -334,18 +324,69 @@ namespace andromeda {
         if (column.savedWidthFrac > 0.0) {
           scrolling->toggleFullWidth(targetColumn);
         }
-        for (size_t row = 0; row < column.heightWeights.size(); ++row) {
+        scrolling->adoptTabs(targetColumn, column.tabs);
+        for (size_t row = 0; row < column.heightWeights.size(); row = column.tabs.unitEnd(row)) {
           scrolling->setHeightWeight(targetColumn, static_cast<int>(row), column.heightWeights[row]);
         }
         scrolling->setTopGapWeight(targetColumn, column.topGapWeight);
         scrolling->setBottomGapWeight(targetColumn, column.bottomGapWeight);
+      } else if (TabbedContainers* tabs = target.layout().tabbedContainers()) {
+        const int targetColumn = target.layout().columnOf(first);
+        const auto& targetColumns = target.layout().columns();
+        if (targetColumn < 0
+            || targetColumn >= static_cast<int>(targetColumns.size())
+            || targetColumns[static_cast<size_t>(targetColumn)].views != column.views) {
+          // A group merged with existing area rows cannot keep its own display.
+          return;
+        }
+        // A master area can show one group spanning all its rows, not separate
+        // groups and standalone rows. Its new-area default cannot change the source display.
+        const auto& groups = column.tabs.groups();
+        const bool wholeGroup =
+            groups.size() == 1 && groups.front().first == 0 && groups.front().count == column.views.size();
+        tabs->setTabbed(first, wholeGroup);
+        if (wholeGroup) {
+          const TabGroup& group = groups.front();
+          tabs->selectTab(column.views[group.active]);
+          if (group.bar.has_value()) {
+            tabs->setTabBar(first, group.bar);
+          }
+        }
       }
+    }
+
+    // Move the column of the window FocusSource::Layout picks to `target` as one structural unit. Rebuild it only
+    // after snapshotting because every view transfer mutates the source layout. A floating window has no column, so
+    // it follows the single-window behavior used by the directional output actions.
+    void moveFocusedColumnToWorkspace(Server& server, Workspace& target) {
+      Workspace* source = windowActionWorkspace(server);
+      View* focused = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
+      if (source == nullptr || source == &target || focused == nullptr) {
+        return;
+      }
+      const int columnIndex = source->layout().columnOf(focused);
+      const auto& sourceColumns = source->layout().columns();
+      if (columnIndex < 0 || columnIndex >= static_cast<int>(sourceColumns.size())) {
+        moveViewToWorkspace(server, *focused, target);
+        return;
+      }
+
+      const Column column = sourceColumns[static_cast<size_t>(columnIndex)];
+      if (column.views.empty()) {
+        return;
+      }
+
+      target.exitFullscreenForIncomingView(focused);
+
+      const int focusedTargetColumn = target.layout().columnOf(target.focusedView());
+      const int targetIndex =
+          focusedTargetColumn >= 0 ? focusedTargetColumn + 1 : static_cast<int>(target.layout().columns().size());
+      rebuildTransferredColumn(target, column, targetIndex);
 
       target.markArrange();
       target.group()->activate(&target);
       server.focusView(focused, FocusReason::Directional);
       finishWorkspaceTransfer(server, *focused);
-      return true;
     }
 
     // Adjacent output in `direction` from the focused (cursor) output; null with
@@ -505,12 +546,23 @@ namespace andromeda {
         confirm->show(QuitConfirm::Kind::SessionQuit);
         return true;
       }
-      server.stop();
+      server.requestSessionExit();
       return true;
     }
 
     bool actionConfigReload(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      server.handleConfigReload();
+      const ConfigReloadResult result = reloadConfig();
+      server.handleConfigReload(result);
+      return true;
+    }
+
+    bool actionCursorHide(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      server.cursor()->hideCursor();
+      return true;
+    }
+
+    bool actionCursorShow(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      server.cursor()->noteActivity();
       return true;
     }
 
@@ -590,6 +642,30 @@ namespace andromeda {
       return true;
     }
 
+    bool actionOutputSdrWhite(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<SdrWhiteArg>(bind);
+      if (arg == nullptr) {
+        return reject(error, "action carries no sdr white level");
+      }
+
+      Output* output = nullptr;
+      if (arg->output.empty()) {
+        output = server.outputFromWlr(server.preferredOutput());
+      } else {
+        for (const auto& candidate : server.outputs()) {
+          if (outputNameMatch(candidate->identity(), arg->output) != OutputNameMatch::None) {
+            output = candidate.get();
+            break;
+          }
+        }
+      }
+      if (output == nullptr) {
+        return reject(error, arg->output.empty() ? "no focused output" : "unknown output: " + arg->output);
+      }
+      output->setRuntimeSdrWhite(static_cast<float>(arg->nits));
+      return true;
+    }
+
     bool actionKeyboardLayoutNext(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       return server.cycleKeyboardLayout();
     }
@@ -598,7 +674,7 @@ namespace andromeda {
       if (server.toggleKeyboardShortcutsInhibit()) {
         return true;
       }
-      return reject(error, "focused surface has no keyboard shortcuts inhibitor");
+      return reject(error, "keyboard shortcuts inhibition requires an unlocked focused surface");
     }
 
     bool actionSubmap(Server& server, const Keybind& bind, std::string* /*error*/) {
@@ -622,33 +698,14 @@ namespace andromeda {
       return true;
     }
 
-    // Window IDs are ext-foreign-toplevel identifiers, the same strings
-    // clients receive from the protocol and the IPC surface reuses.
-    View* viewByForeignIdentifier(Server& server, std::string_view id) {
-      for (const auto& view : server.views()) {
-        if (!view->mapped()) {
-          continue;
-        }
-        const char* identifier = view->extForeignIdentifier();
-        if (identifier != nullptr && id == identifier) {
-          return view.get();
-        }
-      }
-      return nullptr;
-    }
-
     bool actionScreenCastSetWindow(Server& server, const Keybind& bind, std::string* error) {
-      View* view = nullptr;
-      if (const auto* arg = payloadIf<WindowIdArg>(bind); arg != nullptr && !arg->id.empty()) {
-        view = viewByForeignIdentifier(server, arg->id);
-        if (view == nullptr) {
-          return reject(error, "unknown window: " + arg->id);
-        }
-      } else {
-        view = focusedWindow(server);
-        if (view == nullptr) {
-          return reject(error, "no focused window");
-        }
+      const auto target = clientTarget(server, windowIdArg(bind));
+      if (!target.has_value()) {
+        return reject(error, target.error());
+      }
+      View* view = *target;
+      if (view == nullptr) {
+        return reject(error, "no focused window");
       }
       if (view->extForeignIdentifier() == nullptr) {
         return reject(error, "window has no capture identifier");
@@ -710,19 +767,80 @@ namespace andromeda {
     }
 
     bool actionWindowClose(Server& server, const Keybind& bind, std::string* error) {
-      if (const auto* arg = payloadIf<WindowIdArg>(bind); arg != nullptr && !arg->id.empty()) {
-        View* view = viewByForeignIdentifier(server, arg->id);
-        if (view == nullptr) {
-          if (error != nullptr) {
-            *error = "unknown window: " + arg->id;
-          }
-          return false;
+      const auto target = clientTarget(server, windowIdArg(bind));
+      if (!target.has_value()) {
+        if (error != nullptr) {
+          *error = target.error();
         }
-        wlr_xdg_toplevel_send_close(view->toplevel());
+        return false;
+      }
+      if (View* view = *target) {
+        view->requestClose();
+      }
+      return true;
+    }
+
+    bool actionWindowKill(Server& server, const Keybind& bind, std::string* error) {
+      const auto target = clientTarget(server, windowIdArg(bind));
+      if (!target.has_value()) {
+        return reject(error, target.error());
+      }
+      View* view = *target;
+      if (view == nullptr) {
         return true;
       }
-      if (View* view = focusedWindow(server)) {
-        wlr_xdg_toplevel_send_close(view->toplevel());
+      const pid_t pid = view->pid();
+      // Nonpositive PIDs signal process groups, and X11 clients can supply their own PID.
+      if (pid <= 1 || pid == getpid()) {
+        return reject(error, "window has no killable client process");
+      }
+      if (kill(pid, SIGKILL) != 0) {
+        return reject(error, std::string("failed to kill window process: ") + std::strerror(errno));
+      }
+      return true;
+    }
+
+    bool actionWindowMinimize(Server& server, const Keybind& bind, std::string* error) {
+      const auto target = placementTarget(server, windowIdArg(bind));
+      if (!target.has_value()) {
+        return reject(error, target.error());
+      }
+      View* view = *target;
+      if (view == nullptr || view->minimized()) {
+        return true;
+      }
+      if (!view->minimizable()) {
+        return reject(error, "window-minimize needs a floating, unpinned window on a workspace");
+      }
+      if (!view->requestMinimize()) {
+        return reject(error, "window-minimize cannot hide a fullscreen window or one being moved or resized");
+      }
+      return true;
+    }
+
+    bool actionWindowRestoreMinimized(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      Workspace* workspace = activeWorkspace(server);
+      if (workspace == nullptr) {
+        return true;
+      }
+      View* latest = nullptr;
+      for (View* view : workspace->allViews()) {
+        if (view->mapped()
+            && view->minimized()
+            && (latest == nullptr || view->minimizeSerial() > latest->minimizeSerial())) {
+          latest = view;
+        }
+      }
+      if (latest != nullptr) {
+        server.focusView(latest, FocusReason::ForeignActivation);
+        maybeWarpCursorToWindow(server, latest);
+      }
+      return true;
+    }
+
+    bool actionWorkspaceToggleShowDesktop(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = activeWorkspace(server)) {
+        workspace->toggleShowDesktop();
       }
       return true;
     }
@@ -754,7 +872,9 @@ namespace andromeda {
       }
       scrolling->setScroll(newScroll);
       workspace->markArrange();
-      invalidateHoverFocusAfterSceneChange(server, true);
+      if (config().input.focus.followsMouse) {
+        workspace->deferScrollHoverFocus();
+      }
     }
 
     bool actionLayoutScrollDrag(Server& /*server*/, const Keybind& bind, std::string* error) {
@@ -803,6 +923,63 @@ namespace andromeda {
       return actionOutputFocus<WlrDir>(server, bind, error);
     }
 
+    // Tab or untab the focused column; nullopt toggles. A layout whose columns cannot be tabbed refuses.
+    bool setFocusedColumnTabbed(Server& server, std::optional<bool> tabbed, std::string* error) {
+      Workspace* workspace = windowActionWorkspace(server);
+      if (workspace == nullptr) {
+        return true;
+      }
+      if (workspace->layout().tabbedContainers() == nullptr) {
+        return reject(error, "tabs need a layout with columns: scrolling or master");
+      }
+      workspace->setFocusedColumnTabbed(tabbed);
+      return true;
+    }
+
+    bool actionColumnToggleTabbed(Server& server, const Keybind& /*bind*/, std::string* error) {
+      return setFocusedColumnTabbed(server, std::nullopt, error);
+    }
+
+    bool actionColumnSetDisplay(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<ColumnDisplayArg>(bind);
+      if (arg == nullptr) {
+        return true;
+      }
+      return setFocusedColumnTabbed(server, arg->display == ColumnDisplay::Tabbed, error);
+    }
+
+    template <int Direction>
+    bool actionColumnFocusTabStep(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        focusWindowFromNavigation(server, workspace->tabs().stepTarget(Direction));
+      }
+      return true;
+    }
+
+    bool actionColumnFocusTab(Server& server, const Keybind& bind, std::string* /*error*/) {
+      const auto* arg = payloadIf<TabIndexArg>(bind);
+      Workspace* workspace = windowActionWorkspace(server);
+      if (arg != nullptr && workspace != nullptr) {
+        focusWindowFromNavigation(server, workspace->tabs().indexTarget(arg->index));
+      }
+      return true;
+    }
+
+    template <int Direction> bool actionColumnMoveTab(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        workspace->moveFocusedTab(Direction);
+      }
+      return true;
+    }
+
+    // Draw (1) or hide (0) the focused tab group's bar, or toggle it (-1).
+    template <int Shown> bool actionColumnTabBar(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        workspace->setFocusedTabBar(Shown < 0 ? std::nullopt : std::optional<bool>(Shown > 0));
+      }
+      return true;
+    }
+
     template <int Direction> bool actionFocusVertical(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (Workspace* workspace = windowActionWorkspace(server)) {
         if (View* target = workspace->focusVertical(Direction)) {
@@ -847,6 +1024,14 @@ namespace andromeda {
       return true;
     }
 
+    template <int Direction>
+    bool actionMoveHorizontal(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        invalidateHoverFocusAfterSceneChange(server, workspace->moveFocusedHorizontal(Direction));
+      }
+      return true;
+    }
+
     bool actionFocusFirstColumn(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (Workspace* workspace = windowActionWorkspace(server)) {
         if (View* target = workspace->focusFirstColumn()) {
@@ -885,7 +1070,10 @@ namespace andromeda {
         return true;
       }
       if (Workspace* workspace = windowActionWorkspace(server)) {
-        if (workspace->moveFocusedColumn(Direction)) {
+        const View* focused = workspace->focusedView();
+        const bool moved = focused != nullptr && focused->floating() ? workspace->moveFocusedHorizontal(Direction)
+                                                                     : workspace->moveFocusedColumn(Direction);
+        if (moved) {
           maybeWarpCursorToWindow(server, workspace->focusedView());
           return true;
         }
@@ -945,7 +1133,7 @@ namespace andromeda {
           if (target == nullptr || target == source) {
             return true;
           }
-          if (View* view = source->focusedView()) {
+          if (View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr)) {
             moveViewToWorkspace(server, *view, *target);
           }
         }
@@ -955,7 +1143,7 @@ namespace andromeda {
 
     template <int Direction> bool actionConsume(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (Workspace* workspace = windowActionWorkspace(server)) {
-        workspace->consumeFocused(Direction);
+        invalidateHoverFocusAfterSceneChange(server, workspace->consumeFocused(Direction));
       }
       return true;
     }
@@ -963,15 +1151,22 @@ namespace andromeda {
     template <int Direction>
     bool actionConsumeOrExpel(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (Workspace* workspace = windowActionWorkspace(server)) {
-        if (!workspace->expelFocused(Direction)) {
-          workspace->consumeFocused(Direction);
-        }
+        const bool changed = workspace->expelFocused(Direction) || workspace->consumeFocused(Direction);
+        invalidateHoverFocusAfterSceneChange(server, changed);
+      }
+      return true;
+    }
+
+    // The mirror of actionConsume: pulls the neighboring column's window in, leaving focus where it was.
+    template <int Direction> bool actionConsumeFrom(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        invalidateHoverFocusAfterSceneChange(server, workspace->consumeFromFocused(Direction));
       }
       return true;
     }
 
     template <int Direction> bool actionCycleWidth(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         cycleScratchpadSize<Direction>(*view, true);
         return true;
       }
@@ -982,7 +1177,7 @@ namespace andromeda {
     }
 
     template <int Direction> bool actionCycleHeight(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         cycleScratchpadSize<Direction>(*view, false);
         return true;
       }
@@ -993,7 +1188,7 @@ namespace andromeda {
     }
 
     bool actionSetWidth(Server& server, const Keybind& bind, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         if (const auto* arg = payloadIf<FractionArg>(bind)) {
           view->resizeFloatingFractions(std::clamp(arg->fraction, 0.1, 1.0), std::nullopt);
         }
@@ -1008,7 +1203,7 @@ namespace andromeda {
     }
 
     bool actionModifyWidth(Server& server, const Keybind& bind, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         if (const auto* arg = payloadIf<FractionArg>(bind); arg != nullptr) {
           if (const auto current = view->floatingFraction(true)) {
             view->resizeFloatingFractions(std::clamp(*current + arg->fraction, 0.1, 1.0), std::nullopt);
@@ -1025,7 +1220,7 @@ namespace andromeda {
     }
 
     bool actionSetHeight(Server& server, const Keybind& bind, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         if (const auto* arg = payloadIf<FractionArg>(bind)) {
           view->resizeFloatingFractions(std::nullopt, std::clamp(arg->fraction, 0.1, 1.0));
         }
@@ -1040,7 +1235,7 @@ namespace andromeda {
     }
 
     bool actionModifyHeight(Server& server, const Keybind& bind, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         if (const auto* arg = payloadIf<FractionArg>(bind); arg != nullptr) {
           if (const auto current = view->floatingFraction(false)) {
             view->resizeFloatingFractions(std::nullopt, std::clamp(*current + arg->fraction, 0.1, 1.0));
@@ -1064,7 +1259,7 @@ namespace andromeda {
       if (arg == nullptr) {
         return true;
       }
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         view->resizeFloatingEdge(Edges, arg->fraction);
         return true;
       }
@@ -1075,11 +1270,11 @@ namespace andromeda {
     }
 
     bool actionToggleMaximize(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         if (view->maximizedToEdges()) {
           view->setMaximizedToEdges(false);
         }
-        if (!view->toplevel()->scheduled.fullscreen) {
+        if (!view->scheduledFullscreen()) {
           view->toggleMaximized();
         }
         return true;
@@ -1091,7 +1286,7 @@ namespace andromeda {
     }
 
     bool actionToggleMaximizeToEdges(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         view->toggleMaximizedToEdges();
         server.scratchpadManager()->restorePresentation(view);
         return true;
@@ -1103,7 +1298,7 @@ namespace andromeda {
     }
 
     bool actionToggleFullscreen(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (View* view = focusedScratchpadWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         view->toggleFullscreen();
         server.scratchpadManager()->restorePresentation(view);
         return true;
@@ -1115,16 +1310,19 @@ namespace andromeda {
     }
 
     bool actionToggleFloating(Server& server, const Keybind& bind, std::string* error) {
-      if (const auto* arg = payloadIf<WindowIdArg>(bind); arg != nullptr && !arg->id.empty()) {
-        View* view = viewByForeignIdentifier(server, arg->id);
-        if (view == nullptr) {
+      if (const std::string_view id = windowIdArg(bind); !id.empty()) {
+        const auto target = placementTarget(server, id);
+        if (!target.has_value()) {
           if (error != nullptr) {
-            *error = "unknown window: " + arg->id;
+            *error = target.error();
           }
           return false;
         }
-
-        view->setFloating(view->tiled(), false);
+        View* view = *target;
+        if (view->workspace() != nullptr && view->workspace()->layoutMode() == LayoutMode::Floating) {
+          return reject(error, "window-toggle-floating needs a tiling layout");
+        }
+        view->toggleFloating(false);
         return true;
       } else {
 
@@ -1132,6 +1330,9 @@ namespace andromeda {
           return true;
         }
         if (Workspace* workspace = activeWorkspace(server)) {
+          if (workspace->layoutMode() == LayoutMode::Floating) {
+            return reject(error, "window-toggle-floating needs a tiling layout");
+          }
           workspace->toggleFocusedFloating();
         }
       }
@@ -1142,20 +1343,66 @@ namespace andromeda {
       if (scratchpadHoldsFocus(server)) {
         return true;
       }
-      if (View* view = focusedWindow(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Seat).value_or(nullptr)) {
         view->togglePinned();
       }
       return true;
     }
 
+    bool actionWindowSnap(Server& server, const Keybind& bind, std::string* error) {
+      View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
+      if (view == nullptr || view->tiled()) {
+        return reject(error, "window-snap needs a floating window");
+      }
+      const auto* arg = payloadIf<SnapRegionArg>(bind);
+      if (arg == nullptr || !view->snapTo(arg->region)) {
+        return reject(error, "window-snap: the window cannot fit that region or its current state prevents snapping");
+      }
+      return true;
+    }
+
+    bool actionWindowUnsnap(Server& server, const Keybind&, std::string*) {
+      if (View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr)) {
+        view->unsnap();
+      }
+      return true;
+    }
+
     bool actionWindowCenter(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (scratchpadHoldsFocus(server)) {
+      if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
+        view->centerFloating();
         return true;
       }
-      if (Workspace* workspace = activeWorkspace(server)) {
-        if (View* view = workspace->focusedView()) {
-          view->centerFloating();
+      if (View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr)) {
+        view->centerFloating();
+      }
+      return true;
+    }
+
+    bool actionWindowMoveTo(Server& server, const Keybind& bind, std::string* error) {
+      if (const auto* arg = payloadIf<WindowMoveToArg>(bind); arg != nullptr) {
+        const auto target = placementTarget(server, arg->id);
+        if (!target.has_value()) {
+          return reject(error, target.error());
         }
+        if (*target == nullptr) {
+          return reject(error, "no focused window");
+        }
+        (*target)->moveFloatingTo(arg->position);
+      }
+      return true;
+    }
+
+    bool actionWindowMoveBy(Server& server, const Keybind& bind, std::string* error) {
+      if (const auto* arg = payloadIf<WindowMoveByArg>(bind); arg != nullptr) {
+        const auto target = placementTarget(server, arg->id);
+        if (!target.has_value()) {
+          return reject(error, target.error());
+        }
+        if (*target == nullptr) {
+          return reject(error, "no focused window");
+        }
+        (*target)->moveFloatingBy(arg->deltaX, arg->deltaY);
       }
       return true;
     }
@@ -1189,6 +1436,14 @@ namespace andromeda {
       return true;
     }
 
+    template <bool Horizontal, int Direction>
+    bool actionSwapDirectional(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
+      if (Workspace* workspace = windowActionWorkspace(server)) {
+        workspace->swapFocusedInDirection(Horizontal, Direction);
+      }
+      return true;
+    }
+
     bool actionLayoutMasterCountIncrease(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (Workspace* workspace = activeWorkspace(server)) {
         workspace->increaseMasterCount();
@@ -1203,6 +1458,16 @@ namespace andromeda {
       return true;
     }
 
+    bool actionLayoutToggleSplit(Server& server, const Keybind& /*bind*/, std::string* error) {
+      if (Workspace* workspace = activeWorkspace(server)) {
+        if (workspace->layoutMode() != LayoutMode::Dwindle) {
+          return reject(error, "layout-toggle-split requires the dwindle layout");
+        }
+        workspace->toggleDwindleSplit();
+      }
+      return true;
+    }
+
     template <bool Warp> bool actionWindowFocusId(Server& server, const Keybind& bind, std::string* error) {
       const auto* arg = payloadIf<WindowIdArg>(bind);
       if (arg == nullptr || arg->id.empty()) {
@@ -1211,13 +1476,14 @@ namespace andromeda {
         }
         return false;
       }
-      View* view = viewByForeignIdentifier(server, arg->id);
-      if (view == nullptr) {
+      const auto target = placementTarget(server, arg->id);
+      if (!target.has_value()) {
         if (error != nullptr) {
-          *error = "unknown window: " + arg->id;
+          *error = target.error();
         }
         return false;
       }
+      View* view = *target;
       if (ScratchpadManager* scratchpad = server.scratchpadManager();
           scratchpad != nullptr && scratchpad->contains(view) && !view->onActiveWorkspace()) {
         // Hidden scratchpad entries fail FocusManager's visibility gate. Summon
@@ -1225,7 +1491,7 @@ namespace andromeda {
         // exact requested entry below without briefly focusing its remembered
         // window first.
         if (Output* output = server.outputFromWlr(server.preferredOutput()); output != nullptr) {
-          scratchpad->summon(scratchpad->nameFor(view), output);
+          scratchpad->summon(scratchpad->nameFor(view), output, view);
         }
       }
       server.focusView(view, FocusReason::ForeignActivation);
@@ -1238,10 +1504,10 @@ namespace andromeda {
     }
 
     bool actionWindowFocusLast(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      View* current = focusedWindow(server);
-      for (const auto& entry : server.registry().all()) {
+      View* current = placementTarget(server, {}, FocusSource::Seat).value_or(nullptr);
+      for (const auto& entry : server.registry().placementRoots()) {
         View* target = entry.get();
-        if (target == current || !target->mapped() || target->workspace() == nullptr) {
+        if (target == current || !target->mapped() || target->minimized() || target->workspace() == nullptr) {
           continue;
         }
         server.focusView(target, FocusReason::ForeignActivation);
@@ -1275,12 +1541,12 @@ namespace andromeda {
       if (workspace == nullptr) {
         return true;
       }
-      View* focused = workspace->focusedView();
+      View* focused = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
       const bool seekFloating = focused == nullptr || !focused->floating();
       View* target = nullptr;
-      for (const auto& entry : server.registry().all()) {
+      for (const auto& entry : server.registry().placementRoots()) {
         View* view = entry.get();
-        if (view == focused || !view->mapped() || view->workspace() != workspace) {
+        if (view == focused || !view->mapped() || view->minimized() || view->workspace() != workspace) {
           continue;
         }
         if (view->floating() != seekFloating) {
@@ -1311,15 +1577,17 @@ namespace andromeda {
       };
       if (bind.action == KeybindAction::WindowMoveToWorkspace
           || bind.action == KeybindAction::WindowMoveToWorkspaceSilent) {
-        if (scratchpadHoldsFocus(server)) {
+        View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr);
+        if (view == nullptr && scratchpadHoldsFocus(server)) {
           return true;
         }
         const bool follow = bind.action == KeybindAction::WindowMoveToWorkspace;
-        for (const auto& entry : server.views()) {
-          if (entry->mapped() && entry->onActiveWorkspace()) {
-            moveViewToWorkspace(server, *entry, **target, follow);
-            return true;
-          }
+        if (view == nullptr) {
+          view = placementTarget(server, {}, FocusSource::Recent).value_or(nullptr);
+        }
+        if (view != nullptr) {
+          moveViewToWorkspace(server, *view, **target, follow);
+          return true;
         }
         if (!follow) {
           // Nothing to move: no-op, rather than falling through to the workspace switch below.
@@ -1327,9 +1595,7 @@ namespace andromeda {
         }
       }
       if (bind.action == KeybindAction::ColumnMoveToWorkspace) {
-        if (Workspace* source = windowActionWorkspace(server)) {
-          moveFocusedColumnToWorkspace(server, *source, **target);
-        }
+        moveFocusedColumnToWorkspace(server, **target);
         return true;
       }
       group->select(*target);
@@ -1357,7 +1623,12 @@ namespace andromeda {
 
     template <int Direction, bool Follow>
     bool actionWindowMoveToWorkspaceAdjacent(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      Workspace* workspace = windowActionWorkspace(server);
+      View* scratchpadView = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr);
+      Output* scratchpadOutput =
+          scratchpadView != nullptr ? server.scratchpadManager()->outputFor(scratchpadView) : nullptr;
+      Workspace* workspace = scratchpadOutput != nullptr && scratchpadOutput->workspaceGroup() != nullptr
+          ? scratchpadOutput->workspaceGroup()->active()
+          : windowActionWorkspace(server);
       if (workspace == nullptr || workspace->group() == nullptr) {
         return true;
       }
@@ -1365,7 +1636,9 @@ namespace andromeda {
       if (target == nullptr || target == workspace) {
         return true;
       }
-      if (View* view = workspace->focusedView()) {
+      View* view = scratchpadView != nullptr ? scratchpadView
+                                             : placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
+      if (view != nullptr) {
         moveViewToWorkspace(server, *view, *target, Follow);
       }
       return true;
@@ -1381,7 +1654,7 @@ namespace andromeda {
       if (target == nullptr || target == source) {
         return true;
       }
-      moveFocusedColumnToWorkspace(server, *source, *target);
+      moveFocusedColumnToWorkspace(server, *target);
       return true;
     }
 
@@ -1394,18 +1667,16 @@ namespace andromeda {
       if (arg == nullptr) {
         return true;
       }
-      const auto nextMode = [](LayoutMode mode) {
-        switch (mode) {
-        case LayoutMode::Scrolling:
-          return LayoutMode::Dwindle;
-        case LayoutMode::Dwindle:
-          return LayoutMode::Master;
-        case LayoutMode::Master:
-          return LayoutMode::Scrolling;
-        }
-        return LayoutMode::Scrolling;
+      static constexpr std::array kFullCycle{
+          LayoutMode::Scrolling, LayoutMode::Dwindle, LayoutMode::Master, LayoutMode::Floating
       };
-      const LayoutMode desired = arg->mode.value_or(nextMode(workspace->layoutMode()));
+      const std::span<const LayoutMode> cycle = arg->toggleSequence.empty()
+          ? std::span<const LayoutMode>(kFullCycle)
+          : std::span<const LayoutMode>(arg->toggleSequence);
+      // A mode outside the cycle, or its last mode, toggles to the first.
+      const auto current = std::ranges::find(cycle, workspace->layoutMode());
+      const bool wrap = current == cycle.end() || std::next(current) == cycle.end();
+      const LayoutMode desired = arg->mode.value_or(wrap ? cycle.front() : *std::next(current));
       if (desired == workspace->layoutMode()) {
         return true;
       }
@@ -1465,8 +1736,7 @@ namespace andromeda {
       if (destination == nullptr) {
         return reject(error, "output has no workspace");
       }
-      Workspace* source = windowActionWorkspace(server);
-      View* view = source != nullptr ? source->focusedView() : nullptr;
+      View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
       if (view == nullptr) {
         return true; // nothing focused: silent no-op
       }
@@ -1515,10 +1785,7 @@ namespace andromeda {
       if (destination == nullptr) {
         return reject(error, "output has no workspace");
       }
-      Workspace* source = windowActionWorkspace(server);
-      if (source == nullptr || !moveFocusedColumnToWorkspace(server, *source, *destination)) {
-        return true; // nothing focused: silent no-op
-      }
+      moveFocusedColumnToWorkspace(server, *destination); // nothing focused: silent no-op
       return true;
     }
 
@@ -1547,14 +1814,9 @@ namespace andromeda {
 
       // Snapshot the source contents first: every setWorkspace below triggers reconcileDynamic on both groups, and
       // iterating the live layout while it rebuilds would be use-after-free.
-      struct ColumnSnapshot {
-        std::vector<View*> views;
-        double widthFrac = 0.5;
-      };
-      std::vector<ColumnSnapshot> columns;
-      for (const Column& column : source->layout().columns()) {
-        columns.push_back({column.views, column.widthFrac});
-      }
+      const bool sameLayout = source->layout().mode() == destination->layout().mode();
+      const LayoutCapture tiles = sameLayout ? source->layout().captureState() : LayoutCapture{};
+      const std::vector<Column> columns = sameLayout ? std::vector<Column>{} : source->layout().columns();
       std::vector<View*> floats;
       for (View* view : source->allViews()) {
         if (view->floating() && !view->pinned()) {
@@ -1562,20 +1824,20 @@ namespace andromeda {
         }
       }
 
-      for (const ColumnSnapshot& column : columns) {
-        if (column.views.empty()) {
-          continue;
+      if (sameLayout) {
+        // Restore into the empty destination before moving any members, so a
+        // rejected snapshot leaves the source intact.
+        if (tiles.snapshot == nullptr || !destination->layout().restoreState(*tiles.snapshot, tiles.members)) {
+          return reject(error, "failed to restore workspace layout");
         }
-        View* first = column.views.front();
-        first->moveToWorkspace(destination, /*attachToLayout=*/false);
-        destination->layout().insertView(first, static_cast<int>(destination->layout().columns().size()));
-        if (destination->scrollingLayout() != nullptr) {
-          destination->layout().setWidthFraction(destination->layout().columnOf(first), column.widthFrac);
+        for (const LayoutMember& member : tiles.members) {
+          if (member.view != nullptr) {
+            member.view->moveToWorkspace(destination, /*attachToLayout=*/false);
+          }
         }
-        for (size_t i = 1; i < column.views.size(); ++i) {
-          View* view = column.views[i];
-          view->moveToWorkspace(destination, /*attachToLayout=*/false);
-          destination->layout().insertViewIntoColumn(view, destination->layout().columnOf(first), static_cast<int>(i));
+      } else {
+        for (const Column& column : columns) {
+          rebuildTransferredColumn(*destination, column, static_cast<int>(destination->layout().columns().size()));
         }
       }
       for (View* view : floats) {
@@ -1665,7 +1927,13 @@ namespace andromeda {
       transfer(targetTiles, targetFloats, sourceWs);
 
       const auto rebuild = [](Workspace* dest, const LayoutCapture& tiles, const std::vector<View*>& floats) {
-        if (tiles.snapshot == nullptr || !dest->layout().restoreState(*tiles.snapshot, tiles.members)) {
+        if (dest->layoutMode() == LayoutMode::Floating) {
+          for (const LayoutMember& member : tiles.members) {
+            if (member.view != nullptr) {
+              dest->layoutAttach(member.view);
+            }
+          }
+        } else if (tiles.snapshot == nullptr || !dest->layout().restoreState(*tiles.snapshot, tiles.members)) {
           for (const LayoutMember& member : tiles.members) {
             if (member.view != nullptr) {
               dest->layout().insertView(member.view, static_cast<int>(dest->layout().columns().size()));
@@ -1673,7 +1941,11 @@ namespace andromeda {
           }
         }
         for (View* view : floats) {
-          view->restoreFloatingPosition();
+          if (dest->layoutMode() != LayoutMode::Floating && view->layoutFloated()) {
+            view->setFloating(false, false);
+          } else {
+            view->restoreFloatingPosition();
+          }
         }
       };
       rebuild(targetWs, sourceTiles, sourceFloats);
@@ -1813,11 +2085,9 @@ namespace andromeda {
       if (!name || output == nullptr) {
         return false;
       }
-      Workspace* workspace = activeWorkspace(server);
+      View* view = placementTarget(server, {}, FocusSource::Workspace).value_or(nullptr);
       ScratchpadManager* scratchpad = server.scratchpadManager();
-      return scratchpad != nullptr
-          && workspace != nullptr
-          && scratchpad->moveToScratchpad(workspace->focusedView(), *name, output);
+      return scratchpad != nullptr && (view == nullptr || scratchpad->moveToScratchpad(view, *name, output));
     }
 
     bool actionScratchpadToggle(Server& server, const Keybind& bind, std::string* error) {
@@ -1828,6 +2098,17 @@ namespace andromeda {
       }
       ScratchpadManager* scratchpad = server.scratchpadManager();
       return scratchpad != nullptr && scratchpad->toggle(*name, output);
+    }
+
+    template <int Direction>
+    bool actionScratchpadWindowShowStep(Server& server, const Keybind& bind, std::string* error) {
+      const auto name = scratchpadName(server, bind, error);
+      Output* output = server.outputFromWlr(server.preferredOutput());
+      if (!name || output == nullptr) {
+        return false;
+      }
+      ScratchpadManager* scratchpad = server.scratchpadManager();
+      return scratchpad != nullptr && scratchpad->showStep(*name, Direction, output);
     }
 
     bool actionRestoreFromScratchpad(Server& server, const Keybind& bind, std::string* error) {
@@ -1853,8 +2134,8 @@ namespace andromeda {
       if (focusedScratchpadWindow(server) != nullptr && scratchpad->hasFocus(*name)) {
         return scratchpad->restoreFocused(*name);
       }
-      Workspace* workspace = activeWorkspace(server);
-      return workspace != nullptr && scratchpad->moveToScratchpad(workspace->focusedView(), *name, output);
+      View* view = placementTarget(server, {}, FocusSource::Workspace).value_or(nullptr);
+      return view == nullptr || scratchpad->moveToScratchpad(view, *name, output);
     }
 
     bool actionScratchpadFocusNext(Server& server, const Keybind& bind, std::string* error) {
@@ -1866,10 +2147,102 @@ namespace andromeda {
       return scratchpad != nullptr && scratchpad->focusNext(*name);
     }
 
+    template <EffectKind Kind, EffectSlotAction Action>
+    bool actionEffect(Server& server, const Keybind& bind, std::string* error) {
+      std::string_view name;
+      std::string_view target;
+      if constexpr (Action == EffectSlotAction::Set || Action == EffectSlotAction::Cycle) {
+        if constexpr (Kind == EffectKind::Window || Kind == EffectKind::Border) {
+          const auto* arg = payloadIf<EffectWindowArg>(bind);
+          if (arg == nullptr) {
+            return reject(error, "action carries no window effect selector");
+          }
+          name = arg->name;
+          target = arg->id;
+        } else if constexpr (Kind == EffectKind::Screen) {
+          const auto* arg = payloadIf<EffectScreenArg>(bind);
+          if (arg == nullptr) {
+            return reject(error, "action carries no screen effect selector");
+          }
+          name = arg->name;
+          target = arg->output;
+        } else {
+          const auto* arg = payloadIf<EffectCursorArg>(bind);
+          if (arg == nullptr) {
+            return reject(error, "action carries no cursor effect selector");
+          }
+          name = arg->name;
+        }
+      } else if constexpr (Kind == EffectKind::Window || Kind == EffectKind::Border) {
+        const auto* arg = payloadIf<WindowIdArg>(bind);
+        if (arg == nullptr) {
+          return reject(error, "action carries no window target");
+        }
+        target = arg->id;
+      } else if constexpr (Kind == EffectKind::Screen) {
+        const auto* arg = payloadIf<OutputArg>(bind);
+        if (arg == nullptr) {
+          return reject(error, "action carries no output target");
+        }
+        target = arg->output;
+      } else if (!std::holds_alternative<std::monostate>(bind.payload)) {
+        return reject(error, "cursor action does not accept a target");
+      }
+      EffectSlot* slot = nullptr;
+      View* view = nullptr;
+      Output* output = nullptr;
+      if constexpr (Kind == EffectKind::Window || Kind == EffectKind::Border) {
+        const auto resolved = clientTarget(server, target);
+        if (!resolved.has_value()) {
+          return reject(error, resolved.error());
+        }
+        view = *resolved;
+        if (view == nullptr || !view->mapped()) {
+          return reject(error, "no focused window");
+        }
+        slot = &view->effectSlot(Kind);
+      } else if constexpr (Kind == EffectKind::Screen) {
+        if (target.empty()) {
+          output = server.outputFromWlr(server.preferredOutput());
+        } else {
+          // Explicit effect targets include disabled outputs, which retain their slots.
+          for (const auto& candidate : server.outputs()) {
+            if (outputNameMatch(candidate->identity(), target) != OutputNameMatch::None) {
+              output = candidate.get();
+              break;
+            }
+          }
+        }
+        if (output == nullptr) {
+          return reject(error, target.empty() ? "no focused output" : "unknown output: " + std::string(target));
+        }
+        slot = &output->screenEffectSlot();
+      } else {
+        slot = &server.cursorEffectSlot();
+      }
+      const EffectSlotActionResult result = server.applyEffectAction(*slot, Kind, Action, name);
+      if (result.error) {
+        return reject(error, *result.error);
+      }
+      if (!result.changed) {
+        return true;
+      }
+      // Preparation rebinds and schedules outputs, including static-effect removal.
+      server.effects().prepare(server.renderer());
+      if (view != nullptr) {
+        view->refreshEffectSelection();
+      }
+      return true;
+    }
+
     constexpr std::array<ActionHandlerFn, static_cast<size_t>(KeybindAction::Count)> kActionHandlers = {
         nullptr,
         &actionSpawn,
         &actionWindowClose,
+        &actionWindowKill,
+        &actionWindowMinimize,
+        &actionWindowRestoreMinimized,
+        &actionWorkspaceToggleShowDesktop,
         &actionSessionQuit,
         &actionFocusAdjacent<-1>,
         &actionFocusAdjacent<1>,
@@ -1891,6 +2264,8 @@ namespace andromeda {
         &actionMoveHorizontalOrOutput<1, WLR_DIRECTION_RIGHT>,
         &actionMoveVertical<-1>,
         &actionMoveVertical<1>,
+        &actionMoveHorizontal<-1>,
+        &actionMoveHorizontal<1>,
         &actionMoveVerticalOrWorkspace<-1>,
         &actionMoveVerticalOrWorkspace<1>,
         &actionMoveVerticalOrOutput<-1, WLR_DIRECTION_UP>,
@@ -1899,6 +2274,8 @@ namespace andromeda {
         &actionConsumeOrExpel<-1>,
         &actionConsume<1>,
         &actionConsumeOrExpel<1>,
+        &actionConsumeFrom<-1>,
+        &actionConsumeFrom<1>,
         &actionCycleWidth<1>,
         &actionCycleWidth<-1>,
         &actionSetWidth,
@@ -1916,6 +2293,8 @@ namespace andromeda {
         &actionWindowMoveToWorkspaceAdjacent<1, true>,
         &actionWindowMoveToWorkspaceAdjacent<-1, true>,
         &actionConfigReload,
+        &actionCursorHide,
+        &actionCursorShow,
         &actionScreenCastClear,
         &actionScreenCastSetOutput,
         &actionScreenCastSetWindow,
@@ -1974,6 +2353,8 @@ namespace andromeda {
         &actionWorkspaceSwapActiveOutputCycle<-1>,
         &actionModifyWidth,
         &actionWindowCenter,
+        &actionWindowMoveTo,
+        &actionWindowMoveBy,
         &actionWorkspaceSetLayout,
         &actionDpms<false>,
         &actionDpms<true>,
@@ -1990,6 +2371,10 @@ namespace andromeda {
         &actionFocusCycle<-1>,
         &actionSwapCycle<1>,
         &actionSwapCycle<-1>,
+        &actionSwapDirectional<true, -1>,
+        &actionSwapDirectional<true, 1>,
+        &actionSwapDirectional<false, -1>,
+        &actionSwapDirectional<false, 1>,
         &actionLayoutMasterCountIncrease,
         &actionLayoutMasterCountDecrease,
         &actionSetHeight,
@@ -2002,6 +2387,38 @@ namespace andromeda {
         &actionCycleHeight<-1>,
         &actionWindowFocusLast,
         &actionWorkspaceFocusLast,
+        &actionEffect<EffectKind::Window, EffectSlotAction::Set>,
+        &actionEffect<EffectKind::Window, EffectSlotAction::Cycle>,
+        &actionEffect<EffectKind::Window, EffectSlotAction::Toggle>,
+        &actionEffect<EffectKind::Window, EffectSlotAction::Reset>,
+        &actionEffect<EffectKind::Border, EffectSlotAction::Set>,
+        &actionEffect<EffectKind::Border, EffectSlotAction::Cycle>,
+        &actionEffect<EffectKind::Border, EffectSlotAction::Toggle>,
+        &actionEffect<EffectKind::Border, EffectSlotAction::Reset>,
+        &actionEffect<EffectKind::Screen, EffectSlotAction::Set>,
+        &actionEffect<EffectKind::Screen, EffectSlotAction::Cycle>,
+        &actionEffect<EffectKind::Screen, EffectSlotAction::Toggle>,
+        &actionEffect<EffectKind::Screen, EffectSlotAction::Reset>,
+        &actionEffect<EffectKind::Cursor, EffectSlotAction::Set>,
+        &actionEffect<EffectKind::Cursor, EffectSlotAction::Cycle>,
+        &actionEffect<EffectKind::Cursor, EffectSlotAction::Toggle>,
+        &actionEffect<EffectKind::Cursor, EffectSlotAction::Reset>,
+        &actionColumnToggleTabbed,
+        &actionColumnSetDisplay,
+        &actionColumnFocusTabStep<1>,
+        &actionColumnFocusTabStep<-1>,
+        &actionColumnFocusTab,
+        &actionColumnMoveTab<1>,
+        &actionColumnMoveTab<-1>,
+        &actionColumnTabBar<-1>,
+        &actionColumnTabBar<1>,
+        &actionColumnTabBar<0>,
+        &actionScratchpadWindowShowStep<1>,
+        &actionScratchpadWindowShowStep<-1>,
+        &actionLayoutToggleSplit,
+        &actionOutputSdrWhite,
+        &actionWindowSnap,
+        &actionWindowUnsnap,
         &actionShell,
         &actionZoom<1>,
         &actionZoom<-1>,

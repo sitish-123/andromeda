@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A window on a hidden workspace is suspended and stops receiving frame callbacks, while a game (by content type or
-# by a background_frames rule) keeps a slow tick so its network loop survives alt-tab. Returning to the workspace
+# by a background_render rule) keeps receiving frames so its network loop survives alt-tab. Returning to the workspace
 # resumes the window and its frames.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [[window_rule]]
 match.title = "^background-ruled$"
-background_frames = true
+background_render = true
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 

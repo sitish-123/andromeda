@@ -34,14 +34,18 @@ namespace andromeda {
     }
   }
 
-  void ViewDecoration::updateBorderGeometry(int contentWidth, int contentHeight) {
+  void ViewDecoration::updateBorderGeometry(int contentWidth, int contentHeight, int topExtension) {
     if (m_border == nullptr) {
       return;
     }
 
+    wlr_scene_node_set_position(&m_borderTree->node, 0, -topExtension);
     applyBorderGeometry(
         m_border,
-        makeBorderRing(contentWidth, contentHeight, m_cornerRadius, m_borderWidth, m_outerBorderWidth, m_borderPadding),
+        makeBorderRing(
+            contentWidth, contentHeight + topExtension, m_cornerRadius, m_borderWidth, m_outerBorderWidth,
+            m_borderPadding
+        ),
         m_borderWidth, m_outerBorderWidth
     );
   }
@@ -64,13 +68,16 @@ namespace andromeda {
     wlr_scene_border_set_colors(m_border, innerColor, outerColor);
   }
 
-  bool ViewDecoration::borderGeometryStale(int contentWidth, int contentHeight) const {
+  bool ViewDecoration::borderGeometryStale(int contentWidth, int contentHeight, int topExtension) const {
     if (m_border == nullptr) {
       return false;
     }
-    const BorderRing ring =
-        makeBorderRing(contentWidth, contentHeight, m_cornerRadius, m_borderWidth, m_outerBorderWidth, m_borderPadding);
-    return m_border->width != ring.box.width || m_border->height != ring.box.height;
+    const BorderRing ring = makeBorderRing(
+        contentWidth, contentHeight + topExtension, m_cornerRadius, m_borderWidth, m_outerBorderWidth, m_borderPadding
+    );
+    return m_border->width != ring.box.width
+        || m_border->height != ring.box.height
+        || m_borderTree->node.y != -topExtension;
   }
 
   void ViewDecoration::snapshotBorders(
@@ -139,11 +146,11 @@ namespace andromeda {
 
   // Blur
   void ViewDecoration::updateBlur(
-      wlr_scene_tree* tree, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& geometry, int radius,
-      const wlr_box* clip, float surfaceOpacity, float blurAlpha
+      wlr_scene_tree* tree, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& geometry,
+      fx_corner_radii corners, const wlr_box* clip, float surfaceOpacity, float blurAlpha
   ) {
     m_blur.setAlpha(blurAlpha);
-    m_blur.update(tree, surface, nodeBox, geometry, radius, clip, m_blurOptions, surfaceOpacity);
+    m_blur.update(tree, surface, nodeBox, geometry, corners, clip, m_blurOptions, surfaceOpacity);
   }
 
   void ViewDecoration::hideBlur() { m_blur.hide(); }
@@ -187,11 +194,13 @@ namespace andromeda {
     }
   }
 
-  void ViewDecoration::updateShadow(int contentWidth, int contentHeight, int borderInset, int cornerRadius) {
+  void ViewDecoration::updateShadow(
+      int contentWidth, int contentHeight, int borderInset, int cornerRadius, int topExtension
+  ) {
     if (m_shadowContainer == nullptr) {
       return;
     }
-    m_shadow.update(m_shadowContainer, contentWidth, contentHeight, borderInset, cornerRadius);
+    m_shadow.update(m_shadowContainer, contentWidth, contentHeight, borderInset, cornerRadius, topExtension);
   }
 
   void ViewDecoration::hideShadow() { m_shadow.hide(); }

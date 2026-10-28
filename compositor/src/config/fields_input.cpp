@@ -164,7 +164,7 @@ namespace andromeda {
     bool validateKeyboardInput(
         const Config::Input::Keyboard& keyboard, const toml::source_region& source, std::string_view context
     ) {
-      if (keyboard.layout.empty() && keyboard.variant.empty() && keyboard.options.empty()) {
+      if (keyboard.layout.empty() && keyboard.variant.empty() && keyboard.options.empty() && keyboard.model.empty()) {
         return true;
       }
       xkb_context* xkbContext = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -174,7 +174,7 @@ namespace andromeda {
       }
       const xkb_rule_names names{
           .rules = nullptr,
-          .model = nullptr,
+          .model = keyboard.model.empty() ? nullptr : keyboard.model.c_str(),
           .layout = keyboard.layout.empty() ? nullptr : keyboard.layout.c_str(),
           .variant = keyboard.variant.empty() ? nullptr : keyboard.variant.c_str(),
           .options = keyboard.options.empty() ? nullptr : keyboard.options.c_str(),
@@ -182,8 +182,8 @@ namespace andromeda {
       xkb_keymap* keymap = xkb_keymap_new_from_names(xkbContext, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
       if (keymap == nullptr) {
         warnAt(
-            source, "ignoring {} layout='{}' variant='{}' options='{}' (invalid XKB configuration)", context,
-            keyboard.layout, keyboard.variant, keyboard.options
+            source, "ignoring {} layout='{}' variant='{}' options='{}' model='{}' (invalid XKB configuration)", context,
+            keyboard.layout, keyboard.variant, keyboard.options, keyboard.model
         );
         xkb_context_unref(xkbContext);
         return false;
@@ -211,15 +211,17 @@ namespace andromeda {
         errorAt(entry.source(), "{} duplicates device '{}'", context, device.name);
         return false;
       }
-      if (device.layout || device.variant || device.options) {
+      if (device.layout || device.variant || device.options || device.model) {
         Config::Input::Keyboard keyboard = input.keyboard;
         keyboard.layout = device.layout.value_or(keyboard.layout);
         keyboard.variant = device.variant.value_or(keyboard.variant);
         keyboard.options = device.options.value_or(keyboard.options);
+        keyboard.model = device.model.value_or(keyboard.model);
         if (!validateKeyboardInput(keyboard, entry.source(), context)) {
           device.layout.reset();
           device.variant.reset();
           device.options.reset();
+          device.model.reset();
         }
       }
       return true;
@@ -238,6 +240,11 @@ namespace andromeda {
       using registry::text;
       using In = Config::Input;
 
+      static const std::vector<Choice<ScrollMethod>> scrollMethods{
+          {.name = "two_finger", .value = ScrollMethod::TwoFinger},
+          {.name = "edge", .value = ScrollMethod::Edge},
+          {.name = "none", .value = ScrollMethod::None},
+      };
       static const std::vector<Choice<ClickMethod>> clickMethods{
           {.name = "button_areas", .value = ClickMethod::ButtonAreas},
           {.name = "clickfinger", .value = ClickMethod::ClickFinger},
@@ -245,6 +252,11 @@ namespace andromeda {
       static const std::vector<Choice<TapButtonMap>> tapButtonMaps{
           {.name = "left_right_middle", .value = TapButtonMap::LeftRightMiddle},
           {.name = "left_middle_right", .value = TapButtonMap::LeftMiddleRight},
+      };
+      static const std::vector<Choice<DragLock>> dragLocks{
+          {.name = "off", .value = DragLock::Off},
+          {.name = "timeout", .value = DragLock::Timeout},
+          {.name = "sticky", .value = DragLock::Sticky},
       };
       static const std::vector<Choice<uint32_t>> scrollButtons{
           {.name = "MouseLeft", .value = BTN_LEFT},     {.name = "MouseRight", .value = BTN_RIGHT},
@@ -256,6 +268,7 @@ namespace andromeda {
           text("layout", &In::Keyboard::layout),
           text("variant", &In::Keyboard::variant),
           text("options", &In::Keyboard::options),
+          text("model", &In::Keyboard::model),
           integer("repeat_rate", 0, 1000, &In::Keyboard::repeatRate),
           integer("repeat_delay", 0, 10000, &In::Keyboard::repeatDelay),
           boolean("numlock_toggle", &In::Keyboard::numlockToggle),
@@ -265,7 +278,10 @@ namespace andromeda {
           ),
       };
       static const Fields<In::Touchpad> touchpad{
+          boolean("enabled", &In::Touchpad::enabled),
           boolean("tap", &In::Touchpad::tap),
+          boolean("tap_and_drag", &In::Touchpad::tapAndDrag),
+          choice("drag_lock", &In::Touchpad::dragLock, dragLocks, Case::Fold),
           boolean("natural_scroll", &In::Touchpad::naturalScroll),
           boolean("natural_swipe", &In::Touchpad::naturalSwipe),
           boolean("left_handed", &In::Touchpad::leftHanded),
@@ -288,6 +304,7 @@ namespace andromeda {
               }()
           ),
           accelProfileField(&In::Touchpad::accelProfile),
+          choice("scroll_method", &In::Touchpad::scrollMethod, scrollMethods, Case::Fold),
           choice("click_method", &In::Touchpad::clickMethod, clickMethods, Case::Fold),
           choice("tap_button_map", &In::Touchpad::tapButtonMap, tapButtonMaps, Case::Fold),
       };
@@ -327,12 +344,19 @@ namespace andromeda {
           boolean("hide_when_typing", &In::Cursor::hideWhenTyping),
           integer("hide_timeout_ms", 0, 3600000, &In::Cursor::hideTimeoutMs),
       };
+      static const Fields<In::DragEdgeScroll> dragEdgeScroll{
+          boolean("enabled", &In::DragEdgeScroll::enabled),
+          integer("trigger_zone", 1, 1000, &In::DragEdgeScroll::triggerZone),
+          integer("delay_ms", 0, 10000, &In::DragEdgeScroll::delayMs),
+          real("max_speed", 1.0, 100000.0, &In::DragEdgeScroll::maxSpeed),
+      };
       // The limit is measured in viewport widths and the quantity it is compared against is unbounded: revealing a
       // column three screens away is 3.0. The upper bound here is a nonsense-catcher, not a ceiling. Below zero would
       // refuse focus even for a window already fully visible, which disables hover focus rather than limiting it.
       static const Fields<In::Focus> focus{
           boolean("follows_mouse", &In::Focus::followsMouse),
           real("follows_mouse_max_scroll", 0.0, kMaxFollowsMouseScroll, &In::Focus::followsMouseMaxScroll),
+          boolean("hover_raises", &In::Focus::hoverRaises),
       };
       static const Fields<In::Device> device{
           custom<In::Device>(
@@ -348,15 +372,20 @@ namespace andromeda {
           text("layout", &In::Device::layout),
           text("variant", &In::Device::variant),
           text("options", &In::Device::options),
+          text("model", &In::Device::model),
           integer("repeat_rate", 0, 1000, &In::Device::repeatRate),
           integer("repeat_delay", 0, 10000, &In::Device::repeatDelay),
+          boolean("enabled", &In::Device::enabled),
           boolean("tap", &In::Device::tap),
+          boolean("tap_and_drag", &In::Device::tapAndDrag),
+          choice("drag_lock", &In::Device::dragLock, dragLocks, Case::Fold),
           boolean("natural_scroll", &In::Device::naturalScroll),
           boolean("left_handed", &In::Device::leftHanded),
           real("sensitivity", -1.0, 1.0, &In::Device::sensitivity),
           boolean("disable_while_typing", &In::Device::disableWhileTyping),
           boolean("scroll_button_lock", &In::Device::scrollButtonLock),
           accelProfileField(&In::Device::accelProfile),
+          choice("scroll_method", &In::Device::scrollMethod, scrollMethods, Case::Fold),
           choice("click_method", &In::Device::clickMethod, clickMethods, Case::Fold),
           choice("tap_button_map", &In::Device::tapButtonMap, tapButtonMaps, Case::Fold),
           choice("scroll_button", &In::Device::scrollButton, scrollButtons, Case::Fold),
@@ -364,11 +393,17 @@ namespace andromeda {
       static const Fields<In> fields{
           boolean("middle_click_paste", &In::middleClickPaste),
           boolean("client_window_drag", &In::clientWindowDrag),
+          boolean("window_snapping", &In::windowSnapping),
           choice(
               "window_drag_toggle", &In::windowDragToggle,
               {{.name = "none", .value = WindowDragToggle::None},
                {.name = "floating", .value = WindowDragToggle::Floating},
                {.name = "pinned", .value = WindowDragToggle::Pinned}}
+          ),
+          choice(
+              "mod_right_double_click", &In::modRightDoubleClick,
+              {{.name = "none", .value = ModRightDoubleClick::None},
+               {.name = "maximize", .value = ModRightDoubleClick::Maximize}}
           ),
           table(
               "keyboard", &In::keyboard, keyboard,
@@ -377,6 +412,7 @@ namespace andromeda {
                   target.layout.clear();
                   target.variant.clear();
                   target.options.clear();
+                  target.model.clear();
                 }
                 return true;
               }
@@ -386,6 +422,7 @@ namespace andromeda {
           table("tablet", &In::tablet, tablet),
           table("touch", &In::touch, touch),
           table("cursor", &In::cursor, cursor),
+          table("drag_edge_scroll", &In::dragEdgeScroll, dragEdgeScroll),
           table("focus", &In::focus, focus),
           registry::rules("device", &In::devices, device, registry::Shape::Error, acceptDevice),
       };

@@ -3,7 +3,10 @@
 // Keybind vocabulary and the pure text-to-struct parsers over it. Split out of
 // config.h so the parsing can be exercised without loading a config file.
 
+#include "config/effects.h"
+#include "config/window_position.h"
 #include "layout/layout.h"
+#include "view/snap.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +33,10 @@ namespace andromeda {
     None,
     Spawn,
     WindowClose,
+    WindowKill,
+    WindowMinimize,
+    WindowRestoreMinimized,
+    WorkspaceToggleShowDesktop,
     SessionQuit,
     WindowFocusLeft,
     WindowFocusRight,
@@ -51,6 +58,8 @@ namespace andromeda {
     WindowMoveOrOutputRight,
     WindowMoveUp,
     WindowMoveDown,
+    WindowMoveLeft,
+    WindowMoveRight,
     WindowMoveOrWorkspaceUp,
     WindowMoveOrWorkspaceDown,
     WindowMoveOrOutputUp,
@@ -59,6 +68,8 @@ namespace andromeda {
     WindowConsumeOrExpelLeft,
     WindowConsumeRight,
     WindowConsumeOrExpelRight,
+    WindowConsumeFromLeft,
+    WindowConsumeFromRight,
     WindowCyclePrimaryExtent,
     WindowCyclePrimaryExtentBack,
     WindowSetPrimaryExtent,
@@ -76,6 +87,8 @@ namespace andromeda {
     WindowMoveToWorkspaceNext,
     WindowMoveToWorkspacePrevious,
     ConfigReload,
+    CursorHide,
+    CursorShow,
     ScreenCastClear,
     ScreenCastSetOutput,
     ScreenCastSetWindow,
@@ -134,6 +147,8 @@ namespace andromeda {
     WorkspaceSwapActiveOutputPrevious,
     WindowModifyPrimaryExtent,
     WindowCenter,
+    WindowMoveTo,
+    WindowMoveBy,
     WorkspaceSetLayout,
     DpmsOff,
     DpmsOn,
@@ -150,6 +165,10 @@ namespace andromeda {
     WindowFocusPrevious,
     WindowSwapNext,
     WindowSwapPrevious,
+    WindowSwapLeft,
+    WindowSwapRight,
+    WindowSwapUp,
+    WindowSwapDown,
     LayoutMasterCountIncrease,
     LayoutMasterCountDecrease,
     WindowSetSecondaryExtent,
@@ -162,6 +181,38 @@ namespace andromeda {
     WindowCycleSecondaryExtentBack,
     WindowFocusLast,
     WorkspaceFocusLast,
+    EffectWindowSet,
+    EffectWindowCycle,
+    EffectWindowToggle,
+    EffectWindowReset,
+    EffectBorderSet,
+    EffectBorderCycle,
+    EffectBorderToggle,
+    EffectBorderReset,
+    EffectScreenSet,
+    EffectScreenCycle,
+    EffectScreenToggle,
+    EffectScreenReset,
+    EffectCursorSet,
+    EffectCursorCycle,
+    EffectCursorToggle,
+    EffectCursorReset,
+    ColumnToggleTabbed,
+    ColumnSetDisplay,
+    ColumnFocusTabNext,
+    ColumnFocusTabPrevious,
+    ColumnFocusTab,
+    ColumnMoveTabNext,
+    ColumnMoveTabPrevious,
+    ColumnToggleTabBar,
+    ColumnShowTabBar,
+    ColumnHideTabBar,
+    ScratchpadWindowShowNext,
+    ScratchpadWindowShowPrevious,
+    LayoutToggleSplit,
+    OutputSdrWhite,
+    WindowSnap,
+    WindowUnsnap,
     Shell,
     ZoomIn,
     ZoomOut,
@@ -214,17 +265,64 @@ namespace andromeda {
     bool operator==(const WindowIdArg&) const = default;
   };
   struct LayoutModeArg {
-    std::optional<LayoutMode> mode; // nullopt cycles scrolling to dwindle to master to scrolling
+    std::optional<LayoutMode> mode; // nullopt toggles through toggleSequence
+    std::vector<LayoutMode>
+        toggleSequence; // distinct modes in toggle order; empty = scrolling, dwindle, master, floating
     bool operator==(const LayoutModeArg&) const = default;
+  };
+  struct SnapRegionArg {
+    SnapRegion region = SnapRegion::Left;
+    bool operator==(const SnapRegionArg&) const = default;
+  };
+  struct ColumnDisplayArg {
+    ColumnDisplay display = ColumnDisplay::Normal;
+    bool operator==(const ColumnDisplayArg&) const = default;
+  };
+  struct TabIndexArg {
+    int index = 1; // counted from 1, or from the end when negative
+    bool operator==(const TabIndexArg&) const = default;
   };
   struct QuitArg {
     bool skipConfirmation = false;
     bool operator==(const QuitArg&) const = default;
   };
+  struct SdrWhiteArg {
+    // SDR reference white in cd/m², in the same range the config's `sdr_white` accepts.
+    double nits = 0.0;
+    std::string output; // empty = the preferred output
+    bool operator==(const SdrWhiteArg&) const = default;
+  };
+
+  struct EffectWindowArg {
+    std::string name; // empty = cycle the underlying pool
+    std::string id;   // empty = the focused owner
+    bool operator==(const EffectWindowArg&) const = default;
+  };
+  struct EffectScreenArg {
+    std::string name;   // empty = cycle the underlying pool
+    std::string output; // empty = the preferred output
+    bool operator==(const EffectScreenArg&) const = default;
+  };
+  struct EffectCursorArg {
+    std::string name; // empty = cycle the underlying pool
+    bool operator==(const EffectCursorArg&) const = default;
+  };
+  struct WindowMoveToArg {
+    std::string id; // empty = the focused window
+    WindowPosition position;
+    bool operator==(const WindowMoveToArg&) const = default;
+  };
+  struct WindowMoveByArg {
+    std::string id; // empty = the focused window
+    int deltaX = 0;
+    int deltaY = 0;
+    bool operator==(const WindowMoveByArg&) const = default;
+  };
 
   using KeybindPayload = std::variant<
       std::monostate, SpawnArg, SubmapArg, FractionArg, WorkspaceArg, OutputArg, ScratchpadArg, WindowIdArg,
-      LayoutModeArg, QuitArg>;
+      LayoutModeArg, ColumnDisplayArg, TabIndexArg, QuitArg, EffectWindowArg, EffectScreenArg, EffectCursorArg,
+      SdrWhiteArg, WindowMoveToArg, WindowMoveByArg, SnapRegionArg>;
 
   struct Keybind {
     // What triggers the bind.
@@ -283,7 +381,19 @@ namespace andromeda {
     OptionalWindowId,
     FractionDelta,
     LayoutMode,
-    SkipConfirmation
+    SnapRegion,
+    ColumnDisplay,
+    TabIndex,
+    SkipConfirmation,
+    WindowEffectSet,
+    WindowEffectCycle,
+    ScreenEffectSet,
+    ScreenEffectCycle,
+    CursorEffectSet,
+    CursorEffectCycle,
+    SdrWhite,
+    WindowMoveTo,
+    WindowMoveBy,
   };
 
   struct ActionSpec {
@@ -302,6 +412,10 @@ namespace andromeda {
 
   // Canonical name for an evdev BTN_* code, or nullptr for a button Andromeda does not name.
   [[nodiscard]] const char* mouseButtonName(uint32_t button);
+
+  // The BTN_* code binds store for a pressed button. Mice report their thumb buttons as either BTN_SIDE/BTN_EXTRA or
+  // BTN_BACK/BTN_FORWARD; both pairs map to BTN_SIDE/BTN_EXTRA.
+  [[nodiscard]] uint32_t canonicalMouseButton(uint32_t button);
 
   // Parse a chord such as "Mod+Shift+h", "Ctrl+Alt+Delete", "Mod+WheelUp", "Mod+MouseBack", or "submap[resize],Escape".
   // Only the trigger fields are written; the action is set separately by parseAction. Returns false and leaves `output`
@@ -324,6 +438,14 @@ namespace andromeda {
   // Numeric workspace selectors are positions; surround a name with double quotes when the name itself contains only
   // digits.
   bool parseAction(std::string_view value, Keybind& output);
+
+  // Named action roots only; suppression and current-pool cycle have no named reference.
+  struct EffectActionReference {
+    std::string_view name;
+    EffectKind kind;
+    bool poolRequired;
+  };
+  [[nodiscard]] std::optional<EffectActionReference> effectActionReference(const Keybind& bind);
 
   std::span<const ActionSpec> actionSpecs();
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# xwayland-satellite requests fullscreen before the initial surface commit when an X11 game window already matches an
-# output. Andromeda must carry that pending request into the initial configure so the game maps as a square, borderless
-# fullscreen surface instead of an output-sized rounded tile.
+# A client can request fullscreen before its first buffer, as a game whose window already matches an output does.
+# Andromeda must carry that pending request into the initial configure so the game maps as a square, borderless
+# fullscreen surface instead of an output-sized rounded tile. The client also pins its size, as Wine does for a game
+# window, and fullscreen must override that: the game opens tiled, in its own scrolling column, not as a floating
+# dialog covering the workspace.
 set -euo pipefail
 
 readonly CLIENT="${ANDROMEDA_SUBSURFACE_CLIENT:-./build-debug/tests/subsurface-client}"
@@ -26,7 +28,7 @@ corner_radius = 64
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 
-env INITIAL_FULLSCREEN=1 "$CLIENT" fullscreen-chrome > "$CLIENT_LOG" 2>&1 &
+env INITIAL_FULLSCREEN=1 FIXED_SIZE=1 "$CLIENT" fullscreen-chrome > "$CLIENT_LOG" 2>&1 &
 
 for _ in $(seq 60); do
   grep -q '^mapped$' "$CLIENT_LOG" && break
@@ -59,6 +61,12 @@ if [[ ! $box =~ ^-?[0-9]+\ -?[0-9]+\ 1280\ 720$ ]]; then
   exit 1
 fi
 read -r win_x win_y _ _ <<< "$box"
+
+floating=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.title == "fullscreen-chrome") | .floating')
+if [[ $floating != false ]]; then
+  echo "fixed-size fullscreen client did not open tiled: floating=${floating:-missing}"
+  exit 1
+fi
 
 "$ANDROMEDA" settle
 grim "$SCREENSHOT"

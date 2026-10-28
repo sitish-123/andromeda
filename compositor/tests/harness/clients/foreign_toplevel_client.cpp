@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <print>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,7 @@ namespace {
     std::string title;
     std::vector<wl_output*> outputs;
     bool closed = false;
+    bool minimized = false;
   };
 
   struct State {
@@ -68,7 +70,11 @@ namespace {
     auto& outputs = static_cast<Toplevel*>(data)->outputs;
     std::erase(outputs, output);
   }
-  void toplevelState(void*, zwlr_foreign_toplevel_handle_v1*, wl_array*) {}
+  void toplevelState(void* data, zwlr_foreign_toplevel_handle_v1*, wl_array* states) {
+    const std::span entries(static_cast<const uint32_t*>(states->data), states->size / sizeof(uint32_t));
+    static_cast<Toplevel*>(data)->minimized =
+        std::ranges::contains(entries, uint32_t{ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED});
+  }
   void toplevelDone(void*, zwlr_foreign_toplevel_handle_v1*) {}
   void toplevelClosed(void* data, zwlr_foreign_toplevel_handle_v1*) { static_cast<Toplevel*>(data)->closed = true; }
   void toplevelParent(void*, zwlr_foreign_toplevel_handle_v1*, zwlr_foreign_toplevel_handle_v1*) {}
@@ -126,13 +132,21 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 3 || argc > 4 || (argc == 4 && std::string_view(argv[3]) != "activate")) {
-    std::println(stderr, "usage: foreign-toplevel-client TITLE OUTPUT [activate]");
+  const std::string_view command = argc == 4 ? std::string_view(argv[3]) : std::string_view{};
+  if (argc < 3
+      || argc > 4
+      || (argc == 4
+          && command != "activate"
+          && command != "minimize"
+          && command != "unminimize"
+          && command != "state")) {
+    std::println(stderr, "usage: foreign-toplevel-client TITLE OUTPUT [activate|minimize|unminimize|state]");
     return 2;
   }
   const std::string_view wantedTitle = argv[1];
   const std::string_view wantedOutput = argv[2];
-  const bool activate = argc == 4;
+  const bool activate = command == "activate";
+  const bool reportMinimized = command == "minimize" || command == "unminimize" || command == "state";
 
   wl_display* display = wl_display_connect(nullptr);
   if (display == nullptr) {
@@ -168,14 +182,25 @@ int main(int argc, char** argv) {
             && std::ranges::find(toplevel->outputs, (*output)->resource) != toplevel->outputs.end();
       });
 
-  if (activate && state.seat != nullptr) {
-    const auto target = std::ranges::find_if(state.toplevels, [wantedTitle](const auto& toplevel) {
-      return !toplevel->closed && toplevel->title == wantedTitle;
-    });
-    if (target != state.toplevels.end()) {
-      zwlr_foreign_toplevel_handle_v1_activate((*target)->handle, state.seat);
-      roundtripOk = roundtripOk && wl_display_roundtrip(display) >= 0;
+  const auto target = std::ranges::find_if(state.toplevels, [wantedTitle](const auto& toplevel) {
+    return !toplevel->closed && toplevel->title == wantedTitle;
+  });
+  if (activate && state.seat != nullptr && target != state.toplevels.end()) {
+    zwlr_foreign_toplevel_handle_v1_activate((*target)->handle, state.seat);
+    roundtripOk = roundtripOk && wl_display_roundtrip(display) >= 0;
+  }
+  if ((command == "minimize" || command == "unminimize") && target != state.toplevels.end()) {
+    if (command == "minimize") {
+      zwlr_foreign_toplevel_handle_v1_set_minimized((*target)->handle);
+    } else {
+      zwlr_foreign_toplevel_handle_v1_unset_minimized((*target)->handle);
     }
+    // The request is handled in one dispatch; the state event follows from an idle callback.
+    roundtripOk = roundtripOk && wl_display_roundtrip(display) >= 0;
+    roundtripOk = roundtripOk && wl_display_roundtrip(display) >= 0;
+  }
+  if (reportMinimized && target != state.toplevels.end()) {
+    std::println("minimized={}", (*target)->minimized ? 1 : 0);
   }
 
   for (const auto& toplevel : state.toplevels) {

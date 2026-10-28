@@ -6,6 +6,9 @@
 
 namespace andromeda {
 
+  // Sorted, unique names reached by retained keybinds and enabled hot corners.
+  [[nodiscard]] std::vector<std::string> configuredEffectActionRoots(const Config& config);
+
   // Which source sections a reload altered. Runtime effects are derived
   // separately because one section can invalidate several subsystems.
   struct ConfigChange {
@@ -81,6 +84,8 @@ namespace andromeda {
     bool overviewPresentation = false;
     bool internalUi = false;
     bool effects = false;
+    // Whether a modal dialog attaches to its parent: the global switch or a rule that may opt one out.
+    bool dialogAttachment = false;
 
     [[nodiscard]] bool any() const {
       return outputState
@@ -95,7 +100,8 @@ namespace andromeda {
           || input
           || overviewPresentation
           || internalUi
-          || effects;
+          || effects
+          || dialogAttachment;
     }
 
     [[nodiscard]] bool invalidatesOverview() const {

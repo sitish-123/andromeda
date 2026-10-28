@@ -1,8 +1,15 @@
 #pragma once
 
 #include "core/dirty.h"
+#include "output/cursor_plane_pace.h"
+#include "output/direct_scanout.h"
 #include "output/frame_schedule.h"
+#include "output/hdr_metadata.h"
+#include "output/hdr_transition.h"
+#include "scene/effect_audio.h"
+#include "scene/effect_selection.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -13,8 +20,10 @@
 struct wlr_buffer;
 struct wlr_gamma_control_v1;
 struct wlr_output;
-struct wlr_output_layout_output;
 struct wlr_output_state;
+struct wlr_buffer;
+struct wlr_output_layout_output;
+struct wlr_scene_rect;
 struct wlr_scene_output;
 struct wlr_scene_optimized_blur;
 struct wlr_scene_tree;
@@ -29,6 +38,7 @@ namespace andromeda {
 
   enum class FormatTier : uint8_t;
   enum class HdrMode;
+  enum class SdrTransfer;
   class Server;
   class View;
   class WorkspaceGroup;
@@ -47,8 +57,12 @@ namespace andromeda {
     [[nodiscard]] wlr_output* wlr() const { return m_output; }
     [[nodiscard]] OutputIdentity identity() const;
     [[nodiscard]] wlr_scene_output* sceneOutput() const { return m_sceneOutput; }
+    // Create an opaque scene mask matching a pending configured state. The
+    // caller owns the returned node and must keep it through the commit.
+    [[nodiscard]] wlr_scene_rect* createConfiguredFrameMask(const wlr_output_state& state) const;
     [[nodiscard]] wlr_scene_tree* layerTree(uint32_t layer) const;
-    [[nodiscard]] wlr_scene_tree* popupTree() const { return m_popupTree; }
+    // Popups stack above regular surfaces within the same shell layer.
+    [[nodiscard]] wlr_scene_tree* layerPopupTree(uint32_t layer) const;
     // Clipped roots for this output's window content. Every descendant is scissored to the output's layout box, which
     // is what keeps a scrolled or animating view from rendering on, or entering, a neighbouring output. Positioned at
     // the layout origin, so root-local coordinates are layout coordinates.
@@ -75,9 +89,12 @@ namespace andromeda {
     void markDirty(Dirty what);
     // Asks for a frame on behalf of persistent effects.
     void scheduleEffectFrame();
+    void scheduleAudioFrame();
     // Pushes the effect capture policy and the screen and cursor presets to this output's scene. Detached while
     // effects are suspended; the instances are visible only while the output is enabled.
     void applyOutputEffects();
+    [[nodiscard]] EffectSlot& screenEffectSlot() { return m_screenEffectSlot; }
+    [[nodiscard]] const EffectSlot& screenEffectSlot() const { return m_screenEffectSlot; }
     // Captures are released only by a built frame: asks for one when the last frame kept effects out of a capture.
     void scheduleEffectCaptureRelease();
     // Drawn frames that advanced persistent effects' time.
@@ -112,9 +129,13 @@ namespace andromeda {
     [[nodiscard]] HdrMode hdrMode() const;
     [[nodiscard]] bool hdrRequested() const;
     [[nodiscard]] bool hdrActive() const;
+    [[nodiscard]] bool automaticHdrAvailable() const;
     [[nodiscard]] bool bitDepthActive() const;
     [[nodiscard]] const std::string& hdrFallbackReason() const { return m_hdrFallbackReason; }
     [[nodiscard]] float configuredSdrWhite() const;
+    [[nodiscard]] float sdrWhite() const;
+    [[nodiscard]] SdrTransfer configuredSdrTransfer() const;
+    void setRuntimeSdrWhite(float nits);
     [[nodiscard]] int configuredBitDepth() const;
     [[nodiscard]] const std::string& bitDepthFallbackReason() const { return m_bitDepthFallbackReason; }
     [[nodiscard]] bool configuredDirectScanoutEnabled() const;
@@ -127,12 +148,46 @@ namespace andromeda {
     [[nodiscard]] const std::optional<bool>& lastPresentationPresented() const { return m_lastPresentationPresented; }
     [[nodiscard]] std::optional<bool> lastPresentationVsync() const;
     [[nodiscard]] const std::string& tearingFallbackReason() const { return m_tearingFallbackReason; }
+    // The latest scene buffer accepted by the backend, independently of the log's settling interval.
+    [[nodiscard]] const DirectScanoutState& directScanout() const { return m_directScanout.current(); }
+    [[nodiscard]] const DirectScanoutTracker& directScanoutTracker() const { return m_directScanout; }
+    // Observe only the scene state submitted by this attempt. Commit events also cover successful child commits
+    // when a grouped output transaction later fails on another backend.
+    class SceneCommit {
+    public:
+      SceneCommit(Output& output, const wlr_output_state& state);
+      ~SceneCommit();
+      SceneCommit(const SceneCommit&) = delete;
+      SceneCommit& operator=(const SceneCommit&) = delete;
+
+    private:
+      static void onCommit(wl_listener* listener, void* data);
+      Output& m_output;
+      wlr_buffer* m_buffer = nullptr;
+      DirectScanoutState m_state;
+      wl_listener m_commit{};
+    };
     [[nodiscard]] bool clientTearingHintAsync(const View* view) const;
     [[nodiscard]] bool tearingEligible(View* view) const;
     [[nodiscard]] View* tearingCandidate() const;
     void resetTearingState();
     void applyDirectScanoutConfig();
     void applyCursorConfig();
+    // Compare the live hardware cursor against the snapshot and, when it
+    // changed and a cursor-metadata consumer wants it, damage the box it left
+    // and the box it entered, so the transition reaches a delivered frame.
+    // Called once per frame, before the needs_frame test, so the frame already
+    // running commits the damage. Single-threaded, non-blocking, bounded per
+    // output.
+    bool paceCursorPlaneTransition();
+#ifdef ANDROMEDA_TEST_IPC
+    // Harness-only: synthesize the plane sample a headless backend cannot produce.
+    void setSyntheticPlaneCursorForTest(
+        double x, double y, bool visible, std::uintptr_t image, int width, int height, int hotspotX, int hotspotY
+    );
+#endif
+    // True only for sessions needing separate cursor metadata
+    [[nodiscard]] bool needsCursorCapturePacing() const;
     // Re-evaluate fullscreen-controlled VRR after a view or workspace changes.
     void updateVrr();
     // Re-evaluate automatic HDR after surface color, fullscreen, visibility,
@@ -141,6 +196,8 @@ namespace andromeda {
     void forgetHdrView(const View* view);
     void markBlurBackgroundDirty();
     void scheduleFullFrame();
+    // Commit this custom mode and arrange around it. `refreshMHz` paces frames; 0 keeps the backend's default.
+    void applyMode(int width, int height, int refreshMHz = 0);
     void handleExternalConfigChange();
     // Tell one surface this output's scale (fractional + integer preferred buffer scale). Both wlroots calls dedup
     // internally, so re-notifying is free. Shaped as a wlr_surface_iterator_func_t so shell for_each helpers can walk a
@@ -148,6 +205,7 @@ namespace andromeda {
     static void notifySurfaceScaleIter(wlr_surface* surface, int sx, int sy, void* data);
 
   private:
+    [[nodiscard]] bool audioPending() const;
     // Flushed at the top of handleFrame, in Dirty declaration order: layer arrange defines the usable area, which the
     // layout depends on, which the chrome over it depends on.
     void flushDirty();
@@ -157,24 +215,30 @@ namespace andromeda {
     static void onFrame(wl_listener* listener, void* data);
     static void onRequestState(wl_listener* listener, void* data);
     static void onPresent(wl_listener* listener, void* data);
+    static void onBackgroundUpdate(wl_listener* listener, void* data);
+    static void onBackgroundPopupUpdate(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);
     static int onFrameRetryTimer(void* data);
     static int onEffectFrameTimer(void* data);
+    static int onDirectScanoutTimer(void* data);
 
     void handleFrame();
     void handleRequestState(void* data);
     void handlePresent(void* data);
     void handleDestroy();
-    void applyMode(int width, int height);
-    [[nodiscard]] bool applyConfiguredState();
+    // Full configuration stages geometry. Frame-bound HDR transitions reuse
+    // the live geometry and carry a freshly rendered scene buffer.
+    [[nodiscard]] bool applyConfiguredState(bool stageGeometry = true);
     [[nodiscard]] bool autoHdrEligible(const View* view) const;
     [[nodiscard]] View* findAutoHdrCandidate() const;
     [[nodiscard]] bool configuredVrrEnabled() const;
     void setHdrFallbackReason(std::string_view reason);
     void setBitDepthFallbackReason(std::string_view reason);
     void updateSceneSdrWhite();
-    void rejectGammaControl(wlr_gamma_control_v1* control);
+    void updateSceneHdrWhitePoint(wlr_gamma_control_v1* control);
     void armFrameRetry();
+    [[nodiscard]] DirectScanoutState builtDirectScanout() const;
+    void recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq);
     void armEffectFrame(uint64_t nowMsec);
     // Render locks other than this output's animation lock.
     [[nodiscard]] int externalRenderLocks() const;
@@ -190,21 +254,25 @@ namespace andromeda {
     void detachMirrorTarget();
     void keepFrameForMirrors(wlr_buffer* frame);
     void applyZoom(wlr_output_state& state);
+    void updateHdrAvailability(bool activationRejected = false);
 
     Server* m_server = nullptr;
     wlr_output* m_output = nullptr;
     float m_defaultScale = 1.0F;
+    std::optional<HdrStaticMetadata> m_hdrStaticMetadata;
+    std::optional<float> m_runtimeSdrWhite;
     wlr_scene_output* m_sceneOutput = nullptr;
     double m_zoom = 1.0;
     wlr_swapchain* m_zoomSwapchain = nullptr;
     wlr_scene_tree* m_layerTrees[kLayerCount]{};
-    wlr_scene_tree* m_popupTree = nullptr;
+    wlr_scene_tree* m_layerPopupTrees[kLayerCount]{};
     wlr_scene_tree* m_viewRoot = nullptr;
     wlr_scene_tree* m_fullscreenRoot = nullptr;
     wlr_scene_tree* m_pinnedRoot = nullptr;
     wlr_scene_optimized_blur* m_optimizedBlur = nullptr;
     std::unique_ptr<WorkspaceGroup> m_workspaceGroup;
     wlr_box m_localUsableArea{};
+    wlr_box m_loggedUsableArea{};
     int m_arrangedLayoutX = 0;
     int m_arrangedLayoutY = 0;
 
@@ -214,17 +282,27 @@ namespace andromeda {
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
     bool m_animationRenderLocked = false;
+    CursorPlaneState m_lastCursorPlane{};
+#ifdef ANDROMEDA_TEST_IPC
+    std::optional<CursorPlaneState> m_syntheticPlaneCursor;
+#endif
     bool m_desktopEnabled = true;
     bool m_dpmsOff = false;
-    bool m_hdrGammaWarningLogged = false;
     bool m_modeFallbackWarned = false;
     std::optional<FormatTier> m_vrrDroppedTier;
     bool m_fullscreenHdrRequested = false;
-    bool m_lastHdrRequested = false;
+    HdrTransition m_hdrTransition;
+    // Retain an activation rejection until an explicit output reconfiguration
+    // probes support again. Ordinary SDR frames must not re-advertise it.
+    bool m_hdrAvailable = false;
     // VRR value the backend refused even with a modeset; not retried until the wanted value changes.
     std::optional<bool> m_vrrRejected;
     bool m_lastCommitTearing = false;
     bool m_trackingPresentation = false;
+    // Cadence of the last presented frame, which places this output's animation samples on its vblanks. 0 while
+    // unknown, including under adaptive sync, whose refresh varies.
+    uint64_t m_lastPresentNs = 0;
+    uint64_t m_refreshNs = 0;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
     Output* m_mirrorSource = nullptr;
@@ -235,9 +313,13 @@ namespace andromeda {
     // Last committed frame, held only while other outputs mirror this one.
     wlr_buffer* m_lastFrame = nullptr;
     wl_event_source* m_effectFrameTimer = nullptr;
+    wl_event_source* m_directScanoutTimer = nullptr;
+    DirectScanoutTracker m_directScanout;
     uint64_t m_lastEffectFrameMsec = 0;
     bool m_effectFrameDue = false;
     bool m_effectFrameArmed = false;
+    EffectSlot m_screenEffectSlot;
+    EffectAudio m_effectAudio{}; // bands and availability latched at the last effect frame
     uint64_t m_effectFrames = 0;
     float m_effectSeconds = 0.0F;
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads andromeda_time
@@ -250,13 +332,22 @@ namespace andromeda {
     std::optional<bool> m_lastPresentationPresented;
     std::optional<uint32_t> m_lastPresentationFlags;
     uint32_t m_trackedPresentationCommitSeq = 0;
+#ifdef TRACY_ENABLE
+    const char* m_tracyIntervalPlot = nullptr;
+    const char* m_tracyVblankPlot = nullptr;
+    int64_t m_tracyLastPresentNs = 0;
+    unsigned m_tracyLastPresentSeq = 0;
+#endif
     TearingCommitRecovery m_tearingRecovery;
     int m_deferredWidth = 0;
     int m_deferredHeight = 0;
+    int m_deferredRefresh = 0;
 
     wl_listener m_frame{};
     wl_listener m_requestState{};
     wl_listener m_present{};
+    wl_listener m_backgroundUpdate{};
+    wl_listener m_backgroundPopupUpdate{};
     wl_listener m_destroy{};
   };
 

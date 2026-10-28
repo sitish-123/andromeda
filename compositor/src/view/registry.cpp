@@ -31,4 +31,7 @@ namespace andromeda {
     m_views.insert(m_views.begin(), std::move(entry));
   }
 
+  // clear() runs view destructors that scan the registry, by then holding the entries already destroyed as null.
+  bool ViewRegistry::isPlacementRoot(const std::unique_ptr<View>& view) { return view != nullptr && !view->attached(); }
+
 } // namespace andromeda

@@ -3,6 +3,8 @@
 #include "core/animation.h"
 #include "layout/layout.h"
 #include "layout/layout_motion.h"
+#include "workspace/displaced_workspace.h"
+#include "workspace/tab_presenter.h"
 
 #include <array>
 #include <cstddef>
@@ -18,6 +20,8 @@ struct wlr_ext_workspace_group_handle_v1;
 struct wlr_ext_workspace_handle_v1;
 struct wlr_ext_workspace_manager_v1;
 struct wlr_scene_tree;
+struct wlr_scene_node;
+struct fx_effect_shader;
 
 namespace andromeda {
 
@@ -27,7 +31,15 @@ namespace andromeda {
   class ScrollingLayout;
   class Server;
   class View;
+  class Workspace;
   class WorkspaceGroup;
+
+  // Launch tokens keep this indirection alive while a window is pending. The
+  // workspace clears the pointer before destruction, so token expiry and
+  // output removal never leave a dangling placement target.
+  struct WorkspaceLaunchAnchor {
+    Workspace* workspace = nullptr;
+  };
 
   enum class LayoutAttachOrigin {
     ExistingView,
@@ -62,6 +74,12 @@ namespace andromeda {
     [[nodiscard]] bool named() const { return m_named; }
     [[nodiscard]] size_t index() const { return m_index; }
     [[nodiscard]] bool active() const { return m_active; }
+    [[nodiscard]] const std::shared_ptr<const DisplacedWorkspace>& displacedWorkspace() const {
+      return m_displacedWorkspace;
+    }
+    [[nodiscard]] std::shared_ptr<WorkspaceLaunchAnchor> reserveForLaunch() const { return m_launchAnchor; }
+    [[nodiscard]] bool launchReserved() const { return m_launchAnchor.use_count() > 1; }
+    void invalidateLaunchReservations();
     [[nodiscard]] Layout& layout() { return *m_layout; }
     [[nodiscard]] const Layout& layout() const { return *m_layout; }
     // The one place a layout is downcast. Null unless this workspace is scrolling, so callers that need scroll offsets,
@@ -78,7 +96,7 @@ namespace andromeda {
     [[nodiscard]] wlr_box tiledArea() const;
     // Tiled view box used for presentation. Maximize-to-edges maps the
     // scrolling strip position back into the unstrutted usable area.
-    [[nodiscard]] wlr_box presentedTiledBox(const View* view) const;
+    [[nodiscard]] wlr_box presentedTiledBox(const View* view, const Layout* layout = nullptr) const;
     // Output box a fullscreen view rests in. A member of the scrolling strip keeps its column's position, so scrolling
     // still carries it off-screen.
     [[nodiscard]] wlr_box fullscreenTargetBox(const View* view) const;
@@ -88,6 +106,7 @@ namespace andromeda {
     [[nodiscard]] DwindleLayout* dwindleLayout();
     [[nodiscard]] MasterStackLayout* masterLayout();
     [[nodiscard]] const ResolvedLayoutConfig& layoutConfig() const { return m_layoutConfig; }
+    [[nodiscard]] bool inTabGroup(const View* view) const;
     [[nodiscard]] LayoutMode layoutMode() const { return m_layoutMode; }
     // Runtime layout override set by workspace-set-layout. Empty = the configured mode applies. A config reload clears
     // it and reasserts the configured mode; window open/close keeps it (reconcileDynamic re-applies).
@@ -98,14 +117,19 @@ namespace andromeda {
     [[nodiscard]] wlr_scene_tree* viewLayer(bool tiled) const { return tiled ? m_tiledLayer : m_floatingLayer; }
     [[nodiscard]] wlr_scene_tree* tileShadowLayer() const { return m_tileShadowLayer; }
     [[nodiscard]] wlr_scene_tree* fullscreenTree() const { return m_fullscreenTree; }
+    [[nodiscard]] bool floatingLayerRaised() const;
     [[nodiscard]] bool switchTransitionActive() const { return m_inSwitchTransition; }
     [[nodiscard]] bool isSwitchTransitionView(const View* view) const;
 
     void setActive(bool active);
     void updateUrgent();
-    void setFocusedView(View* view);
+    // `raise` moves the view to the top of the floating stack and restacks it; a hover that only focuses passes
+    // false and leaves the visual order alone. `settleLayers` decides whether focusing a tiled window settles the
+    // floating layer back below fullscreen; hover and maintenance focus pass false to preserve it.
+    void setFocusedView(View* view, bool raise = true, bool settleLayers = true);
     void syncFloatingStack(View* view);
     void restackFloatingViews();
+    void raiseFloatingLayer();
     void addView(View* view, bool attachToLayout = true, LayoutAttachOrigin origin = LayoutAttachOrigin::ExistingView);
     View* removeView(View* view, bool reconcile = true);
     void layoutAttach(
@@ -116,6 +140,9 @@ namespace andromeda {
     // True when no tiled window other than `view` is in the layout: `view` is the only tiled window, or would be the
     // only one once it attaches. The opening path needs that second form, before the view is in the layout.
     [[nodiscard]] bool isOnlyTiledView(const View* view) const;
+    // True when `view` is the only window sharing this workspace: no other tile and no other float. A pinned or
+    // scratchpad window neither holds the workspace nor takes it.
+    [[nodiscard]] bool isOnlyVisibleView(const View* view) const;
     // Predict the first configure by applying the same insertion and full-width
     // transition that the mapped path will use on the authoritative layout.
     [[nodiscard]] Layout::InitialSize initialMaximizedSize(View* view, const wlr_box& usable) const;
@@ -141,10 +168,15 @@ namespace andromeda {
     void markArrange(bool animate = true);
     void flushArrange();
     [[nodiscard]] bool arrangePending() const { return m_arrangePending; }
+    // Arranges a temporary layout for inspection without applying rules,
+    // configuring clients, or changing the live layout/presentation.
+    [[nodiscard]] std::unique_ptr<Layout> previewArrangedLayout() const;
     void refreshAloneRuleStates();
     void syncViewPresentation(View* view);
-    [[nodiscard]] View* focusAdjacent(int direction) const;
-    [[nodiscard]] View* focusVertical(int direction) const;
+    // Directional queries and moves read the layout's arranged targets, so they
+    // apply a pending arrange first.
+    [[nodiscard]] View* focusAdjacent(int direction);
+    [[nodiscard]] View* focusVertical(int direction);
     [[nodiscard]] View* focusFirstColumn() const;
     [[nodiscard]] View* focusLastColumn() const;
     [[nodiscard]] View* focusReplacementForRemoval(const View* view) const;
@@ -153,11 +185,19 @@ namespace andromeda {
     bool moveFocusedColumnFirst();
     bool moveFocusedColumnLast();
     bool consumeFocused(int direction);
+    // Pulls the window the neighboring column shows into the focused window's column, leaving focus alone.
+    bool consumeFromFocused(int direction);
     bool expelFocused(int direction);
     bool moveFocusedVertical(int direction);
+    // Moves the focused window, not its column, one step left or right: into the neighboring dwindle tile, along a
+    // vertical strip's lane, or out of its column and into the next one.
+    bool moveFocusedHorizontal(int direction);
     bool swapFocusedInCycle(int direction);
+    // Swaps the focused window with its neighbor on screen in that direction.
+    bool swapFocusedInDirection(bool horizontal, int direction);
     bool increaseMasterCount();
     bool decreaseMasterCount();
+    bool toggleDwindleSplit();
     bool cycleFocusedWidth(int direction);
     bool cycleFocusedHeight(int direction);
     bool setFocusedWidth(double fraction);
@@ -178,8 +218,25 @@ namespace andromeda {
     bool toggleFocusedMaximizedToEdges();
     bool toggleFocusedFullscreen();
     bool toggleFocusedFloating();
+    // Show the rows around the focused window as tabs, keeping it on show, or stack its tab group again; nullopt
+    // toggles. False when the layout's columns cannot be tabbed, when no tiled window is focused, or when nothing
+    // changed.
+    bool setFocusedColumnTabbed(std::optional<bool> tabbed);
+    // Move the focused tab one place among its tabs. False at either end or outside a tab group.
+    bool moveFocusedTab(int direction);
+    // Draw or hide the bar of the focused window's tab group; nullopt toggles. False outside a tab group.
+    bool setFocusedTabBar(std::optional<bool> shown);
+    // The tab groups' presentation: bars, hidden tabs, and the questions only the bars can answer.
+    [[nodiscard]] TabPresenter& tabs() { return m_tabs; }
+    [[nodiscard]] const TabPresenter& tabs() const { return m_tabs; }
     void ensureFocusedVisible();
     void activateFocusedColumn();
+    // Re-applies the centering policy after the focused column's extent changed, instead of only fitting it.
+    void reevaluateFocusedColumn();
+    void revealMovedFocusedColumn(int previousColumn);
+    // A removal hands focus to a survivor while the column focus came from is leaving, so the reveal that follows can
+    // only fit: the removal itself is what judges the pair.
+    void noteRemovalOfFocusedColumn(int columnIndex);
     void snapVisible(const View* view);
     [[nodiscard]] double scrollFractionToReveal(const View* view) const;
     void applyVisibility();
@@ -191,7 +248,14 @@ namespace andromeda {
     void rename(std::string name, size_t index, bool named);
 
     [[nodiscard]] const std::vector<View*>& allViews() const noexcept { return m_views; }
+    // Floating frames from back to front, matching their workspace stacking order.
+    [[nodiscard]] const std::vector<View*>& floatingStack() const noexcept { return m_floatingStack; }
     [[nodiscard]] bool hasViews() const { return !m_views.empty(); }
+    // Minimize every floating window here that can be, remembering the focus. When none is left to hide, restore
+    // every minimized window here, however it was minimized, and return focus to where it was.
+    void toggleShowDesktop();
+    // Drop a view that unmaps or leaves this workspace as the focus a show-desktop toggle restores.
+    void forgetShowDesktopFocus(const View* view);
     // Pull the scroll offset back into [0, maxScroll]. For removals and restored offsets only: a touchpad swipe
     // overscrolls on purpose.
     void clampScrollToRange();
@@ -203,13 +267,20 @@ namespace andromeda {
     // The running motion's progress, for the windows_move shader; null when no motion runs.
     [[nodiscard]] const AnimatedValue* layoutMotionValue() const;
     // Advances the motion; true while it is still running.
-    bool tickLayoutMotion(uint64_t nowMsec);
+    bool tickLayoutMotion(double nowMsec);
     [[nodiscard]] bool layoutMotionActive() const { return m_motion.progress.animating() || !m_motion.views.empty(); }
+    // Explicit strip scrolling defers one hover refresh until its layout motion settles and the pointer moves.
+    void deferScrollHoverFocus() { m_scrollHoverFocusDeferred = true; }
+    [[nodiscard]] bool scrollHoverFocusDeferred() const { return m_scrollHoverFocusDeferred; }
+    void resumeScrollHoverFocus() { m_scrollHoverFocusDeferred = false; }
 
   private:
+    void syncFloatingLayer();
+    friend class WorkspaceGroup;
+
     // `resized` lists the members whose assigned size this arrange changed.
     void applyPositions(bool animate, std::span<View* const> resized);
-    [[nodiscard]] wlr_box tiledTargetBox(const View* view, const wlr_box& usable) const;
+    [[nodiscard]] wlr_box tiledTargetBox(const View* view, const wlr_box& usable, const Layout* layout = nullptr) const;
     [[nodiscard]] std::unique_ptr<Layout> previewLayout() const;
     [[nodiscard]] int layoutAttachIndex(const View* view) const;
     // Resize the focused floating window by usable-area fractions; an axis
@@ -221,8 +292,9 @@ namespace andromeda {
     [[nodiscard]] std::optional<std::array<int, 2>> focusedFloatingAxis(bool width) const;
     // The focused floating window's size as a fraction of the usable axis; nullopt when unavailable.
     [[nodiscard]] std::optional<double> focusedFloatingFraction(bool width) const;
-    [[nodiscard]] View* focusAlongStrip(int direction) const;
-    [[nodiscard]] View* focusWithinLane(int direction) const;
+    [[nodiscard]] View* focusAlongStrip(int direction);
+    [[nodiscard]] View* floatingFocusTarget(bool horizontal, int direction) const;
+    [[nodiscard]] View* focusWithinLane(int direction);
     // Directional focus lands on the most recently focused window of the group
     // the move entered (target column, or crossed dwindle subtree). Moves that
     // stay inside one group keep `target`.
@@ -243,6 +315,8 @@ namespace andromeda {
     size_t m_index = 0;
     bool m_named = false;
     bool m_active = false;
+    std::shared_ptr<const DisplacedWorkspace> m_displacedWorkspace;
+    std::shared_ptr<WorkspaceLaunchAnchor> m_launchAnchor = std::make_shared<WorkspaceLaunchAnchor>();
     std::vector<View*> m_views;
     std::vector<View*> m_floatingStack;
     std::unique_ptr<Layout> m_layout;
@@ -250,13 +324,24 @@ namespace andromeda {
     LayoutMode m_layoutMode = LayoutMode::Scrolling;
     std::optional<LayoutMode> m_layoutModeOverride;
     View* m_focusedView = nullptr;
+    // The focus the last show-desktop toggle hid, restored with the windows.
+    View* m_showDesktopFocus = nullptr;
+    bool m_floatingLayerActive = false;
     bool m_inSwitchTransition = false;
     bool m_arrangePending = false;
     bool m_arrangeAnimate = true;
-    // Remembers the last layout state, so alone-ness is only recomputed when it changed.
+    // The usable area the last applyPositions pass clamped floating windows
+    // against. An arrange whose area is unchanged, such as a focus reveal, must not
+    // reposition them.
+    wlr_box m_lastArrangeUsable{};
+    bool m_scrollHoverFocusDeferred = false;
+    // Remembers the last state each occupancy question was answered in, so the answers are only recomputed when they
+    // changed.
     bool m_refreshingAloneRules = false;
     size_t m_lastAloneViewCount = 0;
     View* m_lastAloneSoleView = nullptr;
+    size_t m_lastOnlyWindowCount = 0;
+    View* m_lastOnlyWindowView = nullptr;
     uint64_t m_lastAloneGeneration = 0;
     int m_slideOffsetX = 0;
     int m_slideOffsetY = 0;
@@ -273,8 +358,15 @@ namespace andromeda {
         wlr_box to{};
         float direction = 1.0F;
       };
+      // windows_move drives position and windows_resize size; the motion runs until both have settled. A timeline
+      // restarted mid-flight with a spring carries the members' speed and runs the physics solver, whose value is the
+      // progress itself rather than a curve over time.
       AnimatedValue progress;
       MonotonicEasing geometryCurve;
+      bool progressPhysics = false;
+      AnimatedValue size;
+      MonotonicEasing sizeCurve;
+      bool sizePhysics = false;
       std::vector<ViewEntry> views;
     };
     LayoutMotion m_motion;
@@ -283,6 +375,7 @@ namespace andromeda {
       wlr_box canvas{};
     };
     std::vector<TrackedCloseSnapshot> m_trackedCloseSnapshots;
+    TabPresenter m_tabs{*this};
   };
 
   class WorkspaceGroup : public Animatable {
@@ -301,7 +394,8 @@ namespace andromeda {
     [[nodiscard]] bool dynamic() const { return m_dynamic; }
     [[nodiscard]] Workspace* workspaceAt(size_t index) const;
     [[nodiscard]] Workspace* workspaceAtClamped(size_t index) const;
-    // Match an explicit name only. Anonymous numeric labels are positions.
+    // Match an explicit name only, preferring native workspaces over temporary refugees. Multiple refugees with the
+    // same name are ambiguous and return null. Anonymous numeric labels are positions.
     [[nodiscard]] Workspace* workspaceNamed(std::string_view name) const;
     [[nodiscard]] Workspace* workspaceFromHandle(wlr_ext_workspace_handle_v1* handle) const;
     [[nodiscard]] size_t workspaceCount() const { return m_workspaces.size(); }
@@ -318,6 +412,9 @@ namespace andromeda {
     // Acquire a destination for moving every window from another workspace. Static groups reuse their highest empty
     // configured workspace without changing its identity; dynamic groups use the ordinary create behavior.
     Workspace* transferDestination();
+    // Acquire a temporary workspace for one absent home, including on a fixed output. Explicit names survive, while
+    // anonymous workspaces use their new numeric position. Original identities keep matching names separate.
+    Workspace* displacedDestination(std::shared_ptr<const DisplacedWorkspace> origin);
     // Insert an empty numbered workspace into a dynamic group and renumber the following workspaces. Static configured
     // groups cannot be extended this way and return null.
     Workspace* insertDynamicWorkspace(size_t index);
@@ -342,9 +439,15 @@ namespace andromeda {
     // per second, and starts the settle from that speed instead of from rest; callers that are not a gesture pass 0.
     void slideSettle(int delta, double velocity = 0);
     void slideFinish();
+    // Refresh the native pair bindings and shader inputs before output composition.
+    void refreshReveal();
+    [[nodiscard]] wlr_scene_node* revealRoot(bool incoming) const;
+    [[nodiscard]] bool revealActive() const { return m_slide.reveal != nullptr; }
+    void abandonReveal();
+    void cancelReveal();
     // Advances the workspace slide; returns true while it is still running.
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Workspaces; }
-    bool tickAnimations(uint64_t nowMsec) override;
+    bool tickAnimations(double nowMsec) override;
     [[nodiscard]] bool hasActiveAnimations() const override;
     [[nodiscard]] bool animatesOn(const Output* output) const override { return m_output == output; }
 
@@ -354,7 +457,12 @@ namespace andromeda {
     Workspace* appendDynamicWorkspace();
     Workspace* prependDynamicWorkspace();
     void reconcileDynamicNames(const std::vector<ResolvedWorkspace>& resolved);
-    void refreshDynamicWorkspaceMetadata();
+    void refreshWorkspaceMetadata();
+    bool pruneDisplacedWorkspaces();
+
+    void beginReveal();
+    // The workspace a reveal at `progress` shows coming in; the previous one when progress is held at the base.
+    [[nodiscard]] Workspace* revealIncoming(double progress) const;
 
     struct Slide {
       Workspace* base = nullptr;
@@ -362,6 +470,9 @@ namespace andromeda {
       Workspace* next = nullptr;
       double extent = 0;
       double progress = 0;
+      fx_effect_shader* reveal = nullptr;
+      std::optional<EffectPreset> revealPreset;
+      AnimationTransition transition{};
     };
 
     Server* m_server = nullptr;

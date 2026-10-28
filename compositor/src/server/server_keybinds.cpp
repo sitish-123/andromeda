@@ -1,5 +1,6 @@
 #include "config/config.h"
 #include "input/cursor.h"
+#include "input/input_capture.h"
 #include "input/keyboard.h"
 #include "input/seat.h"
 #include "input/text_input.h"
@@ -60,6 +61,9 @@ namespace andromeda {
       return false;
     }
 
+    if (m_inputCapture != nullptr) {
+      m_inputCapture->suspend();
+    }
     if (!wlr_session_change_vt(m_session, vt)) {
       wlr_log(WLR_ERROR, "failed to switch to VT %u", vt);
     }
@@ -102,6 +106,22 @@ namespace andromeda {
     return true;
   }
 
+  // An action's reply and the inspection after it see alone rules for its final layout, before the arrange that a
+  // sleeping output may not run for a while. Running once per action keeps intermediate layouts out of the rules.
+  void Server::refreshPendingAloneRules() {
+    for (const auto& output : m_outputs) {
+      WorkspaceGroup* group = output->workspaceGroup();
+      if (group == nullptr) {
+        continue;
+      }
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        if (Workspace* workspace = group->workspaceAt(index); workspace != nullptr && workspace->arrangePending()) {
+          workspace->refreshAloneRuleStates();
+        }
+      }
+    }
+  }
+
   bool Server::executeKeybindAction(const Keybind& bind, std::string* error, bool* cooldownBlocked) {
     if (error != nullptr) {
       error->clear();
@@ -133,6 +153,7 @@ namespace andromeda {
     if (!handled) {
       handled = handler(*this, bind, error);
     }
+    refreshPendingAloneRules();
     if (!submapAfter.has_value()) {
       return handled;
     }
@@ -201,29 +222,60 @@ namespace andromeda {
     }
     wlr_seat* seat = m_seat->wlr();
     wlr_surface* focused = seat->keyboard_state.focused_surface;
-    return focused != nullptr && std::ranges::any_of(m_shortcutsInhibitors, [seat, focused](const auto& watch) {
+    if (!m_sessionLocked && m_manualShortcutsInhibit.enabled(focused)) {
+      return true;
+    }
+    return focused != nullptr
+        && clientShortcutsInhibitAllowed(focused)
+        && std::ranges::any_of(m_shortcutsInhibitors, [seat, focused](const auto& watch) {
              const wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = watch->inhibitor;
              return inhibitor->active && inhibitor->seat == seat && inhibitor->surface == focused;
            });
   }
 
+  bool Server::clientShortcutsInhibitAllowed(wlr_surface* surface) const {
+    View* view = surface != nullptr ? View::fromSurface(wlr_surface_get_root_surface(surface)) : nullptr;
+    return view == nullptr || view->allowsShortcutsInhibit();
+  }
+
+  void Server::refreshKeyboardShortcutsInhibitors() {
+    for (const auto& watch : m_shortcutsInhibitors) {
+      wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = watch->inhibitor;
+      const bool active = watch->requestedActive && clientShortcutsInhibitAllowed(inhibitor->surface);
+      if (active && !inhibitor->active) {
+        wlr_keyboard_shortcuts_inhibitor_v1_activate(inhibitor);
+      } else if (!active && inhibitor->active) {
+        wlr_keyboard_shortcuts_inhibitor_v1_deactivate(inhibitor);
+      }
+    }
+  }
+
   bool Server::toggleKeyboardShortcutsInhibit() {
-    if (m_seat == nullptr) {
+    if (m_seat == nullptr || m_sessionLocked) {
       return false;
     }
     wlr_seat* seat = m_seat->wlr();
     wlr_surface* focused = seat->keyboard_state.focused_surface;
-    const auto found = std::ranges::find_if(m_shortcutsInhibitors, [seat, focused](const auto& watch) {
-      return focused != nullptr && watch->inhibitor->seat == seat && watch->inhibitor->surface == focused;
-    });
-    if (found == m_shortcutsInhibitors.end()) {
+    if (focused == nullptr) {
       return false;
     }
-    wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = (*found)->inhibitor;
-    if (inhibitor->active) {
-      wlr_keyboard_shortcuts_inhibitor_v1_deactivate(inhibitor);
-    } else {
-      wlr_keyboard_shortcuts_inhibitor_v1_activate(inhibitor);
+
+    const bool enable = !keyboardShortcutsInhibited();
+    // A client may have created an inhibitor after manual passthrough began.
+    // Disable both sources together so a single escape always restores binds.
+    m_manualShortcutsInhibit.disable(focused);
+    bool clientInhibitor = false;
+    for (const auto& watch : m_shortcutsInhibitors) {
+      wlr_keyboard_shortcuts_inhibitor_v1* inhibitor = watch->inhibitor;
+      if (inhibitor->seat != seat || inhibitor->surface != focused) {
+        continue;
+      }
+      watch->requestedActive = enable;
+      clientInhibitor = clientShortcutsInhibitAllowed(focused);
+    }
+    refreshKeyboardShortcutsInhibitors();
+    if (enable && !clientInhibitor) {
+      m_manualShortcutsInhibit.enable(focused);
     }
     return true;
   }
@@ -265,7 +317,10 @@ namespace andromeda {
     return nullptr;
   }
 
-  uint32_t Server::keyboardModifiers() const {
+  uint32_t Server::keyboardModifiers(bool includeCaptured) const {
+    if (!includeCaptured && m_inputCapture != nullptr && (m_inputCapture->capabilities() & 1U) != 0) {
+      return 0;
+    }
     uint32_t modifiers = 0;
     for (const auto& keyboard : m_keyboards) {
       if (keyboard == nullptr
@@ -331,7 +386,7 @@ namespace andromeda {
         continue;
       }
       // Non-mouse binds carry 0 here, which never equals a BTN_* code.
-      if (bind.mouseButton != button) {
+      if (bind.mouseButton != canonicalMouseButton(button)) {
         continue;
       }
       const uint32_t expected = bind.modifiers | (bind.useMod ? modKey() : 0);

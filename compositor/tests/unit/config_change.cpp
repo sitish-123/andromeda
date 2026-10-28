@@ -1,5 +1,6 @@
 #include "check.h"
 #include "config/change.h"
+#include "config/resolve.h"
 
 using andromeda::AccelProfile;
 using andromeda::Config;
@@ -10,6 +11,7 @@ using andromeda::Keybind;
 using andromeda::LayerRule;
 using andromeda::ModifierKey;
 using andromeda::OutputRule;
+using andromeda::RegexPatterns;
 using andromeda::SecurityContextRule;
 using andromeda::WindowRule;
 using andromeda::WorkspaceConfig;
@@ -79,6 +81,22 @@ ANDROMEDA_TEST(eachSectionIsReportedOnItsOwn) {
     const ConfigChange change = ConfigChange::between(before, after);
     CHECK(change.input);
     CHECK(!change.appearance);
+  }
+  {
+    Config after;
+    after.input.touchpad.enabled = false;
+    CHECK(ConfigChange::between(before, after).input);
+    CHECK(ConfigEffects::between(before, after).input);
+  }
+  {
+    Config withRule;
+    Config::Input::Device rule;
+    rule.name = "Acme Precision Touchpad";
+    withRule.input.devices.push_back(rule);
+    Config after = withRule;
+    after.input.devices.front().enabled = false;
+    CHECK(ConfigChange::between(withRule, after).input);
+    CHECK(ConfigEffects::between(withRule, after).input);
   }
   {
     Config after;
@@ -263,20 +281,16 @@ ANDROMEDA_TEST(listSectionsAreCompared) {
 }
 
 ANDROMEDA_TEST(ruleEqualityIgnoresTheCompiledRegex) {
-  // Two rules built from the same pattern are the same rule, even though their
+  // Two rules built from the same patterns are the same rule, even though their
   // std::regex members are distinct objects that cannot be compared at all.
   Config before;
   Config after;
   WindowRule first;
-  first.appIdPattern = "kitty";
-  first.appIdRegex = std::regex(first.appIdPattern);
-  first.xdgTagPattern = "^main-window$";
-  first.xdgTagRegex = std::regex(first.xdgTagPattern);
+  first.appIdPatterns.add("kitty");
+  first.xdgTagPatterns.add("^main-window$");
   WindowRule second;
-  second.appIdPattern = "kitty";
-  second.appIdRegex = std::regex(second.appIdPattern);
-  second.xdgTagPattern = "^main-window$";
-  second.xdgTagRegex = std::regex(second.xdgTagPattern);
+  second.appIdPatterns.add("kitty");
+  second.xdgTagPatterns.add("^main-window$");
   before.windowRules.push_back(std::move(first));
   after.windowRules.push_back(std::move(second));
 
@@ -287,11 +301,11 @@ ANDROMEDA_TEST(ruleEqualityStillSeesAnXdgTagChange) {
   Config before;
   Config after;
   WindowRule first;
-  first.appIdPattern = "game";
-  first.xdgTagPattern = "^game-launcher$";
+  first.appIdPatterns.add("game");
+  first.xdgTagPatterns.add("^game-launcher$");
   WindowRule second;
-  second.appIdPattern = "game";
-  second.xdgTagPattern = "^game-running$";
+  second.appIdPatterns.add("game");
+  second.xdgTagPatterns.add("^game-running$");
   before.windowRules.push_back(std::move(first));
   after.windowRules.push_back(std::move(second));
 
@@ -302,10 +316,10 @@ ANDROMEDA_TEST(ruleEqualityStillSeesAContentTypeChange) {
   Config before;
   Config after;
   WindowRule first;
-  first.appIdPattern = "kitty";
+  first.appIdPatterns.add("kitty");
   first.matchContentType = ContentType::Game;
   WindowRule second;
-  second.appIdPattern = "kitty";
+  second.appIdPatterns.add("kitty");
   second.matchContentType = ContentType::Video;
   before.windowRules.push_back(std::move(first));
   after.windowRules.push_back(std::move(second));
@@ -317,9 +331,9 @@ ANDROMEDA_TEST(ruleEqualitySeesAnOptionChangeUnderTheSamePattern) {
   Config before;
   Config after;
   WindowRule first;
-  first.appIdPattern = "kitty";
+  first.appIdPatterns.add("kitty");
   WindowRule second;
-  second.appIdPattern = "kitty";
+  second.appIdPatterns.add("kitty");
   second.opacity = 0.9;
   before.windowRules.push_back(std::move(first));
   after.windowRules.push_back(std::move(second));
@@ -360,6 +374,34 @@ ANDROMEDA_TEST(firstLoadInvalidatesEveryRuntimeConsumer) {
   CHECK(effects.input);
   CHECK(effects.overviewPresentation);
   CHECK(effects.internalUi);
+  CHECK(effects.dialogAttachment);
+}
+
+ANDROMEDA_TEST(dialogAttachmentFollowsTheSwitchAndWindowRules) {
+  const Config before;
+  Config disabled;
+  disabled.general.attachModalDialogs = false;
+  const ConfigEffects switched = ConfigEffects::between(before, disabled);
+  CHECK(switched.dialogAttachment);
+  CHECK(!switched.viewChrome);
+
+  Config ruled;
+  WindowRule optOut;
+  optOut.matchDialog = true;
+  optOut.attachToParent = false;
+  ruled.windowRules.push_back(std::move(optOut));
+  CHECK(ConfigEffects::between(before, ruled).dialogAttachment);
+
+  // A rule that cannot decide attachment leaves dialogs alone.
+  Config translucent;
+  WindowRule faded;
+  faded.opacity = 0.5;
+  translucent.windowRules.push_back(std::move(faded));
+  CHECK(!ConfigEffects::between(before, translucent).dialogAttachment);
+
+  Config slower;
+  slower.animation.overview.durationMs = 400;
+  CHECK(!ConfigEffects::between(before, slower).dialogAttachment);
 }
 
 ANDROMEDA_TEST(anyColorChangeRefreshesEveryColorConsumer) {
@@ -574,6 +616,25 @@ ANDROMEDA_TEST(outputStateAndWorkspaceInventoryAreIndependent) {
   CHECK(!reenableEffects.workspaceInventory);
 }
 
+ANDROMEDA_TEST(outputSdrTransferReloadOnlyRefreshesOutputState) {
+  Config before;
+  OutputRule original;
+  original.name = "HEADLESS-1";
+  before.outputs.push_back(original);
+
+  Config after = before;
+  after.outputs[0].sdrTransfer = andromeda::SdrTransfer::Srgb;
+  CHECK(ConfigChange::between(before, after).outputs);
+  const ConfigEffects changed = ConfigEffects::between(before, after);
+  CHECK(changed.outputState);
+  CHECK_EQ(changed.summary(), std::string{"output state"});
+
+  const ConfigEffects reset = ConfigEffects::between(after, before);
+  CHECK(reset.outputState);
+  CHECK_EQ(reset.summary(), std::string{"output state"});
+  CHECK(!ConfigEffects::between(after, after).any());
+}
+
 ANDROMEDA_TEST(outputScrollingDefaultOnlyRefreshesWorkspaceLayout) {
   Config before;
   OutputRule output;
@@ -648,6 +709,34 @@ ANDROMEDA_TEST(outputRuleNameSetChangesRefreshIdentityDependentEffects) {
   CHECK(!caseEffects.workspaceLayout);
 }
 
+ANDROMEDA_TEST(descriptorRuleWithoutSelectorInvalidatesDisplacedScreenOverride) {
+  Config before;
+  before.effects.screen = "default-screen";
+  OutputRule connector;
+  connector.name = "HDMI-A-1";
+  connector.screenEffect = "connector-screen";
+  before.outputs.push_back(connector);
+  const andromeda::OutputIdentity identity{
+      .connector = "HDMI-A-1", .make = "Microstep", .model = "MSI G2712F", .serial = "CD6T084401192"
+  };
+  CHECK(andromeda::findOutputRule(before, identity)->screenEffect == "connector-screen");
+
+  Config after = before;
+  OutputRule descriptor;
+  descriptor.name = "Microstep MSI G2712F CD6T084401192";
+  after.outputs.push_back(descriptor);
+  CHECK(!andromeda::findOutputRule(after, identity)->screenEffect.has_value());
+  CHECK(ConfigEffects::between(before, after).effects);
+  CHECK(ConfigEffects::between(after, before).effects);
+
+  Config caseOnly = before;
+  caseOnly.outputs.front().name = "hdmi-a-1";
+  CHECK(!ConfigEffects::between(before, caseOnly).effects);
+  before.outputs.front().screenEffect.reset();
+  after.outputs.front().screenEffect.reset();
+  CHECK(!ConfigEffects::between(before, after).effects);
+}
+
 ANDROMEDA_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
   Config before;
   OutputRule output;
@@ -666,9 +755,8 @@ ANDROMEDA_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
 
   Config forcedByRule = before;
   WindowRule game;
-  game.appIdPattern = "^game$";
-  game.xdgTagPattern = "^game-running$";
-  game.xdgTagRegex = std::regex(game.xdgTagPattern);
+  game.appIdPatterns.add("^game$");
+  game.xdgTagPatterns.add("^game-running$");
   game.matchContentType = ContentType::Game;
   game.allowTearing = true;
   forcedByRule.windowRules.push_back(game);
@@ -691,6 +779,10 @@ ANDROMEDA_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
   changedFloatingMatcher.windowRules[0].matchFloating = true;
   CHECK(ConfigEffects::between(forcedByRule, changedFloatingMatcher).tearingPolicy);
 
+  Config changedEdgesMatcher = forcedByRule;
+  changedEdgesMatcher.windowRules[0].matchMaximizedToEdges = true;
+  CHECK(ConfigEffects::between(forcedByRule, changedEdgesMatcher).tearingPolicy);
+
   Config changedPinnedMatcher = forcedByRule;
   changedPinnedMatcher.windowRules[0].matchPinned = true;
   CHECK(ConfigEffects::between(forcedByRule, changedPinnedMatcher).tearingPolicy);
@@ -703,14 +795,21 @@ ANDROMEDA_TEST(tearingPolicyDoesNotReapplyOutputStateOrInvalidateOverview) {
   changedAloneMatcher.windowRules[0].matchAlone = true;
   CHECK(ConfigEffects::between(forcedByRule, changedAloneMatcher).tearingPolicy);
 
+  Config changedOnlyWindowMatcher = forcedByRule;
+  changedOnlyWindowMatcher.windowRules[0].matchOnlyWindow = true;
+  CHECK(ConfigEffects::between(forcedByRule, changedOnlyWindowMatcher).tearingPolicy);
+
+  Config changedCastTargetMatcher = forcedByRule;
+  changedCastTargetMatcher.windowRules[0].matchCastTarget = true;
+  CHECK(ConfigEffects::between(forcedByRule, changedCastTargetMatcher).tearingPolicy);
+
   Config changedTagMatcher = forcedByRule;
-  changedTagMatcher.windowRules[0].xdgTagPattern = "^game-launcher$";
-  changedTagMatcher.windowRules[0].xdgTagRegex = std::regex(changedTagMatcher.windowRules[0].xdgTagPattern);
+  changedTagMatcher.windowRules[0].xdgTagPatterns = RegexPatterns{}.add("^game-launcher$");
   CHECK(ConfigEffects::between(forcedByRule, changedTagMatcher).tearingPolicy);
 
   Config unrelatedRule = before;
   WindowRule translucent;
-  translucent.appIdPattern = "^terminal$";
+  translucent.appIdPatterns.add("^terminal$");
   translucent.matchContentType = ContentType::Photo;
   translucent.opacity = 0.9;
   unrelatedRule.windowRules.push_back(translucent);
@@ -735,7 +834,7 @@ ANDROMEDA_TEST(animationEventEffectsRaiseEffects) {
 ANDROMEDA_TEST(windowRulesRaiseEffectsOnlyWhenARuleSelectsAnEffect) {
   Config before;
   WindowRule translucent;
-  translucent.appIdPattern = "^foot$";
+  translucent.appIdPatterns.add("^foot$");
   translucent.opacity = 0.9;
   before.windowRules.push_back(translucent);
   Config opacityOnly = before;
@@ -746,11 +845,11 @@ ANDROMEDA_TEST(windowRulesRaiseEffectsOnlyWhenARuleSelectsAnEffect) {
 
   Config selecting;
   WindowRule lines;
-  lines.appIdPattern = "^foot$";
+  lines.appIdPatterns.add("^foot$");
   lines.windowEffect = "lines";
   selecting.windowRules.push_back(lines);
   Config rematched = selecting;
-  rematched.windowRules[0].appIdPattern = "^kitty$";
+  rematched.windowRules[0].appIdPatterns = RegexPatterns{}.add("^kitty$");
   CHECK(ConfigEffects::between(selecting, rematched).effects);
 }
 
@@ -922,6 +1021,79 @@ ANDROMEDA_TEST(aFailedReloadResultCarriesNoChangesOrEffects) {
   CHECK(!result.success);
   CHECK(!result.change.any());
   CHECK(!result.effects.any());
+}
+
+ANDROMEDA_TEST(effectPoolDefinitionsAndMemberOrderRaiseEffectsChange) {
+  Config before;
+  before.effects.pools.push_back({.name = "borders", .kind = andromeda::EffectKind::Border, .members = {"z", "a"}});
+  Config after = before;
+  CHECK(!ConfigEffects::between(before, after).effects);
+  after.effects.pools[0].selection = andromeda::EffectSelectionPolicy::RoundRobin;
+  CHECK(ConfigEffects::between(before, after).effects);
+  after = before;
+  after.effects.pools[0].members = {"a", "z"};
+  CHECK(ConfigEffects::between(before, after).effects);
+  after = before;
+  after.effects.pools.clear();
+  CHECK(ConfigEffects::between(before, after).effects);
+}
+
+ANDROMEDA_TEST(effectActionRootChangesDrivePreparation) {
+  Config before;
+  Keybind selected;
+  CHECK(andromeda::parseAction("effect-window-set:pool/window-1", selected));
+  before.keybinds = {selected};
+  Config after = before;
+  CHECK(andromeda::parseAction("effect-window-cycle:pool/window-2", after.keybinds.front()));
+  CHECK(!ConfigEffects::between(before, after).effects);
+  after.keybinds.front().cooldownMs = 100;
+  after.keybinds.front().submap = "effects";
+  CHECK(!ConfigEffects::between(before, after).effects);
+  after.hotCorners.corners[0].enabled = true;
+  after.hotCorners.corners[0].action = selected;
+  CHECK(!ConfigEffects::between(before, after).effects);
+  after.keybinds.clear();
+  CHECK(!ConfigEffects::between(before, after).effects);
+  after.hotCorners.corners[0].enabled = false;
+  CHECK(ConfigEffects::between(before, after).effects);
+  CHECK(andromeda::configuredEffectActionRoots(after).empty());
+  after = before;
+  CHECK(andromeda::parseAction("effect-window-set:other", after.keybinds.front()));
+  CHECK(ConfigEffects::between(before, after).effects);
+  after = before;
+  CHECK(andromeda::parseAction("effect-window-set:off", after.keybinds.front()));
+  CHECK(ConfigEffects::between(before, after).effects);
+  after = before;
+  CHECK(andromeda::parseAction("effect-window-cycle", after.keybinds.front()));
+  CHECK(ConfigEffects::between(before, after).effects);
+}
+
+ANDROMEDA_TEST(effectActionRootsAreUniqueAcrossKeybindsAndCorners) {
+  Config config;
+  config.keybinds.clear();
+  for (const std::string action : {"effect-border-set:zebra", "effect-screen-cycle:alpha", "effect-border-set:zebra"}) {
+    Keybind bind;
+    CHECK(andromeda::parseAction(action, bind));
+    config.keybinds.push_back(bind);
+  }
+  config.hotCorners.corners[0].enabled = true;
+  config.hotCorners.corners[0].action = config.keybinds.front();
+  CHECK(andromeda::configuredEffectActionRoots(config) == std::vector<std::string>({"alpha", "zebra"}));
+}
+
+ANDROMEDA_TEST(titleBarGeometryReloadRearrangesWorkspaces) {
+  Config before;
+  Config after = before;
+  after.appearance.titleBar.height = 40;
+  CHECK(ConfigEffects::between(before, after).workspaceLayout);
+  CHECK(ConfigEffects::between(before, after).viewChrome);
+  after = before;
+  after.appearance.titleBar.mode = andromeda::TitleBarMode::Forced;
+  CHECK(ConfigEffects::between(before, after).workspaceLayout);
+  after = before;
+  after.colors.titleBar.close[0] = 0.25F;
+  CHECK(!ConfigEffects::between(before, after).workspaceLayout);
+  CHECK(ConfigEffects::between(before, after).viewChrome);
 }
 
 int main() { return RUN_TESTS(); }

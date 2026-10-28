@@ -15,9 +15,6 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 [animation]
 enabled = false
 
-[animation.scratchpad]
-scale = 0
-
 [[scratchpad]]
 name = "seat"
 

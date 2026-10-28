@@ -2,23 +2,16 @@
 
 ## Starting configuration
 
-The packaged starting configuration is
-[`examples/config.toml`](https://github.com/noctalia-dev/andromeda/blob/main/examples/config.toml).
-Copy it before making local changes:
+The packaged starting configuration is [`examples/config.toml`](https://github.com/noctalia-dev/andromeda/blob/main/examples/config.toml). Copy it before making local changes:
 
 ```sh
 mkdir -p ~/.config/andromeda
 cp /usr/share/andromeda/config.toml ~/.config/andromeda/config.toml
 ```
 
-A manual installation under `/usr/local` places it at
-`/usr/local/share/andromeda/config.toml`. Nix users should prefer
-`programs.andromeda.settings` in Home Manager or hjem.
+A manual installation under `/usr/local` places it at `/usr/local/share/andromeda/config.toml`. Nix users should prefer `programs.andromeda.settings` in Home Manager or hjem.
 
-Andromeda watches the active configuration and applies valid changes when you
-save. Most options reload immediately; reference tables identify options that
-require a restart. If a reload fails, Andromeda keeps the last working
-configuration and tries again on the next save.
+Andromeda watches the active configuration and applies valid changes when you save. Most options reload immediately; reference tables identify options that require a restart. If a reload fails, Andromeda keeps the last working configuration and tries again on the next save.
 
 Without `-c`, Andromeda checks these locations in order:
 
@@ -26,14 +19,11 @@ Without `-c`, Andromeda checks these locations in order:
 2. Each `$XDG_CONFIG_DIRS/andromeda/config.toml`
 3. The packaged `share/andromeda/config.toml`
 
-Use `andromeda -c <path>` to select one exact file. Andromeda never creates or
-modifies a user configuration automatically.
+Use `andromeda -c <path>` to select one exact file. Andromeda never creates or modifies a user configuration automatically.
 
 ## Diagnostics
 
-Configuration warnings and errors appear in a panel on the primary output.
-Errors keep the previous working configuration active. A warning-only panel
-closes after ten seconds; an error remains until the next successful reload.
+Configuration warnings and errors appear in a panel on the primary output. Errors keep the previous working configuration active. A warning-only panel closes after ten seconds; an error remains until the next successful reload.
 
 Check a file without starting the compositor:
 
@@ -41,8 +31,7 @@ Check a file without starting the compositor:
 andromeda config validate
 ```
 
-The command prints every diagnostic with its file, line, and column, and exits
-nonzero when it finds a problem.
+The command prints every diagnostic with its file, line, and column, and exits nonzero when it finds a problem.
 
 List every configuration key the installed binary accepts:
 
@@ -51,12 +40,7 @@ andromeda config schema
 andromeda config schema --json
 ```
 
-Without `--json` it prints how many options each section has. With `--json` it
-prints each key's path, type, range, accepted values, format, and built-in
-default, plus the binary's `version` and `revision` (`null` for a build outside
-git). `name[]` marks the entries of an array of tables, such as
-`window_rule[].match.app_id`, and `<name>` a name you choose, such as
-`output.<name>.scale`.
+Without `--json` it prints how many options each section has. With `--json` it prints each key's path, type, range, accepted values, format, and built-in default, plus the binary's `version` and `revision` (`null` for a build outside git). `name[]` marks the entries of an array of tables, such as `window_rule[].match.app_id`, and `<name>` a name you choose, such as `output.<name>.scale`.
 
 ## Include
 
@@ -75,9 +59,7 @@ files = [
 ]
 ```
 
-Paths are relative to the file containing the include. `~`, `$VAR`, and
-`${VAR}` are expanded. Missing optional files are ignored and watched, so
-creating one later reloads the configuration.
+Paths are relative to the file containing the include. `~`, `$VAR`, and `${VAR}` are expanded. Missing optional files are ignored and watched, so creating one later reloads the configuration.
 
 Included files are applied in list order. The including file is applied last:
 
@@ -86,15 +68,9 @@ Included files are applied in list order. The including file is applied last:
 - Plain arrays and scalar values are replaced by the last file that sets them.
 - Setting a rule list to `[]` discards entries collected earlier.
 
-Every file must contain valid TOML. Duplicate device or workspace selectors,
-and an effect preset defined in two files, are errors even when they come from
-different files: at startup Andromeda uses the default configuration and shows
-an error banner (unless the configuration sets `[drm]`, which refuses to
-start), and a reload keeps the previous configuration.
+Every file must contain valid TOML. Duplicate device or workspace selectors, and an effect preset defined in two files, are errors even when they come from different files. At startup, any configuration error makes Andromeda use the default configuration and show an error banner; a reload keeps the previous configuration.
 
-If any included file defines `[drm]`, also declare `[drm]` in the main file.
-This prevents an incomplete GPU exclusion policy from loading when an include
-is unavailable.
+If any included file defines `[drm]`, also declare `[drm]` in the main file. This prevents an incomplete GPU exclusion policy from loading when an include is unavailable.
 
 ## Settings made in a settings app
 
@@ -114,27 +90,37 @@ overview, and focus; the list is in the private protocol's
 autostart = ["noctalia", "kitty"]
 mod_key = "Super"
 xwayland = true
+xwayland_native_resolution = false
+xwayland_xsettings = true
 show_cheatsheet = true
 focus_on_activate = false
+attach_modal_dialogs = true
 honor_restored_maximize = false
 ```
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `autostart` | string array | `[]` | Commands started once with the session. Changes require a restart. |
-| `mod_key` | string | Super, or Alt when nested | Modifier represented by `Mod` in keybinds. |
-| `xwayland` | bool | `true` | Start xwayland-satellite for X11 applications. Changes require a restart. |
-| `show_cheatsheet` | bool | `true` | Show the keybind cheatsheet when Andromeda starts. |
-| `focus_on_activate` | bool | `false` | Let application activation requests focus and reveal their target. |
-| `honor_restored_maximize` | bool | `false` | Honor maximize requests an application makes while its window opens, until it acknowledges its opening layout. |
+| Key                          | Type         | Default                   | Description                                                                                                                                                                          |
+| ---------------------------- | ------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `autostart`                  | string array | `[]`                      | Commands started once with the session. Changes require a restart.                                                                                                                   |
+| `mod_key`                    | string       | Super, or Alt when nested | Modifier represented by `Mod` in keybinds.                                                                                                                                           |
+| `xwayland`                   | bool         | `true`                    | Start Xwayland lazily for X11 applications. Changes require a restart.                                                                                                               |
+| `xwayland_native_resolution` | bool         | `false`                   | Show outputs to X11 applications at their physical resolution, so they render sharp on scaled outputs. Changes require a restart.                                                    |
+| `xwayland_xsettings`         | bool         | `true`                    | Announce the interface scale and cursor theme to X11 applications through XSETTINGS. Turn it off to run your own XSETTINGS manager, such as `xsettingsd`. Changes require a restart. |
+| `show_cheatsheet`            | bool         | `true`                    | Show the keybind cheatsheet when Andromeda starts.                                                                                                                                     |
+| `focus_on_activate`          | bool         | `false`                   | Let application activation requests focus and reveal their target.                                                                                                                   |
+| `attach_modal_dialogs`       | bool         | `true`                    | Attach a modal dialog to its parent, so it follows the parent and holds its input. See [Dialogs](layout.md#dialogs).                                                                 |
+| `honor_restored_maximize`    | bool         | `false`                   | Honor maximize requests an application makes while its window opens, until it acknowledges its opening layout.                                                                       |
 
-`xwayland-satellite` must be installed and available on `PATH` when X11 support
-is enabled.
+`Xwayland` must be installed and available on `PATH` when X11 support is enabled. It starts when the first X11 application connects.
+
+X11 bounding shapes clip windows to their visible regions, including holes and separate rectangles. Shape changes apply while the window is open and are preserved in overview previews, window captures, and close animations. Input shapes remain independent, so a click-through overlay can keep drawing its visible widgets.
+
+X11 applications have no per-output scale. By default they see every output at its logical size, and Andromeda upscales their windows on outputs with a scale above 1, which looks soft. With `xwayland_native_resolution = true` they see each output at its physical size instead: a `3840x2160` output at scale `1.25` appears to them as `3840x2160` rather than `3072x1728`. Their windows render at one pixel per screen pixel and stay sharp, but X11 applications that do not scale their own interface look smaller on scaled outputs. Games benefit most.
+
+With `xwayland_xsettings = true`, Andromeda tells X11 applications that read XSETTINGS, such as GTK, Chromium, Electron, and Steam, the scale to draw their interface at: the largest output scale with `xwayland_native_resolution = true`, and `1` without it. It also announces `[input.cursor]` `theme` and `size`, the size scaled the same way. At native resolution X11 has one scale for every output, so on outputs with a smaller scale these applications look larger than native ones.
 
 ## DRM devices
 
-Use `[drm]` only when Andromeda should leave a GPU unopened in a native session.
-Omit the section for automatic GPU discovery. Changes require a restart.
+Use `[drm]` only when Andromeda should leave a GPU unopened in a native session. Omit the section for automatic GPU discovery. Changes require a restart.
 
 ```toml
 [drm]
@@ -142,13 +128,12 @@ ignored_pci_addresses = ["0000:01:00.0"]
 # ignored_devices = ["/dev/dri/by-path/pci-0000:01:00.0-card"]
 ```
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `ignored_devices` | string array | `[]` | Absolute card or render-node paths. Prefer stable `/dev/dri/by-path` links. |
-| `ignored_pci_addresses` | string array | `[]` | PCI addresses in `domain:bus:slot.function` form. |
+| Key                     | Type         | Default | Description                                                                 |
+| ----------------------- | ------------ | ------- | --------------------------------------------------------------------------- |
+| `ignored_devices`       | string array | `[]`    | Absolute card or render-node paths. Prefer stable `/dev/dri/by-path` links. |
+| `ignored_pci_addresses` | string array | `[]`    | PCI addresses in `domain:bus:slot.function` form.                           |
 
-Andromeda does not bind or unbind PCI drivers. Configure that lifecycle in
-libvirt or equivalent host tooling.
+Andromeda does not bind or unbind PCI drivers. Configure that lifecycle in libvirt or equivalent host tooling.
 
 ### Limits
 
@@ -166,22 +151,13 @@ ELECTRON_OZONE_PLATFORM_HINT = "auto"
 SDL_VIDEODRIVER = "wayland"
 ```
 
-These variables apply to Andromeda and commands started in its session. In a
-managed native session, they are also published to the systemd user manager for
-session services such as Noctalia. Nested sessions do not modify the host
-session environment.
+These variables apply to Andromeda and commands started in its session. In a managed native session, they are also published to the systemd user manager for session services such as Noctalia. Nested sessions do not modify the host session environment.
 
-Names must match `[A-Za-z_][A-Za-z0-9_]*`, and values must be strings. Andromeda
-owns its display and session variables, so this section cannot override
-`WAYLAND_DISPLAY`, `WAYLAND_SOCKET`, `DISPLAY`, `ANDROMEDA_SOCKET`,
-`XDG_CURRENT_DESKTOP`, `XDG_SESSION_DESKTOP`, or `XDG_SESSION_TYPE`.
+Names must match `[A-Za-z_][A-Za-z0-9_]*`, and values must be strings. Andromeda owns its display, input-emulation, and session variables, so this section cannot override `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`, `DISPLAY`, `ANDROMEDA_SOCKET`, `LIBEI_SOCKET`, `XDG_CURRENT_DESKTOP`, `XDG_SESSION_DESKTOP`, or `XDG_SESSION_TYPE`.
 
-Environment changes require an Andromeda restart. Fully quit and relaunch
-long-running applications that survived the restart.
+Environment changes require an Andromeda restart. Fully quit and relaunch long-running applications that survived the restart.
 
-Removing a key does not clear a value already published to the systemd user
-manager. Run `systemctl --user unset-environment NAME` to remove it immediately,
-or wait for the user manager to exit.
+Removing a key does not clear a value already published to the systemd user manager. Run `systemctl --user unset-environment NAME` to remove it immediately, or wait for the user manager to exit.
 
 ## Events
 
@@ -193,15 +169,9 @@ lid_close = "notify-send 'The laptop lid is closed!'"
 lid_open = "notify-send 'The laptop lid is open!'"
 ```
 
-Andromeda runs the command for the current lid state once during startup, after
-the compositor IPC socket is ready, then runs commands when that state changes.
-This also handles signing in while the lid is already closed or already open.
-If the system reports more than one lid switch, the combined state remains
-closed while any switch is closed. Device removal and re-addition during
-suspend do not repeat a command unless the combined state actually changed.
+Andromeda runs the command for the current lid state once during startup, after the compositor IPC socket is ready, then runs commands when that state changes. This also handles signing in while the lid is already closed or already open. If the system reports more than one lid switch, the combined state remains closed while any switch is closed. Device removal and re-addition during suspend do not repeat a command unless the combined state actually changed.
 
-Logical output actions can remove the laptop panel from the desktop instead of
-merely powering it off:
+Logical output actions can remove the laptop panel from the desktop instead of merely powering it off:
 
 ```toml
 [events]
@@ -211,24 +181,20 @@ lid_open = "andromeda msg output-enable:eDP-1"
 
 ## Screencast
 
-Target-changing screencast actions ask for confirmation the first time they are
-used during an active single-source share. Dismissing the panel cancels only the
-pending action, so invoking one again asks again. Approval lasts until the share
-ends.
+Target-changing screencast actions ask for confirmation the first time they are used during an active single-source share. Dismissing the panel cancels only the pending action, so invoking one again asks again. Approval lasts until the share ends.
 
 ```toml
 [screencast]
 disable_dynamic_confirmation = false
 ```
 
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
+| Key                            | Type | Default | Description                                                                                                                                     |
+| ------------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `disable_dynamic_confirmation` | bool | `false` | Apply set and follow actions immediately without first confirming them. This can expose another window or output after an accidental key press. |
 
 ## Scratchpads
 
-With no `[[scratchpad]]` entries, Andromeda provides one implicit scratchpad named
-`default`:
+With no `[[scratchpad]]` entries, Andromeda provides one implicit scratchpad named `default`:
 
 ```toml
 [keybinds]
@@ -236,8 +202,7 @@ With no `[[scratchpad]]` entries, Andromeda provides one implicit scratchpad nam
 "Mod+Space" = "scratchpad-toggle"
 ```
 
-To configure several scratchpads, give each one a unique name and include that
-name in its actions:
+To configure several scratchpads, give each one a unique name and include that name in its actions:
 
 ```toml
 [[scratchpad]]
@@ -251,12 +216,8 @@ name = "music"
 "Mod+M" = "scratchpad-toggle:music"
 ```
 
-Defining a named scratchpad removes the implicit `default`. See
-[Scratchpads](scratchpad.md) for window assignment and behavior.
+Defining a named scratchpad removes the implicit `default`. See [Scratchpads](scratchpad.md) for window assignment and behavior.
 
 ## Idle inhibition
 
-Andromeda honors idle inhibitors only while their application surface is mapped
-and visible. Switching away from its workspace, hiding it in a scratchpad,
-disabling its output, or locking the session suspends the inhibitor until the
-surface becomes visible again.
+Andromeda honors idle inhibitors only while their application surface is mapped and visible. Switching away from its workspace, hiding it in a scratchpad, disabling its output, or locking the session suspends the inhibitor until the surface becomes visible again.

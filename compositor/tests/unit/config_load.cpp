@@ -1,4 +1,5 @@
 #include "check.h"
+#include "config/resolve.h"
 #include "config/store.h"
 
 #include <algorithm>
@@ -8,11 +9,13 @@
 #include <fstream>
 #include <linux/input-event-codes.h>
 #include <optional>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <unistd.h>
 #include <utility>
 #include <variant>
+#include <vector>
 
 using andromeda::ConfigDiagnostic;
 using andromeda::ConfigStore;
@@ -20,6 +23,8 @@ using andromeda::ContentType;
 using andromeda::HdrMode;
 using andromeda::LayoutMode;
 using andromeda::ModifierKey;
+using andromeda::ModRightDoubleClick;
+using andromeda::SdrTransfer;
 using andromeda::TrackLayout;
 using andromeda::VrrMode;
 using andromeda::WindowDragToggle;
@@ -126,14 +131,14 @@ ANDROMEDA_TEST(defaultConfigLookupPrefersUserThenSystem) {
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
   ConfigStore& store = andromeda::configStore();
-  CHECK(store.load(nullptr));
+  store.load(nullptr);
 
   CHECK_EQ(store.rootPath(), systemConfig);
   CHECK_EQ(store.config().layout.gap, 17);
   CHECK(!store.fileMissing());
 
   tree.write("user/andromeda/config.toml", "[layout]\ngap = 19\n");
-  CHECK(store.load(nullptr));
+  store.load(nullptr);
 
   CHECK_EQ(store.rootPath(), userConfig);
   CHECK_EQ(store.config().layout.gap, 19);
@@ -151,7 +156,7 @@ ANDROMEDA_TEST(implicitConfigReloadAdoptsAndReleasesHigherPriorityUserPath) {
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
   ConfigStore& store = andromeda::configStore();
-  CHECK(store.load(nullptr));
+  store.load(nullptr);
 
   CHECK_EQ(store.rootPath(), systemConfig);
   CHECK_EQ(store.config().layout.gap, 17);
@@ -182,7 +187,7 @@ ANDROMEDA_TEST(malformedNewUserConfigKeepsActiveSystemConfigAndRetriesAfterCorre
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
   ConfigStore& store = andromeda::configStore();
-  CHECK(store.load(nullptr));
+  store.load(nullptr);
   const uint64_t generation = store.generation();
 
   tree.write("user/andromeda/config.toml", "[layout\n");
@@ -216,7 +221,7 @@ ANDROMEDA_TEST(implicitConfigReloadKeepsCandidatesCapturedAtInitialLoad) {
   const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
 
   ConfigStore& store = andromeda::configStore();
-  CHECK(store.load(nullptr));
+  store.load(nullptr);
   const std::vector<std::filesystem::path> initialWatchPaths = store.watchPaths();
 
   tree.write("changed-user/andromeda/config.toml", "[layout]\ngap = 29\n");
@@ -242,7 +247,7 @@ ANDROMEDA_TEST(explicitConfigReloadStaysPinnedWhenUserConfigAppears) {
 
   ConfigStore& store = andromeda::configStore();
   const std::string explicitPath = explicitConfig.string();
-  CHECK(store.load(explicitPath.c_str()));
+  store.load(explicitPath.c_str());
 
   CHECK_EQ(store.rootPath(), explicitConfig);
   CHECK_EQ(store.config().layout.gap, 23);
@@ -302,7 +307,8 @@ preserve_split = false
   CHECK_EQ(store.config().layout.extentPresets.size(), size_t{3});
   CHECK_EQ(store.config().layout.extentPresets[0], 0.1);
   CHECK_EQ(store.config().layout.extentPresets[1], 0.5);
-  CHECK_EQ(store.config().layout.extentPresets[2], 1.0);
+  // Above 1.0 loads unclamped (scrolling columns may span several viewports); only the 0.1 floor clamps here.
+  CHECK_EQ(store.config().layout.extentPresets[2], 2.0);
   CHECK(!store.config().layout.scrolling.centerUnderfullStrip);
   CHECK(store.config().layout.dwindle.preserveSplit);
   CHECK(store.config().appearance.preferNoCsd);
@@ -600,6 +606,85 @@ new_becomes_master = false
   CHECK(store.config().workspaceRules[0].layout.master.newBecomesMaster == false);
   CHECK(containsDiagnostic(store, "layout.master.default_width_fraction = 0.05 out of range, clamped to 0.1"));
   CHECK(containsDiagnostic(store, "unknown key layout.master.surprise"));
+}
+
+ANDROMEDA_TEST(tabReadersLoadLayoutAppearanceColorsAndRules) {
+  const TempConfig file;
+  file.write(R"(
+[layout.tabs]
+default_display = "tabbed"
+new_tab_position = "after_active"
+wrap_focus = false
+scroll_switches_tabs = false
+middle_click_closes = true
+
+[appearance.tab_bar]
+style = "indicator"
+position = "bottom"
+height = 4
+font = "Inter Bold 9"
+tab_gap = 0
+gap = 3
+corner_radius = 1
+title_format = "{index}: {title}"
+title_align = "left"
+hide_when_single = true
+max_tabs = 5
+overflow = "shrink"
+
+[colors.tab_bar]
+urgent = "#FF000080"
+
+[output.DP-1]
+workspaces = ["dev"]
+
+[[workspace]]
+name = "dev"
+
+[workspace.layout.tabs]
+default_display = "normal"
+
+[[window_rule]]
+match.app_id = "^firefox$"
+default_column_display = "tabbed"
+)");
+
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  const andromeda::ConfigReloadResult result = store.reload();
+
+  CHECK(result.success);
+  const andromeda::Config& config = store.config();
+  CHECK(config.layout.tabs.defaultDisplay == andromeda::ColumnDisplay::Tabbed);
+  CHECK(config.layout.tabs.newTabPosition == andromeda::NewTabPosition::AfterActive);
+  CHECK(!config.layout.tabs.wrapFocus);
+  CHECK(!config.layout.tabs.scrollSwitchesTabs);
+  CHECK(config.layout.tabs.middleClickCloses);
+  CHECK(config.appearance.tabBar.style == andromeda::TabBarLook::Indicator);
+  CHECK(config.appearance.tabBar.position == andromeda::TabBarPosition::Bottom);
+  CHECK_EQ(config.appearance.tabBar.height, 4);
+  CHECK_EQ(config.appearance.tabBar.font, std::string{"Inter Bold 9"});
+  CHECK_EQ(config.appearance.tabBar.tabGap, 0);
+  CHECK_EQ(config.appearance.tabBar.gap, 3);
+  CHECK_EQ(config.appearance.tabBar.cornerRadius, 1);
+  CHECK_EQ(config.appearance.tabBar.titleFormat, std::string{"{index}: {title}"});
+  CHECK(config.appearance.tabBar.titleAlign == andromeda::TitleAlign::Left);
+  CHECK(config.appearance.tabBar.hideWhenSingle);
+  CHECK_EQ(config.appearance.tabBar.maxTabs, 5);
+  CHECK(config.appearance.tabBar.overflow == andromeda::TabOverflow::Shrink);
+  CHECK_EQ(config.colors.tabBar.urgent[3], 128.0F / 255.0F);
+  CHECK_EQ(config.workspaceRules.size(), size_t{1});
+  CHECK(config.workspaceRules[0].layout.tabs.defaultDisplay == andromeda::ColumnDisplay::Normal);
+  CHECK_EQ(config.windowRules.size(), size_t{1});
+  CHECK(config.windowRules[0].defaultColumnDisplay == andromeda::ColumnDisplay::Tabbed);
+
+  // The bar's space is part of the layout, so resolution carries it with the behavior keys.
+  const andromeda::ResolvedLayoutConfig resolved = andromeda::resolveGlobalLayout(config);
+  CHECK(resolved.tabs.defaultDisplay == andromeda::ColumnDisplay::Tabbed);
+  CHECK_EQ(resolved.tabs.barHeight, 4);
+  CHECK_EQ(resolved.tabs.barGap, 3);
+  CHECK(resolved.tabs.barPosition == andromeda::TabBarPosition::Bottom);
+  CHECK(resolved.tabs.hideWhenSingle);
 }
 
 ANDROMEDA_TEST(masterPositionAcceptsCenterAndRejectsOtherValues) {
@@ -1107,6 +1192,39 @@ ANDROMEDA_TEST(durationBesideASpringCurveIsReportedAsInert) {
   CHECK_EQ(store.config().animation.workspaces.durationMs, 200);
 }
 
+ANDROMEDA_TEST(workspaceRevealRequiresAnAnimationShader) {
+  const TempConfigTree tree;
+  tree.write("wipe.glsl", "vec4 animation(vec2 uv) { return andromeda_sample(uv); }");
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(tree.path("config.toml"), true);
+  const std::string preset = "[effects.preset.wipe]\nkind = \"animation\"\nshader = \"wipe.glsl\"\n";
+  tree.write("config.toml", preset + "[animation.workspaces]\nstyle = \"reveal\"\neffect = \"wipe\"\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().animation.workspaces.style, "reveal");
+  CHECK(!containsDiagnostic(store, "animation.workspaces"));
+
+  for (const std::string& config : std::array<std::string, 4>{
+           std::string("[animation.workspaces]\nstyle = \"reveal\"\n"),
+           "[animation.workspaces]\nstyle = \"reveal\"\neffect = \"missing\"\n",
+           "[effects.preset.wipe]\nkind = \"border\"\nshader = \"wipe.glsl\"\n"
+           "[animation.workspaces]\nstyle = \"reveal\"\neffect = \"wipe\"\n",
+           "[effects.preset.wipe]\nkind = \"animation\"\n"
+           "[animation.workspaces]\nstyle = \"reveal\"\neffect = \"wipe\"\n",
+       }) {
+    tree.write("config.toml", config);
+    static_cast<void>(store.reload());
+    CHECK(containsDiagnostic(store, "reveal requires an animation preset with a shader"));
+    CHECK_EQ(store.config().animation.workspaces.style, "slide");
+  }
+  tree.write("config.toml", "[animation.workspaces]\nstyle = \"invalid\"\n");
+  static_cast<void>(store.reload());
+  CHECK(containsDiagnostic(store, "animation.workspaces.style"));
+  CHECK(!containsDiagnostic(store, "unknown key"));
+  tree.write("config.toml", "[animation.workspaces]\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().animation.workspaces.style, "slide");
+}
+
 ANDROMEDA_TEST(overviewWorkspaceWallpaperLoads) {
   const TempConfig file;
   ConfigStore& store = andromeda::configStore();
@@ -1119,6 +1237,30 @@ ANDROMEDA_TEST(overviewWorkspaceWallpaperLoads) {
   file.write("[overview]\nworkspace_wallpaper = false\n");
   CHECK(store.reload().success);
   CHECK(!store.config().overview.workspaceWallpaper);
+}
+
+// Off by default so selecting from the overview keeps honoring layout.scrolling.center_focused.
+ANDROMEDA_TEST(centerOnOverviewSelectLoads) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[layout.scrolling]\ncenter_focused = \"never\"\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().layout.scrolling.centerOnOverviewSelect);
+
+  file.write(R"([layout.scrolling]
+center_on_overview_select = true
+
+[[workspace]]
+name = "dev"
+
+[workspace.layout.scrolling]
+center_on_overview_select = false
+)");
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.scrolling.centerOnOverviewSelect);
+  CHECK(store.config().workspaceRules[0].layout.scrolling.centerOnOverviewSelect == false);
 }
 
 ANDROMEDA_TEST(overviewShortcutConfigurationLoads) {
@@ -1314,6 +1456,49 @@ ANDROMEDA_TEST(windowDragToggleReadsItsVocabularyAndDefaultsOff) {
   CHECK(containsDiagnostic(store, "ignoring input.window_drag_toggle"));
 }
 
+ANDROMEDA_TEST(modRightDoubleClickReadsItsVocabularyAndDefaultsOff) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[input]\nmod_right_double_click = \"maximize\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.modRightDoubleClick == ModRightDoubleClick::Maximize);
+  CHECK(!containsDiagnostic(store, "unknown key input.mod_right_double_click"));
+
+  file.write("[input]\nmod_right_double_click = \"none\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.modRightDoubleClick == ModRightDoubleClick::None);
+
+  file.write("[input]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.modRightDoubleClick == ModRightDoubleClick::None);
+
+  file.write("[input]\nmod_right_double_click = \"toggle\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.modRightDoubleClick == ModRightDoubleClick::None);
+  CHECK(containsDiagnostic(store, "ignoring input.mod_right_double_click"));
+}
+
+ANDROMEDA_TEST(hoverRaisesLoadsAndDefaultsEnabled) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[input.focus]\nhover_raises = false\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().input.focus.hoverRaises);
+  CHECK(!containsDiagnostic(store, "unknown key input.focus.hover_raises"));
+
+  file.write("[input.focus]\nhover_raises = true\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.focus.hoverRaises);
+
+  file.write("[input.focus]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.focus.hoverRaises);
+}
+
 ANDROMEDA_TEST(outputNamesDifferingOnlyByCaseAreRejectedAsDuplicates) {
   const TempConfig file;
   file.write(R"(
@@ -1437,6 +1622,65 @@ ANDROMEDA_TEST(outputHdrPolicyAndSdrWhiteLoad) {
   CHECK(store.reload().success);
   CHECK(store.config().outputs[0].hdr == HdrMode::Off);
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.hdr"));
+}
+
+ANDROMEDA_TEST(outputSdrTransferLoadsAndResetsToGamma22) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[output.DP-1]\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().outputs.size(), size_t{1});
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Gamma22);
+
+  file.write("[output.DP-1]\nsdr_transfer = \"srgb\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Srgb);
+  CHECK(!containsDiagnostic(store, "output.DP-1.sdr_transfer"));
+
+  file.write("[output.DP-1]\nsdr_transfer = \"gamma22\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Gamma22);
+  CHECK(!containsDiagnostic(store, "output.DP-1.sdr_transfer"));
+
+  file.write("[output.DP-1]\nsdr_transfer = \"srgb\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Srgb);
+  file.write("[output.DP-1]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Gamma22);
+
+  file.write("[output.DP-1]\nsdr_transfer = \"srgb\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Srgb);
+  file.write("");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs.empty());
+  file.write("[output.DP-1]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Gamma22);
+}
+
+ANDROMEDA_TEST(outputSdrTransferRejectsInvalidValuesWithoutUnknownKeyWarnings) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  for (const char* value : {"true", "1", "1.0", "[]", "{}", "\"gamma2.2\"", "\"sRGB\"", "\"linear\""}) {
+    file.write("[output.DP-1]\nsdr_transfer = \"srgb\"\n");
+    CHECK(store.reload().success);
+    CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Srgb);
+
+    file.write("[output.DP-1]\nhdr = \"on\"\nsdr_transfer = " + std::string(value) + "\n");
+    CHECK(store.reload().success);
+    CHECK_EQ(store.config().outputs.size(), size_t{1});
+    CHECK(store.config().outputs[0].hdr == HdrMode::On);
+    CHECK(store.config().outputs[0].sdrTransfer == SdrTransfer::Gamma22);
+    CHECK(containsDiagnostic(store, "ignoring output.DP-1.sdr_transfer"));
+    CHECK(containsDiagnostic(store, "expected \"gamma22\" or \"srgb\""));
+    CHECK(!containsDiagnostic(store, "unknown key"));
+  }
 }
 
 ANDROMEDA_TEST(outputBitDepthLoadsAndDefaults8) {
@@ -1616,8 +1860,13 @@ ANDROMEDA_TEST(securityContextRulesLoadAndKeepTheManagerBlocked) {
   );
   CHECK(store.reload().success);
   CHECK_EQ(store.config().securityContextRules.size(), size_t{1});
-  CHECK(store.config().securityContextRules[0].sandboxEnginePattern == "^org\\.flatpak$");
-  CHECK(store.config().securityContextRules[0].appIdPattern == "^org\\.example\\.Bar$");
+  CHECK(
+      store.config().securityContextRules[0].sandboxEnginePatterns.patterns
+      == std::vector<std::string>{"^org\\.flatpak$"}
+  );
+  CHECK(
+      store.config().securityContextRules[0].appIdPatterns.patterns == std::vector<std::string>{"^org\\.example\\.Bar$"}
+  );
   CHECK_EQ(store.config().securityContextRules[0].allowGlobals.size(), size_t{1});
 
   file.write("[[security_context_rule]]\nmatch.app_id = '['\nallow_globals = [\"zwlr_layer_shell_v1\"]\n");
@@ -1726,6 +1975,25 @@ ANDROMEDA_TEST(windowStartupMatcherLoadsBoolean) {
   CHECK(!containsDiagnostic(store, "unknown key window_rule.opacity"));
 }
 
+ANDROMEDA_TEST(layerMatchersLoadLayerAndStartup) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[[layer_rule]]\nmatch.layer = \"top\"\nmatch.at_startup = true\nblur = true\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().layerRules.size(), size_t{1});
+  CHECK(store.config().layerRules[0].matchLayer == andromeda::LayerShellLayer::Top);
+  CHECK(store.config().layerRules[0].matchAtStartup == true);
+  CHECK(!containsDiagnostic(store, "unknown key layer_rule.match.layer"));
+  CHECK(!containsDiagnostic(store, "unknown key layer_rule.match.at_startup"));
+
+  // A layer selector that names no layer rejects the rule, as a wrong value would blur every layer instead.
+  file.write("[[layer_rule]]\nmatch.layer = \"sideways\"\nblur = true\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().layerRules.empty());
+}
+
 ANDROMEDA_TEST(windowStateMatchersLoadBooleans) {
   const TempConfig file;
   ConfigStore& store = andromeda::configStore();
@@ -1749,6 +2017,24 @@ ANDROMEDA_TEST(windowStateMatchersLoadBooleans) {
   CHECK(!containsDiagnostic(store, "unknown key window_rule.match.is_scratchpad"));
 }
 
+ANDROMEDA_TEST(maximizedToEdgesMatcherLoadsStrictBoolean) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  file.write("[[window_rule]]\nmatch.is_maximized_to_edges = true\ntitle_bar = \"off\"\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().windowRules.size(), size_t{1});
+  CHECK(store.config().windowRules[0].matchMaximizedToEdges == true);
+  file.write("[[window_rule]]\nmatch.is_maximized_to_edges = false\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().windowRules.size(), size_t{1});
+  CHECK(store.config().windowRules[0].matchMaximizedToEdges == false);
+  file.write("[[window_rule]]\nmatch.is_maximized_to_edges = \"yes\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().windowRules.empty());
+  CHECK(!containsDiagnostic(store, "unknown key window_rule.match.is_maximized_to_edges"));
+}
+
 ANDROMEDA_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
   const TempConfig file;
   ConfigStore& store = andromeda::configStore();
@@ -1757,16 +2043,33 @@ ANDROMEDA_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
   file.write("[[window_rule]]\nmatch.xdg_tag = \"^(game-launcher|game-running)$\"\nopacity = 0.9\n");
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
-  CHECK_EQ(store.config().windowRules[0].xdgTagPattern, std::string("^(game-launcher|game-running)$"));
-  CHECK(std::regex_search("game-launcher", store.config().windowRules[0].xdgTagRegex));
-  CHECK(std::regex_search("game-running", store.config().windowRules[0].xdgTagRegex));
-  CHECK(!std::regex_search("game-settings", store.config().windowRules[0].xdgTagRegex));
+  const andromeda::RegexPatterns& tag = store.config().windowRules[0].xdgTagPatterns;
+  CHECK(tag.patterns == std::vector<std::string>{"^(game-launcher|game-running)$"});
+  CHECK(std::regex_search("game-launcher", tag.regexes[0]));
+  CHECK(std::regex_search("game-running", tag.regexes[0]));
+  CHECK(!std::regex_search("game-settings", tag.regexes[0]));
   CHECK(!containsDiagnostic(store, "unknown key window_rule.match.xdg_tag"));
+
+  // An array of patterns is the same selector: any one of them matching is enough.
+  file.write("[[window_rule]]\nmatch.xdg_tag = [\"^game-launcher$\", \"^game-running$\"]\nopacity = 0.9\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().windowRules.size(), size_t{1});
+  CHECK_EQ(
+      store.config().windowRules[0].xdgTagPatterns.patterns,
+      (std::vector<std::string>{"^game-launcher$", "^game-running$"})
+  );
+  CHECK(std::regex_search("game-running", store.config().windowRules[0].xdgTagPatterns.regexes[1]));
+
+  // An empty array places no constraint, like leaving the key out.
+  file.write("[[window_rule]]\nmatch.app_id = []\nopacity = 0.9\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().windowRules.size(), size_t{1});
+  CHECK(store.config().windowRules[0].appIdPatterns.patterns.empty());
 
   file.write("[[window_rule]]\nopacity = 0.9\n");
   CHECK(store.reload().success);
   CHECK_EQ(store.config().windowRules.size(), size_t{1});
-  CHECK(store.config().windowRules[0].xdgTagPattern.empty());
+  CHECK(store.config().windowRules[0].xdgTagPatterns.patterns.empty());
 
   file.write("[[window_rule]]\nmatch.xdg_tag = 42\nmatch.is_focused = true\nopacity = 0.5\n");
   CHECK(store.reload().success);
@@ -1778,6 +2081,18 @@ ANDROMEDA_TEST(windowXdgTagMatcherLoadsRegexAndRejectsInvalidValues) {
   CHECK(store.reload().success);
   CHECK(store.config().windowRules.empty());
   CHECK(!containsDiagnostic(store, "unknown key window_rule.opacity"));
+
+  // One pattern that does not compile drops the whole rule rather than the rest of the array.
+  file.write("[[window_rule]]\nmatch.app_id = [\"^foot$\", \"[\"]\nopacity = 0.5\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().windowRules.empty());
+  CHECK(!containsDiagnostic(store, "unknown key window_rule.opacity"));
+
+  // An element that is not a string rejects the rule just as a bad regex does.
+  file.write("[[window_rule]]\nmatch.app_id = [\"^foot$\", 42]\nopacity = 0.5\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().windowRules.empty());
+  CHECK(containsDiagnostic(store, "ignoring window_rule[0].match.app_id (expected array of strings)"));
 }
 
 ANDROMEDA_TEST(windowTearingOverrideLoadsAsAnOptionalBoolean) {
@@ -1951,6 +2266,30 @@ ANDROMEDA_TEST(outputCyclicWorkspacesLoadsAndDefaultsOff) {
   CHECK(store.reload().success);
   CHECK(!store.config().outputs[0].cyclicWorkspaces);
   CHECK(containsDiagnostic(store, "ignoring output.DP-1.cyclic_workspaces (expected boolean)"));
+}
+
+ANDROMEDA_TEST(outputFocusAtStartupLoadsAndDefaultsOff) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[output.DP-1]\nfocus_at_startup = true\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().outputs.size(), size_t{1});
+  CHECK(store.config().outputs[0].focusAtStartup);
+
+  file.write("[output.DP-1]\nfocus_at_startup = false\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().outputs[0].focusAtStartup);
+
+  file.write("[output.DP-1]\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().outputs[0].focusAtStartup);
+
+  file.write("[output.DP-1]\nfocus_at_startup = \"yes\"\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().outputs[0].focusAtStartup);
+  CHECK(containsDiagnostic(store, "ignoring output.DP-1.focus_at_startup (expected boolean)"));
 }
 
 ANDROMEDA_TEST(dynamicNamedWorkspaceDeclarationsReserveEmptySentinelCapacity) {
@@ -2178,11 +2517,15 @@ ANDROMEDA_TEST(ruleCollectionsAccumulateAcrossIncludesWhilePlainArraysReplace) {
 
   std::vector<std::string> patterns;
   for (const andromeda::WindowRule& rule : store.config().windowRules) {
-    patterns.push_back(rule.appIdPattern);
+    for (const std::string& pattern : rule.appIdPatterns.patterns) {
+      patterns.push_back(pattern);
+    }
   }
   std::vector<std::string> namespaces;
   for (const andromeda::LayerRule& rule : store.config().layerRules) {
-    namespaces.push_back(rule.namespacePattern);
+    for (const std::string& pattern : rule.namespacePatterns.patterns) {
+      namespaces.push_back(pattern);
+    }
   }
   const std::vector<std::string> expectedPatterns{"^from-include$", "^from-root$"};
   const std::vector<std::string> expectedNamespaces{"^bar$"};
@@ -2332,6 +2675,48 @@ ANDROMEDA_TEST(restoredMaximizePolicyLoadsAndDefaultsOff) {
   CHECK(!store.config().general.honorRestoredMaximize);
 }
 
+ANDROMEDA_TEST(modalDialogAttachmentLoadsGloballyAndPerWindow) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[general]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().general.attachModalDialogs);
+
+  file.write(
+      "[general]\nattach_modal_dialogs = false\n\n[[window_rule]]\nmatch.is_dialog = true\nattach_to_parent = false\n"
+  );
+  CHECK(store.reload().success);
+  CHECK(!store.config().general.attachModalDialogs);
+  CHECK_EQ(store.config().windowRules.size(), 1U);
+  CHECK(store.config().windowRules[0].matchDialog == true);
+  CHECK(store.config().windowRules[0].attachToParent == false);
+
+  // A mistyped match rejects the rule.
+  file.write("[[window_rule]]\nmatch.is_dialog = \"yes\"\nattach_to_parent = false\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().windowRules.empty());
+}
+
+ANDROMEDA_TEST(layoutClientMaximizeLoadsGloballyAndPerWorkspace) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  file.write("[layout]\nclient_maximize = \"edges\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.clientMaximize == andromeda::ClientMaximize::Edges);
+
+  file.write("[layout]\n\n[[workspace]]\nname = \"dev\"\nlayout.client_maximize = \"edges\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.clientMaximize == andromeda::ClientMaximize::Column);
+  CHECK(
+      store.config().workspaceRules.size() == 1
+      && store.config().workspaceRules[0].layout.clientMaximize == andromeda::ClientMaximize::Edges
+  );
+}
+
 ANDROMEDA_TEST(screencastDynamicConfirmationDefaultsOnAndCanBeDisabled) {
   const TempConfig file;
   ConfigStore& store = andromeda::configStore();
@@ -2354,7 +2739,10 @@ layout = "us"
 repeat_rate = 25
 
 [input.touchpad]
+enabled = false
 tap = true
+tap_and_drag = true
+drag_lock = "sticky"
 natural_scroll = true
 left_handed = true
 accel_profile = "adaptive"
@@ -2362,6 +2750,7 @@ sensitivity = 0.1
 scroll_factor = { horizontal = 0.8, vertical = 0.6 }
 disable_while_typing = true
 disable_on_external_mouse = true
+scroll_method = "edge"
 click_method = "button_areas"
 tap_button_map = "left_middle_right"
 
@@ -2381,12 +2770,16 @@ repeat_delay = 250
 
 [[input.device]]
 name = "Acme Precision Touchpad"
+enabled = true
 tap = false
+tap_and_drag = false
+drag_lock = "off"
 natural_scroll = false
 left_handed = false
 accel_profile = "flat"
 sensitivity = -0.5
 disable_while_typing = false
+scroll_method = "edge"
 click_method = "clickfinger"
 tap_button_map = "left_right_middle"
 
@@ -2422,9 +2815,13 @@ scroll_button_lock = false
   CHECK(input.touchpad.scrollFactor->vertical == std::optional<double>(0.6));
   CHECK(input.touchpad.disableWhileTyping == std::optional<bool>(true));
   CHECK(input.touchpad.disableOnExternalMouse == std::optional<bool>(true));
+  CHECK(input.touchpad.tapAndDrag == std::optional<bool>(true));
+  CHECK(input.touchpad.dragLock == std::optional(andromeda::DragLock::Sticky));
+  CHECK(input.touchpad.scrollMethod == std::optional(andromeda::ScrollMethod::Edge));
   CHECK(input.touchpad.clickMethod == std::optional(andromeda::ClickMethod::ButtonAreas));
   CHECK(input.touchpad.tapButtonMap == std::optional(andromeda::TapButtonMap::LeftMiddleRight));
   CHECK(input.touchpad.leftHanded == std::optional<bool>(true));
+  CHECK(!input.touchpad.enabled);
   CHECK_EQ(input.devices.size(), size_t{3});
 
   const auto* keyboard = input.findDevice("Acme Split Keyboard");
@@ -2440,6 +2837,8 @@ scroll_button_lock = false
   CHECK(touchpad != nullptr);
   if (touchpad != nullptr) {
     CHECK(touchpad->tap == std::optional<bool>(false));
+    CHECK(touchpad->tapAndDrag == std::optional<bool>(false));
+    CHECK(touchpad->dragLock == std::optional(andromeda::DragLock::Off));
     CHECK(touchpad->naturalScroll == std::optional<bool>(false));
     CHECK(touchpad->leftHanded == std::optional<bool>(false));
     CHECK(touchpad->accelProfile.has_value());
@@ -2448,8 +2847,10 @@ scroll_button_lock = false
     }
     CHECK(touchpad->sensitivity == std::optional<double>(-0.5));
     CHECK(touchpad->disableWhileTyping == std::optional<bool>(false));
+    CHECK(touchpad->scrollMethod == std::optional(andromeda::ScrollMethod::Edge));
     CHECK(touchpad->clickMethod == std::optional(andromeda::ClickMethod::ClickFinger));
     CHECK(touchpad->tapButtonMap == std::optional(andromeda::TapButtonMap::LeftRightMiddle));
+    CHECK(touchpad->enabled == std::optional<bool>(true));
   }
 
   const auto* mouse = input.findDevice("Acme Gaming Mouse");
@@ -2462,6 +2863,7 @@ scroll_button_lock = false
     CHECK(mouse->scrollButton == std::optional<uint32_t>(BTN_SIDE));
     CHECK(mouse->scrollButtonLock == std::optional<bool>(false));
     CHECK(!mouse->leftHanded.has_value());
+    CHECK(!mouse->enabled.has_value());
   }
 
   CHECK(input.findDevice("acme split keyboard") == nullptr);
@@ -2484,6 +2886,35 @@ ANDROMEDA_TEST(touchpadAccelerationDefaultsToUnset) {
   const andromeda::Config defaults;
   CHECK(!defaults.input.touchpad.accelProfile.has_value());
   CHECK(!defaults.input.touchpad.sensitivity.has_value());
+}
+
+ANDROMEDA_TEST(touchpadScrollMethodDefaultsToUnset) {
+  const andromeda::Config defaults;
+  CHECK(!defaults.input.touchpad.scrollMethod.has_value());
+}
+
+ANDROMEDA_TEST(scrollMethodVariantsLoadWithCaseFolding) {
+  const TempConfig file;
+  file.write(R"(
+[input.touchpad]
+scroll_method = "Two_Finger"
+
+[[input.device]]
+name = "Acme Precision Touchpad"
+scroll_method = "None"
+)");
+
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  const andromeda::ConfigReloadResult result = store.reload();
+  CHECK(result.success);
+  const auto& input = store.config().input;
+  CHECK(input.touchpad.scrollMethod == std::optional(andromeda::ScrollMethod::TwoFinger));
+  const auto* device = input.findDevice("Acme Precision Touchpad");
+  CHECK(device != nullptr);
+  if (device != nullptr) {
+    CHECK(device->scrollMethod == std::optional(andromeda::ScrollMethod::None));
+  }
 }
 
 ANDROMEDA_TEST(touchpadScrollFactorDefaultsToUnset) {
@@ -2552,6 +2983,39 @@ hide_timeout_ms = 1500
   CHECK(store.reload().success);
   CHECK_EQ(store.config().input.cursor.hideTimeoutMs, 0);
   CHECK(containsDiagnostic(store, "unknown key input.cursor.hide_timeout"));
+}
+
+ANDROMEDA_TEST(dragEdgeScrollLoads) {
+  const andromeda::Config defaults;
+  CHECK(defaults.input.dragEdgeScroll.enabled);
+  CHECK_EQ(defaults.input.dragEdgeScroll.triggerZone, 30);
+  CHECK_EQ(defaults.input.dragEdgeScroll.delayMs, 100);
+  CHECK_EQ(defaults.input.dragEdgeScroll.maxSpeed, 1500.0);
+
+  const TempConfig file;
+  file.write(R"(
+[input.drag_edge_scroll]
+enabled = false
+trigger_zone = 48
+delay_ms = 250
+max_speed = 900.0
+)");
+
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  const andromeda::ConfigReloadResult result = store.reload();
+
+  CHECK(result.success);
+  CHECK(!store.config().input.dragEdgeScroll.enabled);
+  CHECK_EQ(store.config().input.dragEdgeScroll.triggerZone, 48);
+  CHECK_EQ(store.config().input.dragEdgeScroll.delayMs, 250);
+  CHECK_EQ(store.config().input.dragEdgeScroll.maxSpeed, 900.0);
+  CHECK(!containsDiagnostic(store, "unknown key input.drag_edge_scroll.trigger_zone"));
+
+  file.write("[input.drag_edge_scroll]\ntrigger = 48\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().input.dragEdgeScroll.triggerZone, 30);
+  CHECK(containsDiagnostic(store, "unknown key input.drag_edge_scroll.trigger"));
 }
 
 ANDROMEDA_TEST(invalidCustomAccelerationCurveIsRejected) {
@@ -2922,6 +3386,7 @@ _PRIVATE = "kept"
 "HAS-HYPHEN" = "ignored"
 NOT_A_STRING = 1
 WAYLAND_DISPLAY = "wrong"
+LIBEI_SOCKET = "/nonexistent/andromeda-test-eis"
 WLR_DRM_DEVICES = "/dev/dri/card0"
 WLR_RENDER_DRM_DEVICE = "/dev/dri/renderD128"
 )");
@@ -2957,6 +3422,7 @@ WLR_RENDER_DRM_DEVICE = "/dev/dri/renderD128"
   CHECK(containsDiagnostic(store, R"(ignoring environment key "HAS-HYPHEN" (expected [A-Za-z_][A-Za-z0-9_]*))"));
   CHECK(containsDiagnostic(store, "ignoring environment.NOT_A_STRING (expected string)"));
   CHECK(containsDiagnostic(store, "ignoring environment.WAYLAND_DISPLAY (reserved by Andromeda)"));
+  CHECK(containsDiagnostic(store, "ignoring environment.LIBEI_SOCKET (reserved by Andromeda)"));
   CHECK(!containsDiagnostic(store, "unknown key environment.DXVK_HDR"));
   CHECK(!containsDiagnostic(store, "unknown key environment._PRIVATE"));
 }
@@ -3047,100 +3513,57 @@ surprise = true
   CHECK(containsDiagnostic(store, "unknown key drm.surprise"));
 }
 
-ANDROMEDA_TEST(initialConfigErrorsDoNotCommitDefaults) {
-  const TempConfig file;
-  file.write("[drm]\nignored_pci_addresses = [\"invalid\"]\n");
+ANDROMEDA_TEST(initialConfigErrorsStartWithDefaults) {
+  struct Case {
+    const char* config;
+    const char* diagnostic;
+  };
+  constexpr std::array cases{
+      Case{"workspace = \"invalid\"\n", "workspace must be a [[workspace]] array of tables"},
+      Case{"workspace =\n", "Error while parsing"},
+      Case{"[drm]\nignored_pci_addresses = [\"invalid\"]\n", "invalid drm.ignored_pci_addresses entry"},
+      Case{
+          "workspace = \"invalid\"\n\n[drm]\nignored_pci_addresses = [\"0000:01:00.0\"]\n",
+          "workspace must be a [[workspace]] array of tables"
+      },
+      Case{"[drm]\nignored_devices = [\"/dev/dri/card0\"\n", "Error while parsing array"},
+  };
+  for (const Case& entry : cases) {
+    const TempConfig file;
+    file.write(entry.config);
 
-  ConfigStore& store = andromeda::configStore();
-  const uint64_t generation = store.generation();
-  const andromeda::Config previous = store.config();
+    ConfigStore& store = andromeda::configStore();
+    const uint64_t generation = store.generation();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
-  CHECK(store.config() == previous);
-  CHECK(containsDiagnostic(store, "invalid drm.ignored_pci_addresses entry"));
+    store.load(file.path().c_str());
+    CHECK_EQ(store.generation(), generation + 1);
+    CHECK(!store.config().drm.configured());
+    CHECK(containsDiagnostic(store, entry.diagnostic));
+  }
 }
 
-ANDROMEDA_TEST(initialNonDrmErrorsKeepCompatibilityDefaults) {
-  const TempConfig file;
-  file.write("workspace = \"invalid\"\n");
-
-  ConfigStore& store = andromeda::configStore();
-  const uint64_t generation = store.generation();
-
-  CHECK(store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation + 1);
-  CHECK(!store.config().drm.configured());
-  CHECK(containsDiagnostic(store, "workspace must be a [[workspace]] array of tables"));
-}
-
-ANDROMEDA_TEST(initialSyntaxErrorsFailClosedEvenWithoutRecognizableDrmPolicy) {
-  const TempConfig file;
-  file.write("workspace =\n");
-
-  ConfigStore& store = andromeda::configStore();
-  const uint64_t generation = store.generation();
-
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
-}
-
-ANDROMEDA_TEST(initialErrorsCannotDiscardRequestedDrmPolicy) {
-  const TempConfig file;
-  file.write(R"(
-workspace = "invalid"
-
-[drm]
-ignored_pci_addresses = ["0000:01:00.0"]
-)");
-
-  ConfigStore& store = andromeda::configStore();
-  const uint64_t generation = store.generation();
-
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
-  CHECK(containsDiagnostic(store, "workspace must be a [[workspace]] array of tables"));
-}
-
-ANDROMEDA_TEST(initialSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
-  const TempConfig file;
-  file.write(R"(
-[drm]
-ignored_devices = ["/dev/dri/card0"
-)");
-
-  ConfigStore& store = andromeda::configStore();
-  const uint64_t generation = store.generation();
-
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
-  CHECK(containsDiagnostic(store, "Error while parsing array"));
-}
-
-ANDROMEDA_TEST(initialIncludedSyntaxErrorsCannotDiscardRequestedDrmPolicy) {
+ANDROMEDA_TEST(initialIncludedSyntaxErrorsStartWithDefaults) {
   const TempConfig file;
   file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\n");
-  file.writeInclude(R"(
-[drm]
-ignored_pci_addresses = ["0000:01:00.0"
-)");
+  file.writeInclude("[drm]\nignored_pci_addresses = [\"0000:01:00.0\"\n");
 
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
+  store.load(file.path().c_str());
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(containsDiagnostic(store, "Error while parsing array"));
 }
 
-ANDROMEDA_TEST(invalidIncludeDirectivesCannotDiscardDrmPolicy) {
+ANDROMEDA_TEST(invalidIncludeDirectivesKeepPreviousConfigOnReload) {
   const TempConfigTree tree;
   const std::filesystem::path root = tree.path("config.toml");
   tree.write("hardware.toml", "[drm]\nignored_pci_addresses = [\"0000:01:00.0\"]\n");
   tree.write("config.toml", "[include]\nfiles = [\"hardware.toml\"]\n");
 
   ConfigStore& store = andromeda::configStore();
-  CHECK(store.load(root.c_str()));
+  store.load(root.c_str());
   const andromeda::Config previous = store.config();
   const uint64_t generation = store.generation();
 
@@ -3154,19 +3577,13 @@ ANDROMEDA_TEST(invalidIncludeDirectivesCannotDiscardDrmPolicy) {
   for (const char* include : invalidIncludes) {
     tree.write("config.toml", include);
 
-    CHECK(!store.load(root.c_str()));
-    CHECK_EQ(store.generation(), generation);
-    CHECK(store.config() == previous);
-    CHECK(std::ranges::any_of(store.diagnostics(), [](const ConfigDiagnostic& diagnostic) {
-      return diagnostic.severity == ConfigDiagnostic::Severity::Error;
-    }));
     CHECK(!store.reload().success);
     CHECK_EQ(store.generation(), generation);
     CHECK(store.config() == previous);
   }
 }
 
-ANDROMEDA_TEST(initialUnreadableConfigCannotSilentlyDiscardDrmPolicy) {
+ANDROMEDA_TEST(initialUnreadableConfigStartsWithDefaults) {
   const TempConfig file;
   file.write("[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
   std::filesystem::permissions(file.path(), std::filesystem::perms::none);
@@ -3175,12 +3592,13 @@ ANDROMEDA_TEST(initialUnreadableConfigCannotSilentlyDiscardDrmPolicy) {
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
+  store.load(file.path().c_str());
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(containsDiagnostic(store, "File could not be opened for reading"));
 }
 
-ANDROMEDA_TEST(initialInaccessibleConfigCannotSilentlyDiscardDrmPolicy) {
+ANDROMEDA_TEST(initialInaccessibleConfigStartsWithDefaults) {
   const TempConfigTree tree;
   tree.write("restricted/config.toml", "[drm]\nignored_devices = [\"/dev/dri/card0\"]\n");
   const std::filesystem::path restricted = tree.path("restricted");
@@ -3189,11 +3607,10 @@ ANDROMEDA_TEST(initialInaccessibleConfigCannotSilentlyDiscardDrmPolicy) {
 
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const bool loaded = store.load(configPath.c_str());
+  store.load(configPath.c_str());
   std::filesystem::permissions(restricted, std::filesystem::perms::owner_all);
-
-  CHECK(!loaded);
-  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(containsDiagnostic(store, "cannot inspect config file"));
 }
 
@@ -3210,12 +3627,11 @@ ANDROMEDA_TEST(defaultConfigLookupDoesNotSkipInaccessibleUserPolicy) {
 
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const bool loaded = store.load(nullptr);
+  store.load(nullptr);
   std::filesystem::permissions(userConfig.parent_path(), std::filesystem::perms::owner_all);
-
-  CHECK(!loaded);
   CHECK_EQ(store.rootPath(), userConfig);
-  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(store.config().layout.gap != 17);
   CHECK(containsDiagnostic(store, "cannot inspect config file"));
 }
 
@@ -3226,8 +3642,9 @@ ANDROMEDA_TEST(missingPolicyIncludeRequiresRootDrmIntentMarker) {
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
+  store.load(file.path().c_str());
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(store.missingIncludes());
   CHECK(containsDiagnostic(store, "cannot safely load DRM policy while an include is missing"));
 }
@@ -3239,8 +3656,9 @@ ANDROMEDA_TEST(missingOptionalPolicyIncludeRequiresRootDrmIntentMarker) {
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
+  store.load(file.path().c_str());
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(!store.missingIncludes());
   CHECK(containsDiagnostic(store, "cannot safely load DRM policy while an include is missing"));
 }
@@ -3254,26 +3672,24 @@ ANDROMEDA_TEST(inaccessibleIncludeCannotBeTreatedAsMissing) {
 
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const bool loaded = store.load(tree.path("config.toml").c_str());
+  store.load(tree.path("config.toml").c_str());
   std::filesystem::permissions(restricted, std::filesystem::perms::owner_all);
-
-  CHECK(!loaded);
-  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(!store.config().drm.configured());
   CHECK(!store.missingIncludes());
   CHECK(containsDiagnostic(store, "cannot inspect included config file"));
 }
 
-ANDROMEDA_TEST(initialMissingExplicitConfigFailsWithoutCommittingDefaults) {
+ANDROMEDA_TEST(initialMissingExplicitConfigStartsWithDefaults) {
   const TempConfig file;
   std::filesystem::remove(file.path());
 
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
-  const andromeda::Config previous = store.config();
 
-  CHECK(!store.load(file.path().c_str()));
-  CHECK_EQ(store.generation(), generation);
-  CHECK(store.config() == previous);
+  store.load(file.path().c_str());
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(store.fileMissing());
   CHECK(containsDiagnostic(store, "config file not found"));
 }
 
@@ -3389,7 +3805,8 @@ ANDROMEDA_TEST(effectSelectorsLoadAtEveryLevel) {
       "[[window_rule]]\nmatch.app_id = \"^foot$\"\nborder_effect = \"off\"\nwindow_effect = \"lines\"\n"
       "[output.\"HEADLESS-1\"]\nscreen_effect = \"off\"\n"
       "[animation.windows_in]\neffect = \"open\"\n"
-      "[animation.windows_drag]\nphysics = true\n"
+      "[animation.windows_drag]\nphysics = true\nstiffness = 48.0\ndamping = 4.5\ncoupling = 120.0\n"
+      "pointer_response = 1.5\nmax_displacement_px = 120.0\nsettle_after_pause_s = 0.4\n"
   );
   ConfigStore& store = andromeda::configStore();
   store.setRootPath(tree.path("config.toml"), true);
@@ -3406,9 +3823,68 @@ ANDROMEDA_TEST(effectSelectorsLoadAtEveryLevel) {
   CHECK(config.outputs[0].screenEffect == "off");
   CHECK_EQ(config.animation.windowsIn.effect, std::string("open"));
   CHECK(config.animation.windowsDrag.physics);
+  CHECK_EQ(config.animation.windowsDrag.stiffness, 48.0);
+  CHECK_EQ(config.animation.windowsDrag.damping, 4.5);
+  CHECK_EQ(config.animation.windowsDrag.coupling, 120.0);
+  CHECK_EQ(config.animation.windowsDrag.pointerResponse, 1.5);
+  CHECK_EQ(config.animation.windowsDrag.maxDisplacementPx, 120.0);
+  CHECK_EQ(config.animation.windowsDrag.settleAfterPauseS, 0.4);
   CHECK(!containsDiagnostic(store, "unknown key"));
   const andromeda::EffectPreset* ring = andromeda::findEffectPreset(config.effects, "ring");
   CHECK(ring != nullptr && ring->overlay == "lines");
+}
+
+ANDROMEDA_TEST(windowsDragTuningDefaultsAndBounds) {
+  {
+    const TempConfigTree tree;
+    tree.write("config.toml", "[animation.windows_drag]\nphysics = true\n");
+    ConfigStore& store = andromeda::configStore();
+    store.setRootPath(tree.path("config.toml"), true);
+    CHECK(store.reload().success);
+    // The simulation's shipped values.
+    CHECK_EQ(store.config().animation.windowsDrag.stiffness, 36.0);
+    CHECK_EQ(store.config().animation.windowsDrag.damping, 6.5);
+    CHECK_EQ(store.config().animation.windowsDrag.coupling, 100.0);
+    CHECK_EQ(store.config().animation.windowsDrag.pointerResponse, 2.0);
+    CHECK_EQ(store.config().animation.windowsDrag.maxDisplacementPx, 200.0);
+    CHECK_EQ(store.config().animation.windowsDrag.settleAfterPauseS, 0.25);
+    CHECK(!containsDiagnostic(store, "unknown key"));
+  }
+  {
+    const TempConfigTree tree;
+    tree.write(
+        "config.toml",
+        "[animation.windows_drag]\nstiffness = 20000.0\ndamping = -1.0\ncoupling = 20000.0\n"
+        "pointer_response = 50.0\nmax_displacement_px = 0.0\nsettle_after_pause_s = 60.0\n"
+    );
+    ConfigStore& store = andromeda::configStore();
+    store.setRootPath(tree.path("config.toml"), true);
+    CHECK(store.reload().success);
+    const auto& drag = store.config().animation.windowsDrag;
+    CHECK_EQ(drag.stiffness, 10000.0);
+    CHECK_EQ(drag.damping, 1.0);
+    CHECK_EQ(drag.coupling, 10000.0);
+    CHECK_EQ(drag.pointerResponse, 10.0);
+    CHECK_EQ(drag.maxDisplacementPx, 1.0);
+    CHECK_EQ(drag.settleAfterPauseS, 5.0);
+    CHECK(containsDiagnostic(store, "out of range, clamped"));
+  }
+  {
+    // The floors keep a released drag terminating: zero stiffness or damping
+    // never settles, and a sub-frame settle pause disables the physics.
+    const TempConfigTree tree;
+    tree.write(
+        "config.toml", "[animation.windows_drag]\nstiffness = 0.0\ndamping = 0.0\nsettle_after_pause_s = 0.01\n"
+    );
+    ConfigStore& store = andromeda::configStore();
+    store.setRootPath(tree.path("config.toml"), true);
+    CHECK(store.reload().success);
+    const auto& drag = store.config().animation.windowsDrag;
+    CHECK_EQ(drag.stiffness, 1.0);
+    CHECK_EQ(drag.damping, 1.0);
+    CHECK_EQ(drag.settleAfterPauseS, 0.1);
+    CHECK(containsDiagnostic(store, "out of range, clamped"));
+  }
 }
 
 ANDROMEDA_TEST(effectReferencesAreValidatedAfterEverySectionIsRead) {
@@ -3595,7 +4071,7 @@ ANDROMEDA_TEST(initialDuplicateEffectPresetsKeepCompatibilityDefaults) {
   ConfigStore& store = andromeda::configStore();
   const uint64_t generation = store.generation();
 
-  CHECK(store.load(tree.path("config.toml").c_str()));
+  store.load(tree.path("config.toml").c_str());
   CHECK_EQ(store.generation(), generation + 1);
   CHECK(store.config().effects.presets.empty());
   CHECK(std::ranges::any_of(store.diagnostics(), [](const ConfigDiagnostic& diagnostic) {
@@ -3625,7 +4101,7 @@ ANDROMEDA_TEST(duplicateEffectPresetsInSiblingIncludesNameTheFirstSibling) {
     return;
   }
   CHECK(duplicate->severity == ConfigDiagnostic::Severity::Error);
-  CHECK(duplicate->message.ends_with("first.toml"));
+  CHECK(duplicate->message.contains(tree.path("first.toml").string() + ":1:"));
   CHECK(duplicate->file.ends_with("second.toml"));
 }
 
@@ -3650,6 +4126,799 @@ ANDROMEDA_TEST(bundledEffectPresetsDefineWithoutSelecting) {
   CHECK(pulse != nullptr && pulse->kind == andromeda::EffectKind::Border && pulse->light.has_value());
   const andromeda::EffectPreset* glow = andromeda::findEffectPreset(effects, "glow");
   CHECK(glow != nullptr && glow->kind == andromeda::EffectKind::Cursor && glow->radius > 0);
+}
+
+ANDROMEDA_TEST(effectPoolsPreserveDeclarationsAcrossNestedIncludesAndValidateMembersSafely) {
+  const TempConfigTree tree;
+  tree.write("nested.toml", R"(
+[effects.preset.zulu]
+kind = 'window'
+[effects.preset.alpha]
+kind = 'window'
+[effects.preset.'bad/name']
+kind = 'window'
+[effects.pool.zpool]
+kind = 'window'
+choose = ['zulu', 'missing', 'alpha', 'zulu', 2, '', 'off', 'apool', 'border', 'root']
+selection = 'round_robin'
+[effects.pool.apool]
+kind = 'window'
+choose = []
+)");
+  tree.write("middle.toml", R"(
+[include]
+files = ['nested.toml']
+[effects.preset.middle]
+kind = 'window'
+[effects.pool.middle]
+kind = 'window'
+choose = ['zulu']
+[effects.pool.mpool]
+kind = 'window'
+choose = ['root']
+selection = 'random'
+)");
+  tree.write("config.toml", R"(
+[include]
+files = ['middle.toml']
+[effects]
+window = 'zpool'
+[effects.preset.root]
+kind = 'window'
+[effects.preset.border]
+kind = 'border'
+overlay = 'zpool'
+[effects.pool.rpool]
+kind = 'window'
+choose = ['alpha']
+[[window_rule]]
+match.app_id = '^test$'
+window_effect = 'mpool'
+[animation.windows_in]
+effect = 'zpool'
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(tree.path("config.toml"), true);
+  CHECK(store.reload().success);
+  const auto& effects = store.config().effects;
+  std::vector<std::string> presets;
+  presets.reserve(effects.presets.size());
+  for (const auto& preset : effects.presets) {
+    presets.push_back(preset.name);
+  }
+  CHECK(presets == std::vector<std::string>({"zulu", "alpha", "middle", "root", "border"}));
+  std::vector<std::string> pools;
+  pools.reserve(effects.pools.size());
+  for (const auto& pool : effects.pools) {
+    pools.push_back(pool.name);
+  }
+  CHECK(pools == std::vector<std::string>({"zpool", "apool", "mpool", "rpool"}));
+  const auto* zpool = andromeda::findEffectPool(effects, "zpool");
+  CHECK(zpool != nullptr);
+  if (zpool) {
+    CHECK(zpool->members == std::vector<std::string>({"zulu", "alpha", "root"}));
+    CHECK(zpool->selection == andromeda::EffectSelectionPolicy::RoundRobin);
+  }
+  CHECK_EQ(effects.window, std::string("zpool"));
+  CHECK(store.config().windowRules[0].windowEffect == "mpool");
+  CHECK(store.config().animation.windowsIn.effect.empty());
+  CHECK(andromeda::findEffectPreset(effects, "border")->overlay.empty());
+  CHECK(containsDiagnostic(store, "duplicate member"));
+  CHECK(containsDiagnostic(store, "a preset is required"));
+  CHECK(containsDiagnostic(store, "action delimiter; rename"));
+  CHECK(containsDiagnostic(store, "pool is inert"));
+  CHECK(std::ranges::any_of(store.diagnostics(), [&](const auto& diagnostic) {
+    return diagnostic.message.contains("ignoring effects.pool.middle")
+        && diagnostic.message.contains(tree.path("middle.toml").string())
+        && diagnostic.file == tree.path("middle.toml").string()
+        && diagnostic.line > 0;
+  }));
+}
+
+ANDROMEDA_TEST(effectPoolRequiredFieldsAndNamesRejectMalformedDeclarations) {
+  const TempConfig file;
+  file.write(R"(
+[effects.pool.no_kind]
+choose = []
+[effects.pool.animation]
+kind = 'animation'
+choose = []
+[effects.pool.wrong_kind_type]
+kind = 2
+choose = []
+[effects.pool.no_choose]
+kind = 'border'
+[effects.pool.wrong_choose]
+kind = 'border'
+choose = 'ring'
+[effects.pool.wrong_choose_table]
+kind = 'border'
+choose = { member = 'ring' }
+[effects.pool.wrong_policy]
+kind = 'border'
+choose = []
+selection = 'round-robin'
+[effects.pool.wrong_policy_type]
+kind = 'border'
+choose = []
+selection = 42
+[effects.pool.off]
+kind = 'border'
+choose = []
+[effects.pool.'']
+kind = 'border'
+choose = []
+[effects.pool.'bad/name']
+kind = 'border'
+choose = []
+[effects.preset.'']
+kind = 'border'
+[effects.preset.'bad/name']
+kind = 'border'
+[effects.pool.empty]
+kind = 'border'
+choose = []
+[effects.pool.invalid_members]
+kind = 'border'
+choose = ['missing', 'off', '', false]
+[effects]
+border = 'invalid_members'
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  const auto& effects = store.config().effects;
+  CHECK_EQ(effects.pools.size(), size_t{2});
+  CHECK(effects.presets.empty());
+  CHECK_EQ(effects.border, std::string("invalid_members"));
+  for (const auto& pool : effects.pools) {
+    CHECK(pool.members.empty());
+    CHECK(pool.selection == andromeda::EffectSelectionPolicy::UnusedFirst);
+  }
+  CHECK(containsDiagnostic(store, "choose is required and must be an array"));
+  CHECK(containsDiagnostic(store, "selection must be unused_first|round_robin|random"));
+  CHECK(containsDiagnostic(store, "effect names must not be empty"));
+}
+
+ANDROMEDA_TEST(effectPoolSelectorsWorkForScreenCursorAndOutputRules) {
+  const TempConfig file;
+  file.write(R"(
+[effects]
+screen = 'screens'
+cursor = 'cursors'
+[effects.preset.screen]
+kind = 'screen'
+[effects.preset.cursor]
+kind = 'cursor'
+[effects.pool.screens]
+kind = 'screen'
+choose = ['screen']
+[effects.pool.cursors]
+kind = 'cursor'
+choose = ['cursor']
+[output.HEADLESS-1]
+screen_effect = 'screens'
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().effects.screen, std::string("screens"));
+  CHECK_EQ(store.config().effects.cursor, std::string("cursors"));
+  CHECK(store.config().outputs[0].screenEffect == "screens");
+}
+
+ANDROMEDA_TEST(duplicateEffectPoolsRejectReloadAndNameBothLocations) {
+  const TempConfigTree tree;
+  tree.write("theme.toml", "[effects.pool.shared]\nkind = 'border'\nchoose = []\n");
+  tree.write("config.toml", "[include]\nfiles = ['theme.toml']\n");
+  auto& store = andromeda::configStore();
+  store.setRootPath(tree.path("config.toml"), true);
+  CHECK(store.reload().success);
+  const auto previous = store.config();
+  tree.write("config.toml", "[include]\nfiles = ['theme.toml']\n[effects.pool.shared]\nkind = 'border'\nchoose = []\n");
+  CHECK(!store.reload().success);
+  CHECK(store.config() == previous);
+  CHECK(std::ranges::any_of(store.diagnostics(), [&](const auto& diagnostic) {
+    return diagnostic.severity == ConfigDiagnostic::Severity::Error
+        && diagnostic.file == tree.path("config.toml").string()
+        && diagnostic.message.contains("effects.pool.shared is also defined in")
+        && diagnostic.message.contains(tree.path("theme.toml").string());
+  }));
+}
+
+ANDROMEDA_TEST(effectPoolCollisionAcrossIncludesKeepsPresetRegardlessOfDeclarationOrder) {
+  const TempConfigTree tree;
+  for (bool poolFirst : {false, true}) {
+    const std::string preset = "[effects.preset.shared]\nkind = 'window'\n";
+    const std::string pool = "[effects.pool.shared]\nkind = 'window'\nchoose = []\n";
+    tree.write("theme.toml", poolFirst ? pool : preset);
+    tree.write(
+        "config.toml", "[include]\nfiles = ['theme.toml']\n[effects]\nwindow = 'shared'\n" + (poolFirst ? preset : pool)
+    );
+    auto& store = andromeda::configStore();
+    store.setRootPath(tree.path("config.toml"), true);
+    CHECK(store.reload().success);
+    CHECK(andromeda::findEffectPreset(store.config().effects, "shared") != nullptr);
+    CHECK(andromeda::findEffectPool(store.config().effects, "shared") == nullptr);
+    CHECK_EQ(store.config().effects.window, std::string("shared"));
+    CHECK(containsDiagnostic(store, "preset with this name declared at"));
+  }
+}
+
+ANDROMEDA_TEST(effectActionReferencesValidateKindsPoolsAndDisabledCorners) {
+  TempConfig file;
+  file.write(R"(
+[effects.preset.window]
+kind = 'window'
+[effects.preset.border]
+kind = 'border'
+[effects.pool.windows]
+kind = 'window'
+choose = ['window']
+[keybinds]
+'Mod+F1' = 'effect-window-set:window'
+'Mod+F2' = 'effect-window-set:windows'
+'Mod+F3' = 'effect-window-cycle:windows'
+'Mod+F4' = 'effect-window-set:missing'
+'Mod+F5' = 'effect-window-set:border'
+'Mod+F6' = 'effect-window-cycle:window'
+'Mod+F7' = 'effect-window-set:off'
+'Mod+F8' = 'effect-window-cycle'
+'submap[effects],F9' = 'effect-window-set:missing'
+'Mod+F10' = 'effect-window-set:window'
+'Mod+f10' = 'effect-window-set:missing'
+[hot_corners.top_left]
+enabled = false
+action = 'effect-screen-set:window'
+[hot_corners.top_right]
+enabled = true
+action = 'effect-window-cycle:windows'
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+F4'"));
+  CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+F5'"));
+  CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+F6'"));
+  CHECK(containsDiagnostic(store, "ignoring keybind 'submap[effects],F9'"));
+  CHECK(containsDiagnostic(store, "ignoring hot_corners.top_left.action"));
+  CHECK(!store.config().hotCorners.corners[0].action);
+  CHECK(store.config().hotCorners.corners[1].action.has_value());
+  size_t valid = 0;
+  for (const auto& bind : store.config().keybinds) {
+    if (bind.action == andromeda::KeybindAction::EffectWindowSet
+        || bind.action == andromeda::KeybindAction::EffectWindowCycle) {
+      ++valid;
+      const auto reference = andromeda::effectActionReference(bind);
+      CHECK(!reference || reference->name == "window" || reference->name == "windows");
+    }
+  }
+  // Six, not five: a rejected spelling of a chord leaves its valid spelling bound, as every other rejected bind does.
+  CHECK_EQ(valid, size_t{6});
+  CHECK(containsDiagnostic(store, "ignoring keybind 'Mod+f10'"));
+  CHECK(std::ranges::any_of(store.diagnostics(), [&](const auto& diagnostic) {
+    return diagnostic.file == file.path().string() && diagnostic.message.contains("Mod+F4");
+  }));
+}
+
+ANDROMEDA_TEST(replacedEffectActionsLeaveNoReferencesOrDiagnostics) {
+  TempConfig file;
+  file.writeInclude(R"(
+[keybinds]
+'Mod+F1' = 'effect-window-set:missing'
+[hot_corners.top_left]
+action = 'effect-cursor-set:missing'
+)");
+  file.write("[include]\nfiles = ['" + file.includeName() + "']\n" + R"(
+[effects.preset.window]
+kind = 'window'
+[keybinds]
+'Mod+F1' = 'effect-window-set:window'
+[hot_corners.top_left]
+enabled = false
+action = 'effect-window-set:window'
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(!containsDiagnostic(store, "missing"));
+  CHECK(store.config().hotCorners.corners[0].action.has_value());
+  CHECK(andromeda::effectActionReference(*store.config().hotCorners.corners[0].action)->name == "window");
+}
+
+ANDROMEDA_TEST(replaceAdoptsTheNewFileAndPinsLaterReloadsToIt) {
+  const TempConfigTree tree;
+  tree.write("old.toml", "[layout]\ngap = 17\n");
+  tree.write("new.toml", "[layout]\ngap = 23\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("old.toml").c_str());
+  const uint64_t generation = store.generation();
+
+  std::string errors;
+  const andromeda::ConfigReloadResult result = store.replace(tree.path("new.toml"), errors);
+
+  CHECK(result.success);
+  CHECK(errors.empty());
+  CHECK_EQ(store.rootPath(), tree.path("new.toml"));
+  CHECK_EQ(store.config().layout.gap, 23);
+  CHECK_EQ(store.generation(), generation + 1);
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("new.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("old.toml")) == store.watchPaths().end());
+
+  tree.write("new.toml", "[layout]\ngap = 31\n");
+  tree.write("old.toml", "[layout]\ngap = 99\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.rootPath(), tree.path("new.toml"));
+  CHECK_EQ(store.config().layout.gap, 31);
+}
+
+ANDROMEDA_TEST(replaceMovesTheWatchSetToTheNewFileAndItsIncludes) {
+  const TempConfigTree tree;
+  tree.write("old_inc.toml", "[layout]\ngap = 5\n");
+  tree.write("old_config.toml", "[include]\nfiles = [\"old_inc.toml\"]\n");
+  tree.write("new_inc.toml", "[layout]\ngap = 6\n");
+  tree.write("new_config.toml", "[include]\nfiles = [\"new_inc.toml\"]\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("old_config.toml").c_str());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("old_config.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("old_inc.toml")) != store.watchPaths().end());
+
+  std::string errors;
+  CHECK(store.replace(tree.path("new_config.toml"), errors).success);
+
+  CHECK_EQ(store.config().layout.gap, 6);
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("new_config.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("new_inc.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("old_config.toml")) == store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("old_inc.toml")) == store.watchPaths().end());
+}
+
+ANDROMEDA_TEST(replaceAcceptsAFileThatOnlyProducesWarnings) {
+  const TempConfigTree tree;
+  tree.write("live.toml", "[layout]\ngap = 17\n");
+  tree.write("warn.toml", "invalid_key = true\n[layout]\ngap = 23\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("live.toml").c_str());
+
+  std::string errors;
+  const andromeda::ConfigReloadResult result = store.replace(tree.path("warn.toml"), errors);
+
+  CHECK(result.success);
+  CHECK(errors.empty());
+  CHECK_EQ(store.rootPath(), tree.path("warn.toml"));
+  CHECK_EQ(store.config().layout.gap, 23);
+  CHECK(containsDiagnostic(store, "unknown key invalid_key"));
+}
+
+ANDROMEDA_TEST(replaceRejectsAMissingFileAndLeavesTheLiveStateUntouched) {
+  const TempConfigTree tree;
+  tree.write("live.toml", "[layout]\ngap = 17\n");
+  const std::filesystem::path missing = tree.path("missing.toml");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("live.toml").c_str());
+  const uint64_t generation = store.generation();
+
+  std::string errors;
+  const andromeda::ConfigReloadResult result = store.replace(missing, errors);
+
+  CHECK(!result.success);
+  CHECK(errors.contains("config file not found: " + missing.string()));
+  CHECK_EQ(store.config().layout.gap, 17);
+  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.rootPath(), tree.path("live.toml"));
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("live.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), missing) == store.watchPaths().end());
+
+  // The original file still drives reloads.
+  tree.write("live.toml", "[layout]\ngap = 19\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.rootPath(), tree.path("live.toml"));
+  CHECK_EQ(store.config().layout.gap, 19);
+}
+
+ANDROMEDA_TEST(replaceRejectsABrokenFileAndLeavesTheLiveStateUntouched) {
+  const TempConfigTree tree;
+  tree.write("live.toml", "[layout]\ngap = 17\n");
+  tree.write("broken.toml", "[layout\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("live.toml").c_str());
+  const uint64_t generation = store.generation();
+
+  std::string errors;
+  const andromeda::ConfigReloadResult malformed = store.replace(tree.path("broken.toml"), errors);
+
+  CHECK(!malformed.success);
+  CHECK(!errors.empty());
+  CHECK_EQ(store.config().layout.gap, 17);
+  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.missingIncludes(), false);
+  CHECK_EQ(store.fileMissing(), false);
+  CHECK_EQ(store.rootPath(), tree.path("live.toml"));
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("live.toml")) != store.watchPaths().end());
+  CHECK(std::ranges::find(store.watchPaths(), tree.path("broken.toml")) == store.watchPaths().end());
+}
+
+ANDROMEDA_TEST(replaceRejectsSemanticErrorsAndPreservesTheLiveState) {
+  const TempConfigTree tree;
+  tree.write("live.toml", "unknown_key = true\n[include]\nfiles = [\"pending.toml\"]\n[layout]\ngap = 17\n");
+  tree.write("rejected_inc.toml", "[layout]\ngap = 80\n");
+  tree.write("invalid.toml", "[include]\nfiles = [\"rejected_inc.toml\"]\n[[workspace]]\nname = \"chat\"\nindex = 3\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(tree.path("live.toml").c_str());
+  CHECK(store.missingIncludes());
+  const auto previousConfig = store.config();
+  const auto previousDiagnostics = store.diagnostics();
+  const auto previousWatchPaths = store.watchPaths();
+  const uint64_t generation = store.generation();
+
+  std::string errors;
+  const andromeda::ConfigReloadResult result = store.replace(tree.path("invalid.toml"), errors);
+
+  CHECK(!result.success);
+  CHECK(errors.contains(tree.path("invalid.toml").string()));
+  CHECK(store.config() == previousConfig);
+  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.rootPath(), tree.path("live.toml"));
+  CHECK(store.missingIncludes());
+  CHECK(!store.fileMissing());
+  CHECK(store.watchPaths() == previousWatchPaths);
+  CHECK(
+      std::ranges::equal(
+          store.diagnostics(), previousDiagnostics,
+          [](const ConfigDiagnostic& current, const ConfigDiagnostic& previous) {
+            return current.severity == previous.severity
+                && current.message == previous.message
+                && current.file == previous.file
+                && current.line == previous.line
+                && current.column == previous.column;
+          }
+      )
+  );
+
+  tree.write("live.toml", "[layout]\ngap = 19\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.rootPath(), tree.path("live.toml"));
+  CHECK_EQ(store.config().layout.gap, 19);
+}
+
+ANDROMEDA_TEST(replaceRejectionRestoresPendingMissingIncludes) {
+  const TempConfig file;
+  file.write("[include]\nfiles = [\"" + file.includeName() + "\"]\n");
+
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  store.load(file.path().c_str());
+  const uint64_t generation = store.generation();
+  CHECK(store.missingIncludes());
+
+  std::string errors;
+  CHECK(!store.replace(file.path().parent_path() / "no-such-config.toml", errors).success);
+
+  CHECK(store.missingIncludes());
+  CHECK(!errors.empty());
+  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.fileMissing(), false);
+}
+
+ANDROMEDA_TEST(replaceRejectionDoesNotDisturbAnImplicitStore) {
+  const TempConfigTree tree;
+  const std::filesystem::path userHome = tree.path("user");
+  const std::filesystem::path systemDir = tree.path("system");
+  tree.write("system/andromeda/config.toml", "[layout]\ngap = 17\n");
+  const ScopedEnvironment configHome("XDG_CONFIG_HOME", userHome.string());
+  const ScopedEnvironment configDirs("XDG_CONFIG_DIRS", systemDir.string());
+
+  ConfigStore& store = andromeda::configStore();
+  store.load(nullptr);
+  const uint64_t generation = store.generation();
+
+  std::string errors;
+  CHECK(!store.replace(tree.path("missing.toml"), errors).success);
+  CHECK(!errors.empty());
+  CHECK_EQ(store.generation(), generation);
+  CHECK_EQ(store.missingIncludes(), false);
+  CHECK_EQ(store.fileMissing(), false);
+  CHECK_EQ(store.rootPath(), tree.path("system/andromeda/config.toml"));
+
+  tree.write("user/andromeda/config.toml", "[layout]\ngap = 19\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.rootPath(), userHome / "andromeda/config.toml");
+  CHECK_EQ(store.config().layout.gap, 19);
+}
+
+ANDROMEDA_TEST(titleBarConfigurationUsesTheDocumentedKeys) {
+  const TempConfig file;
+  file.write(R"(
+[appearance.title_bar]
+mode = "forced"
+height = 42
+font = "sans 12"
+button_position = "left"
+button_corner_radius = 4
+[colors.title_bar]
+background = "#FF0000FF"
+background_unfocused = "#00FF00FF"
+text = "#0000FFFF"
+text_unfocused = "#FF00FFFF"
+close = "#FFFF00FF"
+maximize = "#00FFFFFF"
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(store.diagnostics().empty());
+  const auto& bar = store.config().appearance.titleBar;
+  CHECK_EQ(bar.mode, andromeda::TitleBarMode::Forced);
+  CHECK_EQ(bar.height, 42);
+  CHECK_EQ(bar.font, std::string("sans 12"));
+  CHECK_EQ(bar.buttonPosition, andromeda::TitleBarButtonSide::Left);
+  CHECK_EQ(bar.buttonCornerRadius, 4);
+  const auto& colors = store.config().colors.titleBar;
+  CHECK_EQ(colors.background[0], 1.0F);
+  CHECK_EQ(colors.backgroundUnfocused[1], 1.0F);
+  CHECK_EQ(colors.text[2], 1.0F);
+  CHECK_EQ(colors.textUnfocused[0], 1.0F);
+  CHECK_EQ(colors.close[1], 1.0F);
+  CHECK_EQ(colors.maximize[2], 1.0F);
+}
+
+ANDROMEDA_TEST(titleBarInvalidValuesAreClaimedAndDiagnosed) {
+  const TempConfig file;
+  file.write(R"(
+[appearance.title_bar]
+mode = "always"
+height = 500
+font = 123
+button_position = "middle"
+button_corner_radius = 500
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().appearance.titleBar.height, 128);
+  CHECK_EQ(store.config().appearance.titleBar.buttonPosition, andromeda::TitleBarButtonSide::Right);
+  CHECK_EQ(store.config().appearance.titleBar.buttonCornerRadius, 100);
+  CHECK(containsDiagnostic(store, "appearance.title_bar.height = 500 out of range, clamped to 128"));
+  CHECK(containsDiagnostic(store, "appearance.title_bar.button_position"));
+  CHECK(containsDiagnostic(store, "appearance.title_bar.button_corner_radius"));
+  CHECK(containsDiagnostic(store, "appearance.title_bar.mode"));
+  CHECK(containsDiagnostic(store, "expected string"));
+  CHECK(!containsDiagnostic(store, "unknown key"));
+}
+
+ANDROMEDA_TEST(titleBarButtonRadiusHasValidatedBounds) {
+  const TempConfig file;
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  file.write("[appearance.title_bar]\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().appearance.titleBar.buttonCornerRadius, -1);
+  for (const auto& [value, expected] :
+       std::array<std::pair<std::string_view, int>, 4>{{{"-1", -1}, {"0", 0}, {"4", 4}, {"-2", -1}}}) {
+    file.write(std::format("[appearance.title_bar]\nbutton_corner_radius = {}\n", value));
+    CHECK(store.reload().success);
+    CHECK_EQ(store.config().appearance.titleBar.buttonCornerRadius, expected);
+    CHECK(!containsDiagnostic(store, "unknown key"));
+    if (value == "-2")
+      CHECK(containsDiagnostic(store, "appearance.title_bar.button_corner_radius"));
+    else
+      CHECK(store.diagnostics().empty());
+  }
+  for (const std::string_view value : {"\"round\"", "0.5"}) {
+    file.write(std::format("[appearance.title_bar]\nbutton_corner_radius = {}\n", value));
+    CHECK(store.reload().success);
+    CHECK_EQ(store.config().appearance.titleBar.buttonCornerRadius, -1);
+    CHECK(containsDiagnostic(store, "appearance.title_bar.button_corner_radius"));
+    CHECK(!containsDiagnostic(store, "unknown key"));
+  }
+}
+
+ANDROMEDA_TEST(titleBarModesUseStrictVocabulary) {
+  const TempConfig file;
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  file.write("");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  for (const auto& [name, mode] :
+       {std::pair{"forced", andromeda::TitleBarMode::Forced}, std::pair{"on", andromeda::TitleBarMode::On},
+        std::pair{"off", andromeda::TitleBarMode::Off}, std::pair{"negotiated", andromeda::TitleBarMode::Negotiated}}) {
+    file.write(std::string("[appearance.title_bar]\nmode = \"") + name + "\"\n");
+    CHECK(store.reload().success);
+    CHECK(store.diagnostics().empty());
+    CHECK_EQ(store.config().appearance.titleBar.mode, mode);
+  }
+  for (const auto name : {"auto", "force", "on-demand"}) {
+    file.write(std::string("[appearance.title_bar]\nmode = \"") + name + "\"\n");
+    CHECK(store.reload().success);
+    CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+    CHECK(containsDiagnostic(store, "appearance.title_bar.mode"));
+    CHECK(!containsDiagnostic(store, "unknown key"));
+  }
+  file.write("[appearance.title_bar]\nmode = true\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK(containsDiagnostic(store, "appearance.title_bar.mode"));
+  CHECK(!containsDiagnostic(store, "unknown key"));
+  file.write("[appearance.title_bar]\nenabled = true\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK(containsDiagnostic(store, "unknown key appearance.title_bar.enabled"));
+}
+
+ANDROMEDA_TEST(titleBarRuleChoicesAreStrict) {
+  const TempConfig file;
+  file.write(R"(
+[[window_rule]]
+title_bar = "forced"
+[[window_rule]]
+title_bar = "off"
+[[window_rule]]
+title_bar = "on"
+[[window_rule]]
+title_bar = "negotiated"
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(store.diagnostics().empty());
+  CHECK_EQ(store.config().windowRules.size(), size_t{4});
+  CHECK_EQ(store.config().windowRules[0].titleBar, andromeda::TitleBarMode::Forced);
+  CHECK_EQ(store.config().windowRules[1].titleBar, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().windowRules[2].titleBar, andromeda::TitleBarMode::On);
+  CHECK_EQ(store.config().windowRules[3].titleBar, andromeda::TitleBarMode::Negotiated);
+  file.write(R"(
+[[window_rule]]
+title_bar = true
+[[window_rule]]
+title_bar = "always"
+[[window_rule]]
+title_bar = "auto"
+[[window_rule]]
+title_bar = "force"
+)");
+  CHECK(store.reload().success);
+  CHECK(!store.config().windowRules[0].titleBar.has_value());
+  CHECK(!store.config().windowRules[1].titleBar.has_value());
+  CHECK(!store.config().windowRules[2].titleBar.has_value());
+  CHECK(!store.config().windowRules[3].titleBar.has_value());
+  CHECK(containsDiagnostic(store, "window_rule[0].title_bar"));
+  CHECK(containsDiagnostic(store, "window_rule[1].title_bar"));
+  CHECK(containsDiagnostic(store, "window_rule[2].title_bar"));
+  CHECK(containsDiagnostic(store, "window_rule[3].title_bar"));
+  CHECK(!containsDiagnostic(store, "unknown key"));
+}
+
+ANDROMEDA_TEST(titleBarButtonsKeepOrderAndSkipBadEntries) {
+  using andromeda::TitleBarButton;
+  using Buttons = std::vector<TitleBarButton>;
+  const Buttons defaults{TitleBarButton::Minimize, TitleBarButton::Maximize, TitleBarButton::Close};
+  const Buttons reordered{TitleBarButton::Close, TitleBarButton::Minimize};
+  const Buttons cleaned{TitleBarButton::Maximize, TitleBarButton::Close};
+  const TempConfig file;
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  file.write("");
+  CHECK(store.reload().success);
+  CHECK(store.config().appearance.titleBar.buttons == defaults);
+  file.write("[appearance.title_bar]\nbuttons = [\"close\", \"minimize\"]\n");
+  CHECK(store.reload().success);
+  CHECK(store.diagnostics().empty());
+  CHECK(store.config().appearance.titleBar.buttons == reordered);
+  file.write("[appearance.title_bar]\nbuttons = []\n");
+  CHECK(store.reload().success);
+  CHECK(store.diagnostics().empty());
+  CHECK(store.config().appearance.titleBar.buttons.empty());
+  file.write("[appearance.title_bar]\nbuttons = [\"maximize\", \"shade\", \"maximize\", 3, \"close\"]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().appearance.titleBar.buttons == cleaned);
+  CHECK(containsDiagnostic(store, "ignoring repeated appearance.title_bar.buttons entry \"maximize\""));
+  CHECK(containsDiagnostic(store, "ignoring appearance.title_bar.buttons entry"));
+  file.write("[appearance.title_bar]\nbuttons = \"close\"\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().appearance.titleBar.buttons == defaults);
+  CHECK(containsDiagnostic(store, "appearance.title_bar.buttons"));
+  CHECK(!containsDiagnostic(store, "unknown key"));
+}
+
+ANDROMEDA_TEST(titleBarButtonsRuleOverridesOnlyWhenSet) {
+  using andromeda::TitleBarButton;
+  using Buttons = std::vector<TitleBarButton>;
+  const Buttons none;
+  const Buttons closeOnly{TitleBarButton::Close};
+  const TempConfig file;
+  file.write(R"(
+[[window_rule]]
+match.app_id = "^bare$"
+title_bar_buttons = []
+[[window_rule]]
+match.app_id = "^bare$"
+title_bar = "forced"
+[[window_rule]]
+match.app_id = "^dialog$"
+title_bar_buttons = ["close"]
+)");
+  auto& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(store.diagnostics().empty());
+  const auto resolve = [&](const char* appId) {
+    return andromeda::resolveWindowRules(store.config(), appId, "title", std::nullopt, andromeda::ContentType::None, {}, 0);
+  };
+  // A later rule without the key leaves the earlier override in place.
+  CHECK(resolve("bare").titleBarButtons == none);
+  CHECK(resolve("dialog").titleBarButtons == closeOnly);
+  CHECK(!resolve("other").titleBarButtons.has_value());
+}
+
+ANDROMEDA_TEST(floatingLayoutLoadsGloballyAndPerWorkspace) {
+  const TempConfig file;
+  file.write(R"(
+[layout]
+mode = "floating"
+[[workspace]]
+name = "desk"
+layout.mode = "floating"
+)");
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.mode == LayoutMode::Floating);
+  CHECK_EQ(store.config().workspaceRules.size(), size_t{1});
+  CHECK(store.config().workspaceRules[0].layout.mode == LayoutMode::Floating);
+}
+
+ANDROMEDA_TEST(windowSnappingDefaultsOnAndRejectsNonBooleans) {
+  const TempConfig file;
+  file.write("[input]\n");
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+  CHECK(store.reload().success);
+  CHECK(store.config().input.windowSnapping);
+  file.write("[input]\nwindow_snapping = false\n");
+  CHECK(store.reload().success);
+  CHECK(!store.config().input.windowSnapping);
+  file.write("[input]\nwindow_snapping = 1\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().input.windowSnapping);
+  CHECK(containsDiagnostic(store, "input.window_snapping"));
+}
+
+ANDROMEDA_TEST(wideScrollingExtentsLoadUpToTheWideCeiling) {
+  const TempConfig file;
+  ConfigStore& store = andromeda::configStore();
+  store.setRootPath(file.path(), true);
+
+  // Presets above 1.0 load unclamped: scrolling columns may span several viewports.
+  file.write("[layout]\nextent_presets = [0.5, 2.0]\n");
+  CHECK(store.reload().success);
+  CHECK_EQ(store.config().layout.extentPresets.size(), size_t{2});
+  CHECK(store.config().layout.extentPresets[1] == 2.0);
+
+  // Beyond the wide ceiling clamps with the usual diagnostic.
+  file.write("[layout]\nextent_presets = [0.5, 9.0]\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.extentPresets[1] == 4.0);
+  CHECK(containsDiagnostic(store, "layout.extent_presets"));
+
+  file.write("[layout.scrolling]\ndefault_extent_fraction = 2.0\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().layout.scrolling.defaultExtentFraction.value_or(0.0) == 2.0);
+
+  file.write("[output.DP-1.layout.scrolling]\ndefault_extent_fraction = 1.5\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().outputs[0].layout.scrolling.defaultExtentFraction.value_or(0.0) == 1.5);
+
+  file.write("[[window_rule]]\nmatch.app_id = \"^wide$\"\ndefault_scrolling_extent = 1.5\n");
+  CHECK(store.reload().success);
+  CHECK(store.config().windowRules[0].defaultScrollingExtent.value_or(0.0) == 1.5);
 }
 
 int main() { return RUN_TESTS(); }

@@ -7,24 +7,39 @@
 // With ACTIVATION_TOKEN_FILE set, an `a` command reads and uses that token. A `c` command requests an ordinary client
 // token instead. An `i` command requests a token from the latest focused key press and writes it to that file. When the
 // surface is hidden, `a` or `c` queues activation before the remap commit.
+// ACTIVATE_ON_START uses the inherited XDG_ACTIVATION_TOKEN before the initial surface commit.
+// MAP_ON_STDIN creates the toplevel role, prints "map-pending", then waits for one byte before its initial commit.
 // CONTENT_TYPE sets a surface hint before its initial commit. CONTENT_TYPE_ON_SUBSURFACE places it on a rendering
-// child. XDG_TAG sets a toplevel tag before the initial commit.
-// CONTENT_TYPE_AFTER_MAP, XDG_TAG_AFTER_MAP, and TITLE_AFTER_MAP update their metadata on stdin. NO_TITLE never sets a
-// title at all. With TRANSIENT_SUITE, TRANSIENT_PARENT_SIZE=<width>x<height> gives the parent its own size.
+// child. With only CONTENT_TYPE_AFTER_MAP, that child is created when stdin triggers the update, matching Wine's
+// late rendering-surface attachment. XDG_TAG sets a toplevel tag before the initial commit.
+// CONTENT_TYPE_AFTER_MAP, XDG_TAG_AFTER_MAP, and TITLE_AFTER_MAP update their metadata on a `u` command. A `t` command
+// updates only TITLE_AFTER_MAP, allowing checks to sequence title and content hints. NO_TITLE never sets a title at
+// all. With TRANSIENT_SUITE, TRANSIENT_PARENT_SIZE=<width>x<height> gives the parent its own size,
+// TRANSIENT_MODAL makes this toplevel a modal dialog of it, and EXPORT_PARENT exports the parent through xdg-foreign
+// and prints the handle. TRANSIENT_DIALOG_ON_STDIN gives this toplevel an xdg-dialog-v1 object, modal only with
+// TRANSIENT_MODAL, that `m` on stdin makes modal, `n` makes non-modal, and `x` destroys. TRANSIENT_NESTED_ON_STDIN
+// maps a modal dialog titled transient-nested before this toplevel, without a parent until `p` on stdin sets this one
+// and prints "nested-parent-set" once the compositor has it.
 // TRANSIENT_SUITE=mapped-together maps the parent and this toplevel in one flush, parenting from the first configure
-// so the compositor maps both in the same dispatch. TRANSIENT_FOREIGN_HANDLE=<handle> parents this toplevel to
-// another client's exported toplevel, the way a portal dialog is parented.
+// so the compositor maps both in the same dispatch. TRANSIENT_FOREIGN_HANDLE=<handle> parents this toplevel to another
+// client's exported toplevel, the way a portal dialog is parented.
 // TRANSIENT_FOREIGN_PARENT_ON_STDIN delays that parent request until `p` is read
 // from stdin, after the child has mapped.
+// FOLLOW_CONFIGURES maps at its own size, then redraws at every later configured size, as a real client would; by
+// default the window keeps its own size.
 // FULLSCREEN_ON_STDIN makes `f` request fullscreen and `u` request windowed state.
+// REPAINT_ON_STDIN makes R/G/B request a frame callback, then commit a fresh red/green/blue buffer.
 // FILL_COLOR=<ARGB> paints the buffer that colour (default 0xFF5577AA), so screenshots can tell windows apart.
 // RESIZE_FILL_COLOR=<ARGB> maps at the first configured size, then redraws at every later configured size in that
 // colour, the way a real client follows its tile.
+// LOG_SUSPENDED binds xdg-shell at version 6 and prints "suspended" and "resumed" whenever the toplevel's suspended
+// state changes.
 
 #include "color-management-v1-client-protocol.h"
 #include "content-type-v1-client-protocol.h"
 #include "tearing-control-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
+#include "xdg-dialog-v1-client-protocol.h"
 #include "xdg-foreign-unstable-v2-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 #include "xdg-toplevel-tag-v1-client-protocol.h"
@@ -80,6 +95,8 @@ namespace {
     xdg_wm_base* wmBase = nullptr;
     xdg_activation_v1* activation = nullptr;
     xdg_toplevel_tag_manager_v1* xdgTagManager = nullptr;
+    xdg_wm_dialog_v1* dialogManager = nullptr;
+    zxdg_exporter_v2* exporter = nullptr;
     zxdg_importer_v2* importer = nullptr;
     wp_content_type_manager_v1* contentTypeManager = nullptr;
     wp_content_type_v1* contentType = nullptr;
@@ -101,6 +118,8 @@ namespace {
     int width = 64;
     int height = 64;
     bool mapped = false;
+    wl_callback* repaintFrame = nullptr;
+    uint32_t repaintColor = 0;
     bool closed = false;
     bool redrawOnClose = false;
     bool redrawOnceOnClose = false;
@@ -112,7 +131,11 @@ namespace {
     bool requestMaximizedAfterFrame = false;
     bool maximizeRequested = false;
     bool logConfigures = false;
+    bool logSuspended = false;
+    bool logWmCapabilities = false;
+    bool suspended = false;
     xdg_toplevel* parentOnFirstConfigure = nullptr;
+    bool followConfigures = false;
     bool requestFullscreen = false;
     bool fullscreenRequested = false;
     bool requestHdr = false;
@@ -130,7 +153,9 @@ namespace {
     bool colorManagerDone = false;
     bool imageDescriptionReady = false;
     bool imageDescriptionFailed = false;
-    bool metadataUpdated = false;
+    bool contentTypeUpdated = false;
+    bool xdgTagUpdated = false;
+    bool titleUpdated = false;
     int tearingHint = -1;
     uint32_t fillColor = 0xFF5577AA;
     std::optional<uint32_t> resizeFillColor;
@@ -290,6 +315,29 @@ namespace {
     return buffer;
   }
 
+  void destroyBuffer(Buffer& buffer);
+
+  void repaintFrameDone(void* data, wl_callback* callback, uint32_t /*time*/) {
+    auto& state = *static_cast<State*>(data);
+    wl_callback_destroy(callback);
+    state.repaintFrame = nullptr;
+    state.fillColor = state.repaintColor;
+    Buffer next = createBuffer(state, state.width, state.height);
+    if (next.resource == nullptr) {
+      std::exit(EXIT_FAILURE);
+    }
+    wl_surface_attach(state.surface, next.resource, 0, 0);
+    wl_surface_damage_buffer(state.surface, 0, 0, state.width, state.height);
+    wl_surface_commit(state.surface);
+    destroyBuffer(state.buffer);
+    state.buffer = next;
+    wl_display_flush(state.display);
+    std::println("repainted {}", state.fillColor);
+    std::fflush(stdout);
+  }
+
+  constexpr wl_callback_listener kRepaintListener = {.done = repaintFrameDone};
+
   void auxiliaryXdgSurfaceConfigure(void* data, xdg_surface* xdgSurface, uint32_t serial) {
     auto& window = *static_cast<AuxiliaryToplevel*>(data);
     xdg_surface_ack_configure(xdgSurface, serial);
@@ -319,11 +367,41 @@ namespace {
     wl_surface_commit(window.surface);
   }
 
+  // Sent only to a toplevel bound at version 4 and 5 or later, which LOG_SUSPENDED asks for.
+  void toplevelConfigureBounds(void*, xdg_toplevel*, int32_t, int32_t) {}
+  void auxiliaryToplevelWmCapabilities(void*, xdg_toplevel*, wl_array*) {}
+  void toplevelWmCapabilities(void* data, xdg_toplevel*, wl_array* capabilities) {
+    auto& state = *static_cast<State*>(data);
+    if (!state.logWmCapabilities) {
+      return;
+    }
+    const auto* values = static_cast<const uint32_t*>(capabilities->data);
+    const size_t count = capabilities->size / sizeof(uint32_t);
+    for (size_t index = 0; index < count; ++index) {
+      switch (values[index]) {
+      case XDG_TOPLEVEL_WM_CAPABILITIES_WINDOW_MENU:
+        std::println("wm-capability=window-menu");
+        break;
+      case XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE:
+        std::println("wm-capability=maximize");
+        break;
+      case XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN:
+        std::println("wm-capability=fullscreen");
+        break;
+      case XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE:
+        std::println("wm-capability=minimize");
+        break;
+      }
+    }
+    std::println("wm-capabilities-done");
+    std::fflush(stdout);
+  }
+
   constexpr xdg_toplevel_listener kAuxiliaryToplevelListener = {
       .configure = auxiliaryToplevelConfigure,
       .close = auxiliaryToplevelClose,
-      .configure_bounds = nullptr,
-      .wm_capabilities = nullptr,
+      .configure_bounds = toplevelConfigureBounds,
+      .wm_capabilities = auxiliaryToplevelWmCapabilities,
   };
 
   bool createAuxiliaryToplevel(State& state, AuxiliaryToplevel& window, const char* title, int width, int height) {
@@ -373,15 +451,18 @@ namespace {
 
   constexpr wl_callback_listener kMaximizeAfterFrameListener = {.done = maximizeAfterFrameDone};
 
+  void exportedHandle(void*, zxdg_exported_v2*, const char* handle) { std::println("exported handle={}", handle); }
+  constexpr zxdg_exported_v2_listener kExportedListener = {.handle = exportedHandle};
+
   void xdgSurfaceConfigure(void* data, xdg_surface* xdgSurface, uint32_t serial) {
     auto& state = *static_cast<State*>(data);
     xdg_surface_ack_configure(xdgSurface, serial);
-    const bool followSize = state.resizeFillColor
+    const bool followSize = (state.resizeFillColor || (state.followConfigures && state.mapped))
         && state.configuredWidth > 0
         && state.configuredHeight > 0
         && (state.configuredWidth != state.width || state.configuredHeight != state.height);
     if (followSize) {
-      if (state.mapped) {
+      if (state.mapped && state.resizeFillColor) {
         state.fillColor = *state.resizeFillColor;
       }
       state.width = state.configuredWidth;
@@ -450,14 +531,20 @@ namespace {
     }
     const auto* configured = static_cast<const uint32_t*>(states->data);
     const size_t count = states->size / sizeof(uint32_t);
+    bool suspended = false;
     for (size_t index = 0; index < count; ++index) {
       fullscreen = fullscreen || configured[index] == XDG_TOPLEVEL_STATE_FULLSCREEN;
+      suspended = suspended || configured[index] == XDG_TOPLEVEL_STATE_SUSPENDED;
       if (configured[index] == XDG_TOPLEVEL_STATE_MAXIMIZED) {
         std::println("configured-maximized");
       }
     }
     if (state.logConfigures) {
       std::println("configured-state={}x{} {}", width, height, fullscreen ? "fullscreen" : "windowed");
+    }
+    if (state.logSuspended && suspended != state.suspended) {
+      state.suspended = suspended;
+      std::println("{}", suspended ? "suspended" : "resumed");
     }
     std::fflush(stdout);
   }
@@ -518,8 +605,8 @@ namespace {
   constexpr xdg_toplevel_listener kToplevelListener = {
       .configure = toplevelConfigure,
       .close = toplevelClose,
-      .configure_bounds = nullptr,
-      .wm_capabilities = nullptr,
+      .configure_bounds = toplevelConfigureBounds,
+      .wm_capabilities = toplevelWmCapabilities,
   };
 
   void wmBasePing(void*, xdg_wm_base* wmBase, uint32_t serial) { xdg_wm_base_pong(wmBase, serial); }
@@ -538,8 +625,10 @@ namespace {
     } else if (std::strcmp(interface, wl_shm_interface.name) == 0) {
       state.shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
     } else if (std::strcmp(interface, xdg_wm_base_interface.name) == 0) {
-      state.wmBase =
-          static_cast<xdg_wm_base*>(wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, 1U)));
+      const uint32_t wanted = state.logSuspended ? 6U : (state.logWmCapabilities ? 5U : 1U);
+      state.wmBase = static_cast<xdg_wm_base*>(
+          wl_registry_bind(registry, name, &xdg_wm_base_interface, std::min(version, wanted))
+      );
       xdg_wm_base_add_listener(state.wmBase, &kWmBaseListener, &state);
     } else if (std::strcmp(interface, xdg_activation_v1_interface.name) == 0) {
       state.activation = static_cast<xdg_activation_v1*>(
@@ -549,6 +638,12 @@ namespace {
       state.xdgTagManager = static_cast<xdg_toplevel_tag_manager_v1*>(
           wl_registry_bind(registry, name, &xdg_toplevel_tag_manager_v1_interface, std::min(version, 1U))
       );
+    } else if (std::strcmp(interface, xdg_wm_dialog_v1_interface.name) == 0) {
+      state.dialogManager = static_cast<xdg_wm_dialog_v1*>(
+          wl_registry_bind(registry, name, &xdg_wm_dialog_v1_interface, std::min(version, 1U))
+      );
+    } else if (std::strcmp(interface, zxdg_exporter_v2_interface.name) == 0) {
+      state.exporter = static_cast<zxdg_exporter_v2*>(wl_registry_bind(registry, name, &zxdg_exporter_v2_interface, 1));
     } else if (std::strcmp(interface, zxdg_importer_v2_interface.name) == 0) {
       state.importer = static_cast<zxdg_importer_v2*>(wl_registry_bind(registry, name, &zxdg_importer_v2_interface, 1));
     } else if (std::strcmp(interface, wp_content_type_manager_v1_interface.name) == 0) {
@@ -586,6 +681,21 @@ namespace {
     }
   }
 
+  bool activateWithToken(State& state, const char* token) {
+    if (state.activation == nullptr) {
+      std::println(stderr, "unmap-client: compositor is missing xdg_activation_v1");
+      return false;
+    }
+    if (token == nullptr || token[0] == '\0') {
+      std::println(stderr, "unmap-client: activation token is empty");
+      return false;
+    }
+    xdg_activation_v1_activate(state.activation, token, state.surface);
+    std::println("activation-sent");
+    std::fflush(stdout);
+    return true;
+  }
+
   bool activateFromFile(State& state, const char* path) {
     if (path == nullptr) {
       std::println(stderr, "unmap-client: activation command needs ACTIVATION_TOKEN_FILE");
@@ -604,10 +714,7 @@ namespace {
       std::println(stderr, "unmap-client: activation token file is empty");
       return false;
     }
-    xdg_activation_v1_activate(state.activation, token, state.surface);
-    std::println("activation-sent");
-    std::fflush(stdout);
-    return true;
+    return activateWithToken(state, token);
   }
 
   void queueRemap(State& state) {
@@ -728,6 +835,8 @@ int main(int argc, char** argv) {
     state.remapAppId = state.appId;
   }
   const bool remapOnStdin = std::getenv("REMAP_ON_STDIN") != nullptr;
+  const bool activateOnStart = std::getenv("ACTIVATE_ON_START") != nullptr;
+  const bool mapOnStdin = std::getenv("MAP_ON_STDIN") != nullptr;
   state.activationTokenFile = std::getenv("ACTIVATION_TOKEN_FILE");
   const char* initialContentType = std::getenv("CONTENT_TYPE");
   const char* updatedContentType = std::getenv("CONTENT_TYPE_AFTER_MAP");
@@ -737,11 +846,15 @@ int main(int argc, char** argv) {
   // A toplevel that never sets a title, which is distinct from one that sets an empty title.
   const bool skipTitle = std::getenv("NO_TITLE") != nullptr;
   const bool maximizeOnStdin = std::getenv("MAXIMIZE_ON_STDIN") != nullptr;
+  const bool minimizeOnStdin = std::getenv("MINIMIZE_ON_STDIN") != nullptr;
   const bool fullscreenOnStdin = std::getenv("FULLSCREEN_ON_STDIN") != nullptr;
-  const bool updateOnStdin = updatedContentType != nullptr
+  const bool repaintOnStdin = std::getenv("REPAINT_ON_STDIN") != nullptr;
+  const bool updateOnStdin = repaintOnStdin
+      || updatedContentType != nullptr
       || updatedXdgTag != nullptr
       || updatedTitle != nullptr
       || maximizeOnStdin
+      || minimizeOnStdin
       || fullscreenOnStdin;
   if (parseContentType(initialContentType) < 0 || parseContentType(updatedContentType) < 0) {
     std::println(stderr, "unmap-client: CONTENT_TYPE values must be none, photo, video, or game");
@@ -756,6 +869,9 @@ int main(int argc, char** argv) {
   state.requestMaximizedAfterMap = std::getenv("REQUEST_MAXIMIZED_AFTER_MAP") != nullptr;
   state.requestMaximizedAfterFrame = std::getenv("REQUEST_MAXIMIZED_AFTER_FRAME") != nullptr;
   state.logConfigures = std::getenv("LOG_CONFIGURES") != nullptr;
+  state.logSuspended = std::getenv("LOG_SUSPENDED") != nullptr;
+  state.logWmCapabilities = std::getenv("LOG_WM_CAPABILITIES") != nullptr;
+  state.followConfigures = std::getenv("FOLLOW_CONFIGURES") != nullptr;
   state.requestFullscreen = std::getenv("REQUEST_FULLSCREEN") != nullptr;
   state.requestHdr = std::getenv("COLOR_HDR") != nullptr;
   state.requestWindowsScrgb = std::getenv("COLOR_WINDOWS_SCRGB") != nullptr;
@@ -841,6 +957,18 @@ int main(int argc, char** argv) {
       clearUnmappedTransientParent || (transientSuite && std::strcmp(transientSuiteMode, "unmapped-parent") == 0);
   const bool mappedTogether = transientSuite && std::strcmp(transientSuiteMode, "mapped-together") == 0;
   const bool parentInitialCommitOnly = unmappedTransientParent || mappedTogether;
+  const bool transientModal = std::getenv("TRANSIENT_MODAL") != nullptr;
+  const bool dialogOnStdin = transientSuite && std::getenv("TRANSIENT_DIALOG_ON_STDIN") != nullptr;
+  const bool nestedOnStdin = transientSuite && std::getenv("TRANSIENT_NESTED_ON_STDIN") != nullptr;
+  if ((transientModal || dialogOnStdin || nestedOnStdin) && state.dialogManager == nullptr) {
+    std::println(stderr, "unmap-client: compositor is missing xdg_wm_dialog_v1");
+    return EXIT_FAILURE;
+  }
+  const bool exportParent = transientSuite && std::getenv("EXPORT_PARENT") != nullptr;
+  if (exportParent && state.exporter == nullptr) {
+    std::println(stderr, "unmap-client: compositor is missing zxdg_exporter_v2");
+    return EXIT_FAILURE;
+  }
   const char* foreignHandle = std::getenv("TRANSIENT_FOREIGN_HANDLE");
   const bool foreignParentOnStdin = std::getenv("TRANSIENT_FOREIGN_PARENT_ON_STDIN") != nullptr;
   if (foreignParentOnStdin && foreignHandle == nullptr) {
@@ -860,6 +988,7 @@ int main(int argc, char** argv) {
   }
   AuxiliaryToplevel transientParent;
   AuxiliaryToplevel transientUnrelated;
+  AuxiliaryToplevel transientNested;
   if (transientSuite) {
     const bool supportReady = parentInitialCommitOnly
         ? createAuxiliaryToplevel(state, transientParent, "transient-parent", parentWidth, parentHeight)
@@ -876,6 +1005,22 @@ int main(int argc, char** argv) {
       wl_surface_commit(transientParent.surface);
     }
   }
+  if (nestedOnStdin) {
+    if (!createAuxiliaryToplevel(state, transientNested, "transient-nested", state.width, state.height)) {
+      std::println(stderr, "unmap-client: failed to create the nested dialog");
+      return EXIT_FAILURE;
+    }
+    xdg_dialog_v1_set_modal(xdg_wm_dialog_v1_get_xdg_dialog(state.dialogManager, transientNested.toplevel));
+    wl_surface_commit(transientNested.surface);
+    if (!waitForAuxiliaryToplevel(state, transientNested)) {
+      return EXIT_FAILURE;
+    }
+  }
+  if (exportParent) {
+    zxdg_exported_v2_add_listener(
+        zxdg_exporter_v2_export_toplevel(state.exporter, transientParent.surface), &kExportedListener, nullptr
+    );
+  }
 
   state.surface = wl_compositor_create_surface(state.compositor);
   if (state.tearingHint >= 0) {
@@ -886,26 +1031,54 @@ int main(int argc, char** argv) {
     state.tearingControl = wp_tearing_control_manager_v1_get_tearing_control(state.tearingManager, state.surface);
     wp_tearing_control_v1_set_presentation_hint(state.tearingControl, static_cast<uint32_t>(state.tearingHint));
   }
+  const bool deferContentTypeChild = state.contentTypeOnSubsurface
+      && !state.colorOnSubsurface
+      && initialContentType == nullptr
+      && updatedContentType != nullptr;
+  const auto createRenderingChildSurface = [&]() {
+    if (state.colorChildSurface != nullptr) {
+      return true;
+    }
+    state.colorChildBuffer = createBuffer(state, state.width, state.height);
+    if (state.colorChildBuffer.resource == nullptr) {
+      return false;
+    }
+    state.colorChildSurface = wl_compositor_create_surface(state.compositor);
+    if (state.colorChildSurface == nullptr) {
+      return false;
+    }
+    return true;
+  };
+  const auto attachRenderingChild = [&]() {
+    if (state.colorChildSubsurface != nullptr) {
+      return true;
+    }
+    if (state.colorChildSurface == nullptr) {
+      return false;
+    }
+    state.colorChildSubsurface =
+        wl_subcompositor_get_subsurface(state.subcompositor, state.colorChildSurface, state.surface);
+    if (state.colorChildSubsurface == nullptr) {
+      return false;
+    }
+    wl_subsurface_set_desync(state.colorChildSubsurface);
+    return true;
+  };
   wl_surface* colorTargetSurface = state.surface;
-  if (state.colorOnSubsurface || state.contentTypeOnSubsurface) {
+  if (state.colorOnSubsurface || (state.contentTypeOnSubsurface && !deferContentTypeChild)) {
     if (state.subcompositor == nullptr) {
       std::println(stderr, "unmap-client: compositor is missing wl_subcompositor");
       return EXIT_FAILURE;
     }
-    state.colorChildBuffer = createBuffer(state, state.width, state.height);
-    if (state.colorChildBuffer.resource == nullptr) {
-      std::println(stderr, "unmap-client: failed to allocate color child buffer");
+    if (!createRenderingChildSurface() || !attachRenderingChild()) {
+      std::println(stderr, "unmap-client: failed to create rendering child");
       return EXIT_FAILURE;
     }
-    state.colorChildSurface = wl_compositor_create_surface(state.compositor);
-    state.colorChildSubsurface =
-        wl_subcompositor_get_subsurface(state.subcompositor, state.colorChildSurface, state.surface);
-    wl_subsurface_set_desync(state.colorChildSubsurface);
     if (state.colorOnSubsurface) {
       colorTargetSurface = state.colorChildSurface;
     }
   }
-  if (initialContentType != nullptr || updatedContentType != nullptr) {
+  if ((initialContentType != nullptr || updatedContentType != nullptr) && !deferContentTypeChild) {
     state.contentTypeSurface = state.contentTypeOnSubsurface ? state.colorChildSurface : state.surface;
     state.contentType =
         wp_content_type_manager_v1_get_surface_content_type(state.contentTypeManager, state.contentTypeSurface);
@@ -994,6 +1167,13 @@ int main(int argc, char** argv) {
       xdg_toplevel_set_parent(state.toplevel, nullptr);
     }
   }
+  xdg_dialog_v1* dialog = nullptr;
+  if (transientModal || dialogOnStdin) {
+    dialog = xdg_wm_dialog_v1_get_xdg_dialog(state.dialogManager, state.toplevel);
+    if (transientModal) {
+      xdg_dialog_v1_set_modal(dialog);
+    }
+  }
   zxdg_imported_v2* imported = nullptr;
   if (foreignHandle != nullptr) {
     imported = zxdg_importer_v2_import_toplevel(state.importer, foreignHandle);
@@ -1001,9 +1181,24 @@ int main(int argc, char** argv) {
       zxdg_imported_v2_set_parent_of(imported, state.surface);
     }
   }
+  if (activateOnStart && !activateWithToken(state, std::getenv("XDG_ACTIVATION_TOKEN"))) {
+    return EXIT_FAILURE;
+  }
+  if (mapOnStdin) {
+    if (wl_display_roundtrip(state.display) < 0) {
+      return EXIT_FAILURE;
+    }
+    std::println("map-pending");
+    std::fflush(stdout);
+    char command = 0;
+    if (read(STDIN_FILENO, &command, 1) <= 0) {
+      std::println(stderr, "unmap-client: MAP_ON_STDIN could not read its map command");
+      return EXIT_FAILURE;
+    }
+  }
   wl_surface_commit(state.surface);
 
-  if (!remapOnStdin && !updateOnStdin && !foreignParentOnStdin) {
+  if (!remapOnStdin && !updateOnStdin && !dialogOnStdin && !nestedOnStdin && !foreignParentOnStdin) {
     while (wl_display_dispatch(state.display) >= 0) {
     }
   } else {
@@ -1022,9 +1217,18 @@ int main(int argc, char** argv) {
         break;
       }
       if ((sources[1].revents & POLLIN) != 0) {
+        // A stdin handler's roundtrip can drain this POLLIN's events; dispatching stale readiness blocks forever.
+        sources[0].revents = 0;
         char command = 0;
         if (read(STDIN_FILENO, &command, 1) > 0) {
-          if (command == 'a') {
+          if (repaintOnStdin && state.mapped && (command == 'R' || command == 'G' || command == 'B')) {
+            state.repaintColor = command == 'R' ? 0xFFFF0000 : command == 'G' ? 0xFF00FF00 : 0xFF0000FF;
+            if (state.repaintFrame == nullptr) {
+              state.repaintFrame = wl_surface_frame(state.surface);
+              wl_callback_add_listener(state.repaintFrame, &kRepaintListener, &state);
+              wl_surface_commit(state.surface);
+            }
+          } else if (command == 'a') {
             if (!activateFromFile(state, state.activationTokenFile)) {
               return EXIT_FAILURE;
             }
@@ -1039,6 +1243,20 @@ int main(int argc, char** argv) {
             if (!issueInputActivationToken(state)) {
               return EXIT_FAILURE;
             }
+          } else if (dialogOnStdin && dialog != nullptr && (command == 'm' || command == 'n' || command == 'x')) {
+            if (command == 'm') {
+              xdg_dialog_v1_set_modal(dialog);
+            } else if (command == 'n') {
+              xdg_dialog_v1_unset_modal(dialog);
+            } else {
+              xdg_dialog_v1_destroy(dialog);
+              dialog = nullptr;
+            }
+          } else if (nestedOnStdin && command == 'p') {
+            xdg_toplevel_set_parent(transientNested.toplevel, state.toplevel);
+            wl_display_roundtrip(state.display);
+            std::println("nested-parent-set");
+            std::fflush(stdout);
           } else if (
               state.mapped && foreignParentOnStdin && !foreignParentApplied && imported != nullptr && command == 'p'
           ) {
@@ -1060,6 +1278,12 @@ int main(int argc, char** argv) {
             wl_display_flush(state.display);
             std::println("maximize-requested");
             std::fflush(stdout);
+          } else if (state.mapped && maximizeOnStdin && command == 'M') {
+            xdg_toplevel_unset_maximized(state.toplevel);
+            wl_surface_commit(state.surface);
+            wl_display_flush(state.display);
+            std::println("unmaximize-requested");
+            std::fflush(stdout);
           } else if (state.mapped && fullscreenOnStdin && command == 'f') {
             xdg_toplevel_set_fullscreen(state.toplevel, nullptr);
             wl_surface_commit(state.surface);
@@ -1072,21 +1296,57 @@ int main(int argc, char** argv) {
             wl_display_flush(state.display);
             std::println("unfullscreen-requested");
             std::fflush(stdout);
-          } else if (state.mapped && updateOnStdin && !state.metadataUpdated) {
-            if (updatedContentType != nullptr) {
+          } else if (state.mapped && minimizeOnStdin && command == 'z') {
+            xdg_toplevel_set_minimized(state.toplevel);
+            wl_display_flush(state.display);
+            std::println("minimize-requested");
+            std::fflush(stdout);
+          } else if (
+              state.mapped && updateOnStdin && command == 't' && updatedTitle != nullptr && !state.titleUpdated
+          ) {
+            xdg_toplevel_set_title(state.toplevel, updatedTitle);
+            wl_display_flush(state.display);
+            state.titleUpdated = true;
+            std::println("title-updated");
+            std::fflush(stdout);
+          } else if (state.mapped && updateOnStdin && command == 'u') {
+            if (updatedContentType != nullptr && !state.contentTypeUpdated) {
+              if (deferContentTypeChild) {
+                if (state.subcompositor == nullptr || !createRenderingChildSurface()) {
+                  std::println(stderr, "unmap-client: failed to create late content type child");
+                  return EXIT_FAILURE;
+                }
+                state.contentTypeSurface = state.colorChildSurface;
+                state.contentType = wp_content_type_manager_v1_get_surface_content_type(
+                    state.contentTypeManager, state.contentTypeSurface
+                );
+              }
               wp_content_type_v1_set_content_type(
                   state.contentType, static_cast<uint32_t>(parseContentType(updatedContentType))
               );
+              if (deferContentTypeChild) {
+                if (!attachRenderingChild()) {
+                  std::println(stderr, "unmap-client: failed to attach late content type child");
+                  return EXIT_FAILURE;
+                }
+                // Apply the new subsurface relationship and positioning before the rendering child's first commit,
+                // matching Wine's already tagged client-surface attachment order.
+                wl_surface_commit(state.surface);
+                wl_surface_attach(state.colorChildSurface, state.colorChildBuffer.resource, 0, 0);
+                wl_surface_damage_buffer(state.colorChildSurface, 0, 0, state.width, state.height);
+              }
               wl_surface_commit(state.contentTypeSurface);
+              state.contentTypeUpdated = true;
             }
-            if (updatedXdgTag != nullptr) {
+            if (updatedXdgTag != nullptr && !state.xdgTagUpdated) {
               xdg_toplevel_tag_manager_v1_set_toplevel_tag(state.xdgTagManager, state.toplevel, updatedXdgTag);
+              state.xdgTagUpdated = true;
             }
-            if (updatedTitle != nullptr) {
+            if (updatedTitle != nullptr && !state.titleUpdated) {
               xdg_toplevel_set_title(state.toplevel, updatedTitle);
+              state.titleUpdated = true;
             }
             wl_display_flush(state.display);
-            state.metadataUpdated = true;
             std::println("{}", updatedXdgTag != nullptr ? "xdg-tag-updated" : "content-type-updated");
             std::fflush(stdout);
           } else if (!state.mapped && remapOnStdin) {
@@ -1127,6 +1387,7 @@ int main(int argc, char** argv) {
   if (state.surface != nullptr) {
     wl_surface_destroy(state.surface);
   }
+  destroyAuxiliaryToplevel(transientNested);
   destroyAuxiliaryToplevel(transientUnrelated);
   destroyAuxiliaryToplevel(transientParent);
   if (state.colorManager != nullptr) {
@@ -1141,8 +1402,14 @@ int main(int argc, char** argv) {
   if (state.xdgTagManager != nullptr) {
     xdg_toplevel_tag_manager_v1_destroy(state.xdgTagManager);
   }
+  if (state.dialogManager != nullptr) {
+    xdg_wm_dialog_v1_destroy(state.dialogManager);
+  }
   if (imported != nullptr) {
     zxdg_imported_v2_destroy(imported);
+  }
+  if (state.exporter != nullptr) {
+    zxdg_exporter_v2_destroy(state.exporter);
   }
   if (state.importer != nullptr) {
     zxdg_importer_v2_destroy(state.importer);

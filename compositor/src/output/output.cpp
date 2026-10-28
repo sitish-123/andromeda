@@ -8,12 +8,17 @@
 #include "input/seat.h"
 #include "layer/layer_surface.h"
 #include "lock/session_lock.h"
+#include "output/cursor_plane_pace.h"
 #include "output/format_sequence.h"
 #include "output/frame_schedule.h"
+#include "output/gamma_transition.h"
+#include "output/hdr_format.h"
+#include "output/hdr_metadata.h"
 #include "output/identity.h"
 #include "output/mirror.h"
 #include "output/zoom.h"
 #include "output/mode_selection.h"
+#include "output/rendered_state_commit.h"
 #include "output/sdr_format.h"
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
@@ -21,12 +26,11 @@
 #include "scene/fps_overlay.h"
 #include "scene/node.h"
 #include "scene/quit_confirm.h"
+#include "server/color_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/server.h"
-#include "server/wine_color_manager.h"
-#include "view/effects.h"
 #include "view/view.h"
 #include "wlr.h"
 #include "workspace/scratchpad.h"
@@ -34,13 +38,20 @@
 
 extern "C" {
 #include <andromedafx/render/effect.h>
+#include <wlr/util/transform.h>
 }
 
 #include <algorithm>
+#include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <drm_fourcc.h>
 #include <format>
+
+#ifdef TRACY_ENABLE
+#include <set>
+#endif
 
 namespace andromeda {
 
@@ -50,6 +61,90 @@ namespace andromeda {
     // wlroots paces frame callbacks and picks buffer scale from every output a surface overlaps, so an off-layout
     // output that keeps drawing (a mirror) must sit where no surface can reach it.
     constexpr int kOffLayoutOrigin = -(1 << 24);
+
+    std::string_view directScanoutReason(wlr_scene_direct_scanout_status status) {
+      switch (status) {
+      case WLR_SCENE_DIRECT_SCANOUT_ACTIVE:
+        return "";
+      case WLR_SCENE_DIRECT_SCANOUT_DISABLED:
+        return "disabled";
+      case WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE:
+        return "no_candidate";
+      case WLR_SCENE_DIRECT_SCANOUT_COMPOSITED:
+        return "composited";
+      case WLR_SCENE_DIRECT_SCANOUT_EFFECTS:
+        return "effects";
+      case WLR_SCENE_DIRECT_SCANOUT_COLOR:
+        return "color_conversion";
+      case WLR_SCENE_DIRECT_SCANOUT_CAPTURE:
+        return "capture";
+      case WLR_SCENE_DIRECT_SCANOUT_CROPPED:
+        return "cropped";
+      case WLR_SCENE_DIRECT_SCANOUT_TRANSFORM:
+        return "transform";
+      case WLR_SCENE_DIRECT_SCANOUT_MODESET:
+        return "modeset";
+      case WLR_SCENE_DIRECT_SCANOUT_RENDER_LOCKED:
+        return "render_locked";
+      case WLR_SCENE_DIRECT_SCANOUT_SOFTWARE_CURSOR:
+        return "software_cursor";
+      case WLR_SCENE_DIRECT_SCANOUT_REJECTED:
+        return "rejected";
+      case WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE:
+        return "debug_damage";
+      }
+      return "unknown";
+    }
+
+    struct OutputFrameScope {
+      explicit OutputFrameScope(Server& owner) : server(owner) { server.beginOutputFrame(); }
+      ~OutputFrameScope() { server.endOutputFrame(); }
+      Server& server;
+    };
+
+    wlr_box
+    pendingSceneBox(const wlr_output& output, const wlr_output_state& state, const wlr_scene_output& sceneOutput) {
+      int width = output.width;
+      int height = output.height;
+      if ((state.committed & WLR_OUTPUT_STATE_MODE) != 0) {
+        if (state.mode_type == WLR_OUTPUT_STATE_MODE_FIXED && state.mode != nullptr) {
+          width = state.mode->width;
+          height = state.mode->height;
+        } else if (state.mode_type == WLR_OUTPUT_STATE_MODE_CUSTOM) {
+          width = state.custom_mode.width;
+          height = state.custom_mode.height;
+        }
+      }
+
+      const wl_output_transform transform =
+          (state.committed & WLR_OUTPUT_STATE_TRANSFORM) != 0 ? state.transform : output.transform;
+      wlr_output_transform_coords(transform, &width, &height);
+      const float scale = (state.committed & WLR_OUTPUT_STATE_SCALE) != 0 ? state.scale : output.scale;
+      if (scale > 0.0F) {
+        width = static_cast<int>(std::ceil(static_cast<double>(width) / scale));
+        height = static_cast<int>(std::ceil(static_cast<double>(height) / scale));
+      }
+      return {.x = sceneOutput.x, .y = sceneOutput.y, .width = width, .height = height};
+    }
+
+    // Staging any mode, even the live one, makes wlroots request ALLOW_MODESET, which makes the display resync.
+    wlr_output_mode* keepLiveModeOrStage(wlr_output_state& state, const wlr_output& output, wlr_output_mode* mode) {
+      if (!liveModeMatches(output, mode)) {
+        wlr_output_state_set_mode(&state, mode);
+        return nullptr;
+      }
+      kLog.info("output '{}': keeping live mode {}x{}@{}mHz", output.name, mode->width, mode->height, mode->refresh);
+      return mode;
+    }
+
+#ifdef TRACY_ENABLE
+    // Tracy keeps a plot's name pointer and reads it while a capture runs, so
+    // the per-output names live for the rest of the process.
+    const char* tracyPlotName(std::string name) {
+      static std::set<std::string> names;
+      return names.insert(std::move(name)).first->c_str();
+    }
+#endif
 
   } // namespace
 
@@ -66,9 +161,18 @@ namespace andromeda {
   }
 
   Output::Output(Server& server, wlr_output* output)
-      : m_server(&server), m_output(output), m_defaultScale(output->scale) {
+      : m_server(&server), m_output(output), m_defaultScale(output->scale),
+        m_hdrStaticMetadata(hdrStaticMetadataForOutput(output)) {
     m_output->data = this;
     wlr_output_init_render(m_output, m_server->allocator(), m_server->renderer());
+    // Create the scene output before the initial configuration so startup and
+    // resume modesets carry rendered content instead of wlroots' empty buffer.
+    m_sceneOutput = wlr_scene_output_create(m_server->scene(), m_output);
+    if (m_sceneOutput == nullptr) {
+      kLog.error("output '{}': failed to create scene output", m_output->name);
+      std::abort();
+    }
+    wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
 
     m_frame.notify = onFrame;
     wl_signal_add(&m_output->events.frame, &m_frame);
@@ -84,6 +188,8 @@ namespace andromeda {
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
+    m_directScanoutTimer =
+        wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
 
     applyCursorConfig();
     m_desktopEnabled = m_server->initialOutputEnabled(*this);
@@ -92,20 +198,32 @@ namespace andromeda {
       // Keeping it disabled lets a later output-enable action retry the commit.
       m_desktopEnabled = false;
     }
-    m_sceneOutput = wlr_scene_output_create(m_server->scene(), m_output);
-    wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
     updateSceneSdrWhite();
     if (desktopEnabled()) {
       wlr_output_layout_output* layoutOutput = addToLayout();
       wlr_scene_output_layout_add_output(m_server->sceneLayout(), layoutOutput, m_sceneOutput);
     }
-    // After the layout binding: the cursor slot needs this output's layout position.
+    m_server->resolveOutputEffect(*this);
     applyOutputEffects();
 
     for (uint32_t layer = 0; layer < kLayerCount; ++layer) {
       m_layerTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
+      m_layerPopupTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
     }
-    m_popupTree = wlr_scene_tree_create(m_server->shellLayerTree(ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY));
+    m_backgroundUpdate.notify = onBackgroundUpdate;
+    if (!wlr_scene_node_add_update_listener(
+            &layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundUpdate
+        )) {
+      kLog.error("output '{}': failed to watch background scene updates", m_output->name);
+      std::abort();
+    }
+    m_backgroundPopupUpdate.notify = onBackgroundPopupUpdate;
+    if (!wlr_scene_node_add_update_listener(
+            &layerPopupTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundPopupUpdate
+        )) {
+      kLog.error("output '{}': failed to watch background popup updates", m_output->name);
+      std::abort();
+    }
     m_viewRoot = wlr_scene_tree_create(m_server->xdgTree());
     m_fullscreenRoot = wlr_scene_tree_create(m_server->fullscreenTree());
     m_pinnedRoot = wlr_scene_tree_create(m_server->pinnedTree());
@@ -129,39 +247,61 @@ namespace andromeda {
     wlr_output_schedule_frame(m_output);
   }
 
+  void Output::scheduleAudioFrame() {
+    if (m_server->sessionLocked() || !outputFrameAllowed(m_server->stopping(), m_server->session())) {
+      m_effectAudio = {};
+      wlr_scene_output_set_effect_audio(m_sceneOutput, m_effectAudio.data());
+      return;
+    }
+    if (!wlr_scene_output_audio_active(m_sceneOutput)) {
+      return;
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    armEffectFrame(static_cast<uint64_t>(now.tv_sec) * 1000 + static_cast<uint64_t>(now.tv_nsec) / 1'000'000);
+  }
+
+  bool Output::audioPending() const {
+    return m_effectAudio != m_server->effects().audio() && wlr_scene_output_audio_active(m_sceneOutput);
+  }
+
   void Output::applyOutputEffects() {
     EffectRegistry& registry = m_server->effects();
     const Effects& settings = config().effects;
     // Nothing configured: touch nothing (no addon, no scene calls). The registry's counts are zero too; a bound
     // screen or cursor slot keeps a ledger instance, so it is still detached below.
-    if (settings.presets.empty() && !registry.active()) {
+    if (settings.presets.empty() && !registry.active() && !registry.persistentReferenced()) {
       return;
     }
     wlr_scene_output_set_effect_capture_policy(m_sceneOutput, settings.inCapture);
-    const std::string screenName = resolveScreenEffectName(settings, findOutputRule(config(), identity()));
+    const std::string_view screenName = m_screenEffectSlot.effectiveName();
+    const std::string_view cursorName = m_server->cursorEffectSlot().effectiveName();
     const bool suspended = registry.ledger().suspended();
     fx_effect_shader* screen = suspended ? nullptr : registry.preset(screenName, EffectKind::Screen);
     const EffectPreset* screenPreset = screen != nullptr ? registry.presetConfig(screenName) : nullptr;
-    fx_effect_shader* cursor = suspended ? nullptr : registry.preset(settings.cursor, EffectKind::Cursor);
-    const EffectPreset* cursorPreset = cursor != nullptr ? registry.presetConfig(settings.cursor) : nullptr;
+    fx_effect_shader* cursor = suspended ? nullptr : registry.preset(cursorName, EffectKind::Cursor);
+    const EffectPreset* cursorPreset = cursor != nullptr ? registry.presetConfig(cursorName) : nullptr;
     bool advancing = true;
 #ifdef ANDROMEDA_TEST_IPC
     advancing = !m_server->animationClockFrozen();
 #endif
+    wlr_scene_output_set_effect_time(m_sceneOutput, m_server->animationClockMsec());
     m_outputEffectsTimed = false;
-    // Registers the slot's instance and returns its parameters at this output's effect time.
-    const auto bind = [&](const void* owner, const EffectPreset& preset, fx_effect_shader* shader, bool visible) {
-      fx_animation_parameters parameters{};
-      registry.fillTimeUniforms(parameters, m_effectSeconds, preset, shader);
-      const bool readsTime = fx_effect_shader_reads(shader, "andromeda_time");
+    // Register demand after the cursor program and motion history have been updated.
+    const auto bind = [&](const void* owner, fx_effect_shader* shader, bool visible) {
+      const bool motion = fx_effect_shader_reads(shader, "andromeda_pointer_history")
+          || fx_effect_shader_reads(shader, "andromeda_pointer_path");
+      const bool readsTime = fx_effect_shader_reads(shader, "andromeda_time")
+          || (motion && wlr_scene_output_cursor_motion_active(m_sceneOutput));
       m_outputEffectsTimed = m_outputEffectsTimed || (readsTime && visible);
       registry.updateInstance(
           owner, {.output = this, .visible = visible, .readsTime = readsTime, .advancing = advancing}
       );
-      return parameters;
     };
     if (screenPreset != nullptr) {
-      const fx_animation_parameters parameters = bind(this, *screenPreset, screen, m_output->enabled);
+      fx_animation_parameters parameters{};
+      registry.fillTimeUniforms(parameters, m_effectSeconds, *screenPreset, screen);
+      bind(this, screen, m_output->enabled);
       wlr_scene_output_set_screen_effect(m_sceneOutput, screen, &parameters);
     } else {
       wlr_scene_output_set_screen_effect(m_sceneOutput, nullptr, nullptr);
@@ -172,11 +312,13 @@ namespace andromeda {
       const double lx = pointer->wlr()->x;
       const double ly = pointer->wlr()->y;
       const bool here = wlr_output_layout_output_at(m_server->outputLayout(), lx, ly) == m_output;
-      const fx_animation_parameters parameters =
-          bind(&m_cursorEffectOwner, *cursorPreset, cursor, m_output->enabled && here && pointer->visible());
+      fx_animation_parameters parameters{};
+      registry.fillTimeUniforms(parameters, m_effectSeconds, *cursorPreset, cursor);
       wlr_scene_output_set_cursor_effect(m_sceneOutput, cursor, &parameters, cursorPreset->radius);
       // A newly set cursor program draws nothing until the pointer is pushed after it.
+      wlr_scene_output_set_effect_time(m_sceneOutput, m_server->animationClockMsec());
       wlr_scene_output_set_effect_pointer(m_sceneOutput, lx, ly, pointer->visible());
+      bind(&m_cursorEffectOwner, cursor, m_output->enabled && here && pointer->visible());
     } else {
       wlr_scene_output_set_cursor_effect(m_sceneOutput, nullptr, nullptr, 0);
       registry.removeInstance(&m_cursorEffectOwner);
@@ -237,7 +379,7 @@ namespace andromeda {
     if (wlr_surface* surface = m_server->seat()->wlr()->keyboard_state.focused_surface) {
       if (View* view = View::fromSurface(surface); view != nullptr && view->mapped() && view->currentOutput() == this) {
         if (const std::optional<HdrMode> mode = view->resolvedRules().hdr) {
-          const bool fullscreen = view->layoutFullscreen() || view->toplevel()->current.fullscreen;
+          const bool fullscreen = view->layoutFullscreen() || view->currentFullscreen();
           return hdrEnabled(*mode, fullscreen, autoHdrEligible(view));
         }
       }
@@ -248,6 +390,70 @@ namespace andromeda {
 
   bool Output::hdrActive() const { return m_output->image_description != nullptr; }
 
+  bool Output::automaticHdrAvailable() const {
+    if (!m_output->enabled || !m_desktopEnabled || !m_hdrAvailable) {
+      return false;
+    }
+    HdrMode mode = hdrMode();
+    if (wlr_surface* surface = m_server->seat()->wlr()->keyboard_state.focused_surface) {
+      if (View* view = View::fromSurface(surface); view != nullptr && view->mapped() && view->currentOutput() == this) {
+        mode = view->resolvedRules().hdr.value_or(mode);
+      }
+    }
+    return mode == HdrMode::Auto;
+  }
+
+  void Output::updateHdrAvailability(bool activationRejected) {
+    m_hdrAvailable = false;
+    if (!m_output->enabled
+        || !m_desktopEnabled
+        || (m_output->supported_transfer_functions & WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) == 0
+        || (m_output->supported_primaries & WLR_COLOR_NAMED_PRIMARIES_BT2020) == 0
+        || !m_server->renderer()->features.output_color_transform) {
+      return;
+    }
+    if (hdrActive()) {
+      m_hdrAvailable = true;
+      return;
+    }
+    // A successful SDR fallback after a rejected HDR request is not evidence
+    // that HDR became available. A later configuration retry can probe again.
+    if (activationRejected) {
+      return;
+    }
+    const wlr_drm_format_set* formats = wlr_output_get_primary_formats(m_output, m_server->allocator()->buffer_caps);
+    wlr_output_state state{};
+    wlr_output_state_init(&state);
+    state.allow_reconfiguration = true;
+    wlr_output_state_set_color_transform(&state, nullptr);
+    const auto description = makeHdrOutputDescription(m_output->default_primaries, m_hdrStaticMetadata);
+    if (wlr_output_state_set_image_description(&state, &description)) {
+      m_hdrAvailable = selectHdrRenderFormat(m_output->render_format, [&](uint32_t format) {
+                         if (formats != nullptr && wlr_drm_format_set_get(formats, format) == nullptr) {
+                           return false;
+                         }
+                         wlr_output_state_set_render_format(&state, format);
+                         if (wlr_output_test_state(m_output, &state)) {
+                           return true;
+                         }
+                         // The real activation path can drop VRR when HDR needs it disabled.
+                         if (m_output->adaptive_sync_supported
+                             && m_output->adaptive_sync_status == WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED) {
+                           wlr_output_state_set_adaptive_sync_enabled(&state, false);
+                           return wlr_output_test_state(m_output, &state);
+                         }
+                         return false;
+                       }).has_value();
+    }
+    wlr_output_state_finish(&state);
+    if (m_hdrAvailable && hdrRequested()) {
+      // A mode change can make a previously rejected request usable. Retry at
+      // the frame boundary instead of treating its old SDR fallback as final.
+      m_hdrTransition.recordCommit(true, false, true);
+      scheduleFullFrame();
+    }
+  }
+
   bool Output::bitDepthActive() const {
     return deriveTenBitSdrActive(m_output->enabled, hdrActive(), m_output->render_format);
   }
@@ -255,6 +461,25 @@ namespace andromeda {
   float Output::configuredSdrWhite() const {
     const OutputRule* rule = findOutputRule(config(), identity());
     return rule != nullptr ? rule->sdrWhite : 203.0F;
+  }
+
+  float Output::sdrWhite() const { return m_runtimeSdrWhite.value_or(configuredSdrWhite()); }
+
+  SdrTransfer Output::configuredSdrTransfer() const {
+    const OutputRule* rule = findOutputRule(config(), identity());
+    return rule != nullptr ? rule->sdrTransfer : SdrTransfer::Gamma22;
+  }
+
+  void Output::setRuntimeSdrWhite(float nits) {
+    if (m_runtimeSdrWhite && *m_runtimeSdrWhite == nits) {
+      return;
+    }
+    m_runtimeSdrWhite = nits;
+    kLog.info("output '{}': live SDR white {} cd/m2", m_output->name, nits);
+    updateSceneSdrWhite();
+    markBlurBackgroundDirty();
+    m_server->updateColorPreferences();
+    wlr_output_schedule_frame(m_output);
   }
 
   int Output::configuredBitDepth() const {
@@ -288,7 +513,7 @@ namespace andromeda {
           && view->onActiveWorkspace()
           && view->currentOutput() == this
           && view->layoutFullscreen()
-          && view->toplevel()->current.fullscreen;
+          && view->currentFullscreen();
     };
     if (View* focused = workspace->focusedView(); eligible(focused)) {
       return focused;
@@ -303,7 +528,7 @@ namespace andromeda {
       return false;
     }
     return wlr_tearing_control_manager_v1_surface_hint_from_surface(
-               m_server->tearingControlManager(), view->toplevel()->base->surface
+               m_server->tearingControlManager(), view->rootSurface()
            )
         == WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC;
   }
@@ -358,38 +583,67 @@ namespace andromeda {
     if (m_sceneOutput == nullptr) {
       return;
     }
-    const float sdrWhite = hdrActive() ? configuredSdrWhite() : 0.0F;
-    wlr_scene_output_set_sdr_white_level(m_sceneOutput, sdrWhite);
+    const float level = hdrActive() ? sdrWhite() : 0.0F;
+    wlr_scene_output_set_sdr_white_level(m_sceneOutput, level);
+    updateSceneHdrWhitePoint(wlr_gamma_control_manager_v1_get_control(m_server->gammaManager(), m_output));
   }
 
-  void Output::rejectGammaControl(wlr_gamma_control_v1* control) {
-    if (control != nullptr) {
-      wlr_gamma_control_v1_send_failed_and_destroy(control);
-      if (!m_hdrGammaWarningLogged) {
-        kLog.warn("output '{}': gamma control is unavailable while HDR is active", m_output->name);
-        m_hdrGammaWarningLogged = true;
-      }
+  void Output::updateSceneHdrWhitePoint(wlr_gamma_control_v1* control) {
+    if (m_sceneOutput == nullptr) {
+      return;
     }
-    m_gammaDirty = false;
+    const auto white = hdrWhitePointFromGamma(
+        control != nullptr ? control->table : nullptr, control != nullptr ? control->ramp_size : 0
+    );
+    wlr_scene_output_set_hdr_white_point(m_sceneOutput, white.data());
   }
 
-  bool Output::applyConfiguredState() {
+  wlr_scene_rect* Output::createConfiguredFrameMask(const wlr_output_state& state) const {
+    const wlr_box box = pendingSceneBox(*m_output, state, *m_sceneOutput);
+    if (box.width <= 0 || box.height <= 0) {
+      kLog.error("output '{}': configured frame has no secure logical extent", m_output->name);
+      return nullptr;
+    }
+    auto color = config().colors.backdrop;
+    color[3] = 1.0F;
+    wlr_scene_rect* mask = wlr_scene_rect_create(&m_server->scene()->tree, box.width, box.height, color.data());
+    if (mask == nullptr) {
+      kLog.error("output '{}': failed to create secure mask for configured frame", m_output->name);
+      return nullptr;
+    }
+    wlr_scene_node_set_position(&mask->node, box.x, box.y);
+    wlr_scene_node_raise_to_top(&mask->node);
+    return mask;
+  }
+
+  bool Output::applyConfiguredState(bool stageGeometry) {
+    if (m_workspaceGroup != nullptr) {
+      m_workspaceGroup->abandonReveal();
+    }
     const OutputRule* rule = findOutputRule(config(), identity());
+    const auto sdrTransfer = configuredSdrTransfer() == SdrTransfer::Srgb ? WLR_COLOR_TRANSFER_FUNCTION_SRGB
+                                                                          : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
+    if (!wlr_scene_output_set_sdr_transfer_function(m_sceneOutput, sdrTransfer)) {
+      kLog.error("output '{}': failed to apply SDR transfer function", m_output->name);
+      return false;
+    }
     const std::optional<double> configuredScale = rule != nullptr ? rule->scale : std::nullopt;
     const bool enabled = m_mirrorSource != nullptr ? !m_mirrorSource->m_dpmsOff : desktopEnabled() && !m_dpmsOff;
     wlr_output_state state{};
     wlr_output_state_init(&state);
-    wlr_output_state_set_enabled(&state, enabled);
+    if (stageGeometry && outputEnableNeedsStaging(*m_output, enabled)) {
+      wlr_output_state_set_enabled(&state, enabled);
+    }
 
     const bool hdrWasActive = hdrActive();
     const bool hdrRequested = this->hdrRequested();
-    m_lastHdrRequested = hdrRequested;
 
     // Stage geometry.
     bool scaleStaged = false;
     const OutputMode* configuredModeSpec = nullptr;
     wlr_output_mode* stagedMode = nullptr;
-    if (enabled) {
+    wlr_output_mode* keptLiveMode = nullptr;
+    if (enabled && stageGeometry) {
       if (rule != nullptr && rule->mode) {
         if (wlr_output_is_wl(m_output)) {
           kLog.info("output '{}': mode is ignored in nested sessions", m_output->name);
@@ -397,7 +651,7 @@ namespace andromeda {
           configuredModeSpec = &*rule->mode;
           stagedMode = selectOutputMode(m_output, *rule->mode);
           if (stagedMode != nullptr) {
-            wlr_output_state_set_mode(&state, stagedMode);
+            keptLiveMode = keepLiveModeOrStage(state, *m_output, stagedMode);
           } else {
             wlr_output_state_set_custom_mode(&state, rule->mode->width, rule->mode->height, rule->mode->refreshMHz);
           }
@@ -405,7 +659,7 @@ namespace andromeda {
       } else if (!wlr_output_is_wl(m_output)) {
         stagedMode = fastestPreferredMode(m_output);
         if (stagedMode != nullptr) {
-          wlr_output_state_set_mode(&state, stagedMode);
+          keptLiveMode = keepLiveModeOrStage(state, *m_output, stagedMode);
         }
       }
 
@@ -419,6 +673,12 @@ namespace andromeda {
       if (rule != nullptr && rule->transform) {
         wlr_output_state_set_transform(&state, static_cast<wl_output_transform>(*rule->transform));
       }
+    }
+
+    if (enabled && !stageGeometry) {
+      // Image-description and max-bpc changes may require a modeset even
+      // though the live mode and geometry stay unchanged.
+      state.allow_reconfiguration = true;
     }
 
     // VRR variants. Try with VRR first (if requested and supported), then without.
@@ -442,14 +702,7 @@ namespace andromeda {
       } else if (!m_server->renderer()->features.output_color_transform) {
         earlyHdrFail = "renderer lacks FP16 output transform";
       } else {
-        hdrDescription = {
-            .primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020,
-            .transfer_function = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ,
-            .mastering_display_primaries = {},
-            .mastering_luminance = {},
-            .max_cll = 0,
-            .max_fall = 0,
-        };
+        hdrDescription = makeHdrOutputDescription(m_output->default_primaries, m_hdrStaticMetadata);
 
         if (!wlr_output_state_set_image_description(&state, &hdrDescription)) {
           earlyHdrFail = "failed to stage HDR image description";
@@ -473,14 +726,39 @@ namespace andromeda {
         wlr_output_state_set_adaptive_sync_enabled(&state, vrr);
       }
     };
+    const GammaTransitionOps gammaOps{
+        .clear = [&] { wlr_output_state_set_color_transform(&state, nullptr); },
+        .apply =
+            [&] {
+              wlr_gamma_control_v1* control =
+                  wlr_gamma_control_manager_v1_get_control(m_server->gammaManager(), m_output);
+              if (wlr_gamma_control_v1_apply(control, &state)) {
+                return true;
+              }
+              if (control != nullptr) {
+                wlr_gamma_control_v1_send_failed_and_destroy(control);
+              }
+              return false;
+            },
+    };
+
+    // wlroots writes max bpc only in commits that allow a modeset, and the kernel may require one to change
+    // colorspace or to switch HDR on or off.
+    const auto allowModesetForColorChange = [&](uint32_t fmt, bool hdr) {
+      if (colorChangeNeedsModeset(*m_output, fmt, hdr)) {
+        state.allow_reconfiguration = true;
+      }
+    };
 
     const auto stageHdr = [&](uint32_t fmt, bool vrr) -> bool {
       if (!isPrimaryFormat(fmt)) {
         return false;
       }
       stageVrr(vrr);
+      (void)stageGammaForOutputMode(GammaOutputMode::Hdr, gammaOps);
       wlr_output_state_set_image_description(&state, &hdrDescription);
       wlr_output_state_set_render_format(&state, fmt);
+      allowModesetForColorChange(fmt, true);
       return true;
     };
 
@@ -489,7 +767,9 @@ namespace andromeda {
         return false;
       }
       stageVrr(vrr);
+      (void)stageGammaForOutputMode(GammaOutputMode::Sdr, gammaOps);
       wlr_output_state_set_render_format(&state, fmt);
+      allowModesetForColorChange(fmt, false);
       return true;
     };
 
@@ -498,6 +778,7 @@ namespace andromeda {
     bool usedModeFallback = false;
     std::string_view pendingHdrFail = earlyHdrFail;
     std::string_view pendingSdr10Fail;
+    bool hdrRejected = !earlyHdrFail.empty();
 
     if (enabled) {
       const std::string automaticMode = configuredModeSpec == nullptr && stagedMode != nullptr
@@ -510,19 +791,111 @@ namespace andromeda {
           .currentRenderFormat = m_output->render_format,
           .bitDepth = bitDepth,
           .tryVrrOn = tryVrrOn,
-          .configuredModeSpec = configuredModeSpec,
-          .automaticMode = automaticMode,
-          .preferredMode = preferredFallbackMode(m_output, stagedMode),
+          .configuredModeSpec = stageGeometry ? configuredModeSpec : nullptr,
+          .automaticMode = stageGeometry ? std::string_view(automaticMode) : std::string_view{},
+          .preferredMode = stageGeometry ? preferredFallbackMode(m_output, stagedMode) : nullptr,
+          .keptLiveMode = keptLiveMode,
           .modeFallbackAlreadyWarned = m_modeFallbackWarned,
           .vrrDroppedTier = m_vrrDroppedTier,
           .earlyHdrFail = earlyHdrFail,
       };
 
+      const auto commitStagedState = [&]() -> FormatCommitResult {
+        const bool targetHdr = state.image_description != nullptr;
+        wlr_scene_output_set_sdr_white_level(m_sceneOutput, targetHdr ? sdrWhite() : 0.0F);
+        wlr_damage_ring_add_whole(&m_sceneOutput->damage_ring);
+        // The cache may need a new size, format or SDR curve; re-render it in this frame.
+        markBlurBackgroundDirty();
+
+        wlr_output_state frameState{};
+        wlr_output_state_init(&frameState);
+        if (!wlr_output_state_copy(&frameState, &state)) {
+          wlr_output_state_finish(&frameState);
+          return FormatCommitResult::Retry;
+        }
+
+        wlr_scene_rect* secureMask = nullptr;
+        const bool unbound = wlr_output_layout_get(m_server->outputLayout(), m_output) == nullptr;
+        if (stageGeometry && (m_server->sessionLocked() || unbound)) {
+          // An unbound scene output still samples the scene origin, and a
+          // locked geometry change can outgrow the permanent blank until the
+          // layout callback resizes it. Render this configured frame through
+          // a temporary opaque mask so neither path exposes unrelated content.
+          secureMask = createConfiguredFrameMask(frameState);
+          if (secureMask == nullptr) {
+            wlr_output_state_finish(&frameState);
+            return FormatCommitResult::Retry;
+          }
+        }
+
+        const int captureLocks = captureRenderLocks(externalRenderLocks());
+        wlr_scene_output_state_options sceneOptions{};
+        sceneOptions.capture_sdr = targetHdr && captureLocks > 0;
+        sceneOptions.effect_capture_pending = effectCapturePending(captureLocks);
+        m_effectCaptureBuilt = sceneOptions.effect_capture_pending;
+
+        const RenderedStateCommitResult commitResult = commitRenderedState(
+            frameState,
+            [&](wlr_output_state& pending) {
+              return wlr_scene_output_build_state(m_sceneOutput, &pending, &sceneOptions);
+            },
+            [&](const wlr_output_state& pending) {
+              SceneCommit observation(*this, pending);
+              return wlr_output_commit_state(m_output, &pending);
+            }
+        );
+        if (secureMask != nullptr) {
+          wlr_scene_node_destroy(&secureMask->node);
+        }
+        const bool commitAttempted = commitResult == RenderedStateCommitResult::Committed
+            || commitResult == RenderedStateCommitResult::CommitFailed;
+        const bool commitOk = commitResult == RenderedStateCommitResult::Committed;
+        if (commitResult == RenderedStateCommitResult::MissingBuffer) {
+          kLog.error("output '{}': configured scene state has no buffer", m_output->name);
+        }
+        const bool recoveringFromFailedCommit = m_tearingRecovery.regularCommitPending();
+        if (commitAttempted) {
+          m_tearingRecovery.recordCommit(false, commitOk);
+        }
+        if (commitOk) {
+          m_lastCommitTearing = false;
+          m_trackingPresentation = true;
+          m_trackedPresentationCommitSeq = m_output->commit_seq;
+          m_lastPresentationPresented.reset();
+          m_lastPresentationFlags.reset();
+          if (recoveringFromFailedCommit && !m_tearingRecovery.regularCommitPending()) {
+            m_tearingFallbackReason = "recovered with regular page flip";
+          }
+          if (SessionLock* lock = m_server->sessionLock()) {
+            lock->handleOutputCommit(*this, m_output->commit_seq);
+          }
+        }
+        wlr_output_state_finish(&frameState);
+        switch (commitResult) {
+        case RenderedStateCommitResult::Committed:
+          return FormatCommitResult::Committed;
+        case RenderedStateCommitResult::CommitFailed:
+          return FormatCommitResult::Rejected;
+        case RenderedStateCommitResult::BuildFailed:
+        case RenderedStateCommitResult::MissingBuffer:
+          return FormatCommitResult::Retry;
+        }
+        return FormatCommitResult::Retry;
+      };
+
       const FormatSequenceOps seqOps{
           .stageSdr = stageSdr,
           .stageHdr = stageHdr,
-          .test = [&] { return wlr_output_test_state(m_output, &state); },
-          .commit = [&] { return wlr_output_commit_state(m_output, &state); },
+          .test =
+              [&] {
+                // A kept live mode leaves wlroots nothing to change, so it skips the KMS test unless a buffer is sent.
+                if (keptLiveMode != nullptr
+                    && !wlr_output_configure_primary_swapchain(m_output, &state, &m_output->swapchain)) {
+                  return false;
+                }
+                return wlr_output_test_state(m_output, &state);
+              },
+          .commit = commitStagedState,
           .clearImageDescription = [&] { wlr_output_state_set_image_description(&state, nullptr); },
           .stageMode = [&](wlr_output_mode* mode) { wlr_output_state_set_mode(&state, mode); },
           .warnModeFallback =
@@ -555,6 +928,12 @@ namespace andromeda {
       const FormatSequenceResult seq = runFormatSequence(seqParams, seqOps);
       anyCommitted = seq.committed;
       usedModeFallback = seq.usedModeFallback;
+      if (seq.usedLiveModeRetry) {
+        kLog.info(
+            "output '{}': backend rejected keeping live mode {}x{}@{}mHz, retried with a modeset", m_output->name,
+            keptLiveMode->width, keptLiveMode->height, keptLiveMode->refresh
+        );
+      }
       if (seq.modeFallbackWarnedNow) {
         m_modeFallbackWarned = true;
       }
@@ -572,6 +951,7 @@ namespace andromeda {
       }
       pendingHdrFail = seq.hdrFail;
       pendingSdr10Fail = seq.sdr10Fail;
+      hdrRejected = hdrRequested && !seq.retry && !seq.hdrFail.empty();
     } else {
       if (!hdrRequested && hdrWasActive) {
         wlr_output_state_set_image_description(&state, nullptr);
@@ -581,11 +961,20 @@ namespace andromeda {
     }
 
     wlr_output_state_finish(&state);
+    m_hdrTransition.recordCommit(enabled, hdrRequested, anyCommitted);
+    if (hdrRejected) {
+      m_hdrAvailable = false;
+    }
     if (!anyCommitted) {
+      // A failed candidate may have prepared the scene for the requested
+      // transfer function. Keep the renderer aligned with the live output.
+      updateSceneSdrWhite();
+      markBlurBackgroundDirty();
+      m_server->updateColorPreferences();
       kLog.error("output '{}': failed to commit configured state", m_output->name);
       return false;
     }
-    if (!usedModeFallback) {
+    if (stageGeometry && !usedModeFallback) {
       m_modeFallbackWarned = false;
     }
     if (enabled && m_mirrorSource != nullptr) {
@@ -594,20 +983,24 @@ namespace andromeda {
     if (enabled && scaleStaged) {
       m_appliedConfiguredScale = configuredScale.has_value();
     }
+    if (enabled) {
+      // Every successful enabled-state commit above staged either an HDR bypass
+      // or the latest SDR gamma table.
+      m_gammaDirty = false;
+    }
     const bool hdrIsActive = hdrActive();
     if (hdrIsActive) {
+      m_hdrAvailable = true;
       setHdrFallbackReason({});
-      rejectGammaControl(wlr_gamma_control_manager_v1_get_control(m_server->gammaManager(), m_output));
     } else {
       if (!hdrRequested) {
         setHdrFallbackReason({});
       } else if (enabled) {
+        if (!pendingHdrFail.empty()) {
+          m_hdrAvailable = false;
+        }
         setHdrFallbackReason(pendingHdrFail);
       }
-      if (hdrWasActive) {
-        m_gammaDirty = true;
-      }
-      m_hdrGammaWarningLogged = false;
     }
     if (!enabled || bitDepthActive() || hdrIsActive || bitDepth != 10) {
       setBitDepthFallbackReason({});
@@ -634,6 +1027,9 @@ namespace andromeda {
     } else {
       kLog.info("output '{}': powered off", m_output->name);
     }
+    if (stageGeometry) {
+      updateHdrAvailability(hdrRejected);
+    }
     m_server->updateColorPreferences();
     return true;
   }
@@ -648,7 +1044,7 @@ namespace andromeda {
     if (wlr_surface* surface = m_server->seat()->wlr()->keyboard_state.focused_surface) {
       if (View* view = View::fromSurface(surface); view != nullptr && view->mapped() && view->currentOutput() == this) {
         focusedMode = view->resolvedRules().vrr;
-        focusedFullscreen = view->toplevel()->current.fullscreen || view->toplevel()->scheduled.fullscreen;
+        focusedFullscreen = view->currentFullscreen() || view->scheduledFullscreen();
       }
     }
     return effectiveVrrEnabled(outputMode, fullscreen, focusedMode, focusedFullscreen);
@@ -657,9 +1053,7 @@ namespace andromeda {
   bool Output::hasFullscreenView(const View* ignored) const {
     const Workspace* workspace = m_workspaceGroup != nullptr ? m_workspaceGroup->active() : nullptr;
     return workspace != nullptr && std::ranges::any_of(workspace->allViews(), [ignored](const View* view) {
-             return view != ignored
-                 && view->mapped()
-                 && (view->layoutFullscreen() || view->toplevel()->current.fullscreen);
+             return view != ignored && view->mapped() && (view->layoutFullscreen() || view->currentFullscreen());
            });
   }
 
@@ -668,10 +1062,10 @@ namespace andromeda {
         || !view->mapped()
         || !view->onActiveWorkspace()
         || view->currentOutput() != this
-        || (!view->layoutFullscreen() && !view->toplevel()->current.fullscreen)) {
+        || (!view->layoutFullscreen() && !view->currentFullscreen())) {
       return false;
     }
-    return m_server->surfaceTreeHdrDescription(view->toplevel()->base->surface) != nullptr;
+    return m_server->surfaceTreeHdrDescription(view->rootSurface()) != nullptr;
   }
 
   View* Output::findAutoHdrCandidate() const {
@@ -695,8 +1089,8 @@ namespace andromeda {
       m_autoHdrOwner = nullptr;
     }
 
-    if (hdrRequested() != m_lastHdrRequested && applyConfiguredState()) {
-      m_server->updateOutputManagerConfig();
+    if (m_hdrTransition.pending(m_output->enabled, hdrRequested())) {
+      scheduleFullFrame();
     }
     m_server->updateColorPreferences();
   }
@@ -708,8 +1102,8 @@ namespace andromeda {
     if (m_autoHdrOwner == view) {
       m_autoHdrOwner = nullptr;
     }
-    if (hdrRequested() != m_lastHdrRequested && applyConfiguredState()) {
-      m_server->updateOutputManagerConfig();
+    if (m_hdrTransition.pending(m_output->enabled, hdrRequested())) {
+      scheduleFullFrame();
     }
     m_server->updateColorPreferences();
   }
@@ -782,6 +1176,7 @@ namespace andromeda {
   }
 
   bool Output::applyOutputState() {
+    m_runtimeSdrWhite.reset();
     const bool previousDesktopEnabled = m_desktopEnabled;
     const bool previousDpmsOff = m_dpmsOff;
     m_desktopEnabled = configuredEnabled();
@@ -897,6 +1292,79 @@ namespace andromeda {
     return true;
   }
 
+#ifdef ANDROMEDA_TEST_IPC
+  void Output::setSyntheticPlaneCursorForTest(
+      double x, double y, bool visible, std::uintptr_t image, int width, int height, int hotspotX, int hotspotY
+  ) {
+    m_syntheticPlaneCursor = CursorPlaneState{
+        .valid = false,
+        .enabled = true,
+        .visible = visible,
+        .x = x,
+        .y = y,
+        .width = width,
+        .height = height,
+        .hotspot_x = hotspotX,
+        .hotspot_y = hotspotY,
+        .image = reinterpret_cast<const void*>(image),
+    };
+  }
+#endif
+
+  bool Output::paceCursorPlaneTransition() {
+    if (m_output == nullptr || m_sceneOutput == nullptr) {
+      return false;
+    }
+    const wlr_output_cursor* plane = m_output->hardware_cursor;
+    CursorPlaneState now{
+        .valid = false,
+        .enabled = plane != nullptr && plane->enabled,
+        .visible = plane != nullptr && plane->visible,
+        .x = plane != nullptr ? plane->x : 0,
+        .y = plane != nullptr ? plane->y : 0,
+        .width = plane != nullptr ? static_cast<int>(plane->width) : 0,
+        .height = plane != nullptr ? static_cast<int>(plane->height) : 0,
+        .hotspot_x = plane != nullptr ? plane->hotspot_x : 0,
+        .hotspot_y = plane != nullptr ? plane->hotspot_y : 0,
+        .image = plane != nullptr ? m_output->cursor_front_buffer : nullptr,
+    };
+#ifdef ANDROMEDA_TEST_IPC
+    if (m_syntheticPlaneCursor.has_value()) {
+      now = *m_syntheticPlaneCursor;
+    }
+#endif
+    // The snapshot advances on every sample, consumer or not: a client that
+    // starts recording later must diff from where the cursor is now, not from
+    // wherever it was when the last session ended.
+    CursorPlaneState previous;
+    if (!cursorPlaneAdvance(&m_lastCursorPlane, now, &previous)) {
+      return false;
+    }
+    // Past this point the transition is real, so the sweep over live capture
+    // sessions is worth its cost; on a stationary cursor it never runs.
+    if (!needsCursorCapturePacing()) {
+      return false;
+    }
+    const CursorPlaneDamage damage = cursorPlaneDamageFor(&previous, &now);
+    if (damage.has_leave) {
+      wlr_scene_output_damage_box(m_sceneOutput, &damage.leave_box);
+    }
+    if (damage.has_enter) {
+      wlr_scene_output_damage_box(m_sceneOutput, &damage.enter_box);
+    }
+    return true;
+  }
+
+  bool Output::needsCursorCapturePacing() const {
+    if (m_output == nullptr) {
+      return false;
+    }
+    // Only an output whose capture source carries a live cursor-metadata
+    // session is paced. The session bookkeeping and the source mapping live
+    // in Server; screencopy and export-dmabuf never register there.
+    return m_server->hasCopyCaptureFor(m_output);
+  }
+
   void Output::applyCursorConfig() {
     const bool lockSoftwareCursor = !config().input.cursor.hardwareCursor;
     if (lockSoftwareCursor == m_softwareCursorLocked) {
@@ -904,12 +1372,18 @@ namespace andromeda {
     }
     wlr_output_lock_software_cursors(m_output, lockSoftwareCursor);
     m_softwareCursorLocked = lockSoftwareCursor;
+    // Locking drops the plane and unlocking brings it back wherever the cursor
+    // happens to be; neither is a transition a recorder should see, so discard
+    // the snapshot and let the next sample re-seed it.
+    m_lastCursorPlane = {};
     wlr_output_schedule_frame(m_output);
   }
 
   void Output::handleExternalConfigChange() {
     // Mode changes can drop the DRM gamma LUT; re-apply on the next frame.
     m_gammaDirty = true;
+    updateHdrAvailability();
+    m_server->updateColorPreferences();
     markDirty(Dirty::LayerArrange);
     wlr_output_schedule_frame(m_output);
   }
@@ -978,6 +1452,14 @@ namespace andromeda {
     if (m_lastFrame != nullptr) {
       wlr_buffer_unlock(m_lastFrame);
     }
+    if (m_backgroundPopupUpdate.link.next != nullptr) {
+      wl_list_remove(&m_backgroundPopupUpdate.link);
+      m_backgroundPopupUpdate.link.next = nullptr;
+    }
+    if (m_backgroundUpdate.link.next != nullptr) {
+      wl_list_remove(&m_backgroundUpdate.link);
+      m_backgroundUpdate.link.next = nullptr;
+    }
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
@@ -985,6 +1467,10 @@ namespace andromeda {
     if (m_effectFrameTimer != nullptr) {
       wl_event_source_remove(m_effectFrameTimer);
       m_effectFrameTimer = nullptr;
+    }
+    if (m_directScanoutTimer != nullptr) {
+      wl_event_source_remove(m_directScanoutTimer);
+      m_directScanoutTimer = nullptr;
     }
     if (m_animationRenderLocked) {
       wlr_output_lock_attach_render(m_output, false);
@@ -1012,9 +1498,11 @@ namespace andromeda {
         layerTree = nullptr;
       }
     }
-    if (m_popupTree != nullptr) {
-      wlr_scene_node_destroy(&m_popupTree->node);
-      m_popupTree = nullptr;
+    for (wlr_scene_tree*& popupTree : m_layerPopupTrees) {
+      if (popupTree != nullptr) {
+        wlr_scene_node_destroy(&popupTree->node);
+        popupTree = nullptr;
+      }
     }
     if (m_optimizedBlur != nullptr) {
       wlr_scene_node_destroy(&m_optimizedBlur->node);
@@ -1035,6 +1523,11 @@ namespace andromeda {
       return m_layerTrees[ZWLR_LAYER_SHELL_V1_LAYER_TOP];
     }
     return m_layerTrees[layer];
+  }
+
+  wlr_scene_tree* Output::layerPopupTree(uint32_t layer) const {
+    assert(layer < kLayerCount);
+    return m_layerPopupTrees[layer];
   }
 
   void Output::arrangeLayer(wlr_scene_tree* tree, const wlr_box* fullArea, wlr_box* usableArea, bool exclusive) {
@@ -1097,7 +1590,9 @@ namespace andromeda {
     for (auto& m_layerTree : m_layerTrees) {
       wlr_scene_node_set_position(&m_layerTree->node, m_sceneOutput->x, m_sceneOutput->y);
     }
-    wlr_scene_node_set_position(&m_popupTree->node, m_sceneOutput->x, m_sceneOutput->y);
+    for (auto* popupTree : m_layerPopupTrees) {
+      wlr_scene_node_set_position(&popupTree->node, m_sceneOutput->x, m_sceneOutput->y);
+    }
 
     // Content roots are clipped to this output's layout box, not repositioned: views are laid out in layout
     // coordinates. A disabled output never gets here (outputArea is empty above), and its workspaces have already been
@@ -1122,11 +1617,22 @@ namespace andromeda {
       scratchpad->refreshOutputGeometry(this);
     }
 
+    // Layer geometry and the usable area settle here.
+    m_server->scheduleIpcLayersEvent();
+    m_server->scheduleIpcOutputsEvent();
     const wlr_box layoutUsableArea = this->usableArea();
-    kLog.debug(
-        "{} usable={}x{}+{}+{}", m_output->name, layoutUsableArea.width, layoutUsableArea.height, layoutUsableArea.x,
-        layoutUsableArea.y
-    );
+    // Arrangement runs on every layer commit; only a changed result is worth a line.
+    const wlr_box& logged = m_loggedUsableArea;
+    if (layoutUsableArea.x != logged.x
+        || layoutUsableArea.y != logged.y
+        || layoutUsableArea.width != logged.width
+        || layoutUsableArea.height != logged.height) {
+      m_loggedUsableArea = layoutUsableArea;
+      kLog.debug(
+          "{} usable={}x{}+{}+{}", m_output->name, layoutUsableArea.width, layoutUsableArea.height, layoutUsableArea.x,
+          layoutUsableArea.y
+      );
+    }
     if (m_workspaceGroup != nullptr && m_workspaceGroup->active() != nullptr) {
       m_workspaceGroup->active()->markArrange(false);
     }
@@ -1167,14 +1673,17 @@ namespace andromeda {
   }
 
   void Output::markBlurBackgroundDirty() {
-    if (m_optimizedBlur != nullptr) {
+    if (m_optimizedBlur != nullptr && !m_optimizedBlur->dirty) {
       wlr_scene_optimized_blur_mark_dirty(m_optimizedBlur);
     }
   }
 
   void Output::onGammaChanged(wlr_gamma_control_v1* control) {
+    updateSceneHdrWhitePoint(control);
     if (hdrActive()) {
-      rejectGammaControl(control);
+      // The scene applies the requested white point before PQ encoding.
+      // Keep the full table for SDR instead of applying it to PQ values.
+      m_gammaDirty = false;
       return;
     }
     // DRM gamma LUT upload is expensive; apply once on change, not every frame.
@@ -1186,6 +1695,17 @@ namespace andromeda {
     Output* self;
     self = wl_container_of(listener, self, m_frame);
     self->handleFrame();
+  }
+
+  void Output::onBackgroundUpdate(wl_listener* listener, void* /*data*/) {
+    Output* self;
+    self = wl_container_of(listener, self, m_backgroundUpdate);
+    self->markBlurBackgroundDirty();
+  }
+
+  void Output::onBackgroundPopupUpdate(wl_listener* listener, void* /*data*/) {
+    Output* self = wl_container_of(listener, self, m_backgroundPopupUpdate); // NOLINT(modernize-use-auto)
+    self->markBlurBackgroundDirty();
   }
 
   void Output::onRequestState(wl_listener* listener, void* data) {
@@ -1211,6 +1731,81 @@ namespace andromeda {
     if (outputFrameAllowed(self->m_server->stopping(), self->m_server->session())) {
       wlr_output_schedule_frame(self->m_output);
     }
+    return 0;
+  }
+
+  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state) : m_output(output) {
+    wl_list_init(&m_commit.link);
+    if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
+      return;
+    }
+    // The submitted state owns the buffer for this scope. Snapshot the decision before commit callbacks can change
+    // the scene, and avoid attributing a later cursor or metadata commit to an earlier failed scene build.
+    m_buffer = state.buffer;
+    m_state = output.builtDirectScanout();
+    m_commit.notify = onCommit;
+    wl_signal_add(&output.m_output->events.commit, &m_commit);
+  }
+
+  Output::SceneCommit::~SceneCommit() { wl_list_remove(&m_commit.link); }
+
+  void Output::SceneCommit::onCommit(wl_listener* listener, void* data) {
+    SceneCommit* self;
+    self = wl_container_of(listener, self, m_commit);
+    const auto* event = static_cast<wlr_output_event_commit*>(data);
+    if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
+      return;
+    }
+    self->m_output.recordDirectScanout(self->m_state, event->output->commit_seq);
+    // A synchronous backend attempt can account for this built buffer only once.
+    wl_list_remove(&self->m_commit.link);
+    wl_list_init(&self->m_commit.link);
+  }
+
+  DirectScanoutState Output::builtDirectScanout() const {
+    const wlr_scene_direct_scanout_status status = wlr_scene_output_direct_scanout_status(m_sceneOutput);
+    DirectScanoutState state;
+    state.active = status == WLR_SCENE_DIRECT_SCANOUT_ACTIVE;
+    state.reason = directScanoutReason(status);
+    if (wlr_scene_buffer* buffer = wlr_scene_output_direct_scanout_buffer(m_sceneOutput)) {
+      wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+      const View* view =
+          sceneSurface != nullptr ? View::fromSurface(wlr_surface_get_root_surface(sceneSurface->surface)) : nullptr;
+      if (view != nullptr) {
+        state.windowId = view->extForeignIdentifier() != nullptr ? view->extForeignIdentifier() : "";
+        state.appId = view->appId() != nullptr ? view->appId() : "";
+        state.title = view->title() != nullptr ? view->title() : "";
+      }
+    }
+    return state;
+  }
+
+  void Output::recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq) {
+    // Restarting the wait on every change settles only a state that held for the whole interval.
+    const DirectScanoutTracker::Observation observation = m_directScanout.recordCommit(state, commitSeq);
+    if (observation != DirectScanoutTracker::Observation::Unchanged && m_directScanoutTimer != nullptr) {
+      const bool pending = observation == DirectScanoutTracker::Observation::Pending;
+      wl_event_source_timer_update(m_directScanoutTimer, pending ? DirectScanoutTracker::kSettleMs : 0);
+    }
+  }
+
+  int Output::onDirectScanoutTimer(void* data) {
+    auto* self = static_cast<Output*>(data);
+    if (!self->m_directScanout.settle()) {
+      return 0;
+    }
+    const DirectScanoutState& state = self->m_directScanout.settled();
+    if (self->m_directScanout.settledChangeIsNotable()) {
+      if (state.active) {
+        kLog.info(
+            "output '{}': direct scanout on ({} \"{}\")", self->m_output->name,
+            state.appId.empty() ? "unknown" : state.appId, state.title
+        );
+      } else {
+        kLog.info("output '{}': direct scanout off ({})", self->m_output->name, state.reason);
+      }
+    }
+    self->m_server->scheduleIpcOutputsEvent();
     return 0;
   }
 
@@ -1254,19 +1849,21 @@ namespace andromeda {
     }
   }
 
-  void Output::applyMode(int width, int height) {
+  void Output::applyMode(int width, int height, int refreshMHz) {
     if (width <= 0 || height <= 0) {
       return;
     }
 
     wlr_output_state state{};
     wlr_output_state_init(&state);
-    wlr_output_state_set_custom_mode(&state, width, height, 0);
+    wlr_output_state_set_custom_mode(&state, width, height, refreshMHz);
     if (!wlr_output_commit_state(m_output, &state)) {
       wlr_log(WLR_ERROR, "failed to commit output mode %dx%d for '%s'", width, height, m_output->name);
     } else {
       // Mode changes can drop the DRM gamma LUT; re-apply on the next frame.
       m_gammaDirty = true;
+      updateHdrAvailability();
+      m_server->updateColorPreferences();
     }
     wlr_output_state_finish(&state);
     m_mirrorDirty = true;
@@ -1332,6 +1929,7 @@ namespace andromeda {
     if (!outputFrameAllowed(m_server->stopping(), m_server->session())) {
       return;
     }
+    const OutputFrameScope frameScope(*m_server);
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_timer_update(m_frameRetryTimer, 0);
     }
@@ -1340,17 +1938,17 @@ namespace andromeda {
     flushDirty();
     if (m_hasDeferredMode) {
       m_hasDeferredMode = false;
-      applyMode(m_deferredWidth, m_deferredHeight);
+      applyMode(m_deferredWidth, m_deferredHeight, m_deferredRefresh);
     }
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     const uint64_t nowMsec = static_cast<uint64_t>(now.tv_sec) * 1000 + static_cast<uint64_t>(now.tv_nsec) / 1'000'000;
-    // A frame is an effect frame when one was asked for, or when an instance here is eligible and the max_fps interval
-    // has elapsed (a delay of 1 ms is the helper's "due now"), whichever timeline scheduled the frame. The output's own
-    // timer supplies the frames nothing else asks for.
+    // A frame is an effect frame when one was asked for, or when an instance here is eligible or an audio change is
+    // pending and the max_fps interval has elapsed (a delay of 1 ms is the helper's "due now"), whichever timeline
+    // scheduled the frame. The output's own timer supplies the frames nothing else asks for.
     const bool effectFrame = m_effectFrameDue
         || (!m_server->sessionLocked()
-            && effectEligible() > 0
+            && (effectEligible() > 0 || audioPending())
             && effectFrameDelayMs(config().effects.maxFps, nowMsec, m_lastEffectFrameMsec) <= 1);
     m_effectFrameDue = false;
     if (effectFrame) {
@@ -1369,14 +1967,23 @@ namespace andromeda {
     if (stampEffectTime) {
       m_effectSeconds = effects.clockSeconds();
     }
-    m_server->tickAnimations(m_server->animationClockMsec());
+    if (effectFrame) {
+      m_effectAudio = effects.audio();
+      wlr_scene_output_set_effect_audio(m_sceneOutput, m_effectAudio.data());
+    }
+    // Sample animations on this output's vblank cadence rather than when the frame event got dispatched, so event-loop
+    // latency and other outputs' rendering do not make motion steps uneven.
+    const uint64_t nowNs = static_cast<uint64_t>(now.tv_sec) * 1'000'000'000 + static_cast<uint64_t>(now.tv_nsec);
+    const uint64_t vblankNs = latestVblankNs(nowNs, m_lastPresentNs, m_refreshNs);
+    const uint64_t sampleNs = vblankNs != 0 ? vblankNs : nowNs;
+    m_server->tickAnimations(m_server->animationFrameClockMsec(static_cast<double>(sampleNs) / 1e6));
     if (stampEffectTime && m_outputEffectsTimed) {
       applyOutputEffects();
     }
 
-    // Surface commits reset scene-buffer opacity to the protocol alpha. Repair
-    // pending rule opacity after every commit listener and before composition.
-    m_server->flushPendingViewOpacities();
+    if (m_workspaceGroup != nullptr) {
+      m_workspaceGroup->refreshReveal();
+    }
 
     // A direct-scanned fullscreen client may stop submitting as soon as it loses focus. On VRR outputs that can leave
     // the first workspace-switch frame waiting on the old client, so the compositor never gets a vblank to advance the
@@ -1390,12 +1997,9 @@ namespace andromeda {
       m_animationRenderLocked = animationsActive;
     }
 
-    // wlroots only knows about descriptions owned by its color manager and resets
-    // compatibility-managed Wine buffers to SDR on every surface commit. Restore
-    // their descriptions at the render boundary so no frame can observe that
-    // transient default state.
-    if (WineColorManager* colorManager = m_server->wineColorManager()) {
-      colorManager->applySurfaceDescriptions();
+    // Keep preferred color descriptions current as output membership and policy change.
+    if (ColorManager* colorManager = m_server->colorManager()) {
+      colorManager->updatePreferredDescriptions();
     }
 
     const int externalLocks = externalRenderLocks();
@@ -1466,6 +2070,12 @@ namespace andromeda {
     // video players) block on wl_surface.frame before submitting their next buffer. If we skip frame_done on the
     // "nothing to render" path, they never commit again, damage stays clean, and the output stops producing frames.
     bool commitFailed = false;
+    // Sample the plane before the needs_frame test below: a cursor-only move
+    // damages nothing else, so this frame is the only commit that can carry
+    // the damage. wlroots clears needs_frame on commit, so every mutation
+    // since the last commit is diffed here exactly once; the andromedafx scene's
+    // own needs_frame listener is what scheduled this frame for them.
+    paceCursorPlaneTransition();
     const bool sceneChanged = wlr_scene_output_needs_frame(m_sceneOutput);
     if (sceneChanged) {
       // Scene motion under a stationary cursor must reach the client before its next press.
@@ -1473,7 +2083,23 @@ namespace andromeda {
         cursor->refreshPointerContents(this);
       }
     }
-    if (sceneChanged || m_gammaDirty) {
+    const bool hdrTransitionPending = m_hdrTransition.pending(m_output->enabled, hdrRequested());
+    if (hdrTransitionPending) {
+      // Run at the frame boundary, after the previous page flip completed. The
+      // configured-state commit builds the scene into the same state as the
+      // image-description and render-format switch.
+      m_inFrame = true;
+      const bool committed = applyConfiguredState(false);
+      m_inFrame = false;
+      commitFailed = !committed;
+      if (committed) {
+        if (effectFrame) {
+          ++m_effectFrames;
+        }
+        m_server->updateOutputManagerConfig();
+      }
+    }
+    if (!hdrTransitionPending && (sceneChanged || m_gammaDirty)) {
       m_inFrame = true;
       if (effectFrame) {
         ++m_effectFrames;
@@ -1489,13 +2115,27 @@ namespace andromeda {
       sceneOptions.capture_sdr = hdrActive() && captureLocks > 0;
       sceneOptions.effect_capture_pending = effectCapturePending(captureLocks);
       m_effectCaptureBuilt = sceneOptions.effect_capture_pending;
-      if (wlr_scene_output_build_state(m_sceneOutput, &state, &sceneOptions)) {
+      sceneOptions.require_animation_success = m_workspaceGroup != nullptr && m_workspaceGroup->revealActive();
+      if (sceneOptions.require_animation_success) {
+        sceneOptions.workspace_from = m_workspaceGroup->revealRoot(false);
+        sceneOptions.workspace_to = m_workspaceGroup->revealRoot(true);
+      }
+      bool built = false;
+      {
+        ANDROMEDA_ZONE("Output::buildState");
+        built = wlr_scene_output_build_state(m_sceneOutput, &state, &sceneOptions);
+      }
+      if (!built && sceneOptions.require_animation_success) {
+        // Reject the incomplete frame and resume native slide at the same progress.
+        m_workspaceGroup->abandonReveal();
+      }
+      if (built) {
         // Hardware gamma only (DRM). Nested Wayland has no gamma LUT; leave that alone.
         // Apply only when dirty: uploading the LUT every frame stalls the compositor.
         bool gammaPending = false;
         if (m_gammaDirty) {
           if (hdrActive()) {
-            rejectGammaControl(wlr_gamma_control_manager_v1_get_control(m_server->gammaManager(), m_output));
+            m_gammaDirty = false;
           } else if (wlr_output_get_gamma_size(m_output) > 0) {
             wlr_gamma_control_v1* control =
                 wlr_gamma_control_manager_v1_get_control(m_server->gammaManager(), m_output);
@@ -1530,7 +2170,11 @@ namespace andromeda {
           }
         }
 
-        commitOk = wlr_output_commit_state(m_output, &state);
+        {
+          ANDROMEDA_ZONE("Output::commitState");
+          SceneCommit observation(*this, state);
+          commitOk = wlr_output_commit_state(m_output, &state);
+        }
         if (hasBuffer) {
           m_tearingRecovery.recordCommit(commitTearing, commitOk);
         }
@@ -1576,7 +2220,7 @@ namespace andromeda {
     // A request_state that arrived mid-commit is applied now that we're out of it.
     if (m_hasDeferredMode) {
       m_hasDeferredMode = false;
-      applyMode(m_deferredWidth, m_deferredHeight);
+      applyMode(m_deferredWidth, m_deferredHeight, m_deferredRefresh);
     }
 
     if (commitFailed && m_output->idle_frame != nullptr) {
@@ -1601,7 +2245,7 @@ namespace andromeda {
       break;
     }
 
-    if (effectsEligible && !commitFailed) {
+    if ((effectsEligible || audioPending()) && !commitFailed) {
       armEffectFrame(nowMsec);
     } else {
       disarmEffectFrame();
@@ -1631,6 +2275,7 @@ namespace andromeda {
         && event->state->mode_type == WLR_OUTPUT_STATE_MODE_CUSTOM) {
       m_deferredWidth = event->state->custom_mode.width;
       m_deferredHeight = event->state->custom_mode.height;
+      m_deferredRefresh = event->state->custom_mode.refresh;
       m_hasDeferredMode = true;
       return;
     }
@@ -1642,6 +2287,8 @@ namespace andromeda {
     if ((event->state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_ENABLED)) != 0) {
       markDirty(Dirty::LayerArrange | Dirty::Banner | Dirty::Backdrop);
       m_gammaDirty = true;
+      updateHdrAvailability();
+      m_server->updateColorPreferences();
       if (SessionLock* lock = m_server->sessionLock()) {
         lock->handleOutputStateChanged(*this);
       }
@@ -1651,6 +2298,32 @@ namespace andromeda {
 
   void Output::handlePresent(void* data) {
     const auto* event = static_cast<const wlr_output_event_present*>(data);
+#ifdef TRACY_ENABLE
+    if (event->presented) {
+      if (m_tracyIntervalPlot == nullptr) {
+        m_tracyIntervalPlot = tracyPlotName(std::format("{} present interval ms", m_output->name));
+        m_tracyVblankPlot = tracyPlotName(std::format("{} vblanks per present", m_output->name));
+      }
+      const int64_t whenNs = static_cast<int64_t>(event->when.tv_sec) * 1'000'000'000 + event->when.tv_nsec;
+      if (m_tracyLastPresentNs != 0) {
+        TracyPlot(m_tracyIntervalPlot, static_cast<double>(whenNs - m_tracyLastPresentNs) / 1e6);
+      }
+      // Above 1 while frames keep coming, the output repeated a vblank: a missed frame.
+      if (event->seq != 0 && m_tracyLastPresentSeq != 0) {
+        TracyPlot(m_tracyVblankPlot, static_cast<int64_t>(event->seq - m_tracyLastPresentSeq));
+      }
+      m_tracyLastPresentNs = whenNs;
+      m_tracyLastPresentSeq = event->seq;
+    }
+#endif
+    if (event->presented) {
+      const bool fixedRefresh =
+          event->refresh > 0 && m_output->adaptive_sync_status != WLR_OUTPUT_ADAPTIVE_SYNC_ENABLED;
+      m_lastPresentNs = fixedRefresh
+          ? static_cast<uint64_t>(event->when.tv_sec) * 1'000'000'000 + static_cast<uint64_t>(event->when.tv_nsec)
+          : 0;
+      m_refreshNs = fixedRefresh ? static_cast<uint64_t>(event->refresh) : 0;
+    }
     if (SessionLock* lock = m_server->sessionLock()) {
       lock->handleOutputPresent(*this, event->commit_seq, event->presented);
     }
@@ -1718,7 +2391,10 @@ namespace andromeda {
     for (wlr_scene_tree* tree : m_layerTrees) {
       wlr_scene_node_set_enabled(&tree->node, ownContent);
     }
-    for (wlr_scene_tree* tree : {m_popupTree, m_viewRoot, m_fullscreenRoot, m_pinnedRoot}) {
+    for (wlr_scene_tree* tree : m_layerPopupTrees) {
+      wlr_scene_node_set_enabled(&tree->node, ownContent);
+    }
+    for (wlr_scene_tree* tree : {m_viewRoot, m_fullscreenRoot, m_pinnedRoot}) {
       wlr_scene_node_set_enabled(&tree->node, ownContent);
     }
     // Leaving the layout also withdraws the wl_output global, so no client can place surfaces on a mirror.

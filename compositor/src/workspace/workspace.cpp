@@ -15,8 +15,8 @@
 #include "server/server.h"
 #include "view/floating.h"
 #include "view/registry.h"
+#include "view/size_hints.h"
 #include "view/view.h"
-#include "view/xdg_size.h"
 // clang-format off
 #include <algorithm>
 #include <cmath>
@@ -28,6 +28,10 @@
 #include <utility>
 #include "wlr.h"
 // clang-format on
+
+extern "C" {
+#include <andromedafx/render/effect.h>
+}
 
 namespace andromeda {
 
@@ -42,13 +46,13 @@ namespace andromeda {
     // The bridge between the layout's opaque View identity and the client state it needs to size that view. Workspace
     // owns both sides, so it owns the lookup; layout/ stays free of view/ and its geometry stays testable.
     LayoutConstraints viewLayoutConstraints(const View* view) {
-      const wlr_xdg_toplevel* toplevel = view != nullptr ? view->toplevel() : nullptr;
-      const XdgSizeHints hints = xdgSizeHints(toplevel);
+      const SizeHints hints = view != nullptr ? view->sizeHints() : SizeHints{};
+      const int titleBar = view != nullptr ? view->titleBarHeight() : 0;
       return {
           .minWidth = hints.minWidth,
-          .minHeight = hints.minHeight,
+          .minHeight = hints.minHeight + titleBar,
           .maxWidth = hints.maxWidth,
-          .maxHeight = hints.maxHeight,
+          .maxHeight = hints.maxHeight > 0 ? hints.maxHeight + titleBar : 0,
           .fullscreen = view != nullptr && view->layoutFullscreen(),
           .maximizedToEdges = view != nullptr && view->maximizedToEdges(),
       };
@@ -96,6 +100,45 @@ namespace andromeda {
       }
       return std::nullopt;
     }
+
+    // Ordered members join the tab group at their insertion row, including either boundary.
+    void joinNamedScrollingColumn(ScrollingLayout& layout, View* view, const NamedScrollingColumnPlacement& placement) {
+      const auto column = static_cast<int>(placement.column);
+      const Column& lane = layout.columns()[placement.column];
+      const auto row = static_cast<size_t>(placement.row);
+      const TabGroup* group = lane.tabs.groupAt(row);
+      if (group == nullptr && row > 0) {
+        group = lane.tabs.groupAt(row - 1);
+      }
+      const View* member = group != nullptr ? lane.views[group->active] : nullptr;
+      if (member == nullptr || !layout.insertTab(view, column, placement.row, member)) {
+        layout.insertViewIntoColumn(view, column, placement.row);
+      }
+    }
+
+    // Whether a window shares its workspace with the others, which is what `match.is_only_window` measures. A pinned
+    // window floats above the workspace rather than on it, and a scratchpad window has already left it, so neither
+    // counts as company.
+    bool sharesWorkspace(const View* view) { return view != nullptr && view->mapped() && !view->pinned(); }
+
+    ResolvedLayoutConfig displacedWorkspaceLayout(const DisplacedWorkspace& origin) {
+      ResolvedLayoutConfig layout = origin.workspaceNamed
+          ? resolveWorkspaceLayout(config(), origin.identity(), origin.workspaceName, origin.workspaceIndex)
+          : resolveUnnamedWorkspaceLayout(config(), origin.identity(), origin.workspaceIndex);
+      if (origin.configGeneration == configStore().generation() && origin.layoutModeOverride) {
+        layout.mode = *origin.layoutModeOverride;
+      }
+      return layout;
+    }
+
+    ResolvedLayoutConfig workspaceLayout(const Workspace& workspace, size_t index) {
+      if (const auto& origin = workspace.displacedWorkspace()) {
+        return displacedWorkspaceLayout(*origin);
+      }
+      const OutputIdentity identity = workspace.group()->output()->identity();
+      return workspace.named() ? resolveWorkspaceLayout(config(), identity, workspace.name(), index)
+                               : resolveUnnamedWorkspaceLayout(config(), identity, index);
+    }
   } // namespace
 
   Workspace::Workspace(
@@ -105,6 +148,7 @@ namespace andromeda {
       : m_group(&group), m_handle(handle), m_id(std::move(id)), m_name(std::move(name)), m_index(index), m_named(named),
         m_layout(createLayout(layoutConfig.mode)), m_layoutConfig(std::move(layoutConfig)),
         m_layoutMode(m_layoutConfig.mode) {
+    m_launchAnchor->workspace = this;
     m_layout->setConfig(&m_layoutConfig);
     m_layout->setConstraints(&viewLayoutConstraints);
     m_handle->data = this;
@@ -122,11 +166,14 @@ namespace andromeda {
   }
 
   Workspace::~Workspace() {
+    m_launchAnchor->workspace = nullptr;
+    // Windows leaving with the workspace are no longer anyone's tabs.
+    m_tabs.releaseAll();
     discardCloseSnapshots();
     endLayoutMotion();
     for (View* view : m_views) {
       view->cancelPositionAnimation();
-      const bool fs = view->toplevel()->current.fullscreen || view->toplevel()->scheduled.fullscreen;
+      const bool fs = view->currentFullscreen() || view->scheduledFullscreen();
       view->setSceneParent(fs ? m_group->server()->fullscreenTree() : m_group->server()->xdgTree());
       view->detachWorkspace();
     }
@@ -149,6 +196,12 @@ namespace andromeda {
       wlr_ext_workspace_handle_v1_destroy(m_handle);
       m_handle = nullptr;
     }
+  }
+
+  void Workspace::invalidateLaunchReservations() {
+    m_launchAnchor->workspace = nullptr;
+    m_launchAnchor = std::make_shared<WorkspaceLaunchAnchor>();
+    m_launchAnchor->workspace = this;
   }
 
   ScrollingLayout* Workspace::scrollingLayout() {
@@ -190,22 +243,47 @@ namespace andromeda {
   void Workspace::updateUrgent() {
     const bool urgent = std::ranges::any_of(m_views, [](const View* view) { return view->urgent(); });
     wlr_ext_workspace_handle_v1_set_urgent(m_handle, urgent);
+    m_group->server()->scheduleIpcWorkspacesEvent();
   }
 
-  void Workspace::setFocusedView(View* view) {
+  void Workspace::setFocusedView(View* view, bool raise, bool settleLayers) {
     if (view == nullptr || view->workspace() == this) {
-      m_focusedView = view;
-      if (view != nullptr && view->floating()) {
+      if (m_focusedView != view) {
+        m_focusedView = view;
+        m_group->server()->scheduleIpcWorkspacesEvent();
+      }
+      if (view == nullptr) {
+        m_floatingLayerActive = false;
+      } else if (!view->pinned()) {
+        if (view->floating() && !view->scheduledFullscreen()) {
+          m_floatingLayerActive = true;
+        } else if (settleLayers) {
+          m_floatingLayerActive = false;
+        }
+      }
+      if (view != nullptr && view->floating() && raise) {
         std::erase(m_floatingStack, view);
         m_floatingStack.push_back(view);
-        restackFloatingViews();
       }
+      if (raise) {
+        restackFloatingViews();
+      } else {
+        // Focus without raise must not reorder the scene, but the floating layer still follows the layer state
+        // above, or a hover would hide floats a fullscreen window is sitting under.
+        syncFloatingLayer();
+        raiseFloatingLayer();
+      }
+      // Whatever focused a tab, a click on its bar, a keybind, activation, or IPC, puts that tab on show.
+      m_tabs.focusChanged(view);
     }
   }
 
   void Workspace::syncFloatingStack(View* view) {
     if (view == nullptr || view->workspace() != this) {
       return;
+    }
+    if (view == m_focusedView && !view->pinned()) {
+      m_floatingLayerActive = view->floating() && !view->scheduledFullscreen();
     }
     if (view->floating()) {
       if (std::ranges::find(m_floatingStack, view) == m_floatingStack.end()) {
@@ -217,12 +295,42 @@ namespace andromeda {
     restackFloatingViews();
   }
 
+  bool Workspace::floatingLayerRaised() const {
+    return m_floatingLayer != nullptr && m_floatingLayer->node.parent == m_fullscreenTree;
+  }
+
+  void Workspace::syncFloatingLayer() {
+    if (m_floatingLayerActive && std::ranges::none_of(m_views, [](const View* view) {
+          return view->mapped() && view->floating() && !view->pinned() && !view->scheduledFullscreen();
+        })) {
+      // A hover may leave the floating layer raised after tiled focus returns. Once it empties, a later arrival
+      // must establish floating focus itself rather than inherit the previous floating episode.
+      m_floatingLayerActive = false;
+    }
+    const bool fullscreen = std::ranges::any_of(m_views, [](const View* view) {
+      return view->mapped() && !view->pinned() && view->scheduledFullscreen();
+    });
+    wlr_scene_tree* target = m_floatingLayerActive && fullscreen ? m_fullscreenTree : m_tree;
+    if (m_floatingLayer->node.parent != target) {
+      // Both workspace roots carry the same slide offset and output clip.
+      wlr_scene_node_reparent(&m_floatingLayer->node, target);
+    }
+  }
+
+  void Workspace::raiseFloatingLayer() {
+    if (floatingLayerRaised()) {
+      wlr_scene_node_raise_to_top(&m_floatingLayer->node);
+    }
+  }
+
   void Workspace::restackFloatingViews() {
+    syncFloatingLayer();
     for (View* view : m_floatingStack) {
       if (view != nullptr && view->workspace() == this && view->floating()) {
         view->raiseToTop();
       }
     }
+    raiseFloatingLayer();
   }
 
   void Workspace::addView(View* view, bool attachToLayout, LayoutAttachOrigin origin) {
@@ -230,13 +338,11 @@ namespace andromeda {
       return;
     }
     m_views.push_back(view);
-    if (m_views.size() == 1) {
-      // Occupancy is part of the IPC workspace listing, so the empty-to-occupied edge has to push an event even on a
-      // static output, where reconciliation never adds or removes a workspace.
-      m_group->server()->scheduleIpcWorkspacesEvent();
-    }
+    // Occupancy and the window count are part of the IPC workspace listing, so every membership change pushes an event,
+    // even on a static output, where reconciliation never adds or removes a workspace.
+    m_group->server()->scheduleIpcWorkspacesEvent();
     updateUrgent();
-    const bool fs = view->toplevel()->current.fullscreen || view->toplevel()->scheduled.fullscreen;
+    const bool fs = view->currentFullscreen() || view->scheduledFullscreen();
     if (view->pinned()) {
       // Cross-output moves have to rehome the pinned view onto the new output's clipped roots.
       view->restorePinnedSceneParent();
@@ -245,9 +351,18 @@ namespace andromeda {
     }
     syncFloatingStack(view);
     applyVisibility();
-    if (attachToLayout) {
+    if (attachToLayout || m_layoutMode == LayoutMode::Floating) {
       layoutAttach(view, std::nullopt, std::nullopt, origin);
     }
+    if (attachToLayout
+        && m_layoutMode != LayoutMode::Floating
+        && view->layoutFloated()
+        && view->floating()
+        && !view->pinned()) {
+      view->setFloating(false, false);
+    }
+    // A float joins no layout, so nothing below would mark the workspace for a pass; occupancy questions need one.
+    markArrange();
     m_group->reconcileDynamic();
   }
 
@@ -256,12 +371,19 @@ namespace andromeda {
       return nullptr;
     }
     if (!view->pinned()) {
-      const bool fs = view->toplevel()->current.fullscreen || view->toplevel()->scheduled.fullscreen;
+      const bool fs = view->currentFullscreen() || view->scheduledFullscreen();
       view->setSceneParent(fs ? m_group->server()->fullscreenTree() : m_group->server()->xdgTree());
     }
-    View* replacement = m_focusedView == view ? focusReplacementForRemoval(view) : nullptr;
+    const bool focusedHere = m_focusedView == view;
+    View* replacement = focusedHere ? focusReplacementForRemoval(view) : nullptr;
+    if (focusedHere) {
+      // detachFromLayout() judges the survivor once the column is gone, so the note and the new focus land first.
+      noteRemovalOfFocusedColumn(m_layout->columnOf(view));
+      m_focusedView = replacement;
+      m_group->server()->scheduleIpcWorkspacesEvent();
+    }
     detachFromLayout(view);
-    if (std::erase(m_views, view) > 0 && m_views.empty()) {
+    if (std::erase(m_views, view) > 0) {
       m_group->server()->scheduleIpcWorkspacesEvent();
     }
     if (view == m_lastAloneSoleView) {
@@ -269,16 +391,22 @@ namespace andromeda {
       // noticed as new.
       m_lastAloneSoleView = nullptr;
     }
+    if (view == m_lastOnlyWindowView) {
+      m_lastOnlyWindowView = nullptr;
+    }
+    forgetShowDesktopFocus(view);
     updateUrgent();
     std::erase(m_floatingStack, view);
     std::erase(m_switchViews, view);
-
-    if (m_focusedView == view) {
-      m_focusedView = replacement;
+    if (focusedHere) {
+      setFocusedView(replacement);
+    } else {
+      restackFloatingViews();
     }
-    // Re-anchor the strip on whatever is focused now, the way every other focus-moving operation does. Activating an
-    // adjacent column and fitting the view prevents the old scroll offset from leaving a survivor cut off at the left
-    // edge while empty space opens on the right.
+
+    // Re-anchor the strip on whatever is focused now, the way every other focus-moving operation does. Fitting the
+    // survivor prevents the old scroll offset from leaving it cut off at the left edge while empty space opens on the
+    // right.
     ensureFocusedVisible();
     markArrange();
     if (reconcile) {
@@ -290,7 +418,7 @@ namespace andromeda {
   int Workspace::layoutAttachIndex(const View* view) const {
     int focusedColumn = m_layout->columnOf(m_focusedView);
     if (focusedColumn < 0 && m_group != nullptr) {
-      for (const auto& entry : m_group->server()->registry().all()) {
+      for (const auto& entry : m_group->server()->registry().placementRoots()) {
         View* candidate = entry.get();
         if (candidate != view && candidate->mapped() && candidate->tiled() && candidate->workspace() == this) {
           focusedColumn = m_layout->columnOf(candidate);
@@ -309,6 +437,19 @@ namespace andromeda {
         if (member != view) {
           return false;
         }
+      }
+    }
+    return true;
+  }
+
+  bool Workspace::isOnlyVisibleView(const View* view) const {
+    // A window that does not count as company cannot be the only one either.
+    if (!sharesWorkspace(view)) {
+      return false;
+    }
+    for (View* other : m_views) {
+      if (other != view && sharesWorkspace(other)) {
+        return false;
       }
     }
     return true;
@@ -341,6 +482,17 @@ namespace andromeda {
     if (view == nullptr || !view->mapped() || !view->tiled() || m_layout->columnOf(view) >= 0) {
       return;
     }
+    if (m_layoutMode == LayoutMode::Floating) {
+      if (origin == LayoutAttachOrigin::OpeningView) {
+        view->adoptLayoutFloat();
+      } else {
+        view->floatForLayout();
+      }
+      if (origin == LayoutAttachOrigin::OpeningView || origin == LayoutAttachOrigin::MovedView) {
+        exitFullscreenForIncomingView(view);
+      }
+      return;
+    }
     if (origin == LayoutAttachOrigin::OpeningView || origin == LayoutAttachOrigin::MovedView) {
       exitFullscreenForIncomingView(view);
     }
@@ -351,9 +503,30 @@ namespace andromeda {
         : std::nullopt;
     view->m_ownsNamedScrollingColumnExtent = scrolling != nullptr && name.has_value() && !placement;
     if (placement) {
-      scrolling->insertViewIntoColumn(view, static_cast<int>(placement->column), placement->row);
+      joinNamedScrollingColumn(*scrolling, view, *placement);
+    } else if (DwindleLayout* dwindle = dwindleLayout(); dwindle != nullptr && m_layoutConfig.dwindle.newTowardCursor) {
+      // The pointer only means something here while it is over this workspace as shown on its output.
+      Server* server = m_group != nullptr ? m_group->server() : nullptr;
+      Output* output = m_group != nullptr ? m_group->output() : nullptr;
+      const Overview* overview = server != nullptr ? server->overview() : nullptr;
+      const Cursor* cursor = server != nullptr ? server->cursor() : nullptr;
+      const wlr_cursor* pointer = cursor != nullptr ? cursor->wlr() : nullptr;
+      if (m_active
+          && output != nullptr
+          && pointer != nullptr
+          && (overview == nullptr || !overview->active())
+          && wlr_output_layout_output_at(server->outputLayout(), pointer->x, pointer->y) == output->wlr()) {
+        dwindle->insertViewToward(view, layoutAttachIndex(view), pointer->x, pointer->y);
+      } else {
+        dwindle->insertView(view, layoutAttachIndex(view));
+      }
     } else {
       m_layout->insertView(view, layoutAttachIndex(view));
+    }
+    // An opening window's rules can set how the column it opens in shows its windows.
+    if (TabbedContainers* containers = m_layout->tabbedContainers();
+        containers != nullptr && origin == LayoutAttachOrigin::OpeningView && view->m_ruleColumnDisplay) {
+      containers->setTabbed(view, *view->m_ruleColumnDisplay == ColumnDisplay::Tabbed);
     }
 
     if (scrolling != nullptr && !placement) {
@@ -365,10 +538,12 @@ namespace andromeda {
       } else if (m_layoutConfig.scrolling.defaultExtentFraction) {
         scrolling->setWidthFraction(column, *m_layoutConfig.scrolling.defaultExtentFraction);
       } else {
-        const wlr_box& geometry = view->toplevel()->base->geometry;
+        const wlr_box& geometry = view->geometryBox();
         const int primary = scrollingVertical() ? geometry.height : geometry.width;
         if (primary > 0) {
-          scrolling->setWidthFromPixels(column, scrollViewportExtent(), primary);
+          // A client-chosen first width is one tile and never creates a wide column; wider extents come from
+          // rules, window-set-*, and resize.
+          scrolling->setWidthFromPixels(column, scrollViewportExtent(), std::min(primary, scrollViewportExtent()));
         }
       }
     }
@@ -424,7 +599,7 @@ namespace andromeda {
       return std::nullopt;
     }
     const int column = static_cast<int>(placement->column);
-    preview->insertViewIntoColumn(view, column, placement->row);
+    joinNamedScrollingColumn(*preview, view, *placement);
     if (maximized && !preview->isFullWidth(column)) {
       preview->toggleFullWidth(column);
     }
@@ -448,10 +623,7 @@ namespace andromeda {
     const std::string& name = *view->namedScrollingColumnName();
     const auto restoreMaximizedColumn = [&] {
       const int column = scrolling->columnOf(view);
-      if (column >= 0
-          && view->toplevel()->scheduled.maximized
-          && !view->maximizedToEdges()
-          && !scrolling->isFullWidth(column)) {
+      if (column >= 0 && view->scheduledMaximized() && !view->maximizedToEdges() && !scrolling->isFullWidth(column)) {
         scrolling->toggleFullWidth(column);
       }
     };
@@ -501,7 +673,7 @@ namespace andromeda {
       scrolling->insertView(view, std::clamp(previousColumn, 0, static_cast<int>(scrolling->columns().size())));
       kLog.error("named scrolling column '{}' disappeared while moving a view", name);
     } else {
-      scrolling->insertViewIntoColumn(view, static_cast<int>(placement->column), placement->row);
+      joinNamedScrollingColumn(*scrolling, view, *placement);
     }
     restoreMaximizedColumn();
     clampScrollToRange();
@@ -537,7 +709,9 @@ namespace andromeda {
 
   wlr_box Workspace::tiledArea() const { return applyLayoutStruts(usableArea(), m_layoutConfig.struts); }
 
-  wlr_box Workspace::presentedTiledBox(const View* view) const { return tiledTargetBox(view, usableArea()); }
+  wlr_box Workspace::presentedTiledBox(const View* view, const Layout* layout) const {
+    return tiledTargetBox(view, usableArea(), layout);
+  }
 
   void Workspace::detachFromLayout(View* view) {
     ScrollingLayout* scrolling = scrollingLayout();
@@ -546,10 +720,17 @@ namespace andromeda {
         ? scrolling->scrollShiftForColumnRemoval(scrolling->columnOf(view), scrollViewportExtent())
         : 0.0;
     m_layout->removeView(view);
+    // Outside the layout a window is never a tab; whatever presents it next finds it showing.
+    m_tabs.released(view);
     releaseLayoutMotion(view);
     view->endLayoutMotion();
     if (scrolling != nullptr && shift != 0.0) {
       scrolling->setScroll(scrolling->scroll() - shift);
+    }
+    if (scrolling != nullptr) {
+      // The column that just left may have been the focused one. Its survivor is judged now, against the column that
+      // took its place, which is the first moment that pair can be measured.
+      scrolling->reevaluateAfterRemoval(scrolling->columnOf(m_focusedView), scrollViewportExtent());
     }
   }
 
@@ -569,9 +750,10 @@ namespace andromeda {
     }
   }
 
-  // Tells every window whether it is alone, but only when something actually changed. It compares the number of
-  // tiled windows, which window is the only one, and the config version, so every change is noticed (even one
-  // window replaced by another at the same time). The guard stops the window handlers from triggering another pass.
+  // Tells every window whether it is alone, and whether it is the workspace's only window, but only when one of those
+  // answers changed. It compares each answer's count and holder, and the config version, so every change is noticed
+  // (even one window replaced by another at the same time). The guard stops the window handlers from triggering another
+  // pass.
   void Workspace::refreshAloneRuleStates() {
     if (m_refreshingAloneRules) {
       return;
@@ -589,14 +771,32 @@ namespace andromeda {
     if (tiledViewCount != 1) {
       soleTiled = nullptr;
     }
+    View* soleVisible = nullptr;
+    size_t visibleViewCount = 0;
+    for (View* other : m_views) {
+      if (!sharesWorkspace(other)) {
+        continue;
+      }
+      ++visibleViewCount;
+      if (visibleViewCount == 1) {
+        soleVisible = other;
+      }
+    }
+    if (visibleViewCount != 1) {
+      soleVisible = nullptr;
+    }
     const uint64_t generation = configStore().generation();
     if (tiledViewCount == m_lastAloneViewCount
         && soleTiled == m_lastAloneSoleView
+        && visibleViewCount == m_lastOnlyWindowCount
+        && soleVisible == m_lastOnlyWindowView
         && generation == m_lastAloneGeneration) {
       return;
     }
     m_lastAloneViewCount = tiledViewCount;
     m_lastAloneSoleView = soleTiled;
+    m_lastOnlyWindowCount = visibleViewCount;
+    m_lastOnlyWindowView = soleVisible;
     m_lastAloneGeneration = generation;
     m_refreshingAloneRules = true;
     for (View* view : m_views) {
@@ -611,6 +811,14 @@ namespace andromeda {
     if (m_arrangePending) {
       arrange(m_arrangeAnimate);
     }
+  }
+
+  std::unique_ptr<Layout> Workspace::previewArrangedLayout() const {
+    auto preview = previewLayout();
+    if (preview != nullptr) {
+      preview->arrange(tiledArea());
+    }
+    return preview;
   }
 
   void Workspace::arrange(bool animate) {
@@ -634,6 +842,17 @@ namespace andromeda {
     }
 
     m_layout->arrange(applyLayoutStruts(usable, m_layoutConfig.struts));
+    // Tab visibility follows the layout on hidden workspaces too, so a workspace always comes back showing the right
+    // tabs.
+    m_tabs.sync();
+    // A maximized float keeps the margin a maximized tile keeps, so it follows every change an arrange follows: gap,
+    // border, struts, and the usable area.
+    for (View* view : m_views) {
+      if (view != nullptr && !view->tiled()) {
+        view->refitFloatingMaximized();
+        view->refitFloatingSnapped();
+      }
+    }
     // The map-time IPC event can fire before this arrange runs, leaving the previous window positions in the listing.
     // Re-emit now that the layout boxes are settled; the event coalescer caps this at one per frame.
     m_group->server()->scheduleIpcWindowsEvent();
@@ -654,14 +873,13 @@ namespace andromeda {
       if (m_layout->columnOf(view) < 0) {
         continue;
       }
-      if (view->toplevel()->scheduled.fullscreen) {
+      if (view->scheduledFullscreen()) {
         wlr_box fullArea{};
         wlr_output_layout_get_box(m_group->server()->outputLayout(), output->wlr(), &fullArea);
         if (fullArea.width > 0
             && fullArea.height > 0
-            && (view->toplevel()->scheduled.width != fullArea.width
-                || view->toplevel()->scheduled.height != fullArea.height)) {
-          wlr_xdg_toplevel_set_size(view->toplevel(), fullArea.width, fullArea.height);
+            && (view->scheduledSize().width != fullArea.width || view->scheduledSize().height != fullArea.height)) {
+          view->configureSize(fullArea.width, fullArea.height);
         }
         if (animate) {
           view->beginResizeAnimation(fullArea.width, fullArea.height, true);
@@ -669,10 +887,10 @@ namespace andromeda {
         continue;
       }
       const wlr_box target = tiledTargetBox(view, usable);
-      const XdgSizeHints hints = xdgSizeHints(view->toplevel());
-      const int width = view->maximizedToEdges() ? target.width : clampXdgWidth(target.width, hints);
-      const int height = view->maximizedToEdges() ? target.height : clampXdgHeight(target.height, hints);
-      const auto& scheduled = view->toplevel()->scheduled;
+      const SizeHints hints = view->sizeHints();
+      const int width = view->maximizedToEdges() ? target.width : clampWidth(target.width, hints);
+      const int height = view->maximizedToEdges() ? target.height : clampHeight(target.height, hints);
+      const View::ClientSize scheduled = view->scheduledSize();
       if (scheduled.width != width || scheduled.height != height) {
         resized.push_back(view);
         resizeRequests.push_back({.view = view, .width = width, .height = height});
@@ -719,7 +937,8 @@ namespace andromeda {
     // Position from the node's CURRENT position, not the layout target: during position animations (column swaps, drag
     // drops) the node lags the target, and presentation derived from the target lands displaced on screen (cut-off
     // borders that reappear as the window settles).
-    const wlr_scene_node& node = view->sceneTree()->node;
+    const int nodeX = view->layoutX();
+    const int nodeY = view->layoutY();
 
     // Each case only decides the region the view occupies; everything after is common. Keeping that region off the
     // neighbouring output is the job of the output's clipped scene roots, not of this function.
@@ -731,8 +950,8 @@ namespace andromeda {
     if (view->pinned()) {
       // Pinned views sit outside the workspace, so no slide offset applies, and
       // they are sized from committed geometry rather than the presented size.
-      const wlr_box& geometry = view->toplevel()->base->geometry;
-      target = {node.x, node.y, geometry.width, geometry.height};
+      const wlr_box& geometry = view->geometryBox();
+      target = {nodeX, nodeY, geometry.width, geometry.height};
     } else {
       if (!normallyVisible && !overviewActive) {
         return;
@@ -745,13 +964,21 @@ namespace andromeda {
           return;
         }
         // Fullscreen covers the output and draws no decorations.
-        target = {node.x + m_slideOffsetX, node.y + m_slideOffsetY, outputBox.width, outputBox.height};
+        target = {nodeX + m_slideOffsetX, nodeY + m_slideOffsetY, outputBox.width, outputBox.height};
       } else {
-        // Floating views follow committed geometry; tiled ones follow the box
-        // the layout assigned them.
-        const wlr_box sized =
-            m_layout->columnOf(view) < 0 ? view->toplevel()->base->geometry : tiledTargetBox(view, usable);
-        target = {node.x + m_slideOffsetX, node.y + m_slideOffsetY, sized.width, sized.height};
+        // Floating views keep a pending requested size after a drag ends, until the client redraws. Tiled views
+        // follow the box the layout assigned them.
+        const bool inLayout = m_layout->columnOf(view) >= 0;
+        const auto [floatingWidth, floatingHeight] = view->floatingSize();
+        const wlr_box sized = inLayout ? tiledTargetBox(view, usable)
+                                       : wlr_box{.x = 0, .y = 0, .width = floatingWidth, .height = floatingHeight};
+        // A view that just joined the layout has no slot until the pending arrange. Presenting the empty slot would
+        // erase the box it still shows, and that arrange would then place it like an opener instead of moving it.
+        if (inLayout && (sized.width <= 0 || sized.height <= 0)) {
+          view->setNodeEnabled(normallyVisible);
+          return;
+        }
+        target = {nodeX + m_slideOffsetX, nodeY + m_slideOffsetY, sized.width, sized.height};
       }
     }
 
@@ -772,6 +999,15 @@ namespace andromeda {
     if (usable.width <= 0 || usable.height <= 0) {
       usable = outputBox;
     }
+    // Floating windows are clamped to the grabbable margin only when the area
+    // that bounds them changed: an arrange driven by anything else (a focus
+    // reveal putting the strip on show, a window opening) must never
+    // reposition them.
+    const bool usableChanged = usable.x != m_lastArrangeUsable.x
+        || usable.y != m_lastArrangeUsable.y
+        || usable.width != m_lastArrangeUsable.width
+        || usable.height != m_lastArrangeUsable.height;
+    m_lastArrangeUsable = usable;
 
     // Fullscreen and floating views position themselves. Established tiled members share windows_move below, while an
     // opening tiled lifecycle view is presented directly at its final slot.
@@ -780,6 +1016,8 @@ namespace andromeda {
         continue;
       }
       if (view->layoutFullscreen()) {
+        // Fullscreen openers bypass tiled admission, including a request received before the first tiled arrange.
+        view->resumeTiledOpening();
         const wlr_box target = fullscreenTargetBox(view);
         if (view->fullscreenOpeningActive()) {
           // windows_in carries the node while the opener scales inside this box; the layout keeps only the target.
@@ -798,7 +1036,9 @@ namespace andromeda {
 
       if (m_layout->columnOf(view) < 0) {
         // Floating (non-fullscreen): clip + enable against the home output.
-        view->clampFloatingPosition();
+        if (usableChanged) {
+          view->clampFloatingPosition();
+        }
         syncViewPresentation(view);
       }
     }
@@ -825,6 +1065,51 @@ namespace andromeda {
       const long dx = (2L * to.x + to.width) - (2L * from.x + from.width);
       const long dy = (2L * to.y + to.height) - (2L * from.y + from.height);
       return dx * dx + dy * dy;
+    }
+
+    // The progress speed, per second, at which a restarted motion keeps its members moving as fast as they were: the
+    // least-squares fit of every member's current edge velocity onto its new span. Only members present in both
+    // motions count; 0 when nothing carries over.
+    template <typename Entries>
+    double carriedProgressSpeed(const Entries& previous, const Entries& next, double previousSpeed, bool size) {
+      if (previousSpeed == 0.0 || !std::isfinite(previousSpeed)) {
+        return 0.0;
+      }
+      double along = 0.0;
+      double squared = 0.0;
+      for (const auto& entry : next) {
+        const auto old =
+            std::ranges::find_if(previous, [&entry](const auto& candidate) { return candidate.view == entry.view; });
+        if (old == previous.end()) {
+          continue;
+        }
+        const std::array<double, 2> oldSpan = size
+            ? std::array<double, 2>{static_cast<double>(old->to.width - old->from.width),
+                                    static_cast<double>(old->to.height - old->from.height)}
+            : std::array<double, 2>{static_cast<double>(old->to.x - old->from.x),
+                                    static_cast<double>(old->to.y - old->from.y)};
+        const std::array<double, 2> newSpan = size
+            ? std::array<double, 2>{static_cast<double>(entry.to.width - entry.from.width),
+                                    static_cast<double>(entry.to.height - entry.from.height)}
+            : std::array<double, 2>{static_cast<double>(entry.to.x - entry.from.x),
+                                    static_cast<double>(entry.to.y - entry.from.y)};
+        for (size_t axis = 0; axis < 2; ++axis) {
+          along += oldSpan[axis] * previousSpeed * newSpan[axis];
+          squared += newSpan[axis] * newSpan[axis];
+        }
+      }
+      return squared > 0.0 ? along / squared : 0.0;
+    }
+
+    // Starts a 0 -> 1 motion timeline, from the carried speed when its curve is a spring that can use one.
+    void startTimeline(AnimatedValue& value, bool& physics, int durationMs, const AnimationCurve& curve, double speed) {
+      value.snap(0.0);
+      physics = curve.easing == Easing::Spring && speed > 0.0;
+      if (physics) {
+        value.settleSpring(1.0, curve.spring, speed);
+      } else {
+        value.retarget(1.0, durationMs, curve);
+      }
     }
 
   } // namespace
@@ -864,9 +1149,8 @@ namespace andromeda {
         view->presentTiledBox(slot);
         continue;
       }
-      const wlr_scene_node& node = view->sceneTree()->node;
       const wlr_box from = openingLayoutBox.value_or(
-          wlr_box{.x = node.x, .y = node.y, .width = presented.width, .height = presented.height}
+          wlr_box{.x = view->layoutX(), .y = view->layoutY(), .width = presented.width, .height = presented.height}
       );
       // A positioned member animates its size only when this pass reconfigured it or a motion already carries it;
       // otherwise it keeps the size it presents, which stays inside the slot.
@@ -936,7 +1220,7 @@ namespace andromeda {
     }
 
     // A running motion heading for the same layout keeps going; anything else restarts from the current boxes.
-    if (m_motion.progress.animating() && views.size() == m_motion.views.size()) {
+    if ((m_motion.progress.animating() || m_motion.size.animating()) && views.size() == m_motion.views.size()) {
       bool same = true;
       for (size_t i = 0; i < views.size() && same; ++i) {
         same = views[i].view == m_motion.views[i].view && sameBox(views[i].to, m_motion.views[i].to);
@@ -953,8 +1237,8 @@ namespace andromeda {
       }
     }
 
-    // A pair of positioned members whose side relation changes cannot stay disjoint; the one travelling farther passes
-    // over the other.
+    // A pair of positioned members whose side relation changes cannot stay disjoint; the focused one passes over the
+    // other, since it is the window the user acted on, and otherwise the one travelling farther.
     std::vector<bool> raise(views.size(), false);
     for (size_t i = 0; i < views.size(); ++i) {
       for (size_t j = i + 1; j < views.size(); ++j) {
@@ -963,7 +1247,11 @@ namespace andromeda {
         if (keepsSeparation(a, b)) {
           continue;
         }
-        raise[travelSquared(a.from, a.to) > travelSquared(b.from, b.to) ? i : j] = true;
+        if (views[i].view == m_focusedView || views[j].view == m_focusedView) {
+          raise[views[i].view == m_focusedView ? i : j] = true;
+        } else {
+          raise[travelSquared(a.from, a.to) > travelSquared(b.from, b.to) ? i : j] = true;
+        }
       }
     }
 
@@ -979,17 +1267,38 @@ namespace andromeda {
       return;
     }
 
+    // An interrupted motion hands its speed to the next one, so repeated actions bend the motion instead of stopping
+    // it and starting again from rest.
+    const auto& resize = animation.windowsResize;
+    const double positionSpeed = m_motion.progress.animating()
+        ? carriedProgressSpeed(m_motion.views, views, m_motion.progress.velocity(), false)
+        : 0.0;
+    const double sizeSpeed =
+        m_motion.size.animating() ? carriedProgressSpeed(m_motion.views, views, m_motion.size.velocity(), true) : 0.0;
     m_motion.views = std::move(views);
-    m_motion.progress.snap(0.0);
-    m_motion.progress.retarget(1.0, move.durationMs, move.curve);
+    startTimeline(m_motion.progress, m_motion.progressPhysics, move.durationMs, move.curve, positionSpeed);
     m_motion.geometryCurve.reset(move.curve);
+    // Without windows_resize the size lands at once while the position still moves.
+    if (resize.enabled) {
+      startTimeline(m_motion.size, m_motion.sizePhysics, resize.durationMs, resize.curve, sizeSpeed);
+      m_motion.sizeCurve.reset(resize.curve);
+    } else {
+      m_motion.size.snap(1.0);
+      m_motion.sizePhysics = false;
+    }
 
     for (size_t i = 0; i < m_motion.views.size(); ++i) {
       const LayoutMotion::ViewEntry& entry = m_motion.views[i];
       entry.view->beginLayoutMotion(entry.direction);
       entry.view->presentTiledBox(entry.from);
-      if (raise[i]) {
+      if (raise[i] && entry.view != m_focusedView) {
         entry.view->raiseToTop();
+      }
+    }
+    // Raised last, so it also passes over every other window raised above.
+    for (size_t i = 0; i < m_motion.views.size(); ++i) {
+      if (raise[i] && m_motion.views[i].view == m_focusedView) {
+        m_motion.views[i].view->raiseToTop();
       }
     }
     for (View* view : openingViews) {
@@ -998,20 +1307,41 @@ namespace andromeda {
     wlr_output_schedule_frame(m_group->output()->wlr());
   }
 
-  bool Workspace::tickLayoutMotion(uint64_t nowMsec) {
-    const bool geometryTicked = m_motion.progress.tick(nowMsec);
-    const bool needsFinalPresentation = !m_motion.progress.animating() && !m_motion.views.empty();
-    if (!geometryTicked && !needsFinalPresentation) {
+  bool Workspace::tickLayoutMotion(double nowMsec) {
+    const bool positionTicked = m_motion.progress.tick(nowMsec);
+    const bool sizeTicked = m_motion.size.tick(nowMsec);
+    // A carried-speed spring settles on its own solver; stop it once no member's pixel can change. One progress unit
+    // spans each member's whole travel, so the longest travel sets the pixel scale.
+    if (m_motion.progressPhysics || m_motion.sizePhysics) {
+      int travel = 1;
+      int resize = 1;
+      for (const LayoutMotion::ViewEntry& entry : m_motion.views) {
+        travel = std::max({travel, std::abs(entry.to.x - entry.from.x), std::abs(entry.to.y - entry.from.y)});
+        resize = std::max(
+            {resize, std::abs(entry.to.width - entry.from.width), std::abs(entry.to.height - entry.from.height)}
+        );
+      }
+      static_cast<void>(m_motion.progress.finishSpringTail(travel));
+      static_cast<void>(m_motion.size.finishSpringTail(resize));
+    }
+    const bool running = m_motion.progress.animating() || m_motion.size.animating();
+    const bool needsFinalPresentation = !running && !m_motion.views.empty();
+    if (!positionTicked && !sizeTicked && !needsFinalPresentation) {
       return false;
     }
 
-    const double progress = m_motion.geometryCurve.value(m_motion.progress.progress());
+    const auto timeline = [](const AnimatedValue& value, bool physics, const MonotonicEasing& curve) {
+      return physics ? std::clamp(value.current(), 0.0, 1.0) : curve.value(value.progress());
+    };
+    const double position = timeline(m_motion.progress, m_motion.progressPhysics, m_motion.geometryCurve);
+    const double size =
+        m_motion.size.animating() ? timeline(m_motion.size, m_motion.sizePhysics, m_motion.sizeCurve) : 1.0;
     for (const LayoutMotion::ViewEntry& entry : m_motion.views) {
       if (entry.view->mapped() && m_layout->columnOf(entry.view) >= 0) {
-        entry.view->presentTiledBox(interpolateBox(entry.from, entry.to, progress));
+        entry.view->presentTiledBox(interpolateBox(entry.from, entry.to, position, size));
       }
     }
-    if (m_motion.progress.animating()) {
+    if (running) {
       return true;
     }
 
@@ -1029,6 +1359,7 @@ namespace andromeda {
 
   void Workspace::endLayoutMotion() {
     m_motion.progress.snap(1.0);
+    m_motion.size.snap(1.0);
     std::vector<LayoutMotion::ViewEntry> views = std::move(m_motion.views);
     m_motion.views.clear();
     for (const LayoutMotion::ViewEntry& entry : views) {
@@ -1079,10 +1410,15 @@ namespace andromeda {
     return m_motion.progress.animating() ? &m_motion.progress : nullptr;
   }
 
-  wlr_box Workspace::tiledTargetBox(const View* view, const wlr_box& usable) const {
-    wlr_box target = m_layout->targetBox(view);
+  bool Workspace::inTabGroup(const View* view) const {
+    const int column = m_layout->columnOf(view);
+    return column >= 0 && tabGroupOf(m_layout->columns()[static_cast<size_t>(column)], view) != nullptr;
+  }
+
+  wlr_box Workspace::tiledTargetBox(const View* view, const wlr_box& usable, const Layout* layout) const {
+    wlr_box target = (layout != nullptr ? layout : m_layout.get())->targetBox(view);
     if (view == nullptr || !view->maximizedToEdges()) {
-      return target;
+      return contentBoxInTile(target, view != nullptr ? view->titleBarHeight() : 0);
     }
     if (scrollingLayout() != nullptr) {
       const bool vertical = scrollingVertical();
@@ -1100,7 +1436,7 @@ namespace andromeda {
     }
     target.width = usable.width;
     target.height = usable.height;
-    return target;
+    return contentBoxInTile(target, view->titleBarHeight());
   }
 
   wlr_box Workspace::fullscreenTargetBox(const View* view) const {
@@ -1128,7 +1464,8 @@ namespace andromeda {
     return outputBox;
   }
 
-  View* Workspace::focusAlongStrip(int direction) const {
+  View* Workspace::focusAlongStrip(int direction) {
+    flushArrange();
     if (const auto horizontal = m_layout->focusHorizontalLeaf(m_focusedView, direction)) {
       return *horizontal;
     }
@@ -1137,11 +1474,11 @@ namespace andromeda {
     if (current < 0 || target < 0 || target >= static_cast<int>(m_layout->columns().size())) {
       return nullptr;
     }
-    const Column& column = m_layout->columns()[static_cast<size_t>(target)];
-    return column.views.empty() ? nullptr : column.views.front();
+    return columnEntry(m_layout->columns()[static_cast<size_t>(target)]);
   }
 
-  View* Workspace::focusWithinLane(int direction) const {
+  View* Workspace::focusWithinLane(int direction) {
+    flushArrange();
     if (const auto vertical = m_layout->focusVerticalLeaf(m_focusedView, direction)) {
       return *vertical;
     }
@@ -1150,9 +1487,14 @@ namespace andromeda {
     if (column < 0 || row < 0) {
       return nullptr;
     }
-    const auto& views = m_layout->columns()[static_cast<size_t>(column)].views;
-    const int target = row + direction;
-    return target < 0 || target >= static_cast<int>(views.size()) ? nullptr : views[static_cast<size_t>(target)];
+    // A tab group is one unit of its column: focus steps past its hidden tabs and enters it at the tab it shows.
+    const Column& lane = m_layout->columns()[static_cast<size_t>(column)];
+    const auto at = static_cast<size_t>(row);
+    if (direction > 0) {
+      return unitEntry(lane, lane.tabs.unitEnd(at));
+    }
+    const size_t start = lane.tabs.unitStart(at);
+    return direction < 0 && start > 0 ? unitEntry(lane, start - 1) : nullptr;
   }
 
   View* Workspace::preferRecentPeer(View* target) const {
@@ -1160,10 +1502,14 @@ namespace andromeda {
       return target;
     }
     const std::vector<View*> peers = m_layout->focusPeers(m_focusedView, target);
-    if (peers.size() < 2) {
+    // A single peer is the only window the move may land on, such as the tab a tabbed column shows.
+    if (peers.size() == 1) {
+      return peers.front();
+    }
+    if (peers.empty()) {
       return target;
     }
-    for (const auto& entry : m_group->server()->registry().all()) {
+    for (const auto& entry : m_group->server()->registry().placementRoots()) {
       View* candidate = entry.get();
       if (candidate->mapped() && candidate->workspace() == this && std::ranges::find(peers, candidate) != peers.end()) {
         return candidate;
@@ -1172,11 +1518,58 @@ namespace andromeda {
     return target;
   }
 
-  View* Workspace::focusAdjacent(int direction) const {
+  View* Workspace::floatingFocusTarget(bool horizontal, int direction) const {
+    if (m_focusedView == nullptr || direction == 0) {
+      return nullptr;
+    }
+    std::vector<LayoutTarget> targets;
+    for (View* view : m_floatingStack) {
+      if (view->mapped()
+          && !view->minimized()
+          && !view->pinned()
+          && !view->currentFullscreen()
+          && !view->scheduledFullscreen()) {
+        const wlr_box& geo = view->geometryBox();
+        targets.push_back({view, view->layoutX(), view->layoutY(), geo.width, geo.height});
+      }
+    }
+    if (View* neighbor = directionalNeighbor(targets, m_focusedView, horizontal, direction)) {
+      return neighbor;
+    }
+    // Cascaded windows overlap. When no edge neighbor exists, use centers to reach overlapping windows too.
+    const auto source =
+        std::ranges::find_if(targets, [this](const auto& target) { return target.view == m_focusedView; });
+    if (source == targets.end()) {
+      return nullptr;
+    }
+    View* best = nullptr;
+    double bestDistance = std::numeric_limits<double>::max();
+    for (const auto& candidate : targets) {
+      const double dx = candidate.x + candidate.width / 2.0 - source->x - source->width / 2.0;
+      const double dy = candidate.y + candidate.height / 2.0 - source->y - source->height / 2.0;
+      if ((horizontal ? dx : dy) * direction <= 0) {
+        continue;
+      }
+      const double distance = dx * dx + dy * dy;
+      if (distance < bestDistance) {
+        best = candidate.view;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  View* Workspace::focusAdjacent(int direction) {
+    if (m_layoutMode == LayoutMode::Floating) {
+      return floatingFocusTarget(true, direction);
+    }
     return preferRecentPeer(scrollingVertical() ? focusWithinLane(direction) : focusAlongStrip(direction));
   }
 
-  View* Workspace::focusVertical(int direction) const {
+  View* Workspace::focusVertical(int direction) {
+    if (m_layoutMode == LayoutMode::Floating) {
+      return floatingFocusTarget(false, direction);
+    }
     return preferRecentPeer(scrollingVertical() ? focusAlongStrip(direction) : focusWithinLane(direction));
   }
 
@@ -1185,8 +1578,7 @@ namespace andromeda {
     if (columns.empty()) {
       return nullptr;
     }
-    const Column& firstColumn = columns.front();
-    return firstColumn.views.empty() ? nullptr : firstColumn.views.front();
+    return columnEntry(columns.front());
   }
 
   View* Workspace::focusLastColumn() const {
@@ -1194,8 +1586,7 @@ namespace andromeda {
     if (columns.empty()) {
       return nullptr;
     }
-    const Column& lastColumn = columns.back();
-    return lastColumn.views.empty() ? nullptr : lastColumn.views.front();
+    return columnEntry(columns.back());
   }
 
   View* Workspace::focusReplacementForRemoval(const View* view) const {
@@ -1207,22 +1598,22 @@ namespace andromeda {
     const int rowIndex = m_layout->rowOf(view);
     const auto& columns = m_layout->columns();
     const auto mappedCandidate = [view](View* candidate) {
-      return candidate != nullptr && candidate != view && candidate->mapped();
+      return candidate != nullptr
+          && candidate != view
+          && candidate->mapped()
+          && !candidate->minimized()
+          && candidate->inputDelegate()->acceptsKeyboardFocus();
     };
 
-    const wlr_xdg_toplevel* toplevel = view->toplevel();
-    if (toplevel != nullptr && toplevel->parent != nullptr && toplevel->parent->base != nullptr) {
-      View* parent = View::fromSurface(toplevel->parent->base->surface);
-      if (mappedCandidate(parent) && parent->workspace() == this) {
-        return parent;
-      }
+    if (View* parent = view->shellParent(); mappedCandidate(parent) && parent->workspace() == this) {
+      return parent;
     }
 
     // Floating views have no layout successor: hand focus back to the most recently focused mapped view on this
     // workspace, since nothing else refocuses until a destroy-time fallback that unmap-only clients never reach.
     if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
-      for (const auto& entry : m_group->server()->registry().all()) {
-        if (entry.get() != view && entry->mapped() && entry->workspace() == this) {
+      for (const auto& entry : m_group->server()->registry().placementRoots()) {
+        if (mappedCandidate(entry.get()) && entry->workspace() == this) {
           return entry.get();
         }
       }
@@ -1242,7 +1633,7 @@ namespace andromeda {
     }
     const auto recentInColumn = [&](int targetColumn) -> View* {
       const auto& members = columns[static_cast<size_t>(targetColumn)].views;
-      for (const auto& entry : m_group->server()->registry().all()) {
+      for (const auto& entry : m_group->server()->registry().placementRoots()) {
         View* candidate = entry.get();
         if (mappedCandidate(candidate) && std::ranges::find(members, candidate) != members.end()) {
           return candidate;
@@ -1284,7 +1675,9 @@ namespace andromeda {
     for (const Column& column : m_layout->columns()) {
       ring.insert(ring.end(), column.views.begin(), column.views.end());
     }
-    ring.insert(ring.end(), m_floatingStack.begin(), m_floatingStack.end());
+    std::ranges::copy_if(m_floatingStack, std::back_inserter(ring), [](const View* view) {
+      return !view->minimized();
+    });
     if (ring.size() < 2) {
       return nullptr;
     }
@@ -1297,6 +1690,47 @@ namespace andromeda {
     const auto count = static_cast<std::ptrdiff_t>(ring.size());
     const auto target = (index + direction % count + count) % count;
     return ring[static_cast<size_t>(target)];
+  }
+
+  void Workspace::toggleShowDesktop() {
+    View* focus = m_focusedView;
+    // The focused window goes last, so focus is handed on once instead of through every other window.
+    std::vector<View*> views = m_views;
+    if (const auto focused = std::ranges::find(views, focus); focused != views.end()) {
+      std::rotate(focused, std::next(focused), views.end());
+    }
+    bool hid = false;
+    for (View* view : views) {
+      hid = (!view->minimized() && view->requestMinimize()) || hid;
+    }
+    if (hid) {
+      m_showDesktopFocus = focus;
+      return;
+    }
+    // Nothing left to hide: bring back every minimized window here, however it was minimized.
+    View* latest = nullptr;
+    for (View* view : m_views) {
+      if (!view->mapped() || !view->minimized()) {
+        continue;
+      }
+      if (latest == nullptr || view->minimizeSerial() > latest->minimizeSerial()) {
+        latest = view;
+      }
+      view->setMinimized(false);
+    }
+    focus = std::exchange(m_showDesktopFocus, nullptr);
+    if (focus == nullptr || !focus->mapped() || focus->minimized() || focus->workspace() != this) {
+      focus = m_focusedView != nullptr ? nullptr : latest;
+    }
+    if (focus != nullptr) {
+      m_group->server()->focusView(focus, FocusReason::Directional);
+    }
+  }
+
+  void Workspace::forgetShowDesktopFocus(const View* view) {
+    if (m_showDesktopFocus == view) {
+      m_showDesktopFocus = nullptr;
+    }
   }
 
   bool Workspace::swapFocusedInCycle(int direction) {
@@ -1323,6 +1757,29 @@ namespace andromeda {
     return true;
   }
 
+  bool Workspace::swapFocusedInDirection(bool horizontal, int direction) {
+    flushArrange();
+    // Geometry only: the focus memory directional focus applies could pick a diagonal tile.
+    std::vector<LayoutTarget> targets;
+    for (const Column& column : m_layout->columns()) {
+      for (View* view : column.views) {
+        // A hidden tab shares the box of the tab on show, so only the one on show is a neighbor on screen.
+        if (hiddenTab(column, view)) {
+          continue;
+        }
+        const wlr_box box = m_layout->targetBox(view);
+        targets.push_back({.view = view, .x = box.x, .y = box.y, .width = box.width, .height = box.height});
+      }
+    }
+    View* target = directionalNeighbor(targets, m_focusedView, horizontal, direction);
+    if (target == nullptr || !m_layout->swapViews(m_focusedView, target)) {
+      return false;
+    }
+    markArrange();
+    ensureFocusedVisible();
+    return true;
+  }
+
   bool Workspace::increaseMasterCount() {
     MasterStackLayout* master = masterLayout();
     if (master == nullptr || !master->promoteFromStack()) {
@@ -1341,6 +1798,15 @@ namespace andromeda {
     return true;
   }
 
+  bool Workspace::toggleDwindleSplit() {
+    DwindleLayout* dwindle = dwindleLayout();
+    if (dwindle == nullptr || !dwindle->toggleSplit(m_focusedView)) {
+      return false;
+    }
+    markArrange();
+    return true;
+  }
+
   bool Workspace::moveLaneAlongStrip(int direction) {
     View* destination = focusAlongStrip(direction);
     if (destination == nullptr) {
@@ -1352,13 +1818,23 @@ namespace andromeda {
       return false;
     }
     m_layout->moveColumn(current, target);
-    ensureFocusedVisible();
+    revealMovedFocusedColumn(current);
     markArrange();
     return true;
   }
 
   bool Workspace::consumeFocused(int direction) {
+    flushArrange();
     if (!m_layout->consume(m_focusedView, direction)) {
+      return false;
+    }
+    ensureFocusedVisible();
+    markArrange();
+    return true;
+  }
+
+  bool Workspace::consumeFromFocused(int direction) {
+    if (!m_layout->consumeFrom(m_focusedView, direction)) {
       return false;
     }
     ensureFocusedVisible();
@@ -1376,6 +1852,7 @@ namespace andromeda {
   }
 
   bool Workspace::moveWithinLane(int direction) {
+    flushArrange();
     if (!m_layout->moveViewVertical(m_focusedView, direction)) {
       return false;
     }
@@ -1384,10 +1861,34 @@ namespace andromeda {
   }
 
   bool Workspace::moveFocusedColumn(int direction) {
+    // Dwindle has no columns to carry, so a column move is the window move.
+    if (dwindleLayout() != nullptr) {
+      return (m_focusedView == nullptr || !m_focusedView->floating()) && moveFocusedHorizontal(direction);
+    }
     return scrollingVertical() ? moveWithinLane(direction) : moveLaneAlongStrip(direction);
   }
 
+  bool Workspace::moveFocusedHorizontal(int direction) {
+    if (m_focusedView != nullptr && m_focusedView->floating()) {
+      return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT);
+    }
+    if (DwindleLayout* dwindle = dwindleLayout()) {
+      if (!dwindle->moveView(m_focusedView, true, direction)) {
+        return false;
+      }
+      markArrange();
+      return true;
+    }
+    if (scrollingVertical()) {
+      return moveWithinLane(direction);
+    }
+    return expelFocused(direction) || consumeFocused(direction);
+  }
+
   bool Workspace::moveFocusedVertical(int direction) {
+    if (m_focusedView != nullptr && m_focusedView->floating()) {
+      return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
+    }
     return scrollingVertical() ? moveLaneAlongStrip(direction) : moveWithinLane(direction);
   }
 
@@ -1400,7 +1901,7 @@ namespace andromeda {
       return false;
     }
     m_layout->moveColumn(current, 0);
-    ensureFocusedVisible();
+    revealMovedFocusedColumn(current);
     markArrange();
     return true;
   }
@@ -1415,7 +1916,7 @@ namespace andromeda {
       return false;
     }
     m_layout->moveColumn(current, last);
-    ensureFocusedVisible();
+    revealMovedFocusedColumn(current);
     markArrange();
     return true;
   }
@@ -1441,8 +1942,9 @@ namespace andromeda {
       if (!axis) {
         return false;
       }
-      const double current = presetSnappedFraction(m_layoutConfig.extentPresets, (*axis)[0], (*axis)[1]);
-      return resizeFocusedFloating(nextFractionPreset(m_layoutConfig.extentPresets, current, direction), std::nullopt);
+      const auto presets = boundedPresets(m_layoutConfig.extentPresets, 1.0);
+      const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
+      return resizeFocusedFloating(nextFractionPreset(presets, current, direction), std::nullopt);
     }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
@@ -1451,8 +1953,8 @@ namespace andromeda {
     if (!m_layout->cycleWidth(column, direction)) {
       return false;
     }
-    wlr_xdg_toplevel_set_maximized(m_focusedView->toplevel(), false);
-    ensureFocusedVisible();
+    m_focusedView->setMaximizedState(false);
+    reevaluateFocusedColumn();
     markArrange();
     return true;
   }
@@ -1463,19 +1965,21 @@ namespace andromeda {
       if (!axis) {
         return false;
       }
-      const double current = presetSnappedFraction(m_layoutConfig.extentPresets, (*axis)[0], (*axis)[1]);
-      return resizeFocusedFloating(std::nullopt, nextFractionPreset(m_layoutConfig.extentPresets, current, direction));
+      const auto presets = boundedPresets(m_layoutConfig.extentPresets, 1.0);
+      const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
+      return resizeFocusedFloating(std::nullopt, nextFractionPreset(presets, current, direction));
     }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
-    const double current = m_layout->heightFraction(m_focusedView);
-    if (!m_layout->setHeightFraction(
-            m_focusedView, nextFractionPreset(m_layoutConfig.extentPresets, current, direction)
+    if (!cycleFractionPreset(
+            m_layoutConfig.extentPresets, m_layout->heightFraction(m_focusedView), direction,
+            [&](double fraction) { return m_layout->setHeightFraction(m_focusedView, fraction); },
+            [&] { return m_layout->heightFraction(m_focusedView); }
         )) {
       return false;
     }
-    wlr_xdg_toplevel_set_maximized(m_focusedView->toplevel(), false);
+    m_focusedView->setMaximizedState(false);
     ensureFocusedVisible();
     markArrange();
     return true;
@@ -1492,8 +1996,8 @@ namespace andromeda {
     if (!m_layout->setWidthFraction(column, fraction)) {
       return false;
     }
-    wlr_xdg_toplevel_set_maximized(m_focusedView->toplevel(), false);
-    ensureFocusedVisible();
+    m_focusedView->setMaximizedState(false);
+    reevaluateFocusedColumn();
     markArrange();
     return true;
   }
@@ -1508,7 +2012,7 @@ namespace andromeda {
     if (!m_layout->setHeightFraction(m_focusedView, fraction)) {
       return false;
     }
-    wlr_xdg_toplevel_set_maximized(m_focusedView->toplevel(), false);
+    m_focusedView->setMaximizedState(false);
     ensureFocusedVisible();
     markArrange();
     return true;
@@ -1539,8 +2043,8 @@ namespace andromeda {
       return false;
     }
     // Clamp here, not in the layouts: ScrollingLayout clamps internally but
-    // DwindleLayout does not, and both must land in [0.1, 1.0].
-    return setFocusedWidth(std::clamp(m_layout->widthFraction(column) + delta, 0.1, 1.0));
+    // DwindleLayout does not, and both must land in [0.1, the layout's ceiling].
+    return setFocusedWidth(std::clamp(m_layout->widthFraction(column) + delta, 0.1, m_layout->maxExtentFraction()));
   }
 
   bool Workspace::modifyFocusedHeight(double delta) {
@@ -1594,8 +2098,8 @@ namespace andromeda {
     const double pixels = delta * (horizontal ? usable.width : usable.height);
     const double travel = outwardNegative ? -pixels : pixels;
     session->applyDelta(horizontal ? travel : 0.0, horizontal ? 0.0 : travel, usable);
-    wlr_xdg_toplevel_set_maximized(view->toplevel(), false);
-    ensureFocusedVisible();
+    view->setMaximizedState(false);
+    reevaluateFocusedColumn();
     markArrange();
     return true;
   }
@@ -1610,7 +2114,7 @@ namespace andromeda {
       // Fullscreen already covers the output and owns the geometry: toggling
       // under it would capture a fullscreen-sized restore box and leave the
       // maximized flag inverted once fullscreen is dropped.
-      if (m_focusedView->toplevel()->scheduled.fullscreen) {
+      if (m_focusedView->scheduledFullscreen()) {
         return false;
       }
       m_focusedView->toggleMaximized();
@@ -1621,8 +2125,8 @@ namespace andromeda {
       return false;
     }
     const bool fullWidth = m_layout->toggleFullWidth(column);
-    wlr_xdg_toplevel_set_maximized(m_focusedView->toplevel(), fullWidth);
-    ensureFocusedVisible();
+    m_focusedView->setMaximizedState(fullWidth);
+    reevaluateFocusedColumn();
     markArrange();
     return true;
   }
@@ -1642,7 +2146,8 @@ namespace andromeda {
 
     View* target = m_focusedView;
     if (!target->pinned()
-        && !target->toplevel()->scheduled.fullscreen
+        && !target->scheduledFullscreen()
+        && !(target->floating() && floatingLayerRaised())
         && m_group != nullptr
         && m_group->output() != nullptr) {
       const wlr_box outputBox = m_group->output()->layoutBox();
@@ -1663,13 +2168,12 @@ namespace andromeda {
           if (candidate == target
               || !candidate->mapped()
               || !candidate->onActiveWorkspace()
-              || !candidate->toplevel()->scheduled.fullscreen) {
+              || !candidate->scheduledFullscreen()) {
             continue;
           }
-          const wlr_scene_node& node = candidate->sceneTree()->node;
           const wlr_box fullscreenBox{
-              .x = node.x + m_slideOffsetX,
-              .y = node.y + m_slideOffsetY,
+              .x = candidate->layoutX() + m_slideOffsetX,
+              .y = candidate->layoutY() + m_slideOffsetY,
               .width = outputBox.width,
               .height = outputBox.height,
           };
@@ -1687,6 +2191,47 @@ namespace andromeda {
     }
 
     target->toggleFullscreen();
+    return true;
+  }
+
+  bool Workspace::setFocusedColumnTabbed(std::optional<bool> tabbed) {
+    TabbedContainers* containers = m_layout->tabbedContainers();
+    View* view = m_focusedView;
+    const int column = containers != nullptr && view != nullptr && view->tiled() ? m_layout->columnOf(view) : -1;
+    if (column < 0) {
+      return false;
+    }
+    const bool grouped = tabGroupOf(m_layout->columns()[static_cast<size_t>(column)], view) != nullptr;
+    if (!containers->setTabbed(view, tabbed.value_or(!grouped))) {
+      return false;
+    }
+    reevaluateFocusedColumn();
+    markArrange();
+    return true;
+  }
+
+  bool Workspace::moveFocusedTab(int direction) {
+    TabbedContainers* containers = m_layout->tabbedContainers();
+    if (containers == nullptr || m_focusedView == nullptr || !m_focusedView->tiled()) {
+      return false;
+    }
+    if (!containers->moveTab(m_focusedView, direction)) {
+      return false;
+    }
+    markArrange();
+    return true;
+  }
+
+  bool Workspace::setFocusedTabBar(std::optional<bool> shown) {
+    TabbedContainers* containers = m_layout->tabbedContainers();
+    if (containers == nullptr || m_focusedView == nullptr || !m_focusedView->tiled()) {
+      return false;
+    }
+    if (!containers->setTabBar(m_focusedView, shown)) {
+      return false;
+    }
+    // The tabs grow into the bar's space, or give it back.
+    markArrange();
     return true;
   }
 
@@ -1712,6 +2257,28 @@ namespace andromeda {
       return;
     }
     scrolling->activateColumn(scrolling->columnOf(m_focusedView), scrollViewportExtent());
+  }
+
+  void Workspace::reevaluateFocusedColumn() {
+    ScrollingLayout* scrolling = scrollingLayout();
+    if (scrolling == nullptr || m_group == nullptr || m_group->output() == nullptr) {
+      return;
+    }
+    scrolling->reevaluateColumn(scrolling->columnOf(m_focusedView), scrollViewportExtent());
+  }
+
+  void Workspace::revealMovedFocusedColumn(int previousColumn) {
+    ScrollingLayout* scrolling = scrollingLayout();
+    if (scrolling == nullptr || m_group == nullptr || m_group->output() == nullptr) {
+      return;
+    }
+    scrolling->activateColumn(scrolling->columnOf(m_focusedView), scrollViewportExtent(), previousColumn);
+  }
+
+  void Workspace::noteRemovalOfFocusedColumn(int columnIndex) {
+    if (ScrollingLayout* scrolling = scrollingLayout()) {
+      scrolling->noteRemovalOfFocusedColumn(columnIndex);
+    }
   }
 
   void Workspace::snapVisible(const View* view) {
@@ -1809,11 +2376,9 @@ namespace andromeda {
     m_inSwitchTransition = false;
     for (View* view : m_switchViews) {
       view->setFadeAlpha(1.0F);
-      if (!m_active) {
-        view->setNodeEnabled(false);
-      }
     }
     m_switchViews.clear();
+    applyVisibility();
     syncCloseSnapshots();
     // setSlideOffset() refreshes visibility and clips, but it does not move tiled scene nodes to their
     // authoritative horizontal strip positions. Reconcile after an interrupted switch so a fullscreen column cannot
@@ -1856,6 +2421,12 @@ namespace andromeda {
     const bool centerFocusedChanged = m_layoutConfig.scrolling.centerFocused != layoutConfig.scrolling.centerFocused;
     const bool strutsChanged = m_layoutConfig.struts != layoutConfig.struts;
     const bool directionChanged = m_layoutConfig.scrolling.direction != layoutConfig.scrolling.direction;
+    // When moving to/from scrolling, the current extents are remembered/restored.
+    // These flags check whether those operations are required.
+    const bool isMovingFromScroll =
+        (m_layoutMode == LayoutMode::Scrolling && layoutConfig.mode != LayoutMode::Scrolling);
+    const bool isMovingToScroll = (m_layoutMode != LayoutMode::Scrolling && layoutConfig.mode == LayoutMode::Scrolling);
+    const bool fromFloating = m_layoutMode == LayoutMode::Floating;
     m_layoutConfig = std::move(layoutConfig);
     // The event payload is built when the idle runs, so scheduling here reports the mode this call installs, whether
     // it reconfigures the existing layout or replaces it below.
@@ -1877,11 +2448,33 @@ namespace andromeda {
     }
     // The members leave one layout and join another; the next arrange carries them there from their current boxes.
     endLayoutMotion();
+    // Remember each column's extent on its leading view; the other members join the new layout without one.
+    if (isMovingFromScroll) {
+      for (const Column& column : scrollingLayout()->columns()) {
+        for (View* view : column.views) {
+          view->m_savedScrollingExtentPx.reset();
+          view->m_savedScrollingExtent.reset();
+        }
+        if (!column.views.empty()) {
+          column.views.front()->m_savedScrollingExtent =
+              column.savedWidthFrac > 0 ? column.savedWidthFrac : column.widthFrac;
+        }
+      }
+    }
     std::vector<View*> tiledViews;
     for (View* view : m_views) {
       if (m_layout != nullptr && m_layout->columnOf(view) >= 0) {
-        m_layout->removeView(view);
         tiledViews.push_back(view);
+      }
+    }
+    if (m_layoutConfig.mode == LayoutMode::Floating) {
+      for (View* view : tiledViews) {
+        view->floatForLayout();
+      }
+      tiledViews.clear();
+    } else {
+      for (View* view : tiledViews) {
+        m_layout->removeView(view);
       }
     }
     m_layoutMode = m_layoutConfig.mode;
@@ -1890,6 +2483,31 @@ namespace andromeda {
     m_layout->setConstraints(&viewLayoutConstraints);
     for (View* view : tiledViews) {
       m_layout->insertView(view, static_cast<int>(m_layout->columns().size()));
+    }
+    if (fromFloating) {
+      const auto floats = m_floatingStack;
+      for (View* view : floats) {
+        if (view->layoutFloated() && view->floating() && !view->pinned() && view->mapped()) {
+          view->setFloating(false, false);
+        }
+      }
+    }
+    // Restore previous extents
+    if (isMovingToScroll) {
+      ScrollingLayout* scrolling = scrollingLayout();
+      for (int i = 0; i < static_cast<int>(scrolling->columns().size()); ++i) {
+        View* view = scrolling->columns()[static_cast<size_t>(i)].views.front();
+        if (view->m_savedScrollingExtentPx) {
+          scrolling->setWidthFromPixels(i, scrollViewportExtent(), *view->m_savedScrollingExtentPx);
+        } else if (view->m_savedScrollingExtent) {
+          scrolling->setWidthFraction(i, *view->m_savedScrollingExtent);
+        }
+        view->m_savedScrollingExtentPx.reset();
+        view->m_savedScrollingExtent.reset();
+      }
+      if (m_focusedView != nullptr) {
+        scrolling->ensureVisible(scrolling->columnOf(m_focusedView), scrollViewportExtent());
+      }
     }
     markArrange();
   }
@@ -1980,14 +2598,12 @@ namespace andromeda {
     return result;
   }
 
-  void WorkspaceGroup::refreshDynamicWorkspaceMetadata() {
-    const OutputIdentity identity = m_output->identity();
+  void WorkspaceGroup::refreshWorkspaceMetadata() {
     for (size_t index = 0; index < m_workspaces.size(); ++index) {
       Workspace* workspace = m_workspaces[index].get();
       const bool named = workspace->named();
       const std::string name = named ? workspace->name() : std::to_string(index + 1);
-      ResolvedLayoutConfig layout = named ? resolveWorkspaceLayout(config(), identity, name, index)
-                                          : resolveUnnamedWorkspaceLayout(config(), identity, index);
+      ResolvedLayoutConfig layout = workspaceLayout(*workspace, index);
       // Keep a runtime layout switch across structural changes to a dynamic
       // group, while allowing numeric workspace rules to follow the new index.
       if (const std::optional<LayoutMode> overrideMode = workspace->layoutModeOverride()) {
@@ -2016,7 +2632,7 @@ namespace andromeda {
     auto workspace = createConfiguredWorkspace({name, false, std::move(layout)}, index);
     Workspace* result = workspace.get();
     m_workspaces.insert(m_workspaces.begin() + static_cast<std::ptrdiff_t>(index), std::move(workspace));
-    refreshDynamicWorkspaceMetadata();
+    refreshWorkspaceMetadata();
     if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
       overview->onWorkspaceInventoryChanged(this);
     }
@@ -2053,13 +2669,11 @@ namespace andromeda {
       reconcileDynamic();
       return true;
     }
-    const OutputIdentity identity = m_output->identity();
     for (const size_t slot : {index, static_cast<size_t>(target)}) {
       Workspace* moved = m_workspaces[slot].get();
       const bool named = moved->named();
       const std::string name = named ? moved->name() : std::to_string(slot + 1);
-      ResolvedLayoutConfig layout = named ? resolveWorkspaceLayout(config(), identity, name, slot)
-                                          : resolveUnnamedWorkspaceLayout(config(), identity, slot);
+      ResolvedLayoutConfig layout = workspaceLayout(*moved, slot);
       if (const std::optional<LayoutMode> overrideMode = moved->layoutModeOverride()) {
         layout.mode = *overrideMode;
       }
@@ -2086,7 +2700,7 @@ namespace andromeda {
     std::vector<std::string> claimed;
     claimed.reserve(desired.size());
     for (const auto& workspace : m_workspaces) {
-      if (!workspace->named()) {
+      if (workspace->displacedWorkspace() || !workspace->named()) {
         continue;
       }
       const bool wanted = std::ranges::find(desired, workspace->name()) != desired.end();
@@ -2121,8 +2735,10 @@ namespace andromeda {
         auto reusable = std::ranges::find_if(m_workspaces, [&](const auto& workspace) {
           return workspace.get() != leadingSentinel
               && workspace.get() != trailingSentinel
+              && !workspace->displacedWorkspace()
               && !workspace->named()
-              && !workspace->hasViews();
+              && !workspace->hasViews()
+              && !workspace->launchReserved();
         });
         if (reusable == m_workspaces.end()) {
           // The declaration remains pending until an ordinary anonymous
@@ -2169,6 +2785,13 @@ namespace andromeda {
 
     auto& resolved = resolvedSet.workspaces;
     auto old = std::move(m_workspaces);
+    std::vector<std::unique_ptr<Workspace>> temporary;
+    for (auto& workspace : old) {
+      if (workspace->displacedWorkspace()) {
+        temporary.push_back(std::move(workspace));
+      }
+    }
+    std::erase_if(old, [](const auto& workspace) { return workspace == nullptr; });
     std::vector<std::unique_ptr<Workspace>> next(resolved.size());
 
     // Preserve workspace identity by name before using position as a fallback.
@@ -2180,6 +2803,7 @@ namespace andromeda {
         next[i] = std::move(*match);
       }
     }
+
     for (size_t i = 0; i < resolved.size(); ++i) {
       if (next[i] == nullptr && i < old.size() && old[i] != nullptr) {
         next[i] = std::move(old[i]);
@@ -2189,6 +2813,27 @@ namespace andromeda {
       } else {
         next[i] = createConfiguredWorkspace(std::move(resolved[i]), i);
       }
+    }
+
+    size_t excessTemporary = 0;
+    for (auto& workspace : temporary) {
+      if ((workspace->hasViews() || workspace->launchReserved()) && next.size() < kMaxWorkspaces) {
+        const size_t index = next.size();
+        const auto& origin = workspace->displacedWorkspace();
+        workspace->rename(
+            origin->workspaceNamed ? origin->workspaceName : std::to_string(index + 1), index, origin->workspaceNamed
+        );
+        next.push_back(std::move(workspace));
+      } else {
+        excessTemporary += workspace->hasViews() ? 1 : 0;
+        old.push_back(std::move(workspace));
+      }
+    }
+    if (excessTemporary > 0) {
+      kLog.warn(
+          "{} temporary workspaces no longer fit on {}; their windows retain their disconnected homes", excessTemporary,
+          identity.connector.empty() ? "output" : identity.connector
+      );
     }
 
     const auto survives = [&](const Workspace* workspace) {
@@ -2205,7 +2850,7 @@ namespace andromeda {
       if (removed == nullptr) {
         continue;
       }
-      Workspace* fallback = m_workspaces[std::min(removed->index(), m_workspaces.size() - 1)].get();
+      Workspace* fallback = m_workspaces[std::min(removed->index(), resolved.size() - 1)].get();
       if (removed.get() == m_active) {
         removed->setActive(false);
         replacementActive = fallback;
@@ -2230,6 +2875,10 @@ namespace andromeda {
       m_previous = nullptr;
     }
     old.clear();
+    refreshWorkspaceMetadata();
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onWorkspaceInventoryChanged(this);
+    }
 
     if (relocatedViews > 0 || !activeSurvives) {
       m_server->cursor()->clearConstraint();
@@ -2253,16 +2902,16 @@ namespace andromeda {
 
   void WorkspaceGroup::refreshLayouts() {
     refreshWorkspaceAxis();
-    const OutputIdentity identity = m_output->identity();
     for (const auto& workspace : m_workspaces) {
       // A config reload reasserts the configured mode, dropping any runtime
       // workspace-set-layout override.
       workspace->clearLayoutModeOverride();
-      ResolvedLayoutConfig layout = workspace->named()
-          ? resolveWorkspaceLayout(config(), identity, workspace->name(), workspace->index())
-          : resolveUnnamedWorkspaceLayout(config(), identity, workspace->index());
+      ResolvedLayoutConfig layout = workspaceLayout(*workspace, workspace->index());
       if (workspace->layoutConfig() != layout) {
         workspace->applyLayoutConfig(std::move(layout));
+      } else {
+        // Bar text such as title_format and max_tabs moves no box, so no arrange redraws the bars that show it.
+        workspace->tabs().sync();
       }
     }
   }
@@ -2275,8 +2924,53 @@ namespace andromeda {
     }
   }
 
+  bool WorkspaceGroup::pruneDisplacedWorkspaces() {
+    bool removed = false;
+    for (size_t index = m_workspaces.size(); index-- > 0;) {
+      Workspace* workspace = m_workspaces[index].get();
+      if (!workspace->displacedWorkspace() || workspace->hasViews() || workspace->launchReserved()) {
+        continue;
+      }
+      if (m_active == workspace) {
+        auto replacement =
+            std::ranges::find_if(m_workspaces, [](const auto& candidate) { return !candidate->displacedWorkspace(); });
+        if (replacement == m_workspaces.end()) {
+          replacement = std::ranges::find_if(m_workspaces, [workspace](const auto& candidate) {
+            return candidate.get() != workspace && (candidate->hasViews() || candidate->launchReserved());
+          });
+        }
+        workspace->setActive(false);
+        m_active = replacement != m_workspaces.end() ? replacement->get() : nullptr;
+        if (m_active != nullptr) {
+          m_active->setActive(true);
+        }
+      }
+      if (m_previous == workspace) {
+        m_previous = nullptr;
+      }
+      m_workspaces.erase(m_workspaces.begin() + static_cast<std::ptrdiff_t>(index));
+      removed = true;
+      m_server->scheduleIpcWorkspacesEvent();
+    }
+    return removed;
+  }
+
   void WorkspaceGroup::reconcileDynamic() {
-    if (!m_dynamic || slideActive()) {
+    if (slideActive()) {
+      return;
+    }
+
+    const bool removedTemporary = pruneDisplacedWorkspaces();
+    const auto finishInventoryChange = [this] {
+      refreshWorkspaceMetadata();
+      if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+        overview->onWorkspaceInventoryChanged(this);
+      }
+    };
+    if (!m_dynamic) {
+      if (removedTemporary) {
+        finishInventoryChange();
+      }
       return;
     }
 
@@ -2285,6 +2979,9 @@ namespace andromeda {
     // Config is committed before reload side effects run. Overview teardown can therefore reach this method while
     // m_dynamic still reflects the old inventory type; leave the transition to reconcileInventory().
     if (!resolved.dynamic) {
+      if (removedTemporary) {
+        finishInventoryChange();
+      }
       return;
     }
     if (resolved.omittedNamed != m_omittedConfiguredNames) {
@@ -2344,7 +3041,9 @@ namespace andromeda {
       }
       Workspace* workspace = m_workspaces[index].get();
       if (!workspace->named()
+          && !workspace->displacedWorkspace()
           && !workspace->hasViews()
+          && !workspace->launchReserved()
           && workspace != activeKeeper
           && workspace != backKeeper
           && workspace != frontKeeper) {
@@ -2370,10 +3069,11 @@ namespace andromeda {
       prependDynamicWorkspace();
     }
 
-    refreshDynamicWorkspaceMetadata();
-    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
-      overview->onWorkspaceInventoryChanged(this);
+    if (m_active == nullptr && !m_workspaces.empty()) {
+      m_active = m_workspaces.front().get();
+      m_active->setActive(true);
     }
+    finishInventoryChange();
   }
 
   Workspace* WorkspaceGroup::workspaceAt(size_t index) const {
@@ -2392,12 +3092,20 @@ namespace andromeda {
   }
 
   Workspace* WorkspaceGroup::workspaceNamed(std::string_view name) const {
+    Workspace* displaced = nullptr;
+    bool ambiguous = false;
     for (const auto& entry : m_workspaces) {
       if (entry->named() && entry->name() == name) {
-        return entry.get();
+        if (!entry->displacedWorkspace()) {
+          return entry.get();
+        }
+        if (displaced != nullptr) {
+          ambiguous = true;
+        }
+        displaced = entry.get();
       }
     }
-    return nullptr;
+    return ambiguous ? nullptr : displaced;
   }
 
   Workspace* WorkspaceGroup::workspaceFromHandle(wlr_ext_workspace_handle_v1* handle) const {
@@ -2409,7 +3117,95 @@ namespace andromeda {
     return nullptr;
   }
 
+  void WorkspaceGroup::beginReveal() {
+    if (config().animation.workspaces.style != "reveal") {
+      return;
+    }
+    auto& registry = effectRegistry();
+    if (auto* shader = registry.lifecycleEffect(AnimationEvent::Workspaces)) {
+      m_slide.reveal = fx_effect_shader_ref(shader);
+      m_slide.transition = beginAnimationTransition();
+      if (const auto* preset = registry.animationPreset(AnimationEvent::Workspaces)) {
+        m_slide.revealPreset = *preset;
+      }
+    }
+  }
+
+  Workspace* WorkspaceGroup::revealIncoming(double progress) const {
+    Workspace* incoming = progress < 0 ? m_slide.previous : m_slide.next;
+    return progress == 0 && incoming == nullptr ? m_slide.previous : incoming;
+  }
+
+  wlr_scene_node* WorkspaceGroup::revealRoot(bool incoming) const {
+    auto* workspace = incoming ? revealIncoming(m_slide.progress) : m_slide.base;
+    return revealActive() && workspace != nullptr ? &workspace->tileShadowLayer()->node.parent->node : nullptr;
+  }
+
+  void WorkspaceGroup::refreshReveal() {
+    if (m_slide.reveal == nullptr) {
+      return;
+    }
+    const auto& animation = config().animation;
+    if (!animation.enabled || !animation.workspaces.enabled || animation.workspaces.style != "reveal") {
+      slideFinish();
+      return;
+    }
+    const double progress = m_slide.progress;
+    Workspace* incoming = revealIncoming(progress);
+    const float axis = incoming == m_slide.previous ? -1.0F : 1.0F;
+    for (Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+      if (workspace == nullptr) {
+        continue;
+      }
+      for (auto* tree : {workspace->tileShadowLayer()->node.parent, workspace->fullscreenTree()}) {
+        fx_animation_parameters parameters{};
+        parameters.progress = static_cast<float>(std::clamp(std::abs(progress), 0.0, 1.0));
+        parameters.linear_progress = parameters.progress;
+        parameters.direction = workspace == m_slide.base ? -1.0F : 1.0F;
+        parameters.transition_id = m_slide.transition.id;
+        std::ranges::copy(m_slide.transition.seed, parameters.random_seed);
+        if (m_slide.revealPreset) {
+          auto& registry = effectRegistry();
+          registry.fillTimeUniforms(parameters, registry.clockSeconds(), *m_slide.revealPreset, m_slide.reveal);
+        }
+        if (auto* direction = fx_parameters_add_uniform(&parameters, "andromeda_workspace_axis", FX_UNIFORM_VEC2, 1)) {
+          direction->floats[0] = m_workspaceAxis == WorkspaceAxis::Horizontal ? axis : 0.0F;
+          direction->floats[1] = m_workspaceAxis == WorkspaceAxis::Vertical ? axis : 0.0F;
+        }
+        wlr_scene_node_set_animation(&tree->node, FX_SLOT_WORKSPACES, m_slide.reveal, &parameters);
+        if (!wlr_scene_node_set_animation_isolation(&tree->node, FX_SLOT_WORKSPACES, workspace)) {
+          abandonReveal();
+          return;
+        }
+      }
+    }
+  }
+
+  void WorkspaceGroup::cancelReveal() {
+    if (m_slide.reveal != nullptr) {
+      slideFinish();
+    }
+  }
+
+  void WorkspaceGroup::abandonReveal() {
+    if (m_slide.reveal != nullptr) {
+      for (Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+        if (workspace != nullptr) {
+          wlr_scene_node_set_animation(
+              &workspace->tileShadowLayer()->node.parent->node, FX_SLOT_WORKSPACES, nullptr, nullptr
+          );
+          wlr_scene_node_set_animation(&workspace->fullscreenTree()->node, FX_SLOT_WORKSPACES, nullptr, nullptr);
+        }
+      }
+      fx_effect_shader_unref(m_slide.reveal);
+      m_slide.reveal = nullptr;
+      m_slide.revealPreset.reset();
+      slideApply(m_slide.progress);
+    }
+  }
+
   void WorkspaceGroup::slideFinish() {
+    abandonReveal();
     m_slideAnim.snap(0.0);
     if (m_slide.base != nullptr) {
       m_slide.base->endSwitchTransition();
@@ -2445,6 +3241,7 @@ namespace andromeda {
     const double start = carry ? m_slideAnim.current() - m_slideAnim.target() : 0.0;
     slideFinish();
     m_slide.base = m_active;
+    beginReveal();
     m_slide.extent = extent;
     m_slide.progress = start;
     const size_t idx = m_active->index();
@@ -2471,7 +3268,11 @@ namespace andromeda {
     // Increasing workspace index moves outgoing content toward negative coordinates
     // on the group's axis; the other coordinate stays at rest.
     const bool horizontal = m_workspaceAxis == WorkspaceAxis::Horizontal;
+    const Workspace* incoming = m_slide.reveal != nullptr ? revealIncoming(progress) : nullptr;
     const auto offset = [&](Workspace* workspace, double displacement) {
+      if (m_slide.reveal != nullptr && (workspace == m_slide.base || workspace == incoming)) {
+        displacement = 0.0;
+      }
       workspace->setSlideOffset(horizontal ? displacement : 0.0, horizontal ? 0.0 : displacement);
     };
     offset(m_slide.base, -progress * extent);
@@ -2529,14 +3330,18 @@ namespace andromeda {
     wlr_output_schedule_frame(m_output->wlr());
   }
 
-  bool WorkspaceGroup::tickAnimations(uint64_t nowMsec) {
+  bool WorkspaceGroup::tickAnimations(double nowMsec) {
     const bool ticked = m_slideAnim.tick(nowMsec);
     if (ticked && m_slideAnim.animating() && m_slideAnim.curve().easing == Easing::Spring) {
       // One step is `extent` pixels, so a spring that can no longer move a pixel has already landed there: end it
       // now rather than letting it creep at amplitudes the pixel grid rounds away.
       static_cast<void>(m_slideAnim.finishSpringTail(m_slide.extent));
     }
-    bindAnimationEffect(&m_output->viewRoot()->node, AnimationEvent::Workspaces, m_slideAnim);
+    if (config().animation.workspaces.style == "slide") {
+      bindAnimationEffect(&m_output->viewRoot()->node, AnimationEvent::Workspaces, m_slideAnim);
+    } else {
+      wlr_scene_node_set_animation(&m_output->viewRoot()->node, FX_SLOT_WORKSPACES, nullptr, nullptr);
+    }
     bool active = false;
     if (ticked) {
       slideApply(m_slideAnim.current());
@@ -2604,6 +3409,7 @@ namespace andromeda {
     }
     const int sign = workspace->index() > m_active->index() ? 1 : -1;
     m_slide.base = m_active;
+    beginReveal();
     m_slide.extent = extent;
     m_slide.progress = 0;
     if (sign > 0) {
@@ -2655,7 +3461,7 @@ namespace andromeda {
       return nullptr;
     }
     const auto empty = std::ranges::find_if(m_workspaces.rbegin(), m_workspaces.rend(), [](const auto& workspace) {
-      return !workspace->named() && !workspace->hasViews();
+      return !workspace->displacedWorkspace() && !workspace->named() && !workspace->hasViews();
     });
     if (empty != m_workspaces.rend()) {
       kLog.debug("using empty dynamic workspace for create request on {}", m_output->wlr()->name);
@@ -2669,9 +3475,45 @@ namespace andromeda {
       return createWorkspace(nullptr);
     }
     const auto empty = std::ranges::find_if(m_workspaces.rbegin(), m_workspaces.rend(), [](const auto& workspace) {
-      return !workspace->hasViews();
+      return !workspace->displacedWorkspace() && !workspace->hasViews();
     });
     return empty != m_workspaces.rend() ? empty->get() : nullptr;
+  }
+
+  Workspace* WorkspaceGroup::displacedDestination(std::shared_ptr<const DisplacedWorkspace> origin) {
+    if (origin == nullptr || m_output == nullptr || m_output->wlr() == nullptr) {
+      return nullptr;
+    }
+    const auto existing = std::ranges::find_if(m_workspaces, [&origin](const auto& workspace) {
+      const auto& saved = workspace->displacedWorkspace();
+      return saved != nullptr
+          && saved->outputName == origin->outputName
+          && saved->workspaceName == origin->workspaceName
+          && saved->workspaceIndex == origin->workspaceIndex
+          && saved->workspaceNamed == origin->workspaceNamed;
+    });
+    if (existing != m_workspaces.end()) {
+      return existing->get();
+    }
+    if (m_workspaces.size() >= kMaxWorkspaces) {
+      return nullptr;
+    }
+    const size_t index = m_workspaces.size();
+    auto workspace = createConfiguredWorkspace(
+        {origin->workspaceNamed ? origin->workspaceName : std::to_string(index + 1), origin->workspaceNamed,
+         displacedWorkspaceLayout(*origin)},
+        index
+    );
+    workspace->m_displacedWorkspace = std::move(origin);
+    if (workspace->m_displacedWorkspace->configGeneration == configStore().generation()) {
+      workspace->m_layoutModeOverride = workspace->m_displacedWorkspace->layoutModeOverride;
+    }
+    Workspace* result = workspace.get();
+    m_workspaces.push_back(std::move(workspace));
+    if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
+      overview->onWorkspaceInventoryChanged(this);
+    }
+    return result;
   }
 
 } // namespace andromeda

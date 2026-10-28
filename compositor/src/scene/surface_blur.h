@@ -2,6 +2,7 @@
 
 #include <optional>
 
+struct fx_corner_radii;
 struct wlr_box;
 struct wlr_scene_buffer;
 struct wlr_scene_blur;
@@ -30,18 +31,23 @@ namespace andromeda {
     // buffer to use instead of finding the surface's regular scene buffer.
     void update(
         wlr_scene_tree* parent, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& surfaceBox,
-        int cornerRadius, const wlr_box* clipBox = nullptr, const SurfaceBlurOptions& options = {},
+        fx_corner_radii corners, const wlr_box* clipBox = nullptr, const SurfaceBlurOptions& options = {},
         float surfaceOpacity = 1.0F, wlr_scene_buffer* maskSource = nullptr
     );
     // Opacity of the blur effect itself. Keep this independent from surface
     // opacity so compositor opacity matches equivalent client alpha.
     void setAlpha(float alpha);
+    // Forces a live blur of everything below, overriding the optimized option, for a surface drawn over scene
+    // content the cached background blur lacks.
+    void setLive(bool live);
     // Disable the node (unmap path); update() re-enables.
     void hide();
 
   private:
     wlr_scene_blur* m_node = nullptr;
     bool m_masked = false;
+    bool m_optimized = false;
+    bool m_live = false;
     float m_alpha = 1.0F;
   };
 

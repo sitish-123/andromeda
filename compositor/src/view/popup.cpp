@@ -25,6 +25,8 @@ namespace andromeda {
     wl_signal_add(&m_popup->base->surface->events.commit, &m_commit);
     m_reposition.notify = onReposition;
     wl_signal_add(&m_popup->events.reposition, &m_reposition);
+    m_map.notify = onMap;
+    wl_signal_add(&m_popup->base->surface->events.map, &m_map);
     m_unmap.notify = onUnmap;
     wl_signal_add(&m_popup->base->surface->events.unmap, &m_unmap);
     m_destroy.notify = onDestroy;
@@ -35,6 +37,7 @@ namespace andromeda {
     if (m_commit.link.next != nullptr) {
       wl_list_remove(&m_commit.link);
       wl_list_remove(&m_reposition.link);
+      wl_list_remove(&m_map.link);
       wl_list_remove(&m_unmap.link);
       wl_list_remove(&m_destroy.link);
     }
@@ -48,6 +51,11 @@ namespace andromeda {
   void Popup::onReposition(wl_listener* listener, void* /*data*/) {
     Popup* self = wl_container_of(listener, self, m_reposition); // NOLINT(modernize-use-auto)
     self->unconstrain();
+  }
+
+  void Popup::onMap(wl_listener* listener, void* /*data*/) {
+    Popup* self = wl_container_of(listener, self, m_map); // NOLINT(modernize-use-auto)
+    self->handleMap();
   }
 
   void Popup::onUnmap(wl_listener* listener, void* /*data*/) {
@@ -70,14 +78,14 @@ namespace andromeda {
     }
     m_blur.update(
         static_cast<wlr_scene_tree*>(m_popup->base->data), m_popup->base->surface,
-        wlr_box{0, 0, geometry.width, geometry.height}, geometry, 0, nullptr, blurOptions
+        wlr_box{0, 0, geometry.width, geometry.height}, geometry, corner_radii_none(), nullptr, blurOptions
     );
     if (!m_popup->base->initial_commit) {
       return;
     }
 
     // New popups miss the parent's map/workspace-time scale notify; tell them the parent's output scale before the
-    // first configure so scale-aware clients (xwayland-satellite) size and map input correctly from frame one.
+    // first configure so scale-aware clients size and map input correctly from frame one.
     Output* output = nullptr;
     if (LayerSurface* layer = LayerSurface::fromSurface(m_popup->parent)) {
       output = layer->output();
@@ -101,13 +109,25 @@ namespace andromeda {
     }
   }
 
+  void Popup::handleMap() {
+    // Only a grabbing popup owns the keyboard. A toplevel's popup reaches it through its already focused window.
+    if (m_popup->seat == nullptr) {
+      return;
+    }
+    if (LayerSurface* layer = LayerSurface::fromSurface(m_popup->parent)) {
+      layer->focusForPopupGrab();
+    }
+  }
+
   void Popup::handleDestroy() {
     wl_list_remove(&m_commit.link);
     wl_list_remove(&m_reposition.link);
+    wl_list_remove(&m_map.link);
     wl_list_remove(&m_unmap.link);
     wl_list_remove(&m_destroy.link);
     m_commit.link.next = nullptr;
     m_reposition.link.next = nullptr;
+    m_map.link.next = nullptr;
     m_unmap.link.next = nullptr;
     m_destroy.link.next = nullptr;
     delete this;

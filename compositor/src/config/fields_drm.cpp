@@ -142,13 +142,4 @@ namespace andromeda {
     );
   }
 
-  bool hasRequestedDrmPolicy(const toml::table& root) {
-    const toml::node* node = root.get("drm");
-    if (node == nullptr) {
-      return false;
-    }
-    const toml::table* table = node->as_table();
-    return table == nullptr || !table->empty();
-  }
-
 } // namespace andromeda

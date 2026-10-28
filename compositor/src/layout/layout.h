@@ -1,5 +1,7 @@
 #pragma once
 
+#include "layout/tab_state.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -20,6 +22,7 @@ namespace andromeda {
     Scrolling,
     Dwindle,
     Master,
+    Floating,
   };
 
   enum class ScrollingDirection {
@@ -127,6 +130,38 @@ namespace andromeda {
     double bottomGapWeight = 0.0;
     double widthFrac = 0.5;
     double savedWidthFrac = 0.0;
+    std::vector<double> rememberedScrollingExtents;
+    // Runs of rows shown as tabs, each one unit of the stack.
+    ColumnTabs tabs;
+  };
+
+  // The tab group holding `view`, else null.
+  [[nodiscard]] const TabGroup* tabGroupOf(const Column& column, const View* view);
+  // The window the unit holding row `row` shows: the row itself, or the active tab of its group.
+  [[nodiscard]] View* unitEntry(const Column& column, size_t row);
+  // Where focus enters a column from outside it: the window its first unit shows.
+  [[nodiscard]] View* columnEntry(const Column& column);
+  // True for a tab its group is not showing.
+  [[nodiscard]] bool hiddenTab(const Column& column, const View* view);
+  // Whether a tab group of `tabs` tabs draws its bar: its own choice when it has one, else the configuration's.
+  [[nodiscard]] bool tabBarShown(const ResolvedLayoutConfig& config, size_t tabs, std::optional<bool> bar);
+
+  // Layouts whose columns can show runs of their rows as tabs. Layout::tabbedContainers() reaches it; a layout without
+  // multi-view containers has none. Every call names a tiled view and acts on the tab group around it.
+  class TabbedContainers {
+  public:
+    virtual ~TabbedContainers() = default;
+    // Show the rows around `view` as tabs, or stack its group's tabs again. False when nothing changed.
+    virtual bool setTabbed(const View* view, bool tabbed) = 0;
+    // Show `view` in its tab group. True only when the group now shows a different view.
+    virtual bool selectTab(const View* view) = 0;
+    // Add `view`, not yet in the layout, at row `row` of the group containing `member` in column `column`.
+    // Either boundary belongs to the named group. False, adding nothing, when the row lies outside that group.
+    virtual bool insertTab(View* view, int column, int row, const View* member) = 0;
+    // Move `view` one place among its tabs, `direction` negative for earlier. False at either end or outside a group.
+    virtual bool moveTab(const View* view, int direction) = 0;
+    // Draw or hide the bar of `view`'s tab group; nullopt toggles it. False outside a group.
+    virtual bool setTabBar(const View* view, std::optional<bool> shown) = 0;
   };
 
   struct LayoutTarget {
@@ -146,10 +181,29 @@ namespace andromeda {
   // basis accumulates, tighter than any preset difference a user can perceive.
   constexpr double kFractionEpsilon = 0.0001;
 
+  // Widest a scrolling column may span, in viewports. A constant rather than unbounded so one column cannot ask a
+  // client for an unreasonably huge buffer. Config and keybinds accept up to this; each layout clamps to what it
+  // realizes through Layout::maxExtentFraction, so shared presets stay usable in every layout.
+  constexpr double kMaxWideFraction = 4.0;
+
+  // Presets a layout capped at `max` can realize. Dropping the rest keeps a cycling step from stalling on a preset
+  // the layout would clamp away; the 100 % preset stays reachable.
+  [[nodiscard]] inline std::vector<double> boundedPresets(const std::vector<double>& presets, double max) {
+    std::vector<double> out;
+    out.reserve(presets.size());
+    for (const double preset : presets) {
+      if (preset <= max + kFractionEpsilon) {
+        out.push_back(preset);
+      }
+    }
+    return out;
+  }
+
   // The next preset from `current` in `direction` (negative shrinks), wrapping
   // at the ends. Every layout's width and height cycle shares this rule, and so
   // does the floating cycle. `current` must be an exact fraction: a basis
-  // recovered from pixels goes through `presetSnappedFraction` first.
+  // recovered from pixels goes through `presetSnappedFraction` first. `presets`
+  // must be ascending, as config parsing leaves them.
   [[nodiscard]] inline double nextFractionPreset(const std::vector<double>& presets, double current, int direction) {
     if (presets.empty()) {
       return current;
@@ -168,6 +222,27 @@ namespace andromeda {
       }
     }
     return presets.front();
+  }
+
+  // Steps a layout extent to the next preset. `apply` sets a fraction, clamped to what the layout can realize, and
+  // returns false when the extent is not adjustable; `realized` reads the fraction back. A preset past that range
+  // leaves the extent where it was and would be picked again on every step, so a step that does not move the extent
+  // wraps instead.
+  template <typename Apply, typename Realized>
+  bool cycleFractionPreset(
+      const std::vector<double>& presets, double current, int direction, Apply&& apply, Realized&& realized
+  ) {
+    const double next = nextFractionPreset(presets, current, direction);
+    if (!apply(next)) {
+      return false;
+    }
+    const bool stepped = direction < 0 ? next < current : next > current;
+    const double now = realized();
+    const bool stalled = direction < 0 ? now >= current - kFractionEpsilon : now <= current + kFractionEpsilon;
+    if (stepped && stalled) {
+      apply(direction < 0 ? presets.back() : presets.front());
+    }
+    return true;
   }
 
   // Layout-owned interactive resize session. Cursor feeds a pointer delta; the session mutates only its layout's
@@ -208,6 +283,10 @@ namespace andromeda {
     virtual void insertViewIntoColumn(View* view, int columnIndex, int rowIndex) = 0;
     virtual bool consume(View* view, int direction) = 0;
     virtual bool expel(View* view, int direction) = 0;
+    // The mirror of consume: pull the window the container `direction` away shows into the one holding `view`, without
+    // moving focus. The pulled window lands directly below `view`, or in its tab group when `view` is a tab. False when
+    // there is no container on that side, or the layout has no container to pull from.
+    virtual bool consumeFrom(View* view, int direction) = 0;
     virtual bool moveViewVertical(View* view, int direction) = 0;
     virtual bool swapViews(View* a, View* b) = 0;
     virtual void removeView(View* view) = 0;
@@ -245,6 +324,10 @@ namespace andromeda {
 
     virtual bool cycleWidth(int columnIndex, int direction) = 0;
     virtual bool toggleFullWidth(int columnIndex) = 0;
+    // Widest extent fraction this layout realizes. Scrolling columns span up to kMaxWideFraction viewports; splitting
+    // and floating extents stay within one.
+    [[nodiscard]] virtual double maxExtentFraction() const { return 1.0; }
+
     virtual bool setWidthFraction(int columnIndex, double fraction) = 0;
     virtual void clearFullWidthState(int columnIndex) = 0;
     [[nodiscard]] virtual double widthFraction(int columnIndex) const = 0;
@@ -281,13 +364,27 @@ namespace andromeda {
     // Whether a column occupies the full viewport, however each layout gets there.
     [[nodiscard]] virtual bool isFullWidth(int columnIndex) const = 0;
 
+    // Null for a layout whose columns cannot be tabbed.
+    [[nodiscard]] virtual TabbedContainers* tabbedContainers() { return nullptr; }
+
+    // The usable area minus edge padding on both axes: the box the layout has
+    // to fill.
+    [[nodiscard]] wlr_box contentArea(const wlr_box& usable) const;
+
     // Anything only one layout can answer lives on that layout. Reach it through the single downcast seam,
     // Workspace::scrollingLayout(), rather than by asking every layout a question most of them have no answer to.
 
   protected:
-    // The usable area minus edge padding on both axes: the box the layout has
-    // to fill.
-    [[nodiscard]] wlr_box contentArea(const wlr_box& usable) const;
+    // Space a tab group of `tabs` tabs gives its bar on the bar's edge: the bar and one gap, or nothing while its bar
+    // is hidden.
+    [[nodiscard]] int tabBarReserve(size_t tabs, std::optional<bool> bar) const;
+    // The box every tab of a group shares: `box`, the group's unit, less the bar's reserve on the bar's edge.
+    [[nodiscard]] wlr_box tabbedBox(const wlr_box& box, size_t tabs, std::optional<bool> bar) const;
+    // Whether a column created now starts with its window as a tab.
+    [[nodiscard]] bool opensTabbed() const;
+    // The display an area created now starts with.
+    [[nodiscard]] TabState initialTabState() const;
+
     // Gap-aware width of a column occupying `fraction` of the viewport. Solving sum(w) + (N-1)g = V with w = p*(V+g) -
     // g makes N columns whose fractions sum to 1 tile the viewport exactly.
     [[nodiscard]] int fractionalWidth(int viewportPrimary, double fraction) const;

@@ -6,6 +6,7 @@
 #include "overview/navigation.h"
 #include "scene/hint_rect.h"
 #include "scene/surface_blur.h"
+#include "view/chrome_attachment.h"
 
 #include <array>
 #include <cstddef>
@@ -55,6 +56,8 @@ namespace andromeda {
     // Open and not already zooming back in: pointer/keyboard edits still apply. The IPC `overview` event reports this
     // as `open`, so clients drop overview-scoped surfaces while the windows are still hidden.
     [[nodiscard]] bool interactive() const { return m_active && !m_closing; }
+    // True while a card mirrors `view`, so its client must keep drawing although its real frame is hidden.
+    [[nodiscard]] bool presentsLive(const View* view) const;
 
     void toggle();
     void open();
@@ -75,20 +78,24 @@ namespace andromeda {
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     // Advances the zoom and workspace-row animations; returns true while either is still running.
-    bool tickAnimations(uint64_t nowMsec) override;
+    bool tickAnimations(double nowMsec) override;
     [[nodiscard]] bool hasActiveAnimations() const override;
     // The overview zooms every output at once.
     [[nodiscard]] bool animatesOn(const Output* /*output*/) const override { return true; }
 
     void onViewMapped(View* view);
-    void onViewUnmapped(View* view);
+    void onViewUnmapped(View* view, bool animateClose = true);
     void onViewPinnedChanged(View* view);
     void onViewFloatingChanged(View* view);
     void onViewWorkspaceChanged(View* view);
+    // A dialog attached to or left `parent`: its card mirrors the dialogs over the window.
+    void onViewAttachmentsChanged(View* parent);
     void onWorkspaceActivated(WorkspaceGroup* group);
     void onWorkspaceArranged(Workspace* workspace);
     void onWorkspaceInventoryChanged(WorkspaceGroup* group);
     void onFocusChanged();
+    // Rebind cached selections after renderer replacement without advancing policy.
+    void refreshEffectBindings();
     // Coalesce card geometry refreshes from view resize animation ticks. Views
     // advance before overlays, so the overview consumes the latest presented
     // size once per frame regardless of how many views resized together.
@@ -153,12 +160,17 @@ namespace andromeda {
 
     struct CardSurface {
       Card* card = nullptr;
+      // The window whose surface tree holds `surface`: the card's own, or a dialog attached to it.
+      View* view = nullptr;
       wlr_surface* surface = nullptr;
       wlr_scene_buffer* sourceBuffer = nullptr;
       wlr_scene_buffer* buffer = nullptr;
       int sx = 0;
       int sy = 0;
       bool isRoot = false;
+      // Whether the latest walk of the card's surfaces reached `surface`. A surface that left the tree keeps its entry
+      // until destroyed, and `sourceBuffer` may already be freed with its subsurface role.
+      bool inTree = true;
       wl_listener commit{};
       wl_listener destroy{};
       wl_listener outputSample{};
@@ -181,6 +193,9 @@ namespace andromeda {
       // pools below every tile, under the output's `tileShadows`.
       wlr_scene_tree* shadowTree = nullptr;
       wlr_scene_shadow* shadow = nullptr;
+      // Scaled copy of the chrome the view carries beside its borders, such as a tab bar, under `tree`.
+      std::unique_ptr<ViewChromeAttachment> chrome;
+      std::unique_ptr<ViewChromeAttachment> frame;
       std::vector<std::unique_ptr<CardSurface>> surfaces;
       wlr_box box{}; // content box in layout coordinates
       wlr_scene_tree* badge = nullptr;
@@ -270,8 +285,18 @@ namespace andromeda {
     static void onCardSurfaceDestroy(wl_listener* listener, void* data);
     static void onCardBufferOutputSample(wl_listener* listener, void* data);
     static void onCardBufferFrameDone(wl_listener* listener, void* data);
+    // One walk over a card's surfaces, for one window of it, offset from the card window's root surface.
+    struct CardWalk {
+      Card* card = nullptr;
+      View* view = nullptr;
+      int dx = 0;
+      int dy = 0;
+    };
+    // The card window's surfaces, then those of every dialog attached to it at their offset over the window.
+    static void forEachCardSurface(Card* card, void (*visit)(wlr_surface*, int, int, void*));
     static void addCardSurface(wlr_surface* surface, int sx, int sy, void* data);
     static void syncCardSurface(wlr_surface* surface, int sx, int sy, void* data);
+    static void syncCardSurfaces(Card* card);
     static void onDesktopSurfaceCommit(wl_listener* listener, void* data);
     static void onDesktopSurfaceDestroy(wl_listener* listener, void* data);
     static void onDesktopMirrorOutputSample(wl_listener* listener, void* data);
@@ -299,6 +324,8 @@ namespace andromeda {
     void destroyCard(Card* card);
     void layoutCardShadow(Card& card, double zoom, float alpha) const;
     static void destroyCardShadow(Card& card);
+    // Lay the card's chrome copy over `world`, the view's presented box, at `zoom`, or drop it with the view's chrome.
+    void layoutCardChrome(Card& card, const wlr_box& world, int borderInset, double zoom, float alpha) const;
     static void syncCardBuffer(CardSurface& entry);
     void dropCard(View* view);
     void rebuildCard(View* view);

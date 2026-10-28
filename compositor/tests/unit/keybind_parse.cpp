@@ -185,6 +185,12 @@ ANDROMEDA_TEST(rejectsMalformedSubmapPrefix) {
 // parseAction
 ANDROMEDA_TEST(parsesSimpleActions) {
   Keybind bind;
+  CHECK(parseAction("cursor-hide", bind));
+  CHECK(bind.action == KeybindAction::CursorHide);
+
+  CHECK(parseAction("cursor-show", bind));
+  CHECK(bind.action == KeybindAction::CursorShow);
+
   CHECK(parseAction("window-close", bind));
   CHECK(bind.action == KeybindAction::WindowClose);
 
@@ -263,13 +269,18 @@ ANDROMEDA_TEST(parsesPrimaryExtentFractions) {
 
   CHECK(parseAction("window-set-primary-extent:1.0", bind));
   CHECK(parseAction("window-set-primary-extent:0.1", bind));
+  // Scrolling columns may span several viewports; the parser cannot know the layout, so wider values parse and the
+  // layout clamps what it realizes.
+  CHECK(parseAction("window-set-primary-extent:1.5", bind));
+  CHECK(parseAction("window-set-primary-extent:4.0", bind));
 }
 
 ANDROMEDA_TEST(rejectsOutOfRangePrimaryExtentFractions) {
   Keybind bind;
   CHECK(!parseAction("window-set-primary-extent:0", bind)); // below the 0.1 floor
   CHECK(!parseAction("window-set-primary-extent:0.09", bind));
-  CHECK(!parseAction("window-set-primary-extent:1.5", bind)); // above 1.0
+  CHECK(!parseAction("window-set-primary-extent:4.5", bind)); // above the 4.0 wide ceiling
+  CHECK(!parseAction("window-set-primary-extent:10", bind));
   CHECK(!parseAction("window-set-primary-extent:-0.5", bind));
   CHECK(!parseAction("window-set-primary-extent:abc", bind));
   CHECK(!parseAction("window-set-primary-extent:0.5x", bind)); // trailing garbage
@@ -359,14 +370,36 @@ ANDROMEDA_TEST(parsesLayoutModeActions) {
   CHECK(parseAction("workspace-set-layout:toggle", bind));
   const auto* toggle = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
   CHECK(toggle != nullptr && !toggle->mode.has_value());
+  CHECK(toggle != nullptr && toggle->toggleSequence.empty());
+
+  CHECK(parseAction("workspace-set-layout:toggle:scrolling,master", bind));
+  const auto* twoMode = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(twoMode != nullptr && !twoMode->mode.has_value());
+  CHECK(twoMode != nullptr && twoMode->toggleSequence.size() == 2);
+  CHECK(twoMode != nullptr && twoMode->toggleSequence[0] == andromeda::LayoutMode::Scrolling);
+  CHECK(twoMode != nullptr && twoMode->toggleSequence[1] == andromeda::LayoutMode::Master);
+
+  CHECK(parseAction("workspace-set-layout:toggle:master,scrolling,dwindle", bind));
+  const auto* threeMode = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(threeMode != nullptr && threeMode->toggleSequence.size() == 3);
+  CHECK(threeMode != nullptr && threeMode->toggleSequence[0] == andromeda::LayoutMode::Master);
+  CHECK(threeMode != nullptr && threeMode->toggleSequence[1] == andromeda::LayoutMode::Scrolling);
+  CHECK(threeMode != nullptr && threeMode->toggleSequence[2] == andromeda::LayoutMode::Dwindle);
 }
 
 ANDROMEDA_TEST(rejectsInvalidLayoutModeActions) {
   Keybind bind;
-  CHECK(!parseAction("workspace-set-layout:spiral", bind));    // not a known mode
-  CHECK(!parseAction("workspace-set-layout:", bind));          // empty arg
-  CHECK(!parseAction("workspace-set-layout", bind));           // requires an argument
-  CHECK(!parseAction("workspace-set-layout:Scrolling", bind)); // exact lowercase only
+  CHECK(!parseAction("workspace-set-layout:spiral", bind));                       // not a known mode
+  CHECK(!parseAction("workspace-set-layout:", bind));                             // empty arg
+  CHECK(!parseAction("workspace-set-layout", bind));                              // requires an argument
+  CHECK(!parseAction("workspace-set-layout:Scrolling", bind));                    // exact lowercase only
+  CHECK(!parseAction("workspace-set-layout:toggle:", bind));                      // toggle with empty sequence
+  CHECK(!parseAction("workspace-set-layout:toggle:scrolling", bind));             // single mode not enough
+  CHECK(!parseAction("workspace-set-layout:toggle:scrolling,master,", bind));     // trailing comma
+  CHECK(!parseAction("workspace-set-layout:toggle:,master", bind));               // leading comma
+  CHECK(!parseAction("workspace-set-layout:toggle:scrolling,spiral", bind));      // unknown in sequence
+  CHECK(!parseAction("workspace-set-layout:toggle:scrolling,scrolling", bind));   // repeated mode
+  CHECK(!parseAction("workspace-set-layout:toggle:master,dwindle,master", bind)); // repeated mode
 }
 
 ANDROMEDA_TEST(parsesArgumentFreeNewActions) {
@@ -438,8 +471,13 @@ ANDROMEDA_TEST(parsesArgumentFreeNewActions) {
   CHECK(bind.action == KeybindAction::WindowConsumeRight);
   CHECK(parseAction("window-consume-or-expel-right", bind));
   CHECK(bind.action == KeybindAction::WindowConsumeOrExpelRight);
+  CHECK(parseAction("window-consume-from-left", bind));
+  CHECK(bind.action == KeybindAction::WindowConsumeFromLeft);
+  CHECK(parseAction("window-consume-from-right", bind));
+  CHECK(bind.action == KeybindAction::WindowConsumeFromRight);
   CHECK(!parseAction("window-consume-or-expel", bind));
   CHECK(!parseAction("window-expel-right", bind));
+  CHECK(!parseAction("window-consume-from", bind));
 
   // Argument-free actions reject arguments.
   CHECK(!parseAction("workspace-next:1", bind));
@@ -455,6 +493,8 @@ ANDROMEDA_TEST(parsesArgumentFreeNewActions) {
   CHECK(!parseAction("window-consume-or-expel-left:x", bind));
   CHECK(!parseAction("window-consume-right:x", bind));
   CHECK(!parseAction("window-consume-or-expel-right:x", bind));
+  CHECK(!parseAction("window-consume-from-left:x", bind));
+  CHECK(!parseAction("window-consume-from-right:x", bind));
 }
 
 ANDROMEDA_TEST(parsesWorkspaceSelectors) {
@@ -562,6 +602,48 @@ ANDROMEDA_TEST(parsesOptionalOutputActions) {
   CHECK(!parseAction("output-toggle", bind));
 }
 
+ANDROMEDA_TEST(parsesOutputSdrWhiteAction) {
+  const auto sdrWhiteOf = [](const Keybind& bind) {
+    const auto* arg = andromeda::payloadIf<andromeda::SdrWhiteArg>(bind);
+    return arg != nullptr ? arg->nits : -1.0;
+  };
+  const auto outputOf = [](const Keybind& bind) {
+    const auto* arg = andromeda::payloadIf<andromeda::SdrWhiteArg>(bind);
+    return arg != nullptr ? arg->output : std::string{};
+  };
+
+  Keybind bind;
+  CHECK(parseAction("output-sdr-white:203", bind));
+  CHECK(bind.action == KeybindAction::OutputSdrWhite);
+  CHECK(std::fabs(sdrWhiteOf(bind) - 203.0) < 1e-9);
+  CHECK(outputOf(bind).empty());
+
+  CHECK(parseAction("output-sdr-white:120/DP-1", bind));
+  CHECK(std::fabs(sdrWhiteOf(bind) - 120.0) < 1e-9);
+  CHECK_EQ(outputOf(bind), std::string{"DP-1"});
+
+  // Everything after the first slash is the output name, as for effect targets.
+  CHECK(parseAction("output-sdr-white:120.5/vendor/panel", bind));
+  CHECK(std::fabs(sdrWhiteOf(bind) - 120.5) < 1e-9);
+  CHECK_EQ(outputOf(bind), std::string{"vendor/panel"});
+
+  CHECK(parseAction("output-sdr-white:80", bind));
+  CHECK(parseAction("output-sdr-white:1000", bind));
+}
+
+ANDROMEDA_TEST(rejectsMalformedOutputSdrWhiteArguments) {
+  Keybind bind;
+  CHECK(!parseAction("output-sdr-white", bind));      // no level
+  CHECK(!parseAction("output-sdr-white:", bind));     // no level
+  CHECK(!parseAction("output-sdr-white:200/", bind)); // empty output
+  CHECK(!parseAction("output-sdr-white:79", bind));   // below the configured floor
+  CHECK(!parseAction("output-sdr-white:1001", bind)); // above the configured ceiling
+  CHECK(!parseAction("output-sdr-white:abc", bind));
+  CHECK(!parseAction("output-sdr-white:nan", bind));
+  CHECK(!parseAction("output-sdr-white:inf", bind));
+  CHECK(!parseAction("output-sdr-white:-203", bind));
+}
+
 ANDROMEDA_TEST(parsesOptionalScratchpadActions) {
   const auto scratchpadOf = [](const Keybind& bind) {
     const auto* arg = andromeda::payloadIf<andromeda::ScratchpadArg>(bind);
@@ -619,6 +701,13 @@ ANDROMEDA_TEST(parsesWindowIdActions) {
   CHECK(parseAction("window-close:abc123", bind));
   CHECK(bind.action == KeybindAction::WindowClose);
   CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK(parseAction("window-kill", bind));
+  CHECK(bind.action == KeybindAction::WindowKill);
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{});
+  CHECK(parseAction("window-kill:abc123", bind));
+  CHECK(bind.action == KeybindAction::WindowKill);
+  CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
+  CHECK(!parseAction("window-kill:", bind));
   CHECK(parseAction("window-focus:abc123", bind));
   CHECK(bind.action == KeybindAction::WindowFocusId);
   CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"abc123"});
@@ -652,14 +741,40 @@ ANDROMEDA_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
     case ActionArgKind::LayoutMode:
       input += ":toggle";
       break;
+    case ActionArgKind::SnapRegion:
+      input += ":left";
+      break;
+    case ActionArgKind::ColumnDisplay:
+      input += ":tabbed";
+      break;
+    case ActionArgKind::TabIndex:
+      input += ":2";
+      break;
     case ActionArgKind::Workspace:
       input += ":1";
+      break;
+    case ActionArgKind::WindowEffectSet:
+    case ActionArgKind::WindowEffectCycle:
+    case ActionArgKind::ScreenEffectSet:
+    case ActionArgKind::ScreenEffectCycle:
+    case ActionArgKind::CursorEffectSet:
+    case ActionArgKind::CursorEffectCycle:
+      input += ":sample";
       break;
     case ActionArgKind::Output:
       input += ":DP-1";
       break;
+    case ActionArgKind::SdrWhite:
+      input += ":200/DP-1";
+      break;
     case ActionArgKind::WindowId:
       input += ":abc";
+      break;
+    case ActionArgKind::WindowMoveTo:
+      input += ":center/1/1";
+      break;
+    case ActionArgKind::WindowMoveBy:
+      input += ":1/1";
       break;
     }
     CHECK(parseAction(input, bind));
@@ -681,8 +796,29 @@ ANDROMEDA_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
     case ActionArgKind::LayoutMode:
       CHECK(andromeda::payloadIf<andromeda::LayoutModeArg>(bind) != nullptr);
       break;
+    case ActionArgKind::SnapRegion:
+      CHECK(andromeda::payloadIf<andromeda::SnapRegionArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::ColumnDisplay:
+      CHECK(andromeda::payloadIf<andromeda::ColumnDisplayArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::TabIndex:
+      CHECK(andromeda::payloadIf<andromeda::TabIndexArg>(bind) != nullptr);
+      break;
     case ActionArgKind::Workspace:
       CHECK(andromeda::payloadIf<andromeda::WorkspaceArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::WindowEffectSet:
+    case ActionArgKind::WindowEffectCycle:
+      CHECK(andromeda::payloadIf<andromeda::EffectWindowArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::ScreenEffectSet:
+    case ActionArgKind::ScreenEffectCycle:
+      CHECK(andromeda::payloadIf<andromeda::EffectScreenArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::CursorEffectSet:
+    case ActionArgKind::CursorEffectCycle:
+      CHECK(andromeda::payloadIf<andromeda::EffectCursorArg>(bind) != nullptr);
       break;
     case ActionArgKind::Output:
     case ActionArgKind::OptionalOutput:
@@ -697,6 +833,15 @@ ANDROMEDA_TEST(payloadAlternativeMatchesTheDeclaredArgKind) {
       break;
     case ActionArgKind::SkipConfirmation:
       CHECK(andromeda::payloadIf<andromeda::QuitArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::SdrWhite:
+      CHECK(andromeda::payloadIf<andromeda::SdrWhiteArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::WindowMoveTo:
+      CHECK(andromeda::payloadIf<andromeda::WindowMoveToArg>(bind) != nullptr);
+      break;
+    case ActionArgKind::WindowMoveBy:
+      CHECK(andromeda::payloadIf<andromeda::WindowMoveByArg>(bind) != nullptr);
       break;
     }
   }
@@ -741,14 +886,40 @@ ANDROMEDA_TEST(everyActionSpecRoundTripsThroughParseAction) {
     case ActionArgKind::LayoutMode:
       input += ":toggle";
       break;
+    case ActionArgKind::SnapRegion:
+      input += ":left";
+      break;
+    case ActionArgKind::ColumnDisplay:
+      input += ":tabbed";
+      break;
+    case ActionArgKind::TabIndex:
+      input += ":2";
+      break;
     case ActionArgKind::Workspace:
       input += ":1";
+      break;
+    case ActionArgKind::WindowEffectSet:
+    case ActionArgKind::WindowEffectCycle:
+    case ActionArgKind::ScreenEffectSet:
+    case ActionArgKind::ScreenEffectCycle:
+    case ActionArgKind::CursorEffectSet:
+    case ActionArgKind::CursorEffectCycle:
+      input += ":sample";
       break;
     case ActionArgKind::Output:
       input += ":DP-1";
       break;
+    case ActionArgKind::SdrWhite:
+      input += ":200/DP-1";
+      break;
     case ActionArgKind::WindowId:
       input += ":abc";
+      break;
+    case ActionArgKind::WindowMoveTo:
+      input += ":center/1/1";
+      break;
+    case ActionArgKind::WindowMoveBy:
+      input += ":1/1";
       break;
     }
     if (!parseAction(input, bind)) {
@@ -835,6 +1006,20 @@ ANDROMEDA_TEST(defaultKeybindsAreUsable) {
   CHECK(overview != binds.end());
   CHECK(!overview->repeat);
 
+  // Pulling a neighbor in is the same gesture as consuming with Ctrl held, one column over.
+  const auto pullLeft = std::ranges::find_if(binds, [](const Keybind& bind) {
+    return bind.action == KeybindAction::WindowConsumeFromLeft;
+  });
+  CHECK(pullLeft != binds.end());
+  CHECK_EQ(pullLeft->modifiers, uint32_t{WLR_MODIFIER_CTRL});
+  CHECK_EQ(pullLeft->keysym, xkb_keysym_to_lower(XKB_KEY_comma));
+  const auto pullRight = std::ranges::find_if(binds, [](const Keybind& bind) {
+    return bind.action == KeybindAction::WindowConsumeFromRight;
+  });
+  CHECK(pullRight != binds.end());
+  CHECK_EQ(pullRight->modifiers, uint32_t{WLR_MODIFIER_CTRL});
+  CHECK_EQ(pullRight->keysym, xkb_keysym_to_lower(XKB_KEY_period));
+
   // Workspaces 1-9 are bound on both the number row and the keypad.
   const auto switches =
       std::ranges::count_if(binds, [](const Keybind& bind) { return bind.action == KeybindAction::WorkspaceSwitch; });
@@ -855,6 +1040,13 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
       return ":0.5";
     case ActionArgKind::Workspace:
       return ":1";
+    case ActionArgKind::WindowEffectSet:
+    case ActionArgKind::WindowEffectCycle:
+    case ActionArgKind::ScreenEffectSet:
+    case ActionArgKind::ScreenEffectCycle:
+    case ActionArgKind::CursorEffectSet:
+    case ActionArgKind::CursorEffectCycle:
+      return ":sample";
     case ActionArgKind::Output:
       return ":DP-1";
     case ActionArgKind::OptionalOutput:
@@ -868,8 +1060,20 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
       return ":0.1";
     case ActionArgKind::LayoutMode:
       return ":scrolling";
+    case ActionArgKind::SnapRegion:
+      return ":top_left";
+    case ActionArgKind::ColumnDisplay:
+      return ":normal";
+    case ActionArgKind::TabIndex:
+      return ":-1";
     case ActionArgKind::SkipConfirmation:
       return ":skip-confirmation";
+    case ActionArgKind::SdrWhite:
+      return ":200/DP-1";
+    case ActionArgKind::WindowMoveTo:
+      return ":center/1/1";
+    case ActionArgKind::WindowMoveBy:
+      return ":1/1";
     }
     return {};
   };
@@ -884,6 +1088,18 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
       return "<fraction>";
     case ActionArgKind::Workspace:
       return "<workspace>[/<output>]";
+    case ActionArgKind::WindowEffectSet:
+      return "<name>[/<window-id>]";
+    case ActionArgKind::WindowEffectCycle:
+      return "[<pool>][/<window-id>]";
+    case ActionArgKind::ScreenEffectSet:
+      return "<name>[/<output>]";
+    case ActionArgKind::ScreenEffectCycle:
+      return "[<pool>][/<output>]";
+    case ActionArgKind::CursorEffectSet:
+      return "<name>";
+    case ActionArgKind::CursorEffectCycle:
+      return "[<pool>]";
     case ActionArgKind::Output:
       return "<output>";
     case ActionArgKind::OptionalOutput:
@@ -897,9 +1113,21 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
     case ActionArgKind::FractionDelta:
       return "<delta>";
     case ActionArgKind::LayoutMode:
-      return "<scrolling|dwindle|master|toggle>";
+      return "<scrolling|dwindle|master|floating|toggle[:mode1,mode2,...]>";
+    case ActionArgKind::SnapRegion:
+      return "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right>";
+    case ActionArgKind::ColumnDisplay:
+      return "<normal|tabbed>";
+    case ActionArgKind::TabIndex:
+      return "<index>";
+    case ActionArgKind::SdrWhite:
+      return "<nits>[/<output>]";
     case ActionArgKind::SkipConfirmation:
       return "[skip-confirmation]";
+    case ActionArgKind::WindowMoveTo:
+      return "<anchor>/<x>/<y>[/<window-id>]";
+    case ActionArgKind::WindowMoveBy:
+      return "<delta-x>/<delta-y>[/<window-id>]";
     }
     return "";
   };
@@ -927,6 +1155,198 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
     ++swept;
   }
   CHECK(swept > 100);
+}
+
+ANDROMEDA_TEST(effectActionsParseTypedTargetsAndFirstSlash) {
+  Keybind bind;
+  for (const std::string kind : {"window", "border"}) {
+    CHECK(parseAction("effect-" + kind + "-set:scanlines/window-1", bind));
+    const auto* selected = andromeda::payloadIf<andromeda::EffectWindowArg>(bind);
+    CHECK(selected != nullptr);
+    CHECK_EQ(selected->name, std::string{"scanlines"});
+    CHECK_EQ(selected->id, std::string{"window-1"});
+    CHECK(parseAction("effect-" + kind + "-cycle:/window-1", bind));
+    selected = andromeda::payloadIf<andromeda::EffectWindowArg>(bind);
+    CHECK(selected->name.empty());
+    CHECK_EQ(selected->id, std::string{"window-1"});
+    CHECK(parseAction("effect-" + kind + "-cycle", bind));
+    CHECK(andromeda::payloadIf<andromeda::EffectWindowArg>(bind)->name.empty());
+    CHECK(parseAction("effect-" + kind + "-set:off", bind));
+    CHECK_EQ(andromeda::payloadIf<andromeda::EffectWindowArg>(bind)->name, std::string{"off"});
+    for (const std::string op : {"toggle", "reset"}) {
+      CHECK(parseAction("effect-" + kind + "-" + op + ":window-1", bind));
+      CHECK_EQ(andromeda::payloadIf<andromeda::WindowIdArg>(bind)->id, std::string{"window-1"});
+      CHECK(parseAction("effect-" + kind + "-" + op, bind));
+    }
+  }
+  CHECK(parseAction("effect-screen-set:cinema/vendor/panel", bind));
+  const auto* screen = andromeda::payloadIf<andromeda::EffectScreenArg>(bind);
+  CHECK_EQ(screen->name, std::string{"cinema"});
+  CHECK_EQ(screen->output, std::string{"vendor/panel"});
+  CHECK(parseAction("effect-screen-cycle:/vendor/panel", bind));
+  screen = andromeda::payloadIf<andromeda::EffectScreenArg>(bind);
+  CHECK(screen->name.empty());
+  CHECK_EQ(screen->output, std::string{"vendor/panel"});
+  CHECK(parseAction("effect-screen-toggle:vendor/panel", bind));
+  CHECK_EQ(andromeda::payloadIf<andromeda::OutputArg>(bind)->output, std::string{"vendor/panel"});
+  CHECK(parseAction("effect-screen-reset:vendor/panel", bind));
+  CHECK_EQ(andromeda::payloadIf<andromeda::OutputArg>(bind)->output, std::string{"vendor/panel"});
+  CHECK(parseAction("effect-cursor-set:halo", bind));
+  CHECK_EQ(andromeda::payloadIf<andromeda::EffectCursorArg>(bind)->name, std::string{"halo"});
+  CHECK(parseAction("effect-cursor-cycle", bind));
+  CHECK(andromeda::payloadIf<andromeda::EffectCursorArg>(bind)->name.empty());
+  CHECK(parseAction("effect-cursor-toggle", bind));
+  CHECK(std::holds_alternative<std::monostate>(bind.payload));
+  CHECK(parseAction("effect-cursor-reset", bind));
+  CHECK(std::holds_alternative<std::monostate>(bind.payload));
+}
+
+ANDROMEDA_TEST(effectActionsRejectMalformedNamesAndTargets) {
+  Keybind bind;
+  for (const std::string kind : {"window", "border", "screen", "cursor"}) {
+    for (const std::string arg : {"", ":", ":/target", ":name/", ":/"}) {
+      CHECK(!parseAction("effect-" + kind + "-set" + arg, bind));
+    }
+    for (const std::string arg : {":", ":off", ":off/target", ":name/", ":/"}) {
+      CHECK(!parseAction("effect-" + kind + "-cycle" + arg, bind));
+    }
+    CHECK(!parseAction("effect-" + kind + "-toggle:", bind));
+    CHECK(!parseAction("effect-" + kind + "-reset:", bind));
+  }
+  for (const std::string op : {"set", "cycle", "toggle", "reset"}) {
+    CHECK(!parseAction("effect-cursor-" + op + ":name/target", bind));
+    CHECK(!parseAction("effect-cursor-" + op + ":/target", bind));
+  }
+  CHECK(!parseAction("effect-cursor-toggle:name", bind));
+  CHECK(!parseAction("effect-cursor-reset:name", bind));
+}
+
+ANDROMEDA_TEST(effectActionReferencesDescribeOnlyNamedRoots) {
+  Keybind bind;
+  for (const auto& [name, kind] : std::array{
+           std::pair{"window", andromeda::EffectKind::Window}, std::pair{"border", andromeda::EffectKind::Border},
+           std::pair{"screen", andromeda::EffectKind::Screen}, std::pair{"cursor", andromeda::EffectKind::Cursor}
+       }) {
+    for (const std::string op : {"set", "cycle"}) {
+      CHECK(parseAction("effect-" + std::string(name) + "-" + op + ":selected", bind));
+      const auto reference = andromeda::effectActionReference(bind);
+      CHECK(reference.has_value());
+      CHECK_EQ(reference->name, std::string_view{"selected"});
+      CHECK(reference->kind == kind);
+      CHECK(reference->poolRequired == (op == "cycle"));
+    }
+    for (const std::string suffix : {"set:off", "cycle", "toggle", "reset"}) {
+      CHECK(parseAction("effect-" + std::string(name) + "-" + suffix, bind));
+      CHECK(!andromeda::effectActionReference(bind));
+    }
+  }
+  CHECK(parseAction("spawn:hello", bind));
+  CHECK(!andromeda::effectActionReference(bind));
+}
+
+ANDROMEDA_TEST(windowMoveToActionParseArgs) {
+  using andromeda::WindowMoveToArg;
+  using andromeda::WindowPositionAnchor;
+  Keybind bind;
+  for (const auto& [name, anchor] : andromeda::kWindowPositionAnchorNames) {
+    CHECK(parseAction("window-move-to:" + std::string(name) + "/10/20/abc", bind));
+    const auto* arg = andromeda::payloadIf<WindowMoveToArg>(bind);
+    CHECK((arg != nullptr && *arg == WindowMoveToArg{.id = "abc", .position = {.x = 10, .y = 20, .anchor = anchor}}));
+  }
+  const auto parsed = [&](std::string_view input) {
+    const auto* arg = parseAction(input, bind) ? andromeda::payloadIf<WindowMoveToArg>(bind) : nullptr;
+    return arg != nullptr ? std::optional(*arg) : std::nullopt;
+  };
+  CHECK(
+      (parsed("window-move-to:center/10/20")
+       == WindowMoveToArg{.id = "", .position = {.x = 10, .y = 20, .anchor = WindowPositionAnchor::Center}})
+  );
+  CHECK(
+      (parsed("window-move-to:right/+10/+20")
+       == WindowMoveToArg{.id = "", .position = {.x = 10, .y = 20, .anchor = WindowPositionAnchor::Right}})
+  );
+  CHECK(
+      (parsed("window-move-to:bottom/-10/-20")
+       == WindowMoveToArg{.id = "", .position = {.x = -10, .y = -20, .anchor = WindowPositionAnchor::Bottom}})
+  );
+}
+
+ANDROMEDA_TEST(windowMoveToActionRejectMalformedArgs) {
+  Keybind bind;
+  CHECK(!parseAction("window-move-to", bind));
+  CHECK(!parseAction("window-move-to:bottom_left", bind));
+  CHECK(!parseAction("window-move-to:anchor/0/0", bind));
+  CHECK(!parseAction("window-move-to://", bind));
+  CHECK(!parseAction("window-move-to:center//", bind));
+  CHECK(!parseAction("window-move-to:center///", bind));
+  CHECK(!parseAction("window-move-to:center/0", bind));
+  CHECK(!parseAction("window-move-to:center/a/10", bind));
+  CHECK(!parseAction("window-move-to:center/10/a", bind));
+  CHECK(!parseAction("window-move-to:top_left/0/0/0/0", bind));
+  CHECK(!parseAction("window-move-to:top_left/3.9/0", bind));
+  CHECK(!parseAction("window-move-to:top_left/0/3.9", bind));
+  CHECK(!parseAction("window-move-to:center/10/10/", bind));
+}
+
+ANDROMEDA_TEST(windowMoveByActionParseArgs) {
+  using andromeda::WindowMoveByArg;
+  Keybind bind;
+  const auto parsed = [&](std::string_view input) {
+    const auto* arg = parseAction(input, bind) ? andromeda::payloadIf<WindowMoveByArg>(bind) : nullptr;
+    return arg != nullptr ? std::optional(*arg) : std::nullopt;
+  };
+  CHECK((parsed("window-move-by:10/20") == WindowMoveByArg{.id = "", .deltaX = 10, .deltaY = 20}));
+  CHECK((parsed("window-move-by:10/20/abc") == WindowMoveByArg{.id = "abc", .deltaX = 10, .deltaY = 20}));
+  CHECK((parsed("window-move-by:+10/+20") == WindowMoveByArg{.id = "", .deltaX = 10, .deltaY = 20}));
+  CHECK((parsed("window-move-by:-10/20") == WindowMoveByArg{.id = "", .deltaX = -10, .deltaY = 20}));
+  CHECK((parsed("window-move-by:10/-20") == WindowMoveByArg{.id = "", .deltaX = 10, .deltaY = -20}));
+}
+
+ANDROMEDA_TEST(windowMoveByActionRejectMalformedArgs) {
+  Keybind bind;
+  CHECK(!parseAction("window-move-by", bind));
+  CHECK(!parseAction("window-move-by:10", bind));
+  CHECK(!parseAction("window-move-by:/", bind));
+  CHECK(!parseAction("window-move-by://", bind));
+  CHECK(!parseAction("window-move-by:abc", bind));
+  CHECK(!parseAction("window-move-by:abc/0", bind));
+  CHECK(!parseAction("window-move-by:0/abc", bind));
+  CHECK(!parseAction("window-move-by:3.4/0", bind));
+  CHECK(!parseAction("window-move-by:0/3.4", bind));
+  CHECK(!parseAction("window-move-by:0/0/abc/abc", bind));
+  CHECK(!parseAction("window-move-by:10/10/", bind));
+}
+
+ANDROMEDA_TEST(parsesFloatingLayoutAndCustomCycle) {
+  Keybind bind;
+  CHECK(parseAction("workspace-set-layout:floating", bind));
+  auto* arg = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(arg != nullptr && arg->mode == andromeda::LayoutMode::Floating);
+  CHECK(parseAction("workspace-set-layout:toggle:floating,scrolling", bind));
+  arg = andromeda::payloadIf<andromeda::LayoutModeArg>(bind);
+  CHECK(arg != nullptr && !arg->mode.has_value());
+  CHECK(arg != nullptr && arg->toggleSequence.size() == 2);
+  CHECK(arg != nullptr && arg->toggleSequence[0] == andromeda::LayoutMode::Floating);
+  CHECK(arg != nullptr && arg->toggleSequence[1] == andromeda::LayoutMode::Scrolling);
+}
+
+ANDROMEDA_TEST(parsesFloatingSnapActions) {
+  Keybind bind;
+  CHECK(parseAction("window-snap:top_left", bind));
+  CHECK(bind.action == KeybindAction::WindowSnap);
+  auto* arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::TopLeft);
+  CHECK(parseAction("window-snap:top", bind));
+  arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::Top);
+  CHECK(parseAction("window-snap:bottom", bind));
+  arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::Bottom);
+  CHECK(parseAction("window-unsnap", bind));
+  CHECK(bind.action == KeybindAction::WindowUnsnap);
+  CHECK(!parseAction("window-snap:top-left", bind));
+  CHECK(!parseAction("window-snap", bind));
+  CHECK(!parseAction("window-unsnap:left", bind));
 }
 
 int main() { return RUN_TESTS(); }

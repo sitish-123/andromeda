@@ -7,11 +7,14 @@ unit_tests = [
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],
   ['scene-clip', ['unit/scene_clip.cpp'], [wayland_server_dep]],
+  ['xwayland-outputs', ['unit/xwayland_outputs.cpp'], [andromeda_core_dep]],
+  ['xwayland-xsettings', ['unit/xwayland_xsettings.cpp'], []],
   ['presentation', ['unit/presentation.cpp'], [andromeda_core_dep]],
   ['animation', ['unit/animation.cpp'], [andromeda_core_dep]],
   ['application-scope', ['unit/application_scope.cpp'], [andromeda_core_dep], [], ['-Wl,--wrap=andromedaCloseRange']],
   ['shader-source', ['unit/shader_source.cpp'], []],
   ['effects', ['unit/effects.cpp'], []],
+  ['effect-selection', ['unit/effect_selection.cpp'], []],
   ['window-opacity-blur', ['unit/window_opacity_blur.cpp'], [andromeda_core_dep]],
   ['value-parse', ['unit/value_parse.cpp'], []],
   ['keybind-parse', ['unit/keybind_parse.cpp'], []],
@@ -19,14 +22,27 @@ unit_tests = [
   ['output-enable-overrides', ['unit/output_enable_overrides.cpp'], []],
   ['modifier-tap', ['unit/modifier_tap.cpp'], []],
   ['keyboard-layout', ['unit/keyboard_layout.cpp'], []],
+  ['keyboard-leds', ['unit/keyboard_leds.cpp'], [wayland_server_dep]],
+  ['keyboard-state', ['unit/keyboard_state.cpp'], [wayland_server_dep]],
+  ['input-capture-geometry', ['unit/input_capture_geometry.cpp'], []],
+  ['input-capture-permissions', ['unit/input_capture_permissions.cpp'], [andromeda_core_dep]],
+  ['eis-socket', ['unit/eis_socket.cpp'], [andromeda_core_dep, wayland_server_dep]],
   ['surface-layouts', ['unit/surface_layouts.cpp'], []],
+  ['shortcuts-inhibit', ['unit/shortcuts_inhibit.cpp'], []],
   ['shortcut-keysym', ['unit/shortcut_keysym.cpp'], []],
+  ['xcursor-matcher', ['unit/xcursor_matcher.cpp'], []],
   ['output-direction', ['unit/output_direction.cpp'], []],
   ['output-identity', ['unit/output_identity.cpp'], []],
   ['mirror-placement', ['unit/mirror_placement.cpp'], [andromeda_core_dep]],
   ['output-mode-selection', ['unit/output_mode_selection.cpp'], []],
+  ['cursor-plane-pace', ['unit/cursor_plane_pace.cpp'], []],
   ['output-frame-schedule', ['unit/output_frame_schedule.cpp'], []],
+  ['output-direct-scanout', ['unit/output_direct_scanout.cpp'], []],
+  ['output-hdr-transition', ['unit/output_hdr_transition.cpp'], []],
   ['output-format-sequence', ['unit/output_format_sequence.cpp'], []],
+  ['output-gamma-transition', ['unit/output_gamma_transition.cpp'], []],
+  ['hdr-metadata', ['unit/hdr_metadata.cpp'], [andromeda_core_dep]],
+  ['color-description', ['unit/color_description.cpp'], [andromeda_core_dep]],
   ['hdr-format', ['unit/hdr_format.cpp'], []],
   ['sdr-format', ['unit/sdr_format.cpp'], []],
   ['layout-struts', ['unit/layout_struts.cpp'], []],
@@ -34,10 +50,14 @@ unit_tests = [
   ['scrolling-layout', ['unit/scrolling_layout.cpp'], []],
   ['dwindle-layout', ['unit/dwindle_layout.cpp'], []],
   ['master-layout', ['unit/master_layout.cpp'], []],
+  ['floating-layout', ['unit/floating_layout.cpp'], []],
+  ['tabbed-layout', ['unit/tabbed_layout.cpp'], []],
   ['cheatsheet-rows', ['unit/cheatsheet_rows.cpp'], []],
   ['shortcut-labels', ['unit/shortcut_labels.cpp'], []],
   ['border-ring', ['unit/border_ring.cpp'], []],
+  ['ssd-frame-geometry', ['unit/ssd_frame_geometry.cpp'], []],
   ['floating', ['unit/floating.cpp'], []],
+  ['snap', ['unit/snap.cpp'], []],
   ['drag-physics', ['unit/drag_physics.cpp'], []],
   ['preset-cycle', ['unit/preset_cycle.cpp'], []],
   ['maximize', ['unit/maximize.cpp'], []],
@@ -54,6 +74,7 @@ unit_tests = [
       '-DANDROMEDA_SOURCE_ROOT="' + meson.project_source_root() + '"',
     ],
   ],
+  ['allocator-policy', ['unit/allocator_policy.cpp'], []],
   ['drm-policy', ['unit/drm_policy.cpp'], []],
   ['config-watcher', ['unit/config_watcher.cpp'], [andromeda_core_dep]],
   ['managed-settings', ['unit/managed_settings.cpp'], [andromeda_core_dep]],
@@ -156,7 +177,13 @@ input_method_client = executable(
 # Harness helper that owns a mapped surface and initiates a data-device drag.
 drag_client = executable(
   'drag-client',
-  ['harness/clients/drag_client.cpp', layer_shell_client_h, layer_shell_client_c, xdg_shell_client_c],
+  [
+    'harness/clients/drag_client.cpp',
+    toplevel_drag_client_h, toplevel_drag_c,
+    layer_shell_client_h, layer_shell_client_c,
+    xdg_shell_client_h, xdg_shell_client_c,
+    xdg_activation_client_h, xdg_activation_client_c,
+  ],
   dependencies: [wayland_client_dep],
 )
 
@@ -164,7 +191,13 @@ drag_client = executable(
 # restoration checks use it to reproduce a panel returning after windows do.
 layer_client = executable(
   'layer-client',
-  ['harness/clients/layer_client.cpp', layer_shell_client_h, layer_shell_client_c, xdg_shell_client_c],
+  [
+    'harness/clients/layer_client.cpp',
+    layer_shell_client_h,
+    layer_shell_client_c,
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+  ],
   dependencies: [wayland_client_dep],
 )
 
@@ -227,6 +260,8 @@ unmap_client = executable(
     xdg_activation_client_c,
     xdg_toplevel_tag_client_h,
     xdg_toplevel_tag_client_c,
+    xdg_dialog_client_h,
+    xdg_dialog_client_c,
     xdg_foreign_client_h,
     xdg_foreign_client_c,
     content_type_client_h,
@@ -245,7 +280,6 @@ popup_client = executable(
   ['harness/clients/popup_client.cpp', xdg_shell_client_h, xdg_shell_client_c],
   dependencies: [wayland_client_dep],
 )
-
 
 # Harness helper whose whole content is drawn by a full-window desynchronized
 # wl_subsurface, the way Firefox presents its chrome and web content.
@@ -268,8 +302,28 @@ fractional_client = executable(
     viewporter_client_c,
     fractional_scale_client_h,
     fractional_scale_client_c,
+    legacy_decoration_client_h,
+    legacy_decoration_client_c,
+    xdg_decoration_client_h,
+    xdg_decoration_client_c,
   ],
   dependencies: [wayland_client_dep],
+)
+
+# Harness helper that maps one explicitly synchronized dmabuf, unmaps it, and
+# waits for the compositor to signal the buffer's release point.
+syncobj_client = executable(
+  'syncobj-client',
+  [
+    'harness/clients/syncobj_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    linux_dmabuf_client_h,
+    linux_dmabuf_client_c,
+    linux_drm_syncobj_client_h,
+    linux_drm_syncobj_client_c,
+  ],
+  dependencies: [wayland_client_dep, libdrm_dep, dependency('gbm')],
 )
 
 # Harness helper that keeps an idle inhibitor attached to a mapped toplevel and
@@ -363,11 +417,24 @@ security_context_client = executable(
   dependencies: [wayland_client_dep],
 )
 
+color_feedback_client = executable(
+  'color-feedback-client',
+  [
+    'harness/clients/color_feedback_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    color_management_client_h,
+    color_management_client_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
 # Harness helper that logs the seat input events a window receives, for input state checks.
 seat_log_client = executable(
   'seat-log-client',
   [
     'harness/clients/seat_log_client.cpp',
+    constraint_client_protocols,
     xdg_shell_client_h,
     xdg_shell_client_c,
     xdg_foreign_client_h,
@@ -378,6 +445,82 @@ seat_log_client = executable(
     text_input_client_c,
   ],
   dependencies: [wayland_client_dep],
+)
+
+# Harness helper that maps an X11 window, logs its keyboard events, and
+# reports the X input focus together with the root active-window property.
+xwayland_focus_client = executable(
+  'xwayland-focus-client',
+  ['harness/clients/xwayland_focus_client.cpp'],
+  dependencies: [xcb_dep],
+)
+
+# An idle X11 client for controlled first-buffer and association ordering.
+xwayland_association_client = executable(
+  'xwayland-association-client',
+  ['harness/clients/xwayland_association_client.cpp'],
+  dependencies: [xcb_dep],
+)
+
+xwayland_dialog_client = executable(
+  'xwayland-dialog-client',
+  ['harness/clients/xwayland_dialog_client.cpp'],
+  dependencies: [xcb_dep],
+)
+
+xwayland_popup_client = executable(
+  'xwayland-popup-client',
+  ['harness/clients/xwayland_popup_client.cpp'],
+  dependencies: [xcb_dep],
+)
+
+xwayland_input_client = executable(
+  'xwayland-input-client',
+  ['harness/clients/xwayland_input_client.cpp'],
+  dependencies: [xcb_dep, dependency('xcb-xtest')],
+)
+
+ei_peer_client = executable(
+  'ei-peer-client',
+  ['harness/clients/ei_peer_client.cpp'],
+  dependencies: [dependency('libei-1.0', version: '>=1.3')],
+)
+
+# Eager X11 selection reader and owner for clipboard focus transitions.
+xwayland_selection_client = executable(
+  'xwayland-selection-client',
+  ['harness/clients/xwayland_selection_client.cpp'],
+  dependencies: [xcb_dep, dependency('xcb-xfixes')],
+)
+
+# ARGB windows whose bounding and input shapes change independently.
+xwayland_shape_client = executable(
+  'xwayland-shape-client',
+  ['harness/clients/xwayland_shape_client.cpp'],
+  dependencies: [xcb_dep, xcb_shape_dep],
+)
+
+# Harness pair that proves only Xwayland-owned theme cursor surfaces are
+# promoted to compositor Xcursors. The X11 fixture also supplies an unmatched
+# custom cursor, while the native fixture supplies matching theme pixels as an
+# ownership control.
+xwayland_cursor_client = executable(
+  'xwayland-cursor-client',
+  ['harness/clients/xwayland_cursor_client.cpp'],
+  dependencies: [xcb_dep, xcb_render_dep, wlroots_dep],
+)
+
+# Reads the XSETTINGS manager's selection and settings property on DISPLAY.
+xsettings_client = executable(
+  'xsettings-client',
+  ['harness/clients/xsettings_client.cpp'],
+  dependencies: [xcb_dep],
+)
+
+wayland_cursor_client = executable(
+  'wayland-cursor-client',
+  ['harness/clients/wayland_cursor_client.cpp', xdg_shell_client_h, xdg_shell_client_c],
+  dependencies: [wayland_client_dep, wlroots_dep],
 )
 
 # Harness helper that sends complete test or apply transactions through
@@ -419,8 +562,41 @@ pixel_probe = executable(
   override_options: ['optimization=2'],
 )
 
+# Harness helper that captures one output through ext-image-copy-capture and reports every delivered frame;
+# --cursor also asks for cursor metadata, which is what the compositor gates capture pacing on. --window ID captures
+# a window instead, the way a portal window cast does.
+capture_client = executable(
+  'capture-client',
+  [
+    'harness/clients/capture_client.cpp',
+    ext_image_capture_source_client_h,
+    ext_image_capture_source_client_c,
+    ext_image_copy_capture_client_h,
+    ext_image_copy_capture_client_c,
+    ext_foreign_toplevel_list_client_h,
+    ext_foreign_toplevel_list_client_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
+# Uses real backend devices in an isolated compositor to verify physical consent.
+input_capture_compositor = executable(
+  'input-capture-compositor',
+  ['harness/clients/input_capture_compositor.cpp'],
+  dependencies: [andromeda_core_dep],
+)
+input_capture_client = executable(
+  'input-capture-client',
+  ['harness/clients/input_capture_client.cpp', input_capture_client_h, input_capture_protocol_c],
+  dependencies: [wayland_client_dep, dependency('libei-1.0', version: '>=1.3')],
+)
+
 harness_client_targets = [
+  input_capture_compositor,
+  input_capture_client,
+  color_feedback_client,
   pixel_probe,
+  capture_client,
   pointer_client,
   pointer_modifiers_client,
   keyboard_keymap_client,
@@ -435,12 +611,24 @@ harness_client_targets = [
   popup_client,
   subsurface_client,
   fractional_client,
+  syncobj_client,
   idle_inhibit_client,
   background_client,
   surface_protocols_client,
   lock_client,
   security_context_client,
   seat_log_client,
+  xwayland_focus_client,
+  xwayland_association_client,
+  xwayland_dialog_client,
+  xwayland_popup_client,
+  xwayland_input_client,
+  ei_peer_client,
+  xwayland_selection_client,
+  xwayland_shape_client,
+  xwayland_cursor_client,
+  xsettings_client,
+  wayland_cursor_client,
   output_management_client,
   output_power_client,
   desktop_client,

@@ -1,11 +1,11 @@
 #include "cli/ipc_client.h"
-#include "cli/outputs.h"
 #include "config/config.h"
 #include "config/config_diag.h"
 #include "config/schema.h"
 #include "core/build_info.h"
 #include "core/fdlimit.h"
 #include "core/log.h"
+#include "core/process.h"
 #include "scene/cheatsheet_rows.h"
 #include "server/ipc.h"
 #include "server/ipc_commands.h"
@@ -46,7 +46,7 @@ namespace {
       }
     }
 
-    (void)andromeda::loadConfig(configPath);
+    andromeda::loadConfig(configPath);
     const auto& diags = andromeda::configDiagnostics();
     if (diags.empty()) {
       std::println("config: ok ({})", andromeda::configRootPath().string());
@@ -114,7 +114,6 @@ namespace {
 
     heading("Inspect the running compositor");
     specRows(andromeda::IpcCommandGroup::Inspect);
-    row("outputs", "list outputs and modes");
     {
       std::string names;
       for (const auto& name : andromeda::Ipc::kEventNames) {
@@ -189,22 +188,6 @@ int main(int argc, char** argv) {
       const bool help = argc >= 3 && isHelpFlag(argv[2]);
       printHelp(help ? stdout : stderr);
       return help ? EXIT_SUCCESS : EXIT_FAILURE;
-    }
-    if (std::strcmp(argv[1], "outputs") == 0) {
-      bool json = false;
-      for (int i = 2; i < argc; ++i) {
-        if (isHelpFlag(argv[i])) {
-          printHelp(stdout);
-          return EXIT_SUCCESS;
-        }
-        if (isJsonFlag(argv[i])) {
-          json = true;
-        } else {
-          printHelp(stderr);
-          return EXIT_FAILURE;
-        }
-      }
-      return andromeda::runOutputsCommand(json);
     }
     if (std::strcmp(argv[1], "help") == 0 || std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
       printHelp(stdout);
@@ -365,9 +348,10 @@ int main(int argc, char** argv) {
   }
 
   initLogFile();
-  // Take everything: the log file is unfiltered and only the console honours
-  // the build's minimum level.
-  wlr_log_init(WLR_DEBUG, wlrLogHandler);
+  // wlroots debug output is mostly per-frame scan-out and buffer chatter, so it stays opt-in.
+  const char* wlrDebug = std::getenv("ANDROMEDA_WLR_DEBUG");
+  const bool wlrDebugEnabled = wlrDebug != nullptr && std::strcmp(wlrDebug, "1") == 0;
+  wlr_log_init(wlrDebugEnabled ? WLR_DEBUG : WLR_INFO, wlrLogHandler);
 
   raiseFileDescriptorLimit();
 
@@ -386,16 +370,13 @@ int main(int argc, char** argv) {
 
   try {
     kLog.info("starting andromeda version={} commit={}", andromeda::build_info::version(), andromeda::build_info::revision());
-    if (!andromeda::loadConfig(configPath)) {
-      kLog.error("initial configuration is invalid; refusing to start");
-      return EXIT_FAILURE;
-    }
+    andromeda::loadConfig(configPath);
     andromeda::Server server;
 
     // SIGINT and SIGTERM are handled on the event loop by the server itself.
-    // SIG_IGN for SIGCHLD reaps spawned children without a handler. Every fork
-    // in Server restores the default before exec.
-    std::signal(SIGCHLD, SIG_IGN);
+    // Exited children are reaped by a SIGCHLD handler. Every fork in Server
+    // restores the default before exec.
+    andromeda::installChildReaper();
 
     if (!server.start(startupCmd)) {
       kLog.error("failed to start server");

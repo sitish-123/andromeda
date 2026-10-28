@@ -25,8 +25,8 @@ namespace andromeda {
     Keyboard& operator=(const Keyboard&) = delete;
 
     [[nodiscard]] wlr_keyboard* wlr() const { return m_keyboard; }
-    // Virtual keyboards own their keymap and groups; nothing compositor-side
-    // may read or rotate them.
+    // Virtual keyboards own their keymap and groups; compositor configuration
+    // and layout synchronization must not replace or rotate them.
     [[nodiscard]] bool virtualDevice() const { return m_virtual; }
     void applyConfig();
     // Lock the next XKB group, wrapping at the end. False when this physical
@@ -45,6 +45,7 @@ namespace andromeda {
     // Forget consumed keys whose release will never arrive, for example after a
     // VT switch. Otherwise the stale entry swallows a later, unrelated release.
     void forgetConsumedKeycodes() { m_consumedKeycodes.clear(); }
+    void prepareInputCapture(bool ending);
 
   private:
     static void onModifiers(wl_listener* listener, void* data);

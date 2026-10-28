@@ -63,25 +63,42 @@ namespace andromeda {
       return true;
     }
 
-    // A regex pattern a rule matches with. One that does not compile rejects the rule.
-    template <typename T>
-    registry::Field<T> regexField(std::string_view key, std::string T::* pattern, std::regex T::* regex) {
+    // One pattern that does not compile rejects the whole rule, so a selector never matches less than it says.
+    bool readRegexPatterns(const toml::node& node, const std::string& path, RegexPatterns& target) {
+      std::vector<std::string> patterns;
+      if (const auto* array = node.as_array()) {
+        for (const toml::node& entry : *array) {
+          const auto value = entry.value<std::string>();
+          if (!value) {
+            warnAt(entry.source(), "ignoring {} (expected array of strings)", path);
+            return false;
+          }
+          patterns.push_back(*value);
+        }
+      } else if (const auto value = node.value<std::string>()) {
+        patterns.push_back(*value);
+      } else {
+        warnAt(node.source(), "ignoring {} (expected string or array of strings)", path);
+        return false;
+      }
+      RegexPatterns compiled;
+      for (std::string& pattern : patterns) {
+        try {
+          compiled.add(std::move(pattern));
+        } catch (const std::regex_error& error) {
+          warnAt(node.source(), "invalid regex in {}: {}", path, error.what());
+          return false;
+        }
+      }
+      target = std::move(compiled);
+      return true;
+    }
+
+    template <typename T> registry::Field<T> regexField(std::string_view key, RegexPatterns T::* patterns) {
       return registry::checked<T>(
-          key, registry::KeyDescription("string").withFormat("regex"),
-          [pattern, regex](const toml::node& node, const std::string& path, T& target, registry::ReadContext&) {
-            const auto value = node.value<std::string>();
-            if (!value) {
-              warnAt(node.source(), "ignoring {} (expected string)", path);
-              return true;
-            }
-            target.*pattern = *value;
-            try {
-              target.*regex = std::regex(*value);
-            } catch (const std::regex_error& error) {
-              warnAt(node.source(), "invalid regex in {}: {}", path, error.what());
-              return false;
-            }
-            return true;
+          key, registry::KeyDescription("string_or_string_array").withFormat("regex"),
+          [patterns](const toml::node& node, const std::string& path, T& target, registry::ReadContext&) {
+            return readRegexPatterns(node, path, target.*patterns);
           }
       );
     }
@@ -98,17 +115,13 @@ namespace andromeda {
         warnAt(node.source(), "ignoring {} (expected table)", path);
         return;
       }
-      static const registry::Choices<WindowPositionAnchor> anchors{
-          {.name = "top_left", .value = WindowPositionAnchor::TopLeft},
-          {.name = "top_right", .value = WindowPositionAnchor::TopRight},
-          {.name = "bottom_left", .value = WindowPositionAnchor::BottomLeft},
-          {.name = "bottom_right", .value = WindowPositionAnchor::BottomRight},
-          {.name = "top", .value = WindowPositionAnchor::Top},
-          {.name = "bottom", .value = WindowPositionAnchor::Bottom},
-          {.name = "left", .value = WindowPositionAnchor::Left},
-          {.name = "right", .value = WindowPositionAnchor::Right},
-          {.name = "center", .value = WindowPositionAnchor::Center},
-      };
+      static const registry::Choices<WindowPositionAnchor> anchors = [] {
+        registry::Choices<WindowPositionAnchor> choices;
+        for (const auto& [name, anchor] : kWindowPositionAnchorNames) {
+          choices.push_back({.name = name, .value = anchor});
+        }
+        return choices;
+      }();
       Section position(*table, path, configStore().mutableDiagnostics());
       std::optional<int> x;
       std::optional<int> y;
@@ -153,15 +166,19 @@ namespace andromeda {
       const auto self = [](auto& rule) -> auto& { return rule; };
       // Any mistake in the match rejects the rule: one that selects less than it says would restyle other windows.
       static const registry::Fields<W> match{
-          strict(regexField("app_id", &W::appIdPattern, &W::appIdRegex)),
-          strict(regexField("title", &W::titlePattern, &W::titleRegex)),
-          strict(regexField("xdg_tag", &W::xdgTagPattern, &W::xdgTagRegex)),
+          strict(regexField("app_id", &W::appIdPatterns)),
+          strict(regexField("title", &W::titlePatterns)),
+          strict(regexField("xdg_tag", &W::xdgTagPatterns)),
           strict(registry::choice("content_type", &W::matchContentType, contentTypes())),
           strict(boolean("is_focused", &W::matchFocused)),
           strict(boolean("is_floating", &W::matchFloating)),
+          strict(boolean("is_maximized_to_edges", &W::matchMaximizedToEdges)),
           strict(boolean("is_pinned", &W::matchPinned)),
           strict(boolean("is_scratchpad", &W::matchScratchpad)),
           strict(boolean("is_alone", &W::matchAlone)),
+          strict(boolean("is_only_window", &W::matchOnlyWindow)),
+          strict(boolean("is_dialog", &W::matchDialog)),
+          strict(boolean("is_cast_target", &W::matchCastTarget)),
           strict(boolean("at_startup", &W::matchAtStartup)),
       };
       static const registry::Fields<W> floatingSize{
@@ -181,8 +198,11 @@ namespace andromeda {
           boolean("default_focused", &W::defaultFocused),
           boolean("default_pinned", &W::defaultPinned),
           boolean("focus_on_activate", &W::focusOnActivate),
+          boolean("attach_to_parent", &W::attachToParent),
+          boolean("confine_pointer", &W::confinePointer),
+          boolean("allow_shortcuts_inhibit", &W::allowShortcutsInhibit),
+          boolean("background_render", &W::backgroundRender),
           boolean("tearing", &W::allowTearing),
-          boolean("background_frames", &W::backgroundFrames),
           boolean("blur", &W::blur),
           boolean("blur_popups", &W::blurPopups),
           boolean("blur_optimized", &W::blurOptimized),
@@ -191,6 +211,21 @@ namespace andromeda {
           color("border_color_focused", &W::borderColorFocused),
           color("border_color_unfocused", &W::borderColorUnfocused),
           color("border_color_outer", &W::borderColorOuter),
+          registry::choice(
+              "title_bar", &W::titleBar,
+              {{"on", TitleBarMode::On},
+               {"negotiated", TitleBarMode::Negotiated},
+               {"forced", TitleBarMode::Forced},
+               {"off", TitleBarMode::Off}}
+          ),
+          registry::custom<W>(
+              "title_bar_buttons", registry::KeyDescription("string_array").withValues(titleBarButtonNames()),
+              [](const toml::node& node, const std::string& path, W& target, registry::ReadContext&) {
+                if (auto buttons = parseTitleBarButtons(node, path)) {
+                  target.titleBarButtons = std::move(*buttons);
+                }
+              }
+          ),
           integer("border_width", 0, 100, &W::borderWidth),
           integer("outer_border_width", 0, 100, &W::outerBorderWidth),
           integer("corner_radius", 0, 100, &W::cornerRadius),
@@ -225,7 +260,7 @@ namespace andromeda {
               }()
           ),
           integer("default_scrolling_extent_px", 1, 100000, &W::defaultScrollingExtentPx),
-          real("default_scrolling_extent", 0.1, 1.0, &W::defaultScrollingExtent),
+          real("default_scrolling_extent", 0.1, kMaxWideFraction, &W::defaultScrollingExtent),
           custom<W>(
               "default_workspace", KeyDescription("int_or_string").withRange(1, kMaxWorkspaces),
               [](const toml::node& node, const std::string& path, W& target, registry::ReadContext&) {
@@ -259,6 +294,7 @@ namespace andromeda {
               "default_scrolling_column_order", std::numeric_limits<int>::min(), std::numeric_limits<int>::max(),
               &W::defaultScrollingColumnOrder
           ),
+          registry::choice("default_column_display", &W::defaultColumnDisplay, columnDisplays()),
       };
       return fields;
     }
@@ -281,10 +317,23 @@ namespace andromeda {
       return true;
     }
 
+    const registry::Choices<LayerShellLayer>& layerShellLayers() {
+      static const registry::Choices<LayerShellLayer> choices{
+          {.name = "background", .value = LayerShellLayer::Background},
+          {.name = "bottom", .value = LayerShellLayer::Bottom},
+          {.name = "top", .value = LayerShellLayer::Top},
+          {.name = "overlay", .value = LayerShellLayer::Overlay},
+      };
+      return choices;
+    }
+
     const registry::Fields<LayerRule>& layerRuleFields() {
       using L = LayerRule;
       static const registry::Fields<L> match{
-          regexField("namespace", &L::namespacePattern, &L::namespaceRegex),
+          regexField("namespace", &L::namespacePatterns),
+          // As in window rules: a selector that quietly matches more than it says would restyle other surfaces.
+          registry::strict(registry::choice("layer", &L::matchLayer, layerShellLayers())),
+          registry::strict(registry::boolean("at_startup", &L::matchAtStartup)),
       };
       static const registry::Fields<L> fields{
           registry::table<L>(
@@ -298,25 +347,20 @@ namespace andromeda {
       return fields;
     }
 
-    // A security-context selector: a non-empty pattern that compiles, or the rule is dropped.
-    registry::Field<SecurityContextRule> securityPattern(
-        std::string_view key, std::string SecurityContextRule::* pattern, std::regex SecurityContextRule::* regex
-    ) {
+    // A selector that constrains nothing would grant the global to every restricted client.
+    registry::Field<SecurityContextRule>
+    securityPattern(std::string_view key, RegexPatterns SecurityContextRule::* member) {
       return registry::checked<SecurityContextRule>(
-          key, registry::KeyDescription("string").withFormat("regex"),
-          [pattern, regex](
+          key, registry::KeyDescription("string_or_string_array").withFormat("regex"),
+          [member](
               const toml::node& node, const std::string& path, SecurityContextRule& target, registry::ReadContext&
           ) {
-            const auto value = node.value<std::string>();
-            if (!value || value->empty()) {
-              warnAt(node.source(), "ignoring {} (expected non-empty string)", path);
+            RegexPatterns& parsed = target.*member;
+            if (!readRegexPatterns(node, path, parsed)) {
               return false;
             }
-            target.*pattern = *value;
-            try {
-              target.*regex = std::regex(*value);
-            } catch (const std::regex_error& error) {
-              warnAt(node.source(), "invalid regex in {}: {}", path, error.what());
+            if (!parsed.constrains()) {
+              warnAt(node.source(), "ignoring {} (expected non-empty string or array of strings)", path);
               return false;
             }
             return true;
@@ -328,8 +372,8 @@ namespace andromeda {
     const registry::Fields<SecurityContextRule>& securityContextRuleFields() {
       using S = SecurityContextRule;
       static const registry::Fields<S> match{
-          securityPattern("sandbox_engine", &S::sandboxEnginePattern, &S::sandboxEngineRegex),
-          securityPattern("app_id", &S::appIdPattern, &S::appIdRegex),
+          securityPattern("sandbox_engine", &S::sandboxEnginePatterns),
+          securityPattern("app_id", &S::appIdPatterns),
       };
       static const registry::Fields<S> fields{
           registry::table<S>(

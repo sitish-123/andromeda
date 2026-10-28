@@ -124,7 +124,7 @@ namespace andromeda {
       return;
     }
     // Apply now rather than when the watcher notices the write; its later reload finds nothing changed.
-    m_server.handleConfigReload();
+    m_server.handleConfigReload(reloadConfig());
   }
 
   void DesktopSettingsManager::bindChord(wl_resource* resource, std::string_view chord, std::string_view action) {
@@ -155,7 +155,7 @@ namespace andromeda {
       reject("cannot write " + file.string());
       return;
     }
-    m_server.handleConfigReload();
+    m_server.handleConfigReload(reloadConfig());
   }
 
   void DesktopSettingsManager::sendKeybinds(wl_resource* resource) const {

@@ -20,9 +20,6 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 [animation]
 enabled = false
 
-[animation.scratchpad]
-scale = 0
-
 [output.HEADLESS-1]
 mode = "1280x720"
 position = [0, 0]
@@ -238,8 +235,9 @@ wait_for_straddled_scratch() {
 
 assert_direct_toggle() {
   local action=$1
+  shift
   accepts "$action"
-  wait_for_scratch_box 1280 0 1600 900
+  wait_for_scratch_box "$@"
   if [[ $(background_signature) != "$baseline_background" ]]; then
     echo "'$action' changed the background instead of only the scratchpad: $(windows)"
     return 1
@@ -303,14 +301,13 @@ baseline_scratch=$(scratch_signature)
 # pointer-selected left output it must reach, and reject from, its output fallback.
 rejects_without_focus_escape window-focus-or-output-left "no output"
 
-# Focus, column order, row order, workspace transfer, and membership are
+# Focus, column order, row order, column transfer, and membership are
 # separate handler families. None may use the workspace focus behind the
 # scratchpad. The floating toggle is an explicitly inert scratchpad action.
 assert_isolated window-focus-left
 assert_isolated column-move-left
 assert_isolated window-move-down
 assert_isolated window-swap-next
-assert_isolated window-move-to-workspace-next
 assert_isolated column-move-to-workspace-next
 assert_isolated window-toggle-floating
 
@@ -337,20 +334,28 @@ baseline_scratch=$(scratch_signature)
 # Direct state actions use the scratchpad's assigned HEADLESS-2 output, not the
 # output containing its top-left corner. They must restore the exact straddled
 # box afterward without changing the background.
-assert_direct_toggle window-toggle-maximize
-assert_direct_toggle window-toggle-maximize-to-edges
-assert_direct_toggle window-toggle-fullscreen
+assert_direct_toggle window-toggle-maximize 1290 10 1580 880
+assert_direct_toggle window-toggle-maximize-to-edges 1280 0 1600 900
+assert_direct_toggle window-toggle-fullscreen 1280 0 1600 900
 
 # Switching from maximize-to-edges to ordinary maximize must keep a coherent
 # maximized state. The next ordinary toggle then restores the original box.
 accepts window-toggle-maximize-to-edges
 wait_for_scratch_box 1280 0 1600 900
 accepts window-toggle-maximize
-wait_for_scratch_box 1280 0 1600 900
+wait_for_scratch_box 1290 10 1580 880
 accepts window-toggle-maximize
 wait_for_scratch_restore
 if [[ $(background_signature) != "$baseline_background" ]]; then
   echo "switching scratchpad maximize modes changed the background: $(windows)"
+  exit 1
+fi
+
+# Centering also uses the assigned HEADLESS-2 output rather than the straddled corner's output.
+accepts window-center
+wait_for_scratch_box 1870 320 420 260
+if [[ $(background_signature) != "$baseline_background" ]]; then
+  echo "window-center changed the background instead of only the scratchpad: $(windows)"
   exit 1
 fi
 

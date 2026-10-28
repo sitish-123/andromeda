@@ -7,6 +7,7 @@
 # Containment matters. A stock Andromeda start runs its built-in autostarts, and
 # `dbus-update-activation-environment --systemd` would repoint the *caller's* session-wide WAYLAND_DISPLAY and
 # ANDROMEDA_SOCKET at this throwaway instance. Unsetting DBUS_SESSION_BUS_ADDRESS makes both autostarts fail harmlessly.
+# DBUS_SYSTEM_BUS_ADDRESS points at no bus, so the host's systemd-localed keymap never reaches an instance.
 # Usage: check.sh <path-to-andromeda-binary> [name-fragment ...] [-j N|--jobs N] [-v|--verbose] [-l|--list]
 # A check's name is its path under checks/ without `.sh`, such as `overview/wheel`. Each name fragment selects every
 # check whose name contains it, so `overview/` selects a topic and several fragments run several checks. Without a
@@ -172,12 +173,26 @@ export ANDROMEDA_IDLE_INHIBIT_CLIENT="$CLIENT_DIR/idle-inhibit-client"
 export ANDROMEDA_LOCK_CLIENT="$CLIENT_DIR/lock-client"
 export ANDROMEDA_SUBSURFACE_CLIENT="$CLIENT_DIR/subsurface-client"
 export ANDROMEDA_FRACTIONAL_CLIENT="$CLIENT_DIR/fractional-client"
+export ANDROMEDA_SYNCOBJ_CLIENT="$CLIENT_DIR/syncobj-client"
 export ANDROMEDA_SECURITY_CONTEXT_CLIENT="$CLIENT_DIR/security-context-client"
 export ANDROMEDA_SEAT_LOG_CLIENT="$CLIENT_DIR/seat-log-client"
+export ANDROMEDA_COLOR_FEEDBACK_CLIENT="$CLIENT_DIR/color-feedback-client"
+export ANDROMEDA_XWAYLAND_FOCUS_CLIENT="$CLIENT_DIR/xwayland-focus-client"
+export ANDROMEDA_XWAYLAND_ASSOCIATION_CLIENT="$CLIENT_DIR/xwayland-association-client"
+export ANDROMEDA_XWAYLAND_DIALOG_CLIENT="$CLIENT_DIR/xwayland-dialog-client"
+export ANDROMEDA_XWAYLAND_POPUP_CLIENT="$CLIENT_DIR/xwayland-popup-client"
+export ANDROMEDA_XWAYLAND_INPUT_CLIENT="$CLIENT_DIR/xwayland-input-client"
+export ANDROMEDA_EI_PEER_CLIENT="$CLIENT_DIR/ei-peer-client"
+export ANDROMEDA_XWAYLAND_SELECTION_CLIENT="$CLIENT_DIR/xwayland-selection-client"
+export ANDROMEDA_XWAYLAND_SHAPE_CLIENT="$CLIENT_DIR/xwayland-shape-client"
+export ANDROMEDA_XWAYLAND_CURSOR_CLIENT="$CLIENT_DIR/xwayland-cursor-client"
+export ANDROMEDA_XSETTINGS_CLIENT="$CLIENT_DIR/xsettings-client"
+export ANDROMEDA_WAYLAND_CURSOR_CLIENT="$CLIENT_DIR/wayland-cursor-client"
 export ANDROMEDA_OUTPUT_MANAGEMENT_CLIENT="$CLIENT_DIR/output-management-client"
 export ANDROMEDA_DESKTOP_CLIENT="$CLIENT_DIR/desktop-client"
 export ANDROMEDA_SURFACE_PROTOCOLS_CLIENT="$CLIENT_DIR/surface-protocols-client"
 export ANDROMEDA_PIXEL_PROBE="$CLIENT_DIR/pixel-probe"
+export ANDROMEDA_CAPTURE_CLIENT="$CLIENT_DIR/capture-client"
 export ANDROMEDA_HARNESS_LIB="$HARNESS_DIR/lib.sh"
 export ANDROMEDA=$BINARY
 
@@ -328,15 +343,27 @@ row() {
   detail "$status" "$text"
 }
 
-# No autostart, no xwayland, no cheatsheet: a check wants a bare compositor, and
-# each of those would spawn processes outside the container.
+# No autostart, no Xwayland, no cheatsheet: a check wants a bare compositor, and
+# each of those would spawn processes outside the container. A check that needs
+# X11 opts in with `# harness: xwayland=true` in its header, or with
+# `# harness: xwayland=native` for xwayland_native_resolution, which needs a restart.
 write_default_config() {
-  cat > "$1" << 'EOF'
+  local xwayland=$2 cursor_theme=$3
+  cat > "$1" << EOF
 [general]
-xwayland = false
+xwayland = $([[ $xwayland == false ]] && echo false || echo true)
+xwayland_native_resolution = $([[ $xwayland == native ]] && echo true || echo false)
 show_cheatsheet = false
 autostart = []
 EOF
+  if [[ -n $cursor_theme ]]; then
+    cat >> "$1" << EOF
+
+[input.cursor]
+theme = "$cursor_theme"
+size = 24
+EOF
+  fi
 }
 
 # A check that needs a second monitor declares it in its header and the harness boots that instance accordingly.
@@ -352,6 +379,86 @@ check_keyboard() {
   else
     echo virtual
   fi
+}
+
+check_xwayland() {
+  local declared
+  declared=$(sed -n '2,12p' "$CHECKS_DIR/$1.sh" | sed -n 's/^# harness: xwayland=\(true\|native\)$/\1/p' | head -1)
+  echo "${declared:-false}"
+}
+
+check_xwayland_proxy() {
+  sed -n '2,12p' "$CHECKS_DIR/$1.sh" | sed -n 's/^# harness: xwayland_proxy=\(association\)$/\1/p' | head -1
+}
+
+check_xcursor_theme() {
+  if sed -n '2,12p' "$CHECKS_DIR/$1.sh" | grep -q '^# harness: xcursor-theme=true'; then
+    echo andromeda-harness
+  fi
+}
+
+# Writes a minimal Xcursor theme with distinct images for nominal sizes 24 and
+# 48. Checks that opt in can therefore assert scale selection without relying
+# on whichever cursor theme the host happens to provide.
+write_xcursor_theme() {
+  local root=$1 theme=$2
+  python3 - "$root" "$theme" <<'PY'
+import pathlib
+import struct
+import sys
+
+root = pathlib.Path(sys.argv[1])
+theme = sys.argv[2]
+target = root / theme / "cursors" / "default"
+target.parent.mkdir(parents=True)
+
+transparent = 0x00000000
+white = 0xFFFFFFFF
+dark = 0xFF202020
+scale_one = [
+    white, transparent, transparent,
+    white, dark, transparent,
+    white, white, white,
+]
+scale_two = [
+    white, white, transparent, transparent, transparent, transparent,
+    white, white, transparent, transparent, transparent, transparent,
+    white, white, dark, dark, transparent, transparent,
+    white, white, dark, dark, transparent, transparent,
+    white, white, white, white, white, white,
+    white, white, white, white, white, white,
+]
+images = [
+    (24, 3, 3, 1, 1, scale_one),
+    (48, 6, 6, 2, 2, scale_two),
+]
+
+image_type = 0xFFFD0002
+file_header_size = 16
+toc_size = 12 * len(images)
+position = file_header_size + toc_size
+tocs = []
+chunks = []
+for nominal_size, width, height, hotspot_x, hotspot_y, pixels in images:
+    chunk = struct.pack(
+        "<9I",
+        36,
+        image_type,
+        nominal_size,
+        1,
+        width,
+        height,
+        hotspot_x,
+        hotspot_y,
+        0,
+    ) + struct.pack(f"<{len(pixels)}I", *pixels)
+    tocs.append(struct.pack("<3I", image_type, nominal_size, position))
+    chunks.append(chunk)
+    position += len(chunk)
+
+header = struct.pack("<4I", 0x72756358, file_header_size, 0x00010000, len(images))
+target.write_bytes(header + b"".join(tocs) + b"".join(chunks))
+PY
 }
 
 start_keyboard() {
@@ -390,6 +497,9 @@ check_outputs() {
 # it sets BOOT_ERROR and leaves the runtime directory for the caller to keep.
 start_instance() {
   local outputs=$1
+  local xwayland=$2
+  local cursor_theme=$3
+  local xwayland_proxy=$4
   # sockaddr_un caps paths at 108 bytes and the compositor appends
   # "/andromeda-wayland-0.sock" (23) to XDG_RUNTIME_DIR, so keep the root short. A
   # long path makes wl_display_add_socket fail and the boot abort.
@@ -397,7 +507,31 @@ start_instance() {
   local log=$RUNTIME_DIR/compositor.log
   local config=$RUNTIME_DIR/config.toml
   local socket=$RUNTIME_DIR/andromeda-wayland-0.sock
-  write_default_config "$config"
+  if [[ -n $cursor_theme ]]; then
+    export XCURSOR_PATH="$RUNTIME_DIR/icons"
+    export XCURSOR_THEME=$cursor_theme
+    if ! write_xcursor_theme "$XCURSOR_PATH" "$cursor_theme"; then
+      BOOT_ERROR="could not create the harness Xcursor theme"
+      return 1
+    fi
+  fi
+  write_default_config "$config" "$xwayland" "$cursor_theme"
+  local xwayland_environment=()
+  if [[ $xwayland_proxy == association ]]; then
+    local real_xwayland
+    if ! real_xwayland=$(command -v "${WLR_XWAYLAND:-Xwayland}"); then
+      BOOT_ERROR="Xwayland is required for the association check"
+      return 1
+    fi
+    mkfifo "$RUNTIME_DIR/xwayland-association.control"
+    export ANDROMEDA_XWAYLAND_ASSOCIATION_LOG="$RUNTIME_DIR/xwayland-association.log"
+    export ANDROMEDA_XWAYLAND_ASSOCIATION_CONTROL="$RUNTIME_DIR/xwayland-association.control"
+    xwayland_environment=(
+      "WLR_XWAYLAND=$HARNESS_DIR/clients/xwayland_association_proxy.py"
+      "ANDROMEDA_XWAYLAND_REAL_BINARY=$real_xwayland"
+      "ANDROMEDA_WLR_DEBUG=1"
+    )
+  fi
 
   # setsid puts the compositor in a session of its own, so anything it forks
   # (an autostart, a keybind `spawn:`) is reachable as one process group at
@@ -406,6 +540,8 @@ start_instance() {
   # compositor in place, so SERVER_PID stays the compositor.
   local pgid_file=$RUNTIME_DIR/instance.pgid
   setsid env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
+    "${xwayland_environment[@]}" \
+    DBUS_SYSTEM_BUS_ADDRESS="unix:path=$RUNTIME_DIR/no-system-bus" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     WLR_BACKENDS=headless \
     WLR_LIBINPUT_NO_DEVICES=1 \
@@ -439,6 +575,21 @@ start_instance() {
   export ANDROMEDA_CONFIG=$config
   # Clients such as foot must not read the user's config: a black background reads as an empty screen.
   export XDG_CONFIG_HOME=$RUNTIME_DIR/xdg-config
+  ANDROMEDA_HARNESS_DISPLAY=
+  if [[ $xwayland != false ]]; then
+    local display_waited_ms=0
+    while [[ -z $ANDROMEDA_HARNESS_DISPLAY ]]; do
+      ANDROMEDA_HARNESS_DISPLAY=$(sed -n 's/.*Xwayland listening on DISPLAY=\([^ ]*\).*/\1/p' "$log" | tail -1)
+      [[ -n $ANDROMEDA_HARNESS_DISPLAY ]] && break
+      if ! kill -0 "$SERVER_PID" 2>/dev/null || ((display_waited_ms >= 10000)); then
+        BOOT_ERROR="Xwayland display was not published during boot"$'\n'"$(< "$log")"
+        return 1
+      fi
+      sleep 0.005
+      display_waited_ms=$((display_waited_ms + 5))
+    done
+  fi
+  export ANDROMEDA_HARNESS_DISPLAY
   return 0
 }
 
@@ -520,13 +671,18 @@ stop_instance() {
 # background job.
 # The body runs pointed at its own instance, not at the session that started the
 # suite. This is not a convenience: only IPC subcommands honour ANDROMEDA_SOCKET,
-# while `andromeda outputs` and every helper client are Wayland clients that
-# resolve XDG_RUNTIME_DIR and WAYLAND_DISPLAY, so an inherited session
-# environment silently points them at the developer's live compositor.
+# while every helper client is a Wayland client that resolves XDG_RUNTIME_DIR
+# and WAYLAND_DISPLAY, so an inherited session environment silently points it
+# at the developer's live compositor.
 run_check_body() {
   local name=$1 output_file=$2
   local pgid_file=$RUNTIME_DIR/check.pgid
-  setsid env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS \
+  local -a display_environment=()
+  if [[ -n ${ANDROMEDA_HARNESS_DISPLAY:-} ]]; then
+    display_environment+=("DISPLAY=$ANDROMEDA_HARNESS_DISPLAY")
+  fi
+  setsid env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS "${display_environment[@]}" \
+    DBUS_SYSTEM_BUS_ADDRESS="unix:path=$RUNTIME_DIR/no-system-bus" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     WAYLAND_DISPLAY=wayland-0 \
     bash -c 'echo $$ > "$1"; shift; exec "$@"' _ "$pgid_file" \
@@ -553,9 +709,12 @@ run_one() {
 
   local check_start
   check_start=$(now_us)
+  local cursor_theme
+  cursor_theme=$(check_xcursor_theme "$name")
 
   BOOT_ERROR=
-  if ! start_instance "$(check_outputs "$name")"; then
+  if ! start_instance "$(check_outputs "$name")" "$(check_xwayland "$name")" "$cursor_theme" \
+    "$(check_xwayland_proxy "$name")"; then
     publish "$prefix" 1 "$check_start" "$BOOT_ERROR"
     return 0
   fi

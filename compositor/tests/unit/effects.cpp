@@ -135,24 +135,6 @@ ANDROMEDA_TEST(ledgerUpdatesReplaceAnOwnersPreviousState) {
   CHECK_EQ(ledger.active(), 1U);
 }
 
-ANDROMEDA_TEST(viewEffectNamesFollowTheMostSpecificSelector) {
-  andromeda::Effects effects;
-  effects.border = "pulse";
-  effects.window = "lines";
-  andromeda::ResolvedWindowRule rule;
-  auto names = andromeda::resolveViewEffectNames(effects, rule);
-  CHECK_EQ(names.border, std::string("pulse"));
-  CHECK_EQ(names.window, std::string("lines"));
-  rule.borderEffect = "off";
-  rule.windowEffect = "scan";
-  names = andromeda::resolveViewEffectNames(effects, rule);
-  CHECK(names.border.empty());
-  CHECK_EQ(names.window, std::string("scan"));
-  rule.borderEffect = "";
-  names = andromeda::resolveViewEffectNames(effects, rule);
-  CHECK(names.border.empty());
-}
-
 ANDROMEDA_TEST(borderEffectsApplyOnlyToFocusedDecoratedCalmWindows) {
   CHECK(andromeda::borderEffectApplies({.focused = true, .decorated = true, .urgent = false, .fullscreen = false}));
   CHECK(!andromeda::borderEffectApplies({.focused = false, .decorated = true, .urgent = false, .fullscreen = false}));
@@ -170,16 +152,47 @@ ANDROMEDA_TEST(borderPaddingNeedsACompiledBorderPreset) {
   CHECK_EQ(andromeda::borderPresetPadding(&window, true), 0);
 }
 
-ANDROMEDA_TEST(screenEffectNameFollowsTheOutputOverride) {
-  andromeda::Effects effects;
-  effects.screen = "vig";
-  CHECK_EQ(andromeda::resolveScreenEffectName(effects, nullptr), std::string("vig"));
-  andromeda::OutputRule rule;
-  CHECK_EQ(andromeda::resolveScreenEffectName(effects, &rule), std::string("vig"));
-  rule.screenEffect = "off";
-  CHECK(andromeda::resolveScreenEffectName(effects, &rule).empty());
-  rule.screenEffect = "crt";
-  CHECK_EQ(andromeda::resolveScreenEffectName(effects, &rule), std::string("crt"));
+ANDROMEDA_TEST(effectPoolPoliciesAndReferenceConstraintsAreExplicit) {
+  using andromeda::EffectReferenceConstraint;
+  using andromeda::EffectSelectionPolicy;
+  Effects effects = twoPresets();
+  effects.pools.push_back({.name = "borders", .kind = EffectKind::Border, .members = {"pulse"}});
+  CHECK(andromeda::parseEffectSelectionPolicy("unused_first") == EffectSelectionPolicy::UnusedFirst);
+  CHECK(andromeda::parseEffectSelectionPolicy("round_robin") == EffectSelectionPolicy::RoundRobin);
+  CHECK(andromeda::parseEffectSelectionPolicy("random") == EffectSelectionPolicy::Random);
+  CHECK(!andromeda::parseEffectSelectionPolicy("Random"));
+  CHECK(!andromeda::parseEffectSelectionPolicy(""));
+  CHECK_EQ(andromeda::effectSelectionPolicyName(EffectSelectionPolicy::UnusedFirst), std::string_view("unused_first"));
+  CHECK_EQ(andromeda::effectSelectionPolicyName(EffectSelectionPolicy::RoundRobin), std::string_view("round_robin"));
+  CHECK_EQ(andromeda::effectSelectionPolicyName(EffectSelectionPolicy::Random), std::string_view("random"));
+  CHECK(andromeda::findEffectPool(effects, "borders") != nullptr);
+  CHECK(andromeda::findEffectPool(effects, "pulse") == nullptr);
+  CHECK(andromeda::effectReferenceError(effects, "borders", EffectKind::Border, false));
+  CHECK(!andromeda::effectReferenceError(
+      effects, "borders", EffectKind::Border, false, EffectReferenceConstraint::PresetOrPool
+  ));
+  CHECK(!andromeda::effectReferenceError(
+      effects, "borders", EffectKind::Border, false, EffectReferenceConstraint::PoolRequired
+  ));
+  CHECK(
+      andromeda::effectReferenceError(
+          effects, "borders", EffectKind::Window, false, EffectReferenceConstraint::PresetOrPool
+      )
+  );
+  CHECK(
+      andromeda::effectReferenceError(
+          effects, "pulse", EffectKind::Border, false, EffectReferenceConstraint::PoolRequired
+      )
+  );
+  CHECK(
+      !andromeda::effectReferenceError(effects, "", EffectKind::Border, false, EffectReferenceConstraint::PresetOrPool)
+  );
+  CHECK(
+      !andromeda::effectReferenceError(effects, "off", EffectKind::Border, true, EffectReferenceConstraint::PresetOrPool)
+  );
+  CHECK(
+      andromeda::effectReferenceError(effects, "off", EffectKind::Border, false, EffectReferenceConstraint::PresetOrPool)
+  );
 }
 
 int main() { return RUN_TESTS(); }

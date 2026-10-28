@@ -10,8 +10,11 @@
 #include "core/process.h"
 #include "core/tracy.h"
 #include "input/cursor.h"
+#include "input/eis.h"
 #include "input/gestures.h"
+#include "input/input_capture.h"
 #include "input/keyboard.h"
+#include "input/keyboard_leds.h"
 #include "input/seat.h"
 #include "input/text_input.h"
 #include "layer/layer_surface.h"
@@ -25,20 +28,23 @@
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
+#include "server/allocator.h"
 #include "server/backend_manager.h"
+#include "server/color_manager.h"
 #include "server/commit_timing.h"
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
-#include "server/toplevel_drag.h"
-#include "server/wine_color_manager.h"
+#include "server/syncobj_acquire_barrier.h"
+#include "server/syncobj_superseded_release.h"
+#include "server/syncobj_unmap_release.h"
 #include "view/view.h"
 #include "wlr.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
-#include "xwayland/supervisor.h"
+#include "xwayland/xwayland.h"
 
 extern "C" {
 #include <andromedafx/render/effect.h>
@@ -54,6 +60,7 @@ extern "C" {
 #include <fcntl.h>
 #include <optional>
 #include <ranges>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -91,11 +98,11 @@ namespace andromeda {
         "wp_color_manager_v1",
         "xdg_wm_base",
         "xdg_toplevel_tag_manager_v1",
-        "xdg_wm_dialog_v1",
         "xdg_toplevel_icon_manager_v1",
         "xdg_system_bell_v1",
         "xdg_toplevel_drag_manager_v1",
         "zxdg_exporter_v2",
+        "xdg_wm_dialog_v1",
         "zxdg_decoration_manager_v1",
         "org_kde_kwin_server_decoration_manager",
         "zwp_relative_pointer_manager_v1",
@@ -186,12 +193,8 @@ namespace andromeda {
       if (interfaceName == "zxdg_decoration_manager_v1" || interfaceName == "org_kde_kwin_server_decoration_manager") {
         return policy->advertiseDecorationManagers;
       }
-      if (interfaceName == "wp_color_manager_v1") {
-        const bool wine = WineColorManager::clientNeedsCompatibility(client);
-        if (server->wineColorManager() != nullptr && global == server->wineColorManager()->global()) {
-          return wine;
-        }
-        return !wine;
+      if (interfaceName == "zxdg_output_manager_v1" && server->xwayland() != nullptr) {
+        return server->xwayland()->advertiseOutputManager(client, global);
       }
       return true;
     }
@@ -217,7 +220,7 @@ namespace andromeda {
       }
     }
 
-    std::string sessionEnvironmentCommand() {
+    std::string sessionEnvironmentCommand(bool managedReadiness) {
       std::string configuredAssignments;
       for (const auto& [name, value] : config().environment.variables) {
         configuredAssignments += ' ';
@@ -228,17 +231,26 @@ namespace andromeda {
           configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
       std::string command =
           "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
-          "ANDROMEDA_SOCKET'; systemd_ready=false; "
+          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET'; systemd_ready=false; "
           "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
           "if systemctl --user import-environment $variables";
       command += publishConfigured;
       command += "; then systemd_ready=true; else "
-                 "echo 'andromeda: failed to publish the session environment' >&2; fi; fi; "
-                 "if command -v dbus-update-activation-environment >/dev/null 2>&1; then "
-                 "dbus-update-activation-environment $variables || "
-                 "echo 'andromeda: failed to update the D-Bus activation environment' >&2; fi; "
-                 "if $systemd_ready; then systemctl --user start --no-block andromeda-session.target || "
-                 "echo 'andromeda: failed to start the systemd session target' >&2; fi";
+                 "echo 'andromeda: failed to publish the session environment' >&2; exit 1; fi; fi; "
+                 // The compositor waits on this script with its event loop stopped. Without a bus address, libdbus
+                 // autolaunches over X11, and DISPLAY names an Xwayland that only that loop can start. Use the
+                 // user bus socket when the address is unset, and skip the update when there is no bus at all.
+                 "if [ -z \"${DBUS_SESSION_BUS_ADDRESS:-}\" ] && [ -S \"${XDG_RUNTIME_DIR:-}/bus\" ]; then "
+                 "export DBUS_SESSION_BUS_ADDRESS=\"unix:path=$XDG_RUNTIME_DIR/bus\"; fi; "
+                 "if [ -n \"${DBUS_SESSION_BUS_ADDRESS:-}\" ] "
+                 "&& command -v dbus-update-activation-environment >/dev/null 2>&1; then "
+                 "dbus-update-activation-environment $variables || { "
+                 "echo 'andromeda: failed to update the D-Bus activation environment' >&2; exit 1; }; fi; ";
+      if (managedReadiness) {
+        command += "$systemd_ready";
+      } else {
+        command += "if $systemd_ready; then systemctl --user start --no-block andromeda-session.target; fi";
+      }
       return command;
     }
 
@@ -362,6 +374,19 @@ namespace andromeda {
   }
 
   void Server::dismissConfirmation() {
+    if (m_pendingCaptureId != 0 && m_inputCapture != nullptr) {
+      const auto id = std::exchange(m_pendingCaptureId, 0);
+      m_inputCapture->authorizeSession(id, false);
+    }
+    if (m_pendingInputId != 0) {
+      const auto id = std::exchange(m_pendingInputId, 0);
+      m_deniedInputNames.insert(m_pendingInputName);
+      kLog.info("input permission denied id={} app='{}'", id, m_pendingInputName);
+      m_pendingInputName.clear();
+      if (m_eisInput != nullptr) {
+        m_eisInput->authorizeClient(id, false);
+      }
+    }
     if (m_quitConfirm != nullptr
         && m_quitConfirm->visible()
         && m_quitConfirm->kind() == QuitConfirm::Kind::ScreenCastDynamic) {
@@ -369,6 +394,158 @@ namespace andromeda {
     }
     if (m_quitConfirm != nullptr) {
       m_quitConfirm->hide();
+    }
+  }
+
+  void Server::requestInputEmulation(uint64_t id, std::string_view name) {
+    const std::string application(name);
+    if (m_allowedInputNames.contains(application) && !sessionLocked()) {
+      m_eisInput->authorizeClient(id, true);
+      return;
+    }
+    if (application.empty()
+        || application.size() > 256
+        || sessionLocked()
+        || m_deniedInputNames.contains(application)
+        || m_quitConfirm == nullptr
+        || m_quitConfirm->visible()) {
+      m_eisInput->authorizeClient(id, false);
+      return;
+    }
+    m_pendingInputId = id;
+    m_pendingInputName = application;
+    std::string displayName;
+    for (const unsigned char character : application) {
+      displayName += character >= 32 && character < 127 ? static_cast<char>(character) : '?';
+    }
+    kLog.info("input permission requested id={} app='{}'", id, displayName);
+    m_quitConfirm->showInputEmulation(displayName);
+  }
+
+  void Server::confirmInputEmulation() {
+    if (m_pendingInputId == 0 || m_eisInput == nullptr || sessionLocked()) {
+      dismissConfirmation();
+      return;
+    }
+    const auto id = std::exchange(m_pendingInputId, 0);
+    m_allowedInputNames.insert(m_pendingInputName);
+    kLog.info("input permission granted id={} app='{}'", id, m_pendingInputName);
+    m_pendingInputName.clear();
+    m_quitConfirm->hide();
+    m_eisInput->authorizeClient(id, true);
+  }
+
+  void Server::cancelInputEmulation(uint64_t id) {
+    if (id != m_pendingInputId) {
+      return;
+    }
+    m_pendingInputId = 0;
+    m_pendingInputName.clear();
+    if (m_quitConfirm != nullptr && m_quitConfirm->kind() == QuitConfirm::Kind::InputEmulation) {
+      m_quitConfirm->hide();
+    }
+  }
+
+  void Server::requestInputCapture(uint64_t id, std::string_view name, uint32_t persistMode) {
+    if (m_stopping
+        || m_sessionLock != nullptr
+        || sessionLocked()
+        || (m_session != nullptr && !m_session->active)
+        || name.size() > 256
+        || m_quitConfirm == nullptr
+        || m_quitConfirm->visible()
+        || (m_inputCapture != nullptr && m_inputCapture->active())) {
+      m_inputCapture->authorizeSession(id, false);
+      return;
+    }
+    m_pendingCaptureId = id;
+    std::string label;
+    for (const unsigned char character : name) {
+      label += character >= 32 && character < 127 ? static_cast<char>(character) : '?';
+    }
+    m_quitConfirm->showInputCapture(label.empty() ? "Unknown application" : label, persistMode);
+    if (!m_quitConfirm->visible()) {
+      dismissConfirmation();
+    }
+  }
+
+  void Server::confirmInputCapture(bool remember) {
+    if (m_pendingCaptureId == 0
+        || m_inputCapture == nullptr
+        || m_sessionLock != nullptr
+        || sessionLocked()
+        || (m_session != nullptr && !m_session->active)
+        || (remember && (m_quitConfirm == nullptr || !m_quitConfirm->canRememberInputCapture()))) {
+      dismissConfirmation();
+      return;
+    }
+    const auto id = std::exchange(m_pendingCaptureId, 0);
+    m_quitConfirm->hide();
+    m_inputCapture->authorizeSession(id, true, remember);
+  }
+
+  void Server::cancelInputCapture(uint64_t id) {
+    if (m_pendingCaptureId != id) {
+      return;
+    }
+    m_pendingCaptureId = 0;
+    if (m_quitConfirm != nullptr && m_quitConfirm->kind() == QuitConfirm::Kind::InputCapture) {
+      m_quitConfirm->hide();
+    }
+  }
+
+  void Server::inputCaptureStateChanged(bool active) {
+    if (m_stopping) {
+      return;
+    }
+    const uint32_t capabilities = active ? m_inputCapture->capabilities() : m_inputCaptureCapabilities;
+    m_inputCaptureCapabilities = active ? capabilities : 0;
+    cancelModifierTap();
+    if ((capabilities & 1U) != 0) {
+      for (const auto& keyboard : m_keyboards) {
+        keyboard->prepareInputCapture(!active);
+      }
+      if (active) {
+        notifyKeyboardClearFocus();
+        m_seat->notifyPointerModifiers(true);
+      } else if (!sessionLocked()) {
+        refocus();
+        if (m_eisInput != nullptr) {
+          if (wlr_keyboard* keyboard = wlr_seat_get_keyboard(m_seat->wlr()); keyboard != nullptr) {
+            m_eisInput->updateModifiers(keyboard->modifiers);
+          }
+        }
+      }
+    }
+    if ((capabilities & 2U) != 0 && m_cursor != nullptr) {
+      m_cursor->setInputCaptured(active);
+    }
+  }
+
+  bool Server::physicalInputDevice(const wlr_input_device* device) const {
+    return device != nullptr
+        && (m_eisInput == nullptr || !m_eisInput->ownsDevice(device))
+        && std::ranges::none_of(m_virtualPointers, [device](const auto& pointer) {
+             return &pointer->vpointer->pointer.base == device;
+           });
+  }
+
+  bool Server::keyboardKeyConsumed(wlr_keyboard* keyboard, uint32_t keycode) const {
+    const auto entry =
+        std::ranges::find_if(m_keyboards, [keyboard](const auto& candidate) { return candidate->wlr() == keyboard; });
+    return entry != m_keyboards.end() && (*entry)->consumedKeycodes().contains(keycode);
+  }
+
+  void Server::onSessionActive(wl_listener* listener, void* /*data*/) {
+    Server* self;
+    self = wl_container_of(listener, self, m_sessionActive);
+    if (!self->m_session->active) {
+      if (self->m_inputCapture != nullptr) {
+        self->m_inputCapture->suspend();
+      }
+      if (self->m_pendingCaptureId != 0) {
+        self->dismissConfirmation();
+      }
     }
   }
 
@@ -419,14 +596,6 @@ namespace andromeda {
     return pid > 0 ? pid : -1;
   }
 
-  bool Server::isXwaylandSurface(const wlr_surface* surface) const {
-    if (m_xwayland == nullptr) {
-      return false;
-    }
-    const pid_t pid = surfaceClientPid(surface);
-    return pid > 0 && pid == m_xwayland->pid();
-  }
-
   Server::Server() : m_effects(*this) {
     m_nested = std::getenv("WAYLAND_DISPLAY") != nullptr
         || std::getenv("WAYLAND_SOCKET") != nullptr
@@ -474,14 +643,15 @@ namespace andromeda {
       }
     }
 
-    if (drmFd >= 0 && m_renderer->features.timeline && m_backend->features.timeline) {
+    const bool explicitSync = drmFd >= 0 && m_renderer->features.timeline && m_backend->features.timeline;
+    if (explicitSync) {
       if (wlr_linux_drm_syncobj_manager_v1_create(m_display, 1, drmFd) == nullptr) {
         throw std::runtime_error("failed to create linux-drm-syncobj manager");
       }
       kLog.info("explicit synchronization enabled");
     }
 
-    m_allocator = wlr_allocator_autocreate(m_backend, m_renderer);
+    m_allocator = createAllocator(m_backend, m_renderer);
     if (m_allocator == nullptr) {
       throw std::runtime_error("failed to create wlr_allocator");
     }
@@ -489,8 +659,15 @@ namespace andromeda {
       throw std::runtime_error("renderer or allocator opened an excluded GPU");
     }
 
+    m_cursorEffectSlot.configuredSelector = config().effects.cursor;
+    resolveEffectSlot(m_cursorEffectSlot, EffectKind::Cursor);
     effectRegistry().prepare(m_renderer);
     m_compositor = wlr_compositor_create(m_display, 5, m_renderer);
+    if (explicitSync) {
+      m_syncobjAcquireBarrier = std::make_unique<SyncobjAcquireBarrier>(m_compositor);
+      m_syncobjUnmapRelease = std::make_unique<SyncobjUnmapRelease>(m_compositor);
+      m_syncobjSupersededRelease = std::make_unique<SyncobjSupersededRelease>(m_compositor);
+    }
     wlr_subcompositor_create(m_display);
     wlr_data_device_manager_create(m_display);
     if (wlr_primary_selection_v1_device_manager_create(m_display) == nullptr) {
@@ -540,44 +717,9 @@ namespace andromeda {
       wlr_scene_set_linux_dmabuf_v1(m_scene, linuxDmabuf);
     }
     if (m_renderer->features.input_color_transform) {
-      size_t transferFunctionsLen = 0;
-      wp_color_manager_v1_transfer_function* transferFunctions =
-          wlr_color_manager_v1_transfer_function_list_from_renderer(m_renderer, &transferFunctionsLen);
-      size_t primariesLen = 0;
-      wp_color_manager_v1_primaries* primaries =
-          wlr_color_manager_v1_primaries_list_from_renderer(m_renderer, &primariesLen);
-      constexpr wp_color_manager_v1_render_intent renderIntents[] = {
-          WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL,
-      };
-      const wlr_color_manager_v1_options options = {
-          .features =
-              {
-                  .icc_v2_v4 = false,
-                  .parametric = true,
-                  .set_primaries = false,
-                  .set_tf_power = false,
-                  .set_luminances = false,
-                  .set_mastering_display_primaries = true,
-                  .extended_target_volume = false,
-                  .windows_scrgb = false,
-              },
-          .render_intents = renderIntents,
-          .render_intents_len = std::size(renderIntents),
-          .transfer_functions = transferFunctions,
-          .transfer_functions_len = transferFunctionsLen,
-          .primaries = primaries,
-          .primaries_len = primariesLen,
-      };
-      m_colorManager = wlr_color_manager_v1_create(m_display, 2, &options);
-      std::free(transferFunctions);
-      std::free(primaries);
-      if (m_colorManager == nullptr) {
+      m_colorManager = std::make_unique<ColorManager>(*this);
+      if (!m_colorManager->valid()) {
         throw std::runtime_error("failed to create color-management manager");
-      }
-      wlr_scene_set_color_manager_v1(m_scene, m_colorManager);
-      m_wineColorManager = std::make_unique<WineColorManager>(*this);
-      if (!m_wineColorManager->valid()) {
-        throw std::runtime_error("failed to create Wine color-management manager");
       }
     }
     const Config::Appearance::Blur& blur = config().appearance.blur;
@@ -606,6 +748,7 @@ namespace andromeda {
     m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_TOP] = wlr_scene_tree_create(&m_scene->tree);
     m_fullscreenTree = wlr_scene_tree_create(&m_scene->tree);
     m_pinnedTree = wlr_scene_tree_create(&m_scene->tree);
+    m_xwaylandUnmanagedTree = wlr_scene_tree_create(&m_scene->tree);
     m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&m_scene->tree);
     m_imPopupTree = wlr_scene_tree_create(&m_scene->tree);
     m_cheatsheetTree = wlr_scene_tree_create(&m_scene->tree);
@@ -623,6 +766,8 @@ namespace andromeda {
     m_setGamma.notify = onSetGamma;
     wl_signal_add(&m_gammaManager->events.set_gamma, &m_setGamma);
 
+    // Version 6 adds the suspended state hidden tabs are given. The window-manager capabilities version 5 sends default
+    // to every capability, which is what a client assumed before, so no client sees a change in what it may ask for.
     m_xdgShell = wlr_xdg_shell_create(m_display, 6);
     m_newXdgToplevel.notify = onNewXdgToplevel;
     wl_signal_add(&m_xdgShell->events.new_toplevel, &m_newXdgToplevel);
@@ -636,6 +781,12 @@ namespace andromeda {
     if (wlr_xdg_foreign_v2_create(m_display, foreignRegistry) == nullptr) {
       throw std::runtime_error("failed to create xdg-foreign global");
     }
+    wlr_xdg_wm_dialog_v1* dialogManager = wlr_xdg_wm_dialog_v1_create(m_display, 1);
+    if (dialogManager == nullptr) {
+      throw std::runtime_error("failed to create xdg-dialog global");
+    }
+    m_newXdgDialog.notify = onNewXdgDialog;
+    wl_signal_add(&dialogManager->events.new_dialog, &m_newXdgDialog);
 
     m_xdgToplevelTagManager = wlr_xdg_toplevel_tag_manager_v1_create(m_display, 1);
     if (m_xdgToplevelTagManager == nullptr) {
@@ -644,9 +795,6 @@ namespace andromeda {
     m_setXdgToplevelTag.notify = onSetXdgToplevelTag;
     wl_signal_add(&m_xdgToplevelTagManager->events.set_tag, &m_setXdgToplevelTag);
 
-    if (wlr_xdg_wm_dialog_v1_create(m_display, 1) == nullptr) {
-      throw std::runtime_error("failed to create xdg-dialog global");
-    }
     wlr_xdg_toplevel_icon_manager_v1* iconManager = wlr_xdg_toplevel_icon_manager_v1_create(m_display, 1);
     if (iconManager == nullptr) {
       throw std::runtime_error("failed to create xdg-toplevel-icon manager");
@@ -665,6 +813,8 @@ namespace andromeda {
     wl_signal_add(&m_xdgDecorationManager->events.new_toplevel_decoration, &m_newXdgDecoration);
 
     m_serverDecorationManager = wlr_server_decoration_manager_create(m_display);
+    m_newLegacyDecoration.notify = onNewLegacyDecoration;
+    wl_signal_add(&m_serverDecorationManager->events.new_decoration, &m_newLegacyDecoration);
     wlr_server_decoration_manager_set_default_mode(
         m_serverDecorationManager, WLR_SERVER_DECORATION_MANAGER_MODE_SERVER
     );
@@ -728,7 +878,6 @@ namespace andromeda {
     m_desktopOutputManager = std::make_unique<DesktopOutputManager>(*this);
     m_desktopSettingsManager = std::make_unique<DesktopSettingsManager>(*this);
     m_desktopShell = std::make_unique<DesktopShell>(*this);
-    m_toplevelDragManager = std::make_unique<ToplevelDragManager>(*this);
     m_outputManagerApply.notify = onOutputManagerApply;
     wl_signal_add(&m_outputManager->events.apply, &m_outputManagerApply);
     wlr_output_power_manager_v1* outputPower = wlr_output_power_manager_v1_create(m_display);
@@ -750,7 +899,13 @@ namespace andromeda {
     m_seat = std::make_unique<Seat>(*this);
     m_padKeyboardFocusChange.notify = onPadKeyboardFocusChange;
     wl_signal_add(&m_seat->wlr()->keyboard_state.events.focus_change, &m_padKeyboardFocusChange);
+    m_layerKeyboardFocusChange.notify = onLayerKeyboardFocusChange;
+    wl_signal_add(&m_seat->wlr()->keyboard_state.events.focus_change, &m_layerKeyboardFocusChange);
     m_inputMethodRelay = std::make_unique<InputMethodRelay>(*this);
+    m_keyboardLeds =
+        std::make_unique<KeyboardLeds>(wl_display_get_event_loop(m_display), [this](wlr_keyboard* keyboard) {
+          return m_inputMethodRelay == nullptr || !m_inputMethodRelay->ownsKeyboard(keyboard);
+        });
     m_gestures = std::make_unique<Gestures>(*this);
     m_overview = std::make_unique<Overview>(*this);
     updateSeatCapabilities();
@@ -763,9 +918,77 @@ namespace andromeda {
     wlr_log(WLR_INFO, "mod key: %s (%s session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
     kLog.info("mod key: {} ({} session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
   }
+  namespace {
+    // wlroots never announces ext-image-copy-capture cursor sessions and their struct is private, so the only
+    // public trace of "this client asked for cursor metadata for this source" is the update listener the session
+    // attaches to that source's cursor. Probing it per source keeps a cursor session bound to output A from
+    // pacing the same client's pixel-only capture of output B. The seat is only what the interface takes; the
+    // output source ignores it.
+    constexpr std::string_view kSourceInterface = "ext_image_capture_source_v1";
+
+    struct CursorSessionProbe {
+      const wlr_output* output = nullptr;
+      wlr_seat* seat = nullptr;
+      bool found = false;
+    };
+
+    wl_iterator_result probeCursorSession(wl_resource* resource, void* data) {
+      auto* probe = static_cast<CursorSessionProbe*>(data);
+      const char* klass = wl_resource_get_class(resource);
+      if (klass == nullptr || std::string_view(klass) != kSourceInterface) {
+        return WL_ITERATOR_CONTINUE;
+      }
+      wlr_ext_image_capture_source_v1* source = wlr_ext_image_capture_source_v1_from_resource(resource);
+      if (source == nullptr || wlr_output_try_from_ext_image_capture_source_v1(source) != probe->output) {
+        return WL_ITERATOR_CONTINUE;
+      }
+      // Only a live cursor session for exactly this source has a listener here; its destroy path removes it.
+      const wlr_ext_image_capture_source_v1_cursor* cursor = source->impl->get_pointer_cursor(source, probe->seat);
+      if (cursor != nullptr && !wl_list_empty(&cursor->events.update.listener_list)) {
+        probe->found = true;
+        return WL_ITERATOR_STOP;
+      }
+      return WL_ITERATOR_CONTINUE;
+    }
+  } // namespace
+
+  bool Server::hasCopyCaptureFor(const wlr_output* output) const {
+    if (output == nullptr) {
+      return false;
+    }
+    for (const auto& watch : m_imageCopySessions) {
+      if (watch->session == nullptr || watch->output != output) {
+        continue;
+      }
+      wl_client* client = wl_resource_get_client(watch->session->resource);
+      if (client == nullptr) {
+        continue;
+      }
+      CursorSessionProbe probe{.output = output, .seat = m_seat != nullptr ? m_seat->wlr() : nullptr};
+      wl_client_for_each_resource(client, probeCursorSession, &probe);
+      if (probe.found) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   Server::~Server() {
     m_stopping = true;
+    m_inputCapture.reset();
+    if (m_sessionActive.link.next != nullptr) {
+      wl_list_remove(&m_sessionActive.link);
+    }
+    m_keyboardLeds.reset();
+    if (m_cursor != nullptr) {
+      m_cursor->finishToplevelDrag(false);
+    }
+    if (m_sessionExitResultSource != nullptr) {
+      wl_event_source_remove(m_sessionExitResultSource);
+    }
+    if (m_sessionExitResultFd >= 0) {
+      close(m_sessionExitResultFd);
+    }
     if (m_lidStateReconcileIdle != nullptr) {
       wl_event_source_remove(m_lidStateReconcileIdle);
       m_lidStateReconcileIdle = nullptr;
@@ -773,6 +996,10 @@ namespace andromeda {
     if (m_rendererRecoveryIdle != nullptr) {
       wl_event_source_remove(m_rendererRecoveryIdle);
       m_rendererRecoveryIdle = nullptr;
+    }
+    if (m_suspensionSyncIdle != nullptr) {
+      wl_event_source_remove(m_suspensionSyncIdle);
+      m_suspensionSyncIdle = nullptr;
     }
     if (m_protocolLogger != nullptr) {
       wl_protocol_logger_destroy(m_protocolLogger);
@@ -785,8 +1012,10 @@ namespace andromeda {
     wl_list_remove(&m_setXdgToplevelTag.link);
     wl_list_remove(&m_setXdgToplevelIcon.link);
     wl_list_remove(&m_systemBellRing.link);
+    wl_list_remove(&m_newXdgDialog.link);
     wl_list_remove(&m_newXdgPopup.link);
     wl_list_remove(&m_newXdgDecoration.link);
+    wl_list_remove(&m_newLegacyDecoration.link);
     wl_list_remove(&m_newLayerSurface.link);
     wl_list_remove(&m_newSessionLock.link);
     wl_list_remove(&m_newPointerConstraint.link);
@@ -795,6 +1024,15 @@ namespace andromeda {
     wl_list_remove(&m_newIdleInhibitor.link);
     wl_list_remove(&m_newShortcutsInhibitor.link);
     wl_list_remove(&m_newImageCopySession.link);
+    // The manager listener is gone, so no new track can appear. Unlink each
+    // session's destroy listener before freeing its track: otherwise a session
+    // that outlives this point in teardown still holds a wl_listener pointing
+    // into memory we're about to free, and its destroy signal firing later is a
+    // use-after-free.
+    for (const auto& track : m_imageCopySessions) {
+      wl_list_remove(&track->destroy.link);
+    }
+    m_imageCopySessions.clear();
     wl_list_remove(&m_newActivationToken.link);
     wl_list_remove(&m_requestActivate.link);
     wl_list_remove(&m_workspaceCommit.link);
@@ -806,6 +1044,7 @@ namespace andromeda {
     wl_list_remove(&m_rendererLost.link);
     wl_list_remove(&m_toplevelCaptureRequest.link);
     wl_list_remove(&m_padKeyboardFocusChange.link);
+    wl_list_remove(&m_layerKeyboardFocusChange.link);
     m_configWatcher.reset();
     m_ipc.reset();
     m_insertHint.reset();
@@ -818,10 +1057,40 @@ namespace andromeda {
     m_sessionLock.reset();
     m_layerSurfaces.clear();
     m_registry.clear();
+    // After the views, which hold listeners on X11 surfaces, and before the seat, which unmanaged X11 windows release
+    // keyboard focus through. The Xwayland client itself goes with the other Wayland clients below.
+    m_xwayland.reset();
+    m_eisInput.reset();
     m_keyboards.clear();
     for (const auto& output : m_outputs) {
       output->dropMirrorSource();
     }
+    m_manualShortcutsInhibit.clear();
+    // The backend destroys physical input devices below, after the seat and cursor; detach their watchers first.
+    for (const auto& pointer : m_pointers) {
+      wl_list_remove(&pointer->destroy.link);
+    }
+    m_pointers.clear();
+    for (const auto& touch : m_touchDevices) {
+      wl_list_remove(&touch->destroy.link);
+    }
+    m_touchDevices.clear();
+    for (const auto& pad : m_tabletPads) {
+      wl_list_remove(&pad->destroy.link);
+      wl_list_remove(&pad->button.link);
+      wl_list_remove(&pad->ring.link);
+      wl_list_remove(&pad->strip.link);
+    }
+    m_tabletPads.clear();
+    for (const auto& tablet : m_tabletDevices) {
+      wl_list_remove(&tablet->destroy.link);
+    }
+    m_tabletDevices.clear();
+    for (const auto& entry : m_switchDevices) {
+      wl_list_remove(&entry->destroy.link);
+      wl_list_remove(&entry->toggle.link);
+    }
+    m_switchDevices.clear();
     m_outputs.clear();
     m_inputMethodRelay.reset();
     m_seat.reset();
@@ -830,11 +1099,13 @@ namespace andromeda {
     m_gestures.reset();
     m_cursor.reset();
 
-    // Tear down xwayland-satellite before destroying Wayland clients.
-    m_xwayland.reset();
     if (m_backgroundFrameTimer != nullptr) {
       wl_event_source_remove(m_backgroundFrameTimer);
       m_backgroundFrameTimer = nullptr;
+    }
+    if (m_backgroundRenderTimer != nullptr) {
+      wl_event_source_remove(m_backgroundRenderTimer);
+      m_backgroundRenderTimer = nullptr;
     }
     if (m_startupRulesTimer != nullptr) {
       wl_event_source_remove(m_startupRulesTimer);
@@ -853,8 +1124,10 @@ namespace andromeda {
     wl_display_destroy_clients(m_display);
     m_fifoManager.reset();
     m_commitTimingManager.reset();
-    m_toplevelDragManager.reset();
-    m_wineColorManager.reset();
+    m_colorManager.reset();
+    m_syncobjAcquireBarrier.reset();
+    m_syncobjUnmapRelease.reset();
+    m_syncobjSupersededRelease.reset();
     // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise
     // the destructor body frees the nodes and the member destructors touch already-freed memory.
     m_quitConfirm.reset();
@@ -872,11 +1145,8 @@ namespace andromeda {
   }
 
   const wlr_image_description_v1_data* Server::surfaceImageDescription(wlr_surface* surface) const {
-    if (const wlr_image_description_v1_data* description = wlr_surface_get_image_description_v1_data(surface)) {
-      return description;
-    }
-    if (m_wineColorManager != nullptr) {
-      if (const wlr_image_description_v1_data* description = m_wineColorManager->surfaceDescription(surface)) {
+    if (m_colorManager != nullptr) {
+      if (const wlr_image_description_v1_data* description = m_colorManager->surfaceDescription(surface)) {
         return description;
       }
     }
@@ -900,10 +1170,8 @@ namespace andromeda {
           if (description == nullptr) {
             return;
           }
-          const bool pqBt2020 = description->tf_named == WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ
-              && description->primaries_named == WP_COLOR_MANAGER_V1_PRIMARIES_BT2020;
-          const WineColorManager* wine = context->server->wineColorManager();
-          if (pqBt2020 || (wine != nullptr && wine->surfaceRequiresHdrOutput(candidate))) {
+          const ColorManager* colorManager = context->server->colorManager();
+          if (colorManager != nullptr && colorManager->surfaceRequiresHdrOutput(candidate)) {
             context->description = description;
           }
         },
@@ -913,8 +1181,8 @@ namespace andromeda {
   }
 
   void Server::updateColorPreferences() {
-    if (m_wineColorManager != nullptr) {
-      m_wineColorManager->updatePreferredDescriptions();
+    if (m_colorManager != nullptr) {
+      m_colorManager->updatePreferredDescriptions();
     }
   }
 
@@ -926,11 +1194,27 @@ namespace andromeda {
     }
     m_socketName = socket;
 
+    refreshSystemKeymap();
     if (!wlr_backend_start(m_backend)) {
       wlr_log(WLR_ERROR, "failed to start backend");
       return false;
     }
     m_backendManager->markStarted();
+
+    // Move the mouse cursor to the first output with "focus_at_startup" enabled, if any.
+    for (const auto& output : m_outputs) {
+      const OutputRule* rule = findOutputRule(config(), output->identity());
+      if (rule == nullptr || !rule->focusAtStartup || !output->desktopEnabled()) {
+        continue;
+      }
+      wlr_box box{};
+      wlr_output_layout_get_box(m_outputLayout, output->wlr(), &box);
+      if (box.width <= 0 || box.height <= 0) {
+        continue;
+      }
+      m_cursor->warpToPreservingFocus(box.x + box.width / 2.0, box.y + box.height / 2.0);
+      break;
+    }
 
     // These are delivered through the event loop, not a signal handler, so the shutdown path is ordinary code. Note the
     // side effect: wl_event_loop_add_signal blocks the signal process-wide, and a blocked mask survives fork and exec,
@@ -939,9 +1223,16 @@ namespace andromeda {
     m_signalSources[0] = wl_event_loop_add_signal(loop, SIGINT, onTerminateSignal, this);
     m_signalSources[1] = wl_event_loop_add_signal(loop, SIGTERM, onTerminateSignal, this);
     m_applicationScopesRequired = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
+    const char* inheritedNotifySocket = std::getenv("NOTIFY_SOCKET");
+    const std::string notifySocket =
+        m_applicationScopesRequired && inheritedNotifySocket != nullptr ? inheritedNotifySocket : "";
+    unsetenv("NOTIFY_SOCKET");
     if (m_applicationScopesRequired) {
       m_systemdRunExecutable = resolveExecutable("systemd-run");
+      m_systemctlExecutable = resolveExecutable("systemctl");
+      m_systemdControlEnvironment = captureSystemdControlEnvironment();
       const std::string ownerUnit = currentSystemdUnit();
+      m_sessionShutdownAvailable = ownerUnit == "andromeda.service" && !m_systemctlExecutable.empty();
       if (m_systemdRunExecutable.empty()) {
         kLog.warn("application scope isolation unavailable: systemd-run was not found on PATH");
       } else if (ownerUnit.empty()) {
@@ -949,7 +1240,7 @@ namespace andromeda {
       } else {
         m_applicationScopePartOfProperty = "--property=PartOf=andromeda-session.target";
         m_applicationScopeBindsToProperty = "--property=BindsTo=" + ownerUnit;
-        m_systemdControlEnvironment = captureSystemdControlEnvironment();
+        m_applicationScopeAfterProperty = "--property=After=" + ownerUnit;
         m_applicationScopeEnvironmentArguments = applicationScopeEnvironmentArguments(config().environment.variables);
         kLog.info("application processes will use transient scopes under app.slice");
       }
@@ -961,9 +1252,15 @@ namespace andromeda {
     unsetenv("WAYLAND_SOCKET");
     kLog.info("running on WAYLAND_DISPLAY={}", m_socketName);
 
-    // Armed by updateBackgroundFrameTimer (see kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer).
+    // See kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer.
     m_backgroundFrameTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
+    if (m_backgroundFrameTimer != nullptr) {
+      wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
+    }
+    // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
+    m_backgroundRenderTimer =
+        wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);
     setenv(
         "ANDROMEDA_SOCKET",
         (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda-" + m_socketName + ".sock").c_str(), true
@@ -973,8 +1270,8 @@ namespace andromeda {
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
 
-    // Export cursor settings so X11 clients (via xwayland-satellite) and
-    // toolkit clients pick up the compositor's configured cursor.
+    // Export cursor settings so X11 clients and toolkit clients pick up the
+    // compositor's configured cursor.
     const auto& cursorCfg = config().input.cursor;
     const std::string cursorSize = std::to_string(cursorCfg.size);
     setenv("XCURSOR_SIZE", cursorSize.c_str(), 1);
@@ -982,20 +1279,52 @@ namespace andromeda {
       setenv("XCURSOR_THEME", cursorCfg.theme.c_str(), 1);
     }
 
-    // Start xwayland-satellite before session services and autostart so X11
-    // applications can connect. The supervisor applies configured values in
-    // the child while this process retains its session-control environment.
-    if (config().general.xwayland) {
-      m_xwayland = std::make_unique<XwaylandSupervisor>(wl_display_get_event_loop(m_display), m_socketName);
-      m_xwayland->start();
+    m_inputCapture = std::make_unique<InputCapture>(*this);
+    m_inputCapture->setAuthorize([this](uint64_t id, std::string_view name, uint32_t persistMode) {
+      requestInputCapture(id, name, persistMode);
+    });
+    m_inputCapture->setAuthorizationCancelled([this](uint64_t id) { cancelInputCapture(id); });
+    m_inputCapture->setActiveChanged([this](bool active) { inputCaptureStateChanged(active); });
+    for (const auto& keyboard : m_keyboards) {
+      if (!keyboard->virtualDevice()) {
+        m_inputCapture->addKeyboard(keyboard->wlr());
+      }
+    }
+    if (m_session != nullptr) {
+      m_sessionActive.notify = onSessionActive;
+      wl_signal_add(&m_session->events.active, &m_sessionActive);
     }
 
-    // Fork session synchronization before applying configured values locally.
-    // Its child keeps the inherited PATH and bus addresses, while the target
-    // receives the explicit configured assignments before it starts.
+    // Create the Xwayland server before session services and autostart so X11
+    // applications can connect. It starts lazily: the X display socket exists
+    // now, and Xwayland itself spawns when the first X client connects.
+    if (config().general.xwayland) {
+      m_eisInput = std::make_unique<EisInput>(*this);
+      m_eisInput->setAuthenticate([this](pid_t peer) {
+        return m_xwayland != nullptr && m_xwayland->authenticateInputPeer(peer);
+      });
+      m_eisInput->setAuthorize([this](uint64_t id, std::string_view name) { requestInputEmulation(id, name); });
+      m_eisInput->setAuthorizationCancelled([this](uint64_t id) { cancelInputEmulation(id); });
+      m_xwayland = std::make_unique<Xwayland>(*this);
+      if (m_xwayland->available() && m_xwayland->setInputSocket(m_eisInput->socketFd())) {
+        setenv("DISPLAY", m_xwayland->displayName(), 1);
+      } else {
+        m_xwayland.reset();
+        m_eisInput.reset();
+      }
+    }
+
+    // Wait before applying configured values locally, so the importer keeps
+    // the inherited PATH and bus addresses. Readiness and autostart must not
+    // release session services until these imports have completed.
     if (!m_nested) {
-      const std::string command = sessionEnvironmentCommand();
-      spawnCommand(command.c_str(), "session environment synchronization", false, SpawnClass::SessionHelper);
+      const std::string command = sessionEnvironmentCommand(!notifySocket.empty());
+      if (!runShellCommand(command)) {
+        kLog.error("session environment synchronization failed: {}", std::strerror(errno));
+        if (!notifySocket.empty()) {
+          return false;
+        }
+      }
     }
     applyConfiguredEnvironment();
 
@@ -1008,17 +1337,13 @@ namespace andromeda {
     m_startTime = std::chrono::steady_clock::now();
     m_startupRulesTimer = wl_event_loop_add_timer(loop, onStartupRulesTimer, this);
     if (m_startupRulesTimer != nullptr) {
-      wl_event_source_timer_update(m_startupRulesTimer, kStartupWindowRuleDurationMs);
+      wl_event_source_timer_update(m_startupRulesTimer, kStartupRuleDurationMs);
     }
 
-    if (startupCmd != nullptr) {
-      spawn(startupCmd);
-    }
-    for (const std::string& command : config().general.autostart) {
-      spawn(command.c_str());
-    }
-    m_configWatcher =
-        std::make_unique<ConfigWatcher>(wl_display_get_event_loop(m_display), [this] { handleConfigReload(); });
+    m_configWatcher = std::make_unique<ConfigWatcher>(wl_display_get_event_loop(m_display), [this] {
+      const ConfigReloadResult result = reloadConfig();
+      handleConfigReload(result);
+    });
     m_configBanner = std::make_unique<ConfigBanner>(*this, m_bannerTree);
     m_fpsOverlay = std::make_unique<FpsOverlay>(*this, m_bannerTree);
     m_configWatcher->watch(configWatchPaths());
@@ -1028,16 +1353,26 @@ namespace andromeda {
       m_cheatsheet->showOnStartup();
     }
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
+    if (!notifyServiceReady(notifySocket)) {
+      kLog.error("failed to report session readiness: {}", std::strerror(errno));
+      return false;
+    }
+    if (startupCmd != nullptr) {
+      spawn(startupCmd);
+    }
+    for (const std::string& command : config().general.autostart) {
+      spawn(command.c_str());
+    }
     return true;
   }
 
   void Server::showConfigDiagnostics() {
     std::vector<ConfigDiagnostic> diagnostics = configDiagnostics();
-    if (m_xwayland != nullptr && !m_xwayland->executableAvailable()) {
+    if (config().general.xwayland && m_xwayland == nullptr) {
       ConfigDiagnostic diagnostic;
       diagnostic.severity = ConfigDiagnostic::Severity::Warning;
       diagnostic.message =
-          "general.xwayland is enabled, but xwayland-satellite was not found on PATH; X11 applications will not work";
+          "general.xwayland is enabled, but the Xwayland server could not be created; X11 applications will not work";
       diagnostics.push_back(std::move(diagnostic));
     }
     m_configBanner->show(diagnostics);
@@ -1083,6 +1418,76 @@ namespace andromeda {
   void Server::stop() {
     m_stopping = true;
     wl_display_terminate(m_display);
+  }
+
+  void Server::requestSessionExit() {
+    if (m_stopping || m_sessionExitRequested) {
+      return;
+    }
+    if (!m_sessionShutdownAvailable) {
+      stop();
+      return;
+    }
+    m_sessionExitRequested = true;
+    int resultPipe[2]{-1, -1};
+    if (pipe2(resultPipe, O_CLOEXEC | O_NONBLOCK) != 0) {
+      kLog.error("cannot create session shutdown pipe: {}", std::strerror(errno));
+      stop();
+      return;
+    }
+    m_sessionExitResultSource = wl_event_loop_add_fd(
+        wl_display_get_event_loop(m_display), resultPipe[0], WL_EVENT_READABLE,
+        [](int fd, uint32_t mask, void* data) {
+          auto* server = static_cast<Server*>(data);
+          char result = 0;
+          ssize_t size = 0;
+          do {
+            size = read(fd, &result, sizeof(result));
+          } while (size < 0 && errno == EINTR);
+          if (size < 0 && errno == EAGAIN && (mask & (WL_EVENT_HANGUP | WL_EVENT_ERROR)) == 0) {
+            return 0;
+          }
+          wl_event_source_remove(server->m_sessionExitResultSource);
+          server->m_sessionExitResultSource = nullptr;
+          close(fd);
+          server->m_sessionExitResultFd = -1;
+          if (size != 1 || result != 'x') {
+            kLog.error("session shutdown request failed; stopping the compositor directly");
+            server->stop();
+          }
+          return 0;
+        },
+        this
+    );
+    if (m_sessionExitResultSource == nullptr) {
+      close(resultPipe[0]);
+      close(resultPipe[1]);
+      kLog.error("cannot monitor the session shutdown request");
+      stop();
+      return;
+    }
+    m_sessionExitResultFd = resultPipe[0];
+    const std::string command = shellQuote(m_systemctlExecutable)
+        + " --user start --job-mode=replace-irreversibly --no-block andromeda-shutdown.target 1>&2 && printf x";
+    const pid_t pid = fork();
+    if (pid == 0) {
+      resetChildSignalState();
+      restoreFileDescriptorLimit();
+      close(resultPipe[0]);
+      if (dup2(resultPipe[1], STDOUT_FILENO) < 0
+          || fcntl(STDOUT_FILENO, F_SETFD, 0) < 0
+          || !closeChildFileDescriptors()
+          || !restoreSystemdControlEnvironment(m_systemdControlEnvironment)) {
+        _exit(1);
+      }
+      execl("/bin/sh", "/bin/sh", "-c", command.c_str(), nullptr);
+      _exit(1);
+    }
+    if (pid < 0) {
+      kLog.error("cannot fork the session shutdown request: {}", std::strerror(errno));
+      stop();
+    }
+    close(resultPipe[1]);
   }
 
   uint32_t Server::modKey() const {
@@ -1153,21 +1558,17 @@ namespace andromeda {
   }
 
   void Server::spawn(const char* command, const char* description, bool withActivationToken) {
-    spawnCommand(command, description, withActivationToken, SpawnClass::Application);
-  }
-
-  void
-  Server::spawnCommand(const char* command, const char* description, bool withActivationToken, SpawnClass spawnClass) {
     if (m_socketName.empty()) {
       wlr_log(WLR_ERROR, "cannot spawn before the Wayland socket exists");
       return;
     }
 
-    const bool scopeRequired = spawnClass == SpawnClass::Application && m_applicationScopesRequired;
+    const bool scopeRequired = m_applicationScopesRequired;
     if (scopeRequired
         && (m_systemdRunExecutable.empty()
             || m_applicationScopePartOfProperty.empty()
-            || m_applicationScopeBindsToProperty.empty())) {
+            || m_applicationScopeBindsToProperty.empty()
+            || m_applicationScopeAfterProperty.empty())) {
       kLog.error("cannot launch application because systemd scope isolation is unavailable");
       return;
     }
@@ -1206,8 +1607,9 @@ namespace andromeda {
       }
       setenv("WAYLAND_DISPLAY", m_socketName.c_str(), 1);
       unsetenv("WAYLAND_SOCKET");
-      if (m_xwayland != nullptr && !m_xwayland->display().empty()) {
-        setenv("DISPLAY", m_xwayland->display().c_str(), 1);
+      unsetenv("LIBEI_SOCKET");
+      if (m_xwayland != nullptr) {
+        setenv("DISPLAY", m_xwayland->displayName(), 1);
       } else {
         // Avoid X11/XWayland fallback into the parent session.
         unsetenv("DISPLAY");
@@ -1215,14 +1617,17 @@ namespace andromeda {
       if (!launchTokenName.empty()) {
         setenv("XDG_ACTIVATION_TOKEN", launchTokenName.c_str(), 1);
         setenv("DESKTOP_STARTUP_ID", launchTokenName.c_str(), 1);
+        setenv(kLaunchTokenEnvironment.data(), launchTokenName.c_str(), 1);
       } else {
         unsetenv("XDG_ACTIVATION_TOKEN");
         unsetenv("DESKTOP_STARTUP_ID");
+        unsetenv(kLaunchTokenEnvironment.data());
       }
       if (scopeRequired) {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
-            m_applicationScopeBindsToProperty.c_str(), m_applicationScopeEnvironmentArguments, command
+            m_applicationScopeBindsToProperty.c_str(), m_applicationScopeAfterProperty.c_str(),
+            m_applicationScopeEnvironmentArguments, command
         );
       }
       execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
@@ -1262,12 +1667,20 @@ namespace andromeda {
   Server::CloseSnapshot::CloseSnapshot(
       Server& server, CloseSnapshotId id, Output* output, wlr_scene_tree* tree, wlr_scene_tree* content,
       std::vector<BorderSnapshot> borders, const wlr_box& box, int durationMs, const AnimationCurve& curve,
-      std::string_view style, double scale, AnimationEvent event, ShadowSnapshot shadow
+      std::string_view style, double scale, AnimationEvent event, ShadowSnapshot shadow, int topExtension
   )
       : m_server(&server), m_id(id), m_tree(tree), m_content(content != nullptr ? content : tree), m_output(output),
         m_captured(box), m_canvasX(tree->node.x), m_canvasY(tree->node.y), m_borders(std::move(borders)),
         m_shadow(shadow) {
+    m_topExtension = topExtension;
     m_event = event;
+    m_blurBackground =
+        output != nullptr && tree->node.parent == output->layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND);
+    const fx_effect_requirements requirements = wlr_scene_node_effect_requirements(&tree->node);
+    m_retainedPersistent = requirements.persistent;
+    m_retainedInPlace = requirements.in_place;
+    m_retainedLight = requirements.light;
+    server.effects().retainRequirements(requirements);
     if (m_shadow.node != nullptr) {
       m_shadowWidth = m_shadow.node->width;
       m_shadowHeight = m_shadow.node->height;
@@ -1279,12 +1692,10 @@ namespace andromeda {
     }
     struct CaptureCtx {
       std::vector<Buffer>* buffers;
-      int originX;
-      int originY;
-    } ctx{&m_buffers, m_content != nullptr ? m_content->node.x : 0, m_content != nullptr ? m_content->node.y : 0};
+    } ctx{&m_buffers};
     wlr_scene_node_for_each_buffer(
-        &m_content->node,
-        [](wlr_scene_buffer* buffer, int sx, int sy, void* data) {
+        &m_tree->node,
+        [](wlr_scene_buffer* buffer, int, int, void* data) {
           auto& ctx = *static_cast<CaptureCtx*>(data);
           int width = buffer->dst_width;
           int height = buffer->dst_height;
@@ -1295,14 +1706,39 @@ namespace andromeda {
           ctx.buffers->push_back({
               .node = buffer,
               .baseOpacity = buffer->opacity,
-              .x = sx - ctx.originX,
-              .y = sy - ctx.originY,
+              .x = buffer->node.x,
+              .y = buffer->node.y,
               .width = width,
               .height = height,
           });
         },
         &ctx
     );
+    const auto captureNodes = [&](auto&& visit, wlr_scene_tree* tree) -> void {
+      wlr_scene_node* node;
+      wl_list_for_each(node, &tree->children, link) {
+        if (node->type == WLR_SCENE_NODE_TREE) {
+          visit(visit, wlr_scene_tree_from_node(node));
+        } else if (node->type == WLR_SCENE_NODE_RECT) {
+          auto* rect = wlr_scene_rect_from_node(node);
+          m_rects.push_back(
+              {rect,
+               {rect->color[0], rect->color[1], rect->color[2], rect->color[3]},
+               {node->x, node->y, rect->width, rect->height},
+               rect->corners.top_left}
+          );
+        } else if (node->type == WLR_SCENE_NODE_BLUR) {
+          auto* blur = wlr_scene_blur_from_node(node);
+          m_blurs.push_back({
+              blur,
+              blur->alpha,
+              {node->x, node->y, blur->width, blur->height},
+              {blur->corners.top_left, blur->corners.top_right, blur->corners.bottom_right, blur->corners.bottom_left},
+          });
+        }
+      }
+    };
+    captureNodes(captureNodes, m_tree);
     m_alpha.snap(1.0);
     m_alpha.retarget(0.0, durationMs, curve);
 
@@ -1328,6 +1764,14 @@ namespace andromeda {
     if (m_tree != nullptr) {
       wlr_scene_node_destroy(&m_tree->node);
     }
+    if (m_blurBackground && m_output != nullptr) {
+      m_output->markBlurBackgroundDirty();
+    }
+    if (m_server != nullptr) {
+      m_server->effects().releaseRequirements(
+          {.persistent = m_retainedPersistent, .in_place = m_retainedInPlace, .light = m_retainedLight}
+      );
+    }
   }
 
   void Server::CloseSnapshot::applyShrink(int width, int height) {
@@ -1342,9 +1786,13 @@ namespace andromeda {
     const int outerWidth = static_cast<int>(std::lround(captured.outerWidth * ringScale));
     const int radius = static_cast<int>(std::lround(captured.cornerRadius * ringScale));
     const int padding = static_cast<int>(std::lround(captured.padding * ringScale));
-    const BorderRing ring = makeBorderRing(width, height, radius, innerWidth, outerWidth, padding);
+    const int top = m_captured.height > 0
+        ? static_cast<int>(std::lround(static_cast<double>(m_topExtension) * height / m_captured.height))
+        : 0;
+    BorderRing ring = makeBorderRing(width, height + top, radius, innerWidth, outerWidth, padding);
+    ring.box.y -= top;
     const bool ringVisible = innerWidth + outerWidth > 0;
-    wlr_box treeClip = m_borders.empty() || !ringVisible ? wlr_box{0, 0, width, height} : ring.box;
+    wlr_box treeClip = m_borders.empty() || !ringVisible ? wlr_box{0, -top, width, height + top} : ring.box;
     // A frozen drag deformation draws past the box by its slot's expand.
     const int expand = wlr_scene_node_animation_expand(&m_tree->node);
     treeClip = {treeClip.x - expand, treeClip.y - expand, treeClip.width + 2 * expand, treeClip.height + 2 * expand};
@@ -1364,6 +1812,33 @@ namespace andromeda {
             buffer.node, std::max(1, static_cast<int>(std::lround(buffer.width * scaleX))),
             std::max(1, static_cast<int>(std::lround(buffer.height * scaleY)))
         );
+      }
+      for (const Rect& rect : m_rects) {
+        wlr_scene_node_set_position(
+            &rect.node->node, static_cast<int>(std::lround(rect.box.x * scaleX)),
+            static_cast<int>(std::lround(rect.box.y * scaleY))
+        );
+        wlr_scene_rect_set_size(
+            rect.node, std::max(1, static_cast<int>(std::lround(rect.box.width * scaleX))),
+            std::max(1, static_cast<int>(std::lround(rect.box.height * scaleY)))
+        );
+        const int r = static_cast<int>(std::lround(rect.radius * std::min(scaleX, scaleY)));
+        const bool background = rect.box.y == -m_topExtension && rect.box.width == m_captured.width;
+        wlr_scene_rect_set_corner_radii(rect.node, background ? corner_radii_new(r, r, 0, 0) : corner_radii_all(r));
+      }
+      for (const Blur& blur : m_blurs) {
+        wlr_scene_node_set_position(
+            &blur.node->node, static_cast<int>(std::lround(blur.box.x * scaleX)),
+            static_cast<int>(std::lround(blur.box.y * scaleY))
+        );
+        wlr_scene_blur_set_size(
+            blur.node, std::max(1, static_cast<int>(std::lround(blur.box.width * scaleX))),
+            std::max(1, static_cast<int>(std::lround(blur.box.height * scaleY)))
+        );
+        const auto radius = [&](size_t corner) {
+          return static_cast<int>(std::lround(blur.radii[corner] * std::min(scaleX, scaleY)));
+        };
+        wlr_scene_blur_set_corner_radii(blur.node, corner_radii_new(radius(0), radius(1), radius(2), radius(3)));
       }
       if (m_content != m_tree) {
         const wlr_box contentClip{0, 0, width, height};
@@ -1437,7 +1912,7 @@ namespace andromeda {
     applyPresentation();
   }
 
-  bool Server::CloseSnapshot::tickAnimations(uint64_t nowMsec) {
+  bool Server::CloseSnapshot::tickAnimations(double nowMsec) {
     const bool movedAlpha = m_alpha.tick(nowMsec);
     const bool movedSlide = m_slide.tick(nowMsec);
     bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
@@ -1455,6 +1930,14 @@ namespace andromeda {
     for (const Buffer& buffer : m_buffers) {
       wlr_scene_buffer_set_opacity(buffer.node, std::clamp(buffer.baseOpacity * alpha, 0.0F, 1.0F));
     }
+    for (const Rect& rect : m_rects) {
+      auto color = rect.color;
+      for (float& channel : color)
+        channel *= alpha;
+      wlr_scene_rect_set_color(rect.node, color.data());
+    }
+    for (const Blur& blur : m_blurs)
+      wlr_scene_blur_set_alpha(blur.node, blur.baseAlpha * alpha);
     for (auto& border : m_borders) {
       float innerColor[4];
       float outerColor[4];
@@ -1470,6 +1953,9 @@ namespace andromeda {
     }
 
     applyPresentation();
+    if (m_blurBackground && m_output != nullptr) {
+      m_output->markBlurBackgroundDirty();
+    }
     return m_alpha.animating() || m_slide.animating();
   }
 
@@ -1488,9 +1974,11 @@ namespace andromeda {
 
   void Server::unregisterAnimatable(Animatable* animatable) { std::erase(m_animatables, animatable); }
 
-  bool Server::tickAnimations(uint64_t nowMsec) {
+  bool Server::tickAnimations(double nowMsec) {
     ANDROMEDA_ZONE("Server::tickAnimations");
-    if (nowMsec == m_lastAnimTickMsec) {
+    // Outputs tick at their own vblank instants, which interleave. Animation state is shared, so an earlier instant
+    // than the last tick never moves it backwards.
+    if (nowMsec <= m_lastAnimTickMsec) {
       return animationsActive();
     }
     m_lastAnimTickMsec = nowMsec;
@@ -1517,12 +2005,6 @@ namespace andromeda {
     return active;
   }
 
-  void Server::flushPendingViewOpacities() {
-    for (const auto& view : m_registry.all()) {
-      view->flushPendingEffectiveOpacity();
-    }
-  }
-
   bool Server::animationsActive() const {
     return std::ranges::any_of(m_animatables, [](const Animatable* owner) { return owner->hasActiveAnimations(); });
   }
@@ -1545,13 +2027,17 @@ namespace andromeda {
   } // namespace
 
   uint64_t Server::animationClockMsec() const {
+    return static_cast<uint64_t>(animationFrameClockMsec(static_cast<double>(monotonicClockMsec())));
+  }
+
+  double Server::animationFrameClockMsec(double monotonicMsec) const {
 #ifdef ANDROMEDA_TEST_IPC
     if (m_frozenAnimationClockMsec) {
-      return *m_frozenAnimationClockMsec;
+      return static_cast<double>(*m_frozenAnimationClockMsec);
     }
-    return static_cast<uint64_t>(static_cast<int64_t>(monotonicClockMsec()) + m_animationClockOffsetMsec);
+    return monotonicMsec + static_cast<double>(m_animationClockOffsetMsec);
 #else
-    return monotonicClockMsec();
+    return monotonicMsec;
 #endif
   }
 
@@ -1581,7 +2067,7 @@ namespace andromeda {
       }
     }
     m_lastAnimTickMsec = 0;
-    tickAnimations(*m_frozenAnimationClockMsec);
+    tickAnimations(static_cast<double>(*m_frozenAnimationClockMsec));
     *m_frozenAnimationClockMsec += ms;
     for (const auto& output : m_outputs) {
       wlr_output_schedule_frame(output->wlr());
@@ -1601,6 +2087,42 @@ namespace andromeda {
   }
 
   void Server::emitRendererLostForTest() { wl_signal_emit_mutable(&m_renderer->events.lost, nullptr); }
+
+  bool Server::injectPlaneCursor(std::string_view spec, std::string* error) {
+    std::istringstream stream{std::string(spec)};
+    std::string name;
+    double x = 0.0;
+    double y = 0.0;
+    int visible = 0;
+    std::uint64_t image = 0;
+    // Geometry and hotspot default to the 24x24 hotspot-0 cursor, so existing checks keep working unchanged.
+    int width = 24;
+    int height = 24;
+    int hotspotX = 0;
+    int hotspotY = 0;
+    if (!(stream >> name >> x >> y >> visible >> image)) {
+      *error = "plane-cursor needs '<output> <x> <y> <visible> <image> [width height hotspot_x hotspot_y]'";
+      return false;
+    }
+    if (!(stream >> width >> height >> hotspotX >> hotspotY)) {
+      width = 24;
+      height = 24;
+      hotspotX = 0;
+      hotspotY = 0;
+    }
+    for (const auto& output : m_outputs) {
+      if (name != output->wlr()->name) {
+        continue;
+      }
+      output->setSyntheticPlaneCursorForTest(
+          x, y, visible != 0, static_cast<std::uintptr_t>(image), width, height, hotspotX, hotspotY
+      );
+      wl_signal_emit_mutable(&output->wlr()->events.needs_frame, nullptr);
+      return true;
+    }
+    *error = "no such output: " + name;
+    return false;
+  }
 #endif
 
   bool Server::settled() const {
@@ -1610,11 +2132,10 @@ namespace andromeda {
     // A window whose latest configure is still queued, or not yet acknowledged and committed, has not drawn the state
     // the compositor asked for.
     for (const auto& view : m_registry.all()) {
-      if (!view->mapped() || view->xwayland() || view->toplevel() == nullptr) {
-        continue;
+      if (view->effectSelectionPending()) {
+        return false;
       }
-      const wlr_xdg_surface* surface = view->toplevel()->base;
-      if (surface->configure_idle != nullptr || surface->current.configure_serial != surface->scheduled_serial) {
+      if (view->mapped() && view->configureOutstanding()) {
         return false;
       }
     }
@@ -1635,7 +2156,7 @@ namespace andromeda {
 
   CloseSnapshotId Server::animateCloseSnapshot(
       Output* output, wlr_scene_tree* tree, wlr_scene_tree* content, std::vector<BorderSnapshot> borders,
-      const wlr_box& box, std::optional<CloseSnapshotOverrides> overrides, ShadowSnapshot shadow
+      const wlr_box& box, std::optional<CloseSnapshotOverrides> overrides, ShadowSnapshot shadow, int topExtension
   ) {
     int durationMs = 0;
     AnimationCurve curve{.easing = Easing::Snappy};
@@ -1672,7 +2193,7 @@ namespace andromeda {
     const CloseSnapshotId id = m_nextCloseSnapshotId++;
     auto snapshot = std::make_unique<CloseSnapshot>(
         *this, id, output, tree, content, std::move(borders), box, durationMs, curve, style, scale,
-        overrides ? overrides->event : AnimationEvent::WindowsOut, shadow
+        overrides ? overrides->event : AnimationEvent::WindowsOut, shadow, topExtension
     );
     registerAnimatable(snapshot.get());
     m_closeSnapshots.push_back(std::move(snapshot));

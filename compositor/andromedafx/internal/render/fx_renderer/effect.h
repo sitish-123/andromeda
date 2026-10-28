@@ -4,6 +4,7 @@
 #include <GLES2/gl2.h>
 #include <pixman.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <andromedafx/render/effect.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
@@ -33,6 +34,7 @@ struct fx_effect_shader {
   GLuint program;
   GLint proj, tex_proj, position, tex, sample_matrix;
   GLint previous_tex, previous_sample_matrix;
+  GLint incoming_tex, audio_tex;
   GLint progress, linear_progress, direction, random_seed;
   GLint size, scale, expand;
   bool shape_preserving;
@@ -46,6 +48,12 @@ const struct fx_effect_uniform* fx_effect_shader_uniform(const struct fx_effect_
 // program's active array size binds the active elements. Each case is logged
 // once per program and name.
 void fx_effect_shader_bind_uniform(struct fx_effect_shader* shader, const struct fx_uniform* uniform);
+// Same validation, cached lookup and active-array clamping for dedicated draw
+// inputs larger than fx_uniform's inline storage. data_bytes bounds the input.
+void fx_effect_shader_bind_uniform_data(
+    struct fx_effect_shader* shader, const char* name, enum fx_uniform_type type, unsigned element_count,
+    const void* data, size_t data_bytes
+);
 void fx_effect_shader_bind_parameters(
     struct fx_effect_shader* shader, const struct fx_animation_parameters* parameters
 );
@@ -78,6 +86,12 @@ void fx_render_pass_add_effect_light(
     const struct wlr_box* box, const pixman_region32_t* clip
 );
 
+// Long cursor paths are dedicated draw inputs, not generic per-node uniforms.
+struct fx_cursor_path {
+  unsigned count;
+  float points[64][4]; // uv, age seconds, stable birth phase
+};
+
 struct fx_effect_composite {
   struct fx_effect_shader* shader;
   const struct fx_animation_parameters* parameters;
@@ -96,11 +110,15 @@ struct fx_effect_composite {
   unsigned role;                             // selects the history: 0 display, 1 unfiltered capture
   const float* corner_radius;                // tl, tr, br, bl logical px for andromeda_corner_radius; may be NULL
   const float* pointer;                      // andromeda_pointer, uv in the drawn box; NULL unless a cursor kind
+  const struct fx_cursor_path* pointer_path;
+  const float* audio; // bands followed by availability; NULL supplies zero
 };
 
 // Pops the capture begun by fx_render_pass_begin_animation and draws it
 // through the composite's program.
 void fx_render_pass_end_effect(struct fx_gles_render_pass* pass, const struct fx_effect_composite* composite);
+// Pop two full-output captures and replace the parent with their transition.
+void fx_render_pass_end_workspace(struct fx_gles_render_pass* pass, const struct fx_effect_composite* composite);
 // Renders `composite->shader` over the current target's pixels under `box`,
 // writing back with blending off through the rounded mask. The subtree must
 // already be drawn. Reads and promotes history like a capture composite.

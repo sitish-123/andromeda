@@ -7,6 +7,7 @@ extern "C" {
 
 #include "config/config.h"
 #include "core/log.h"
+#include "core/tracy.h"
 #include "input/cursor.h"
 #include "input/event_time.h"
 #include "input/gesture_physics.h"
@@ -22,9 +23,11 @@ extern "C" {
 #include "scene/color.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
+#include "scene/ssd_frame.h"
+#include "scene/surface_shape.h"
 #include "scene/text_buffer.h"
+#include "server/color_manager.h"
 #include "server/server.h"
-#include "server/wine_color_manager.h"
 #include "view/view.h"
 // clang-format off
 #include <algorithm>
@@ -33,11 +36,13 @@ extern "C" {
 #include <linux/input-event-codes.h>
 #include <format>
 #include <ranges>
+#include <tuple>
 #include <xkbcommon/xkbcommon.h>
 #include "wlr.h"
 // clang-format on
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
+#include "xwayland/xwayland.h"
 
 namespace andromeda {
 
@@ -74,6 +79,34 @@ namespace andromeda {
       premultiplied(out.data(), base, static_cast<float>(std::clamp(opacity, 0.0, 1.0)));
       return out;
     }
+    // A scene buffer's opaque region is in its destination coordinates, so a scaled copy of a surface needs the
+    // surface's region scaled with it. Edges round inward: a pixel the opaque area only partly covers stays
+    // see-through.
+    void setScaledOpaqueRegion(
+        wlr_scene_buffer* buffer, const pixman_region32_t& source, int sourceWidth, int sourceHeight, int destWidth,
+        int destHeight
+    ) {
+      pixman_region32_t scaled;
+      pixman_region32_init(&scaled);
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        const double sx = static_cast<double>(destWidth) / sourceWidth;
+        const double sy = static_cast<double>(destHeight) / sourceHeight;
+        int count = 0;
+        const pixman_box32_t* rects = pixman_region32_rectangles(&source, &count);
+        for (int index = 0; index < count; ++index) {
+          const auto x1 = static_cast<int>(std::ceil(rects[index].x1 * sx));
+          const auto y1 = static_cast<int>(std::ceil(rects[index].y1 * sy));
+          const auto x2 = static_cast<int>(std::floor(rects[index].x2 * sx));
+          const auto y2 = static_cast<int>(std::floor(rects[index].y2 * sy));
+          if (x2 > x1 && y2 > y1) {
+            pixman_region32_union_rect(&scaled, &scaled, x1, y1, x2 - x1, y2 - y1);
+          }
+        }
+      }
+      wlr_scene_buffer_set_opaque_region(buffer, &scaled);
+      pixman_region32_fini(&scaled);
+    }
+
     void layoutWorkspaceBackground(
         wlr_scene_rect* background, const wlr_box& box, int radius, const std::array<float, 4>& color
     ) {
@@ -138,6 +171,17 @@ namespace andromeda {
         }
       }
       return nullptr;
+    }
+
+    // The size `surface` is shown at in its view, through the view's scene buffer `source`. It differs from the surface
+    // size when the view draws the surface scaled.
+    void viewSurfaceSize(wlr_scene_buffer* source, const wlr_surface* surface, int* width, int* height) {
+      if (wlr_scene_surface* sceneSurface = source != nullptr ? wlr_scene_surface_try_from_buffer(source) : nullptr) {
+        wlr_scene_surface_get_size(sceneSurface, width, height);
+        return;
+      }
+      *width = surface->current.width;
+      *height = surface->current.height;
     }
   } // namespace
 
@@ -223,7 +267,7 @@ namespace andromeda {
     if (card.shadowTree != nullptr) {
       wlr_scene_node_set_enabled(&card.shadowTree->node, false);
     }
-    const wlr_box& geometry = view->toplevel()->base->geometry;
+    const wlr_box& geometry = view->geometryBox();
     if (geometry.width <= 0 || geometry.height <= 0) {
       card.blur.hide();
       wlr_scene_node_set_enabled(&card.tree->node, false);
@@ -231,8 +275,9 @@ namespace andromeda {
       return;
     }
     wlr_scene_node_set_enabled(&card.tree->node, true);
-    // A tiled opener waiting for the arrange that places it is not showing yet. Its card follows.
-    if (view->tiledOpeningDeferred()) {
+    // A tiled opener waiting for the arrange that places it is not showing yet, and a hidden tab shares its box with
+    // the tab on show. Their cards follow.
+    if (view->presentationSuppressed()) {
       card.blur.hide();
       wlr_scene_node_set_enabled(&card.tree->node, false);
       syncCardEffects(card);
@@ -273,7 +318,7 @@ namespace andromeda {
     const int borderWidth = view->decorationBorderWidth();
     const int outerBorderWidth = view->decorationOuterBorderWidth();
     const int total = borderWidth + outerBorderWidth;
-    const bool decorated = total > 0 && !view->toplevel()->current.fullscreen && !view->maximizedToEdges();
+    const bool decorated = total > 0 && !view->currentFullscreen() && !view->maximizedToEdges();
     const int scaledRadius = static_cast<int>(std::lround(view->decorationCornerRadius() * z));
     const int outerRadius = decorated ? scaledRadius : 0;
     const auto scaledWidth = [z](int width) {
@@ -287,13 +332,22 @@ namespace andromeda {
     if (borderVisible) {
       card.borderPadding = scaledWidth(view->borderEffectPadding());
       applyBorderGeometry(
-          card.border, makeBorderRing(contentW, contentH, outerRadius, innerWidth, outerWidth, card.borderPadding),
+          card.border,
+          makeBorderRing(
+              contentW, contentH + static_cast<int>(std::lround(view->titleBarHeight() * z)), outerRadius, innerWidth,
+              outerWidth, card.borderPadding
+          ),
           innerWidth, outerWidth
+      );
+      wlr_scene_node_set_position(
+          &card.border->node, card.border->node.x,
+          card.border->node.y - static_cast<int>(std::lround(view->titleBarHeight() * z))
       );
       const std::array<float, 4> innerColor = tint(cardBorderColor(card, liveTarget), presentedOpacity);
       const std::array<float, 4> outerColor = tint(view->borderColors().outer, presentedOpacity);
       wlr_scene_border_set_colors(card.border, innerColor.data(), outerColor.data());
     }
+    layoutCardChrome(card, world, decorated ? total : 0, z, presentedOpacity);
     syncCardEffects(card);
 
     if (card.badge != nullptr) {
@@ -332,9 +386,12 @@ namespace andromeda {
 
     // Every surface of the card rounds against the card's content box, the same rule the live window uses, so a
     // client that draws its corners from a subsurface keeps them rounded in the thumbnail.
-    const auto roundToCardBox = [surfaceRadius, contentW, contentH](wlr_scene_buffer* buffer) {
+    const fx_corner_radii contentCorners = view->titleBarHeight() > 0
+        ? corner_radii_new(0, 0, surfaceRadius, surfaceRadius)
+        : corner_radii_all(surfaceRadius);
+    const auto roundToCardBox = [surfaceRadius, contentW, contentH, contentCorners](wlr_scene_buffer* buffer) {
       const wlr_box cornerBox{-buffer->node.x, -buffer->node.y, contentW, contentH};
-      wlr_scene_buffer_set_corner_radii(buffer, corner_radii_all(surfaceRadius));
+      wlr_scene_buffer_set_corner_radii(buffer, contentCorners);
       wlr_scene_buffer_set_corner_box(buffer, surfaceRadius > 0 ? &cornerBox : nullptr);
     };
     const double fx = static_cast<double>(contentW) / geometry.width;
@@ -342,12 +399,20 @@ namespace andromeda {
     bool blurUpdated = false;
     for (const auto& entry : card.surfaces) {
       wlr_surface* surface = entry->surface;
-      if (entry->buffer == nullptr || surface->current.width <= 0 || surface->current.height <= 0) {
+      if (entry->buffer == nullptr) {
+        continue;
+      }
+      // A client retires a subsurface with a null buffer, or by destroying its subsurface role. Either drops the
+      // surface out of the commit walk; skipping its mirror would leave the last frame at the zoom it was laid out at.
+      // A destroyed role emits no commit, so `mapped` catches it before the next walk does.
+      if (!entry->inTree || !surface->mapped || surface->current.width <= 0 || surface->current.height <= 0) {
+        wlr_scene_node_set_enabled(&entry->buffer->node, false);
         continue;
       }
       const float surfaceOpacity =
           entry->sourceBuffer != nullptr ? entry->sourceBuffer->opacity * cardOpacity : cardOpacity;
       wlr_scene_buffer_set_opacity(entry->buffer, surfaceOpacity);
+      const pixman_region32_t* shape = entry->view->xwayland() ? m_server->xwayland()->surfaceShape(surface) : nullptr;
       if (!entry->isRoot) {
         wlr_box sub{
             card.box.x + static_cast<int>(std::lround((entry->sx - geometry.x) * fx)),
@@ -358,6 +423,7 @@ namespace andromeda {
         wlr_scene_node_set_enabled(&entry->buffer->node, true);
         wlr_scene_node_set_position(&entry->buffer->node, sub.x - card.box.x, sub.y - card.box.y);
         wlr_scene_buffer_set_dest_size(entry->buffer, sub.width, sub.height);
+        applySurfaceShape(entry->buffer, surface, shape);
         roundToCardBox(entry->buffer);
         continue;
       }
@@ -365,8 +431,11 @@ namespace andromeda {
       // scale the visible part of that region onto the card.
       wlr_fbox base{};
       wlr_surface_get_buffer_source_box(surface, &base);
-      const double bx = base.width / surface->current.width;
-      const double by = base.height / surface->current.height;
+      int width = 0;
+      int height = 0;
+      viewSurfaceSize(entry->sourceBuffer, surface, &width, &height);
+      const double bx = base.width / width;
+      const double by = base.height / height;
       wlr_fbox src{base.x + geometry.x * bx, base.y + geometry.y * by, geometry.width * bx, geometry.height * by};
       if (src.x < base.x) {
         src.width -= base.x - src.x;
@@ -386,11 +455,12 @@ namespace andromeda {
       wlr_scene_node_set_position(&entry->buffer->node, 0, 0);
       wlr_scene_buffer_set_source_box(entry->buffer, &src);
       wlr_scene_buffer_set_dest_size(entry->buffer, contentW, contentH);
+      applySurfaceShape(entry->buffer, surface, shape);
       roundToCardBox(entry->buffer);
       const wlr_box blurBox{0, 0, contentW, contentH};
       card.blur.setAlpha(1.0F);
       card.blur.update(
-          card.tree, surface, blurBox, geometry, surfaceRadius, nullptr, view->blurOptions(), entry->buffer->opacity,
+          card.tree, surface, blurBox, geometry, contentCorners, nullptr, view->blurOptions(), entry->buffer->opacity,
           entry->buffer
       );
       blurUpdated = true;
@@ -398,6 +468,38 @@ namespace andromeda {
     if (!blurUpdated) {
       card.blur.hide();
     }
+  }
+
+  void Overview::layoutCardChrome(Card& card, const wlr_box& world, int borderInset, double zoom, float alpha) const {
+    const Output* output = card.owner != nullptr ? card.owner->output : nullptr;
+    ViewChromeGeometry geometry{
+        .contentX = 0,
+        .contentY = 0,
+        .contentWidth = world.width,
+        .contentHeight = world.height,
+        .borderInset = borderInset,
+        .cornerRadius = card.view->maximizedToEdges() ? 0 : card.view->decorationCornerRadius(),
+        .titleBarHeight = card.view->titleBarHeight(),
+        .scale = output != nullptr ? output->wlr()->scale : 1.0F,
+        .suppressed = card.view->currentFullscreen(),
+        .zoom = zoom,
+    };
+    const auto update = [&](const ViewChromeAttachment* live, std::unique_ptr<ViewChromeAttachment>& preview) {
+      if (live == nullptr) {
+        preview.reset();
+        return;
+      }
+      if (preview == nullptr)
+        preview = live->makePreview(card.tree);
+      if (preview == nullptr)
+        return;
+      live->syncPreview(*preview);
+      preview->setAlpha(alpha);
+      preview->layout(geometry);
+    };
+    update(card.view->ssdFrame(), card.frame);
+    geometry.suppressed = geometry.suppressed || card.view->maximizedToEdges();
+    update(card.view->chromeAttachment(), card.chrome);
   }
 
   void Overview::layoutCardShadow(Card& card, double zoom, float alpha) const {
@@ -472,6 +574,7 @@ namespace andromeda {
   }
 
   void Overview::layoutOutput(OutputState& state) {
+    ANDROMEDA_ZONE("Overview::layoutOutput");
     PreviewMetrics metrics{};
     if (!previewMetrics(state, *m_server, zoom(), metrics)) {
       return;
@@ -530,9 +633,12 @@ namespace andromeda {
             &mirror->buffer->node, full.x + static_cast<int>(std::lround(box.x * z)),
             full.y + static_cast<int>(std::lround(box.y * z))
         );
-        wlr_scene_buffer_set_dest_size(
-            mirror->buffer, std::max(1, static_cast<int>(std::lround(box.width * z))),
-            std::max(1, static_cast<int>(std::lround(box.height * z)))
+        const int destWidth = std::max(1, static_cast<int>(std::lround(box.width * z)));
+        const int destHeight = std::max(1, static_cast<int>(std::lround(box.height * z)));
+        wlr_scene_buffer_set_dest_size(mirror->buffer, destWidth, destHeight);
+        // Lets the scene skip the background beneath a wallpaper that declares itself opaque.
+        setScaledOpaqueRegion(
+            mirror->buffer, mirror->source->surface->opaque_region, box.width, box.height, destWidth, destHeight
         );
         // Only a surface spanning the whole output takes the preview's rounding; a smaller one keeps its own edges.
         const bool spansOutput = box.x <= 0
@@ -568,12 +674,18 @@ namespace andromeda {
         .focused = workspace != nullptr && workspace->focusedView() == view && &card != m_dragCard,
         .decorated = card.border != nullptr && card.border->node.enabled && card.tree->node.enabled,
         .urgent = view->urgent(),
-        .fullscreen = view->toplevel()->scheduled.fullscreen,
+        .fullscreen = view->scheduledFullscreen(),
     };
     view->syncAnimationEffects(
         card.tree, card.border != nullptr ? &card.border->node : nullptr, &card.surfaceTree->node, &cardGate,
-        card.owner->output
+        card.owner->output, static_cast<float>(zoom())
     );
+  }
+
+  void Overview::refreshEffectBindings() {
+    if (m_active) {
+      syncCardEffects();
+    }
   }
 
   void Overview::syncCardEffects() {
@@ -759,11 +871,10 @@ namespace andromeda {
         wlr_scene_buffer_set_transform(mirror->buffer, surface->current.transform);
         // layoutOutput owns the destination geometry; only the color description follows the live node.
         if (wlr_scene_buffer* live = sourceBufferForSurface(&mirror->source->tree->node, surface)) {
-          wlr_scene_buffer_set_transfer_function(mirror->buffer, live->transfer_function);
-          wlr_scene_buffer_set_primaries(mirror->buffer, live->primaries);
-          wlr_scene_buffer_set_luminance_multiplier(mirror->buffer, live->luminance_multiplier);
-          wlr_scene_buffer_set_color_encoding(mirror->buffer, live->color_encoding);
-          wlr_scene_buffer_set_color_range(mirror->buffer, live->color_range);
+          wlr_scene_buffer_copy_color(mirror->buffer, live);
+        }
+        if (ColorManager* colorManager = m_server->colorManager()) {
+          colorManager->applySurfaceDescriptionToBuffer(surface, mirror->buffer);
         }
       }
     }
@@ -889,7 +1000,10 @@ namespace andromeda {
     wlr_fbox src{};
     wlr_surface_get_buffer_source_box(surface, &src);
     wlr_scene_buffer_set_source_box(entry.buffer, &src);
-    wlr_scene_buffer_set_dest_size(entry.buffer, surface->current.width, surface->current.height);
+    int width = 0;
+    int height = 0;
+    viewSurfaceSize(entry.sourceBuffer, surface, &width, &height);
+    wlr_scene_buffer_set_dest_size(entry.buffer, width, height);
     wlr_scene_buffer_set_transform(entry.buffer, surface->current.transform);
     wlr_scene_buffer_set_opaque_region(entry.buffer, &surface->opaque_region);
 
@@ -897,24 +1011,57 @@ namespace andromeda {
     // are clip-independent, so the view's scene buffer is a safe source.
     if (wlr_scene_buffer* source = entry.sourceBuffer) {
       wlr_scene_buffer_set_opacity(entry.buffer, source->opacity);
-      wlr_scene_buffer_set_transfer_function(entry.buffer, source->transfer_function);
-      wlr_scene_buffer_set_primaries(entry.buffer, source->primaries);
-      wlr_scene_buffer_set_luminance_multiplier(entry.buffer, source->luminance_multiplier);
-      wlr_scene_buffer_set_color_encoding(entry.buffer, source->color_encoding);
-      wlr_scene_buffer_set_color_range(entry.buffer, source->color_range);
+      wlr_scene_buffer_copy_color(entry.buffer, source);
     }
-    // wlroots restores scene surfaces to its protocol-owned color state on
-    // every commit. Wine compatibility metadata is repaired at the render
-    // boundary, after this passive mirror has copied the transient state, so
+    // Scene surfaces reset their color state on every commit. This passive
+    // mirror may copy that state before the render boundary repairs it, so
     // apply the authoritative committed description directly to the mirror.
-    if (WineColorManager* colorManager = entry.card->overview->m_server->wineColorManager()) {
+    if (ColorManager* colorManager = entry.card->overview->m_server->colorManager()) {
       colorManager->applySurfaceDescriptionToBuffer(surface, entry.buffer);
     }
   }
 
+  void Overview::forEachCardSurface(Card* card, void (*visit)(wlr_surface*, int, int, void*)) {
+    View* view = card->view;
+    wlr_surface* root = view->rootSurface();
+    if (root == nullptr) {
+      return;
+    }
+    CardWalk own{.card = card, .view = view};
+    wlr_surface_for_each_surface(root, visit, &own);
+    if (view->attachments().empty()) {
+      return;
+    }
+    // A dialog hangs in the window's frame, so the scene holds both at their real offset.
+    wlr_scene_buffer* rootBuffer = sourceBufferForSurface(&view->sceneTree()->node, root);
+    if (rootBuffer == nullptr) {
+      return;
+    }
+    int rootX = 0;
+    int rootY = 0;
+    wlr_scene_node_coords(&rootBuffer->node, &rootX, &rootY);
+    const auto walk = [&](const auto& self, const View* parent) -> void {
+      for (View* dialog : parent->attachments()) {
+        wlr_surface* surface = dialog->rootSurface();
+        wlr_scene_buffer* buffer =
+            surface != nullptr ? sourceBufferForSurface(&dialog->sceneTree()->node, surface) : nullptr;
+        if (buffer != nullptr) {
+          int x = 0;
+          int y = 0;
+          wlr_scene_node_coords(&buffer->node, &x, &y);
+          CardWalk offset{.card = card, .view = dialog, .dx = x - rootX, .dy = y - rootY};
+          wlr_surface_for_each_surface(surface, visit, &offset);
+        }
+        self(self, dialog);
+      }
+    };
+    walk(walk, view);
+  }
+
   void Overview::addCardSurface(wlr_surface* surface, int sx, int sy, void* data) {
-    auto* card = static_cast<Card*>(data);
-    wlr_scene_buffer* source = sourceBufferForSurface(&card->view->sceneTree()->node, surface);
+    const auto* walk = static_cast<const CardWalk*>(data);
+    Card* card = walk->card;
+    wlr_scene_buffer* source = sourceBufferForSurface(&walk->view->sceneTree()->node, surface);
     if (source == nullptr) {
       return;
     }
@@ -924,12 +1071,13 @@ namespace andromeda {
     }
     auto entry = std::make_unique<CardSurface>();
     entry->card = card;
+    entry->view = walk->view;
     entry->surface = surface;
     entry->sourceBuffer = source;
     entry->buffer = buffer;
-    entry->sx = sx;
-    entry->sy = sy;
-    entry->isRoot = surface == card->view->toplevel()->base->surface;
+    entry->sx = sx + walk->dx;
+    entry->sy = sy + walk->dy;
+    entry->isRoot = surface == card->view->rootSurface();
     wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_BILINEAR);
     buffer->point_accepts_input = rejectInput;
     entry->commit.notify = onCardSurfaceCommit;
@@ -945,16 +1093,29 @@ namespace andromeda {
   }
 
   void Overview::syncCardSurface(wlr_surface* surface, int sx, int sy, void* data) {
-    auto* card = static_cast<Card*>(data);
-    for (const auto& entry : card->surfaces) {
+    const auto* walk = static_cast<const CardWalk*>(data);
+    for (const auto& entry : walk->card->surfaces) {
       if (entry->surface == surface) {
-        entry->sx = sx;
-        entry->sy = sy;
+        // A surface given a new subsurface role has a new scene node; the old one went with the old role.
+        entry->sourceBuffer = sourceBufferForSurface(&walk->view->sceneTree()->node, surface);
+        if (entry->sourceBuffer == nullptr) {
+          return;
+        }
+        entry->inTree = true;
+        entry->sx = sx + walk->dx;
+        entry->sy = sy + walk->dy;
         syncCardBuffer(*entry);
         return;
       }
     }
     addCardSurface(surface, sx, sy, data);
+  }
+
+  void Overview::syncCardSurfaces(Card* card) {
+    for (const auto& entry : card->surfaces) {
+      entry->inTree = false;
+    }
+    forEachCardSurface(card, syncCardSurface);
   }
 
   void Overview::onCardSurfaceCommit(wl_listener* listener, void* /*data*/) {
@@ -967,7 +1128,7 @@ namespace andromeda {
     }
     // The source scene surface reconfigures on every commit. Refresh the
     // passive buffer mirrors, then re-derive their overview crop and scale.
-    wlr_surface_for_each_surface(card->view->toplevel()->base->surface, syncCardSurface, card);
+    syncCardSurfaces(card);
     PreviewMetrics metrics{};
     if (previewMetrics(*card->owner, *self->m_server, self->zoom(), metrics)) {
       self->layoutCard(*card, metrics, card->owner->rowScroll.current(), self->liveTargetView());
@@ -1018,10 +1179,11 @@ namespace andromeda {
   }
 
   Overview::Card* Overview::createCard(OutputState& state, View* view, size_t workspaceIndex) {
-    if (view == nullptr || !view->mapped() || view->pinned()) {
+    // An attached dialog shows over its parent's card instead of on one of its own.
+    if (view == nullptr || !view->mapped() || view->pinned() || view->attached()) {
       return nullptr;
     }
-    wlr_surface* surface = view->toplevel()->base->surface;
+    wlr_surface* surface = view->rootSurface();
     if (surface == nullptr) {
       return nullptr;
     }
@@ -1050,10 +1212,11 @@ namespace andromeda {
     state.cards.push_back(std::move(card));
     m_shortcutsDirty = true;
 
-    wlr_surface_for_each_surface(surface, addCardSurface, raw);
+    forEachCardSurface(raw, addCardSurface);
 
     // Animation schedules the first output frame. The passive card buffers then
     // pace clients from frames where their content was actually sampled.
+    m_server->scheduleSuspensionSync();
     return raw;
   }
 
@@ -1102,11 +1265,11 @@ namespace andromeda {
       wlr_scene_buffer_set_corner_radii(copy, source->corners);
       wlr_scene_buffer_set_corner_box(copy, &source->corner_box);
       wlr_scene_buffer_set_opacity(copy, source->opacity);
-      wlr_scene_buffer_set_transfer_function(copy, source->transfer_function);
-      wlr_scene_buffer_set_primaries(copy, source->primaries);
-      wlr_scene_buffer_set_luminance_multiplier(copy, source->luminance_multiplier);
-      wlr_scene_buffer_set_color_encoding(copy, source->color_encoding);
-      wlr_scene_buffer_set_color_range(copy, source->color_range);
+      wlr_scene_node_set_clip_region(&copy->node, wlr_scene_node_get_clip_region(&source->node));
+      wlr_scene_buffer_copy_color(copy, source);
+      if (ColorManager* colorManager = m_server->colorManager()) {
+        colorManager->applySurfaceDescriptionToBuffer(entry->surface, copy);
+      }
       wlr_scene_buffer_set_filter_mode(copy, WLR_SCALE_FILTER_BILINEAR);
       ++buffersCopied;
     }
@@ -1116,6 +1279,11 @@ namespace andromeda {
       wlr_scene_node_copy_animations_for_snapshot(&surfaces->node, &card.surfaceTree->node);
     }
 
+    if (const auto* frame = dynamic_cast<const SsdFrame*>(card.frame.get())) {
+      auto* chrome = wlr_scene_tree_create(snapshot);
+      wlr_scene_node_set_position(&chrome->node, card.tree->node.x, card.tree->node.y);
+      frame->snapshot(chrome);
+    }
     std::vector<BorderSnapshot> borders;
     if (card.border != nullptr && card.border->node.enabled) {
       snapshotBorder(
@@ -1157,6 +1325,9 @@ namespace andromeda {
       wl_list_remove(&entry->frameDone.link);
     }
     card->surfaces.clear();
+    // The chrome copy's nodes hang under the card tree, so it goes before the tree does.
+    card->chrome.reset();
+    card->frame.reset();
     destroyCardShadow(*card);
     if (card->tree != nullptr) {
       wlr_scene_node_destroy(&card->tree->node);
@@ -1164,6 +1335,7 @@ namespace andromeda {
       card->surfaceTree = nullptr;
     }
     card->border = nullptr;
+    m_server->scheduleSuspensionSync();
   }
 
   void Overview::dropCard(View* view) {
@@ -1218,6 +1390,15 @@ namespace andromeda {
       }
     }
     return nullptr;
+  }
+
+  bool Overview::presentsLive(const View* view) const {
+    if (!m_active || view->presentationSuppressed()) {
+      return false;
+    }
+    return std::ranges::any_of(m_outputs, [view](const auto& state) {
+      return std::ranges::any_of(state->cards, [view](const auto& card) { return card->view == view; });
+    });
   }
 
   void Overview::renderCardShortcut(Card& card) {
@@ -1468,7 +1649,7 @@ namespace andromeda {
           if (view == nullptr || !view->mapped() || view->pinned()) {
             continue;
           }
-          const bool fullscreen = view->toplevel()->current.fullscreen;
+          const bool fullscreen = view->currentFullscreen();
           const int layer = fullscreen ? 2 : (view->tiled() ? 0 : 1);
           if (layer == pass) {
             createCard(state, view, row);
@@ -1479,6 +1660,7 @@ namespace andromeda {
   }
 
   void Overview::buildState() {
+    ANDROMEDA_ZONE("Overview::buildState");
     m_tree = m_server->overviewTree();
     for (const auto& output : m_server->outputs()) {
       WorkspaceGroup* group = output->workspaceGroup();
@@ -1516,6 +1698,7 @@ namespace andromeda {
   // -: open/close
 
   bool Overview::beginPresentation() {
+    ANDROMEDA_ZONE("Overview::beginPresentation");
     if (m_active) {
       return true;
     }
@@ -1611,6 +1794,7 @@ namespace andromeda {
   }
 
   void Overview::open() {
+    ANDROMEDA_ZONE("Overview::open");
     if (m_active) {
       if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
         scratchpad->hideAll();
@@ -1652,6 +1836,9 @@ namespace andromeda {
       // reveal. Begin it before the closing zoom so both animations receive their first tick together. finishAnimation
       // repeats the focus after teardown to deliver keyboard focus once the real trees own input again.
       m_server->focusView(focus, FocusReason::PointerPress);
+      if (focus->workspace() != nullptr && focus->workspace()->layoutConfig().scrolling.centerOnOverviewSelect) {
+        focus->workspace()->centerFocusedColumn();
+      }
     }
     beginClose(focus);
   }
@@ -1744,7 +1931,7 @@ namespace andromeda {
     scheduleFrames();
   }
 
-  bool Overview::tickAnimations(uint64_t nowMsec) {
+  bool Overview::tickAnimations(double nowMsec) {
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
@@ -1802,6 +1989,17 @@ namespace andromeda {
     }
     View* focus = m_pendingFocus;
     m_pendingFocus = nullptr;
+    // The real trees stay hidden until teardown, so a workspace switch during the close runs as the row scroll. The
+    // close still ends with the zoom, so binds keep their timing; a row still travelling hands its offset and velocity
+    // to the real slide. beginClose retargets each row to the active workspace, so a row resting there is not carried.
+    std::vector<std::tuple<WorkspaceGroup*, double, double>> carried;
+    for (const auto& state : m_outputs) {
+      const AnimatedValue& row = state->rowScroll;
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group != nullptr && row.animating() && row.from() != row.target()) {
+        carried.emplace_back(group, std::clamp(row.current() - row.target(), -1.0, 1.0), row.velocity());
+      }
+    }
     teardown();
     // Real trees are visible again: settle each active workspace so window
     // positions match where the cards landed.
@@ -1810,6 +2008,12 @@ namespace andromeda {
         if (Workspace* workspace = group->active()) {
           workspace->markArrange(false);
         }
+      }
+    }
+    for (const auto& [group, offset, velocity] : carried) {
+      if (group->slideBegin(offset < 0, offset > 0)) {
+        group->slideApply(offset);
+        group->slideSettle(0, velocity);
       }
     }
     restoreFocus(focus);
@@ -1883,6 +2087,7 @@ namespace andromeda {
     m_shortcutAssignments.clear();
     m_shortcutLabelCapacity = 0;
     m_server->reconcileDynamicWorkspaces();
+    m_server->scheduleSuspensionSync();
   }
 
   // -: gesture
@@ -1923,6 +2128,10 @@ namespace andromeda {
     if (!m_active || view == nullptr || !view->mapped() || view->pinned()) {
       return;
     }
+    if (view->attached()) {
+      onViewAttachmentsChanged(view->placementRoot());
+      return;
+    }
     Workspace* workspace = view->workspace();
     OutputState* state = stateForWorkspace(workspace);
     if (state == nullptr || findCard(view) != nullptr) {
@@ -1932,6 +2141,33 @@ namespace andromeda {
       return;
     }
     assignShortcuts();
+  }
+
+  void Overview::onViewAttachmentsChanged(View* parent) {
+    if (!m_active || parent == nullptr) {
+      return;
+    }
+    Card* card = findCard(parent->placementRoot());
+    if (card == nullptr || card->owner == nullptr) {
+      return;
+    }
+    // The card's own surfaces stay; the dialogs' are mirrored again from the current attachments.
+    std::erase_if(card->surfaces, [card](const std::unique_ptr<CardSurface>& entry) {
+      if (entry->view == card->view) {
+        return false;
+      }
+      wl_list_remove(&entry->commit.link);
+      wl_list_remove(&entry->destroy.link);
+      wl_list_remove(&entry->outputSample.link);
+      wl_list_remove(&entry->frameDone.link);
+      if (entry->buffer != nullptr) {
+        wlr_scene_node_destroy(&entry->buffer->node);
+      }
+      return true;
+    });
+    syncCardSurfaces(card);
+    layoutOutput(*card->owner);
+    wlr_output_schedule_frame(card->owner->output->wlr());
   }
 
   void Overview::onViewPinnedChanged(View* view) {
@@ -1990,7 +2226,7 @@ namespace andromeda {
     assignShortcuts();
   }
 
-  void Overview::onViewUnmapped(View* view) {
+  void Overview::onViewUnmapped(View* view, bool animateClose) {
     if (!m_active || view == nullptr) {
       return;
     }
@@ -2021,7 +2257,7 @@ namespace andromeda {
     }
     Workspace* workspace = view->workspace();
     OutputState* state = stateForWorkspace(workspace);
-    if (Card* card = findCard(view)) {
+    if (Card* card = findCard(view); card != nullptr && animateClose) {
       snapshotCardForClose(*card);
     }
     dropCard(view);
@@ -2031,6 +2267,8 @@ namespace andromeda {
     if (workspace != nullptr && workspace->focusedView() == view) {
       View* replacement = workspace->focusReplacementForRemoval(view);
       if (replacement != nullptr) {
+        // The layout judges the pair once this column is gone, so the reveal this unblocks may only fit the survivor.
+        workspace->noteRemovalOfFocusedColumn(workspace->layout().columnOf(view));
         if (workspace->active()) {
           m_server->focusView(replacement, FocusReason::Startup);
         } else {
@@ -2449,7 +2687,7 @@ namespace andromeda {
         }
         clearMiddlePress();
         if (closeCard && card != nullptr && card->view != nullptr && card->view->mapped()) {
-          wlr_xdg_toplevel_send_close(card->view->toplevel());
+          card->view->requestClose();
         }
         return true;
       }
@@ -2626,6 +2864,7 @@ namespace andromeda {
     } else {
       workspace->setFocusedView(target);
     }
+    workspace->activateFocusedColumn();
     scrolling->snapVisible(scrolling->columnOf(target), workspace->scrollViewportExtent());
     workspace->markArrange(true);
     return true;
@@ -2729,11 +2968,13 @@ namespace andromeda {
       m_navigationScale = OverviewNavigation::travelScale(viewport, settledZoom(), factor, travel.viewport);
       m_navigationStarted = true;
     }
+    const auto maximum = static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent()));
+    // Centering an edge column parks the strip past the last column, so the band opens onto the scroll the gesture
+    // started from: the fingers bring the strip back in, not the pan's first frame.
     scrolling->setScroll(
         GesturePhysics::rubberBand(
-            m_navigationStart + m_navigation.position() * m_navigationScale, 0.0,
-            static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent())),
-            viewport * GesturePhysics::kOverscrollLimit
+            m_navigationStart + m_navigation.position() * m_navigationScale, std::min(0.0, m_navigationStart),
+            std::max(maximum, m_navigationStart), viewport * GesturePhysics::kOverscrollLimit
         )
     );
     workspace->markArrange(false);
@@ -2809,9 +3050,7 @@ namespace andromeda {
         continue;
       }
       const auto column = static_cast<int>(index);
-      const auto x = static_cast<double>(scrolling->columnX(column, viewport));
-      const auto width = static_cast<double>(scrolling->columnWidth(column, viewport));
-      for (const double position : {std::clamp(x, 0.0, maximum), std::clamp(x + width - viewport, 0.0, maximum)}) {
+      for (const double position : scrolling->snapScrolls(column, viewport)) {
         const double distance = std::abs(position - projected);
         if (distance < bestDistance) {
           bestDistance = distance;
@@ -2833,9 +3072,10 @@ namespace andromeda {
       bestColumn = index;
     }
     View* target = workspace->focusedView();
-    if (bestColumn >= 0 && (target == nullptr || scrolling->columnOf(target) != bestColumn)) {
-      const auto& views = scrolling->columns()[static_cast<size_t>(bestColumn)].views;
-      target = views.empty() ? nullptr : views.front();
+    const bool focusMoved = bestColumn >= 0 && (target == nullptr || scrolling->columnOf(target) != bestColumn);
+    if (focusMoved) {
+      // A tab group is entered on the tab it shows, as a directional focus move enters it.
+      target = columnEntry(scrolling->columns()[static_cast<size_t>(bestColumn)]);
     }
     scrolling->setScroll(bestPosition);
     // Do not activate a different workspace merely because its preview was
@@ -2846,6 +3086,13 @@ namespace andromeda {
       } else {
         workspace->setFocusedView(target);
       }
+    }
+    // The pan chose the column, so the centering policy says where it rests. A pan back on the focused column has no
+    // side to derive, so the last focus move's pair is judged instead.
+    if (focusMoved) {
+      workspace->activateFocusedColumn();
+    } else {
+      workspace->reevaluateFocusedColumn();
     }
     workspace->markArrange(true);
   }
@@ -3191,6 +3438,9 @@ namespace andromeda {
       }
     }
 
+    if (target != nullptr && target->layoutMode() == LayoutMode::Floating && view->tiled()) {
+      view->floatForLayout();
+    }
     if (target != nullptr && view->tiled()) {
       applyDrop(
           *m_server, *view, *target, targetDrop, m_dragSourceWidth.has_value() ? &*m_dragSourceWidth : nullptr,
@@ -3199,9 +3449,11 @@ namespace andromeda {
     } else if (target != nullptr && dropState != nullptr && insertedWorkspace) {
       view->rememberFloatingPosition();
       if (view->workspace() != target) {
-        view->moveToWorkspace(target, /*attachToLayout=*/false);
+        view->moveToWorkspace(target);
       }
-      view->restoreFloatingPosition();
+      if (view->floating()) {
+        view->restoreFloatingPosition();
+      }
       m_server->focusView(view, FocusReason::DragDrop);
     } else if (target != nullptr && dropState != nullptr) {
       // Floating: map the card origin back out of the thumbnail.
@@ -3211,24 +3463,28 @@ namespace andromeda {
         const int x = metrics.outputBox.x + static_cast<int>(std::lround((cardBox.x - preview.x) / metrics.zoom));
         const int y = metrics.outputBox.y + static_cast<int>(std::lround((cardBox.y - preview.y) / metrics.zoom));
         if (view->workspace() != target) {
-          view->moveToWorkspace(target, /*attachToLayout=*/false);
+          view->moveToWorkspace(target);
           target->exitFullscreenForIncomingView(view);
         }
-        view->setPosition(x, y);
-        view->rememberFloatingPosition();
+        if (view->floating()) {
+          view->setPosition(x, y);
+          view->rememberFloatingPosition();
+        }
         // Cards are laid out from the presented box, which setPosition does not refresh.
         target->syncViewPresentation(view);
       }
     } else if (m_dragSourceWorkspace != nullptr && view->tiled() && m_dragSourceColumn >= 0) {
       // Cancelled or dropped on nothing: put the tile back where it came from.
-      if (m_dragSourceWidth.has_value()) {
+      if (m_dragSourceWorkspace->layoutMode() == LayoutMode::Floating) {
+        m_dragSourceWorkspace->layoutAttach(view);
+      } else if (m_dragSourceWidth.has_value()) {
         m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
         const int column = m_dragSourceWorkspace->layout().columnOf(view);
         m_dragSourceWorkspace->layout().setWidthFraction(column, m_dragSourceWidth->fraction);
         if (m_dragSourceWidth->fullWidth) {
           m_dragSourceWorkspace->layout().toggleFullWidth(column);
         }
-        wlr_xdg_toplevel_set_maximized(view->toplevel(), m_dragSourceWidth->fullWidth);
+        view->setMaximizedState(m_dragSourceWidth->fullWidth);
       } else if (m_dragSourceWorkspace->dwindleLayout() != nullptr) {
         // Gap-index insert restores the exact flat position the drag removed.
         m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);

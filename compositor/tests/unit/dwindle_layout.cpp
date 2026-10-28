@@ -134,6 +134,21 @@ ANDROMEDA_TEST(horizontalConsumeSwapsWithTheVisualNeighbor) {
   CHECK_EQ(fixture.layout.targetBox(stub(0)).y, bottomRightSlot.y);
 }
 
+ANDROMEDA_TEST(consumeFromLeavesDwindleAlone) {
+  Fixture fixture;
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  const wlr_box first = fixture.layout.targetBox(stub(0));
+  const wlr_box second = fixture.layout.targetBox(stub(1));
+  // A dwindle leaf holds one window, so there is no container to pull a window out of.
+  CHECK(!fixture.layout.consumeFrom(stub(0), 1));
+  CHECK(!fixture.layout.consumeFrom(stub(1), -1));
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).x, first.x);
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).width, first.width);
+  CHECK_EQ(fixture.layout.targetBox(stub(1)).x, second.x);
+  CHECK_EQ(fixture.layout.targetBox(stub(1)).width, second.width);
+}
+
 ANDROMEDA_TEST(horizontalExpelDoesNotSwapWithAVerticalNeighbor) {
   Fixture fixture;
   fixture.addLeaves(3);
@@ -350,7 +365,7 @@ ANDROMEDA_TEST(directionalMoveRefreshesScreenGeometryImmediately) {
   }
 }
 
-ANDROMEDA_TEST(verticalMoveCrossesNestedBranches) {
+ANDROMEDA_TEST(verticalMoveCrossesNestedBranchesWithoutDisplacingTiles) {
   Fixture fixture;
   for (int i = 0; i < 5; ++i) {
     fixture.layout.insertView(stub(i), i);
@@ -362,15 +377,71 @@ ANDROMEDA_TEST(verticalMoveCrossesNestedBranches) {
   CHECK_EQ(upperRight.x, lowerLeft.x);
   CHECK(upperRight.y < lowerLeft.y);
 
+  // No arrange between the moves: a repeated key press must see the geometry the previous move produced.
   CHECK(fixture.layout.moveViewVertical(stub(2), -1));
-  fixture.layout.arrange(kUsable);
+  const wlr_box entered = fixture.layout.targetBox(stub(1));
   CHECK_EQ(fixture.layout.targetBox(stub(2)).y, upperRight.y);
-  CHECK_EQ(fixture.layout.targetBox(stub(1)).y, lowerLeft.y);
+  CHECK_EQ(entered.y, upperRight.y);
+  CHECK(entered.width < upperRight.width);
 
   CHECK(fixture.layout.moveViewVertical(stub(2), 1));
-  fixture.layout.arrange(kUsable);
   CHECK_EQ(fixture.layout.targetBox(stub(2)).y, lowerLeft.y);
-  CHECK_EQ(fixture.layout.targetBox(stub(1)).y, upperRight.y);
+  const wlr_box left = fixture.layout.targetBox(stub(1));
+  CHECK_EQ(left.x, upperRight.x);
+  CHECK_EQ(left.y, upperRight.y);
+  CHECK_EQ(left.width, upperRight.width);
+  CHECK_EQ(left.height, upperRight.height);
+}
+
+ANDROMEDA_TEST(horizontalMoveSplitsTheEnteredTileAlongItsLongerEdge) {
+  Fixture fixture;
+  for (int i = 0; i < 3; ++i) {
+    fixture.layout.insertView(stub(i), i);
+    fixture.layout.arrange(kUsable);
+  }
+  const wlr_box left = fixture.layout.targetBox(stub(0));
+  const wlr_box upperRight = fixture.layout.targetBox(stub(1));
+
+  // The tall left tile stacks, and the moved window keeps the lower half it came from.
+  CHECK(fixture.layout.moveView(stub(2), true, -1));
+  const wlr_box top = fixture.layout.targetBox(stub(0));
+  const wlr_box moved = fixture.layout.targetBox(stub(2));
+  CHECK_EQ(top.x, left.x);
+  CHECK_EQ(top.y, left.y);
+  CHECK_EQ(moved.x, left.x);
+  CHECK(moved.y > top.y);
+  const wlr_box right = fixture.layout.targetBox(stub(1));
+  CHECK_EQ(right.y, upperRight.y);
+  CHECK_EQ(right.height, left.height);
+}
+
+ANDROMEDA_TEST(moveTowardALoneSiblingTradesSides) {
+  Fixture fixture;
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  CHECK(fixture.layout.setResizeBoundary(stub(0), WLR_EDGE_RIGHT, 0.7));
+  fixture.layout.arrange(kUsable);
+
+  CHECK(fixture.layout.moveView(stub(0), true, 1));
+  const wlr_box left = fixture.layout.targetBox(stub(1));
+  const wlr_box right = fixture.layout.targetBox(stub(0));
+  CHECK(left.x < right.x);
+  CHECK_EQ(left.y, right.y);
+  CHECK_EQ(left.width, right.width);
+}
+
+ANDROMEDA_TEST(moveTowardTheContentEdgeIsRefused) {
+  Fixture fixture;
+  fixture.addLeaves(3);
+  fixture.layout.arrange(kUsable);
+  const wlr_box before = fixture.layout.targetBox(stub(0));
+
+  CHECK(!fixture.layout.moveView(stub(0), true, -1));
+  CHECK(!fixture.layout.moveViewVertical(stub(0), -1));
+  CHECK(!fixture.layout.moveViewVertical(stub(0), 1));
+  CHECK(!fixture.layout.moveView(stub(1), true, 1));
+  CHECK_EQ(fixture.layout.columnOf(stub(0)), 0);
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).width, before.width);
 }
 
 ANDROMEDA_TEST(focusPeersSpanTheCrossedSubtree) {
@@ -495,6 +566,22 @@ ANDROMEDA_TEST(directionalDropKeepsItsAxisWhenPreserveSplitIsOff) {
   CHECK(fixture.layout.targetBox(stub(0)).x != fixture.layout.targetBox(stub(1)).x);
 }
 
+ANDROMEDA_TEST(toggledSplitSurvivesArrangeWhenPreserveSplitIsOff) {
+  Fixture fixture;
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).y, fixture.layout.targetBox(stub(1)).y);
+
+  CHECK(fixture.layout.toggleSplit(stub(1)));
+  fixture.layout.arrange(kUsable);
+  fixture.layout.arrange(kUsable);
+
+  const wlr_box first = fixture.layout.targetBox(stub(0));
+  const wlr_box second = fixture.layout.targetBox(stub(1));
+  CHECK_EQ(first.x, second.x);
+  CHECK(first.y != second.y);
+}
+
 ANDROMEDA_TEST(insertAtAGapSplitsThePrecedingLeaf) {
   Fixture fixture;
   fixture.addLeaves(3);
@@ -521,6 +608,28 @@ ANDROMEDA_TEST(insertAtGapZeroPlacesViewAtTheFront) {
   fixture.layout.insertView(stub(2), 0);
   CHECK_EQ(fixture.layout.columnOf(stub(2)), 0);
   CHECK_EQ(fixture.layout.columnOf(stub(0)), 1);
+}
+
+ANDROMEDA_TEST(insertTowardAPointTakesTheHalfFacingIt) {
+  Fixture fixture;
+  fixture.addLeaves(1);
+  fixture.layout.arrange(kUsable);
+
+  // A landscape leaf splits side by side, so only x picks the side.
+  fixture.layout.insertViewToward(stub(1), 1, 100, 700);
+  fixture.layout.arrange(kUsable);
+  const wlr_box left = fixture.layout.targetBox(stub(1));
+  const wlr_box right = fixture.layout.targetBox(stub(0));
+  CHECK(left.x < right.x);
+  CHECK_EQ(left.y, right.y);
+
+  // The 629x700 right leaf stacks, so only y picks the side.
+  fixture.layout.insertViewToward(stub(2), 2, 1270, 100);
+  fixture.layout.arrange(kUsable);
+  const wlr_box top = fixture.layout.targetBox(stub(2));
+  const wlr_box bottom = fixture.layout.targetBox(stub(0));
+  CHECK_EQ(top.x, right.x);
+  CHECK(top.y < bottom.y);
 }
 
 ANDROMEDA_TEST(gapsSeparateSiblings) {
@@ -722,6 +831,41 @@ ANDROMEDA_TEST(cycleWidthBackWalksThePresetsInReverse) {
   CHECK(fixture.layout.cycleWidth(0, -1));
   fixture.layout.arrange(kUsable);
   CHECK(std::abs(fixture.layout.targetBox(stub(0)).width - static_cast<int>(span * (2.0 / 3.0))) <= 2);
+}
+
+ANDROMEDA_TEST(cycleWidthWrapsWhenTheNextPresetIsOutOfReach) {
+  // A split share tops out at 0.9, short of the 1.0 preset.
+  Fixture fixture;
+  fixture.config.extentPresets = {0.5, 1.0};
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  CHECK(fixture.layout.setWidthFraction(0, 0.5));
+  CHECK(fixture.layout.cycleWidth(0, 1));
+  CHECK(std::abs(fixture.layout.widthFraction(0) - 0.9) < 1e-9);
+  CHECK(fixture.layout.cycleWidth(0, 1));
+  CHECK(std::abs(fixture.layout.widthFraction(0) - 0.5) < 1e-9);
+}
+
+ANDROMEDA_TEST(widePresetsWrapInsteadOfStallingASplitShare) {
+  // A preset beyond the split ceiling reaches as far as the layout realizes, then wraps; it never parks.
+  Fixture fixture;
+  fixture.config.extentPresets = {0.5, 1.5};
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  CHECK(fixture.layout.setWidthFraction(0, 0.5));
+  CHECK(fixture.layout.cycleWidth(0, 1));
+  CHECK(std::abs(fixture.layout.widthFraction(0) - 0.9) < 1e-9);
+  CHECK(fixture.layout.cycleWidth(0, 1));
+  CHECK(std::abs(fixture.layout.widthFraction(0) - 0.5) < 1e-9);
+}
+
+ANDROMEDA_TEST(wideFractionsLandAtTheSingleViewportCeiling) {
+  Fixture fixture;
+  fixture.addLeaves(2);
+  fixture.layout.arrange(kUsable);
+  CHECK(fixture.layout.setWidthFraction(0, 1.5));
+  CHECK(fixture.layout.widthFraction(0) <= 1.0);
+  CHECK(fixture.layout.maxExtentFraction() == 1.0);
 }
 
 ANDROMEDA_TEST(resizeEdgesComeFromTileThirds) {

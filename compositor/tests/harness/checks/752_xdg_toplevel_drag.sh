@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # xdg_toplevel_drag_manager_v1 is offered, and a window torn off during a data-device drag floats under the pointer
-# at the offset its client gave, is never a drop target itself, and stays where the drop left it.
+# at the offset its client gave, is never a drop target itself, and joins the layout when dropped.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 
@@ -42,9 +42,13 @@ pointer_step at-700
 expect_torn_at 680 440 "after the pointer moved"
 pointer_release
 await_events "$LOG" drag-ended 1 "the end of the drag"
-expect_torn_at 680 440 "after the drop"
+for _ in $(seq 40); do
+  [[ $(torn) == *" false" ]] && break
+  sleep 0.05
+done
+[[ $(torn) == *" false" ]] || { echo "the dropped window did not join the layout: $(torn)"; exit 1; }
 if grep -q '^enter tabs-torn$' "$LOG"; then
   echo "the drag entered the window it carries"
   exit 1
 fi
-echo "torn-off window followed the pointer to 680,440, stayed there after the drop, and was never a drop target"
+echo "torn-off window followed the pointer to 680,440, joined the layout on the drop, and was never a drop target"

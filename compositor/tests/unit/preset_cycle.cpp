@@ -5,6 +5,7 @@
 #include "layout/layout.h"
 #include "view/floating.h"
 
+using andromeda::boundedPresets;
 using andromeda::floatingFractionSize;
 using andromeda::floatingSizeFraction;
 using andromeda::nextFractionPreset;
@@ -75,6 +76,22 @@ ANDROMEDA_TEST(aFloatSizeNoPresetProducedKeepsItsMeasuredFraction) {
 ANDROMEDA_TEST(aFloatCycleWrapsAtTheEnds) {
   CHECK_EQ(cycledPixels(900, 1080, 1), 360);
   CHECK_EQ(cycledPixels(100, 1080, -1), 720);
+}
+
+ANDROMEDA_TEST(boundedPresetsDropStepsAFloatCannotRealize) {
+  const std::vector<double> presets{0.5, 1.0, 1.5, 2.0};
+  const std::vector<double> floats{0.5, 1.0};
+  CHECK_EQ(boundedPresets(presets, 1.0), floats);
+  // Nothing to drop when every preset fits.
+  CHECK_EQ(boundedPresets(floats, 1.0), floats);
+}
+
+ANDROMEDA_TEST(aFloatCycleNeverStallsOnAWidePreset) {
+  const auto floats = boundedPresets({0.5, 1.0, 1.5, 2.0}, 1.0);
+  CHECK(nextFractionPreset(floats, 0.5, 1) == 1.0);
+  // Wraps back to the smallest preset instead of parking on a 1.5 the float cannot reach.
+  CHECK(nextFractionPreset(floats, 1.0, 1) == 0.5);
+  CHECK(nextFractionPreset(floats, 1.0, -1) == 0.5);
 }
 
 int main() { return RUN_TESTS(); }

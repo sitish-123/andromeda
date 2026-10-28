@@ -3,6 +3,7 @@
 
 // Pulls the C++ math headers in before `static` is defined away below.
 #include <cmath> // IWYU pragma: keep
+#include <drm_fourcc.h>
 
 extern "C" {
 // wlroots uses C99 array parameter syntax in headers included by wlr_output.h.
@@ -12,7 +13,10 @@ extern "C" {
 }
 
 using andromeda::fastestPreferredMode;
+using andromeda::colorChangeNeedsModeset;
+using andromeda::liveModeMatches;
 using andromeda::outputCanAutoEnable;
+using andromeda::outputEnableNeedsStaging;
 using andromeda::OutputMode;
 using andromeda::preferredFallbackMode;
 using andromeda::selectOutputMode;
@@ -217,6 +221,106 @@ ANDROMEDA_TEST(automaticModeIsNullWithoutModes) {
   wl_list_init(&output.modes);
 
   CHECK(fastestPreferredMode(&output) == nullptr);
+}
+
+ANDROMEDA_TEST(litOutputKeepsTheLiveModeItWouldStageAgain) {
+  wlr_output output{};
+  wlr_output_mode live = outputMode(2560, 1440, 143987, true);
+  output.enabled = true;
+  output.current_mode = &live;
+
+  CHECK(liveModeMatches(output, &live));
+}
+
+ANDROMEDA_TEST(litOutputModesetsToAnotherResolution) {
+  wlr_output output{};
+  wlr_output_mode live = outputMode(1920, 1080, 60000);
+  wlr_output_mode wanted = outputMode(2560, 1440, 60000, true);
+  output.enabled = true;
+  output.current_mode = &live;
+
+  CHECK(!liveModeMatches(output, &wanted));
+}
+
+ANDROMEDA_TEST(litOutputModesetsToAnotherRefreshAtTheSameResolution) {
+  wlr_output output{};
+  wlr_output_mode live = outputMode(2560, 1440, 59951);
+  wlr_output_mode wanted = outputMode(2560, 1440, 143987, true);
+  output.enabled = true;
+  output.current_mode = &live;
+
+  CHECK(!liveModeMatches(output, &wanted));
+}
+
+ANDROMEDA_TEST(unlitOutputModesetsEvenToItsLastMode) {
+  wlr_output output{};
+  wlr_output_mode last = outputMode(2560, 1440, 143987, true);
+  output.enabled = false;
+  output.current_mode = &last;
+
+  CHECK(!liveModeMatches(output, &last));
+}
+
+ANDROMEDA_TEST(litOutputThatStaysEnabledIsNotEnabledAgain) {
+  wlr_output output{};
+  output.enabled = true;
+
+  CHECK(!outputEnableNeedsStaging(output, true));
+}
+
+ANDROMEDA_TEST(unlitOutputIsEnabled) {
+  wlr_output output{};
+  output.enabled = false;
+
+  CHECK(outputEnableNeedsStaging(output, true));
+}
+
+ANDROMEDA_TEST(litOutputIsDisabled) {
+  wlr_output output{};
+  output.enabled = true;
+
+  CHECK(outputEnableNeedsStaging(output, false));
+}
+
+ANDROMEDA_TEST(tenBitFormatOnAnEightBitOutputNeedsAModeset) {
+  wlr_output output{};
+  output.render_format = DRM_FORMAT_XRGB8888;
+
+  CHECK(colorChangeNeedsModeset(output, DRM_FORMAT_XRGB2101010, false));
+}
+
+ANDROMEDA_TEST(enablingHdrAtTheSameFormatNeedsAModeset) {
+  wlr_output output{};
+  output.render_format = DRM_FORMAT_XBGR2101010;
+  output.image_description = nullptr;
+
+  CHECK(colorChangeNeedsModeset(output, DRM_FORMAT_XBGR2101010, true));
+}
+
+ANDROMEDA_TEST(leavingHdrAtTheSameFormatNeedsAModeset) {
+  wlr_output output{};
+  wlr_output_image_description hdr{};
+  output.render_format = DRM_FORMAT_XBGR2101010;
+  output.image_description = &hdr;
+
+  CHECK(colorChangeNeedsModeset(output, DRM_FORMAT_XBGR2101010, false));
+}
+
+ANDROMEDA_TEST(sdrOutputKeepingItsFormatNeedsNoModeset) {
+  wlr_output output{};
+  output.render_format = DRM_FORMAT_XRGB8888;
+  output.image_description = nullptr;
+
+  CHECK(!colorChangeNeedsModeset(output, DRM_FORMAT_XRGB8888, false));
+}
+
+ANDROMEDA_TEST(hdrOutputKeepingHdrAndItsFormatNeedsNoModeset) {
+  wlr_output output{};
+  wlr_output_image_description hdr{};
+  output.render_format = DRM_FORMAT_XBGR2101010;
+  output.image_description = &hdr;
+
+  CHECK(!colorChangeNeedsModeset(output, DRM_FORMAT_XBGR2101010, true));
 }
 
 int main() { return RUN_TESTS(); }

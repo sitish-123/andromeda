@@ -8,6 +8,7 @@
 #include <array>
 #include <format>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,14 +18,23 @@ namespace andromeda {
 
   namespace {
 
-    constexpr std::array<std::string_view, 7> kReservedEnvironmentNames{
-        "WAYLAND_DISPLAY",     "WAYLAND_SOCKET",      "DISPLAY",          "ANDROMEDA_SOCKET",
+    constexpr std::array<std::string_view, 8> kReservedEnvironmentNames{
+        "WAYLAND_DISPLAY",     "WAYLAND_SOCKET",      "DISPLAY",          "ANDROMEDA_SOCKET", "LIBEI_SOCKET",
         "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
     };
 
     const registry::Fields<Config::Colors>& colorFields() {
       using registry::color;
       using C = Config::Colors;
+      static const registry::Fields<C::TitleBar> titleBar{
+          color("background", &C::TitleBar::background),
+          color("background_unfocused", &C::TitleBar::backgroundUnfocused),
+          color("text", &C::TitleBar::text),
+          color("text_unfocused", &C::TitleBar::textUnfocused),
+          color("close", &C::TitleBar::close),
+          color("maximize", &C::TitleBar::maximize),
+          color("minimize", &C::TitleBar::minimize),
+      };
       static const registry::Fields<C::Border> border{
           color("focused", &C::Border::focused),
           color("unfocused", &C::Border::unfocused),
@@ -34,6 +44,16 @@ namespace andromeda {
           color("background_tint", &C::Overview::backgroundTint),
           color("workspace_background", &C::Overview::workspaceBackground),
           color("badge", &C::Overview::badge),
+      };
+      static const registry::Fields<C::TabBar> tabBar{
+          color("background", &C::TabBar::background),
+          color("text", &C::TabBar::text),
+          color("active", &C::TabBar::active),
+          color("active_text", &C::TabBar::activeText),
+          color("active_unfocused", &C::TabBar::activeUnfocused),
+          color("active_unfocused_text", &C::TabBar::activeUnfocusedText),
+          color("urgent", &C::TabBar::urgent),
+          color("urgent_text", &C::TabBar::urgentText),
       };
       static const registry::Fields<C> fields{
           color("background", &C::background),
@@ -48,6 +68,8 @@ namespace andromeda {
           color("shadow", &C::shadow),
           registry::table("border", &C::border, border),
           registry::table("overview", &C::overview, overview),
+          registry::table("tab_bar", &C::tabBar, tabBar),
+          registry::table("title_bar", &C::titleBar, titleBar),
       };
       return fields;
     }
@@ -57,6 +79,34 @@ namespace andromeda {
       using registry::integer;
       using registry::real;
       using A = Config::Appearance;
+      static const registry::Fields<A::TitleBar> titleBar{
+          registry::choice(
+              "mode", &A::TitleBar::mode,
+              {{"forced", TitleBarMode::Forced},
+               {"off", TitleBarMode::Off},
+               {"on", TitleBarMode::On},
+               {"negotiated", TitleBarMode::Negotiated}}
+          ),
+          integer("height", 16, 128, &A::TitleBar::height),
+          integer("button_corner_radius", -1, 100, &A::TitleBar::buttonCornerRadius),
+          registry::text("font", &A::TitleBar::font),
+          registry::choice(
+              "button_position", &A::TitleBar::buttonPosition,
+              {
+                  {.name = "left", .value = TitleBarButtonSide::Left},
+                  {.name = "right", .value = TitleBarButtonSide::Right},
+              }
+          ),
+          registry::custom<A::TitleBar>(
+              "buttons", registry::KeyDescription("string_array").withValues(titleBarButtonNames()),
+              [](const toml::node& node, const std::string& path, A::TitleBar& target, registry::ReadContext&) {
+                if (auto buttons = parseTitleBarButtons(node, path)) {
+                  target.buttons = std::move(*buttons);
+                }
+              },
+              [](const A::TitleBar& defaults) { return titleBarButtonsJson(defaults.buttons); }
+          ),
+      };
       static const registry::Fields<A::Blur> blur{
           boolean("enabled", &A::Blur::enabled),          boolean("optimized", &A::Blur::optimized),
           integer("passes", 0, 8, &A::Blur::passes),      integer("radius", 0, 100, &A::Blur::radius),
@@ -69,6 +119,49 @@ namespace andromeda {
           integer("offset_x", -200, 200, &A::Shadow::offsetX),
           integer("offset_y", -200, 200, &A::Shadow::offsetY),
       };
+      static const registry::Fields<A::TabBar> tabBar{
+          registry::choice(
+              "style", &A::TabBar::style,
+              {
+                  {.name = "titles", .value = TabBarLook::Titles},
+                  {.name = "indicator", .value = TabBarLook::Indicator},
+              }
+          ),
+          registry::choice(
+              "position", &A::TabBar::position,
+              {
+                  {.name = "top", .value = TabBarPosition::Top},
+                  {.name = "bottom", .value = TabBarPosition::Bottom},
+                  {.name = "left", .value = TabBarPosition::Left},
+                  {.name = "right", .value = TabBarPosition::Right},
+              }
+          ),
+          integer("height", 2, 400, &A::TabBar::height),
+          registry::text("font", &A::TabBar::font),
+          integer("padding", 0, 64, &A::TabBar::padding),
+          integer("tab_gap", 0, 64, &A::TabBar::tabGap),
+          integer("gap", -1, 500, &A::TabBar::gap),
+          integer("corner_radius", -1, 100, &A::TabBar::cornerRadius),
+          registry::text("title_format", &A::TabBar::titleFormat),
+          registry::choice(
+              "title_align", &A::TabBar::titleAlign,
+              {
+                  {.name = "left", .value = TitleAlign::Left},
+                  {.name = "center", .value = TitleAlign::Center},
+                  {.name = "right", .value = TitleAlign::Right},
+              }
+          ),
+          boolean("visible", &A::TabBar::visible),
+          boolean("hide_when_single", &A::TabBar::hideWhenSingle),
+          integer("max_tabs", 0, 64, &A::TabBar::maxTabs),
+          registry::choice(
+              "overflow", &A::TabBar::overflow,
+              {
+                  {.name = "scroll", .value = TabOverflow::Scroll},
+                  {.name = "shrink", .value = TabOverflow::Shrink},
+              }
+          ),
+      };
       static const registry::Fields<A> fields{
           integer("border_width", 0, 100, &A::borderWidth),
           integer("outer_border_width", 0, 100, &A::outerBorderWidth),
@@ -78,6 +171,8 @@ namespace andromeda {
           boolean("opaque_fullscreen", &A::opaqueFullscreen),
           registry::table("blur", &A::blur, blur),
           registry::table("shadow", &A::shadow, shadow),
+          registry::table("tab_bar", &A::tabBar, tabBar),
+          registry::table("title_bar", &A::titleBar, titleBar),
       };
       return fields;
     }
@@ -151,7 +246,8 @@ namespace andromeda {
         warnAt(node.source(), R"(invalid {} "{}")", path, *value);
         return std::nullopt;
       }
-      if (const auto invalid = scratchpadSelectorError(loaded, bind)) {
+      if (const auto invalid =
+              scratchpadSelectorError(loaded, bind).or_else([&] { return effectActionError(loaded, bind); })) {
         warnAt(node.source(), "ignoring {} ({})", path, *invalid);
         return std::nullopt;
       }
@@ -224,8 +320,11 @@ namespace andromeda {
               registry::Case::Fold
           ),
           boolean("xwayland", &G::xwayland),
+          boolean("xwayland_native_resolution", &G::xwaylandNativeResolution),
+          boolean("xwayland_xsettings", &G::xwaylandXsettings),
           boolean("show_cheatsheet", &G::showCheatsheet),
           boolean("focus_on_activate", &G::focusOnActivate),
+          boolean("attach_modal_dialogs", &G::attachModalDialogs),
           boolean("honor_restored_maximize", &G::honorRestoredMaximize),
           registry::strings("autostart", &G::autostart),
       };
@@ -268,6 +367,52 @@ namespace andromeda {
     }
 
   } // namespace
+
+  namespace {
+    constexpr std::array<std::pair<std::string_view, TitleBarButton>, kTitleBarButtonCount> kTitleBarButtonNames{{
+        {"minimize", TitleBarButton::Minimize},
+        {"maximize", TitleBarButton::Maximize},
+        {"close", TitleBarButton::Close},
+    }};
+  } // namespace
+
+  std::vector<std::string_view> titleBarButtonNames() {
+    return kTitleBarButtonNames | std::views::keys | std::ranges::to<std::vector>();
+  }
+
+  std::optional<std::vector<TitleBarButton>> parseTitleBarButtons(const toml::node& node, const std::string& path) {
+    const std::vector<std::string_view> names = titleBarButtonNames();
+    const auto* array = node.as_array();
+    if (array == nullptr) {
+      warnAt(node.source(), "ignoring {} (expected an array of {})", path, registry::quotedList(names));
+      return std::nullopt;
+    }
+    std::vector<TitleBarButton> buttons;
+    for (const toml::node& entry : *array) {
+      const auto* value = entry.as_string();
+      const auto found = value != nullptr
+          ? std::ranges::find(kTitleBarButtonNames, value->get(), &std::pair<std::string_view, TitleBarButton>::first)
+          : kTitleBarButtonNames.end();
+      if (found == kTitleBarButtonNames.end()) {
+        warnAt(entry.source(), "ignoring {} entry (expected {})", path, registry::quotedList(names));
+        continue;
+      }
+      if (std::ranges::contains(buttons, found->second)) {
+        warnAt(entry.source(), R"(ignoring repeated {} entry "{}")", path, found->first);
+        continue;
+      }
+      buttons.push_back(found->second);
+    }
+    return buttons;
+  }
+
+  nlohmann::ordered_json titleBarButtonsJson(const std::vector<TitleBarButton>& buttons) {
+    nlohmann::ordered_json names = nlohmann::ordered_json::array();
+    for (const TitleBarButton button : buttons) {
+      names.push_back(kTitleBarButtonNames[static_cast<size_t>(button)].first);
+    }
+    return names;
+  }
 
   registry::Field<Config> colorsTable() { return registry::table("colors", &Config::colors, colorFields()); }
 

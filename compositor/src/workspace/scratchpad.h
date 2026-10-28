@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,13 +27,15 @@ namespace andromeda {
   class Server;
   class View;
   class Workspace;
+  struct DisplacedWorkspace;
+  struct WorkspaceLaunchAnchor;
   class ScratchpadManager : public Animatable {
   public:
     ScratchpadManager(Server& server, wlr_scene_tree* root);
     ~ScratchpadManager() override;
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
-    bool tickAnimations(uint64_t nowMsec) override;
+    bool tickAnimations(double nowMsec) override;
     [[nodiscard]] bool hasActiveAnimations() const override;
     [[nodiscard]] bool animatesOn(const Output* output) const override;
 
@@ -51,14 +54,23 @@ namespace andromeda {
     [[nodiscard]] Output* restoreOutputFor(const View* view) const;
     [[nodiscard]] bool moveToScratchpad(View* view, std::string_view name, Output* invokingOutput);
     [[nodiscard]] bool
-    assignByWindowRule(View* view, std::string_view name, Output* placementOutput, const AutomaticAdmission& options);
+    assignAutomatic(View* view, std::string_view name, Output* placementOutput, const AutomaticAdmission& options);
     [[nodiscard]] bool assignFromParent(View* view, const View* parent, const AutomaticAdmission& options);
-    // Show a scratchpad on the invoking output without changing keyboard focus.
-    bool summon(std::string_view name, Output* invokingOutput);
+    // Launch context survives an empty pad. Explicit workspace focus relinquishes it on that output.
+    [[nodiscard]] std::string_view activeOn(const Output* output) const;
+    void deactivateOn(const Output* output);
+    bool refocusActive(Output* output);
+    // Show a scratchpad on the invoking output without changing keyboard focus. Naming `member` while the pad shows a
+    // single window shows that member instead.
+    bool summon(std::string_view name, Output* invokingOutput, View* member = nullptr);
     bool toggle(std::string_view name, Output* invokingOutput);
     void hideAll();
     bool restoreFocused(std::string_view name);
+    bool restoreToWorkspace(View* view, Workspace* workspace);
     bool focusNext(std::string_view name);
+    // Show one window of the scratchpad at a time: the one after (`direction` > 0) or before the window on show,
+    // wrapping at the ends. A hidden pad shows its most recently focused window.
+    bool showStep(std::string_view name, int direction, Output* invokingOutput);
     [[nodiscard]] View* focused(std::string_view name) const;
     [[nodiscard]] bool hasFocus(std::string_view name) const;
     // The most recently focused window when that focus went to a scratchpad
@@ -78,6 +90,8 @@ namespace andromeda {
     // layout or usable area changes.
     void refreshOutputGeometry(Output* output);
     void applyConfig();
+    // Refit the maximized windows of visible scratchpads to the margin their settings give them now.
+    void refitMaximized();
     // Reconcile runtime scratchpads after a successful [[scratchpad]] reload.
     // Windows belonging to removed definitions return to their saved workspaces.
     void reconcileConfig();
@@ -86,9 +100,7 @@ namespace andromeda {
 
   private:
     struct PendingSpawn {
-      Output* output = nullptr;
       std::chrono::steady_clock::time_point expiresAt;
-      bool shown = true;
 
       [[nodiscard]] bool live() const { return std::chrono::steady_clock::now() < expiresAt; }
     };
@@ -96,7 +108,10 @@ namespace andromeda {
     struct Scratchpad {
       Output* output = nullptr;
       bool visible = false;
+      bool active = false;
       View* lastFocused = nullptr;
+      // While visible, the one member shown in place of all of them; null when every member shows.
+      View* solo = nullptr;
       std::optional<PendingSpawn> pendingSpawn;
       // Set only while an output disappearance has temporarily parked this
       // scratchpad elsewhere.
@@ -113,6 +128,9 @@ namespace andromeda {
       std::string returnWorkspace;
       size_t returnWorkspaceIndex = 0;
       bool returnWorkspaceNamed = false;
+      // A refuge can share its name with a native workspace and can be pruned while its last view is in a scratchpad.
+      std::weak_ptr<WorkspaceLaunchAnchor> returnWorkspaceAnchor;
+      std::shared_ptr<const DisplacedWorkspace> returnDisplacedWorkspace;
       bool returnTiled = false;
     };
 
@@ -122,6 +140,16 @@ namespace andromeda {
     [[nodiscard]] const Entry* findEntry(const View* view) const;
     [[nodiscard]] bool hasEntries(std::string_view name) const;
     [[nodiscard]] bool visibleOn(Output* output) const;
+    // Whether `view`, a member of `scratchpad`, is on screen.
+    [[nodiscard]] static bool presents(const Scratchpad& scratchpad, const View* view);
+    // Whether `view` is a dialog of another member of scratchpad `name`, shown along with that member.
+    [[nodiscard]] bool ridesWithParent(const View* view, std::string_view name) const;
+    // The regular member of scratchpad `name` that `view` belongs to: `view` itself, or for a dialog the member it was
+    // opened from.
+    [[nodiscard]] View* memberFor(View* view, std::string_view name) const;
+    // Called as `view` leaves scratchpad `name`: if it was the window focused last, a dialog hands that over to the
+    // nearest window of the scratchpad it was opened from, and any other window clears it.
+    void forgetLastFocused(Scratchpad& scratchpad, std::string_view name, const View* view) const;
     enum class Admission { Interactive, Automatic };
     bool admit(
         View* view, std::string_view name, Output* invokingOutput, Admission admission,
@@ -132,7 +160,7 @@ namespace andromeda {
         std::string_view name, Output* output, View* alreadyPositioned = nullptr, bool clearDisplacement = true
     );
     void remapViewRestoreGeometry(View* view, const wlr_box& previousArea, const wlr_box& targetArea);
-    bool restoreView(View* view, Output* fallback, bool focus);
+    bool restoreView(View* view, Output* fallback, bool focus, Workspace* target = nullptr);
     // Retarget the backdrop dim/blur fade for `output` and refresh its scene nodes.
     void retargetBackdrop(Output* output, bool visible, bool animateTransition = true);
     wlr_scene_rect* dimRectFor(Output* output);

@@ -2,8 +2,9 @@
 
 #include "config/config.h"
 #include "input/cursor.h"
+#include "input/input_capture.h"
+#include "input/toplevel_drag.h"
 #include "server/server.h"
-#include "server/toplevel_drag.h"
 #include "wlr.h"
 
 namespace andromeda {
@@ -33,9 +34,11 @@ namespace andromeda {
 
     m_startDrag.notify = onStartDrag;
     wl_signal_add(&m_seat->events.start_drag, &m_startDrag);
+    m_toplevelDrags = std::make_unique<ToplevelDragManager>(server);
   }
 
   Seat::~Seat() {
+    m_toplevelDrags.reset();
     wl_list_remove(&m_requestCursor.link);
     wl_list_remove(&m_requestSetShape.link);
     wl_list_remove(&m_pointerFocusChange.link);
@@ -116,7 +119,9 @@ namespace andromeda {
     // Recorded even while the compositor owns the cursor, so ending that
     // override replays the client's cursor instead of making it resend one.
     if (m_seat->pointer_state.focused_client == event->seat_client) {
-      m_server->cursor()->setCursorSurface(event->surface, event->hotspot_x, event->hotspot_y);
+      m_server->cursor()->setCursorSurface(
+          event->surface, event->hotspot_x, event->hotspot_y, event->seat_client->client
+      );
     }
   }
 
@@ -145,7 +150,7 @@ namespace andromeda {
       return;
     }
     if (pointer) {
-      m_server->cursor()->setCursorShape(name);
+      m_server->cursor()->setCursorShape(name, event->seat_client->client);
     } else if (!m_server->cursor()->compositorOwnsCursor()) {
       m_server->cursor()->setXcursor(name);
     }
@@ -177,6 +182,10 @@ namespace andromeda {
   }
 
   void Seat::sendPointerModifiers(wlr_seat_client* client, bool clear) {
+    const bool capturing = m_server->inputCapture() != nullptr && (m_server->inputCapture()->capabilities() & 1U) != 0;
+    if (capturing && !clear) {
+      return;
+    }
     wlr_keyboard* keyboard = wlr_seat_get_keyboard(m_seat);
     if (client == nullptr
         || client == m_seat->keyboard_state.focused_client
@@ -189,7 +198,7 @@ namespace andromeda {
     // A reset must work after keyboard removal, and a lock-time leave must
     // not expose lock/layout state to the old normal client.
     wlr_keyboard_modifiers modifiers{};
-    if (keyboard != nullptr && keyboard->keymap != nullptr && !(clear && m_server->sessionLocked())) {
+    if (keyboard != nullptr && keyboard->keymap != nullptr && !capturing && !(clear && m_server->sessionLocked())) {
       modifiers = keyboard->modifiers;
     }
     const uint32_t serial = wlr_seat_client_next_serial(client);
@@ -207,7 +216,9 @@ namespace andromeda {
 
   void Seat::handleRequestSetSelection(void* data) {
     auto* event = static_cast<wlr_seat_request_set_selection_event*>(data);
-    wlr_seat_set_selection(m_seat, event->source, event->serial);
+    if (!m_toplevelDrags->rejectSelection(event->source)) {
+      wlr_seat_set_selection(m_seat, event->source, event->serial);
+    }
   }
 
   void Seat::handleRequestSetPrimarySelection(void* data) {
@@ -229,14 +240,13 @@ namespace andromeda {
 
   void Seat::handleStartDrag(void* data) {
     auto* drag = static_cast<wlr_drag*>(data);
-    if (ToplevelDragManager* toplevelDrags = m_server->toplevelDragManager()) {
-      toplevelDrags->dragStarted(drag);
-    }
     if (m_dragDestroy.link.next != nullptr) {
       wl_list_remove(&m_dragDestroy.link);
     }
     m_dragDestroy.notify = onDragDestroy;
     wl_signal_add(&drag->events.destroy, &m_dragDestroy);
+    m_server->cursor()->handleDataDragStarted();
+    m_toplevelDrags->start(drag);
     if (drag->icon == nullptr) {
       return;
     }
@@ -252,6 +262,8 @@ namespace andromeda {
     wl_list_remove(&m_dragDestroy.link);
     m_dragDestroy.link.next = nullptr;
     m_dragDestroy.link.prev = nullptr;
+    m_toplevelDrags->finish();
+    m_server->cursor()->handleDataDragEnded();
     m_server->restoreActivatedViewKeyboardFocus();
   }
 

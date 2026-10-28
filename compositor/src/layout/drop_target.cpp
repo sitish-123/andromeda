@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "layout/dwindle.h"
 #include "layout/layout.h"
+#include "layout/master.h"
 #include "layout/scrolling.h"
 #include "output/output.h"
 #include "server/server.h"
@@ -36,6 +37,7 @@ namespace andromeda {
       wlr_box hint{};
     };
 
+    // row < 0 starts the empty stack at gap index `column`.
     struct MasterTarget {
       int column = 0;
       int row = 0;
@@ -254,6 +256,11 @@ namespace andromeda {
         int nearestRow = 0;
         double rowDistance = std::abs(crossWorld - (crossOrigin + edgePad));
         for (int row = 1; row <= static_cast<int>(column.views.size()); ++row) {
+          // Boundaries lie between units: a tab group's tabs share one box, with no boundary between them.
+          if (const TabGroup* group = column.tabs.groupAt(static_cast<size_t>(row));
+              group != nullptr && static_cast<size_t>(row) > group->first) {
+            continue;
+          }
           const wlr_box target =
               row == static_cast<int>(column.views.size()) ? wlr_box{} : layout.targetBox(column.views[row]);
           const int boundary = row == static_cast<int>(column.views.size()) ? crossOrigin + crossExtent - edgePad
@@ -282,10 +289,22 @@ namespace andromeda {
     }
 
     MasterTarget computeMasterTarget(
-        const Workspace& workspace, const Layout& layout, const wlr_box& /*usable*/, double worldX, double worldY
+        const Workspace& workspace, const MasterStackLayout& layout, const wlr_box& usable, double worldX, double worldY
     ) {
+      // The first window starts the master area.
       if (layout.columns().empty()) {
-        return {};
+        return {.hint = layout.emptyMasterBox(usable)};
+      }
+
+      // An empty stack owns its side up to the middle of the gap it would open, so a drop there starts the stack
+      // instead of joining the master area that currently spans it.
+      const double halfGap = workspace.layoutConfig().totalGap / 2.0;
+      for (const MasterStackLayout::EmptyStack& stack : layout.emptyStacks(usable)) {
+        const bool hit =
+            stack.gap == 0 ? worldX < stack.box.x + stack.box.width + halfGap : worldX >= stack.box.x - halfGap;
+        if (hit) {
+          return {.column = stack.gap, .row = -1, .hint = stack.box};
+        }
       }
 
       int selectedColumn = 0;
@@ -399,6 +418,10 @@ namespace andromeda {
       return result;
     }
 
+    if (workspace.layoutMode() == LayoutMode::Floating) {
+      // Floating workspaces offer no tiled drop target or hint.
+      return result;
+    }
     // Layout mode is a genuine policy fork here. Each layout wants different
     // drop targets and hint shapes.
     if (DwindleLayout* dwindle = workspace.dwindleLayout()) {
@@ -408,9 +431,12 @@ namespace andromeda {
       result.edge = target.edge;
       if (target.view != nullptr && target.edge != 0) {
         result.hintBox = target.hint;
+      } else if (dwindle->columns().empty()) {
+        // The first window takes the whole area.
+        result.hintBox = dwindle->contentArea(usable);
       }
-    } else if (workspace.layoutMode() == LayoutMode::Master) {
-      const MasterTarget target = computeMasterTarget(workspace, workspace.layout(), usable, worldX, worldY);
+    } else if (const MasterStackLayout* master = workspace.masterLayout()) {
+      const MasterTarget target = computeMasterTarget(workspace, *master, usable, worldX, worldY);
       result.column = target.column;
       result.row = target.row;
       result.hintBox = target.hint;
@@ -472,6 +498,16 @@ namespace andromeda {
       result.column = static_cast<int>(workspace.layout().columns().size());
     }
 
+    // Tabs share one box, so a drop over a tab group's bar or middle picks its place among the tabs rather than a row
+    // boundary.
+    if (result.row >= 0) {
+      if (const std::optional<TabDrop> tab = workspace.tabs().dropSlot(result.column, worldX, worldY)) {
+        result.row = tab->row;
+        result.tab = tab->member;
+        result.hintBox = tab->hint;
+      }
+    }
+
     if (options.clipHintToUsable) {
       result.hintBox = clampHintBox(result.hintBox, visible);
     }
@@ -485,8 +521,15 @@ namespace andromeda {
     if (server.scratchpadManager() != nullptr && server.scratchpadManager()->contains(&view)) {
       return;
     }
+    if (target.layoutMode() == LayoutMode::Floating) {
+      view.floatForLayout();
+      view.moveToWorkspace(&target);
+      target.markArrange(animate);
+      server.focusView(&view, FocusReason::DragDrop);
+      return;
+    }
     const auto restoreSceneParent = [&view, &target]() {
-      const bool fullscreen = view.toplevel()->current.fullscreen || view.toplevel()->scheduled.fullscreen;
+      const bool fullscreen = view.currentFullscreen() || view.scheduledFullscreen();
       view.setSceneParent(fullscreen ? target.fullscreenTree() : target.viewLayer(true));
     };
     // Policy fork again: a dwindle drop splits a leaf, while other layouts use
@@ -519,18 +562,27 @@ namespace andromeda {
     } else {
       target.layout().removeView(&view);
     }
+    TabbedContainers* containers = target.layout().tabbedContainers();
+    const bool joinedTabs = drop.row >= 0
+        && drop.tab != nullptr
+        && containers != nullptr
+        && containers->insertTab(&view, std::max(0, drop.column), drop.row, drop.tab);
     if (drop.row >= 0) {
-      target.layout().insertViewIntoColumn(&view, std::max(0, drop.column), drop.row);
-    } else {
-      target.layout().insertView(&view, std::max(0, drop.column));
-    }
-    if (columnWidth != nullptr && drop.row < 0) {
-      const int column = target.layout().columnOf(&view);
-      target.layout().setWidthFraction(column, columnWidth->fraction);
-      if (columnWidth->fullWidth) {
-        target.layout().toggleFullWidth(column);
+      if (!joinedTabs) {
+        target.layout().insertViewIntoColumn(&view, std::max(0, drop.column), drop.row);
       }
-      wlr_xdg_toplevel_set_maximized(view.toplevel(), columnWidth->fullWidth);
+    } else if (
+        MasterStackLayout* master = target.masterLayout(); master == nullptr || !master->openStack(&view, drop.column)
+    ) {
+      target.layout().insertView(&view, std::max(0, drop.column));
+      if (columnWidth != nullptr) {
+        const int column = target.layout().columnOf(&view);
+        target.layout().setWidthFraction(column, columnWidth->fraction);
+        if (columnWidth->fullWidth) {
+          target.layout().toggleFullWidth(column);
+        }
+        view.setMaximizedState(columnWidth->fullWidth);
+      }
     }
     restoreSceneParent();
     target.markArrange(animate);

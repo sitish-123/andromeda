@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A token tied to a focused input serial is validated by wlroots before Andromeda sees it. It represents user launch
-# intent and may reveal a mapped target even when unsolicited activation is disabled.
+# intent and may reveal a mapped target even when unsolicited activation is disabled. A pinned source records the
+# active workspace where it is presented, rather than the inactive workspace it owns.
 set -euo pipefail
 
 readonly CLIENT="${ANDROMEDA_UNMAP_CLIENT:-./build-debug/tests/unmap-client}"
@@ -8,11 +9,13 @@ readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client
 readonly TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/input-activation-target.log"
 readonly SOURCE_LOG="$ANDROMEDA_RUNTIME_DIR/input-activation-source.log"
 readonly POINTER_LOG="$ANDROMEDA_RUNTIME_DIR/input-activation-pointer.log"
+readonly PINNED_TARGET_LOG="$ANDROMEDA_RUNTIME_DIR/input-activation-pinned-target.log"
 readonly TARGET_FIFO="$ANDROMEDA_RUNTIME_DIR/input-activation-target-control"
 readonly SOURCE_FIFO="$ANDROMEDA_RUNTIME_DIR/input-activation-source-control"
+readonly PINNED_TARGET_FIFO="$ANDROMEDA_RUNTIME_DIR/input-activation-pinned-target-control"
 readonly TOKEN_FILE="$ANDROMEDA_RUNTIME_DIR/input-activation-token"
 
-sed -i '/autostart = \[\]/a focus_on_activate = false' "$ANDROMEDA_CONFIG"
+sed -i '/autostart = \[\]/a focus_on_activate = false\n\n[output.HEADLESS-1]\nworkspaces = 3' "$ANDROMEDA_CONFIG"
 "$ANDROMEDA" msg config-reload > /dev/null
 
 mkfifo "$TARGET_FIFO" "$SOURCE_FIFO"
@@ -92,4 +95,68 @@ if [[ $("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .name') 
   exit 1
 fi
 
-echo "validated input token reveals its target while unsolicited activation stays disabled"
+"$ANDROMEDA" msg "window-focus:$source_id" > /dev/null
+"$ANDROMEDA" msg window-toggle-pinned > /dev/null
+"$ANDROMEDA" msg workspace-switch:3 > /dev/null
+"$ANDROMEDA" msg "window-focus:$source_id" > /dev/null
+"$ANDROMEDA" settle > /dev/null
+pinned_launch_workspace=$("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .id')
+if [[ -z $pinned_launch_workspace \
+    || $("$ANDROMEDA" workspaces --json | jq -r '.[] | select(.active) | .name') != 3 ]]; then
+  echo "workspace 3 did not become the pinned launch origin: $("$ANDROMEDA" workspaces --json)"
+  exit 1
+fi
+
+: > "$TOKEN_FILE"
+"$POINTER" 1280 720 tap 31 pause 5000 >> "$POINTER_LOG" 2>&1 &
+for _ in $(seq 40); do
+  grep -q '^key 31 1$' "$SOURCE_LOG" && break
+  sleep 0.1
+done
+if ! grep -q '^key 31 1$' "$SOURCE_LOG"; then
+  echo "pinned activation source did not receive focused keyboard input: source=$(< "$SOURCE_LOG")"
+  exit 1
+fi
+
+printf i >&"$source_fd"
+for _ in $(seq 60); do
+  [[ -s $TOKEN_FILE ]] && [[ $(grep -c '^input-activation-token-written$' "$SOURCE_LOG") -eq 2 ]] && break
+  sleep 0.1
+done
+if [[ ! -s $TOKEN_FILE ]] || [[ $(grep -c '^input-activation-token-written$' "$SOURCE_LOG") -ne 2 ]]; then
+  echo "pinned source did not produce an activation token: $(< "$SOURCE_LOG")"
+  exit 1
+fi
+
+mkfifo "$PINNED_TARGET_FIFO"
+exec {pinned_target_fd}<>"$PINNED_TARGET_FIFO"
+activation_token=$(< "$TOKEN_FILE")
+env -u ANDROMEDA_LAUNCH_TOKEN XDG_ACTIVATION_TOKEN="$activation_token" \
+  APP_ID=input-activation-pinned-target ACTIVATE_ON_START=1 MAP_ON_STDIN=1 \
+  "$CLIENT" input-activation-pinned-target <&"$pinned_target_fd" > "$PINNED_TARGET_LOG" 2>&1 &
+for _ in $(seq 60); do
+  grep -q '^map-pending$' "$PINNED_TARGET_LOG" 2>/dev/null && break
+  sleep 0.1
+done
+if ! grep -q '^map-pending$' "$PINNED_TARGET_LOG" 2>/dev/null; then
+  echo "pinned-source target did not create its toplevel role: $(< "$PINNED_TARGET_LOG")"
+  exit 1
+fi
+
+"$ANDROMEDA" msg workspace-switch:1 > /dev/null
+"$ANDROMEDA" settle > /dev/null
+printf m >&"$pinned_target_fd"
+for _ in $(seq 60); do
+  windows=$("$ANDROMEDA" windows --json)
+  pinned_target=$(jq -c '.[] | select(.app_id == "input-activation-pinned-target")' <<< "$windows")
+  [[ -n $pinned_target ]] && break
+  sleep 0.1
+done
+if [[ -z ${pinned_target:-} \
+    || $(jq -r '.workspace' <<< "$pinned_target") != "$pinned_launch_workspace" \
+    || $(jq -r '.active' <<< "$pinned_target") != false ]]; then
+  echo "pinned source did not place its launch on the presented workspace: $windows"
+  exit 1
+fi
+
+echo "validated input tokens focus existing targets and place pinned-source launches on their presented workspace"

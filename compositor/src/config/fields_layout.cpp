@@ -25,6 +25,7 @@ namespace andromeda {
           {.name = "scrolling", .value = LayoutMode::Scrolling},
           {.name = "dwindle", .value = LayoutMode::Dwindle},
           {.name = "master", .value = LayoutMode::Master},
+          {.name = "floating", .value = LayoutMode::Floating},
       };
       return choices;
     }
@@ -43,6 +44,22 @@ namespace andromeda {
           {.name = "never", .value = CenterFocusedColumn::Never},
           {.name = "always", .value = CenterFocusedColumn::Always},
           {.name = "on_overflow", .value = CenterFocusedColumn::OnOverflow},
+      };
+      return choices;
+    }
+
+    const registry::Choices<ClientMaximize>& clientMaximizeModes() {
+      static const registry::Choices<ClientMaximize> choices{
+          {.name = "column", .value = ClientMaximize::Column},
+          {.name = "edges", .value = ClientMaximize::Edges},
+      };
+      return choices;
+    }
+
+    const registry::Choices<NewTabPosition>& newTabPositions() {
+      static const registry::Choices<NewTabPosition> choices{
+          {.name = "end", .value = NewTabPosition::End},
+          {.name = "after_active", .value = NewTabPosition::AfterActive},
       };
       return choices;
     }
@@ -121,12 +138,13 @@ namespace andromeda {
           warnAt(node.source(), "ignoring {} (expected non-empty array of numbers)", path);
           return std::nullopt;
         }
-        const double used = std::clamp(*value, 0.1, 1.0);
+        const double used = std::clamp(*value, 0.1, kMaxWideFraction);
         if (used != *value) {
           warnAt(entry.source(), "{} = {} out of range, clamped to {}", path, *value, used);
         }
         parsed.push_back(used);
       }
+      std::ranges::sort(parsed);
       return parsed;
     }
 
@@ -144,6 +162,7 @@ namespace andromeda {
       using Scrolling = decltype(L::scrolling);
       using Dwindle = decltype(L::dwindle);
       using Master = decltype(L::master);
+      using Tabs = decltype(L::tabs);
       constexpr int kStrutLimit = 65535;
 
       static const Fields<Struts> struts{
@@ -153,12 +172,14 @@ namespace andromeda {
           integer("bottom", -kStrutLimit, kStrutLimit, &Struts::bottom),
       };
       static const Fields<Scrolling> scrolling{
-          real("default_extent_fraction", 0.1, 1.0, &Scrolling::defaultExtentFraction),
+          real("default_extent_fraction", 0.1, kMaxWideFraction, &Scrolling::defaultExtentFraction),
           boolean("center_underfull_strip", &Scrolling::centerUnderfullStrip),
           choice("center_focused", &Scrolling::centerFocused, centerFocusedModes()),
+          boolean("center_on_overview_select", &Scrolling::centerOnOverviewSelect),
       };
       static const Fields<Dwindle> dwindle{
           boolean("preserve_split", &Dwindle::preserveSplit),
+          boolean("new_toward_cursor", &Dwindle::newTowardCursor),
       };
       static const Fields<Master> master{
           choice("position", &Master::position, masterPositions()),
@@ -166,12 +187,19 @@ namespace andromeda {
           boolean("new_on_top", &Master::newOnTop),
           boolean("new_becomes_master", &Master::newBecomesMaster),
       };
+      static const Fields<Tabs> tabs{
+          choice("default_display", &Tabs::defaultDisplay, columnDisplays()),
+          choice("new_tab_position", &Tabs::newTabPosition, newTabPositions()),
+          boolean("wrap_focus", &Tabs::wrapFocus),
+          boolean("scroll_switches_tabs", &Tabs::scrollSwitchesTabs),
+          boolean("middle_click_closes", &Tabs::middleClickCloses),
+      };
       static const Fields<L> fields{
           choice("mode", &L::mode, layoutModes()),
           integer("gap", 0, 500, &L::gap),
           table("struts", &L::struts, struts),
           custom<L>(
-              "extent_presets", registry::KeyDescription("float_array").withRange(0.1, 1.0),
+              "extent_presets", registry::KeyDescription("float_array").withRange(0.1, kMaxWideFraction),
               [](const toml::node& node, const std::string& path, L& target, registry::ReadContext&) {
                 if (auto presets = parseExtentPresets(node, path)) {
                   target.extentPresets = std::move(*presets);
@@ -193,9 +221,11 @@ namespace andromeda {
                 }
               }
           ),
+          choice("client_maximize", &L::clientMaximize, clientMaximizeModes()),
           table("scrolling", &L::scrolling, scrolling),
           table("dwindle", &L::dwindle, dwindle),
           table("master", &L::master, master),
+          table("tabs", &L::tabs, tabs),
       };
       return fields;
     }
@@ -376,6 +406,14 @@ namespace andromeda {
     }
 
   } // namespace
+
+  const registry::Choices<ColumnDisplay>& columnDisplays() {
+    static const registry::Choices<ColumnDisplay> choices{
+        {.name = "normal", .value = ColumnDisplay::Normal},
+        {.name = "tabbed", .value = ColumnDisplay::Tabbed},
+    };
+    return choices;
+  }
 
   registry::Field<Config> layoutTable() {
     return registry::table("layout", &Config::layout, layoutFields<Config::Layout>());

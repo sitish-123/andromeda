@@ -71,4 +71,44 @@ ANDROMEDA_TEST(rejectsAnInvalidSourceGroup) {
   CHECK(!matchingLayoutGroup(target.get(), source.get(), 2).has_value());
 }
 
+namespace {
+  const andromeda::XkbNames kSystem{
+      .layout = "us", .variant = "intl", .options = "terminate:ctrl_alt_bksp", .model = "pc105"
+  };
+} // namespace
+
+ANDROMEDA_TEST(systemKeymapAppliesWhenConfigSetsNoXkbNames) {
+  const andromeda::Config::Input input;
+  CHECK(andromeda::usesSystemXkbNames(input));
+  CHECK(andromeda::resolveXkbNames(input.keyboard, nullptr, kSystem) == kSystem);
+}
+
+ANDROMEDA_TEST(anyConfiguredXkbNameReplacesTheWholeSystemKeymap) {
+  andromeda::Config::Input input;
+  input.keyboard.options = "caps:escape";
+  CHECK(!andromeda::usesSystemXkbNames(input));
+  const andromeda::XkbNames expected{.layout = "", .variant = "", .options = "caps:escape", .model = ""};
+  CHECK(andromeda::resolveXkbNames(input.keyboard, nullptr, kSystem) == expected);
+}
+
+ANDROMEDA_TEST(deviceXkbNamesReplaceTheSystemKeymap) {
+  const andromeda::Config::Input input;
+  andromeda::Config::Input::Device device;
+  device.name = "kbd";
+  device.layout = "de";
+  const andromeda::XkbNames expected{.layout = "de", .variant = "", .options = "", .model = ""};
+  CHECK(andromeda::resolveXkbNames(input.keyboard, &device, kSystem) == expected);
+}
+
+ANDROMEDA_TEST(deviceClearingEveryXkbNameFallsBackToTheSystemKeymap) {
+  andromeda::Config::Input input;
+  input.keyboard.layout = "fr";
+  andromeda::Config::Input::Device device;
+  device.name = "kbd";
+  device.layout = "";
+  input.devices.push_back(device);
+  CHECK(andromeda::usesSystemXkbNames(input));
+  CHECK(andromeda::resolveXkbNames(input.keyboard, input.devices.data(), kSystem) == kSystem);
+}
+
 int main() { return RUN_TESTS(); }

@@ -111,8 +111,14 @@ namespace andromeda {
       if (overrides.scrolling.centerFocused) {
         resolved.scrolling.centerFocused = *overrides.scrolling.centerFocused;
       }
+      if (overrides.scrolling.centerOnOverviewSelect) {
+        resolved.scrolling.centerOnOverviewSelect = *overrides.scrolling.centerOnOverviewSelect;
+      }
       if (overrides.dwindle.preserveSplit) {
         resolved.dwindle.preserveSplit = *overrides.dwindle.preserveSplit;
+      }
+      if (overrides.dwindle.newTowardCursor) {
+        resolved.dwindle.newTowardCursor = *overrides.dwindle.newTowardCursor;
       }
       if (overrides.master.defaultWidthFraction) {
         resolved.master.defaultWidthFraction = *overrides.master.defaultWidthFraction;
@@ -132,19 +138,48 @@ namespace andromeda {
       if (overrides.newExitsFullscreen) {
         resolved.newExitsFullscreen = *overrides.newExitsFullscreen;
       }
+      if (overrides.clientMaximize) {
+        resolved.clientMaximize = *overrides.clientMaximize;
+      }
+      if (overrides.tabs.defaultDisplay) {
+        resolved.tabs.defaultDisplay = *overrides.tabs.defaultDisplay;
+      }
+      if (overrides.tabs.newTabPosition) {
+        resolved.tabs.newTabPosition = *overrides.tabs.newTabPosition;
+      }
+      if (overrides.tabs.wrapFocus) {
+        resolved.tabs.wrapFocus = *overrides.tabs.wrapFocus;
+      }
+      if (overrides.tabs.scrollSwitchesTabs) {
+        resolved.tabs.scrollSwitchesTabs = *overrides.tabs.scrollSwitchesTabs;
+      }
+      if (overrides.tabs.middleClickCloses) {
+        resolved.tabs.middleClickCloses = *overrides.tabs.middleClickCloses;
+      }
+      resolved.tabs.barGap = config.appearance.tabBar.gap < 0 ? resolved.gap : config.appearance.tabBar.gap;
       const int borderWidth = config.appearance.totalBorderWidth();
       resolved.totalGap = resolved.gap + 2 * borderWidth;
       resolved.edgePad = resolved.gap + borderWidth;
     }
 
-    // A rule without a pattern places no constraint. With one, the value must be present: a client that never set an
-    // identity string matches nothing, while one that set it to empty matches a pattern accepting the empty string.
-    bool
-    patternMatches(const std::string& pattern, const std::regex& regex, const std::optional<std::string_view>& value) {
-      if (pattern.empty()) {
+    // A rule without a pattern places no constraint, which an empty pattern does not change. With any, the value must
+    // be present and one of them must match: a client that never set an identity string matches nothing, while one that
+    // set it to empty matches a pattern accepting the empty string.
+    bool patternMatches(const RegexPatterns& patterns, const std::optional<std::string_view>& value) {
+      if (!patterns.constrains()) {
         return true;
       }
-      return value.has_value() && std::regex_search(value->begin(), value->end(), regex);
+      return value.has_value() && std::ranges::any_of(patterns.regexes, [&](const std::regex& regex) {
+               return std::regex_search(value->begin(), value->end(), regex);
+             });
+    }
+
+    // Unlike window rules, the whole value must match: a substring grant would let an application choose an ID
+    // embedding someone else's pattern.
+    bool matchesWhole(const RegexPatterns& patterns, std::string_view value) {
+      return !value.empty() && std::ranges::any_of(patterns.regexes, [&](const std::regex& regex) {
+        return std::regex_match(value.begin(), value.end(), regex);
+      });
     }
 
   } // namespace
@@ -212,9 +247,9 @@ namespace andromeda {
     ResolvedWindowRule resolved;
 
     for (const auto& rule : config.windowRules) {
-      if (!patternMatches(rule.appIdPattern, rule.appIdRegex, appId)
-          || !patternMatches(rule.titlePattern, rule.titleRegex, title)
-          || !patternMatches(rule.xdgTagPattern, rule.xdgTagRegex, xdgTag)) {
+      if (!patternMatches(rule.appIdPatterns, appId)
+          || !patternMatches(rule.titlePatterns, title)
+          || !patternMatches(rule.xdgTagPatterns, xdgTag)) {
         continue;
       }
       if (rule.matchContentType && *rule.matchContentType != contentType) {
@@ -226,6 +261,9 @@ namespace andromeda {
       if (rule.matchFloating && *rule.matchFloating != state.floating) {
         continue;
       }
+      if (rule.matchMaximizedToEdges && *rule.matchMaximizedToEdges != state.maximizedToEdges) {
+        continue;
+      }
       if (rule.matchPinned && *rule.matchPinned != state.pinned) {
         continue;
       }
@@ -235,7 +273,16 @@ namespace andromeda {
       if (rule.matchAlone && *rule.matchAlone != state.alone) {
         continue;
       }
-      if (rule.matchAtStartup && *rule.matchAtStartup != (uptimeMs < kStartupWindowRuleDurationMs)) {
+      if (rule.matchOnlyWindow && *rule.matchOnlyWindow != state.onlyWindow) {
+        continue;
+      }
+      if (rule.matchDialog && *rule.matchDialog != state.dialog) {
+        continue;
+      }
+      if (rule.matchCastTarget && *rule.matchCastTarget != state.castTarget) {
+        continue;
+      }
+      if (rule.matchAtStartup && *rule.matchAtStartup != (uptimeMs < kStartupRuleDurationMs)) {
         continue;
       }
       // Last writer wins: overwrite each field the rule sets.
@@ -272,6 +319,9 @@ namespace andromeda {
       if (rule.defaultScrollingColumnOrder) {
         resolved.defaultScrollingColumnOrder = rule.defaultScrollingColumnOrder;
       }
+      if (rule.defaultColumnDisplay) {
+        resolved.defaultColumnDisplay = rule.defaultColumnDisplay;
+      }
       if (rule.defaultFullscreen) {
         resolved.defaultFullscreen = rule.defaultFullscreen;
       }
@@ -287,17 +337,26 @@ namespace andromeda {
       if (rule.defaultPinned) {
         resolved.defaultPinned = rule.defaultPinned;
       }
+      if (rule.confinePointer) {
+        resolved.confinePointer = rule.confinePointer;
+      }
+      if (rule.allowShortcutsInhibit) {
+        resolved.allowShortcutsInhibit = rule.allowShortcutsInhibit;
+      }
+      if (rule.backgroundRender) {
+        resolved.backgroundRender = rule.backgroundRender;
+      }
       if (rule.focusOnActivate) {
         resolved.focusOnActivate = rule.focusOnActivate;
+      }
+      if (rule.attachToParent) {
+        resolved.attachToParent = rule.attachToParent;
       }
       if (rule.vrr) {
         resolved.vrr = rule.vrr;
       }
       if (rule.allowTearing) {
         resolved.allowTearing = rule.allowTearing;
-      }
-      if (rule.backgroundFrames) {
-        resolved.backgroundFrames = rule.backgroundFrames;
       }
       if (rule.hdr) {
         resolved.hdr = rule.hdr;
@@ -316,6 +375,12 @@ namespace andromeda {
       }
       if (rule.blurOptimized) {
         resolved.blurOptimized = rule.blurOptimized;
+      }
+      if (rule.titleBar) {
+        resolved.titleBar = rule.titleBar;
+      }
+      if (rule.titleBarButtons) {
+        resolved.titleBarButtons = rule.titleBarButtons;
       }
       if (rule.borderColorFocused) {
         resolved.borderColorFocused = rule.borderColorFocused;
@@ -348,10 +413,18 @@ namespace andromeda {
     return resolved;
   }
 
-  ResolvedLayerRule resolveLayerRules(const Config& config, std::optional<std::string_view> layerNamespace) {
+  ResolvedLayerRule resolveLayerRules(
+      const Config& config, std::optional<std::string_view> layerNamespace, LayerShellLayer layer, uint64_t uptimeMs
+  ) {
     ResolvedLayerRule resolved;
     for (const auto& rule : config.layerRules) {
-      if (!patternMatches(rule.namespacePattern, rule.namespaceRegex, layerNamespace)) {
+      if (!patternMatches(rule.namespacePatterns, layerNamespace)) {
+        continue;
+      }
+      if (rule.matchLayer && *rule.matchLayer != layer) {
+        continue;
+      }
+      if (rule.matchAtStartup && *rule.matchAtStartup != (uptimeMs < kStartupRuleDurationMs)) {
         continue;
       }
       if (rule.blur) {
@@ -376,17 +449,11 @@ namespace andromeda {
     const std::string_view appIdView = appId != nullptr ? appId : "";
     std::vector<std::string> globals;
     for (const auto& rule : config.securityContextRules) {
-      // Unlike window rules, the whole value must match: a substring grant
-      // would let an application choose an ID embedding someone else's pattern.
-      if (!rule.sandboxEnginePattern.empty()) {
-        if (engineView.empty() || !std::regex_match(engineView.begin(), engineView.end(), rule.sandboxEngineRegex)) {
-          continue;
-        }
+      if (rule.sandboxEnginePatterns.constrains() && !matchesWhole(rule.sandboxEnginePatterns, engineView)) {
+        continue;
       }
-      if (!rule.appIdPattern.empty()) {
-        if (appIdView.empty() || !std::regex_match(appIdView.begin(), appIdView.end(), rule.appIdRegex)) {
-          continue;
-        }
+      if (rule.appIdPatterns.constrains() && !matchesWhole(rule.appIdPatterns, appIdView)) {
+        continue;
       }
       for (const std::string& global : rule.allowGlobals) {
         if (std::ranges::find(globals, global) == globals.end()) {
@@ -398,7 +465,9 @@ namespace andromeda {
   }
 
   bool anyWindowRuleHasTitlePattern(const Config& config) {
-    return std::ranges::any_of(config.windowRules, [](const WindowRule& rule) { return !rule.titlePattern.empty(); });
+    return std::ranges::any_of(config.windowRules, [](const WindowRule& rule) {
+      return rule.titlePatterns.constrains();
+    });
   }
 
   ResolvedLayoutConfig resolveGlobalLayout(const Config& config) {
@@ -408,14 +477,27 @@ namespace andromeda {
     resolved.struts = config.layout.struts;
     resolved.extentPresets = config.layout.extentPresets;
     resolved.newExitsFullscreen = config.layout.newExitsFullscreen;
+    resolved.clientMaximize = config.layout.clientMaximize;
     resolved.scrolling.defaultExtentFraction = config.layout.scrolling.defaultExtentFraction;
     resolved.scrolling.centerUnderfullStrip = config.layout.scrolling.centerUnderfullStrip;
     resolved.scrolling.centerFocused = config.layout.scrolling.centerFocused;
+    resolved.scrolling.centerOnOverviewSelect = config.layout.scrolling.centerOnOverviewSelect;
     resolved.dwindle.preserveSplit = config.layout.dwindle.preserveSplit;
+    resolved.dwindle.newTowardCursor = config.layout.dwindle.newTowardCursor;
     resolved.master.defaultWidthFraction = config.layout.master.defaultWidthFraction;
     resolved.master.newOnTop = config.layout.master.newOnTop;
     resolved.master.newBecomesMaster = config.layout.master.newBecomesMaster;
     resolved.master.position = config.layout.master.position;
+    resolved.tabs.defaultDisplay = config.layout.tabs.defaultDisplay;
+    resolved.tabs.newTabPosition = config.layout.tabs.newTabPosition;
+    resolved.tabs.wrapFocus = config.layout.tabs.wrapFocus;
+    resolved.tabs.scrollSwitchesTabs = config.layout.tabs.scrollSwitchesTabs;
+    resolved.tabs.middleClickCloses = config.layout.tabs.middleClickCloses;
+    resolved.tabs.barHeight = config.appearance.tabBar.height;
+    resolved.tabs.barPosition = config.appearance.tabBar.position;
+    resolved.tabs.hideWhenSingle = config.appearance.tabBar.hideWhenSingle;
+    resolved.tabs.barVisible = config.appearance.tabBar.visible;
+    resolved.tabs.barGap = config.appearance.tabBar.gap < 0 ? resolved.gap : config.appearance.tabBar.gap;
     const int borderWidth = config.appearance.totalBorderWidth();
     resolved.totalGap = resolved.gap + 2 * borderWidth;
     resolved.edgePad = resolved.gap + borderWidth;

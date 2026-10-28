@@ -265,7 +265,7 @@ fi
 "$ANDROMEDA" msg window-toggle-fullscreen > /dev/null
 "$ANDROMEDA" settle
 
-# The 0.1 fraction floor, not the one-pixel minimum clampXdgWidth alone leaves a
+# The 0.1 fraction floor, not the one-pixel minimum clampWidth alone leaves a
 # hint-less client with: the delta lands on the fraction, so from the 700px box
 # this is 0.547 - 0.9 -> 0.1, where pixel arithmetic would land on 1px.
 floor=$(box float-a)
@@ -436,8 +436,8 @@ capture_box() {
 # Animation time only moves by clock-advance from here on.
 "$ANDROMEDA" clock-freeze
 
-# Runs every animation to its end. A resize crossfade starts only once the client commits, which happens in real time,
-# so advance until a settle probe succeeds.
+# Runs every animation to its end. Settling waits for clients to commit their resized buffers, which happens in real
+# time, so advance until a settle probe succeeds.
 finish() {
   for _ in $(seq 20); do
     "$ANDROMEDA" clock-advance 2500 > /dev/null

@@ -54,6 +54,18 @@ ANDROMEDA_TEST(globalLayoutUsesTheCallerOwnedConfig) {
   CHECK(firstLayout != secondLayout);
 }
 
+ANDROMEDA_TEST(tabBarGapFollowsTheWorkspaceGapUnlessSet) {
+  Config config;
+  WorkspaceConfig wide;
+  wide.name = "wide";
+  wide.layout.gap = 30;
+  config.workspaceRules.push_back(std::move(wide));
+  CHECK_EQ(andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "wide", 0).tabs.barGap, 30);
+
+  config.appearance.tabBar.gap = 0;
+  CHECK_EQ(andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "wide", 0).tabs.barGap, 0);
+}
+
 ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   Config config;
   config.layout.gap = 8;
@@ -63,6 +75,7 @@ ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   config.layout.master.defaultWidthFraction = 0.58;
   config.layout.master.newOnTop = false;
   config.layout.dwindle.preserveSplit = true;
+  config.layout.clientMaximize = andromeda::ClientMaximize::Edges;
 
   WorkspaceConfig global;
   global.name = "dev";
@@ -85,6 +98,7 @@ ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   dpOne.layout.master.defaultWidthFraction = 0.7;
   dpOne.layout.master.newOnTop = false;
   dpOne.layout.dwindle.preserveSplit = true;
+  dpOne.layout.clientMaximize = andromeda::ClientMaximize::Column;
   config.workspaceRules.push_back(std::move(dpOne));
 
   WorkspaceConfig dpTwo;
@@ -108,6 +122,7 @@ ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   CHECK_EQ(onDpOne.master.defaultWidthFraction, 0.7);
   CHECK(!onDpOne.master.newOnTop);
   CHECK(onDpOne.dwindle.preserveSplit);
+  CHECK(onDpOne.clientMaximize == andromeda::ClientMaximize::Column);
 
   const auto onDpTwo = andromeda::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0);
   CHECK(onDpTwo.mode == LayoutMode::Scrolling);
@@ -122,6 +137,7 @@ ANDROMEDA_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   CHECK_EQ(onDpTwo.master.defaultWidthFraction, 0.6);
   CHECK(onDpTwo.master.newOnTop);
   CHECK(!onDpTwo.dwindle.preserveSplit);
+  CHECK(onDpTwo.clientMaximize == andromeda::ClientMaximize::Edges);
 
   const auto elsewhere = andromeda::resolveWorkspaceLayout(config, identity("HDMI-A-1"), "dev", 0);
   CHECK_EQ(elsewhere.gap, 12);
@@ -517,6 +533,20 @@ ANDROMEDA_TEST(workspaceRulesCannotOverrideTheResolvedStripDirection) {
   CHECK(resolved.scrolling.direction == andromeda::ScrollingDirection::Vertical);
 }
 
+// The overview reads it from the picked window's workspace, so one workspace can opt out of a global default.
+ANDROMEDA_TEST(workspaceRuleOverridesCenterOnOverviewSelect) {
+  Config config;
+  config.layout.scrolling.centerOnOverviewSelect = true;
+
+  WorkspaceConfig rule;
+  rule.name = "dev";
+  rule.layout.scrolling.centerOnOverviewSelect = false;
+  config.workspaceRules.push_back(std::move(rule));
+
+  CHECK(!andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0).scrolling.centerOnOverviewSelect);
+  CHECK(andromeda::resolveWorkspaceLayout(config, identity("DP-1"), "other", 1).scrolling.centerOnOverviewSelect);
+}
+
 ANDROMEDA_TEST(fixedWorkspaceTargetSelectsItsUniqueOutput) {
   Config config;
 
@@ -547,8 +577,7 @@ ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   Config config;
 
   WindowRule app;
-  app.appIdPattern = "^foot$";
-  app.appIdRegex = std::regex(app.appIdPattern);
+  app.appIdPatterns.add("^foot$");
   app.opacity = 0.5;
   app.blur = true;
   app.defaultFocused = false;
@@ -558,6 +587,7 @@ ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   app.focusOnActivate = false;
   app.vrr = VrrMode::Disabled;
   app.allowTearing = false;
+  app.allowShortcutsInhibit = false;
   app.hdr = andromeda::HdrMode::Off;
   app.defaultPosition = andromeda::WindowPosition{
       .x = 12,
@@ -567,12 +597,12 @@ ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
-  title.titlePattern = "shell";
-  title.titleRegex = std::regex(title.titlePattern);
+  title.titlePatterns.add("shell");
   title.opacity = 0.8;
   title.focusOnActivate = true;
   title.vrr = VrrMode::Always;
   title.allowTearing = true;
+  title.allowShortcutsInhibit = true;
   title.hdr = andromeda::HdrMode::On;
   title.defaultPinned = false;
   title.defaultScrollingColumn = "terminals";
@@ -600,6 +630,7 @@ ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   CHECK(resolved.focusOnActivate && *resolved.focusOnActivate);
   CHECK(resolved.vrr == VrrMode::Always);
   CHECK(resolved.allowTearing && *resolved.allowTearing);
+  CHECK(resolved.allowShortcutsInhibit && *resolved.allowShortcutsInhibit);
   CHECK(resolved.hdr == andromeda::HdrMode::On);
 
   const auto appOnly = andromeda::resolveWindowRules(config, "foot", "editor", std::nullopt, ContentType::None, {}, 0);
@@ -608,6 +639,7 @@ ANDROMEDA_TEST(windowRulesMergeMatchingFieldsInOrder) {
   CHECK(appOnly.defaultScrollingColumnOrder && *appOnly.defaultScrollingColumnOrder == 20);
   CHECK(appOnly.vrr == VrrMode::Disabled);
   CHECK(appOnly.allowTearing && !*appOnly.allowTearing);
+  CHECK(appOnly.allowShortcutsInhibit && !*appOnly.allowShortcutsInhibit);
   CHECK(appOnly.hdr == andromeda::HdrMode::Off);
 
   const auto focused = andromeda::resolveWindowRules(
@@ -626,16 +658,14 @@ ANDROMEDA_TEST(windowRuleDecorationOverridesMergePerField) {
   Config config;
 
   WindowRule app;
-  app.appIdPattern = "^foot$";
-  app.appIdRegex = std::regex(app.appIdPattern);
+  app.appIdPatterns.add("^foot$");
   app.borderWidth = 0;
   app.shadow = false;
   app.outerBorderWidth = 3;
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
-  title.titlePattern = "editor";
-  title.titleRegex = std::regex(title.titlePattern);
+  title.titlePatterns.add("editor");
   title.cornerRadius = 0;
   title.shadow = true;
   config.windowRules.push_back(std::move(title));
@@ -655,8 +685,7 @@ ANDROMEDA_TEST(windowRuleDecorationOverridesMergePerField) {
 ANDROMEDA_TEST(windowRuleEffectOverridesUseLastWriterWins) {
   andromeda::Config config;
   andromeda::WindowRule first;
-  first.appIdPattern = "foot";
-  first.appIdRegex = std::regex("foot");
+  first.appIdPatterns.add("foot");
   first.borderEffect = "pulse";
   first.windowEffect = "lines";
   andromeda::WindowRule second = first;
@@ -673,14 +702,12 @@ ANDROMEDA_TEST(windowRulesMergeWorkspaceTargetsAcrossSelectorKinds) {
   Config config;
 
   WindowRule app;
-  app.appIdPattern = "^foot$";
-  app.appIdRegex = std::regex(app.appIdPattern);
+  app.appIdPatterns.add("^foot$");
   app.defaultWorkspace = andromeda::WorkspaceReference{andromeda::WorkspaceIndex{2}};
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
-  title.titlePattern = "chat";
-  title.titleRegex = std::regex(title.titlePattern);
+  title.titlePatterns.add("chat");
   title.defaultWorkspace = andromeda::WorkspaceReference{andromeda::WorkspaceName{"2"}};
   config.windowRules.push_back(std::move(title));
 
@@ -701,14 +728,12 @@ ANDROMEDA_TEST(windowRulesMergeDefaultScratchpadLastWriterWins) {
   Config config;
 
   WindowRule app;
-  app.appIdPattern = "^foot$";
-  app.appIdRegex = std::regex(app.appIdPattern);
+  app.appIdPatterns.add("^foot$");
   app.defaultScratchpad = "terminal";
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
-  title.titlePattern = "music";
-  title.titleRegex = std::regex(title.titlePattern);
+  title.titlePatterns.add("music");
   title.defaultScratchpad = "media";
   config.windowRules.push_back(std::move(title));
 
@@ -723,8 +748,7 @@ ANDROMEDA_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   Config config;
 
   WindowRule first;
-  first.appIdPattern = "^utility$";
-  first.appIdRegex = std::regex(first.appIdPattern);
+  first.appIdPatterns.add("^utility$");
   first.defaultFloating = true;
   first.defaultFloatingWidthPx = 800;
   first.defaultFloatingWidth = 0.5;
@@ -741,8 +765,7 @@ ANDROMEDA_TEST(windowRulesMergeSizingFieldsLastWriterWins) {
   CHECK(sameRule.defaultScrollingExtent && *sameRule.defaultScrollingExtent == 0.5);
 
   WindowRule second;
-  second.appIdPattern = "^utility$";
-  second.appIdRegex = std::regex(second.appIdPattern);
+  second.appIdPatterns.add("^utility$");
   second.defaultScrollingExtent = 0.75;
   second.defaultFloatingWidth = 0.6;
   second.defaultFloatingHeight = 0.75;
@@ -763,14 +786,12 @@ ANDROMEDA_TEST(windowRulesMergeBorderColorsLastWriterWins) {
   Config config;
 
   WindowRule app;
-  app.appIdPattern = "^foot$";
-  app.appIdRegex = std::regex(app.appIdPattern);
+  app.appIdPatterns.add("^foot$");
   app.borderColorFocused = std::array<float, 4>{1.0F, 0.0F, 0.0F, 1.0F};
   config.windowRules.push_back(std::move(app));
 
   WindowRule title;
-  title.titlePattern = "shell";
-  title.titleRegex = std::regex(title.titlePattern);
+  title.titlePatterns.add("shell");
   title.borderColorFocused = std::array<float, 4>{0.0F, 1.0F, 0.0F, 1.0F};
   title.borderColorOuter = std::array<float, 4>{0.1F, 0.2F, 0.3F, 1.0F};
   config.windowRules.push_back(std::move(title));
@@ -797,10 +818,8 @@ ANDROMEDA_TEST(windowRulesMatchContentTypesAndComposeSelectors) {
   config.windowRules.push_back(std::move(photo));
 
   WindowRule game;
-  game.appIdPattern = "^runner$";
-  game.appIdRegex = std::regex(game.appIdPattern);
-  game.titlePattern = "playing";
-  game.titleRegex = std::regex(game.titlePattern);
+  game.appIdPatterns.add("^runner$");
+  game.titlePatterns.add("playing");
   game.matchContentType = ContentType::Game;
   game.matchFocused = false;
   game.matchAtStartup = true;
@@ -834,7 +853,7 @@ ANDROMEDA_TEST(windowRulesMatchContentTypesAndComposeSelectors) {
   );
   CHECK(!wrongFocus.opacity);
   const auto afterStartupRule = andromeda::resolveWindowRules(
-      config, "runner", "now playing", std::nullopt, ContentType::Game, {}, andromeda::kStartupWindowRuleDurationMs
+      config, "runner", "now playing", std::nullopt, ContentType::Game, {}, andromeda::kStartupRuleDurationMs
   );
   CHECK(!afterStartupRule.opacity);
   CHECK(afterStartupRule.defaultFloating && *afterStartupRule.defaultFloating);
@@ -898,25 +917,20 @@ ANDROMEDA_TEST(windowRulesMatchXdgTagsAndComposeSelectors) {
   Config config;
 
   WindowRule anyGameTag;
-  anyGameTag.xdgTagPattern = "^game-";
-  anyGameTag.xdgTagRegex = std::regex(anyGameTag.xdgTagPattern);
+  anyGameTag.xdgTagPatterns.add("^game-");
   anyGameTag.opacity = 0.25;
   config.windowRules.push_back(std::move(anyGameTag));
 
   WindowRule launcher;
-  launcher.xdgTagPattern = "^game-launcher$";
-  launcher.xdgTagRegex = std::regex(launcher.xdgTagPattern);
+  launcher.xdgTagPatterns.add("^game-launcher$");
   launcher.opacity = 0.9;
   launcher.defaultFloating = true;
   config.windowRules.push_back(std::move(launcher));
 
   WindowRule running;
-  running.appIdPattern = "^runner$";
-  running.appIdRegex = std::regex(running.appIdPattern);
-  running.titlePattern = "playing";
-  running.titleRegex = std::regex(running.titlePattern);
-  running.xdgTagPattern = "^game-(running|settings)$";
-  running.xdgTagRegex = std::regex(running.xdgTagPattern);
+  running.appIdPatterns.add("^runner$");
+  running.titlePatterns.add("playing");
+  running.xdgTagPatterns.add("^game-(running|settings)$");
   running.matchContentType = ContentType::Game;
   running.matchFocused = false;
   running.opacity = 0.5;
@@ -959,24 +973,72 @@ ANDROMEDA_TEST(windowRulesMatchXdgTagsAndComposeSelectors) {
   CHECK(!unknownTag.defaultFloating);
 }
 
+ANDROMEDA_TEST(windowRulesAcceptSeveralPatternsPerSelector) {
+  Config config;
+
+  // One rule per selector, so a case supplies a matching value only for the selector it exercises.
+  WindowRule byAppId;
+  byAppId.appIdPatterns.add("^mpv$");
+  byAppId.appIdPatterns.add("^celluloid$");
+  byAppId.opacity = 0.5;
+  config.windowRules.push_back(std::move(byAppId));
+
+  WindowRule byTitle;
+  byTitle.titlePatterns.add("^Big [Pp]icture$");
+  byTitle.titlePatterns.add("^Small [Pp]icture$");
+  byTitle.defaultFloating = true;
+  config.windowRules.push_back(std::move(byTitle));
+
+  WindowRule byTag;
+  byTag.xdgTagPatterns.add("^media-");
+  byTag.xdgTagPatterns.add("^picture$");
+  byTag.defaultMaximize = true;
+  config.windowRules.push_back(std::move(byTag));
+
+  const auto firstApp =
+      andromeda::resolveWindowRules(config, "mpv", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(firstApp.opacity && *firstApp.opacity == 0.5);
+  const auto secondApp =
+      andromeda::resolveWindowRules(config, "celluloid", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(secondApp.opacity && *secondApp.opacity == 0.5);
+  const auto neitherApp =
+      andromeda::resolveWindowRules(config, "foot", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(!neitherApp.opacity);
+
+  const auto firstTitle =
+      andromeda::resolveWindowRules(config, "foot", "Big Picture", std::nullopt, ContentType::None, {}, 0);
+  CHECK(firstTitle.defaultFloating && *firstTitle.defaultFloating);
+  const auto secondTitle =
+      andromeda::resolveWindowRules(config, "foot", "Small Picture", std::nullopt, ContentType::None, {}, 0);
+  CHECK(secondTitle.defaultFloating && *secondTitle.defaultFloating);
+  const auto otherTitle =
+      andromeda::resolveWindowRules(config, "foot", "Huge Picture", std::nullopt, ContentType::None, {}, 0);
+  CHECK(!otherTitle.defaultFloating);
+
+  const auto firstTag =
+      andromeda::resolveWindowRules(config, "foot", std::nullopt, "media-player", ContentType::None, {}, 0);
+  CHECK(firstTag.defaultMaximize && *firstTag.defaultMaximize);
+  const auto secondTag = andromeda::resolveWindowRules(config, "foot", std::nullopt, "picture", ContentType::None, {}, 0);
+  CHECK(secondTag.defaultMaximize && *secondTag.defaultMaximize);
+  const auto otherTag = andromeda::resolveWindowRules(config, "foot", std::nullopt, "media", ContentType::None, {}, 0);
+  CHECK(!otherTag.defaultMaximize);
+}
+
 ANDROMEDA_TEST(windowRulesMatchEmptyIdentityOnlyWhenTheClientSetIt) {
   Config config;
 
   WindowRule blankTitle;
-  blankTitle.titlePattern = "^$";
-  blankTitle.titleRegex = std::regex(blankTitle.titlePattern);
+  blankTitle.titlePatterns.add("^$");
   blankTitle.defaultFloating = true;
   config.windowRules.push_back(std::move(blankTitle));
 
   WindowRule blankAppId;
-  blankAppId.appIdPattern = "^$";
-  blankAppId.appIdRegex = std::regex(blankAppId.appIdPattern);
+  blankAppId.appIdPatterns.add("^$");
   blankAppId.opacity = 0.5;
   config.windowRules.push_back(std::move(blankAppId));
 
   WindowRule blankTag;
-  blankTag.xdgTagPattern = "^$";
-  blankTag.xdgTagRegex = std::regex(blankTag.xdgTagPattern);
+  blankTag.xdgTagPatterns.add("^$");
   blankTag.defaultMaximize = true;
   config.windowRules.push_back(std::move(blankTag));
 
@@ -1005,15 +1067,13 @@ ANDROMEDA_TEST(windowRulesMatchIsAlone) {
   Config config;
 
   WindowRule aloneOnly;
-  aloneOnly.appIdPattern = "^player$";
-  aloneOnly.appIdRegex = std::regex(aloneOnly.appIdPattern);
+  aloneOnly.appIdPatterns.add("^player$");
   aloneOnly.matchAlone = true;
   aloneOnly.defaultMaximize = true;
   config.windowRules.push_back(std::move(aloneOnly));
 
   WindowRule notAloneOnly;
-  notAloneOnly.appIdPattern = "^player$";
-  notAloneOnly.appIdRegex = std::regex(notAloneOnly.appIdPattern);
+  notAloneOnly.appIdPatterns.add("^player$");
   notAloneOnly.matchAlone = false;
   notAloneOnly.defaultFloating = true;
   config.windowRules.push_back(std::move(notAloneOnly));
@@ -1032,8 +1092,7 @@ ANDROMEDA_TEST(windowRulesMatchIsAlone) {
 
   // A rule without the selector matches regardless of being alone.
   WindowRule anyState;
-  anyState.appIdPattern = "^worker$";
-  anyState.appIdRegex = std::regex(anyState.appIdPattern);
+  anyState.appIdPatterns.add("^worker$");
   anyState.defaultPinned = true;
   config.windowRules.push_back(std::move(anyState));
 
@@ -1043,6 +1102,86 @@ ANDROMEDA_TEST(windowRulesMatchIsAlone) {
   const auto anyStateNotAlone =
       andromeda::resolveWindowRules(config, "worker", std::nullopt, std::nullopt, ContentType::None, {}, 0);
   CHECK(anyStateNotAlone.defaultPinned && *anyStateNotAlone.defaultPinned);
+}
+
+ANDROMEDA_TEST(windowRulesMatchIsOnlyWindow) {
+  Config config;
+
+  WindowRule onlyRule;
+  onlyRule.appIdPatterns.add("^player$");
+  onlyRule.matchOnlyWindow = true;
+  onlyRule.borderWidth = 0;
+  config.windowRules.push_back(std::move(onlyRule));
+
+  WindowRule sharedRule;
+  sharedRule.appIdPatterns.add("^player$");
+  sharedRule.matchOnlyWindow = false;
+  sharedRule.borderWidth = 4;
+  config.windowRules.push_back(std::move(sharedRule));
+
+  // Nothing else on the workspace: the is_only_window=true rule applies.
+  const auto solo = andromeda::resolveWindowRules(
+      config, "player", std::nullopt, std::nullopt, ContentType::None, {.alone = true, .onlyWindow = true}, 0
+  );
+  CHECK(solo.borderWidth && *solo.borderWidth == 0);
+
+  // A float beside a tile: still alone in the layout, so is_alone keeps holding, but no longer the only window.
+  const auto tiledBesideFloat = andromeda::resolveWindowRules(
+      config, "player", std::nullopt, std::nullopt, ContentType::None, {.alone = true, .onlyWindow = false}, 0
+  );
+  CHECK(tiledBesideFloat.borderWidth && *tiledBesideFloat.borderWidth == 4);
+
+  // The selector is independent: a rule carrying only is_alone matches in both states.
+  WindowRule aloneRule;
+  aloneRule.appIdPatterns.add("^player$");
+  aloneRule.matchAlone = true;
+  aloneRule.defaultMaximize = true;
+  config.windowRules.push_back(std::move(aloneRule));
+
+  const auto aloneBesideFloat = andromeda::resolveWindowRules(
+      config, "player", std::nullopt, std::nullopt, ContentType::None, {.alone = true, .onlyWindow = false}, 0
+  );
+  CHECK(aloneBesideFloat.defaultMaximize && *aloneBesideFloat.defaultMaximize);
+}
+
+ANDROMEDA_TEST(windowRulesMatchIsDialog) {
+  Config config;
+
+  WindowRule dialogRule;
+  dialogRule.appIdPatterns.add("^editor$");
+  dialogRule.matchDialog = true;
+  dialogRule.attachToParent = false;
+  config.windowRules.push_back(std::move(dialogRule));
+
+  const auto dialog =
+      andromeda::resolveWindowRules(config, "editor", std::nullopt, std::nullopt, ContentType::None, {.dialog = true}, 0);
+  CHECK(dialog.attachToParent && !*dialog.attachToParent);
+
+  const auto toplevel =
+      andromeda::resolveWindowRules(config, "editor", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(!toplevel.attachToParent);
+}
+
+ANDROMEDA_TEST(windowRulesMatchIsCastTarget) {
+  Config config;
+
+  // The point of the selector: mark the window someone is watching, and only that one.
+  WindowRule castRule;
+  castRule.matchCastTarget = true;
+  castRule.borderWidth = 5;
+  castRule.borderColorFocused = std::array<float, 4>{0.25F, 0.75F, 0.25F, 1.0F};
+  config.windowRules.push_back(std::move(castRule));
+
+  const auto cast = andromeda::resolveWindowRules(
+      config, "browser", std::nullopt, std::nullopt, ContentType::None, {.castTarget = true}, 0
+  );
+  CHECK(cast.borderWidth && *cast.borderWidth == 5);
+  CHECK(cast.borderColorFocused.has_value());
+
+  const auto notCast =
+      andromeda::resolveWindowRules(config, "browser", std::nullopt, std::nullopt, ContentType::None, {}, 0);
+  CHECK(!notCast.borderWidth);
+  CHECK(!notCast.borderColorFocused);
 }
 
 ANDROMEDA_TEST(windowVrrRuleOverridesTheOutputPolicy) {
@@ -1066,49 +1205,130 @@ ANDROMEDA_TEST(layerRulesMergeMatchingFieldsInOrder) {
   Config config;
 
   LayerRule first;
-  first.namespacePattern = "^panel$";
-  first.namespaceRegex = std::regex(first.namespacePattern);
+  first.namespacePatterns.add("^panel$");
   first.blur = true;
   first.ignoreAlpha = 0.2;
   config.layerRules.push_back(std::move(first));
 
   LayerRule second;
-  second.namespacePattern = "^panel$";
-  second.namespaceRegex = std::regex(second.namespacePattern);
+  second.namespacePatterns.add("^panel$");
   second.ignoreAlpha = 0.75;
   second.optimized = true;
   config.layerRules.push_back(std::move(second));
 
-  const auto resolved = andromeda::resolveLayerRules(config, "panel");
+  const auto resolved = andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, 0);
   CHECK(resolved.blur && *resolved.blur);
   CHECK(resolved.ignoreAlpha && *resolved.ignoreAlpha == 0.75);
   CHECK(resolved.optimized && *resolved.optimized);
 
-  const auto unmatched = andromeda::resolveLayerRules(config, "wallpaper");
+  const auto unmatched = andromeda::resolveLayerRules(config, "wallpaper", andromeda::LayerShellLayer::Top, 0);
   CHECK(!unmatched.blur);
   CHECK(!unmatched.ignoreAlpha);
   CHECK(!unmatched.optimized);
 
   LayerRule blank;
-  blank.namespacePattern = "^$";
-  blank.namespaceRegex = std::regex(blank.namespacePattern);
+  blank.namespacePatterns.add("^$");
   blank.blur = true;
   config.layerRules.push_back(std::move(blank));
 
   // Layer surfaces name themselves at creation, so an empty namespace is a value a rule can match.
-  const auto blankNamespace = andromeda::resolveLayerRules(config, "");
+  const auto blankNamespace = andromeda::resolveLayerRules(config, "", andromeda::LayerShellLayer::Top, 0);
   CHECK(blankNamespace.blur && *blankNamespace.blur);
-  CHECK(!andromeda::resolveLayerRules(config, std::nullopt).blur);
+  CHECK(!andromeda::resolveLayerRules(config, std::nullopt, andromeda::LayerShellLayer::Top, 0).blur);
+}
+
+ANDROMEDA_TEST(layerRulesAcceptSeveralNamespacePatterns) {
+  Config config;
+
+  LayerRule panels;
+  panels.namespacePatterns.add("^panel$");
+  panels.namespacePatterns.add("^bar$");
+  panels.blur = true;
+  config.layerRules.push_back(std::move(panels));
+
+  CHECK(andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, 0).blur.has_value());
+  CHECK(andromeda::resolveLayerRules(config, "bar", andromeda::LayerShellLayer::Top, 0).blur.has_value());
+  CHECK(!andromeda::resolveLayerRules(config, "dock", andromeda::LayerShellLayer::Top, 0).blur.has_value());
+}
+
+ANDROMEDA_TEST(layerRulesMatchLayerAndStartupSelectors) {
+  Config config;
+
+  LayerRule topPanel;
+  topPanel.namespacePatterns.add("^panel$");
+  topPanel.matchLayer = andromeda::LayerShellLayer::Top;
+  topPanel.blur = true;
+  config.layerRules.push_back(std::move(topPanel));
+
+  LayerRule duringStartup;
+  duringStartup.matchAtStartup = true;
+  duringStartup.optimized = true;
+  config.layerRules.push_back(std::move(duringStartup));
+
+  const auto topAtStartup = andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, 0);
+  CHECK(topAtStartup.blur && *topAtStartup.blur);
+  CHECK(topAtStartup.optimized && *topAtStartup.optimized);
+
+  CHECK(!andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Overlay, 0).blur);
+
+  const auto afterStartup =
+      andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, andromeda::kStartupRuleDurationMs);
+  CHECK(afterStartup.blur && *afterStartup.blur);
+  CHECK(!afterStartup.optimized);
+}
+
+ANDROMEDA_TEST(layerRuleStartupBoundaryFlipsForExistingSurface) {
+  Config config;
+
+  LayerRule duringStartup;
+  duringStartup.matchAtStartup = true;
+  duringStartup.optimized = true;
+  config.layerRules.push_back(std::move(duringStartup));
+
+  LayerRule afterStartup;
+  afterStartup.matchAtStartup = false;
+  afterStartup.blur = true;
+  config.layerRules.push_back(std::move(afterStartup));
+
+  // The startup timer re-resolves surfaces that are still alive, so the same panel crossing the boundary must drop the
+  // startup-only rule and pick the opposite one without a layer change or client restart.
+  const auto during =
+      andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, andromeda::kStartupRuleDurationMs - 1);
+  CHECK(during.optimized && *during.optimized);
+  CHECK(!during.blur);
+
+  const auto past =
+      andromeda::resolveLayerRules(config, "panel", andromeda::LayerShellLayer::Top, andromeda::kStartupRuleDurationMs);
+  CHECK(!past.optimized);
+  CHECK(past.blur && *past.blur);
+}
+
+ANDROMEDA_TEST(securityContextRulesAcceptSeveralPatternsPerSelector) {
+  Config config;
+
+  SecurityContextRule grants;
+  grants.sandboxEnginePatterns.add("^org\\.flatpak$");
+  grants.sandboxEnginePatterns.add("^org\\.snap$");
+  grants.appIdPatterns.add("^org\\.example\\.Bar$");
+  grants.appIdPatterns.add("^org\\.example\\.Baz$");
+  grants.allowGlobals = {"zwlr_layer_shell_v1"};
+  config.securityContextRules.push_back(std::move(grants));
+
+  const auto grantsFor = [&](const char* engine, const char* appId) {
+    return andromeda::securityContextRuleGlobals(config, engine, appId);
+  };
+
+  CHECK(grantsFor("org.snap", "org.example.Baz") == std::vector<std::string>{"zwlr_layer_shell_v1"});
+  CHECK(grantsFor("org.snap", "org.example.Other").empty());
+  CHECK(grantsFor("org.other", "org.example.Baz").empty());
 }
 
 ANDROMEDA_TEST(securityContextRulesGrantGlobalsByMetadata) {
   Config config;
 
   SecurityContextRule scoped;
-  scoped.sandboxEnginePattern = "^org\\.flatpak$";
-  scoped.sandboxEngineRegex = std::regex(scoped.sandboxEnginePattern);
-  scoped.appIdPattern = "^org\\.example\\.Bar$";
-  scoped.appIdRegex = std::regex(scoped.appIdPattern);
+  scoped.sandboxEnginePatterns.add("^org\\.flatpak$");
+  scoped.appIdPatterns.add("^org\\.example\\.Bar$");
   scoped.allowGlobals = {"zwlr_layer_shell_v1"};
   config.securityContextRules.push_back(std::move(scoped));
 
@@ -1117,8 +1337,7 @@ ANDROMEDA_TEST(securityContextRulesGrantGlobalsByMetadata) {
   config.securityContextRules.push_back(std::move(wildcard));
 
   SecurityContextRule partial;
-  partial.appIdPattern = "example";
-  partial.appIdRegex = std::regex(partial.appIdPattern);
+  partial.appIdPatterns.add("example");
   partial.allowGlobals = {"zwlr_screencopy_manager_v1"};
   config.securityContextRules.push_back(std::move(partial));
 
@@ -1141,6 +1360,90 @@ ANDROMEDA_TEST(securityContextRulesGrantGlobalsByMetadata) {
   CHECK(grants(nullptr, "example", "zwlr_screencopy_manager_v1"));
   // Matching rules pool their globals.
   CHECK_EQ(andromeda::securityContextRuleGlobals(config, "org.flatpak", "org.example.Bar").size(), size_t{2});
+}
+
+ANDROMEDA_TEST(pointerConfinementLastMatchingRuleWins) {
+  Config config;
+  const auto resolve = [&](bool focused) {
+    return andromeda::resolveWindowRules(
+        config, "game", "menu", std::nullopt, ContentType::None, {.focused = focused}, 0
+    );
+  };
+  CHECK(!resolve(true).confinePointer.has_value());
+  WindowRule enabled;
+  enabled.confinePointer = true;
+  config.windowRules.push_back(enabled);
+  CHECK(resolve(true).confinePointer.value_or(false));
+  WindowRule disabled;
+  disabled.matchFocused = true;
+  disabled.confinePointer = false;
+  config.windowRules.push_back(disabled);
+  CHECK(resolve(true).confinePointer.has_value());
+  CHECK(!*resolve(true).confinePointer);
+  CHECK(resolve(false).confinePointer.value_or(false));
+  config.windowRules.emplace_back();
+  CHECK(!resolve(true).confinePointer.value_or(true));
+  CHECK(resolve(false).confinePointer.value_or(false));
+}
+
+ANDROMEDA_TEST(backgroundRenderLastMatchingRuleWins) {
+  Config config;
+  const auto resolve = [&](std::string_view appId) {
+    return andromeda::resolveWindowRules(config, appId, "video", std::nullopt, ContentType::None, {}, 0);
+  };
+  CHECK(!resolve("firefox").backgroundRender.has_value());
+  WindowRule enabled;
+  enabled.appIdPatterns.add("^firefox$");
+  enabled.backgroundRender = true;
+  config.windowRules.push_back(enabled);
+  CHECK(resolve("firefox").backgroundRender.value_or(false));
+  CHECK(!resolve("kitty").backgroundRender.has_value());
+  WindowRule disabled;
+  disabled.backgroundRender = false;
+  config.windowRules.push_back(disabled);
+  CHECK(resolve("firefox").backgroundRender.has_value());
+  CHECK(!*resolve("firefox").backgroundRender);
+}
+
+ANDROMEDA_TEST(titleBarAutoResetsAnEarlierOverride) {
+  Config config;
+  const auto resolve = [&] {
+    return andromeda::resolveWindowRules(config, "editor", "file", std::nullopt, ContentType::None, {}, 0);
+  };
+  CHECK(!resolve().titleBar.has_value());
+  WindowRule rule;
+  rule.titleBar = andromeda::TitleBarMode::Forced;
+  config.windowRules.push_back(rule);
+  CHECK_EQ(resolve().titleBar, andromeda::TitleBarMode::Forced);
+  rule.titleBar = andromeda::TitleBarMode::Off;
+  config.windowRules.push_back(rule);
+  CHECK_EQ(resolve().titleBar, andromeda::TitleBarMode::Off);
+  rule.titleBar = andromeda::TitleBarMode::On;
+  config.windowRules.push_back(rule);
+  CHECK_EQ(resolve().titleBar, andromeda::TitleBarMode::On);
+  config.windowRules.emplace_back();
+  CHECK_EQ(resolve().titleBar, andromeda::TitleBarMode::On);
+  WindowRule other = rule;
+  other.titleBar = andromeda::TitleBarMode::Forced;
+  CHECK(!(rule == other));
+}
+
+ANDROMEDA_TEST(maximizedToEdgesSelectsCurrentState) {
+  Config config;
+  WindowRule restored;
+  restored.matchMaximizedToEdges = false;
+  restored.titleBar = andromeda::TitleBarMode::Forced;
+  config.windowRules.push_back(std::move(restored));
+  WindowRule maximized;
+  maximized.matchMaximizedToEdges = true;
+  maximized.titleBar = andromeda::TitleBarMode::Off;
+  config.windowRules.push_back(std::move(maximized));
+  const auto normal = andromeda::resolveWindowRules(config, "app", "title", std::nullopt, ContentType::None, {}, 0);
+  CHECK(normal.titleBar == andromeda::TitleBarMode::Forced);
+  const auto edges = andromeda::resolveWindowRules(
+      config, "app", "title", std::nullopt, ContentType::None, {.maximizedToEdges = true}, 0
+  );
+  CHECK(edges.titleBar == andromeda::TitleBarMode::Off);
 }
 
 int main() { return RUN_TESTS(); }

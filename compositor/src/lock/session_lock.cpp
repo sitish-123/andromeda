@@ -85,12 +85,11 @@ namespace andromeda {
     int width = 0;
     int height = 0;
     wlr_output_effective_resolution(output, &width, &height);
-    // Output commits land here every frame; configuring on each one made the lock client redraw, commit, and so
-    // configure again, a 60 Hz loop for as long as the screen stayed locked.
+    // Deduplicate sent sizes, including unacked configures, to avoid repaint loops.
     if (width != m_configuredWidth || height != m_configuredHeight) {
+      wlr_session_lock_surface_v1_configure(m_lockSurface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
       m_configuredWidth = width;
       m_configuredHeight = height;
-      wlr_session_lock_surface_v1_configure(m_lockSurface, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
     }
 
     if (m_sceneTree != nullptr) {
@@ -206,9 +205,9 @@ namespace andromeda {
     }
   }
 
-  bool SessionLock::presenting() const { return m_phase == Phase::Presenting; }
+  bool SessionLock::presenting() const { return !m_unlocked && m_phase == Phase::Presenting; }
 
-  bool SessionLock::locked() const { return m_phase == Phase::Locked; }
+  bool SessionLock::locked() const { return !m_unlocked && m_phase == Phase::Locked; }
 
   void SessionLock::start() {
     if (surfacesReady()) {
@@ -443,6 +442,10 @@ namespace andromeda {
   }
 
   void SessionLock::focusMappedSurface() {
+    // Surface destruction can arrive after unlock restored desktop focus.
+    if (m_unlocked) {
+      return;
+    }
     const auto surface = std::ranges::find_if(m_surfaces, [this](const std::unique_ptr<LockSurface>& entry) {
       Output* output = m_server->outputFromWlr(entry->output());
       return entry->mapped() && output != nullptr && outputActive(*output);
