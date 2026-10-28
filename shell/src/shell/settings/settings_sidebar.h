@@ -37,6 +37,10 @@ namespace settings {
     std::function<void()> clearSearchQuery;
     std::function<void()> requestRebuild;
     std::function<void(std::string)> createBar;
+    // Opens the "new monitor override" dialog for the given bar. The create flow lives in a modal
+    // (wide enough for the output picker) instead of the narrow sidebar.
+    std::function<void(std::string)> openMonitorOverrideCreate;
+    std::function<void()> openDockMonitorOverrideCreate;
     std::function<void(const Node*)> scrollSidebarNodeIntoView;
     RovingListNavHost** outNav = nullptr;
   };

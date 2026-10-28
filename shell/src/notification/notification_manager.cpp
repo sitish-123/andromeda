@@ -29,8 +29,6 @@ namespace {
   }
 
   constexpr std::string_view kInlineReplyAction = "inline-reply";
-  constexpr std::string_view kInlineReplyActionPrefix = "inline-reply::";
-  constexpr std::size_t kMaxActionKeyLength = 1024;
 
   bool notificationHasAction(const Notification& notification, std::string_view actionKey) {
     for (std::size_t i = 0; i + 1 < notification.actions.size(); i += 2) {
@@ -67,12 +65,13 @@ namespace {
 
   bool hasSameContent(
       const Notification& notification, NotificationOrigin origin, const std::string& appName,
-      const std::string& summary, const std::string& body
+      const std::string& summary, const std::string& body, const std::string& sender
   ) {
     return notification.origin == origin
         && notification.appName == appName
         && notification.summary == summary
-        && notification.body == body;
+        && notification.body == body
+        && notification.sender == sender;
   }
 
   bool shouldTrackHistory(NotificationOrigin origin, Urgency urgency, bool transient, bool persistInHistory) noexcept {
@@ -177,7 +176,7 @@ void NotificationManager::upsertHistory(
       NotificationHistoryEntry{
           .notification = notification,
           .active = active,
-          .seen = seen,
+          .seen = seen || closeReason == CloseReason::ClosedByCall,
           .closeReason = closeReason,
           .eventSerial = ++m_changeSerial,
       }
@@ -203,6 +202,10 @@ void NotificationManager::markHistoryClosed(uint32_t id, CloseReason reason) {
 
   NotificationHistoryEntry& entry = m_history[it->second];
   entry.active = false;
+  // The sender withdrew it (e.g. the message was read in the app), so it no longer needs attention.
+  if (reason == CloseReason::ClosedByCall) {
+    entry.seen = true;
+  }
   entry.closeReason = reason;
   entry.eventSerial = ++m_changeSerial;
   schedulePersistHistory();
@@ -264,6 +267,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   auto& appName = request.appName;
   auto& summary = request.summary;
   auto& body = request.body;
+  auto& sender = request.sender;
   const Urgency urgency = request.urgency;
   int32_t timeout = request.timeout;
   const NotificationOrigin origin = request.origin;
@@ -329,6 +333,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           (n.appName != appName
            || n.summary != summary
            || n.body != body
+           || n.sender != sender
            || n.timeout != timeout
            || n.urgency != urgency
            || n.origin != origin
@@ -347,6 +352,9 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
       n.dndPolicy = dndPolicy;
       n.summary = std::move(summary);
       n.body = std::move(body);
+      if (!sender.empty()) {
+        n.sender = std::move(sender);
+      }
       n.timeout = timeout;
       n.urgency = urgency;
       n.actions = std::move(actions);
@@ -384,7 +392,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
 
   // Suppress immediate duplicate bursts. Later same-content notifications should still be visible.
   for (const auto& existing : std::views::reverse(m_notifications)) {
-    if (hasSameContent(existing, origin, appName, summary, body)
+    if (hasSameContent(existing, origin, appName, summary, body, sender)
         && now - existing.receivedTime < kImplicitDuplicateWindow) {
       logNotification(existing, "duplicate ignored");
       return existing.id;
@@ -405,6 +413,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           .appName = std::move(appName),
           .summary = std::move(summary),
           .body = std::move(body),
+          .sender = std::move(sender),
           .timeout = timeout,
           .urgency = urgency,
           .actions = std::move(actions),
@@ -435,7 +444,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   }
   const bool dndAllowsSound = !m_doNotDisturb || dndPolicy == NotificationDndPolicy::Bypass;
   if (dndAllowsSound && m_soundPlayer != nullptr && dispatch.playSound) {
-    m_soundPlayer->play("message-new-instant");
+    m_soundPlayer->play(SoundPlayer::kEventNotification);
   }
 
   return n.id;
@@ -499,63 +508,67 @@ void NotificationManager::setCloseCallback(CloseCallback callback) { m_closeCall
 
 void NotificationManager::addCloseObserver(CloseCallback callback) { m_closeObservers.push_back(std::move(callback)); }
 
+void NotificationManager::setReplyCallback(ReplyCallback callback) { m_replyCallback = std::move(callback); }
+
 bool NotificationManager::hasPendingDBusClose(uint32_t id) const noexcept { return m_pendingDBusClose.contains(id); }
 
 bool NotificationManager::invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke) {
   return invokeAction(id, actionKey, {}, closeAfterInvoke);
 }
 
+const Notification* NotificationManager::findInvokable(uint32_t id) const {
+  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
+    return &m_notifications[it->second];
+  }
+  if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end() && hasPendingDBusClose(id)) {
+    return &m_history[histIt->second].notification;
+  }
+  return nullptr;
+}
+
+void NotificationManager::dismissAfterInvoke(uint32_t id) {
+  if (m_idToIndex.contains(id)) {
+    (void)close(id, CloseReason::Dismissed);
+  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
+    emitPendingDBusClose(id, CloseReason::Dismissed);
+    m_history[histIt->second].notification.actions.clear();
+    m_history[histIt->second].active = false;
+    ++m_changeSerial;
+    schedulePersistHistory();
+  }
+}
+
 bool NotificationManager::invokeAction(
-    uint32_t id, const std::string& actionKey, std::string activationToken, bool closeAfterInvoke
+    uint32_t id, const std::string& actionKey, const std::string& activationToken, bool closeAfterInvoke
 ) {
   if (actionKey.empty()) {
     return false;
   }
 
-  const Notification* notification = nullptr;
-  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
-    notification = &m_notifications[it->second];
-  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-    if (!hasPendingDBusClose(id)) {
-      return false;
-    }
-    notification = &m_history[histIt->second].notification;
-  } else {
+  const Notification* notification = findInvokable(id);
+  if (notification == nullptr) {
     return false;
   }
 
   if (actionKey == kInlineReplyAction) {
-    // This server delivers reply text via invokeInlineReply() as "inline-reply::<text>".
+    // Inline replies are delivered via invokeInlineReply() and the NotificationReplied signal.
     return false;
   }
-  const bool inlineReplyWithPayload = actionKey.starts_with(std::string(kInlineReplyActionPrefix));
-  if (inlineReplyWithPayload) {
-    if (!notificationHasAction(*notification, kInlineReplyAction)) {
-      return false;
-    }
-  } else if (!notificationHasAction(*notification, actionKey)) {
+  if (!notificationHasAction(*notification, actionKey)) {
     return false;
   }
 
   // Internal notifications have no D-Bus owner, so their actions are dispatched in-process instead.
   if (notification->origin == NotificationOrigin::Internal) {
     for (const ActionInvokeCallback& callback : m_internalActionCallbacks) {
-      callback(id, actionKey, activationToken);
+      callback(id, actionKey, activationToken, notification->sender);
     }
   } else if (m_actionInvokeCallback) {
-    m_actionInvokeCallback(id, actionKey, activationToken);
+    m_actionInvokeCallback(id, actionKey, activationToken, notification->sender);
   }
 
   if (closeAfterInvoke) {
-    if (m_idToIndex.contains(id)) {
-      (void)close(id, CloseReason::Dismissed);
-    } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-      emitPendingDBusClose(id, CloseReason::Dismissed);
-      m_history[histIt->second].notification.actions.clear();
-      m_history[histIt->second].active = false;
-      ++m_changeSerial;
-      schedulePersistHistory();
-    }
+    dismissAfterInvoke(id);
   }
   return true;
 }
@@ -565,29 +578,39 @@ bool NotificationManager::invokeInlineReply(uint32_t id, const std::string& repl
 }
 
 bool NotificationManager::invokeInlineReply(
-    uint32_t id, const std::string& replyText, std::string activationToken, bool closeAfterInvoke
+    uint32_t id, const std::string& replyText, const std::string& activationToken, bool closeAfterInvoke
 ) {
   if (StringUtils::isBlank(replyText)) {
     return false;
   }
 
-  std::string actionKey;
-  actionKey.reserve(kInlineReplyActionPrefix.size() + replyText.size());
-  actionKey.append(kInlineReplyActionPrefix);
-  actionKey.append(StringUtils::truncateUtf8(replyText, kMaxActionKeyLength - kInlineReplyActionPrefix.size()));
-  return invokeAction(id, actionKey, std::move(activationToken), closeAfterInvoke);
+  const Notification* notification = findInvokable(id);
+  if (notification == nullptr || !notificationHasAction(*notification, kInlineReplyAction)) {
+    return false;
+  }
+
+  if (notification->origin == NotificationOrigin::External && m_replyCallback) {
+    m_replyCallback(id, replyText, activationToken, notification->sender);
+  }
+
+  if (closeAfterInvoke) {
+    dismissAfterInvoke(id);
+  }
+  return true;
 }
 
 void NotificationManager::emitPendingDBusClose(uint32_t id, CloseReason reason) {
-  if (!m_pendingDBusClose.contains(id)) {
+  const auto it = m_pendingDBusClose.find(id);
+  if (it == m_pendingDBusClose.end()) {
     return;
   }
-  m_pendingDBusClose.erase(id);
+  const std::string sender = std::move(it->second);
+  m_pendingDBusClose.erase(it);
   if (m_closeCallback) {
-    m_closeCallback(id, reason);
+    m_closeCallback(id, reason, sender);
   }
   for (const CloseCallback& observer : m_closeObservers) {
-    observer(id, reason);
+    observer(id, reason, sender);
   }
 }
 
@@ -609,7 +632,9 @@ bool NotificationManager::close(uint32_t id, CloseReason reason) {
       if (reason == CloseReason::Dismissed && !m_keepDismissedInHistory) {
         removeHistoryEntry(id);
       } else {
+        const bool hadUnreadBefore = computeHasUnreadNotificationHistory();
         markHistoryClosed(id, reason);
+        notifyUnreadStateChangedIfNeeded(hadUnreadBefore);
       }
       return true;
     }
@@ -649,13 +674,13 @@ bool NotificationManager::close(uint32_t id, CloseReason reason) {
 
   const bool deferDBusClose = reason == CloseReason::Expired && notificationHasInvokableActions(closed);
   if (deferDBusClose) {
-    m_pendingDBusClose.insert(id);
+    m_pendingDBusClose.emplace(id, closed.sender);
   } else {
     if (m_closeCallback) {
-      m_closeCallback(id, reason);
+      m_closeCallback(id, reason, closed.sender);
     }
     for (const CloseCallback& observer : m_closeObservers) {
-      observer(id, reason);
+      observer(id, reason, closed.sender);
     }
   }
 
@@ -669,6 +694,11 @@ bool NotificationManager::close(uint32_t id, CloseReason reason) {
 const std::deque<Notification>& NotificationManager::all() const noexcept { return m_notifications; }
 
 const std::deque<NotificationHistoryEntry>& NotificationManager::history() const noexcept { return m_history; }
+
+const NotificationHistoryEntry* NotificationManager::findHistoryEntry(uint32_t id) const noexcept {
+  const auto it = m_historyIndex.find(id);
+  return it != m_historyIndex.end() && it->second < m_history.size() ? &m_history[it->second] : nullptr;
+}
 
 std::uint64_t NotificationManager::changeSerial() const noexcept { return m_changeSerial; }
 
@@ -751,7 +781,7 @@ void NotificationManager::pauseExpiry(uint32_t id) {
 void NotificationManager::setHistoryRetentionHours(int hours) {
   m_historyRetentionHours = hours;
   if (hours > 0) {
-    m_historyRetentionTimer.startRepeating(std::chrono::seconds(60), [this]() { cleanupOldHistoryEntries(); });
+    m_historyRetentionTimer.startRepeating(std::chrono::seconds(60), [this] { cleanupOldHistoryEntries(); });
   } else {
     m_historyRetentionTimer.stop();
   }
@@ -866,7 +896,7 @@ void NotificationManager::schedulePersistHistory() {
     return;
   }
   m_persistScheduled = true;
-  DeferredCall::callLater([this]() {
+  DeferredCall::callLater([this] {
     m_persistScheduled = false;
     persistHistoryToDisk();
   });
@@ -905,7 +935,11 @@ void NotificationManager::loadPersistedHistory() {
 }
 
 void NotificationManager::flushPersistedHistory() {
-  const std::vector<uint32_t> pending(m_pendingDBusClose.begin(), m_pendingDBusClose.end());
+  std::vector<uint32_t> pending;
+  pending.reserve(m_pendingDBusClose.size());
+  for (const auto& [id, sender] : m_pendingDBusClose) {
+    pending.push_back(id);
+  }
   for (const uint32_t id : pending) {
     emitPendingDBusClose(id, CloseReason::Expired);
   }

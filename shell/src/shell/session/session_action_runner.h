@@ -28,6 +28,7 @@ public:
   [[nodiscard]] bool lock() const;
   [[nodiscard]] bool requestSuspendDetached() const;
   [[nodiscard]] bool requestRebootDetached() const;
+  [[nodiscard]] bool requestRebootUefiDetached() const;
   [[nodiscard]] bool requestShutdownDetached() const;
   [[nodiscard]] bool requestHibernateDetached() const;
   [[nodiscard]] bool requestSuspendThenHibernateDetached() const;

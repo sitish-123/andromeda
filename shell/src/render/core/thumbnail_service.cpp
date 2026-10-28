@@ -229,7 +229,7 @@ ThumbnailService::Subscription ThumbnailService::subscribePendingUpload(PendingU
   }
 
   std::weak_ptr<bool> token = m_lifetimeToken;
-  return Subscription([this, token, id]() {
+  return Subscription([this, token, id] {
     auto alive = token.lock();
     if (alive == nullptr || !*alive) {
       return;
@@ -256,7 +256,7 @@ ThumbnailService::subscribeReady(const std::string& path, ReadyCallback callback
   );
 
   std::weak_ptr<bool> token = m_lifetimeToken;
-  return Subscription([this, token, id]() {
+  return Subscription([this, token, id] {
     auto alive = token.lock();
     if (alive == nullptr || !*alive) {
       return;

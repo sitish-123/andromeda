@@ -20,10 +20,6 @@ namespace compositors {
     class SwayRuntime;
   } // namespace sway
 
-  namespace triad {
-    class TriadRuntime;
-  } // namespace triad
-
   namespace andromeda {
     class AndromedaRuntime;
   } // namespace andromeda
@@ -44,8 +40,6 @@ namespace compositors {
     [[nodiscard]] const niri::NiriRuntime& niri() const noexcept;
     [[nodiscard]] sway::SwayRuntime& sway() noexcept;
     [[nodiscard]] const sway::SwayRuntime& sway() const noexcept;
-    [[nodiscard]] triad::TriadRuntime& triad() noexcept;
-    [[nodiscard]] const triad::TriadRuntime& triad() const noexcept;
     [[nodiscard]] andromeda::AndromedaRuntime& andromeda() noexcept;
     [[nodiscard]] const andromeda::AndromedaRuntime& andromeda() const noexcept;
 
@@ -54,7 +48,6 @@ namespace compositors {
     std::unique_ptr<mango::MangoRuntime> m_mango;
     std::unique_ptr<niri::NiriRuntime> m_niri;
     std::unique_ptr<sway::SwayRuntime> m_sway;
-    std::unique_ptr<triad::TriadRuntime> m_triad;
     std::unique_ptr<andromeda::AndromedaRuntime> m_andromeda;
   };
 

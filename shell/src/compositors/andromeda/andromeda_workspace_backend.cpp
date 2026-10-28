@@ -1,6 +1,7 @@
 #include "compositors/andromeda/andromeda_workspace_backend.h"
 
 #include "compositors/andromeda/andromeda_runtime.h"
+#include "core/log.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -8,12 +9,30 @@
 
 namespace {
 
+  constexpr Logger kLog("andromeda_workspace_backend");
+
   [[nodiscard]] std::string jsonString(const nlohmann::json& json, std::string_view key) {
     const auto it = json.find(key);
     if (it == json.end() || !it->is_string()) {
       return {};
     }
     return it->get<std::string>();
+  }
+
+  [[nodiscard]] std::optional<WindowMinimizeState> parseMinimizeState(const nlohmann::json& entry) {
+    const auto minimized = entry.find("minimized");
+    const auto minimizable = entry.find("minimizable");
+    if (minimized == entry.end()
+        || !minimized->is_boolean()
+        || minimizable == entry.end()
+        || !minimizable->is_boolean()) {
+      kLog.warn("windows snapshot requires boolean minimized and minimizable fields");
+      return std::nullopt;
+    }
+    return WindowMinimizeState{
+        .minimized = minimized->get<bool>(),
+        .minimizable = minimizable->get<bool>(),
+    };
   }
 
 } // namespace
@@ -24,6 +43,10 @@ AndromedaWorkspaceBackend::AndromedaWorkspaceBackend(compositors::andromeda::And
 AndromedaWorkspaceBackend::~AndromedaWorkspaceBackend() { cleanup(); }
 
 void AndromedaWorkspaceBackend::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
+
+void AndromedaWorkspaceBackend::setWindowChangeCallback(ChangeCallback callback) {
+  m_windowChangeCallback = std::move(callback);
+}
 
 void AndromedaWorkspaceBackend::setOverviewChangeCallback(ChangeCallback callback) {
   m_overviewChangeCallback = std::move(callback);
@@ -149,6 +172,7 @@ std::vector<WorkspaceWindow> AndromedaWorkspaceBackend::workspaceWindows(const s
             .x = window.x,
             .y = window.y,
             .outputName = {},
+            .minimizeState = window.minimizeState,
         }
     );
   }
@@ -165,6 +189,22 @@ bool AndromedaWorkspaceBackend::closeWindowById(const std::string& windowId) {
   return m_runtime.requestAction("window-close:" + windowId);
 }
 
+std::optional<WindowMinimizeState> AndromedaWorkspaceBackend::windowMinimizeState(std::string_view windowId) const {
+  if (!m_runtime.available()) {
+    return std::nullopt;
+  }
+  const auto it = std::ranges::find_if(m_windows, [&](const auto& window) { return window.first == windowId; });
+  return it != m_windows.end() ? it->second.minimizeState : std::nullopt;
+}
+
+bool AndromedaWorkspaceBackend::minimizeWindowById(const std::string& windowId) {
+  const auto state = windowMinimizeState(windowId);
+  if (!state.has_value() || !state->minimizable || state->minimized) {
+    return false;
+  }
+  return m_runtime.requestAction("window-minimize:" + windowId);
+}
+
 void AndromedaWorkspaceBackend::cleanup() { m_runtime.cleanup(); }
 
 void AndromedaWorkspaceBackend::handleStreamReset() {
@@ -174,6 +214,8 @@ void AndromedaWorkspaceBackend::handleStreamReset() {
   m_focusedWindowId.reset();
   m_overviewKnown = false;
   m_overviewOpen = false;
+  notifyChanged();
+  notifyWindowsChanged();
   if (overviewWasOpen) {
     notifyOverviewChanged();
   }
@@ -182,6 +224,17 @@ void AndromedaWorkspaceBackend::handleStreamReset() {
 void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohmann::json& data) {
   if (event == "windows") {
     if (!data.is_array()) {
+      kLog.warn("windows snapshot must be an array");
+      bool changed = false;
+      for (auto& [windowId, window] : m_windows) {
+        (void)windowId;
+        changed |= window.minimizeState.has_value();
+        window.minimizeState.reset();
+      }
+      if (changed) {
+        notifyChanged();
+        notifyWindowsChanged();
+      }
       return;
     }
 
@@ -203,6 +256,7 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
       window.active = entry.value("active", false);
       window.x = entry.value("x", 0);
       window.y = entry.value("y", 0);
+      window.minimizeState = parseMinimizeState(entry);
       if (window.active && !focused.has_value()) {
         focused = id;
       }
@@ -215,6 +269,7 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
     }
     m_windows = std::move(next);
     notifyChanged();
+    notifyWindowsChanged();
     return;
   }
 
@@ -235,6 +290,12 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
 void AndromedaWorkspaceBackend::notifyChanged() const {
   if (m_changeCallback) {
     m_changeCallback();
+  }
+}
+
+void AndromedaWorkspaceBackend::notifyWindowsChanged() const {
+  if (m_windowChangeCallback) {
+    m_windowChangeCallback();
   }
 }
 

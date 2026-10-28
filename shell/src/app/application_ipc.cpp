@@ -548,14 +548,14 @@ void Application::initIpc() {
   );
 
   m_ipcService.bind(noctalia::cli::msg::dpmsOn, [this](const std::string&) -> std::string {
-    if (!m_compositorPlatform.setOutputPower(true)) {
+    if (!setOutputPower(true)) {
       return "error: failed to execute dpms-on command\n";
     }
     return "ok\n";
   });
 
   m_ipcService.bind(noctalia::cli::msg::dpmsOff, [this](const std::string&) -> std::string {
-    if (!m_compositorPlatform.setOutputPower(false)) {
+    if (!setOutputPower(false)) {
       return "error: failed to execute dpms-off command\n";
     }
     return "ok\n";
@@ -615,7 +615,7 @@ void Application::initIpc() {
     return "ok\n";
   });
 
-  auto workspaceAlertStatus = [this]() {
+  auto workspaceAlertStatus = [this] {
     const auto tokens = m_workspaceAlertService.tokens();
     if (tokens.empty()) {
       return std::string{"(no workspace alerts)\n"};
@@ -904,8 +904,8 @@ void Application::initIpc() {
   m_dock.registerIpc(m_ipcService);
   m_wallpaper.registerIpc(m_ipcService);
   greeter::registerIpc(
-      m_ipcService, m_configService, [this]() { return m_themeService.resolvedShellMode(); }, &m_compositorPlatform,
-      [this]() { return m_logindService != nullptr; }
+      m_ipcService, m_configService, [this] { return m_themeService.resolvedShellMode(); }, &m_compositorPlatform,
+      [this] { return m_logindService != nullptr; }
   );
   if (m_mprisService) {
     m_mprisService->registerIpc(m_ipcService);
@@ -945,6 +945,29 @@ bool Application::runShellCommandBlocking(const std::string& command) {
   return true;
 }
 
+bool Application::setOutputPower(bool on) {
+  const auto generation = ++m_outputPowerRequestGeneration;
+  m_lockScreen.cancelOutputPowerOff();
+  m_compositorPlatform.setOutputPowerOffPending(!on);
+  if (on) {
+    m_lockScreen.markOutputsWoke();
+    return m_compositorPlatform.setOutputPower(true);
+  }
+  const auto result = std::make_shared<std::optional<bool>>();
+  m_lockScreen.prepareForOutputPowerOff([this, generation, result](bool ready) {
+    if (generation != m_outputPowerRequestGeneration) {
+      return;
+    }
+    const bool success = ready && m_compositorPlatform.setOutputPower(false);
+    if (ready && !success) {
+      kLog.warn("failed to turn outputs off after preparing the lock frame");
+    }
+    m_compositorPlatform.setOutputPowerOffPending(false);
+    *result = success;
+  });
+  return result->has_value() ? **result : true;
+}
+
 bool Application::runIdleAction(const IdleActionRequest& action) {
   switch (action.kind) {
   case IdleActionKind::None:
@@ -957,9 +980,9 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
     }
     return m_sessionActionRunner.lock();
   case IdleActionKind::ScreenOff:
-    return m_compositorPlatform.setOutputPower(false);
+    return setOutputPower(false);
   case IdleActionKind::ScreenOn:
-    return m_compositorPlatform.setOutputPower(true);
+    return setOutputPower(true);
   case IdleActionKind::Suspend:
     return m_sessionActionRunner.requestSuspendDetached();
   case IdleActionKind::LockAndSuspend:

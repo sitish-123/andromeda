@@ -253,7 +253,7 @@ LinkService::LinkService(
                                        const std::vector<std::uint8_t>& data
                                    ) { onLocalClipboard(mimeTypes, dataMimeType, data); });
   m_notifications.addInternalActionCallback(
-      [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
+      [this](std::uint32_t id, const std::string& action, const std::string& activationToken, const std::string&) {
         onAction(id, action, activationToken);
       }
   );
@@ -312,7 +312,9 @@ LinkService::LinkService(
       }
     }
   });
-  m_notifications.addCloseObserver([this](std::uint32_t id, CloseReason reason) { onNotificationClosed(id, reason); });
+  m_notifications.addCloseObserver([this](std::uint32_t id, CloseReason reason, const std::string&) {
+    onNotificationClosed(id, reason);
+  });
 
   m_daemon->callMethodAsync("NameHasOwner")
       .onInterface(kDaemonInterface)

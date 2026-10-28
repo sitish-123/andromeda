@@ -138,7 +138,7 @@ QuickShareService::QuickShareService(SessionBus& bus, NotificationManager& notif
       });
   m_fileManager = sdbus::createProxy(bus.connection(), kFileManagerName, kFileManagerPath);
   m_notifications.addInternalActionCallback(
-      [this](std::uint32_t id, const std::string& action, const std::string& activationToken) {
+      [this](std::uint32_t id, const std::string& action, const std::string& activationToken, const std::string&) {
         onAction(id, action, activationToken);
       }
   );

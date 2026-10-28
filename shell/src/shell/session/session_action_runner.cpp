@@ -11,11 +11,13 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -120,6 +122,8 @@ namespace {
     return callLogind(action, logindMethod);
   }
 
+  [[nodiscard]] bool rebootUefiSupported() { return canLogind("reboot_uefi", "CanRebootToFirmwareSetup"); }
+
   [[nodiscard]] bool requestLock(LockScreen& lockScreen) {
     logActionContext("lock");
     if (!lockScreen.lock()) {
@@ -131,7 +135,7 @@ namespace {
   }
 
   void runPowerAction(std::function<bool()> hook, std::function<bool()> action, std::string_view actionName) {
-    std::thread([hook = std::move(hook), action = std::move(action), actionName = std::string(actionName)]() mutable {
+    std::thread([hook = std::move(hook), action = std::move(action), actionName = std::string(actionName)] mutable {
       if (hook && !hook()) {
         kLog.warn("{} cancelled because a configured hook failed", actionName);
         return;
@@ -143,7 +147,7 @@ namespace {
   }
 
   void runShellCommand(std::function<bool()> hook, std::string command, std::string_view actionName) {
-    std::thread([hook = std::move(hook), command = std::move(command), actionName = std::string(actionName)]() mutable {
+    std::thread([hook = std::move(hook), command = std::move(command), actionName = std::string(actionName)] mutable {
       if (hook && !hook()) {
         kLog.warn("{} cancelled because a configured hook failed", actionName);
         return;
@@ -182,11 +186,11 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   }
 
   if (cfg.action == "logout") {
-    runPowerAction(m_hooks.onLogout, [platform = &m_platform]() { return platform->requestSessionExit(); }, "logout");
+    runPowerAction(m_hooks.onLogout, [platform = &m_platform] { return platform->requestSessionExit(); }, "logout");
     return;
   }
   if (cfg.action == "suspend") {
-    runPowerAction({}, [this]() { return requestSuspendDetached(); }, "suspend");
+    runPowerAction({}, [this] { return requestSuspendDetached(); }, "suspend");
     return;
   }
   if (cfg.action == "lock_and_suspend") {
@@ -196,11 +200,20 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
     return;
   }
   if (cfg.action == "reboot") {
-    runPowerAction(m_hooks.onReboot, [this]() { return requestRebootDetached(); }, "reboot");
+    runPowerAction(m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot");
+    return;
+  }
+  if (cfg.action == "reboot_uefi") {
+    // Check before the rebooting hook runs so an unsupported system doesn't fire it for nothing.
+    if (!rebootUefiSupported()) {
+      kLog.error("reboot_uefi: requires systemd and a UEFI boot");
+      return;
+    }
+    runPowerAction(m_hooks.onReboot, [this] { return requestRebootUefiDetached(); }, "reboot_uefi");
     return;
   }
   if (cfg.action == "shutdown") {
-    runPowerAction(m_hooks.onShutdown, [this]() { return requestShutdownDetached(); }, "shutdown");
+    runPowerAction(m_hooks.onShutdown, [this] { return requestShutdownDetached(); }, "shutdown");
     return;
   }
   if (cfg.action == "hibernate") {
@@ -223,7 +236,7 @@ std::function<bool()> SessionActionRunner::hookFor(std::string_view action) cons
   if (action == "logout") {
     return m_hooks.onLogout;
   }
-  if (action == "reboot") {
+  if (action == "reboot" || action == "reboot_uefi") {
     return m_hooks.onReboot;
   }
   if (action == "shutdown") {
@@ -252,6 +265,12 @@ bool SessionActionRunner::requestRebootDetached() const {
   logActionContext("reboot");
   std::scoped_lock lock(m_powerMutex);
   return runPowerActionResolved("reboot", m_rebootCommandOverride, "Reboot", PowerLaunchMode::Detached);
+}
+
+bool SessionActionRunner::requestRebootUefiDetached() const {
+  logActionContext("reboot_uefi");
+  std::scoped_lock lock(m_powerMutex);
+  return callLogind("reboot_uefi", "SetRebootToFirmwareSetup") && callLogind("reboot_uefi", "Reboot");
 }
 
 bool SessionActionRunner::requestShutdownDetached() const {
@@ -285,7 +304,8 @@ bool SessionActionRunner::requestSuspendThenHibernateDetached() const {
 }
 
 bool SessionActionRunner::lockThenSuspendDetached() const {
-  m_lockScreen.runAfterSessionLocked([this]() { (void)requestSuspendDetached(); });
+  m_lockScreen.runAfterSessionLocked([this] { (void)requestSuspendDetached(); });
+  m_lockScreen.prepareForSleep();
   return true;
 }
 

@@ -490,7 +490,7 @@ void SystemTab::onFrameTick(float deltaMs) {
     return;
   }
 
-  if (!m_redrawLimiter.shouldStep([]() { PanelManager::instance().requestRedraw(); })) {
+  if (!m_redrawLimiter.shouldStep([] { PanelManager::instance().requestRedraw(); })) {
     return;
   }
 

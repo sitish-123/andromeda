@@ -113,9 +113,6 @@ namespace {
     return reading.totalBytes > 0 && reading.usedBytes <= reading.totalBytes;
   }
 
-  // Per-core CPU sampling cadence. Fixed rather than configurable: it is opt-in via
-  // retainCpuCores(), and its only consumers want per-second resolution.
-  constexpr std::chrono::steady_clock::duration kCpuCoreInterval = std::chrono::seconds(1);
   constexpr auto kSamplingLease = std::chrono::seconds(10);
 
   // 0 disables a metric; any other value is clamped to the supported poll range.
@@ -214,11 +211,7 @@ namespace {
     const std::string lbl = StringUtils::toLower(label);
 
     int score = 0;
-    if (name == "amdgpu") {
-      score += 20;
-    } else if (name == "nvidia" || name.contains("nvidia")) {
-      score += 20;
-    } else if (name == "i915" || name == "xe") {
+    if (name == "amdgpu" || name.contains("nvidia") || name == "i915" || name == "xe") {
       score += 20;
     } else if (name == "nouveau") {
       score += 10;
@@ -1234,7 +1227,7 @@ void SystemMonitorService::start() {
   m_running = true;
   m_prevNetBytes.clear();
   try {
-    m_thread = std::thread([this]() { samplingLoop(); });
+    m_thread = std::thread([this] { samplingLoop(); });
   } catch (...) {
     m_running = false;
     throw;

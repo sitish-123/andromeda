@@ -11,6 +11,8 @@ enum class RfkillDeviceType : std::uint8_t {
 
 struct RfkillSwitchResult {
   bool success = false;
+  // Diagnostic only: a hard block was observed while writing. Vendor platform switches report stale
+  // hard blocks, so callers must not treat this as a reason to skip the radio operation.
   bool hardBlocked = false;
   std::string detail;
 };
@@ -23,9 +25,6 @@ struct RfkillSwitchResult {
 
 /// True when any switch of this type is soft-blocked.
 [[nodiscard]] bool isRfkillSoftBlocked(RfkillDeviceType type);
-
-/// True when any switch of this type is hard-blocked.
-[[nodiscard]] bool isRfkillHardBlocked(RfkillDeviceType type);
 
 /// Airplane mode: sets or clears the soft block on every radio of every type.
 [[nodiscard]] RfkillSwitchResult setAllRadiosSoftBlocked(bool softBlocked);

@@ -12,6 +12,7 @@ namespace session_action {
           || action == "suspend"
           || action == "lock_and_suspend"
           || action == "reboot"
+          || action == "reboot_uefi"
           || action == "shutdown"
           || action == "hibernate"
           || action == "suspend_then_hibernate";
@@ -38,6 +39,9 @@ namespace session_action {
     }
     if (action == "reboot") {
       return "session.actions.reboot";
+    }
+    if (action == "reboot_uefi") {
+      return "session.actions.reboot-uefi";
     }
     if (action == "shutdown") {
       return "session.actions.shutdown";
@@ -67,6 +71,9 @@ namespace session_action {
     if (action == "reboot") {
       return "reboot";
     }
+    if (action == "reboot_uefi") {
+      return "reboot-uefi";
+    }
     if (action == "shutdown") {
       return "shutdown";
     }
@@ -85,6 +92,9 @@ namespace session_action {
     }
     if (ipcOrConfigAction == "suspend-then-hibernate") {
       return std::string_view{"suspend_then_hibernate"};
+    }
+    if (ipcOrConfigAction == "reboot-uefi") {
+      return std::string_view{"reboot_uefi"};
     }
     if (isBuiltinAction(ipcOrConfigAction)) {
       return ipcOrConfigAction;

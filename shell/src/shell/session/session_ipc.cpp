@@ -20,7 +20,8 @@ namespace {
   [[nodiscard]] std::string unknownSessionActionError(std::string_view action) {
     return "error: unknown session action \""
         + std::string(action)
-        + "\" (try: lock, suspend, lock-and-suspend, logout, reboot, shutdown, hibernate, suspend-then-hibernate)\n";
+        + "\" (try: lock, suspend, lock-and-suspend, logout, reboot, reboot-uefi, shutdown, hibernate, "
+          "suspend-then-hibernate)\n";
   }
 
 } // namespace
@@ -30,7 +31,7 @@ void registerSessionIpc(IpcService& ipc, SessionActionRunner& runner, LockScreen
     const auto parts = noctalia::ipc::splitWords(args);
     if (parts.empty()) {
       return "error: session requires "
-          "<lock|suspend|lock-and-suspend|logout|reboot|shutdown|hibernate|suspend-then-hibernate>\n";
+          "<lock|suspend|lock-and-suspend|logout|reboot|reboot-uefi|shutdown|hibernate|suspend-then-hibernate>\n";
     }
 
     const std::string& ipcAction = parts[0];

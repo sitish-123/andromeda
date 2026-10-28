@@ -23,6 +23,7 @@ namespace settings {
   struct SettingsStatusBannerProps {
     std::string message;
     bool error = false;
+    bool scrollable = false;
     float scale = 1.0F;
     std::function<void()> onDismiss;
     Flex** out = nullptr;

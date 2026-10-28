@@ -85,7 +85,7 @@ public:
   static constexpr const char* kRemoteMimeType = "application/x-andromeda-link-remote";
 
   explicit ClipboardService(security::StorageKeyProvider& storageKeyProvider);
-  ~ClipboardService();
+  ~ClipboardService() override;
 
   ClipboardService(const ClipboardService&) = delete;
   ClipboardService& operator=(const ClipboardService&) = delete;
