@@ -133,8 +133,6 @@ SharedTextureCache::SharedTextureCache() {
   if (m_eventFd < 0) {
     kLog.warn("failed to create eventfd; wallpaper textures will never finish loading");
   }
-  // One worker: wallpapers decode to hundreds of MB each, and they are requested one at a time anyway.
-  m_worker = std::thread([this] { workerLoop(); });
 }
 
 SharedTextureCache::~SharedTextureCache() {
@@ -146,9 +144,7 @@ SharedTextureCache::~SharedTextureCache() {
     m_shutdown.store(true);
   }
   m_queueCv.notify_all();
-  if (m_worker.joinable()) {
-    m_worker.join();
-  }
+  m_workers.joinAll();
 
   // Textures uploaded into consumer backends die with those backends' contexts. Best-effort for the shared ones: if
   // the context can't be bound (lost on resume), the GL textures are already gone.
@@ -397,6 +393,8 @@ void SharedTextureCache::requestDecode(const SharedTextureRequest& request) {
   {
     std::scoped_lock lock(m_queueMutex);
     m_jobQueue.push_back(request);
+    // One worker: wallpapers decode to hundreds of MB each, and they are requested one at a time anyway.
+    m_workers.spawn([this](std::size_t slot) { workerLoop(slot); });
   }
   m_queueCv.notify_one();
 }
@@ -482,13 +480,18 @@ bool SharedTextureCache::makeCurrentFor(const EntryKey& key) {
   return m_sharedGl->makeCurrentSurfaceless();
 }
 
-void SharedTextureCache::workerLoop() {
+void SharedTextureCache::workerLoop(std::size_t slot) {
   while (true) {
     // Every queued request for the same file shares one decode; each coverage gets its own reduction.
     std::vector<SharedTextureRequest> batch;
     {
       std::unique_lock lock(m_queueMutex);
-      m_queueCv.wait(lock, [this] { return m_shutdown.load() || !m_jobQueue.empty(); });
+      if (!m_queueCv.wait_for(lock, IdleWorkerSlots::kIdleExit, [this] {
+            return m_shutdown.load() || !m_jobQueue.empty();
+          })) {
+        m_workers.exited(slot);
+        return;
+      }
       if (m_shutdown.load()) {
         return;
       }

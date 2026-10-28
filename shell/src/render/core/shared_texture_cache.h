@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/poll_source.h"
+#include "core/idle_worker_slots.h"
 #include "render/core/texture_handle.h"
 
 #include <atomic>
@@ -13,7 +14,6 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -177,14 +177,14 @@ private:
   // reloadResidentTextures() requeues whatever could not be uploaded.
   [[nodiscard]] bool makeCurrentFor(const EntryKey& key);
 
-  void workerLoop();
+  void workerLoop(std::size_t slot);
   void pushResult(DecodedImage image);
   void signalMain();
 
   GlSharedContext* m_sharedGl = nullptr;
   std::unique_ptr<TextureManager> m_textureManager;
   int m_eventFd = -1;
-  std::thread m_worker;
+  IdleWorkerSlots m_workers{1}; // guarded by m_queueMutex
   std::atomic<bool> m_shutdown{false};
 
   mutable std::mutex m_queueMutex;
