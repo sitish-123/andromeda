@@ -3017,10 +3017,12 @@ namespace andromeda {
       for (const EvacuatedWorkspace& batch : workspaces) {
         const bool hasOrdinaryViews =
             std::ranges::any_of(batch.views, [](const View* view) { return !view->pinned(); });
-        Workspace* refuge = hasOrdinaryViews && !joinActive
+        const bool join = joinActive && targetWorkspace != nullptr;
+        Workspace* refuge = hasOrdinaryViews && !join
             ? displacedWorkspaceDestination(batch.origin, destination, source)
             : targetWorkspace;
-        const bool separate = refuge != nullptr && refuge->displacedWorkspace() != nullptr;
+        // A joined active workspace keeps its own layout, even when it is itself a refuge.
+        const bool separate = !join && refuge != nullptr && refuge->displacedWorkspace() != nullptr;
         const auto hold = refuge != nullptr ? refuge->reserveForLaunch() : nullptr;
         bool capturedLayout = false;
         if (separate) {
