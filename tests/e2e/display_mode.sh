@@ -15,7 +15,8 @@ with_noctalia '
       [(.[] | select(.name == \"HEADLESS-1\") | .enabled),
        (.[] | select(.name == \"HEADLESS-2\") | .enabled),
        (.[] | select(.name == \"HEADLESS-2\") | .position.x)] | @tsv")
-    echo "h1=$enabled1 h2=$enabled2 h2x=$x2 mirror=$mirror"
+    # `enabled` means on the desktop: a mirroring output is off it, with no layout position.
+    echo "h1=$enabled1 h2=$enabled2 mirror=$mirror h2x=$x2"
   }
   expect() {
     local mode=$1 want=$2 got=
@@ -33,12 +34,12 @@ with_noctalia '
   sleep 1.5 # real time: the panel maps and paints
   grim "$OUT/panel.png"
   "$NOCTALIA" msg panel-close > /dev/null
-  expect duplicate "h1=true h2=true h2x=0 mirror=HEADLESS-1"
-  expect extend "h1=true h2=true h2x=1280 mirror=-"
+  expect duplicate "h1=true h2=false mirror=HEADLESS-1"
+  expect extend "h1=true h2=true mirror=- h2x=1280"
   expect external-only "h1=false h2=true"
   expect internal-only "h1=true h2=false"
   expect duplicate "mirror=HEADLESS-1"
-  expect internal-only "h1=true h2=false h2x=0 mirror=-"
+  expect internal-only "h1=true h2=false mirror=-"
 '
 ! grep -q '^FAIL' "$OUT/modes.txt"
 echo "artifacts: $OUT"

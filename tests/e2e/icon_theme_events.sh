@@ -13,7 +13,7 @@ mkdir -p "$RUNTIME/home/.local/share/icons"
 with_noctalia '
   fail() { echo "FAIL: $*" >&2; exit 1; }
   step() { printf "%s\n" "$*" >> "$OUT/steps.txt"; }
-  reloads() { grep -c "system icon theme changed" "$OUT/noctalia.log" || true; }
+  reloads() { grep -c "system icons changed" "$OUT/noctalia.log" || true; }
   wait_reload() {
     local want=$1 start=$SECONDS
     for _ in $(seq 20); do [[ $(reloads) -ge $want ]] && { echo $((SECONDS - start)); return; }; sleep 0.1; done
@@ -22,11 +22,12 @@ with_noctalia '
   sleep 1 # real time: the shell has settled into idle
   before=$(reloads)
 
-  THEME=$RUNTIME/home/.local/share/icons/E2ETheme
+  # hicolor is in every theme chain; an unrelated theme does not change the icons, so it causes no reload.
+  THEME=$RUNTIME/home/.local/share/icons/hicolor
   mkdir -p "$THEME/scalable/apps"
-  printf "[Icon Theme]\nName=E2ETheme\nInherits=hicolor\nDirectories=scalable/apps\n\n[scalable/apps]\nSize=48\nType=Scalable\n" > "$THEME/index.theme"
+  printf "[Icon Theme]\nName=Hicolor\nDirectories=scalable/apps\n\n[scalable/apps]\nSize=48\nType=Scalable\n" > "$THEME/index.theme"
   took=$(wait_reload $((before + 1)))
-  step "installed E2ETheme: reloaded within ${took}s"
+  step "installed a user hicolor: reloaded within ${took}s"
 
   rm -rf "$THEME"
   took=$(wait_reload $((before + 2)))

@@ -5,6 +5,7 @@ build:
     cd shell && just build
     cd portal && just build
     cd greeter && just build
+    git submodule update --init link
     cd link && cargo build
 
 # Link's gate: format, pedantic clippy, the proto tests, and the supply-chain policy.
