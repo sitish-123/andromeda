@@ -5,7 +5,8 @@
 # header says Not connected and the composer is off. Once the phone holds with a status and a player, the header shows
 # Wi-Fi, 82%, charging, 3 bars, and the player; the seam shows a notification with Reply, a missed call, and the
 # phone's file offer. Text typed in the composer and Send clipboard both reach the phone.
-# Writes app-down.png, app-empty.png, app-pairing.png, app-away.png, app-player.png, app-light.png, app-dark.png, steps.txt,
+# Writes app-down.png, app-empty.png, app-pairing.png, app-away.png, app-player.png, app-light.png, app-dark.png,
+# app-settings.png, app-settings-away.png, app-settings-dark.png, steps.txt,
 # hold.jsonl, linkd.log, session.log, app.log, and phone.log to $OUT (default ./artifacts/link-app).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-app}
@@ -13,6 +14,28 @@ source "$(dirname "$0")/lib.sh"
 LINK_BIN=${LINK_BIN:-$ROOT/link/target/debug}
 boot_headless 1
 rm -f "$OUT"/*.png "$OUT/steps.txt" "$OUT/phone.log" "$OUT/hold.jsonl" "$OUT/app.log"
+
+# The phone's storage, photo albums, contacts, and texts for the views.
+mkdir -p "$RUNTIME/storage/Download/Tickets" "$RUNTIME/photos/Camera" "$RUNTIME/photos/Screenshots"
+head -c 2400000 /dev/urandom > "$RUNTIME/storage/Download/Lease agreement 2026.pdf"
+head -c 380000 /dev/urandom > "$RUNTIME/storage/Download/Boarding pass KTM-PKR.png"
+head -c 9100000 /dev/urandom > "$RUNTIME/storage/Download/Rithu (live).mp3"
+head -c 52000 /dev/urandom > "$RUNTIME/storage/Download/Tickets/Concert.pdf"
+for i in 1 2 3 4 5 6 7; do
+  magick -size 600x800 "gradient:#$((30 + i * 9))566a-#c9a4$((40 + i * 7))" -swirl $((i * 40)) "$RUNTIME/photos/Camera/IMG_220$i.png"
+done
+magick -size 400x860 gradient:#dde1dc-#1e6b66 "$RUNTIME/photos/Screenshots/Screenshot_1.png"
+NOW_MS=$(($(date +%s) * 1000))
+cat > "$RUNTIME/contacts.json" << EOF
+[{"name": "Ada", "numbers": ["+977 980-1112223"]}, {"name": "Bishal Rai", "numbers": ["+977 980-1234567"]}]
+EOF
+cat > "$RUNTIME/texts.json" << EOF
+[{"id": 6, "thread": 1, "address": "+9779801112223", "body": "Perfect, see you there", "date": $((NOW_MS - 60000)), "sent": false},
+ {"id": 5, "thread": 1, "address": "+9779801112223", "body": "Yes, 6 at the cafe. Bring the projector cable too", "date": $((NOW_MS - 240000)), "sent": true},
+ {"id": 4, "thread": 1, "address": "+9779801112223", "body": "Are we still on for 6?", "date": $((NOW_MS - 600000)), "sent": false},
+ {"id": 3, "thread": 2, "address": "+9779801234567", "body": "Call me when you are free", "date": $((NOW_MS - 7200000)), "sent": false},
+ {"id": 2, "thread": 3, "address": "NTC", "body": "Your data pack of 10 GB is active until 30 Nov", "date": $((NOW_MS - 90000000)), "sent": false}]
+EOF
 
 with_noctalia '
   BIN='"$LINK_BIN"'
@@ -30,6 +53,8 @@ with_noctalia '
   # -s: wtype waits after its keymap upload, else the compositor drops the first key.
   key() { wtype -s 300 "$@"; }
   app() { GTK_A11Y=none ANDROMEDA_LINK_DATA=$DATA ADW_DEBUG_COLOR_SCHEME=$1 "$BIN/andromeda-link" >> "$OUT/app.log" 2>&1 & app_pid=$!; }
+  view() { gdbus call --session --dest org.andromeda.Link --object-path /org/andromeda/Link/window/1 \
+    --method org.gtk.Actions.Activate view "[<\"$1\">]" "{}" > /dev/null || fail "no view action"; }
   clips() { grep -c "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" || true; }
 
   app prefer-light
@@ -58,10 +83,24 @@ with_noctalia '
   wait_for "the pairing session never ended" eval "[[ \$(msg link-devices) == \"$ID disconnected OnePlus 12\" ]]"
   shot away
   step "away: paired from the app; the phone is not connected"
+  view settings
+  shot settings-away
+  step "settings-away: grants of a phone that is not connected"
+  view photos
+  shot photos-off
+  step "photos-off: the browse switch is off; the view offers Turn on"
+  grant() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.andromeda.Link1.SetGrant "$ID" "$1" true > /dev/null; }
+  grant browse; grant messages; grant screen
+  # The phone keeps its own switches for this desk; turn the same ones on, as its user would.
+  python3 -c "import json,sys; s=json.load(open(sys.argv[1])); s[\"peers\"][0].setdefault(\"grants\", {}).update(browse=True, messages=True); json.dump(s, open(sys.argv[1], \"w\"))" "$RUNTIME/phone/devices.json"
+  for v in messages calls photos files screen; do view $v; shot $v-away; done
+  step "away: every view with its switch on and the phone not connected"
+  view home
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "OnePlus 12" hold --status 82,1,wifi,3 \
+  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "OnePlus 12" --browse-root "Internal storage=$RUNTIME/storage" \
+    --photos "$RUNTIME/photos" --contacts "$RUNTIME/contacts.json" --texts "$RUNTIME/texts.json" hold --status 82,1,wifi,3 \
     < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
   wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected OnePlus 12\" ]]"
   magick -size 96x96 gradient:"#40566a-#c9a46a" "$RUNTIME/art.png"
@@ -94,10 +133,18 @@ with_noctalia '
   grep "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" | tail -1 | grep -q "INV-2026-1043" || fail "the clip had other text"
   step "send clipboard: $(clips) offers, the last from the button"
   shot light
+  view settings
+  shot settings
+  step "settings: grants of the connected phone"
+  for v in messages calls photos files screen; do view $v; shot $v; done
+  step "views: messages, calls (the missed call), photos, files, screen with the phone connected"
+  folder() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.andromeda.Link1.ListFiles "$ID" "$1"; }
+  folder "/Internal storage/Download" | grep -q "Lease agreement" || fail "ListFiles did not reach the phone storage"
 
   kill $app_pid
   app prefer-dark
   shot dark
+  for v in settings messages calls photos files screen; do view $v; shot $v-dark; done
   step "dark: the same phone, restarted app (history starts empty)"
 '
 echo "PASS; artifacts: $OUT"
