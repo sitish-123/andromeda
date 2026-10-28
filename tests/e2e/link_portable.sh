@@ -260,8 +260,8 @@ wait_for "the move did not arrive as (+40, -25) from ($x0, $y0): $(last motion)"
 say 'input {"action":"move","dx":0,"dy":300}'
 say 'input {"action":"click","button":"left"}'
 wait_for "no left click" grep -q '"release", "button": 1' "$OUT/window.jsonl"
-# KWin's EIS server has no ei_text, so libei types only what the keymap has.
-if [[ $COMPOSITOR == kwin ]]; then TEXT="hello world"; else TEXT="héllo wörld"; fi
+# KWin's and Mutter's EIS servers have no ei_text, so libei types only what the keymap has.
+if [[ $COMPOSITOR == kwin || $COMPOSITOR == mutter ]]; then TEXT="hello world"; else TEXT="héllo wörld"; fi
 say "input {\"action\":\"text\",\"text\":\"$TEXT\"}"
 wait_for "the text did not arrive: $(last text)" typed "$TEXT"
 step "input: (+40, -25) moved the same, left click as button 1, \"$TEXT\" typed into the entry"
