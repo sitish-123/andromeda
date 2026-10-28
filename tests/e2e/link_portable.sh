@@ -66,7 +66,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 step() { printf "%s\n" "$*" >> "$OUT/steps.txt"; }
 wait_for() {
   local what=$1; shift
-  for _ in $(seq 150); do "$@" && return; sleep 0.1; done
+  for _ in $(seq "${TRIES:-150}"); do "$@" && return; sleep 0.1; done
   fail "$what"
 }
 link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
@@ -81,6 +81,29 @@ field() { python3 -c "import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]
 count() { (( $(seen "$1") >= $2 )); }
 at() { [[ $(field "$(last motion)" x) == "$1" && $(field "$(last motion)" y) == "$2" ]]; }
 typed() { [[ "$(field "$(last text)" text)" == "$1" ]]; }
+
+# A private PipeWire with one null sink; WirePlumber's device monitors are off, so no real card is touched. It
+# starts first: GNOME Shell's devkit window shows its screen through PipeWire and exits without it.
+mkdir -p "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d"
+cat > "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d/90-e2e.conf" << 'CONF'
+wireplumber.profiles = {
+  main = {
+    monitor.alsa = disabled
+    monitor.alsa-midi = disabled
+    monitor.bluez = disabled
+    monitor.bluez-midi = disabled
+    monitor.v4l2 = disabled
+    monitor.libcamera = disabled
+  }
+}
+CONF
+pipewire > "$OUT/pipewire.log" 2>&1 &
+wait_for "pipewire did not start" test -S "$RUNTIME/pipewire-0"
+wireplumber > "$OUT/wireplumber.log" 2>&1 &
+pipewire-pulse > "$OUT/pipewire-pulse.log" 2>&1 &
+wait_for "pipewire-pulse did not start" eval "pactl info > /dev/null 2>&1"
+pactl load-module module-null-sink sink_name=e2e > /dev/null
+wait_for "no default sink" eval "wpctl get-volume @DEFAULT_AUDIO_SINK@ > /dev/null 2>&1"
 
 case $COMPOSITOR in
   sway)
@@ -147,27 +170,6 @@ case $COMPOSITOR in
 esac
 shot() { sleep 1.5; screenshot "$OUT/app-$1.png"; } # real time: the window repaints
 
-# A private PipeWire with one null sink; WirePlumber's device monitors are off, so no real card is touched.
-mkdir -p "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d"
-cat > "$XDG_CONFIG_HOME/wireplumber/wireplumber.conf.d/90-e2e.conf" << 'CONF'
-wireplumber.profiles = {
-  main = {
-    monitor.alsa = disabled
-    monitor.alsa-midi = disabled
-    monitor.bluez = disabled
-    monitor.bluez-midi = disabled
-    monitor.v4l2 = disabled
-    monitor.libcamera = disabled
-  }
-}
-CONF
-pipewire > "$OUT/pipewire.log" 2>&1 &
-wait_for "pipewire did not start" test -S "$RUNTIME/pipewire-0"
-wireplumber > "$OUT/wireplumber.log" 2>&1 &
-pipewire-pulse > "$OUT/pipewire-pulse.log" 2>&1 &
-wait_for "pipewire-pulse did not start" eval "pactl info > /dev/null 2>&1"
-pactl load-module module-null-sink sink_name=e2e > /dev/null
-wait_for "no default sink" eval "wpctl get-volume @DEFAULT_AUDIO_SINK@ > /dev/null 2>&1"
 volume() { wpctl get-volume @DEFAULT_AUDIO_SINK@; }
 
 mkfifo "$RUNTIME/notifier.in"
@@ -204,7 +206,9 @@ step "pairing: the phone paired with the QR code the app showed"
 
 "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
 SESSION=$!
-wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
+# On Mutter link-session waits for a person to click Share on the portal's dialog: 2 minutes.
+TRIES=$([[ $COMPOSITOR == mutter ]] && echo 1200 || echo 150) \
+  wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
 grep -q "clipboard through $CLIPBOARD" "$OUT/session.log" || fail "clipboard backend: $(grep clipboard "$OUT/session.log")"
 grep -q "input through $INPUT" "$OUT/session.log" || fail "input backend: $(grep input "$OUT/session.log")"
 step "$COMPOSITOR: clipboard through $CLIPBOARD, input through $INPUT"
