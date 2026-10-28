@@ -2,9 +2,10 @@
 # Clipboard sync through andromeda-link-session's ext-data-control-v1 backend, beside the shell's clipboard history,
 # against a real andromeda-linkd and a present headless phone. Proves: a desktop copy (wl-copy) reaches the phone at once as inline text; a phone offer becomes the desktop selection without moving any
 # bytes (no clip-pull or clip-data in the transcript) until wl-paste pulls it, as text and as a PNG, byte for byte;
-# neither side echoes: the desktop offers nothing back after a paste, and the phone's core refuses to offer back the
-# text it just received; with the clipboard grant off nothing crosses either way, and with the files grant off an
-# offer of files is declined. Every message is validated against link/api/messages.cddl. Writes steps.txt,
+# the same text copied twice crosses twice, either way; a phone clip of text and HTML pastes each type's own bytes,
+# and desktop HTML and PNG copies reach the phone byte for byte; a desktop copy made while the phone is away reaches
+# it when it connects; the desktop offers nothing back after a paste; with the clipboard grant off nothing crosses
+# either way, and with the files grant off an offer of files is declined. Every message is validated against link/api/messages.cddl. Writes steps.txt,
 # counts.json, transcript.jsonl, signals.txt, hold.jsonl, linkd.log, session.log, and phone.log to $OUT
 # (default ./artifacts/link-clipboard).
 set -euo pipefail
@@ -55,21 +56,36 @@ with_noctalia '
 
   mkfifo "$RUNTIME/phone.in"
   exec 3<> "$RUNTIME/phone.in"
-  "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
-    --downloads "$RUNTIME/phone-downloads" hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
-  wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
+  hold() {
+    "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" --transcript "$OUT/transcript.jsonl" \
+      --downloads "$RUNTIME/phone-downloads" hold < "$RUNTIME/phone.in" >> "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
+    HOLD=$!
+    wait_for "phone never shown connected" eval "[[ \$(msg link-devices) == \"$ID connected E2E Phone\" ]]"
+  }
+  last_clip() { grep "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" | tail -1 | python3 -c "import json,sys; print(json.load(sys.stdin)[\"clip\"])"; }
+  pulled() { grep -c "\"event\":\"pulled\"" "$OUT/hold.jsonl" || true; }
+  pull() {
+    local before; before=$(pulled)
+    say "pull $(last_clip) $1 $2"
+    wait_for "the phone never pulled $1" eval "(( \$(pulled) > $before ))"
+  }
+  hold
 
   printf "copied on the desktop" | wl-copy
   wait_for "the phone never got the desktop copy" grep -q "\"text\":\"copied on the desktop\"" "$OUT/hold.jsonl"
-  step "desktop copy reached the phone inline: $(grep -c "\"event\":\"clip-offered\"" "$OUT/hold.jsonl") offer"
+  step "desktop copy reached the phone inline: $(offered_to_phone) offer"
+  printf "copied on the desktop" | wl-copy
+  wait_for "the same text copied again never reached the phone" eval "(( \$(offered_to_phone) == 2 ))"
+  step "the same text copied twice on the desktop reached the phone twice"
 
+  # The headless phone never sets its clipboard, so this is a new copy of the same text, not an echo.
   printf "copied on the desktop" > "$RUNTIME/src/echo.txt"
   BEFORE=$(offered_to_desktop)
   say "clip $RUNTIME/src/echo.txt text/plain;charset=utf-8 text/plain"
-  wait_for "the phone did not answer the echo attempt" grep -q "\"event\":\"clip-sent\"" "$OUT/hold.jsonl"
-  sleep 1 # real time: long enough for a ClipboardOffered the phone should not have caused
-  [[ $(offered_to_desktop) == "$BEFORE" ]] || fail "the phone echoed the desktop clip back"
-  step "the phone did not echo the desktop clip"
+  wait_for "the phone copy of the same text never reached the desktop" eval "(( \$(offered_to_desktop) > $BEFORE ))"
+  wait_for "clipboard history never read the phone copy" eval "(( \$(count clip-data) == 1 ))"
+  step "the phone copying the text it got is a new copy: it reached the desktop"
+  BEFORE=$(offered_to_desktop)
 
   printf "copied on the phone" > "$RUNTIME/src/phone.txt"
   say "clip $RUNTIME/src/phone.txt text/plain;charset=utf-8 text/plain"
@@ -77,11 +93,11 @@ with_noctalia '
   sleep 0.5 # real time: the shell takes the selection
   PULLS_BEFORE=$(count clip-pull); DATA_BEFORE=$(count clip-data)
   # Clipboard history reads text from the phone, which is small, as soon as it is offered.
-  [[ $PULLS_BEFORE == 1 && $DATA_BEFORE == 1 ]] || fail "history read moved $PULLS_BEFORE pulls, $DATA_BEFORE streams"
+  [[ $PULLS_BEFORE == 2 && $DATA_BEFORE == 2 ]] || fail "history read moved $PULLS_BEFORE pulls, $DATA_BEFORE streams"
   PHONE_OFFERS=$(offered_to_phone)
   [[ $(wl-paste -n -t "text/plain;charset=utf-8") == "copied on the phone" ]] || fail "wl-paste got $(wl-paste -n)"
   PULLS_AFTER=$(count clip-pull); DATA_AFTER=$(count clip-data)
-  [[ $PULLS_AFTER == 2 && $DATA_AFTER == 2 ]] || fail "one paste moved $PULLS_AFTER pulls and $DATA_AFTER streams"
+  [[ $PULLS_AFTER == 3 && $DATA_AFTER == 3 ]] || fail "one paste moved $PULLS_AFTER pulls and $DATA_AFTER streams"
   sleep 1 # real time: long enough for a clip-offer the desktop should not send back
   [[ $(offered_to_phone) == "$PHONE_OFFERS" ]] || fail "the desktop echoed the phone clip back"
   step "phone text pulled only on paste (pulls $PULLS_BEFORE to $PULLS_AFTER, streams $DATA_BEFORE to $DATA_AFTER), no echo"
@@ -95,6 +111,35 @@ with_noctalia '
   cmp -s "$RUNTIME/src/shot.png" "$RUNTIME/pasted.png" || fail "the pasted image differs"
   IMAGE_BYTES=$(stat -c %s "$RUNTIME/pasted.png")
   step "phone image pulled on paste: $IMAGE_BYTES bytes, identical"
+
+  printf "plain on the phone" > "$RUNTIME/src/rich.txt"
+  printf "<b>bold</b> on the phone" > "$RUNTIME/src/rich.html"
+  BEFORE=$(offered_to_desktop)
+  say "clip $RUNTIME/src/rich.txt text/plain;charset=utf-8 text/plain + $RUNTIME/src/rich.html text/html"
+  wait_for "no ClipboardOffered for the phone HTML" eval "(( \$(offered_to_desktop) > $BEFORE ))"
+  sleep 0.5 # real time: the shell takes the selection
+  [[ $(wl-paste -n -t text/html) == "<b>bold</b> on the phone" ]] || fail "text/html pasted $(wl-paste -n -t text/html)"
+  [[ $(wl-paste -n -t "text/plain;charset=utf-8") == "plain on the phone" ]] || fail "text/plain pasted the wrong type"
+  step "phone text and HTML clip: each type pasted its own bytes"
+
+  printf "<i>desktop</i> HTML" | wl-copy -t text/html
+  wait_for "the desktop HTML never reached the phone" eval "grep \"clip-offered\" \"$OUT/hold.jsonl\" | tail -1 | grep -q text/html"
+  pull text/html "$RUNTIME/phone.html"
+  [[ $(cat "$RUNTIME/phone.html") == "<i>desktop</i> HTML" ]] || fail "the phone pulled $(cat "$RUNTIME/phone.html")"
+  wl-copy -t image/png < "$RUNTIME/src/shot.png"
+  wait_for "the desktop image never reached the phone" eval "grep \"clip-offered\" \"$OUT/hold.jsonl\" | tail -1 | grep -q image/png"
+  pull image/png "$RUNTIME/phone.png"
+  cmp -s "$RUNTIME/src/shot.png" "$RUNTIME/phone.png" || fail "the image the phone pulled differs"
+  step "desktop HTML and PNG copies reached the phone byte for byte"
+
+  kill "$HOLD"; wait "$HOLD" || true
+  wait_for "phone still shown connected" eval "[[ \$(msg link-devices) != \"$ID connected E2E Phone\" ]]"
+  OFFERS=$(offered_to_phone)
+  printf "copied while the phone was away" | wl-copy
+  sleep 0.5 # real time: link-session gives the copy to the daemon
+  hold
+  wait_for "the copy made while away never reached the phone" grep -q "\"text\":\"copied while the phone was away\"" "$OUT/hold.jsonl"
+  step "a desktop copy made while the phone was away reached it on connect"
   python3 -c "import json,sys; json.dump({\"before_paste\":{\"clip_pull\":int(sys.argv[1]),\"clip_data\":int(sys.argv[2])},\"after_text_paste\":{\"clip_pull\":int(sys.argv[3]),\"clip_data\":int(sys.argv[4])},\"image_bytes\":int(sys.argv[5])}, open(sys.argv[6],\"w\"), indent=2)" \
     "$PULLS_BEFORE" "$DATA_BEFORE" "$PULLS_AFTER" "$DATA_AFTER" "$IMAGE_BYTES" "$OUT/counts.json"
 
