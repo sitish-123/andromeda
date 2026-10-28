@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """A desktop MPRIS player for the E2E tests: org.mpris.MediaPlayer2.e2e on the session bus.
 
-Plays a fixed track, obeys Play, Pause, PlayPause, Next, SetPosition, and Volume like a real player (emitting
-PropertiesChanged and Seeked), and appends every call to the file named by argv[1].
+Plays a fixed track, obeys Play, Pause, PlayPause, Next, SetPosition, Seek, and Volume like a real player (emitting
+PropertiesChanged and Seeked), and appends every call to the file named by argv[1]. argv[2], when given, replaces the
+"e2e" in the bus name and drops mpris:trackid, so a seek must use the relative Seek. org.e2e.Test.Advance moves the
+position without a signal, as playback does.
 """
 import sys
 
@@ -18,9 +20,10 @@ TRACK = dbus.ObjectPath("/org/e2e/track/1")
 
 
 class Player(dbus.service.Object):
-    def __init__(self, bus, log):
+    def __init__(self, bus, log, track):
         super().__init__(bus, "/org/mpris/MediaPlayer2")
         self.log = log
+        self.track = track
         self.status = "Playing"
         self.title = "Desk Session"
         self.position = 12_000_000
@@ -34,12 +37,11 @@ class Player(dbus.service.Object):
         return {
             "PlaybackStatus": self.status,
             "Metadata": dbus.Dictionary({
-                "mpris:trackid": TRACK,
                 "xesam:title": self.title,
                 "xesam:artist": dbus.Array(["The Testers"], signature="s"),
                 "xesam:album": "E2E",
                 "mpris:length": dbus.Int64(200_000_000),
-            }, signature="sv"),
+            } | ({"mpris:trackid": TRACK} if self.track else {}), signature="sv"),
             "Position": dbus.Int64(self.position),
             "Volume": dbus.Double(self.volume),
             "Rate": dbus.Double(1.0),
@@ -111,9 +113,20 @@ class Player(dbus.service.Object):
         self.position = int(position)
         self.Seeked(dbus.Int64(self.position))
 
+    @dbus.service.method(PLAYER, in_signature="x")
+    def Seek(self, offset):
+        self.record(f"Seek {offset}")
+        self.position = max(0, self.position + int(offset))
+        self.Seeked(dbus.Int64(self.position))
+
+    @dbus.service.method("org.e2e.Test", in_signature="x")
+    def Advance(self, microseconds):
+        self.position += int(microseconds)
+
 
 DBusGMainLoop(set_as_default=True)
 bus = dbus.SessionBus()
-player = Player(bus, sys.argv[1])
-name = dbus.service.BusName("org.mpris.MediaPlayer2.e2e", bus)
+suffix = sys.argv[2] if len(sys.argv) > 2 else None
+player = Player(bus, sys.argv[1], track=suffix is None)
+name = dbus.service.BusName(f"org.mpris.MediaPlayer2.{suffix or 'e2e'}", bus)
 GLib.MainLoop().run()

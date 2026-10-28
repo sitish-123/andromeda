@@ -117,6 +117,16 @@ with_noctalia '
   wait_for "the next track did not reach the phone" phone_saw "\"title\":\"Desk Session, part 2\""
   step "phone to desktop player: $(tr "\n" " " < "$OUT/player-calls.txt")"
 
+  # A player without a track id takes a relative Seek, so the daemon must read where it is now: it played 20 s
+  # since its last signal, so a seek to 42 s from 32 s is +10 s, not +30 s from the stale 12 s.
+  python3 "$E2E/mpris_test_player.py" "$OUT/bare-calls.txt" e2e_bare &
+  wait_for "the bare player never reached the phone" phone_saw "\"event\":\"media-player\".*\"player\":\"e2e_bare\""
+  gdbus call --session -d org.mpris.MediaPlayer2.e2e_bare -o /org/mpris/MediaPlayer2 -m org.e2e.Test.Advance 20000000 > /dev/null
+  say "media-command {\"player\":\"e2e_bare\",\"command\":\"seek\",\"value\":42000}"
+  wait_for "the bare player was not seeked by +10 s: $(cat "$OUT/bare-calls.txt" 2> /dev/null)" \
+    grep -qx "Seek 10000000" "$OUT/bare-calls.txt"
+  step "stale cache: a seek to 42 s from 32 s called $(cat "$OUT/bare-calls.txt")"
+
   say "media-gone spotify"
   wait_for "the phone player outlived media-gone" eval "! playerctl -l 2> /dev/null | grep -qx \"$PLAYER\""
   [[ -e ${ART#file://} ]] && fail "the artwork file outlived its player"
