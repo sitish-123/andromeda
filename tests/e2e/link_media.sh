@@ -79,6 +79,20 @@ with_noctalia '
   grim "$OUT/media-tab.png"
   msg panel-close > /dev/null
 
+  # Three phone players: two paused ones that report later do not take MPRIS from the one that plays.
+  say "media {\"player\":\"youtube\",\"name\":\"YouTube\",\"state\":\"paused\",\"title\":\"Talk\",\"artist\":\"A\",\"album\":\"\",\"length_ms\":60000,\"position_ms\":1000,\"volume\":50,\"can\":[\"play\",\"pause\"]}"
+  say "media {\"player\":\"podcasts\",\"name\":\"Podcasts\",\"state\":\"paused\",\"title\":\"Episode 1\",\"artist\":\"B\",\"album\":\"\",\"length_ms\":60000,\"position_ms\":1000,\"volume\":50,\"can\":[\"play\",\"pause\"]}"
+  for _ in $(seq 20); do
+    [[ $(pc metadata title) == "Night Drive" ]] || fail "a paused phone player took MPRIS: $(pc metadata title)"
+    sleep 0.1
+  done
+  say "media {\"player\":\"podcasts\",\"name\":\"Podcasts\",\"state\":\"playing\",\"title\":\"Episode 1\",\"artist\":\"B\",\"album\":\"\",\"length_ms\":60000,\"position_ms\":1000,\"volume\":50,\"can\":[\"play\",\"pause\"]}"
+  wait_for "the playing podcast did not take MPRIS: $(pc metadata title)" eval "[[ \$(pc metadata title) == \"Episode 1\" ]]"
+  say "media-gone podcasts"
+  say "media-gone youtube"
+  wait_for "MPRIS did not go back to Spotify: $(pc metadata title)" eval "[[ \$(pc metadata title) == \"Night Drive\" ]]"
+  step "three phone players: paused ones stay behind the one that plays; the newest playing one leads"
+
   pc play-pause
   wait_for "phone did not get play-pause" phone_saw "\"command\":\"play-pause\".*\"event\":\"media-command\""
   wait_for "MPRIS does not show the phone paused: $(pc status)" eval "[[ \$(pc status) == Paused ]]"
