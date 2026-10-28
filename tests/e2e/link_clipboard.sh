@@ -13,6 +13,9 @@ source "$(dirname "$0")/lib.sh"
 LINK_BIN=${LINK_BIN:-$ROOT/link/target/debug}
 boot_headless 1
 rm -f "$OUT"/*.txt "$OUT"/*.jsonl "$OUT/counts.json"
+# PROTOCOL=wlr runs the wlr-data-control fallback instead.
+PROTOCOL=${PROTOCOL:-ext}
+BACKEND=$([[ $PROTOCOL == wlr ]] && echo wlr-data-control-unstable-v1 || echo ext-data-control-v1)
 
 with_noctalia '
   BIN='"$LINK_BIN"'
@@ -34,9 +37,9 @@ with_noctalia '
 
   XDG_STATE_HOME=$RUNTIME/linkd XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw andromeda-linkd" eval "[[ \$(msg link-devices) != *error* ]]"
-  "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+  ANDROMEDA_LINK_DATA_CONTROL='"$PROTOCOL"' "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
   wait_for "andromeda-link-session did not start" grep -q running "$OUT/session.log"
-  grep -q "clipboard through ext-data-control-v1" "$OUT/session.log" || fail "link-session has no clipboard backend"
+  grep -q "clipboard through '"$BACKEND"'" "$OUT/session.log" || fail "link-session has no '"$BACKEND"' backend"
   dbus-monitor --session "type='"'"'signal'"'"',interface='"'"'org.andromeda.Link1'"'"'" > "$OUT/signals.txt" 2>&1 &
   PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[\"port\"])" "$RUNTIME/linkd/andromeda-link/devices.json")
   [[ $(msg link-pair) == ok ]] || fail "link-pair"
