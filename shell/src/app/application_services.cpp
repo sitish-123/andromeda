@@ -2,8 +2,8 @@
 #include "application.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
-#include "compositors/compositor_detect.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
+#include "compositors/compositor_detect.h"
 #include "config/config_types.h"
 #include "core/build_info.h"
 #include "core/deferred_call.h"
@@ -11,6 +11,7 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "dbus/accounts/accounts_service.h"
+#include "dbus/andromeda/shell_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
@@ -1345,23 +1346,22 @@ void Application::initSystemBusServices() {
             m_driveNotifications[id] = {drive.blockPath, drive.mountPoint};
           }
         });
-        m_notificationManager.addInternalActionCallback(
-            [this](
-                std::uint32_t id, const std::string& actionKey, const std::string& activationToken, const std::string&
-            ) {
-              const auto it = m_driveNotifications.find(id);
-              if (it == m_driveNotifications.end()) {
-                return;
-              }
-              const auto [blockPath, mountPoint] = it->second;
-              m_driveNotifications.erase(it);
-              if (actionKey == "default") {
-                (void)net::openInBrowser("file://" + mountPoint, activationToken);
-              } else if (actionKey == "eject" && m_udisksService != nullptr) {
-                m_udisksService->eject(blockPath);
-              }
-            }
-        );
+        m_notificationManager.addInternalActionCallback([this](
+                                                            std::uint32_t id, const std::string& actionKey,
+                                                            const std::string& activationToken, const std::string&
+                                                        ) {
+          const auto it = m_driveNotifications.find(id);
+          if (it == m_driveNotifications.end()) {
+            return;
+          }
+          const auto [blockPath, mountPoint] = it->second;
+          m_driveNotifications.erase(it);
+          if (actionKey == "default") {
+            (void)net::openInBrowser("file://" + mountPoint, activationToken);
+          } else if (actionKey == "eject" && m_udisksService != nullptr) {
+            m_udisksService->eject(blockPath);
+          }
+        });
       } catch (const std::exception& e) {
         kLog.warn("drive automount disabled: {}", e.what());
         m_udisksService.reset();
@@ -1619,15 +1619,16 @@ void Application::initBrightnessAndPipewire() {
     m_easyEffectsService->refreshProfiles();
     m_easyEffectsService->refreshActiveEffectsProfiles();
     m_pipewireSpectrum = std::make_unique<PipeWireSpectrum>(*m_pipewireService);
-    m_andromedaAudioProvider =
-        std::make_unique<compositors::andromeda::AndromedaAudioProvider>(m_compositorPlatform.andromedaRuntime(), [this] {
+    m_andromedaAudioProvider = std::make_unique<compositors::andromeda::AndromedaAudioProvider>(
+        m_compositorPlatform.andromedaRuntime(), [this] {
           compositors::andromeda::AndromedaAudioProvider::Bands bands{};
           const auto& values = m_pipewireSpectrum->values(m_andromedaAudioListener);
           if (values.size() == bands.size()) {
             std::ranges::copy(values, bands.begin());
           }
           return bands;
-        });
+        }
+    );
     auto applyAndromedaAudioConfig = [this] {
       const bool enabled = compositors::isAndromeda() && m_configService.config().shell.andromedaAudioProviderEnabled;
       m_andromedaAudioProvider->setEnabled(enabled);
@@ -1746,6 +1747,14 @@ void Application::initSessionBusServices() {
       kLog.warn("debug service disabled: {}", e.what());
       m_debugService.reset();
     }
+    try {
+      m_andromedaShellService = std::make_unique<AndromedaShellService>(*m_bus, m_notificationManager, [this] {
+        return setOutputPower(false);
+      });
+    } catch (const std::exception& e) {
+      kLog.warn("org.andromeda.Shell1 disabled: {}", e.what());
+      m_andromedaShellService.reset();
+    }
 
     try {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
@@ -1759,8 +1768,7 @@ void Application::initSessionBusServices() {
     }
 
     try {
-      m_linkService =
-          std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService, m_soundPlayer);
+      m_linkService = std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService, m_soundPlayer);
       m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
         m_bar.refresh();
         if (shouldRefreshControlCenter()) {

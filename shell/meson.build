@@ -519,6 +519,7 @@ _noctalia_sources = files(
   'src/dbus/portal/settings_portal.cpp',
   'src/dbus/udisks/udisks_service.cpp',
   'src/dbus/upower/upower_service.cpp',
+  'src/dbus/andromeda/shell_service.cpp',
   'src/debug/debug_service.cpp',
   'src/i18n/i18n.cpp',
   'src/i18n/language_tag.cpp',

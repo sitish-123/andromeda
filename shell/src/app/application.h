@@ -3,7 +3,6 @@
 #include "app/deferred_call_poll_source.h"
 #include "app/timer_poll_source.h"
 #include "calendar/calendar_poll_source.h"
-#include "core/process/process_poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
 #include "calendar/calendar_reminder_poll_source.h"
 #include "calendar/calendar_service.h"
@@ -13,6 +12,7 @@
 #include "config/config_poll_source.h"
 #include "config/config_service.h"
 #include "core/files/file_watcher.h"
+#include "core/process/process_poll_source.h"
 #include "core/timer_manager.h"
 #include "dbus/network/external_ip_service.h"
 #include "dbus/notification/notification_poll_source.h"
@@ -120,6 +120,7 @@ class BrightnessPollSource;
 class BrightnessService;
 class KeyboardBacklightService;
 class DebugService;
+class AndromedaShellService;
 class EasyEffectsService;
 class INetworkService;
 class IwdSecretAgent;
@@ -298,6 +299,7 @@ private:
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
   std::unique_ptr<DebugService> m_debugService;
+  std::unique_ptr<AndromedaShellService> m_andromedaShellService;
   IdleInhibitor m_idleInhibitor;
   IdleManager m_idleManager;
   PluginIdleWatches m_pluginIdleWatches;

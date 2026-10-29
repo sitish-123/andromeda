@@ -2,8 +2,8 @@
 
 #include "app/main_loop.h"
 #include "capture/screen_recorder.h"
-#include "compositors/compositor_detect.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
+#include "compositors/compositor_detect.h"
 #include "config/config_types.h"
 #include "core/build_info.h"
 #include "core/deferred_call.h"
@@ -13,6 +13,7 @@
 #include "core/process/process.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/accounts/accounts_service.h"
+#include "dbus/andromeda/shell_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
@@ -26,6 +27,7 @@
 #include "dbus/network/iwd_secret_agent.h"
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/network_secret_agent.h"
+#include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
 #include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
@@ -33,16 +35,15 @@
 #include "dbus/polkit/polkit_agent.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
+#include "dbus/portal/global_shortcuts_portal.h"
+#include "dbus/portal/inhibit_portal.h"
+#include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
 #include "dbus/system_bus.h"
 #include "dbus/system_bus_poll_source.h"
 #include "dbus/tray/tray_service.h"
-#include "dbus/network/nm_hotspot.h"
-#include "dbus/portal/global_shortcuts_portal.h"
-#include "dbus/portal/inhibit_portal.h"
-#include "dbus/portal/settings_portal.h"
 #include "dbus/udisks/udisks_service.h"
 #include "dbus/upower/upower_service.h"
 #include "debug/debug_service.h"
@@ -185,6 +186,9 @@ Application::Application()
   m_notificationManager.setStateCallback([this] {
     if (m_notificationManager.doNotDisturb()) {
       m_notificationToast.hideDndSuppressed();
+    }
+    if (m_andromedaShellService != nullptr) {
+      m_andromedaShellService->notificationStateChanged();
     }
     scheduleNotificationShellRefresh();
   });
