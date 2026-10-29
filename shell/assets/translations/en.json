@@ -408,6 +408,8 @@
       "grant-calls": "Show its calls",
       "grant-input": "Use it as this desktop's touchpad and keyboard",
       "grant-commands": "Run this desktop's commands",
+      "grant-system": "Control volume, brightness, and lock both ways",
+      "grant-dnd-sync": "Keep Do Not Disturb the same on both",
       "localsend": "LocalSend",
       "auto-accept": "Accept files without asking",
       "unpair": "Unpair",

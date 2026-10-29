@@ -96,6 +96,8 @@ namespace {
       Feature{.name = "calls", .label = "control-center.devices.grant-calls"},
       Feature{.name = "input", .label = "control-center.devices.grant-input"},
       Feature{.name = "commands", .label = "control-center.devices.grant-commands"},
+      Feature{.name = "system", .label = "control-center.devices.grant-system"},
+      Feature{.name = "dnd-sync", .label = "control-center.devices.grant-dnd-sync"},
   };
 
   std::string statusText(const LinkDevice& device, const LinkStatus* status) {
