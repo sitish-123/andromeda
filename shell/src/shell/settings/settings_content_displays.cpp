@@ -327,10 +327,9 @@ namespace settings {
           ui::toggle({
               .checked = ctx.mirrors->property(head.name, key) == "true",
               .scale = ctx.scale,
-              .onChange =
-                  [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](bool enabled) {
-                    setProperty(target, key, enabled ? "true" : "false");
-                  },
+              .onChange = [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](
+                              bool enabled
+                          ) { setProperty(target, key, enabled ? "true" : "false"); },
           }),
           ctx.scale
       ));
@@ -351,10 +350,9 @@ namespace settings {
               .step = step,
               .value = value,
               .scale = ctx.scale,
-              .onValueCommitted =
-                  [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](int committed) {
-                    setProperty(target, key, std::to_string(committed));
-                  },
+              .onValueCommitted = [setProperty = ctx.setProperty, target = head.name, key = std::string(key)](
+                                      int committed
+                                  ) { setProperty(target, key, std::to_string(committed)); },
           }),
           ctx.scale
       ));

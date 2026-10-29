@@ -89,7 +89,8 @@ QuickShareService::QuickShareService(SessionBus& bus, NotificationManager& notif
       .onInterface(kInterface)
       .call([this](
                 std::uint64_t id, const std::string& sender, const std::string& pin,
-                const std::vector<sdbus::Struct<std::string, std::int64_t>>& files, const std::vector<std::string>& texts
+                const std::vector<sdbus::Struct<std::string, std::int64_t>>& files,
+                const std::vector<std::string>& texts
             ) {
         std::vector<std::pair<std::string, std::int64_t>> list;
         list.reserve(files.size());
@@ -131,7 +132,9 @@ QuickShareService::QuickShareService(SessionBus& bus, NotificationManager& notif
         if (status == "sent") {
           m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.sent", "device", peer), {});
         } else if (status == "declined") {
-          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.declined", "device", peer), {});
+          m_notifications.addInternal(
+              i18n::tr("quick-share.app"), i18n::tr("quick-share.declined", "device", peer), {}
+          );
         } else {
           m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), error);
         }
@@ -202,7 +205,9 @@ void QuickShareService::setVisible(bool visible) {
       .uponReplyInvoke([this](std::optional<sdbus::Error> error) {
         if (error.has_value()) {
           kLog.warn("setting quick share visibility failed: {}", error->what());
-          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.visible-failed"), error->getMessage());
+          m_notifications.addInternal(
+              i18n::tr("quick-share.app"), i18n::tr("quick-share.visible-failed"), error->getMessage()
+          );
         }
       });
 }
@@ -235,7 +240,9 @@ void QuickShareService::send(const std::string& peer, const std::vector<std::str
       .withArguments(peer, files)
       .uponReplyInvoke([this](std::optional<sdbus::Error> error, std::uint64_t /*id*/) {
         if (error.has_value()) {
-          m_notifications.addInternal(i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), error->getMessage());
+          m_notifications.addInternal(
+              i18n::tr("quick-share.app"), i18n::tr("quick-share.send-failed"), error->getMessage()
+          );
         }
       });
 }
@@ -312,15 +319,17 @@ void QuickShareService::onFinished(
   request.icon = std::string("noctalia-glyph:share");
   request.persistInHistory = true;
   request.actions = {
-      "default", i18n::tr("quick-share.open"), "open", i18n::tr("quick-share.open"), "folder",
-      i18n::tr("quick-share.show-in-folder"),
+      "default", i18n::tr("quick-share.open"),           "open", i18n::tr("quick-share.open"),
+      "folder",  i18n::tr("quick-share.show-in-folder"),
   };
   if (const std::uint32_t notification = m_notifications.addOrReplace(std::move(request)); notification != 0) {
     m_results[notification] = Result{.files = files};
   }
 }
 
-void QuickShareService::onAction(std::uint32_t notification, const std::string& action, const std::string& activationToken) {
+void QuickShareService::onAction(
+    std::uint32_t notification, const std::string& action, const std::string& activationToken
+) {
   if (const auto offer = m_offerNotifications.find(notification); offer != m_offerNotifications.end()) {
     const std::uint64_t id = offer->second;
     m_offerNotifications.erase(offer);
@@ -376,13 +385,14 @@ void QuickShareService::call(const std::string& method) {
 }
 
 void QuickShareService::call(const std::string& method, std::uint64_t id) {
-  m_proxy->callMethodAsync(method).onInterface(kInterface).withArguments(id).uponReplyInvoke(
-      [method](std::optional<sdbus::Error> error) {
+  m_proxy->callMethodAsync(method)
+      .onInterface(kInterface)
+      .withArguments(id)
+      .uponReplyInvoke([method](std::optional<sdbus::Error> error) {
         if (error.has_value()) {
           kLog.warn("{} failed: {}", method, error->what());
         }
-      }
-  );
+      });
 }
 
 void QuickShareService::registerIpc(IpcService& ipc) {

@@ -22,7 +22,7 @@ namespace compositors::andromeda {
 // same string in both surfaces, so the cache can key windows to workspaces
 // without a workspace IPC event family.
 class AndromedaWorkspaceBackend final : public compositors::WorkspaceMetadataBackend,
-                                      public compositors::andromeda::AndromedaEventHandler {
+                                        public compositors::andromeda::AndromedaEventHandler {
 public:
   explicit AndromedaWorkspaceBackend(compositors::andromeda::AndromedaRuntime& runtime);
   ~AndromedaWorkspaceBackend() override;

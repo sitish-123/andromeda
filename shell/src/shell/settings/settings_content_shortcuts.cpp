@@ -46,7 +46,9 @@ namespace settings {
       }
       const std::string_view name = actionName(bind.action);
       for (const Group& group : kGroups) {
-        if (std::ranges::any_of(group.prefixes, [&](std::string_view p) { return !p.empty() && name.starts_with(p); })) {
+        if (std::ranges::any_of(group.prefixes, [&](std::string_view p) {
+              return !p.empty() && name.starts_with(p);
+            })) {
           return group.id;
         }
       }
@@ -110,7 +112,7 @@ namespace settings {
       const float scale = ctx.scale;
       const bool disabled = bind.action == "none";
       const CompositorAction* action = findAction(*ctx.compositor, actionName(bind.action));
-      const std::string title = disabled ? bind.chord
+      const std::string title = disabled                  ? bind.chord
           : action != nullptr && !action->summary.empty() ? action->summary
                                                           : std::string(actionName(bind.action));
 
@@ -141,8 +143,9 @@ namespace settings {
             }
         ));
         row->addChild(makeButton(
-            {}, "trash", ButtonVariant::Ghost, scale, [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); },
-            true, i18n::tr("settings.shortcuts.remove")
+            {}, "trash", ButtonVariant::Ghost, scale,
+            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); }, true,
+            i18n::tr("settings.shortcuts.remove")
         ));
       }
       body.addChild(std::move(row));
@@ -166,43 +169,45 @@ namespace settings {
       const CompositorAction* chosen = findAction(*ctx.compositor, draft->action);
 
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(ui::select({
-          .options = std::move(labels),
-          .selectedIndex = selected,
-          .fontSize = Style::fontSizeBody * scale,
-          .controlHeight = Style::controlHeight * scale,
-          .glyphSize = Style::fontSizeBody * scale,
-          .width = kActionSelectWidth * scale,
-          .height = Style::controlHeight * scale,
-          .onSelectionChanged = [draft, names = std::move(names), rebuild = ctx.requestRebuild](
-                                    std::size_t index, std::string_view
-                                ) {
-            draft->action = names[index];
-            draft->argument.clear();
-            rebuild();
-          },
-      }));
+      row->addChild(
+          ui::select({
+              .options = std::move(labels),
+              .selectedIndex = selected,
+              .fontSize = Style::fontSizeBody * scale,
+              .controlHeight = Style::controlHeight * scale,
+              .glyphSize = Style::fontSizeBody * scale,
+              .width = kActionSelectWidth * scale,
+              .height = Style::controlHeight * scale,
+              .onSelectionChanged = [draft, names = std::move(names),
+                                     rebuild = ctx.requestRebuild](std::size_t index, std::string_view) {
+                draft->action = names[index];
+                draft->argument.clear();
+                rebuild();
+              },
+          })
+      );
       if (chosen != nullptr && !chosen->param.empty()) {
-        row->addChild(ui::input({
-            .value = draft->argument,
-            .placeholder = chosen->param,
-            .fontSize = Style::fontSizeBody * scale,
-            .controlHeight = Style::controlHeight * scale,
-            .horizontalPadding = Style::spaceSm * scale,
-            .width = kArgumentWidth * scale,
-            .height = Style::controlHeight * scale,
-            .onChange = [draft](const std::string& value) { draft->argument = value; },
-        }));
+        row->addChild(
+            ui::input({
+                .value = draft->argument,
+                .placeholder = chosen->param,
+                .fontSize = Style::fontSizeBody * scale,
+                .controlHeight = Style::controlHeight * scale,
+                .horizontalPadding = Style::spaceSm * scale,
+                .width = kArgumentWidth * scale,
+                .height = Style::controlHeight * scale,
+                .onChange = [draft](const std::string& value) { draft->argument = value; },
+            })
+        );
       }
       row->addChild(ui::spacer());
-      row->addChild(makeChordButton(
-          ctx, std::string(kDraftChordRow), draft->chord, [draft](std::string captured) {
-            if (!captured.empty()) {
-              draft->chord = std::move(captured);
-            }
-          }
-      ));
-      const bool complete = chosen != nullptr && !draft->chord.empty() && (chosen->param.empty() || !draft->argument.empty());
+      row->addChild(makeChordButton(ctx, std::string(kDraftChordRow), draft->chord, [draft](std::string captured) {
+        if (!captured.empty()) {
+          draft->chord = std::move(captured);
+        }
+      }));
+      const bool complete =
+          chosen != nullptr && !draft->chord.empty() && (chosen->param.empty() || !draft->argument.empty());
       row->addChild(makeButton(
           i18n::tr("settings.shortcuts.add"), "add", ButtonVariant::Primary, scale,
           [draft, bindFn = ctx.bind, needsArgument = chosen != nullptr && !chosen->param.empty()]() {

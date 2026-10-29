@@ -2,9 +2,8 @@
 
 #include "desktop-unstable-v1-client-protocol.h"
 
-#include <wayland-client.h>
-
 #include <utility>
+#include <wayland-client.h>
 
 struct SettingsControlListeners {
   static SettingsControl& self(void* data) { return *static_cast<SettingsControl*>(data); }
@@ -32,8 +31,9 @@ struct SettingsControlListeners {
     control.m_settings.insert_or_assign(key, CompositorSetting{.value = value, .customized = customized != 0});
   }
 
-  static void
-  keybind(void* data, dsk_settings_manager_v1* /*manager*/, const char* chord, const char* action, uint32_t customized) {
+  static void keybind(
+      void* data, dsk_settings_manager_v1* /*manager*/, const char* chord, const char* action, uint32_t customized
+  ) {
     SettingsControl& control = self(data);
     // Each batch lists every keybind, so the first one of a batch starts the list over.
     if (!std::exchange(control.m_keybindBatch, true)) {

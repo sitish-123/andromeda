@@ -2716,8 +2716,9 @@ namespace settings {
     if (env.andromedaOverviewTypeToLaunchSupported) {
       entries.push_back(makeEntry(
           SettingsSection::Services, "audio", tr("settings.schema.shell.andromeda-audio-provider.label"),
-          tr("settings.schema.shell.andromeda-audio-provider.description"), {"shell", "andromeda_audio_provider_enabled"},
-          ToggleSetting{cfg.shell.andromedaAudioProviderEnabled}, "andromeda audio spectrum shader effects provider"
+          tr("settings.schema.shell.andromeda-audio-provider.description"),
+          {"shell", "andromeda_audio_provider_enabled"}, ToggleSetting{cfg.shell.andromedaAudioProviderEnabled},
+          "andromeda audio spectrum shader effects provider"
       ));
       entries.push_back(makeEntry(
           SettingsSection::Overview, "overview", tr("settings.schema.shell.andromeda-overview-type-to-launch.label"),

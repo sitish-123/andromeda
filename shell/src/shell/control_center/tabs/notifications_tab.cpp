@@ -622,7 +622,8 @@ namespace {
       m_clear = static_cast<Button*>(m_header->addChild(makeHeaderButton("trash", scale)));
       m_clear->setTooltip(i18n::tr("control-center.notifications.clear-group"));
 
-      m_card = static_cast<NotificationHistoryRow*>(addChild(std::make_unique<NotificationHistoryRow>(scale, fillOpacity)));
+      m_card =
+          static_cast<NotificationHistoryRow*>(addChild(std::make_unique<NotificationHistoryRow>(scale, fillOpacity)));
 
       m_more = static_cast<Button*>(addChild(
           ui::button({
@@ -755,7 +756,8 @@ public:
         [this](uint32_t id, const std::string& key) { m_owner.invokeNotificationAction(id, key); }
     );
     row->bindGroup(
-        renderer, m_owner.m_filtered[index], width, row->card().height(), [this](const std::string& key) { m_owner.toggleGroupExpanded(key); },
+        renderer, m_owner.m_filtered[index], width, row->card().height(),
+        [this](const std::string& key) { m_owner.toggleGroupExpanded(key); },
         [this](const std::string& key) { m_owner.clearGroup(key); }
     );
   }

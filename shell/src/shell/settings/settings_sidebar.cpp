@@ -79,7 +79,10 @@ namespace settings {
       const auto primary = colorSpecFromRole(ColorRole::Primary);
       return Button::ButtonPalette{
           .normal = {.bg = clear, .border = clear, .label = primary},
-          .hover = {.bg = colorSpecFromRole(ColorRole::Hover), .border = clear, .label = colorSpecFromRole(ColorRole::OnHover)},
+          .hover =
+              {.bg = colorSpecFromRole(ColorRole::Hover),
+               .border = clear,
+               .label = colorSpecFromRole(ColorRole::OnHover)},
           .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceContainer), .border = clear, .label = primary},
           .disabled = {.bg = clear, .border = clear, .label = primary},
       };
@@ -295,12 +298,14 @@ namespace settings {
       }
       Glyph* chevron = nullptr;
       header->addChild(ui::spacer());
-      header->addChild(ui::glyph({
-          .out = &chevron,
-          .glyph = "chevron-down",
-          .glyphSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(currentCategory == category ? ColorRole::Primary : ColorRole::OnSurface),
-      }));
+      header->addChild(
+          ui::glyph({
+              .out = &chevron,
+              .glyph = "chevron-down",
+              .glyphSize = Style::fontSizeCaption * scale,
+              .color = colorSpecFromRole(currentCategory == category ? ColorRole::Primary : ColorRole::OnSurface),
+          })
+      );
       Button* headerButton = header.get();
       nav->registerItem(headerButton, onHeaderClick);
 

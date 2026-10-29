@@ -20,9 +20,7 @@ namespace session_action {
 
   } // namespace
 
-  bool isKnown(std::string_view action) {
-    return isBuiltinAction(action) || action == "command";
-  }
+  bool isKnown(std::string_view action) { return isBuiltinAction(action) || action == "command"; }
 
   const char* labelKey(std::string_view action) {
     if (action == "lock") {

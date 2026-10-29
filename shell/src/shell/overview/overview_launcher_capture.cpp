@@ -1,9 +1,9 @@
 #include "shell/overview/overview_launcher_capture.h"
 
+#include "compositors/andromeda/andromeda_runtime.h"
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
 #include "compositors/niri/niri_runtime.h"
-#include "compositors/andromeda/andromeda_runtime.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/key_symbols.h"
 #include "core/input/keybind_matcher.h"

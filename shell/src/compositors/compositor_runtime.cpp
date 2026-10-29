@@ -1,10 +1,10 @@
 #include "compositors/compositor_runtime.h"
 
+#include "compositors/andromeda/andromeda_runtime.h"
 #include "compositors/hyprland/hyprland_runtime.h"
 #include "compositors/mango/mango_runtime.h"
 #include "compositors/niri/niri_runtime.h"
 #include "compositors/sway/sway_runtime.h"
-#include "compositors/andromeda/andromeda_runtime.h"
 
 namespace compositors {
 

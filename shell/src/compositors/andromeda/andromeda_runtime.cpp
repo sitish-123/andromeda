@@ -236,7 +236,9 @@ namespace compositors::andromeda {
     }
   }
 
-  void AndromedaRuntime::unregisterEventHandler(AndromedaEventHandler* handler) { std::erase(m_eventHandlers, handler); }
+  void AndromedaRuntime::unregisterEventHandler(AndromedaEventHandler* handler) {
+    std::erase(m_eventHandlers, handler);
+  }
 
   void AndromedaRuntime::dispatchEvent(std::string_view event, const nlohmann::json& data) const {
     for (auto* handler : m_eventHandlers) {

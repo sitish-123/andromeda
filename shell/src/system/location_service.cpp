@@ -214,16 +214,16 @@ void LocationService::startGeoclue() {
         .call([this](const sdbus::ObjectPath& /*old*/, const sdbus::ObjectPath& location) {
           onGeoclueLocation(location);
         });
-    m_geoclueClient->callMethodAsync("Start").onInterface(kGeoclueClient).uponReplyInvoke(
-        [this](std::optional<sdbus::Error> error) {
+    m_geoclueClient->callMethodAsync("Start")
+        .onInterface(kGeoclueClient)
+        .uponReplyInvoke([this](std::optional<sdbus::Error> error) {
           if (error.has_value()) {
             kLog.warn("GeoClue refused to locate: {}", error->what());
             m_error = i18n::tr("location.errors.ip-geolocation-failed");
             scheduleRetryAfterFailure();
             notifyChanged();
           }
-        }
-    );
+        });
     m_requestKind = RequestKind::Geolocate;
   } catch (const sdbus::Error& e) {
     kLog.warn("GeoClue unavailable: {}", e.what());

@@ -175,7 +175,7 @@ private:
 
   std::atomic<bool> m_running{false};
   bool m_enabled = false;
-  int m_samplingRefs = 0;                                  // guarded by m_wakeMutex
+  int m_samplingRefs = 0;                                   // guarded by m_wakeMutex
   std::chrono::steady_clock::time_point m_samplingLeaseEnd; // guarded by m_wakeMutex
   std::atomic<int> m_cpuTempRefs{0};
   std::atomic<int> m_cpuCoreRefs{0};

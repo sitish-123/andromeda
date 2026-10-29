@@ -1,7 +1,7 @@
 #pragma once
 
-#include "compositors/keyboard_backend.h"
 #include "compositors/andromeda/andromeda_event_handler.h"
+#include "compositors/keyboard_backend.h"
 
 #include <functional>
 #include <nlohmann/json.hpp>

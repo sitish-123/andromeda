@@ -65,9 +65,9 @@ InhibitPortal::~InhibitPortal() = default;
 void InhibitPortal::inhibit(const std::string& handle, const std::string& appId, std::uint32_t flags) {
   Handle entry;
   entry.object = sdbus::createObject(m_bus.connection(), sdbus::ObjectPath{handle});
-  entry.object
-      ->addVTable(sdbus::registerMethod("Close").implementedAs([this, handle]() { close(handle); }))
-      .forInterface(kRequestInterface);
+  entry.object->addVTable(
+                  sdbus::registerMethod("Close").implementedAs([this, handle]() { close(handle); })
+  ).forInterface(kRequestInterface);
 
   const std::string who = appId.empty() ? std::string("an app") : appId;
   for (const auto& [flag, what] : {std::pair{kFlagIdle, "idle"}, std::pair{kFlagSuspend, "sleep"}}) {

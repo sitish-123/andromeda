@@ -19,9 +19,8 @@ struct MirrorControlListeners {
     }
   }
 
-  static void property(
-      void* data, dsk_output_manager_v1* /*manager*/, const char* target, const char* key, const char* value
-  ) {
+  static void
+  property(void* data, dsk_output_manager_v1* /*manager*/, const char* target, const char* key, const char* value) {
     self(data).m_properties.insert_or_assign(std::string(target) + '\n' + key, value);
   }
 

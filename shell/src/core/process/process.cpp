@@ -1016,13 +1016,15 @@ namespace process {
         trimTrailingLineEndings(child.out);
         trimTrailingLineEndings(child.err);
         if (child.callbacks.onExit) {
-          finished.push_back(FinishedChild{
-              std::move(child.callbacks),
-              RunResult{
-                  child.exitCode, std::move(child.out), std::move(child.err), timedOut, child.outTruncated,
-                  child.errTruncated
+          finished.push_back(
+              FinishedChild{
+                  std::move(child.callbacks),
+                  RunResult{
+                      child.exitCode, std::move(child.out), std::move(child.err), timedOut, child.outTruncated,
+                      child.errTruncated
+                  }
               }
-          });
+          );
         }
         it = m_children.erase(it);
       }

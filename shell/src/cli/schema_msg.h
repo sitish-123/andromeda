@@ -952,18 +952,35 @@ namespace noctalia::cli {
         "airplane-toggle", "Toggle airplane mode (every radio)", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command globalShortcut{
-        "global-shortcut", "Activate a shortcut an app registered through the GlobalShortcuts portal", {}, {}, {},
-        kMsgGlobalShortcutPositionals, {}, false
+        "global-shortcut",
+        "Activate a shortcut an app registered through the GlobalShortcuts portal",
+        {},
+        {},
+        {},
+        kMsgGlobalShortcutPositionals,
+        {},
+        false
     };
-    inline constexpr Command globalShortcuts{
-        "global-shortcuts", "List shortcuts apps registered through the GlobalShortcuts portal", {}, {}, {}, {}, {}, false
-    };
+    inline constexpr Command globalShortcuts{"global-shortcuts",
+                                             "List shortcuts apps registered through the GlobalShortcuts portal",
+                                             {},
+                                             {},
+                                             {},
+                                             {},
+                                             {},
+                                             false};
     inline constexpr Command screenRecordStatus{
         "screen-record-status", "Print whether a screen recording is running", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command screenRecordRegion{
-        "screen-record-region", "Record a region picked on screen, or given as \"X,Y WxH\"; stops a recording", {},
-        {}, {}, kMsgScreenRecordRegionPositionals, {}, false
+        "screen-record-region",
+        "Record a region picked on screen, or given as \"X,Y WxH\"; stops a recording",
+        {},
+        {},
+        {},
+        kMsgScreenRecordRegionPositionals,
+        {},
+        false
     };
     inline constexpr Command screenRecordToggle{
         "screen-record-toggle", "Start a screen recording to ~/Videos, or stop and save it", {}, {}, {}, {}, {}, false
@@ -987,29 +1004,53 @@ namespace noctalia::cli {
         false
     };
     inline constexpr Command quickShareVisible{
-        "quickshare-visible", "Print or set whether nearby Android devices can find this desktop over Quick Share", {},
-        {}, {}, kMsgQuickShareVisiblePositionals, {}, false
+        "quickshare-visible",
+        "Print or set whether nearby Android devices can find this desktop over Quick Share",
+        {},
+        {},
+        {},
+        kMsgQuickShareVisiblePositionals,
+        {},
+        false
     };
     inline constexpr Command quickShareNearby{
-        "quickshare-nearby", "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off",
-        {}, {}, {}, kMsgQuickShareNearbyPositionals, {}, false
+        "quickshare-nearby",
+        "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off",
+        {},
+        {},
+        {},
+        kMsgQuickShareNearbyPositionals,
+        {},
+        false
     };
     inline constexpr Command quickShareSend{
-        "quickshare-send", "Send files to a nearby Quick Share receiver by its id from quickshare-nearby", {}, {}, {},
-        kMsgQuickShareSendPositionals, {}, false
+        "quickshare-send",
+        "Send files to a nearby Quick Share receiver by its id from quickshare-nearby",
+        {},
+        {},
+        {},
+        kMsgQuickShareSendPositionals,
+        {},
+        false
     };
-    inline constexpr Command locationStatus{
-        "location-status", "Print the resolved location: latitude, longitude, source, and name", {}, {}, {}, {}, {}, false
-    };
+    inline constexpr Command locationStatus{"location-status",
+                                            "Print the resolved location: latitude, longitude, source, and name",
+                                            {},
+                                            {},
+                                            {},
+                                            {},
+                                            {},
+                                            false};
     inline constexpr Command linkUnpair{
         "link-unpair", "Unpair a phone by id", {}, {}, {}, kMsgLinkUnpairPositionals, {}, false
     };
     inline constexpr Command linkSendFile{
         "link-send-file", "Send files to a connected phone", {}, {}, {}, kMsgLinkSendFilePositionals, {}, false
     };
-    inline constexpr Command linkRing{
-        "link-ring", "Ring a connected phone at full volume, or stop it", {}, {}, {}, kMsgLinkRingPositionals, {}, false
-    };
+    inline constexpr Command linkRing{"link-ring", "Ring a connected phone at full volume, or stop it",
+                                      {},          {},
+                                      {},          kMsgLinkRingPositionals,
+                                      {},          false};
     inline constexpr Command linkRinging{
         "link-ringing",
         "Print what rings: desktop <device-id> for a phone ringing this desktop, phone <device-id>, or none",

@@ -5,9 +5,9 @@
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
-#include "util/string_utils.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "util/string_utils.h"
 
 namespace settings {
 
@@ -15,9 +15,7 @@ namespace settings {
 
     std::unique_ptr<Flex> makeCaption(std::string_view text, float scale) {
       auto column = ui::column({.align = FlexAlign::Start, .fillWidth = true});
-      column->addChild(
-          makeLabel(text, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant))
-      );
+      column->addChild(makeLabel(text, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant)));
       return column;
     }
 
@@ -80,14 +78,16 @@ namespace settings {
         card->addChild(makePhoneRow(phone, ctx));
       }
       auto pairRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceMd * ctx.scale, .fillWidth = true});
-      pairRow->addChild(ui::button({
-          .text = i18n::tr("settings.devices.pair"),
-          .glyph = "qrcode",
-          .fontSize = Style::fontSizeBody * ctx.scale,
-          .controlHeight = Style::controlHeight * ctx.scale,
-          .variant = ButtonVariant::Default,
-          .onClick = ctx.pair,
-      }));
+      pairRow->addChild(
+          ui::button({
+              .text = i18n::tr("settings.devices.pair"),
+              .glyph = "qrcode",
+              .fontSize = Style::fontSizeBody * ctx.scale,
+              .controlHeight = Style::controlHeight * ctx.scale,
+              .variant = ButtonVariant::Default,
+              .onClick = ctx.pair,
+          })
+      );
       pairRow->addChild(makeCaption(i18n::tr("settings.devices.pair-hint"), ctx.scale));
       card->addChild(std::move(pairRow));
     }
@@ -185,11 +185,13 @@ namespace settings {
           colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
       ));
       row->addChild(ui::spacer());
-      row->addChild(ui::toggle({
-          .checked = ctx.quickShareVisible,
-          .scale = ctx.scale,
-          .onChange = ctx.setQuickShareVisible,
-      }));
+      row->addChild(
+          ui::toggle({
+              .checked = ctx.quickShareVisible,
+              .scale = ctx.scale,
+              .onChange = ctx.setQuickShareVisible,
+          })
+      );
       card->addChild(std::move(row));
       card->addChild(makeCaption(i18n::tr("settings.devices.visible-hint", "name", ctx.quickShareName), ctx.scale));
       card->addChild(makeCaption(i18n::tr("settings.devices.downloads", "path", ctx.downloads), ctx.scale));
