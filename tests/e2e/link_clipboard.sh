@@ -101,6 +101,17 @@ with_noctalia '
   sleep 1 # real time: long enough for a clip-offer the desktop should not send back
   [[ $(offered_to_phone) == "$PHONE_OFFERS" ]] || fail "the desktop echoed the phone clip back"
   step "phone text pulled only on paste (pulls $PULLS_BEFORE to $PULLS_AFTER, streams $DATA_BEFORE to $DATA_AFTER), no echo"
+  # A clipboard manager (Klipper) takes the selection of the phone clip again, without the remote type.
+  BEFORE=$(offered_to_desktop)
+  say "clip-text kept by a clipboard manager"
+  wait_for "no ClipboardOffered for the inline phone text" eval "(( \$(offered_to_desktop) > $BEFORE ))"
+  sleep 0.5 # real time: the shell takes the selection
+  [[ $(wl-paste -n -t "text/plain;charset=utf-8") == "kept by a clipboard manager" ]] || fail "wl-paste got $(wl-paste -n)"
+  wl-paste -n -t "text/plain;charset=utf-8" | wl-copy
+  sleep 1 # real time: long enough for a clip-offer the desktop should not send back
+  [[ $(offered_to_phone) == "$PHONE_OFFERS" ]] || fail "a clipboard manager taking the phone clip sent it back"
+  step "a clipboard manager taking the phone clip did not send it back"
+  DATA_AFTER=$(count clip-data)
 
   grim "$RUNTIME/src/shot.png"
   say "clip $RUNTIME/src/shot.png image/png"
