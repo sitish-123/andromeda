@@ -1,28 +1,23 @@
 #include "shell/bar/widgets/phone_widget.h"
 
 #include "dbus/link/link_service.h"
-#include "dbus/upower/upower_service.h"
-#include "i18n/i18n.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
+#include "shell/phone/phone_state.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <memory>
-
-namespace {
-
-  std::string networkLabel(const std::string& network) { return i18n::tr("bar.widgets.phone.network-" + network); }
-
-} // namespace
 
 PhoneWidget::PhoneWidget(LinkService* link) : m_link(link) {}
 
 void PhoneWidget::create() {
   auto area = ui::inputArea({});
+  area->setOnClick([this](const InputArea::PointerData& /*data*/) { requestPanelToggle("phone"); });
   area->addChild(
       ui::glyph({
           .out = &m_glyph,
@@ -68,19 +63,25 @@ void PhoneWidget::syncState(Renderer& renderer) {
   if (m_glyph == nullptr || m_label == nullptr || rootNode == nullptr || m_link == nullptr) {
     return;
   }
-  const auto& devices = m_link->devices();
-  const auto phone = std::ranges::find_if(devices, [](const LinkDevice& device) { return device.connected; });
-  const LinkStatus* status = phone != devices.end() ? m_link->status(phone->id) : nullptr;
-  std::string key = phone == devices.end() ? std::string{} : phone->id + phone->name;
+  const LinkDevice* phone = phone::primary(*m_link);
+  const LinkStatus* status = phone != nullptr ? m_link->status(phone->id) : nullptr;
+  const LinkDeviceInfo* info = phone != nullptr ? m_link->info(phone->id) : nullptr;
+  std::string key;
+  if (phone != nullptr) {
+    key = std::format("{} {} {}", phone->id, phone->name, phone->connected);
+  }
   if (status != nullptr) {
     key += std::format(" {} {} {}", status->battery, status->charging, status->network);
+  }
+  if (info != nullptr) {
+    key += std::format(" {} {}", info->transport, info->lastSeen);
   }
   if (key == m_lastKey) {
     return;
   }
   m_lastKey = key;
 
-  const bool show = phone != devices.end();
+  const bool show = phone != nullptr;
   if (rootNode->visible() != show || rootNode->participatesInLayout() != show) {
     rootNode->setVisible(show);
     rootNode->setParticipatesInLayout(show);
@@ -91,26 +92,20 @@ void PhoneWidget::syncState(Renderer& renderer) {
     return;
   }
 
-  const auto state = status != nullptr && status->charging ? BatteryState::Charging : BatteryState::Discharging;
-  m_glyph->setGlyph(status != nullptr ? batteryGlyphName(status->battery, state) : "device-mobile");
+  m_glyph->setGlyph(phone::glyph(*phone, status));
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_glyph->setColor(
+      widgetIconColorOr(colorSpecFromRole(phone->connected ? ColorRole::OnSurface : ColorRole::OnSurfaceVariant))
+  );
   m_label->setText(status != nullptr ? std::format("{}%", status->battery) : std::string{});
   m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
   m_glyph->measure(renderer);
   m_label->measure(renderer);
 
-  std::vector<TooltipRow> rows;
+  std::string value = phone::connectionText(*m_link, *phone);
   if (status != nullptr) {
-    std::string value = std::format("{}%", status->battery);
-    if (status->charging) {
-      value += ", " + i18n::tr("bar.widgets.phone.charging");
-    }
-    value += ", " + networkLabel(status->network);
-    rows.push_back({phone->name, std::move(value)});
-  } else {
-    rows.push_back({phone->name, i18n::tr("control-center.devices.connected")});
+    value = phone::batteryText(*status) + ", " + value;
   }
-  static_cast<InputArea*>(rootNode)->setTooltip(std::move(rows));
+  static_cast<InputArea*>(rootNode)->setTooltip(std::vector<TooltipRow>{{phone->name, std::move(value)}});
   requestRedraw();
 }
