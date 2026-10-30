@@ -136,6 +136,7 @@ package_andromeda-link-git() {
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
   install -Dm755 desktop/link/target/release/andromeda-link "$pkgdir/usr/bin/andromeda-link"
   install -Dm644 desktop/link/dist/org.andromeda.Link.desktop "$pkgdir/usr/share/applications/org.andromeda.Link.desktop"
+  cp -r desktop/link/dist/icons "$pkgdir/usr/share/"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
