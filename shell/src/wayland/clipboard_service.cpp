@@ -1318,10 +1318,8 @@ bool ClipboardService::startReceive(void* offer) {
     kLog.debug("ignoring clipboard selection: password-hint MIME advertised");
     return false;
   }
-  const bool remote = std::ranges::contains(state->mimeTypes, std::string_view(kRemoteMimeType));
   const std::string mimeType = chooseMimeType(*state);
-  // A phone's clip is pulled over the network on each read, so only its text, which is small, goes to history.
-  if (mimeType.empty() || (remote && !isTextMimeType(mimeType))) {
+  if (mimeType.empty()) {
     return false;
   }
 

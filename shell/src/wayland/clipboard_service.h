@@ -75,8 +75,6 @@ struct DataControlOps {
 class ClipboardService : public TextClipboard {
 public:
   using ChangeCallback = std::function<void()>;
-  // Andromeda Link advertises it with a selection served for a phone, which pulls the bytes over the network.
-  static constexpr const char* kRemoteMimeType = "application/x-andromeda-link-remote";
 
   explicit ClipboardService(security::StorageKeyProvider& storageKeyProvider);
   ~ClipboardService() override;
