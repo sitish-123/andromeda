@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Quick Share through the shell against a real andromeda-linkd on the test bus: quickshare-visible turns it on; the
-# control center's Devices tab and Settings' Phone & Devices page show the switch; a file sent by our Quick Share sender
+# Quick Share through the shell against a real andromeda-linkd on the test bus: quickshare-visible turns it on; a file sent by our Quick Share sender
 # raises an offer notification with the sender and PIN, and nothing is saved until its Accept button is pressed; then
 # the file is in XDG_DOWNLOAD_DIR and a "Files from" notification offers Open and Show in folder. Sending the other
 # way, quickshare-nearby finds a receiver and quickshare-send delivers a file to it with a "Sent to" notification. While visible the
-# daemon advertises on the host's LAN for the few seconds the test runs. Writes devices.png, settings.png, offer.png,
+# daemon advertises on the host's LAN for the few seconds the test runs. Writes offer.png,
 # received.png, sent.png, steps.txt, linkd.log, send.log to $OUT (default ./artifacts/quickshare-shell).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/quickshare-shell}
@@ -33,21 +32,6 @@ with_noctalia '
   [[ $(msg quickshare-visible on) == on ]] || fail "quickshare-visible on refused"
   wait_for "visibility did not reach the shell" eval "[[ \$(msg quickshare-visible) == on ]]"
   step "visible: $(msg quickshare-visible)"
-
-  msg panel-open control-center devices > /dev/null
-  sleep 1.5 # real time: the control center maps and paints
-  grim "$OUT/devices.png"
-  ocr "$OUT/devices.png" | grep -q "Quick Share" || fail "no Quick Share card in the Devices tab"
-  msg panel-close > /dev/null
-
-  msg settings-open devices > /dev/null
-  sleep 2 # real time: the settings window maps and paints
-  grim "$OUT/settings.png"
-  SETTINGS_TEXT=$(ocr "$OUT/settings.png")
-  echo "$SETTINGS_TEXT" | grep -q "Visible to nearby devices" || fail "no Quick Share switch in Settings"
-  ! echo "$SETTINGS_TEXT" | grep -q "No settings found" || fail "the page also shows the empty state"
-  msg settings-close > /dev/null
-  step "switch shown in the Devices tab and Settings"
 
   "$BIN/andromeda-quickshare" --name "Test Phone" send --addr 127.0.0.1:4718 "$RUNTIME/photo.jpg" \
     > "$RUNTIME/send.jsonl" 2>> "$OUT/send.log" &

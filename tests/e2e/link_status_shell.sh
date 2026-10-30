@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Phone status through the shell: a present headless phone reporting 42%, charging, Wi-Fi shows in the Devices tab and
-# as the bar's phone indicator (battery glyph and percent), which updates when the status changes and disappears when
-# the phone disconnects, leaving the bar as it was. Writes status-devices.png, status-changed.png, status-gone.png,
+# Phone status through the shell: a present headless phone reporting 42%, charging, Wi-Fi shows as the bar's phone
+# indicator (battery glyph and percent), which updates when the status changes and goes back to the disconnected
+# phone glyph when the phone disconnects, leaving the bar as it was before the session. Writes status-devices.png, status-changed.png, status-gone.png,
 # bar-diff.json, steps.txt, hold.jsonl, linkd.log, and phone.log to $OUT
 # (default ./artifacts/link-status-shell).
 set -euo pipefail
