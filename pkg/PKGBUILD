@@ -13,7 +13,7 @@ makedepends=(git meson ninja wayland-protocols nlohmann-json stb
   wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
-  gstreamer gst-plugins-base-libs qt6-base qt6-declarative)
+  gstreamer gst-plugins-base-libs qt6-base qt6-declarative qt6-multimedia)
 url=https://github.com/sitish-123/andromeda
 # `just package` and the release workflow build a local checkout; anyone else builds the published repository.
 source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}")
@@ -98,8 +98,8 @@ package_xdg-desktop-portal-andromeda-git() {
 
 package_andromeda-link-git() {
   pkgdesc='Andromeda Link daemon: phone and desktop continuity'
-  depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative gstreamer gst-plugins-base-libs gst-plugins-bad
-    gst-plugin-gtk4)
+  depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs
+    gst-plugins-bad gst-plugin-gtk4)
   optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
     'networkmanager: joining the phone'"'"'s hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi'
     'gst-plugin-va: hardware decoding of the mirrored phone screen'
