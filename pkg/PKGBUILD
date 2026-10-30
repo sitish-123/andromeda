@@ -47,8 +47,14 @@ package_andromeda() {
   pkgdesc='Andromeda desktop: the Andromeda compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
   depends=(andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-    noctalia-greeter-desktop-git scrcpy android-tools gst-plugin-va gst-libav)
+    noctalia-greeter-desktop-git scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse)
   optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
+  install -Dm755 desktop/session/audio-park/andromeda-audio-park "$pkgdir/usr/bin/andromeda-audio-park"
+  install -Dm644 desktop/session/audio-park/andromeda-audio-park.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-audio-park.service"
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../andromeda-audio-park.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-audio-park.service"
 }
 
 package_andromeda-compositor-git() {

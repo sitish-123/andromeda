@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Lets an idle Bluetooth sink sleep. Browsers keep silent streams open and uncorked (Mozilla bugs 1165677 and 1706993),
+# so WirePlumber never suspends the sink and the earbuds stay awake. After SILENCE seconds of digital silence on a
+# Bluetooth sink, its streams move to a null sink; the first sound there moves them back.
+set -uo pipefail
+MATCH=${ANDROMEDA_PARK_MATCH:-bluez_output.}
+PARK=${ANDROMEDA_PARK_SINK:-park}
+SILENCE=${ANDROMEDA_PARK_SILENCE:-5}
+declare -A home pinned
+
+log() { echo "$*" >&2; }
+
+# silent SOURCE: no non-zero sample on SOURCE for SILENCE seconds. Real sound shows at once; silence costs the wait.
+silent() {
+  local n
+  n=$(timeout "$SILENCE" parec -d "$1" --raw --format=s16le --channels=1 --rate=8000 --latency-msec=100 2>/dev/null |
+    tr -d '\0' | head -c1 | wc -c)
+  ((n == 0))
+}
+
+sink_index() { pactl list short sinks | awk -F'\t' -v n="$1" '$2 == n { print $1 }'; }
+inputs_on() { pactl list short sink-inputs | awk -F'\t' -v s="$1" '$2 == s { print $1 }'; }
+park_modules() {
+  pactl list short modules | awk -F'\t' -v a="sink_name=$PARK" '$2 == "module-null-sink" && index($3 " ", a " ") { print $1 }'
+}
+
+# Running Bluetooth sinks that have streams, as "index name". A suspended sink needs nothing, and reading its monitor
+# would wake it.
+busy_sinks() {
+  local inputs
+  inputs=$(pactl list short sink-inputs | cut -f2 | sort -u)
+  pactl list short sinks | awk -F'\t' -v m="$MATCH" 'index($2, m) == 1 && $5 == "RUNNING" { print $1, $2 }' |
+    while read -r id name; do grep -qx "$id" <<< "$inputs" && echo "$id $name"; done
+}
+
+park() {
+  local i
+  [[ -n $(sink_index "$PARK") ]] ||
+    pactl load-module module-null-sink "sink_name=$PARK" "sink_properties=device.description=Parked\ audio" > /dev/null
+  for i in $(inputs_on "$1"); do
+    if pw-dump "$i" 2> /dev/null | grep -q '"target\.\(object\|node\)"' ||
+      pw-metadata 2> /dev/null | grep -q "id:$i key:'target\.\(object\|node\)'"; then pinned[$i]=1; fi
+    pactl move-sink-input "$i" "$PARK" && home[$i]=$2 && log "parked stream $i from $2"
+  done
+}
+
+# Streams that followed the default sink follow it again; streams with a target of their own go back to the sink they
+# left.
+unpark() {
+  local i on park_id
+  park_id=$(sink_index "$PARK")
+  on=$(inputs_on "$park_id")
+  for i in $on; do
+    if [[ -z ${pinned[$i]:-} ]]; then
+      pw-metadata -d "$i" target.object > /dev/null
+      pw-metadata -d "$i" target.node > /dev/null
+      # WirePlumber relinks a stream without a target to the default sink.
+    elif [[ -n $(sink_index "${home[$i]:-}") ]]; then
+      pactl move-sink-input "$i" "${home[$i]}"
+    else
+      pactl move-sink-input "$i" @DEFAULT_SINK@
+    fi
+    log "unparked stream $i"
+  done
+  home=() pinned=()
+  for _ in $(seq 20); do [[ -z $(inputs_on "$park_id") ]] && break; sleep 0.1; done
+  for i in $(park_modules); do pactl unload-module "$i"; done
+}
+
+# A park sink left by a killed run still holds streams; give them back first.
+[[ -z $(sink_index "$PARK") ]] || unpark
+trap 'unpark; kill $(jobs -p) 2> /dev/null; exit 0' TERM INT
+coproc EVENTS { exec pactl subscribe; }
+
+while :; do
+  work=0
+  while read -r id name; do
+    work=1
+    silent "$name.monitor" && park "$id" "$name"
+  done < <(busy_sinks)
+  park_id=$(sink_index "$PARK")
+  if [[ -n $park_id && -n $(inputs_on "$park_id") ]]; then
+    silent "$PARK.monitor" || unpark
+    continue
+  fi
+  [[ -z $park_id ]] || unpark
+  # A playing sink is looked at again after SILENCE seconds; otherwise only a change in the audio graph wakes this.
+  if ((work)); then read -r -t "$SILENCE" _ <&"${EVENTS[0]}"; else read -r _ <&"${EVENTS[0]}" || exit 1; fi
+  while read -r -t 0.2 _ <&"${EVENTS[0]}"; do :; done
+done

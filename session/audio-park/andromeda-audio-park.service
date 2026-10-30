@@ -1,0 +1,13 @@
+[Unit]
+Description=Andromeda audio park, lets an idle Bluetooth sink sleep
+PartOf=andromeda-session.target
+After=andromeda-session.target pipewire-pulse.service
+Wants=pipewire-pulse.service
+
+[Service]
+Slice=background.slice
+ExecStart=/usr/bin/andromeda-audio-park
+Restart=on-failure
+
+[Install]
+WantedBy=andromeda-session.target
