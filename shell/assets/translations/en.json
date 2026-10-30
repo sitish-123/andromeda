@@ -129,7 +129,25 @@
         "network-ethernet": "Ethernet",
         "network-none": "offline",
         "network-other": "online",
-        "network-wifi": "Wi-Fi"
+        "network-wifi": "Wi-Fi",
+        "connected": "Connected",
+        "not-connected": "Not connected",
+        "last-seen": "Last seen {time}",
+        "transport-wifi": "Wi-Fi",
+        "transport-bluetooth": "Bluetooth",
+        "none": "No phone paired",
+        "unavailable": "Link is not running",
+        "ring": "Ring",
+        "stop-ring": "Stop ringing",
+        "send-clipboard": "Send clipboard",
+        "dnd": "Do not disturb",
+        "ringer-normal": "Sound",
+        "ringer-vibrate": "Vibrate",
+        "ringer-silent": "Silent",
+        "open-link": "Open Link",
+        "clipboard": "Clipboard",
+        "dnd-short": "DND",
+        "ringer": "Ringer mode"
       },
       "brightness": {
         "brightness": "Brightness",
@@ -365,58 +383,6 @@
       "today": "Today",
       "toggle-events-card": "Toggle events card"
     },
-    "devices": {
-      "cancel": "Cancel",
-      "connected": "Connected",
-      "expires": "Expires in {time}",
-      "none": "No paired phones yet.",
-      "not-connected": "Not connected",
-      "pair": "Pair",
-      "pair-hint": "Show a code to scan with Andromeda Link on your phone.",
-      "pair-title": "Pair a phone",
-      "paired": "Paired phones",
-      "paired-with": "Paired with {device}",
-      "pairing-failed": "Pairing failed: {reason}",
-      "ring": "Ring",
-      "stop-ring": "Stop ringing",
-      "scan": "Scan with Andromeda Link on your phone, or type this code:",
-      "send-clipboard": "Send clipboard",
-      "send-files": "Send a file",
-      "browse": "Browse its files (allow it in Andromeda Link on the phone)",
-      "mirror": "Show its screen (allow Screen in Andromeda Link on the phone)",
-      "apps": "Open its apps in windows (needs wireless debugging on the phone)",
-      "texts": "Its texts (allow Contacts and texts in Andromeda Link on the phone)",
-      "texts-none": "No texts yet.",
-      "texts-back": "All conversations",
-      "text-you": "You: ",
-      "text-to": "Number for a new text",
-      "text-placeholder": "Write a text",
-      "text-send": "Send the text",
-      "text-sending": "Sending…",
-      "text-failed": "Not sent: {reason}",
-      "ping": "Ping",
-      "nearby": "Nearby",
-      "localsend-visible": "Visible to LocalSend",
-      "status": "Connected, {battery}% battery, {network}",
-      "status-charging": "Connected, {battery}% battery and charging, {network}",
-      "status-signal": ", signal {bars}/4",
-      "grant-clipboard": "Sync the clipboard",
-      "grant-files": "Receive files",
-      "grant-notifications": "Show its notifications",
-      "grant-media": "Share media controls",
-      "grant-ring": "Ring each other",
-      "grant-calls": "Show its calls",
-      "grant-input": "Use it as this desktop's touchpad and keyboard",
-      "grant-commands": "Run this desktop's commands",
-      "grant-system": "Control volume, brightness, and lock both ways",
-      "grant-dnd-sync": "Keep Do Not Disturb the same on both",
-      "localsend": "LocalSend",
-      "auto-accept": "Accept files without asking",
-      "unpair": "Unpair",
-      "quick-share": "Quick Share",
-      "quick-share-on": "Nearby Android phones see “{name}” and can send you files.",
-      "quick-share-off": "Turn on to receive from nearby Android phones."
-    },
     "display": {
       "disabled": "Disabled",
       "no-displays": "No monitors available",
@@ -587,7 +553,8 @@
       "system": "System",
       "wallpaper": "Wallpaper",
       "weather": "Weather",
-      "wifi": "Wi-Fi"
+      "wifi": "Wi-Fi",
+      "phone": "Phone"
     },
     "system": {
       "labels": {
@@ -613,7 +580,6 @@
       "audio": "Audio",
       "bluetooth": "Bluetooth",
       "calendar": "Calendar",
-      "devices": "Devices",
       "home": "Home",
       "media": "Media",
       "monitor": "Monitor",
@@ -1005,7 +971,9 @@
       "type": "Type your key"
     },
     "unlocked": "Unlocked",
-    "waiting": "Waiting for lock confirmation…"
+    "waiting": "Waiting for lock confirmation…",
+    "phone-notifications": "{count} phone notification",
+    "phone-notifications-plural": "{count} phone notifications"
   },
   "notifications": {
     "actions": {
@@ -5765,24 +5733,9 @@
       }
     },
     "devices": {
-      "phones": "Your phones",
-      "none": "No phone paired yet.",
-      "pair": "Pair a phone",
-      "pair-hint": "Open Andromeda Link on the phone and scan the code, or type it.",
-      "connected": "Connected",
-      "not-connected": "Not connected",
-      "unpair": "Unpair",
-      "unavailable": "Andromeda Link is not running.",
-      "quick-share": "Quick Share",
-      "visible": "Visible to nearby devices",
-      "visible-hint": "Android phones nearby can send files and links to “{name}”. You accept each one.",
-      "downloads": "Received files go to {path}.",
-      "commands": "Commands",
-      "commands-hint": "Phones allowed to run commands show these, and run them here as you.",
-      "command-name": "Name",
-      "command-line": "Command, such as systemctl suspend",
-      "command-add": "Add",
-      "command-remove": "Remove"
+      "phones": "Phones",
+      "phones-hint": "Pair phones and choose what they share in Link.",
+      "open": "Open Link"
     }
   },
   "setup-wizard": {

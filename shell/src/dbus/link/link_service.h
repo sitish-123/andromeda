@@ -42,6 +42,22 @@ struct LinkStatus {
   std::int32_t signal = -1;
 };
 
+// A paired device's last session and how it is reached.
+struct LinkDeviceInfo {
+  // Unix seconds of its last session; 0 when never seen.
+  std::int64_t lastSeen = 0;
+  // wifi or bluetooth while connected, else empty.
+  std::string transport;
+};
+
+// A phone's own settings, from phones with system control: -1 or empty where the phone does not say.
+struct LinkControls {
+  std::int32_t mediaVolume = -1;
+  // normal, vibrate, silent, or empty.
+  std::string ringer;
+  std::int32_t dnd = -1;
+};
+
 // A text message on a phone; `date` in Unix milliseconds, `sent` for one the phone sent.
 struct LinkText {
   std::uint64_t id = 0;
@@ -126,10 +142,14 @@ public:
       std::function<void(std::optional<std::string>)> done
   );
   void ping(const std::string& deviceId);
+  // command is set-media-volume, set-ringer (0 silent, 1 vibrate, 2 normal), or set-dnd (1 or 0).
+  void sendSystemCommand(const std::string& deviceId, const std::string& command, std::uint32_t value);
+  /// Opens the Link app, andromeda-link.
+  static void openApp();
   // A phone with the input grant moves this pointer and types through it.
   [[nodiscard]] const std::vector<LinkCommand>& commands() const noexcept { return m_commands; }
   void setCommands(const std::vector<LinkCommand>& commands);
-  void registerIpc(IpcService& ipc, std::function<void()> showPairing);
+  void registerIpc(IpcService& ipc);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
   [[nodiscard]] const std::vector<LinkDevice>& devices() const noexcept { return m_devices; }
@@ -138,6 +158,10 @@ public:
   [[nodiscard]] const std::vector<LinkNearby>& nearby() const noexcept { return m_nearby; }
   // The device's status while it is connected and has reported one.
   [[nodiscard]] const LinkStatus* status(const std::string& deviceId) const;
+  [[nodiscard]] const LinkDeviceInfo* info(const std::string& deviceId) const;
+  [[nodiscard]] const LinkControls* controls(const std::string& deviceId) const;
+  // The phone notifications on show, those held while locked included.
+  [[nodiscard]] std::uint32_t notificationCount(const std::string& deviceId) const;
   // Devices whose file offers are accepted without asking.
   [[nodiscard]] const std::vector<std::string>& autoAccept() const noexcept { return m_autoAccept; }
   // The window this shell opened, while the daemon keeps it open.
@@ -153,6 +177,8 @@ public:
 private:
   void refresh();
   void apply(const std::map<std::string, sdbus::Variant>& properties);
+  // DeviceInfo, DeviceControls and NotificationCounts.
+  void applyDeviceState(const std::map<std::string, sdbus::Variant>& properties);
   void detach();
   void notify();
   void onReceived(const std::string& deviceId, const std::string& kind, const std::string& text);
@@ -205,6 +231,9 @@ private:
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
   std::map<std::string, LinkStatus> m_status;
+  std::map<std::string, LinkDeviceInfo> m_info;
+  std::map<std::string, LinkControls> m_controls;
+  std::map<std::string, std::uint32_t> m_notificationCounts;
   std::map<std::string, std::vector<LinkText>> m_texts;
   // Per phone, a number's last 9 digits to the contact's name.
   std::map<std::string, std::unordered_map<std::string, std::string>> m_contactNames;

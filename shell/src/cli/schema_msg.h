@@ -991,7 +991,7 @@ namespace noctalia::cli {
         "link-devices", "Print paired phones: id, connected or disconnected, name", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command linkPair{
-        "link-pair", "Open a phone pairing window and show its code in the control center", {}, {}, {}, {}, {}, false
+        "link-pair", "Open a phone pairing window; link-pairing reports its code", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command linkPairing{
         "link-pairing",

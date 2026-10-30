@@ -72,6 +72,7 @@
 #include "shell/greeter/greeter_appearance_sync.h"
 #include "shell/launcher/launcher_panel.h"
 #include "shell/panel/plugin_panel.h"
+#include "shell/phone/phone_panel.h"
 #include "shell/polkit/polkit_panel.h"
 #include "shell/session/session_ipc.h"
 #include "shell/session/session_panel.h"
@@ -169,12 +170,6 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);
   m_settingsWindow.setIpcService(&m_ipcService);
-  m_settingsWindow.setLinkServices(m_linkService.get(), m_quickShareService.get(), [this]() {
-    if (m_linkService != nullptr) {
-      m_linkService->startPairing();
-      m_panelManager.openPanel("control-center", PanelOpenRequest{.context = "devices"});
-    }
-  });
   m_settingsWindow.setAsyncTextureCache(&m_asyncTextureCache);
   m_settingsWindow.setOpenDesktopWidgetEditor([this] {
     if (m_lockscreenWidgetsController.isEditing()) {
@@ -640,6 +635,7 @@ void Application::initPanelManagerAndPanels() {
   m_panelManager.registerPanel("session", std::make_unique<SessionPanel>(&m_configService, m_sessionActionRunner));
   m_panelManager.registerPanel("display-mode", std::make_unique<DisplayModePanel>(m_wayland));
   m_panelManager.registerPanel("test", std::make_unique<TestPanel>());
+  m_panelManager.registerPanel("phone", std::make_unique<PhonePanel>(m_linkService.get()));
   auto controlCenterPanel = std::make_unique<ControlCenterPanel>(ControlCenterServices{
       .notifications = &m_notificationManager,
       .audio = m_pipewireService.get(),

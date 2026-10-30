@@ -358,6 +358,7 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed Pairing: {}", e.what());
     }
   }
+  applyDeviceState(properties);
   notify();
 }
 
@@ -368,6 +369,9 @@ void LinkService::detach() {
   m_available = false;
   m_devices.clear();
   m_status.clear();
+  m_info.clear();
+  m_controls.clear();
+  m_notificationCounts.clear();
   m_texts.clear();
   m_contactNames.clear();
   m_nearby.clear();
@@ -928,7 +932,7 @@ void LinkService::onAction(std::uint32_t id, const std::string& action, const st
   }
 }
 
-void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing) {
+void LinkService::registerIpc(IpcService& ipc) {
   ipc.bind(noctalia::cli::msg::linkDevices, [this](const std::string&) -> std::string {
     if (!m_available) {
       return "error: andromeda-linkd is not running\n";
@@ -939,16 +943,13 @@ void LinkService::registerIpc(IpcService& ipc, std::function<void()> showPairing
     }
     return out;
   });
-  ipc.bind(
-      noctalia::cli::msg::linkPair, [this, showPairing = std::move(showPairing)](const std::string&) -> std::string {
-        if (!m_available) {
-          return "error: andromeda-linkd is not running\n";
-        }
-        startPairing();
-        showPairing();
-        return "ok\n";
-      }
-  );
+  ipc.bind(noctalia::cli::msg::linkPair, [this](const std::string&) -> std::string {
+    if (!m_available) {
+      return "error: andromeda-linkd is not running\n";
+    }
+    startPairing();
+    return "ok\n";
+  });
   ipc.bind(noctalia::cli::msg::linkPairing, [this](const std::string&) -> std::string {
     if (m_pairing.has_value()) {
       return "open " + m_pairing->code + " " + m_pairing->uri + "\n";
