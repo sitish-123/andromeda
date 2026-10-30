@@ -7,6 +7,7 @@
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
+#include "dbus/link/link_service.h"
 #include "dbus/network/nm_hotspot.h"
 #include "dbus/power/power_profiles_service.h"
 #include "i18n/i18n.h"
@@ -25,6 +26,7 @@
 #include "system/weather_service.h"
 #include "theme/theme_service.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <format>
@@ -102,6 +104,51 @@ namespace {
 
   private:
     NmHotspot* m_hotspot;
+  };
+
+  // The Link phone: a click rings it or stops the ring, a right click sends it the clipboard.
+  class PhoneShortcut final : public Shortcut {
+  public:
+    explicit PhoneShortcut(LinkService* link) : m_link(link) {}
+    std::string_view id() const override { return "phone"; }
+    std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.phone"); }
+    std::string displayLabel() const override {
+      const LinkDevice* phone = connected();
+      if (phone == nullptr) {
+        return defaultLabel();
+      }
+      return i18n::tr(m_link->phoneRinging(phone->id) ? "bar.widgets.phone.stop-ring" : "bar.widgets.phone.ring");
+    }
+    std::string_view iconOn() const override { return "bell-ringing"; }
+    std::string_view iconOff() const override { return "device-mobile"; }
+    bool isToggle() const override { return true; }
+    bool enabled() const override { return connected() != nullptr; }
+    bool active() const override {
+      const LinkDevice* phone = connected();
+      return phone != nullptr && m_link->phoneRinging(phone->id);
+    }
+    void onClick() override {
+      if (const LinkDevice* phone = connected(); phone != nullptr) {
+        m_link->ring(phone->id, !m_link->phoneRinging(phone->id));
+      }
+    }
+    void onRightClick() override {
+      if (const LinkDevice* phone = connected(); phone != nullptr) {
+        m_link->shareClipboard(phone->id);
+      }
+    }
+
+  private:
+    [[nodiscard]] const LinkDevice* connected() const {
+      if (m_link == nullptr) {
+        return nullptr;
+      }
+      const auto& devices = m_link->devices();
+      const auto it = std::ranges::find_if(devices, &LinkDevice::connected);
+      return it != devices.end() ? &*it : nullptr;
+    }
+
+    LinkService* m_link;
   };
 
   class ScreenRecordShortcut final : public Shortcut {
@@ -532,6 +579,10 @@ namespace {
       builtinShortcut<HotspotShortcut, &ShortcutServices::hotspot>({
           .type = "hotspot",
           .labelKey = "control-center.shortcuts.hotspot",
+      }),
+      builtinShortcut<PhoneShortcut, &ShortcutServices::link>({
+          .type = "phone",
+          .labelKey = "control-center.shortcuts.phone",
       }),
       builtinShortcut<ScreenRecordShortcut, &ShortcutServices::screenRecorder>({
           .type = "screen-record",

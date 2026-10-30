@@ -88,6 +88,7 @@ struct ControlCenterServices {
     return {
         .network = network,
         .hotspot = hotspot,
+        .link = link,
         .screenRecorder = screenRecorder,
         .bluetooth = bluetooth,
         .nightLight = nightLight,

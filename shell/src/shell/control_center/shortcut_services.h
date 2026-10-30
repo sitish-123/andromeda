@@ -12,6 +12,7 @@ class NmHotspot;
 class ScreenRecorder;
 class GammaService;
 class IpcService;
+class LinkService;
 class NotificationManager;
 class PipeWireService;
 class PowerProfilesService;
@@ -29,6 +30,7 @@ namespace scripting {
 struct ShortcutServices {
   INetworkService* network = nullptr;
   NmHotspot* hotspot = nullptr;
+  LinkService* link = nullptr;
   ScreenRecorder* screenRecorder = nullptr;
   BluetoothService* bluetooth = nullptr;
   GammaService* nightLight = nullptr;
