@@ -183,6 +183,8 @@ namespace andromeda {
     [[nodiscard]] bool isResizingWorkspace(const Workspace* workspace) const;
 
     void attachInputDevice(wlr_input_device* device);
+    // Absolute motion from the device then spans only the output.
+    void mapInputToOutput(wlr_input_device* device, wlr_output* output);
     void applyConfig();
     // Discard partial notches when compositor-owned wheel input changes context.
     void resetWheelAccumulation();

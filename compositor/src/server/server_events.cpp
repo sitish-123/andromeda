@@ -1513,6 +1513,10 @@ namespace andromeda {
     // Attach to the cursor exactly like a physical pointer (see addPointer), so a virtual pointer runs the same Cursor
     // pipeline: hover, click-to-focus, mouse binds, and interactive move and resize.
     self->m_cursor->attachInputDevice(&vpointer->pointer.base);
+    // A pointer created for an output (as Link's remote control does for the monitor a phone shows) moves only on it.
+    if (event->suggested_output != nullptr) {
+      self->m_cursor->mapInputToOutput(&vpointer->pointer.base, event->suggested_output);
+    }
 
     self->m_virtualPointers.push_back(std::move(device));
   }

@@ -238,6 +238,9 @@ namespace andromeda {
   }
 
   void Cursor::attachInputDevice(wlr_input_device* device) { wlr_cursor_attach_input_device(m_cursor, device); }
+  void Cursor::mapInputToOutput(wlr_input_device* device, wlr_output* output) {
+    wlr_cursor_map_input_to_output(m_cursor, device, output);
+  }
   void Cursor::resetWheelAccumulation() { m_wheelAccum[0] = m_wheelAccum[1] = 0; }
 
   void Cursor::handleDataDragStarted() { updateDataDragEdgeScroll(); }
