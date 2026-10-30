@@ -42,7 +42,6 @@ with_noctalia '
     wait_for "$1: unlock did not release gazed" grep -q "^Release" "$OUT/calls.txt"
   }
 
-  trap "kill \$(jobs -p) 2> /dev/null || true" EXIT
   kill %1; wait %1 2> /dev/null || true
   "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
   for _ in $(seq 100); do "$NOCTALIA" msg settings-close > /dev/null 2>&1 && break; sleep 0.1; done
