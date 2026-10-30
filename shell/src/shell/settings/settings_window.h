@@ -44,7 +44,6 @@ class AccountsService;
 class CalendarService;
 class ClipboardService;
 class LinkService;
-class QuickShareService;
 class IpcService;
 class ConfigService;
 class CompositorPlatform;
@@ -143,13 +142,6 @@ public:
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
-  void setLinkServices(LinkService* link, QuickShareService* quickShare, std::function<void()> openPairing) {
-    m_linkService = link;
-    m_quickShareService = quickShare;
-    m_openPairing = std::move(openPairing);
-  }
-  // Rebuilds the Phones page when it is showing.
-  void onDevicesChanged();
   // Backs plugin-store thumbnails; trimmed when the window closes.
   void setAsyncTextureCache(AsyncTextureCache* cache) { m_asyncTextures = cache; }
   void initializeDialogPresenter(
@@ -315,9 +307,6 @@ private:
   std::optional<std::uint64_t> m_calendarCallbackId;
   std::uint64_t m_calendarSyncStatusRevision = 0;
   ClipboardService* m_clipboardService = nullptr;
-  LinkService* m_linkService = nullptr;
-  QuickShareService* m_quickShareService = nullptr;
-  std::function<void()> m_openPairing;
   std::unordered_map<std::string, std::uint32_t> m_templateColors;
   std::string m_templateColorMode;
   std::shared_ptr<settings::PaletteInspectorContent> m_paletteInspectorContent;
