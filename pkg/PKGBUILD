@@ -129,6 +129,9 @@ package_andromeda-link-git() {
   install -Dm644 desktop/link/dist/org.andromeda.Link1.service "$pkgdir/usr/share/dbus-1/services/org.andromeda.Link1.service"
   install -Dm644 desktop/link/api/org.andromeda.Link1.xml "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.Link1.xml"
   install -Dm644 desktop/link/dist/andromeda-link.ufw "$pkgdir/etc/ufw/applications.d/andromeda-link"
+  install -Dm644 desktop/link/dist/andromeda-link.firewalld.xml "$pkgdir/usr/lib/firewalld/services/andromeda-link.xml"
+  install -Dm644 desktop/link/dist/andromeda-link-localsend.firewalld.xml \
+    "$pkgdir/usr/lib/firewalld/services/andromeda-link-localsend.xml"
   install -Dm644 desktop/link/dist/60-andromeda-link-bluetooth.conf \
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
   install -Dm755 desktop/link/target/release/andromeda-link "$pkgdir/usr/bin/andromeda-link"
