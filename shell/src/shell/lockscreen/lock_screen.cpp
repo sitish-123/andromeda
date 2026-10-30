@@ -171,6 +171,15 @@ void LockScreen::setLoginBoxServices(
   }
 }
 
+void LockScreen::setPhoneServices(const LinkService* link) {
+  m_link = link;
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setPhoneServices(m_link);
+    }
+  }
+}
+
 bool LockScreen::lock() {
   if (m_wayland == nullptr || m_renderContext == nullptr) {
     invalidateDesktopCaptures();
@@ -1343,6 +1352,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setOnCycleLayout([this] { cycleKeyboardLayout(); });
   surface->setOnPasswordChanged([this](const std::string& value) { handlePasswordEdited(value); });
   surface->setLoginBoxServices(m_sessionActions, m_mpris, m_weather, m_httpClient);
+  surface->setPhoneServices(m_link);
   surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
   applyIndicatorsToSurface(*surface);
 

@@ -203,6 +203,8 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       )
   );
 
+  m_root.addChild(m_phoneRow.create());
+
   m_loginPanel->addChild(
       ui::flex(
           FlexDirection::Horizontal,
@@ -657,6 +659,11 @@ LockSurface::~LockSurface() {
     }
     m_lockSurface = nullptr;
   }
+}
+
+void LockSurface::setPhoneServices(const LinkService* link) {
+  m_phoneRow.setServices(link);
+  requestUpdate();
 }
 
 void LockSurface::setLoginBoxServices(
@@ -1261,6 +1268,7 @@ void LockSurface::prepareFrame(bool needsUpdate, bool needsLayout) {
     UiPhaseScope updatePhase(UiPhase::Update);
     updateCopy();
     syncRegularExtras(renderer);
+    m_phoneRow.sync(m_mpris);
   }
 
   if (needsUpdate || needsLayout) {
@@ -1313,6 +1321,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     if (m_authPanel != nullptr) {
       m_authPanel->setVisible(false);
     }
+    m_phoneRow.layout(renderer, sw, sh, false);
     layoutTransitionCover();
     syncTransitionCover();
     return;
@@ -1654,6 +1663,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   if (m_ryoku != nullptr) {
     layoutRyoku(renderer, sw, sh, loginStyle);
   }
+  m_phoneRow.layout(renderer, sw, sh, m_locked);
   layoutTransitionCover();
   syncTransitionCover();
 }

@@ -11,6 +11,7 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "shell/lockscreen/lock_phone_row.h"
 #include "shell/lockscreen/lock_ryoku_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "wayland/surface.h"
@@ -37,6 +38,7 @@ class Image;
 class Input;
 class Label;
 class LockscreenTransitionCover;
+class LinkService;
 class MprisService;
 class Renderer;
 class SessionActionRunner;
@@ -83,6 +85,7 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
+  void setPhoneServices(const LinkService* link);
   void selectAllPassword();
   void clearPasswordSelection();
   void onThemeChanged();
@@ -173,6 +176,7 @@ private:
   Box* m_tintOverlay = nullptr;
   Box* m_backdrop = nullptr;
   Flex* m_loginPanel = nullptr;
+  LockPhoneRow m_phoneRow;
   Flex* m_infoRow = nullptr;
   Flex* m_mediaBlock = nullptr;
   Image* m_mediaArt = nullptr;

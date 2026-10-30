@@ -1771,17 +1771,19 @@ void Application::initSessionBusServices() {
       m_linkService = std::make_unique<LinkService>(*m_bus, m_notificationManager, m_clipboardService, m_soundPlayer);
       m_linkService->setChangeCallback([this, shouldRefreshControlCenter]() {
         m_bar.refresh();
-        if (shouldRefreshControlCenter()) {
+        if (shouldRefreshControlCenter() || m_panelManager.isOpenPanel("phone")) {
           m_panelManager.refresh();
         }
-        m_settingsWindow.onDevicesChanged();
+        if (m_lockScreen.isActive()) {
+          m_lockScreen.requestUpdate();
+        }
       });
+      m_lockScreen.setPhoneServices(m_linkService.get());
       m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);
       m_quickShareService->setChangeCallback([this, shouldRefreshControlCenter]() {
         if (shouldRefreshControlCenter()) {
           m_panelManager.refresh();
         }
-        m_settingsWindow.onDevicesChanged();
       });
     } catch (const sdbus::Error& e) {
       kLog.warn("link client disabled: {}", e.what());

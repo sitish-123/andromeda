@@ -28,6 +28,7 @@ class FaceAuthenticator;
 class FingerprintAuthenticator;
 class HttpClient;
 class LockSurface;
+class LinkService;
 class MprisService;
 class RenderContext;
 class SessionActionRunner;
@@ -53,6 +54,7 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
+  void setPhoneServices(const LinkService* link);
   bool lock();
   void primeDesktopCaptures();
   void clearPrimedDesktopCaptures();
@@ -210,6 +212,7 @@ private:
   MprisService* m_mpris = nullptr;
   const WeatherService* m_weather = nullptr;
   HttpClient* m_httpClient = nullptr;
+  const LinkService* m_link = nullptr;
   Timer m_suspendTimeoutTimer;
   Timer m_outputPowerOffTimer;
   // CLOCK_BOOTTIME millis when the lock flow started; grace expires gracePeriodSeconds after it.
