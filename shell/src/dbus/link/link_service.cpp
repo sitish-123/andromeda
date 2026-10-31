@@ -193,6 +193,9 @@ LinkService::LinkService(
   m_link->uponSignal("Hotspot")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& ssid) { onHotspot(deviceId, ssid); });
+  m_link->uponSignal("HotspotRequested")
+      .onInterface(kLinkInterface)
+      .call([this](const std::string& deviceId, const std::string& ssid) { onHotspotRequested(deviceId, ssid); });
   m_link->uponSignal("Pinged")
       .onInterface(kLinkInterface)
       .call([this](const std::string& deviceId, const std::string& message) { onPinged(deviceId, message); });
@@ -464,6 +467,31 @@ void LinkService::onHotspot(const std::string& deviceId, const std::string& ssid
   request.timeout = joined ? 0 : 5000;
   const std::uint32_t shown = m_notifications.addOrReplace(std::move(request));
   m_hotspotNotice = joined ? shown : 0;
+}
+
+// The service joins only once the user allows it; no answer in 30 s declines, and it withdraws the question.
+void LinkService::onHotspotRequested(const std::string& deviceId, const std::string& ssid) {
+  if (ssid.empty()) {
+    if (const std::uint32_t shown = std::exchange(m_hotspotAsk, 0); shown != 0) {
+      (void)m_notifications.close(shown, CloseReason::ClosedByCall);
+    }
+    return;
+  }
+  NotificationRequest request;
+  request.appName = i18n::tr("notifications.internal.link");
+  request.summary = i18n::tr("notifications.internal.link-hotspot-ask", "device", deviceName(deviceId));
+  request.body = i18n::tr("notifications.internal.link-hotspot-ask-body");
+  request.origin = NotificationOrigin::Internal;
+  request.urgency = Urgency::Critical;
+  request.icon = std::string("noctalia-glyph:device-mobile");
+  request.replacesId = m_hotspotAsk;
+  request.timeout = 0;
+  request.actions = {
+      "hotspot:allow", i18n::tr("notifications.internal.link-hotspot-allow"), "hotspot:decline",
+      i18n::tr("notifications.internal.link-hotspot-decline")
+  };
+  m_hotspotAsk = m_notifications.addOrReplace(std::move(request));
+  m_hotspotAskDevice = deviceId;
 }
 
 void LinkService::onReceived(const std::string& deviceId, const std::string& kind, const std::string& text) {
@@ -889,6 +917,14 @@ void LinkService::onNotificationClosed(std::uint32_t id, CloseReason /*reason*/)
 }
 
 void LinkService::onAction(std::uint32_t id, const std::string& action, const std::string& activationToken) {
+  if (id != 0 && id == m_hotspotAsk && action.starts_with("hotspot:")) {
+    m_hotspotAsk = 0;
+    m_link->callMethodAsync("AnswerHotspot")
+        .onInterface(kLinkInterface)
+        .withArguments(m_hotspotAskDevice, action == "hotspot:allow")
+        .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("AnswerHotspot", error); });
+    return;
+  }
   if (const auto call = m_callDevices.find(id); call != m_callDevices.end() && action.starts_with("call:")) {
     m_link->callMethodAsync("CallAction")
         .onInterface(kLinkInterface)

@@ -194,6 +194,7 @@ private:
   void onNotificationClosed(std::uint32_t id, CloseReason reason);
   void onRingRequested(const std::string& deviceId, bool on);
   void onHotspot(const std::string& deviceId, const std::string& ssid);
+  void onHotspotRequested(const std::string& deviceId, const std::string& ssid);
   void onPinged(const std::string& deviceId, const std::string& message);
   void
   onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
@@ -244,6 +245,9 @@ private:
   std::set<std::string> m_phonesRinging;
   /// The notice shown while the laptop is on a phone's hotspot, replaced when it leaves.
   std::uint32_t m_hotspotNotice = 0;
+  /// The question whether to join a phone's hotspot, and the phone it is for.
+  std::uint32_t m_hotspotAsk = 0;
+  std::string m_hotspotAskDevice;
   // The phone this desktop rings for, the notification that offers Stop, and the ring's timers.
   std::optional<std::string> m_ringingFor;
   std::uint32_t m_ringNotification = 0;
