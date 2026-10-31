@@ -40,6 +40,7 @@ with_noctalia '
   phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
   say() { printf "%s\n" "$*" >&3; }
   pc() { playerctl -p "$PLAYER" "$@" 2> /dev/null || true; }
+  players() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 PhonePlayers; }
   phone_saw() { grep -q "$1" "$OUT/hold.jsonl"; }
   calls() { grep -qx "$1" "$OUT/player-calls.txt" 2> /dev/null; }
 
@@ -92,6 +93,14 @@ with_noctalia '
   say "media-gone youtube"
   wait_for "MPRIS did not go back to Spotify: $(pc metadata title)" eval "[[ \$(pc metadata title) == \"Night Drive\" ]]"
   step "three phone players: paused ones stay behind the one that plays; the newest playing one leads"
+
+  # The same player over Link1, which the app reads on the socket too (macOS has no MPRIS).
+  wait_for "PhonePlayers lacks the lead player: $(players)" eval "players | grep -F \"$ID\" | grep -F \"Night Drive\" | grep -qF \"file://\""
+  players | grep -qF "true, uint64 " || fail "PhonePlayers does not show it playing: $(players)"
+  gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.andromeda.Link1.PhonePlayerCommand "$ID" volume 65 > /dev/null
+  wait_for "phone did not get the Link1 volume" phone_saw "\"command\":\"volume\".*\"value\":65"
+  wait_for "PhonePlayers volume did not follow the phone: $(players)" eval "players | grep -qF \", 65, \""
+  step "phone player over Link1: $(players | cut -c1-160)"
 
   pc play-pause
   wait_for "phone did not get play-pause" phone_saw "\"command\":\"play-pause\".*\"event\":\"media-command\""

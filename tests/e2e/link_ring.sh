@@ -15,7 +15,12 @@ rm -rf "$OUT"
 boot_headless 1
 
 # PipeWire before the shell, which opens its sound player at start; off the real session bus.
-mkdir -p "$RUNTIME/pw-config"
+# The real BlueZ is on the system bus: a bluez monitor here takes headphones from the user's WirePlumber.
+mkdir -p "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d"
+cat > "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d/90-e2e.conf" << 'CONF'
+wireplumber.profiles = { main = { monitor.alsa = disabled, monitor.alsa-midi = disabled, monitor.bluez = disabled,
+  monitor.bluez-midi = disabled, monitor.v4l2 = disabled, monitor.libcamera = disabled } }
+CONF
 run env -u DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME="$RUNTIME/pw-config" pipewire > "$OUT/pipewire.log" 2>&1 &
 for _ in $(seq 50); do [[ -S $RUNTIME/pipewire-0 ]] && break; sleep 0.1; done
 run env -u DBUS_SESSION_BUS_ADDRESS XDG_CONFIG_HOME="$RUNTIME/pw-config" wireplumber > "$OUT/wireplumber.log" 2>&1 &

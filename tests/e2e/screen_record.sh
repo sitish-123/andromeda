@@ -30,7 +30,12 @@ with_noctalia '
   record video-only
   grep -q "recording without audio" "$OUT/noctalia.log" || fail "no fallback to video only without PipeWire"
 
-  mkdir -p "$RUNTIME/pw-config"
+  # The real BlueZ is on the system bus: a bluez monitor here takes headphones from the real WirePlumber.
+  mkdir -p "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d"
+  cat > "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d/90-e2e.conf" << CONF
+wireplumber.profiles = { main = { monitor.alsa = disabled, monitor.alsa-midi = disabled, monitor.bluez = disabled,
+  monitor.bluez-midi = disabled, monitor.v4l2 = disabled, monitor.libcamera = disabled } }
+CONF
   XDG_CONFIG_HOME=$RUNTIME/pw-config pipewire > "$OUT/pipewire.log" 2>&1 &
   for _ in $(seq 50); do [[ -S $RUNTIME/pipewire-0 ]] && break; sleep 0.1; done
   XDG_CONFIG_HOME=$RUNTIME/pw-config wireplumber > "$OUT/wireplumber.log" 2>&1 &
