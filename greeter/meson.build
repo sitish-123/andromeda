@@ -14,7 +14,6 @@ cpp = meson.get_compiler('cpp')
 
 if get_option('buildtype') == 'release'
   add_project_arguments(
-    '-march=native', '-mtune=native',
     '-fomit-frame-pointer', '-ffunction-sections', '-fdata-sections',
     language: ['c', 'cpp'],
   )
