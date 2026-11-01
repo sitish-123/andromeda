@@ -1,6 +1,6 @@
 ---
 title: Lockscreen widgets
-description: Configurable widgets on the session lock screen, layout editor, and settings.toml overrides.
+description: Configurable widgets on the session lock screen, layout editor, and overrides.toml overrides.
 sidebar:
   order: 6
 ---
@@ -10,7 +10,7 @@ sidebar:
 Lockscreen widgets use the same widget types and per-type settings as [desktop widgets](/noctalia/desktop/widgets/). Layout is stored in a dedicated `[lockscreen_widgets]` section (not shared with `[desktop_widgets]` or `[lockscreen]` backdrop keys).
 
 - Declarative config: `[lockscreen_widgets]` in `~/.config/noctalia/*.toml`
-- GUI/editor overrides: `settings.toml` under your Noctalia state directory (same as desktop widgets)
+- GUI/editor overrides: `overrides.toml` under your Noctalia state directory (same as desktop widgets)
 
 ```toml
 [lockscreen_widgets]

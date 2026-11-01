@@ -7,7 +7,7 @@ sidebar:
 
 Noctalia can be configured in two ways: files you write yourself, and settings the app saves for you.
 
-For most people, the important rule is simple: put your own configuration in `~/.config/noctalia/`. If something changed in the GUI and now seems to ignore your file, check `~/.local/state/noctalia/settings.toml`.
+For most people, the important rule is simple: put your own configuration in `~/.config/noctalia/`. If something changed in the GUI and now seems to ignore your file, check `~/.local/state/noctalia/overrides.toml`.
 
 ## The two layers
 
@@ -39,9 +39,9 @@ You can also split things up if you like tidy dotfiles:
 
 GUI-managed overrides live in:
 
-- `$NOCTALIA_STATE_HOME/noctalia/settings.toml`
-- `$XDG_STATE_HOME/noctalia/settings.toml`
-- or `~/.local/state/noctalia/settings.toml`
+- `$NOCTALIA_STATE_HOME/noctalia/overrides.toml`
+- `$XDG_STATE_HOME/noctalia/overrides.toml`
+- or `~/.local/state/noctalia/overrides.toml`
 
 Noctalia writes this file when you change settings through the UI, setup flows, IPC-backed controls, and other runtime actions that need to persist. If the file is a symbolic link, Noctalia writes through to the link target and keeps the link in place.
 
@@ -90,7 +90,7 @@ autoload = false
 files = ["profiles/work.toml"]
 ```
 
-`autoload` only has an effect in a file loaded directly from the config folder; it is ignored in included files. `[include]` is honored in your config files only - it has no effect in the app-managed `settings.toml`.
+`autoload` only has an effect in a file loaded directly from the config folder; it is ignored in included files. `[include]` is honored in your config files only - it has no effect in the app-managed `overrides.toml`.
 
 ## Which value wins?
 
@@ -98,25 +98,25 @@ Noctalia loads configuration in this order:
 
 1. Built-in defaults
 2. Your `*.toml` files in the resolved config directory - for each file, anything it pulls in via `[include]` first, then the file's own settings on top
-3. GUI-managed overrides in the resolved state directory's `settings.toml`
+3. GUI-managed overrides in the resolved state directory's `overrides.toml`
 
-Because `settings.toml` loads last, it wins when it contains the same setting as your hand-written config layer. When Settings writes a value that matches the parsed value from the lower layers, Noctalia removes that redundant key instead of keeping it as a GUI override.
+Because `overrides.toml` loads last, it wins when it contains the same setting as your hand-written config layer. When Settings writes a value that matches the parsed value from the lower layers, Noctalia removes that redundant key instead of keeping it as a GUI override.
 
 :::tip
-If you are confused about why a hand-written value is not taking effect, inspect or temporarily move `settings.toml` from the resolved state directory.
+If you are confused about why a hand-written value is not taking effect, inspect or temporarily move `overrides.toml` from the resolved state directory.
 :::
 
 ## Where should I edit?
 
 Use `~/.config/noctalia/` for curated config: the things you want to keep in dotfiles, copy to another machine, or manage declaratively.
 
-Treat `~/.local/state/noctalia/settings.toml` as an app-managed override file. It is useful to inspect when debugging GUI changes, and safe to delete when you want to clear those overrides. Keeping it outside `~/.config` also lets the GUI save changes when your config directory is read-only, for example on NixOS. Support reports include config sources and `settings.toml`, but omit `state.toml` contents because they can contain private runtime data.
+Treat `~/.local/state/noctalia/overrides.toml` as an app-managed override file. It is useful to inspect when debugging GUI changes, and safe to delete when you want to clear those overrides. Keeping it outside `~/.config` also lets the GUI save changes when your config directory is read-only, for example on NixOS. Support reports include config sources and `overrides.toml`, but omit `state.toml` contents because they can contain private runtime data.
 
 Both layers are watched for changes and hot-reloaded. A save is applied about 150 ms after the file is written, so editors that save in several steps reload once; removing a config file also reloads. If neither layer exists, Noctalia uses its built-in defaults.
 
 ## Automatic configuration migrations
 
-When a release changes the shape of a setting, Noctalia migrates old values before parsing them so the running shell keeps the intended behavior. The app-owned `settings.toml` is upgraded once and stamped with an internal `config_version`; Noctalia manages that marker and excludes it from exported user config.
+When a release changes the shape of a setting, Noctalia migrates old values before parsing them so the running shell keeps the intended behavior. The app-owned `overrides.toml` is upgraded once and stamped with an internal `config_version`; Noctalia manages that marker and excludes it from exported user config.
 
 Files under `~/.config/noctalia/` are never rewritten. Values that need migration are normalized temporarily on every load, and Settings keeps a warning visible until you update the source TOML. The warning and notification identify the source file, line, column, and exact legacy key to edit. Noctalia sends the notification when it first finds an affected key, when a new affected key appears, and every three days while affected values remain.
 
@@ -135,7 +135,7 @@ Where Noctalia keeps everything, by purpose:
 | What                           | Where                                                      | Purpose                                                        |
 | ------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------- |
 | Your config                    | `~/.config/noctalia/config.toml`                           | hand-written / declarative - the base layer                    |
-| GUI overrides                  | `~/.local/state/noctalia/settings.toml`                    | written by Settings; wins over your config                     |
+| GUI overrides                  | `~/.local/state/noctalia/overrides.toml`                    | written by Settings; wins over your config                     |
 | Internal UI state              | `~/.local/state/noctalia/state.toml`                       | app-managed non-secret state and last-used values              |
 | Calendar credentials           | Desktop Secret Service or an explicit CalDAV password file | CalDAV passwords and Google refresh tokens                     |
 | Encrypted storage key          | Desktop Secret Service or an explicit key file             | master key for encrypted clipboard history and calendar events |
@@ -199,13 +199,13 @@ Run the validator to catch problems before they silently take effect:
 noctalia config validate
 ```
 
-With no argument it checks the merged configuration exactly as the shell loads it: every `*.toml` in `~/.config/noctalia/` (or `$NOCTALIA_CONFIG_HOME`), then the `settings.toml` overrides in `~/.local/state/noctalia/`. Pass a directory to validate just that directory's `*.toml` files instead:
+With no argument it checks the merged configuration exactly as the shell loads it: every `*.toml` in `~/.config/noctalia/` (or `$NOCTALIA_CONFIG_HOME`), then the `overrides.toml` overrides in `~/.local/state/noctalia/`. Pass a directory to validate just that directory's `*.toml` files instead:
 
 ```sh
 noctalia config validate ./my-config-dir
 ```
 
-Pass a file to validate only that TOML file, without scanning default locations or merging `settings.toml`. This is useful for generated configs, including NixOS-managed config files:
+Pass a file to validate only that TOML file, without scanning default locations or merging `overrides.toml`. This is useful for generated configs, including NixOS-managed config files:
 
 ```sh
 noctalia config validate ./config.toml
@@ -218,7 +218,7 @@ WARN  /home/you/.config/noctalia/bar.toml:14:10: bar.main.foo: unknown setting
 ERROR /home/you/.config/noctalia/widgets.toml:22:12: widget.clock.timezone: unknown timezone "Europe/Berln"
 ```
 
-With several config files in play (or `settings.toml` overriding one of them), the reported file is the one whose definition actually won the merge.
+With several config files in play (or `overrides.toml` overriding one of them), the reported file is the one whose definition actually won the merge.
 
 It reports two severities:
 
@@ -234,7 +234,7 @@ config.toml:22:12
 Error: widget.clock.timezone: unknown timezone "Europe/Berln"
 ```
 
-There the file is shown relative to your config directory (or as a bare file name for `settings.toml`), so a bad value points straight at the line that set it. When the position cannot be determined, the notification falls back to a `Config error` title.
+There the file is shown relative to your config directory (or as a bare file name for `overrides.toml`), so a bad value points straight at the line that set it. When the position cannot be determined, the notification falls back to a `Config error` title.
 
 ## Where next?
 

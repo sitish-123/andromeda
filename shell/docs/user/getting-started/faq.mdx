@@ -105,11 +105,11 @@ Find answers to common setup and troubleshooting questions for Noctalia.
 ## Configuration
 
 <FaqItem question="Where should I put my config, and why is my setting ignored?">
-  If you only use Settings, you normally do not need to edit config files. Settings writes your changes to `~/.local/state/noctalia/settings.toml`.
+  If you only use Settings, you normally do not need to edit config files. Settings writes your changes to `~/.local/state/noctalia/overrides.toml`.
 
   If you write config by hand, put it in `~/.config/noctalia/`. Noctalia reads every `*.toml` file in that directory, sorted alphabetically, and merges them.
 
-  Settings changes load after hand-written config, so they win when both layers define the same setting. If a value in your file looks ignored, check Settings first, or inspect `~/.local/state/noctalia/settings.toml`.
+  Settings changes load after hand-written config, so they win when both layers define the same setting. If a value in your file looks ignored, check Settings first, or inspect `~/.local/state/noctalia/overrides.toml`.
 
   See [How configuration works](/noctalia/configuration/) for the full load order and export options.
 </FaqItem>
