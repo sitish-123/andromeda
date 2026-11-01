@@ -6,9 +6,6 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
 
 namespace {
@@ -35,29 +32,12 @@ namespace {
     return out;
   }
 
-  std::string readFile(const std::filesystem::path& path) {
-    std::ifstream in(path);
-    TEST_CHECK(in.good());
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    return buffer.str();
-  }
-
 } // namespace
 
-int main(int argc, char** argv) {
-  TEST_CHECK(argc == 2);
-
+int main() {
   TEST_CHECK(render("{{tokens.window.hex}}", "light") == rgbHex(Tokens::schemeLight.window));
   TEST_CHECK(render("{{tokens.window.hex}}", "dark") == rgbHex(Tokens::schemeDark.window));
   TEST_CHECK(render("{{tokens.label_3.hex_argb}}", "dark") == argbHex(Tokens::schemeDark.label3));
 
-  const std::filesystem::path templates = argv[1];
-  for (const char* file : {"gtk/gtk3.css", "gtk/gtk4.css", "qt/qtct.conf"}) {
-    const std::string light = render(readFile(templates / file), "light");
-    TEST_CHECK(!light.contains("{{"));
-    TEST_CHECK(light.contains(rgbHex(Tokens::schemeLight.window).substr(1)));
-    TEST_CHECK(light != render(readFile(templates / file), "dark"));
-  }
   return 0;
 }

@@ -32,6 +32,8 @@ public:
   void initialize(ShellWaylandConnection& wayland, ChangeCallback onChange);
   // Sets each key the compositor holds with a different value; before the first batch arrives, it waits for it.
   void publish(std::string_view scheme, std::string_view accent);
+  // Runs when another client (Settings, `andromeda msg settings-set`) changes appearance.scheme; the shell adopts it.
+  void setOnExternalScheme(std::function<void(std::string_view)> callback) { m_onExternalScheme = std::move(callback); }
 
   [[nodiscard]] const LiveAppearance& state() const noexcept { return m_state; }
 
@@ -44,4 +46,5 @@ private:
   std::string m_scheme;
   std::string m_accent;
   ChangeCallback m_onChange;
+  std::function<void(std::string_view)> m_onExternalScheme;
 };

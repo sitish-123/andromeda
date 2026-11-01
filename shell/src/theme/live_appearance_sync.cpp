@@ -22,6 +22,15 @@ namespace {
     return out;
   }
 
+  // The compositor reports colors as #rrggbbaa; the shell uses #rrggbb for opaque ones. Compare in one form.
+  std::string normalizeColor(std::string_view text) {
+    std::string out = lowercase(text);
+    if (out.size() == 9 && out[0] == '#' && out.ends_with("ff")) {
+      out.resize(7);
+    }
+    return out;
+  }
+
 } // namespace
 
 LiveAppearanceSync::LiveAppearanceSync() = default;
@@ -39,7 +48,7 @@ void LiveAppearanceSync::initialize(ShellWaylandConnection& wayland, ChangeCallb
 
 void LiveAppearanceSync::publish(std::string_view scheme, std::string_view accent) {
   m_scheme = std::string(scheme);
-  m_accent = lowercase(accent);
+  m_accent = normalizeColor(accent);
   flush();
 }
 
@@ -50,7 +59,7 @@ void LiveAppearanceSync::flush() {
   if (!m_scheme.empty() && m_control->value("appearance.scheme") != m_scheme) {
     m_control->set("appearance.scheme", m_scheme);
   }
-  if (!m_accent.empty() && lowercase(m_control->value("appearance.accent")) != m_accent) {
+  if (!m_accent.empty() && normalizeColor(m_control->value("appearance.accent")) != m_accent) {
     m_control->set("appearance.accent", m_accent);
   }
 }
@@ -62,13 +71,23 @@ void LiveAppearanceSync::onSettingsChanged() {
   const SettingsControl& c = *m_control;
   const LiveAppearance next{
       .scheme = c.value("appearance.scheme"),
-      .accent = lowercase(c.value("appearance.accent")),
+      .accent = normalizeColor(c.value("appearance.accent")),
       .glassOpacity = parseUnit(c.value("appearance.glass_opacity"), 1.0F),
       .reduceTransparency = c.value("appearance.reduce_transparency") == "true",
       .increaseContrast = c.value("appearance.increase_contrast") == "true",
       .reduceMotion = c.value("appearance.reduce_motion") == "true",
   };
+  // A new value that the shell did not publish is another client's choice: adopt it instead of writing ours back.
+  // The first snapshot can be stale from an earlier session, so only a change after it counts.
+  const bool external = !m_state.scheme.empty() && next.scheme != m_state.scheme && next.scheme != m_scheme
+      && (next.scheme == "light" || next.scheme == "dark");
+  if (external) {
+    m_scheme = next.scheme;
+  }
   flush();
+  if (external && m_onExternalScheme) {
+    m_onExternalScheme(next.scheme);
+  }
   if (next == m_state) {
     return;
   }

@@ -140,6 +140,8 @@ _protocol_headers += custom_target('design-tokens-header',
   command: [find_program('python3'), '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
 )
 
+subdir('data/themes')
+
 # ── Library ───────────────────────────────────────────────────────────────────
 _desk_ui_sources = files(
   'src/core/deferred_call.cpp',

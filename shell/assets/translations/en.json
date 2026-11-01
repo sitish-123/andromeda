@@ -2153,6 +2153,10 @@
           "description": "Set the system dark/light preference read by browsers and other apps to follow Theme Mode",
           "label": "Sync App Color Scheme"
         },
+        "toolkit-themes": {
+          "description": "Color GTK, Qt, KDE and fcitx5 apps with the desktop's colors and accent",
+          "label": "Theme GTK, Qt and KDE Apps"
+        },
         "theme-mode": {
           "description": "Choose Dark, Light, or Auto based on time of day; also applies to apps through templates",
           "label": "Theme Mode"
@@ -4482,6 +4486,10 @@
           "config-reload": {
             "description": "Reload the config file",
             "label": "Reload config"
+          },
+          "debug-threads": {
+            "description": "List the threads the shell created (dsk- prefix)",
+            "label": "List shell threads"
           },
           "desktop-widgets-edit": {
             "description": "Open the desktop widgets editor",

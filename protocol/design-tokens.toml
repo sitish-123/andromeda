@@ -4,6 +4,9 @@
 # same keys (scheme.light / scheme.dark, type.*, elevation.*, spring.*) becomes a struct with one constant per child.
 
 [radius]  # px; a nested radius is the outer radius minus the padding
+# Corner smoothing (0 = circular arc, 0.6 = iOS continuous corner). A corner of radius r becomes a superellipse that
+# starts r x (1 + 0.88 s) from the corner with exponent 2 + 5 s; a corner that cannot grow (pill, circle) stays round.
+smoothing = 0.6
 xs = 6.0
 sm = 10.0
 md = 14.0
@@ -22,24 +25,32 @@ s6 = 24.0
 [font]
 family = "Inter"
 
+# line_height is a multiple of size (CSS line-height); a label box is size x line_height, text centered in it.
+
 [type.mini]
 size = 11.0
 weight = 500
+line_height = 1.25
 [type.caption]
 size = 11.5
 weight = 500
+line_height = 1.25
 [type.body]
 size = 13.0
 weight = 500
+line_height = 1.3
 [type.title]
 size = 13.5
 weight = 600
+line_height = 1.25
 [type.large]
 size = 15.0
 weight = 600
+line_height = 1.2
 [type.header]
 size = 20.0
 weight = 600
+line_height = 1.2
 
 # Semantic color roles. tint_* is a material's fill over the compositor blur; solid_* replaces it when reduce
 # transparency is on. The accent is the default; the live accent setting overrides it. window..separator are the
@@ -135,8 +146,78 @@ damping = 1.0
 stiffness = 700.0
 damping = 0.8
 
-[island]  # bar islands, control center sheet, dock (px)
+# Component anatomy (docs/design-system.md "Components", docs/design/reference.html). px at scale 1.
+# A value equal to a scale token says so in its comment. A string "= a.b - c.d" is computed from other tokens: every
+# nested radius is "= <outer radius> - <outer padding>", so it cannot drift from its container.
+[component.island]
 height = 34.0
-live_height = 52.0
-sheet_width = 360.0
-dock_icon = 54.0
+margin = 8.0         # from the screen edge and between an island and its sheet
+padding_x = 16.0     # s4
+gap = 12.0           # s3
+icon = 16.0
+logo = 18.0
+dot = 7.0            # workspace dot
+dot_active_width = 20.0
+dot_active_radius = 4.0
+dot_gap = 5.0
+
+[component.live]
+height = 52.0
+radius = 26.0
+padding = 8.0        # s2
+gap = 12.0           # s3
+lead = 36.0          # round leading icon
+button = 36.0
+progress_width = 150.0
+progress_height = 6.0
+tint = "#16161acc"   # dark in both schemes; labels are white
+
+[component.sheet]
+width = 360.0
+radius = 28.0        # xl
+padding = 12.0       # s3
+gap = 8.0            # s2
+open_drag = 240.0    # drag distance that opens the sheet fully from its island
+
+[component.card]
+radius = "= component.sheet.radius - component.sheet.padding"
+padding = 12.0       # s3
+row_gap = 12.0       # between the rows of the connectivity card; icon to text in a wide row
+small_gap = 8.0      # icon to text in a small card
+
+[component.round_icon]
+size = 30.0
+glyph = 16.0
+action = 32.0        # phone card actions
+action_gap = 6.0
+
+[component.slider]
+height = 40.0
+radius = "= component.sheet.radius - component.sheet.padding"
+icon_inset = 14.0
+value_inset = 16.0
+fill = "#ffffffff"   # white in both schemes; the icon on it is black 60 %
+
+[component.media]
+art = 40.0
+art_radius = "= component.card.radius - component.card.padding"
+controls_gap = 12.0  # s3
+
+[component.dock]
+margin = 12.0
+padding = 10.0
+radius = 30.0
+gap = 10.0
+icon = 54.0
+icon_radius = "= component.dock.radius - component.dock.padding"
+running_width = 14.0
+running_height = 3.0
+running_offset = 4.0 # gap between the icon and the running bar
+separator_inset = 8.0
+
+[component.badge]
+height = 18.0
+overhang = 4.0       # past the icon's top and side edges
+padding_x = 5.0
+font = 11.0
+font_weight = 600
