@@ -221,6 +221,6 @@ Palette tokenPalette(bool light) noexcept {
       .onAccent = tokenColor(s.onAccent),
       .danger = tokenColor(s.danger),
       .shadow = tokenColor(s.shadow),
-      .tintRegular = tokenColor(s.tintRegular),
+      .tintRegular = tokenColor(s.tintRegular | 0xffU), // callers carry the alpha: kTintRegularAlpha, glass opacity
   };
 }
