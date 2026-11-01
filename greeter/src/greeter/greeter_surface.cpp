@@ -1,10 +1,10 @@
 #include "greeter/greeter_surface.h"
 
 #include "accounts/accounts_icon.h"
-#include "core/key_modifiers.h"
-#include "core/key_symbols.h"
+#include "core/input/key_modifiers.h"
+#include "core/input/key_symbols.h"
 #include "core/log.h"
-#include "core/resource_paths.h"
+#include "greeter/greeter_assets.h"
 #include "greeter/appearance_config.h"
 #include "greeter/appearance_sync.h"
 #include "greeter/greeter_config_store.h"
@@ -21,13 +21,12 @@
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 #include "render/scene/wallpaper_node.h"
-#include "theme/builtin_palettes.h"
 #include "ui/controls/box.h"
 #include "ui/controls/button.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/input.h"
 #include "ui/controls/label.h"
-#include "ui/controls/search_field.h"
+#include "greeter/search_field.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
@@ -75,6 +74,9 @@ namespace {
   }
 
   constexpr std::string_view kGazeConfirmed = "GAZE_CONFIRMED";
+  // Token schemes from protocol/design-tokens.toml, shown next to the synced shell appearance.
+  constexpr std::string_view kLightSchemeName = "Light";
+  constexpr std::string_view kDarkSchemeName = "Dark";
 
   constexpr Logger kLog("greeter-surface");
   constexpr float kHeaderUserIconBase = 64.0f;
@@ -91,19 +93,19 @@ namespace {
 
   Button::ButtonPalette powerButtonPalette(ColorRole hover, ColorRole onHover) {
     return Button::ButtonPalette{
-        .borderWidth = Style::borderWidth(),
-        .normal = makePaletteState(ColorRole::Surface, ColorRole::Outline, ColorRole::OnSurface, 0.78f),
+        .borderWidth = Style::borderWidth,
+        .normal = makePaletteState(ColorRole::SolidRegular, ColorRole::Stroke, ColorRole::Label1, 0.78f),
         .hover = makePaletteState(hover, std::nullopt, onHover),
         .pressed = makePaletteState(hover, hover, onHover),
-        .disabled = makePaletteState(ColorRole::Surface, ColorRole::Outline, ColorRole::OnSurface, 0.40f),
+        .disabled = makePaletteState(ColorRole::SolidRegular, ColorRole::Stroke, ColorRole::Label1, 0.40f),
         .selected = std::nullopt,
     };
   }
 
   constexpr std::size_t kUserDropdownMaxVisibleRows = 8;
-  const float kUserMenuPadding = Style::spaceSm();
-  const float kUserMenuRowGap = Style::spaceXs();
-  const float kUserMenuRowIconGap = Style::spaceSm();
+  const float kUserMenuPadding = Style::spaceSm;
+  const float kUserMenuRowGap = Style::spaceXs;
+  const float kUserMenuRowIconGap = Style::spaceSm;
 
   [[nodiscard]] bool isTextEditKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modifiers) {
     if (utf32 >= 0x20U && utf32 != 0x7FU) {
@@ -244,7 +246,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto backdrop = std::make_unique<RectNode>();
   backdrop->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::Surface),
+          .fill = colorForRole(ColorRole::SolidRegular),
           .fillMode = FillMode::Solid,
       }
   );
@@ -260,9 +262,9 @@ void GreeterSurface::initialize(RenderContext* context) {
   m_root.addChild(std::move(bottomLogo));
 
   auto formSubtitle = std::make_unique<Label>();
-  formSubtitle->setFontSize(Style::fontSizeTitle());
-  formSubtitle->setBold(true);
-  formSubtitle->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  formSubtitle->setFontSize(Style::fontSizeTitle);
+  formSubtitle->setFontWeight(FontWeight::Bold);
+  formSubtitle->setColor(colorForRole(ColorRole::Label2));
   m_formSubtitleLabel = formSubtitle.get();
   m_formSubtitleLabel->setZIndex(6);
   m_root.addChild(std::move(formSubtitle));
@@ -270,7 +272,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto brandPane = std::make_unique<RectNode>();
   brandPane->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::Surface, 0.95f),
+          .fill = colorForRole(ColorRole::SolidRegular, 0.95f),
           .fillMode = FillMode::Solid,
       }
   );
@@ -280,8 +282,8 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   auto headerGlyph = std::make_unique<Glyph>();
   headerGlyph->setGlyph("user");
-  headerGlyph->setGlyphSize(Style::scaled(kHeaderUserIconBase));
-  headerGlyph->setColor(colorForRole(ColorRole::OnSurface));
+  headerGlyph->setGlyphSize(kHeaderUserIconBase);
+  headerGlyph->setColor(colorForRole(ColorRole::Label1));
   headerGlyph->setHitTestVisible(false);
   m_headerUserGlyph = headerGlyph.get();
   m_headerUserGlyph->setZIndex(7);
@@ -298,8 +300,8 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto brandTitle = std::make_unique<Label>();
   brandTitle->setText("");
   brandTitle->setFontSize(30.0f);
-  brandTitle->setBold(true);
-  brandTitle->setColor(colorForRole(ColorRole::OnSurface));
+  brandTitle->setFontWeight(FontWeight::Bold);
+  brandTitle->setColor(colorForRole(ColorRole::Label1));
   m_brandTitleLabel = brandTitle.get();
   m_brandTitleLabel->setZIndex(7);
   m_root.addChild(std::move(brandTitle));
@@ -307,7 +309,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto brandSubtitle = std::make_unique<Label>();
   brandSubtitle->setText("");
   brandSubtitle->setFontSize(12.0f);
-  brandSubtitle->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  brandSubtitle->setColor(colorForRole(ColorRole::Label2));
   m_brandSubtitleLabel = brandSubtitle.get();
   m_brandSubtitleLabel->setZIndex(7);
   m_root.addChild(std::move(brandSubtitle));
@@ -315,7 +317,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto divider = std::make_unique<RectNode>();
   divider->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::Outline, 0.90f),
+          .fill = colorForRole(ColorRole::Stroke, 0.90f),
           .fillMode = FillMode::Solid,
           .radius = 1.0f,
       }
@@ -331,7 +333,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   auto pwField = std::make_unique<Input>();
   pwField->setPlaceholder("Type password");
   pwField->setPasswordMode(true);
-  pwField->setControlHeight(Style::controlHeight());
+  pwField->setControlHeight(Style::controlHeight);
   pwField->setOnChange([this](const std::string& value) {
     m_password = value;
     if (m_statusIsError && !value.empty()) {
@@ -353,15 +355,15 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   auto userIcon = std::make_unique<Glyph>();
   userIcon->setGlyph("user");
-  userIcon->setGlyphSize(Style::fontSizeBody());
-  userIcon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  userIcon->setGlyphSize(Style::fontSizeBody);
+  userIcon->setColor(colorForRole(ColorRole::Label2));
   userIcon->setHitTestVisible(false);
   m_userSelectIcon = userIcon.get();
   m_userSelectIcon->setZIndex(6);
   m_root.addChild(std::move(userIcon));
 
   auto userLabel = std::make_unique<Label>();
-  userLabel->setFontSize(Style::fontSizeBody());
+  userLabel->setFontSize(Style::fontSizeBody);
   m_userSelectLabel = userLabel.get();
   m_userSelectLabel->setZIndex(6);
   m_root.addChild(std::move(userLabel));
@@ -383,15 +385,17 @@ void GreeterSurface::initialize(RenderContext* context) {
   });
   m_userSelectArea = userArea.get();
   m_userSelectArea->setZIndex(7);
-  m_userSelectArea->setOnFocusChange([this](bool) {
+  const auto onUserSelectFocus = [this]() {
     syncPanelUserChrome();
     requestRedraw();
-  });
+  };
+  m_userSelectArea->setOnFocusGain(onUserSelectFocus);
+  m_userSelectArea->setOnFocusLoss(onUserSelectFocus);
   m_root.addChild(std::move(userArea));
 
   auto userSearch = std::make_unique<SearchField>();
   userSearch->setPlaceholder("Search users…");
-  userSearch->setFontSize(Style::fontSizeBody());
+  userSearch->setFontSize(Style::fontSizeBody);
   userSearch->setVisible(false);
   userSearch->setOnChange([this](const std::string& value) {
     if (value == m_userMenuSearchQuery) {
@@ -401,9 +405,9 @@ void GreeterSurface::initialize(RenderContext* context) {
     m_userMenuScrollOffset = 0;
     refreshUserMenuRows();
   });
-  userSearch->setOnKeyDown([this](
-                               std::uint32_t sym, std::uint32_t /*utf32*/, std::uint32_t /*modifiers*/, bool preedit
-                           ) { return handleUserMenuSearchKey(sym, preedit); });
+  userSearch->setOnKeyEvent([this](std::uint32_t sym, std::uint32_t /*modifiers*/) {
+    return handleUserMenuSearchKey(sym, false);
+  });
   m_userMenuSearchField = userSearch.get();
   m_userMenuSearchField->setZIndex(8);
   m_root.addChild(std::move(userSearch));
@@ -415,15 +419,15 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   auto sessionIcon = std::make_unique<Glyph>();
   sessionIcon->setGlyph("device-desktop");
-  sessionIcon->setGlyphSize(Style::fontSizeBody());
-  sessionIcon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  sessionIcon->setGlyphSize(Style::fontSizeBody);
+  sessionIcon->setColor(colorForRole(ColorRole::Label2));
   sessionIcon->setHitTestVisible(false);
   m_sessionSelectIcon = sessionIcon.get();
   m_sessionSelectIcon->setZIndex(6);
   m_root.addChild(std::move(sessionIcon));
 
   auto sessionLabel = std::make_unique<Label>();
-  sessionLabel->setFontSize(Style::fontSizeBody());
+  sessionLabel->setFontSize(Style::fontSizeBody);
   m_sessionSelectLabel = sessionLabel.get();
   m_sessionSelectLabel->setZIndex(6);
   m_root.addChild(std::move(sessionLabel));
@@ -453,10 +457,12 @@ void GreeterSurface::initialize(RenderContext* context) {
   });
   m_sessionSelectArea = sessionArea.get();
   m_sessionSelectArea->setZIndex(7);
-  m_sessionSelectArea->setOnFocusChange([this](bool) {
+  const auto onSessionSelectFocus = [this]() {
     syncPanelSessionChrome();
     requestRedraw();
-  });
+  };
+  m_sessionSelectArea->setOnFocusGain(onSessionSelectFocus);
+  m_sessionSelectArea->setOnFocusLoss(onSessionSelectFocus);
   m_root.addChild(std::move(sessionArea));
 
   auto schemeBox = std::make_unique<Box>();
@@ -466,15 +472,15 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   auto schemeIcon = std::make_unique<Glyph>();
   schemeIcon->setGlyph("palette");
-  schemeIcon->setGlyphSize(Style::fontSizeBody());
-  schemeIcon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  schemeIcon->setGlyphSize(Style::fontSizeBody);
+  schemeIcon->setColor(colorForRole(ColorRole::Label2));
   schemeIcon->setHitTestVisible(false);
   m_schemeSelectIcon = schemeIcon.get();
   m_schemeSelectIcon->setZIndex(6);
   m_root.addChild(std::move(schemeIcon));
 
   auto schemeLabel = std::make_unique<Label>();
-  schemeLabel->setFontSize(Style::fontSizeBody());
+  schemeLabel->setFontSize(Style::fontSizeBody);
   m_schemeSelectLabel = schemeLabel.get();
   m_schemeSelectLabel->setZIndex(6);
   m_root.addChild(std::move(schemeLabel));
@@ -496,10 +502,12 @@ void GreeterSurface::initialize(RenderContext* context) {
   });
   m_schemeSelectArea = schemeArea.get();
   m_schemeSelectArea->setZIndex(7);
-  m_schemeSelectArea->setOnFocusChange([this](bool) {
+  const auto onSchemeSelectFocus = [this]() {
     applySelectorBoxStyle(m_schemeSelectBox, m_schemeSelectArea);
     requestRedraw();
-  });
+  };
+  m_schemeSelectArea->setOnFocusGain(onSchemeSelectFocus);
+  m_schemeSelectArea->setOnFocusLoss(onSchemeSelectFocus);
   m_root.addChild(std::move(schemeArea));
 
   auto loginBtn = std::make_unique<Button>();
@@ -518,11 +526,11 @@ void GreeterSurface::initialize(RenderContext* context) {
   backBtn->setGlyphSize(16.0f);
   backBtn->setCustomPalette(
       Button::ButtonPalette{
-          .borderWidth = Style::borderWidth(),
-          .normal = makePaletteState(ColorRole::SurfaceVariant, ColorRole::Outline, ColorRole::OnSurface),
-          .hover = makePaletteState(ColorRole::Secondary, std::nullopt, ColorRole::OnSecondary),
-          .pressed = makePaletteState(ColorRole::Primary, ColorRole::Primary, ColorRole::OnPrimary),
-          .disabled = makePaletteState(ColorRole::SurfaceVariant, ColorRole::Outline, ColorRole::OnSurface, 0.55f),
+          .borderWidth = Style::borderWidth,
+          .normal = makePaletteState(ColorRole::Fill2, ColorRole::Stroke, ColorRole::Label1),
+          .hover = makePaletteState(ColorRole::Accent, std::nullopt, ColorRole::OnAccent),
+          .pressed = makePaletteState(ColorRole::Accent, ColorRole::Accent, ColorRole::OnAccent),
+          .disabled = makePaletteState(ColorRole::Fill2, ColorRole::Stroke, ColorRole::Label1, 0.55f),
           .selected = std::nullopt,
       }
   );
@@ -538,8 +546,8 @@ void GreeterSurface::initialize(RenderContext* context) {
   m_root.addChild(std::move(backBtn));
 
   auto status = std::make_unique<Label>();
-  status->setFontSize(Style::fontSizeCaption());
-  status->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  status->setFontSize(Style::fontSizeCaption);
+  status->setColor(colorForRole(ColorRole::Label2));
   m_statusLabel = status.get();
   m_statusLabel->setZIndex(6);
   m_root.addChild(std::move(status));
@@ -553,17 +561,17 @@ void GreeterSurface::initialize(RenderContext* context) {
 
   auto configErrorHeading = std::make_unique<Label>();
   configErrorHeading->setText("Configuration errors");
-  configErrorHeading->setFontSize(Style::fontSizeCaption());
-  configErrorHeading->setBold(true);
-  configErrorHeading->setColor(colorForRole(ColorRole::Error));
+  configErrorHeading->setFontSize(Style::fontSizeCaption);
+  configErrorHeading->setFontWeight(FontWeight::Bold);
+  configErrorHeading->setColor(colorForRole(ColorRole::Danger));
   configErrorHeading->setVisible(false);
   m_configErrorHeading = configErrorHeading.get();
   m_configErrorHeading->setZIndex(10);
   m_root.addChild(std::move(configErrorHeading));
 
   auto configError = std::make_unique<Label>();
-  configError->setFontSize(Style::fontSizeCaption());
-  configError->setColor(colorForRole(ColorRole::OnSurface));
+  configError->setFontSize(Style::fontSizeCaption);
+  configError->setColor(colorForRole(ColorRole::Label1));
   configError->setMaxLines(4);
   configError->setVisible(false);
   m_configErrorLabel = configError.get();
@@ -586,13 +594,13 @@ void GreeterSurface::initialize(RenderContext* context) {
     return ptr;
   };
 
-  m_shutdownButton = makePowerButton("power", ColorRole::Error, ColorRole::OnError, []() { power::powerOff(); });
+  m_shutdownButton = makePowerButton("power", ColorRole::Danger, ColorRole::OnAccent, []() { power::powerOff(); });
   m_shutdownButton->setTooltip("Shut down");
-  m_rebootButton = makePowerButton("reload", ColorRole::Secondary, ColorRole::OnSecondary, []() { power::reboot(); });
+  m_rebootButton = makePowerButton("reload", ColorRole::Accent, ColorRole::OnAccent, []() { power::reboot(); });
   m_rebootButton->setTooltip("Restart");
   if (m_canRebootToFirmware) {
     m_firmwareButton =
-        makePowerButton("cpu", ColorRole::Secondary, ColorRole::OnSecondary, []() { power::rebootToFirmwareSetup(); });
+        makePowerButton("cpu", ColorRole::Accent, ColorRole::OnAccent, []() { power::rebootToFirmwareSetup(); });
     m_firmwareButton->setTooltip("Restart to UEFI firmware setup");
   }
 
@@ -631,7 +639,7 @@ void GreeterSurface::initialize(RenderContext* context) {
   buildSchemeNames();
   loadPreferences();
   if (m_selectedScheme >= m_schemeNames.size()) {
-    if (const auto fallback = findSchemeIndex("Noctalia")) {
+    if (const auto fallback = findSchemeIndex(kDarkSchemeName)) {
       m_selectedScheme = *fallback;
     } else {
       m_selectedScheme = 0;
@@ -662,12 +670,12 @@ void GreeterSurface::initialize(RenderContext* context) {
   }
 
   if (!m_hideLogo) {
-    const auto logoPath = paths::assetPath("noctalia.svg");
+    const auto logoPath = greeter::greeterAssetPath("noctalia.svg");
     m_brandLogoTexture = m_renderContext->textureManager().loadFromFile(logoPath.string(), 1024, true);
     if (m_bottomBrandLogo != nullptr && m_brandLogoTexture.id != 0) {
       m_bottomBrandLogo->setTextureId(m_brandLogoTexture.id);
       m_bottomBrandLogo->setTextureSize(m_brandLogoTexture.width, m_brandLogoTexture.height);
-      m_bottomBrandLogo->setTint(colorForRole(ColorRole::OnSurface, 0.90f));
+      m_bottomBrandLogo->setTint(colorForRole(ColorRole::Label1, 0.90f));
     } else {
       kLog.warn("failed loading logo texture from {}", logoPath.string());
     }
@@ -853,7 +861,7 @@ bool GreeterSurface::ownsInputArea(const InputArea* area) const {
 }
 
 void GreeterSurface::reconcileKeyboardFocus() {
-  InputArea* focused = InputArea::getFocused();
+  InputArea* focused = m_inputDispatcher.focusedArea();
   if (focused != nullptr && ownsInputArea(focused)) {
     syncFocusIndexFromFocused();
     return;
@@ -981,7 +989,7 @@ void GreeterSurface::onPointerEvent(float x, float y, std::uint32_t button, bool
   }
 
   m_inInputDispatch = true;
-  m_inputDispatcher.pointerButton(x, y, button, pressed);
+  (void)m_inputDispatcher.pointerButton(x, y, button, pressed, 0, 0, false);
   m_inInputDispatch = false;
   flushDeferredFrameRequests();
   if (m_root.paintDirty() || m_root.layoutDirty()) {
@@ -1135,7 +1143,6 @@ void GreeterSurface::prepareFrame(std::uint32_t width, std::uint32_t height, boo
   }
 
   if (needsLayout) {
-    m_renderContext->syncContentScale(m_window->renderTarget());
     syncWallpaperTexture();
     m_inLayout = true;
     layoutScene(width, height);
@@ -1145,21 +1152,21 @@ void GreeterSurface::prepareFrame(std::uint32_t width, std::uint32_t height, boo
 
 void GreeterSurface::syncScaledTypography() {
   if (m_headerUserGlyph != nullptr) {
-    m_headerUserGlyph->setGlyphSize(Style::scaled(kHeaderUserIconBase));
+    m_headerUserGlyph->setGlyphSize(kHeaderUserIconBase);
   }
-  m_formSubtitleLabel->setFontSize(Style::fontSizeTitle());
-  m_brandTitleLabel->setFontSize(Style::scaled(30.0f));
-  m_brandSubtitleLabel->setFontSize(Style::fontSizeCaption());
-  m_passwordField->setControlHeight(Style::controlHeight());
-  m_userSelectLabel->setFontSize(Style::fontSizeBody());
-  m_userSelectGlyph->setGlyphSize(Style::fontSizeBody());
-  m_sessionSelectLabel->setFontSize(Style::fontSizeBody());
-  m_sessionSelectGlyph->setGlyphSize(Style::fontSizeBody());
-  m_schemeSelectLabel->setFontSize(Style::fontSizeBody());
-  m_schemeSelectGlyph->setGlyphSize(Style::fontSizeBody());
-  m_loginButton->setGlyphSize(Style::fontSizeTitle());
-  m_backButton->setGlyphSize(Style::fontSizeTitle());
-  m_statusLabel->setFontSize(Style::fontSizeCaption());
+  m_formSubtitleLabel->setFontSize(Style::fontSizeTitle);
+  m_brandTitleLabel->setFontSize(30.0f);
+  m_brandSubtitleLabel->setFontSize(Style::fontSizeCaption);
+  m_passwordField->setControlHeight(Style::controlHeight);
+  m_userSelectLabel->setFontSize(Style::fontSizeBody);
+  m_userSelectGlyph->setGlyphSize(Style::fontSizeBody);
+  m_sessionSelectLabel->setFontSize(Style::fontSizeBody);
+  m_sessionSelectGlyph->setGlyphSize(Style::fontSizeBody);
+  m_schemeSelectLabel->setFontSize(Style::fontSizeBody);
+  m_schemeSelectGlyph->setGlyphSize(Style::fontSizeBody);
+  m_loginButton->setGlyphSize(Style::fontSizeTitle);
+  m_backButton->setGlyphSize(Style::fontSizeTitle);
+  m_statusLabel->setFontSize(Style::fontSizeCaption);
 }
 
 void GreeterSurface::enterPasswordStep(std::size_t userIndex) {
@@ -1191,7 +1198,7 @@ void GreeterSurface::enterPasswordStep(std::size_t userIndex) {
 }
 
 void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   if (!renderer)
     return;
 
@@ -1232,7 +1239,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     static_cast<RectNode*>(m_backdrop)
         ->setStyle(
             RoundedRectStyle{
-                .fill = colorForRole(ColorRole::Surface),
+                .fill = colorForRole(ColorRole::SolidRegular),
                 .fillMode = FillMode::Solid,
             }
         );
@@ -1243,21 +1250,21 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     const bool hasBrandLogo = m_brandLogoTexture.id != 0 && !m_hideLogo;
     m_bottomBrandLogo->setVisible(hasBrandLogo);
     if (hasBrandLogo) {
-      const float logoSize = Style::scaled(64.0f);
+      const float logoSize = 64.0f;
       m_bottomBrandLogo->setSize(logoSize, logoSize);
-      m_bottomBrandLogo->setPosition(ox + std::round((sw - logoSize) * 0.5f), oy + sh - logoSize - Style::spaceLg());
-      m_bottomBrandLogo->setTint(colorForRole(ColorRole::OnSurface, 0.88f));
+      m_bottomBrandLogo->setPosition(ox + std::round((sw - logoSize) * 0.5f), oy + sh - logoSize - Style::spaceLg);
+      m_bottomBrandLogo->setTint(colorForRole(ColorRole::Label1, 0.88f));
     }
   }
 
-  const float panelWidth = std::clamp(sw * 0.32f, Style::scaled(440.0f), Style::scaled(540.0f));
-  const float rowHeight = Style::controlHeightLg();
-  const float rowGap = Style::spaceSm();
-  const float panelPadding = Style::spaceLg();
+  const float panelWidth = std::clamp(sw * 0.32f, 440.0f, 540.0f);
+  const float rowHeight = Style::controlHeightLg;
+  const float rowGap = Style::spaceSm;
+  const float panelPadding = Style::spaceLg;
 
   const float userCount = static_cast<float>(m_users.size());
   const float glyphScale = std::clamp(1.0f - (userCount - 2.0f) * 0.08f, 0.75f, 1.0f);
-  const float headerGlyphSize = Style::scaled(kHeaderUserIconBase) * glyphScale;
+  const float headerGlyphSize = kHeaderUserIconBase * glyphScale;
 
   if (m_passwordVisible && !m_users.empty() && m_selectedUser < m_users.size()) {
     m_formSubtitleLabel->setText(m_users[m_selectedUser]);
@@ -1271,9 +1278,9 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   m_statusLabel->measure(*renderer);
 
   const float subtitleGap = m_formSubtitleLabel->visible() ? (6.0f + m_formSubtitleLabel->height()) : 0.0f;
-  const float headerTopPadding = Style::spaceSm();
-  const float headerGlyphBlock = headerGlyphSize + Style::spaceMd();
-  const float headerToContentGap = Style::spaceLg();
+  const float headerTopPadding = Style::spaceSm;
+  const float headerGlyphBlock = headerGlyphSize + Style::spaceMd;
+  const float headerToContentGap = Style::spaceLg;
   const float headerBlockHeight = headerTopPadding + headerGlyphBlock + subtitleGap + headerToContentGap;
 
   const float sessionRowH = rowHeight;
@@ -1281,7 +1288,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
   const float userBlockHeight = showsUserDropdown() ? rowHeight : 0.0f;
   const float userPickerContentHeight = userBlockHeight + sessionRowGap + sessionRowH;
-  const float passwordContentHeight = Style::controlHeight() + sessionRowGap + sessionRowH;
+  const float passwordContentHeight = Style::controlHeight + sessionRowGap + sessionRowH;
   const float contentBlockHeight = m_passwordVisible ? passwordContentHeight : userPickerContentHeight;
 
   const bool hasStatus = !m_status.empty();
@@ -1292,7 +1299,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   m_statusLabel->setText(actualStatus);
   m_statusLabel->measure(*renderer);
 
-  const float statusGap = Style::spaceSm();
+  const float statusGap = Style::spaceSm;
   const float statusBlockHeight = hasStatus ? (statusGap + statusLineHeight) : 0.0f;
   const float panelTopPadding = panelPadding;
   const float panelBottomPadding = panelPadding;
@@ -1313,45 +1320,45 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
 
   // Refresh text colors each layout for theme/scheme changes.
-  m_formSubtitleLabel->setColor(colorForRole(ColorRole::OnSurface));
+  m_formSubtitleLabel->setColor(colorForRole(ColorRole::Label1));
   if (m_brandTitleLabel != nullptr) {
-    m_brandTitleLabel->setColor(colorForRole(ColorRole::OnSurface));
+    m_brandTitleLabel->setColor(colorForRole(ColorRole::Label1));
   }
   if (m_brandSubtitleLabel != nullptr) {
-    m_brandSubtitleLabel->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    m_brandSubtitleLabel->setColor(colorForRole(ColorRole::Label2));
   }
   if (m_statusLabel != nullptr) {
     m_statusLabel->setColor(
-        m_statusIsError ? colorForRole(ColorRole::Error) : colorForRole(ColorRole::OnSurfaceVariant)
+        m_statusIsError ? colorForRole(ColorRole::Danger) : colorForRole(ColorRole::Label2)
     );
   }
   if (m_configErrorBanner != nullptr && m_configErrorBanner->visible()) {
     constexpr float kBannerPadding = 14.0f;
     constexpr float kBannerMaxWidth = 960.0f;
-    const float bannerWidth = std::max(200.0f, std::min(sw - 80.0f, Style::scaled(kBannerMaxWidth)));
-    const float bannerContentWidth = bannerWidth - Style::scaled(kBannerPadding * 2.0f);
-    m_configErrorHeading->setColor(colorForRole(ColorRole::Error));
+    const float bannerWidth = std::max(200.0f, std::min(sw - 80.0f, kBannerMaxWidth));
+    const float bannerContentWidth = bannerWidth - (kBannerPadding * 2.0f);
+    m_configErrorHeading->setColor(colorForRole(ColorRole::Danger));
     m_configErrorHeading->setMaxWidth(bannerContentWidth);
     m_configErrorHeading->measure(*renderer);
-    m_configErrorLabel->setColor(colorForRole(ColorRole::OnSurface));
+    m_configErrorLabel->setColor(colorForRole(ColorRole::Label1));
     m_configErrorLabel->setMaxWidth(bannerContentWidth);
     m_configErrorLabel->measure(*renderer);
 
-    const float padding = Style::scaled(kBannerPadding);
-    const float gap = Style::spaceSm();
+    const float padding = kBannerPadding;
+    const float gap = Style::spaceSm;
     const float bannerHeight = padding * 2.0f + m_configErrorHeading->height() + gap + m_configErrorLabel->height();
     const float bannerX = std::round(ox + (sw - bannerWidth) * 0.5f);
-    const float bannerY = oy + Style::spaceLg();
+    const float bannerY = oy + Style::spaceLg;
     m_configErrorBanner->setPosition(bannerX, bannerY);
     m_configErrorBanner->setSize(bannerWidth, bannerHeight);
     m_configErrorBanner->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SurfaceVariant, 0.97f),
-            .border = colorForRole(ColorRole::Error, 0.75f),
+            .fill = colorForRole(ColorRole::Fill2, 0.97f),
+            .border = colorForRole(ColorRole::Danger, 0.75f),
             .fillMode = FillMode::Solid,
             .radius = Style::scaledRadiusXl(),
             .softness = 1.0f,
-            .borderWidth = Style::borderWidth(),
+            .borderWidth = Style::borderWidth,
         }
     );
     m_configErrorHeading->setPosition(bannerX + padding, bannerY + padding);
@@ -1376,20 +1383,20 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   m_loginPanel->setSize(panelWidth, panelHeight);
   m_loginPanel->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::SurfaceVariant),
-          .border = colorForRole(ColorRole::Outline),
+          .fill = colorForRole(ColorRole::Fill2),
+          .border = colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = Style::scaledRadiusXl(),
           .softness = 1.0f,
-          .borderWidth = Style::borderWidth(),
+          .borderWidth = Style::borderWidth,
       }
   );
 
-  const float buttonWidth = Style::controlHeight();
-  const float gap = Style::spaceSm();
+  const float buttonWidth = Style::controlHeight;
+  const float gap = Style::spaceSm;
   const float inputWidth = std::max(120.0f, contentWidth - buttonWidth - gap);
 
-  const float selectorH = Style::controlHeightSm();
+  const float selectorH = Style::controlHeightSm;
   const float schemeW = measureIconSelectorWidth(m_schemeSelectIcon, m_schemeSelectGlyph);
 
   // Determine scheme selector position based on config
@@ -1404,18 +1411,18 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_schemeSelectLabel->setVisible(false);
   } else {
     if (m_schemeSelectorPosition == "top-left") {
-      schemeX = ox + Style::spaceLg();
-      schemeY = oy + Style::spaceLg();
+      schemeX = ox + Style::spaceLg;
+      schemeY = oy + Style::spaceLg;
     } else if (m_schemeSelectorPosition == "bottom-left") {
-      schemeX = ox + Style::spaceLg();
-      schemeY = oy + sh - selectorH - Style::spaceLg();
+      schemeX = ox + Style::spaceLg;
+      schemeY = oy + sh - selectorH - Style::spaceLg;
     } else if (m_schemeSelectorPosition == "bottom-right") {
-      schemeX = ox + sw - schemeW - Style::spaceLg();
-      schemeY = oy + sh - selectorH - Style::spaceLg();
+      schemeX = ox + sw - schemeW - Style::spaceLg;
+      schemeY = oy + sh - selectorH - Style::spaceLg;
     } else {
       // Default: top-right
-      schemeX = ox + sw - schemeW - Style::spaceLg();
-      schemeY = oy + Style::spaceLg();
+      schemeX = ox + sw - schemeW - Style::spaceLg;
+      schemeY = oy + Style::spaceLg;
     }
     layoutSelector(
         m_schemeSelectBox, m_schemeSelectIcon, m_schemeSelectGlyph, m_schemeSelectArea, schemeX, schemeY, schemeW,
@@ -1453,7 +1460,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   m_backButton->setVisible(showBackButton);
   if (showPasswordStep) {
     if (showBackButton) {
-      const float backSize = Style::controlHeight();
+      const float backSize = Style::controlHeight;
       m_backButton->setSize(backSize, backSize);
       m_backButton->setPosition((contentLeft), (panelY + panelPadding));
       m_backButton->layout(*renderer);
@@ -1472,7 +1479,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_passwordField->setPosition((contentLeft), (contentTop));
     m_passwordField->layout(*renderer);
 
-    m_loginButton->setSize(buttonWidth, Style::controlHeight());
+    m_loginButton->setSize(buttonWidth, Style::controlHeight);
     m_loginButton->setPosition((contentLeft + inputWidth + gap), (contentTop));
     m_loginButton->layout(*renderer);
     if (Glyph* loginGlyph = m_loginButton->glyph()) {
@@ -1480,7 +1487,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
       const auto glyphMetrics = renderer->measureGlyph(loginGlyph->codepoint(), loginGlyph->fontSize());
       const float glyphW = glyphMetrics.right - glyphMetrics.left;
       const float glyphH = glyphMetrics.bottom - glyphMetrics.top;
-      const float glyphY = std::round(Style::controlHeight() * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
+      const float glyphY = std::round(Style::controlHeight * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
       loginGlyph->setPosition(std::round(buttonWidth * 0.5f - (glyphMetrics.left + glyphMetrics.right) * 0.5f), glyphY);
       loginGlyph->setSize(std::max(glyphW, 1.0f), std::max(glyphH, 1.0f));
     }
@@ -1488,7 +1495,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_backButton->setVisible(false);
   }
 
-  const float sessionY = m_passwordVisible ? (contentTop + Style::controlHeight() + sessionRowGap)
+  const float sessionY = m_passwordVisible ? (contentTop + Style::controlHeight + sessionRowGap)
                                            : (contentTop + userBlockHeight + sessionRowGap);
   layoutPanelSessionSelector(contentLeft, sessionY, contentWidth, sessionRowH);
 
@@ -1926,7 +1933,7 @@ void GreeterSurface::updateStatus(const std::string& text, bool isError) {
   m_statusIsError = isError;
   if (m_statusLabel != nullptr) {
     m_statusLabel->setText(text);
-    m_statusLabel->setColor(colorForRole(isError ? ColorRole::Error : ColorRole::OnSurfaceVariant));
+    m_statusLabel->setColor(colorForRole(isError ? ColorRole::Danger : ColorRole::Label2));
   }
   requestLayout();
 }
@@ -2021,7 +2028,7 @@ void GreeterSurface::refreshSelectionLabels() {
   if (m_userSelectLabel != nullptr) {
     const std::string userLabel = m_users.empty() ? "(none)" : m_users[std::min(m_selectedUser, m_users.size() - 1)];
     m_userSelectLabel->setText(userLabel);
-    m_userSelectLabel->setColor(colorForRole(ColorRole::OnSurface));
+    m_userSelectLabel->setColor(colorForRole(ColorRole::Label1));
   }
   if (m_sessionSelectLabel != nullptr) {
     const std::string sessionLabel =
@@ -2029,21 +2036,21 @@ void GreeterSurface::refreshSelectionLabels() {
     m_sessionSelectLabel->setText(sessionLabel);
   }
   if (m_userSelectGlyph != nullptr) {
-    m_userSelectGlyph->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    m_userSelectGlyph->setColor(colorForRole(ColorRole::Label2));
   }
   syncPanelUserChrome();
   syncPanelSessionChrome();
   if (m_schemeSelectLabel != nullptr) {
     const std::string schemeLabel =
-        m_schemeNames.empty() ? "Noctalia" : m_schemeNames[std::min(m_selectedScheme, m_schemeNames.size() - 1)];
+        m_schemeNames.empty() ? std::string(kDarkSchemeName) : m_schemeNames[std::min(m_selectedScheme, m_schemeNames.size() - 1)];
     m_schemeSelectLabel->setText(schemeLabel);
-    m_schemeSelectLabel->setColor(colorForRole(ColorRole::OnSurface));
+    m_schemeSelectLabel->setColor(colorForRole(ColorRole::Label1));
   }
   if (m_schemeSelectGlyph != nullptr) {
-    m_schemeSelectGlyph->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    m_schemeSelectGlyph->setColor(colorForRole(ColorRole::Label2));
   }
   if (m_schemeSelectIcon != nullptr) {
-    m_schemeSelectIcon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    m_schemeSelectIcon->setColor(colorForRole(ColorRole::Label2));
   }
   applySelectorBoxStyle(m_schemeSelectBox, m_schemeSelectArea);
 }
@@ -2057,11 +2064,10 @@ void GreeterSurface::buildSchemeNames() {
     m_selectedScheme = 0;
   }
 
-  for (const auto& builtinPalette : noctalia::theme::builtinPalettes()) {
-    m_schemeNames.emplace_back(builtinPalette.name);
-    if (!m_syncedAppearance.has_value() && builtinPalette.name == "Noctalia") {
-      m_selectedScheme = m_schemeNames.size() - 1;
-    }
+  m_schemeNames.emplace_back(kLightSchemeName);
+  m_schemeNames.emplace_back(kDarkSchemeName);
+  if (!m_syncedAppearance.has_value()) {
+    m_selectedScheme = m_schemeNames.size() - 1;
   }
 }
 
@@ -2143,6 +2149,7 @@ void GreeterSurface::applyScheme(const std::size_t schemeIndex) {
       return;
     }
 
+    setResolvedThemeLight(m_syncedAppearance->themeMode == "light");
     setPalette(m_syncedAppearance->palette);
     Style::setCornerRadiusScale(m_syncedAppearance->cornerRadiusScale);
     if (m_renderContext != nullptr && !m_syncedAppearance->fontFamily.empty()) {
@@ -2152,9 +2159,9 @@ void GreeterSurface::applyScheme(const std::size_t schemeIndex) {
     return;
   }
 
-  if (const auto* builtinPalette = noctalia::theme::findBuiltinPalette(m_schemeNames[schemeIndex])) {
-    setPalette(builtinPalette->dark.palette);
-  }
+  const bool light = m_schemeNames[schemeIndex] == kLightSchemeName;
+  setResolvedThemeLight(light);
+  setPalette(tokenPalette(light));
   Style::setCornerRadiusScale(1.0f);
   applyConfiguredWallpaper();
 }
@@ -2169,7 +2176,7 @@ void GreeterSurface::syncHeaderUserAvatar(
       && m_renderContext != nullptr;
   const std::string iconPath = canShowAvatar ? m_userIconPaths[m_selectedUser] : std::string{};
   // size is logical; decode at buffer resolution so HiDPI outputs stay sharp.
-  const int avatarPixelSize = canShowAvatar ? static_cast<int>(std::lround(size * m_renderContext->renderScale())) : 0;
+  const int avatarPixelSize = canShowAvatar ? static_cast<int>(std::lround(size * m_window->renderTarget().renderer().renderScale())) : 0;
 
   if (canShowAvatar
       && !iconPath.empty()
@@ -2190,7 +2197,7 @@ void GreeterSurface::syncHeaderUserAvatar(
     if (m_headerUserGlyph != nullptr) {
       m_headerUserGlyph->setVisible(true);
       m_headerUserGlyph->setGlyphSize(size);
-      m_headerUserGlyph->setColor(colorForRole(ColorRole::OnSurface));
+      m_headerUserGlyph->setColor(colorForRole(ColorRole::Label1));
       (void)m_headerUserGlyph->measure(renderer);
       const auto glyphMetrics = renderer.measureGlyph(m_headerUserGlyph->codepoint(), m_headerUserGlyph->fontSize());
       const float glyphY = headerY + std::round(size * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
@@ -2211,7 +2218,7 @@ void GreeterSurface::syncHeaderUserAvatar(
   m_headerUserAvatar->setTextureSize(m_headerAvatarTexture.width, m_headerAvatarTexture.height);
   m_headerUserAvatar->setTint({1.0f, 1.0f, 1.0f, 1.0f});
   m_headerUserAvatar->setRadius(size * 0.5f);
-  m_headerUserAvatar->setBorder(colorForRole(ColorRole::Primary), Style::borderWidth() * kHeaderAvatarBorderScale);
+  m_headerUserAvatar->setBorder(colorForRole(ColorRole::Accent), Style::borderWidth * kHeaderAvatarBorderScale);
   m_headerUserAvatar->setFitMode(ImageFitMode::Cover);
   m_headerUserAvatar->setSize(size, size);
   m_headerUserAvatar->setPosition(avatarX, avatarY);
@@ -2483,7 +2490,7 @@ void GreeterSurface::runBackAction() {
 bool GreeterSurface::menuOpen() const noexcept { return m_userMenuOpen || m_sessionMenuOpen || m_schemeMenuOpen; }
 
 void GreeterSurface::rebuildFocusRing() {
-  InputArea* previouslyFocused = InputArea::getFocused();
+  InputArea* previouslyFocused = m_inputDispatcher.focusedArea();
   m_focusRing.clear();
 
   if (m_passwordVisible) {
@@ -2533,29 +2540,29 @@ void GreeterSurface::rebuildFocusRing() {
 
 float GreeterSurface::measureIconSelectorWidth(Glyph* icon, Glyph* chevron) const {
   if (m_renderContext == nullptr) {
-    return Style::controlHeightSm();
+    return Style::controlHeightSm;
   }
 
-  auto& renderer = *m_renderContext;
-  float width = Style::spaceMd() * 2.0f + Style::spaceSm();
+  auto& renderer = m_window->renderTarget().renderer();
+  float width = Style::spaceMd * 2.0f + Style::spaceSm;
   if (icon != nullptr) {
     (void)icon->measure(renderer);
     const auto iconMetrics = renderer.measureGlyph(icon->codepoint(), icon->fontSize());
     width += iconMetrics.right - iconMetrics.left;
   }
   if (chevron != nullptr) {
-    width += Style::spaceSm();
+    width += Style::spaceSm;
     (void)chevron->measure(renderer);
     const auto chevronMetrics = renderer.measureGlyph(chevron->codepoint(), chevron->fontSize());
     width += chevronMetrics.right - chevronMetrics.left;
   }
-  return std::max(width, Style::controlHeightSm());
+  return std::max(width, Style::controlHeightSm);
 }
 
 void GreeterSurface::layoutSelector(
     Box* box, Glyph* icon, Glyph* chevron, InputArea* area, float x, float y, float w, float h
 ) {
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   if (renderer == nullptr || box == nullptr || chevron == nullptr || area == nullptr) {
     return;
   }
@@ -2568,20 +2575,20 @@ void GreeterSurface::layoutSelector(
 
   if (icon != nullptr) {
     icon->setVisible(true);
-    icon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    icon->setColor(colorForRole(ColorRole::Label2));
     (void)icon->measure(*renderer);
     const auto iconMetrics = renderer->measureGlyph(icon->codepoint(), icon->fontSize());
     const float iconY = y + std::round(h * 0.5f - (iconMetrics.top + iconMetrics.bottom) * 0.5f);
-    icon->setPosition(x + Style::spaceMd(), iconY);
+    icon->setPosition(x + Style::spaceMd, iconY);
   }
 
   chevron->setVisible(true);
-  chevron->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  chevron->setColor(colorForRole(ColorRole::Label2));
   (void)chevron->measure(*renderer);
   const auto glyphMetrics = renderer->measureGlyph(chevron->codepoint(), chevron->fontSize());
   const float glyphW = glyphMetrics.right - glyphMetrics.left;
   const float glyphY = y + std::round(h * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
-  chevron->setPosition(x + w - Style::spaceMd() - glyphW, glyphY);
+  chevron->setPosition(x + w - Style::spaceMd - glyphW, glyphY);
 
   area->setVisible(true);
   area->setPosition(x, y);
@@ -2596,12 +2603,12 @@ void GreeterSurface::applySelectorBoxStyle(Box* box, const InputArea* area) {
   const bool active = menuOpen || (area != nullptr && area->focused());
   box->setStyle(
       RoundedRectStyle{
-          .fill = active ? colorForRole(ColorRole::Surface) : colorForRole(ColorRole::SurfaceVariant),
-          .border = active ? colorForRole(ColorRole::Primary) : colorForRole(ColorRole::Outline),
+          .fill = active ? colorForRole(ColorRole::SolidRegular) : colorForRole(ColorRole::Fill2),
+          .border = active ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = Style::scaledRadiusLg(),
           .softness = 1.0f,
-          .borderWidth = active ? std::max(Style::borderWidth(), Style::borderWidth() * 2.0f) : Style::borderWidth(),
+          .borderWidth = active ? std::max(Style::borderWidth, Style::borderWidth * 2.0f) : Style::borderWidth,
       }
   );
 }
@@ -2616,17 +2623,17 @@ void GreeterSurface::syncPanelUserChrome() {
 
   m_userSelectBox->setStyle(
       RoundedRectStyle{
-          .fill = active ? colorForRole(ColorRole::Secondary) : colorForRole(ColorRole::Surface),
-          .border = active ? colorForRole(ColorRole::Primary) : colorForRole(ColorRole::Outline),
+          .fill = active ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::SolidRegular),
+          .border = active ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = Style::scaledRadiusLg(),
           .softness = 1.0f,
-          .borderWidth = active ? std::max(Style::borderWidth(), Style::borderWidth() * 2.0f) : Style::borderWidth(),
+          .borderWidth = active ? std::max(Style::borderWidth, Style::borderWidth * 2.0f) : Style::borderWidth,
       }
   );
 
-  const Color labelColor = active ? colorForRole(ColorRole::OnSecondary) : colorForRole(ColorRole::OnSurface);
-  const Color iconColor = active ? colorForRole(ColorRole::OnSecondary) : colorForRole(ColorRole::OnSurfaceVariant);
+  const Color labelColor = active ? colorForRole(ColorRole::OnAccent) : colorForRole(ColorRole::Label1);
+  const Color iconColor = active ? colorForRole(ColorRole::OnAccent) : colorForRole(ColorRole::Label2);
   if (m_userSelectLabel != nullptr) {
     m_userSelectLabel->setColor(labelColor);
   }
@@ -2642,7 +2649,7 @@ void GreeterSurface::syncPanelUserChrome() {
 }
 
 void GreeterSurface::layoutPanelUserSelector(float x, float y, float w, float h) {
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   if (renderer == nullptr
       || m_userSelectBox == nullptr
       || m_userSelectLabel == nullptr
@@ -2657,8 +2664,8 @@ void GreeterSurface::layoutPanelUserSelector(float x, float y, float w, float h)
   m_userSelectBox->setSize(w, h);
   m_userSelectBox->layout(*renderer);
 
-  float textX = x + Style::spaceMd();
-  float chevronReserve = Style::spaceMd();
+  float textX = x + Style::spaceMd;
+  float chevronReserve = Style::spaceMd;
   if (m_userSelectGlyph != nullptr) {
     (void)m_userSelectGlyph->measure(*renderer);
     const auto chevronMetrics = renderer->measureGlyph(m_userSelectGlyph->codepoint(), m_userSelectGlyph->fontSize());
@@ -2672,12 +2679,12 @@ void GreeterSurface::layoutPanelUserSelector(float x, float y, float w, float h)
     const float iconW = iconMetrics.right - iconMetrics.left;
     const float iconY = y + std::round(h * 0.5f - (iconMetrics.top + iconMetrics.bottom) * 0.5f);
     m_userSelectIcon->setPosition(textX, iconY);
-    textX += iconW + Style::spaceSm();
+    textX += iconW + Style::spaceSm;
   }
 
-  const float fieldW = std::max(0.0f, w - (textX - x) - chevronReserve - Style::spaceSm());
-  const float openFieldX = x + Style::spaceMd();
-  const float openFieldW = std::max(0.0f, w - Style::spaceMd() - chevronReserve - Style::spaceSm());
+  const float fieldW = std::max(0.0f, w - (textX - x) - chevronReserve - Style::spaceSm);
+  const float openFieldX = x + Style::spaceMd;
+  const float openFieldW = std::max(0.0f, w - Style::spaceMd - chevronReserve - Style::spaceSm);
 
   if (m_userMenuOpen && m_userMenuSearchField != nullptr) {
     if (m_userSelectIcon != nullptr) {
@@ -2705,7 +2712,7 @@ void GreeterSurface::layoutPanelUserSelector(float x, float y, float w, float h)
   const auto glyphMetrics = renderer->measureGlyph(m_userSelectGlyph->codepoint(), m_userSelectGlyph->fontSize());
   const float glyphW = glyphMetrics.right - glyphMetrics.left;
   const float glyphY = y + std::round(h * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
-  m_userSelectGlyph->setPosition(x + w - Style::spaceMd() - glyphW, glyphY);
+  m_userSelectGlyph->setPosition(x + w - Style::spaceMd - glyphW, glyphY);
 }
 
 void GreeterSurface::syncPanelSessionChrome() {
@@ -2718,17 +2725,17 @@ void GreeterSurface::syncPanelSessionChrome() {
 
   m_sessionSelectBox->setStyle(
       RoundedRectStyle{
-          .fill = active ? colorForRole(ColorRole::Secondary) : colorForRole(ColorRole::Surface),
-          .border = active ? colorForRole(ColorRole::Primary) : colorForRole(ColorRole::Outline),
+          .fill = active ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::SolidRegular),
+          .border = active ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = Style::scaledRadiusLg(),
           .softness = 1.0f,
-          .borderWidth = active ? std::max(Style::borderWidth(), Style::borderWidth() * 2.0f) : Style::borderWidth(),
+          .borderWidth = active ? std::max(Style::borderWidth, Style::borderWidth * 2.0f) : Style::borderWidth,
       }
   );
 
-  const Color labelColor = active ? colorForRole(ColorRole::OnSecondary) : colorForRole(ColorRole::OnSurface);
-  const Color iconColor = active ? colorForRole(ColorRole::OnSecondary) : colorForRole(ColorRole::OnSurfaceVariant);
+  const Color labelColor = active ? colorForRole(ColorRole::OnAccent) : colorForRole(ColorRole::Label1);
+  const Color iconColor = active ? colorForRole(ColorRole::OnAccent) : colorForRole(ColorRole::Label2);
   if (m_sessionSelectLabel != nullptr) {
     m_sessionSelectLabel->setColor(labelColor);
   }
@@ -2741,7 +2748,7 @@ void GreeterSurface::syncPanelSessionChrome() {
 }
 
 void GreeterSurface::layoutPanelSessionSelector(float x, float y, float w, float h) {
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   if (renderer == nullptr
       || m_sessionSelectBox == nullptr
       || m_sessionSelectLabel == nullptr
@@ -2756,8 +2763,8 @@ void GreeterSurface::layoutPanelSessionSelector(float x, float y, float w, float
   m_sessionSelectBox->setSize(w, h);
   m_sessionSelectBox->layout(*renderer);
 
-  float textX = x + Style::spaceMd();
-  float chevronReserve = Style::spaceMd();
+  float textX = x + Style::spaceMd;
+  float chevronReserve = Style::spaceMd;
   if (m_sessionSelectGlyph != nullptr) {
     (void)m_sessionSelectGlyph->measure(*renderer);
     const auto chevronMetrics =
@@ -2772,11 +2779,11 @@ void GreeterSurface::layoutPanelSessionSelector(float x, float y, float w, float
     const float iconW = iconMetrics.right - iconMetrics.left;
     const float iconY = y + std::round(h * 0.5f - (iconMetrics.top + iconMetrics.bottom) * 0.5f);
     m_sessionSelectIcon->setPosition(textX, iconY);
-    textX += iconW + Style::spaceSm();
+    textX += iconW + Style::spaceSm;
   }
 
   m_sessionSelectLabel->setVisible(true);
-  m_sessionSelectLabel->setMaxWidth(std::max(0.0f, w - (textX - x) - chevronReserve - Style::spaceSm()));
+  m_sessionSelectLabel->setMaxWidth(std::max(0.0f, w - (textX - x) - chevronReserve - Style::spaceSm));
   m_sessionSelectLabel->measure(*renderer);
   m_sessionSelectLabel->setPosition(textX, y + std::round((h - m_sessionSelectLabel->height()) * 0.5f));
 
@@ -2785,7 +2792,7 @@ void GreeterSurface::layoutPanelSessionSelector(float x, float y, float w, float
   const auto glyphMetrics = renderer->measureGlyph(m_sessionSelectGlyph->codepoint(), m_sessionSelectGlyph->fontSize());
   const float glyphW = glyphMetrics.right - glyphMetrics.left;
   const float glyphY = y + std::round(h * 0.5f - (glyphMetrics.top + glyphMetrics.bottom) * 0.5f);
-  m_sessionSelectGlyph->setPosition(x + w - Style::spaceMd() - glyphW, glyphY);
+  m_sessionSelectGlyph->setPosition(x + w - Style::spaceMd - glyphW, glyphY);
 
   m_sessionSelectArea->setVisible(true);
   m_sessionSelectArea->setPosition(x, y);
@@ -2817,7 +2824,7 @@ std::ptrdiff_t GreeterSurface::defaultFocusIndex() const {
 }
 
 void GreeterSurface::syncFocusIndexFromFocused() {
-  InputArea* focused = InputArea::getFocused();
+  InputArea* focused = m_inputDispatcher.focusedArea();
   if (focused == nullptr) {
     return;
   }
@@ -2830,7 +2837,7 @@ void GreeterSurface::syncFocusIndexFromFocused() {
 }
 
 void GreeterSurface::layoutPowerButtons(float ox, float oy, float sw, float sh) {
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   if (renderer == nullptr) {
     return;
   }
@@ -2845,9 +2852,9 @@ void GreeterSurface::layoutPowerButtons(float ox, float oy, float sw, float sh) 
     return;
   }
 
-  const float size = Style::controlHeight();
-  const float margin = Style::spaceLg();
-  const float gap = Style::spaceSm();
+  const float size = Style::controlHeight;
+  const float margin = Style::spaceLg;
+  const float gap = Style::spaceSm;
 
   // Determine anchor position based on config
   float y;
@@ -2863,7 +2870,7 @@ void GreeterSurface::layoutPowerButtons(float ox, float oy, float sw, float sh) 
       return;
     }
     btn->setVisible(true);
-    btn->setRadius(Style::scaledRadius(Style::controlHeightBase * 0.5f));
+    btn->setRadius(Style::scaledRadius(Style::controlHeight * 0.5f));
     btn->setSize(size, size);
     btn->setPosition(x, y);
     btn->layout(*renderer);
@@ -3003,7 +3010,7 @@ void GreeterSurface::applyMenuHighlight() {
     const bool isSelected = m_userMenuOpen ? (filteredIndex < m_userMenuFilteredIndices.size()
                                               && m_userMenuFilteredIndices[filteredIndex] == m_selectedUser)
                                            : (index == selected);
-    const float borderWidth = Style::borderWidth();
+    const float borderWidth = Style::borderWidth;
     const float panelRadius = Style::scaledRadiusLg();
     const float rowCorner = m_userMenuOpen ? Style::scaledRadiusSm() : panelRadius - borderWidth;
     Radii rowRadius(0.0f);
@@ -3017,24 +3024,24 @@ void GreeterSurface::applyMenuHighlight() {
       rowRadius = Radii(0.0f, 0.0f, panelRadius - borderWidth, panelRadius - borderWidth);
     }
 
-    Color rowFill = highlighted ? colorForRole(ColorRole::Secondary) : colorForRole(ColorRole::SurfaceVariant);
-    Color labelColor = colorForRole(ColorRole::OnSurface);
-    Color iconColor = colorForRole(ColorRole::OnSurfaceVariant);
+    Color rowFill = highlighted ? colorForRole(ColorRole::Accent) : colorForRole(ColorRole::Fill2);
+    Color labelColor = colorForRole(ColorRole::Label1);
+    Color iconColor = colorForRole(ColorRole::Label2);
     if (m_userMenuOpen) {
       if (highlighted) {
-        rowFill = colorForRole(ColorRole::Primary);
-        labelColor = colorForRole(ColorRole::OnPrimary);
-        iconColor = colorForRole(ColorRole::OnPrimary);
+        rowFill = colorForRole(ColorRole::Accent);
+        labelColor = colorForRole(ColorRole::OnAccent);
+        iconColor = colorForRole(ColorRole::OnAccent);
       } else if (isSelected) {
-        rowFill = colorForRole(ColorRole::Primary, 0.16f);
-        labelColor = colorForRole(ColorRole::Primary);
+        rowFill = colorForRole(ColorRole::Accent, 0.16f);
+        labelColor = colorForRole(ColorRole::Accent);
       } else {
-        rowFill = colorForRole(ColorRole::SurfaceVariant, 0.01f);
+        rowFill = colorForRole(ColorRole::Fill2, 0.01f);
       }
     } else if (highlighted) {
-      labelColor = colorForRole(ColorRole::OnSecondary);
+      labelColor = colorForRole(ColorRole::OnAccent);
     } else if (isSelected) {
-      labelColor = colorForRole(ColorRole::Primary);
+      labelColor = colorForRole(ColorRole::Accent);
     }
 
     row->setStyle(
@@ -3179,7 +3186,7 @@ bool GreeterSurface::handleNavigationKey(std::uint32_t sym, std::uint32_t utf32,
 
   // F3 / F7 jump straight to the session / color-scheme menus from anywhere
   // (even from inside the password field or with another menu open).
-  if (KeySymbol::isF3(sym)) {
+  if (sym == XKB_KEY_F3) {
     if (m_sessionMenuOpen) {
       closeMenusAndRestoreFocus();
     } else {
@@ -3190,7 +3197,7 @@ bool GreeterSurface::handleNavigationKey(std::uint32_t sym, std::uint32_t utf32,
     }
     return true;
   }
-  if (KeySymbol::isF7(sym)) {
+  if (sym == XKB_KEY_F7) {
     // Don't respond if the scheme selector is hidden
     if (m_schemeSelectorPosition == "hidden") {
       return true;
@@ -3210,7 +3217,7 @@ bool GreeterSurface::handleNavigationKey(std::uint32_t sym, std::uint32_t utf32,
   if (menuOpen()) {
     if (m_userMenuOpen) {
       InputArea* searchArea = m_userMenuSearchField != nullptr ? m_userMenuSearchField->inputArea() : nullptr;
-      const bool searchFocused = searchArea != nullptr && InputArea::getFocused() == searchArea;
+      const bool searchFocused = searchArea != nullptr && m_inputDispatcher.focusedArea() == searchArea;
 
       if (isTextEditKey(sym, utf32, modifiers) && searchArea != nullptr) {
         if (!searchFocused) {
@@ -3267,7 +3274,7 @@ bool GreeterSurface::handleNavigationKey(std::uint32_t sym, std::uint32_t utf32,
   }
 
   // Let the password field keep all of its editing/submit keys.
-  InputArea* focused = InputArea::getFocused();
+  InputArea* focused = m_inputDispatcher.focusedArea();
   if (m_passwordField != nullptr && focused == m_passwordField->inputArea()) {
     return false;
   }
@@ -3294,7 +3301,7 @@ bool GreeterSurface::handleNavigationKey(std::uint32_t sym, std::uint32_t utf32,
     return true;
   }
   if (KeySymbol::isEnter(sym) || KeySymbol::isSpace(sym)) {
-    if (InputArea::getFocused() == nullptr && !m_focusRing.empty()) {
+    if (m_inputDispatcher.focusedArea() == nullptr && !m_focusRing.empty()) {
       setFocusIndex(defaultFocusIndex());
     }
     activateFocused();
@@ -3332,7 +3339,6 @@ void GreeterSurface::clearUserMenuRows() {
 }
 
 void GreeterSurface::clearUserMenu() {
-  m_inputDispatcher.invalidateTransientPointers();
   clearUserMenuRows();
   m_userMenuSearchQuery.clear();
   m_userMenuScrollOffset = 0;
@@ -3344,7 +3350,6 @@ void GreeterSurface::clearUserMenu() {
 }
 
 void GreeterSurface::clearSessionMenu() {
-  m_inputDispatcher.invalidateTransientPointers();
   if (m_sessionMenuPanel != nullptr) {
     (void)m_root.removeChild(m_sessionMenuPanel);
     m_sessionMenuPanel = nullptr;
@@ -3364,7 +3369,6 @@ void GreeterSurface::clearSessionMenu() {
 }
 
 void GreeterSurface::clearSchemeMenu() {
-  m_inputDispatcher.invalidateTransientPointers();
   if (m_schemeMenuPanel != nullptr) {
     (void)m_root.removeChild(m_schemeMenuPanel);
     m_schemeMenuPanel = nullptr;
@@ -3426,7 +3430,7 @@ void GreeterSurface::layoutUserMenuSearchField(float x, float y, float w, float 
   m_userMenuSearchField->setControlHeight(h);
   m_userMenuSearchField->setPosition(x, y);
   m_userMenuSearchField->setSize(w, h);
-  m_userMenuSearchField->layout(*m_renderContext);
+  m_userMenuSearchField->layout(m_window->renderTarget().renderer());
 }
 
 void GreeterSurface::refreshUserMenuRows() {
@@ -3434,28 +3438,28 @@ void GreeterSurface::refreshUserMenuRows() {
     return;
   }
 
-  auto* renderer = m_renderContext;
+  Renderer* renderer = m_window != nullptr ? &m_window->renderTarget().renderer() : nullptr;
   m_userMenuFilteredIndices = filterUserIndices(m_users, m_userMenuSearchQuery);
 
   const float anchorX = m_userSelectBox->x();
   const float anchorW = m_userSelectBox->width();
-  const float rowH = Style::controlHeight();
-  const float borderWidth = Style::borderWidth();
+  const float rowH = Style::controlHeight;
+  const float borderWidth = Style::borderWidth;
   const float panelRadius = Style::scaledRadiusLg();
   const float rowRadius = Style::scaledRadiusSm();
-  const float rowIconReserve = Style::spaceMd() + Style::fontSizeBody() + kUserMenuRowIconGap;
+  const float rowIconReserve = Style::spaceMd + Style::fontSizeBody + kUserMenuRowIconGap;
 
   float contentW = anchorW;
   for (const std::size_t userIndex : m_userMenuFilteredIndices) {
-    const float textW = renderer->measureText(m_users[userIndex], Style::fontSizeBody()).width;
+    const float textW = renderer->measureText(m_users[userIndex], Style::fontSizeBody).width;
     contentW = std::max(contentW, rowIconReserve + textW + 2.0f * kUserMenuPadding);
   }
   const float screenW = m_root.width();
-  const float maxW = std::max(anchorW, screenW - 2.0f * Style::spaceLg());
+  const float maxW = std::max(anchorW, screenW - 2.0f * Style::spaceLg);
   const float panelW = std::min(contentW, maxW);
   const float panelX =
-      std::clamp(anchorX, Style::spaceLg(), std::max(Style::spaceLg(), screenW - Style::spaceLg() - panelW));
-  const float panelY = m_userSelectBox->y() + m_userSelectBox->height() + Style::spaceXs();
+      std::clamp(anchorX, Style::spaceLg, std::max(Style::spaceLg, screenW - Style::spaceLg - panelW));
+  const float panelY = m_userSelectBox->y() + m_userSelectBox->height() + Style::spaceXs;
   const float innerX = panelX + borderWidth + kUserMenuPadding;
   const float innerW = panelW - 2.0f * borderWidth - 2.0f * kUserMenuPadding;
   const float listTop = panelY + borderWidth + kUserMenuPadding;
@@ -3475,8 +3479,8 @@ void GreeterSurface::refreshUserMenuRows() {
     m_userMenuPanel->setSize(panelW, panelH);
     m_userMenuPanel->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::Surface),
-            .border = colorForRole(ColorRole::Outline),
+            .fill = colorForRole(ColorRole::SolidRegular),
+            .border = colorForRole(ColorRole::Stroke),
             .fillMode = FillMode::Solid,
             .radius = panelRadius,
             .softness = 1.0f,
@@ -3487,8 +3491,8 @@ void GreeterSurface::refreshUserMenuRows() {
     auto empty = std::make_unique<Label>();
     m_userMenuEmptyLabel = empty.get();
     m_userMenuEmptyLabel->setText("No users found");
-    m_userMenuEmptyLabel->setFontSize(Style::fontSizeBody());
-    m_userMenuEmptyLabel->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    m_userMenuEmptyLabel->setFontSize(Style::fontSizeBody);
+    m_userMenuEmptyLabel->setColor(colorForRole(ColorRole::Label2));
     m_userMenuEmptyLabel->setZIndex(52);
     m_root.addChild(std::move(empty));
     m_userMenuEmptyLabel->measure(*renderer);
@@ -3526,8 +3530,8 @@ void GreeterSurface::refreshUserMenuRows() {
   m_userMenuPanel->setSize(panelW, panelH);
   m_userMenuPanel->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::Surface),
-          .border = colorForRole(ColorRole::Outline),
+          .fill = colorForRole(ColorRole::SolidRegular),
+          .border = colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = panelRadius,
           .softness = 1.0f,
@@ -3549,7 +3553,7 @@ void GreeterSurface::refreshUserMenuRows() {
     rowPtr->setSize(rowW, rowH);
     rowPtr->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SurfaceVariant, 0.01f),
+            .fill = colorForRole(ColorRole::Fill2, 0.01f),
             .fillMode = FillMode::Solid,
             .radius = rowRadius,
         }
@@ -3560,8 +3564,8 @@ void GreeterSurface::refreshUserMenuRows() {
     auto icon = std::make_unique<Glyph>();
     auto* iconPtr = icon.get();
     iconPtr->setGlyph("user");
-    iconPtr->setGlyphSize(Style::fontSizeBody());
-    iconPtr->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+    iconPtr->setGlyphSize(Style::fontSizeBody);
+    iconPtr->setColor(colorForRole(ColorRole::Label2));
     iconPtr->setHitTestVisible(false);
     iconPtr->setZIndex(52);
     m_root.addChild(std::move(icon));
@@ -3569,19 +3573,19 @@ void GreeterSurface::refreshUserMenuRows() {
     const auto iconMetrics = renderer->measureGlyph(iconPtr->codepoint(), iconPtr->fontSize());
     const float iconW = iconMetrics.right - iconMetrics.left;
     const float iconY = rowY + std::round(rowH * 0.5f - (iconMetrics.top + iconMetrics.bottom) * 0.5f);
-    iconPtr->setPosition(innerX + Style::spaceSm(), iconY);
+    iconPtr->setPosition(innerX + Style::spaceSm, iconY);
     m_userMenuRowIcons.push_back(iconPtr);
 
     auto label = std::make_unique<Label>();
     auto* labelPtr = label.get();
     labelPtr->setText(m_users[userIndex]);
-    labelPtr->setFontSize(Style::fontSizeBody());
-    labelPtr->setColor(colorForRole(ColorRole::OnSurface));
+    labelPtr->setFontSize(Style::fontSizeBody);
+    labelPtr->setColor(colorForRole(ColorRole::Label1));
     labelPtr->setZIndex(52);
     m_root.addChild(std::move(label));
     labelPtr->measure(*renderer);
     labelPtr->setPosition(
-        innerX + Style::spaceSm() + iconW + kUserMenuRowIconGap, rowY + std::round((rowH - labelPtr->height()) * 0.5f)
+        innerX + Style::spaceSm + iconW + kUserMenuRowIconGap, rowY + std::round((rowH - labelPtr->height()) * 0.5f)
     );
     m_userMenuLabels.push_back(labelPtr);
 
@@ -3629,7 +3633,7 @@ void GreeterSurface::buildMenu(
   }
   (void)selected;
 
-  const float rowH = Style::controlHeightSm();
+  const float rowH = Style::controlHeightSm;
   const float anchorX = anchor->x();
   const float anchorW = anchor->width();
   const float h = rowH * static_cast<float>(count);
@@ -3641,28 +3645,28 @@ void GreeterSurface::buildMenu(
     auto label = std::make_unique<Label>();
     auto* labelPtr = label.get();
     labelPtr->setText(names[i]);
-    labelPtr->setFontSize(Style::fontSizeBody());
-    labelPtr->setColor(colorForRole(ColorRole::OnSurface));
+    labelPtr->setFontSize(Style::fontSizeBody);
+    labelPtr->setColor(colorForRole(ColorRole::Label1));
     labelPtr->setZIndex(zBase + 2);
     m_root.addChild(std::move(label));
-    labelPtr->measure(*m_renderContext);
-    contentW = std::max(contentW, labelPtr->width() + 2.0f * Style::spaceMd());
+    labelPtr->measure(m_window->renderTarget().renderer());
+    contentW = std::max(contentW, labelPtr->width() + 2.0f * Style::spaceMd);
     labels.push_back(labelPtr);
   }
 
   // Fit the content, but stay within the screen and never narrower than the
   // selector.
   const float screenW = m_root.width();
-  const float maxW = std::max(anchorW, screenW - 2.0f * Style::spaceLg());
+  const float maxW = std::max(anchorW, screenW - 2.0f * Style::spaceLg);
   const float w = std::min(contentW, maxW);
-  const float maxX = std::max(Style::spaceLg(), screenW - Style::spaceLg() - w);
+  const float maxX = std::max(Style::spaceLg, screenW - Style::spaceLg - w);
   float x = rightAlign ? (anchorX + anchorW - w) : anchorX;
-  x = std::clamp(x, Style::spaceLg(), maxX);
+  x = std::clamp(x, Style::spaceLg, maxX);
 
-  const float borderWidth = Style::borderWidth();
+  const float borderWidth = Style::borderWidth;
   const float panelH = h + 2.0f * borderWidth;
   const float y =
-      upward ? (anchor->y() - panelH - Style::spaceXs()) : (anchor->y() + anchor->height() + Style::spaceXs());
+      upward ? (anchor->y() - panelH - Style::spaceXs) : (anchor->y() + anchor->height() + Style::spaceXs);
 
   auto panel = std::make_unique<Box>();
   panelOut = panel.get();
@@ -3672,8 +3676,8 @@ void GreeterSurface::buildMenu(
   panelOut->setSize(w, panelH);
   panelOut->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::SurfaceVariant),
-          .border = colorForRole(ColorRole::Outline),
+          .fill = colorForRole(ColorRole::Fill2),
+          .border = colorForRole(ColorRole::Stroke),
           .fillMode = FillMode::Solid,
           .radius = Style::scaledRadiusLg(),
           .softness = 1.0f,
@@ -3705,7 +3709,7 @@ void GreeterSurface::buildMenu(
 
     rowPtr->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SurfaceVariant),
+            .fill = colorForRole(ColorRole::Fill2),
             .fillMode = FillMode::Solid,
             .radius = rowRadius,
         }
@@ -3714,7 +3718,7 @@ void GreeterSurface::buildMenu(
     rows.push_back(rowPtr);
 
     Label* labelPtr = labels[i];
-    labelPtr->setPosition(rowX + Style::spaceMd(), rowY + std::round((rowH - labelPtr->height()) * 0.5f));
+    labelPtr->setPosition(rowX + Style::spaceMd, rowY + std::round((rowH - labelPtr->height()) * 0.5f));
 
     auto area = std::make_unique<InputArea>();
     auto* areaPtr = area.get();
@@ -3832,11 +3836,11 @@ void GreeterSurface::layoutRyoku(float ox, float oy, float sw, float sh) {
     sessionNames.push_back(session.name);
   }
   m_ryoku->setSessions(sessionNames, m_selectedSession);
-  m_ryoku->layout(*m_renderContext, ox, oy, sw, sh);
+  m_ryoku->layout(m_window->renderTarget().renderer(), ox, oy, sw, sh);
 
   const RyokuScene::Rect row = m_ryoku->passwordRow();
   m_passwordField->setOpacity(0.0f);
   m_passwordField->setSize(row.w, 0.0f);
   m_passwordField->setPosition(row.x, row.y);
-  m_passwordField->layout(*m_renderContext);
+  m_passwordField->layout(m_window->renderTarget().renderer());
 }
