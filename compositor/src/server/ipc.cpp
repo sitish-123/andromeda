@@ -17,6 +17,7 @@
 #include <optional>
 #include <string_view>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <utility>
@@ -176,6 +177,14 @@ namespace andromeda {
       return;
     }
 
+    if (chmod(m_socketPath.c_str(), S_IRUSR | S_IWUSR) < 0) {
+      kLog.error("failed to restrict IPC socket: {}", strerror(errno));
+      close(m_listenFd);
+      m_listenFd = -1;
+      unlink(m_socketPath.c_str());
+      return;
+    }
+
     if (listen(m_listenFd, 4) < 0) {
       kLog.error("failed to listen on IPC socket: {}", strerror(errno));
       close(m_listenFd);
@@ -230,6 +239,13 @@ namespace andromeda {
     while (true) {
       const int clientFd = accept4(m_listenFd, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
       if (clientFd >= 0) {
+        ucred peer{};
+        socklen_t size = sizeof(peer);
+        if (getsockopt(clientFd, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 || peer.uid != geteuid()) {
+          kLog.warn("refused an IPC connection from uid {}", peer.uid);
+          close(clientFd);
+          continue;
+        }
         addConnection(clientFd);
         continue;
       }

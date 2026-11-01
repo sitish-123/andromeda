@@ -882,6 +882,7 @@ namespace andromeda {
       entry["keyboard_interactivity"] = keyboardInteractivityName(state.keyboard_interactive);
       entry["focused"] = l->hasKeyboardFocus();
       entry["exclusive_zone"] = state.exclusive_zone;
+      entry["blur"] = l->blurActive();
       nlohmann::json anchor = nlohmann::json::array();
       for (const auto& [edge, name] : kLayerAnchors) {
         if ((state.anchor & edge) != 0) {

@@ -9,6 +9,7 @@
 #include "overview/overview.h"
 #include "scene/cheatsheet.h"
 #include "server/actions.h"
+#include "server/greeter_mode.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -337,6 +338,10 @@ namespace andromeda {
   }
 
   std::optional<Keybind> Server::handleKeybind(uint32_t keysym, uint32_t rawKeysym, uint32_t modifiers) {
+    // The login screen runs no compositor actions; VT switching has its own path (handleVtSwitch).
+    if (greeterMode()) {
+      return std::nullopt;
+    }
     const Keybind* bind = matchKeybind(keysym, rawKeysym, modifiers);
     if (bind == nullptr) {
       return std::nullopt;
@@ -348,6 +353,9 @@ namespace andromeda {
   }
 
   bool Server::handleWheelBind(WheelDirection direction, uint32_t modifiers) {
+    if (greeterMode()) {
+      return false;
+    }
     const uint32_t effective = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
     const std::string_view currentSubmap = m_activeSubmaps.empty() ? std::string_view{} : m_activeSubmaps.back();
 
