@@ -30,6 +30,9 @@ struct LiveActivity {
   std::optional<float> progress;
   std::string actionGlyph;
   std::function<void()> action;
+  // Shown before the main action, for example mute before decline.
+  std::string secondaryGlyph;
+  std::function<void()> secondaryAction;
 };
 
 // The live activity island: an overlay surface at the top center that takes the place of the bar's center island
@@ -65,6 +68,7 @@ private:
     Label* subtitle = nullptr;
     ProgressBar* progress = nullptr;
     Button* action = nullptr;
+    Button* secondary = nullptr;
     float reveal = 0.0F;
     AnimationManager::Id revealAnimId = 0;
   };

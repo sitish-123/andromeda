@@ -243,6 +243,20 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           .height = kProgressHeight,
       }),
       ui::button({
+          .out = &inst.secondary,
+          .glyph = "bell-off",
+          .variant = ButtonVariant::Default,
+          .radius = kIcon * 0.5F,
+          .width = kIcon,
+          .height = kIcon,
+          .onClick =
+              [this] {
+                if (m_activity.has_value() && m_activity->secondaryAction) {
+                  m_activity->secondaryAction();
+                }
+              },
+      }),
+      ui::button({
           .out = &inst.action,
           .glyph = "close",
           .variant = ButtonVariant::Default,
@@ -276,6 +290,18 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   if (!a.actionGlyph.empty()) {
     inst.action->setGlyph(a.actionGlyph);
   }
+  inst.secondary->setVisible(!a.secondaryGlyph.empty());
+  if (!a.secondaryGlyph.empty()) {
+    inst.secondary->setGlyph(a.secondaryGlyph);
+  }
+  // The text takes what the icon, the bar, the buttons and their gaps leave.
+  const bool showBar = inst.progress->visible();
+  const int buttons = (a.actionGlyph.empty() ? 0 : 1) + (a.secondaryGlyph.empty() ? 0 : 1);
+  const int gaps = 1 + (showBar ? 1 : 0) + buttons;
+  const float textWidth = inst.width - 2.0F * kPadding - kIcon - static_cast<float>(gaps) * Style::spaceMd
+      - (showBar ? kProgressWidth : 0.0F) - static_cast<float>(buttons) * kIcon;
+  inst.title->setMaxWidth(std::max(0.0F, textWidth));
+  inst.subtitle->setMaxWidth(std::max(0.0F, textWidth));
   if (inst.sceneRoot != nullptr && inst.content != nullptr) {
     inst.content->layout(inst.surface->renderTarget().renderer());
   }

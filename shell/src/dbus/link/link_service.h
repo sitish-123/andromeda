@@ -132,6 +132,7 @@ public:
   // The phone call that is ringing or active; empty when none.
   [[nodiscard]] std::optional<CallStatus> activeCall() const;
   void declineCall(const std::string& deviceId);
+  void muteCall(const std::string& deviceId);
 
   // Runs on each transfer progress or finish and on each call state change. While it is set, transfer progress
   // shows in the live activity island instead of a toast.

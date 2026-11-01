@@ -699,6 +699,13 @@ void LinkService::declineCall(const std::string& deviceId) {
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
 }
 
+void LinkService::muteCall(const std::string& deviceId) {
+  m_link->callMethodAsync("CallAction")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, std::string{"mute"})
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
+}
+
 void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
   auto it = m_transfers.find(transferId);
   if (it == m_transfers.end()) {
@@ -906,6 +913,7 @@ void LinkService::onRingRequested(const std::string& deviceId, bool on) {
 void LinkService::onCall(
     const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
 ) {
+  const bool wasRinging = m_call.has_value() && m_call->deviceId == deviceId && m_call->ringing;
   if (state == "ringing" || state == "active") {
     const std::string who =
         !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
@@ -915,6 +923,13 @@ void LinkService::onCall(
   }
   if (m_activityCallback) {
     m_activityCallback();
+    // The island shows the call and its actions; the alert sound replaces the toast's.
+    if (state == "ringing" && !wasRinging) {
+      if (const auto sounds = m_sounds.lock()) {
+        sounds->play(SoundPlayer::kEventNotification);
+      }
+    }
+    return;
   }
   const auto shown = m_callNotifications.find(deviceId);
   if (state != "ringing") {
