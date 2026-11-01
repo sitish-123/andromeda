@@ -10,6 +10,8 @@
 #include <wayland-client.h>
 
 #define namespace namespace_
+#include "dsk-surface-v1-client-protocol.h"
+#include "ext-background-effect-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #undef namespace
 
@@ -32,6 +34,34 @@
 #include <vector>
 
 namespace {
+
+  const dsk_surface_v1_listener kDskSurfaceListener = {
+      .started = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t serial,
+                    uint32_t /*time*/) {
+        std::println("dsk-started {}", serial);
+        std::fflush(stdout);
+      },
+      .done = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t serial,
+                 uint32_t reason) {
+        std::println("dsk-done {} {}", serial, reason);
+        std::fflush(stdout);
+      },
+  };
+  const dsk_tracker_v1_listener kDskTrackerListener = {
+      .interacting = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/) {
+        std::println("trk-interacting");
+        std::fflush(stdout);
+      },
+      .inertia = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/, wl_fixed_t target) {
+        std::println("trk-inertia {}", wl_fixed_to_double(target));
+        std::fflush(stdout);
+      },
+      .idle = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, wl_fixed_t position) {
+        std::println("trk-idle {}", wl_fixed_to_double(position));
+        std::fflush(stdout);
+      },
+      .position = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/, wl_fixed_t /*position*/) {},
+  };
   struct Output {
     wl_output* resource = nullptr;
     std::string name;
@@ -55,11 +85,16 @@ namespace {
     wl_keyboard* keyboard = nullptr;
     wl_pointer* pointer = nullptr;
     xdg_wm_base* wmBase = nullptr;
+    ext_background_effect_manager_v1* blurManager = nullptr;
+    ext_background_effect_surface_v1* blurEffect = nullptr;
+    dsk_surface_manager_v1* dskManager = nullptr;
+    dsk_surface_v1* dskSurface = nullptr;
     wl_surface* popupSurface = nullptr;
     xdg_surface* popupXdgSurface = nullptr;
     xdg_popup* popup = nullptr;
     Buffer popupBuffer;
     bool popupMapped = false;
+    bool logPointer = false;
     bool popupOnClick = false;
     bool popupOnRelease = false;
     bool hasPointerPosition = false;
@@ -220,6 +255,104 @@ namespace {
       Buffer& previous = child ? state.childBuffer : state.buffer;
       destroyBuffer(previous);
       previous = replacement;
+    } else if (action == "blur-region" || action == "blur-none") {
+      // blur-region <label> <x> <y> <width> <height>: ext-background-effect-v1 blur region of the layer surface.
+      if (state.blurManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.blurEffect == nullptr) {
+        state.blurEffect = ext_background_effect_manager_v1_get_background_effect(state.blurManager, state.surface);
+      }
+      if (action == "blur-none") {
+        ext_background_effect_surface_v1_set_blur_region(state.blurEffect, nullptr);
+      } else {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        command >> std::dec >> x >> y >> width >> height;
+        if (command.fail()) {
+          state.failed = state.closed = true;
+          return;
+        }
+        wl_region* region = wl_compositor_create_region(state.compositor);
+        wl_region_add(region, x, y, width, height);
+        ext_background_effect_surface_v1_set_blur_region(state.blurEffect, region);
+        wl_region_destroy(region);
+      }
+    } else if (action == "dsk-animate" || action == "dsk-set") {
+      // dsk-animate <label> <serial> <property> <curve> <a> <b> <c> <d>; dsk-set <label> <property> <a> <b> <c> <d>.
+      // Prints "dsk-started <serial>" and "dsk-done <serial> <reason>" as the compositor sends them.
+      if (state.dskManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      uint32_t serial = 0;
+      uint32_t property = 0;
+      uint32_t curve = 0;
+      double a = 0.0;
+      double b = 0.0;
+      double c = 0.0;
+      double d = 0.0;
+      if (action == "dsk-animate") {
+        command >> serial;
+      }
+      command >> property;
+      if (action == "dsk-animate") {
+        command >> curve;
+      }
+      command >> a >> b >> c >> d;
+      if (command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (action == "dsk-animate") {
+        dsk_surface_v1_animate(
+            state.dskSurface, serial, property, curve, wl_fixed_from_double(a), wl_fixed_from_double(b),
+            wl_fixed_from_double(c), wl_fixed_from_double(d)
+        );
+      } else {
+        dsk_surface_v1_set(
+            state.dskSurface, property, wl_fixed_from_double(a), wl_fixed_from_double(b), wl_fixed_from_double(c),
+            wl_fixed_from_double(d)
+        );
+      }
+    } else if (action == "dsk-track") {
+      // dsk-track <label> <fingers> <min> <max> <snap>...: a vertical tracker bound to translate.y over min..max.
+      if (state.dskManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      uint32_t fingers = 0;
+      double min = 0.0;
+      double max = 0.0;
+      command >> fingers >> min >> max;
+      if (command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      dsk_tracker_v1* tracker = dsk_surface_manager_v1_get_tracker(state.dskManager, state.surface);
+      dsk_tracker_v1_add_listener(tracker, &kDskTrackerListener, nullptr);
+      dsk_tracker_v1_set_source(tracker, DSK_TRACKER_V1_AXIS_VERTICAL, fingers, nullptr);
+      dsk_tracker_v1_set_range(tracker, wl_fixed_from_double(min), wl_fixed_from_double(max));
+      for (double snap = 0.0; command >> snap;) {
+        dsk_tracker_v1_add_snap(tracker, wl_fixed_from_double(snap));
+      }
+      command.clear();
+      dsk_tracker_v1_bind(
+          tracker, state.dskSurface, 0, 1, wl_fixed_from_double(min), wl_fixed_from_double(max),
+          wl_fixed_from_double(min), wl_fixed_from_double(max)
+      );
+      wl_surface_commit(state.surface);
     } else if (action == "child-move") {
       int x = 0;
       int y = 0;
@@ -382,6 +515,8 @@ namespace {
   }
   void pointerLeave(void* data, wl_pointer*, uint32_t, wl_surface*) {
     static_cast<State*>(data)->hasPointerPosition = false;
+    std::println("pointer-leave");
+    std::fflush(stdout);
   }
   void pointerMotion(void* data, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     auto& state = *static_cast<State*>(data);
@@ -467,7 +602,7 @@ namespace {
       wl_keyboard_release(state.keyboard);
       state.keyboard = nullptr;
     }
-    if ((state.popupOnClick || state.popupOnRelease)
+    if ((state.popupOnClick || state.popupOnRelease || state.logPointer)
         && (capabilities & WL_SEAT_CAPABILITY_POINTER) != 0
         && state.pointer == nullptr) {
       state.pointer = wl_seat_get_pointer(seat);
@@ -497,6 +632,13 @@ namespace {
     } else if (std::strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state.layerShell = static_cast<zwlr_layer_shell_v1*>(
           wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4U))
+      );
+    } else if (std::strcmp(interface, dsk_surface_manager_v1_interface.name) == 0) {
+      state.dskManager =
+          static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, 1));
+    } else if (std::strcmp(interface, ext_background_effect_manager_v1_interface.name) == 0) {
+      state.blurManager = static_cast<ext_background_effect_manager_v1*>(
+          wl_registry_bind(registry, name, &ext_background_effect_manager_v1_interface, 1)
       );
     } else if (std::strcmp(interface, xdg_wm_base_interface.name) == 0) {
       state.wmBase =
@@ -557,6 +699,8 @@ int main(int argc, char** argv) {
       state.releaseOnEscape = true;
     } else if (option == "log-configures") {
       state.logConfigures = true;
+    } else if (option == "log-pointer") {
+      state.logPointer = true;
     } else if (option == "popup-on-click") {
       state.popupOnClick = true;
     } else if (option == "popup-on-release") {
