@@ -1,6 +1,7 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -16,6 +17,7 @@ namespace {
   LogLevel gMinLevel = LogLevel::Info;
   FILE* gLogFile = nullptr;
   std::mutex gLogMutex;
+  std::atomic<LogSink> gLogSink{nullptr};
   std::string gLogPath;
   std::string gBackupLogPath;
   std::uintmax_t gLogSizeBytes = 0;
@@ -315,6 +317,12 @@ void initLogFile() {
 namespace detail {
 
   void logMessage(LogLevel level, const char* section, std::string_view msg) {
+    if (LogSink sink = gLogSink.load(std::memory_order_acquire); sink != nullptr) {
+      if (level >= gMinLevel) {
+        sink(level, section, msg);
+      }
+      return;
+    }
     std::timespec ts{};
     std::timespec_get(&ts, TIME_UTC);
     std::tm tm{};
@@ -346,6 +354,8 @@ namespace detail {
   }
 
 } // namespace detail
+
+void setLogSink(LogSink sink) { gLogSink.store(sink, std::memory_order_release); }
 
 LogLevel currentLogLevel() {
   std::scoped_lock lock(gLogMutex);

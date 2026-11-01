@@ -82,6 +82,10 @@ namespace paths {
       }
 
       appendUnique(candidates, installedAssetsRoot());
+#ifdef NOCTALIA_SOURCE_ASSETS_DIR
+      // Uninstalled builds of other apps on the toolkit (the greeter) use the shell's source-tree bundle.
+      appendUnique(candidates, std::filesystem::path(NOCTALIA_SOURCE_ASSETS_DIR));
+#endif
       return candidates;
     }
 
