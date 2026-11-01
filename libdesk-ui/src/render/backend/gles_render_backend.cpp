@@ -11,6 +11,8 @@
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <vector>
+#include <cmath>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -292,6 +294,25 @@ void GlesRenderBackend::initialize(GlSharedContext& shared) {
     throw std::runtime_error("new render context could not be made current");
   }
 
+  const std::string_view extensions = safeCString(eglQueryString(m_display, EGL_EXTENSIONS));
+  const auto hasExtension = [extensions](std::string_view name) {
+    for (std::size_t at = extensions.find(name); at != std::string_view::npos; at = extensions.find(name, at + 1)) {
+      const std::size_t end = at + name.size();
+      if ((at == 0 || extensions[at - 1] == ' ') && (end == extensions.size() || extensions[end] == ' ')) {
+        return true;
+      }
+    }
+    return false;
+  };
+  m_bufferAge = hasExtension("EGL_EXT_buffer_age");
+  if (hasExtension("EGL_KHR_swap_buffers_with_damage")) {
+    m_swapWithDamage =
+        reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(eglGetProcAddress("eglSwapBuffersWithDamageKHR"));
+  } else if (hasExtension("EGL_EXT_swap_buffers_with_damage")) {
+    m_swapWithDamage =
+        reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(eglGetProcAddress("eglSwapBuffersWithDamageEXT"));
+  }
+
   if (!g_backendInfoLogged) {
     kLog.info(
         R"(EGL vendor="{}" version="{}" APIs="{}")", safeCString(eglQueryString(m_display, EGL_VENDOR)),
@@ -373,14 +394,39 @@ bool GlesRenderBackend::beginFrame(RenderTarget& target) {
   setViewport(target.bufferWidth(), target.bufferHeight());
   setBlendMode(RenderBlendMode::PremultipliedAlpha);
   disableScissor();
-  clear(rgba(0.0F, 0.0F, 0.0F, 0.0F));
   return true;
 }
 
-void GlesRenderBackend::endFrame(RenderTarget& target) {
+int GlesRenderBackend::bufferAge(RenderTarget& target) {
+  if (!m_bufferAge) {
+    return 0;
+  }
+  EGLint age = 0;
+  if (eglQuerySurface(m_display, glesSurfaceTarget(target).eglSurface(), EGL_BUFFER_AGE_EXT, &age) != EGL_TRUE) {
+    return 0;
+  }
+  return age;
+}
+
+void GlesRenderBackend::endFrame(RenderTarget& target, std::span<const DamageRect> damage) {
   auto& surface = glesSurfaceTarget(target);
   const auto swapStart = std::chrono::steady_clock::now();
-  if (eglSwapBuffers(m_display, surface.eglSurface()) != EGL_TRUE) {
+  std::vector<EGLint> rects;
+  if (m_swapWithDamage != nullptr) {
+    const auto height = static_cast<float>(target.bufferHeight());
+    rects.reserve(damage.size() * 4);
+    for (const DamageRect& r : damage) {
+      // EGL damage rects have a bottom-left origin.
+      rects.push_back(static_cast<EGLint>(std::floor(r.x0)));
+      rects.push_back(static_cast<EGLint>(std::floor(height - r.y1)));
+      rects.push_back(static_cast<EGLint>(std::ceil(r.x1) - std::floor(r.x0)));
+      rects.push_back(static_cast<EGLint>(std::ceil(r.y1) - std::floor(r.y0)));
+    }
+  }
+  const EGLBoolean swapped = rects.empty()
+      ? eglSwapBuffers(m_display, surface.eglSurface())
+      : m_swapWithDamage(m_display, surface.eglSurface(), rects.data(), static_cast<EGLint>(rects.size() / 4));
+  if (swapped != EGL_TRUE) {
     // A failed swap is not fatal: during compositor teardown (session logout,
     // output removal) the wl_egl_window backing buffer can be invalidated and
     // eglSwapBuffers returns EGL_FALSE, sometimes with EGL_SUCCESS. Genuine GPU

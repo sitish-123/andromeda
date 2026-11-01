@@ -273,6 +273,7 @@ void Node::setVisible(bool visible) {
   }
   m_visible = visible;
   markLayoutDirty();
+  markPaintDirty();
 }
 
 void Node::setParticipatesInLayout(bool participatesInLayout) {
@@ -352,6 +353,7 @@ Node* Node::addChild(std::unique_ptr<Node> child) {
   auto* raw = child.get();
   m_children.push_back(std::move(child));
   markLayoutDirty();
+  raw->markPaintDirty();
   return raw;
 }
 
@@ -371,6 +373,7 @@ Node* Node::insertChildAt(std::size_t index, std::unique_ptr<Node> child) {
     m_children.insert(m_children.begin() + static_cast<std::ptrdiff_t>(index), std::move(child));
   }
   markLayoutDirty();
+  raw->markPaintDirty();
   return raw;
 }
 
@@ -383,13 +386,43 @@ std::unique_ptr<Node> Node::removeChild(Node* child) {
   }
 
   auto removed = std::move(*it);
+  Node* root = this;
+  while (root->m_parent != nullptr) {
+    root = root->m_parent;
+  }
+  if (root->m_pendingDamage == nullptr) {
+    root->m_pendingDamage = std::make_unique<DamageRegion>();
+  }
+  takePaintedBounds(removed.get(), *root->m_pendingDamage);
   m_children.erase(it);
   removed->m_parent = nullptr;
   markLayoutDirty();
   return removed;
 }
 
-void Node::markPaintDirty() { propagatePaintDirty(); }
+void Node::markPaintDirty() {
+  m_selfPaintDirty = true;
+  propagatePaintDirty();
+}
+
+void Node::takePaintedBounds(Node* subtree, DamageRegion& out) {
+  if (subtree->m_paintedBounds) {
+    out.add(*subtree->m_paintedBounds);
+    subtree->m_paintedBounds.reset();
+  }
+  for (auto& child : subtree->m_children) {
+    takePaintedBounds(child.get(), out);
+  }
+}
+
+DamageRegion Node::takePendingDamage() {
+  if (m_pendingDamage == nullptr) {
+    return {};
+  }
+  DamageRegion damage = *m_pendingDamage;
+  m_pendingDamage->clear();
+  return damage;
+}
 
 void Node::markLayoutDirty() {
   propagateLayoutDirty();
@@ -427,6 +460,7 @@ void Node::notifyInvalidated(NodeInvalidation invalidation) {
 }
 
 void Node::clearDirty() {
+  m_selfPaintDirty = false;
   m_paintDirty = false;
   m_layoutDirty = false;
   for (auto& child : m_children) {

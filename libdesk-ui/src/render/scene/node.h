@@ -1,8 +1,11 @@
 #pragma once
 
+#include "render/core/damage_region.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 struct Mat3;
@@ -179,6 +182,16 @@ public:
   void markLayoutDirty();
   void clearDirty();
 
+  // Damage tracking, driven by RenderContext: the node's own pixels changed since the last frame.
+  [[nodiscard]] bool selfPaintDirty() const noexcept { return m_selfPaintDirty; }
+  // World bounds (logical, with paint overflow) the node covered in the last frame; nullopt when it drew nothing.
+  [[nodiscard]] const std::optional<DamageRect>& paintedBounds() const noexcept { return m_paintedBounds; }
+  void setPaintedBounds(const std::optional<DamageRect>& bounds) noexcept { m_paintedBounds = bounds; }
+  // Adds the painted bounds of `subtree` to `out` and forgets them.
+  static void takePaintedBounds(Node* subtree, DamageRegion& out);
+  // Root only: bounds of subtrees removed since the last frame.
+  [[nodiscard]] DamageRegion takePendingDamage();
+
 protected:
   virtual void doLayout(Renderer& renderer);
   virtual LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints);
@@ -209,6 +222,9 @@ private:
   bool m_participatesInLayout = true;
   bool m_paintDirty = true;
   bool m_layoutDirty = true;
+  bool m_selfPaintDirty = true;
+  std::optional<DamageRect> m_paintedBounds;
+  std::unique_ptr<DamageRegion> m_pendingDamage;
   bool m_clipChildren = false;
   bool m_paintContained = false;
   bool m_excludeSubtreeFromTabOrder = false;

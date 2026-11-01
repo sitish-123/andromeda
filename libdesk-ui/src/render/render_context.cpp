@@ -28,6 +28,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
+#include <cstdlib>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -91,6 +93,56 @@ namespace {
         * Mat3::rotation(node->rotation())
         * Mat3::scale(node->scaleX(), node->scaleY())
         * Mat3::translation(-cx, -cy);
+  }
+
+  std::optional<DamageRect> paintBounds(const Node* node, const Mat3& world) {
+    if (node->type() == NodeType::Base) {
+      return std::nullopt;
+    }
+    float left = 0.0F;
+    float top = 0.0F;
+    float right = 0.0F;
+    float bottom = 0.0F;
+    Node::transformedBounds(node, world, left, top, right, bottom);
+    float pad = kPaintCullSlack;
+    if (node->type() == NodeType::Text) {
+      const auto* text = static_cast<const TextNode*>(node);
+      pad += std::max(std::abs(text->shadowOffsetX()), std::abs(text->shadowOffsetY()));
+    }
+    return DamageRect{left - pad, top - pad, right + pad, bottom + pad};
+  }
+
+  // Adds what changed under `node` since the last frame and records the new painted bounds. A node whose own paint
+  // changed (position, opacity, style) repaints its whole subtree. False when the frame needs a full repaint.
+  bool collectDamage(Node* node, const Mat3& parentTransform, bool subtreeChanged, DamageRegion& out) {
+    if (!subtreeChanged && !node->paintDirty() && !node->layoutDirty()) {
+      return true;
+    }
+    if (!node->visible()) {
+      Node::takePaintedBounds(node, out);
+      return true;
+    }
+    if (node->type() == NodeType::RenderProxy) {
+      return false;
+    }
+    const Mat3 world = parentTransform * nodeLocalTransform(node);
+    const std::optional<DamageRect> bounds = paintBounds(node, world);
+    const bool whole = subtreeChanged || node->selfPaintDirty();
+    if (whole || node->paintedBounds() != bounds) {
+      if (node->paintedBounds()) {
+        out.add(*node->paintedBounds());
+      }
+      if (bounds) {
+        out.add(*bounds);
+      }
+      node->setPaintedBounds(bounds);
+    }
+    for (const auto& child : node->children()) {
+      if (!collectDamage(child.get(), world, whole, out)) {
+        return false;
+      }
+    }
+    return true;
   }
 
 } // namespace
@@ -176,15 +228,52 @@ void RenderContext::notifyFontConfigChanged() {
   ++m_textMetricsGeneration;
 }
 
-void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const WallpaperMaskDrawParams* wallpaperMask) {
+bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const WallpaperMaskDrawParams* wallpaperMask) {
   if (m_backend == nullptr || m_graphicsResetPending) {
-    return;
+    return false;
   }
   const auto totalStart = std::chrono::steady_clock::now();
+  const auto sw = static_cast<float>(target.logicalWidth());
+  const auto sh = static_cast<float>(target.logicalHeight());
+  const auto bw = static_cast<float>(target.bufferWidth());
+  const auto bh = static_cast<float>(target.bufferHeight());
+  const DamageRect surfaceRect{0.0F, 0.0F, sw, sh};
+
+  // A full repaint is needed when the buffer changed, GPU resources or glyphs were rebuilt, or the wallpaper mask
+  // (drawn over everything) is in use.
+  // NOCTALIA_FULL_REDRAW turns damage tracking off, to rule it out when a surface shows stale pixels.
+  static const bool forceFull = std::getenv("NOCTALIA_FULL_REDRAW") != nullptr;
+  bool full = forceFull
+      || target.takeDamageReset(sceneRoot)
+      || sceneRoot == nullptr
+      || wallpaperMask != nullptr
+      || m_glyphTexturesDirty
+      || (m_gpuResourceGeneration != 0 && sceneRoot->gpuResourceGeneration() != m_gpuResourceGeneration);
+  DamageRegion damage;
+  if (sceneRoot != nullptr) {
+    damage = sceneRoot->takePendingDamage();
+    full = !collectDamage(sceneRoot, Mat3::identity(), false, damage) || full;
+  }
+  damage.clipTo(surfaceRect);
+  if (!full && damage.empty()) {
+    return false;
+  }
+
   if (!m_backend->beginFrame(target)) {
-    return;
+    // Collected damage is lost with this frame: make the next one a full repaint.
+    (void)target.takeDamageReset(nullptr);
+    return false;
   }
   const float renderScale = target.contentScale();
+  std::optional<DamageRegion> repaint;
+  if (!full) {
+    repaint = target.damageHistory().regionFor(m_backend->bufferAge(target), damage);
+  }
+  if (full) {
+    damage.clear();
+    damage.add(surfaceRect);
+  }
+  target.damageHistory().push(damage);
 
   if (sceneRoot != nullptr
       && m_gpuResourceGeneration != 0
@@ -199,16 +288,32 @@ void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   }
 
   const auto drawStart = std::chrono::steady_clock::now();
+  std::vector<DamageRect> bufferDamage;
   {
     UiPhaseScope renderPhase(UiPhase::Render);
-    if (sceneRoot != nullptr) {
-      const auto sw = static_cast<float>(target.logicalWidth());
-      const auto sh = static_cast<float>(target.logicalHeight());
-      const auto bw = static_cast<float>(target.bufferWidth());
-      const auto bh = static_cast<float>(target.bufferHeight());
-      renderNode(
-          renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, 0.0F, 0.0F, sw, sh, false, false, false
-      );
+    if (!repaint) {
+      m_backend->clear(rgba(0.0F, 0.0F, 0.0F, 0.0F));
+      if (sceneRoot != nullptr) {
+        renderNode(
+            renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, 0.0F, 0.0F, sw, sh, false, false, false
+        );
+      }
+    } else {
+      const float sx = sw > 0.0F ? bw / sw : 1.0F;
+      const float sy = sh > 0.0F ? bh / sh : 1.0F;
+      for (const DamageRect& rect : repaint->rects()) {
+        const DamageRect buffer{
+            std::floor(rect.x0 * sx), std::floor(rect.y0 * sy), std::ceil(rect.x1 * sx), std::ceil(rect.y1 * sy)
+        };
+        bufferDamage.push_back(buffer);
+        m_backend->setScissor(scissorForClip(sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1));
+        m_backend->setBlendMode(RenderBlendMode::PremultipliedAlpha);
+        m_backend->clear(rgba(0.0F, 0.0F, 0.0F, 0.0F));
+        renderNode(
+            renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1, true,
+            false, false
+        );
+      }
     }
     if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
       m_backend->disableScissor();
@@ -222,13 +327,14 @@ void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
       target.bufferWidth(), target.bufferHeight()
   );
 
-  m_backend->endFrame(target);
+  m_backend->endFrame(target, bufferDamage);
   const RenderGraphicsResetStatus resetStatus = m_backend->graphicsResetStatus();
   ms = elapsedSince(totalStart);
   logSlowRenderOperation(ms, "renderScene took {:.1F}ms total", ms);
   if (resetStatus != RenderGraphicsResetStatus::NoError) {
     handleGraphicsReset(resetStatus);
   }
+  return true;
 }
 
 TextMetrics RenderContext::measureTextScaled(
