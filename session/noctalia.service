@@ -7,4 +7,7 @@ After=andromeda-session.target
 Slice=session.slice
 ExecStart=/usr/bin/noctalia
 Restart=on-failure
-RestartSec=0
+RestartSec=1
+RestartSteps=5
+RestartMaxDelaySec=30
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || touch "$XDG_RUNTIME_DIR/noctalia-crashed"'
