@@ -35,7 +35,7 @@ namespace {
     auto sep = std::make_unique<Separator>();
     sep->setOrientation(SeparatorOrientation::VerticalRule);
     sep->setThickness(std::max(1.0F, Style::borderWidth * scale));
-    sep->setColor(colorSpecFromRole(ColorRole::OutlineVariant));
+    sep->setColor(colorSpecFromRole(ColorRole::Stroke));
     sep->setFlexGrow(0.0F);
     return sep;
   }
@@ -61,7 +61,7 @@ Stepper::Stepper() {
   setGap(0.0F);
   setPadding(0.0F);
   setMinWidth(kDefaultMinWidth);
-  setFill(colorSpecFromRole(ColorRole::SurfaceContainer, m_surfaceOpacity));
+  setFill(colorSpecFromRole(ColorRole::Fill2, m_surfaceOpacity));
   clearBorder();
   setRadius(Style::scaledRadiusMd());
 
@@ -420,7 +420,7 @@ void Stepper::refreshButtons() {
 
 void Stepper::refreshSegmentStyle() {
   const float r = Style::scaledRadiusMd(m_scale);
-  setFill(colorSpecFromRole(ColorRole::SurfaceContainer, m_surfaceOpacity));
+  setFill(colorSpecFromRole(ColorRole::Fill2, m_surfaceOpacity));
   clearBorder();
   setRadius(r);
   if (m_decrement != nullptr) {

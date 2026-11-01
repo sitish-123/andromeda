@@ -27,8 +27,8 @@ ProgressBar::ProgressBar() {
   marker->setVisible(false);
   m_marker = static_cast<RectNode*>(addChild(std::move(marker)));
 
-  setTrack(colorSpecFromRole(ColorRole::SurfaceContainer));
-  setFill(colorSpecFromRole(ColorRole::Primary));
+  setTrack(colorSpecFromRole(ColorRole::Fill2));
+  setFill(colorSpecFromRole(ColorRole::Accent));
   setRadius(Style::scaledRadiusSm());
   m_paletteConn = paletteChanged().connect([this] { applyPalette(); });
 }

@@ -31,7 +31,7 @@ private:
   void syncPalette();
   void doLayout(Renderer& renderer) override;
 
-  ColorSpec m_primaryColor = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_secondaryColor = colorSpecFromRole(ColorRole::Secondary);
+  ColorSpec m_primaryColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_secondaryColor = colorSpecFromRole(ColorRole::Accent);
   Signal<>::ScopedConnection m_paletteConn;
 };

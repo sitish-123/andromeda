@@ -8,24 +8,6 @@ namespace ui {
 
   namespace {
 
-    template <typename Control, typename Props> void applyNodeProps(Control& control, const Props& props) {
-      if (props.width.has_value() || props.height.has_value()) {
-        control.setSize(props.width.value_or(control.width()), props.height.value_or(control.height()));
-      }
-      if (props.flexGrow.has_value()) {
-        control.setFlexGrow(*props.flexGrow);
-      }
-      if (props.opacity.has_value()) {
-        control.setOpacity(*props.opacity);
-      }
-      if (props.visible.has_value()) {
-        control.setVisible(*props.visible);
-      }
-      if (props.participatesInLayout.has_value()) {
-        control.setParticipatesInLayout(*props.participatesInLayout);
-      }
-    }
-
     template <typename Props> void applyFlexProps(Flex& flex, FlexDirection direction, const Props& props) {
       flex.setDirection(direction);
       if (props.align.has_value()) {
@@ -1022,39 +1004,6 @@ namespace ui {
     }
     if (props.onValueCommitted) {
       control->setOnValueCommitted(std::move(props.onValueCommitted));
-    }
-    applyNodeProps(*control, props);
-    if (props.configure) {
-      props.configure(*control);
-    }
-    if (props.out != nullptr) {
-      *props.out = control.get();
-    }
-    return control;
-  }
-
-  std::unique_ptr<KeybindRecorder> keybindRecorder(KeybindRecorderProps props) {
-    auto control = std::make_unique<KeybindRecorder>();
-    if (props.scale.has_value()) {
-      control->setScale(*props.scale);
-    }
-    if (props.chord.has_value()) {
-      control->setChord(props.chord);
-    }
-    if (props.unsetPlaceholder.has_value()) {
-      control->setUnsetPlaceholder(*props.unsetPlaceholder);
-    }
-    if (props.recordingPlaceholder.has_value()) {
-      control->setRecordingPlaceholder(*props.recordingPlaceholder);
-    }
-    if (props.modifierPolicy.has_value()) {
-      control->setModifierPolicy(*props.modifierPolicy);
-    }
-    if (props.enabled.has_value()) {
-      control->setEnabled(*props.enabled);
-    }
-    if (props.onCommit) {
-      control->setOnCommit(std::move(props.onCommit));
     }
     applyNodeProps(*control, props);
     if (props.configure) {

@@ -1,6 +1,5 @@
 #include "ui/dialogs/glyph_picker_dialog_popup.h"
 
-#include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "render/render_context.h"
 #include "render/scene/node.h"
@@ -13,9 +12,9 @@
 GlyphPickerDialogPopup::~GlyphPickerDialogPopup() { destroyPopup(); }
 
 void GlyphPickerDialogPopup::initialize(
-    WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
+    WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
 ) {
-  initializeBase(wayland, config, renderContext, popupHosts);
+  initializeBase(wayland, settings, renderContext, popupHosts);
 }
 
 bool GlyphPickerDialogPopup::openGlyphPicker() {
@@ -67,9 +66,7 @@ void GlyphPickerDialogPopup::populateContent(Node* contentParent, std::uint32_t 
     if (m_selectPopup == nullptr) {
       m_selectPopup = std::make_unique<SelectDropdownPopup>(*wayland(), *renderContext());
     }
-    if (config() != nullptr) {
-      m_selectPopup->setShadowConfig(config()->config().shell.shadow);
-    }
+    m_selectPopup->setShadowConfig(shadowStyle());
     m_selectPopup->setParent(xdgSurface(), wlSurface(), nullptr);
     contentParent->setPopupContext(m_selectPopup.get());
   }

@@ -9,7 +9,6 @@
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
 #include "ui/controls/input.h"
-#include "ui/controls/keybind_recorder.h"
 #include "ui/controls/label.h"
 #include "ui/controls/progress_bar.h"
 #include "ui/controls/radio_button.h"
@@ -40,6 +39,25 @@
 #include <vector>
 
 namespace ui {
+
+  // Applies the common size, flex, opacity and visibility props of a builder.
+  template <typename Control, typename Props> void applyNodeProps(Control& control, const Props& props) {
+    if (props.width.has_value() || props.height.has_value()) {
+      control.setSize(props.width.value_or(control.width()), props.height.value_or(control.height()));
+    }
+    if (props.flexGrow.has_value()) {
+      control.setFlexGrow(*props.flexGrow);
+    }
+    if (props.opacity.has_value()) {
+      control.setOpacity(*props.opacity);
+    }
+    if (props.visible.has_value()) {
+      control.setVisible(*props.visible);
+    }
+    if (props.participatesInLayout.has_value()) {
+      control.setParticipatesInLayout(*props.participatesInLayout);
+    }
+  }
 
   // out fields receive non-owning pointers into the returned subtree.
   // They are valid only while that subtree remains alive.
@@ -555,24 +573,6 @@ namespace ui {
     std::function<void(Stepper&)> configure = nullptr;
   };
 
-  struct KeybindRecorderProps {
-    KeybindRecorder** out = nullptr;
-    std::optional<KeyChord> chord = std::nullopt;
-    std::optional<float> scale = std::nullopt;
-    std::optional<bool> enabled = std::nullopt;
-    std::optional<std::string> unsetPlaceholder = std::nullopt;
-    std::optional<std::string> recordingPlaceholder = std::nullopt;
-    std::optional<ModifierPolicy> modifierPolicy = std::nullopt;
-    std::optional<float> width = std::nullopt;
-    std::optional<float> height = std::nullopt;
-    std::optional<float> flexGrow = std::nullopt;
-    std::optional<float> opacity = std::nullopt;
-    std::optional<bool> visible = std::nullopt;
-    std::optional<bool> participatesInLayout = std::nullopt;
-    std::function<void(KeyChord)> onCommit = nullptr;
-    std::function<void(KeybindRecorder&)> configure = nullptr;
-  };
-
   struct SpinnerProps {
     Spinner** out = nullptr;
     std::optional<ColorSpec> color = std::nullopt;
@@ -627,7 +627,6 @@ namespace ui {
   [[nodiscard]] std::unique_ptr<Checkbox> checkbox(CheckboxProps props);
   [[nodiscard]] std::unique_ptr<RadioButton> radioButton(RadioButtonProps props);
   [[nodiscard]] std::unique_ptr<Stepper> stepper(StepperProps props);
-  [[nodiscard]] std::unique_ptr<KeybindRecorder> keybindRecorder(KeybindRecorderProps props);
   [[nodiscard]] std::unique_ptr<Spinner> spinner(SpinnerProps props = {});
   [[nodiscard]] std::unique_ptr<ProgressBar> progressBar(ProgressBarProps props = {});
   [[nodiscard]] std::unique_ptr<Spacer> spacer();

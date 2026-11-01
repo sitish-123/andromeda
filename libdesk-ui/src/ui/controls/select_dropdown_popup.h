@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config/config_types.h"
+#include "ui/shadow_style.h"
 #include "ui/controls/context_menu_popup.h"
 #include "ui/controls/select_popup_context.h"
 
@@ -25,7 +25,7 @@ public:
 
   void setParent(zwlr_layer_surface_v1* layerSurface, wl_surface* parentWlSurface, wl_output* output);
   void setParent(xdg_surface* xdgSurface, wl_surface* parentWlSurface, wl_output* output);
-  void setShadowConfig(const ShellConfig::ShadowConfig& shadow);
+  void setShadowConfig(const ShadowStyle& shadow);
 
   void openSelectDropdown(const DropdownRequest& request, DropdownCallbacks callbacks) override;
   void closeSelectDropdown() override;

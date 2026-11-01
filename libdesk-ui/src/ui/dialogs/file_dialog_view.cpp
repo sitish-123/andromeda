@@ -149,7 +149,7 @@ void FileDialogView::create() {
           .out = &m_titleLabel,
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
   headerRow->addChild(ui::spacer());
@@ -263,8 +263,8 @@ void FileDialogView::create() {
       .gap = Style::spaceXs * scale,
       .flexGrow = 1.0F,
       .configure = [scale](Flex& card) {
-        card.setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
-        card.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+        card.setFill(colorSpecFromRole(ColorRole::Fill2));
+        card.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
         card.setRadius(Style::scaledRadiusXl(scale));
         card.setPadding(Style::cardPadding * scale);
         card.setClipChildren(true);

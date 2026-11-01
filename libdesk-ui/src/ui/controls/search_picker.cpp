@@ -73,27 +73,27 @@ namespace {
       const bool hasPreview = !option.preview.empty();
 
       if (highlighted) {
-        setFill(colorSpecFromRole(ColorRole::Primary));
+        setFill(colorSpecFromRole(ColorRole::Accent));
       } else if (hovered) {
-        setFill(colorSpecFromRole(ColorRole::Hover));
+        setFill(colorSpecFromRole(ColorRole::Fill3));
       } else if (selected) {
-        setFill(colorSpecFromRole(ColorRole::PrimaryContainer));
+        setFill(colorSpecFromRole(ColorRole::Fill1));
       } else {
         setFill(clearColorSpec());
       }
 
       ColorSpec foreground =
-          option.enabled ? colorSpecFromRole(ColorRole::OnSurface) : colorSpecFromRole(ColorRole::OnSurface, 0.55F);
-      ColorSpec detailForeground = colorSpecFromRole(ColorRole::OnSurfaceVariant, option.enabled ? 1.0F : 0.55F);
+          option.enabled ? colorSpecFromRole(ColorRole::Label1) : colorSpecFromRole(ColorRole::Label1, 0.55F);
+      ColorSpec detailForeground = colorSpecFromRole(ColorRole::Label2, option.enabled ? 1.0F : 0.55F);
       if (highlighted) {
-        foreground = colorSpecFromRole(ColorRole::OnPrimary);
-        detailForeground = colorSpecFromRole(ColorRole::OnPrimary);
+        foreground = colorSpecFromRole(ColorRole::OnAccent);
+        detailForeground = colorSpecFromRole(ColorRole::OnAccent);
       } else if (hovered) {
-        foreground = colorSpecFromRole(ColorRole::OnHover);
-        detailForeground = colorSpecFromRole(ColorRole::OnHover);
+        foreground = colorSpecFromRole(ColorRole::Label1);
+        detailForeground = colorSpecFromRole(ColorRole::Label1);
       } else if (selected && option.enabled) {
-        foreground = colorSpecFromRole(ColorRole::OnPrimaryContainer);
-        detailForeground = colorSpecFromRole(ColorRole::OnPrimaryContainer);
+        foreground = colorSpecFromRole(ColorRole::Label1);
+        detailForeground = colorSpecFromRole(ColorRole::Label1);
       }
 
       if (m_preview != nullptr) {
@@ -140,8 +140,8 @@ SearchPicker::SearchPicker() {
   setAlign(FlexAlign::Stretch);
   setGap(Style::spaceSm);
   setPadding(Style::spaceSm);
-  setFill(colorSpecFromRole(ColorRole::Surface));
-  setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+  setFill(colorSpecFromRole(ColorRole::SolidRegular));
+  setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
   setRadius(Style::scaledRadiusMd());
   setSize(kDefaultWidth, kDefaultHeight);
 
@@ -188,7 +188,7 @@ SearchPicker::SearchPicker() {
           .out = &m_emptyLabel,
           .text = m_emptyText,
           .fontSize = Style::fontSizeBody,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
       })
   );

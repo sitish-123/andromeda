@@ -48,14 +48,14 @@ namespace {
 
 SearchPickerPopup::~SearchPickerPopup() { destroyPopup(); }
 
-void SearchPickerPopup::initialize(WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext) {
-  initializeBase(wayland, config, renderContext);
+void SearchPickerPopup::initialize(WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext) {
+  initializeBase(wayland, settings, renderContext);
 }
 
 void SearchPickerPopup::initialize(
-    WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
+    WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
 ) {
-  initializeBase(wayland, config, renderContext, popupHosts);
+  initializeBase(wayland, settings, renderContext, popupHosts);
 }
 
 void SearchPickerPopup::setOnSelect(SelectCallback callback) { m_onSelect = std::move(callback); }
@@ -123,7 +123,7 @@ void SearchPickerPopup::populateContent(Node* contentParent, std::uint32_t /*wid
           .text = m_title,
           .fontSize = Style::fontSizeBody * m_scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   header->addChild(ui::spacer());

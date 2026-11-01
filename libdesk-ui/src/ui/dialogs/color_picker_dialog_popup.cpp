@@ -1,6 +1,5 @@
 #include "ui/dialogs/color_picker_dialog_popup.h"
 
-#include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "render/render_context.h"
 #include "render/scene/node.h"
@@ -16,9 +15,9 @@
 ColorPickerDialogPopup::~ColorPickerDialogPopup() { destroyPopup(); }
 
 void ColorPickerDialogPopup::initialize(
-    WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
+    WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext, LayerPopupHostRegistry& popupHosts
 ) {
-  initializeBase(wayland, config, renderContext, popupHosts);
+  initializeBase(wayland, settings, renderContext, popupHosts);
 }
 
 bool ColorPickerDialogPopup::openColorPicker() {
@@ -58,7 +57,7 @@ void ColorPickerDialogPopup::populateContent(Node* contentParent, std::uint32_t 
   if (const auto& initialColor = ColorPickerDialog::currentOptions().initialColor; initialColor.has_value()) {
     sheet->colorPicker()->setColor(*initialColor);
   } else {
-    sheet->colorPicker()->setColor(colorForRole(ColorRole::Primary));
+    sheet->colorPicker()->setColor(colorForRole(ColorRole::Accent));
   }
   sheet->setOnCancel([this] { DeferredCall::callLater([this] { cancel(); }); });
   sheet->setOnApply([this](const Color& color) { DeferredCall::callLater([this, color] { accept(color); }); });
@@ -69,9 +68,7 @@ void ColorPickerDialogPopup::populateContent(Node* contentParent, std::uint32_t 
     if (m_selectPopup == nullptr) {
       m_selectPopup = std::make_unique<SelectDropdownPopup>(*wayland(), *renderContext());
     }
-    if (config() != nullptr) {
-      m_selectPopup->setShadowConfig(config()->config().shell.shadow);
-    }
+    m_selectPopup->setShadowConfig(shadowStyle());
     m_selectPopup->setParent(xdgSurface(), wlSurface(), nullptr);
     contentParent->setPopupContext(m_selectPopup.get());
   }

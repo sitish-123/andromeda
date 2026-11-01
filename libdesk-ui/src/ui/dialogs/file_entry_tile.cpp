@@ -190,13 +190,13 @@ void FileEntryTile::doLayout(Renderer& renderer) {
 }
 
 void FileEntryTile::applyVisualState() {
-  const Color bg = m_selected ? colorForRole(ColorRole::Primary)
-      : m_hovered             ? colorForRole(ColorRole::Hover)
+  const Color bg = m_selected ? colorForRole(ColorRole::Accent)
+      : m_hovered             ? colorForRole(ColorRole::Fill3)
                               : clearColor();
-  const Color glyphFg = colorForRole(ColorRole::OnSurface); // glyph sits on the preview's Surface bg
-  const Color labelFg = m_selected ? colorForRole(ColorRole::OnPrimary)
-      : m_hovered                  ? colorForRole(ColorRole::OnHover)
-                                   : colorForRole(ColorRole::OnSurface);
+  const Color glyphFg = colorForRole(ColorRole::Label1); // glyph sits on the preview's Surface bg
+  const Color labelFg = m_selected ? colorForRole(ColorRole::OnAccent)
+      : m_hovered                  ? colorForRole(ColorRole::Label1)
+                                   : colorForRole(ColorRole::Label1);
   const float alpha = m_disabled ? 0.55F : 1.0F;
 
   m_background->setFill(bg);

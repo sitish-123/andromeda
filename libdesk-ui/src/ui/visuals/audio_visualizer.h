@@ -31,7 +31,7 @@ private:
   std::vector<float> m_displayValues;
   float m_smoothingTauMs = 60.0F;
   bool m_converged = true;
-  ColorSpec m_color1 = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_color2 = colorSpecFromRole(ColorRole::Primary);
+  ColorSpec m_color1 = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_color2 = colorSpecFromRole(ColorRole::Accent);
   Signal<>::ScopedConnection m_paletteConn;
 };

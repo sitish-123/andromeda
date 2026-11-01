@@ -11,12 +11,12 @@
 #include <optional>
 
 class Box;
-class ConfigService;
 class InputArea;
 class Node;
 class RectNode;
 class Renderer;
 class RenderContext;
+class UiSettings;
 class WaylandConnection;
 struct XdgPopupParent;
 struct KeyboardEvent;
@@ -71,9 +71,9 @@ protected:
   DialogPopupHost();
 
   // Called once during subclass `initialize` to capture the shared deps.
-  void initializeBase(WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext);
+  void initializeBase(WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext);
   void initializeBase(
-      WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext,
+      WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext,
       LayerPopupHostRegistry& popupHosts
   );
 
@@ -103,14 +103,13 @@ protected:
   // automatically on Escape and on compositor-initiated dismissal.
   void cancel();
 
-  // Effective UI scale (clamped to a safe minimum). Reads
-  // ConfigService::config().accessibility.uiScale.
+  // Effective UI scale, clamped to a safe minimum.
   [[nodiscard]] float uiScale() const;
 
   [[nodiscard]] InputDispatcher& inputDispatcher() noexcept { return m_inputDispatcher; }
   [[nodiscard]] AnimationManager& animations() noexcept { return m_animations; }
   [[nodiscard]] WaylandConnection* wayland() const noexcept { return m_wayland; }
-  [[nodiscard]] ConfigService* config() const noexcept { return m_config; }
+  [[nodiscard]] ShadowStyle shadowStyle() const;
   [[nodiscard]] RenderContext* renderContext() const noexcept { return m_renderContext; }
   // Stable Renderer view for this popup's own surface. Valid only while open.
   [[nodiscard]] Renderer& renderer() const noexcept;
@@ -175,7 +174,7 @@ protected:
   // Owned shared state. Subclasses don't manipulate these directly outside
   // of the `populateContent` / `layoutSheet` hooks where appropriate.
   WaylandConnection* m_wayland = nullptr;
-  ConfigService* m_config = nullptr;
+  const UiSettings* m_uiSettings = nullptr;
   RenderContext* m_renderContext = nullptr;
   LayerPopupHostRegistry* m_popupHosts = nullptr;
 

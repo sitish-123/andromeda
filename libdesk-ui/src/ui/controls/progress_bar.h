@@ -53,9 +53,9 @@ private:
   Node* m_fillClip = nullptr;
   RectNode* m_fill = nullptr;
   RectNode* m_marker = nullptr;
-  ColorSpec m_trackColor = colorSpecFromRole(ColorRole::SurfaceContainer);
-  ColorSpec m_fillColor = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_markerColor = colorSpecFromRole(ColorRole::OnSurfaceVariant);
+  ColorSpec m_trackColor = colorSpecFromRole(ColorRole::Fill2);
+  ColorSpec m_fillColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_markerColor = colorSpecFromRole(ColorRole::Label2);
   std::optional<float> m_markerPos;
   float m_markerWidth = Style::progressMarkerWidth;
   float m_progress = 1.0F;

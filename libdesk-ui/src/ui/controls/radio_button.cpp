@@ -97,20 +97,20 @@ void RadioButton::applyState() {
     return;
   }
 
-  ColorSpec fill = colorSpecFromRole(ColorRole::Surface);
-  ColorSpec border = colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec fill = colorSpecFromRole(ColorRole::SolidRegular);
+  ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   if (m_checked) {
-    fill = colorSpecFromRole(ColorRole::Primary);
-    border = colorSpecFromRole(ColorRole::Primary);
+    fill = colorSpecFromRole(ColorRole::Accent);
+    border = colorSpecFromRole(ColorRole::Accent);
   } else if (hovered()) {
-    border = colorSpecFromRole(ColorRole::Hover);
+    border = colorSpecFromRole(ColorRole::Fill3);
   }
 
   m_outer->setFill(fill);
   m_outer->setBorder(border, Style::borderWidth * m_scale);
 
   const ColorSpec innerFill =
-      m_checked ? colorSpecFromRole(ColorRole::OnPrimary) : colorSpecFromRole(ColorRole::Surface);
+      m_checked ? colorSpecFromRole(ColorRole::OnAccent) : colorSpecFromRole(ColorRole::SolidRegular);
   m_inner->setFill(innerFill);
   m_inner->setBorder(innerFill, 0.0F);
   m_inner->setVisible(m_checked);

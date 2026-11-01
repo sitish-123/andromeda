@@ -34,7 +34,7 @@ private:
   void updateGeometry();
 
   SpinnerNode* m_spinnerNode = nullptr;
-  ColorSpec m_color = colorSpecFromRole(ColorRole::Primary);
+  ColorSpec m_color = colorSpecFromRole(ColorRole::Accent);
   Signal<>::ScopedConnection m_paletteConn;
   std::uint32_t m_animId = 0;
   bool m_spinning = false;

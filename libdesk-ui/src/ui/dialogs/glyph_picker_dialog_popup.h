@@ -14,7 +14,7 @@ public:
   ~GlyphPickerDialogPopup() override;
 
   void initialize(
-      WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext,
+      WaylandConnection& wayland, const UiSettings& settings, RenderContext& renderContext,
       LayerPopupHostRegistry& popupHosts
   );
 
