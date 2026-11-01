@@ -1,0 +1,142 @@
+# The design system's fixed values (docs/design-system.md). protocol/gen-design-tokens.py turns this file into the
+# C++ header the shell and the compositor build with. Floats stay floats, integers stay integers, "#rrggbbaa"
+# strings become packed RGBA colors, other strings become string views. A table whose children are tables with the
+# same keys (scheme.light / scheme.dark, type.*, elevation.*, spring.*) becomes a struct with one constant per child.
+
+[radius]  # px; a nested radius is the outer radius minus the padding
+xs = 6.0
+sm = 10.0
+md = 14.0
+lg = 20.0
+xl = 28.0
+pill = 999.0
+
+[space]  # px, 4-point grid
+s1 = 4.0
+s2 = 8.0
+s3 = 12.0
+s4 = 16.0
+s5 = 20.0
+s6 = 24.0
+
+[font]
+family = "Inter"
+
+[type.mini]
+size = 11.0
+weight = 500
+[type.caption]
+size = 11.5
+weight = 500
+[type.body]
+size = 13.0
+weight = 500
+[type.title]
+size = 13.5
+weight = 600
+[type.large]
+size = 15.0
+weight = 600
+[type.header]
+size = 20.0
+weight = 600
+
+# Semantic color roles. tint_* is a material's fill over the compositor blur; solid_* replaces it when reduce
+# transparency is on. The accent is the default; the live accent setting overrides it. window..separator are the
+# opaque backgrounds for GTK and Qt apps ({{tokens.<role>.<format>}} in shell templates).
+[scheme.light]
+label_1 = "#141418eb"
+label_2 = "#14141894"
+label_3 = "#1414185c"
+fill_1 = "#ffffff9e"
+fill_2 = "#0000000d"
+fill_3 = "#00000017"
+tint_thin = "#f6f6fa8c"
+tint_regular = "#f6f6fab3"
+tint_thick = "#fafafcd6"
+solid_thin = "#ececf1ff"
+solid_regular = "#f2f2f6ff"
+solid_thick = "#f8f8faff"
+stroke = "#00000014"
+edge = "#ffffff8c"
+accent = "#2f6bffff"
+on_accent = "#ffffffff"
+danger = "#ff3b30ff"
+shadow = "#00000038"
+window = "#f2f2f6ff"
+view = "#ffffffff"
+card = "#ffffffff"
+header = "#ececf1ff"
+popover = "#f8f8faff"
+sidebar = "#ececf1ff"
+separator = "#0000001f"
+
+[scheme.dark]
+label_1 = "#f5f5f7eb"
+label_2 = "#f5f5f794"
+label_3 = "#f5f5f75c"
+fill_1 = "#ffffff1a"
+fill_2 = "#ffffff0d"
+fill_3 = "#ffffff1f"
+tint_thin = "#1c1c208c"
+tint_regular = "#1c1c20b3"
+tint_thick = "#202024d6"
+solid_thin = "#1c1c20ff"
+solid_regular = "#222226ff"
+solid_thick = "#28282cff"
+stroke = "#ffffff14"
+edge = "#ffffff1f"
+accent = "#4a80ffff"
+on_accent = "#ffffffff"
+danger = "#ff453aff"
+shadow = "#00000066"
+window = "#1e1e22ff"
+view = "#18181bff"
+card = "#28282cff"
+header = "#222226ff"
+popover = "#28282cff"
+sidebar = "#1c1c20ff"
+separator = "#ffffff1a"
+
+# One blur recipe for every material, drawn by the compositor and cached while the backdrop is static.
+[blur]
+passes = 3
+radius = 6
+noise = 0.02
+brightness = 0.95
+contrast = 0.95
+saturation = 1.6
+
+# Drawn by the compositor. softness and offset in px; opacity scales the scheme's shadow color.
+[elevation.e1]
+softness = 14
+offset_x = 0
+offset_y = 4
+opacity = 0.6
+[elevation.e2]
+softness = 48
+offset_x = 0
+offset_y = 18
+opacity = 1.0
+
+[motion]  # ms
+fast = 120
+normal = 200
+slow = 320
+
+# damping is the ratio to critical damping: 1.0 settles without overshoot.
+[spring.standard]
+stiffness = 900.0
+damping = 1.0
+[spring.snappy]
+stiffness = 1400.0
+damping = 1.0
+[spring.bouncy]
+stiffness = 700.0
+damping = 0.8
+
+[island]  # bar islands, control center sheet, dock (px)
+height = 34.0
+live_height = 52.0
+sheet_width = 360.0
+dock_icon = 54.0
