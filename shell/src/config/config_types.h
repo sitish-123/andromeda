@@ -4,7 +4,10 @@
 #include "config/config_limits.h"
 #include "config/widget_setting_value.h"
 #include "core/input/key_chord.h"
+#include "core/input/keybind_matcher.h"
+#include "render/core/wallpaper_types.h"
 #include "system/sysmon_threshold_profile.h"
+#include "ui/shadow_style.h"
 #include "ui/style.h"
 
 #include <array>
@@ -31,7 +34,7 @@ struct BarCapsuleGroupStyle {
   std::string id;
   std::vector<std::string> members; // ordered member widget references
   bool enabled = true;
-  ColorSpec fill = colorSpecFromRole(ColorRole::SurfaceContainer);
+  ColorSpec fill = colorSpecFromRole(ColorRole::Fill2);
   // True when `border` is explicitly present (empty value = no outline); mirrors bar/widget border semantics.
   bool borderSpecified = false;
   std::optional<ColorSpec> border;
@@ -156,8 +159,9 @@ struct BarConfig {
   std::int32_t thickness = Style::barThicknessDefault;
   float backgroundOpacity = 1.0F;
   bool compositorBlur = true;
+  bool islands = false; // one floating pill per section instead of one full-length background
   // Inside outline for the bar background; attached panels inherit the resolved values.
-  ColorSpec border = colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = 0.0F;
   std::int32_t radius = static_cast<std::int32_t>(Style::radiusXl);
   std::int32_t radiusTopLeft = static_cast<std::int32_t>(Style::radiusXl);
@@ -166,7 +170,7 @@ struct BarConfig {
   std::int32_t radiusBottomRight = static_cast<std::int32_t>(Style::radiusXl);
   bool concaveEdgeCorners = true;
   std::int32_t marginEnds = 100;       // inset from each end of the bar along its main axis
-  std::int32_t marginEdge = 0;         // distance from the nearest screen edge (floats the bar when > 0)
+  std::int32_t marginEdge = 8;         // distance from the nearest screen edge (floats the bar when > 0)
   std::int32_t marginOppositeEdge = 0; // extra reserved space on the inward side of the bar
   std::int32_t padding = 14;           // main-axis padding from bar edges to start/end sections
   std::int32_t widgetSpacing = 6;      // gap between widgets within a section
@@ -189,7 +193,7 @@ struct BarConfig {
                                          "brightness", "battery", "control-center", "session"};
   // When true, widgets on this bar use a capsule unless `[widget.*] capsule = false`.
   bool widgetCapsuleDefault = false;
-  ColorSpec widgetCapsuleFill = colorSpecFromRole(ColorRole::SurfaceContainer);
+  ColorSpec widgetCapsuleFill = colorSpecFromRole(ColorRole::Fill2);
   // When set, bar widgets with capsules use this for icon + primary label color unless overridden per widget.
   std::optional<ColorSpec> widgetCapsuleForeground;
   // Default primary label color for all widgets on this bar (same as per-widget `color`); per-widget `color`
@@ -364,20 +368,6 @@ struct ResolvedIdleBehavior {
 void normalizeIdleBehaviorAction(IdleBehaviorConfig& behavior);
 [[nodiscard]] ResolvedIdleBehavior resolveIdleBehaviorActions(const IdleBehaviorConfig& behavior);
 
-enum class KeybindAction : std::uint8_t {
-  Validate = 0,
-  Cancel = 1,
-  Left = 2,
-  Right = 3,
-  Up = 4,
-  Down = 5,
-  TabNext = 6,
-  TabPrevious = 7,
-  Delete = 8,
-  Copy = 9,
-  Save = 10,
-};
-
 [[nodiscard]] std::vector<KeyChord> defaultKeybindSet(KeybindAction action);
 
 using ConfigOverrideValue = std::variant<
@@ -389,7 +379,7 @@ using ConfigOverrideValue = std::variant<
 // Corner shape and edge softness are fixed in the shell code; padding, radius, and border width are configurable.
 struct WidgetBarCapsuleSpec {
   bool enabled = false;
-  ColorSpec fill = colorSpecFromRole(ColorRole::SurfaceContainer);
+  ColorSpec fill = colorSpecFromRole(ColorRole::Fill2);
   // Opaque group ID (auto-generated). Adjacent widgets in the same section with the same non-empty ID share one
   // shell and inherit the group's `BarCapsuleGroupStyle`.
   std::string group;
@@ -493,29 +483,6 @@ resolveWidgetFontScale(float barFontScale, const WidgetConfig* widget, std::stri
 // Matches connector name exactly, or a word-boundary token within output description.
 [[nodiscard]] bool outputMatchesSelector(const std::string& match, const WaylandOutput& output);
 
-enum class WallpaperFillMode : std::uint8_t {
-  Center = 0,
-  Crop = 1,
-  Fit = 2,
-  Stretch = 3,
-  Repeat = 4,
-  Span = 5,
-};
-
-enum class WallpaperTransition : std::uint8_t {
-  Fade = 0,
-  Wipe = 1,
-  Disc = 2,
-  Stripes = 3,
-  Zoom = 4,
-  Honeycomb = 5,
-  Vortex = 6,
-  Pixel = 7,
-  Diamond = 8,
-  Golden = 9,
-  Melt = 10,
-};
-
 enum class LockscreenTransition : std::uint8_t {
   Fade = 0,
   Wipe = 1,
@@ -603,7 +570,6 @@ struct LockscreenConfig {
   // "ryoku" (the greeter's Ryoku look, so login and unlock match) or "classic".
   std::string style = "ryoku";
   bool allowEmptyPassword = false;
-  bool blurredDesktop = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade,    LockscreenTransition::Wipe,
                                                    LockscreenTransition::Disc,    LockscreenTransition::Stripes,
                                                    LockscreenTransition::Zoom,    LockscreenTransition::Honeycomb,
@@ -720,6 +686,7 @@ struct DockMonitorOverride {
   std::optional<float> activeOpacity;
   std::optional<float> inactiveOpacity;
   std::optional<bool> showDots;
+  std::optional<bool> runningBar;
   std::optional<bool> showInstanceCount;
   std::optional<DockLauncherPosition> launcherPosition;
   std::optional<std::string> launcherIcon;
@@ -734,21 +701,21 @@ struct DockConfig {
   bool enabled = false; // opt-in; dock is hidden by default
   DockEdge position = DockEdge::Bottom;
   bool activeMonitorOnly = false;    // render only on preferred active output
-  std::int32_t iconSize = 48;        // icon size in pixels (before ui_scale)
-  std::int32_t mainAxisPadding = 16; // inner padding along the icon row (main axis)
-  std::int32_t crossAxisPadding = 8; // inner padding perpendicular to the icon row
-  std::int32_t itemSpacing = 6;      // gap between items
+  std::int32_t iconSize = 54;        // icon size in pixels (before ui_scale)
+  std::int32_t mainAxisPadding = 10; // inner padding along the icon row (main axis)
+  std::int32_t crossAxisPadding = 10; // inner padding perpendicular to the icon row
+  std::int32_t itemSpacing = 10;     // gap between items
   float backgroundOpacity = 0.88F;
   bool compositorBlur = true;
   // Inside outline for the dock background.
-  ColorSpec border = colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = 0.0F;
-  std::int32_t radius = 16;            // dock background corner radius
-  std::int32_t radiusTopLeft = 16;     // dock background top-left corner radius
-  std::int32_t radiusTopRight = 16;    // dock background top-right corner radius
-  std::int32_t radiusBottomLeft = 16;  // dock background bottom-left corner radius
-  std::int32_t radiusBottomRight = 16; // dock background bottom-right corner radius
-  bool concaveEdgeCorners = true;      // carve concave corners on the side that touches the screen edge
+  std::int32_t radius = 30;            // dock background corner radius
+  std::int32_t radiusTopLeft = 30;     // dock background top-left corner radius
+  std::int32_t radiusTopRight = 30;    // dock background top-right corner radius
+  std::int32_t radiusBottomLeft = 30;  // dock background bottom-left corner radius
+  std::int32_t radiusBottomRight = 30; // dock background bottom-right corner radius
+  bool concaveEdgeCorners = false;     // carve concave corners on the side that touches the screen edge
   std::int32_t marginEnds = 0;         // inset from each end of the dock along its main axis
   std::int32_t marginEdge = 0;         // distance from the nearest screen edge (floats the dock when > 0)
   bool shadow = true;                  // use the global shell shadow
@@ -766,6 +733,7 @@ struct DockConfig {
   float activeOpacity = 1.0F;       // focused app icon opacity
   float inactiveOpacity = 0.85F;    // non-focused app icon opacity
   bool showDots = false;            // show optional running window dots below app icons
+  bool runningBar = true;           // short bar under running apps; hidden while show_dots is on
   bool showInstanceCount = true;    // show a badge with count when app has >1 window
   DockLauncherPosition launcherPosition = DockLauncherPosition::None;
   std::string launcherIcon = "grid-dots";   // Tabler glyph name
@@ -857,7 +825,7 @@ struct OsdConfig {
   float scale = 1.0F;
   float backgroundOpacity = 0.97F;
   bool border = true; // outline around OSD popup cards
-  ColorSpec borderColor = colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = Style::borderWidth;
   bool followFocusedOutput = false;
   int offsetX = 20;
@@ -880,7 +848,7 @@ struct NotificationConfig {
   std::int32_t width = kDefaultWidth;
   float backgroundOpacity = 0.97F; // toast card background alpha (0.0–1.0)
   bool border = true;              // outline around toast cards
-  ColorSpec borderColor = colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = Style::borderWidth;
   bool followFocusedOutput = false;
   int offsetX = 20; // absolute horizontal margin from the screen edge
@@ -936,18 +904,6 @@ constexpr EnumOption<PasswordMaskStyle> kPasswordMaskStyles[] = {
     {PasswordMaskStyle::RandomIcons, "random", "settings.options.shell.password-style.random-icons"},
 };
 
-enum class ShadowDirection : std::uint8_t {
-  Center = 0,
-  Down = 1,
-  Up = 2,
-  Left = 3,
-  Right = 4,
-  DownLeft = 5,
-  DownRight = 6,
-  UpLeft = 7,
-  UpRight = 8,
-};
-
 constexpr EnumOption<ShadowDirection> kShadowDirections[] = {
     {ShadowDirection::Center, "center", "settings.options.shell.shadow-direction.center"},
     {ShadowDirection::Down, "down", "settings.options.shell.shadow-direction.down"},
@@ -959,35 +915,6 @@ constexpr EnumOption<ShadowDirection> kShadowDirections[] = {
     {ShadowDirection::UpLeft, "up_left", "settings.options.shell.shadow-direction.up-left"},
     {ShadowDirection::UpRight, "up_right", "settings.options.shell.shadow-direction.up-right"},
 };
-
-struct ShadowDirectionOffset {
-  std::int32_t x;
-  std::int32_t y;
-};
-
-constexpr ShadowDirectionOffset shadowDirectionOffset(ShadowDirection dir) noexcept {
-  switch (dir) {
-  case ShadowDirection::Center:
-    return {0, 0};
-  case ShadowDirection::Down:
-    return {0, 2};
-  case ShadowDirection::Up:
-    return {0, -2};
-  case ShadowDirection::Left:
-    return {-2, 0};
-  case ShadowDirection::Right:
-    return {2, 0};
-  case ShadowDirection::DownLeft:
-    return {-2, 2};
-  case ShadowDirection::DownRight:
-    return {2, 2};
-  case ShadowDirection::UpLeft:
-    return {-2, -2};
-  case ShadowDirection::UpRight:
-    return {2, -2};
-  }
-  return {0, 2};
-}
 
 enum class PanelTransparencyMode : std::uint8_t {
   Solid = 0,
@@ -1138,17 +1065,12 @@ struct ShellConfig {
     bool operator==(const AnimationConfig&) const = default;
   };
 
-  struct ShadowConfig {
-    ShadowDirection direction = ShadowDirection::Down;
-    float alpha = 0.55F;
-
-    bool operator==(const ShadowConfig&) const = default;
-  };
+  using ShadowConfig = ShadowStyle;
 
   struct PanelConfig {
     PanelTransparencyMode transparencyMode = PanelTransparencyMode::Solid;
     bool borders = true; // outline on floating panel surfaces
-    ColorSpec borderColor = colorSpecFromRole(ColorRole::OutlineVariant);
+    ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
     float borderWidth = Style::borderWidth;
     bool shadow = true;                    // cast the global [shell.shadow] from panel surfaces
     bool listItemBackground = false;       // filled rounded background behind launcher/clipboard list items
@@ -1957,7 +1879,7 @@ struct PluginSourceConfig {
 struct PluginsConfig {
   std::vector<PluginSourceConfig> sources;
   std::vector<std::string> enabled; // active plugin ids ("author/plugin"); opt-in for every source
-  PluginAutoUpdateMode autoUpdate = PluginAutoUpdateMode::All; // background auto-update scope (startup + every 6h)
+  PluginAutoUpdateMode autoUpdate = PluginAutoUpdateMode::None; // background auto-update scope (startup + every 6h)
   // Plugin-level setting overrides, keyed by plugin id then setting key. Seeded
   // into every entry runtime of the plugin (widget/shortcut/service). Open-ended
   // (validated against the manifest schema), so compared via configEqual rather

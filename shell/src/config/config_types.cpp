@@ -732,6 +732,8 @@ DockConfig resolveDockMonitorOverride(const DockConfig& base, const DockMonitorO
     resolved.inactiveOpacity = *override.inactiveOpacity;
   if (override.showDots)
     resolved.showDots = *override.showDots;
+  if (override.runningBar)
+    resolved.runningBar = *override.runningBar;
   if (override.showInstanceCount)
     resolved.showInstanceCount = *override.showInstanceCount;
   if (override.launcherPosition)

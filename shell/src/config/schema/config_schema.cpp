@@ -138,7 +138,6 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::face, "face"),
         field(&LockscreenConfig::style, "style"),
         field(&LockscreenConfig::allowEmptyPassword, "allow_empty_password"),
-        field(&LockscreenConfig::blurredDesktop, "blurred_desktop"),
         enumArrayField(
             &LockscreenConfig::transitions, "transition", kLockscreenTransitions, std::optional<LockscreenTransition>{}
         ),
@@ -2449,6 +2448,7 @@ namespace noctalia::config::schema {
           optionalFloatField(&DockMonitorOverride::activeOpacity, "active_opacity", kUnitRange),
           optionalFloatField(&DockMonitorOverride::inactiveOpacity, "inactive_opacity", kUnitRange),
           optionalBoolField(&DockMonitorOverride::showDots, "show_dots"),
+          optionalBoolField(&DockMonitorOverride::runningBar, "running_bar"),
           optionalBoolField(&DockMonitorOverride::showInstanceCount, "show_instance_count"),
           optionalEnumField(&DockMonitorOverride::launcherPosition, "launcher_position", kDockLauncherPositions),
           field(&DockMonitorOverride::launcherIcon, "launcher_icon"),
@@ -2525,6 +2525,7 @@ namespace noctalia::config::schema {
         field(&DockConfig::activeOpacity, "active_opacity", kUnitRange),
         field(&DockConfig::inactiveOpacity, "inactive_opacity", kUnitRange),
         field(&DockConfig::showDots, "show_dots"),
+        field(&DockConfig::runningBar, "running_bar"),
         field(&DockConfig::showInstanceCount, "show_instance_count"),
         enumField(&DockConfig::launcherPosition, "launcher_position", kDockLauncherPositions),
         field(&DockConfig::launcherIcon, "launcher_icon"),
@@ -2571,6 +2572,7 @@ namespace noctalia::config::schema {
         field(&BarConfig::thickness, "thickness", kBarThicknessRange),
         field(&BarConfig::backgroundOpacity, "background_opacity", kBarOpacityRange),
         field(&BarConfig::compositorBlur, "compositor_blur"),
+        field(&BarConfig::islands, "islands"),
         colorField(&BarConfig::border, "border"),
         field(&BarConfig::borderWidth, "border_width", kBarBorderWidthRange),
         barRadiusField(),

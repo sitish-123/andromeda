@@ -44,7 +44,7 @@ namespace noctalia::config {
       return std::to_string(value);
     }
 
-    // Merge config-dir *.toml (honoring [include]) then the state-dir settings.toml,
+    // Merge config-dir *.toml (honoring [include]) then the state-dir overrides.toml,
     // mirroring loadAll's order. Syntax / missing-include errors are recorded and
     // merging continues with what parsed. `originsOut` collects each key's source
     // position in the same precedence order.
