@@ -1255,9 +1255,15 @@ void Surface::render() {
 
   requestFrame();
   traceSurfaceEvent(*this, "render-begin");
-  const float renderMs = elapsedMs([this] {
-    m_renderContext->renderScene(m_renderTarget, m_sceneRoot, m_wallpaperMask ? &*m_wallpaperMask : nullptr);
+  bool presented = false;
+  const float renderMs = elapsedMs([this, &presented] {
+    presented =
+        m_renderContext->renderScene(m_renderTarget, m_sceneRoot, m_wallpaperMask ? &*m_wallpaperMask : nullptr);
   });
+  if (!presented && m_frameCallback != nullptr) {
+    // Nothing changed: commit only the frame callback and keep the current buffer.
+    wl_surface_commit(m_surface);
+  }
   traceSurfaceEvent(*this, "render-end");
   recordSurfaceProfileEvent(*this, SurfaceProfileEvent::Render, renderMs);
   logSlowSurfaceOperation(
