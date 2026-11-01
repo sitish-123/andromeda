@@ -309,7 +309,9 @@ namespace andromeda {
       for (size_t row = 1; row < column.views.size(); ++row) {
         View* view = column.views[row];
         view->moveToWorkspace(&target, /*attachToLayout=*/false);
-        target.layout().insertViewIntoColumn(view, target.layout().columnOf(insertionAnchor), static_cast<int>(row));
+        if (ColumnOps* ops = target.layout().columnOps()) {
+          ops->insertViewIntoColumn(view, target.layout().columnOf(insertionAnchor), static_cast<int>(row));
+        }
         if (target.layout().columnOf(view) != target.layout().columnOf(first)) {
           // Splitting layouts flatten a source stack. Advance the insertion
           // anchor so three or more members retain their original order.

@@ -15,7 +15,7 @@ namespace andromeda {
   // Public width/X names refer to the primary scroll axis and height to the cross axis. Horizontal layouts map
   // primary/cross to X/Y, vertical layouts to Y/X.
 
-  class ScrollingLayout : public Layout, public TabbedContainers {
+  class ScrollingLayout : public Layout, public ColumnOps, public TabbedContainers {
   public:
     [[nodiscard]] LayoutMode mode() const override { return LayoutMode::Scrolling; }
 
@@ -106,6 +106,7 @@ namespace andromeda {
     [[nodiscard]] double bottomGapWeight(int columnIndex) const;
 
     [[nodiscard]] TabbedContainers* tabbedContainers() override { return this; }
+    [[nodiscard]] ColumnOps* columnOps() override { return this; }
     bool setTabbed(const View* view, bool tabbed) override;
     bool selectTab(const View* view) override;
     bool insertTab(View* view, int column, int row, const View* member) override;

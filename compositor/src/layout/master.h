@@ -16,7 +16,7 @@ namespace andromeda {
 
   class View;
 
-  class MasterStackLayout final : public Layout, public TabbedContainers {
+  class MasterStackLayout final : public Layout, public ColumnOps, public TabbedContainers {
   public:
     struct Area {
       std::vector<View*> views;
@@ -80,6 +80,7 @@ namespace andromeda {
     std::unique_ptr<ResizeGrab> beginResize(View* view, uint32_t edges, const wlr_box& usable) override;
 
     [[nodiscard]] TabbedContainers* tabbedContainers() override { return this; }
+    [[nodiscard]] ColumnOps* columnOps() override { return this; }
     bool setTabbed(const View* view, bool tabbed) override;
     bool selectTab(const View* view) override;
     bool insertTab(View* view, int column, int row, const View* member) override;

@@ -3480,16 +3480,20 @@ namespace andromeda {
       } else if (m_dragSourceWidth.has_value()) {
         m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
         const int column = m_dragSourceWorkspace->layout().columnOf(view);
-        m_dragSourceWorkspace->layout().setWidthFraction(column, m_dragSourceWidth->fraction);
-        if (m_dragSourceWidth->fullWidth) {
-          m_dragSourceWorkspace->layout().toggleFullWidth(column);
+        if (ColumnOps* ops = m_dragSourceWorkspace->layout().columnOps()) {
+          ops->setWidthFraction(column, m_dragSourceWidth->fraction);
+          if (m_dragSourceWidth->fullWidth) {
+            ops->toggleFullWidth(column);
+          }
         }
         view->setMaximizedState(m_dragSourceWidth->fullWidth);
       } else if (m_dragSourceWorkspace->dwindleLayout() != nullptr) {
         // Gap-index insert restores the exact flat position the drag removed.
         m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
       } else if (m_dragSourceRow >= 0) {
-        m_dragSourceWorkspace->layout().insertViewIntoColumn(view, m_dragSourceColumn, m_dragSourceRow);
+        if (ColumnOps* ops = m_dragSourceWorkspace->layout().columnOps()) {
+          ops->insertViewIntoColumn(view, m_dragSourceColumn, m_dragSourceRow);
+        }
       } else {
         m_dragSourceWorkspace->layout().insertView(view, m_dragSourceColumn);
       }

@@ -569,8 +569,8 @@ namespace andromeda {
     }
     preview->insertView(view, layoutAttachIndex(view));
     const int column = preview->columnOf(view);
-    if (column >= 0 && !preview->isFullWidth(column)) {
-      preview->toggleFullWidth(column);
+    if (auto* ops = preview->columnOps(); ops != nullptr && column >= 0 && !ops->isFullWidth(column)) {
+      ops->toggleFullWidth(column);
     }
     preview->arrange(usable);
     const wlr_box target = preview->targetBox(view);
@@ -1814,10 +1814,11 @@ namespace andromeda {
     }
     const int current = m_layout->columnOf(m_focusedView);
     const int target = m_layout->columnOf(destination);
-    if (current < 0 || target < 0 || target >= static_cast<int>(m_layout->columns().size())) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || current < 0 || target < 0 || target >= static_cast<int>(m_layout->columns().size())) {
       return false;
     }
-    m_layout->moveColumn(current, target);
+    ops->moveColumn(current, target);
     revealMovedFocusedColumn(current);
     markArrange();
     return true;
@@ -1825,7 +1826,8 @@ namespace andromeda {
 
   bool Workspace::consumeFocused(int direction) {
     flushArrange();
-    if (!m_layout->consume(m_focusedView, direction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->consume(m_focusedView, direction)) {
       return false;
     }
     ensureFocusedVisible();
@@ -1834,7 +1836,8 @@ namespace andromeda {
   }
 
   bool Workspace::consumeFromFocused(int direction) {
-    if (!m_layout->consumeFrom(m_focusedView, direction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->consumeFrom(m_focusedView, direction)) {
       return false;
     }
     ensureFocusedVisible();
@@ -1843,7 +1846,8 @@ namespace andromeda {
   }
 
   bool Workspace::expelFocused(int direction) {
-    if (!m_layout->expel(m_focusedView, direction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->expel(m_focusedView, direction)) {
       return false;
     }
     ensureFocusedVisible();
@@ -1853,7 +1857,8 @@ namespace andromeda {
 
   bool Workspace::moveWithinLane(int direction) {
     flushArrange();
-    if (!m_layout->moveViewVertical(m_focusedView, direction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->moveViewVertical(m_focusedView, direction)) {
       return false;
     }
     markArrange();
@@ -1900,7 +1905,11 @@ namespace andromeda {
     if (current <= 0) {
       return false;
     }
-    m_layout->moveColumn(current, 0);
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr) {
+      return false;
+    }
+    ops->moveColumn(current, 0);
     revealMovedFocusedColumn(current);
     markArrange();
     return true;
@@ -1912,10 +1921,11 @@ namespace andromeda {
     }
     const int current = m_layout->columnOf(m_focusedView);
     const int last = static_cast<int>(m_layout->columns().size()) - 1;
-    if (current < 0 || current >= last) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || current < 0 || current >= last) {
       return false;
     }
-    m_layout->moveColumn(current, last);
+    ops->moveColumn(current, last);
     revealMovedFocusedColumn(current);
     markArrange();
     return true;
@@ -1950,7 +1960,8 @@ namespace andromeda {
       m_focusedView->setMaximizedToEdges(false);
     }
     const int column = m_layout->columnOf(m_focusedView);
-    if (!m_layout->cycleWidth(column, direction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->cycleWidth(column, direction)) {
       return false;
     }
     m_focusedView->setMaximizedState(false);
@@ -1972,10 +1983,14 @@ namespace andromeda {
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr) {
+      return false;
+    }
     if (!cycleFractionPreset(
-            m_layoutConfig.extentPresets, m_layout->heightFraction(m_focusedView), direction,
-            [&](double fraction) { return m_layout->setHeightFraction(m_focusedView, fraction); },
-            [&] { return m_layout->heightFraction(m_focusedView); }
+            m_layoutConfig.extentPresets, ops->heightFraction(m_focusedView), direction,
+            [&](double fraction) { return ops->setHeightFraction(m_focusedView, fraction); },
+            [&] { return ops->heightFraction(m_focusedView); }
         )) {
       return false;
     }
@@ -1993,7 +2008,8 @@ namespace andromeda {
       m_focusedView->setMaximizedToEdges(false);
     }
     const int column = m_layout->columnOf(m_focusedView);
-    if (!m_layout->setWidthFraction(column, fraction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->setWidthFraction(column, fraction)) {
       return false;
     }
     m_focusedView->setMaximizedState(false);
@@ -2009,7 +2025,8 @@ namespace andromeda {
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
-    if (!m_layout->setHeightFraction(m_focusedView, fraction)) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (ops == nullptr || !ops->setHeightFraction(m_focusedView, fraction)) {
       return false;
     }
     m_focusedView->setMaximizedState(false);
@@ -2039,12 +2056,13 @@ namespace andromeda {
       return false;
     }
     const int column = m_layout->columnOf(m_focusedView);
-    if (column < 0) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (column < 0 || ops == nullptr) {
       return false;
     }
     // Clamp here, not in the layouts: ScrollingLayout clamps internally but
     // DwindleLayout does not, and both must land in [0.1, the layout's ceiling].
-    return setFocusedWidth(std::clamp(m_layout->widthFraction(column) + delta, 0.1, m_layout->maxExtentFraction()));
+    return setFocusedWidth(std::clamp(ops->widthFraction(column) + delta, 0.1, m_layout->maxExtentFraction()));
   }
 
   bool Workspace::modifyFocusedHeight(double delta) {
@@ -2056,7 +2074,8 @@ namespace andromeda {
     }
     // Clamp here, not in the layouts: DwindleLayout does not clamp the overall
     // fraction, and every layout must land in [0.1, 1.0].
-    return setFocusedHeight(std::clamp(m_layout->heightFraction(m_focusedView) + delta, 0.1, 1.0));
+    ColumnOps* ops = m_layout->columnOps();
+    return setFocusedHeight(std::clamp((ops != nullptr ? ops->heightFraction(m_focusedView) : 1.0) + delta, 0.1, 1.0));
   }
 
   bool Workspace::resizeFocusedEdge(uint32_t edges, double delta) {
@@ -2121,10 +2140,11 @@ namespace andromeda {
       return true;
     }
     const int column = m_layout->columnOf(m_focusedView);
-    if (column < 0) {
+    ColumnOps* ops = m_layout->columnOps();
+    if (column < 0 || ops == nullptr) {
       return false;
     }
-    const bool fullWidth = m_layout->toggleFullWidth(column);
+    const bool fullWidth = ops->toggleFullWidth(column);
     m_focusedView->setMaximizedState(fullWidth);
     reevaluateFocusedColumn();
     markArrange();

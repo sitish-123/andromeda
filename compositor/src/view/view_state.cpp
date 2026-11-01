@@ -110,8 +110,9 @@ namespace andromeda {
         setMaximizedToEdges(false);
       }
       const int column = m_workspace->layout().columnOf(this);
-      if (column >= 0 && m_workspace->layout().isFullWidth(column) != maximized) {
-        m_workspace->layout().toggleFullWidth(column);
+      if (ColumnOps* ops = m_workspace->layout().columnOps();
+          ops != nullptr && column >= 0 && ops->isFullWidth(column) != maximized) {
+        ops->toggleFullWidth(column);
       }
       setMaximizedState(maximized);
       m_workspace->reevaluateFocusedColumn();
@@ -374,7 +375,8 @@ namespace andromeda {
     bool columnFullWidth = false;
     if (!maximized && m_tiled && m_workspace != nullptr && !scheduledFullscreen()) {
       const int column = m_workspace->layout().columnOf(this);
-      columnFullWidth = column >= 0 && m_workspace->layout().isFullWidth(column);
+      const ColumnOps* ops = m_workspace->layout().columnOps();
+      columnFullWidth = column >= 0 && ops != nullptr && ops->isFullWidth(column);
     }
     if (m_tiled) {
       setMaximizedState(maximized || columnFullWidth);
@@ -796,8 +798,8 @@ namespace andromeda {
           m_savedScrollingExtentPx.reset();
           m_savedScrollingExtent = scrolling->widthFraction(column);
         }
-        if (column >= 0 && m_workspace->layout().isFullWidth(column)) {
-          m_workspace->layout().clearFullWidthState(column);
+        if (ColumnOps* ops = m_workspace->layout().columnOps(); column >= 0 && ops != nullptr && ops->isFullWidth(column)) {
+          ops->clearFullWidthState(column);
           setMaximizedState(false);
         }
         m_workspace->layoutDetach(this);

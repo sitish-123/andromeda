@@ -258,6 +258,38 @@ namespace andromeda {
     [[nodiscard]] virtual bool unmaximizeOnBegin() const { return false; }
   };
 
+  // Operations on a layout's columns. Scrolling, master and dwindle implement them; floating has no columns and
+  // reports none through Layout::columnOps().
+  class ColumnOps {
+  public:
+    virtual ~ColumnOps() = default;
+
+    virtual void insertViewIntoColumn(View* view, int columnIndex, int rowIndex) = 0;
+    virtual bool consume(View* view, int direction) = 0;
+    virtual bool expel(View* view, int direction) = 0;
+    // The mirror of consume: pull the window the container `direction` away shows into the one holding `view`, without
+    // moving focus. The pulled window lands directly below `view`, or in its tab group when `view` is a tab. False when
+    // there is no container on that side, or the layout has no container to pull from.
+    virtual bool consumeFrom(View* view, int direction) = 0;
+    virtual bool moveViewVertical(View* view, int direction) = 0;
+    virtual void moveColumn(int from, int to) = 0;
+
+    virtual bool cycleWidth(int columnIndex, int direction) = 0;
+    virtual bool toggleFullWidth(int columnIndex) = 0;
+    virtual bool setWidthFraction(int columnIndex, double fraction) = 0;
+    virtual void clearFullWidthState(int columnIndex) = 0;
+    [[nodiscard]] virtual double widthFraction(int columnIndex) const = 0;
+    // Whether a column occupies the full viewport, however each layout gets there.
+    [[nodiscard]] virtual bool isFullWidth(int columnIndex) const = 0;
+
+    // Height of `view` as a fraction of its column's stacking extent. A layout whose lone row can still be shrunk by
+    // pointer resize reports and accepts that same fraction (scrolling shrinks it against the column's edge gaps);
+    // where a lone row has no resizable stacking edges, the fraction is 1.0 and the setter refuses.
+    [[nodiscard]] virtual double heightFraction(const View* view) const = 0;
+    // Returns false when the view is not tiled here, or when the layout cannot size it on the stacking axis.
+    virtual bool setHeightFraction(View* view, double fraction) = 0;
+  };
+
   class Layout {
   public:
     virtual ~Layout() = default;
@@ -280,17 +312,8 @@ namespace andromeda {
     virtual bool restoreState(const LayoutSnapshot& snapshot, std::span<const LayoutMember> members) = 0;
 
     virtual void insertView(View* view, int columnIndex) = 0;
-    virtual void insertViewIntoColumn(View* view, int columnIndex, int rowIndex) = 0;
-    virtual bool consume(View* view, int direction) = 0;
-    virtual bool expel(View* view, int direction) = 0;
-    // The mirror of consume: pull the window the container `direction` away shows into the one holding `view`, without
-    // moving focus. The pulled window lands directly below `view`, or in its tab group when `view` is a tab. False when
-    // there is no container on that side, or the layout has no container to pull from.
-    virtual bool consumeFrom(View* view, int direction) = 0;
-    virtual bool moveViewVertical(View* view, int direction) = 0;
     virtual bool swapViews(View* a, View* b) = 0;
     virtual void removeView(View* view) = 0;
-    virtual void moveColumn(int from, int to) = 0;
     virtual void arrange(const wlr_box& usable) = 0;
 
     [[nodiscard]] virtual wlr_box targetBox(const View* view) const = 0;
@@ -322,22 +345,9 @@ namespace andromeda {
     // is nothing to choose between, so the caller keeps `target`.
     [[nodiscard]] virtual std::vector<View*> focusPeers(const View* from, const View* target) const;
 
-    virtual bool cycleWidth(int columnIndex, int direction) = 0;
-    virtual bool toggleFullWidth(int columnIndex) = 0;
     // Widest extent fraction this layout realizes. Scrolling columns span up to kMaxWideFraction viewports; splitting
     // and floating extents stay within one.
     [[nodiscard]] virtual double maxExtentFraction() const { return 1.0; }
-
-    virtual bool setWidthFraction(int columnIndex, double fraction) = 0;
-    virtual void clearFullWidthState(int columnIndex) = 0;
-    [[nodiscard]] virtual double widthFraction(int columnIndex) const = 0;
-
-    // Height of `view` as a fraction of its column's stacking extent. A layout whose lone row can still be shrunk by
-    // pointer resize reports and accepts that same fraction (scrolling shrinks it against the column's edge gaps);
-    // where a lone row has no resizable stacking edges, the fraction is 1.0 and the setter refuses.
-    [[nodiscard]] virtual double heightFraction(const View* view) const = 0;
-    // Returns false when the view is not tiled here, or when the layout cannot size it on the stacking axis.
-    virtual bool setHeightFraction(View* view, double fraction) = 0;
 
     // Interactive resize
     // Edges grabbable at a pointer position (0 = none). Base = not resizable.
@@ -361,11 +371,12 @@ namespace andromeda {
     // Every layout presents its contents as columns. Scrolling owns them
     // directly, dwindle flattens its tree, and master exposes its occupied areas.
     [[nodiscard]] virtual const std::vector<Column>& columns() const = 0;
-    // Whether a column occupies the full viewport, however each layout gets there.
-    [[nodiscard]] virtual bool isFullWidth(int columnIndex) const = 0;
 
     // Null for a layout whose columns cannot be tabbed.
     [[nodiscard]] virtual TabbedContainers* tabbedContainers() { return nullptr; }
+    // Null for a layout without columns to move windows between or to size (floating).
+    [[nodiscard]] virtual ColumnOps* columnOps() { return nullptr; }
+    [[nodiscard]] const ColumnOps* columnOps() const { return const_cast<Layout*>(this)->columnOps(); }
 
     // The usable area minus edge padding on both axes: the box the layout has
     // to fill.

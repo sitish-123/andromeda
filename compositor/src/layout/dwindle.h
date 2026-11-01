@@ -12,8 +12,10 @@ namespace andromeda {
 
   class View;
 
-  class DwindleLayout : public Layout {
+  class DwindleLayout : public Layout, public ColumnOps {
   public:
+    [[nodiscard]] ColumnOps* columnOps() override { return this; }
+
     struct Node {
       // AutoSplit is a split whose axis follows its area on arrange unless preserve_split or an explicit directional
       // drop locks it. The tree is built before any arrange (Workspace::applyConfig batch-inserts on a fresh layout),
