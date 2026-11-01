@@ -322,6 +322,19 @@ namespace {
             wl_fixed_from_double(d)
         );
       }
+    } else if (action == "dsk-elevation") {
+      // dsk-elevation <label> <level>: 0 none, 1 e1, 2 e2.
+      uint32_t level = 0;
+      command >> level;
+      if (state.dskManager == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_set_elevation(state.dskSurface, level);
     } else if (action == "dsk-track") {
       // dsk-track <label> <fingers> <min> <max> <snap>...: a vertical tracker bound to translate.y over min..max.
       if (state.dskManager == nullptr) {
