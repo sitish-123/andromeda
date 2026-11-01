@@ -24,7 +24,12 @@ namespace {
 
   // Pages whose plain rows come from the config schema. Listed here, not read from the RowSpecs, so a
   // dropped RowSpec shows up as a missing row.
-  constexpr std::array<std::string_view, 1> kGeneratedPages{"control-center"};
+  constexpr std::array<std::string_view, 20> kGeneratedPages{
+      "control-center", "screenshot", "notifications", "appearance", "launcher",
+      "panels",         "wallpaper",  "shell",         "windows",    "security",
+      "services",       "text-scale", "motion",        "desktop",    "location",
+      "calendar",       "system",     "power",         "dock",       "bar:default",
+  };
 
   // i18n has no catalog loaded here, so tr(key) returns "!!key!!": unwrap it back to the key.
   std::string keyOf(std::string_view text) {
@@ -244,6 +249,10 @@ int main(int argc, char** argv) {
       }
     }
     for (std::string key : keys) {
+      // Literal text (hand-written rows, e.g. palette names) is not a translation key.
+      if (key.starts_with('=')) {
+        continue;
+      }
       std::ranges::replace(key, '.', '/');
       if (!catalog.contains(nlohmann::json::json_pointer("/" + key))) {
         ok = false;
