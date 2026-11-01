@@ -1,4 +1,5 @@
 #include "shell/launcher/launcher_panel.h"
+#include "config/app_icon_settings.h"
 
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -200,7 +201,7 @@ namespace {
       style.compact = launcher.compact;
       style.appIconColorizeTint = effectiveShellAppIconColorizationTint(config->config().shell);
       if (config->config().shell.panel.listItemBackground) {
-        style.listItemBackground = colorSpecFromRole(ColorRole::SurfaceContainer, cardOpacity);
+        style.listItemBackground = colorSpecFromRole(ColorRole::Fill2, cardOpacity);
       }
     }
     return style;
@@ -227,7 +228,7 @@ namespace {
           ui::label({
               .out = &m_badgeLabel,
               .fontSize = iconSize,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .visible = false,
           })
       );
@@ -245,7 +246,7 @@ namespace {
           ui::glyph({
               .out = &m_glyph,
               .glyphSize = iconSize,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .visible = false,
           })
       );
@@ -275,14 +276,14 @@ namespace {
                   .out = &m_title,
                   .fontSize = Style::fontSizeBody * m_style.scale,
                   .fontWeight = FontWeight::SemiBold,
-                  .color = colorSpecFromRole(ColorRole::OnSurface),
+                  .color = colorSpecFromRole(ColorRole::Label1),
                   .maxLines = 1,
                   .baselineMode = LabelBaselineMode::TextFixedHeight,
               }),
               ui::label({
                   .out = &m_subtitle,
                   .fontSize = Style::fontSizeCaption * m_style.scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   .baselineMode = LabelBaselineMode::TextFixedHeight,
               })
@@ -294,7 +295,7 @@ namespace {
               .out = &m_originGlyph,
               .glyph = "package",
               .glyphSize = Style::fontSizeBody * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
           })
       );
@@ -304,7 +305,7 @@ namespace {
               .out = &m_pinnedGlyph,
               .glyph = "pin-filled",
               .glyphSize = Style::fontSizeBody * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
           })
       );
@@ -425,23 +426,23 @@ namespace {
   private:
     void applyVisualState() {
       if (m_selected) {
-        m_row->setFill(colorSpecFromRole(ColorRole::Primary));
+        m_row->setFill(colorSpecFromRole(ColorRole::Accent));
       } else if (m_hovered) {
-        m_row->setFill(colorSpecFromRole(ColorRole::Hover));
+        m_row->setFill(colorSpecFromRole(ColorRole::Fill3));
       } else {
         m_row->setFill(m_style.listItemBackground.value_or(clearColorSpec()));
       }
       if (m_reorderTarget) {
-        m_row->setBorder(colorSpecFromRole(ColorRole::Primary), Style::focusRingWidth);
+        m_row->setBorder(colorSpecFromRole(ColorRole::Accent), Style::focusRingWidth);
       } else {
         m_row->clearBorder();
       }
 
-      const auto activeRole = m_selected ? ColorRole::OnPrimary : ColorRole::OnHover;
+      const auto activeRole = m_selected ? ColorRole::OnAccent : ColorRole::Label1;
       const bool active = m_selected || m_hovered;
-      const ColorSpec foreground = colorSpecFromRole(active ? activeRole : ColorRole::OnSurface);
+      const ColorSpec foreground = colorSpecFromRole(active ? activeRole : ColorRole::Label1);
       const ColorSpec mutedForeground =
-          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::OnSurfaceVariant);
+          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::Label2);
       m_badgeLabel->setColor(foreground);
       m_glyph->setColor(foreground);
       m_title->setColor(foreground);
@@ -494,7 +495,7 @@ namespace {
               .out = &m_pinnedGlyph,
               .glyph = "pin-filled",
               .glyphSize = Style::fontSizeBody * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
               .participatesInLayout = false,
           })
@@ -505,7 +506,7 @@ namespace {
               .out = &m_originGlyph,
               .glyph = "package",
               .glyphSize = Style::fontSizeBody * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
               .participatesInLayout = false,
           })
@@ -540,7 +541,7 @@ namespace {
           ui::glyph({
               .out = &m_glyph,
               .glyphSize = launcherIconSize(m_style),
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .visible = false,
           })
       );
@@ -563,7 +564,7 @@ namespace {
               .out = &m_title,
               .fontSize = Style::fontSizeCaption * m_style.scale,
               .fontWeight = FontWeight::Normal,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 2,
               .configure = [](Label& label) { label.setTextAlign(TextAlign::Center); },
           })
@@ -682,29 +683,29 @@ namespace {
   private:
     void applyVisualState() {
       if (m_selected) {
-        m_col->setFill(colorSpecFromRole(ColorRole::Primary));
+        m_col->setFill(colorSpecFromRole(ColorRole::Accent));
       } else if (m_hovered) {
-        m_col->setFill(colorSpecFromRole(ColorRole::Hover));
+        m_col->setFill(colorSpecFromRole(ColorRole::Fill3));
       } else {
         m_col->setFill(m_style.listItemBackground.value_or(clearColorSpec()));
       }
       if (m_reorderTarget) {
-        m_col->setBorder(colorSpecFromRole(ColorRole::Primary), Style::focusRingWidth);
+        m_col->setBorder(colorSpecFromRole(ColorRole::Accent), Style::focusRingWidth);
       } else {
         m_col->clearBorder();
       }
 
-      const auto activeRole = m_selected ? ColorRole::OnPrimary : ColorRole::OnHover;
+      const auto activeRole = m_selected ? ColorRole::OnAccent : ColorRole::Label1;
       const bool active = m_selected || m_hovered;
-      const ColorSpec foreground = colorSpecFromRole(active ? activeRole : ColorRole::OnSurface);
+      const ColorSpec foreground = colorSpecFromRole(active ? activeRole : ColorRole::Label1);
       m_badgeLabel->setColor(foreground);
       m_glyph->setColor(foreground);
       m_title->setColor(foreground);
       m_pinnedGlyph->setColor(
-          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::Label2)
       );
       m_originGlyph->setColor(
-          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::Label2)
       );
     }
 
@@ -760,7 +761,7 @@ namespace {
           ui::glyph({
               .out = &m_headerGlyph,
               .glyphSize = Style::fontSizeTitle * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
           })
       );
       header->addChild(
@@ -768,7 +769,7 @@ namespace {
               .out = &m_headerLabel,
               .fontSize = Style::fontSizeBody * m_style.scale,
               .fontWeight = FontWeight::SemiBold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
           })
@@ -1790,7 +1791,7 @@ void LauncherPanel::create() {
       ui::label({
           .out = &m_detailSubtitle,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .ellipsize = TextEllipsize::End,
           .visible = false,
@@ -1801,7 +1802,7 @@ void LauncherPanel::create() {
       ui::label({
           .out = &m_detailBody,
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 0,
           .flexGrow = 1.0F,
       })
@@ -1812,7 +1813,7 @@ void LauncherPanel::create() {
       ui::label({
           .out = &m_emptyLabel,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -1860,7 +1861,7 @@ void LauncherPanel::create() {
             .out = &m_launcherAvatarFallback,
             .glyph = "user-circle",
             .glyphSize = 38.0F * scale,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::Accent),
         })
     );
     m_launcherAvatar->setAsyncReadyCallback([this] {

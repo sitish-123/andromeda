@@ -448,7 +448,7 @@ void WallpaperPanel::create() {
           .text = i18n::tr("wallpaper.panel.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
 
@@ -507,7 +507,7 @@ void WallpaperPanel::create() {
           .out = &m_flattenLabel,
           .text = i18n::tr("wallpaper.panel.flatten"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -832,7 +832,7 @@ void WallpaperPanel::create() {
           ui::label({
               .text = i18n::tr("wallpaper.panel.loading"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       )
   );

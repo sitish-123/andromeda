@@ -11,7 +11,7 @@
 #include "ui/controls/label.h"
 #include "ui/palette.h"
 #include "ui/style.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -125,7 +125,7 @@ void DisplayModePanel::create() {
           .out = &m_status,
           .text = m_statusText,
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
   setRoot(std::move(rootLayout));

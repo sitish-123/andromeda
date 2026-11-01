@@ -45,7 +45,7 @@ void PhonePanel::create() {
               .out = &m_glyph,
               .glyph = "device-mobile",
               .glyphSize = Style::fontSizeTitle * 1.5F * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
           }),
           ui::column(
               {.align = FlexAlign::Stretch, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},
@@ -53,13 +53,13 @@ void PhonePanel::create() {
                   .out = &m_name,
                   .fontSize = Style::fontSizeTitle * scale,
                   .fontWeight = FontWeight::Bold,
-                  .color = colorSpecFromRole(ColorRole::OnSurface),
+                  .color = colorSpecFromRole(ColorRole::Label1),
                   .maxLines = 1,
               }),
               ui::label({
                   .out = &m_state,
                   .fontSize = Style::fontSizeBody * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
               })
           )

@@ -171,10 +171,10 @@ void SetupWizardPanel::create() {
     auto copy = makeTextColumn();
     copy->setGap(Style::spaceXs * scale);
     copy->addChild(makeLabel(
-        i18n::tr("setup-wizard.title"), 18.0F * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+        i18n::tr("setup-wizard.title"), 18.0F * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
     ));
     copy->addChild(makeLabel(
-        i18n::tr("setup-wizard.subtitle"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant)
+        i18n::tr("setup-wizard.subtitle"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2)
     ));
     header->addChild(std::move(copy));
     content->addChild(std::move(header));
@@ -191,11 +191,11 @@ void SetupWizardPanel::create() {
       auto col = makeTextColumn();
       col->addChild(makeLabel(
           i18n::tr("settings.schema.shell.telemetry.label"), Style::fontSizeBody * scale,
-          colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+          colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
       ));
       auto description = makeLabel(
           i18n::tr("settings.schema.shell.telemetry.description"), Style::fontSizeCaption * scale,
-          colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          colorSpecFromRole(ColorRole::Label2)
       );
       description->setMaxLines(8);
       col->addChild(std::move(description));
@@ -222,13 +222,13 @@ void SetupWizardPanel::create() {
     {
       auto col = makeTextColumn();
       col->addChild(makeLabel(
-          i18n::tr("setup-wizard.wallpaper"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface),
+          i18n::tr("setup-wizard.wallpaper"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1),
           FontWeight::Bold
       ));
       const std::string currentPath = m_config->getDefaultWallpaperPath();
       auto pathLabel = makeLabel(
           currentPath.empty() ? i18n::tr("setup-wizard.no-wallpaper-selected") : currentPath,
-          Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)
       );
       pathLabel->setMaxWidth(330.0F * scale);
       pathLabel->setMaxLines(1);
@@ -271,7 +271,7 @@ void SetupWizardPanel::create() {
                   m_wallpaperDir = parentDir;
                   if (m_wallpaperLabel != nullptr) {
                     m_wallpaperLabel->setText(fullPath);
-                    m_wallpaperLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+                    m_wallpaperLabel->setColor(colorSpecFromRole(ColorRole::Accent));
                     m_wallpaperLabel->setMaxLines(1);
                   }
                   m_config->setOverride({"wallpaper", "directory"}, parentDir);
@@ -293,7 +293,7 @@ void SetupWizardPanel::create() {
     {
       auto row = makeRow(scale);
       auto label = makeLabel(
-          i18n::tr("setup-wizard.mode"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface)
+          i18n::tr("setup-wizard.mode"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1)
       );
       label->setFlexGrow(1.0F);
       row->addChild(std::move(label));
@@ -334,7 +334,7 @@ void SetupWizardPanel::create() {
       auto row = makeRow(scale);
       auto label = makeLabel(
           i18n::tr("settings.schema.appearance.palette-source.label"), Style::fontSizeBody * scale,
-          colorSpecFromRole(ColorRole::OnSurface)
+          colorSpecFromRole(ColorRole::Label1)
       );
       label->setFlexGrow(1.0F);
       row->addChild(std::move(label));
@@ -374,7 +374,7 @@ void SetupWizardPanel::create() {
     // Theme option row
     {
       auto row = makeRow(scale);
-      auto label = makeLabel("", Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface));
+      auto label = makeLabel("", Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1));
       label->setFlexGrow(1.0F);
       m_themeOptionLabel = label.get();
       row->addChild(std::move(label));
@@ -406,7 +406,7 @@ void SetupWizardPanel::create() {
 
     footer->addChild(makeLabel(
         i18n::tr("setup-wizard.footer-note"), Style::fontSizeCaption * scale,
-        colorSpecFromRole(ColorRole::OnSurfaceVariant)
+        colorSpecFromRole(ColorRole::Label2)
     ));
 
     footer->addChild(

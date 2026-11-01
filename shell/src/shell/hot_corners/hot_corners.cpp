@@ -7,8 +7,8 @@
 #include "core/deferred_call.h"
 #include "render/scene/input_area.h"
 #include "ui/builders.h"
-#include "wayland/settings_control.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/settings_control.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <array>
@@ -46,7 +46,7 @@ HotCorners::HotCorners(Application* app) : m_app(app) {}
 
 HotCorners::~HotCorners() { destroySurfaces(); }
 
-void HotCorners::initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
+void HotCorners::initialize(ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
   m_wayland = &wayland;
   m_config = config;
   m_renderContext = renderContext;

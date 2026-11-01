@@ -14,7 +14,7 @@ class Application;
 class SettingsControl;
 class ConfigService;
 class RenderContext;
-class WaylandConnection;
+class ShellWaylandConnection;
 struct wl_output;
 
 class HotCorners {
@@ -25,7 +25,7 @@ public:
   HotCorners(const HotCorners&) = delete;
   HotCorners& operator=(const HotCorners&) = delete;
 
-  void initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext);
+  void initialize(ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext);
   void onOutputChange();
   void onConfigReload();
   bool onPointerEvent(const PointerEvent& event);
@@ -58,7 +58,7 @@ private:
   void migrateToCompositor();
 
   Application* m_app = nullptr;
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   ConfigService* m_config = nullptr;
   RenderContext* m_renderContext = nullptr;
   bool m_lastEnabled = false;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "shell/panel/panel.h"
-#include "wayland/mirror_control.h"
-#include "wayland/output_management.h"
+#include "compositors/mirror_control.h"
+#include "compositors/output_management.h"
 
 #include <array>
 #include <cstdint>
@@ -14,7 +14,7 @@ class Button;
 class Flex;
 class Label;
 class Renderer;
-class WaylandConnection;
+class ShellWaylandConnection;
 
 // Super+P: pick how the laptop panel and a second display share the picture.
 class DisplayModePanel : public Panel {
@@ -26,7 +26,7 @@ public:
     ExternalOnly,
   };
 
-  explicit DisplayModePanel(WaylandConnection& wayland) : m_wayland(wayland) {}
+  explicit DisplayModePanel(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
   void create() override;
   void onOpen(std::string_view context) override;
@@ -52,7 +52,7 @@ private:
   [[nodiscard]] const OutputHead* internalHead() const;
   [[nodiscard]] const OutputHead* externalHead() const;
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   std::unique_ptr<OutputManagement> m_outputs;
   std::unique_ptr<MirrorControl> m_mirrors;
   Flex* m_rootLayout = nullptr;

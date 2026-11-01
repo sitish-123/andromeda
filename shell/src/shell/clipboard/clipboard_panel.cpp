@@ -20,7 +20,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <algorithm>
 #include <cctype>
@@ -206,9 +206,9 @@ namespace {
         .align = FlexAlign::Stretch,
         .gap = Style::spaceXs * scale,
         .padding = Style::spaceSm * scale,
-        .fill = colorSpecFromRole(ColorRole::ErrorContainer),
+        .fill = colorSpecFromRole(ColorRole::Fill1),
         .radius = Style::scaledRadiusSm(scale),
-        .border = colorSpecFromRole(ColorRole::Error),
+        .border = colorSpecFromRole(ColorRole::Danger),
         .fillWidth = true,
         .visible = false,
         .participatesInLayout = false,
@@ -443,25 +443,25 @@ namespace {
       }
 
       if (m_selected) {
-        m_background->setFill(colorSpecFromRole(ColorRole::Primary));
+        m_background->setFill(colorSpecFromRole(ColorRole::Accent));
       } else if (m_hovered) {
-        m_background->setFill(colorSpecFromRole(ColorRole::Hover));
+        m_background->setFill(colorSpecFromRole(ColorRole::Fill3));
       } else {
         m_background->setFill(m_listItemBackground.value_or(clearColorSpec()));
       }
 
-      const auto activeRole = m_selected ? ColorRole::OnPrimary : ColorRole::OnHover;
+      const auto activeRole = m_selected ? ColorRole::OnAccent : ColorRole::Label1;
       const bool active = m_selected || m_hovered;
       m_glyph->setColor(
           active ? colorSpecFromRole(activeRole)
-                 : colorSpecFromRole(m_isImage ? ColorRole::Secondary : ColorRole::Primary)
+                 : colorSpecFromRole(m_isImage ? ColorRole::Accent : ColorRole::Accent)
       );
-      m_title->setColor(colorSpecFromRole(active ? activeRole : ColorRole::OnSurface));
-      m_meta->setColor(active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_title->setColor(colorSpecFromRole(active ? activeRole : ColorRole::Label1));
+      m_meta->setColor(active ? colorSpecFromRole(activeRole, 0.7F) : colorSpecFromRole(ColorRole::Label2));
       if (m_pinGlyph != nullptr) {
         m_pinGlyph->setVisible(m_pinned);
         m_pinGlyph->setParticipatesInLayout(m_pinned);
-        m_pinGlyph->setColor(colorSpecFromRole(active ? activeRole : ColorRole::Primary));
+        m_pinGlyph->setColor(colorSpecFromRole(active ? activeRole : ColorRole::Accent));
       }
     }
 
@@ -606,7 +606,7 @@ void ClipboardPanel::create() {
           .text = i18n::tr("clipboard.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       }),
       makeCompactIconButton(&m_clearHistoryButton, "trash", ButtonVariant::Destructive, scale, [this] {
         requestClearUnpinnedHistory();
@@ -620,7 +620,7 @@ void ClipboardPanel::create() {
           .text = i18n::tr("clipboard.confirm.clear-title"),
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   clearConfirmPanel->addChild(
@@ -628,7 +628,7 @@ void ClipboardPanel::create() {
           .out = &m_clearConfirmDesc,
           .text = i18n::tr("clipboard.confirm.clear-desc"),
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   clearConfirmPanel->addChild(
@@ -672,7 +672,7 @@ void ClipboardPanel::create() {
   const bool listItemBackground = m_config != nullptr && m_config->config().shell.panel.listItemBackground;
   m_listAdapter = std::make_unique<ClipboardListAdapter>(
       scale, m_clipboard, m_asyncTextures,
-      listItemBackground ? std::optional(colorSpecFromRole(ColorRole::SurfaceContainer, panelCardOpacity()))
+      listItemBackground ? std::optional(colorSpecFromRole(ColorRole::Fill2, panelCardOpacity()))
                          : std::nullopt
   );
   m_listAdapter->setFilteredIndices(&m_filteredIndices);
@@ -705,7 +705,7 @@ void ClipboardPanel::create() {
       ui::label({
           .out = &m_listEmptyLabel,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -750,7 +750,7 @@ void ClipboardPanel::create() {
           .text = i18n::tr("clipboard.entry.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
           .flexGrow = 1.0F,
       }),
       std::move(previewActions)
@@ -761,7 +761,7 @@ void ClipboardPanel::create() {
       ui::label({
           .out = &m_previewMeta,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -771,14 +771,14 @@ void ClipboardPanel::create() {
           .text = i18n::tr("clipboard.confirm.delete-title"),
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   deleteConfirmPanel->addChild(
       ui::label({
           .text = i18n::tr("clipboard.confirm.delete-desc"),
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   deleteConfirmPanel->addChild(
@@ -1174,7 +1174,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
         ui::label({
             .text = history.empty() ? i18n::tr("clipboard.empty.history-message")
                                     : i18n::tr("clipboard.empty.no-matches-message"),
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxWidth = width,
         })
     );
@@ -1193,7 +1193,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
     m_previewContent->addChild(
         ui::label({
             .text = i18n::tr("clipboard.preview.loading"),
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxWidth = width,
         })
     );
@@ -1227,7 +1227,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
         .out = &m_previewPlaceholder,
         .glyph = "photo",
         .glyphSize = kPreviewPlaceholderGlyphSize * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
         .width = width,
         .height = imageHeight,
     });
@@ -1317,7 +1317,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
       m_previewContent->addChild(
           ui::label({
               .text = i18n::tr("clipboard.preview.empty-text-payload"),
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     } else {
@@ -1325,7 +1325,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
           ui::label({
               .text = expanded,
               .fontSize = Style::fontSizeBody,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxWidth = width,
               .maxLines = kMaxPreviewLines,
           })
@@ -1335,7 +1335,7 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
             ui::label({
                 .text = i18n::tr("clipboard.preview.truncated"),
                 .fontSize = Style::fontSizeCaption,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
             })
         );
       }

@@ -88,7 +88,7 @@ void PolkitPanel::create() {
       .out = &m_fallbackIcon,
       .glyph = "shield-lock",
       .glyphSize = iconSize * 0.65F,
-      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+      .color = colorSpecFromRole(ColorRole::Label2),
   });
   iconContainer->addChild(std::move(iconFallback));
   auto iconImage = ui::image({
@@ -107,12 +107,12 @@ void PolkitPanel::create() {
               .text = i18n::tr("auth.polkit.title"),
               .fontSize = Style::fontSizeTitle * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
           }),
           ui::label({
               .out = &m_messageLabel,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 6,
           })
       )
@@ -127,13 +127,13 @@ void PolkitPanel::create() {
               .out = &m_faceGlyph,
               .glyph = "face-id",
               .glyphSize = Style::fontSizeTitle * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .visible = false,
           }),
           ui::label({
               .out = &m_promptLabel,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 3,
               .flexGrow = 1.0F,
           })
@@ -158,7 +158,7 @@ void PolkitPanel::create() {
       ui::label({
           .out = &m_supplementaryLabel,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 4,
       }),
       ui::row(
@@ -313,18 +313,18 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
   m_messageLabel->setText(wrapLongRuns(request.message.empty() ? request.actionId : request.message));
   m_promptLabel->setText(promptText);
   m_promptLabel->setColor(
-      isInvalidPassword ? colorSpecFromRole(ColorRole::Error) : colorSpecFromRole(ColorRole::OnSurface)
+      isInvalidPassword ? colorSpecFromRole(ColorRole::Danger) : colorSpecFromRole(ColorRole::Label1)
   );
   m_promptLabel->setVisible(!promptText.empty());
   m_supplementaryLabel->setText(supplementaryText);
   m_supplementaryLabel->setVisible(!supplementaryText.empty());
-  m_supplementaryLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+  m_supplementaryLabel->setColor(colorSpecFromRole(ColorRole::Label2));
   const PolkitFaceState face = agent->faceState();
   const bool faceConfirm = agent->faceConfirmPending();
   if (m_faceGlyph != nullptr) {
     m_faceGlyph->setVisible(face != PolkitFaceState::None);
     m_faceGlyph->setGlyph(face == PolkitFaceState::Failed ? "face-id-error" : "face-id");
-    m_faceGlyph->setColor(colorSpecFromRole(face == PolkitFaceState::Failed ? ColorRole::Error : ColorRole::Primary));
+    m_faceGlyph->setColor(colorSpecFromRole(face == PolkitFaceState::Failed ? ColorRole::Danger : ColorRole::Accent));
   }
   m_input->setVisible(needsInput && !agent->faceConfirmIsPrompt());
   m_submitButton->setVisible(needsInput);
