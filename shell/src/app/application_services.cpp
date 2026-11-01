@@ -1,4 +1,5 @@
 #include "app/main_loop.h"
+#include "config/app_icon_settings.h"
 #include "application.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
@@ -165,6 +166,7 @@ void Application::scheduleNotificationShellRefresh() {
   DeferredCall::callLater([this] {
     m_notificationShellRefreshScheduled = false;
     m_bar.refresh();
+    m_dock.refresh();
     if (m_panelManager.isOpenPanel("control-center")) {
       m_panelManager.refresh();
     }
@@ -536,8 +538,9 @@ void Application::syncClipboardService() {
 
 void Application::syncStorageKeyProvider() {
   const StorageConfig& storage = m_configService.config().storage;
-  const bool encryptedDataExists =
-      m_clipboardService.hasEncryptedPersistence() || m_calendarService.hasEncryptedCache();
+  const bool encryptedDataExists = m_clipboardService.hasEncryptedPersistence()
+      || m_calendarService.hasEncryptedCache()
+      || m_notificationManager.hasEncryptedHistory();
   m_storageKeyProvider.configure(storage.keySource, storage.keyFile, encryptedDataExists);
 }
 
@@ -548,6 +551,8 @@ void Application::initServices() {
   m_storageKeyProvider.setChangeCallback([this] {
     m_clipboardService.syncPersistence();
     m_calendarService.syncCachePersistence();
+    m_notificationManager.syncHistoryPersistence(m_storageKeyProvider);
+    m_settingsWindow.onExternalOptionsChanged();
     retrySecretServiceConsumers();
   });
   syncStorageKeyProvider();
@@ -583,7 +588,7 @@ void Application::initStyleThemeAndWayland() {
   auto applyMotionConfig = [this] {
     auto& motion = MotionService::instance();
     motion.setSpeed(m_configService.config().shell.animation.speed);
-    motion.setEnabled(m_configService.config().shell.animation.enabled);
+    motion.setEnabled(m_configService.config().shell.animation.enabled && !m_liveAppearance.state().reduceMotion);
   };
   auto applyStyleConfig = [this, lastCornerRadiusScale = std::numeric_limits<float>::quiet_NaN()] mutable {
     const float corner = m_configService.config().shell.cornerRadiusScale;
@@ -792,6 +797,11 @@ void Application::initStyleThemeAndWayland() {
     const bool colorsChanged = !lastGeneratedPalette.has_value() || *lastGeneratedPalette != generated;
     lastGeneratedPalette = generated;
     m_settingsWindow.setResolvedPalette(generated, mode);
+    const auto& shellTokens = m_themeService.isLightMode() ? generated.light : generated.dark;
+    const auto primary = shellTokens.find("primary");
+    m_liveAppearance.publish(
+        m_themeService.resolvedShellMode(), primary != shellTokens.end() ? formatRgbHex(rgbHex(primary->second)) : ""
+    );
     m_templateApplyService.apply(generated, mode, /*force=*/false, /*paletteChanged=*/colorsChanged);
     if (previousMode.has_value() && *previousMode != resolvedMode) {
       m_hookManager.fire(
@@ -917,6 +927,7 @@ void Application::reconcileOutputSurfaces() {
   m_screenshotService.onOutputChange();
   m_notificationToast.onOutputChange();
   m_osdOverlay.onOutputChange();
+  m_liveActivity.onOutputChange();
   m_windowSwitcher.onOutputChange();
   m_pluginLayerHost.onOutputChange();
 }
@@ -1080,11 +1091,11 @@ void Application::initAuxServicesAndHooks() {
         if (path.empty()) {
           return;
         }
-        std::string cmd = "plasma-apply-wallpaperimage";
+        std::vector<std::string> cmd{"plasma-apply-wallpaperimage"};
         if (!connector.empty()) {
-          cmd += " --screen " + connector;
+          cmd.insert(cmd.end(), {"--screen", connector});
         }
-        cmd += " \"" + path + "\"";
+        cmd.push_back(path);
         (void)process::runAsync(cmd);
       };
       if (wallpaperChanges.empty()) {
@@ -1777,6 +1788,21 @@ void Application::initSessionBusServices() {
         if (m_lockScreen.isActive()) {
           m_lockScreen.requestUpdate();
         }
+      });
+      m_linkService->setTransferCallback([this]() {
+        const auto transfer = m_linkService->activeTransfer();
+        if (!transfer.has_value()) {
+          m_liveActivity.setActivity(std::nullopt);
+          return;
+        }
+        m_liveActivity.setActivity(LiveActivity{
+            .glyph = "device-mobile",
+            .title = transfer->title,
+            .subtitle = transfer->subtitle,
+            .progress = transfer->progress,
+            .actionGlyph = "close",
+            .action = [this, id = transfer->transferId] { m_linkService->cancelTransfer(id); },
+        });
       });
       m_lockScreen.setPhoneServices(m_linkService.get());
       m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);

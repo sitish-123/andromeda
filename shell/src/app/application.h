@@ -57,6 +57,7 @@
 #include "shell/osd/lock_keys_osd.h"
 #include "shell/osd/media_osd.h"
 #include "shell/osd/osd_overlay.h"
+#include "shell/live_activity/live_activity_island.h"
 #include "shell/osd/privacy_osd.h"
 #include "shell/overview/overview_launcher_capture.h"
 #include "shell/panel/panel_manager.h"
@@ -84,6 +85,7 @@
 #include "theme/community_palettes.h"
 #include "theme/community_templates.h"
 #include "theme/template_apply_service.h"
+#include "theme/live_appearance_sync.h"
 #include "theme/theme_service.h"
 #include "time/time_poll_source.h"
 #include "time/time_service.h"
@@ -92,14 +94,14 @@
 #include "ui/dialogs/glyph_picker_dialog_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "ui/dialogs/search_picker_popup.h"
-#include "wayland/clipboard_poll_source.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_poll_source.h"
+#include "clipboard/clipboard_service.h"
 #include "wayland/key_repeat_poll_source.h"
-#include "wayland/keyboard_layout_poll_source.h"
+#include "compositors/keyboard_layout_poll_source.h"
 #include "wayland/text_input_service.h"
-#include "wayland/virtual_keyboard_service.h"
-#include "wayland/wayland_connection.h"
-#include "wayland/workspace_poll_source.h"
+#include "compositors/virtual_keyboard_service.h"
+#include "compositors/shell_wayland_connection.h"
+#include "compositors/workspace_poll_source.h"
 
 #include <atomic>
 #include <cstdint>
@@ -258,7 +260,7 @@ private:
   [[nodiscard]] std::vector<PollSource*> currentPollSources();
   [[nodiscard]] std::vector<PollSource*> buildPollSources();
 
-  WaylandConnection m_wayland;
+  ShellWaylandConnection m_wayland;
   WorkspaceAlertService m_workspaceAlertService;
   CompositorPlatform m_compositorPlatform{m_wayland};
   security::SecretStore m_secretStore;
@@ -272,6 +274,7 @@ private:
   noctalia::theme::CommunityPaletteService m_communityPaletteService{m_httpClient};
   noctalia::theme::CommunityTemplateService m_communityTemplateService{m_httpClient};
   noctalia::theme::ThemeService m_themeService{m_configService, m_httpClient};
+  LiveAppearanceSync m_liveAppearance;
   noctalia::theme::TemplateApplyService m_templateApplyService{m_configService};
   scripting::ScriptApiContext m_scriptApi;
   std::function<void()> m_syncScriptApiOutputs;
@@ -407,6 +410,7 @@ private:
   KeyboardLayoutOsd m_keyboardLayoutOsd;
   PrivacyOsd m_privacyOsd;
   OsdOverlay m_osdOverlay;
+  LiveActivityIsland m_liveActivity;
   HotCorners m_hotCorners{this};
   ScreenCorners m_screenCorners;
   TrayMenu m_trayMenu;

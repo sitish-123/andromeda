@@ -93,6 +93,7 @@
 #include "ui/dialogs/color_picker_dialog.h"
 #include "ui/dialogs/file_dialog.h"
 #include "ui/dialogs/glyph_picker_dialog.h"
+#include "ui/palette.h"
 #include "ui/style.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -101,6 +102,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -593,11 +595,13 @@ void Application::initPanelManagerAndPanels() {
     retrySecretServiceConsumers();
   });
   m_settingsWindow.setClipboardService(&m_clipboardService);
+  m_settingsWindow.setNotificationManager(&m_notificationManager);
   m_clipboardService.setPersistenceChangeCallback([this] { m_settingsWindow.onExternalOptionsChanged(); });
   m_settingsWindow.setResetEncryptedStorage([this] {
     const bool clipboardCleared = m_clipboardService.clearEncryptedPersistenceForRecovery();
     const bool calendarCleared = m_calendarService.clearEncryptedCacheForRecovery();
-    if (!clipboardCleared || !calendarCleared) {
+    const bool notificationsCleared = m_notificationManager.clearEncryptedHistoryForRecovery();
+    if (!clipboardCleared || !calendarCleared || !notificationsCleared) {
       m_settingsWindow.showTransientStatus(i18n::tr("settings.storage-recovery.error-delete"), true);
       m_settingsWindow.onExternalOptionsChanged();
       return;
@@ -816,8 +820,21 @@ void Application::initNotificationAndOsd() {
   m_configService.setNotificationManager(&m_notificationManager);
   m_notificationManager.setSoundPlayer(m_soundPlayer.get());
 
+  // session/noctalia.service writes this marker when the previous run failed.
+  if (const char* runtime = std::getenv("XDG_RUNTIME_DIR"); runtime != nullptr && runtime[0] != '\0') {
+    std::error_code ec;
+    if (std::filesystem::remove(std::filesystem::path(runtime) / "noctalia-crashed", ec)) {
+      m_notificationManager.addInternal(
+          "Noctalia", i18n::tr("notifications.internal.shell-restarted"),
+          i18n::tr("notifications.internal.shell-restarted-body")
+      );
+    }
+  }
+
   TooltipManager::instance().initialize(m_wayland, &m_configService, &m_renderContext);
   m_osdOverlay.initialize(m_wayland, m_compositorPlatform, &m_configService, &m_renderContext);
+  m_liveActivity.initialize(m_wayland, &m_configService, &m_renderContext);
+  m_liveActivity.setVisibilityCallback([this](bool visible) { m_bar.setCenterIslandHidden(visible); });
   m_windowSwitcher.initialize(
       m_wayland, &m_renderContext, m_compositorPlatform, &m_configService, &m_asyncTextureCache
   );
@@ -1060,7 +1077,7 @@ void Application::initBarDockAndLayout() {
 void Application::initWidgetControllersAndCallbacks() {
   auto shouldRefreshControlCenter = [this] { return m_panelManager.isOpenPanel("control-center"); };
 
-  m_dock.initialize(m_compositorPlatform, &m_configService, &m_renderContext);
+  m_dock.initialize(m_compositorPlatform, &m_configService, &m_renderContext, &m_notificationManager);
   const DesktopWidgetScriptDeps desktopWidgetScriptDeps{
       .scriptApi = &m_scriptApi,
       .fileWatcher = &m_fileWatcher,
@@ -1231,6 +1248,17 @@ void Application::initWidgetControllersAndCallbacks() {
   // never occluded by shell chrome on their shared layer.
   m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext);
   m_hotCorners.initialize(m_wayland, &m_configService, &m_renderContext);
+  m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
+    Style::setGlass(appearance.glassOpacity, appearance.reduceTransparency);
+    MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled && !appearance.reduceMotion);
+    m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
+    // Bar and dock re-apply their material fills on this signal; the other glass surfaces re-read them on reload.
+    paletteChanged().emit();
+    m_panelManager.onConfigReloaded();
+    m_notificationToast.onConfigReload();
+    m_osdOverlay.onConfigReload();
+    requestAllSurfacesRedraw();
+  });
 }
 
 TimeService::Precision Application::timePrecisionNeeded() const {

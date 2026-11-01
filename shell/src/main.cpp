@@ -23,6 +23,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <print>
+#include <sched.h>
 #include <string>
 #include <unistd.h>
 
@@ -35,6 +36,17 @@
 #endif
 
 namespace {
+
+  // The shell draws the bar and panels; under a 32-job build its main thread waited 0.47 ms per wake-up even at nice
+  // -12. SCHED_RR priority 1 (one below the compositor) removes that wait. RESET_ON_FORK keeps worker threads and
+  // launched apps at normal priority.
+  void raiseMainThreadPriority() {
+    sched_param param{};
+    param.sched_priority = 1;
+    if (sched_setscheduler(0, SCHED_RR | SCHED_RESET_ON_FORK, &param) != 0) {
+      logWarn("real-time scheduling unavailable ({}); the shell may stall under CPU load", std::strerror(errno));
+    }
+  }
 
   enum class SpawnResult { Parent, Error };
 
@@ -229,6 +241,7 @@ namespace {
       completeDaemonStartup(1);
       _exit(1);
     }
+    raiseMainThreadPriority();
     try {
       Application app;
       app.run([] { completeDaemonStartup(0); });
