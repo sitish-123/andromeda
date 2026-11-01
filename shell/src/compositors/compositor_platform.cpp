@@ -27,8 +27,8 @@
 #include "core/process/process.h"
 #include "util/string_utils.h"
 #include "wayland/output_probe.h"
-#include "wayland/wayland_connection.h"
-#include "wayland/wayland_workspaces.h"
+#include "compositors/shell_wayland_connection.h"
+#include "compositors/wayland_workspaces.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -56,7 +56,7 @@ namespace compositors {
   class OutputPowerBackend {
   public:
     virtual ~OutputPowerBackend() = default;
-    [[nodiscard]] virtual bool setOutputPower(WaylandConnection& wayland, bool on) const = 0;
+    [[nodiscard]] virtual bool setOutputPower(ShellWaylandConnection& wayland, bool on) const = 0;
     [[nodiscard]] virtual bool isPerOutputTargeted() const noexcept { return false; }
   };
 
@@ -320,12 +320,12 @@ namespace {
 
   class LambdaOutputPowerBackend final : public compositors::OutputPowerBackend {
   public:
-    using Callback = std::function<bool(WaylandConnection&, bool)>;
+    using Callback = std::function<bool(ShellWaylandConnection&, bool)>;
 
     explicit LambdaOutputPowerBackend(Callback callback, bool perOutputTargeted = false)
         : m_callback(std::move(callback)), m_perOutputTargeted(perOutputTargeted) {}
 
-    [[nodiscard]] bool setOutputPower(WaylandConnection& wayland, bool on) const override {
+    [[nodiscard]] bool setOutputPower(ShellWaylandConnection& wayland, bool on) const override {
       return m_callback && m_callback(wayland, on);
     }
     [[nodiscard]] bool isPerOutputTargeted() const noexcept override { return m_perOutputTargeted; }
@@ -335,7 +335,7 @@ namespace {
     bool m_perOutputTargeted = false;
   };
 
-  [[nodiscard]] bool setGenericOutputPower(WaylandConnection& wayland, bool on) {
+  [[nodiscard]] bool setGenericOutputPower(ShellWaylandConnection& wayland, bool on) {
     return wayland.setOutputsPower(on) || compositors::ext_workspace::setOutputPower(on);
   }
 
@@ -344,31 +344,31 @@ namespace {
     switch (compositors::detect()) {
     case compositors::CompositorKind::Hyprland:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.hyprland()](WaylandConnection& /*wayland*/, bool on) {
+          [&runtime = runtimeRegistry.hyprland()](ShellWaylandConnection& /*wayland*/, bool on) {
             return compositors::hyprland::setOutputPower(runtime, on);
           }
       );
     case compositors::CompositorKind::Niri:
       return std::make_unique<LambdaOutputPowerBackend>([&runtime = runtimeRegistry.niri()](
-                                                            WaylandConnection& /*wayland*/, bool on
+                                                            ShellWaylandConnection& /*wayland*/, bool on
                                                         ) { return compositors::niri::setOutputPower(runtime, on); });
     case compositors::CompositorKind::Sway:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.sway()](WaylandConnection& wayland, bool on) {
+          [&runtime = runtimeRegistry.sway()](ShellWaylandConnection& wayland, bool on) {
             (void)wayland;
             return compositors::sway::setOutputPower(runtime, on);
           }
       );
     case compositors::CompositorKind::Mango:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.mango()](WaylandConnection& wayland, bool on) {
+          [&runtime = runtimeRegistry.mango()](ShellWaylandConnection& wayland, bool on) {
             return compositors::mango::setOutputPower(runtime, wayland, on);
           },
           true
       );
     case compositors::CompositorKind::Andromeda:
       return std::make_unique<LambdaOutputPowerBackend>(
-          [&runtime = runtimeRegistry.andromeda()](WaylandConnection& wayland, bool on) {
+          [&runtime = runtimeRegistry.andromeda()](ShellWaylandConnection& wayland, bool on) {
             return wayland.setOutputsPower(on) || compositors::andromeda::setOutputPower(runtime, on);
           }
       );
@@ -595,7 +595,7 @@ namespace {
 
 } // namespace
 
-CompositorPlatform::CompositorPlatform(WaylandConnection& wayland)
+CompositorPlatform::CompositorPlatform(ShellWaylandConnection& wayland)
     : m_wayland(wayland), m_runtimeRegistry(std::make_unique<compositors::CompositorRuntimeRegistry>()),
       m_workspaces(std::make_unique<WaylandWorkspaces>(*m_runtimeRegistry)) {
   m_workspaceMetadataBackend = createWorkspaceMetadataBackend(*m_runtimeRegistry);

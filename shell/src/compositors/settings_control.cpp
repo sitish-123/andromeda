@@ -1,4 +1,4 @@
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include "desktop-unstable-v1-client-protocol.h"
 

@@ -2,7 +2,7 @@
 
 #include "compositors/keyboard_backend.h"
 #include "compositors/workspace_backend.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <chrono>
 #include <cstdint>
@@ -53,7 +53,7 @@ class CompositorPlatform {
 public:
   using ChangeCallback = std::function<void()>;
 
-  explicit CompositorPlatform(WaylandConnection& wayland);
+  explicit CompositorPlatform(ShellWaylandConnection& wayland);
   ~CompositorPlatform();
 
   CompositorPlatform(const CompositorPlatform&) = delete;
@@ -63,8 +63,8 @@ public:
   void startKdeActiveWindow(SessionBus& bus);
   void cleanup();
 
-  [[nodiscard]] WaylandConnection& wayland() noexcept { return m_wayland; }
-  [[nodiscard]] const WaylandConnection& wayland() const noexcept { return m_wayland; }
+  [[nodiscard]] ShellWaylandConnection& wayland() noexcept { return m_wayland; }
+  [[nodiscard]] const ShellWaylandConnection& wayland() const noexcept { return m_wayland; }
   [[nodiscard]] wl_display* display() const noexcept;
   [[nodiscard]] bool hasXdgShell() const noexcept;
   [[nodiscard]] bool hasXdgActivation() const noexcept;
@@ -235,7 +235,7 @@ private:
   );
   [[nodiscard]] bool extToplevelIsLive(const ext_foreign_toplevel_handle_v1* handle) const;
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   WorkspaceAlertService* m_workspaceAlertService = nullptr;
   std::unique_ptr<compositors::CompositorRuntimeRegistry> m_runtimeRegistry;
   std::unique_ptr<WaylandWorkspaces> m_workspaces;
