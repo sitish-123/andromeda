@@ -772,14 +772,11 @@ void Application::initIpc() {
     if (parts.size() > 1) {
       return "error: volume-osd accepts at most one optional [value]\n";
     }
-    if (pipewire() == nullptr) {
-      return "error: audio unavailable\n";
-    }
-    const auto* sink = pipewire()->defaultSink();
-    if (sink == nullptr) {
+    const auto* sink = pipewire() != nullptr ? pipewire()->defaultSink() : nullptr;
+    if (sink == nullptr && parts.empty()) {
       return "error: no default output\n";
     }
-    float volume = sink->volume;
+    float volume = sink != nullptr ? sink->volume : 0.0F;
     if (parts.size() == 1) {
       const auto value =
           noctalia::ipc::parseNormalizedOrPercent(parts[0], maxAudioVolume(m_configService.config().audio) * 100.0F);
@@ -788,7 +785,7 @@ void Application::initIpc() {
       }
       volume = *value;
     }
-    m_audioOsd.showOutputValue(volume, sink->muted);
+    m_audioOsd.showOutputValue(volume, sink != nullptr && sink->muted);
     return "ok\n";
   });
   m_ipcService.bind(noctalia::cli::msg::micVolumeOsd, [this](const std::string& args) -> std::string {

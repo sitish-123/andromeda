@@ -157,7 +157,7 @@ struct BarConfig {
   bool reserveSpace = true;  // reserve compositor exclusive zone; applies with or without auto_hide
   std::string layer = "top"; // top | overlay; attached panels use the same layer
   std::int32_t thickness = Style::barThicknessDefault;
-  float backgroundOpacity = 1.0F;
+  float backgroundOpacity = 0.70F; // tint_regular token alpha (0xb3)
   bool compositorBlur = true;
   bool islands = true; // one floating pill per section instead of one full-length background
   // Inside outline for the bar background; attached panels inherit the resolved values.
@@ -189,7 +189,7 @@ struct BarConfig {
   // The design reference's islands (docs/design-system.md "Bar islands"); the center is the live activity's place.
   std::vector<std::string> startWidgets = {"active_window", "workspaces"};
   std::vector<std::string> centerWidgets = {};
-  std::vector<std::string> endWidgets = {"tray", "network", "volume", "battery", "clock"};
+  std::vector<std::string> endWidgets = {"network", "volume", "battery", "clock"};
   // When true, widgets on this bar use a capsule unless `[widget.*] capsule = false`.
   bool widgetCapsuleDefault = false;
   ColorSpec widgetCapsuleFill = colorSpecFromRole(ColorRole::Fill2);
@@ -697,14 +697,14 @@ struct DockMonitorOverride {
 };
 
 struct DockConfig {
-  bool enabled = false; // opt-in; dock is hidden by default
+  bool enabled = true;
   DockEdge position = DockEdge::Bottom;
   bool activeMonitorOnly = false;    // render only on preferred active output
   std::int32_t iconSize = static_cast<std::int32_t>(Tokens::componentDockIcon);      // icon size in pixels (before ui_scale)
   std::int32_t mainAxisPadding = static_cast<std::int32_t>(Tokens::componentDockPadding); // inner padding along the icon row (main axis)
   std::int32_t crossAxisPadding = static_cast<std::int32_t>(Tokens::componentDockPadding); // inner padding perpendicular to the icon row
   std::int32_t itemSpacing = static_cast<std::int32_t>(Tokens::componentDockGap);     // gap between items
-  float backgroundOpacity = 0.88F;
+  float backgroundOpacity = 0.70F; // tint_regular token alpha
   bool compositorBlur = true;
   // Inside outline for the dock background.
   ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
@@ -822,7 +822,7 @@ struct OsdConfig {
   std::string orientation = "horizontal";
   std::int32_t hideDelayMs = 1400;
   float scale = 1.0F;
-  float backgroundOpacity = 0.97F;
+  float backgroundOpacity = 0.70F; // tint_regular token alpha
   bool border = true; // outline around OSD popup cards
   ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = Style::borderWidth;
@@ -845,7 +845,7 @@ struct NotificationConfig {
   std::string layer = "top"; // top | overlay
   float scale = 1.0F;
   std::int32_t width = kDefaultWidth;
-  float backgroundOpacity = 0.97F; // toast card background alpha (0.0–1.0)
+  float backgroundOpacity = 0.70F; // tint_regular token alpha; toast card background alpha (0.0–1.0)
   bool border = true;              // outline around toast cards
   ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = Style::borderWidth;
@@ -1067,7 +1067,7 @@ struct ShellConfig {
   using ShadowConfig = ShadowStyle;
 
   struct PanelConfig {
-    PanelTransparencyMode transparencyMode = PanelTransparencyMode::Solid;
+    PanelTransparencyMode transparencyMode = PanelTransparencyMode::Glass;
     bool borders = true; // outline on floating panel surfaces
     ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
     float borderWidth = Style::borderWidth;
