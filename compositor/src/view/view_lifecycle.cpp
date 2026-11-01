@@ -12,6 +12,7 @@
 #include "scene/effect_registry.h"
 #include "scene/ssd_frame.h"
 #include "scene/surface_blur.h"
+#include "server/greeter_mode.h"
 #include "server/server.h"
 #include "view/view.h"
 extern "C" {
@@ -31,6 +32,23 @@ extern "C" {
 
 namespace andromeda {
   namespace {
+
+    // Greeter mode: one greeter window per output, so a new window takes the first output that shows none.
+    Output* greeterOutputFor(Server& server, const View* opening) {
+      for (const auto& output : server.outputs()) {
+        const bool taken = std::ranges::any_of(server.views(), [&](const std::unique_ptr<View>& view) {
+          return view.get() != opening
+              && view->mapped()
+              && view->workspace() != nullptr
+              && view->workspace()->group() != nullptr
+              && view->workspace()->group()->output() == output.get();
+        });
+        if (!taken && output->workspaceGroup() != nullptr) {
+          return output.get();
+        }
+      }
+      return server.outputFromWlr(server.preferredOutput());
+    }
     constexpr Logger kLog("view");
     // Distance the built-in windows_in "slide" style starts an opener below its resting position.
     constexpr int kOpenSlidePx = 60;
@@ -852,11 +870,12 @@ namespace andromeda {
       // ones that size the first configure.
       Workspace* launchWorkspace = m_launchWorkspace != nullptr ? m_launchWorkspace->workspace : nullptr;
       Workspace* target = launchRuleOverride ? nullptr : (m_workspace != nullptr ? m_workspace : launchWorkspace);
-      Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
-      WorkspaceGroup* targetGroup = target != nullptr
+      Output* preferred =
+          greeterMode() ? greeterOutputFor(*m_server, this) : m_server->outputFromWlr(m_server->preferredOutput());
+      WorkspaceGroup* targetGroup = target != nullptr && !greeterMode()
           ? target->group()
           : windowRuleWorkspaceGroup(*m_server, rule, preferred != nullptr ? preferred->workspaceGroup() : nullptr);
-      if (target == nullptr) {
+      if (target == nullptr || greeterMode()) {
         target = windowRuleWorkspace(targetGroup, rule);
       }
 
@@ -891,7 +910,7 @@ namespace andromeda {
       }
 
       const bool wantFullscreen =
-          (!openingInScratchpad && requestedFullscreen()) || (rule.defaultFullscreen && *rule.defaultFullscreen);
+          greeterMode() || (!openingInScratchpad && requestedFullscreen()) || (rule.defaultFullscreen && *rule.defaultFullscreen);
       const bool layoutMaximizeToEdges =
           (target != nullptr ? target->layoutConfig().clientMaximize : config().layout.clientMaximize)
           == ClientMaximize::Edges;

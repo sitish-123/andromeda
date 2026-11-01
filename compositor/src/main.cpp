@@ -9,16 +9,19 @@
 #include "scene/cheatsheet_rows.h"
 #include "server/ipc.h"
 #include "server/ipc_commands.h"
+#include "server/greeter_mode.h"
 #include "server/server.h"
 
 #include <algorithm>
 #include <csignal>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <sched.h>
 #include <print>
 #include <string>
 #include <string_view>
@@ -108,6 +111,7 @@ namespace {
     heading("Compositor options");
     row("-s <command>", "spawn <command> once the compositor starts");
     row("-c <config>", "use <config> instead of the default config path");
+    row("--greeter", "login screen session: run only the -s client, exit with it (default config /etc/andromeda/greeter.toml)");
 
     heading("Control the running compositor");
     specRows(andromeda::IpcCommandGroup::Control);
@@ -154,6 +158,24 @@ const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,
 #define ANDROMEDA_STRINGIFY_HELPER(x) #x
 #define ANDROMEDA_STRINGIFY(x) ANDROMEDA_STRINGIFY_HELPER(x)
 #endif
+
+namespace {
+
+  // Frames must not wait behind CPU-bound clients: under a 32-job build the main thread waited 0.65 ms per wake-up at
+  // SCHED_OTHER (15 us idle). SCHED_RR runs it before every normal task, as KWin does. RESET_ON_FORK keeps worker
+  // threads and spawned clients at normal priority. Kernel RT throttling still leaves 5% of each CPU to normal tasks.
+  void raiseMainThreadPriority() {
+    constexpr int kPriority = 2;
+    sched_param param{};
+    param.sched_priority = kPriority;
+    if (sched_setscheduler(0, SCHED_RR | SCHED_RESET_ON_FORK, &param) != 0) {
+      kLog.warn("real-time scheduling unavailable ({}); frames may stall under CPU load", std::strerror(errno));
+      return;
+    }
+    kLog.info("main thread runs SCHED_RR priority {}", kPriority);
+  }
+
+} // namespace
 
 int main(int argc, char** argv) {
 #if defined(__GLIBC__) && !defined(ANDROMEDA_USE_JEMALLOC)
@@ -362,9 +384,21 @@ int main(int argc, char** argv) {
       startupCmd = argv[++i];
     } else if (std::strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
       configPath = argv[++i];
+    } else if (std::strcmp(argv[i], "--greeter") == 0) {
+      andromeda::setGreeterMode(true);
     } else {
       printHelp(stderr);
       return EXIT_FAILURE;
+    }
+  }
+
+  if (andromeda::greeterMode()) {
+    if (startupCmd == nullptr) {
+      std::println(stderr, "error: --greeter needs -s <greeter command>");
+      return EXIT_FAILURE;
+    }
+    if (configPath == nullptr) {
+      configPath = "/etc/andromeda/greeter.toml";
     }
   }
 
@@ -378,6 +412,7 @@ int main(int argc, char** argv) {
     // restores the default before exec.
     andromeda::installChildReaper();
 
+    raiseMainThreadPriority();
     if (!server.start(startupCmd)) {
       kLog.error("failed to start server");
       return EXIT_FAILURE;

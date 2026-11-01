@@ -184,8 +184,16 @@ output_power_protocol_h = custom_target(
   command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
 )
 
+design_tokens_h = custom_target(
+  'design_tokens.h',
+  input: ['protocols/gen-design-tokens.py', 'protocols/design-tokens.toml'],
+  output: 'design_tokens.h',
+  command: [find_program('python3'), '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
+)
+
+# Also carries the generated design tokens, which config defaults read.
 layer_shell_protocol_dep = declare_dependency(
-  sources: [layer_shell_protocol_h, output_power_protocol_h],
+  sources: [layer_shell_protocol_h, output_power_protocol_h, design_tokens_h],
   include_directories: include_directories('.'),
 )
 
@@ -279,6 +287,18 @@ xdg_shell_client_c = custom_target(
   'xdg-shell-client-protocol.c',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'stable/xdg-shell/xdg-shell.xml',
   output: 'xdg-shell-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+background_effect_client_h = custom_target(
+  'ext-background-effect-v1-client-protocol.h',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-background-effect/ext-background-effect-v1.xml',
+  output: 'ext-background-effect-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+background_effect_client_c = custom_target(
+  'ext-background-effect-v1-client-protocol.c',
+  input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/ext-background-effect/ext-background-effect-v1.xml',
+  output: 'ext-background-effect-v1-client-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
@@ -434,7 +454,7 @@ tearing_control_client_c = custom_target(
 
 # Staging protocols the compositor serves itself, since wlroots has no helper for them yet.
 staging_server_sources = []
-foreach name : ['fifo', 'commit-timing']
+foreach name : ['fifo', 'commit-timing', 'ext-background-effect']
   xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging' / name / name + '-v1.xml'
   staging_server_sources += custom_target(
     name + '-v1-protocol.h',
@@ -467,6 +487,31 @@ desktop_server_c = custom_target(
   'desktop-unstable-v1-protocol.c',
   input: 'protocols/desktop-unstable-v1.xml',
   output: 'desktop-unstable-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
+dsk_surface_client_h = custom_target(
+  'dsk-surface-v1-client-protocol.h',
+  input: 'protocols/dsk-surface-v1.xml',
+  output: 'dsk-surface-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+dsk_surface_client_c = custom_target(
+  'dsk-surface-v1-client-protocol.c',
+  input: 'protocols/dsk-surface-v1.xml',
+  output: 'dsk-surface-v1-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+dsk_surface_server_h = custom_target(
+  'dsk-surface-v1-protocol.h',
+  input: 'protocols/dsk-surface-v1.xml',
+  output: 'dsk-surface-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+dsk_surface_server_c = custom_target(
+  'dsk-surface-v1-protocol.c',
+  input: 'protocols/dsk-surface-v1.xml',
+  output: 'dsk-surface-v1-protocol.c',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
@@ -823,6 +868,7 @@ andromeda_pure_dep = declare_dependency(
 # and the executable is just an entry point.
 core_sources = files(
   'src/core/animation.cpp',
+  'src/motion/desk_motion.cpp',
   'src/core/application_scope.cpp',
   'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',
@@ -849,6 +895,12 @@ core_sources = files(
   'src/server/desktop_settings_manager.cpp',
   'src/server/desktop_output_manager.cpp',
   'src/server/desktop_shell.cpp',
+  'src/server/background_effect.cpp',
+  'src/server/surface_motion.cpp',
+  'src/server/dsk_surface.cpp',
+  'src/server/dsk_tracker.cpp',
+  'src/server/greeter_mode.cpp',
+  'src/server/tracker_motion.cpp',
   'src/server/fifo.cpp',
   'src/server/commit_timing.cpp',
   'src/server/allocator.cpp',
@@ -871,6 +923,11 @@ core_sources = files(
   'src/input/system_keymap.cpp',
   'src/input/text_input.cpp',
   'src/input/cursor.cpp',
+  'src/input/cursor_data_drag.cpp',
+  'src/input/cursor_grab.cpp',
+  'src/input/cursor_hot_corner.cpp',
+  'src/input/cursor_tablet.cpp',
+  'src/input/cursor_touch.cpp',
   'src/input/gestures.cpp',
   'src/input/cursor_constraint.cpp',
   'src/view/view.cpp',
@@ -963,6 +1020,8 @@ andromeda_core = static_library(
     color_management_server_c,
     desktop_server_h,
     desktop_server_c,
+    dsk_surface_server_h,
+    dsk_surface_server_c,
     xdg_output_server_h,
     xdg_output_server_c,
   ] + staging_server_sources,

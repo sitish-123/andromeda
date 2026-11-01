@@ -312,3 +312,21 @@ Andromeda writes its main log to `$XDG_CACHE_HOME/andromeda/andromeda.log`. If `
 Messages from wlroots appear with the `[wlr]` tag at info level and above. To include wlroots debug output when reporting a rendering or display problem, start Andromeda with `ANDROMEDA_WLR_DEBUG=1` set in its environment.
 
 When standard output or standard error is connected to a TTY, raw writes from Andromeda and its child processes are redirected to `$XDG_CACHE_HOME/andromeda/andromeda-stderr.log`, or `~/.cache/andromeda/andromeda-stderr.log` when `XDG_CACHE_HOME` is unset.
+
+## Login screen (greeter mode)
+
+`andromeda --greeter -s <greeter command>` runs a login screen session, for example from greetd:
+
+```toml
+[default_session]
+command = "andromeda --greeter -c /etc/andromeda/greeter.toml -s noctalia-greeter"
+```
+
+In greeter mode Andromeda:
+
+- runs only the `-s` client and exits when it exits;
+- opens each window of that client fullscreen, one per output;
+- reads `-c` (default `/etc/andromeda/greeter.toml`) for outputs, input, keyboard and cursor, and runs no `autostart`;
+- opens no IPC socket and runs no keybinds, wheel binds or touchpad gestures of its own; VT switching still works;
+- hides screen capture, clipboard managers, virtual input, input capture, window lists, output management, gamma and
+  power control, and the private output protocol from every client; the private settings protocol is read-only.
