@@ -138,6 +138,9 @@ namespace andromeda {
   class DesktopOutputManager;
   class CommitTimingManager;
   class DesktopShell;
+  class BackgroundEffectManager;
+  class DskSurfaceManager;
+  class GreeterChild;
   class FifoManager;
   struct InputDeviceInfo;
   class InputMethodRelay;
@@ -453,6 +456,8 @@ namespace andromeda {
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
+    [[nodiscard]] const BackgroundEffectManager* backgroundEffects() const { return m_backgroundEffects.get(); }
+    [[nodiscard]] DskSurfaceManager* dskSurfaces() const { return m_dskSurfaces.get(); }
     [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
@@ -932,6 +937,9 @@ namespace andromeda {
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
     std::unique_ptr<DesktopSettingsManager> m_desktopSettingsManager;
     std::unique_ptr<DesktopShell> m_desktopShell;
+    std::unique_ptr<BackgroundEffectManager> m_backgroundEffects;
+    std::unique_ptr<DskSurfaceManager> m_dskSurfaces;
+    std::unique_ptr<GreeterChild> m_greeterChild; // greeter mode only
     std::unique_ptr<FifoManager> m_fifoManager;
     std::unique_ptr<CommitTimingManager> m_commitTimingManager;
     std::unique_ptr<Ipc> m_ipc;

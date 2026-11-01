@@ -35,6 +35,9 @@
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
+#include "server/background_effect.h"
+#include "server/dsk_surface.h"
+#include "server/greeter_mode.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/syncobj_acquire_barrier.h"
@@ -167,6 +170,9 @@ namespace andromeda {
         return true;
       }
       const std::string_view interfaceName(interface->name);
+      if (greeterHidesGlobal(interfaceName)) {
+        return false;
+      }
       // A global filter is consulted both when a global is advertised and when
       // it is bound, so each client's decisions must remain stable for its
       // entire connection.
@@ -685,6 +691,8 @@ namespace andromeda {
     if (m_tearingControlManager == nullptr) {
       throw std::runtime_error("failed to create tearing-control manager");
     }
+    m_backgroundEffects = std::make_unique<BackgroundEffectManager>(m_display);
+    m_dskSurfaces = std::make_unique<DskSurfaceManager>(m_display);
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
@@ -1123,6 +1131,8 @@ namespace andromeda {
     m_desktopShell.reset();
     wl_display_destroy_clients(m_display);
     m_fifoManager.reset();
+    m_backgroundEffects.reset();
+    m_dskSurfaces.reset();
     m_commitTimingManager.reset();
     m_colorManager.reset();
     m_syncobjAcquireBarrier.reset();
@@ -1265,7 +1275,10 @@ namespace andromeda {
         "ANDROMEDA_SOCKET",
         (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda-" + m_socketName + ".sock").c_str(), true
     );
-    m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+    // The login screen exposes no control socket.
+    if (!greeterMode()) {
+      m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+    }
     setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
@@ -1356,6 +1369,13 @@ namespace andromeda {
     if (!notifyServiceReady(notifySocket)) {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
       return false;
+    }
+    if (greeterMode()) {
+      // The greeter session runs the greeter alone and ends with it; config autostart does not apply.
+      m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this] {
+        wl_display_terminate(m_display);
+      });
+      return m_greeterChild->running();
     }
     if (startupCmd != nullptr) {
       spawn(startupCmd);
