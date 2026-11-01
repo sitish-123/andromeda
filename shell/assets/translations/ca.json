@@ -956,7 +956,7 @@
       "bar": {
         "create": "Crea",
         "delete": "Elimina",
-        "delete-confirm-desc": "Aquesta barra creada per la GUI s'eliminarà de settings.toml.",
+        "delete-confirm-desc": "Aquesta barra creada per la GUI s'eliminarà de overrides.toml.",
         "delete-confirm-title": "Vols eliminar «{name}»?",
         "id-placeholder": "ID de la barra",
         "label": "Barra: {name}",
@@ -970,7 +970,7 @@
       "monitor-override": {
         "create": "Crea",
         "delete": "Elimina",
-        "delete-confirm-desc": "Aquesta sobrescriptura de monitor creada per la GUI s'eliminarà de settings.toml.",
+        "delete-confirm-desc": "Aquesta sobrescriptura de monitor creada per la GUI s'eliminarà de overrides.toml.",
         "delete-confirm-title": "Vols eliminar «{name}»?",
         "label": "Monitor: {name}",
         "management": "Sobreescriptura de monitor",
@@ -2145,10 +2145,6 @@
         "blur-intensity": {
           "description": "Quant es desenfoca el fons de la pantalla de bloqueig",
           "label": "Intensitat del desenfocament"
-        },
-        "blurred-desktop": {
-          "description": "Utilitza una instantània de l'escriptori com a fons de la pantalla de bloqueig",
-          "label": "Captura d'escriptori"
         },
         "enabled": {
           "description": "Activa el bloqueig de sessió, la integració amb logind i les accions de bloqueig",

@@ -1136,7 +1136,7 @@
       "bar": {
         "create": "创建",
         "delete": "删除",
-        "delete-confirm-desc": "该状态栏由 GUI 创建，将从 settings.toml 中移除。",
+        "delete-confirm-desc": "该状态栏由 GUI 创建，将从 overrides.toml 中移除。",
         "delete-confirm-title": "确认删除“{name}”？",
         "id-placeholder": "状态栏 ID",
         "label": "状态栏：{name}",
@@ -1151,7 +1151,7 @@
         "create": "创建",
         "custom": "自定义",
         "delete": "删除",
-        "delete-confirm-desc": "该屏幕设置由 GUI 创建，将从 settings.toml 中移除。",
+        "delete-confirm-desc": "该屏幕设置由 GUI 创建，将从 overrides.toml 中移除。",
         "delete-confirm-title": "确认删除“{name}”？",
         "exists": "该屏幕设置已存在。",
         "label": "屏幕：{name}",
@@ -2486,10 +2486,6 @@
         "blur-intensity": {
           "description": "锁屏背景的模糊程度",
           "label": "模糊强度"
-        },
-        "blurred-desktop": {
-          "description": "截取桌面快照作为锁屏背景",
-          "label": "桌面快照"
         },
         "edge-smoothness": {
           "description": "锁屏过渡边缘的羽化程度",
@@ -3909,7 +3905,7 @@
             "label": "获取配色方案"
           },
           "color-scheme-set": {
-            "description": "在 settings.toml 中设置配色来源及选项（内置名称、壁纸生成方案、社区 ID 或自定义方案文件夹名称）",
+            "description": "在 overrides.toml 中设置配色来源及选项（内置名称、壁纸生成方案、社区 ID 或自定义方案文件夹名称）",
             "label": "设置配色方案"
           },
           "config-reload": {
@@ -4189,7 +4185,7 @@
             "label": "获取主题模式"
           },
           "theme-mode-set": {
-            "description": "设置主题模式并保存到 settings.toml",
+            "description": "设置主题模式并保存到 overrides.toml",
             "label": "设置主题模式"
           },
           "theme-mode-toggle": {

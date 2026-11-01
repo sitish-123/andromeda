@@ -1080,7 +1080,7 @@
       "bar": {
         "create": "Crear",
         "delete": "Eliminar",
-        "delete-confirm-desc": "Esta barra creada por la interfaz será eliminada de settings.toml.",
+        "delete-confirm-desc": "Esta barra creada por la interfaz será eliminada de overrides.toml.",
         "delete-confirm-title": "Eliminar \"{name}\"?",
         "id-placeholder": "ID de Barra",
         "label": "Barra: {name}",
@@ -1095,7 +1095,7 @@
         "create": "Crear",
         "custom": "Personalizado",
         "delete": "Eliminar",
-        "delete-confirm-desc": "Este monitor de sobreescritura creado en el interfaz gráfico será eliminado de settings.toml.",
+        "delete-confirm-desc": "Este monitor de sobreescritura creado en el interfaz gráfico será eliminado de overrides.toml.",
         "delete-confirm-title": "Eliminar \"{name}\"?",
         "exists": "Ya existe una anulación para este monitor.",
         "label": "Monitor: {name}",
@@ -2335,10 +2335,6 @@
         "blur-intensity": {
           "description": "Cuánto se desenfoca el fondo de la pantalla de bloqueo",
           "label": "Intensidad del desenfoque"
-        },
-        "blurred-desktop": {
-          "description": "Usar una instantánea del escritorio como fondo de la pantalla de bloqueo",
-          "label": "Captura de escritorio"
         },
         "edge-smoothness": {
           "description": "Difuminado de los bordes de transición de la pantalla de bloqueo",
@@ -3647,7 +3643,7 @@
             "label": "Obtener esquema de colores"
           },
           "color-scheme-set": {
-            "description": "Define la fuente y la selección de la paleta en settings.toml (nombre integrado, esquema del generador de fondos de pantalla, ID de la comunidad o nombre de la carpeta de esquemas personalizados)",
+            "description": "Define la fuente y la selección de la paleta en overrides.toml (nombre integrado, esquema del generador de fondos de pantalla, ID de la comunidad o nombre de la carpeta de esquemas personalizados)",
             "label": "Establecer combinación de colores"
           },
           "config-reload": {
@@ -3919,7 +3915,7 @@
             "label": "Obtener el modo de tema"
           },
           "theme-mode-set": {
-            "description": "Establecer el modo de tema y guardarlo en settings.toml",
+            "description": "Establecer el modo de tema y guardarlo en overrides.toml",
             "label": "Establecer modo de tema"
           },
           "theme-mode-toggle": {

@@ -975,7 +975,7 @@
       "bar": {
         "create": "Oluştur",
         "delete": "Sil",
-        "delete-confirm-desc": "Arayüz üzerinden oluşturulan bu çubuk settings.toml dosyasından kaldırılacaktır.",
+        "delete-confirm-desc": "Arayüz üzerinden oluşturulan bu çubuk overrides.toml dosyasından kaldırılacaktır.",
         "delete-confirm-title": "\"{name}\"i sil?",
         "id-placeholder": "Çubuk ID'si",
         "label": "Çubuk: {name}",
@@ -989,7 +989,7 @@
       "monitor-override": {
         "create": "Oluştur",
         "delete": "Sil",
-        "delete-confirm-desc": "Arayüz üzerinden oluşturulan bu monitör kuralı settings.toml dosyasından kaldırılacaktır.",
+        "delete-confirm-desc": "Arayüz üzerinden oluşturulan bu monitör kuralı overrides.toml dosyasından kaldırılacaktır.",
         "delete-confirm-title": "\"{name}\"i sil?",
         "label": "Monitör: {name}",
         "management": "Monitör Geçersiz Kılma",
@@ -2178,10 +2178,6 @@
         "blur-intensity": {
           "description": "Kilit ekranının arka plan bulanıklık miktarı",
           "label": "Bulanıklık Yoğunluğu"
-        },
-        "blurred-desktop": {
-          "description": "Masaüstünün anlık bir görüntüsünü kilit ekranı arka planı olarak kullan",
-          "label": "Masaüstü Yakalama"
         },
         "enabled": {
           "description": "Oturum kilitleme, logind entegrasyonu ve oturum kilitleme eylemlerini aç",

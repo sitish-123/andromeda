@@ -1140,7 +1140,7 @@
       "bar": {
         "create": "Creează",
         "delete": "Șterge",
-        "delete-confirm-desc": "Această bară creată din interfață va fi eliminată din settings.toml.",
+        "delete-confirm-desc": "Această bară creată din interfață va fi eliminată din overrides.toml.",
         "delete-confirm-title": "Ștergi „{name}”?",
         "id-placeholder": "ID bară",
         "label": "Bară: {name}",
@@ -1155,7 +1155,7 @@
         "create": "Creează",
         "custom": "Personalizat",
         "delete": "Șterge",
-        "delete-confirm-desc": "Această suprascriere de monitor creată din interfață va fi eliminată din settings.toml.",
+        "delete-confirm-desc": "Această suprascriere de monitor creată din interfață va fi eliminată din overrides.toml.",
         "delete-confirm-title": "Ștergi „{name}”?",
         "exists": "Există deja o suprascriere pentru acest monitor.",
         "label": "Monitor: {name}",
@@ -2490,10 +2490,6 @@
         "blur-intensity": {
           "description": "Cât de mult este estompat fundalul ecranului de blocare",
           "label": "Intensitatea estompării"
-        },
-        "blurred-desktop": {
-          "description": "Folosește o instantanee a desktopului ca fundal al ecranului de blocare",
-          "label": "Captură desktop"
         },
         "edge-smoothness": {
           "description": "Finețea marginilor tranziției ecranului de blocare",
@@ -3929,7 +3925,7 @@
             "label": "Obține schema de culori"
           },
           "color-scheme-set": {
-            "description": "Setează sursa paletei și selecția în settings.toml (nume integrat, schema generatorului de fundal, ID din comunitate sau numele folderului unei scheme personalizate)",
+            "description": "Setează sursa paletei și selecția în overrides.toml (nume integrat, schema generatorului de fundal, ID din comunitate sau numele folderului unei scheme personalizate)",
             "label": "Setează schema de culori"
           },
           "config-reload": {
@@ -4209,7 +4205,7 @@
             "label": "Obține modul de temă"
           },
           "theme-mode-set": {
-            "description": "Setează modul de temă și îl salvează în settings.toml",
+            "description": "Setează modul de temă și îl salvează în overrides.toml",
             "label": "Setează modul de temă"
           },
           "theme-mode-toggle": {

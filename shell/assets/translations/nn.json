@@ -978,7 +978,7 @@
       "bar": {
         "create": "Skapa",
         "delete": "Sletta",
-        "delete-confirm-desc": "Denne stonga, som var laga med grensesnittet, vert sletta frå settings.toml.",
+        "delete-confirm-desc": "Denne stonga, som var laga med grensesnittet, vert sletta frå overrides.toml.",
         "delete-confirm-title": "Sletta \"{name}\"?",
         "id-placeholder": "Stong-ID",
         "label": "Stong: {name}",
@@ -992,7 +992,7 @@
       "monitor-override": {
         "create": "Skapa",
         "delete": "Sletta",
-        "delete-confirm-desc": "Denne skjermoverstyringa, som var laga med grensesnittet, vert sletta frå settings.toml.",
+        "delete-confirm-desc": "Denne skjermoverstyringa, som var laga med grensesnittet, vert sletta frå overrides.toml.",
         "delete-confirm-title": "Sletta \"{name}\"?",
         "label": "Skjerm: {name}",
         "management": "Skjermoverstyring",
@@ -2165,10 +2165,6 @@
         "blur-intensity": {
           "description": "Kor mykje visking det er på låseskjermen",
           "label": "Viskingsstyrke"
-        },
-        "blurred-desktop": {
-          "description": "Bruk eit bilete av skrivebordet som låseskjermsbakgrunn",
-          "label": "Skrivebordsopptak"
         },
         "enabled": {
           "description": "Slå på øyktelås, logind-integrering og låsehandlingar",

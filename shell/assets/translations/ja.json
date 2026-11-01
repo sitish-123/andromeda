@@ -1065,7 +1065,7 @@
       "bar": {
         "create": "作成",
         "delete": "削除",
-        "delete-confirm-desc": "GUIで作成したバーはsettings.tomlから削除されます。",
+        "delete-confirm-desc": "GUIで作成したバーはoverrides.tomlから削除されます。",
         "delete-confirm-title": "「{name}」を削除しますか？",
         "id-placeholder": "バーのID",
         "label": "バー：{name}",
@@ -1080,7 +1080,7 @@
         "create": "新規作成",
         "custom": "独自設定",
         "delete": "削除",
-        "delete-confirm-desc": "GUIで作成した画面用の上書き設定はsettings.tomlから削除されます。\n",
+        "delete-confirm-desc": "GUIで作成した画面用の上書き設定はoverrides.tomlから削除されます。\n",
         "delete-confirm-title": "「{name}」を削除しますか？\n",
         "exists": "この画面には既に上書き設定があります。",
         "label": "画面：{name}",
@@ -2044,10 +2044,6 @@
         "blur-intensity": {
           "description": "ロック画面の背景をぼかす強さ",
           "label": "ぼかし強度"
-        },
-        "blurred-desktop": {
-          "description": "デスクトップの画像をロック画面の背景に使用",
-          "label": "デスクトップを撮影"
         },
         "edge-smoothness": {
           "description": "ロック画面切替時の境界部分のぼかし具合",
@@ -3126,7 +3122,7 @@
             "description": "現在の配色を表示：<source> <name>（sourceはbuiltin、wallpaper、community、customのいずれか）"
           },
           "color-scheme-set": {
-            "description": "settings.tomlで配色の取得元と選択内容を設定（builtin名、wallpaper生成方式、community ID、またはcustom配色フォルダー名）"
+            "description": "overrides.tomlで配色の取得元と選択内容を設定（builtin名、wallpaper生成方式、community ID、またはcustom配色フォルダー名）"
           },
           "config-reload": {
             "description": "設定ファイルを再読み込み"
@@ -3293,7 +3289,7 @@
             "label": "現在のテーマモードを取得"
           },
           "theme-mode-set": {
-            "description": "テーマモードを設定し、settings.tomlに保存",
+            "description": "テーマモードを設定し、overrides.tomlに保存",
             "label": "テーマモードを設定"
           },
           "theme-mode-toggle": {

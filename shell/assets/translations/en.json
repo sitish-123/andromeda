@@ -588,7 +588,8 @@
       "power": "Power",
       "screen-time": "Screen Time",
       "system": "System",
-      "weather": "Weather"
+      "weather": "Weather",
+      "quick": "Quick Settings"
     },
     "weather": {
       "daily": {
@@ -637,6 +638,15 @@
       "no-location-title": "No location set",
       "refreshing": "Refreshing weather…",
       "waiting": "Waiting for weather data"
+    },
+    "quick": {
+      "bluetooth": "Bluetooth",
+      "dark-mode": "Dark Mode",
+      "focus": "Focus",
+      "notifications": "{count} notifications",
+      "off": "Off",
+      "on": "On",
+      "wifi": "Wi-Fi"
     }
   },
   "desktop-widgets": {
@@ -1100,7 +1110,9 @@
       "screen-time-reset-success": "Usage history cleared.",
       "session-bus-unavailable": "Session bus unavailable",
       "wallpaper-palette-export": "Custom Palette",
-      "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom."
+      "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom.",
+      "shell-restarted": "The desktop shell restarted",
+      "shell-restarted-body": "It stopped unexpectedly. Your windows were not affected."
     }
   },
   "osd": {
@@ -1288,7 +1300,7 @@
       "bar": {
         "create": "Create",
         "delete": "Delete",
-        "delete-confirm-desc": "This GUI-created bar will be removed from settings.toml.",
+        "delete-confirm-desc": "This GUI-created bar will be removed from overrides.toml.",
         "delete-confirm-title": "Delete \"{name}\"?",
         "id-placeholder": "Bar ID",
         "label": "Bar: {name}",
@@ -1303,7 +1315,7 @@
         "create": "Create",
         "custom": "Custom",
         "delete": "Delete",
-        "delete-confirm-desc": "This GUI-created monitor override will be removed from settings.toml.",
+        "delete-confirm-desc": "This GUI-created monitor override will be removed from overrides.toml.",
         "delete-confirm-title": "Delete \"{name}\"?",
         "exists": "An override for this monitor already exists.",
         "label": "Display: {name}",
@@ -2109,7 +2121,7 @@
           "label": "Palette Inspector"
         },
         "palette-source": {
-          "description": "Where to derive the color palette from",
+          "description": "Colors for terminal and app templates. The shell always uses the design tokens.",
           "label": "Palette Source"
         },
         "popup-borders": {
@@ -2286,6 +2298,10 @@
         "hover-highlight": {
           "description": "Softly tint the widget under the mouse pointer with its own foreground color",
           "label": "Hover Highlight"
+        },
+        "islands": {
+          "description": "Draw each group of widgets as its own floating pill instead of one full-length bar",
+          "label": "Islands"
         },
         "layer": {
           "description": "Use Overlay to show the bar above fullscreen apps; attached panels follow the bar",
@@ -2526,6 +2542,10 @@
           "description": "Show running window dots below dock icons",
           "label": "Show Dots"
         },
+        "running-bar": {
+          "description": "Show a short bar below running apps",
+          "label": "Running Indicator"
+        },
         "show-instance-count": {
           "description": "Show a badge with the number of open instances",
           "label": "Show Instance Count"
@@ -2677,10 +2697,6 @@
           "description": "How much the lock screen background is blurred",
           "label": "Blur Intensity"
         },
-        "blurred-desktop": {
-          "description": "Use a snapshot of the desktop as the lock screen background",
-          "label": "Desktop Capture"
-        },
         "edge-smoothness": {
           "description": "Feathering of the lock screen transition edges",
           "label": "Transition Edge Smoothness"
@@ -2785,6 +2801,12 @@
         "history-retention-hours": {
           "description": "Automatically remove notification history entries older than the specified number of hours (0 to keep forever)",
           "label": "Retention Period"
+        },
+        "history-storage": {
+          "button": "Retry",
+          "description-recovery": "Saved notification history could not be authenticated or is damaged; retry after restoring the correct key, or reset private storage",
+          "description-unavailable": "Encrypted notification history is not open, so notifications are kept for this session only; unlock private storage or restore the configured key, then retry",
+          "label": "Notification History Storage"
         },
         "keep-dismissed-in-history": {
           "description": "Keep notifications in history after their toasts are dismissed",
@@ -4011,6 +4033,22 @@
           "label": "Vertical Offset",
           "description": "Shift the shadow up or down"
         },
+        "appearance-increase-contrast": {
+          "label": "Increase Contrast",
+          "description": "Stronger text and borders in the shell and in apps"
+        },
+        "appearance-reduce-transparency": {
+          "label": "Reduce Transparency",
+          "description": "Draw glass panels as solid surfaces and turn blur off"
+        },
+        "appearance-glass-opacity": {
+          "label": "Glass Opacity",
+          "description": "How see-through glass panels are"
+        },
+        "appearance-reduce-motion": {
+          "label": "Reduce Motion",
+          "description": "Windows fade instead of moving; workspace and overview animations stop"
+        },
         "appearance-blur-enabled": {
           "label": "Background Blur",
           "description": "Master switch for blur; windows and panels opt in through window and layer rules, and blur shows only where they are transparent"
@@ -4310,7 +4348,7 @@
     "storage-recovery": {
       "button": "Reset Private Storage",
       "button-confirm": "Confirm Storage Reset",
-      "description": "Permanently delete saved clipboard history and the calendar event cache, then reopen private storage (a configured key file is never modified)",
+      "description": "Permanently delete saved clipboard and notification history, notification images, and the calendar event cache, then reopen private storage (a configured key file is never modified)",
       "error-delete": "Some private storage files could not be deleted. The storage key was preserved.",
       "error-key": "Private storage files were deleted, but secure storage could not be reopened. Fix access and retry.",
       "label": "Recover Private Storage",
@@ -4433,7 +4471,7 @@
             "label": "Get color scheme"
           },
           "color-scheme-set": {
-            "description": "Set palette source and selection in settings.toml (builtin name, wallpaper generator scheme, community id, or custom scheme folder name)",
+            "description": "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, or custom scheme folder name)",
             "label": "Set color scheme"
           },
           "config-reload": {
@@ -4713,7 +4751,7 @@
             "label": "Get theme mode"
           },
           "theme-mode-set": {
-            "description": "Set theme mode and persist to settings.toml",
+            "description": "Set theme mode and persist to overrides.toml",
             "label": "Set theme mode"
           },
           "theme-mode-toggle": {

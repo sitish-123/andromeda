@@ -955,7 +955,7 @@
       "bar": {
         "create": "Létrehozás",
         "delete": "Törlés",
-        "delete-confirm-desc": "Ez a grafikus felületen létrehozott sáv el lesz távolítva a settings.toml fájlból",
+        "delete-confirm-desc": "Ez a grafikus felületen létrehozott sáv el lesz távolítva a overrides.toml fájlból",
         "delete-confirm-title": "Törlöd ezt: „{name}”?",
         "id-placeholder": "Sáv azonosító",
         "label": "Sáv: {name}",
@@ -969,7 +969,7 @@
       "monitor-override": {
         "create": "Létrehozás",
         "delete": "Törlés",
-        "delete-confirm-desc": "Ez a grafikus felületen létrehozott monitor-felülbírálás el lesz távolítva a settings.toml fájlból.",
+        "delete-confirm-desc": "Ez a grafikus felületen létrehozott monitor-felülbírálás el lesz távolítva a overrides.toml fájlból.",
         "delete-confirm-title": "Törlöd a(z) „{name}”?",
         "label": "Monitor: {name}",
         "management": "Monitor-felülbírálás",
@@ -2102,10 +2102,6 @@
         "blur-intensity": {
           "description": "Mennyire elmosódott a zárképernyő háttere",
           "label": "Elmosás erőssége"
-        },
-        "blurred-desktop": {
-          "description": "Használj egy pillanatképet az asztalról a képernyőzár háttereként",
-          "label": "Képernyőfelvétel"
         },
         "enabled": {
           "description": "A munkamenet-zár, a logind-integráció és a zárási műveletek engedélyezése",

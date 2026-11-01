@@ -878,7 +878,7 @@
       "bar": {
         "create": "Crear",
         "delete": "Eliminar",
-        "delete-confirm-desc": "Esta barra creada desde a interface eliminarase de settings.toml.",
+        "delete-confirm-desc": "Esta barra creada desde a interface eliminarase de overrides.toml.",
         "delete-confirm-title": "Eliminar \"{name}\"?",
         "id-placeholder": "ID da barra",
         "label": "Barra: {name}",
@@ -892,7 +892,7 @@
       "monitor-override": {
         "create": "Crear",
         "delete": "Eliminar",
-        "delete-confirm-desc": "Esta substitución de monitor creada desde a interface eliminarase de settings.toml.",
+        "delete-confirm-desc": "Esta substitución de monitor creada desde a interface eliminarase de overrides.toml.",
         "delete-confirm-title": "Eliminar \"{name}\"?",
         "label": "Monitor: {name}",
         "management": "Sobreescribir monitor",
@@ -1971,10 +1971,6 @@
         "blur-intensity": {
           "description": "Canto se desenfoca o fondo da pantalla de bloqueo",
           "label": "Intensidade do desenfoque"
-        },
-        "blurred-desktop": {
-          "description": "Usa unha captura do escritorio como fondo da pantalla de bloqueo",
-          "label": "Captura do escritorio"
         },
         "enabled": {
           "description": "Activa o bloqueo da sesión, a integración con logind e as accións de bloqueo",

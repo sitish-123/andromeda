@@ -922,7 +922,7 @@
       "bar": {
         "create": "新增",
         "delete": "刪除",
-        "delete-confirm-desc": "此從圖形介面所創建的狀態列將由 settings.toml 中刪除。",
+        "delete-confirm-desc": "此從圖形介面所創建的狀態列將由 overrides.toml 中刪除。",
         "delete-confirm-title": "確認刪除 \"{name}\"?",
         "id-placeholder": "狀態列 ID",
         "label": "狀態列：{name}",
@@ -936,7 +936,7 @@
       "monitor-override": {
         "create": "新增",
         "delete": "刪除",
-        "delete-confirm-desc": "此從圖形介面所創建的螢幕設定將由 settings.toml 中刪除。",
+        "delete-confirm-desc": "此從圖形介面所創建的螢幕設定將由 overrides.toml 中刪除。",
         "delete-confirm-title": "確認刪除 \"{name}\"?",
         "label": "螢幕：{name}",
         "management": "螢幕設定",

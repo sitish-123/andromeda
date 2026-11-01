@@ -865,7 +865,7 @@
       "bar": {
         "create": "Vytvořit",
         "delete": "Smazat",
-        "delete-confirm-desc": "Tento panelem vytvořený přes GUI bude odstraněn ze settings.toml.",
+        "delete-confirm-desc": "Tento panelem vytvořený přes GUI bude odstraněn ze overrides.toml.",
         "delete-confirm-title": "Smazat „{name}“?",
         "id-placeholder": "ID panelu",
         "label": "Panel: {name}",
@@ -879,7 +879,7 @@
       "monitor-override": {
         "create": "Vytvořit",
         "delete": "Smazat",
-        "delete-confirm-desc": "Toto přepsání monitoru vytvořené přes GUI bude odstraněno ze settings.toml.",
+        "delete-confirm-desc": "Toto přepsání monitoru vytvořené přes GUI bude odstraněno ze overrides.toml.",
         "delete-confirm-title": "Smazat „{name}“?",
         "label": "Monitor: {name}",
         "management": "Přepsání monitoru",
@@ -1877,10 +1877,6 @@
         "blur-intensity": {
           "description": "Jak moc je rozostřeno pozadí uzamykací obrazovky",
           "label": "Intenzita rozostření"
-        },
-        "blurred-desktop": {
-          "description": "Použít snímek plochy jako pozadí uzamykací obrazovky",
-          "label": "Snímek plochy"
         },
         "enabled": {
           "description": "Povolit uzamčení relace, integraci logind a akce zamykání",

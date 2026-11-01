@@ -841,7 +841,7 @@
       "bar": {
         "create": "Aanmaken",
         "delete": "Verwijderen",
-        "delete-confirm-desc": "Deze via de GUI aangemaakte balk wordt verwijderd uit settings.toml.",
+        "delete-confirm-desc": "Deze via de GUI aangemaakte balk wordt verwijderd uit overrides.toml.",
         "delete-confirm-title": "\"{name}\" verwijderen?",
         "id-placeholder": "Balk-ID",
         "label": "Balk: {name}",
@@ -855,7 +855,7 @@
       "monitor-override": {
         "create": "Aanmaken",
         "delete": "Verwijderen",
-        "delete-confirm-desc": "Deze via de GUI aangemaakte monitoroverschrijving wordt verwijderd uit settings.toml.",
+        "delete-confirm-desc": "Deze via de GUI aangemaakte monitoroverschrijving wordt verwijderd uit overrides.toml.",
         "delete-confirm-title": "\"{name}\" verwijderen?",
         "label": "Monitor: {name}",
         "management": "Monitoroverschrijving",
@@ -1731,10 +1731,6 @@
         "blur-intensity": {
           "description": "Hoe sterk de achtergrond van het vergrendelscherm is vervaagd",
           "label": "Vervagingsintensiteit"
-        },
-        "blurred-desktop": {
-          "description": "Gebruik een momentopname van het bureaublad als achtergrond voor het vergrendelscherm",
-          "label": "Bureaublad vastleggen"
         },
         "enabled": {
           "description": "Sessievergrendeling, Logind-integratie en vergrendelingsacties inschakelen",

@@ -1123,7 +1123,7 @@
       "bar": {
         "create": "Tạo",
         "delete": "Xóa",
-        "delete-confirm-desc": "Thanh được tạo bằng GUI này sẽ được gỡ bỏ khỏi settings.toml.",
+        "delete-confirm-desc": "Thanh được tạo bằng GUI này sẽ được gỡ bỏ khỏi overrides.toml.",
         "delete-confirm-title": "Xóa \"{name}\"?",
         "id-placeholder": "ID thanh",
         "label": "Thanh: {name}",
@@ -1138,7 +1138,7 @@
         "create": "Tạo",
         "custom": "Tùy chỉnh",
         "delete": "Xóa",
-        "delete-confirm-desc": "Ghi đè màn hình được tạo bằng GUI này sẽ bị xóa khỏi settings.toml.",
+        "delete-confirm-desc": "Ghi đè màn hình được tạo bằng GUI này sẽ bị xóa khỏi overrides.toml.",
         "delete-confirm-title": "Xóa \"{name}\"?",
         "exists": "Đã tồn tại một cấu hình ghi đè cho màn hình này.",
         "label": "Màn hình: {name}",
@@ -2409,10 +2409,6 @@
         "blur-intensity": {
           "description": "Mức độ làm mờ nền màn hình khóa",
           "label": "Cường độ làm mờ"
-        },
-        "blurred-desktop": {
-          "description": "Sử dụng ảnh chụp màn hình nền làm nền màn hình khóa",
-          "label": "Chụp màn hình"
         },
         "enabled": {
           "description": "Kích hoạt khóa phiên, tích hợp với logind và các hành động khóa",

@@ -1015,7 +1015,7 @@
       "bar": {
         "create": "생성",
         "delete": "삭제",
-        "delete-confirm-desc": "GUI로 생성된 이 바가 settings.toml에서 제거됩니다.",
+        "delete-confirm-desc": "GUI로 생성된 이 바가 overrides.toml에서 제거됩니다.",
         "delete-confirm-title": "\"{name}\"을(를) 삭제하시겠습니까?",
         "id-placeholder": "바 ID",
         "label": "바: {name}",
@@ -1030,7 +1030,7 @@
         "create": "생성",
         "custom": "사용자 지정",
         "delete": "삭제",
-        "delete-confirm-desc": "GUI로 생성된 이 모니터 재정의가 settings.toml에서 제거됩니다.",
+        "delete-confirm-desc": "GUI로 생성된 이 모니터 재정의가 overrides.toml에서 제거됩니다.",
         "delete-confirm-title": "\"{name}\"을(를) 삭제하시겠습니까?",
         "label": "모니터: {name}",
         "management": "모니터 재정의",
@@ -2226,10 +2226,6 @@
         "blur-intensity": {
           "description": "잠금 화면 배경의 블러 강도",
           "label": "블러 강도"
-        },
-        "blurred-desktop": {
-          "description": "잠금 화면 배경으로 데스크톱 스냅샷 사용",
-          "label": "데스크톱 캡처"
         },
         "enabled": {
           "description": "세션 잠금, logind 통합 및 잠금 작업 활성화",

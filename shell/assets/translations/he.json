@@ -973,7 +973,7 @@
       "bar": {
         "create": "יצירה",
         "delete": "מחק",
-        "delete-confirm-desc": "הסרגל שנוצר דרך הממשק הגרפי יוסר מ-settings.toml.",
+        "delete-confirm-desc": "הסרגל שנוצר דרך הממשק הגרפי יוסר מ-overrides.toml.",
         "delete-confirm-title": "למחוק את \"{name}\"?",
         "id-placeholder": "מזהה סרגל",
         "label": "סרגל: {name}",
@@ -987,7 +987,7 @@
       "monitor-override": {
         "create": "יצירה",
         "delete": "מחק",
-        "delete-confirm-desc": "דריסת הצג שנוצרה דרך הממשק הגרפי תוסר מ-settings.toml.",
+        "delete-confirm-desc": "דריסת הצג שנוצרה דרך הממשק הגרפי תוסר מ-overrides.toml.",
         "delete-confirm-title": "למחוק את \"{name}\"?",
         "label": "מסך: {name}",
         "management": "עקיפת מוניטור",
@@ -2173,10 +2173,6 @@
         "blur-intensity": {
           "description": "מידת הטשטוש של רקע מסך הנעילה",
           "label": "עוצמת הטשטוש"
-        },
-        "blurred-desktop": {
-          "description": "השתמש בתמונת מצב של שולחן העבודה כרקע למסך הנעילה",
-          "label": "לכידת שולחן עבודה"
         },
         "enabled": {
           "description": "הפעלת נעילת הסשן, אינטגרציה עם logind ופעולות נעילה",

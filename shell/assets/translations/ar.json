@@ -991,7 +991,7 @@
       "bar": {
         "create": "إنشاء",
         "delete": "حذف",
-        "delete-confirm-desc": "سيتم إزالة هذا الشريط المصنوع عبر الواجهة من settings.toml.",
+        "delete-confirm-desc": "سيتم إزالة هذا الشريط المصنوع عبر الواجهة من overrides.toml.",
         "delete-confirm-title": "حذف \"{name}\"؟",
         "id-placeholder": "معرّف الشريط",
         "label": "الشريط: {name}",
@@ -1005,7 +1005,7 @@
       "monitor-override": {
         "create": "إنشاء",
         "delete": "حذف",
-        "delete-confirm-desc": "سيتم إزالة تجاوز الشاشة هذا من settings.toml.",
+        "delete-confirm-desc": "سيتم إزالة تجاوز الشاشة هذا من overrides.toml.",
         "delete-confirm-title": "حذف \"{name}\"؟",
         "label": "الشاشة: {name}",
         "management": "تجاوز إعدادات الشاشة",
@@ -2205,10 +2205,6 @@
         "blur-intensity": {
           "description": "درجة ضبابية خلفية شاشة القفل",
           "label": "شدة الضبابية"
-        },
-        "blurred-desktop": {
-          "description": "استخدام لقطة من سطح المكتب كخلفية لشاشة القفل",
-          "label": "التقاط سطح المكتب"
         },
         "enabled": {
           "description": "تفعيل قفل الجلسة وإجراءات القفل",

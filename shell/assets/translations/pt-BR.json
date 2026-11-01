@@ -1140,7 +1140,7 @@
       "bar": {
         "create": "Criar",
         "delete": "Deletar",
-        "delete-confirm-desc": "Esta barra criada pela interface gráfica será removida do arquivo settings.toml.",
+        "delete-confirm-desc": "Esta barra criada pela interface gráfica será removida do arquivo overrides.toml.",
         "delete-confirm-title": "Deletar \"{name}\"?",
         "id-placeholder": "ID da Barra",
         "label": "Barra: {name}",
@@ -1155,7 +1155,7 @@
         "create": "Criar",
         "custom": "Personalizado",
         "delete": "Deletar",
-        "delete-confirm-desc": "Essa configuração de monitor criada pela interface gráfica será removida do arquivo settings.toml.",
+        "delete-confirm-desc": "Essa configuração de monitor criada pela interface gráfica será removida do arquivo overrides.toml.",
         "delete-confirm-title": "Deletar \"{name}\"?",
         "exists": "Uma substituição para este monitor já existe.",
         "label": "Monitor: {name}",
@@ -2490,10 +2490,6 @@
         "blur-intensity": {
           "description": "O quanto o fundo da tela de bloqueio será desfocado",
           "label": "Intensidade do Desfoque"
-        },
-        "blurred-desktop": {
-          "description": "Use uma captura de tela da área de trabalho como plano de fundo da tela de bloqueio",
-          "label": "Captura da Área de Trabalho"
         },
         "edge-smoothness": {
           "description": "Suavização das extremidades da transição da tela de bloqueio",
@@ -3929,7 +3925,7 @@
             "label": "Obter esquema de cores"
           },
           "color-scheme-set": {
-            "description": "Definir fonte da paleta e seleção em settings.toml (nome interno, gerador de esquema de papel de parede, id de comunidade ou nome da pasta de esquema personalizado)",
+            "description": "Definir fonte da paleta e seleção em overrides.toml (nome interno, gerador de esquema de papel de parede, id de comunidade ou nome da pasta de esquema personalizado)",
             "label": "Definir esquema de cores"
           },
           "config-reload": {
@@ -4209,7 +4205,7 @@
             "label": "Obter modo do tema"
           },
           "theme-mode-set": {
-            "description": "Definir o modo do tema e persistir para o settings.toml",
+            "description": "Definir o modo do tema e persistir para o overrides.toml",
             "label": "Definir modo de tema"
           },
           "theme-mode-toggle": {

@@ -1126,7 +1126,7 @@
       "bar": {
         "create": "Crea",
         "delete": "Elimina",
-        "delete-confirm-desc": "Questa barra creata dalla GUI verrà rimossa da settings.toml.",
+        "delete-confirm-desc": "Questa barra creata dalla GUI verrà rimossa da overrides.toml.",
         "delete-confirm-title": "Eliminare \"{name}\"?",
         "id-placeholder": "ID barra",
         "label": "Barra: {name}",
@@ -1141,7 +1141,7 @@
         "create": "Crea",
         "custom": "Custom",
         "delete": "Elimina",
-        "delete-confirm-desc": "Questa override monitor creato dalla GUI verrà rimosso da settings.toml.",
+        "delete-confirm-desc": "Questa override monitor creato dalla GUI verrà rimosso da overrides.toml.",
         "delete-confirm-title": "Eliminare \"{name}\"?",
         "exists": "Esiste già un'opzione di override per questo monitor.",
         "label": "Monitor: {name}",
@@ -2462,10 +2462,6 @@
         "blur-intensity": {
           "description": "Quanto viene sfocato lo sfondo del blocco schermo",
           "label": "Intensità sfocatura"
-        },
-        "blurred-desktop": {
-          "description": "Usa un'istantanea del desktop come sfondo del blocco schermo",
-          "label": "Cattura desktop"
         },
         "edge-smoothness": {
           "description": "Sfumatura dei bordi di transizione della schermata di blocco",
@@ -3860,7 +3856,7 @@
             "label": "Ottieni la combinazione di colori"
           },
           "color-scheme-set": {
-            "description": "Imposta la sorgente e la selezione della tavolozza in settings.toml (nome predefinito, schema del generatore di sfondi, ID della community o nome della cartella dello schema personalizzato).",
+            "description": "Imposta la sorgente e la selezione della tavolozza in overrides.toml (nome predefinito, schema del generatore di sfondi, ID della community o nome della cartella dello schema personalizzato).",
             "label": "Imposta schema colore"
           },
           "config-reload": {
@@ -4140,7 +4136,7 @@
             "label": "Ottieni la modalità tema"
           },
           "theme-mode-set": {
-            "description": "Imposta la modalità tema e salvala nel file settings.toml",
+            "description": "Imposta la modalità tema e salvala nel file overrides.toml",
             "label": "Imposta la modalità tema"
           },
           "theme-mode-toggle": {

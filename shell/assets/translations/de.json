@@ -973,7 +973,7 @@
       "bar": {
         "create": "Erstellen",
         "delete": "Löschen",
-        "delete-confirm-desc": "Diese über die GUI erstellte Leiste wird aus settings.toml entfernt.",
+        "delete-confirm-desc": "Diese über die GUI erstellte Leiste wird aus overrides.toml entfernt.",
         "delete-confirm-title": "„{name}“ löschen?",
         "id-placeholder": "Leisten-ID",
         "label": "Leiste: {name}",
@@ -987,7 +987,7 @@
       "monitor-override": {
         "create": "Erstellen",
         "delete": "Löschen",
-        "delete-confirm-desc": "Diese über die GUI erstellte Monitor-Überschreibung wird aus settings.toml entfernt.",
+        "delete-confirm-desc": "Diese über die GUI erstellte Monitor-Überschreibung wird aus overrides.toml entfernt.",
         "delete-confirm-title": "„{name}“ löschen?",
         "label": "Monitor: {name}",
         "management": "Monitor-Überschreibung",
@@ -2173,10 +2173,6 @@
         "blur-intensity": {
           "description": "Wie stark der Hintergrund des Sperrbildschirms weichgezeichnet wird",
           "label": "Unschärfeintensität"
-        },
-        "blurred-desktop": {
-          "description": "Verwende einen Schnappschuss des Desktops als Hintergrund des Sperrbildschirms",
-          "label": "Desktopaufnahme"
         },
         "enabled": {
           "description": "Aktiviere Sitzungssperre, Logind-Integration und Sperraktionen",
