@@ -9,7 +9,7 @@
 #include "render/scene/node.h"
 #include "shell/dock/dock_geometry.h"
 #include "shell/dock/dock_items.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
@@ -241,7 +241,7 @@ namespace shell::dock {
       instance.slideRoot = instance.sceneRoot->addChild(std::move(slide));
 
       // Shadow
-      if (shell::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
+      if (ui::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
         instance.shadow = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
       }
 
@@ -343,9 +343,9 @@ namespace shell::dock {
       const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
       const auto shadowOffsetX = static_cast<float>(shadowOff.x);
       const auto shadowOffsetY = static_cast<float>(shadowOff.y);
-      const RoundedRectStyle shadowStyle = shell::surface_shadow::style(
-          shadowConfig, cfg.backgroundOpacity,
-          shell::surface_shadow::Shape{
+      const RoundedRectStyle shadowStyle = ui::surface_shadow::style(
+          shadowConfig, Style::glassAlpha(cfg.backgroundOpacity),
+          ui::surface_shadow::Shape{
               .corners = concave.corners, .logicalInset = concave.logicalInset, .radius = concave.radii
           }
       );
@@ -421,8 +421,8 @@ namespace shell::dock {
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg) {
     if (instance.panel == nullptr)
       return;
-    const float opacity = cfg.backgroundOpacity;
-    instance.panel->setFill(colorSpecFromRole(ColorRole::Surface, opacity));
+    const float opacity = Style::glassAlpha(cfg.backgroundOpacity);
+    instance.panel->setFill(colorSpecFromRole(ColorRole::SolidRegular, opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }
 

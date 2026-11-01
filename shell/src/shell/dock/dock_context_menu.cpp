@@ -18,7 +18,7 @@
 #include "ui/style.h"
 #include "wayland/popup_surface.h"
 #include "wayland/wayland_connection.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>

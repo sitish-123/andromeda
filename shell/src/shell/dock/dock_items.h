@@ -29,6 +29,7 @@ namespace shell::dock {
     InputArea* area = nullptr;
     std::array<Box*, 3> dotIndicators{};
     Box* minimizedIndicator = nullptr;
+    Box* runningIndicator = nullptr;
     Box* badge = nullptr;
     Label* badgeLabel = nullptr;
     std::string tooltipText;

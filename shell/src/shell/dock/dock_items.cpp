@@ -1,4 +1,5 @@
 #include "shell/dock/dock_items.h"
+#include "config/app_icon_settings.h"
 
 #include "config/config_service.h"
 #include "core/ui_phase.h"
@@ -41,6 +42,8 @@ namespace {
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
+  constexpr float kRunningBarLength = 14.0F;
+  constexpr float kRunningBarThickness = 3.0F;
   constexpr float kCellPad = 6.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
   constexpr float kHoverZoomLerp = 0.28F;
@@ -430,7 +433,7 @@ namespace shell::dock {
           .configure = [&cfg, iSize, &renderer, iconDecodeTarget](Image& image) {
             image.setSourceFile(renderer, cfg.launcherCustomImage, iconDecodeTarget, true);
             image.setForegroundTint(
-                cfg.launcherCustomImageColorize ? std::optional<ColorSpec>{colorSpecFromRole(ColorRole::OnSurface)}
+                cfg.launcherCustomImageColorize ? std::optional<ColorSpec>{colorSpecFromRole(ColorRole::Label1)}
                                                 : std::nullopt
             );
             image.setPosition(kCellPad, launcherIconBaseY(cfg, iSize));
@@ -441,7 +444,7 @@ namespace shell::dock {
     } else {
       auto launcherGlyph = ui::glyph({
           .glyphSize = iSize * kLauncherGlyphSizeRatio,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .width = iSize,
           .height = iSize,
           .configure = [&cfg, iSize](Glyph& glyph) {
@@ -592,7 +595,7 @@ namespace shell::dock {
             ui::glyph({
                 .glyph = "app-window",
                 .glyphSize = iSize,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .width = iSize,
                 .height = iSize,
                 .configure = [](Glyph& glyph) { glyph.setPosition(kCellPad, kCellPad); },
@@ -607,7 +610,7 @@ namespace shell::dock {
         for (auto& dotIndicator : item.dotIndicators) {
           dotIndicator = static_cast<Box*>(areaNode->addChild(
               ui::box({
-                  .fill = colorSpecFromRole(ColorRole::Secondary),
+                  .fill = colorSpecFromRole(ColorRole::Accent),
                   .radius = dot * 0.5F,
                   .width = dot,
                   .height = dot,
@@ -629,7 +632,7 @@ namespace shell::dock {
       areaNode->addChild(
           ui::box({
               .out = &item.minimizedIndicator,
-              .fill = colorSpecFromRole(ColorRole::Secondary),
+              .fill = colorSpecFromRole(ColorRole::Accent),
               .radius = kMinimizedIndicatorThickness * 0.5F,
               .width = vert ? kMinimizedIndicatorThickness : kMinimizedIndicatorLength,
               .height = vert ? kMinimizedIndicatorLength : kMinimizedIndicatorThickness,
@@ -644,7 +647,27 @@ namespace shell::dock {
           })
       );
 
-      if (cfg.showInstanceCount) {
+      if (cfg.runningBar && !cfg.showDots) {
+        areaNode->addChild(
+            ui::box({
+                .out = &item.runningIndicator,
+                .fill = colorSpecFromRole(ColorRole::Label2),
+                .radius = kRunningBarThickness * 0.5F,
+                .width = vert ? kRunningBarThickness : kRunningBarLength,
+                .height = vert ? kRunningBarLength : kRunningBarThickness,
+                .visible = false,
+                .participatesInLayout = false,
+                .configure = [vert, edge, cellMain](Box& box) {
+                  const float centered = std::round((cellMain - kRunningBarLength) * 0.5F);
+                  const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
+                  const float outer = atStart ? 1.0F : std::round(cellMain - kRunningBarThickness - 1.0F);
+                  box.setPosition(vert ? outer : centered, vert ? centered : outer);
+                },
+            })
+        );
+      }
+
+      {
         const float bd = std::max(kBadgeMinSize, iSize * kBadgeSizeRatio);
 
         areaNode->addChild(
@@ -874,6 +897,9 @@ namespace shell::dock {
       if (item.minimizedIndicator != nullptr) {
         item.minimizedIndicator->setVisible(model.allMinimized);
       }
+      if (item.runningIndicator != nullptr) {
+        item.runningIndicator->setVisible(model.running && !model.allMinimized);
+      }
 
       if (cfg.showDots) {
         const std::size_t dotCount = model.allMinimized ? 0 : std::min<std::size_t>(count, 3);
@@ -892,7 +918,7 @@ namespace shell::dock {
           Box* dotNode = item.dotIndicators[dotIndex];
           const bool visible = dotIndex < dotCount;
           dotNode->setVisible(visible);
-          dotNode->setFill(colorSpecFromRole(model.active ? ColorRole::Primary : ColorRole::Secondary));
+          dotNode->setFill(colorSpecFromRole(model.active ? ColorRole::Accent : ColorRole::Accent));
           if (visible) {
             const float main = groupStart + static_cast<float>(dotIndex) * (dot + kDotGap);
             if (verticalDots) {
@@ -907,14 +933,19 @@ namespace shell::dock {
       }
 
       if (item.badge != nullptr && item.badgeLabel != nullptr) {
-        const bool show = count >= 2;
+        // Unread notifications take the badge before the window count.
+        const bool unread = model.unreadCount > 0;
+        const std::size_t shown = unread ? model.unreadCount : count;
+        const bool show = unread || (cfg.showInstanceCount && count >= 2);
         item.badge->setVisible(show);
         item.badgeLabel->setVisible(show);
         if (show) {
-          const std::string label = (count > 9) ? "9+" : std::to_string(count);
+          const std::string label = (shown > 9) ? "9+" : std::to_string(shown);
           item.badgeLabel->setText(label);
-          item.badgeLabel->setColor(colorSpecFromRole(ColorRole::OnPrimary));
-          item.badge->setFill(colorSpecFromRole(ColorRole::Primary));
+          item.badgeLabel->setColor(
+              unread ? fixedColorSpec(Color{.r = 1.0F, .g = 1.0F, .b = 1.0F}) : colorSpecFromRole(ColorRole::OnAccent)
+          );
+          item.badge->setFill(colorSpecFromRole(unread ? ColorRole::Danger : ColorRole::Accent));
           const float bd = std::max(kBadgeMinSize, static_cast<float>(cfg.iconSize) * kBadgeSizeRatio);
           item.badgeLabel->measure(renderer);
           item.badgeLabel->setPosition(

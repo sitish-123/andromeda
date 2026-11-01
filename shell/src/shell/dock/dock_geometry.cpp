@@ -1,6 +1,6 @@
 #include "shell/dock/dock_geometry.h"
 
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "wayland/layer_surface.h"
 
 #include <algorithm>
@@ -198,7 +198,7 @@ namespace shell::dock {
   ) {
     const DockEdge edge = cfg.position;
     const bool vertical = isVerticalEdge(edge);
-    const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+    const auto sb = ui::surface_shadow::bleed(cfg.shadow, shadow);
     const auto concave = dockConcaveShape(cfg);
     const int insetL = static_cast<int>(concave.logicalInset.left);
     const int insetT = static_cast<int>(concave.logicalInset.top);
@@ -290,7 +290,7 @@ namespace shell::dock {
   computePanelGeometry(const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH) {
     const DockEdge edge = cfg.position;
     const bool vertical = isVerticalEdge(edge);
-    const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+    const auto sb = ui::surface_shadow::bleed(cfg.shadow, shadow);
     const auto concave = dockConcaveShape(cfg);
     const float insetL = concave.logicalInset.left;
     const float insetT = concave.logicalInset.top;
@@ -347,7 +347,7 @@ namespace shell::dock {
     float contentTop = panel.panelY;
     float contentRight = panel.panelX + panel.panelW;
     float contentBottom = panel.panelY + panel.panelH;
-    if (shell::surface_shadow::enabled(cfg.shadow, shadow)) {
+    if (ui::surface_shadow::enabled(cfg.shadow, shadow)) {
       const auto offset = shadowDirectionOffset(shadow.direction);
       const float sx = panel.panelX + static_cast<float>(offset.x);
       const float sy = panel.panelY + static_cast<float>(offset.y);

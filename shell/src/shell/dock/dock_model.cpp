@@ -3,10 +3,11 @@
 #include "compositors/compositor_platform.h"
 #include "config/config_types.h"
 #include "core/log.h"
+#include "notification/notification_manager.h"
 #include "shell/dock/pinned_apps.h"
 #include "system/app_identity.h"
 #include "util/string_utils.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 
 #include <algorithm>
 #include <unordered_map>
@@ -66,6 +67,23 @@ namespace shell::dock {
       return std::ranges::any_of(entries, [&](const auto& entry) {
         return StringUtils::toLower(entry.id) == resolvedIdLower;
       });
+    }
+
+    // Unread: not yet seen in the notification history, and not closed by the user or the app.
+    std::size_t unreadCountFor(const NotificationManager& notifications, const DockItemModel& item) {
+      return static_cast<std::size_t>(std::ranges::count_if(notifications.history(), [&](const auto& entry) {
+        if (entry.seen || !entry.notification.desktopEntry.has_value()) {
+          return false;
+        }
+        if (entry.closeReason == CloseReason::Dismissed || entry.closeReason == CloseReason::ClosedByCall) {
+          return false;
+        }
+        std::string id = StringUtils::toLower(*entry.notification.desktopEntry);
+        if (id.ends_with(".desktop")) {
+          id.resize(id.size() - 8);
+        }
+        return id == item.idLower || (!item.startupWmClassLower.empty() && id == item.startupWmClassLower);
+      }));
     }
 
   } // namespace
@@ -139,6 +157,9 @@ namespace shell::dock {
       dockItem.allMinimized = !windows.empty() && dockItem.minimizedCount == windows.size();
       if (dockItem.allMinimized) {
         dockItem.active = false;
+      }
+      if (deps.notifications != nullptr) {
+        dockItem.unreadCount = unreadCountFor(*deps.notifications, dockItem);
       }
       snapshot.items.push_back(std::move(dockItem));
     }

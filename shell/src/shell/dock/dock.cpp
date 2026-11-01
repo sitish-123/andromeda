@@ -20,7 +20,7 @@
 #include "ui/style.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 
 #include <algorithm>
 #include <cassert>
@@ -307,10 +307,14 @@ namespace {
 Dock::Dock() = default;
 Dock::~Dock() = default;
 
-bool Dock::initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext) {
+bool Dock::initialize(
+    CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext,
+    const NotificationManager* notifications
+) {
   m_platform = &platform;
   m_config = config;
   m_renderContext = renderContext;
+  m_notifications = notifications;
 
   const auto& cfg = m_config->config().dock;
   m_config->addReloadCallback(
@@ -895,6 +899,7 @@ bool Dock::syncInstanceModel(shell::dock::DockInstance& instance) {
       .globalActiveIdLower = activeIdLower,
       .pinnedEntries = instance.pinnedEntries,
       .sourceSerial = instance.modelSerial,
+      .notifications = m_notifications,
   });
 
   const bool needRebuild = instance.snapshot.sourceSerial != next.sourceSerial
