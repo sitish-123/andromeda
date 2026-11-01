@@ -23,9 +23,7 @@ public:
   void setActiveChrome(bool active);
 
   void setOnChange(std::function<void(const std::string&)> callback);
-  void setOnKeyDown(
-      std::function<bool(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modifiers, bool preedit)> callback
-  );
+  void setOnKeyEvent(std::function<bool(std::uint32_t sym, std::uint32_t modifiers)> callback);
 
   [[nodiscard]] const std::string& value() const noexcept;
   [[nodiscard]] InputArea* inputArea() noexcept;

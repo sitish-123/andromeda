@@ -1,3 +1,5 @@
+#include "greeter/greeter_log.h"
+
 #include "core/log.h"
 
 #include <cctype>
@@ -16,8 +18,6 @@
 #include <syslog.h>
 #include <unistd.h>
 #include <vector>
-
-extern "C" {}
 
 namespace {
   std::vector<FILE*> g_logFiles;
@@ -206,7 +206,12 @@ void emergencyLogBootstrap(int argc, char* argv[]) {
   }
 }
 
+namespace {
+  void greeterLogSink(LogLevel level, const char* section, std::string_view message);
+} // namespace
+
 void initLogging() {
+  setLogSink(&greeterLogSink);
   initLogFiles();
 
   // Under greetd, syslog is the maintainer-facing sink (journald / system logger).
@@ -268,6 +273,24 @@ static void writeLogLine(std::string_view tag, std::string_view level, std::stri
   writeSyslog(level, tag, message);
 }
 
-void installWlrLogHandler() {}
+namespace {
 
-void Logger::log(std::string_view level, std::string_view message) const { writeLogLine(m_tag, level, message); }
+  std::string_view levelTag(LogLevel level) {
+    switch (level) {
+    case LogLevel::Debug:
+      return "DBG";
+    case LogLevel::Info:
+      return "INF";
+    case LogLevel::Warn:
+      return "WRN";
+    case LogLevel::Error:
+      return "ERR";
+    }
+    return "INF";
+  }
+
+  void greeterLogSink(LogLevel level, const char* section, std::string_view message) {
+    writeLogLine(section != nullptr ? section : "", levelTag(level), message);
+  }
+
+} // namespace

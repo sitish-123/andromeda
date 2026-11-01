@@ -1,4 +1,4 @@
-#include "ui/controls/search_field.h"
+#include "greeter/search_field.h"
 
 #include "render/core/render_styles.h"
 #include "ui/controls/glyph.h"
@@ -10,29 +10,29 @@
 
 namespace {
 
-  const float kIconGap = Style::spaceSm();
+  const float kIconGap = Style::spaceSm;
   constexpr float kDividerHeight = 1.0f;
 
 } // namespace
 
-SearchField::SearchField() : Node(NodeType::Container) {
+SearchField::SearchField() : Node(NodeType::Base) {
   auto icon = std::make_unique<Glyph>();
   icon->setGlyph("search");
-  icon->setGlyphSize(Style::fontSizeBody());
-  icon->setColor(colorForRole(ColorRole::OnSurfaceVariant));
+  icon->setGlyphSize(Style::fontSizeBody);
+  icon->setColor(colorForRole(ColorRole::Label2));
   icon->setHitTestVisible(false);
   m_icon = static_cast<Glyph*>(addChild(std::move(icon)));
 
   auto input = std::make_unique<Input>();
-  input->setFlatStyle(true);
-  input->setFontSize(Style::fontSizeBody());
+  input->setFrameVisible(false);
+  input->setFontSize(Style::fontSizeBody);
   m_input = static_cast<Input*>(addChild(std::move(input)));
 
   auto divider = std::make_unique<RectNode>();
   divider->setHitTestVisible(false);
   divider->setStyle(
       RoundedRectStyle{
-          .fill = colorForRole(ColorRole::Outline, 0.55f),
+          .fill = colorForRole(ColorRole::Stroke, 0.55f),
           .fillMode = FillMode::Solid,
           .radius = 0.0f,
       }
@@ -77,10 +77,10 @@ void SearchField::setActiveChrome(bool active) {
     m_divider->setVisible(!active);
   }
   if (m_icon != nullptr) {
-    m_icon->setColor(active ? colorForRole(ColorRole::OnSecondary) : colorForRole(ColorRole::OnSurfaceVariant));
+    m_icon->setColor(active ? colorForRole(ColorRole::OnAccent) : colorForRole(ColorRole::Label2));
   }
   if (m_input != nullptr) {
-    m_input->setFlatOnSecondary(active);
+    m_input->setEmbeddedOnSolidPrimary(active);
   }
   markLayoutDirty();
 }
@@ -91,11 +91,9 @@ void SearchField::setOnChange(std::function<void(const std::string&)> callback) 
   }
 }
 
-void SearchField::setOnKeyDown(
-    std::function<bool(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modifiers, bool preedit)> callback
-) {
+void SearchField::setOnKeyEvent(std::function<bool(std::uint32_t sym, std::uint32_t modifiers)> callback) {
   if (m_input != nullptr) {
-    m_input->setOnKeyDown(std::move(callback));
+    m_input->setOnKeyEvent(std::move(callback));
   }
 }
 
@@ -112,7 +110,7 @@ LayoutSize SearchField::doMeasure(Renderer& renderer, const LayoutConstraints& c
 }
 
 void SearchField::doLayout(Renderer& renderer) {
-  const float w = width() > 0.0f ? width() : Style::controlHeight() * 6.0f;
+  const float w = width() > 0.0f ? width() : Style::controlHeight * 6.0f;
   const float dividerH = m_activeChrome ? 0.0f : kDividerHeight;
   const float h = m_controlHeight + dividerH;
   setSize(w, h);
