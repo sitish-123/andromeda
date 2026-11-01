@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/core/color.h"
+#include "render/core/damage_region.h"
 #include "render/core/renderer.h"
 #include "render/scene/node.h"
 
@@ -19,6 +20,10 @@ public:
   [[nodiscard]] FontWeight fontWeight() const noexcept { return m_font.weight; }
   [[nodiscard]] const std::string& fontFamily() const noexcept { return m_font.family; }
   [[nodiscard]] const std::string& fontFeatures() const noexcept { return m_font.features; }
+
+  // Area the text paints, relative to the node origin (its baseline); empty until the owner measures it.
+  [[nodiscard]] const DamageRect& paintExtent() const noexcept { return m_paintExtent; }
+  void setPaintExtent(const DamageRect& extent) noexcept { m_paintExtent = extent; }
 
   void setText(std::string text) {
     if (m_text == text) {
@@ -155,4 +160,5 @@ private:
   Color m_shadowColor;
   float m_shadowOffsetX = 0.0F;
   float m_shadowOffsetY = 0.0F;
+  DamageRect m_paintExtent;
 };

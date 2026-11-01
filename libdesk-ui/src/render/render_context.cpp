@@ -107,6 +107,16 @@ namespace {
     float pad = kPaintCullSlack;
     if (node->type() == NodeType::Text) {
       const auto* text = static_cast<const TextNode*>(node);
+      // A text node has no size: it paints its measured extent around the baseline origin.
+      const DamageRect& e = text->paintExtent();
+      for (const Vec2 corner :
+           {world.transformPoint(e.x0, e.y0), world.transformPoint(e.x1, e.y0), world.transformPoint(e.x1, e.y1),
+            world.transformPoint(e.x0, e.y1)}) {
+        left = std::min(left, corner.x);
+        top = std::min(top, corner.y);
+        right = std::max(right, corner.x);
+        bottom = std::max(bottom, corner.y);
+      }
       pad += std::max(std::abs(text->shadowOffsetX()), std::abs(text->shadowOffsetY()));
     }
     return DamageRect{left - pad, top - pad, right + pad, bottom + pad};

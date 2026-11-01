@@ -20,6 +20,13 @@ namespace {
   constexpr const char kMarqueeGapChar = ' ';
   constexpr const float kMarqueeGapMaxWidth = 100.0F;
 
+  DamageRect paintExtentOf(const TextMetrics& m) {
+    return {
+        std::min({0.0F, m.left, m.inkLeft}), std::min(m.top, m.inkTop), std::max({m.width, m.right, m.inkRight}),
+        std::max(m.bottom, m.inkBottom)
+    };
+  }
+
 } // namespace
 
 std::optional<LabelBaselineMode> labelBaselineModeFromToken(std::string_view token) {
@@ -700,9 +707,11 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
     auto textWithGapMetrics = renderer.measureText(textWithGap, m_textNode->fontSize(), font, 0.0F, 1, align);
     m_marqueeLoopPeriod = textWithGapMetrics.width - m_fullTextWidth;
     m_textNode->setText(textWithGap);
+    m_textNode->setPaintExtent(paintExtentOf(textWithGapMetrics));
   } else {
     m_marqueeLoopPeriod = 0.0F;
     m_textNode->setText(m_plainText);
+    m_textNode->setPaintExtent(paintExtentOf(metrics));
   }
   if (Style::rtl() && overflow) {
     const float contentWidth = m_marqueeLoopPeriod > 0.0F ? m_fullTextWidth + m_marqueeLoopPeriod : m_fullTextWidth;
