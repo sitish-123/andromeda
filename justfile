@@ -95,3 +95,20 @@ dev-live:
 dev-live-off:
     rm -f ~/.config/systemd/user/noctalia.service.d/dev-live.conf
     systemctl --user daemon-reload && systemctl --user restart noctalia.service
+
+# The session compositor runs compositor/build-live/andromeda from the next login. A compositor cannot restart under a live session: rebuild, then log out and in.
+dev-comp:
+    [ -d compositor/build-live ] || meson setup compositor/build-live compositor --buildtype=debugoptimized --prefix=/usr -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
+    ninja -C compositor/build-live andromeda
+    mkdir -p ~/.config/systemd/user/andromeda.service.d
+    printf '[Service]\nExecStart=\nExecStart=%s/compositor/build-live/andromeda\n' "$PWD" > ~/.config/systemd/user/andromeda.service.d/dev-live.conf
+    systemctl --user daemon-reload
+
+# Back to the packaged compositor from the next login. From a TTY after a dev compositor crash: run this, then log in again.
+dev-comp-off:
+    rm -f ~/.config/systemd/user/andromeda.service.d/dev-live.conf
+    systemctl --user daemon-reload
+
+# A test desktop in a window: dev compositor + dev shell with copies of your config. Rerun after a compositor rebuild.
+dev-nested:
+    tests/dev-nested.sh
