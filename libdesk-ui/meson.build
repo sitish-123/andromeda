@@ -140,7 +140,9 @@ _protocol_headers += custom_target('design-tokens-header',
   command: [find_program('python3'), '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
 )
 
-subdir('data/themes')
+if get_option('install_toolkit_themes')
+  subdir('data/themes')
+endif
 
 # ── Library ───────────────────────────────────────────────────────────────────
 _desk_ui_sources = files(

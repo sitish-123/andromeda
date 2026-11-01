@@ -1,0 +1,2 @@
+option('install_toolkit_themes', type: 'boolean', value: false,
+  description: 'Install the GTK, Qt, KDE and fcitx5 theme files; only one package (the shell) may own them')

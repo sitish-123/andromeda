@@ -137,7 +137,7 @@ endif
 
 
 # ── libdesk-ui: the toolkit (ui, render, wayland) shared with the greeter ────────────────────────
-desk_ui_dep = subproject('libdesk-ui').get_variable('desk_ui_dep')
+desk_ui_dep = subproject('libdesk-ui', default_options: ['install_toolkit_themes=true']).get_variable('desk_ui_dep')
 
 # ── Vendored: Material Color Utilities (Google) ───────────────────────────────
 # Upstream uses #include "cpp/..." prefixes, so the include root is the
