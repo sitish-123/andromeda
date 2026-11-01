@@ -21,9 +21,10 @@ namespace {
   bool accepts(std::string_view key, std::string_view text) { return parseManagedSetting(key, text).value.has_value(); }
 
   // Values chosen to differ from every default, so a round trip proves the write took effect.
-  constexpr std::array<std::string_view, 16> kSamples = {
+  constexpr std::array<std::string_view, 18> kSamples = {
       "false",       "37",  "3",       "0.5",         "flat",  "pinned", "window",       "clickfinger",
       "left_middle_right", "MouseMiddle", "dwindle", "on_overflow", "right", "zoom", "overview-toggle", "Alt",
+      "light",       "#4a80ffff",
   };
 
   // The config reader compiles the keymap, so XKB keys need names XKB knows.
@@ -141,6 +142,18 @@ ANDROMEDA_TEST(everyKeyRoundTripsThroughTheConfigReader) {
     CHECK_EQ(managedSettingValue(store.config(), key), std::string(sample));
   }
   std::filesystem::remove(path);
+}
+
+// The live appearance keys govern the compositor's own settings: an accent recolors the focus accent, and reduce motion
+// turns window opening into a fade and stops workspace slides.
+ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
+  andromeda::Config config;
+  config.appearance.accent = std::array<float, 4>{1.0F, 0.0F, 0.5F, 1.0F};
+  config.appearance.reduceMotion = true;
+  andromeda::applyLiveAppearance(config);
+  CHECK(config.colors.accentPrimary == (std::array<float, 4>{1.0F, 0.0F, 0.5F, 1.0F}));
+  CHECK(config.animation.windowsIn.style == "fade");
+  CHECK(!config.animation.workspaces.enabled);
 }
 
 int main() { return RUN_TESTS(); }

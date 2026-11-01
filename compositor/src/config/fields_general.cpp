@@ -169,6 +169,18 @@ namespace andromeda {
           real("drag_opacity", 0.0, 1.0, &A::dragOpacity),
           boolean("prefer_no_csd", &A::preferNoCsd),
           boolean("opaque_fullscreen", &A::opaqueFullscreen),
+          registry::choice(
+              "scheme", &A::scheme,
+              {
+                  {.name = "dark", .value = ColorScheme::Dark},
+                  {.name = "light", .value = ColorScheme::Light},
+              }
+          ),
+          registry::color("accent", &A::accent),
+          real("glass_opacity", 0.0, 1.0, &A::glassOpacity),
+          boolean("reduce_transparency", &A::reduceTransparency),
+          boolean("increase_contrast", &A::increaseContrast),
+          boolean("reduce_motion", &A::reduceMotion),
           registry::table("blur", &A::blur, blur),
           registry::table("shadow", &A::shadow, shadow),
           registry::table("tab_bar", &A::tabBar, tabBar),

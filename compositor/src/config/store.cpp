@@ -201,7 +201,31 @@ namespace andromeda {
     });
   }
 
+  void applyLiveAppearance(Config& config) {
+    if (config.appearance.accent) {
+      config.colors.accentPrimary = *config.appearance.accent;
+    }
+    if (config.appearance.reduceTransparency) {
+      config.appearance.blur.enabled = false;
+    }
+    if (config.appearance.increaseContrast) {
+      config.appearance.borderWidth = std::max(config.appearance.borderWidth, 2);
+    }
+    if (!config.appearance.reduceMotion) {
+      return;
+    }
+    auto& animation = config.animation;
+    animation.windowsIn.style = "fade";
+    animation.windowsOut.style = "fade";
+    animation.windowsMove.enabled = false;
+    animation.windowsResize.enabled = false;
+    animation.workspaces.enabled = false;
+    animation.overview.enabled = false;
+    animation.scratchpad.enabled = false;
+  }
+
   ConfigReloadResult ConfigStore::commit(Config&& config, std::filesystem::path rootPath, bool fileMissing) {
+    applyLiveAppearance(config);
     // Computed before the move, and only after the first load: everything is new
     // the first time through.
     ConfigReloadResult result{

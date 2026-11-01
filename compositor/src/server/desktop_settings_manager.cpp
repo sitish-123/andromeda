@@ -1,5 +1,7 @@
 #include "server/desktop_settings_manager.h"
 
+#include "server/greeter_mode.h"
+
 #include "config/config.h"
 #include "config/keybind_parse.h"
 #include "config/managed_settings.h"
@@ -71,18 +73,31 @@ namespace andromeda {
   }
 
   void DesktopSettingsManager::handleSet(wl_client*, wl_resource* resource, const char* key, const char* value) {
+    // The login screen reads settings (appearance) but changes none.
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_failed(resource, key, "read-only on the login screen");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       self->set(resource, key, value);
     }
   }
 
   void DesktopSettingsManager::handleBind(wl_client*, wl_resource* resource, const char* chord, const char* action) {
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_failed(resource, chord, "read-only on the login screen");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       self->bindChord(resource, chord, action);
     }
   }
 
   void DesktopSettingsManager::handleCaptureChord(wl_client*, wl_resource* resource) {
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_chord_captured(resource, "");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       if (self->m_captureResource != nullptr && self->m_captureResource != resource) {
         dsk_settings_manager_v1_send_chord_captured(self->m_captureResource, "");

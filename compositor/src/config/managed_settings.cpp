@@ -2,6 +2,8 @@
 
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
+#include "config/config_registry.h"
+#include "config/value_parse.h"
 
 #include <algorithm>
 #include <array>
@@ -16,13 +18,14 @@ namespace andromeda {
     constexpr std::string_view kHeader = "# Written by Andromeda when settings are changed from a settings app.\n"
                                          "# Loaded after config.toml and its includes, so these values win.\n\n";
 
-    enum class Kind : uint8_t { Bool, Int, Real, Choice, Layout, Text, Action };
+    enum class Kind : uint8_t { Bool, Int, Real, Choice, Layout, Text, Color, Action };
 
     constexpr std::array<std::string_view, 3> kDragToggle = {"none", "floating", "pinned"};
     constexpr std::array<std::string_view, 2> kTrackLayout = {"global", "window"};
     constexpr std::array<std::string_view, 2> kAccel = {"flat", "adaptive"};
     constexpr std::array<std::string_view, 2> kClickMethod = {"button_areas", "clickfinger"};
     constexpr std::array<std::string_view, 2> kTapMap = {"left_right_middle", "left_middle_right"};
+    constexpr std::array<std::string_view, 2> kScheme = {"dark", "light"};
     constexpr std::array<std::string_view, 5> kButtons = {
         "MouseLeft", "MouseRight", "MouseMiddle", "MouseBack", "MouseForward",
     };
@@ -81,6 +84,10 @@ namespace andromeda {
 
     std::string text(WindowDragToggle toggle) { return std::string(kDragToggle[static_cast<size_t>(toggle)]); }
     std::string text(TrackLayout track) { return track == TrackLayout::Global ? "global" : "window"; }
+    std::string text(ColorScheme scheme) { return std::string(kScheme[static_cast<size_t>(scheme)]); }
+    std::string text(const std::optional<std::array<float, 4>>& color) {
+      return color ? registry::formatColor(*color) : "";
+    }
 
     std::string scrollFactorText(const std::optional<Config::Input::Touchpad::ScrollFactor>& factor) {
       if (!factor) {
@@ -323,6 +330,12 @@ namespace andromeda {
         Spec{"appearance.drag_opacity", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.dragOpacity); }},
         Spec{"appearance.prefer_no_csd", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.preferNoCsd); }},
         Spec{"appearance.opaque_fullscreen", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.opaqueFullscreen); }},
+        Spec{"appearance.scheme", Kind::Choice, 0, 0, kScheme, [](const Config& c) { return text(c.appearance.scheme); }},
+        Spec{"appearance.accent", Kind::Color, 0, 0, {}, [](const Config& c) { return text(c.appearance.accent); }},
+        Spec{"appearance.glass_opacity", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.glassOpacity); }},
+        Spec{"appearance.reduce_transparency", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceTransparency); }},
+        Spec{"appearance.increase_contrast", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.increaseContrast); }},
+        Spec{"appearance.reduce_motion", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceMotion); }},
         Spec{"appearance.blur.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.blur.enabled); }},
         Spec{"appearance.blur.optimized", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.blur.optimized); }},
         Spec{"appearance.blur.passes", Kind::Int, 0, 8, {}, [](const Config& c) { return text(c.appearance.blur.passes); }},
@@ -502,6 +515,11 @@ namespace andromeda {
       }
       return invalid("an action a keybind accepts");
     }
+    case Kind::Color:
+      if (std::array<float, 4> parsed{}; parseColor(text, parsed)) {
+        return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
+      }
+      return invalid("a color such as #4a80ff");
     case Kind::Text:
       if (isPlainText(text)) {
         return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
