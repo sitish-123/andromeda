@@ -19,6 +19,7 @@
 #include "shell/bar/widget_gesture_defaults.h"
 #include "shell/bar/widgets/plugin_widget.h"
 #include "shell/bar/widgets/taskbar_widget.h"
+#include "shell/bar/widgets/spacer_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
 #include "wayland/dsk_surface_client.h"
@@ -1081,6 +1082,26 @@ namespace {
     layoutWidgets(instance.startWidgets);
     layoutWidgets(instance.centerWidgets);
     layoutWidgets(instance.endWidgets);
+
+    // An island has no neighbour to separate at its edges: a spacer with no visible widget on one side adds only an
+    // empty strip, so it collapses.
+    auto collapseEdgeSpacers = [](std::vector<std::unique_ptr<Widget>>& widgets) {
+      const auto isContent = [](const std::unique_ptr<Widget>& w) {
+        return dynamic_cast<SpacerWidget*>(w.get()) == nullptr && w->root() != nullptr && w->root()->visible();
+      };
+      const auto first = std::ranges::find_if(widgets, isContent);
+      const auto last = std::ranges::find_if(widgets.rbegin(), widgets.rend(), isContent).base();
+      for (auto it = widgets.begin(); it != widgets.end(); ++it) {
+        if (dynamic_cast<SpacerWidget*>(it->get()) != nullptr && (*it)->root() != nullptr) {
+          (*it)->root()->setVisible(first != widgets.end() && it > first && it < last);
+        }
+      }
+    };
+    if (instance.barConfig.islands) {
+      collapseEdgeSpacers(instance.startWidgets);
+      collapseEdgeSpacers(instance.centerWidgets);
+      collapseEdgeSpacers(instance.endWidgets);
+    }
 
     auto finalizeCapsules = [isVertical, capsuleCross, widgetHoverPadding = instance.barConfig.widgetCapsulePadding,
                              &renderer](std::vector<BarCapsuleRun>& runs) {
