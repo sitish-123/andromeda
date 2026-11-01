@@ -44,8 +44,9 @@ fails = []
 def check(ok, msg):
     if not ok:
         fails.append(msg)
-# Image rows (screen y - 40) of the pill's empty right end, where only the row fill paints.
-px = lambda n, y: img[n].getpixel((330, y))
+# Image rows (screen y - 40) of the pill's empty right end, where only the row fill paints. x 315 stays inside the
+# pill when the sidebar overflows and its scrollbar narrows the rows by 14 px.
+px = lambda n, y: img[n].getpixel((315, y))
 accent = px("collapsed", 136)
 check(px("collapsed", 170) != accent, "collapsed: Sound & Brightness painted selected on the Displays page")
 check(px("services", 170) == accent and px("services", 136) != accent, "Sound & Brightness is not a top-level row")
