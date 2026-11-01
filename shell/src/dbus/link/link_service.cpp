@@ -10,7 +10,7 @@
 #include "notification/notification_manager.h"
 #include "pipewire/sound_player.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <algorithm>
 #include <array>
@@ -657,6 +657,39 @@ void LinkService::onOffered(
   }
 }
 
+std::optional<LinkService::TransferStatus> LinkService::activeTransfer() const {
+  const std::pair<const std::string, Transfer>* latest = nullptr;
+  for (const auto& entry : m_transfers) {
+    if (entry.second.progressSerial != 0 && (latest == nullptr || entry.second.progressSerial > latest->second.progressSerial)) {
+      latest = &entry;
+    }
+  }
+  if (latest == nullptr) {
+    return std::nullopt;
+  }
+  const Transfer& transfer = latest->second;
+  const std::string device =
+      transfer.deviceId.empty() ? i18n::tr("notifications.internal.link") : deviceName(transfer.deviceId);
+  return TransferStatus{
+      .transferId = latest->first,
+      .title = i18n::tr(
+          transfer.incoming ? "notifications.internal.link-receiving" : "notifications.internal.link-sending", "device",
+          device
+      ),
+      .subtitle = i18n::tr(
+          "notifications.internal.link-progress", "done", formatBytes(transfer.bytes), "total",
+          formatBytes(transfer.total)
+      ),
+      .progress = transfer.total == 0 ? 0.0F
+                                      : static_cast<float>(static_cast<double>(transfer.bytes) /
+                                                           static_cast<double>(transfer.total)),
+  };
+}
+
+void LinkService::setTransferCallback(ChangeCallback callback) { m_transferCallback = std::move(callback); }
+
+void LinkService::cancelTransfer(const std::string& transferId) { callTransfer("CancelTransfer", transferId); }
+
 void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
   auto it = m_transfers.find(transferId);
   if (it == m_transfers.end()) {
@@ -664,6 +697,12 @@ void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes,
     it = m_transfers.emplace(transferId, Transfer{.deviceId = {}, .incoming = true}).first;
   }
   Transfer& transfer = it->second;
+  transfer.bytes = bytes;
+  transfer.total = total;
+  transfer.progressSerial = ++m_progressSerial;
+  if (m_transferCallback) {
+    m_transferCallback();
+  }
   closeTransferNotification(transfer.offerNotification);
   const std::string body =
       i18n::tr("notifications.internal.link-progress", "done", formatBytes(bytes), "total", formatBytes(total));
@@ -712,6 +751,9 @@ void LinkService::onFinished(
   }
   Transfer transfer = std::move(it->second);
   m_transfers.erase(it);
+  if (m_transferCallback) {
+    m_transferCallback();
+  }
   closeTransferNotification(transfer.offerNotification);
   closeTransferNotification(transfer.progressNotification);
   const std::string device =

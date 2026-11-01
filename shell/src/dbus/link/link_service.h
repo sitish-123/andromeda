@@ -112,6 +112,18 @@ public:
   LinkService& operator=(const LinkService&) = delete;
 
   void setChangeCallback(ChangeCallback callback);
+
+  struct TransferStatus {
+    std::string transferId;
+    std::string title;
+    std::string subtitle;
+    float progress = 0.0F;
+  };
+  // The transfer that reported progress last; empty when none runs.
+  [[nodiscard]] std::optional<TransferStatus> activeTransfer() const;
+  // Runs on each transfer progress, finish, or cancel.
+  void setTransferCallback(ChangeCallback callback);
+  void cancelTransfer(const std::string& transferId);
   void startPairing();
   void cancelPairing();
   // Whether a phone with a Link session reported this code for the Bluetooth pairing under way; `done` runs once.
@@ -213,6 +225,10 @@ private:
     std::uint32_t progressNotification = 0;
     // The user closed the progress toast; it is not shown again.
     bool progressDismissed = false;
+    std::uint64_t bytes = 0;
+    std::uint64_t total = 0;
+    // Order of the last progress report; 0 before the first.
+    std::uint64_t progressSerial = 0;
   };
 
   // What a transfer notification's actions act on: the transfer, or the files it delivered.
@@ -228,6 +244,8 @@ private:
   // Received shares by the id of the notification that offers them, until it closes.
   std::unordered_map<std::uint32_t, ReceivedShare> m_received;
   std::unordered_map<std::string, Transfer> m_transfers;
+  std::uint64_t m_progressSerial = 0;
+  ChangeCallback m_transferCallback;
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
