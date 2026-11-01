@@ -277,3 +277,5 @@ bool areAllRadiosSoftBlocked() {
   const std::vector<RfkillEntry> entries = listRfkillEntries();
   return !entries.empty() && std::ranges::all_of(entries, &RfkillEntry::soft);
 }
+
+bool hasRfkillRadios() { return !listRfkillEntries().empty(); }

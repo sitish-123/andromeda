@@ -643,6 +643,7 @@
       "bluetooth": "Bluetooth",
       "dark-mode": "Dark Mode",
       "focus": "Focus",
+      "muted": "Muted",
       "notifications": "{count} notifications",
       "off": "Off",
       "on": "On",

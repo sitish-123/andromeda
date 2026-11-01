@@ -27,6 +27,7 @@ public:
   [[nodiscard]] const Flex* content() const noexcept { return m_content; }
 
   void setScrollOffset(float offset);
+  [[nodiscard]] bool dragging() const noexcept { return m_dragging; }
   // Keep the view pinned to the bottom while content grows, as long as the user has not scrolled away from the bottom.
   void setStickToBottom(bool enabled);
   // One-shot absolute jump deferred until the next layout pass, after the

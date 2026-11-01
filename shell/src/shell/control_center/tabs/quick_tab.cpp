@@ -3,15 +3,20 @@
 #include "dbus/link/link_service.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
+#include "dbus/power/power_profiles_service.h"
+#include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/panel/panel_manager.h"
 #include "system/brightness_service.h"
+#include "system/rfkill_helper.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
 #include "ui/controls/label.h"
+#include "render/scene/input_area.h"
+#include "ui/controls/scroll_view.h"
 #include "ui/controls/slider.h"
 #include "ui/palette.h"
 #include "ui/style.h"
@@ -23,8 +28,8 @@
 namespace {
 
   // Anatomy: docs/design-system.md "Control center"; values: protocol/design-tokens.toml [component.*].
-  constexpr float kRoundIcon = Tokens::componentRoundIconSize;
-  constexpr float kPillHeight = Tokens::componentSliderHeight;
+  TOKENS_LIVE(kRoundIcon, Tokens::componentRoundIconSize);
+  TOKENS_LIVE(kPillHeight, Tokens::componentSliderHeight);
 
   // The slider fills the whole pill; the icon and the value label draw over it.
   class SliderPill : public Flex {
@@ -39,6 +44,9 @@ namespace {
       }
     }
   };
+
+  // A Button's own hit area has z-index 1 and covers its children; nested buttons must sit above it.
+  constexpr std::int32_t kAboveCardArea = 2;
 
   std::string percent(float value) { return std::format("{}%", static_cast<int>(std::lround(value * 100.0F))); }
 
@@ -97,7 +105,9 @@ std::unique_ptr<Flex> QuickTab::makeCard() {
   return card;
 }
 
-std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view detailTab, float iconTextGap) {
+std::unique_ptr<Button> QuickTab::makeToggleRow(
+    ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron
+) {
   const float s = contentScale();
   auto container = std::make_unique<Button>();
   container->setVariant(ButtonVariant::Ghost);
@@ -109,19 +119,21 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view
   container->setContentAlign(ButtonContentAlign::Start);
   Shortcut* shortcut = row.shortcut.get();
   // An empty detail tab means the card itself is the toggle.
-  container->setOnClick([this, shortcut, tab = std::string(detailTab)] {
-    if (!tab.empty()) {
+  container->setOnClick([this, shortcut, tab = std::string(detailTab), chevron] {
+    if (!tab.empty() && !chevron) {
       m_openTab(tab);
     } else if (shortcut != nullptr) {
       shortcut->onClick();
     }
   });
   const std::string glyph = !row.glyph.empty() ? row.glyph : std::string(shortcut != nullptr ? shortcut->currentIcon() : "");
-  container->addChild(makeGlyphButton(row.icon, glyph, s, [shortcut] {
+  auto icon = makeGlyphButton(row.icon, glyph, s, [shortcut] {
     if (shortcut != nullptr) {
       shortcut->onClick();
     }
-  }));
+  });
+  icon->setZIndex(kAboveCardArea);
+  container->addChild(std::move(icon));
 
   auto text = std::make_unique<Flex>();
   text->setDirection(FlexDirection::Vertical);
@@ -130,7 +142,29 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view
   text->addChild(makeLabel(row.title, Tokens::typeTitle, s, ColorRole::Label1));
   text->addChild(makeLabel(row.subtitle, Tokens::typeCaption, s, ColorRole::Label2));
   container->addChild(std::move(text));
+  if (chevron) {
+    Button* unused = nullptr;
+    auto open = makeGlyphButton(unused, "chevron-right", s, [this, tab = std::string(detailTab)] {
+      m_openTab(tab);
+    }, kRoundIcon * 0.75F, ButtonVariant::Ghost);
+    open->setZIndex(kAboveCardArea);
+    container->addChild(std::move(open));
+  }
   return container;
+}
+
+std::unique_ptr<Flex> QuickTab::makeExtraCard(std::string_view type, std::string_view detailTab, bool chevron) {
+  ToggleRow row;
+  row.shortcut = ShortcutRegistry::create(type, m_services.shortcutServices());
+  if (row.shortcut == nullptr) {
+    return nullptr;
+  }
+  auto card = makeCard();
+  card->setFlexGrow(1.0F);
+  card->addChild(makeToggleRow(row, detailTab, Tokens::componentCardSmallGap, chevron));
+  row.title->setText(row.shortcut->defaultLabel());
+  m_extras.push_back(std::move(row));
+  return card;
 }
 
 std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider, Label*& value) {
@@ -142,7 +176,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   pill->setPadding(0.0F, Tokens::componentSliderValueInset * s, 0.0F, Tokens::componentSliderIconInset * s);
   pill->setMinHeight(kPillHeight * s);
   pill->setRadius(Tokens::componentSliderRadius * s);
-  pill->setFill(colorSpecFromRole(ColorRole::Fill3, panelCardOpacity()));
+  pill->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
 
   auto bar = std::make_unique<Slider>();
   bar->setRange(0.0, 1.0);
@@ -174,6 +208,13 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
 
 std::unique_ptr<Flex> QuickTab::create() {
   const float s = contentScale();
+  m_extras.clear();
+  m_micPill = nullptr;
+  m_micSlider = nullptr;
+  m_micValue = nullptr;
+  m_page = 0;
+  m_pageWidth = 0.0F;
+  m_lastScrollAt = {};
   auto root = std::make_unique<Flex>();
   m_root = root.get();
   root->setDirection(FlexDirection::Vertical);
@@ -203,11 +244,102 @@ std::unique_ptr<Flex> QuickTab::create() {
   dark->addChild(makeToggleRow(m_darkMode, "", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(dark));
   top->addChild(std::move(smallCards));
-  root->addChild(std::move(top));
+  // Page 1 is the reference block; the mode toggles fill pages 2 and 3, four per page, and the mic slider joins the
+  // last page. The sheet is rebuilt on every open, so absent hardware is left out here.
+  m_pages.clear();
+  m_dots.clear();
+  m_pager = nullptr;
+  auto pager = std::make_unique<ScrollView>();
+  pager->setOrientation(ScrollOrientation::Horizontal);
+  pager->setScrollbarVisible(false);
+  pager->setViewportPaddingH(0.0F);
+  pager->setViewportPaddingV(0.0F);
+  pager->setContentScale(s);
+  pager->setOnScrollChanged([this](float offset) {
+    m_lastScrollAt = std::chrono::steady_clock::now();
+    refreshDots(offset);
+  });
+  m_pager = pager.get();
+  Flex* strip = pager->content();
+  strip->setDirection(FlexDirection::Horizontal);
+  strip->setAlign(FlexAlign::Stretch);
+  strip->setGap(0.0F);
+  m_pages.push_back(top.get());
+  strip->addChild(std::move(top));
+
+  std::vector<std::unique_ptr<Flex>> cards;
+  const auto add = [&](std::string_view type, std::string_view tab, bool chevron) {
+    if (auto card = makeExtraCard(type, tab, chevron); card != nullptr) {
+      cards.push_back(std::move(card));
+    }
+  };
+  if (hasRfkillRadios()) {
+    add("airplane", "", false);
+  }
+  if (m_services.hotspot != nullptr) {
+    add("hotspot", "", false);
+  }
+  if (m_services.nightLight != nullptr) {
+    add("nightlight", "", false);
+  }
+  if (m_services.idleInhibitor != nullptr) {
+    add("caffeine", "", false);
+  }
+  if (m_services.screenRecorder != nullptr) {
+    add("screen-record", "", false);
+  }
+  const bool hasMic = m_services.audio != nullptr && m_services.audio->defaultSource() != nullptr;
+  if (hasMic) {
+    add("mic_mute", "audio", true);
+  }
+  constexpr std::size_t kCardsPerPage = 4;
+  const auto makePage = [&] {
+    auto page = std::make_unique<Flex>();
+    page->setDirection(FlexDirection::Vertical);
+    page->setAlign(FlexAlign::Stretch);
+    page->setGap(Tokens::componentSheetGap * s);
+    return page;
+  };
+  const std::size_t pageCount = (cards.size() + kCardsPerPage - 1) / kCardsPerPage;
+  for (std::size_t p = 0; p < std::max<std::size_t>(pageCount, hasMic ? 2 : 0); ++p) {
+    auto page = makePage();
+    for (std::size_t i = p * kCardsPerPage; i < std::min(cards.size(), (p + 1) * kCardsPerPage); i += 2) {
+      auto row = std::make_unique<Flex>();
+      row->setDirection(FlexDirection::Horizontal);
+      row->setAlign(FlexAlign::Stretch);
+      row->setGap(Tokens::componentSheetGap * s);
+      row->addChild(std::move(cards[i]));
+      if (i + 1 < std::min(cards.size(), (p + 1) * kCardsPerPage)) {
+        row->addChild(std::move(cards[i + 1]));
+      } else {
+        auto filler = std::make_unique<Flex>();
+        filler->setFlexGrow(1.0F);
+        row->addChild(std::move(filler));
+      }
+      page->addChild(std::move(row));
+    }
+    if (hasMic && p == std::max<std::size_t>(pageCount, 2) - 1) {
+      auto mic = makePill("microphone", m_micSlider, m_micValue);
+      m_micPill = mic.get();
+      m_micSlider->setOnValueChanged([this](double value) {
+        if (!m_syncingSliders && m_services.audio != nullptr) {
+          m_services.audio->setMicVolume(static_cast<float>(value));
+        }
+      });
+      page->addChild(std::move(mic));
+    }
+    m_pages.push_back(page.get());
+    strip->addChild(std::move(page));
+  }
+  root->addChild(std::move(pager));
+  root->addChild(makeDots(m_pages.size()));
 
   auto brightness = makePill("sun", m_brightnessSlider, m_brightnessValue);
   m_brightnessPill = brightness.get();
   m_brightnessSlider->setOnValueChanged([this](double value) {
+    if (m_syncingSliders) {
+      return;
+    }
     if (m_services.brightness == nullptr) {
       return;
     }
@@ -222,6 +354,9 @@ std::unique_ptr<Flex> QuickTab::create() {
 
   auto volume = makePill("volume", m_volumeSlider, m_volumeValue);
   m_volumeSlider->setOnValueChanged([this](double value) {
+    if (m_syncingSliders) {
+      return;
+    }
     if (m_services.audio != nullptr) {
       if (const AudioNode* sink = m_services.audio->defaultSink(); sink != nullptr) {
         m_services.audio->setSinkVolume(sink->id, static_cast<float>(value));
@@ -257,7 +392,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   mediaText->addChild(makeLabel(m_mediaArtist, Tokens::typeCaption, s, ColorRole::Label2));
   media->addChild(std::move(mediaText));
   // Bare glyphs; each button is glyph + gap wide, so glyph centers sit glyph + controls_gap apart as in the reference.
-  constexpr float kMediaControl = Tokens::componentRoundIconGlyph + Tokens::componentMediaControlsGap;
+  TOKENS_LIVE(kMediaControl, Tokens::componentRoundIconGlyph + Tokens::componentMediaControlsGap);
   auto controls = std::make_unique<Flex>();
   controls->setDirection(FlexDirection::Horizontal);
   controls->setAlign(FlexAlign::Center);
@@ -310,6 +445,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   phone->addChild(std::move(actions));
   root->addChild(std::move(phone));
 
+  root->addChild(makeFooter());
+
   m_wifi.title->setText(i18n::tr("control-center.quick.wifi"));
   m_bluetooth.title->setText(i18n::tr("control-center.quick.bluetooth"));
   m_focus.title->setText(i18n::tr("control-center.quick.focus"));
@@ -317,10 +454,141 @@ std::unique_ptr<Flex> QuickTab::create() {
   return root;
 }
 
+std::unique_ptr<Flex> QuickTab::makeDots(std::size_t pages) {
+  const float s = contentScale();
+  constexpr float kDot = 6.0F;
+  constexpr float kDotGap = 6.0F;
+  auto row = std::make_unique<Flex>();
+  row->setDirection(FlexDirection::Horizontal);
+  row->setAlign(FlexAlign::Center);
+  row->setJustify(FlexJustify::Center);
+  row->setGap(kDotGap * s);
+  row->setVisible(pages > 1);
+  m_dotsRow = row.get();
+  for (std::size_t i = 0; i < pages; ++i) {
+    auto dot = std::make_unique<Flex>();
+    dot->setMinWidth(kDot * s);
+    dot->setMinHeight(kDot * s);
+    dot->setRadius(kDot * 0.5F * s);
+    dot->setFill(colorSpecFromRole(ColorRole::Fill3));
+    auto area = std::make_unique<InputArea>();
+    area->setParticipatesInLayout(false);
+    area->setFrameSize(kDot * s, kDot * s);
+    area->setHitTestOutset({.left = kDotGap * 0.5F * s, .top = 6.0F * s, .right = kDotGap * 0.5F * s, .bottom = 6.0F * s});
+    area->setOnClick([this, i](const InputArea::PointerData&) {
+      if (m_pager != nullptr && m_pageWidth > 0.0F) {
+        m_pager->setScrollOffset(static_cast<float>(i) * m_pageWidth);
+      }
+    });
+    dot->addChild(std::move(area));
+    m_dots.push_back(dot.get());
+    row->addChild(std::move(dot));
+  }
+  return row;
+}
+
+std::unique_ptr<Flex> QuickTab::makeFooter() {
+  const float s = contentScale();
+  constexpr float kFooterHeight = 36.0F;
+  auto footer = std::make_unique<Flex>();
+  footer->setDirection(FlexDirection::Horizontal);
+  footer->setAlign(FlexAlign::Center);
+  footer->setMinHeight(kFooterHeight * s);
+  footer->setPadding(0.0F, Tokens::componentCardPadding * s, 0.0F, Tokens::componentCardPadding * s);
+  m_footer = footer.get();
+
+  const auto makeGlyph = [&](Glyph*& out) {
+    auto glyph = std::make_unique<Glyph>();
+    glyph->setGlyphSize(Tokens::componentRoundIconGlyph * s);
+    glyph->setColor(colorSpecFromRole(ColorRole::Label2));
+    out = glyph.get();
+    return glyph;
+  };
+
+  auto battery = std::make_unique<Flex>();
+  battery->setDirection(FlexDirection::Horizontal);
+  battery->setAlign(FlexAlign::Center);
+  battery->setGap(Tokens::componentCardSmallGap * s);
+  m_batteryBox = battery.get();
+  battery->addChild(makeGlyph(m_batteryGlyph));
+  battery->addChild(makeLabel(m_batteryText, Tokens::typeCaption, s, ColorRole::Label2));
+  footer->addChild(std::move(battery));
+
+  auto spacer = std::make_unique<Flex>();
+  spacer->setFlexGrow(1.0F);
+  footer->addChild(std::move(spacer));
+
+  m_profile = ShortcutRegistry::create("power_profile", m_services.shortcutServices());
+  auto profile = std::make_unique<Button>();
+  profile->setVariant(ButtonVariant::Ghost);
+  profile->setDirection(FlexDirection::Horizontal);
+  profile->setAlign(FlexAlign::Center);
+  profile->setPadding(0.0F);
+  profile->setGap(Tokens::componentCardSmallGap * s);
+  profile->setOnClick([this] {
+    if (m_profile != nullptr) {
+      m_profile->onClick();
+    }
+  });
+  m_profileBox = profile.get();
+  profile->addChild(makeGlyph(m_profileGlyph));
+  profile->addChild(makeLabel(m_profileText, Tokens::typeCaption, s, ColorRole::Label2));
+  Button* unused = nullptr;
+  auto openPower = makeGlyphButton(unused, "chevron-right", s, [this] { m_openTab("power"); }, kRoundIcon * 0.75F,
+                                   ButtonVariant::Ghost);
+  openPower->setZIndex(kAboveCardArea);
+  profile->addChild(std::move(openPower));
+  footer->addChild(std::move(profile));
+  return footer;
+}
+
+void QuickTab::sizePages(Renderer& renderer, float width) {
+  if (m_pager == nullptr || m_pages.empty()) {
+    return;
+  }
+  m_pageWidth = width;
+  for (Flex* page : m_pages) {
+    page->setMinWidth(width);
+    page->setMinHeight(0.0F);
+  }
+  LayoutConstraints constraints;
+  constraints.setExactWidth(width);
+  const float height = m_pages.front()->measure(renderer, constraints).height;
+  for (Flex* page : m_pages) {
+    page->setMinHeight(height);
+  }
+  m_pager->setMinHeight(height);
+  m_pager->setMaxHeight(height);
+}
+
+void QuickTab::refreshDots(float offset) {
+  if (m_pageWidth <= 0.0F || m_pages.empty()) {
+    return;
+  }
+  m_page = std::min(static_cast<std::size_t>(std::lround(std::max(offset, 0.0F) / m_pageWidth)), m_pages.size() - 1);
+  for (std::size_t i = 0; i < m_dots.size(); ++i) {
+    m_dots[i]->setFill(colorSpecFromRole(i == m_page ? ColorRole::Label1 : ColorRole::Fill3));
+  }
+}
+
+void QuickTab::syncPager() {
+  if (m_pager == nullptr || m_pageWidth <= 0.0F) {
+    return;
+  }
+  const float offset = m_pager->scrollOffset();
+  refreshDots(offset);
+  const float target = static_cast<float>(m_page) * m_pageWidth;
+  const bool idle = std::chrono::steady_clock::now() - m_lastScrollAt > std::chrono::milliseconds(150);
+  if (idle && !m_pager->dragging() && std::abs(offset - target) > 0.5F) {
+    m_pager->setScrollOffset(target);
+  }
+}
+
 float QuickTab::measureHeight(Renderer& renderer, float width) {
   if (m_root == nullptr) {
     return 0.0F;
   }
+  sizePages(renderer, width);
   m_root->setSize(width, 0.0F);
   LayoutConstraints constraints;
   constraints.setExactWidth(width);
@@ -331,6 +599,7 @@ void QuickTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight
   if (m_root == nullptr) {
     return;
   }
+  sizePages(renderer, contentWidth);
   m_root->setSize(contentWidth, bodyHeight);
   m_root->layout(renderer);
 }
@@ -346,10 +615,44 @@ void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
   row.subtitle->setText(subtitle);
 }
 
+void QuickTab::syncExtras() {
+  for (ToggleRow& row : m_extras) {
+    Shortcut* shortcut = row.shortcut.get();
+    std::string subtitle;
+    if (shortcut->id() == "mic_mute") {
+      subtitle = i18n::tr(shortcut->active() ? "control-center.quick.muted" : "control-center.quick.on");
+    } else {
+      const std::string label = shortcut->displayLabel();
+      subtitle = shortcut->active() && label != shortcut->defaultLabel()
+          ? label
+          : i18n::tr(shortcut->active() ? "control-center.quick.on" : "control-center.quick.off");
+    }
+    syncToggleRow(row, subtitle);
+  }
+}
+
+void QuickTab::syncFooter() {
+  const UPowerState* state = m_services.upower != nullptr ? &m_services.upower->state() : nullptr;
+  const bool battery = state != nullptr && state->isPresent;
+  const bool profile = m_services.powerProfiles != nullptr && !m_services.powerProfiles->activeProfile().empty();
+  m_batteryBox->setVisible(battery);
+  m_profileBox->setVisible(profile);
+  m_footer->setVisible(battery || profile);
+  if (battery) {
+    m_batteryGlyph->setGlyph(batteryGlyphName(state->percentage, state->state));
+    m_batteryText->setText(std::format("{:.0F}% {}", state->percentage, batteryStateLabel(state->state)));
+  }
+  if (profile) {
+    m_profileGlyph->setGlyph(m_profile->displayIcon());
+    m_profileText->setText(m_profile->displayLabel());
+  }
+}
+
 void QuickTab::syncSliders() {
-  if (m_brightnessSlider->dragging() || m_volumeSlider->dragging()) {
+  if (m_brightnessSlider->dragging() || m_volumeSlider->dragging() || (m_micSlider != nullptr && m_micSlider->dragging())) {
     return;
   }
+  m_syncingSliders = true;
   const BrightnessDisplay* display = nullptr;
   if (m_services.brightness != nullptr) {
     for (const BrightnessDisplay& candidate : m_services.brightness->displays()) {
@@ -371,6 +674,16 @@ void QuickTab::syncSliders() {
   m_volumeValue->setText(
       sink == nullptr ? std::string{} : (sink->description.empty() ? sink->name : sink->description)
   );
+
+  const AudioNode* source = m_services.audio != nullptr ? m_services.audio->defaultSource() : nullptr;
+  if (m_micSlider != nullptr) {
+    m_micSlider->setEnabled(source != nullptr);
+    m_micSlider->setValue(source != nullptr ? source->volume : 0.0);
+    m_micValue->setText(
+        source == nullptr ? std::string{} : (source->description.empty() ? source->name : source->description)
+    );
+  }
+  m_syncingSliders = false;
 }
 
 void QuickTab::syncMedia(Renderer& renderer) {
@@ -444,7 +757,10 @@ void QuickTab::doUpdate(Renderer& renderer) {
   syncToggleRow(m_bluetooth, labelOr(m_bluetooth));
   syncToggleRow(m_focus, onOff(m_focus.shortcut.get()));
   syncToggleRow(m_darkMode, onOff(m_darkMode.shortcut.get()));
+  syncExtras();
   syncSliders();
+  syncFooter();
+  syncPager();
   syncMedia(renderer);
   syncPhone();
 }
