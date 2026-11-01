@@ -14,14 +14,14 @@
 #include <unordered_map>
 #include <vector>
 
-class AccessPointRow;
 class Button;
-class CellularRow;
 class ExternalIpService;
 class Flex;
+class Glyph;
 class Input;
 class Label;
 class ModemManagerService;
+class NmHotspot;
 class ScrollView;
 class Select;
 class Spinner;
@@ -31,7 +31,8 @@ class INetworkService;
 class NetworkTab : public Tab {
 public:
   NetworkTab(
-      INetworkService* network, NetworkSecretAgent* secrets, ExternalIpService* externalIp, ModemManagerService* modem
+      INetworkService* network, NetworkSecretAgent* secrets, ExternalIpService* externalIp, ModemManagerService* modem,
+      NmHotspot* hotspot
   );
   ~NetworkTab() override;
 
@@ -47,14 +48,16 @@ private:
 
   // A backend exists and its daemon is on the bus.
   [[nodiscard]] bool networkAvailable() const noexcept;
+  [[nodiscard]] bool pendingAccessPointListed() const;
   void syncCurrentCard();
   void beginPendingAction(bool wasConnected);
   void requestWirelessEnabled(bool enabled);
   void handleWirelessEnabledCompletion(std::uint64_t generation, bool success);
   void rebuildApList(Renderer& renderer);
+  std::unique_ptr<Flex> makePasswordCard();
   // Pushes live signal values into the existing rows. Returns true if any changed.
   bool syncApRows();
-  // Same for the cellular rows and the cellular toggle. Returns true if any changed.
+  // Same for the cellular rows. Returns true if any changed.
   bool syncCellularCard();
   // GNOME-style mobile-data semantics when the network backend owns a saved gsm
   // connection (toggle reflects cellularActive); otherwise raw modem power.
@@ -77,22 +80,21 @@ private:
   void setCredentialError(const std::string& message);
   // Reason this access point cannot be joined with a password, empty when it can.
   [[nodiscard]] std::string enterpriseBlockReason(const AccessPointInfo& ap) const;
-  [[nodiscard]] std::string
-  structureKey(const std::vector<AccessPointInfo>& aps, const std::vector<VpnConnectionInfo>& vpns) const;
 
   INetworkService* m_network = nullptr;
   NetworkSecretAgent* m_secrets = nullptr;
   ExternalIpService* m_externalIpService = nullptr;
   ModemManagerService* m_modem = nullptr;
+  NmHotspot* m_hotspot = nullptr;
 
   Flex* m_rootLayout = nullptr;
-  Flex* m_currentCard = nullptr;
-  Label* m_currentTitle = nullptr;
-  Label* m_currentDetail = nullptr;
+  // The credential form moves into the row being joined; it waits here while no row holds it.
+  std::unique_ptr<Flex> m_passwordHolder;
   Flex* m_passwordCard = nullptr;
   Label* m_passwordTitle = nullptr;
   Input* m_passwordInput = nullptr;
   Button* m_passwordRevealButton = nullptr;
+  Button* m_joinButton = nullptr;
   // 802.1X form. Hidden for pre-shared-key networks, which keep the single
   // password field below it.
   Flex* m_enterpriseFields = nullptr;
@@ -108,15 +110,18 @@ private:
 
   Button* m_rescanButton = nullptr;
   Toggle* m_wifiToggle = nullptr;
-  Flex* m_currentRow = nullptr;
-  Button* m_disconnectButton = nullptr;
   Spinner* m_scanSpinner = nullptr;
-  bool m_vpnVisible = true;
+  // The current Wi-Fi row shows its details and actions below it.
+  bool m_currentExpanded = false;
 
-  std::unordered_map<std::string, AccessPointRow*> m_apRows;
+  std::unordered_map<std::string, Glyph*> m_apSignals;
 
-  Toggle* m_cellularToggle = nullptr;
-  std::vector<CellularRow*> m_cellularRows;
+  struct CellularRowUi {
+    Button* icon = nullptr;
+    Label* title = nullptr;
+    Label* caption = nullptr;
+  };
+  std::vector<CellularRowUi> m_cellularRows;
 
   std::string m_lastStructureKey;
   float m_lastListWidth = -1.0F;

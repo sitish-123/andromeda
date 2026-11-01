@@ -70,7 +70,9 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::Notifications)] =
       std::make_unique<NotificationsTab>(services.notifications, services.platform);
   m_tabs[tabIndex(TabId::Network)] =
-      std::make_unique<NetworkTab>(services.network, services.networkSecrets, services.externalIp, services.modem);
+      std::make_unique<NetworkTab>(
+          services.network, services.networkSecrets, services.externalIp, services.modem, services.hotspot
+      );
   m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
   m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
@@ -82,7 +84,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
 }
 
 float ControlCenterPanel::preferredWidth() const {
-  if (tabFromContext(pendingOpenContext()) == TabId::Quick) {
+  if (isSheetContext(pendingOpenContext())) {
     return kQuickSheetWidth * m_contentScale;
   }
   const float fullSize = m_config != nullptr ? static_cast<float>(m_config->config().controlCenter.width)
@@ -277,9 +279,9 @@ void ControlCenterPanel::create() {
       ui::label({
           .out = &m_contentTitle,
           .text = i18n::tr("control-center.tabs.home"),
-          .fontSize = Style::fontSizeTitle * scale,
-          .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeLarge.size) * scale,
+          .fontWeight = m_showSidebar ? FontWeight::Bold : static_cast<FontWeight>(Tokens::typeLarge.weight),
+          .color = colorSpecFromRole(m_showSidebar ? ColorRole::Accent : ColorRole::Label1),
           .flexGrow = 1.0F,
       })
   );
@@ -625,7 +627,7 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
       m_tabButtons[idx]->setVariant(meta.id == tab ? ButtonVariant::TabActive : ButtonVariant::Tab);
     }
     if (meta.id == tab && m_contentTitle != nullptr) {
-      m_contentTitle->setText(i18n::tr(meta.titleKey));
+      m_contentTitle->setText(i18n::tr(!m_showSidebar && tab == TabId::Network ? "control-center.network.wifi" : meta.titleKey));
     }
     if (m_tabHeaderActions[idx] != nullptr) {
       m_tabHeaderActions[idx]->setVisible(tabEnabled && meta.id == tab);
@@ -875,11 +877,16 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
   return std::ranges::any_of(kTabs, [&](const auto& tab) { return tab.id != TabId::Quick && tab.id != TabId::Home && context == tab.key; });
 }
 
+bool ControlCenterPanel::isSheetContext(std::string_view context) const {
+  const TabId tab = tabFromContext(context);
+  return tab == TabId::Quick || tab == TabId::Network;
+}
+
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {
   if (m_config == nullptr) {
     return ControlCenterSidebarMode::Compact;
   }
-  if (tabFromContext(context) == TabId::Quick) {
+  if (isSheetContext(context)) {
     return ControlCenterSidebarMode::None;
   }
   const auto& cc = m_config->config().controlCenter;

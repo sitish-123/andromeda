@@ -459,7 +459,21 @@
       "wifi": "Wi-Fi",
       "wifi-off": "Wi-Fi is off",
       "wifi-on": "Wi-Fi is on",
-      "wired-connection": "Wired connection"
+      "wired-connection": "Wired connection",
+      "connected": "Connected",
+      "connected-band": "Connected · {band}",
+      "disconnect": "Disconnect",
+      "forget": "Forget",
+      "forget-network": "Forget network",
+      "join": "Join",
+      "no-networks-short": "No networks",
+      "other-networks": "Other Networks",
+      "network-settings": "Network Settings…",
+      "wifi-off-state": "Wi-Fi Off",
+      "ethernet": "Ethernet",
+      "hotspot": "Hotspot",
+      "refresh": "Scan for networks",
+      "show-password": "Show password"
     },
     "notifications": {
       "clear-all": "Clear all notifications",

@@ -174,6 +174,8 @@ private:
   [[nodiscard]] TabId firstVisibleTab() const;
   [[nodiscard]] TabId tabFromContext(std::string_view context) const;
   [[nodiscard]] bool isDirectSectionOpenContext(std::string_view context) const;
+  // Quick and Network share the 360 px sheet layout: no sidebar.
+  [[nodiscard]] bool isSheetContext(std::string_view context) const;
   [[nodiscard]] ControlCenterSidebarMode sidebarModeForOpen(std::string_view context) const;
   [[nodiscard]] static std::size_t tabIndex(TabId id);
 
