@@ -51,7 +51,7 @@ namespace Style {
   // content as it expands, so hovering never reflows the scroll view.
   inline constexpr float scrollbarWidth = 6.0F;
   inline constexpr float scrollbarHoverWidth = 12.0F;
-  inline const float scrollbarGap = spaceSm;
+  TOKENS_LIVE(scrollbarGap, spaceSm);
   // Shortest the thumb gets on a long document; it must stay a usable drag target and read as a
   // bar rather than a lozenge next to the hovered thickness.
   inline constexpr float scrollbarMinThumbHeight = 32.0F;
@@ -68,12 +68,12 @@ namespace Style {
   inline constexpr float windowSwitcherFarCardWidth = 280.0F;
   inline constexpr float windowSwitcherCompactCardWidth = 220.0F;
   inline constexpr float windowSwitcherPreviewAspect = 1.6F;
-  inline const float windowSwitcherCardOverlap = controlHeightLg + spaceLg;
+  TOKENS_LIVE(windowSwitcherCardOverlap, controlHeightLg + spaceLg);
   inline constexpr float windowSwitcherNarrowLayoutThreshold = 0.72F;
   inline constexpr float windowSwitcherPreviewIconScale = 0.12F;
   inline constexpr float windowSwitcherFallbackIconScale = 0.28F;
   inline constexpr float windowSwitcherCaptionHeight = controlHeightLg;
-  inline const float windowSwitcherCaptionLineGap = -spaceXs;
+  TOKENS_LIVE(windowSwitcherCaptionLineGap, -spaceXs);
   inline constexpr float windowSwitcherIncomingCardScale = 0.9F;
   inline constexpr float windowSwitcherIncomingCardSlide = 0.25F;
   inline constexpr float windowSwitcherOutgoingCardSlide = 0.3F;

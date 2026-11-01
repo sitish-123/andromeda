@@ -9,8 +9,8 @@ project('desk-ui', ['c', 'cpp'],
   ],
 )
 
-# Tokens are writable globals so the shell can reload them live (ANDROMEDA_DEV_TOKENS).
-_tokens_runtime = ['-DTOKENS_RUNTIME']
+# With dev_tokens, tokens are writable globals so the shell can reload them live (ANDROMEDA_DEV_TOKENS).
+_tokens_runtime = get_option('dev_tokens') ? ['-DTOKENS_RUNTIME'] : []
 add_project_arguments(_tokens_runtime, language: 'cpp')
 
 cc  = meson.get_compiler('c')
