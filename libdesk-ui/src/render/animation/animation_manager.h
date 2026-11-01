@@ -29,6 +29,13 @@ public:
       float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
       std::function<void()> onComplete = {}, const void* owner = nullptr
   );
+  // Spring motion: the spring sets the timing. Global motion speed scales it; reduced motion jumps to `to`.
+  Id animateSpring(
+      float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+      std::function<void()> onComplete = {}, const void* owner = nullptr
+  );
+  // Moves a running spring's target and keeps its velocity. False when `id` is not a running spring.
+  bool retarget(Id id, float to);
   void cancel(Id id);
   void cancelAll();
   void reduceMotion();

@@ -6,8 +6,28 @@
 
 #include <cstdint>
 
-// Config-owned enum; forward-declared here so render/core stays independent of config_types.
-enum class WallpaperTransition : std::uint8_t;
+enum class WallpaperFillMode : std::uint8_t {
+  Center = 0,
+  Crop = 1,
+  Fit = 2,
+  Stretch = 3,
+  Repeat = 4,
+  Span = 5,
+};
+
+enum class WallpaperTransition : std::uint8_t {
+  Fade = 0,
+  Wipe = 1,
+  Disc = 2,
+  Stripes = 3,
+  Zoom = 4,
+  Honeycomb = 5,
+  Vortex = 6,
+  Pixel = 7,
+  Diamond = 8,
+  Golden = 9,
+  Melt = 10,
+};
 
 enum class WallpaperSourceKind : std::uint8_t {
   Image = 0,

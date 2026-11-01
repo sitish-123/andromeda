@@ -19,6 +19,7 @@
 #include "render/programs/wallpaper_program.h"
 
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <optional>
 
@@ -36,7 +37,8 @@ public:
   bool makeCurrent(RenderTarget& target) override;
   bool makeCurrentNoSurface() override;
   bool beginFrame(RenderTarget& target) override;
-  void endFrame(RenderTarget& target) override;
+  [[nodiscard]] int bufferAge(RenderTarget& target) override;
+  void endFrame(RenderTarget& target, std::span<const DamageRect> damage = {}) override;
   [[nodiscard]] RenderGraphicsResetStatus graphicsResetStatus() override;
   void invalidateGpuResources() override;
   void abandonAfterGraphicsReset() noexcept override;
@@ -106,6 +108,8 @@ private:
   void abandonGpuObjects() noexcept;
 
   EGLDisplay m_display = EGL_NO_DISPLAY;
+  bool m_bufferAge = false;
+  PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC m_swapWithDamage = nullptr;
   EGLConfig m_config = nullptr;
   EGLContext m_context = EGL_NO_CONTEXT;
   int m_maxTextureSize = 0;

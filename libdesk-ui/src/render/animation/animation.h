@@ -1,14 +1,18 @@
 #pragma once
 
+#include "motion/desk_motion.h"
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 
 enum class Easing : std::uint8_t {
   Linear,
   EaseInQuad,
   EaseOutQuad,
   EaseInOutQuad,
+  EaseInCubic,
   EaseOutCubic,
   EaseInOutCubic,
   EaseOutBack,
@@ -26,4 +30,7 @@ struct Animation {
   std::function<void(float)> setter;
   std::function<void()> onComplete;
   bool finished = false;
+  // Set for spring animations: the spring owns the timing and durationMs/easing do not apply.
+  std::optional<desk::motion::Spring> spring;
+  std::chrono::steady_clock::time_point lastStep;
 };

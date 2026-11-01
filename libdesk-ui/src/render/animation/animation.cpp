@@ -21,6 +21,8 @@ float applyEasing(Easing easing, float t) {
     }
     return -1.0F + (4.0F - 2.0F * t) * t;
 
+  case Easing::EaseInCubic:
+    return t * t * t;
   case Easing::EaseOutCubic: {
     const float f = t - 1.0F;
     return f * f * f + 1.0F;

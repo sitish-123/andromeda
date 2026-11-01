@@ -25,7 +25,7 @@ public:
       return;
     }
     m_text = std::move(text);
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setFontSize(float size) {
@@ -33,7 +33,7 @@ public:
       return;
     }
     m_fontSize = size;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setColor(const Color& color) {
@@ -49,7 +49,7 @@ public:
       return;
     }
     m_maxWidth = maxWidth;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setMaxLines(int maxLines) {
@@ -57,7 +57,7 @@ public:
       return;
     }
     m_maxLines = maxLines;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setFontWeight(FontWeight fontWeight) {
@@ -65,7 +65,7 @@ public:
       return;
     }
     m_font.weight = fontWeight;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setFontFamily(std::string family) {
@@ -73,7 +73,7 @@ public:
       return;
     }
     m_font.family = std::move(family);
-    markLayoutDirty();
+    markContentDirty();
   }
 
   void setFontFeatures(std::string features) {
@@ -81,7 +81,7 @@ public:
       return;
     }
     m_font.features = std::move(features);
-    markLayoutDirty();
+    markContentDirty();
   }
 
   [[nodiscard]] TextAlign textAlign() const noexcept { return m_textAlign; }
@@ -91,7 +91,7 @@ public:
       return;
     }
     m_textAlign = align;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   [[nodiscard]] TextEllipsize ellipsize() const noexcept { return m_ellipsize; }
@@ -101,7 +101,7 @@ public:
       return;
     }
     m_ellipsize = ellipsize;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   [[nodiscard]] bool useMarkup() const noexcept { return m_useMarkup; }
@@ -111,7 +111,7 @@ public:
       return;
     }
     m_useMarkup = markup;
-    markLayoutDirty();
+    markContentDirty();
   }
 
   [[nodiscard]] bool hasShadow() const noexcept { return m_hasShadow; }
@@ -136,6 +136,12 @@ public:
   }
 
 private:
+  // New text can keep the same bounds, so damage tracking needs a self-paint mark as well as a layout pass.
+  void markContentDirty() {
+    markLayoutDirty();
+    markPaintDirty();
+  }
+
   std::string m_text;
   TextFont m_font;
   float m_fontSize = 14.0F;

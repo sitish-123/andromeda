@@ -1,5 +1,7 @@
 #pragma once
 
+#include "render/core/damage_region.h"
+
 #include "render/core/renderer.h"
 
 #include <cstdint>
@@ -99,6 +101,18 @@ public:
   void setContentScale(float scale) noexcept;
   [[nodiscard]] float contentScale() const noexcept { return m_contentScale; }
 
+  // Damage of recent frames for buffer-age repaint, and the buffer size it belongs to.
+  [[nodiscard]] DamageHistory& damageHistory() noexcept { return m_damageHistory; }
+  // True when the buffer size or the scene root changed since the last call: the old pixels are not tracked.
+  [[nodiscard]] bool takeDamageReset(const void* sceneRoot) noexcept {
+    const bool changed =
+        m_damageWidth != m_bufferWidth || m_damageHeight != m_bufferHeight || m_damageRoot != sceneRoot;
+    m_damageWidth = m_bufferWidth;
+    m_damageHeight = m_bufferHeight;
+    m_damageRoot = sceneRoot;
+    return changed;
+  }
+
   void setLogicalSize(std::uint32_t w, std::uint32_t h) noexcept {
     m_logicalWidth = w;
     m_logicalHeight = h;
@@ -108,6 +122,10 @@ private:
   std::unique_ptr<RenderSurfaceTarget> m_surfaceTarget;
   ScaledRenderer m_renderer;
   float m_contentScale = 1.0F;
+  DamageHistory m_damageHistory;
+  std::uint32_t m_damageWidth = 0;
+  std::uint32_t m_damageHeight = 0;
+  const void* m_damageRoot = nullptr;
   std::uint32_t m_bufferWidth = 0;
   std::uint32_t m_bufferHeight = 0;
   std::uint32_t m_logicalWidth = 0;

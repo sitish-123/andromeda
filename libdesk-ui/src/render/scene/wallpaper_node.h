@@ -1,6 +1,5 @@
 #pragma once
 
-#include "config/config_types.h"
 #include "render/core/color.h"
 #include "render/core/texture_handle.h"
 #include "render/core/wallpaper_types.h"

@@ -81,6 +81,45 @@ AnimationManager::Id AnimationManager::animateInternal(
   return id;
 }
 
+AnimationManager::Id AnimationManager::animateSpring(
+    float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+    std::function<void()> onComplete, const void* owner
+) {
+  const float start = MotionService::instance().enabled() ? from : to;
+  Id id = m_nextId++;
+  m_animations.push_back(
+      Entry{
+          .id = id,
+          .owner = owner,
+          .respectMotionEnabled = true,
+          .animation = Animation{
+              .startValue = start,
+              .endValue = to,
+              .setter = std::move(setter),
+              .onComplete = std::move(onComplete),
+              .spring = desk::motion::Spring(start, to, spring),
+              .lastStep = std::chrono::steady_clock::now(),
+          },
+      }
+  );
+  return id;
+}
+
+bool AnimationManager::retarget(Id id, float to) {
+  for (auto& entry : m_animations) {
+    if (entry.id == id && entry.animation.spring && !entry.animation.finished) {
+      entry.animation.endValue = to;
+      if (MotionService::instance().enabled()) {
+        entry.animation.spring->retarget(to);
+      } else {
+        entry.animation.spring = desk::motion::Spring(to, to, {});
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 void AnimationManager::cancel(Id id) {
   std::erase_if(m_animations, [id](const Entry& e) { return e.id == id; });
 }
@@ -97,6 +136,10 @@ void AnimationManager::reduceMotion() {
     auto& anim = entry.animation;
     if (anim.setter) {
       anim.setter(anim.endValue);
+    }
+    if (anim.spring) {
+      anim.spring = desk::motion::Spring(anim.endValue, anim.endValue, {});
+      continue;
     }
     anim.startValue = anim.endValue;
     anim.durationMs = kReducedMotionDurationMs;
@@ -125,6 +168,20 @@ void AnimationManager::tick(float /*deltaMs*/) {
   for (auto& entry : m_animations) {
     auto& anim = entry.animation;
     if (anim.finished) {
+      continue;
+    }
+
+    if (anim.spring) {
+      const float stepMs = std::chrono::duration<float, std::milli>(now - anim.lastStep).count();
+      anim.lastStep = now;
+      const float value = static_cast<float>(anim.spring->step(stepMs * MotionService::instance().speed() / 1000.0F));
+      anim.finished = anim.spring->settled();
+      if (anim.setter) {
+        anim.setter(value);
+      }
+      if (anim.finished && anim.onComplete) {
+        completedCallbacks.push_back(std::move(anim.onComplete));
+      }
       continue;
     }
 

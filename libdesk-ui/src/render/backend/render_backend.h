@@ -1,5 +1,7 @@
 #pragma once
 
+#include "render/core/damage_region.h"
+
 #include "render/core/color.h"
 #include "render/core/mat3.h"
 #include "render/core/render_styles.h"
@@ -117,8 +119,12 @@ public:
   // best-effort callers may ignore it, GPU paths must skip the work, not treat it as fatal.
   virtual bool makeCurrentNoSurface() = 0;
   // Returns false if the frame could not begin; callers must skip drawing and endFrame.
+  // Makes the target current and sets viewport and blending; does not clear (the caller clears what it repaints).
   virtual bool beginFrame(RenderTarget& target) = 0;
-  virtual void endFrame(RenderTarget& target) = 0;
+  // Frames since the current back buffer was last presented; 0 when unknown (repaint everything).
+  [[nodiscard]] virtual int bufferAge(RenderTarget& target) = 0;
+  // `damage`: changed rects in buffer pixels, top-left origin; empty presents the whole buffer.
+  virtual void endFrame(RenderTarget& target, std::span<const DamageRect> damage = {}) = 0;
   [[nodiscard]] virtual RenderGraphicsResetStatus graphicsResetStatus() = 0;
   virtual void invalidateGpuResources() = 0;
   // Tear down a lost context without attempting to preserve its invalid GL objects.
