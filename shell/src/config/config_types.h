@@ -159,7 +159,7 @@ struct BarConfig {
   std::int32_t thickness = Style::barThicknessDefault;
   float backgroundOpacity = 1.0F;
   bool compositorBlur = true;
-  bool islands = false; // one floating pill per section instead of one full-length background
+  bool islands = true; // one floating pill per section instead of one full-length background
   // Inside outline for the bar background; attached panels inherit the resolved values.
   ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = 0.0F;
