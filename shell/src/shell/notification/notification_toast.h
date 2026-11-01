@@ -6,6 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "system/icon_resolver.h"
 
+#include <functional>
 #include <memory>
 #include <string_view>
 #include <unordered_map>
@@ -47,6 +48,8 @@ public:
   void onConfigReload();
   void onOutputChange();
   void hideDndSuppressed();
+  // The center island may take an event first (true = consumed); the toast stays hidden then.
+  void setIslandHook(std::function<bool(const Notification&, NotificationEvent)> hook);
   void requestLayout();
   void requestRedraw();
 
@@ -56,6 +59,7 @@ public:
   [[nodiscard]] float horizontalInnerPad(float scale) const;
 
 private:
+  std::function<bool(const Notification&, NotificationEvent)> m_islandHook;
   // Per-notification visual state (shared across all instances)
   struct PopupEntry {
     uint32_t notificationId = 0;

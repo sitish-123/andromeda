@@ -957,6 +957,10 @@ namespace {
     }
     if (instance.barConfig.islands) {
       instance.shadow->setVisible(false);
+      instance.islandShadowStyle = ui::surface_shadow::style(
+          shadowConfig, Style::glassAlpha(std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F)),
+          ui::surface_shadow::Shape{}
+      );
       return;
     }
 
@@ -1055,6 +1059,14 @@ namespace {
       const float main = section == nullptr ? 0.0F : (isVertical ? section->height() : section->width());
       const bool shown = section != nullptr && section->visible() && main > 0.5F;
       island->setVisible(shown);
+      Box* shadow = instance.islandShadows[i];
+      Box* edge = instance.islandEdges[i];
+      if (shadow != nullptr) {
+        shadow->setVisible(shown);
+      }
+      if (edge != nullptr) {
+        edge->setVisible(shown);
+      }
       if (!shown) {
         continue;
       }
@@ -1068,6 +1080,18 @@ namespace {
       );
       island->setSize(w, h);
       island->setRadius(std::min(w, h) * 0.5F);
+      if (shadow != nullptr && instance.islandShadowStyle.has_value()) {
+        shadow->setStyle(*instance.islandShadowStyle);
+        shadow->setPosition(island->x(), island->y());
+        shadow->setSize(w, h);
+        shadow->setRadius(std::min(w, h) * 0.5F);
+      }
+      if (edge != nullptr && !isVertical) {
+        const float r = std::min(w, h) * 0.5F;
+        edge->setPosition(island->x() + r * 0.55F, island->y());
+        edge->setSize(std::max(0.0F, w - r * 1.1F), kIslandStrokeWidth);
+        edge->setStyle(RoundedRectStyle{.fill = islandEdgeColor(), .radius = Radii{kIslandStrokeWidth * 0.5F}});
+      }
     }
   }
 
@@ -3421,6 +3445,9 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
     style.fill = painted ? material : rgba(0.0F, 0.0F, 0.0F, 0.0F);
     style.border = resolveColorSpec(instance.barConfig.border);
     style.borderWidth = painted ? instance.barConfig.borderWidth : 0.0F;
+    if (painted && instance.barConfig.islands && style.borderWidth <= 0.0F) {
+      style.borderWidth = kIslandStrokeWidth;
+    }
     box->setStyle(style);
   };
   applyMaterial(instance.bg, !instance.barConfig.islands);
@@ -3669,10 +3696,22 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
 
     // Bar background
     instance.bg = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
-    for (Box*& island : instance.islands) {
+    for (std::size_t i = 0; i < instance.islands.size(); ++i) {
+      if (shadowSize > 0.0F && !isVertical) {
+        auto shadow = ui::box();
+        shadow->setHitTestVisible(false);
+        shadow->setZIndex(-1);
+        shadow->setVisible(false);
+        instance.islandShadows[i] = static_cast<Box*>(instance.slideRoot->addChild(std::move(shadow)));
+      }
+      Box*& island = instance.islands[i];
       island = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
       island->setHitTestVisible(false);
       island->setVisible(instance.barConfig.islands);
+      auto edge = ui::box();
+      edge->setHitTestVisible(false);
+      edge->setVisible(false);
+      instance.islandEdges[i] = static_cast<Box*>(instance.slideRoot->addChild(std::move(edge)));
     }
 
     // Shadow — bar shape copy rendered with large SDF softness to simulate a blurred drop shadow.

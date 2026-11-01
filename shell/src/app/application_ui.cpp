@@ -493,6 +493,8 @@ void Application::initInputDispatch() {
     }
     if (m_settingsWindow.onPointerEvent(event))
       return;
+    if (m_liveActivity.onPointerEvent(event))
+      return;
     if (m_bar.onPointerEvent(event))
       return;
     if (m_dock.onPointerEvent(event))
@@ -845,6 +847,15 @@ void Application::initNotificationAndOsd() {
   m_liveActivity.setSpaceProvider([this](wl_output* output) { return m_bar.centerIslandSpace(output); });
   m_liveActivity.setRestSources([this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager, [this](wl_output* output) {
     m_panelManager.togglePanel("control-center", PanelOpenRequest{.output = output, .context = "notifications"});
+  });
+  m_liveActivity.setExtraSources(&m_httpClient, [this] { return m_pipewireSpectrum.get(); }, &m_calendarService);
+  (void)m_calendarService.addChangeCallback(m_liveActivity.refresher());
+  m_osdOverlay.setIsland(
+      [this](const OsdContent& content) { return m_liveActivity.showOsd(content); },
+      [this] { return m_liveActivity.osdVisible(); }
+  );
+  m_notificationToast.setIslandHook([this](const Notification& n, NotificationEvent event) {
+    return m_liveActivity.showBanner(n, event);
   });
   m_bar.setCenterIslandSpaceCallback(m_liveActivity.refresher());
   m_configService.addReloadCallback(m_liveActivity.refresher());

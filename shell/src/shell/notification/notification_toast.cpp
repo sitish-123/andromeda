@@ -668,6 +668,10 @@ void NotificationToast::requestRedraw() {
 
 // --- Notification events ---
 
+void NotificationToast::setIslandHook(std::function<bool(const Notification&, NotificationEvent)> hook) {
+  m_islandHook = std::move(hook);
+}
+
 void NotificationToast::onNotificationEvent(const Notification& n, NotificationEvent event) {
   switch (event) {
   case NotificationEvent::Added:
@@ -676,10 +680,16 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
         && n.dndPolicy == NotificationDndPolicy::Respect) {
       break;
     }
+    if (m_islandHook && m_islandHook(n, event)) {
+      break;
+    }
     m_pendingAdds.push_back(n);
     schedulePendingAdds();
     break;
   case NotificationEvent::Updated: {
+    if (m_islandHook && m_islandHook(n, event)) {
+      return;
+    }
     for (auto& pending : m_pendingAdds) {
       if (pending.id == n.id) {
         pending = n;
@@ -873,6 +883,9 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
     break;
   }
   case NotificationEvent::Closed:
+    if (m_islandHook) {
+      (void)m_islandHook(n, event);
+    }
     std::erase_if(m_pendingAdds, [id = n.id](const Notification& pending) { return pending.id == id; });
     removePopup(n.id);
     break;

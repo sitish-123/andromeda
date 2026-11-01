@@ -4,6 +4,14 @@
 
 #include <cstdint>
 
+// Top edge highlight of the glass material (the reference --edge): white, 0.549 in light, 0.122 in dark.
+[[nodiscard]] inline Color islandEdgeColor() noexcept {
+  return Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = isResolvedLightTheme() ? 0.549F : 0.122F};
+}
+
+// Hairline stroke of the glass material (--stroke) in logical pixels.
+inline constexpr float kIslandStrokeWidth = 0.5F;
+
 // Where the always-on center island may sit on one output: the bar row between the side islands.
 struct CenterIslandSpace {
   std::int32_t edgeMargin = 0; // screen edge to the island row

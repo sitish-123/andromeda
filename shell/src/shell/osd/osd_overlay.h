@@ -4,6 +4,7 @@
 #include "wayland/layer_surface.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -74,6 +75,8 @@ public:
   void requestLayout();
   void requestRedraw();
 
+  // The center island takes an OSD (returns true) when it can show it; the overlay surface stays hidden then.
+  void setIsland(std::function<bool(const OsdContent&)> show, std::function<bool()> visible);
   void show(const OsdContent& content);
   [[nodiscard]] bool isEnabled() const noexcept;
 
@@ -132,6 +135,8 @@ private:
   CompositorPlatform* m_platform = nullptr;
   ConfigService* m_config = nullptr;
   RenderContext* m_renderContext = nullptr;
+  std::function<bool(const OsdContent&)> m_islandShow;
+  std::function<bool()> m_islandVisible;
   OsdContent m_content;
   std::string m_lastPosition;
   std::string m_lastOrientation;

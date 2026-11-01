@@ -354,6 +354,9 @@ void OsdOverlay::show(const OsdContent& content) {
   if (m_config != nullptr && !isOsdKindEnabled(m_config->config().osd.kinds, content.kind)) {
     return;
   }
+  if (m_islandShow && m_islandShow(content)) {
+    return;
+  }
 
   const bool followFocusedOutput = m_config != nullptr && m_config->config().osd.followFocusedOutput;
   if (followFocusedOutput && !isVisible() && m_platform != nullptr) {
@@ -370,7 +373,15 @@ void OsdOverlay::show(const OsdContent& content) {
   }
 }
 
+void OsdOverlay::setIsland(std::function<bool(const OsdContent&)> show, std::function<bool()> visible) {
+  m_islandShow = std::move(show);
+  m_islandVisible = std::move(visible);
+}
+
 bool OsdOverlay::isVisible() const {
+  if (m_islandVisible && m_islandVisible()) {
+    return true;
+  }
   return std::ranges::any_of(m_instances, [](const auto& inst) {
     return inst->visible || inst->showPending || inst->showAnimId != 0;
   });
