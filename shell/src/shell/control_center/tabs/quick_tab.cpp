@@ -223,7 +223,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_micSlider = nullptr;
   m_micValue = nullptr;
   m_page = 0;
-  m_pageWidth = 0.0F;
+  m_pageStep = 0.0F;
+  m_settledPage = 0;
   m_snapTimer.stop();
   m_halfWidth.clear();
   auto root = std::make_unique<Flex>();
@@ -274,7 +275,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   Flex* strip = pager->content();
   strip->setDirection(FlexDirection::Horizontal);
   strip->setAlign(FlexAlign::Stretch);
-  strip->setGap(0.0F);
+  strip->setGap(2.0F * Tokens::componentSheetPadding * s);
   m_pages.push_back(top.get());
   strip->addChild(std::move(top));
 
@@ -489,8 +490,9 @@ std::unique_ptr<Flex> QuickTab::makeDots(std::size_t pages) {
     area->setFrameSize(kDot * s, kDot * s);
     area->setHitTestOutset({.left = kDotGap * 0.5F * s, .top = 6.0F * s, .right = kDotGap * 0.5F * s, .bottom = 6.0F * s});
     area->setOnClick([this, i](const InputArea::PointerData&) {
-      if (m_pager != nullptr && m_pageWidth > 0.0F) {
-        m_pager->setScrollOffset(static_cast<float>(i) * m_pageWidth);
+      if (m_pager != nullptr && m_pageStep > 0.0F) {
+        m_settledPage = i;
+        m_pager->setScrollOffset(static_cast<float>(i) * m_pageStep);
       }
     });
     dot->addChild(std::move(area));
@@ -559,7 +561,7 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
   if (m_pager == nullptr || m_pages.empty()) {
     return;
   }
-  m_pageWidth = width;
+  m_pageStep = width + 2.0F * Tokens::componentSheetPadding * contentScale();
   for (Flex* page : m_pages) {
     page->setMinWidth(width);
     page->setMaxWidth(width);
@@ -581,33 +583,40 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
 }
 
 void QuickTab::refreshDots(float offset) {
-  if (m_pageWidth <= 0.0F || m_pages.empty()) {
+  if (m_pageStep <= 0.0F || m_pages.empty()) {
     return;
   }
-  m_page = std::min(static_cast<std::size_t>(std::lround(std::max(offset, 0.0F) / m_pageWidth)), m_pages.size() - 1);
+  m_page = std::min(static_cast<std::size_t>(std::lround(std::max(offset, 0.0F) / m_pageStep)), m_pages.size() - 1);
   for (std::size_t i = 0; i < m_dots.size(); ++i) {
     m_dots[i]->setFill(colorSpecFromRole(i == m_page ? ColorRole::Label1 : ColorRole::Fill3));
   }
 }
 
 void QuickTab::syncPager() {
-  if (m_pager == nullptr || m_pageWidth <= 0.0F) {
+  if (m_pager == nullptr || m_pageStep <= 0.0F) {
     return;
   }
   refreshDots(m_pager->scrollOffset());
 }
 
 void QuickTab::snapPager() {
-  if (m_pager == nullptr || m_pageWidth <= 0.0F) {
+  if (m_pager == nullptr || m_pageStep <= 0.0F) {
     return;
   }
   if (m_pager->dragging()) {
     m_snapTimer.start(std::chrono::milliseconds(150), [this] { snapPager(); });
     return;
   }
+  // A flick: any movement past a small slop goes one page in its direction; less returns to the start page.
   const float offset = m_pager->scrollOffset();
-  refreshDots(offset);
-  const float delta = static_cast<float>(m_page) * m_pageWidth - offset;
+  const float moved = offset - static_cast<float>(m_settledPage) * m_pageStep;
+  const float slop = 12.0F * contentScale();
+  if (moved > slop && m_settledPage + 1 < m_pages.size()) {
+    ++m_settledPage;
+  } else if (moved < -slop && m_settledPage > 0) {
+    --m_settledPage;
+  }
+  const float delta = static_cast<float>(m_settledPage) * m_pageStep - offset;
   if (std::abs(delta) > 0.5F) {
     m_pager->scrollBy(delta);
   }

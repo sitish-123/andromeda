@@ -86,7 +86,8 @@ private:
   std::vector<Flex*> m_halfWidth; // extra cards and fillers: half a page each
   std::vector<Flex*> m_dots;
   Flex* m_dotsRow = nullptr;
-  float m_pageWidth = 0.0F;
+  float m_pageStep = 0.0F; // page width + the gap between pages
+  std::size_t m_settledPage = 0; // the page a swipe starts from
   std::size_t m_page = 0;
   Timer m_snapTimer;
 
