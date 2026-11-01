@@ -15,7 +15,7 @@
 #include "time/time_format.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
-#include "ui/controls/calendar_view.h"
+#include "calendar/calendar_view.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/scroll_view.h"
 
@@ -98,7 +98,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .text = formatShellDate(m_config),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Medium,
-          .color = colorSpecFromRole(ColorRole::Secondary),
+          .color = colorSpecFromRole(ColorRole::Accent),
           .maxLines = 1,
           .configure = [this](Label& label) {
             label.setHitTestVisible(true);
@@ -145,7 +145,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .out = &m_monthLabel,
           .fontSize = (Style::fontSizeTitle + Style::spaceXs) * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
       })
   );
@@ -197,7 +197,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .text = i18n::tr("control-center.calendar.events"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
       }),
       ui::scrollView({

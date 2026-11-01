@@ -208,7 +208,7 @@ std::unique_ptr<Flex> MediaTab::create() {
           .text = i18n::tr("control-center.media.now-playing"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .flexGrow = 1.0F,
       }),
       ui::button({
@@ -262,19 +262,19 @@ std::unique_ptr<Flex> MediaTab::create() {
               .text = i18n::tr("control-center.media.nothing-playing"),
               .fontSize = Style::fontSizeTitle * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
           }),
           ui::label({
               .out = &m_trackArtist,
               .text = i18n::tr("control-center.media.start-playback"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           }),
           ui::label({
               .out = &m_trackAlbum,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Secondary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .visible = false,
           })
       )
@@ -466,7 +466,7 @@ std::unique_ptr<Flex> MediaTab::create() {
   });
 
   auto visualizerSpectrum = std::make_unique<AudioVisualizer>();
-  visualizerSpectrum->setGradient(colorForRole(ColorRole::Secondary), colorForRole(ColorRole::Tertiary));
+  visualizerSpectrum->setGradient(colorForRole(ColorRole::Accent), colorForRole(ColorRole::Accent));
   visualizerSpectrum->setOrientation(AudioSpectrumOrientation::Vertical);
   visualizerSpectrum->setMirrored(true);
   visualizerSpectrum->setCentered(true);

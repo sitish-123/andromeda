@@ -106,7 +106,7 @@ std::unique_ptr<Flex> MonitorTab::create() {
       ui::label({
           .text = i18n::tr("control-center.display.no-displays"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
   tab->addChild(std::move(emptyState));
@@ -318,14 +318,14 @@ void MonitorTab::rebuildCards(Renderer& /*renderer*/) {
             .out = &iconPtr,
             .glyph = "device-desktop",
             .glyphSize = Style::fontSizeTitle * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         }),
         ui::label({
             .out = &nameLabelPtr,
             .text = display.label,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -338,7 +338,7 @@ void MonitorTab::rebuildCards(Renderer& /*renderer*/) {
             .out = &detailsLabelPtr,
             .text = infoText,
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -348,7 +348,7 @@ void MonitorTab::rebuildCards(Renderer& /*renderer*/) {
         ui::glyph({
             .glyph = "brightness-low",
             .glyphSize = Style::fontSizeTitle * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -395,7 +395,7 @@ void MonitorTab::rebuildCards(Renderer& /*renderer*/) {
         ui::glyph({
             .glyph = "brightness-high",
             .glyphSize = Style::fontSizeTitle * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     sliderRow->addChild(
@@ -403,7 +403,7 @@ void MonitorTab::rebuildCards(Renderer& /*renderer*/) {
             .out = &valueLabelPtr,
             .text = formatBrightnessValue(display, display.brightness),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .minWidth = Style::controlHeightLg * scale,
         })
     );

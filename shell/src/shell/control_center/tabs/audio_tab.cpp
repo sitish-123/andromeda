@@ -864,7 +864,7 @@ namespace {
       setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
       setMinHeight(Style::controlHeightLg * scale);
       setRadius(Style::scaledRadiusMd(scale));
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       clearBorder();
 
       addChild(
@@ -883,7 +883,7 @@ namespace {
               .out = &m_title,
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .ellipsize = TextEllipsize::Middle,
               .flexGrow = 1.0F,
@@ -943,22 +943,22 @@ namespace {
   private:
     void applyState() {
       if (pressed()) {
-        setFill(colorSpecFromRole(ColorRole::Primary));
-        setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth);
+        setFill(colorSpecFromRole(ColorRole::Accent));
+        setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
         if (m_title != nullptr) {
-          m_title->setColor(colorSpecFromRole(ColorRole::OnPrimary));
+          m_title->setColor(colorSpecFromRole(ColorRole::OnAccent));
         }
         return;
       }
 
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       if (hovered()) {
-        setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth);
+        setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
       } else {
         clearBorder();
       }
       if (m_title != nullptr) {
-        m_title->setColor(colorSpecFromRole(ColorRole::OnSurface));
+        m_title->setColor(colorSpecFromRole(ColorRole::Label1));
       }
     }
 
@@ -988,7 +988,7 @@ namespace {
       setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
       setMinHeight((Style::controlHeightLg + Style::spaceSm) * scale);
       setRadius(Style::scaledRadiusMd(scale));
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       clearBorder();
 
       constexpr float kIconSizeSm = 28.0F;
@@ -1035,13 +1035,13 @@ namespace {
                               .out = &m_appNameLabel,
                               .fontSize = Style::fontSizeBody * scale,
                               .fontWeight = FontWeight::Bold,
-                              .color = colorSpecFromRole(ColorRole::OnSurface),
+                              .color = colorSpecFromRole(ColorRole::Label1),
                               .maxLines = 1,
                           }),
                           ui::label({
                               .out = &m_subtitleLabel,
                               .fontSize = Style::fontSizeCaption * scale,
-                              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                              .color = colorSpecFromRole(ColorRole::Label2),
                               .maxLines = 1,
                               .visible = false,
                           })
@@ -1415,7 +1415,7 @@ namespace {
                 .configure =
                     [scale](Flex& card) {
                       card.setRadius(Style::scaledRadiusMd(scale));
-                      card.setFill(colorSpecFromRole(ColorRole::Surface));
+                      card.setFill(colorSpecFromRole(ColorRole::SolidRegular));
                       card.clearBorder();
                     },
             },
@@ -1423,12 +1423,12 @@ namespace {
                 .text = title,
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
             }),
             ui::label({
                 .text = body,
                 .fontSize = Style::fontSizeCaption * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
             })
         )
     );
@@ -1693,14 +1693,14 @@ std::unique_ptr<Flex> AudioTab::createDeviceVolumeCard(DeviceVolumeCardSpec card
                   .text = i18n::tr(card.devicePrefixKey),
                   .fontSize = Style::fontSizeTitle * scale,
                   .fontWeight = FontWeight::Bold,
-                  .color = colorSpecFromRole(ColorRole::OnSurface),
+                  .color = colorSpecFromRole(ColorRole::Label1),
                   .maxLines = 1,
               }),
               ui::label({
                   .out = &card.state.deviceLabel,
                   .text = i18n::tr(card.noDeviceKey),
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   .ellipsize = TextEllipsize::Middle,
                   .flexGrow = 1.0F,
@@ -1808,7 +1808,7 @@ std::unique_ptr<Flex> AudioTab::createDeviceVolumeCard(DeviceVolumeCardSpec card
           ui::label({
               .text = i18n::tr("control-center.audio.effects-profile") + ":",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           }),
           ui::select({
               .out = &card.state.effectsProfileSelect,

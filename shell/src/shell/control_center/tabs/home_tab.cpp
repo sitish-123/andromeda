@@ -144,9 +144,9 @@ namespace {
   // signal that reads consistently across all three cards.
   void applyHomeCardHover(Flex& card, bool hovered) {
     if (hovered) {
-      card.setBorder(colorSpecFromRole(ColorRole::Hover), Style::borderWidth);
+      card.setBorder(colorSpecFromRole(ColorRole::Fill3), Style::borderWidth);
     } else if (Style::cardBordersEnabled()) {
-      card.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+      card.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
     } else {
       card.clearBorder();
     }
@@ -161,15 +161,15 @@ namespace {
       return;
     }
     if (!showBorder) {
-      avatar->setBorder(colorSpecFromRole(ColorRole::Primary), 0.0F);
+      avatar->setBorder(colorSpecFromRole(ColorRole::Accent), 0.0F);
       return;
     }
     const float borderWidth = Style::borderWidth * 3.0F;
     if (highlighted) {
-      avatar->setBorder(colorSpecFromRole(ColorRole::Hover), borderWidth);
+      avatar->setBorder(colorSpecFromRole(ColorRole::Fill3), borderWidth);
       return;
     }
-    avatar->setBorder(colorSpecFromRole(ColorRole::Primary), borderWidth);
+    avatar->setBorder(colorSpecFromRole(ColorRole::Accent), borderWidth);
   }
 
 } // namespace
@@ -338,7 +338,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .text = displayName,
               .fontSize = Style::fontSizeTitle * 1.12F * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .configure = [scale](
                                Label& label
                            ) { label.setShadow(colorSpecFromRole(ColorRole::Shadow, 0.42F), 0.0F, 1.0F * scale); },
@@ -347,28 +347,28 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_userHost,
               .text = userHostLine(),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .configure = configureUserDetailLabel,
           }),
           ui::label({
               .out = &m_userUptime,
               .text = "…",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .configure = configureUserDetailLabel,
           }),
           ui::label({
               .out = &m_userVersion,
               .text = noctaliaVersionLine(),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .configure = configureUserDetailLabel,
           }),
           ui::label({
               .out = &m_userCompositor,
               .text = compositorLine(std::nullopt),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .configure = configureUserDetailLabel,
           })
       )
@@ -422,7 +422,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaArtFallback,
               .glyph = "disc",
               .glyphSize = artSize * 0.55F,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           }),
           ui::image({
               .out = &m_mediaArt,
@@ -440,7 +440,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaTrack,
               .text = "...",
               .fontSize = Style::fontSizeBody * 0.95F * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
           }),
@@ -448,7 +448,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaArtist,
               .text = i18n::tr("control-center.home.media.no-active-player"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
           }),
@@ -456,7 +456,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaStatus,
               .text = i18n::tr("control-center.home.media.idle"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
           }),
@@ -464,7 +464,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaProgress,
               .text = " ",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Secondary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
               .visible = false,
@@ -498,7 +498,7 @@ std::unique_ptr<Flex> HomeTab::create() {
           .text = formatShellTime(m_config),
           .fontSize = Style::fontSizeTitle * 1.7F * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       }),
       ui::column(
           {.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = Style::spaceXs * 0.5F * scale},
@@ -506,7 +506,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_dateLabel,
               .text = formatShellDate(m_config),
               .fontSize = Style::fontSizeBody * 0.9F * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
           }),
           ui::row(
               {.out = &m_weatherRow, .align = FlexAlign::Center, .gap = Style::spaceXs * scale},
@@ -514,13 +514,13 @@ std::unique_ptr<Flex> HomeTab::create() {
                   .out = &m_weatherGlyph,
                   .glyph = "weather-cloud-sun",
                   .glyphSize = Style::fontSizeCaption * 1.12F * scale,
-                  .color = colorSpecFromRole(ColorRole::Primary),
+                  .color = colorSpecFromRole(ColorRole::Accent),
               }),
               ui::label({
                   .out = &m_weatherLine,
                   .text = "--",
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
               })
           )
       )
@@ -1059,7 +1059,7 @@ void HomeTab::layoutWallpaperBackground(Renderer& renderer) {
   const float ch = std::max(0.0F, m_userCard->height() - bw * 2.0F);
   const float radius = std::max(0.0F, Style::scaledRadiusXl(contentScale()) - bw);
 
-  const Color surface = colorForRole(ColorRole::Surface);
+  const Color surface = colorForRole(ColorRole::SolidRegular);
   const Color translucentSurface = rgba(surface.r, surface.g, surface.b, surface.a * 0.9F);
   const Color transparentSurface = rgba(surface.r, surface.g, surface.b, 0.0F);
   const ImageScrim scrim{
@@ -1094,7 +1094,7 @@ void HomeTab::syncUserCardFill() {
     m_userCard->clearFill();
     return;
   }
-  m_userCard->setFill(colorSpecFromRole(ColorRole::SurfaceContainer, panelCardOpacity()));
+  m_userCard->setFill(colorSpecFromRole(ColorRole::Fill2, panelCardOpacity()));
 }
 
 void HomeTab::syncWallpaperLayerVisibility() {
@@ -1496,21 +1496,21 @@ void HomeTab::sync(Renderer& renderer) {
   if (weatherEnabled && m_weatherGlyph != nullptr && m_weatherLine != nullptr) {
     if (!m_weather->locationConfigured()) {
       m_weatherGlyph->setGlyph("weather-cloud");
-      m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::Label2));
       m_weatherLine->setText(i18n::tr("control-center.weather.no-location-title"));
 
     } else {
       const auto& snapshot = m_weather->snapshot();
       if (!snapshot.valid) {
         m_weatherGlyph->setGlyph("weather-cloud");
-        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::Label2));
         m_weatherLine->setText(
             m_weather->loading() ? i18n::tr("control-center.home.weather.fetching")
                                  : i18n::tr("control-center.home.weather.data-unavailable")
         );
       } else {
         m_weatherGlyph->setGlyph(WeatherService::glyphForCode(snapshot.current.weatherCode, snapshot.current.isDay));
-        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::Primary));
+        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::Accent));
         const int t = static_cast<int>(std::lround(m_weather->displayTemperature(snapshot.current.temperatureC)));
         m_weatherLine->setText(
             std::format(
@@ -1530,7 +1530,7 @@ void HomeTab::sync(Renderer& renderer) {
       m_mediaStatus->setText(i18n::tr("control-center.home.media.unavailable"));
       m_mediaProgress->setText(" ");
       m_mediaProgress->setVisible(false);
-      m_mediaStatus->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Label2));
       if (m_mediaArt != nullptr) {
         m_mediaArt->clear(renderer);
         m_mediaArt->setVisible(false);
@@ -1552,7 +1552,7 @@ void HomeTab::sync(Renderer& renderer) {
         m_mediaStatus->setText(i18n::tr("control-center.home.media.idle"));
         m_mediaProgress->setText(" ");
         m_mediaProgress->setVisible(false);
-        m_mediaStatus->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+        m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Label2));
         if (m_mediaArt != nullptr) {
           m_mediaArt->clear(renderer);
           m_mediaArt->setVisible(false);
@@ -1647,13 +1647,13 @@ void HomeTab::sync(Renderer& renderer) {
         std::string statusText;
         if (active->playbackStatus == "Playing") {
           statusText = i18n::tr("control-center.home.media.playing");
-          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Primary));
+          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Accent));
         } else if (active->playbackStatus == "Paused") {
           statusText = i18n::tr("control-center.home.media.paused");
-          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Label2));
         } else {
           statusText = active->playbackStatus;
-          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Label2));
         }
         if (!progressText.empty()) {
           statusText = std::format("{} · {}", statusText, progressText);
