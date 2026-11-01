@@ -1,4 +1,4 @@
-#include "ui/ui_tree_reconciler.h"
+#include "scripting/ui_tree_reconciler.h"
 
 #include "core/input/key_chord.h"
 #include "core/input/key_modifiers.h"
@@ -19,7 +19,7 @@
 #include "ui/controls/input.h"
 #include "ui/controls/label.h"
 #include "ui/controls/markdown_view.h"
-#include "ui/controls/pixel_stream_view.h"
+#include "scripting/pixel_stream_view.h"
 #include "ui/controls/progress_bar.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/select.h"

@@ -12,7 +12,7 @@
 #include <string_view>
 
 class IpcService;
-class WaylandConnection;
+class ShellWaylandConnection;
 struct wl_output;
 struct zwlr_gamma_control_v1;
 
@@ -21,7 +21,7 @@ public:
   using ChangeCallback = std::function<void()>;
   using StateFeedbackCallback = std::function<void()>;
 
-  explicit GammaService(WaylandConnection& wayland);
+  explicit GammaService(ShellWaylandConnection& wayland);
   ~GammaService();
 
   GammaService(const GammaService&) = delete;
@@ -96,7 +96,7 @@ private:
   [[nodiscard]] static RgbMultipliers kelvinToRgb(int kelvin);
   static void fillGammaRamp(std::uint16_t* ramp, std::uint32_t size, const RgbMultipliers& mul);
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   NightLightConfig m_config;
   LocationConfig m_location;
   std::optional<bool> m_enabledOverride;

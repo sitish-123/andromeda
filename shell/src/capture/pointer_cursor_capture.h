@@ -23,7 +23,7 @@ class PointerCursorCapture {
 public:
   using CompletionCallback = std::function<void(std::optional<capture::CapturedCursor>, std::string error)>;
 
-  explicit PointerCursorCapture(WaylandConnection& wayland);
+  explicit PointerCursorCapture(ShellWaylandConnection& wayland);
   ~PointerCursorCapture();
 
   [[nodiscard]] bool available() const noexcept;
@@ -36,7 +36,7 @@ private:
   void fail(std::string message);
   void finish(capture::CapturedCursor cursor);
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   std::unique_ptr<PointerCursorCapturePending> m_pending;
   CompletionCallback m_onComplete;
   Timer m_timeout;

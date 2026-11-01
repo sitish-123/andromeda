@@ -1,13 +1,13 @@
 #include "capture/screenshot_capture.h"
 
 #include "capture/screencopy_util.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <chrono>
 #include <utility>
 
-ScreenshotCapture::ScreenshotCapture(WaylandConnection& wayland)
+ScreenshotCapture::ScreenshotCapture(ShellWaylandConnection& wayland)
     : m_wayland(wayland), m_backgroundCapture(wayland), m_cursorCapture(wayland) {}
 
 ScreenshotCapture::~ScreenshotCapture() { cancelInFlight(); }

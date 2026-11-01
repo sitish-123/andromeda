@@ -165,8 +165,8 @@ namespace ui {
     float m_fontScale = 1.0F;
     std::string m_defaultFontFamily;
     FontWeight m_defaultFontWeight; // initialized in the ctor (opaque enum here)
-    ColorSpec m_defaultLabelColor = colorSpecFromRole(ColorRole::OnSurface);
-    ColorSpec m_defaultGlyphColor = colorSpecFromRole(ColorRole::OnSurface);
+    ColorSpec m_defaultLabelColor = colorSpecFromRole(ColorRole::Label1);
+    ColorSpec m_defaultGlyphColor = colorSpecFromRole(ColorRole::Label1);
     bool m_compactControls = false;
     bool m_dragDropEnabled = false;
     // The node currently reporting hover, with the callback and key it opened

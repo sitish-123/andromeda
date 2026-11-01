@@ -1,4 +1,4 @@
-#include "ui/controls/calendar_view.h"
+#include "calendar/calendar_view.h"
 
 #include "calendar/calendar_types.h"
 #include "core/ui_phase.h"
@@ -98,7 +98,7 @@ namespace {
   }
 
   ColorSpec eventColor(const CalendarEvent& event, float alpha = 1.0F) {
-    ColorSpec spec = colorSpecFromRole(ColorRole::Primary);
+    ColorSpec spec = colorSpecFromRole(ColorRole::Accent);
     if (Color color; !event.colorHex.empty() && tryParseHexColor(event.colorHex, color)) {
       spec = fixedColorSpec(color);
     } else if (const auto role = colorRoleFromToken(event.colorHex); role.has_value()) {
@@ -221,7 +221,7 @@ namespace calendar_view {
               .fontWeight = FontWeight::Medium,
               .fontFamily = options.fontFamily,
               .color =
-                  colorSpecFromRole(weekday == 0 || weekday == 6 ? ColorRole::Secondary : ColorRole::OnSurfaceVariant),
+                  colorSpecFromRole(weekday == 0 || weekday == 6 ? ColorRole::Accent : ColorRole::Label2),
               .maxLines = 1,
           })
       );
@@ -310,14 +310,14 @@ namespace calendar_view {
 
       if (!inMonth) {
         Button::ButtonPalette muted = Button::defaultPalette(ButtonVariant::Ghost);
-        muted.normal.label = colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.75F);
+        muted.normal.label = colorSpecFromRole(ColorRole::Label2, 0.75F);
         button->setCustomPalette(muted);
       } else if (options.selected == date) {
         button->setVariant(ButtonVariant::Primary);
       } else {
         if (state.isCurrentMonth && date.day == state.current.day) {
           Button::ButtonPalette today = Button::defaultPalette(ButtonVariant::Ghost);
-          today.normal.label = colorSpecFromRole(ColorRole::Primary);
+          today.normal.label = colorSpecFromRole(ColorRole::Accent);
           button->setCustomPalette(today);
         }
         if (button->label() != nullptr) {
@@ -385,7 +385,7 @@ namespace calendar_view {
                 .text = std::format("{:%V}", firstThursday + std::chrono::days{row * 7}),
                 .fontSize = Style::fontSizeCaption * options.scale,
                 .fontFamily = options.fontFamily,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.7F),
+                .color = colorSpecFromRole(ColorRole::Label2, 0.7F),
                 .maxLines = 1,
             })
         );
@@ -452,7 +452,7 @@ namespace calendar_view {
               .out = &glyph,
               .glyph = expanded ? "chevron-up" : "chevron-down",
               .glyphSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .flexGrow = 0.0F,
           }),
           ui::label({
@@ -460,7 +460,7 @@ namespace calendar_view {
               .text = text,
               .fontSize = Style::fontSizeCaption * scale,
               .fontFamily = options.fontFamily,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
           })
       );
@@ -471,11 +471,11 @@ namespace calendar_view {
       area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
       const auto setHovered = [chip, label, glyph, requestRedraw = options.requestRedraw](bool hovered) {
         if (hovered) {
-          chip->setFill(colorSpecFromRole(ColorRole::Hover));
+          chip->setFill(colorSpecFromRole(ColorRole::Fill3));
         } else {
           chip->clearFill();
         }
-        const ColorSpec color = colorSpecFromRole(hovered ? ColorRole::OnHover : ColorRole::OnSurfaceVariant);
+        const ColorSpec color = colorSpecFromRole(hovered ? ColorRole::Label1 : ColorRole::Label2);
         label->setColor(color);
         glyph->setColor(color);
         if (requestRedraw) {
@@ -576,7 +576,7 @@ namespace calendar_view {
             .text = timeText,
             .fontSize = Style::fontSizeCaption * options.scale,
             .fontFamily = options.fontFamily,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant, eventAlpha),
+            .color = colorSpecFromRole(ColorRole::Label2, eventAlpha),
             .maxWidth = timeMaxWidth,
             .maxLines = 1,
         });
@@ -588,7 +588,7 @@ namespace calendar_view {
                   .out = &linkGlyph,
                   .glyph = "external-link",
                   .glyphSize = linkGlyphSize,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant, eventAlpha),
+                  .color = colorSpecFromRole(ColorRole::Label2, eventAlpha),
                   .flexGrow = 0.0F,
               })
           );
@@ -601,7 +601,7 @@ namespace calendar_view {
                 .text = event.title.empty() ? i18n::tr("control-center.calendar.events") : event.title,
                 .fontSize = Style::fontSizeBody * options.scale,
                 .fontFamily = options.fontFamily,
-                .color = colorSpecFromRole(ColorRole::OnSurface, eventAlpha),
+                .color = colorSpecFromRole(ColorRole::Label1, eventAlpha),
                 .maxWidth = textMaxWidth,
                 .maxLines = 3,
             }),
@@ -631,14 +631,14 @@ namespace calendar_view {
           const auto setHovered = [row, titleLabel, timeLabel, linkGlyph, eventAlpha,
                                    requestRedraw = options.requestRedraw](bool hovered) {
             if (hovered) {
-              row->setFill(colorSpecFromRole(ColorRole::Hover));
+              row->setFill(colorSpecFromRole(ColorRole::Fill3));
             } else {
               row->clearFill();
             }
             const ColorSpec titleColor =
-                colorSpecFromRole(hovered ? ColorRole::OnHover : ColorRole::OnSurface, eventAlpha);
+                colorSpecFromRole(hovered ? ColorRole::Label1 : ColorRole::Label1, eventAlpha);
             const ColorSpec detailColor =
-                colorSpecFromRole(hovered ? ColorRole::OnHover : ColorRole::OnSurfaceVariant, eventAlpha);
+                colorSpecFromRole(hovered ? ColorRole::Label1 : ColorRole::Label2, eventAlpha);
             titleLabel->setColor(titleColor);
             timeLabel->setColor(detailColor);
             linkGlyph->setColor(detailColor);
@@ -663,7 +663,7 @@ namespace calendar_view {
               .text = i18n::tr("control-center.calendar.no-events"),
               .fontSize = Style::fontSizeBody * options.scale,
               .fontFamily = options.fontFamily,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
           })
       );

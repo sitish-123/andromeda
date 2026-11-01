@@ -1,4 +1,4 @@
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 
 #include "system/app_identity.h"
 #include "system/internal_app_metadata.h"

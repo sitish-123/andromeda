@@ -1,6 +1,6 @@
 #include "capture/screencopy_capture.h"
 
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 
 #include <cstring>
@@ -335,7 +335,7 @@ namespace {
 
 } // namespace
 
-ScreencopyCapture::ScreencopyCapture(WaylandConnection& wayland) : m_wayland(wayland) {}
+ScreencopyCapture::ScreencopyCapture(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
 ScreencopyCapture::~ScreencopyCapture() { destroyPending(); }
 

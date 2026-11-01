@@ -8,7 +8,7 @@
 #include <vector>
 
 struct wl_output;
-class WaylandConnection;
+class ShellWaylandConnection;
 
 struct LogicalRect {
   int x = 0;
@@ -30,12 +30,12 @@ class ScreencopyCapture {
 public:
   using CompletionCallback = std::function<void(std::optional<ScreencopyImage>, std::string error)>;
 
-  explicit ScreencopyCapture(WaylandConnection& wayland);
+  explicit ScreencopyCapture(ShellWaylandConnection& wayland);
   ~ScreencopyCapture();
 
   [[nodiscard]] bool available() const noexcept;
   [[nodiscard]] bool busy() const noexcept { return m_busy; }
-  [[nodiscard]] WaylandConnection& wayland() noexcept { return m_wayland; }
+  [[nodiscard]] ShellWaylandConnection& wayland() noexcept { return m_wayland; }
 
   void capture(wl_output* output, std::optional<LogicalRect> region, bool overlayCursor, CompletionCallback onComplete);
   void cancelInFlight();
@@ -45,7 +45,7 @@ public:
   void destroyPending();
 
 private:
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   bool m_busy = false;
   CompletionCallback m_onComplete;
   std::unique_ptr<ScreencopyCapturePending> m_pending;

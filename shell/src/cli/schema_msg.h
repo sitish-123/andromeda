@@ -502,7 +502,7 @@ namespace noctalia::cli {
     };
     inline constexpr Command colorSchemeSet{
         "color-scheme-set",
-        "Set palette source and selection in settings.toml (builtin name, wallpaper generator scheme, community id, "
+        "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, "
         "or custom scheme folder name)",
         {},
         {},
@@ -874,7 +874,7 @@ namespace noctalia::cli {
         "theme-mode-get", "Print the current resolved theme mode", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command themeModeSet{"theme-mode-set",
-                                          "Set theme mode and persist to settings.toml",
+                                          "Set theme mode and persist to overrides.toml",
                                           {},
                                           {},
                                           {},

@@ -146,13 +146,13 @@ namespace capture {
 
     [[nodiscard]] const std::array<GradientPreset, kGradientPresetCount>& gradientPresets() {
       static const std::array<GradientPreset, kGradientPresetCount> presets = {{
-          {colorSpecFromRole(ColorRole::Primary), colorSpecFromRole(ColorRole::Tertiary),
+          {colorSpecFromRole(ColorRole::Accent), colorSpecFromRole(ColorRole::Accent),
            "bar.annotate.gradient-theme"},
-          {colorSpecFromRole(ColorRole::Primary), colorSpecFromRole(ColorRole::Secondary),
+          {colorSpecFromRole(ColorRole::Accent), colorSpecFromRole(ColorRole::Accent),
            "bar.annotate.gradient-theme-accent"},
-          {colorSpecFromRole(ColorRole::PrimaryContainer), colorSpecFromRole(ColorRole::TertiaryContainer),
+          {colorSpecFromRole(ColorRole::Fill1), colorSpecFromRole(ColorRole::Fill1),
            "bar.annotate.gradient-theme-soft"},
-          {colorSpecFromRole(ColorRole::SurfaceContainer), colorSpecFromRole(ColorRole::SurfaceContainerHigh),
+          {colorSpecFromRole(ColorRole::Fill2), colorSpecFromRole(ColorRole::Fill3),
            "bar.annotate.gradient-theme-subtle"},
           {fixedColorSpec(rgbHex(0x232526)), fixedColorSpec(rgbHex(0x414345)), "bar.annotate.gradient-graphite"},
           {fixedColorSpec(rgbHex(0xE0E0E0)), fixedColorSpec(rgbHex(0xFAFAFA)), "bar.annotate.gradient-paper"},
@@ -223,7 +223,7 @@ namespace capture {
       box.setStyle(
           RoundedRectStyle{
               .fill = start,
-              .border = colorForRole(selected ? ColorRole::Primary : ColorRole::OutlineVariant),
+              .border = colorForRole(selected ? ColorRole::Accent : ColorRole::Stroke),
               .fillMode = FillMode::LinearGradient,
               .gradientDirection = GradientDirection::Horizontal,
               .gradientStops =
@@ -255,18 +255,18 @@ namespace capture {
       const Color fill = rgba(color.r, color.g, color.b, 1.0F);
       Button::ButtonStateColors state{
           .bg = fixedColorSpec(fill),
-          .border = colorSpecFromRole(ColorRole::OutlineVariant),
+          .border = colorSpecFromRole(ColorRole::Stroke),
           .label = fixedColorSpec(swatchContrast(color)),
       };
       Button::ButtonPalette palette;
       palette.borderWidth = 2.0F;
       palette.normal = state;
       palette.hover = state;
-      palette.hover.border = colorSpecFromRole(ColorRole::OnSurface);
+      palette.hover.border = colorSpecFromRole(ColorRole::Label1);
       palette.pressed = state;
       palette.disabled = state;
       Button::ButtonStateColors selected = state;
-      selected.border = colorSpecFromRole(ColorRole::OnSurface);
+      selected.border = colorSpecFromRole(ColorRole::Label1);
       palette.selected = selected;
       return palette;
     }
@@ -1114,7 +1114,7 @@ namespace capture {
 
     if (m_mode == AnnotationMode::Image) {
       auto surround = ui::box({
-          .fill = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::SolidRegular),
           .width = surfaceW,
           .height = surfaceH,
           .opacity = kImageSurroundAlpha,
@@ -1156,7 +1156,7 @@ namespace capture {
       inst.imageOutline = static_cast<Box*>(canvas->addChild(
           ui::box({
               .fill = fixedColorSpec(rgba(0.0F, 0.0F, 0.0F, 0.0F)),
-              .border = colorSpecFromRole(ColorRole::OutlineVariant),
+              .border = colorSpecFromRole(ColorRole::Stroke),
               .borderWidth = Style::borderWidth,
               .radius = 0.0F,
               .width = canvasW,
@@ -1183,7 +1183,7 @@ namespace capture {
     inst.dimLeft = makeDimStrip();
     inst.dimRight = makeDimStrip();
 
-    Color frameColor = colorForRole(ColorRole::Primary);
+    Color frameColor = colorForRole(ColorRole::Accent);
     frameColor.a = 1.0F;
     auto cropFrame = ui::box({
         .visible = false,
@@ -1322,7 +1322,7 @@ namespace capture {
   }
 
   std::unique_ptr<Flex> AnnotationOverlay::buildToolbar(Instance& inst) {
-    Color toolbarFill = colorForRole(ColorRole::Surface);
+    Color toolbarFill = colorForRole(ColorRole::SolidRegular);
     toolbarFill.a = kToolbarFillAlpha;
 
     auto toolbar = ui::row({
@@ -1333,7 +1333,7 @@ namespace capture {
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(toolbarFill),
         .radius = Style::radiusXl,
-        .border = colorSpecFromRole(ColorRole::OutlineVariant),
+        .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
     });
 
@@ -2728,7 +2728,7 @@ namespace capture {
   }
 
   std::unique_ptr<Flex> AnnotationOverlay::buildBackdropPanel(Instance& inst) {
-    Color panelFill = colorForRole(ColorRole::Surface);
+    Color panelFill = colorForRole(ColorRole::SolidRegular);
     panelFill.a = kToolbarFillAlpha;
 
     auto panel = ui::column({
@@ -2738,7 +2738,7 @@ namespace capture {
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(panelFill),
         .radius = Style::radiusXl,
-        .border = colorSpecFromRole(ColorRole::OutlineVariant),
+        .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
         .width = kBackdropPanelContentWidth + (2.0F * Style::spaceMd),
         .visible = false,
@@ -2753,7 +2753,7 @@ namespace capture {
               .text = i18n::tr(key),
               .fontSize = strong ? Style::fontSizeBody : Style::fontSizeCaption,
               .fontWeight = strong ? FontWeight::Bold : FontWeight::Normal,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .flexGrow = 1.0F,
           })
       );
@@ -2771,7 +2771,7 @@ namespace capture {
           ui::label({
               .text = i18n::tr(spec.labelKey),
               .fontSize = Style::fontSizeCaption,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .minWidth = kBackdropLabelWidth,
               .maxWidth = kBackdropLabelWidth,
           })
@@ -3043,7 +3043,7 @@ namespace capture {
   }
 
   std::unique_ptr<Flex> AnnotationOverlay::buildStrokePanel(Instance& inst) {
-    Color panelFill = colorForRole(ColorRole::Surface);
+    Color panelFill = colorForRole(ColorRole::SolidRegular);
     panelFill.a = kToolbarFillAlpha;
 
     auto panel = ui::column({
@@ -3053,7 +3053,7 @@ namespace capture {
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(panelFill),
         .radius = Style::radiusXl,
-        .border = colorSpecFromRole(ColorRole::OutlineVariant),
+        .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
         .visible = false,
         .participatesInLayout = false,
@@ -3111,7 +3111,7 @@ namespace capture {
     inst.sizeLabel = static_cast<Label*>(stepper->addChild(
         ui::label({
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .minWidth = kSizeLabelWidth,
             .textAlign = TextAlign::Center,
         })

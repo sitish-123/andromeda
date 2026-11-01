@@ -3,7 +3,7 @@
 #include "core/log.h"
 #include "ipc/ipc_service.h"
 #include "system/day_night_schedule.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wlr-gamma-control-unstable-v1-client-protocol.h"
 
 #include <algorithm>
@@ -46,7 +46,7 @@ namespace {
 
 } // namespace
 
-GammaService::GammaService(WaylandConnection& wayland) : m_wayland(wayland) {}
+GammaService::GammaService(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
 GammaService::~GammaService() { restoreAll(); }
 

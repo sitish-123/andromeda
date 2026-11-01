@@ -1,4 +1,4 @@
-#include "wayland/output_management.h"
+#include "compositors/output_management.h"
 
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 

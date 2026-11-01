@@ -26,8 +26,8 @@
 #include "time/time_format.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
-#include "wayland/wayland_connection.h"
+#include "clipboard/clipboard_service.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -233,7 +233,7 @@ namespace {
     };
   }
 
-  [[nodiscard]] const WaylandOutput* findOutput(const WaylandConnection& wayland, wl_output* output) {
+  [[nodiscard]] const WaylandOutput* findOutput(const ShellWaylandConnection& wayland, wl_output* output) {
     for (const auto& entry : wayland.outputs()) {
       if (entry.output == output) {
         return &entry;
@@ -377,7 +377,7 @@ namespace {
     }).detach();
   }
 
-  [[nodiscard]] std::vector<wl_output*> validOutputs(const WaylandConnection& wayland) {
+  [[nodiscard]] std::vector<wl_output*> validOutputs(const ShellWaylandConnection& wayland) {
     std::vector<wl_output*> outputs;
     for (const auto& output : wayland.outputs()) {
       if (output.output != nullptr && output.logicalWidth > 0 && output.logicalHeight > 0) {
@@ -388,7 +388,7 @@ namespace {
   }
 
   [[nodiscard]] std::expected<wl_output*, std::string>
-  resolveOutputSelector(const WaylandConnection& wayland, std::string_view selector) {
+  resolveOutputSelector(const ShellWaylandConnection& wayland, std::string_view selector) {
     const std::string token = StringUtils::trim(selector);
     if (token.empty()) {
       return std::unexpected("error: empty monitor selector\n");
@@ -520,7 +520,7 @@ namespace {
   }
 
   [[nodiscard]] std::vector<RegionIntersectTarget>
-  intersectGlobalRegion(const WaylandConnection& wayland, LogicalRect globalRegion) {
+  intersectGlobalRegion(const ShellWaylandConnection& wayland, LogicalRect globalRegion) {
     const int globalX0 = globalRegion.x;
     const int globalY0 = globalRegion.y;
     const int globalX1 = globalRegion.x + globalRegion.width;
@@ -779,7 +779,7 @@ std::expected<ScreenshotIpcRequest, std::string> parseScreenshotIpcRequest(
 }
 
 ScreenshotService::ScreenshotService(
-    WaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
+    ShellWaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
     NotificationManager& notifications, ClipboardService* clipboard
 )
     : m_wayland(wayland), m_platform(platform), m_notifications(notifications), m_configService(configService),

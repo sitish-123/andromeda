@@ -3,7 +3,7 @@
 #include "capture/screencopy_util.h"
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <array>
@@ -345,7 +345,7 @@ struct ToplevelThumbnailCapturePending {
   }
 };
 
-ToplevelThumbnailCapture::ToplevelThumbnailCapture(WaylandConnection& wayland) : m_wayland(wayland) {}
+ToplevelThumbnailCapture::ToplevelThumbnailCapture(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
 ToplevelThumbnailCapture::~ToplevelThumbnailCapture() { cancelInFlight(); }
 

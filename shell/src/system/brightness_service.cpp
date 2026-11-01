@@ -9,7 +9,7 @@
 #include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <array>
@@ -185,7 +185,7 @@ namespace {
     return normalizedBrightness(requested, maxRaw);
   }
 
-  const WaylandOutput* findOutputByConnector(const WaylandConnection& wayland, std::string_view connectorName) {
+  const WaylandOutput* findOutputByConnector(const ShellWaylandConnection& wayland, std::string_view connectorName) {
     if (connectorName.empty()) {
       return nullptr;
     }
@@ -280,7 +280,7 @@ namespace {
   }
 
   BacklightConnectorResolution
-  resolveBacklightConnector(const std::string& sysfsPath, const WaylandConnection& wayland) {
+  resolveBacklightConnector(const std::string& sysfsPath, const ShellWaylandConnection& wayland) {
     std::error_code ec;
 
     const auto devicePath = fs::canonical(sysfsPath + "/device", ec);
@@ -676,7 +676,7 @@ namespace {
     return result;
   }
 
-  std::map<int, std::string> pinnedConnectorByBus(const BrightnessConfig& config, const WaylandConnection& wayland) {
+  std::map<int, std::string> pinnedConnectorByBus(const BrightnessConfig& config, const ShellWaylandConnection& wayland) {
     std::map<int, std::string> pins;
     std::set<int> contestedBuses;
 
@@ -721,7 +721,7 @@ namespace {
 
 struct BrightnessService::Impl {
   SystemBus* bus = nullptr;
-  WaylandConnection& wayland;
+  ShellWaylandConnection& wayland;
   CompositorPlatform& platform;
   BrightnessConfig activeConfig;
   ChangeCallback changeCallback;

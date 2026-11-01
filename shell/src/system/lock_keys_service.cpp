@@ -1,6 +1,6 @@
 #include "system/lock_keys_service.h"
 
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <chrono>
 #include <fstream>
@@ -33,7 +33,7 @@ namespace {
 
 } // namespace
 
-LockKeysService::LockKeysService(WaylandConnection& wayland) : m_wayland(wayland) {}
+LockKeysService::LockKeysService(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
 LockKeysService::LockKeysState LockKeysService::state() const noexcept { return m_state; }
 

@@ -1,4 +1,4 @@
-#include "wayland/mirror_control.h"
+#include "compositors/mirror_control.h"
 
 #include "desktop-unstable-v1-client-protocol.h"
 

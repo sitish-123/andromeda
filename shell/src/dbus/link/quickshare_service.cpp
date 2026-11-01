@@ -8,7 +8,7 @@
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <array>
 #include <fcntl.h>

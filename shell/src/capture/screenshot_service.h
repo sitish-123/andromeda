@@ -22,7 +22,7 @@ class ConfigService;
 class IpcService;
 class NotificationManager;
 class RenderContext;
-class WaylandConnection;
+class ShellWaylandConnection;
 class SoundPlayer;
 struct KeyboardEvent;
 struct PointerEvent;
@@ -59,7 +59,7 @@ public:
   };
 
   ScreenshotService(
-      WaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
+      ShellWaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
       NotificationManager& notifications, ClipboardService* clipboard = nullptr
   );
   ~ScreenshotService();
@@ -211,7 +211,7 @@ private:
   [[nodiscard]] std::optional<LogicalRect> loadRememberedRegion() const;
   void playCaptureSound();
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   CompositorPlatform& m_platform;
   NotificationManager& m_notifications;
   ConfigService& m_configService;
