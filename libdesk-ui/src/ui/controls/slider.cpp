@@ -221,6 +221,13 @@ void Slider::setControlHeight(float height) {
   markLayoutDirty();
 }
 
+void Slider::setFilled(bool filled) {
+  m_filled = filled;
+  updateGeometry();
+  applyVisualState();
+  markLayoutDirty();
+}
+
 void Slider::setWheelAdjustEnabled(bool enabled) { m_wheelAdjustEnabled = enabled; }
 
 void Slider::setOnValueChanged(std::function<void(double)> callback) { m_onValueChanged = std::move(callback); }
@@ -242,24 +249,32 @@ void Slider::doArrange(Renderer& renderer, const LayoutRect& rect) { arrangeByLa
 
 void Slider::updateGeometry() {
   const float widthPx = width() > 0.0F ? width() : Style::sliderDefaultWidth;
-  const float heightPx = std::max({m_thumbSizePx, m_trackHeight, m_controlHeightPx});
+  const float heightPx =
+      m_filled ? m_controlHeightPx : std::max({m_thumbSizePx, m_trackHeight, m_controlHeightPx});
   setSize(widthPx, heightPx);
 
-  const float trackY = (heightPx - m_trackHeight) * 0.5F;
-  const float trackX = Style::sliderHorizontalPadding;
-  const float trackW = std::max(0.0F, widthPx - Style::sliderHorizontalPadding * 2.0F);
+  const float trackH = m_filled ? heightPx : m_trackHeight;
+  const float pad = m_filled ? 0.0F : Style::sliderHorizontalPadding;
+  const float trackY = (heightPx - trackH) * 0.5F;
+  const float trackX = pad;
+  const float trackW = std::max(0.0F, widthPx - pad * 2.0F);
   const float t = normalizedValue();
   const float tVis = Style::rtl() ? 1.0F - t : t;
   const float thumbX = trackX + tVis * trackW;
   const float thumbY = (heightPx - m_thumbSizePx) * 0.5F;
 
   m_track->setPosition(trackX, trackY);
-  m_track->setFrameSize(trackW, m_trackHeight);
+  m_track->setFrameSize(trackW, trackH);
 
-  const float fillX = Style::rtl() ? thumbX : trackX;
-  const float fillWidth = Style::rtl() ? trackX + trackW - thumbX : thumbX - trackX;
+  float fillX = Style::rtl() ? thumbX : trackX;
+  float fillWidth = Style::rtl() ? trackX + trackW - thumbX : thumbX - trackX;
+  if (m_filled && fillWidth < trackH) {
+    // Keep a full round cap at the start edge for low values.
+    fillWidth = std::min(trackH, trackW);
+    fillX = Style::rtl() ? trackX + trackW - fillWidth : trackX;
+  }
   m_fill->setPosition(fillX, trackY);
-  m_fill->setFrameSize(std::max(0.0F, fillWidth), m_trackHeight);
+  m_fill->setFrameSize(std::max(0.0F, fillWidth), trackH);
 
   m_thumb->setPosition(
       util::clampOrdered(thumbX - m_thumbSizePx * 0.5F, trackX, trackX + trackW - m_thumbSizePx), thumbY
@@ -272,8 +287,8 @@ void Slider::updateGeometry() {
 
 void Slider::updateFromLocalX(float x) {
   const float widthPx = width() > 0.0F ? width() : Style::sliderDefaultWidth;
-  const float trackX = Style::sliderHorizontalPadding;
-  const float trackW = std::max(0.0F, widthPx - Style::sliderHorizontalPadding * 2.0F);
+  const float trackX = m_filled ? 0.0F : Style::sliderHorizontalPadding;
+  const float trackW = std::max(0.0F, widthPx - trackX * 2.0F);
   if (trackW <= 0.0F) {
     return;
   }
@@ -287,28 +302,36 @@ void Slider::applyVisualState() {
   const bool pressing = m_inputArea != nullptr && m_inputArea->pressed();
   const bool focused = m_inputArea != nullptr && m_inputArea->focused();
 
-  Color trackColor = resolved(ColorRole::OutlineVariant);
-  Color fillColor = resolved(ColorRole::Primary);
-  Color thumbColor = resolved(ColorRole::OnPrimary);
-  Color thumbBorder = resolved(ColorRole::OutlineVariant);
+  Color trackColor = resolved(ColorRole::Stroke);
+  Color fillColor = resolved(ColorRole::Accent);
+  Color thumbColor = resolved(ColorRole::OnAccent);
+  Color thumbBorder = resolved(ColorRole::Stroke);
 
   m_thumb->setVisible(m_enabled);
 
   if (!m_enabled) {
-    trackColor = resolved(ColorRole::OutlineVariant, Style::disabledOutlineAlpha);
-    fillColor = resolved(ColorRole::Primary, 0.5F);
+    trackColor = resolved(ColorRole::Stroke, Style::disabledOutlineAlpha);
+    fillColor = resolved(ColorRole::Accent, 0.5F);
   } else if (pressing) {
-    fillColor = resolved(ColorRole::Primary);
+    fillColor = resolved(ColorRole::Accent);
   } else if (focused) {
     thumbBorder = resolveColorSpec(focusRingColorSpec());
   } else if (hovering) {
-    thumbBorder = resolved(ColorRole::Hover);
+    thumbBorder = resolved(ColorRole::Fill3);
   }
 
-  auto trackStyle = solidStyle(trackColor, m_trackHeight * 0.5F);
+  if (m_filled) {
+    // The parent pill draws the track; the fill is white in light and dark schemes.
+    trackColor = Color{.a = 0.0F};
+    fillColor = Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = m_enabled ? 0.92F : 0.45F};
+    m_thumb->setVisible(false);
+  }
+  const float trackH = m_filled ? m_track->height() : m_trackHeight;
+
+  auto trackStyle = solidStyle(trackColor, trackH * 0.5F);
   m_track->setStyle(trackStyle);
 
-  auto fillStyle = solidStyle(fillColor, m_trackHeight * 0.5F);
+  auto fillStyle = solidStyle(fillColor, trackH * 0.5F);
   m_fill->setStyle(fillStyle);
 
   auto thumbStyle = solidStyle(thumbColor, m_thumbSizePx * 0.5F);
