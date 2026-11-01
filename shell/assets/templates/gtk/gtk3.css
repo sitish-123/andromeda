@@ -7,45 +7,45 @@
 /* App-scoped CSS of enabled community GTK extensions; Noctalia maintains this file. */
 @import url("noctalia-extensions.css");
 
-@define-color accent_color {{colors.primary.default.hex}};
-@define-color accent_bg_color {{colors.primary.default.hex}};
-@define-color accent_fg_color {{colors.on_primary.default.hex}};
+@define-color accent_color {{tokens.accent.hex}};
+@define-color accent_bg_color {{tokens.accent.hex}};
+@define-color accent_fg_color {{tokens.on_accent.hex}};
 
-@define-color destructive_bg_color {{colors.error.default.hex}};
-@define-color destructive_fg_color {{colors.on_error.default.hex}};
+@define-color destructive_bg_color {{tokens.danger.hex}};
+@define-color destructive_fg_color {{tokens.on_accent.hex}};
 
-@define-color error_bg_color {{colors.error.default.hex}};
-@define-color error_fg_color {{colors.on_error.default.hex}};
+@define-color error_bg_color {{tokens.danger.hex}};
+@define-color error_fg_color {{tokens.on_accent.hex}};
 
-@define-color window_bg_color {{colors.surface.default.hex}};
-@define-color window_fg_color {{colors.on_surface.default.hex}};
+@define-color window_bg_color {{tokens.window.hex}};
+@define-color window_fg_color {{tokens.label_1.rgba}};
 
-@define-color view_bg_color {{colors.surface.default.hex}};
-@define-color view_fg_color {{colors.on_surface.default.hex}};
+@define-color view_bg_color {{tokens.view.hex}};
+@define-color view_fg_color {{tokens.label_1.rgba}};
 
-@define-color headerbar_bg_color {{colors.surface_container.default.hex}};
-@define-color headerbar_fg_color {{colors.on_surface.default.hex}};
+@define-color headerbar_bg_color {{tokens.header.hex}};
+@define-color headerbar_fg_color {{tokens.label_1.rgba}};
 @define-color headerbar_backdrop_color @window_bg_color;
 
-@define-color popover_bg_color {{colors.surface_container.default.hex}};
-@define-color popover_fg_color {{colors.on_surface.default.hex}};
+@define-color popover_bg_color {{tokens.popover.hex}};
+@define-color popover_fg_color {{tokens.label_1.rgba}};
 
-@define-color card_bg_color {{colors.surface_container.default.hex}};
-@define-color card_fg_color {{colors.on_surface.default.hex}};
+@define-color card_bg_color {{tokens.card.hex}};
+@define-color card_fg_color {{tokens.label_1.rgba}};
 
-@define-color dialog_bg_color {{colors.surface.default.hex}};
-@define-color dialog_fg_color {{colors.on_surface.default.hex}};
+@define-color dialog_bg_color {{tokens.window.hex}};
+@define-color dialog_fg_color {{tokens.label_1.rgba}};
 
-@define-color overview_bg_color {{colors.surface_container.default.hex}};
-@define-color overview_fg_color {{colors.on_surface.default.hex}};
+@define-color overview_bg_color {{tokens.sidebar.hex}};
+@define-color overview_fg_color {{tokens.label_1.rgba}};
 
-@define-color sidebar_bg_color {{colors.surface_container.default.hex}};
-@define-color sidebar_fg_color {{colors.on_surface.default.hex}};
+@define-color sidebar_bg_color {{tokens.sidebar.hex}};
+@define-color sidebar_fg_color {{tokens.label_1.rgba}};
 @define-color sidebar_backdrop_color @window_bg_color;
-@define-color sidebar_border_color @window_bg_color;
+@define-color sidebar_border_color {{tokens.separator.rgba}};
 
-@define-color secondary_sidebar_bg_color {{colors.surface.default.hex}};
-@define-color secondary_sidebar_fg_color {{colors.on_surface.default.hex}};
+@define-color secondary_sidebar_bg_color {{tokens.view.hex}};
+@define-color secondary_sidebar_fg_color {{tokens.label_1.rgba}};
 
 /* Focused selection states */
 @define-color theme_selected_bg_color @accent_bg_color;

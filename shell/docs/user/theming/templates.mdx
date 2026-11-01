@@ -95,6 +95,18 @@ Examples:
 {{ colors.terminal_foreground.default.hex_stripped }}
 ```
 
+### Design Tokens
+
+Design-token color roles for the current light or dark mode are accessed with:
+
+```text
+{{ tokens.<role>.<format> }}
+```
+
+The roles are the `[scheme.light]` and `[scheme.dark]` keys of `protocol/design-tokens.toml`, for example
+`window`, `view`, `card`, `header`, `popover`, `sidebar`, `separator`, `label_1`, `accent` and `danger`. Token
+colors keep their alpha, so use `rgba` or `hex_argb` where the alpha matters. The GTK and Qt templates use them.
+
 ### Available Color Tokens
 
 The built-in Material color tokens are:
@@ -143,6 +155,7 @@ Supported output formats:
 
 - `hex`
 - `hex_stripped`
+- `hex_argb`
 - `rgb`
 - `rgb_csv`
 - `rgba`
@@ -160,6 +173,7 @@ Format behavior:
 
 - `hex`: `#rrggbb`
 - `hex_stripped`: `rrggbb`
+- `hex_argb`: `#aarrggbb` (Qt color strings)
 - `rgb`: `rgb(r, g, b)`
 - `rgb_csv`: `r,g,b`
 - `rgba`: `rgba(r, g, b, a)`
