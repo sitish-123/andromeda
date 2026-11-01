@@ -79,6 +79,8 @@ public:
   [[nodiscard]] bool wantsSecondTicks() const;
   void refresh();
   void requestLayout();
+  // Hides the center section and its island while the live activity island takes its place.
+  void setCenterIslandHidden(bool hidden);
   void setAutoHideSuppressionCallback(std::function<bool(const BarInstance&)> callback);
   // Re-run auto-hide after a panel closes so unrelated bars are not left visible.
   void reevaluateAutoHide();
@@ -206,6 +208,7 @@ private:
   scripting::ScriptApiContext* m_scriptApi = nullptr;
   std::unique_ptr<WidgetFactory> m_widgetFactory;
   std::vector<std::unique_ptr<BarInstance>> m_instances;
+  bool m_centerIslandHidden = false;
   // Wall-clock minute of the last full second-tick update, so minute-changing
   // widgets refresh on the first tick of a new minute even when it lands off
   // the :00 boundary (after suspend, a clock step, or the lock screen).

@@ -11,6 +11,7 @@
 #include "ui/signal.h"
 #include "wayland/layer_surface.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -89,6 +90,8 @@ struct BarInstance {
 
   // Bar background, shadow, and layout sections (start/center/end along main axis)
   Box* bg = nullptr;
+  // Islands mode: one pill per section (start, center, end), in slideRoot coordinates.
+  std::array<Box*, 3> islands{};
   Box* shadow = nullptr;
   Node* shadowLeftClip = nullptr;
   Node* shadowRightClip = nullptr;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -19,7 +19,7 @@ reservedBarExclusiveZone(const BarConfig& barConfig, const ShellConfig::ShadowCo
   if ((barConfig.autoHide || barConfig.smartAutoHide) && mEdge > 0) {
     return barConfig.thickness + mEdge + mOpposite;
   }
-  const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+  const auto sb = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
   if (barConfig.position == "bottom") {
     return barConfig.thickness + std::min(mEdge, sb.down) + mOpposite;
   }
@@ -45,7 +45,7 @@ barEdgeLayerMargin(const BarConfig& barConfig, const ShellConfig::ShadowConfig& 
   if ((barConfig.autoHide || barConfig.smartAutoHide) && mEdge > 0) {
     return 0;
   }
-  const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+  const auto sb = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
   if (barConfig.position == "bottom") {
     return std::max<std::int32_t>(0, mEdge - sb.down);
   }

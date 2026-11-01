@@ -21,7 +21,7 @@
 #include "shell/bar/widgets/taskbar_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
@@ -663,7 +663,7 @@ namespace {
     const bool isRight = barConfig.position == "right";
     const std::int32_t mEnds = barConfig.marginEnds;
     const std::int32_t mEdge = barConfig.marginEdge;
-    const auto sb = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+    const auto sb = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
     const int edgeGutter = barAutoHideEdgeGutter(barConfig);
     const auto concave = barConcaveShape(barConfig);
     const int insetL = static_cast<int>(std::ceil(std::max(0.0F, concave.logicalInset.left)));
@@ -746,7 +746,7 @@ namespace {
       const ShellConfig::ShadowConfig& nextShadow
   ) {
     const bool sameShadowSurface =
-        (!a.shadow && !b.shadow) || shell::surface_shadow::sameSurfaceMetrics(previousShadow, nextShadow);
+        (!a.shadow && !b.shadow) || ui::surface_shadow::sameSurfaceMetrics(previousShadow, nextShadow);
     return a.name == b.name
         && a.position == b.position
         && a.enabled == b.enabled
@@ -799,7 +799,7 @@ namespace {
     const bool isBottom = cfg.position == "bottom";
     const bool isRight = cfg.position == "right";
     const bool isVertical = (cfg.position == "left" || cfg.position == "right");
-    const auto sbi = shell::surface_shadow::bleed(cfg.shadow, shadow);
+    const auto sbi = ui::surface_shadow::bleed(cfg.shadow, shadow);
     const auto concave = barConcaveShape(cfg);
     const float insetL = std::ceil(std::max(0.0F, concave.logicalInset.left));
     const float insetT = std::ceil(std::max(0.0F, concave.logicalInset.top));
@@ -933,6 +933,10 @@ namespace {
     if (instance.shadow == nullptr) {
       return;
     }
+    if (instance.barConfig.islands) {
+      instance.shadow->setVisible(false);
+      return;
+    }
 
     const auto concave = barConcaveShape(instance.barConfig);
     const float innerSurfaceExtension =
@@ -943,13 +947,13 @@ namespace {
     // the concave inset into the visual rect, so concave spikes cast a matching shadow.
     const float barAreaW = barVisual.width + concave.logicalInset.left + concave.logicalInset.right;
     const float barAreaH = barVisual.height + concave.logicalInset.top + concave.logicalInset.bottom;
-    const float bgOpacity = std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F);
+    const float bgOpacity = Style::glassAlpha(std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F));
     const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
     const float shadowX = barVisual.x - concave.logicalInset.left + static_cast<float>(shadowOff.x);
     const float shadowY = barVisual.y - concave.logicalInset.top + static_cast<float>(shadowOff.y);
-    RoundedRectStyle shadowStyle = shell::surface_shadow::style(
+    RoundedRectStyle shadowStyle = ui::surface_shadow::style(
         shadowConfig, bgOpacity,
-        shell::surface_shadow::Shape{
+        ui::surface_shadow::Shape{
             .corners = concave.corners, .logicalInset = concave.logicalInset, .radius = concave.radii
         }
     );
@@ -996,6 +1000,42 @@ namespace {
     }
     if (instance.shadowRightClip != nullptr) {
       instance.shadowRightClip->setVisible(false);
+    }
+  }
+
+  // Each island spans the bar's thickness and its section's extent plus an inset of 0.3 x thickness.
+  void layoutBarIslands(BarInstance& instance, bool isVertical) {
+    if (!instance.barConfig.islands || instance.bg == nullptr || instance.slideRoot == nullptr) {
+      return;
+    }
+    float rootX = 0.0F;
+    float rootY = 0.0F;
+    Node::absolutePosition(instance.slideRoot, rootX, rootY);
+    const float cross = isVertical ? instance.bg->width() : instance.bg->height();
+    const float inset = std::round(cross * 0.3F);
+    const std::array<Flex*, 3> sections{instance.startSection, instance.centerSection, instance.endSection};
+    for (std::size_t i = 0; i < sections.size(); ++i) {
+      Box* island = instance.islands[i];
+      const Flex* section = sections[i];
+      if (island == nullptr) {
+        continue;
+      }
+      const float main = section == nullptr ? 0.0F : (isVertical ? section->height() : section->width());
+      const bool shown = section != nullptr && section->visible() && main > 0.5F;
+      island->setVisible(shown);
+      if (!shown) {
+        continue;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(section, x, y);
+      const float w = isVertical ? cross : main + 2.0F * inset;
+      const float h = isVertical ? main + 2.0F * inset : cross;
+      island->setPosition(
+          isVertical ? instance.bg->x() : x - rootX - inset, isVertical ? y - rootY - inset : instance.bg->y()
+      );
+      island->setSize(w, h);
+      island->setRadius(std::min(w, h) * 0.5F);
     }
   }
 
@@ -1438,6 +1478,7 @@ namespace {
         extendHitTestOutsetToScreenEdge(widget->root(), false);
       }
     }
+    layoutBarIslands(instance, isVertical);
   }
 
   void tickWidgets(std::vector<std::unique_ptr<Widget>>& widgets, float deltaMs) {
@@ -1887,6 +1928,19 @@ void Bar::requestLayout() {
       inst->surface->requestLayout();
     }
   }
+}
+
+void Bar::setCenterIslandHidden(bool hidden) {
+  if (m_centerIslandHidden == hidden) {
+    return;
+  }
+  m_centerIslandHidden = hidden;
+  for (auto& inst : m_instances) {
+    if (inst->centerSection != nullptr) {
+      inst->centerSection->setVisible(!hidden);
+    }
+  }
+  requestLayout();
 }
 
 void Bar::setAutoHideSuppressionCallback(std::function<bool(const BarInstance&)> callback) {
@@ -2682,7 +2736,7 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
     shell.addChild(
         ui::box({
             .out = &boxPtr,
-            .fill = scaleAlpha(widget.widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)), 0.0F),
+            .fill = scaleAlpha(widget.widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)), 0.0F),
             .visible = false,
             .configure = [](Box& box) { box.setZIndex(-1); },
         })
@@ -3009,7 +3063,7 @@ void Bar::animateWidgetHoverHighlight(BarInstance& instance, Widget& widget, boo
   if (box == nullptr) {
     return;
   }
-  const ColorSpec fill = widget.widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+  const ColorSpec fill = widget.widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   instance.animations.cancelForOwner(box);
   instance.animations.animate(
       widget.barHoverProgress(), hovered ? 1.0F : 0.0F, Style::animFast, Easing::EaseOutCubic,
@@ -3138,6 +3192,7 @@ void Bar::rebuildInstanceContents(BarInstance& instance, const BarConfig& newCon
     instance.startSection->setGap(widgetSpacing);
   }
   if (instance.centerSection != nullptr) {
+    instance.centerSection->setVisible(!m_centerIslandHidden);
     instance.centerSection->setGap(widgetSpacing);
   }
   if (instance.endSection != nullptr) {
@@ -3201,11 +3256,20 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
-  auto style = instance.bg->style();
-  style.fill = colorForRole(ColorRole::Surface, instance.barConfig.backgroundOpacity);
-  style.border = resolveColorSpec(instance.barConfig.border);
-  style.borderWidth = instance.barConfig.borderWidth;
-  instance.bg->setStyle(style);
+  const Color material = colorForRole(ColorRole::SolidRegular, Style::glassAlpha(instance.barConfig.backgroundOpacity));
+  const auto applyMaterial = [&](Box* box, bool painted) {
+    auto style = box->style();
+    style.fill = painted ? material : rgba(0.0F, 0.0F, 0.0F, 0.0F);
+    style.border = resolveColorSpec(instance.barConfig.border);
+    style.borderWidth = painted ? instance.barConfig.borderWidth : 0.0F;
+    box->setStyle(style);
+  };
+  applyMaterial(instance.bg, !instance.barConfig.islands);
+  for (Box* island : instance.islands) {
+    if (island != nullptr) {
+      applyMaterial(island, true);
+    }
+  }
 }
 
 void Bar::syncBarAutoHideInputRegion(BarInstance& instance) const {
@@ -3315,6 +3379,25 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
   if (instance.bg == nullptr) {
     return;
   }
+  if (instance.barConfig.islands) {
+    std::vector<InputRect> strips;
+    for (const Box* island : instance.islands) {
+      if (island == nullptr || !island->visible()) {
+        continue;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(island, x, y);
+      const auto rects = Surface::tessellateRoundedRect(
+          static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
+          static_cast<int>(std::lround(island->width())), static_cast<int>(std::lround(island->height())),
+          std::min(island->width(), island->height()) * 0.5F
+      );
+      strips.insert(strips.end(), rects.begin(), rects.end());
+    }
+    instance.surface->setBlurRegion(strips);
+    return;
+  }
   float absX = 0.0F;
   float absY = 0.0F;
   Node::absolutePosition(instance.bg, absX, absY);
@@ -3399,8 +3482,8 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
   const auto widgetSpacing = static_cast<float>(instance.barConfig.widgetSpacing);
   const auto& shadowConfig = m_config->config().shell.shadow;
   const auto shadowOffset = shadowDirectionOffset(shadowConfig.direction);
-  const float shadowSize = shell::surface_shadow::enabled(instance.barConfig.shadow, shadowConfig)
-      ? static_cast<float>(shell::surface_shadow::kBlurRadius)
+  const float shadowSize = ui::surface_shadow::enabled(instance.barConfig.shadow, shadowConfig)
+      ? static_cast<float>(ui::surface_shadow::kBlurRadius)
       : 0.0F;
   const auto shadowOffsetX = static_cast<float>(shadowOffset.x);
   const auto shadowOffsetY = static_cast<float>(shadowOffset.y);
@@ -3427,6 +3510,11 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
 
     // Bar background
     instance.bg = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
+    for (Box*& island : instance.islands) {
+      island = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
+      island->setHitTestVisible(false);
+      island->setVisible(instance.barConfig.islands);
+    }
 
     // Shadow — bar shape copy rendered with large SDF softness to simulate a blurred drop shadow.
     if (shadowSize > 0.0F) {
@@ -3532,15 +3620,18 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
   // Keep it exactly aligned with the shadow shape; the shadow shader now
   // draws only outside the rect, so any size mismatch is visible at corners.
   if (instance.bg != nullptr) {
+    // In islands mode the island pills carry the material; the bar body stays unpainted.
+    const bool paintBody = !instance.barConfig.islands;
     const RoundedRectStyle bgStyle{
-        .fill = colorForRole(ColorRole::Surface, instance.barConfig.backgroundOpacity),
+        .fill = paintBody ? colorForRole(ColorRole::SolidRegular, Style::glassAlpha(instance.barConfig.backgroundOpacity))
+                          : rgba(0.0F, 0.0F, 0.0F, 0.0F),
         .border = resolveColorSpec(instance.barConfig.border),
         .fillMode = FillMode::Solid,
         .corners = concave.corners,
         .logicalInset = concave.logicalInset,
         .radius = concave.radii,
         .softness = 0.0F,
-        .borderWidth = instance.barConfig.borderWidth,
+        .borderWidth = paintBody ? instance.barConfig.borderWidth : 0.0F,
     };
     instance.bg->setStyle(bgStyle);
     // (barAreaX/Y/W/H) is the body; the shader expands outward by logicalInset into
