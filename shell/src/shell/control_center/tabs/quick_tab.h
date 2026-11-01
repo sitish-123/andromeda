@@ -2,6 +2,7 @@
 
 #include "shell/control_center/control_center_services.h"
 #include "shell/control_center/shortcut_registry.h"
+#include "core/timer_manager.h"
 #include "shell/control_center/tab.h"
 
 #include <chrono>
@@ -47,6 +48,7 @@ private:
   void doUpdate(Renderer& renderer) override;
 
   std::unique_ptr<Flex> makeCard();
+  void addSingleRow(Flex& card, std::unique_ptr<Button> row);
   // An empty `detailTab` makes the card toggle; with `chevron` the card toggles and a chevron opens `detailTab`.
   std::unique_ptr<Button> makeToggleRow(
       ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron = false
@@ -58,6 +60,7 @@ private:
   // Sizes every page to the sheet width and to the height of page 1.
   void sizePages(Renderer& renderer, float width);
   void syncPager();
+  void snapPager();
   void refreshDots(float offset);
   std::unique_ptr<Flex> makePill(std::string_view glyph, Slider*& slider, Label*& value);
   void syncToggleRow(ToggleRow& row, const std::string& subtitle);
@@ -80,11 +83,12 @@ private:
   std::vector<ToggleRow> m_extras;
   ScrollView* m_pager = nullptr;
   std::vector<Flex*> m_pages; // page 1 first
+  std::vector<Flex*> m_halfWidth; // extra cards and fillers: half a page each
   std::vector<Flex*> m_dots;
   Flex* m_dotsRow = nullptr;
   float m_pageWidth = 0.0F;
   std::size_t m_page = 0;
-  std::chrono::steady_clock::time_point m_lastScrollAt;
+  Timer m_snapTimer;
 
   Flex* m_footer = nullptr;
   Flex* m_batteryBox = nullptr;

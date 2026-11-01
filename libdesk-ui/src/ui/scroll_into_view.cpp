@@ -11,8 +11,11 @@ void scrollNodeIntoScrollView(ScrollView& scrollView, ScrollViewState* state, co
     return;
   }
 
-  const float viewportHeight = std::max(0.0F, scrollView.height() - scrollView.viewportPaddingV() * 2.0F);
-  if (viewportHeight <= 0.0F) {
+  const bool horizontal = scrollView.orientation() == ScrollOrientation::Horizontal;
+  const float viewportSize = horizontal
+      ? std::max(0.0F, scrollView.width() - scrollView.viewportPaddingH() * 2.0F)
+      : std::max(0.0F, scrollView.height() - scrollView.viewportPaddingV() * 2.0F);
+  if (viewportSize <= 0.0F) {
     return;
   }
 
@@ -22,19 +25,19 @@ void scrollNodeIntoScrollView(ScrollView& scrollView, ScrollViewState* state, co
   float contentY = 0.0F;
   Node::absolutePosition(&target, targetX, targetY);
   Node::absolutePosition(content, contentX, contentY);
-  (void)targetX;
-  (void)contentX;
 
-  const float targetTop = std::max(0.0F, targetY - contentY - margin);
-  const float targetBottom = targetY - contentY + target.height() + margin;
+  const float targetStart = horizontal ? targetX - contentX : targetY - contentY;
+  const float targetExtent = horizontal ? target.width() : target.height();
+  const float targetTop = std::max(0.0F, targetStart - margin);
+  const float targetBottom = targetStart + targetExtent + margin;
   const float currentTop = scrollView.scrollOffset();
-  const float currentBottom = currentTop + viewportHeight;
+  const float currentBottom = currentTop + viewportSize;
 
   float desiredOffset = currentTop;
-  if (targetBottom - targetTop >= viewportHeight || targetTop < currentTop) {
+  if (targetBottom - targetTop >= viewportSize || targetTop < currentTop) {
     desiredOffset = targetTop;
   } else if (targetBottom > currentBottom) {
-    desiredOffset = targetBottom - viewportHeight;
+    desiredOffset = targetBottom - viewportSize;
   }
 
   scrollView.setScrollOffset(desiredOffset);

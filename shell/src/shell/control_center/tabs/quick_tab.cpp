@@ -105,6 +105,16 @@ std::unique_ptr<Flex> QuickTab::makeCard() {
   return card;
 }
 
+void QuickTab::addSingleRow(Flex& card, std::unique_ptr<Button> row) {
+  // The row is the whole card, so its press fill covers the card instead of an inset rectangle.
+  const float s = contentScale();
+  card.setPadding(0.0F);
+  row->setPadding(Tokens::componentCardPadding * s);
+  row->setRadius(Tokens::componentCardRadius * s);
+  row->setFlexGrow(1.0F);
+  card.addChild(std::move(row));
+}
+
 std::unique_ptr<Button> QuickTab::makeToggleRow(
     ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron
 ) {
@@ -161,7 +171,7 @@ std::unique_ptr<Flex> QuickTab::makeExtraCard(std::string_view type, std::string
   }
   auto card = makeCard();
   card->setFlexGrow(1.0F);
-  card->addChild(makeToggleRow(row, detailTab, Tokens::componentCardSmallGap, chevron));
+  addSingleRow(*card, makeToggleRow(row, detailTab, Tokens::componentCardSmallGap, chevron));
   row.title->setText(row.shortcut->defaultLabel());
   m_extras.push_back(std::move(row));
   return card;
@@ -214,7 +224,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_micValue = nullptr;
   m_page = 0;
   m_pageWidth = 0.0F;
-  m_lastScrollAt = {};
+  m_snapTimer.stop();
+  m_halfWidth.clear();
   auto root = std::make_unique<Flex>();
   m_root = root.get();
   root->setDirection(FlexDirection::Vertical);
@@ -238,10 +249,10 @@ std::unique_ptr<Flex> QuickTab::create() {
   smallCards->setGap(Tokens::componentSheetGap * s);
   smallCards->setFlexGrow(1.0F);
   auto focus = makeCard();
-  focus->addChild(makeToggleRow(m_focus, "notifications", Tokens::componentCardSmallGap));
+  addSingleRow(*focus, makeToggleRow(m_focus, "notifications", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(focus));
   auto dark = makeCard();
-  dark->addChild(makeToggleRow(m_darkMode, "", Tokens::componentCardSmallGap));
+  addSingleRow(*dark, makeToggleRow(m_darkMode, "", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(dark));
   top->addChild(std::move(smallCards));
   // Page 1 is the reference block; the mode toggles fill pages 2 and 3, four per page, and the mic slider joins the
@@ -256,8 +267,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   pager->setViewportPaddingV(0.0F);
   pager->setContentScale(s);
   pager->setOnScrollChanged([this](float offset) {
-    m_lastScrollAt = std::chrono::steady_clock::now();
     refreshDots(offset);
+    m_snapTimer.start(std::chrono::milliseconds(150), [this] { snapPager(); });
   });
   m_pager = pager.get();
   Flex* strip = pager->content();
@@ -308,12 +319,14 @@ std::unique_ptr<Flex> QuickTab::create() {
       row->setDirection(FlexDirection::Horizontal);
       row->setAlign(FlexAlign::Stretch);
       row->setGap(Tokens::componentSheetGap * s);
+      m_halfWidth.push_back(cards[i].get());
       row->addChild(std::move(cards[i]));
       if (i + 1 < std::min(cards.size(), (p + 1) * kCardsPerPage)) {
+        m_halfWidth.push_back(cards[i + 1].get());
         row->addChild(std::move(cards[i + 1]));
       } else {
         auto filler = std::make_unique<Flex>();
-        filler->setFlexGrow(1.0F);
+        m_halfWidth.push_back(filler.get());
         row->addChild(std::move(filler));
       }
       page->addChild(std::move(row));
@@ -549,7 +562,13 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
   m_pageWidth = width;
   for (Flex* page : m_pages) {
     page->setMinWidth(width);
+    page->setMaxWidth(width);
     page->setMinHeight(0.0F);
+  }
+  const float half = std::floor((width - Tokens::componentSheetGap * contentScale()) * 0.5F);
+  for (Flex* cell : m_halfWidth) {
+    cell->setMinWidth(half);
+    cell->setMaxWidth(half);
   }
   LayoutConstraints constraints;
   constraints.setExactWidth(width);
@@ -575,12 +594,22 @@ void QuickTab::syncPager() {
   if (m_pager == nullptr || m_pageWidth <= 0.0F) {
     return;
   }
+  refreshDots(m_pager->scrollOffset());
+}
+
+void QuickTab::snapPager() {
+  if (m_pager == nullptr || m_pageWidth <= 0.0F) {
+    return;
+  }
+  if (m_pager->dragging()) {
+    m_snapTimer.start(std::chrono::milliseconds(150), [this] { snapPager(); });
+    return;
+  }
   const float offset = m_pager->scrollOffset();
   refreshDots(offset);
-  const float target = static_cast<float>(m_page) * m_pageWidth;
-  const bool idle = std::chrono::steady_clock::now() - m_lastScrollAt > std::chrono::milliseconds(150);
-  if (idle && !m_pager->dragging() && std::abs(offset - target) > 0.5F) {
-    m_pager->setScrollOffset(target);
+  const float delta = static_cast<float>(m_page) * m_pageWidth - offset;
+  if (std::abs(delta) > 0.5F) {
+    m_pager->scrollBy(delta);
   }
 }
 
