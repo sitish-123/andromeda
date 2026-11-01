@@ -58,9 +58,9 @@ capsule_opacity    = 1.0
 # capsule_border   = "outline_variant"   # omit this key for no border by default
 capsule_border_width = 1.0          # outline thickness in logical pixels (0-8), drawn only with capsule_border
 
-start  = ["launcher", "wallpaper", "workspaces"]
-center = ["clock"]
-end    = ["media", "tray", "notifications", "clipboard", "network", "bluetooth", "volume", "brightness", "battery", "control-center", "session"]
+start  = ["active_window", "workspaces"]
+center = []
+end    = ["tray", "network", "volume", "battery", "clock"]
 ```
 
 Radius precedence: `radius` is the global fallback; per-corner values override it when provided.

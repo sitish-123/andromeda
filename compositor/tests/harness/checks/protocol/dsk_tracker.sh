@@ -70,3 +70,21 @@ pointer move 640 360 press 272 move 640 385 move 640 410 move 640 435 move 640 4
 await_lines "$LOG" trk-interacting 1
 await_lines "$LOG" pointer-leave 1
 await_lines "$LOG" 'trk-inertia 400' 1
+stop_tracker
+
+# A client that binds on interacting commits mid-drag; the drag goes on and still rests on the far snap.
+start_tracker rebind 0
+hold_fifo="$ANDROMEDA_RUNTIME_DIR/rebind-hold.fifo"
+mkfifo "$hold_fifo"
+exec {hold_fd}<> "$hold_fifo"
+pointer move 640 360 press 272 move 640 385 move 640 410 mark held hold move 640 435 move 640 460 release 272 \
+  <&"$hold_fd" > "$ANDROMEDA_RUNTIME_DIR/rebind-pointer.log" &
+pointer_pid=$!
+await_lines "$LOG" trk-interacting 1
+await_lines "$ANDROMEDA_RUNTIME_DIR/rebind-pointer.log" held 1
+printf '%s\n' "dsk-rebind rb 0 400" >&"$control_fd"
+await_lines "$LOG" 'done rb ' 1
+echo >&"$hold_fd"
+wait "$pointer_pid"
+exec {hold_fd}>&-
+await_lines "$LOG" 'trk-inertia 400' 1

@@ -21,6 +21,7 @@
 #include "shell/bar/widgets/taskbar_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
+#include "wayland/dsk_surface_client.h"
 #include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
@@ -298,6 +299,25 @@ namespace {
   // Bar tooltips stay suppressed while any panel opened from the bar is alive.
   void suppressTooltipForOpenPanel(std::string_view panelId) {
     TooltipManager::instance().suppressBarTooltipsForPanel(panelId);
+  }
+
+  // The visible island under bar-surface point sx, sy, as x, y, width, height in the bar surface.
+  std::optional<std::array<float, 4>> islandRectAt(const BarInstance& instance, float sx, float sy) {
+    if (!instance.barConfig.islands) {
+      return std::nullopt;
+    }
+    for (const Box* island : instance.islands) {
+      if (island == nullptr || !island->visible()) {
+        continue;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(island, x, y);
+      if (sx >= x && sx < x + island->width() && sy >= y && sy < y + island->height()) {
+        return std::array<float, 4>{x, y, island->width(), island->height()};
+      }
+    }
+    return std::nullopt;
   }
 
   // The dead zone has no widget to anchor to, so a panel action anchors at the pointer instead.
@@ -1012,7 +1032,7 @@ namespace {
     float rootY = 0.0F;
     Node::absolutePosition(instance.slideRoot, rootX, rootY);
     const float cross = isVertical ? instance.bg->width() : instance.bg->height();
-    const float inset = std::round(cross * 0.3F);
+    const float inset = std::round(Tokens::componentIslandPaddingX * instance.barConfig.scale);
     const std::array<Flex*, 3> sections{instance.startSection, instance.centerSection, instance.endSection};
     for (std::size_t i = 0; i < sections.size(); ++i) {
       Box* island = instance.islands[i];
@@ -2787,6 +2807,11 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
         if (anchorSurfaceY.has_value()) {
           anchorY = *anchorSurfaceY;
         }
+        const auto island = islandRectAt(*inst, anchorX, anchorY);
+        if (island) {
+          anchorX = (*island)[0] + (*island)[2] * 0.5F;
+          anchorY = (*island)[1] + (*island)[3] * 0.5F;
+        }
         if (m_platform != nullptr && inst->output != nullptr) {
           if (const auto* out = m_platform->findOutputByWl(inst->output); out != nullptr && out->hasUsableGeometry()) {
             const auto [surfaceX, surfaceY] = surfaceOriginForOutputLocal(*inst, *out);
@@ -2801,7 +2826,9 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
             .hasExplicitAnchor = anchorSurfaceX.has_value() || anchorSurfaceY.has_value(),
             .hasAnchorPosition = true,
             .context = context,
-            .sourceBarName = inst->barConfig.name
+            .sourceBarName = inst->barConfig.name,
+            .sourceSurface = island && inst->surface != nullptr ? inst->surface->wlSurface() : nullptr,
+            .sourceRect = island.value_or(std::array<float, 4>{}),
         };
         if (activation == Widget::PanelActivation::Open) {
           PanelManager::instance().openPanel(std::string(panelId), request);
@@ -3686,7 +3713,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
   // A rebuilt scene may sit on a new surface, so always send the region once.
   instance.clickThroughInputRegion.reset();
   syncBarAutoHideInputRegion(instance);
-  syncBarSurfaceChrome(instance);
+  syncBarSurfaceChrome(instance);  syncSheetTracker(instance);
 }
 
 void Bar::updateWidgets(BarInstance& instance) {
@@ -3721,7 +3748,7 @@ void Bar::updateWidgets(BarInstance& instance) {
   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
   if (instance.barConfig.deadZone.clickThrough) {
     syncBarAutoHideInputRegion(instance);
-  }
+  }  syncSheetTracker(instance);
 }
 
 void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout) {
@@ -3769,6 +3796,104 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
   if (instance.barConfig.deadZone.clickThrough) {
     syncBarAutoHideInputRegion(instance);
   }
+  syncSheetTracker(instance);
+}
+
+void Bar::syncSheetTracker(BarInstance& instance) {
+  dsk_surface_manager_v1* manager = m_platform != nullptr ? m_platform->wayland().dskSurfaceManager() : nullptr;
+  Box* island = instance.islands[2];
+  if (manager == nullptr || instance.surface == nullptr || instance.surface->wlSurface() == nullptr
+      || !instance.barConfig.islands || instance.barConfig.position != "top" || island == nullptr || !island->visible()) {
+    instance.sheetTracker.reset();
+    return;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(island, x, y);
+  const std::array<float, 4> rect{x, y, island->width(), island->height()};
+  if (instance.sheetTracker != nullptr && rect == instance.sheetTrackerRect) {
+    return;
+  }
+  if (instance.sheetTracker == nullptr) {
+    BarInstance* inst = &instance;
+    instance.sheetTracker = std::make_shared<DskTrackerClient>(
+        manager, instance.surface->wlSurface(),
+        DskTrackerClient::Callbacks{
+            .interacting = [this, inst] { openSheetFromTracker(*inst); },
+            .idle = [this, inst](double position) { finishSheetTracker(*inst, position); },
+        }
+    );
+    instance.sheetTracker->setRange(0.0, Tokens::componentSheetOpenDrag);
+    instance.sheetTracker->addSnap(0.0);
+    instance.sheetTracker->addSnap(Tokens::componentSheetOpenDrag);
+  }
+  wl_region* region = wl_compositor_create_region(m_platform->wayland().compositor());
+  wl_region_add(
+      region, static_cast<std::int32_t>(std::lround(x)), static_cast<std::int32_t>(std::lround(y)),
+      static_cast<std::int32_t>(std::lround(rect[2])), static_cast<std::int32_t>(std::lround(rect[3]))
+  );
+  instance.sheetTracker->setSource(DskTrackerClient::Axis::Vertical, 0, region);
+  wl_region_destroy(region);
+  instance.sheetTrackerRect = rect;
+  // Tracker state applies on the bar surface's next commit.
+  instance.surface->requestRedraw();
+}
+
+void Bar::openSheetFromTracker(BarInstance& instance) {
+  constexpr std::string_view kPanel = "control-center";
+  if (PanelManager::instance().isOpenPanel(kPanel) || instance.sheetTracker == nullptr) {
+    return;
+  }
+  const auto& r = instance.sheetTrackerRect;
+  float anchorX = r[0] + r[2] * 0.5F;
+  float anchorY = r[1] + r[3] * 0.5F;
+  if (m_platform != nullptr && instance.output != nullptr) {
+    if (const auto* out = m_platform->findOutputByWl(instance.output); out != nullptr && out->hasUsableGeometry()) {
+      const auto [surfaceX, surfaceY] = surfaceOriginForOutputLocal(instance, *out);
+      anchorX += surfaceX;
+      anchorY += surfaceY;
+    }
+  }
+  std::weak_ptr<DskTrackerClient> tracker = instance.sheetTracker;
+  BarInstance* inst = &instance;
+  PanelManager::instance().openPanel(
+      std::string(kPanel),
+      PanelOpenRequest{
+          .output = instance.output,
+          .anchorX = anchorX,
+          .anchorY = anchorY,
+          .hasAnchorPosition = true,
+          .context = "quick",
+          .sourceBarName = instance.barConfig.name,
+          .sourceSurface = instance.surface->wlSurface(),
+          .sourceRect = r,
+          .tracker = tracker,
+          .trackerRange = Tokens::componentSheetOpenDrag,
+          // The tracker lives on this bar's surface, so the tracker being alive means `inst` is too.
+          .commitTracker =
+              [tracker, inst] {
+                if (!tracker.expired() && inst->surface != nullptr) {
+                  inst->surface->requestRedraw();
+                }
+              },
+      }
+  );
+}
+
+void Bar::finishSheetTracker(BarInstance& instance, double position) {
+  PanelManager::instance().finishTrackerOpen(position >= Tokens::componentSheetOpenDrag * 0.5);
+  // A tracker keeps its bindings; a new one starts the next drag clean. Not from inside its own callback.
+  std::weak_ptr<DskTrackerClient> tracker = instance.sheetTracker;
+  BarInstance* inst = &instance;
+  DeferredCall::callLater([tracker, inst] {
+    if (tracker.expired()) {
+      return;
+    }
+    inst->sheetTracker.reset();
+    if (inst->surface != nullptr) {
+      inst->surface->requestRedraw();
+    }
+  });
 }
 
 bool Bar::onPointerEvent(const PointerEvent& event) {

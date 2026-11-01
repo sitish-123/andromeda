@@ -11,6 +11,7 @@ namespace {
 const dsk_surface_v1_listener DskSurfaceClient::kListener = {
     .started = handleStarted,
     .done = handleDone,
+    .clip_mapped = handleClipMapped,
 };
 
 DskSurfaceClient::DskSurfaceClient(dsk_surface_manager_v1* manager, wl_surface* surface)
@@ -30,6 +31,14 @@ void DskSurfaceClient::set(Property property, const Value& value) {
   );
 }
 
+bool DskSurfaceClient::setClipFrom(wl_surface* source, const Value& rect) {
+  if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_surface)) < DSK_SURFACE_V1_SET_CLIP_FROM_SINCE_VERSION) {
+    return false;
+  }
+  dsk_surface_v1_set_clip_from(m_surface, source, fixed(rect[0]), fixed(rect[1]), fixed(rect[2]), fixed(rect[3]));
+  return true;
+}
+
 void DskSurfaceClient::animate(Property property, Curve curve, const Value& to, DoneCallback onDone) {
   const uint32_t serial = m_nextSerial++;
   if (onDone) {
@@ -42,6 +51,17 @@ void DskSurfaceClient::animate(Property property, Curve curve, const Value& to, 
 }
 
 void DskSurfaceClient::handleStarted(void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t /*serial*/, uint32_t /*time*/) {}
+
+void DskSurfaceClient::handleClipMapped(
+    void* data, dsk_surface_v1* /*surface*/, int32_t x, int32_t y, int32_t width, int32_t height
+) {
+  auto* self = static_cast<DskSurfaceClient*>(data);
+  self->m_mappedClip =
+      Value{wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(width), wl_fixed_to_double(height)};
+  if (self->m_onClipMapped) {
+    self->m_onClipMapped(*self->m_mappedClip);
+  }
+}
 
 void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t reason) {
   auto* self = static_cast<DskSurfaceClient*>(data);

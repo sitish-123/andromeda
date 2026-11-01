@@ -6,6 +6,7 @@
 #include <pixman.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -40,6 +41,11 @@ namespace andromeda {
     DskSurfaceManager(const DskSurfaceManager&) = delete;
     DskSurfaceManager& operator=(const DskSurfaceManager&) = delete;
 
+    // Layout position of a layer surface (mapped or about to map), nullopt otherwise; set_clip_from does nothing until the server sets it.
+    void setOriginLookup(std::function<std::optional<std::pair<int, int>>(wlr_surface*)> lookup) {
+      m_originLookup = std::move(lookup);
+    }
+
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
     [[nodiscard]] State* state(wlr_surface* surface) const;
     // Advances the surface's animations to `nowMs` and sends their started and done events. Returns true when a
@@ -65,7 +71,8 @@ namespace andromeda {
 
   private:
     struct Op {
-      enum class Kind : uint8_t { Set, Animate } kind;
+      // ClipFrom: value is a clip in layout coordinates, made surface-local at commit.
+      enum class Kind : uint8_t { Set, Animate, ClipFrom } kind;
       uint32_t serial;
       SurfaceMotion::Property property;
       SurfaceMotion::Curve curve;
@@ -140,6 +147,10 @@ namespace andromeda {
         wl_client* client, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t curve, int32_t a,
         int32_t b, int32_t c, int32_t d
     );
+    static void handleSetClipFrom(
+        wl_client* client, wl_resource* resource, wl_resource* source, int32_t x, int32_t y, int32_t width,
+        int32_t height
+    );
     static void handleSurfaceResourceDestroyed(wl_resource* resource);
     static void handleClientCommit(wl_listener* listener, void* data);
     static void handleAddonDestroy(wlr_addon* addon);
@@ -172,6 +183,7 @@ namespace andromeda {
     double m_pinchScale = 1.0;
 
     wl_global* m_global = nullptr;
+    std::function<std::optional<std::pair<int, int>>(wlr_surface*)> m_originLookup;
   };
 
 } // namespace andromeda

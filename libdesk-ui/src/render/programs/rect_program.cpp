@@ -1,4 +1,5 @@
 #include "render/programs/rect_program.h"
+#include "render/programs/smooth_corner_glsl.h"
 
 #include "render/core/render_styles.h"
 
@@ -62,14 +63,15 @@ uniform vec4 u_shadow_exclusion_logical_inset;
 uniform vec4 u_shadow_exclusion_radii;
 varying vec2 v_pixel;
 
+// @smooth_corner
+
 float rounded_rect_distance(vec2 point, vec2 size, vec4 radii) {
     vec2 half_size = size * 0.5;
     vec2 centered = point - half_size;
     float r = centered.x < 0.0
         ? (centered.y < 0.0 ? radii.x : radii.w)
         : (centered.y < 0.0 ? radii.y : radii.z);
-    vec2 q = abs(centered) - (half_size - vec2(r));
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    return smooth_rounded_box(centered, half_size, r);
 }
 
 float circle_extent(float radius, float delta) {
@@ -369,7 +371,7 @@ void RectProgram::ensureInitialized() {
     return;
   }
 
-  m_program.create(kVertexShaderSource, kFragmentShaderSource);
+  m_program.create(kVertexShaderSource, smooth_corner::fragment(kFragmentShaderSource).c_str());
   m_positionLocation = glGetAttribLocation(m_program.id(), "a_position");
   m_surfaceSizeLocation = glGetUniformLocation(m_program.id(), "u_surface_size");
   m_quadSizeLocation = glGetUniformLocation(m_program.id(), "u_quad_size");

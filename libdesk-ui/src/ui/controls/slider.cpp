@@ -228,6 +228,12 @@ void Slider::setFilled(bool filled) {
   markLayoutDirty();
 }
 
+void Slider::setTrackRadius(float radius) {
+  m_trackRadius = radius;
+  updateGeometry();
+  applyVisualState();
+}
+
 void Slider::setWheelAdjustEnabled(bool enabled) { m_wheelAdjustEnabled = enabled; }
 
 void Slider::setOnValueChanged(std::function<void(double)> callback) { m_onValueChanged = std::move(callback); }
@@ -268,9 +274,10 @@ void Slider::updateGeometry() {
 
   float fillX = Style::rtl() ? thumbX : trackX;
   float fillWidth = Style::rtl() ? trackX + trackW - thumbX : thumbX - trackX;
-  if (m_filled && fillWidth < trackH) {
-    // Keep a full round cap at the start edge for low values.
-    fillWidth = std::min(trackH, trackW);
+  const float capWidth = m_trackRadius > 0.0F ? std::min(m_trackRadius * 2.0F, trackH) : trackH;
+  if (m_filled && fillWidth > 0.0F && fillWidth < capWidth) {
+    // Keep a full round cap at the start edge for low values; 0 shows no fill.
+    fillWidth = std::min(capWidth, trackW);
     fillX = Style::rtl() ? trackX + trackW - fillWidth : trackX;
   }
   m_fill->setPosition(fillX, trackY);
@@ -323,15 +330,17 @@ void Slider::applyVisualState() {
   if (m_filled) {
     // The parent pill draws the track; the fill is white in light and dark schemes.
     trackColor = Color{.a = 0.0F};
-    fillColor = Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = m_enabled ? 0.92F : 0.45F};
+    fillColor = rgbaHex(Tokens::componentSliderFill);
+    fillColor.a *= m_enabled ? 1.0F : 0.45F;
     m_thumb->setVisible(false);
   }
   const float trackH = m_filled ? m_track->height() : m_trackHeight;
 
-  auto trackStyle = solidStyle(trackColor, trackH * 0.5F);
+  const float radius = m_trackRadius > 0.0F ? std::min(m_trackRadius, trackH * 0.5F) : trackH * 0.5F;
+  auto trackStyle = solidStyle(trackColor, radius);
   m_track->setStyle(trackStyle);
 
-  auto fillStyle = solidStyle(fillColor, trackH * 0.5F);
+  auto fillStyle = solidStyle(fillColor, radius);
   m_fill->setStyle(fillStyle);
 
   auto thumbStyle = solidStyle(thumbColor, m_thumbSizePx * 0.5F);

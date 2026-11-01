@@ -119,6 +119,13 @@ foreach unit_test : unit_tests
   test(unit_test[0], test_exe, workdir: meson.project_source_root())
 endforeach
 
+# The token generator's GTK, Qt and fcitx5 emitters against golden files (protocol/tests).
+test(
+  'design-tokens-golden',
+  find_program('python3'),
+  args: [files('../protocols/design-tokens-tests/test_gen_design_tokens.py')],
+)
+
 test(
   'validate-config',
   find_program('validate_config.sh'),

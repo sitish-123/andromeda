@@ -19,6 +19,7 @@
 #include <vector>
 
 class Box;
+class DskTrackerClient;
 class Flex;
 class Node;
 
@@ -62,6 +63,10 @@ struct BarInstance {
   std::size_t barIndex = 0;
   BarConfig barConfig;
   std::unique_ptr<LayerSurface> surface;
+  // Drag on the end island opens the control center under the finger (top islands bar with dsk_surface_v1). Declared
+  // after `surface`: it is destroyed first. Shared so an opening panel can hold it weakly.
+  std::shared_ptr<DskTrackerClient> sheetTracker;
+  std::array<float, 4> sheetTrackerRect{};
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;

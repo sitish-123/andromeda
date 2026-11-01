@@ -21,6 +21,8 @@ public:
   void setControlHeight(float height);
   // Filled: the fill spans the full height from the start edge and there is no thumb.
   void setFilled(bool filled);
+  // Corner radius of the track and fill (px); 0 = half the track height (pill).
+  void setTrackRadius(float radius);
   void setWheelAdjustEnabled(bool enabled);
   void setOnValueChanged(std::function<void(double)> callback);
   void setOnDragEnd(std::function<void()> callback);
@@ -57,6 +59,7 @@ private:
   bool m_enabled = true;
   bool m_wheelAdjustEnabled = false;
   bool m_filled = false;
+  float m_trackRadius = 0.0F;
   float m_trackHeight = Style::sliderTrackHeight;
   float m_thumbSizePx = Style::sliderThumbSize;
   float m_controlHeightPx = Style::controlHeight;

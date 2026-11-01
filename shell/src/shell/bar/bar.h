@@ -152,6 +152,9 @@ private:
   void applyBarCompositorBlur(BarInstance& instance) const;
   void syncBarSlideLayerTransform(BarInstance& instance) const;
   void syncBarAutoHideInputRegion(BarInstance& instance) const;
+  void syncSheetTracker(BarInstance& instance);
+  void openSheetFromTracker(BarInstance& instance);
+  void finishSheetTracker(BarInstance& instance, double position);
   void syncBarExclusiveZone(BarInstance& instance);
   void syncBarSurfaceChrome(BarInstance& instance);
   void clearInstancePointerState(BarInstance& instance);

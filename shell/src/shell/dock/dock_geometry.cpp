@@ -1,5 +1,6 @@
 #include "shell/dock/dock_geometry.h"
 
+#include "ui/style.h"
 #include "ui/surface_shadow.h"
 #include "wayland/layer_surface.h"
 
@@ -9,7 +10,7 @@
 namespace shell::dock {
   namespace {
 
-    constexpr std::int32_t kCellPad = 6;
+    constexpr std::int32_t kCellPad = 0; // keep in sync with dock_items.cpp
     constexpr std::int32_t kAutoHideTriggerPx = 2;
     // A non-integer output scale can round the flush edge a device pixel short of the output and
     // leave a visible gap. One logical pixel of overlap covers it. At integer scales the edge
@@ -17,10 +18,10 @@ namespace shell::dock {
     constexpr std::int32_t kScreenEdgeOverlapPx = 1;
     constexpr float kAutoHideSlideExtraPx = 16.0F;
     // Keep in sync with dock_items instance-count badge geometry.
-    constexpr float kBadgeSizeRatio = 0.30F;
+    constexpr float kBadgeSizeRatio = Tokens::componentBadgeHeight / Tokens::componentDockIcon;
     constexpr float kBadgeMinSize = 16.0F;
     // Badge hangs past its icon corner by this fraction of its diameter.
-    constexpr float kBadgeCornerOverhang = 0.45F;
+    constexpr float kBadgeCornerOverhang = Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
 
     [[nodiscard]] int dockAutoHideEdgeGutter(const DockConfig& cfg) noexcept {
       if ((!cfg.autoHide && !cfg.smartAutoHide) || cfg.marginEdge <= 0) {

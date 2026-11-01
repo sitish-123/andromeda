@@ -19,6 +19,22 @@ test: build
     cd compositor && just test
     cd shell && just test
 
+# Phone state in one call: screenshot, UI dump, logcat tail and top activity in /tmp/phone-state/<name>. Honors ANDROID_SERIAL.
+phone-state name="now":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    adb() { "${ADB:-$HOME/Android/Sdk/platform-tools/adb}" ${ANDROID_SERIAL:+-s "$ANDROID_SERIAL"} "$@"; }
+    adb get-state > /dev/null 2>&1 || { echo "FAIL: no phone attached (check adb devices, ANDROID_SERIAL)"; exit 1; }
+    d=/tmp/phone-state/{{name}}; mkdir -p "$d"
+    exec 9> /tmp/link-emulator.lock; flock 9
+    adb exec-out screencap -p > "$d/screenshot.png"
+    adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1; adb exec-out cat /sdcard/ui.xml > "$d/ui.xml"
+    pid=$(adb shell pidof org.andromeda.link | tr -d '\r')
+    adb logcat -d -t 2000 ${pid:+--pid="$pid"} | tail -n 200 > "$d/logcat.txt"
+    adb shell dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity' | sed 's/^ *//' > "$d/activity.txt"
+    printf '%s\n' "$d/screenshot.png" "$d/ui.xml" "$d/logcat.txt"; echo "top: $(cat "$d/activity.txt")"
+    grep -E ' E |FATAL' "$d/logcat.txt" | tail -n 5 | cut -c1-200
+
 # Every E2E script; a failure does not stop the run. Logs and failed.txt go to /tmp/andromeda-e2e.
 e2e: build
     meson compile -C compositor/build-debug harness-clients
@@ -58,3 +74,8 @@ package:
     cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" makepkg -f
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
+
+# The design reference: tokens.css from protocol/design-tokens.toml, then docs/design/reference.png (1600 px wide).
+design-reference:
+    python3 protocol/gen-design-tokens.py protocol/design-tokens.toml /tmp/design_tokens.h docs/design/tokens.css
+    google-chrome-stable --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,1010 --screenshot="$PWD/docs/design/reference.png" "file://$PWD/docs/design/reference.html"

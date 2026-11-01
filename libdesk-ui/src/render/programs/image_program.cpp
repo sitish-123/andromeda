@@ -1,4 +1,5 @@
 #include "render/programs/image_program.h"
+#include "render/programs/smooth_corner_glsl.h"
 
 #include "render/core/texture_handle.h"
 
@@ -77,9 +78,10 @@ uniform vec4 u_scrim_color3;
 varying vec2 v_texcoord;
 varying vec2 v_local;
 
+// @smooth_corner
+
 float rounded_rect_distance(vec2 centered, vec2 half_size, float radius) {
-    vec2 q = abs(centered) - (half_size - vec2(radius));
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+    return smooth_rounded_box(centered, half_size, radius);
 }
 
 float scrim_segment_t(float position, float start, float end) {
@@ -162,7 +164,7 @@ void ImageProgram::ensureInitialized() {
     return;
   }
 
-  m_program.create(kVertexShaderSource, kFragmentShaderSource);
+  m_program.create(kVertexShaderSource, smooth_corner::fragment(kFragmentShaderSource).c_str());
   m_positionLocation = glGetAttribLocation(m_program.id(), "a_position");
   m_texCoordLocation = glGetAttribLocation(m_program.id(), "a_texcoord");
   m_surfaceSizeLocation = glGetUniformLocation(m_program.id(), "u_surface_size");

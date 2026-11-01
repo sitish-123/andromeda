@@ -199,7 +199,10 @@ namespace andromeda {
         : std::clamp(static_cast<float>(m_fade.current()), 0.0F, 1.0F);
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
     if (const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr) {
-      alpha *= std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
+      const float opacity =
+          std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
+      alpha *= opacity;
+      m_blur.setAlpha(opacity);
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
@@ -270,6 +273,7 @@ namespace andromeda {
         &corners
     );
 
+    updateBlur();
     if (state->elevation == DskSurfaceManager::Elevation::None) {
       m_shadow.hide();
       return;
@@ -506,17 +510,43 @@ namespace andromeda {
     std::optional<wlr_box> clip;
     const BackgroundEffectManager* effects = m_server->backgroundEffects();
     const pixman_region32_t* region = effects != nullptr ? effects->blurRegion(m_layerSurface->surface) : nullptr;
+    // The blur is not under the surface tree, so a dsk_surface_v1 clip and its corners are applied here too.
+    std::optional<wlr_box> dskClip;
+    fx_corner_radii corners = corner_radii_none();
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    if (const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr) {
+      const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
+      const double scale = std::max(0.01, state->motion.value(SurfaceMotion::Property::Scale)[0]);
+      const wlr_box scaled{
+          static_cast<int>(std::lround(c[0] * scale)), static_cast<int>(std::lround(c[1] * scale)),
+          static_cast<int>(std::lround(c[2] * scale)), static_cast<int>(std::lround(c[3] * scale))
+      };
+      if (scaled.width > 0 && scaled.height > 0) {
+        dskClip = scaled;
+        corners = corner_radii_all(
+            static_cast<int>(std::lround(state->motion.value(SurfaceMotion::Property::Radius)[0] * scale))
+        );
+      }
+    }
+    pixman_region32_t clipped;
+    pixman_region32_init(&clipped);
     if (region != nullptr && m_rule.blur.value_or(true)) {
+      if (dskClip) {
+        pixman_region32_intersect_rect(&clipped, region, dskClip->x, dskClip->y, dskClip->width, dskClip->height);
+        region = &clipped;
+      }
       const pixman_box32_t* extents = pixman_region32_extents(region);
       clip = wlr_box{extents->x1, extents->y1, extents->x2 - extents->x1, extents->y2 - extents->y1};
       options.enabled = true;
     } else {
       region = nullptr;
+      clip = dskClip;
     }
     m_blur.update(
-        m_scene->tree, m_layerSurface->surface, box, box, corner_radii_none(), clip ? &*clip : nullptr, options, 1.0F,
-        nullptr, region
+        m_scene->tree, m_layerSurface->surface, box, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
+        region
     );
+    pixman_region32_fini(&clipped);
   }
 
   void LayerSurface::applyConfig() {

@@ -56,6 +56,8 @@ public:
   void setUseMarkup(bool markup);
   // Text uses the resolved font line box; InkCentered centers the current glyph ink.
   void setBaselineMode(LabelBaselineMode mode);
+  // A single-line label box this tall (px), text centered by font ascent and descent as CSS line-height does; 0 = font height.
+  void setLineHeight(float lineHeight);
   void setShadow(const ColorSpec& color, float offsetX, float offsetY);
   void setShadow(const Color& color, float offsetX, float offsetY);
   void clearShadow();
@@ -135,6 +137,7 @@ private:
   bool m_cachedHasConstraintMaxWidth = false;
   bool m_measureCached = false;
   LabelBaselineMode m_baselineMode = LabelBaselineMode::Text;
+  float m_lineHeight = 0.0F;
 
   // Line count from the last measure pass; the arrange re-measure must agree
   // (line breaking is decided once, on measure). -1 until first measure.

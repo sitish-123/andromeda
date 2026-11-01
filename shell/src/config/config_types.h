@@ -186,11 +186,10 @@ struct BarConfig {
   int fontWeight = 500;           // primary label weight for bar widgets
   // Typeface for this bar's widgets; unset inherits shell.font_family. Per-widget `font_family` overrides.
   std::optional<std::string> fontFamily;
-  std::vector<std::string> startWidgets = {"launcher", "wallpaper", "workspaces"};
-  std::vector<std::string> centerWidgets = {"clock"};
-  std::vector<std::string> endWidgets = {"media",      "tray",    "notifications",  "clipboard",
-                                         "phone",      "network", "bluetooth",      "volume",
-                                         "brightness", "battery", "control-center", "session"};
+  // The design reference's islands (docs/design-system.md "Bar islands"); the center is the live activity's place.
+  std::vector<std::string> startWidgets = {"active_window", "workspaces"};
+  std::vector<std::string> centerWidgets = {};
+  std::vector<std::string> endWidgets = {"tray", "network", "volume", "battery", "clock"};
   // When true, widgets on this bar use a capsule unless `[widget.*] capsule = false`.
   bool widgetCapsuleDefault = false;
   ColorSpec widgetCapsuleFill = colorSpecFromRole(ColorRole::Fill2);
@@ -701,23 +700,23 @@ struct DockConfig {
   bool enabled = false; // opt-in; dock is hidden by default
   DockEdge position = DockEdge::Bottom;
   bool activeMonitorOnly = false;    // render only on preferred active output
-  std::int32_t iconSize = 54;        // icon size in pixels (before ui_scale)
-  std::int32_t mainAxisPadding = 10; // inner padding along the icon row (main axis)
-  std::int32_t crossAxisPadding = 10; // inner padding perpendicular to the icon row
-  std::int32_t itemSpacing = 10;     // gap between items
+  std::int32_t iconSize = static_cast<std::int32_t>(Tokens::componentDockIcon);      // icon size in pixels (before ui_scale)
+  std::int32_t mainAxisPadding = static_cast<std::int32_t>(Tokens::componentDockPadding); // inner padding along the icon row (main axis)
+  std::int32_t crossAxisPadding = static_cast<std::int32_t>(Tokens::componentDockPadding); // inner padding perpendicular to the icon row
+  std::int32_t itemSpacing = static_cast<std::int32_t>(Tokens::componentDockGap);     // gap between items
   float backgroundOpacity = 0.88F;
   bool compositorBlur = true;
   // Inside outline for the dock background.
   ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = 0.0F;
-  std::int32_t radius = 30;            // dock background corner radius
-  std::int32_t radiusTopLeft = 30;     // dock background top-left corner radius
-  std::int32_t radiusTopRight = 30;    // dock background top-right corner radius
-  std::int32_t radiusBottomLeft = 30;  // dock background bottom-left corner radius
-  std::int32_t radiusBottomRight = 30; // dock background bottom-right corner radius
+  std::int32_t radius = static_cast<std::int32_t>(Tokens::componentDockRadius);          // dock background corner radius
+  std::int32_t radiusTopLeft = static_cast<std::int32_t>(Tokens::componentDockRadius);     // dock background top-left corner radius
+  std::int32_t radiusTopRight = static_cast<std::int32_t>(Tokens::componentDockRadius);    // dock background top-right corner radius
+  std::int32_t radiusBottomLeft = static_cast<std::int32_t>(Tokens::componentDockRadius);  // dock background bottom-left corner radius
+  std::int32_t radiusBottomRight = static_cast<std::int32_t>(Tokens::componentDockRadius); // dock background bottom-right corner radius
   bool concaveEdgeCorners = false;     // carve concave corners on the side that touches the screen edge
   std::int32_t marginEnds = 0;         // inset from each end of the dock along its main axis
-  std::int32_t marginEdge = 0;         // distance from the nearest screen edge (floats the dock when > 0)
+  std::int32_t marginEdge = static_cast<std::int32_t>(Tokens::componentDockMargin);       // distance from the nearest screen edge (floats the dock when > 0)
   bool shadow = true;                  // use the global shell shadow
   bool showRunning = true;             // also show running apps not in pinned list
   bool autoHide = false;               // slide out when not hovered (overlay mode)
@@ -727,11 +726,11 @@ struct DockConfig {
   [[nodiscard]] constexpr bool isAutoHideEnabled() const noexcept { return autoHide || smartAutoHide; }
   bool reserveSpace = true;         // reserve compositor exclusive zone; applies with or without auto_hide
   float activeScale = 1.0F;         // focused app icon scale
-  float inactiveScale = 0.85F;      // non-focused app icon scale
+  float inactiveScale = 1.0F;       // non-focused app icon scale
   bool magnification = true;        // magnify icons near the pointer (macOS-style)
   float magnificationScale = 1.45F; // max icon scale multiplier at the pointer center
   float activeOpacity = 1.0F;       // focused app icon opacity
-  float inactiveOpacity = 0.85F;    // non-focused app icon opacity
+  float inactiveOpacity = 1.0F;     // non-focused app icon opacity
   bool showDots = false;            // show optional running window dots below app icons
   bool runningBar = true;           // short bar under running apps; hidden while show_dots is on
   bool showInstanceCount = true;    // show a badge with count when app has >1 window
@@ -1779,14 +1778,15 @@ struct ThemeConfig {
   };
 
   PaletteSource source = PaletteSource::Builtin;
-  std::string builtinPalette = "Noctalia";
+  std::string builtinPalette = "Andromeda";
   std::string communityPalette = "Oxocarbon";
   std::string customPalette;
   std::string wallpaperScheme = "m3-content";
-  ThemeMode mode = ThemeMode::Dark;
+  ThemeMode mode = ThemeMode::Light; // the shell is the system scheme; another client changing it is adopted
   ShellThemeMode shellMode = ShellThemeMode::Follow;
   bool pureBlackDark = false;
   bool syncColorScheme = true;
+  bool toolkitThemes = true; // GTK, Qt, KDE and fcitx5 colors from the design tokens (toolkit_theme_files)
   TemplatesConfig templates;
 
   bool operator==(const ThemeConfig&) const = default;

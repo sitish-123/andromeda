@@ -142,6 +142,23 @@ namespace {
               makeState(clearColorSpec(), clearColorSpec(), colorSpecFromRole(ColorRole::Label1, kDisabledAlpha)),
           .selected = selectedState(),
       };
+    case ButtonVariant::Tonal:
+      return Button::ButtonPalette{
+          .borderWidth = 0.0F,
+          .normal =
+              makeState(colorSpecFromRole(ColorRole::Fill3), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)),
+          .hover = makeState(
+              colorSpecFromRole(ColorRole::Label1, 0.16F), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)
+          ),
+          .pressed = makeState(
+              colorSpecFromRole(ColorRole::Label1, 0.22F), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)
+          ),
+          .disabled = makeState(
+              colorSpecFromRole(ColorRole::Fill3, kDisabledAlpha), clearColorSpec(),
+              colorSpecFromRole(ColorRole::Label1, kDisabledAlpha)
+          ),
+          .selected = selectedState(),
+      };
     case ButtonVariant::Tab:
       return Button::ButtonPalette{
           .borderWidth = 0.0F,

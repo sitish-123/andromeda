@@ -693,6 +693,17 @@ namespace andromeda {
     }
     m_backgroundEffects = std::make_unique<BackgroundEffectManager>(m_display);
     m_dskSurfaces = std::make_unique<DskSurfaceManager>(m_display);
+    m_dskSurfaces->setOriginLookup([](wlr_surface* surface) -> std::optional<std::pair<int, int>> {
+      // A surface that maps with this commit is not mapped yet, but its layer node is already placed.
+      const LayerSurface* layer = surface != nullptr ? LayerSurface::fromSurface(surface) : nullptr;
+      int x = 0;
+      int y = 0;
+      if (layer == nullptr || layer->scene() == nullptr) {
+        return std::nullopt;
+      }
+      wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
+      return std::pair{x, y};
+    });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {

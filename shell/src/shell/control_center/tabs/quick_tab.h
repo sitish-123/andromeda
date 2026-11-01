@@ -8,10 +8,12 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 class Button;
 class Flex;
 class Glyph;
+class Image;
 class Label;
 class Slider;
 
@@ -34,17 +36,18 @@ private:
     Button* icon = nullptr;
     Label* title = nullptr;
     Label* subtitle = nullptr;
+    std::string glyph; // replaces the shortcut icon when set
   };
 
   void doLayout(Renderer& renderer, float contentWidth, float bodyHeight) override;
   void doUpdate(Renderer& renderer) override;
 
   std::unique_ptr<Flex> makeCard();
-  std::unique_ptr<Button> makeToggleRow(ToggleRow& row, std::string_view detailTab);
+  std::unique_ptr<Button> makeToggleRow(ToggleRow& row, std::string_view detailTab, float iconTextGap);
   std::unique_ptr<Flex> makePill(std::string_view glyph, Slider*& slider, Label*& value);
   void syncToggleRow(ToggleRow& row, const std::string& subtitle);
   void syncSliders();
-  void syncMedia();
+  void syncMedia(Renderer& renderer);
   void syncPhone();
 
   ControlCenterServices m_services;
@@ -66,10 +69,15 @@ private:
   Flex* m_mediaCard = nullptr;
   Label* m_mediaTitle = nullptr;
   Label* m_mediaArtist = nullptr;
+  Image* m_mediaArt = nullptr;
+  std::string m_mediaArtUrl;
+  std::unordered_set<std::string> m_pendingArt;
+  std::shared_ptr<int> m_aliveGuard = std::make_shared<int>(0);
   Button* m_playButton = nullptr;
 
   Flex* m_phoneCard = nullptr;
   Label* m_phoneName = nullptr;
   Label* m_phoneStatus = nullptr;
+  std::string m_phoneId;
   std::unique_ptr<Shortcut> m_phoneRing;
 };

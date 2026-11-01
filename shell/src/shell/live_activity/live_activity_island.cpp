@@ -8,6 +8,7 @@
 #include "render/render_context.h"
 #include "render/scene/node.h"
 #include "ui/builders.h"
+#include "ui/controls/button.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/dsk_surface_client.h"
@@ -22,20 +23,35 @@ namespace {
   constexpr Logger kLog("live-activity");
 
   constexpr float kWidth = 440.0F;
-  constexpr float kHeight = 52.0F;
+  constexpr float kHeight = Tokens::componentLiveHeight;
   // Below this logical output width the island drops its progress bar, so it clears the bar's end island.
   constexpr std::int32_t kWideOutput = 1440;
   constexpr float kCompactWidth = 290.0F;
   // Collapsed size: the bar's center island, which the live island grows out of.
   constexpr float kCollapsedWidth = 120.0F;
-  constexpr float kCollapsedHeight = 34.0F;
-  constexpr float kPadding = 8.0F;
-  constexpr float kIcon = 36.0F;
-  constexpr float kProgressWidth = 150.0F;
-  constexpr float kProgressHeight = 6.0F;
+  constexpr float kCollapsedHeight = Tokens::componentIslandHeight;
+  constexpr float kPadding = Tokens::componentLivePadding;
+  constexpr float kIcon = Tokens::componentLiveLead;
+  constexpr float kButton = Tokens::componentLiveButton;
+  constexpr float kProgressWidth = Tokens::componentLiveProgressWidth;
+  constexpr float kProgressHeight = Tokens::componentLiveProgressHeight;
+  // White on the dark live tint in both schemes (docs/design-system.md "Live activity").
+  constexpr Color kWhite{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = 1.0F};
+  Color white(float alpha) { return Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = alpha}; }
+
+  Button::ButtonPalette livePalette(bool destructive) {
+    const ColorSpec bg = destructive ? colorSpecFromRole(ColorRole::Danger) : fixedColorSpec(white(0.14F));
+    const ColorSpec hover = destructive ? colorSpecFromRole(ColorRole::Danger, 0.85F) : fixedColorSpec(white(0.22F));
+    const Button::ButtonStateColors normal{.bg = bg, .border = clearColorSpec(), .label = fixedColorSpec(kWhite)};
+    return Button::ButtonPalette{
+        .normal = normal,
+        .hover = {.bg = hover, .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
+        .pressed = {.bg = fixedColorSpec(white(0.3F)), .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
+        .disabled = normal,
+    };
+  }
   // Width left for text: 440 - 2 x 8 padding - 36 icon - 150 bar - 36 button - 3 x 12 gaps.
   constexpr float kTitleMaxWidth = 166.0F;
-  constexpr float kMaterialOpacity = 0.7F;
   constexpr float kFallbackTopMargin = 8.0F;
   constexpr desk::motion::SpringConfig kRevealSpring{.damping = 0.8, .stiffness = 260.0};
 
@@ -192,22 +208,22 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
 
   auto island = ui::box({
       .out = &inst.island,
-      .fill = colorSpecFromRole(ColorRole::SolidRegular, Style::glassAlpha(kMaterialOpacity)),
+      .fill = fixedColorSpec(rgbaHex(Tokens::componentLiveTint)),
   });
   island->setClipChildren(true);
 
   auto title = ui::label({
       .out = &inst.title,
-      .fontSize = Style::fontSizeBody,
-      .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::Label1),
+      .fontSize = Tokens::typeTitle.size,
+      .fontWeight = static_cast<FontWeight>(Tokens::typeTitle.weight),
+      .color = fixedColorSpec(kWhite),
       .maxWidth = kTitleMaxWidth,
       .maxLines = 1,
   });
   auto subtitle = ui::label({
       .out = &inst.subtitle,
-      .fontSize = Style::fontSizeCaption,
-      .color = colorSpecFromRole(ColorRole::Label2),
+      .fontSize = Tokens::typeCaption.size,
+      .color = fixedColorSpec(white(0.7F)),
       .maxWidth = kTitleMaxWidth,
       .maxLines = 1,
   });
@@ -223,7 +239,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       },
       ui::glyph({
           .out = &inst.icon,
-          .glyphSize = Style::fontSizeTitle,
+          .glyphSize = Tokens::componentIslandIcon,
           .color = colorSpecFromRole(ColorRole::OnAccent),
       })
   );
@@ -231,17 +247,17 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   auto content = ui::row(
       {
           .align = FlexAlign::Center,
-          .gap = Style::spaceMd,
+          .gap = Tokens::componentLiveGap,
           .paddingH = kPadding,
           .width = inst.width,
           .height = kHeight,
       },
       std::move(iconCircle),
-      ui::column({.align = FlexAlign::Start, .gap = 1.0F, .flexGrow = 1.0F}, std::move(title), std::move(subtitle)),
+      ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F}, std::move(title), std::move(subtitle)),
       ui::progressBar({
           .out = &inst.progress,
-          .fill = colorSpecFromRole(ColorRole::Label1),
-          .track = colorSpecFromRole(ColorRole::Fill2),
+          .fill = fixedColorSpec(kWhite),
+          .track = fixedColorSpec(white(0.2F)),
           .radius = kProgressHeight * 0.5F,
           .width = kProgressWidth,
           .height = kProgressHeight,
@@ -249,10 +265,10 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       ui::button({
           .out = &inst.secondary,
           .glyph = "bell-off",
-          .variant = ButtonVariant::Default,
-          .radius = kIcon * 0.5F,
-          .width = kIcon,
-          .height = kIcon,
+          .glyphSize = Tokens::componentIslandIcon,
+          .radius = kButton * 0.5F,
+          .width = kButton,
+          .height = kButton,
           .onClick =
               [this] {
                 if (m_activity.has_value() && m_activity->secondaryAction) {
@@ -263,10 +279,10 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       ui::button({
           .out = &inst.action,
           .glyph = "close",
-          .variant = ButtonVariant::Default,
-          .radius = kIcon * 0.5F,
-          .width = kIcon,
-          .height = kIcon,
+          .glyphSize = Tokens::componentIslandIcon,
+          .radius = kButton * 0.5F,
+          .width = kButton,
+          .height = kButton,
           .onClick =
               [this] {
                 if (m_activity.has_value() && m_activity->action) {
@@ -275,6 +291,10 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               },
       })
   );
+  inst.title->setLineHeight(Tokens::typeTitle.size * Tokens::typeTitle.lineHeight);
+  inst.subtitle->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.secondary->setCustomPalette(livePalette(false));
+  inst.action->setCustomPalette(livePalette(false));
   inst.content = content.get();
   island->addChild(std::move(content));
   inst.sceneRoot->addChild(std::move(island));
@@ -291,6 +311,7 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.progress->setProgress(std::clamp(*a.progress, 0.0F, 1.0F));
   }
   inst.action->setVisible(!a.actionGlyph.empty());
+  inst.action->setCustomPalette(livePalette(a.actionDestructive));
   if (!a.actionGlyph.empty()) {
     inst.action->setGlyph(a.actionGlyph);
   }
@@ -302,8 +323,8 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   const bool showBar = inst.progress->visible();
   const int buttons = (a.actionGlyph.empty() ? 0 : 1) + (a.secondaryGlyph.empty() ? 0 : 1);
   const int gaps = 1 + (showBar ? 1 : 0) + buttons;
-  const float textWidth = inst.width - 2.0F * kPadding - kIcon - static_cast<float>(gaps) * Style::spaceMd
-      - (showBar ? kProgressWidth : 0.0F) - static_cast<float>(buttons) * kIcon;
+  const float textWidth = inst.width - 2.0F * kPadding - kIcon - static_cast<float>(gaps) * Tokens::componentLiveGap
+      - (showBar ? kProgressWidth : 0.0F) - static_cast<float>(buttons) * kButton;
   inst.title->setMaxWidth(std::max(0.0F, textWidth));
   inst.subtitle->setMaxWidth(std::max(0.0F, textWidth));
   if (inst.sceneRoot != nullptr && inst.content != nullptr) {

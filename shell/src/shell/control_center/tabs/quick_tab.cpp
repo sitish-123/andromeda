@@ -1,13 +1,16 @@
 #include "shell/control_center/tabs/quick_tab.h"
 
 #include "dbus/link/link_service.h"
+#include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
+#include "shell/panel/panel_manager.h"
 #include "system/brightness_service.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "ui/controls/label.h"
 #include "ui/controls/slider.h"
 #include "ui/palette.h"
@@ -19,8 +22,9 @@
 
 namespace {
 
-  constexpr float kRoundIcon = 32.0F;
-  constexpr float kPillHeight = 40.0F;
+  // Anatomy: docs/design-system.md "Control center"; values: protocol/design-tokens.toml [component.*].
+  constexpr float kRoundIcon = Tokens::componentRoundIconSize;
+  constexpr float kPillHeight = Tokens::componentSliderHeight;
 
   // The slider fills the whole pill; the icon and the value label draw over it.
   class SliderPill : public Flex {
@@ -38,23 +42,29 @@ namespace {
 
   std::string percent(float value) { return std::format("{}%", static_cast<int>(std::lround(value * 100.0F))); }
 
-  std::unique_ptr<Label> makeLabel(Label*& out, float size, FontWeight weight, ColorRole role) {
+  std::unique_ptr<Label> makeLabel(Label*& out, const Tokens::Type& type, float scale, ColorRole role) {
     auto label = std::make_unique<Label>();
-    label->setFontSize(size);
-    label->setFontWeight(weight);
+    label->setFontSize(type.size * scale);
+    label->setLineHeight(type.size * type.lineHeight * scale);
+    label->setFontWeight(static_cast<FontWeight>(type.weight));
     label->setColor(colorSpecFromRole(role));
     label->setMaxLines(1);
     out = label.get();
     return label;
   }
 
-  std::unique_ptr<Button> makeGlyphButton(Button*& out, std::string_view glyph, float scale, std::function<void()> click) {
+  std::unique_ptr<Button> makeGlyphButton(
+      Button*& out, std::string_view glyph, float scale, std::function<void()> click, float size = kRoundIcon,
+      ButtonVariant variant = ButtonVariant::Tonal
+  ) {
     auto button = std::make_unique<Button>();
-    button->setVariant(ButtonVariant::Ghost);
+    button->setVariant(variant);
     button->setGlyph(glyph);
-    button->setGlyphSize(Style::fontSizeBody * scale);
-    button->setControlHeight(kRoundIcon * scale);
-    button->setRadius(kRoundIcon * 0.5F * scale);
+    button->setGlyphSize(Tokens::componentRoundIconGlyph * scale);
+    button->setControlHeight(size * scale);
+    button->setMinWidth(size * scale);
+    button->setPadding(0.0F);
+    button->setRadius(size * 0.5F * scale);
     button->setOnClick(std::move(click));
     out = button.get();
     return button;
@@ -68,28 +78,40 @@ QuickTab::QuickTab(const ControlCenterServices& services, OpenTabCallback openTa
   m_wifi.shortcut = ShortcutRegistry::create("wifi", shortcuts);
   m_bluetooth.shortcut = ShortcutRegistry::create("bluetooth", shortcuts);
   m_focus.shortcut = ShortcutRegistry::create("notification", shortcuts);
+  m_focus.glyph = "moon";
   m_darkMode.shortcut = ShortcutRegistry::create("dark_mode", shortcuts);
   m_phoneRing = ShortcutRegistry::create("phone", shortcuts);
 }
 
 std::unique_ptr<Flex> QuickTab::makeCard() {
+  const float s = contentScale();
   auto card = std::make_unique<Flex>();
-  control_center::applySectionCardStyle(*card, contentScale(), panelCardOpacity());
+  control_center::applySectionCardStyle(*card, s, panelCardOpacity());
+  // Cards on a material are fill-1 (docs/design-system.md), lighter than the sheet; the shared card style is fill-2.
+  card->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
+  card->clearBorder();
+  card->setRadius(Tokens::componentCardRadius * s);
+  card->setPadding(Tokens::componentCardPadding * s);
+  card->setGap(Tokens::componentCardRowGap * s);
+  card->setJustify(FlexJustify::Center);
   return card;
 }
 
-std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view detailTab) {
+std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view detailTab, float iconTextGap) {
   const float s = contentScale();
   auto container = std::make_unique<Button>();
   container->setVariant(ButtonVariant::Ghost);
   container->setDirection(FlexDirection::Horizontal);
   container->setAlign(FlexAlign::Center);
-  container->setGap(Style::spaceSm * s);
+  container->setPadding(0.0F);
+  container->setMinHeight(kRoundIcon * s);
+  container->setGap(iconTextGap * s);
   container->setContentAlign(ButtonContentAlign::Start);
   container->setOnClick([this, tab = std::string(detailTab)] { m_openTab(tab); });
 
   Shortcut* shortcut = row.shortcut.get();
-  container->addChild(makeGlyphButton(row.icon, shortcut != nullptr ? shortcut->currentIcon() : "", s, [shortcut] {
+  const std::string glyph = !row.glyph.empty() ? row.glyph : std::string(shortcut != nullptr ? shortcut->currentIcon() : "");
+  container->addChild(makeGlyphButton(row.icon, glyph, s, [shortcut] {
     if (shortcut != nullptr) {
       shortcut->onClick();
     }
@@ -99,8 +121,8 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view
   text->setDirection(FlexDirection::Vertical);
   text->setAlign(FlexAlign::Start);
   text->setFlexGrow(1.0F);
-  text->addChild(makeLabel(row.title, Style::fontSizeBody * s, FontWeight::SemiBold, ColorRole::Label1));
-  text->addChild(makeLabel(row.subtitle, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2));
+  text->addChild(makeLabel(row.title, Tokens::typeTitle, s, ColorRole::Label1));
+  text->addChild(makeLabel(row.subtitle, Tokens::typeCaption, s, ColorRole::Label2));
   container->addChild(std::move(text));
   return container;
 }
@@ -110,10 +132,10 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   auto pill = std::make_unique<SliderPill>();
   pill->setDirection(FlexDirection::Horizontal);
   pill->setAlign(FlexAlign::Center);
-  pill->setGap(Style::spaceSm * s);
-  pill->setPadding(0.0F, Style::spaceMd * s);
+  pill->setGap(Tokens::componentSliderIconInset * s);
+  pill->setPadding(0.0F, Tokens::componentSliderValueInset * s, 0.0F, Tokens::componentSliderIconInset * s);
   pill->setMinHeight(kPillHeight * s);
-  pill->setRadius(kPillHeight * 0.5F * s);
+  pill->setRadius(Tokens::componentSliderRadius * s);
   pill->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
 
   auto bar = std::make_unique<Slider>();
@@ -121,6 +143,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   bar->setStep(0.01);
   bar->setControlHeight(kPillHeight * s);
   bar->setFilled(true);
+  bar->setTrackRadius(Tokens::componentSliderRadius * s);
   bar->setParticipatesInLayout(false);
   bar->setOnDragEnd([this] { m_draggingSlider = false; });
   slider = bar.get();
@@ -129,7 +152,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
 
   auto icon = std::make_unique<Glyph>();
   icon->setGlyph(glyph);
-  icon->setGlyphSize(Style::fontSizeBody * s);
+  icon->setGlyphSize(Tokens::componentRoundIconGlyph * s);
   // The icon always sits on the white slider fill.
   icon->setColor(fixedColorSpec(Color{.a = 0.6F}));
   pill->addChild(std::move(icon));
@@ -138,7 +161,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   spacer->setFlexGrow(1.0F);
   pill->addChild(std::move(spacer));
 
-  auto label = makeLabel(value, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2);
+  auto label = makeLabel(value, Tokens::typeCaption, s, ColorRole::Label2);
   label->setMaxWidth(120.0F * s);
   pill->addChild(std::move(label));
   return pill;
@@ -150,29 +173,29 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_root = root.get();
   root->setDirection(FlexDirection::Vertical);
   root->setAlign(FlexAlign::Stretch);
-  root->setGap(Style::spaceSm * s);
+  root->setGap(Tokens::componentSheetGap * s);
 
   auto top = std::make_unique<Flex>();
   top->setDirection(FlexDirection::Horizontal);
   top->setAlign(FlexAlign::Stretch);
-  top->setGap(Style::spaceSm * s);
+  top->setGap(Tokens::componentSheetGap * s);
 
   auto connectivity = makeCard();
   connectivity->setFlexGrow(1.0F);
-  connectivity->addChild(makeToggleRow(m_wifi, "network"));
-  connectivity->addChild(makeToggleRow(m_bluetooth, "bluetooth"));
+  connectivity->addChild(makeToggleRow(m_wifi, "network", Tokens::componentCardRowGap));
+  connectivity->addChild(makeToggleRow(m_bluetooth, "bluetooth", Tokens::componentCardRowGap));
   top->addChild(std::move(connectivity));
 
   auto smallCards = std::make_unique<Flex>();
   smallCards->setDirection(FlexDirection::Vertical);
   smallCards->setAlign(FlexAlign::Stretch);
-  smallCards->setGap(Style::spaceSm * s);
+  smallCards->setGap(Tokens::componentSheetGap * s);
   smallCards->setFlexGrow(1.0F);
   auto focus = makeCard();
-  focus->addChild(makeToggleRow(m_focus, "notifications"));
+  focus->addChild(makeToggleRow(m_focus, "notifications", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(focus));
   auto dark = makeCard();
-  dark->addChild(makeToggleRow(m_darkMode, "home"));
+  dark->addChild(makeToggleRow(m_darkMode, "home", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(dark));
   top->addChild(std::move(smallCards));
   root->addChild(std::move(top));
@@ -208,29 +231,50 @@ std::unique_ptr<Flex> QuickTab::create() {
   media->setDirection(FlexDirection::Horizontal);
   media->setAlign(FlexAlign::Center);
   m_mediaCard = media.get();
+  // fill_3 shows while there is no artwork.
+  const float art = Tokens::componentMediaArt * s;
+  auto artBox = std::make_unique<Flex>();
+  artBox->setFill(colorSpecFromRole(ColorRole::Fill3));
+  artBox->setRadius(Tokens::componentMediaArtRadius * s);
+  artBox->setMinWidth(art);
+  artBox->setMinHeight(art);
+  auto artImage = std::make_unique<Image>();
+  artImage->setFit(ImageFit::Cover);
+  artImage->setRadius(Tokens::componentMediaArtRadius * s);
+  artImage->setSize(art, art);
+  artImage->setParticipatesInLayout(false);
+  m_mediaArt = artImage.get();
+  artBox->addChild(std::move(artImage));
+  media->addChild(std::move(artBox));
   auto mediaText = std::make_unique<Flex>();
   mediaText->setDirection(FlexDirection::Vertical);
   mediaText->setAlign(FlexAlign::Start);
   mediaText->setFlexGrow(1.0F);
-  mediaText->addChild(makeLabel(m_mediaTitle, Style::fontSizeBody * s, FontWeight::SemiBold, ColorRole::Label1));
-  mediaText->addChild(makeLabel(m_mediaArtist, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2));
+  mediaText->addChild(makeLabel(m_mediaTitle, Tokens::typeTitle, s, ColorRole::Label1));
+  mediaText->addChild(makeLabel(m_mediaArtist, Tokens::typeCaption, s, ColorRole::Label2));
   media->addChild(std::move(mediaText));
+  // Bare glyphs; each button is glyph + gap wide, so glyph centers sit glyph + controls_gap apart as in the reference.
+  constexpr float kMediaControl = Tokens::componentRoundIconGlyph + Tokens::componentMediaControlsGap;
+  auto controls = std::make_unique<Flex>();
+  controls->setDirection(FlexDirection::Horizontal);
+  controls->setAlign(FlexAlign::Center);
   Button* unused = nullptr;
-  media->addChild(makeGlyphButton(unused, "player-skip-back", s, [this] {
+  controls->addChild(makeGlyphButton(unused, "player-skip-back", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->previousActive();
     }
-  }));
-  media->addChild(makeGlyphButton(m_playButton, "player-play", s, [this] {
+  }, kMediaControl, ButtonVariant::Ghost));
+  controls->addChild(makeGlyphButton(m_playButton, "player-play", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->playPauseActive();
     }
-  }));
-  media->addChild(makeGlyphButton(unused, "player-skip-forward", s, [this] {
+  }, kMediaControl, ButtonVariant::Ghost));
+  controls->addChild(makeGlyphButton(unused, "player-skip-forward", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->nextActive();
     }
-  }));
+  }, kMediaControl, ButtonVariant::Ghost));
+  media->addChild(std::move(controls));
   root->addChild(std::move(media));
 
   auto phone = makeCard();
@@ -238,20 +282,29 @@ std::unique_ptr<Flex> QuickTab::create() {
   phone->setAlign(FlexAlign::Center);
   m_phoneCard = phone.get();
   Button* phoneIcon = nullptr;
-  phone->addChild(makeGlyphButton(phoneIcon, "device-mobile", s, {}));
-  phoneIcon->setVariant(ButtonVariant::Primary);
+  phone->addChild(makeGlyphButton(phoneIcon, "device-mobile", s, {}, kRoundIcon, ButtonVariant::Primary));
   auto phoneText = std::make_unique<Flex>();
   phoneText->setDirection(FlexDirection::Vertical);
   phoneText->setAlign(FlexAlign::Start);
   phoneText->setFlexGrow(1.0F);
-  phoneText->addChild(makeLabel(m_phoneName, Style::fontSizeBody * s, FontWeight::SemiBold, ColorRole::Label1));
-  phoneText->addChild(makeLabel(m_phoneStatus, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2));
+  phoneText->addChild(makeLabel(m_phoneName, Tokens::typeTitle, s, ColorRole::Label1));
+  phoneText->addChild(makeLabel(m_phoneStatus, Tokens::typeCaption, s, ColorRole::Label2));
   phone->addChild(std::move(phoneText));
-  phone->addChild(makeGlyphButton(unused, "bell-ringing", s, [this] {
+  auto actions = std::make_unique<Flex>();
+  actions->setDirection(FlexDirection::Horizontal);
+  actions->setAlign(FlexAlign::Center);
+  actions->setGap(Tokens::componentRoundIconActionGap * s);
+  actions->addChild(makeGlyphButton(unused, "bell-ringing", s, [this] {
     if (m_phoneRing != nullptr) {
       m_phoneRing->onClick();
     }
-  }));
+  }, Tokens::componentRoundIconAction));
+  actions->addChild(makeGlyphButton(unused, "screen-share", s, [this] {
+    if (m_services.link != nullptr && !m_phoneId.empty()) {
+      m_services.link->mirror(m_phoneId);
+    }
+  }, Tokens::componentRoundIconAction));
+  phone->addChild(std::move(actions));
   root->addChild(std::move(phone));
 
   m_wifi.title->setText(i18n::tr("control-center.quick.wifi"));
@@ -284,8 +337,8 @@ void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
     return;
   }
   const bool active = row.shortcut->active();
-  row.icon->setGlyph(row.shortcut->currentIcon());
-  row.icon->setVariant(active ? ButtonVariant::Primary : ButtonVariant::Default);
+  row.icon->setGlyph(!row.glyph.empty() ? row.glyph : row.shortcut->currentIcon());
+  row.icon->setVariant(active ? ButtonVariant::Primary : ButtonVariant::Tonal);
   row.icon->setEnabled(row.shortcut->enabled());
   row.subtitle->setText(subtitle);
 }
@@ -317,7 +370,7 @@ void QuickTab::syncSliders() {
   );
 }
 
-void QuickTab::syncMedia() {
+void QuickTab::syncMedia(Renderer& renderer) {
   const auto player = m_services.mpris != nullptr ? m_services.mpris->activePlayer() : std::nullopt;
   m_mediaCard->setVisible(player.has_value());
   if (!player.has_value()) {
@@ -326,6 +379,24 @@ void QuickTab::syncMedia() {
   m_mediaTitle->setText(player->title);
   m_mediaArtist->setText(joinedArtists(player->artists));
   m_playButton->setGlyph(player->playbackStatus == "Playing" ? "player-pause" : "player-play");
+
+  const std::string url = mpris::effectiveArtUrl(*player);
+  if (url == m_mediaArtUrl && (url.empty() || m_mediaArt->hasImage())) {
+    return;
+  }
+  const std::string path = mpris::resolveArtworkSource(
+      m_services.httpClient, m_pendingArt, url, [this] {
+        m_mediaArtUrl.clear();
+        PanelManager::instance().refresh();
+      }, m_aliveGuard
+  );
+  const auto decode = static_cast<int>(std::ceil(Tokens::componentMediaArt * contentScale() * 2.0F));
+  if (path.empty() || !m_mediaArt->setSourceFile(renderer, path, decode, true, true)) {
+    m_mediaArt->clear(renderer);
+    m_mediaArtUrl = path.empty() && !url.empty() ? std::string{} : url;
+    return;
+  }
+  m_mediaArtUrl = url;
 }
 
 void QuickTab::syncPhone() {
@@ -339,6 +410,7 @@ void QuickTab::syncPhone() {
     }
   }
   m_phoneCard->setVisible(phone != nullptr);
+  m_phoneId = phone != nullptr ? phone->id : std::string{};
   if (phone == nullptr) {
     return;
   }
@@ -355,7 +427,6 @@ void QuickTab::syncPhone() {
 }
 
 void QuickTab::doUpdate(Renderer& renderer) {
-  (void)renderer;
   const auto onOff = [](const Shortcut* shortcut) {
     return i18n::tr(shortcut != nullptr && shortcut->active() ? "control-center.quick.on" : "control-center.quick.off");
   };
@@ -371,6 +442,6 @@ void QuickTab::doUpdate(Renderer& renderer) {
   syncToggleRow(m_focus, onOff(m_focus.shortcut.get()));
   syncToggleRow(m_darkMode, onOff(m_darkMode.shortcut.get()));
   syncSliders();
-  syncMedia();
+  syncMedia(renderer);
   syncPhone();
 }

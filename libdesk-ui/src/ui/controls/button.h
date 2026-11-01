@@ -29,6 +29,7 @@ enum class ButtonVariant : std::uint8_t {
   Ghost,
   Tab,
   TabActive,
+  Tonal, // fill-3, no border: an off round icon (docs/design-system.md)
 };
 
 class Button : public Flex {

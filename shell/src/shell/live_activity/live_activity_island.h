@@ -31,6 +31,7 @@ struct LiveActivity {
   std::optional<float> progress;
   std::string actionGlyph;
   std::function<void()> action;
+  bool actionDestructive = false; // danger fill, for example decline
   // Shown before the main action, for example mute before decline.
   std::string secondaryGlyph;
   std::function<void()> secondaryAction;

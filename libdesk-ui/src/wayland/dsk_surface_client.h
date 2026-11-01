@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <unordered_map>
 
 struct wl_surface;
@@ -36,6 +37,13 @@ public:
   void set(Property property, const Value& value);
   // Runs from the property's current value; `onDone` fires once when it settles, is retargeted or is cancelled.
   void animate(Property property, Curve curve, const Value& to, DoneCallback onDone = {});
+  // Sets Clip to `rect` (x, y, width, height) of `source`, another layer surface of this client, mapped by the
+  // compositor into this surface's coordinates. False when the compositor lacks it (protocol version 1).
+  bool setClipFrom(wl_surface* source, const Value& rect);
+  // The clip the last setClipFrom computed, in this surface's coordinates; empty until the compositor reports it.
+  [[nodiscard]] const std::optional<Value>& mappedClip() const noexcept { return m_mappedClip; }
+  // Runs when the compositor reports the clip of the last setClipFrom.
+  void setOnClipMapped(std::function<void(const Value&)> callback) { m_onClipMapped = std::move(callback); }
 
   [[nodiscard]] dsk_surface_v1* resource() const noexcept { return m_surface; }
 
@@ -43,9 +51,12 @@ private:
   static const dsk_surface_v1_listener kListener;
   static void handleStarted(void* data, dsk_surface_v1* surface, uint32_t serial, uint32_t time);
   static void handleDone(void* data, dsk_surface_v1* surface, uint32_t serial, uint32_t reason);
+  static void handleClipMapped(void* data, dsk_surface_v1* surface, int32_t x, int32_t y, int32_t width, int32_t height);
 
   dsk_surface_v1* m_surface = nullptr;
   uint32_t m_nextSerial = 1;
+  std::optional<Value> m_mappedClip;
+  std::function<void(const Value&)> m_onClipMapped;
   std::unordered_map<uint32_t, DoneCallback> m_pending;
 };
 

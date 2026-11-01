@@ -128,19 +128,27 @@ namespace andromeda {
 
   void DskSurfaceManager::handleTrackerCommit(wl_listener* listener, void* /*data*/) {
     Tracker* tracker = wl_container_of(listener, tracker, clientCommit);
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const auto ms = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
     if (tracker->pendingChanged) {
+      // Bindings and a new source arrive during a gesture (the client binds on interacting); only a new range or
+      // new snaps restart the motion.
+      const bool restart = tracker->pending.minimum != tracker->current.minimum
+          || tracker->pending.maximum != tracker->current.maximum || tracker->pending.snaps != tracker->current.snaps;
       tracker->current = tracker->pending;
       tracker->pendingChanged = false;
-      tracker->motion = TrackerMotion{};
-      tracker->motion.setRange(tracker->current.minimum, tracker->current.maximum);
-      for (double snap : tracker->current.snaps) {
-        tracker->motion.addSnap(snap);
+      if (restart) {
+        tracker->motion = TrackerMotion{};
+        tracker->motion.setRange(tracker->current.minimum, tracker->current.maximum);
+        for (double snap : tracker->current.snaps) {
+          tracker->motion.addSnap(snap);
+        }
+      } else if (tracker->motion.phase() != TrackerMotion::Phase::Idle) {
+        tracker->manager->applyTracker(*tracker, ms);
       }
     }
     if (tracker->pendingMove) {
-      timespec now{};
-      clock_gettime(CLOCK_MONOTONIC, &now);
-      const auto ms = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
       const auto [target, curve] = *tracker->pendingMove;
       if (curve == SurfaceMotion::Curve::None || config().appearance.reduceMotion) {
         tracker->motion.jumpTo(target, ms);

@@ -46,6 +46,12 @@ namespace {
         std::println("dsk-done {} {}", serial, reason);
         std::fflush(stdout);
       },
+      .clip_mapped = [](void* /*data*/, dsk_surface_v1* /*surface*/, wl_fixed_t x, wl_fixed_t y, wl_fixed_t w,
+                        wl_fixed_t h) {
+        std::println("dsk-clip-mapped {} {} {} {}", wl_fixed_to_int(x), wl_fixed_to_int(y), wl_fixed_to_int(w),
+                     wl_fixed_to_int(h));
+        std::fflush(stdout);
+      },
   };
   const dsk_tracker_v1_listener kDskTrackerListener = {
       .interacting = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/) {
@@ -89,6 +95,7 @@ namespace {
     ext_background_effect_surface_v1* blurEffect = nullptr;
     dsk_surface_manager_v1* dskManager = nullptr;
     dsk_surface_v1* dskSurface = nullptr;
+    dsk_tracker_v1* dskTracker = nullptr;
     wl_surface* popupSurface = nullptr;
     xdg_surface* popupXdgSurface = nullptr;
     xdg_popup* popup = nullptr;
@@ -107,6 +114,9 @@ namespace {
     wl_callback* frame = nullptr;
     Buffer buffer;
     wl_surface* childSurface = nullptr;
+    wl_surface* sourceSurface = nullptr;
+    zwlr_layer_surface_v1* sourceLayer = nullptr;
+    Buffer sourceBuffer;
     wl_subsurface* childSubsurface = nullptr;
     Buffer childBuffer;
     wl_surface* frameSurface = nullptr;
@@ -204,6 +214,8 @@ namespace {
     wl_callback_add_listener(state.frame, &kFrameListener, &state);
     wl_surface_commit(state.frameSurface);
   }
+
+  extern const zwlr_layer_surface_v1_listener kSourceLayerListener;
 
   void handleCommand(State& state, const std::string& line) {
     std::istringstream command(line);
@@ -322,6 +334,46 @@ namespace {
             wl_fixed_from_double(d)
         );
       }
+    } else if (action == "source") {
+      // source <label> <x> <y>: a second, 100x50 bottom-layer surface at output x,y; prints source-mapped.
+      int x = 0;
+      int y = 0;
+      command >> x >> y;
+      if (command.fail() || state.sourceSurface != nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      state.sourceSurface = wl_compositor_create_surface(state.compositor);
+      state.sourceLayer = zwlr_layer_shell_v1_get_layer_surface(
+          state.layerShell, state.sourceSurface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, "source"
+      );
+      zwlr_layer_surface_v1_add_listener(state.sourceLayer, &kSourceLayerListener, &state);
+      zwlr_layer_surface_v1_set_size(state.sourceLayer, 100, 50);
+      zwlr_layer_surface_v1_set_anchor(
+          state.sourceLayer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+      );
+      zwlr_layer_surface_v1_set_exclusive_zone(state.sourceLayer, -1);
+      zwlr_layer_surface_v1_set_margin(state.sourceLayer, y, 0, 0, x);
+      wl_surface_commit(state.sourceSurface);
+    } else if (action == "dsk-clip-from") {
+      // dsk-clip-from <label> <x> <y> <w> <h>: clip to a rect of the source surface.
+      double x = 0.0;
+      double y = 0.0;
+      double w = 0.0;
+      double h = 0.0;
+      command >> x >> y >> w >> h;
+      if (state.dskManager == nullptr || state.sourceSurface == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_set_clip_from(
+          state.dskSurface, state.sourceSurface, wl_fixed_from_double(x), wl_fixed_from_double(y),
+          wl_fixed_from_double(w), wl_fixed_from_double(h)
+      );
     } else if (action == "dsk-elevation") {
       // dsk-elevation <label> <level>: 0 none, 1 e1, 2 e2.
       uint32_t level = 0;
@@ -354,6 +406,7 @@ namespace {
         return;
       }
       dsk_tracker_v1* tracker = dsk_surface_manager_v1_get_tracker(state.dskManager, state.surface);
+      state.dskTracker = tracker;
       dsk_tracker_v1_add_listener(tracker, &kDskTrackerListener, nullptr);
       dsk_tracker_v1_set_source(tracker, DSK_TRACKER_V1_AXIS_VERTICAL, fingers, nullptr);
       dsk_tracker_v1_set_range(tracker, wl_fixed_from_double(min), wl_fixed_from_double(max));
@@ -364,6 +417,19 @@ namespace {
       dsk_tracker_v1_bind(
           tracker, state.dskSurface, 0, 1, wl_fixed_from_double(min), wl_fixed_from_double(max),
           wl_fixed_from_double(min), wl_fixed_from_double(max)
+      );
+      wl_surface_commit(state.surface);
+    } else if (action == "dsk-rebind") {
+      // dsk-rebind <min> <max>: binds translate.x as well and commits, as a client that binds on interacting does.
+      double min = 0.0;
+      double max = 0.0;
+      command >> min >> max;
+      if (command.fail() || state.dskTracker == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      dsk_tracker_v1_bind(
+          state.dskTracker, state.dskSurface, 0, 0, wl_fixed_from_double(min), wl_fixed_from_double(max), 0, 0
       );
       wl_surface_commit(state.surface);
     } else if (action == "child-move") {
@@ -448,6 +514,24 @@ namespace {
 
   constexpr zwlr_layer_surface_v1_listener kLayerSurfaceListener = {
       .configure = layerConfigure,
+      .closed = layerClosed,
+  };
+
+  void sourceConfigure(void* data, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
+    auto& state = *static_cast<State*>(data);
+    zwlr_layer_surface_v1_ack_configure(layer, serial);
+    if (state.sourceBuffer.resource == nullptr) {
+      state.sourceBuffer = createBuffer(state, 100, 50);
+      wl_surface_attach(state.sourceSurface, state.sourceBuffer.resource, 0, 0);
+      wl_surface_damage_buffer(state.sourceSurface, 0, 0, 100, 50);
+      std::println("source-mapped");
+      std::fflush(stdout);
+    }
+    wl_surface_commit(state.sourceSurface);
+  }
+
+  const zwlr_layer_surface_v1_listener kSourceLayerListener = {
+      .configure = sourceConfigure,
       .closed = layerClosed,
   };
 
@@ -540,6 +624,10 @@ namespace {
   void pointerButton(void* data, wl_pointer*, uint32_t serial, uint32_t, uint32_t button, uint32_t buttonState) {
     constexpr uint32_t kLeftButton = 0x110;
     auto& state = *static_cast<State*>(data);
+    if (state.logPointer && button == kLeftButton && buttonState == WL_POINTER_BUTTON_STATE_PRESSED) {
+      std::println("pointer-press {} {}", state.pointerX, state.pointerY);
+      std::fflush(stdout);
+    }
     if (state.popupOnClick
         && button == kLeftButton
         && buttonState == WL_POINTER_BUTTON_STATE_PRESSED
@@ -648,7 +736,7 @@ namespace {
       );
     } else if (std::strcmp(interface, dsk_surface_manager_v1_interface.name) == 0) {
       state.dskManager =
-          static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, 1));
+          static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 2U)));
     } else if (std::strcmp(interface, ext_background_effect_manager_v1_interface.name) == 0) {
       state.blurManager = static_cast<ext_background_effect_manager_v1*>(
           wl_registry_bind(registry, name, &ext_background_effect_manager_v1_interface, 1)

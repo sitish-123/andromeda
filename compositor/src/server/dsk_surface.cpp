@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 1;
+    constexpr int kVersion = 2;
     constexpr uint32_t kPropertyCount = 5;
     constexpr uint32_t kCurveCount = 7;
     constexpr uint32_t kElevationCount = 3;
@@ -31,6 +31,7 @@ namespace andromeda {
       .set_elevation = handleSetElevation,
       .set = handleSet,
       .animate = handleAnimate,
+      .set_clip_from = handleSetClipFrom,
   };
 
   const wlr_addon_interface DskSurfaceManager::kAddonInterface = {
@@ -199,6 +200,30 @@ namespace andromeda {
     );
   }
 
+  void DskSurfaceManager::handleSetClipFrom(
+      wl_client* /*client*/, wl_resource* resource, wl_resource* source, int32_t x, int32_t y, int32_t width,
+      int32_t height
+  ) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr || !state->manager->m_originLookup) {
+      return;
+    }
+    // The source is mapped already; this surface may map with this very commit, so its origin is read then.
+    wlr_surface* sourceSurface = wlr_surface_from_resource(source);
+    const auto from = sourceSurface->mapped ? state->manager->m_originLookup(sourceSurface) : std::nullopt;
+    if (!from) {
+      return;
+    }
+    state->pending.push_back(
+        {.kind = Op::Kind::ClipFrom,
+         .serial = 0,
+         .property = SurfaceMotion::Property::Clip,
+         .curve = SurfaceMotion::Curve::None,
+         .value = {wl_fixed_to_double(x) + from->first, wl_fixed_to_double(y) + from->second,
+                   wl_fixed_to_double(width), wl_fixed_to_double(height)}}
+    );
+  }
+
   void DskSurfaceManager::handleAnimate(
       wl_client* /*client*/, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t curve, int32_t a,
       int32_t b, int32_t c, int32_t d
@@ -249,7 +274,18 @@ namespace andromeda {
       state->pendingElevationSet = false;
     }
     for (const Op& op : state->pending) {
-      if (op.kind == Op::Kind::Set) {
+      if (op.kind == Op::Kind::ClipFrom) {
+        const auto to = state->manager->m_originLookup ? state->manager->m_originLookup(state->surface) : std::nullopt;
+        if (!to) {
+          continue;
+        }
+        const SurfaceMotion::Value clip{op.value[0] - to->first, op.value[1] - to->second, op.value[2], op.value[3]};
+        dsk_surface_v1_send_clip_mapped(
+            state->resource, wl_fixed_from_double(clip[0]), wl_fixed_from_double(clip[1]), wl_fixed_from_double(clip[2]),
+            wl_fixed_from_double(clip[3])
+        );
+        state->current.motion.set(op.property, clip);
+      } else if (op.kind == Op::Kind::Set) {
         state->current.motion.set(op.property, op.value);
       } else {
         // Reduce motion: spatial properties jump; opacity keeps its fade.

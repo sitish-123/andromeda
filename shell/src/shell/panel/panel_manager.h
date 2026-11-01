@@ -7,8 +7,10 @@
 #include "shell/panel/panel_click_shield.h"
 #include "shell/panel/persistent_panel_host.h"
 #include "ui/dialogs/layer_popup_host.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/hyprland/popup_grab_host.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -47,6 +49,15 @@ struct PanelOpenRequest {
   bool hasAnchorPosition = false;
   std::string_view context;
   std::string_view sourceBarName;
+  // The bar island the panel opens from: its wl_surface and x, y, width, height in that surface. The panel grows out
+  // of it when the compositor supports dsk_surface_v1.set_clip_from.
+  wl_surface* sourceSurface = nullptr;
+  std::array<float, 4> sourceRect{};
+  // A drag on the island that opens the panel: the sheet follows tracker positions 0..trackerRange instead of
+  // animating. Bindings apply on the tracker surface's commit, so commitTracker asks its owner to commit.
+  std::weak_ptr<DskTrackerClient> tracker;
+  double trackerRange = 0.0;
+  std::function<void()> commitTracker;
 };
 
 class PanelManager : public PopupGrabHost {
@@ -103,6 +114,8 @@ public:
   [[nodiscard]] std::vector<std::string> availablePanelIds() const;
 
   void openPanel(const std::string& panelId, PanelOpenRequest request = {});
+  // The tracker of a gesture open came to rest: settle the sheet open, or drop it when closed.
+  void finishTrackerOpen(bool open);
   void closePanel(bool animateClose = true);
   // Call outside input dispatch to clear the displayed buffer before closing and running the action.
   void closePanelForCapture(std::function<void()> afterClose);
@@ -197,6 +210,16 @@ private:
   void deactivateOutsideClickHandlers();
   void applyAttachedReveal(float progress);
   void applyDetachedReveal(float progress);
+  // Island-to-sheet morph through the compositor; false (nothing started) without a source island or dsk support.
+  bool startDetachedMorph();
+  void bindTrackerOpen(const DskSurfaceClient::Value& islandClip);
+  void settleDetachedMorph();
+  bool startDetachedMorphClose(std::uint64_t gen);
+  [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
+  // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
+  [[nodiscard]] float detachedBackgroundOpacity() const;
+  // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
+  [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
   void publishAttachedPanelGeometry(float revealProgress);
   // Restyle the attached-panel decoration nodes (bg fill, drop shadow, contact shadow)
@@ -240,6 +263,16 @@ private:
   std::unordered_set<wl_surface*> m_focusGrabPopupSurfaces;
 
   std::unique_ptr<Surface> m_surface;
+  // Morphs the detached panel from its bar island; null when the panel opens with the shell's own reveal.
+  std::unique_ptr<DskSurfaceClient> m_dsk;
+  wl_surface* m_morphSource = nullptr;
+  std::array<float, 4> m_morphSourceRect{};
+  float m_morphSourceRadius = 0.0F;
+  std::weak_ptr<DskTrackerClient> m_gestureTracker;
+  double m_gestureRange = 0.0;
+  std::function<void()> m_commitTracker;
+  bool m_morphSettled = false;
+  std::optional<float> m_islandBackgroundOpacity;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().

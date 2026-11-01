@@ -31,20 +31,21 @@
 
 namespace {
 
-  // Instance-count badge geometry — scales with icon size.
-  constexpr float kBadgeSizeRatio = 0.30F; // fraction of icon size
-  constexpr float kBadgeMinSize = 16.0F;   // minimum diameter in px
-  constexpr float kBadgeFontRatio = 0.72F; // font size relative to badge diameter
-  constexpr float kBadgeCornerInsetX = 0.55F;
-  constexpr float kBadgeCornerInsetY = 0.45F;
+  // Badge geometry (component.badge at component.dock.icon), scaled with the icon size.
+  constexpr float kBadgeSizeRatio = Tokens::componentBadgeHeight / Tokens::componentDockIcon;
+  constexpr float kBadgeMinSize = 16.0F;
+  constexpr float kBadgeFontRatio = Tokens::componentBadgeFont / Tokens::componentBadgeHeight;
+  constexpr float kBadgeCornerInsetX = 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
+  constexpr float kBadgeCornerInsetY = Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
   constexpr float kDotSizeRatio = 0.09F;
   constexpr float kDotMinSize = 4.0F;
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
-  constexpr float kRunningBarLength = 14.0F;
-  constexpr float kRunningBarThickness = 3.0F;
-  constexpr float kCellPad = 6.0F;
+  constexpr float kRunningBarLength = Tokens::componentDockRunningWidth;
+  constexpr float kRunningBarThickness = Tokens::componentDockRunningHeight;
+  // component.dock.padding and .gap space the icons; a cell adds none.
+  constexpr float kCellPad = 0.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
   constexpr float kHoverZoomLerp = 0.28F;
   constexpr float kHoverZoomReferenceFrameMs = 1000.0F / 60.0F;
@@ -660,7 +661,8 @@ namespace shell::dock {
                 .configure = [vert, edge, cellMain](Box& box) {
                   const float centered = std::round((cellMain - kRunningBarLength) * 0.5F);
                   const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
-                  const float outer = atStart ? 1.0F : std::round(cellMain - kRunningBarThickness - 1.0F);
+                  constexpr float kGap = Tokens::componentDockRunningOffset;
+                  const float outer = atStart ? -(kGap + kRunningBarThickness) : cellMain + kGap;
                   box.setPosition(vert ? outer : centered, vert ? centered : outer);
                 },
             })
@@ -687,7 +689,7 @@ namespace shell::dock {
             ui::label({
                 .out = &item.badgeLabel,
                 .fontSize = bd * kBadgeFontRatio,
-                .fontWeight = FontWeight::Bold,
+                .fontWeight = static_cast<FontWeight>(Tokens::componentBadgeFontWeight),
                 .maxLines = 1,
                 .visible = false,
             })

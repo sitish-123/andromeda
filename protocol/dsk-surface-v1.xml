@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="1">
+  <interface name="dsk_surface_manager_v1" version="2">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="1">
+  <interface name="dsk_surface_v1" version="2">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -141,9 +141,38 @@
       <arg name="reason" type="uint" enum="reason"/>
     </event>
 
+
+    <request name="set_clip_from" since="2">
+      <description summary="clip to a rect of another surface">
+        Sets clip, as a set of clip would, to a rect given in the source
+        surface's local coordinates. The source position is read now, this
+        surface's position at the commit that applies the request, so it
+        works on the commit that maps this surface. Neither surface's own
+        translate or scale counts. An island grows into its sheet by this
+        request followed by an animate of clip. The source must be a mapped
+        layer surface and this surface a layer surface; otherwise the
+        request does nothing and clip_mapped is not sent.
+      </description>
+      <arg name="source" type="object" interface="wl_surface"/>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+      <arg name="width" type="fixed"/>
+      <arg name="height" type="fixed"/>
+    </request>
+
+    <event name="clip_mapped" since="2">
+      <description summary="the clip set_clip_from computed">
+        Sent at once for each set_clip_from that took effect, with the rect
+        in this surface's coordinates, so the client can animate back to it.
+      </description>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+      <arg name="width" type="fixed"/>
+      <arg name="height" type="fixed"/>
+    </event>
   </interface>
 
-  <interface name="dsk_tracker_v1" version="1">
+  <interface name="dsk_tracker_v1" version="2">
     <description summary="a compositor-owned gesture">
       A one-dimensional position the compositor drives from input, after
       the Windows InteractionTracker model: interacting, then inertia, then
