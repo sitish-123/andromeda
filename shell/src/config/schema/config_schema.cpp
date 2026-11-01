@@ -554,13 +554,75 @@ namespace noctalia::config::schema {
 
   const Schema<ControlCenterConfig>& controlCenterSchema() {
     static const Schema<ControlCenterConfig> s = {
-        enumField(&ControlCenterConfig::sidebarMode, "sidebar", kControlCenterSidebarModes),
-        enumField(&ControlCenterConfig::sidebarSectionMode, "sidebar_section", kControlCenterSidebarModes),
-        field(&ControlCenterConfig::width, "width", kControlCenterWidthRange),
-        field(&ControlCenterConfig::showShortcutLabels, "show_shortcut_labels"),
-        field(&ControlCenterConfig::showSessionButton, "show_session_button"),
-        field(&ControlCenterConfig::circularAvatar, "circular_avatar"),
-        field(&ControlCenterConfig::showAvatarBorder, "show_avatar_border"),
+        enumField(
+            &ControlCenterConfig::sidebarMode, "sidebar", kControlCenterSidebarModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "control-center",
+                .group = "navigation",
+                .label = "panels.control-center-sidebar",
+                .tags = "full compact none sidebar icons narrow hidden",
+                .segmented = true,
+            }
+        ),
+        enumField(
+            &ControlCenterConfig::sidebarSectionMode, "sidebar_section", kControlCenterSidebarModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "control-center",
+                .group = "navigation",
+                .label = "panels.control-center-sidebar-section",
+                .tags = "full compact none sidebar icons narrow hidden tab direct widget shortcut",
+                .segmented = true,
+            }
+        ),
+        field(
+            &ControlCenterConfig::width, "width", kControlCenterWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "control-center",
+                .group = "layout",
+                .label = "panels.control-center-width",
+                .tags = "size dimension wide narrow",
+                .suffix = "px",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showShortcutLabels, "show_shortcut_labels",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-shortcuts-show-labels",
+                .tags = "shortcuts labels text hide show titles",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showSessionButton, "show_session_button",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-session-button",
+                .tags = "session button show hide",
+            }
+        ),
+        field(
+            &ControlCenterConfig::circularAvatar, "circular_avatar",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-circular-avatar",
+                .tags = "avatar profile picture circle radius roundness",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showAvatarBorder, "show_avatar_border",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-avatar-border",
+                .tags = "avatar border ring accent hide show",
+            }
+        ),
         field(&ControlCenterConfig::hiddenTabs, "hidden_tabs"),
         subTable(&ControlCenterConfig::calendarTab, "calendar", calendarTabSchema()),
         subTable(&ControlCenterConfig::mediaTab, "media", mediaTabSchema()),

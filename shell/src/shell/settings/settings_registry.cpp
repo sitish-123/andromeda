@@ -391,6 +391,68 @@ namespace settings {
       };
     }
 
+    // Rows for the fields of `schema` that have a RowSpec, in schema order. The current value is read back
+    // through the field's own write(), so a row shows exactly what the config file would hold.
+    template <typename Struct>
+    std::vector<SettingEntry> generateSchemaEntries(
+        const noctalia::config::schema::Schema<Struct>& schema, const Struct& values, std::string_view table
+    ) {
+      using noctalia::config::schema::RowSpec;
+      std::vector<SettingEntry> entries;
+      for (const auto& field : schema) {
+        if (!field.row) {
+          continue;
+        }
+        const RowSpec& row = *field.row;
+        toml::table written;
+        field.write(written, values);
+        const auto value = std::as_const(written)[field.key];
+        SettingControl control;
+        switch (row.kind) {
+        case RowSpec::Kind::Toggle:
+          control = ToggleSetting{value.value_or(false)};
+          break;
+        case RowSpec::Kind::Slider: {
+          SliderSetting slider{
+              noctalia::config::schema::finiteDouble(value).value_or(0.0), row.range.min.value(),
+              row.range.max.value(), row.range.step.value(), row.integer
+          };
+          slider.valueSuffix = row.suffix;
+          control = std::move(slider);
+          break;
+        }
+        case RowSpec::Kind::Select: {
+          SelectSetting select;
+          for (const auto& choice : row.choices) {
+            select.options.push_back(SelectOption{std::string(choice.value), i18n::tr(choice.labelKey)});
+          }
+          select.selectedValue = value.value_or(std::string{});
+          select.segmented = row.segmented;
+          control = std::move(select);
+          break;
+        }
+        }
+        const std::string label = row.label.empty() ? std::string(row.section) + "." + i18n::keySegment(field.key)
+                                                    : std::string(row.label);
+        entries.push_back(makeEntry(
+            settingsSectionFromId(row.section).value(), std::string(row.group),
+            i18n::tr("settings.schema." + label + ".label"), i18n::tr("settings.schema." + label + ".description"),
+            {std::string(table), std::string(field.key)}, std::move(control), std::string(row.tags), row.advanced
+        ));
+      }
+      return entries;
+    }
+
+    // Moves the rows of `group` from `generated` to the end of `entries`, in order. Each call site sits where
+    // the group's hand-written rows were, so custom rows of the same group keep their place.
+    void appendGroup(std::vector<SettingEntry>& entries, std::vector<SettingEntry>& generated, std::string_view group) {
+      for (auto& entry : generated) {
+        if (entry.group == group) {
+          entries.push_back(std::move(entry));
+        }
+      }
+    }
+
   } // namespace
 
   const BarConfig* findBar(const Config& cfg, std::string_view name) {
@@ -1860,28 +1922,10 @@ namespace settings {
         "settings.schema.panels.open-near-click-control-center.description", cfg.shell.panel.openNearClickControlCenter,
         &ShellConfig::PanelConfig::controlCenterPlacement, &ShellConfig::PanelConfig::controlCenterPosition
     ));
-    {
-      SliderSetting width =
-          sliderFor(cfg.controlCenter.width, noctalia::config::schema::kControlCenterWidthRange, true);
-      width.valueSuffix = "px";
-      entries.push_back(makeEntry(
-          SettingsSection::ControlCenter, "layout", tr("settings.schema.panels.control-center-width.label"),
-          tr("settings.schema.panels.control-center-width.description"), {"control_center", "width"}, std::move(width),
-          "size dimension wide narrow"
-      ));
-    }
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "navigation", tr("settings.schema.panels.control-center-sidebar.label"),
-        tr("settings.schema.panels.control-center-sidebar.description"), {"control_center", "sidebar"},
-        asSegmented(enumSelect(kControlCenterSidebarModes, cfg.controlCenter.sidebarMode)),
-        "full compact none sidebar icons narrow hidden"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "navigation", tr("settings.schema.panels.control-center-sidebar-section.label"),
-        tr("settings.schema.panels.control-center-sidebar-section.description"), {"control_center", "sidebar_section"},
-        asSegmented(enumSelect(kControlCenterSidebarModes, cfg.controlCenter.sidebarSectionMode)),
-        "full compact none sidebar icons narrow hidden tab direct widget shortcut"
-    ));
+    auto controlCenterRows =
+        generateSchemaEntries(noctalia::config::schema::controlCenterSchema(), cfg.controlCenter, "control_center");
+    appendGroup(entries, controlCenterRows, "layout");
+    appendGroup(entries, controlCenterRows, "navigation");
     {
       MultiSelectSetting tabs;
       const auto catalog = ControlCenterPanel::hideableTabCatalog();
@@ -1908,26 +1952,7 @@ namespace settings {
         },
         "quick settings shortcuts toggles wifi bluetooth caffeine night light dnd power media weather clipboard"
     ));
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "home", tr("settings.schema.panels.home-shortcuts-show-labels.label"),
-        tr("settings.schema.panels.home-shortcuts-show-labels.description"), {"control_center", "show_shortcut_labels"},
-        ToggleSetting{cfg.controlCenter.showShortcutLabels}, "shortcuts labels text hide show titles"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "home", tr("settings.schema.panels.home-session-button.label"),
-        tr("settings.schema.panels.home-session-button.description"), {"control_center", "show_session_button"},
-        ToggleSetting{cfg.controlCenter.showSessionButton}, "session button show hide"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "home", tr("settings.schema.panels.home-circular-avatar.label"),
-        tr("settings.schema.panels.home-circular-avatar.description"), {"control_center", "circular_avatar"},
-        ToggleSetting{cfg.controlCenter.circularAvatar}, "avatar profile picture circle radius roundness"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::ControlCenter, "home", tr("settings.schema.panels.home-avatar-border.label"),
-        tr("settings.schema.panels.home-avatar-border.description"), {"control_center", "show_avatar_border"},
-        ToggleSetting{cfg.controlCenter.showAvatarBorder}, "avatar border ring accent hide show"
-    ));
+    appendGroup(entries, controlCenterRows, "home");
 
     // Desktop
     entries.push_back(makeEntry(

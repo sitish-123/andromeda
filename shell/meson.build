@@ -1192,6 +1192,7 @@ if build_tests
     'secret_store',
     'security_primitives',
     'service_host',
+    'settings_rows_generated',
     'shared_worker',
     'state_store',
     'string_utils',
@@ -1244,6 +1245,11 @@ if build_tests
       test_args = [meson.project_source_root() / 'assets']
     elif test_name == 'i18n_supported_languages'
       test_args = [meson.project_source_root() / 'assets' / 'translations']
+    elif test_name == 'settings_rows_generated'
+      test_args = [
+        meson.project_source_root() / 'tests' / 'settings_rows_generated' / 'hand_written_rows.tsv',
+        meson.project_source_root() / 'assets' / 'translations' / 'en.json',
+      ]
     endif
     test(test_name, test_exe, args: test_args)
     if test_name == 'plugin_recommendations' and git_program.found()
