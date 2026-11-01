@@ -1,7 +1,9 @@
 #include "core/deferred_call.h"
 #include "core/log.h"
-#include "core/resource_paths.h"
+#include "greeter/greeter_assets.h"
+#include "greeter/greeter_log.h"
 #include "greeter/greeter.h"
+#include "greeter/greeter_config_io.h"
 #include "greeter/greeter_preferences.h"
 #include "greeter/greeter_sessions.h"
 #include "tools/passwordless_sync_policy.h"
@@ -14,6 +16,7 @@
 #include <cstring>
 #include <exception>
 #include <fontconfig/fontconfig.h>
+#include <fstream>
 #include <grp.h>
 #include <sstream>
 #include <string_view>
@@ -82,7 +85,7 @@ namespace {
 
 int main(int argc, char* argv[]) {
   // Before any text is laid out, so Pango's font map sees it: the Ryoku look's typeface.
-  FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8*>(paths::assetPath("fonts/Outfit-Black.ttf").c_str()));
+  FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8*>(greeter::greeterAssetPath("fonts/Outfit-Black.ttf").c_str()));
 
   if (argc >= 2 && std::strcmp(argv[1], "passwordless-sync") == 0) {
     return greeter::passwordless_sync::runCommand(argc - 2, argv + 2);
@@ -91,6 +94,22 @@ int main(int argc, char* argv[]) {
   if (argc >= 2 && std::strcmp(argv[1], "sessions") == 0) {
     for (const greeter::SessionOption& session : greeter::discoverSessions()) {
       std::printf("%s\n", session.name.c_str());
+    }
+    return 0;
+  }
+
+  if (argc >= 2 && std::strcmp(argv[1], "andromeda-config") == 0) {
+    if (argc < 3 || argc > 4) {
+      std::fputs("error: usage: noctalia-greeter andromeda-config OUT [STATE_DIR]\n", stderr);
+      return 1;
+    }
+    const std::string config = greeter::config::andromedaGreeterConfig(argc == 4 ? argv[3] : "");
+    std::ofstream out(argv[2], std::ios::trunc);
+    out << config;
+    out.close();
+    if (!out) {
+      std::fprintf(stderr, "error: cannot write %s\n", argv[2]);
+      return 1;
     }
     return 0;
   }
@@ -172,7 +191,7 @@ int main(int argc, char* argv[]) {
           "       noctalia-greeter passwordless-sync disable USER\n"
           "       noctalia-greeter passwordless-sync status [USER]\n"
           "\n"
-          "Without a command, run as a Wayland client under noctalia-greeter-compositor.\n"
+          "Without a command, run as a Wayland client under `andromeda --greeter`.\n"
           "\n"
           "Commands:\n"
           "  sessions              List available session names and exit\n"

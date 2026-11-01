@@ -3,13 +3,14 @@ set -eu
 
 _session_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 GREETER_BIN="${NOCTALIA_GREETER_BIN:-${_session_dir}/noctalia-greeter}"
-COMPOSITOR_BIN="${NOCTALIA_GREETER_COMPOSITOR_BIN:-${_session_dir}/noctalia-greeter-compositor}"
+COMPOSITOR_BIN="${NOCTALIA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
+# andromeda --greeter reads outputs, cursor and keyboard from this file. Unset: generated from the greeter's own config.
+GREETER_CONFIG="${NOCTALIA_GREETER_ANDROMEDA_CONFIG:-}"
 
 # Default: park stdout/stderr so wlroots/libseat do not paint the VT. Greeter
 # and compositor logs go to syslog (journald / metalog / syslog-ng via greetd).
 # NOCTALIA_GREETER_LOG=stderr|stdout|none|- → console debug (no redirect).
 # NOCTALIA_GREETER_LOG=/path → file (+ syslog from the greeter and compositor).
-_pass_log_env=0
 case "${NOCTALIA_GREETER_LOG:-}" in
 "" )
   exec >/dev/null 2>&1
@@ -17,14 +18,12 @@ case "${NOCTALIA_GREETER_LOG:-}" in
   ;;
 - | none | NONE | stderr | STDERR | stdout | STDOUT)
   export NOCTALIA_GREETER_LOG=stderr
-  _pass_log_env=1
   ;;
 *)
   _log_target="${NOCTALIA_GREETER_LOG}"
   if touch "${_log_target}" 2>/dev/null; then
     exec >>"${_log_target}" 2>&1
     export NOCTALIA_GREETER_LOG="${_log_target}"
-    _pass_log_env=1
   else
     echo "warn: cannot write ${_log_target}; falling back to syslog-only" >&2
     exec >/dev/null 2>&1
@@ -60,34 +59,30 @@ if [ ! -x "${GREETER_BIN}" ]; then
   exit 1
 fi
 
-export GREETER_BIN
+# andromeda runs the -s string through /bin/sh: quote the greeter and each argument greetd passed.
+_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+_greeter_cmd="$(_quote "${GREETER_BIN}")"
+for _arg in "$@"; do
+  _greeter_cmd="${_greeter_cmd} $(_quote "${_arg}")"
+done
+set -- --greeter -s "${_greeter_cmd}"
+if [ -z "${GREETER_CONFIG}" ]; then
+  _generated="${XDG_RUNTIME_DIR}/andromeda-greeter.toml"
+  if "${GREETER_BIN}" andromeda-config "${_generated}"; then
+    GREETER_CONFIG="${_generated}"
+  else
+    echo "warn: andromeda-config failed; andromeda uses its default greeter config"
+  fi
+fi
+if [ -n "${GREETER_CONFIG}" ]; then
+  set -- "$@" -c "${GREETER_CONFIG}"
+fi
+
 # Raise log level with WLR_LOG=info when debugging (also set NOCTALIA_GREETER_LOG=stderr).
 export WLR_LOG="${WLR_LOG:-error}"
-
-echo "launch: ${COMPOSITOR_BIN} -- $*"
+echo "launch: ${COMPOSITOR_BIN} $*"
 if command -v dbus-run-session >/dev/null 2>&1; then
-  if [ "${_pass_log_env}" -eq 1 ]; then
-    exec dbus-run-session -- env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
-      GREETER_BIN="${GREETER_BIN}" \
-      NOCTALIA_GREETER_LOG="${NOCTALIA_GREETER_LOG}" \
-      WLR_LOG="${WLR_LOG}" \
-      "${COMPOSITOR_BIN}" -- "$@"
-  fi
-  exec dbus-run-session -- env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
-    GREETER_BIN="${GREETER_BIN}" \
-    WLR_LOG="${WLR_LOG}" \
-    "${COMPOSITOR_BIN}" -- "$@"
+  exec dbus-run-session -- "${COMPOSITOR_BIN}" "$@"
 fi
-
 echo "warn: dbus-run-session not found; starting compositor without a session bus."
-if [ "${_pass_log_env}" -eq 1 ]; then
-  exec env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
-    GREETER_BIN="${GREETER_BIN}" \
-    NOCTALIA_GREETER_LOG="${NOCTALIA_GREETER_LOG}" \
-    WLR_LOG="${WLR_LOG}" \
-    "${COMPOSITOR_BIN}" -- "$@"
-fi
-exec env XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" \
-  GREETER_BIN="${GREETER_BIN}" \
-  WLR_LOG="${WLR_LOG}" \
-  "${COMPOSITOR_BIN}" -- "$@"
+exec "${COMPOSITOR_BIN}" "$@"

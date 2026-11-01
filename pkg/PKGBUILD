@@ -49,7 +49,7 @@ package_andromeda() {
   pkgdesc='Andromeda desktop: the Andromeda compositor, Noctalia shell, portal, and Link phone continuity'
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
   depends=(andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-    noctalia-greeter-desktop-git scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse)
+    noctalia-greeter-desktop-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse)
   optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
   install -Dm755 desktop/session/audio-park/andromeda-audio-park "$pkgdir/usr/bin/andromeda-audio-park"
   install -Dm644 desktop/session/audio-park/andromeda-audio-park.service \
@@ -158,10 +158,12 @@ package_noctalia-greeter-desktop-git() {
   optdepends=('gaze-bin: face login; needs the marker-host change until it is upstream (tools/gaze-patched.sh)')
   provides=(noctalia-greeter)
   conflicts=(noctalia-greeter)
+  install=noctalia-greeter.install
   meson install -C build-greeter --destdir "$pkgdir"
   install -Dm644 desktop/session/pam.d/gdm-face "$pkgdir/etc/pam.d/gdm-face"
-  # greetd owns /etc/greetd/config.toml; tools/greeter-switch.sh puts this one in place.
   install -Dm644 desktop/session/greetd/config.toml "$pkgdir/usr/share/noctalia-greeter/greetd.toml"
+  install -Dm644 desktop/session/greetd/noctalia-greeter.conf \
+    "$pkgdir/usr/lib/systemd/system/greetd.service.d/noctalia-greeter.conf"
   install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
 }

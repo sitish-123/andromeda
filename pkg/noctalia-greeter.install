@@ -1,0 +1,8 @@
+# A fresh install with no display manager boots into the greeter; an existing display manager is left in place.
+post_install() {
+  if systemctl is-enabled --quiet display-manager.service 2> /dev/null; then
+    echo ':: a display manager is already enabled; to use the Andromeda greeter: sudo systemctl enable -f greetd.service'
+  else
+    systemctl enable greetd.service > /dev/null 2>&1 && echo ':: greetd enabled: the Andromeda greeter starts at next boot'
+  fi
+}
