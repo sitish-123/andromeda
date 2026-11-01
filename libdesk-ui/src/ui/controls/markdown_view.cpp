@@ -93,7 +93,7 @@ namespace {
     }
     ctx.view->addChild(ui::row({.height = Style::spaceSm * ctx.scale}));
     ctx.view->addChild(makeMarkdownLabel(
-        ctx.textBuf, fontSize, ctx.scale * ctx.fontScale, ColorRole::Primary, FontWeight::Bold, true, 1
+        ctx.textBuf, fontSize, ctx.scale * ctx.fontScale, ColorRole::Accent, FontWeight::Bold, true, 1
     ));
     ctx.view->addChild(ui::separator({.spacing = Style::spaceXs * ctx.scale * 0.5F}));
   }
@@ -103,7 +103,7 @@ namespace {
       return;
     }
     auto label = makeMarkdownLabel(
-        ctx.textBuf, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::OnSurface, FontWeight::Normal, true
+        ctx.textBuf, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::Label1, FontWeight::Normal, true
     );
     ctx.view->trackWrappableLabel(label.get());
     ctx.view->addChild(std::move(label));
@@ -120,7 +120,7 @@ namespace {
     auto block = ui::column({
         .align = FlexAlign::Start,
         .padding = pad,
-        .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+        .fill = colorSpecFromRole(ColorRole::SolidThin),
         .radius = Style::scaledRadiusSm(ctx.scale),
         .fillWidth = true,
     });
@@ -129,7 +129,7 @@ namespace {
             .text = ctx.textBuf,
             .fontSize = Style::fontSizeCaption * ctx.scale * ctx.fontScale,
             .fontFamily = std::string("monospace"),
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = kWrapUnlimited,
             .textAlign = TextAlign::Start,
         })
@@ -197,7 +197,7 @@ namespace {
         .align = FlexAlign::Stretch,
         .gap = borderWidth,
         .padding = borderWidth,
-        .fill = colorSpecFromRole(ColorRole::OutlineVariant),
+        .fill = colorSpecFromRole(ColorRole::Stroke),
         .radius = Style::scaledRadiusSm(ctx.scale),
         .minWidth = totalWidth,
         .clipChildren = true,
@@ -207,20 +207,20 @@ namespace {
     for (std::size_t rowIndex = 0; rowIndex < ctx.tableRows.size(); ++rowIndex) {
       const auto& [cells, isHeader] = ctx.tableRows[rowIndex];
       const ColorSpec background = isHeader
-          ? colorSpecFromRole(ColorRole::SurfaceContainer)
-          : (bodyRowIndex % 2 == 0 ? colorSpecFromRole(ColorRole::Surface)
-                                   : colorSpecFromRole(ColorRole::SurfaceContainerLow));
+          ? colorSpecFromRole(ColorRole::Fill2)
+          : (bodyRowIndex % 2 == 0 ? colorSpecFromRole(ColorRole::SolidRegular)
+                                   : colorSpecFromRole(ColorRole::SolidThin));
       auto row = ui::row({
           .align = FlexAlign::Stretch,
           .gap = 0.0F,
-          .fill = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::SolidRegular),
           .fillWidth = true,
       });
       for (std::size_t i = 0; i < columnWidths.size(); ++i) {
         if (i > 0) {
           row->addChild(
               ui::separator({
-                  .color = colorSpecFromRole(ColorRole::OutlineVariant),
+                  .color = colorSpecFromRole(ColorRole::Stroke),
                   .thickness = borderWidth,
                   .orientation = SeparatorOrientation::VerticalRule,
                   .gradientEdges = false,
@@ -238,7 +238,7 @@ namespace {
 
         auto label = makeMarkdownLabel(
             i < cells.size() ? cells[i] : std::string{}, Style::fontSizeCaption, ctx.scale * ctx.fontScale,
-            isHeader ? ColorRole::OnSurfaceVariant : ColorRole::OnSurface,
+            isHeader ? ColorRole::Label2 : ColorRole::Label1,
             isHeader ? FontWeight::Bold : FontWeight::Normal, true, kWrapUnlimited,
             std::max(0.0F, columnWidths[i] - paddingH * 2.0F)
         );
@@ -273,10 +273,10 @@ namespace {
       bullet = "•";
     }
     row->addChild(makeMarkdownLabel(
-        bullet, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::OnSurfaceVariant, FontWeight::Normal
+        bullet, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::Label2, FontWeight::Normal
     ));
     auto textLabel = makeMarkdownLabel(
-        ctx.textBuf, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::OnSurface, FontWeight::Normal, true,
+        ctx.textBuf, Style::fontSizeBody, ctx.scale * ctx.fontScale, ColorRole::Label1, FontWeight::Normal, true,
         kWrapUnlimited, std::nullopt, 1.0F
     );
     ctx.view->trackWrappableLabel(textLabel.get());

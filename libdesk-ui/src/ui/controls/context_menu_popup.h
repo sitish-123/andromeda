@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config/config_types.h"
+#include "ui/shadow_style.h"
 #include "render/scene/input_dispatcher.h"
 #include "ui/controls/context_menu.h"
 #include "ui/controls/scroll_view.h"
@@ -67,7 +67,7 @@ public:
 
   void setOnActivate(std::function<void(const ContextMenuControlEntry&)> callback);
   void setOnDismissed(std::function<void()> callback);
-  void setShadowConfig(const ShellConfig::ShadowConfig& shadow);
+  void setShadowConfig(const ShadowStyle& shadow);
 
   bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
@@ -104,7 +104,7 @@ private:
 
   std::function<void(const ContextMenuControlEntry&)> m_onActivate;
   std::function<void()> m_onDismissed;
-  ShellConfig::ShadowConfig m_shadowConfig;
+  ShadowStyle m_shadowConfig;
   // Deferred popup callbacks must not dereference this after an owner (for
   // example, a plugin panel being unregistered) destroys the popup.
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);

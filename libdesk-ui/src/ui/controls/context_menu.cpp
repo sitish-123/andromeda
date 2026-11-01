@@ -24,9 +24,9 @@ namespace {
 
   float safeScale(float scale) noexcept { return std::max(0.1F, scale); }
 
-  ColorSpec enabledItemColor() { return colorSpecFromRole(ColorRole::OnSurface); }
+  ColorSpec enabledItemColor() { return colorSpecFromRole(ColorRole::Label1); }
 
-  ColorSpec disabledItemColor() { return colorSpecFromRole(ColorRole::OnSurface, 0.55F); }
+  ColorSpec disabledItemColor() { return colorSpecFromRole(ColorRole::Label1, 0.55F); }
 
   bool hasToggle(const ContextMenuControlEntry& entry) { return entry.checkmark || entry.radio; }
 
@@ -363,7 +363,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
         const float dotSize = std::round(kMenuFontSize * scale);
         auto dot = std::make_unique<Box>();
         dot->setFill(*entry.indicatorColor);
-        dot->setBorder(colorSpecFromRole(ColorRole::OutlineVariant), 1.5F);
+        dot->setBorder(colorSpecFromRole(ColorRole::Stroke), 1.5F);
         dot->setFrameSize(dotSize, dotSize);
         dot->setRadius(dotSize * 0.5F);
         dot->setPosition(8.0F * scale + indent + toggleSlot, std::round((rowHeight - dotSize) * 0.5F));
@@ -375,7 +375,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
           .text = entry.label,
           .fontSize = kMenuFontSize * scale,
           .fontWeight = entry.header ? FontWeight::Bold : FontWeight::Normal,
-          .color = entry.header ? colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          .color = entry.header ? colorSpecFromRole(ColorRole::Label2)
               : entry.enabled   ? enabledItemColor()
                                 : disabledItemColor(),
           .maxWidth = entry.hasSubmenu ? (rowWidth - 30.0F * scale - indent - toggleSlot - leadingSlot)
@@ -414,7 +414,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
               .out = &labelPtr,
               .text = "",
               .fontSize = kMenuFontSize * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
 
@@ -441,24 +441,24 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
     if (rowBgPtr != nullptr && labelPtr != nullptr) {
       visual.apply = [rowBgPtr, labelPtr, togglePtr, chevronPtr, interactive, separator,
                       header = entry.header](bool highlighted) {
-        rowBgPtr->setFill(highlighted ? colorSpecFromRole(ColorRole::Hover) : clearColorSpec());
+        rowBgPtr->setFill(highlighted ? colorSpecFromRole(ColorRole::Fill3) : clearColorSpec());
         if (separator || header) {
-          labelPtr->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+          labelPtr->setColor(colorSpecFromRole(ColorRole::Label2));
         } else {
           labelPtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::OnHover)
+              highlighted ? colorSpecFromRole(ColorRole::Label1)
                           : (interactive ? enabledItemColor() : disabledItemColor())
           );
         }
         if (togglePtr != nullptr) {
           togglePtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::OnHover)
+              highlighted ? colorSpecFromRole(ColorRole::Label1)
                           : (interactive ? enabledItemColor() : disabledItemColor())
           );
         }
         if (chevronPtr != nullptr) {
           chevronPtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::OnHover)
+              highlighted ? colorSpecFromRole(ColorRole::Label1)
                           : (interactive ? enabledItemColor() : disabledItemColor())
           );
         }

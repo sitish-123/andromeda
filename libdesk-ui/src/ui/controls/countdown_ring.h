@@ -31,7 +31,7 @@ private:
 
   CountdownRingNode* m_ringNode = nullptr;
   Label* m_secondsLabel = nullptr;
-  ColorSpec m_color = colorSpecFromRole(ColorRole::Primary);
+  ColorSpec m_color = colorSpecFromRole(ColorRole::Accent);
   Signal<>::ScopedConnection m_paletteConn;
   float m_ringSize = 64.0F;
   float m_thickness = 6.0F;

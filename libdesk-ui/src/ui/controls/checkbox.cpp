@@ -129,25 +129,25 @@ void Checkbox::applyState() {
     return;
   }
 
-  ColorSpec fill = colorSpecFromRole(ColorRole::Surface);
-  ColorSpec border = colorSpecFromRole(ColorRole::OutlineVariant);
-  ColorSpec glyph = colorSpecFromRole(ColorRole::OnPrimary);
+  ColorSpec fill = colorSpecFromRole(ColorRole::SolidRegular);
+  ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
+  ColorSpec glyph = colorSpecFromRole(ColorRole::OnAccent);
   float borderWidth = Style::borderWidth * m_scale;
   const bool focused = (m_inputArea != nullptr && m_inputArea->focused());
   if (m_checked) {
-    fill = m_checkedFill.value_or(colorSpecFromRole(ColorRole::Primary));
-    border = m_checkedBorder.value_or(colorSpecFromRole(ColorRole::Primary));
-    glyph = m_checkedGlyph.value_or(colorSpecFromRole(ColorRole::OnPrimary));
+    fill = m_checkedFill.value_or(colorSpecFromRole(ColorRole::Accent));
+    border = m_checkedBorder.value_or(colorSpecFromRole(ColorRole::Accent));
+    glyph = m_checkedGlyph.value_or(colorSpecFromRole(ColorRole::OnAccent));
     if (focused) {
-      border = colorSpecFromRole(ColorRole::Secondary);
+      border = colorSpecFromRole(ColorRole::Accent);
       borderWidth = Style::emphasizedBorderWidth * m_scale;
     }
   } else if (focused) {
-    fill = colorSpecFromRole(ColorRole::SecondaryContainer);
-    border = colorSpecFromRole(ColorRole::Secondary);
+    fill = colorSpecFromRole(ColorRole::Fill1);
+    border = colorSpecFromRole(ColorRole::Accent);
     borderWidth = Style::emphasizedBorderWidth * m_scale;
   } else if (hovered()) {
-    border = colorSpecFromRole(ColorRole::Hover);
+    border = colorSpecFromRole(ColorRole::Fill3);
   }
 
   m_box->setFill(fill);

@@ -55,9 +55,9 @@ private:
   GraphNode* m_node = nullptr;
   std::array<std::vector<float>, 3> m_series;
   std::array<ColorSpec, 3> m_colors = {
-      colorSpecFromRole(ColorRole::Primary),
-      colorSpecFromRole(ColorRole::Secondary),
-      colorSpecFromRole(ColorRole::Tertiary),
+      colorSpecFromRole(ColorRole::Accent),
+      colorSpecFromRole(ColorRole::Label2),
+      colorSpecFromRole(ColorRole::Accent),
   };
   float m_lineWidth = 1.5F;
   float m_fillOpacity = 0.2F;

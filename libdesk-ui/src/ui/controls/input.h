@@ -258,7 +258,7 @@ private:
   bool m_invalid = false;
   bool m_frameVisible = true;
   bool m_embeddedOnSolidPrimary = false;
-  ColorRole m_surfaceRole = ColorRole::SurfaceContainer;
+  ColorRole m_surfaceRole = ColorRole::Fill2;
   float m_surfaceOpacity = 1.0F;
   float m_frameRadius = Style::radiusMd;
   bool m_enabled = true;

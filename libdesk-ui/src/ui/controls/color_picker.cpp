@@ -102,7 +102,7 @@ ColorPicker::ColorPicker() {
           .out = &m_svImage,
           .fit = ImageFit::Stretch,
           .configure = [](Image& image) {
-            image.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+            image.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
           },
       })
   );
@@ -279,9 +279,9 @@ void ColorPicker::applyStyle() {
   m_alphaThumb->setSize(hueThumb, hueThumb);
   m_alphaThumb->setRadius(hueThumb * 0.5F);
   for (Box* swatch : m_swatchBoxes) {
-    swatch->setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * m_scale);
+    swatch->setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * m_scale);
   }
-  m_svImage->setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * m_scale);
+  m_svImage->setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * m_scale);
   updateHueThumbStyle();
 }
 
@@ -403,7 +403,7 @@ void ColorPicker::rebuildSwatches() {
             .out = &box,
             .fill = fixedColorSpec(m_swatches[i]),
             .configure = [this](Box& swatch) {
-              swatch.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * m_scale);
+              swatch.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * m_scale);
             },
         })
     );
@@ -811,7 +811,7 @@ ColorPickerSheet::ColorPickerSheet(float chromeScale) : m_chromeScale(std::max(0
           .text = i18n::tr("ui.dialogs.color-picker.title"),
           .fontSize = Style::fontSizeTitle * m_chromeScale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
   headerRow->addChild(ui::spacer());

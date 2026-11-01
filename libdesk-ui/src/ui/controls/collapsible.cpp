@@ -35,7 +35,7 @@ Collapsible::Collapsible() {
   auto chevron = std::make_unique<Glyph>();
   chevron->setGlyph("chevron-down");
   chevron->setGlyphSize(Style::fontSizeBody);
-  chevron->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+  chevron->setColor(colorSpecFromRole(ColorRole::Label2));
   chevron->setVisible(false);
   m_chevron = static_cast<Glyph*>(m_headerRow->addChild(std::move(chevron)));
 

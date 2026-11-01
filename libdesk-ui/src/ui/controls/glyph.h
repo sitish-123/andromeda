@@ -27,6 +27,8 @@ public:
   void measure(Renderer& renderer);
 
   [[nodiscard]] float baselineOffset() const noexcept { return m_baselineOffset; }
+  [[nodiscard]] char32_t codepoint() const noexcept;
+  [[nodiscard]] float fontSize() const noexcept;
 
 private:
   void doLayout(Renderer& renderer) override;
@@ -38,7 +40,7 @@ private:
   GlyphNode* m_glyphNode = nullptr;
   float m_baselineOffset = 0.0F;
   float m_logicalFontSize = 0.0F;
-  ColorSpec m_color = colorSpecFromRole(ColorRole::OnSurface);
+  ColorSpec m_color = colorSpecFromRole(ColorRole::Label1);
   Signal<>::ScopedConnection m_paletteConn;
   std::optional<ColorSpec> m_shadowColor;
   float m_shadowOffsetX = 0.0F;

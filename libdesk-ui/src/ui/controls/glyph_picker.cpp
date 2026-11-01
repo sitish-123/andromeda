@@ -85,19 +85,19 @@ public:
     auto* glyph = static_cast<Glyph*>(flex->userData());
 
     if (selected) {
-      flex->setFill(colorSpecFromRole(ColorRole::Primary));
+      flex->setFill(colorSpecFromRole(ColorRole::Accent));
       if (glyph != nullptr) {
-        glyph->setColor(colorSpecFromRole(ColorRole::OnPrimary));
+        glyph->setColor(colorSpecFromRole(ColorRole::OnAccent));
       }
     } else if (hovered) {
-      flex->setFill(colorSpecFromRole(ColorRole::Hover));
+      flex->setFill(colorSpecFromRole(ColorRole::Fill3));
       if (glyph != nullptr) {
-        glyph->setColor(colorSpecFromRole(ColorRole::OnHover));
+        glyph->setColor(colorSpecFromRole(ColorRole::Label1));
       }
     } else {
       flex->clearFill();
       if (glyph != nullptr) {
-        glyph->setColor(colorSpecFromRole(ColorRole::OnSurface));
+        glyph->setColor(colorSpecFromRole(ColorRole::Label1));
       }
     }
     if (glyph != nullptr) {
@@ -156,7 +156,7 @@ GlyphPicker::GlyphPicker(float chromeScale) : m_chromeScale(std::max(0.1F, chrom
           .text = i18n::tr("ui.dialogs.glyph-picker.title"),
           .fontSize = Style::fontSizeTitle * m_chromeScale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
   headerRow->addChild(ui::spacer());

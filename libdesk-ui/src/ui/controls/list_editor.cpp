@@ -20,7 +20,7 @@ namespace {
     return ui::label({
         .text = std::string(text),
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
     });
   }
 
@@ -192,7 +192,7 @@ void ListEditor::rebuildRows() {
     auto capacityLabel = ui::label({
         .text = std::to_string(m_items.size()) + "/" + std::to_string(m_maxItems),
         .fontSize = Style::fontSizeCaption * m_scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
     });
     if (addRow) {
       addRow->addChild(std::move(capacityLabel));

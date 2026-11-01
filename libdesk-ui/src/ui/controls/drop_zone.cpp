@@ -227,8 +227,8 @@ void DropZone::applyVisualState() {
   if (m_dragOver) {
     m_radiusApplied = true;
     Flex::setRadius(m_zoneRadius);
-    Flex::setFill(colorSpecFromRole(ColorRole::Primary, 0.12F));
-    Flex::setBorder(colorSpecFromRole(ColorRole::Primary), Style::focusRingWidth);
+    Flex::setFill(colorSpecFromRole(ColorRole::Accent, 0.12F));
+    Flex::setBorder(colorSpecFromRole(ColorRole::Accent), Style::focusRingWidth);
     return;
   }
   if (m_radiusApplied) {

@@ -137,3 +137,7 @@ LayoutSize Glyph::measureWithConstraints(Renderer& renderer, const LayoutConstra
   m_measureCached = true;
   return LayoutSize{.width = width(), .height = height()};
 }
+
+char32_t Glyph::codepoint() const noexcept { return m_glyphNode != nullptr ? m_glyphNode->codepoint() : 0; }
+
+float Glyph::fontSize() const noexcept { return m_glyphNode != nullptr ? m_glyphNode->fontSize() : 0.0F; }

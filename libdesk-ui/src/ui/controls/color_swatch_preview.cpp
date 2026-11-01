@@ -14,8 +14,8 @@ ColorSwatchPreviewStrip::ColorSwatchPreviewStrip() {
   setPadding(0.0F);
   setClipChildren(true);
   setHitTestVisible(false);
-  setFill(colorSpecFromRole(ColorRole::Surface));
-  setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+  setFill(colorSpecFromRole(ColorRole::SolidRegular));
+  setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
 
   for (auto& swatchPtr : m_swatches) {
     auto swatch = std::make_unique<Box>();
@@ -44,7 +44,7 @@ void ColorSwatchPreviewStrip::doArrange(Renderer& /*renderer*/, const LayoutRect
 }
 
 void ColorSwatchPreviewStrip::setPreview(const ColorSwatchPreview& preview) {
-  setFill(preview.surface.value_or(colorSpecFromRole(ColorRole::Surface)));
+  setFill(preview.surface.value_or(colorSpecFromRole(ColorRole::SolidRegular)));
 
   m_visibleSwatches = std::min(preview.swatches.size(), kMaxSwatches);
   for (std::size_t i = 0; i < m_swatches.size(); ++i) {

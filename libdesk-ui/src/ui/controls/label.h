@@ -108,7 +108,7 @@ private:
   TextNode* m_textNode = nullptr;
   float m_minWidth = 0.0F;
   float m_baselineOffset = 0.0F;
-  ColorSpec m_color = colorSpecFromRole(ColorRole::OnSurface);
+  ColorSpec m_color = colorSpecFromRole(ColorRole::Label1);
   Signal<>::ScopedConnection m_paletteConn;
   std::optional<ColorSpec> m_shadowColor;
   float m_shadowOffsetX = 0.0F;
