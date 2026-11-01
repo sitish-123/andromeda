@@ -26,6 +26,7 @@ public:
     bool showLabel = true;
     bool hideWhenPlugged = false;
     bool hideWhenFull = false;
+    bool islandStyle = false; // outlined 22 px icon of the design reference (horizontal bars)
   };
 
   BatteryWidget(UPowerService* upower, Options options);
@@ -58,6 +59,7 @@ private:
   bool m_showLabel = true;
   bool m_hideWhenPlugged = false;
   bool m_hideWhenFull = false;
+  bool m_islandStyle = false;
 
   // Glyph mode nodes
   Glyph* m_glyph = nullptr;

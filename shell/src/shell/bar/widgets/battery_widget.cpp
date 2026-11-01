@@ -75,7 +75,8 @@ BatteryWidget::BatteryWidget(UPowerService* upower, Options options)
     : m_upower(upower), m_deviceSelector(std::move(options.deviceSelector)),
       m_warningThreshold(options.warningThreshold), m_warningColor(options.warningColor),
       m_displayMode(options.displayMode), m_labelContent(options.labelContent), m_showLabel(options.showLabel),
-      m_hideWhenPlugged(options.hideWhenPlugged), m_hideWhenFull(options.hideWhenFull) {}
+      m_hideWhenPlugged(options.hideWhenPlugged), m_hideWhenFull(options.hideWhenFull),
+      m_islandStyle(options.islandStyle) {}
 
 // Vertical bars are too narrow for time or rate text, so they always show the bare percentage; the
 // tooltip carries the full detail. Time and rate are only known while the battery is actively charging
@@ -231,6 +232,24 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
     return;
   }
 
+  if (m_islandStyle && !m_isVertical) {
+    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height, centered in a 22 px box; units are
+    // symbol units times s.
+    const float s = Tokens::componentIslandIcon / 24.0F * m_contentScale;
+    const float boxW = 22.0F * m_contentScale;
+    const float offX = (boxW - 26.0F * s) * 0.5F;
+    m_bodyBg->setRadius(4.4F * s);
+    m_bodyBg->setPosition(offX + 0.1F * s, 5.1F * s);
+    m_bodyBg->setSize(21.8F * s, 13.8F * s);
+    m_terminalNub->setRadius(0.9F * s);
+    m_terminalNub->setPosition(offX + 22.6F * s, 9.1F * s);
+    m_terminalNub->setSize(1.8F * s, 5.8F * s);
+    m_fillRect->setRadius(1.5F * s);
+    updateFillGeometry();
+    rootNode->setSize(boxW, 24.0F * s);
+    return;
+  }
+
   const float scale = (Style::fontSizeBody / 14.0F) * m_contentScale;
   const float bodyW = std::round((m_isVertical ? kGraphicBodyWidth : kGraphicHorizontalBodyWidth) * scale);
   const float bodyH = std::round((m_isVertical ? kGraphicBodyHeight : kGraphicHorizontalBodyHeight) * scale);
@@ -358,6 +377,13 @@ void BatteryWidget::updateFillGeometry() {
 
   const float fraction = std::clamp(m_animatedPct / 100.0F, 0.0F, 1.0F);
 
+  if (m_islandStyle && !m_isVertical) {
+    const float s = m_bodyBg->height() / 13.8F;
+    m_fillRect->setPosition(m_bodyBg->x() + 3.4F * s, 8.5F * s);
+    m_fillRect->setSize(12.0F * s * fraction, 7.0F * s);
+    return;
+  }
+
   if (m_isVertical) {
     const float bodyW = m_bodyBg->width();
     const float bodyH = m_bodyBg->height();
@@ -381,7 +407,12 @@ void BatteryWidget::syncPalette() {
       && !batteryStatePlugged(m_lastState).value_or(false);
   const ColorSpec foreground = isWarning ? m_warningColor : normalFg;
 
-  if (m_showLabel) {
+  if (m_islandStyle && !m_isVertical) {
+    m_bodyBg->setFill(Color{0.0F, 0.0F, 0.0F, 0.0F});
+    m_bodyBg->setBorder(foreground, 1.8F * Tokens::componentIslandIcon / 24.0F * m_contentScale);
+    m_fillRect->setFill(foreground);
+    m_terminalNub->setFill(foreground);
+  } else if (m_showLabel) {
     // Same light-on-dark body as the unlabelled battery, so it matches neighbouring glyphs. The track stays opaque and
     // light enough that surface-colored text reads on both sides of the moving fill boundary.
     const Color fg = resolveColorSpec(foreground);

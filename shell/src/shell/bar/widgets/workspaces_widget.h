@@ -52,6 +52,7 @@ public:
     float activePillSize = 2.2F;
     float inactivePillSize = 1.0F;
     bool focusedOutputOnly = false;
+    bool islandDots = false; // plain dots: token dot gap, no dimming of empty workspaces
   };
 
   WorkspacesWidget(CompositorPlatform& platform, ConfigService& config, wl_output* output, Options options);
@@ -179,6 +180,7 @@ private:
   float m_inactivePillSize = 1.0F;
   WorkspacesStyle m_style = WorkspacesStyle::Regular;
   bool m_focusedOutputOnly = false;
+  bool m_islandDots = false;
   bool m_changeColorOnHover = true;
   wl_output* m_lastFocusedOutput = nullptr;
   std::string m_cachedActiveWindowAppId;

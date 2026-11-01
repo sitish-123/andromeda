@@ -121,14 +121,17 @@ std::unique_ptr<Widget> WidgetFactory::create(
   const WidgetConfig* wc = nullptr;
   std::string type = name;
 
-  auto it = m_config.widgets.find(name);
+  const std::string baseName = islandBaseWidgetName(name);
+  auto it = m_config.widgets.find(baseName);
   if (it != m_config.widgets.end()) {
     wc = &it->second;
-    type = it->second.type;
+    if (baseName == name) {
+      type = it->second.type;
+    }
   }
 
   // Config path prefix used when a widget definition reports a bad setting value.
-  const std::string settingContext = std::format("widget.{}", name);
+  const std::string settingContext = std::format("widget.{}", baseName);
 
   struct BuiltinWidgetContext {
     const std::string& name;
@@ -154,6 +157,56 @@ std::unique_ptr<Widget> WidgetFactory::create(
             return createWidget<ActiveWindowWidget>(
                 context.contentScale, f.m_configService, f.m_platform,
                 activeWindowWidgetDefinition().resolve(context.config, context.settingContext)
+            );
+          }},
+      {"island_app", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = activeWindowWidgetDefinition().resolve(context.config, context.settingContext);
+            options.iconSize = static_cast<int>(Tokens::componentIslandLogo);
+            options.minWidth = 0;
+            options.appName = true;
+            options.iconGap = Tokens::componentIslandGap * context.contentScale;
+            return createWidget<ActiveWindowWidget>(context.contentScale, f.m_configService, f.m_platform, options);
+          }},
+      {"island_battery", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = batteryWidgetDefinition().resolve(
+                context.config, context.settingContext,
+                BatteryWidgetDefinitionContext{.batteryConfig = &f.m_config.battery, .upower = f.m_upower}
+            );
+            options.displayMode = BatteryDisplayMode::Graphic;
+            options.showLabel = false;
+            options.islandStyle = true;
+            return createWidget<BatteryWidget>(context.contentScale, f.m_upower, options);
+          }},
+      {"island_clock", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
+            return createWidget<ClockWidget>(
+                context.contentScale, context.output,
+                clockWidgetDefinition().resolve(context.config, context.settingContext)
+            );
+          }},
+      {"island_network", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = networkWidgetDefinition().resolve(context.config, context.settingContext);
+            options.showLabel = false;
+            return createWidget<NetworkWidget>(
+                context.contentScale, f.m_network, f.m_externalIp, f.m_sysmon, f.m_modem, context.output, options
+            );
+          }},
+      {"island_volume", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = volumeWidgetDefinition().resolve(context.config, context.settingContext);
+            options.showLabel = false;
+            return createWidget<VolumeWidget>(context.contentScale, f.m_audio, f.m_easyEffects, options);
+          }},
+      {"island_workspaces", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = workspacesWidgetDefinition().resolve(context.config, context.settingContext);
+            options.islandDots = true;
+            options.showLabels = false;
+            options.pillScale = Tokens::componentIslandDot / Style::baseGlyphSize;
+            options.inactivePillSize = 1.0F;
+            options.activePillSize = Tokens::componentIslandDotActiveWidth / Tokens::componentIslandDot;
+            options.focusedColor = colorSpecFromRole(ColorRole::Label1);
+            options.occupiedColor = colorSpecFromRole(ColorRole::Label3);
+            options.emptyColor = colorSpecFromRole(ColorRole::Label3);
+            return createWidget<WorkspacesWidget>(
+                context.contentScale, f.m_platform, f.m_configService, context.output, options
             );
           }},
       {"audio_visualizer", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {

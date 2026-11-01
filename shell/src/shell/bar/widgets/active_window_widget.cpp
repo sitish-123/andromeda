@@ -23,7 +23,7 @@ ActiveWindowWidget::ActiveWindowWidget(ConfigService& config, CompositorPlatform
     : m_config(config), m_platform(platform), m_maxWidth(static_cast<float>(options.maxWidth)),
       m_minWidth(static_cast<float>(options.minWidth)), m_iconSize(static_cast<float>(options.iconSize)),
       m_titleScrollMode(options.titleScrollMode), m_displayMode(options.displayMode),
-      m_showEmptyLabel(options.showEmptyLabel) {
+      m_showEmptyLabel(options.showEmptyLabel), m_iconGap(options.iconGap), m_appName(options.appName) {
   buildDesktopIconIndex();
 }
 
@@ -103,7 +103,7 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     m_icon->setVisible(showIcon);
     m_title->setVisible(showTitle);
     applyTitleScrollMode(showTitle);
-    const float spacing = showIcon && showTitle ? Style::spaceXs : 0.0F;
+    const float spacing = showIcon && showTitle ? m_iconGap : 0.0F;
     const float iconWidth = showIcon ? m_icon->width() : 0.0F;
     const float labelMaxWidth = showTitle ? std::max(0.0F, maxLength - iconWidth - spacing) : 0.0F;
     m_title->setMaxWidth(labelMaxWidth);
@@ -179,6 +179,10 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
     identifier = current->identifier;
     title = StringUtils::windowTitleSingleLine(current->title);
     appId = current->appId;
+    if (m_appName) {
+      const auto entry = app_identity::findDesktopEntry(appId, desktopEntries());
+      title = entry.has_value() && !entry->name.empty() ? entry->name : appId;
+    }
     if (title.empty()) {
       title = appId;
     }

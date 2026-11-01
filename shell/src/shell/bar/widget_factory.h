@@ -41,6 +41,14 @@ namespace scripting {
   class ScriptApiContext;
 }
 
+// The classic widget an island_* component stands for; its [widget.*] config, gestures and IPC type come from there.
+[[nodiscard]] inline std::string islandBaseWidgetName(const std::string& name) {
+  if (!name.starts_with("island_")) {
+    return name;
+  }
+  return name == "island_app" ? "active_window" : name.substr(7);
+}
+
 class WidgetFactory {
 public:
   explicit WidgetFactory(const BarServices& services);

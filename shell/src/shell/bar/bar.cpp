@@ -2701,11 +2701,12 @@ void Bar::populateWidgets(BarInstance& instance) {
   auto createWidget = [&](const std::string& name, const WidgetBarCapsuleSpec* groupSpec,
                           const std::optional<ColorSpec>* groupForeground, std::vector<std::unique_ptr<Widget>>& dest) {
     const WidgetConfig* wcPtr = nullptr;
-    if (auto it = widgetConfigs.find(name); it != widgetConfigs.end()) {
+    const std::string baseName = islandBaseWidgetName(name);
+    if (auto it = widgetConfigs.find(baseName); it != widgetConfigs.end()) {
       wcPtr = &it->second;
     }
     const std::string_view widgetType =
-        wcPtr != nullptr && !wcPtr->type.empty() ? std::string_view(wcPtr->type) : std::string_view(name);
+        wcPtr != nullptr && !wcPtr->type.empty() ? std::string_view(wcPtr->type) : std::string_view(baseName);
     const CommonWidgetOptions options =
         resolveCommonWidgetOptions(instance.barConfig, wcPtr, widgetType, instance.barConfig.scale);
     if (!options.enabled) {
@@ -2719,17 +2720,21 @@ void Bar::populateWidgets(BarInstance& instance) {
       return;
     }
     widget->setConfigName(name);
-    widget->applyCommonOptions(options, labelFontWeight, barFontFamily, std::format("widget.{}", name));
+    const FontWeight islandWeight = name == "island_app" ? FontWeight::Bold : FontWeight::SemiBold;
+    widget->applyCommonOptions(
+        options, name.starts_with("island_") && name != "island_workspaces" ? islandWeight : labelFontWeight,
+        barFontFamily, std::format("widget.{}", name)
+    );
     widget->setActionContext(
         IpcInvocationContext{
             .widgetName = name,
-            .widgetType = wcPtr != nullptr ? wcPtr->type : name,
+            .widgetType = wcPtr != nullptr ? wcPtr->type : baseName,
             .barName = instance.barConfig.name,
             .output = instance.output,
         }
     );
     widget->resolveGestureBindings(
-        wcPtr != nullptr ? wcPtr->type : name, wcPtr, &instance.barConfig.actions,
+        wcPtr != nullptr ? wcPtr->type : baseName, wcPtr, &instance.barConfig.actions,
         std::format("bar.{}", instance.barConfig.name), &m_actionDispatcher
     );
     widget->setBarCapsuleSpec(groupSpec != nullptr ? *groupSpec : options.capsule);

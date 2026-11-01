@@ -1121,6 +1121,17 @@ BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOu
   // Islands are designed for horizontal bars only; a vertical bar keeps its full-length background.
   if (resolved.position == "left" || resolved.position == "right") {
     resolved.islands = false;
+  } else if (resolved.islands) {
+    const BarConfig defaults;
+    if (resolved.startWidgets == defaults.startWidgets
+        && resolved.centerWidgets == defaults.centerWidgets
+        && resolved.endWidgets == defaults.endWidgets) {
+      resolved.startWidgets = {"island_app", "island_workspaces"};
+      resolved.endWidgets = {"island_network", "island_volume", "island_battery", "island_clock"};
+      if (resolved.widgetSpacing == defaults.widgetSpacing) {
+        resolved.widgetSpacing = static_cast<std::int32_t>(Tokens::componentIslandGap);
+      }
+    }
   }
   return resolved;
 }

@@ -38,6 +38,8 @@ public:
     ActiveWindowTitleScrollMode titleScrollMode = ActiveWindowTitleScrollMode::None;
     ActiveWindowDisplayMode displayMode = ActiveWindowDisplayMode::IconAndText;
     bool showEmptyLabel = false;
+    float iconGap = Style::spaceXs;
+    bool appName = false; // show the app's desktop-entry name instead of the window title
   };
 
   ActiveWindowWidget(ConfigService& config, CompositorPlatform& platform, Options options);
@@ -61,6 +63,8 @@ private:
   ActiveWindowTitleScrollMode m_titleScrollMode = ActiveWindowTitleScrollMode::None;
   ActiveWindowDisplayMode m_displayMode = ActiveWindowDisplayMode::IconAndText;
   bool m_showEmptyLabel = false;
+  float m_iconGap = Style::spaceXs;
+  bool m_appName = false;
   InputArea* m_area = nullptr;
   Image* m_icon = nullptr;
   Label* m_title = nullptr;

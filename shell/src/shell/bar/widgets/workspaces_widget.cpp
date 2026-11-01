@@ -80,7 +80,7 @@ WorkspacesWidget::WorkspacesWidget(
       m_inactivePillSize(std::clamp(options.inactivePillSize, 0.25F, 8.0F)), m_style(options.style),
       m_focusedOutputOnly(options.focusedOutputOnly), m_changeColorOnHover(options.changeColorOnHover),
       m_focusedColor(options.focusedColor), m_occupiedColor(options.occupiedColor), m_emptyColor(options.emptyColor),
-      m_urgentColor(options.urgentColor) {
+      m_urgentColor(options.urgentColor), m_islandDots(options.islandDots) {
   buildDesktopIconIndex();
 }
 
@@ -445,7 +445,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     }
   }
 
-  const float gap = kWorkspaceGap * m_contentScale;
+  const float gap = (m_islandDots ? Tokens::componentIslandDotGap : kWorkspaceGap) * m_contentScale;
   const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
   // Active and inactive labels share the configured weight: a heavier weight selects a different
@@ -1504,7 +1504,9 @@ ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_ou
     return m_occupiedColor;
   }
   ColorSpec color = m_emptyColor;
-  color.alpha *= 0.55F;
+  if (!m_islandDots) {
+    color.alpha *= 0.55F;
+  }
   return color;
 }
 
@@ -1522,7 +1524,9 @@ ColorSpec WorkspacesWidget::workspaceTextColor(const Workspace& workspace, wl_ou
     return m_occupiedColor;
   }
   ColorSpec color = m_emptyColor;
-  color.alpha *= 0.55F;
+  if (!m_islandDots) {
+    color.alpha *= 0.55F;
+  }
   return color;
 }
 
