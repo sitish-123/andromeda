@@ -1,7 +1,7 @@
 #pragma once
 
-#include "wayland/mirror_control.h"
-#include "wayland/output_management.h"
+#include "compositors/mirror_control.h"
+#include "compositors/output_management.h"
 
 #include <cstdint>
 #include <functional>

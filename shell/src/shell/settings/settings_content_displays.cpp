@@ -84,7 +84,7 @@ namespace settings {
     std::unique_ptr<Flex> makeDisplayRow(std::string_view title, std::unique_ptr<Node> control, float scale) {
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
       row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
       );
       row->addChild(ui::spacer());
       row->addChild(std::move(control));
@@ -471,7 +471,7 @@ namespace settings {
       if (ctx.confirmSecondsLeft > 0) {
         row->addChild(makeLabel(
             i18n::tr("settings.displays.confirm", "seconds", std::to_string(ctx.confirmSecondsLeft)),
-            Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::OnSurface)
+            Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1)
         ));
         row->addChild(ui::spacer());
         row->addChild(
@@ -482,7 +482,7 @@ namespace settings {
         );
       } else {
         if (!ctx.error.empty()) {
-          row->addChild(makeLabel(ctx.error, Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Error)));
+          row->addChild(makeLabel(ctx.error, Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Danger)));
         }
         row->addChild(ui::spacer());
         const bool idle = !ctx.outputs->busy();

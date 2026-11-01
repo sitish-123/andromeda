@@ -1,7 +1,7 @@
 #pragma once
 
 #include "system/xkb_layout_catalog.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <functional>
 #include <string>

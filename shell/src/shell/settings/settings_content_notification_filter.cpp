@@ -33,7 +33,7 @@ namespace settings {
           .minHeight = Style::controlHeightSm * scale,
       });
       row->addChild(makeLabel(
-          std::move(label), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Normal
+          std::move(label), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
       ));
       row->addChild(
           ui::toggle({
@@ -61,7 +61,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.notifications.filter.match-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     Input* matchPtr = nullptr;
@@ -78,7 +78,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.notifications.filter.match-content-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     Input* matchContentPtr = nullptr;
@@ -140,7 +140,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale},
         makeLabel(
             i18n::tr("settings.notifications.filter.flags-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     const auto urgencyEnabled = [&row](std::string_view level) {
@@ -169,7 +169,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale},
         makeLabel(
             i18n::tr("settings.notifications.filter.allowed-urgencies-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     addToggleRow(
@@ -229,7 +229,7 @@ namespace settings {
     });
     durationRow->addChild(makeLabel(
         i18n::tr("settings.notifications.filter.override-duration"), Style::fontSizeBody * scale,
-        colorSpecFromRole(ColorRole::OnSurface), FontWeight::Normal
+        colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
     ));
 
     auto durationControls = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});

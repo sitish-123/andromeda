@@ -90,7 +90,7 @@ namespace settings {
       const float scale = ctx.scale;
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
       row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
       );
       row->addChild(ui::spacer());
       if (ctx.input->customized(key)) {

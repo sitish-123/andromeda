@@ -118,7 +118,7 @@ namespace settings {
 
       auto copy = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * scale, .flexGrow = 1.0F});
       copy->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
       );
       copy->addChild(makeSettingSubtitleLabel(disabled ? i18n::tr("settings.shortcuts.unbound") : bind.action, scale));
 

@@ -20,7 +20,7 @@ namespace settings {
     std::unique_ptr<Flex> makeRow(std::string_view title, std::unique_ptr<Node> control, float scale) {
       auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
       row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
       );
       row->addChild(ui::spacer());
       row->addChild(std::move(control));

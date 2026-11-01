@@ -9,7 +9,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <cmath>
 #include <format>
@@ -208,7 +208,7 @@ namespace settings {
     });
     if (!title.empty()) {
       card->addChild(
-          makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
       );
     }
     card->addChild(
@@ -224,9 +224,9 @@ namespace settings {
 
   void updateSettingsStatusBanner(Flex& banner, Label& message, std::string_view text, bool error) {
     message.setText(text);
-    message.setColor(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary));
-    banner.setFill(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.14F));
-    banner.setBorder(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.45F), Style::borderWidth);
+    message.setColor(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent));
+    banner.setFill(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.14F));
+    banner.setBorder(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.45F), Style::borderWidth);
     banner.setVisible(!text.empty());
   }
 
@@ -241,8 +241,8 @@ namespace settings {
         .configure = [scale, error](Flex& row) {
           row.setPadding(Style::spaceXs * scale, Style::spaceSm * scale);
           row.setRadius(Style::scaledRadiusMd(scale));
-          row.setFill(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.14F));
-          row.setBorder(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.45F), Style::borderWidth);
+          row.setFill(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.14F));
+          row.setBorder(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.45F), Style::borderWidth);
         },
     });
     auto message = ui::label({
@@ -250,7 +250,7 @@ namespace settings {
         .text = std::move(props.message),
         .fontSize = Style::fontSizeCaption * scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary),
+        .color = colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent),
         .maxLines = props.scrollable ? 0 : 3,
         .flexGrow = props.scrollable ? 0.0F : 1.0F,
     });
@@ -394,8 +394,8 @@ namespace settings {
         .padding = Style::spaceSm * scale,
         .configure = [scale](Flex& column) {
           column.setRadius(Style::scaledRadiusMd(scale));
-          column.setFill(colorSpecFromRole(ColorRole::ErrorContainer));
-          column.setBorder(colorSpecFromRole(ColorRole::Error), Style::borderWidth);
+          column.setFill(colorSpecFromRole(ColorRole::Fill1));
+          column.setBorder(colorSpecFromRole(ColorRole::Danger), Style::borderWidth);
         },
     });
     panel->addChild(
@@ -403,14 +403,14 @@ namespace settings {
             .text = i18n::tr("settings.window.offline-mode-notice.title"),
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
     panel->addChild(
         ui::label({
             .text = std::move(message),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 4,
         })
     );
@@ -421,7 +421,7 @@ namespace settings {
     return ui::label({
         .text = std::string(text),
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
         .maxLines = kSettingDescriptionMaxLines,
     });
   }

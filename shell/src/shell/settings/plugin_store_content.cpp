@@ -657,7 +657,7 @@ namespace settings {
             .out = &m_countLabel,
             .text = i18n::tr("settings.plugins.store.results-count", "count", std::to_string(m_filteredIndices.size())),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -739,7 +739,7 @@ namespace settings {
           ui::label({
               .text = i18n::tr("settings.plugins.store.empty"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }
@@ -830,7 +830,7 @@ namespace settings {
           ui::glyph({
               .glyph = entry.icon.empty() ? std::string("apps") : entry.icon,
               .glyphSize = Style::fontSizeHeader * 2.0F * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .width = 80.0F * scale,
               .height = 80.0F * scale,
           })
@@ -852,13 +852,13 @@ namespace settings {
             .text = entry.name,
             .fontSize = Style::fontSizeHeader * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
             .ellipsize = TextEllipsize::End,
         })
     );
     for (const auto& tag : entry.tags) {
-      title->addChild(pill(tag, ColorRole::OnSurfaceVariant, ColorRole::SurfaceContainer, 1.0F, kTagBadgeMaxWidth));
+      title->addChild(pill(tag, ColorRole::Label2, ColorRole::Fill2, 1.0F, kTagBadgeMaxWidth));
     }
     info->addChild(std::move(title));
     auto meta = ui::row({.align = FlexAlign::Center, .wrap = true, .gap = Style::spaceXs * scale, .fillWidth = true});
@@ -870,7 +870,7 @@ namespace settings {
             ui::label({
                 .text = "·",
                 .fontSize = Style::fontSizeMini * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
             })
         );
       }
@@ -883,7 +883,7 @@ namespace settings {
           ui::label({
               .text = text,
               .fontSize = Style::fontSizeMini * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     };
@@ -898,20 +898,20 @@ namespace settings {
     }
     if (storeEntry.source == "official") {
       addMetaItem(pill(
-          i18n::tr("settings.badges.official"), ColorRole::Primary, ColorRole::Primary, 0.15F, kSourceBadgeMaxWidth
+          i18n::tr("settings.badges.official"), ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth
       ));
     } else if (storeEntry.source == "community") {
       addMetaItem(pill(
-          i18n::tr("settings.badges.community"), ColorRole::Secondary, ColorRole::Secondary, 0.15F, kSourceBadgeMaxWidth
+          i18n::tr("settings.badges.community"), ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth
       ));
     } else {
-      addMetaItem(pill(storeEntry.source, ColorRole::Tertiary, ColorRole::Tertiary, 0.15F, kSourceBadgeMaxWidth));
+      addMetaItem(pill(storeEntry.source, ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth));
     }
     if (entry.deprecated) {
-      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::Error, ColorRole::Error, 0.15F));
+      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::Danger, ColorRole::Danger, 0.15F));
     }
     if (entry.heldBack) {
-      addMetaItem(pill(i18n::tr("settings.plugins.store.held-back"), ColorRole::Tertiary, ColorRole::Tertiary, 0.15F));
+      addMetaItem(pill(i18n::tr("settings.plugins.store.held-back"), ColorRole::Accent, ColorRole::Accent, 0.15F));
     }
     info->addChild(std::move(meta));
 
@@ -920,7 +920,7 @@ namespace settings {
           ui::label({
               .text = entry.description,
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 4,
               .ellipsize = TextEllipsize::End,
           })
@@ -938,7 +938,7 @@ namespace settings {
                   "current", scripting::kCurrentPluginApiVersion
               ),
               .fontSize = Style::fontSizeMini * scale,
-              .color = colorSpecFromRole(ColorRole::Tertiary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .maxLines = 3,
           })
       );
@@ -950,7 +950,7 @@ namespace settings {
                   scripting::kOldestSupportedPluginApiVersion, "current", scripting::kCurrentPluginApiVersion
               ),
               .fontSize = Style::fontSizeMini * scale,
-              .color = colorSpecFromRole(ColorRole::Error),
+              .color = colorSpecFromRole(ColorRole::Danger),
               .maxLines = 3,
           })
       );
@@ -1009,7 +1009,7 @@ namespace settings {
           ui::label({
               .text = i18n::tr("settings.plugins.store.not-listed"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     } else if (enabling) {
@@ -1048,12 +1048,12 @@ namespace settings {
               ui::glyph({
                   .glyph = "check",
                   .glyphSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::Primary),
+                  .color = colorSpecFromRole(ColorRole::Accent),
               }),
               ui::label({
                   .text = i18n::tr("settings.plugins.store.installed"),
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
               })
           )
       );
@@ -1089,7 +1089,7 @@ namespace settings {
             ui::label(
                 {.text = i18n::tr(errorKey),
                  .fontSize = Style::fontSizeMini * scale,
-                 .color = colorSpecFromRole(ColorRole::Error),
+                 .color = colorSpecFromRole(ColorRole::Danger),
                  .maxLines = 3}
             )
         );
@@ -1114,7 +1114,7 @@ namespace settings {
           ui::label({
               .text = i18n::tr("settings.plugins.store.no-readme"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }

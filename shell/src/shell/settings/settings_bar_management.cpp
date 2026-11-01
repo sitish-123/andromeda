@@ -59,8 +59,8 @@ namespace settings {
           .padding = Style::spaceSm * scale,
           .configure = [scale](Flex& panel) {
             panel.setRadius(Style::scaledRadiusSm(scale));
-            panel.setFill(colorSpecFromRole(ColorRole::ErrorContainer));
-            panel.setBorder(colorSpecFromRole(ColorRole::Error), Style::borderWidth);
+            panel.setFill(colorSpecFromRole(ColorRole::Fill1));
+            panel.setBorder(colorSpecFromRole(ColorRole::Danger), Style::borderWidth);
           },
       });
     }
@@ -97,8 +97,8 @@ namespace settings {
                       [scale](Flex& container) {
                         container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
                         container.setRadius(Style::scaledRadiusMd(scale));
-                        container.setFill(colorSpecFromRole(ColorRole::SecondaryContainer));
-                        container.setBorder(colorSpecFromRole(ColorRole::Secondary), Style::borderWidth);
+                        container.setFill(colorSpecFromRole(ColorRole::Fill1));
+                        container.setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
                       },
               },
               ui::row(
@@ -106,10 +106,10 @@ namespace settings {
                   ui::glyph({
                       .glyph = "settings",
                       .glyphSize = Style::fontSizeBody * scale,
-                      .color = colorSpecFromRole(ColorRole::OnSecondaryContainer),
+                      .color = colorSpecFromRole(ColorRole::Label1),
                   }),
                   makeLabel(
-                      title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSecondaryContainer),
+                      title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1),
                       FontWeight::Bold
                   )
               )
@@ -138,7 +138,7 @@ namespace settings {
       });
       row->addChild(makeLabel(
           i18n::tr("settings.entities.monitor-override.picker"), Style::fontSizeBody * scale,
-          colorSpecFromRole(ColorRole::OnSurfaceVariant)
+          colorSpecFromRole(ColorRole::Label2)
       ));
       const auto addChoice = [&](std::string label, std::string match) {
         const bool active = selected == match;
@@ -249,11 +249,11 @@ namespace settings {
 
           confirmPanel->addChild(makeLabel(
               i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
-              Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Bold
+              Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
           ));
           confirmPanel->addChild(makeLabel(
               i18n::tr("settings.entities.monitor-override.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-              colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
           ));
 
           confirmPanel->addChild(
@@ -408,11 +408,11 @@ namespace settings {
         auto confirmPanel = makeConfirmPanel(ctx.scale);
         confirmPanel->addChild(makeLabel(
             i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
-            Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Bold
+            Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
         ));
         confirmPanel->addChild(makeLabel(
             i18n::tr("settings.entities.monitor-override.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-            colorSpecFromRole(ColorRole::OnErrorContainer)
+            colorSpecFromRole(ColorRole::Label1)
         ));
         confirmPanel->addChild(
             ui::row(
@@ -544,11 +544,11 @@ namespace settings {
 
           confirmPanel->addChild(makeLabel(
               i18n::tr("settings.entities.bar.delete-confirm-title", "name", barName), Style::fontSizeBody * ctx.scale,
-              colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Bold
+              colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
           ));
           confirmPanel->addChild(makeLabel(
               i18n::tr("settings.entities.bar.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-              colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
           ));
 
           confirmPanel->addChild(

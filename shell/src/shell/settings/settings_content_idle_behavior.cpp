@@ -57,7 +57,7 @@ namespace settings {
       auto block = ui::column(
           {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
           makeLabel(
-              label, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              label, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
       Input* inputPtr = nullptr;
@@ -105,7 +105,7 @@ namespace settings {
          .visible = showCustomCommands},
         makeLabel(
             i18n::tr("settings.idle.behavior.name-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
 
@@ -113,7 +113,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.idle.behavior.kind-section-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     const auto selectedKindIndex = optionIndex(idleActionOptions, norm.action);
@@ -177,7 +177,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.idle.behavior.timeout-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     Input* timeoutPtr = nullptr;
@@ -212,7 +212,7 @@ namespace settings {
           {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
           makeLabel(
               i18n::tr("settings.idle.behavior.locked-timeout-label"), Style::fontSizeCaption * scale,
-              colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
       Input* lockedTimeoutPtr = nullptr;

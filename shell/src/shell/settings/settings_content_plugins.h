@@ -53,7 +53,7 @@ namespace settings {
 
     // Background auto-update scope for git sources; drives the "auto-update plugins"
     // dropdown. setAutoUpdate persists the mode for all git sources.
-    PluginAutoUpdateMode autoUpdateMode = PluginAutoUpdateMode::All;
+    PluginAutoUpdateMode autoUpdateMode = PluginAutoUpdateMode::None;
     std::function<void(PluginAutoUpdateMode)> setAutoUpdate;
     // Update every enabled git source at once (the "update all" action).
     std::function<void()> updateAll;

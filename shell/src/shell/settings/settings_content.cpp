@@ -12,7 +12,7 @@
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
-#include "ui/controls/keybind_recorder.h"
+#include "shell/settings/keybind_recorder.h"
 #include "ui/controls/label.h"
 #include "ui/controls/list_editor.h"
 #include "ui/controls/segmented.h"
@@ -50,7 +50,7 @@ namespace settings {
           .out = &linePtr,
           .text = "",
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       });
       if (ctx.registerIdleLiveStatusLabel) {
         ctx.registerIdleLiveStatusLabel(linePtr);
@@ -155,9 +155,9 @@ namespace settings {
           ui::glyph({
               .glyph = std::string(sectionGlyph(sectionKey)),
               .glyphSize = Style::fontSizeHeader * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
           }),
-          makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Primary), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
       );
       auto section = ui::column({
           .align = FlexAlign::Stretch,
@@ -186,12 +186,12 @@ namespace settings {
                  .gap = Style::spaceSm * scale,
                  .configure = [scale](Flex& flex) { flex.setPadding(Style::spaceSm * scale, 0.0F, 0.0F, 0.0F); }},
                 ui::separator(),
-                makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold)
+                makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
             )
         );
       } else {
         section.addChild(
-            makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold)
+            makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
         );
       }
     };
@@ -359,7 +359,7 @@ namespace settings {
         });
         item->addChild(std::move(checkbox));
         item->addChild(makeLabel(
-            option.label, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Normal
+            option.label, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
         ));
 
         checkRow->addChild(std::move(item));
@@ -435,28 +435,28 @@ namespace settings {
               .borderWidth = 1.0F * scale,
               .normal =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::SurfaceContainerLow),
-                      .border = active ? colorSpecFromRole(ColorRole::Primary, 0.9F)
-                                       : colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha),
-                      .label = colorSpecFromRole(active ? ColorRole::OnPrimary : ColorRole::OnSurface),
+                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::SolidThin),
+                      .border = active ? colorSpecFromRole(ColorRole::Accent, 0.9F)
+                                       : colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
+                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
                   },
               .hover =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::Hover),
-                      .border = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::Hover),
-                      .label = colorSpecFromRole(active ? ColorRole::OnPrimary : ColorRole::OnHover),
+                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
+                      .border = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
+                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
                   },
               .pressed =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(ColorRole::Primary),
-                      .border = colorSpecFromRole(ColorRole::Primary),
-                      .label = colorSpecFromRole(ColorRole::OnPrimary),
+                      .bg = colorSpecFromRole(ColorRole::Accent),
+                      .border = colorSpecFromRole(ColorRole::Accent),
+                      .label = colorSpecFromRole(ColorRole::OnAccent),
                   },
               .disabled =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(ColorRole::SurfaceContainer, 0.35F),
-                      .border = colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha),
-                      .label = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                      .bg = colorSpecFromRole(ColorRole::Fill2, 0.35F),
+                      .border = colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
+                      .label = colorSpecFromRole(ColorRole::Label2),
                   },
               .selected = std::nullopt,
           };
@@ -477,9 +477,9 @@ namespace settings {
                 .out = &checkbox,
                 .checked = checked,
                 .scale = scale,
-                .checkedFill = colorSpecFromRole(ColorRole::Surface),
-                .checkedBorder = colorSpecFromRole(ColorRole::OnPrimary),
-                .checkedGlyph = colorSpecFromRole(ColorRole::Primary),
+                .checkedFill = colorSpecFromRole(ColorRole::SolidRegular),
+                .checkedBorder = colorSpecFromRole(ColorRole::OnAccent),
+                .checkedGlyph = colorSpecFromRole(ColorRole::Accent),
             })
         );
 
@@ -490,7 +490,7 @@ namespace settings {
                 .text = option.displayName,
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = FontWeight::Medium,
-                .color = colorSpecFromRole(checked ? ColorRole::OnPrimary : ColorRole::OnSurface),
+                .color = colorSpecFromRole(checked ? ColorRole::OnAccent : ColorRole::Label1),
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
             })
@@ -502,7 +502,7 @@ namespace settings {
                   .text = option.category,
                   .fontSize = Style::fontSizeCaption * scale,
                   .color = colorSpecFromRole(
-                      checked ? ColorRole::OnPrimary : ColorRole::OnSurfaceVariant, checked ? 0.75F : 1.0F
+                      checked ? ColorRole::OnAccent : ColorRole::Label2, checked ? 0.75F : 1.0F
                   ),
                   .maxLines = 1,
                   .ellipsize = TextEllipsize::End,
@@ -532,8 +532,8 @@ namespace settings {
           }
           auto palette = Button::defaultPalette(ButtonVariant::Ghost);
           palette.normal.label = colorSpecFromRole(role);
-          palette.hover.bg = colorSpecFromRole(ColorRole::Surface);
-          palette.hover.label = colorSpecFromRole(ColorRole::OnSurface);
+          palette.hover.bg = colorSpecFromRole(ColorRole::SolidRegular);
+          palette.hover.label = colorSpecFromRole(ColorRole::Label1);
           documentationButton->setCustomPalette(palette);
         };
         const auto syncTileState = [checkedState, card, documentationButton, titleLabel, categoryLabel,
@@ -541,16 +541,16 @@ namespace settings {
           const bool linkHovered = documentationButton != nullptr && documentationButton->hovered();
           card->setHoveredVisual(linkHovered);
           const bool hovered = card->hovered() || linkHovered;
-          ColorRole foreground = ColorRole::OnSurface;
-          ColorRole detail = ColorRole::OnSurfaceVariant;
+          ColorRole foreground = ColorRole::Label1;
+          ColorRole detail = ColorRole::Label2;
           float detailOpacity = 1.0F;
           if (*checkedState || card->pressed()) {
-            foreground = ColorRole::OnPrimary;
-            detail = ColorRole::OnPrimary;
+            foreground = ColorRole::OnAccent;
+            detail = ColorRole::OnAccent;
             detailOpacity = 0.75F;
           } else if (hovered) {
-            foreground = ColorRole::OnHover;
-            detail = ColorRole::OnHover;
+            foreground = ColorRole::Label1;
+            detail = ColorRole::Label1;
             detailOpacity = 0.75F;
           }
           if (titleLabel != nullptr) {
@@ -834,7 +834,7 @@ namespace settings {
             .out = &summaryLabel,
             .text = sessionActionRowSummary(kindOptions, (*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         if (ctx.registerSessionActionSummaryLabel) {
@@ -967,7 +967,7 @@ namespace settings {
         auto summary = ui::label({
             .text = idleBehaviorRowSummary((*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         row->addChild(std::move(summary));
@@ -1092,7 +1092,7 @@ namespace settings {
         auto summary = ui::label({
             .text = notificationFilterRowSummary((*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         row->addChild(std::move(summary));
@@ -1403,7 +1403,7 @@ namespace settings {
                 ui::label({
                     .text = i18n::tr("settings.schema.shell.screenshot-output.description"),
                     .fontSize = Style::fontSizeBody * scale,
-                    .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                    .color = colorSpecFromRole(ColorRole::Label2),
                     .maxLines = 0,
                 })
             );
@@ -1477,20 +1477,20 @@ namespace settings {
            .justify = FlexJustify::Center,
            .gap = Style::spaceSm * scale,
            .padding = (Style::spaceLg * 2.0F) * scale,
-           .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+           .fill = colorSpecFromRole(ColorRole::SolidThin),
            .radius = Style::scaledRadiusMd(scale),
-           .border = colorSpecFromRole(ColorRole::OutlineVariant),
+           .border = colorSpecFromRole(ColorRole::Stroke),
            .minWidth = 360.0F * scale,
            .minHeight = 160.0F * scale,
            .fillWidth = true,
            .flexGrow = 2.0F},
           makeLabel(
               i18n::tr("settings.window.no-results"), Style::fontSizeHeader * scale,
-              colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+              colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
           ),
           makeLabel(
               i18n::tr("settings.window.no-results-hint"), Style::fontSizeBody * scale,
-              colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
 
@@ -1508,7 +1508,7 @@ namespace settings {
               {.align = FlexAlign::Center, .justify = FlexJustify::Center, .fillWidth = true},
               makeLabel(
                   i18n::tr("settings.window.search-truncated", "count", std::to_string(kMaxSearchResults)),
-                  Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+                  Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
               )
           )
       );
