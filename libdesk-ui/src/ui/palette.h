@@ -25,6 +25,7 @@ enum class ColorRole : std::uint8_t {
   Danger,
   Shadow,
   TintRegular,
+  Label3,
 };
 
 struct ColorRoleToken {
@@ -32,7 +33,7 @@ struct ColorRoleToken {
   std::string_view token;
 };
 
-inline constexpr std::array<ColorRoleToken, 13> kColorRoleTokens = {{
+inline constexpr std::array<ColorRoleToken, 14> kColorRoleTokens = {{
     {ColorRole::Label1, "label_1"},
     {ColorRole::Label2, "label_2"},
     {ColorRole::Fill1, "fill_1"},
@@ -46,6 +47,7 @@ inline constexpr std::array<ColorRoleToken, 13> kColorRoleTokens = {{
     {ColorRole::Danger, "danger"},
     {ColorRole::Shadow, "shadow"},
     {ColorRole::TintRegular, "tint_regular"},
+    {ColorRole::Label3, "label_3"},
 }};
 
 [[nodiscard]] constexpr Color clearColor() noexcept { return rgba(0.0F, 0.0F, 0.0F, 0.0F); }
@@ -88,6 +90,7 @@ struct Palette {
   Color danger;
   Color shadow;
   Color tintRegular;
+  Color label3;
 
   bool operator==(const Palette&) const = default;
 };

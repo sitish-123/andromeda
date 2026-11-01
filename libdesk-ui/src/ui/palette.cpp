@@ -92,6 +92,8 @@ const Color& colorForRole(ColorRole role) noexcept {
     return palette.shadow;
   case ColorRole::TintRegular:
     return palette.tintRegular;
+  case ColorRole::Label3:
+    return palette.label3;
   }
 
   return palette.label1;
@@ -203,6 +205,7 @@ Palette lerpPalette(const Palette& a, const Palette& b, float t) {
       .danger = lerpColor(a.danger, b.danger, t),
       .shadow = lerpColor(a.shadow, b.shadow, t),
       .tintRegular = lerpColor(a.tintRegular, b.tintRegular, t),
+      .label3 = lerpColor(a.label3, b.label3, t),
   };
 }
 
@@ -222,5 +225,6 @@ Palette tokenPalette(bool light) noexcept {
       .danger = tokenColor(s.danger),
       .shadow = tokenColor(s.shadow),
       .tintRegular = tokenColor(s.tintRegular | 0xffU), // callers carry the alpha: kTintRegularAlpha, glass opacity
+      .label3 = tokenColor(s.label3),
   };
 }

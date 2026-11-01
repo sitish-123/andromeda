@@ -682,7 +682,8 @@ namespace {
     const bool vertical = (barConfig.position == "left" || barConfig.position == "right");
     const bool isBottom = barConfig.position == "bottom";
     const bool isRight = barConfig.position == "right";
-    const std::int32_t mEnds = barConfig.marginEnds;
+    const std::int32_t mEnds =
+        barConfig.islands ? static_cast<std::int32_t>(Tokens::componentIslandMargin) : barConfig.marginEnds;
     const std::int32_t mEdge = barConfig.marginEdge;
     const auto sb = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
     const int edgeGutter = barAutoHideEdgeGutter(barConfig);
@@ -1024,6 +1025,16 @@ namespace {
     }
   }
 
+  // Island content inset from its pill edge; the bar's main-axis padding equals it so the pill's outer edge sits at
+  // the bar's end margin.
+  float barIslandInset(const BarConfig& config) {
+    return std::round(Tokens::componentIslandPaddingX * config.scale);
+  }
+
+  float barMainPadding(const BarConfig& config) {
+    return config.islands ? barIslandInset(config) : static_cast<float>(config.padding);
+  }
+
   // Each island spans the bar's thickness and its section's extent plus an inset of 0.3 x thickness.
   void layoutBarIslands(BarInstance& instance, bool isVertical) {
     if (!instance.barConfig.islands || instance.bg == nullptr || instance.slideRoot == nullptr) {
@@ -1033,7 +1044,7 @@ namespace {
     float rootY = 0.0F;
     Node::absolutePosition(instance.slideRoot, rootX, rootY);
     const float cross = isVertical ? instance.bg->width() : instance.bg->height();
-    const float inset = std::round(Tokens::componentIslandPaddingX * instance.barConfig.scale);
+    const float inset = barIslandInset(instance.barConfig);
     const std::array<Flex*, 3> sections{instance.startSection, instance.centerSection, instance.endSection};
     for (std::size_t i = 0; i < sections.size(); ++i) {
       Box* island = instance.islands[i];
@@ -3554,7 +3565,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
 
   const auto w = static_cast<float>(width);
   const auto h = static_cast<float>(height);
-  const auto padding = static_cast<float>(instance.barConfig.padding);
+  const float padding = barMainPadding(instance.barConfig);
   const auto widgetSpacing = static_cast<float>(instance.barConfig.widgetSpacing);
   const auto& shadowConfig = m_config->config().shell.shadow;
   const auto shadowOffset = shadowDirectionOffset(shadowConfig.direction);
@@ -3773,7 +3784,7 @@ void Bar::updateWidgets(BarInstance& instance) {
 
   const auto w = static_cast<float>(instance.surface->width());
   const auto h = static_cast<float>(instance.surface->height());
-  const auto padding = static_cast<float>(instance.barConfig.padding);
+  const float padding = barMainPadding(instance.barConfig);
   const bool isVertical = (instance.barConfig.position == "left" || instance.barConfig.position == "right");
   const auto& shadowConfig = m_config->config().shell.shadow;
   const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, w, h);
@@ -3820,7 +3831,7 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
 
   const auto w = static_cast<float>(instance.surface->width());
   const auto h = static_cast<float>(instance.surface->height());
-  const auto padding = static_cast<float>(instance.barConfig.padding);
+  const float padding = barMainPadding(instance.barConfig);
   const bool isVertical = (instance.barConfig.position == "left" || instance.barConfig.position == "right");
   const auto& shadowConfig = m_config->config().shell.shadow;
   const float innerSurfaceExtension = barInnerSurfaceExtension(instance.barConfig, shadowConfig, w, h);
