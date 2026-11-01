@@ -412,7 +412,7 @@ namespace andromeda {
 
     // Focus lives in FocusManager; these forward so call sites that already
     // hold a Server do not need a second reference.
-    void focusView(View* view, FocusReason reason = FocusReason::Startup) { m_focus.focusView(view, reason); }
+    void focusView(View* view, FocusReason reason) { m_focus.focusView(view, reason); }
     void xwaylandHintsChanged(View* view) { m_focus.xwaylandHintsChanged(view); }
     void restoreActivatedViewKeyboardFocus() { m_focus.restoreActivatedViewKeyboardFocus(); }
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr) {

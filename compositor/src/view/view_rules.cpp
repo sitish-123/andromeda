@@ -349,7 +349,7 @@ namespace andromeda {
             }
           }
           if (wasActivated) {
-            m_server->focusView(this);
+            m_server->focusView(this, FocusReason::Startup);
           }
         }
       }
@@ -440,7 +440,7 @@ namespace andromeda {
             && rule.defaultFocused.value_or(false)
             && scratchpadManager->summon(*scratchpadTarget, targetOutput, this)
             && wasActivated) {
-          m_server->focusView(this);
+          m_server->focusView(this, FocusReason::Startup);
         }
       }
     }

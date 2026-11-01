@@ -916,7 +916,7 @@ namespace andromeda {
       if (!view->inputDelegate()->acceptsKeyboardFocus()) {
         return false;
       }
-      m_server->focusView(view);
+      m_server->focusView(view, FocusReason::Directional);
     } else if (m_server->exclusiveKeyboardLayer() != nullptr) {
       m_server->refocus();
     } else {
@@ -1138,7 +1138,7 @@ namespace andromeda {
       scratchpad->solo = nullptr;
       return false;
     }
-    m_server->focusView(target);
+    m_server->focusView(target, FocusReason::Directional);
     return true;
   }
 
@@ -1275,7 +1275,7 @@ namespace andromeda {
       scratchpadOutput->updateHdr();
     }
     if (focus) {
-      m_server->focusView(view);
+      m_server->focusView(view, FocusReason::Startup);
     }
     return true;
   }

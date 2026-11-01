@@ -654,7 +654,7 @@ namespace andromeda {
       }
       applyPinnedState();
       if (focus) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
       refreshStateRuleEffects();
       // A float pins without touching the layout, so the occupancy questions need a pass of their own.
@@ -869,7 +869,7 @@ namespace andromeda {
       // Keep the focus ring when floating a tiled window.
       showDecorations(true);
       if (focus) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
       updateForeignState();
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
@@ -913,7 +913,7 @@ namespace andromeda {
     applyCornerRadius();
     updateShadow();
     if (focus) {
-      m_server->focusView(this);
+      m_server->focusView(this, FocusReason::Startup);
     }
     // setFullscreen(true) is not re-run on this path, so its scroll snap does not happen; without it the strip can rest
     // showing the neighbor column beside a viewport-wide fullscreen column.
@@ -1086,7 +1086,7 @@ namespace andromeda {
     if (fullscreen && m_mapped && m_onActiveWorkspace) {
       LayerSurface* layer = LayerSurface::fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface);
       if (layer != nullptr && layer->output() == currentOutput() && !layer->acceptsKeyboard()) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
     }
     if (refreshHoverFocus) {

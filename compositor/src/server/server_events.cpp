@@ -3849,7 +3849,7 @@ namespace andromeda {
     if (hadKeyboardFocus) {
       notifyKeyboardClearFocus();
       if (replacement != nullptr) {
-        focusView(replacement);
+        focusView(replacement, FocusReason::Directional);
       } else {
         refocus(output);
       }

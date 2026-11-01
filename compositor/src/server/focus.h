@@ -47,7 +47,7 @@ namespace andromeda {
   public:
     explicit FocusManager(Server& server) : m_server(server) {}
 
-    void focusView(View* view, FocusReason reason = FocusReason::Startup);
+    void focusView(View* view, FocusReason reason);
     void xwaylandHintsChanged(View* view);
 
     // A data-device drag suppresses seat keyboard enters while its grab is
