@@ -686,9 +686,18 @@ std::optional<LinkService::TransferStatus> LinkService::activeTransfer() const {
   };
 }
 
-void LinkService::setTransferCallback(ChangeCallback callback) { m_transferCallback = std::move(callback); }
+void LinkService::setActivityCallback(ChangeCallback callback) { m_activityCallback = std::move(callback); }
 
 void LinkService::cancelTransfer(const std::string& transferId) { callTransfer("CancelTransfer", transferId); }
+
+std::optional<LinkService::CallStatus> LinkService::activeCall() const { return m_call; }
+
+void LinkService::declineCall(const std::string& deviceId) {
+  m_link->callMethodAsync("CallAction")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, std::string{"decline"})
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
+}
 
 void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
   auto it = m_transfers.find(transferId);
@@ -700,10 +709,11 @@ void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes,
   transfer.bytes = bytes;
   transfer.total = total;
   transfer.progressSerial = ++m_progressSerial;
-  if (m_transferCallback) {
-    m_transferCallback();
-  }
   closeTransferNotification(transfer.offerNotification);
+  if (m_activityCallback) {
+    m_activityCallback();
+    return;
+  }
   const std::string body =
       i18n::tr("notifications.internal.link-progress", "done", formatBytes(bytes), "total", formatBytes(total));
   if (transfer.progressDismissed) {
@@ -751,8 +761,8 @@ void LinkService::onFinished(
   }
   Transfer transfer = std::move(it->second);
   m_transfers.erase(it);
-  if (m_transferCallback) {
-    m_transferCallback();
+  if (m_activityCallback) {
+    m_activityCallback();
   }
   closeTransferNotification(transfer.offerNotification);
   closeTransferNotification(transfer.progressNotification);
@@ -896,6 +906,16 @@ void LinkService::onRingRequested(const std::string& deviceId, bool on) {
 void LinkService::onCall(
     const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
 ) {
+  if (state == "ringing" || state == "active") {
+    const std::string who =
+        !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
+    m_call = CallStatus{.deviceId = deviceId, .caller = who, .device = deviceName(deviceId), .ringing = state == "ringing"};
+  } else if (m_call.has_value() && m_call->deviceId == deviceId) {
+    m_call.reset();
+  }
+  if (m_activityCallback) {
+    m_activityCallback();
+  }
   const auto shown = m_callNotifications.find(deviceId);
   if (state != "ringing") {
     if (shown != m_callNotifications.end()) {

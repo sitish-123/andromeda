@@ -121,9 +121,21 @@ public:
   };
   // The transfer that reported progress last; empty when none runs.
   [[nodiscard]] std::optional<TransferStatus> activeTransfer() const;
-  // Runs on each transfer progress, finish, or cancel.
-  void setTransferCallback(ChangeCallback callback);
   void cancelTransfer(const std::string& transferId);
+
+  struct CallStatus {
+    std::string deviceId;
+    std::string caller;
+    std::string device;
+    bool ringing = false;
+  };
+  // The phone call that is ringing or active; empty when none.
+  [[nodiscard]] std::optional<CallStatus> activeCall() const;
+  void declineCall(const std::string& deviceId);
+
+  // Runs on each transfer progress or finish and on each call state change. While it is set, transfer progress
+  // shows in the live activity island instead of a toast.
+  void setActivityCallback(ChangeCallback callback);
   void startPairing();
   void cancelPairing();
   // Whether a phone with a Link session reported this code for the Bluetooth pairing under way; `done` runs once.
@@ -245,7 +257,8 @@ private:
   std::unordered_map<std::uint32_t, ReceivedShare> m_received;
   std::unordered_map<std::string, Transfer> m_transfers;
   std::uint64_t m_progressSerial = 0;
-  ChangeCallback m_transferCallback;
+  ChangeCallback m_activityCallback;
+  std::optional<CallStatus> m_call;
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;

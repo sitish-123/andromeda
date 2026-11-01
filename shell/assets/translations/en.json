@@ -951,6 +951,11 @@
     },
     "search-placeholder": "Search applications…"
   },
+  "live-activity": {
+    "call-active": "On a call with {caller}",
+    "call-ringing": "Call from {caller}",
+    "recording": "Recording the screen"
+  },
   "location": {
     "errors": {
       "address-lookup-failed": "Address lookup failed",

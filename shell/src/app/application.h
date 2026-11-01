@@ -234,6 +234,7 @@ private:
   void onSecretServiceCollectionChanged();
   void retrySecretServiceConsumers(bool defaultCollectionUnlocked = false);
   void scheduleNotificationShellRefresh();
+  void syncLiveActivity();
   void syncPolkitAgent();
   [[nodiscard]] bool likelySupportsInSessionPolkit() const noexcept;
   void syncClipboardService();

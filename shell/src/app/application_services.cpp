@@ -158,6 +158,49 @@ namespace {
   }
 } // namespace
 
+// One activity at a time, by priority: call, screen recording, file transfer.
+void Application::syncLiveActivity() {
+  if (m_linkService != nullptr) {
+    if (const auto call = m_linkService->activeCall(); call.has_value()) {
+      LiveActivity activity{
+          .glyph = "phone-call",
+          .title = call->ringing ? i18n::tr("live-activity.call-ringing", "caller", call->caller)
+                                 : i18n::tr("live-activity.call-active", "caller", call->caller),
+          .subtitle = call->device,
+      };
+      if (call->ringing) {
+        activity.actionGlyph = "phone-off";
+        activity.action = [this, id = call->deviceId] { m_linkService->declineCall(id); };
+      }
+      m_liveActivity.setActivity(std::move(activity));
+      return;
+    }
+  }
+  if (m_screenRecorder != nullptr && m_screenRecorder->active()) {
+    m_liveActivity.setActivity(LiveActivity{
+        .glyph = "video",
+        .title = i18n::tr("live-activity.recording"),
+        .actionGlyph = "player-stop",
+        .action = [this] { (void)m_screenRecorder->toggle(); },
+    });
+    return;
+  }
+  if (m_linkService != nullptr) {
+    if (const auto transfer = m_linkService->activeTransfer(); transfer.has_value()) {
+      m_liveActivity.setActivity(LiveActivity{
+          .glyph = "device-mobile",
+          .title = transfer->title,
+          .subtitle = transfer->subtitle,
+          .progress = transfer->progress,
+          .actionGlyph = "close",
+          .action = [this, id = transfer->transferId] { m_linkService->cancelTransfer(id); },
+      });
+      return;
+    }
+  }
+  m_liveActivity.setActivity(std::nullopt);
+}
+
 void Application::scheduleNotificationShellRefresh() {
   if (m_notificationShellRefreshScheduled) {
     return;
@@ -1771,6 +1814,7 @@ void Application::initSessionBusServices() {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
       m_globalShortcutsPortal = std::make_unique<GlobalShortcutsPortal>(*m_bus);
       m_screenRecorder = std::make_unique<ScreenRecorder>(*m_bus, m_notificationManager);
+      m_screenRecorder->setActiveCallback([this]() { syncLiveActivity(); });
       if (m_systemBus != nullptr) {
         m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
       }
@@ -1789,21 +1833,7 @@ void Application::initSessionBusServices() {
           m_lockScreen.requestUpdate();
         }
       });
-      m_linkService->setTransferCallback([this]() {
-        const auto transfer = m_linkService->activeTransfer();
-        if (!transfer.has_value()) {
-          m_liveActivity.setActivity(std::nullopt);
-          return;
-        }
-        m_liveActivity.setActivity(LiveActivity{
-            .glyph = "device-mobile",
-            .title = transfer->title,
-            .subtitle = transfer->subtitle,
-            .progress = transfer->progress,
-            .actionGlyph = "close",
-            .action = [this, id = transfer->transferId] { m_linkService->cancelTransfer(id); },
-        });
-      });
+      m_linkService->setActivityCallback([this]() { syncLiveActivity(); });
       m_lockScreen.setPhoneServices(m_linkService.get());
       m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);
       m_quickShareService->setChangeCallback([this, shouldRefreshControlCenter]() {
