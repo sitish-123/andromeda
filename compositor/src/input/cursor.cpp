@@ -58,46 +58,23 @@ namespace andromeda {
     m_xcursorManager =
         wlr_xcursor_manager_create(m_xcursorTheme.empty() ? nullptr : m_xcursorTheme.c_str(), m_xcursorSize);
 
-    m_motion.notify = onMotion;
-    wl_signal_add(&m_cursor->events.motion, &m_motion);
-    m_motionAbsolute.notify = onMotionAbsolute;
-    wl_signal_add(&m_cursor->events.motion_absolute, &m_motionAbsolute);
-    m_button.notify = onButton;
-    wl_signal_add(&m_cursor->events.button, &m_button);
-    m_axis.notify = onAxis;
-    wl_signal_add(&m_cursor->events.axis, &m_axis);
-    m_frame.notify = onFrame;
-    wl_signal_add(&m_cursor->events.frame, &m_frame);
+    m_motion.connect(&m_cursor->events.motion, this, onMotion);
+    m_motionAbsolute.connect(&m_cursor->events.motion_absolute, this, onMotionAbsolute);
+    m_button.connect(&m_cursor->events.button, this, onButton);
+    m_axis.connect(&m_cursor->events.axis, this, onAxis);
+    m_frame.connect(&m_cursor->events.frame, this, onFrame);
 
-    m_touchDown.notify = onTouchDown;
-    wl_signal_add(&m_cursor->events.touch_down, &m_touchDown);
-    m_touchUp.notify = onTouchUp;
-    wl_signal_add(&m_cursor->events.touch_up, &m_touchUp);
-    m_touchMotion.notify = onTouchMotion;
-    wl_signal_add(&m_cursor->events.touch_motion, &m_touchMotion);
-    m_touchCancel.notify = onTouchCancel;
-    wl_signal_add(&m_cursor->events.touch_cancel, &m_touchCancel);
-    m_touchFrame.notify = onTouchFrame;
-    wl_signal_add(&m_cursor->events.touch_frame, &m_touchFrame);
+    m_touchDown.connect(&m_cursor->events.touch_down, this, onTouchDown);
+    m_touchUp.connect(&m_cursor->events.touch_up, this, onTouchUp);
+    m_touchMotion.connect(&m_cursor->events.touch_motion, this, onTouchMotion);
+    m_touchCancel.connect(&m_cursor->events.touch_cancel, this, onTouchCancel);
+    m_touchFrame.connect(&m_cursor->events.touch_frame, this, onTouchFrame);
 
-    m_tabletToolAxis.notify = onTabletToolAxis;
-    wl_signal_add(&m_cursor->events.tablet_tool_axis, &m_tabletToolAxis);
-    m_tabletToolProximity.notify = onTabletToolProximity;
-    wl_signal_add(&m_cursor->events.tablet_tool_proximity, &m_tabletToolProximity);
-    m_tabletToolTip.notify = onTabletToolTip;
-    wl_signal_add(&m_cursor->events.tablet_tool_tip, &m_tabletToolTip);
-    m_tabletToolButton.notify = onTabletToolButton;
-    wl_signal_add(&m_cursor->events.tablet_tool_button, &m_tabletToolButton);
+    m_tabletToolAxis.connect(&m_cursor->events.tablet_tool_axis, this, onTabletToolAxis);
+    m_tabletToolProximity.connect(&m_cursor->events.tablet_tool_proximity, this, onTabletToolProximity);
+    m_tabletToolTip.connect(&m_cursor->events.tablet_tool_tip, this, onTabletToolTip);
+    m_tabletToolButton.connect(&m_cursor->events.tablet_tool_button, this, onTabletToolButton);
 
-    m_constraintDestroy.link.next = nullptr;
-    m_clientCursorOwnerDestroy.notify = onClientCursorOwnerDestroy;
-    m_clientCursorOwnerDestroy.link.next = nullptr;
-    m_clientCursorDestroy.notify = onClientCursorDestroy;
-    m_clientCursorDestroy.link.next = nullptr;
-    m_clientCursorClientCommit.notify = onClientCursorClientCommit;
-    m_clientCursorClientCommit.link.next = nullptr;
-    m_clientCursorCommit.notify = onClientCursorCommit;
-    m_clientCursorCommit.link.next = nullptr;
     updateHideTimer();
   }
 
@@ -114,35 +91,12 @@ namespace andromeda {
     if (m_hideTimer != nullptr) {
       wl_event_source_remove(m_hideTimer);
     }
-    if (m_constraintDestroy.link.next != nullptr) {
-      wl_list_remove(&m_constraintDestroy.link);
+    // These listen on m_cursor, which wlr_cursor_destroy frees before the members die.
+    for (Listener* listener : {&m_motion, &m_motionAbsolute, &m_button, &m_axis, &m_frame, &m_touchDown, &m_touchUp,
+                               &m_touchMotion, &m_touchCancel, &m_touchFrame, &m_tabletToolAxis, &m_tabletToolProximity,
+                               &m_tabletToolTip, &m_tabletToolButton}) {
+      listener->disconnect();
     }
-    if (m_clientCursorOwnerDestroy.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorOwnerDestroy.link);
-    }
-    if (m_clientCursorDestroy.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorDestroy.link);
-    }
-    if (m_clientCursorClientCommit.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorClientCommit.link);
-    }
-    if (m_clientCursorCommit.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorCommit.link);
-    }
-    wl_list_remove(&m_motion.link);
-    wl_list_remove(&m_motionAbsolute.link);
-    wl_list_remove(&m_button.link);
-    wl_list_remove(&m_axis.link);
-    wl_list_remove(&m_frame.link);
-    wl_list_remove(&m_touchDown.link);
-    wl_list_remove(&m_touchUp.link);
-    wl_list_remove(&m_touchMotion.link);
-    wl_list_remove(&m_touchCancel.link);
-    wl_list_remove(&m_touchFrame.link);
-    wl_list_remove(&m_tabletToolAxis.link);
-    wl_list_remove(&m_tabletToolProximity.link);
-    wl_list_remove(&m_tabletToolTip.link);
-    wl_list_remove(&m_tabletToolButton.link);
     wlr_cursor_destroy(m_cursor);
     wlr_xcursor_manager_destroy(m_xcursorManager);
   }
@@ -297,16 +251,16 @@ namespace andromeda {
       m_clientCursorKnown = true;
       m_clientCursorOwner = owner;
       if (owner != nullptr) {
-        wl_client_add_destroy_listener(owner, &m_clientCursorOwnerDestroy);
+        m_clientCursorOwnerDestroy.connectClient(owner, [this](void* data) { onClientCursorOwnerDestroy(this, data); });
       }
       m_clientCursorSurface = surface;
       if (surface != nullptr) {
         Xwayland* xwayland = m_server->xwayland();
         m_clientCursorFromXwayland = xwayland != nullptr && xwayland->ownsSurface(surface);
-        wl_signal_add(&surface->events.destroy, &m_clientCursorDestroy);
+        m_clientCursorDestroy.connect(&surface->events.destroy, this, onClientCursorDestroy);
         if (m_clientCursorFromXwayland) {
-          wl_signal_add(&surface->events.client_commit, &m_clientCursorClientCommit);
-          wl_signal_add(&surface->events.commit, &m_clientCursorCommit);
+          m_clientCursorClientCommit.connect(&surface->events.client_commit, this, onClientCursorClientCommit);
+          m_clientCursorCommit.connect(&surface->events.commit, this, onClientCursorCommit);
           if (surface->buffer != nullptr) {
             captureXwaylandCursorImage(&surface->buffer->base);
           }
@@ -346,7 +300,7 @@ namespace andromeda {
     m_clientCursorKnown = true;
     m_clientCursorOwner = owner;
     if (owner != nullptr) {
-      wl_client_add_destroy_listener(owner, &m_clientCursorOwnerDestroy);
+      m_clientCursorOwnerDestroy.connectClient(owner, [this](void* data) { onClientCursorOwnerDestroy(this, data); });
     }
     m_clientCursorShape = name;
     if (m_compositorOwnsCursor) {
@@ -474,22 +428,10 @@ namespace andromeda {
   }
 
   void Cursor::forgetClientCursor() {
-    if (m_clientCursorOwnerDestroy.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorOwnerDestroy.link);
-      m_clientCursorOwnerDestroy.link.next = nullptr;
-    }
-    if (m_clientCursorDestroy.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorDestroy.link);
-      m_clientCursorDestroy.link.next = nullptr;
-    }
-    if (m_clientCursorClientCommit.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorClientCommit.link);
-      m_clientCursorClientCommit.link.next = nullptr;
-    }
-    if (m_clientCursorCommit.link.next != nullptr) {
-      wl_list_remove(&m_clientCursorCommit.link);
-      m_clientCursorCommit.link.next = nullptr;
-    }
+    m_clientCursorOwnerDestroy.disconnect();
+    m_clientCursorDestroy.disconnect();
+    m_clientCursorClientCommit.disconnect();
+    m_clientCursorCommit.disconnect();
     m_clientCursorKnown = false;
     m_clientCursorOwner = nullptr;
     m_clientCursorSurface = nullptr;
@@ -502,18 +444,14 @@ namespace andromeda {
     m_clientCursorImageHeight = 0;
   }
 
-  void Cursor::onClientCursorOwnerDestroy(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_clientCursorOwnerDestroy);
+  void Cursor::onClientCursorOwnerDestroy(Cursor* self, void* /*data*/) {
     self->forgetClientCursor();
     if (!self->m_compositorOwnsCursor) {
       self->setXcursor("default");
     }
   }
 
-  void Cursor::onClientCursorDestroy(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_clientCursorDestroy);
+  void Cursor::onClientCursorDestroy(Cursor* self, void* /*data*/) {
     const bool promoted = self->m_clientCursorSurface != nullptr && !self->m_clientCursorShape.empty();
     self->forgetClientCursor();
     if (promoted && !self->m_compositorOwnsCursor) {
@@ -521,18 +459,14 @@ namespace andromeda {
     }
   }
 
-  void Cursor::onClientCursorClientCommit(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_clientCursorClientCommit);
+  void Cursor::onClientCursorClientCommit(Cursor* self, void* /*data*/) {
     wlr_surface_state& pending = self->m_clientCursorSurface->pending;
     if ((pending.committed & WLR_SURFACE_STATE_BUFFER) != 0) {
       self->captureXwaylandCursorImage(pending.buffer);
     }
   }
 
-  void Cursor::onClientCursorCommit(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_clientCursorCommit);
+  void Cursor::onClientCursorCommit(Cursor* self, void* /*data*/) {
     self->m_clientCursorHotspotX -= self->m_clientCursorSurface->current.dx;
     self->m_clientCursorHotspotY -= self->m_clientCursorSurface->current.dy;
     self->handleClientCursorCommit();
@@ -805,33 +739,23 @@ namespace andromeda {
     }
   }
 
-  void Cursor::onMotion(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_motion);
+  void Cursor::onMotion(Cursor* self, void* data) {
     self->handleMotion(data);
   }
 
-  void Cursor::onMotionAbsolute(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_motionAbsolute);
+  void Cursor::onMotionAbsolute(Cursor* self, void* data) {
     self->handleMotionAbsolute(data);
   }
 
-  void Cursor::onButton(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_button);
+  void Cursor::onButton(Cursor* self, void* data) {
     self->handleButton(data);
   }
 
-  void Cursor::onAxis(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_axis);
+  void Cursor::onAxis(Cursor* self, void* data) {
     self->handleAxis(data);
   }
 
-  void Cursor::onFrame(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_frame);
+  void Cursor::onFrame(Cursor* self, void* /*data*/) {
     self->handleFrame();
   }
 
@@ -1813,44 +1737,30 @@ namespace andromeda {
     return view;
   }
 
-  void Cursor::onTabletToolAxis(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_tabletToolAxis);
+  void Cursor::onTabletToolAxis(Cursor* self, void* data) {
     self->handleTabletToolAxis(data);
   }
 
-  void Cursor::onTabletToolProximity(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_tabletToolProximity);
+  void Cursor::onTabletToolProximity(Cursor* self, void* data) {
     self->handleTabletToolProximity(data);
   }
 
-  void Cursor::onTabletToolTip(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_tabletToolTip);
+  void Cursor::onTabletToolTip(Cursor* self, void* data) {
     self->handleTabletToolTip(data);
   }
 
-  void Cursor::onTabletToolButton(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_tabletToolButton);
+  void Cursor::onTabletToolButton(Cursor* self, void* data) {
     self->handleTabletToolButton(data);
   }
 
-  void Cursor::onToolDestroy(wl_listener* listener, void* /*data*/) {
-    TabletToolState* watch;
-    watch = wl_container_of(listener, watch, destroy);
+  void Cursor::onToolDestroy(TabletToolState* watch, void* /*data*/) {
     Cursor* cursor = watch->cursor;
-    wl_list_remove(&watch->destroy.link);
-    wl_list_remove(&watch->setCursor.link);
     std::erase_if(cursor->m_tools, [watch](const std::unique_ptr<TabletToolState>& entry) {
       return entry.get() == watch;
     });
   }
 
-  void Cursor::onToolSetCursor(wl_listener* listener, void* data) {
-    TabletToolState* watch;
-    watch = wl_container_of(listener, watch, setCursor);
+  void Cursor::onToolSetCursor(TabletToolState* watch, void* data) {
     auto* event = static_cast<wlr_tablet_v2_event_cursor*>(data);
     if (watch->cursor->compositorOwnsCursor()) {
       return;
@@ -1873,10 +1783,8 @@ namespace andromeda {
     state->cursor = this;
     state->tool = tool;
     state->v2 = wlr_tablet_tool_create(m_server->tabletManager(), m_server->seat()->wlr(), tool);
-    state->destroy.notify = onToolDestroy;
-    wl_signal_add(&tool->events.destroy, &state->destroy);
-    state->setCursor.notify = onToolSetCursor;
-    wl_signal_add(&state->v2->events.set_cursor, &state->setCursor);
+    state->destroy.connect(&tool->events.destroy, state.get(), onToolDestroy);
+    state->setCursor.connect(&state->v2->events.set_cursor, state.get(), onToolSetCursor);
     m_tools.push_back(std::move(state));
     return m_tools.back().get();
   }

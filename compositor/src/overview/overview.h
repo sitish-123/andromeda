@@ -6,6 +6,7 @@
 #include "overview/navigation.h"
 #include "scene/hint_rect.h"
 #include "scene/surface_blur.h"
+#include "util/listener.h"
 #include "util/tracked.h"
 #include "view/chrome_attachment.h"
 
@@ -137,13 +138,13 @@ namespace andromeda {
     [[nodiscard]] bool dragging() const { return m_dragCard != nullptr || m_middlePressed; }
 
   private:
-    static void onNavigationDeviceDestroyed(wl_listener* listener, void* data);
+    static void onNavigationDeviceDestroyed(Overview* self, void* data);
     [[nodiscard]] Workspace* navigationWorkspace() const;
     OverviewNavigation m_navigation;
     Output* m_navigationOutput = nullptr;
     Ref<Workspace> m_navigationWorkspace;
     wlr_pointer* m_navigationPointer = nullptr;
-    wl_listener m_navigationDeviceDestroy{};
+    Listener m_navigationDeviceDestroy;
     NavigationSource m_navigationSource = NavigationSource::Scroll;
     bool m_navigationHorizontalWorkspaces = false;
     bool m_navigationStarted = false;
@@ -172,10 +173,10 @@ namespace andromeda {
       // Whether the latest walk of the card's surfaces reached `surface`. A surface that left the tree keeps its entry
       // until destroyed, and `sourceBuffer` may already be freed with its subsurface role.
       bool inTree = true;
-      wl_listener commit{};
-      wl_listener destroy{};
-      wl_listener outputSample{};
-      wl_listener frameDone{};
+      Listener commit;
+      Listener destroy;
+      Listener outputSample;
+      Listener frameDone;
     };
 
     struct Card {
@@ -222,8 +223,8 @@ namespace andromeda {
       OutputState* state = nullptr;
       wlr_surface* surface = nullptr;
       wlr_scene_tree* tree = nullptr;
-      wl_listener commit{};
-      wl_listener destroy{};
+      Listener commit;
+      Listener destroy;
     };
 
     // One mirrored surface inside one row. Every copy paces its client: the real bottom layer is hidden while the
@@ -231,8 +232,8 @@ namespace andromeda {
     struct DesktopMirror {
       DesktopSurface* source = nullptr;
       wlr_scene_buffer* buffer = nullptr;
-      wl_listener outputSample{};
-      wl_listener frameDone{};
+      Listener outputSample;
+      Listener frameDone;
     };
 
     // Resolved stack entry, ordered bottom to top.
@@ -282,10 +283,10 @@ namespace andromeda {
       int gap = 0;
     };
 
-    static void onCardSurfaceCommit(wl_listener* listener, void* data);
-    static void onCardSurfaceDestroy(wl_listener* listener, void* data);
-    static void onCardBufferOutputSample(wl_listener* listener, void* data);
-    static void onCardBufferFrameDone(wl_listener* listener, void* data);
+    static void onCardSurfaceCommit(CardSurface* entry, void* data);
+    static void onCardSurfaceDestroy(CardSurface* entry, void* data);
+    static void onCardBufferOutputSample(CardSurface* entry, void* data);
+    static void onCardBufferFrameDone(CardSurface* entry, void* data);
     // One walk over a card's surfaces, for one window of it, offset from the card window's root surface.
     struct CardWalk {
       Card* card = nullptr;
@@ -298,10 +299,10 @@ namespace andromeda {
     static void addCardSurface(wlr_surface* surface, int sx, int sy, void* data);
     static void syncCardSurface(wlr_surface* surface, int sx, int sy, void* data);
     static void syncCardSurfaces(Card* card);
-    static void onDesktopSurfaceCommit(wl_listener* listener, void* data);
-    static void onDesktopSurfaceDestroy(wl_listener* listener, void* data);
-    static void onDesktopMirrorOutputSample(wl_listener* listener, void* data);
-    static void onDesktopMirrorFrameDone(wl_listener* listener, void* data);
+    static void onDesktopSurfaceCommit(DesktopSurface* source, void* data);
+    static void onDesktopSurfaceDestroy(DesktopSurface* source, void* data);
+    static void onDesktopMirrorOutputSample(DesktopMirror* mirror, void* data);
+    static void onDesktopMirrorFrameDone(DesktopMirror* mirror, void* data);
 
     // Preview scale for the current open or close progress.
     [[nodiscard]] double zoom() const;

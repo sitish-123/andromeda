@@ -20,33 +20,23 @@ namespace andromeda {
     constexpr Logger kLog("cursor");
   } // namespace
 
-  void Cursor::onTouchDown(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_touchDown);
+  void Cursor::onTouchDown(Cursor* self, void* data) {
     self->handleTouchDown(data);
   }
 
-  void Cursor::onTouchUp(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_touchUp);
+  void Cursor::onTouchUp(Cursor* self, void* data) {
     self->handleTouchUp(data);
   }
 
-  void Cursor::onTouchMotion(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_touchMotion);
+  void Cursor::onTouchMotion(Cursor* self, void* data) {
     self->handleTouchMotion(data);
   }
 
-  void Cursor::onTouchCancel(wl_listener* listener, void* data) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_touchCancel);
+  void Cursor::onTouchCancel(Cursor* self, void* data) {
     self->handleTouchCancel(data);
   }
 
-  void Cursor::onTouchFrame(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_touchFrame);
+  void Cursor::onTouchFrame(Cursor* self, void* /*data*/) {
     self->handleTouchFrame();
   }
 

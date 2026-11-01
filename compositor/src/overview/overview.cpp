@@ -768,15 +768,11 @@ namespace andromeda {
   }
 
   void Overview::clearDesktop(OutputState& state) const {
-    for (const auto& source : state.desktop) {
-      wl_list_remove(&source->commit.link);
-      wl_list_remove(&source->destroy.link);
-    }
     state.desktop.clear();
     for (WorkspaceBackground& background : state.workspaceBackgrounds) {
       for (const auto& mirror : background.mirrors) {
-        wl_list_remove(&mirror->outputSample.link);
-        wl_list_remove(&mirror->frameDone.link);
+        mirror->outputSample.disconnect();
+        mirror->frameDone.disconnect();
         if (mirror->buffer != nullptr) {
           wlr_scene_node_destroy(&mirror->buffer->node);
         }
@@ -809,10 +805,8 @@ namespace andromeda {
       source->state = &state;
       source->surface = entry.surface;
       source->tree = entry.tree;
-      source->commit.notify = onDesktopSurfaceCommit;
-      wl_signal_add(&entry.surface->events.commit, &source->commit);
-      source->destroy.notify = onDesktopSurfaceDestroy;
-      wl_signal_add(&entry.surface->events.destroy, &source->destroy);
+      source->commit.connect(&entry.surface->events.commit, source.get(), onDesktopSurfaceCommit);
+      source->destroy.connect(&entry.surface->events.destroy, source.get(), onDesktopSurfaceDestroy);
       state.desktop.push_back(std::move(source));
     }
     for (WorkspaceBackground& background : state.workspaceBackgrounds) {
@@ -837,10 +831,8 @@ namespace andromeda {
       auto mirror = std::make_unique<DesktopMirror>();
       mirror->source = source.get();
       mirror->buffer = buffer;
-      mirror->outputSample.notify = onDesktopMirrorOutputSample;
-      wl_signal_add(&buffer->events.output_sample, &mirror->outputSample);
-      mirror->frameDone.notify = onDesktopMirrorFrameDone;
-      wl_signal_add(&buffer->events.frame_done, &mirror->frameDone);
+      mirror->outputSample.connect(&buffer->events.output_sample, mirror.get(), onDesktopMirrorOutputSample);
+      mirror->frameDone.connect(&buffer->events.frame_done, mirror.get(), onDesktopMirrorFrameDone);
       background.mirrors.push_back(std::move(mirror));
     }
   }
@@ -891,20 +883,14 @@ namespace andromeda {
     return out.width > 0 && out.height > 0;
   }
 
-  void Overview::onDesktopSurfaceCommit(wl_listener* listener, void* /*data*/) {
-    DesktopSurface* source = nullptr;
-    source = wl_container_of(listener, source, commit);
+  void Overview::onDesktopSurfaceCommit(DesktopSurface* source, void* /*data*/) {
     source->overview->syncDesktopMirrors(*source->state);
     source->overview->layoutOutput(*source->state);
     wlr_output_schedule_frame(source->state->output->wlr());
   }
 
-  void Overview::onDesktopSurfaceDestroy(wl_listener* listener, void* /*data*/) {
-    DesktopSurface* source = nullptr;
-    source = wl_container_of(listener, source, destroy);
+  void Overview::onDesktopSurfaceDestroy(DesktopSurface* source, void* /*data*/) {
     OutputState* state = source->state;
-    wl_list_remove(&source->commit.link);
-    wl_list_remove(&source->destroy.link);
     // Drop this surface's copies only. Re-resolving here would re-bind a surface that is already being destroyed;
     // the next layout notices the shorter stack and rebuilds from what is left.
     for (WorkspaceBackground& background : state->workspaceBackgrounds) {
@@ -912,8 +898,8 @@ namespace andromeda {
         if (mirror->source != source) {
           return false;
         }
-        wl_list_remove(&mirror->outputSample.link);
-        wl_list_remove(&mirror->frameDone.link);
+        mirror->outputSample.disconnect();
+        mirror->frameDone.disconnect();
         if (mirror->buffer != nullptr) {
           wlr_scene_node_destroy(&mirror->buffer->node);
         }
@@ -926,9 +912,7 @@ namespace andromeda {
     wlr_output_schedule_frame(state->output->wlr());
   }
 
-  void Overview::onDesktopMirrorOutputSample(wl_listener* listener, void* data) {
-    DesktopMirror* mirror = nullptr;
-    mirror = wl_container_of(listener, mirror, outputSample);
+  void Overview::onDesktopMirrorOutputSample(DesktopMirror* mirror, void* data) {
     auto* event = static_cast<wlr_scene_output_sample_event*>(data);
     wlr_surface* surface = mirror->source->surface;
     // No wl_surface.enter here: a mirrored surface leaves its outputs exactly as a window behind a card does.
@@ -945,9 +929,7 @@ namespace andromeda {
     }
   }
 
-  void Overview::onDesktopMirrorFrameDone(wl_listener* listener, void* data) {
-    DesktopMirror* mirror = nullptr;
-    mirror = wl_container_of(listener, mirror, frameDone);
+  void Overview::onDesktopMirrorFrameDone(DesktopMirror* mirror, void* data) {
     auto* event = static_cast<wlr_scene_frame_done_event*>(data);
     // The real bottom layer is hidden, so these copies are what keeps its clients drawing. A second row's copy finds
     // the callback list already empty.
@@ -1080,14 +1062,10 @@ namespace andromeda {
     entry->isRoot = surface == card->view->rootSurface();
     wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_BILINEAR);
     buffer->point_accepts_input = rejectInput;
-    entry->commit.notify = onCardSurfaceCommit;
-    wl_signal_add(&surface->events.commit, &entry->commit);
-    entry->destroy.notify = onCardSurfaceDestroy;
-    wl_signal_add(&surface->events.destroy, &entry->destroy);
-    entry->outputSample.notify = onCardBufferOutputSample;
-    wl_signal_add(&buffer->events.output_sample, &entry->outputSample);
-    entry->frameDone.notify = onCardBufferFrameDone;
-    wl_signal_add(&buffer->events.frame_done, &entry->frameDone);
+    entry->commit.connect(&surface->events.commit, entry.get(), onCardSurfaceCommit);
+    entry->destroy.connect(&surface->events.destroy, entry.get(), onCardSurfaceDestroy);
+    entry->outputSample.connect(&buffer->events.output_sample, entry.get(), onCardBufferOutputSample);
+    entry->frameDone.connect(&buffer->events.frame_done, entry.get(), onCardBufferFrameDone);
     syncCardBuffer(*entry);
     card->surfaces.push_back(std::move(entry));
   }
@@ -1118,9 +1096,7 @@ namespace andromeda {
     forEachCardSurface(card, syncCardSurface);
   }
 
-  void Overview::onCardSurfaceCommit(wl_listener* listener, void* /*data*/) {
-    CardSurface* entry;
-    entry = wl_container_of(listener, entry, commit);
+  void Overview::onCardSurfaceCommit(CardSurface* entry, void* /*data*/) {
     Card* card = entry->card;
     Overview* self = card->overview;
     if (!self->m_active || card->owner == nullptr) {
@@ -1136,14 +1112,10 @@ namespace andromeda {
     }
   }
 
-  void Overview::onCardSurfaceDestroy(wl_listener* listener, void* /*data*/) {
-    CardSurface* entry;
-    entry = wl_container_of(listener, entry, destroy);
+  void Overview::onCardSurfaceDestroy(CardSurface* entry, void* /*data*/) {
     Card* card = entry->card;
-    wl_list_remove(&entry->commit.link);
-    wl_list_remove(&entry->destroy.link);
-    wl_list_remove(&entry->outputSample.link);
-    wl_list_remove(&entry->frameDone.link);
+    entry->outputSample.disconnect();
+    entry->frameDone.disconnect();
     if (entry->buffer != nullptr) {
       wlr_scene_node_destroy(&entry->buffer->node);
       entry->buffer = nullptr;
@@ -1153,9 +1125,7 @@ namespace andromeda {
     });
   }
 
-  void Overview::onCardBufferOutputSample(wl_listener* listener, void* data) {
-    CardSurface* entry;
-    entry = wl_container_of(listener, entry, outputSample);
+  void Overview::onCardBufferOutputSample(CardSurface* entry, void* data) {
     auto* event = static_cast<wlr_scene_output_sample_event*>(data);
     wlr_output* output = event->output->output;
     if (event->direct_scanout) {
@@ -1171,9 +1141,7 @@ namespace andromeda {
     }
   }
 
-  void Overview::onCardBufferFrameDone(wl_listener* listener, void* data) {
-    CardSurface* entry;
-    entry = wl_container_of(listener, entry, frameDone);
+  void Overview::onCardBufferFrameDone(CardSurface* entry, void* data) {
     auto* event = static_cast<wlr_scene_frame_done_event*>(data);
     wlr_surface_send_frame_done(entry->surface, &event->when);
   }
@@ -1318,12 +1286,6 @@ namespace andromeda {
         card->surfaceTree != nullptr ? &card->surfaceTree->node : nullptr,
         card->border != nullptr ? &card->border->node : nullptr
     );
-    for (const auto& entry : card->surfaces) {
-      wl_list_remove(&entry->commit.link);
-      wl_list_remove(&entry->destroy.link);
-      wl_list_remove(&entry->outputSample.link);
-      wl_list_remove(&entry->frameDone.link);
-    }
     card->surfaces.clear();
     // The chrome copy's nodes hang under the card tree, so it goes before the tree does.
     card->chrome.reset();
@@ -2156,10 +2118,8 @@ namespace andromeda {
       if (entry->view == card->view) {
         return false;
       }
-      wl_list_remove(&entry->commit.link);
-      wl_list_remove(&entry->destroy.link);
-      wl_list_remove(&entry->outputSample.link);
-      wl_list_remove(&entry->frameDone.link);
+      entry->outputSample.disconnect();
+      entry->frameDone.disconnect();
       if (entry->buffer != nullptr) {
         wlr_scene_node_destroy(&entry->buffer->node);
       }
@@ -2889,9 +2849,7 @@ namespace andromeda {
     return nullptr;
   }
 
-  void Overview::onNavigationDeviceDestroyed(wl_listener* listener, void* /*data*/) {
-    Overview* self;
-    self = wl_container_of(listener, self, m_navigationDeviceDestroy);
+  void Overview::onNavigationDeviceDestroyed(Overview* self, void* /*data*/) {
     self->cancelNavigation();
   }
 
@@ -2913,8 +2871,7 @@ namespace andromeda {
       m_navigationWorkspace = output->workspaceGroup()->active();
     }
     m_navigationPointer = pointer;
-    m_navigationDeviceDestroy.notify = onNavigationDeviceDestroyed;
-    wl_signal_add(&pointer->base.events.destroy, &m_navigationDeviceDestroy);
+    m_navigationDeviceDestroy.connect(&pointer->base.events.destroy, this, onNavigationDeviceDestroyed);
     m_navigationSource = source;
     m_navigation.reset();
     m_navigationStarted = false;
@@ -2991,7 +2948,7 @@ namespace andromeda {
     m_navigationOutput = nullptr;
     m_navigationWorkspace = nullptr;
     if (m_navigationPointer != nullptr) {
-      wl_list_remove(&m_navigationDeviceDestroy.link);
+      m_navigationDeviceDestroy.disconnect();
       m_navigationPointer = nullptr;
     }
     m_scrollDx = m_scrollDy = 0;
@@ -3516,8 +3473,8 @@ namespace andromeda {
       WorkspaceBackground background = std::move(state.workspaceBackgrounds.back());
       state.workspaceBackgrounds.pop_back();
       for (const auto& mirror : background.mirrors) {
-        wl_list_remove(&mirror->outputSample.link);
-        wl_list_remove(&mirror->frameDone.link);
+        mirror->outputSample.disconnect();
+        mirror->frameDone.disconnect();
       }
       if (background.tree != nullptr) {
         wlr_scene_node_destroy(&background.tree->node);

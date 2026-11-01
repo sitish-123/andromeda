@@ -1,6 +1,7 @@
 #pragma once
 #include "layout/drop_target.h"
 #include "scene/ssd_frame_geometry.h"
+#include "util/listener.h"
 #include "util/tracked.h"
 #include "view/snap.h"
 
@@ -136,21 +137,12 @@ namespace andromeda {
       // Last tilt pair.
       double tiltX = 0;
       double tiltY = 0;
-      wl_listener destroy{};
-      wl_listener setCursor{};
+      Listener destroy;
+      Listener setCursor;
 
       TabletToolState() = default;
       TabletToolState(const TabletToolState&) = delete;
       TabletToolState& operator=(const TabletToolState&) = delete;
-
-      ~TabletToolState() {
-        if (destroy.link.next != nullptr) {
-          wl_list_remove(&destroy.link);
-        }
-        if (setCursor.link.next != nullptr) {
-          wl_list_remove(&setCursor.link);
-        }
-      }
     };
 
   public:
@@ -272,23 +264,23 @@ namespace andromeda {
     void notePointerFocusChange(wlr_surface* newSurface);
 
   private:
-    static void onMotion(wl_listener* listener, void* data);
-    static void onMotionAbsolute(wl_listener* listener, void* data);
-    static void onButton(wl_listener* listener, void* data);
-    static void onAxis(wl_listener* listener, void* data);
-    static void onFrame(wl_listener* listener, void* data);
-    static void onConstraintDestroy(wl_listener* listener, void* data);
-    static void onTouchDown(wl_listener* listener, void* data);
-    static void onTouchUp(wl_listener* listener, void* data);
-    static void onTouchMotion(wl_listener* listener, void* data);
-    static void onTouchCancel(wl_listener* listener, void* data);
-    static void onTouchFrame(wl_listener* listener, void* data);
-    static void onTabletToolAxis(wl_listener* listener, void* data);
-    static void onTabletToolProximity(wl_listener* listener, void* data);
-    static void onTabletToolTip(wl_listener* listener, void* data);
-    static void onTabletToolButton(wl_listener* listener, void* data);
-    static void onToolDestroy(wl_listener* listener, void* data);
-    static void onToolSetCursor(wl_listener* listener, void* data);
+    static void onMotion(Cursor* self, void* data);
+    static void onMotionAbsolute(Cursor* self, void* data);
+    static void onButton(Cursor* self, void* data);
+    static void onAxis(Cursor* self, void* data);
+    static void onFrame(Cursor* self, void* data);
+    static void onConstraintDestroy(Cursor* self, void* data);
+    static void onTouchDown(Cursor* self, void* data);
+    static void onTouchUp(Cursor* self, void* data);
+    static void onTouchMotion(Cursor* self, void* data);
+    static void onTouchCancel(Cursor* self, void* data);
+    static void onTouchFrame(Cursor* self, void* data);
+    static void onTabletToolAxis(Cursor* self, void* data);
+    static void onTabletToolProximity(Cursor* self, void* data);
+    static void onTabletToolTip(Cursor* self, void* data);
+    static void onTabletToolButton(Cursor* self, void* data);
+    static void onToolDestroy(TabletToolState* watch, void* data);
+    static void onToolSetCursor(TabletToolState* watch, void* data);
 
     void handleMotion(void* data);
     void handleMotionAbsolute(void* data);
@@ -377,10 +369,10 @@ namespace andromeda {
     [[nodiscard]] std::optional<std::string> matchXwaylandCursor() const;
     void finishClientCursorFrame() const;
     void forgetClientCursor();
-    static void onClientCursorOwnerDestroy(wl_listener* listener, void* data);
-    static void onClientCursorDestroy(wl_listener* listener, void* data);
-    static void onClientCursorClientCommit(wl_listener* listener, void* data);
-    static void onClientCursorCommit(wl_listener* listener, void* data);
+    static void onClientCursorOwnerDestroy(Cursor* self, void* data);
+    static void onClientCursorDestroy(Cursor* self, void* data);
+    static void onClientCursorClientCommit(Cursor* self, void* data);
+    static void onClientCursorCommit(Cursor* self, void* data);
     void updateHideTimer();
     // Sends the pointer and its visibility to the cursor effect, only while one is active.
     void forwardEffectPointer() const;
@@ -515,25 +507,25 @@ namespace andromeda {
     bool m_hotCornerTriggered = false;
     size_t m_hotCornerIndex = 4;
 
-    wl_listener m_motion{};
-    wl_listener m_motionAbsolute{};
-    wl_listener m_button{};
-    wl_listener m_axis{};
-    wl_listener m_frame{};
-    wl_listener m_constraintDestroy{};
-    wl_listener m_touchDown{};
-    wl_listener m_touchUp{};
-    wl_listener m_touchMotion{};
-    wl_listener m_touchCancel{};
-    wl_listener m_touchFrame{};
-    wl_listener m_tabletToolAxis{};
-    wl_listener m_tabletToolProximity{};
-    wl_listener m_tabletToolTip{};
-    wl_listener m_tabletToolButton{};
-    wl_listener m_clientCursorOwnerDestroy{};
-    wl_listener m_clientCursorDestroy{};
-    wl_listener m_clientCursorClientCommit{};
-    wl_listener m_clientCursorCommit{};
+    Listener m_motion;
+    Listener m_motionAbsolute;
+    Listener m_button;
+    Listener m_axis;
+    Listener m_frame;
+    Listener m_constraintDestroy;
+    Listener m_touchDown;
+    Listener m_touchUp;
+    Listener m_touchMotion;
+    Listener m_touchCancel;
+    Listener m_touchFrame;
+    Listener m_tabletToolAxis;
+    Listener m_tabletToolProximity;
+    Listener m_tabletToolTip;
+    Listener m_tabletToolButton;
+    Listener m_clientCursorOwnerDestroy;
+    Listener m_clientCursorDestroy;
+    Listener m_clientCursorClientCommit;
+    Listener m_clientCursorCommit;
   };
 
 } // namespace andromeda
