@@ -120,6 +120,6 @@ private:
   float m_introOffset = 0.9f;
   float m_shake = 0.0f;
   float m_waitingOpacity = 0.4f;
-  std::uint64_t m_waitingAnim = 0;
+  std::uint32_t m_waitingAnim = 0;
   float m_right = 0.0f;
 };

@@ -82,8 +82,6 @@ bool Greeter::initialize(WaylandClient& client) {
                                                                          : Input::PasswordMaskStyle::CircleFilled
   );
 
-  GlyphRegistry::initialize();
-
   m_glSharedContext.initialize(client.display());
 
   m_renderContext = std::make_unique<RenderContext>();
@@ -574,7 +572,7 @@ void Greeter::setupInputCallbacks(WaylandClient& client) {
     case PointerEvent::Type::Button:
       setActiveSurface(view->surface.get());
       onPointerMotion(*view->window, event.sx, event.sy);
-      onPointerButton(*view->window, event.sx, event.sy, event.button, event.state != 0);
+      onPointerButton(*view->window, event.sx, event.sy, event.button, event.pressed);
       break;
     case PointerEvent::Type::Axis:
       setActiveSurface(view->surface.get());

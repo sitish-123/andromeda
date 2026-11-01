@@ -4,6 +4,8 @@
 #include "greeter/greeter_preferences.h"
 #include "tools/secure_appearance_sync.h"
 
+#include <toml++/toml.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -236,15 +238,14 @@ height = 1080
 refresh_rate = 120
 )toml";
 
-      greeter_compositor_config config{};
-      greeter_compositor_config_load(fixture.runtimeDirectory.c_str(), &config);
+      const toml::table config = toml::parse(greeter::config::andromedaGreeterConfig(fixture.runtimeDirectory));
+      const auto output = config["output"]["Acer Technologies XV242Y TL1EE0018521"];
+      expect("stable output identifier maps to an output table", output.is_table(), true, {}, passed);
+      expect("preferred output gets startup focus", output["focus_at_startup"].value_or(false), true, {}, passed);
       expect(
-          "stable output identifier parses",
-          std::string_view(config.preferred_output) == "Acer Technologies XV242Y TL1EE0018521", true, {}, passed
+          "output mode maps to andromeda syntax", output["mode"].value_or(std::string{}) == "1920x1080@120", true, {},
+          passed
       );
-      expect("output width parses", config.manual_mode_width == 1920, true, {}, passed);
-      expect("output height parses", config.manual_mode_height == 1080, true, {}, passed);
-      expect("output refresh rate parses", config.manual_mode_refresh_mhz == 120000, true, {}, passed);
     }
 
     {
@@ -276,13 +277,8 @@ refresh_rate = 120
 refresh_rate = "DP-1:120; HDMI-A-1:60"
 )toml";
 
-      greeter_compositor_config config{};
-      greeter_compositor_config_load(fixture.runtimeDirectory.c_str(), &config);
-      expect(
-          "per-output refresh rates parse", std::string_view(config.output_refresh_rate_map) == "DP-1:120; HDMI-A-1:60",
-          true, {}, passed
-      );
-      expect("refresh map is not a global rate", config.manual_mode_refresh_mhz == 0, true, {}, passed);
+      const toml::table config = toml::parse(greeter::config::andromedaGreeterConfig(fixture.runtimeDirectory));
+      expect("refresh map is not a global rate", config["output"]["DP-1"]["mode"].is_value(), false, {}, passed);
     }
 
     {

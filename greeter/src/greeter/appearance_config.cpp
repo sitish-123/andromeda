@@ -5,6 +5,9 @@
 #include "greeter/greeter_config_store.h"
 #include "render/core/color.h"
 
+#include <array>
+#include <utility>
+
 namespace {
   constexpr Logger kLog("greeter-appearance");
 
@@ -115,24 +118,26 @@ namespace {
     result.cornerRadiusScale = appearance.cornerRadiusScale.value_or(1.0f);
     result.fontFamily = appearance.fontFamily.value_or("");
 
-    if (!parseTomlPaletteColor(appearance.palette, "primary", result.palette.primary)
-        || !parseTomlPaletteColor(appearance.palette, "on_primary", result.palette.onPrimary)
-        || !parseTomlPaletteColor(appearance.palette, "secondary", result.palette.secondary)
-        || !parseTomlPaletteColor(appearance.palette, "on_secondary", result.palette.onSecondary)
-        || !parseTomlPaletteColor(appearance.palette, "tertiary", result.palette.tertiary)
-        || !parseTomlPaletteColor(appearance.palette, "on_tertiary", result.palette.onTertiary)
-        || !parseTomlPaletteColor(appearance.palette, "error", result.palette.error)
-        || !parseTomlPaletteColor(appearance.palette, "on_error", result.palette.onError)
-        || !parseTomlPaletteColor(appearance.palette, "surface", result.palette.surface)
-        || !parseTomlPaletteColor(appearance.palette, "on_surface", result.palette.onSurface)
-        || !parseTomlPaletteColor(appearance.palette, "surface_variant", result.palette.surfaceVariant)
-        || !parseTomlPaletteColor(appearance.palette, "on_surface_variant", result.palette.onSurfaceVariant)
-        || !parseTomlPaletteColor(appearance.palette, "outline", result.palette.outline)
-        || !parseTomlPaletteColor(appearance.palette, "shadow", result.palette.shadow)
-        || !parseTomlPaletteColor(appearance.palette, "hover", result.palette.hover)
-        || !parseTomlPaletteColor(appearance.palette, "on_hover", result.palette.onHover)) {
-      kLog.warn("greeter.toml appearance.palette has an invalid hex value");
-      return std::nullopt;
+    // The sync carries the shell's token colors under the greeter's legacy 16-key names; the two roles it does not
+    // export (fill_1, solid_thin) come from the token scheme of the same mode.
+    result.palette = tokenPalette(result.themeMode == "light");
+    const std::array<std::pair<std::string_view, Color*>, 10> keys = {{
+        {"primary", &result.palette.accent},
+        {"on_primary", &result.palette.onAccent},
+        {"error", &result.palette.danger},
+        {"surface", &result.palette.solidRegular},
+        {"on_surface", &result.palette.label1},
+        {"surface_variant", &result.palette.fill2},
+        {"on_surface_variant", &result.palette.label2},
+        {"outline", &result.palette.stroke},
+        {"shadow", &result.palette.shadow},
+        {"hover", &result.palette.fill3},
+    }};
+    for (const auto& [key, color] : keys) {
+      if (!parseTomlPaletteColor(appearance.palette, key, *color)) {
+        kLog.warn("greeter.toml appearance.palette has an invalid hex value");
+        return std::nullopt;
+      }
     }
 
     return result;

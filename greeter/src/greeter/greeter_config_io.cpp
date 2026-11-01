@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <format>
 #include <fstream>
 #include <ranges>
 #include <sstream>
@@ -17,6 +18,8 @@
 #include <sys/stat.h>
 #include <toml++/toml.hpp>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -880,17 +883,6 @@ namespace {
     return true;
   }
 
-  void copyString(char* out, const std::size_t outSize, const std::optional<std::string>& value) {
-    if (outSize == 0) {
-      return;
-    }
-    out[0] = '\0';
-    if (!value.has_value() || value->empty()) {
-      return;
-    }
-    std::snprintf(out, outSize, "%s", value->c_str());
-  }
-
 } // namespace
 
 namespace greeter::config {
@@ -1070,59 +1062,155 @@ namespace {
 
 } // namespace
 
-extern "C" void greeter_compositor_config_load(const char* state_dir, struct greeter_compositor_config* out) {
-  if (out == nullptr) {
-    return;
+namespace {
+
+  // Old [output] maps hold "NAME:VALUE" entries split by ';' (or by spaces when no ';' is present).
+  [[nodiscard]] std::vector<std::pair<std::string, std::string>> splitOutputMap(const std::optional<std::string>& value) {
+    std::vector<std::pair<std::string, std::string>> entries;
+    if (!value.has_value()) {
+      return entries;
+    }
+    const char delimiter = value->find(';') != std::string::npos ? ';' : ' ';
+    for (const auto part : std::views::split(*value, delimiter)) {
+      std::string token(part.begin(), part.end());
+      const auto colon = token.rfind(':');
+      if (colon == std::string::npos || colon == 0 || colon + 1 >= token.size()) {
+        continue;
+      }
+      const auto trim = [](std::string text) {
+        const auto first = text.find_first_not_of(" \t");
+        const auto last = text.find_last_not_of(" \t");
+        return first == std::string::npos ? std::string{} : text.substr(first, last - first + 1);
+      };
+      std::string name = trim(token.substr(0, colon));
+      std::string entry = trim(token.substr(colon + 1));
+      if (!name.empty() && !entry.empty()) {
+        entries.emplace_back(std::move(name), std::move(entry));
+      }
+    }
+    return entries;
   }
 
-  std::memset(out, 0, sizeof(*out));
-
-  const char* dir = state_dir;
-  if (dir == nullptr || dir[0] == '\0') {
-    dir = greeter::appearance::kDefaultSyncedDataDir;
+  [[nodiscard]] std::optional<std::string> andromedaTransform(std::string_view value) {
+    if (value == "normal" || value == "0" || value == "none") {
+      return "normal";
+    }
+    if (value == "90" || value == "180" || value == "270" || value == "flipped") {
+      return std::string(value);
+    }
+    if (value == "flipped-90" || value == "flipped_90") {
+      return "flipped-90";
+    }
+    if (value == "flipped-180" || value == "flipped_180") {
+      return "flipped-180";
+    }
+    if (value == "flipped-270" || value == "flipped_270") {
+      return "flipped-270";
+    }
+    return std::nullopt;
   }
 
-  const auto confPath = std::filesystem::path(dir) / greeter::appearance::kGreeterTomlFileName;
-  const auto syncPath = std::filesystem::path(dir) / greeter::appearance::kSyncTomlFileName;
+} // namespace
+
+std::string greeter::config::andromedaGreeterConfig(const std::filesystem::path& stateDir) {
+  const std::filesystem::path dir =
+      stateDir.empty() ? std::filesystem::path(greeter::appearance::kDefaultSyncedDataDir) : stateDir;
+  const auto confPath = dir / greeter::appearance::kGreeterTomlFileName;
+  const auto syncPath = dir / greeter::appearance::kSyncTomlFileName;
   migrateLegacyRuntimeKeysToSync(confPath, syncPath);
 
-  const greeter::config::GreeterConfigFile config = greeter::config::loadConfig(confPath);
-  const greeter::config::GreeterSyncFile sync = greeter::config::loadSync(syncPath);
+  const GreeterConfigFile config = loadConfig(confPath);
+  const GreeterSyncFile sync = loadSync(syncPath);
 
-  copyString(out->preferred_output, sizeof(out->preferred_output), config.outputName);
-  copyString(out->cursor_theme, sizeof(out->cursor_theme), config.cursorTheme);
-  copyString(out->cursor_path, sizeof(out->cursor_path), config.cursorPath);
-  copyString(out->keyboard_layout, sizeof(out->keyboard_layout), config.keyboardLayout);
-  copyString(out->keyboard_variant, sizeof(out->keyboard_variant), config.keyboardVariant);
-  copyString(out->keyboard_options, sizeof(out->keyboard_options), config.keyboardOptions);
+  toml::table root;
+  toml::table outputs;
+  const auto outputTable = [&outputs](const std::string& name) -> toml::table& {
+    if (!outputs.contains(name)) {
+      outputs.insert(name, toml::table{});
+    }
+    return *outputs[name].as_table();
+  };
+
+  if (config.outputName.has_value() && !config.outputName->empty()) {
+    toml::table& preferred = outputTable(*config.outputName);
+    preferred.insert_or_assign("focus_at_startup", true);
+    if (config.outputScale.has_value() && *config.outputScale >= 1.0F) {
+      preferred.insert_or_assign("scale", static_cast<double>(*config.outputScale));
+    }
+    if (config.outputModeWidth.value_or(0) > 0 && config.outputModeHeight.value_or(0) > 0) {
+      std::string mode = std::format("{}x{}", *config.outputModeWidth, *config.outputModeHeight);
+      if (config.outputRefreshRate.value_or(0.0F) > 0.0F) {
+        mode += std::format("@{}", *config.outputRefreshRate);
+      }
+      preferred.insert_or_assign("mode", mode);
+    }
+  }
+  for (const auto& [name, value] : splitOutputMap(preferString(config.outputLayout, sync.outputLayout))) {
+    const auto comma = value.find(',');
+    if (comma == std::string::npos) {
+      continue;
+    }
+    try {
+      toml::array position{std::stoll(value.substr(0, comma)), std::stoll(value.substr(comma + 1))};
+      outputTable(name).insert_or_assign("position", std::move(position));
+    } catch (const std::exception&) {
+      kLog.warn("output layout entry '{}:{}' is invalid", name, value);
+    }
+  }
+  for (const auto& [name, value] : splitOutputMap(preferString(config.outputScales, sync.outputScales))) {
+    char* end = nullptr;
+    const double scale = std::strtod(value.c_str(), &end);
+    if (end != value.c_str() && scale >= 0.25 && scale <= 4.0) {
+      outputTable(name).insert_or_assign("scale", scale);
+    }
+  }
+  for (const auto& [name, value] : splitOutputMap(preferString(config.outputTransforms, sync.outputTransforms))) {
+    if (const auto transform = andromedaTransform(value)) {
+      outputTable(name).insert_or_assign("transform", *transform);
+    }
+  }
+  if (config.outputRefreshRateMap.has_value()) {
+    // andromeda's mode needs a resolution; a refresh rate alone leaves the output on its preferred mode.
+    kLog.warn("[output] refresh_rate map is not supported under andromeda --greeter; set width, height, refresh_rate");
+  }
+  if (!outputs.empty()) {
+    root.insert("output", std::move(outputs));
+  }
+
+  toml::table input;
+  toml::table cursor;
+  if (config.cursorTheme.has_value() && !config.cursorTheme->empty()) {
+    cursor.insert("theme", *config.cursorTheme);
+  }
+  if (config.cursorSize.value_or(0) > 0) {
+    cursor.insert("size", static_cast<int64_t>(*config.cursorSize));
+  }
+  if (!cursor.empty()) {
+    input.insert("cursor", std::move(cursor));
+  }
+  toml::table keyboard;
+  if (config.keyboardLayout.has_value() && !config.keyboardLayout->empty()) {
+    keyboard.insert("layout", *config.keyboardLayout);
+  }
+  if (config.keyboardVariant.has_value() && !config.keyboardVariant->empty()) {
+    keyboard.insert("variant", *config.keyboardVariant);
+  }
+  if (config.keyboardOptions.has_value() && !config.keyboardOptions->empty()) {
+    keyboard.insert("options", *config.keyboardOptions);
+  }
   if (config.keyboardNumlock.has_value()) {
-    out->keyboard_numlock = *config.keyboardNumlock ? 1 : -1;
+    keyboard.insert("numlock_toggle", *config.keyboardNumlock);
   }
-  // greeter.toml wins; otherwise Sync/UI sync.toml.
-  copyString(out->output_layout, sizeof(out->output_layout), preferString(config.outputLayout, sync.outputLayout));
-  copyString(
-      out->output_transforms, sizeof(out->output_transforms),
-      preferString(config.outputTransforms, sync.outputTransforms)
-  );
-  copyString(out->output_scales, sizeof(out->output_scales), preferString(config.outputScales, sync.outputScales));
-  copyString(out->output_refresh_rate_map, sizeof(out->output_refresh_rate_map), config.outputRefreshRateMap);
+  if (!keyboard.empty()) {
+    input.insert("keyboard", std::move(keyboard));
+  }
+  if (!input.empty()) {
+    root.insert("input", std::move(input));
+  }
 
-  if (config.outputScale.has_value() && *config.outputScale >= 1.0f) {
-    out->manual_scale = *config.outputScale;
-  }
-  if (config.outputModeWidth.has_value() && *config.outputModeWidth > 0) {
-    out->manual_mode_width = *config.outputModeWidth;
-  }
-  if (config.outputModeHeight.has_value() && *config.outputModeHeight > 0) {
-    out->manual_mode_height = *config.outputModeHeight;
-  }
-  if (config.outputRefreshRate.has_value() && *config.outputRefreshRate > 0.0f) {
-    out->manual_mode_refresh_mhz = static_cast<int>(std::lround(*config.outputRefreshRate * 1000.0f));
-  }
-  if (config.idleTimeoutSec.has_value() && *config.idleTimeoutSec >= 0) {
-    out->idle_timeout_sec = *config.idleTimeoutSec;
-  }
-  if (config.cursorSize.has_value() && *config.cursorSize > 0) {
-    out->cursor_size = *config.cursorSize;
-  }
+  std::ostringstream out;
+  out << "# Generated by noctalia-greeter from " << confPath.string() << " and " << syncPath.string() << ".\n";
+  out << toml::toml_formatter{root};
+  out << '\n';
+  return out.str();
 }
