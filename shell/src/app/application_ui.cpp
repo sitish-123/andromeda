@@ -1249,6 +1249,11 @@ void Application::initWidgetControllersAndCallbacks() {
   m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext);
   m_hotCorners.initialize(m_wayland, &m_configService, &m_renderContext);
   m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
+    kLog.info(
+        "live appearance: glass={:.2f} reduce_transparency={} increase_contrast={} reduce_motion={} accent={}",
+        appearance.glassOpacity, appearance.reduceTransparency, appearance.increaseContrast, appearance.reduceMotion,
+        appearance.accent
+    );
     Style::setGlass(appearance.glassOpacity, appearance.reduceTransparency);
     MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled && !appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
