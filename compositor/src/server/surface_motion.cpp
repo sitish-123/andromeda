@@ -11,17 +11,6 @@ namespace andromeda {
 
     using Curve = SurfaceMotion::Curve;
 
-    bool isSpring(Curve curve) {
-      return curve == Curve::SpringStandard || curve == Curve::SpringSnappy || curve == Curve::SpringBouncy;
-    }
-
-    desk::motion::SpringConfig springConfig(Curve curve) {
-      const Tokens::Spring& token = curve == Curve::SpringSnappy ? Tokens::springSnappy
-          : curve == Curve::SpringBouncy                         ? Tokens::springBouncy
-                                                                 : Tokens::springStandard;
-      return {.damping = token.damping, .stiffness = token.stiffness};
-    }
-
     uint32_t easeDurationMs(Curve curve) {
       switch (curve) {
       case Curve::EaseFast:
@@ -37,6 +26,29 @@ namespace andromeda {
     double secondsBetween(uint32_t fromMs, uint32_t toMs) { return static_cast<double>(toMs - fromMs) / 1000.0; }
 
   } // namespace
+
+  bool SurfaceMotion::isSpring(Curve curve) {
+    return curve != Curve::None && curve != Curve::EaseFast && curve != Curve::EaseNormal && curve != Curve::EaseSlow;
+  }
+
+  desk::motion::SpringConfig SurfaceMotion::springConfig(Curve curve) {
+    const Tokens::Spring* token = &Tokens::springStandard;
+    switch (curve) {
+    case Curve::SpringSnappy: token = &Tokens::springSnappy; break;
+    case Curve::SpringBouncy: token = &Tokens::springBouncy; break;
+    case Curve::SpringOpen: token = &Tokens::springOpen; break;
+    case Curve::SpringClose: token = &Tokens::springClose; break;
+    case Curve::SpringIslandExpand: token = &Tokens::springIslandExpand; break;
+    case Curve::SpringIslandCollapse: token = &Tokens::springIslandCollapse; break;
+    case Curve::SpringPage: token = &Tokens::springPage; break;
+    case Curve::SpringPress: token = &Tokens::springPress; break;
+    case Curve::SpringRelease: token = &Tokens::springRelease; break;
+    case Curve::SpringEffects: token = &Tokens::springEffects; break;
+    case Curve::SpringEffectsFast: token = &Tokens::springEffectsFast; break;
+    default: break;
+    }
+    return {.damping = token->damping, .stiffness = token->stiffness};
+  }
 
   SurfaceMotion::SurfaceMotion() {
     m_values[static_cast<std::size_t>(Property::Scale)] = {1.0, 0.0, 0.0, 0.0};
@@ -86,7 +98,8 @@ namespace andromeda {
     finish(track, Reason::Retargeted);
     for (std::size_t i = 0; i < 4; ++i) {
       if (keepVelocity) {
-        track.springs[i].retarget(to[i]);
+        const desk::motion::Spring& old = track.springs[i];
+        track.springs[i] = desk::motion::Spring(old.value(), to[i], springConfig(curve), old.velocity());
       } else {
         track.springs[i] = desk::motion::Spring(current[i], to[i], springConfig(curve));
       }

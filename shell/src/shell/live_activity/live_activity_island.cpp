@@ -72,8 +72,10 @@ namespace {
   }
   // Width left for text: 440 - 2 x 8 padding - 36 icon - 150 bar - 36 button - 3 x 12 gaps.
   constexpr float kTitleMaxWidth = 166.0F;
-  desk::motion::SpringConfig revealSpring() {
-    return {.damping = Tokens::springStandard.damping, .stiffness = Tokens::springStandard.stiffness};
+  // The compositor clip uses the same preset (syncDsk), so the fill and the clip stay together.
+  desk::motion::SpringConfig revealSpring(bool grow) {
+    const Tokens::Spring& token = grow ? Tokens::springIslandExpand : Tokens::springIslandCollapse;
+    return {.damping = token.damping, .stiffness = token.stiffness};
   }
   TOKENS_LIVE(kLiveRadius, Tokens::componentLiveRadius);
   TOKENS_LIVE(kDot, Tokens::componentIslandDot);
@@ -553,11 +555,26 @@ void LiveActivityIsland::updateFace(Instance& inst) {
   if (face == inst.face) {
     return;
   }
+  // An interrupted morph keeps its speed: project the old px/s onto the new span.
+  float velocity = 0.0F;
+  if (inst.revealAnimId != 0) {
+    const float v = inst.animations.velocity(inst.revealAnimId);
+    const Rect nt = faceRect(inst, face);
+    const float os[4] = {inst.to.x - inst.from.x, inst.to.y - inst.from.y, inst.to.w - inst.from.w, inst.to.h - inst.from.h};
+    const float ns[4] = {nt.x - inst.cur.x, nt.y - inst.cur.y, nt.w - inst.cur.w, nt.h - inst.cur.h};
+    float dot = 0.0F;
+    float norm = 0.0F;
+    for (int i = 0; i < 4; ++i) {
+      dot += v * os[i] * ns[i];
+      norm += ns[i] * ns[i];
+    }
+    velocity = norm > 1.0F ? dot / norm : 0.0F;
+  }
   inst.from = inst.cur;
   inst.prevFace = inst.face;
   inst.face = face;
   inst.to = faceRect(inst, face);
-  animateReveal(inst);
+  animateReveal(inst, velocity);
   inst.surface->requestLayout();
 }
 
@@ -599,8 +616,9 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
     inst.dsk->set(DskSurfaceClient::Property::Clip, clip);
     inst.dsk->set(DskSurfaceClient::Property::Radius, radius);
   } else {
-    inst.dsk->animate(DskSurfaceClient::Property::Clip, DskSurfaceClient::Curve::SpringStandard, clip);
-    inst.dsk->animate(DskSurfaceClient::Property::Radius, DskSurfaceClient::Curve::SpringStandard, radius);
+    const auto curve = expanded ? DskSurfaceClient::Curve::SpringIslandExpand : DskSurfaceClient::Curve::SpringIslandCollapse;
+    inst.dsk->animate(DskSurfaceClient::Property::Clip, curve, clip);
+    inst.dsk->animate(DskSurfaceClient::Property::Radius, curve, radius);
   }
   if (expanded) {
     inst.dsk->setElevation(DskSurfaceClient::Elevation::E2);
@@ -1202,14 +1220,18 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
     return;
   }
   const float t = std::clamp(reveal, 0.0F, 1.0F);
-  // Reduced motion: the size jumps and only the content cross-fades.
-  const float sizeT = MotionService::instance().enabled() ? t : 1.0F;
+  // Reduced motion: the size jumps and only the content cross-fades. The size follows the unclamped spring (overshoot).
+  const float sizeT = MotionService::instance().enabled() ? reveal : 1.0F;
+  const float maxW = inst.width;
+  const float maxH = surfaceHeight();
+  const float cw = std::clamp(std::round(lerp(inst.from.w, inst.to.w, sizeT)), 1.0F, maxW);
+  const float ch = std::clamp(std::round(lerp(inst.from.h, inst.to.h, sizeT)), 1.0F, maxH);
   const Rect cur{
-      .x = std::round(lerp(inst.from.x, inst.to.x, sizeT)),
-      .y = std::round(lerp(inst.from.y, inst.to.y, sizeT)),
-      .w = std::round(lerp(inst.from.w, inst.to.w, sizeT)),
-      .h = std::round(lerp(inst.from.h, inst.to.h, sizeT)),
-      .radius = lerp(inst.from.radius, inst.to.radius, sizeT),
+      .x = std::clamp(std::round(lerp(inst.from.x, inst.to.x, sizeT)), 0.0F, maxW - cw),
+      .y = std::clamp(std::round(lerp(inst.from.y, inst.to.y, sizeT)), 0.0F, maxH - ch),
+      .w = cw,
+      .h = ch,
+      .radius = std::max(0.0F, lerp(inst.from.radius, inst.to.radius, sizeT)),
   };
   inst.cur = cur;
   const Rect restR = faceRect(inst, Face::Rest);
@@ -1246,12 +1268,16 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
     Node* node = inst.faceNode[i];
     float opacity = 0.0F;
     if (f == inst.face) {
-      opacity = std::clamp((t - 0.35F) / 0.65F, 0.0F, 1.0F);
+      opacity = std::clamp((t - 0.4F) / 0.6F, 0.0F, 1.0F);
     } else if (f == inst.prevFace) {
       opacity = std::clamp(1.0F - t * 2.5F, 0.0F, 1.0F);
     }
     node->setVisible(opacity > 0.0F);
     node->setOpacity(opacity);
+    if (f != Face::Rest) {
+      node->setTransformOrigin(node->width() * 0.5F, node->height() * 0.5F);
+      node->setScale(f == inst.face && MotionService::instance().enabled() ? 0.96F + 0.04F * t : 1.0F);
+    }
     const Rect r = faceRect(inst, f);
     if (f == Face::Rest) {
       node->setPosition(
@@ -1280,7 +1306,7 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   inst.surface->requestRedraw();
 }
 
-void LiveActivityIsland::animateReveal(Instance& inst) {
+void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
   if (inst.revealAnimId != 0) {
     inst.animations.cancel(inst.revealAnimId);
     inst.revealAnimId = 0;
@@ -1297,7 +1323,7 @@ void LiveActivityIsland::animateReveal(Instance& inst) {
     }
   };
   if (MotionService::instance().enabled()) {
-    inst.revealAnimId = inst.animations.animateSpring(0.0F, 1.0F, revealSpring(), setter, done, &inst);
+    inst.revealAnimId = inst.animations.animateSpring(0.0F, 1.0F, revealSpring(inst.face != Face::Rest), setter, done, &inst, velocity);
   } else {
     inst.revealAnimId =
         inst.animations.animateTimer(0.0F, 1.0F, static_cast<float>(Tokens::motionFast), Easing::Linear, setter, done, &inst);

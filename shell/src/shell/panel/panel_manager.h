@@ -217,6 +217,13 @@ private:
   void bindTrackerOpen(const DskSurfaceClient::Value& islandClip);
   void settleDetachedMorph();
   bool startDetachedMorphClose(std::uint64_t gen);
+  void animateMorphClip();
+  bool startDetachedScaleOpen();
+  bool startDetachedScaleClose(std::uint64_t gen);
+  [[nodiscard]] DskSurfaceClient::Value detachedScaleShift(double scale) const;
+  [[nodiscard]] static desk::motion::SpringConfig effectsSpring();
+  [[nodiscard]] static DskSurfaceClient::Curve opacityCurve(bool fast);
+  void fadeSceneRoot(float to, std::function<void()> onDone);
   [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
   // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
   [[nodiscard]] float detachedBackgroundOpacity() const;
@@ -275,6 +282,12 @@ private:
   double m_gestureRange = 0.0;
   std::function<void()> m_commitTracker;
   bool m_morphSettled = false;
+  bool m_scaleMode = false;
+  bool m_morphClipRunning = false;
+  DskSurfaceClient::Value m_morphClipTarget{};
+  bool m_morphExtend = false; // the sheet fill and blur extend into the margin while the island morph runs
+  std::int32_t m_morphMarginX = 0;
+  std::int32_t m_morphMarginY = 0;
   std::optional<float> m_islandBackgroundOpacity;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;

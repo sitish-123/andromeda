@@ -152,6 +152,35 @@ damping = 1.0
 stiffness = 700.0
 damping = 0.8
 
+# Presets by use (docs: .agent/anim-research.md). Spatial springs may overshoot; effects (opacity, blur) never do.
+[spring.open]
+stiffness = 380.0
+damping = 0.65
+[spring.close]
+stiffness = 500.0
+damping = 1.0
+[spring.island_expand]
+stiffness = 200.0
+damping = 0.6
+[spring.island_collapse]
+stiffness = 380.0
+damping = 0.85
+[spring.page]
+stiffness = 700.0
+damping = 0.9
+[spring.press]
+stiffness = 1500.0
+damping = 1.0
+[spring.release]
+stiffness = 800.0
+damping = 0.6
+[spring.effects]
+stiffness = 1600.0
+damping = 1.0
+[spring.effects_fast]
+stiffness = 3800.0
+damping = 1.0
+
 # Component anatomy (docs/design-system.md "Components", docs/design/reference.html). px at scale 1.
 # A value equal to a scale token says so in its comment. A string "= a.b - c.d" is computed from other tokens: every
 # nested radius is "= <outer radius> - <outer padding>", so it cannot drift from its container.

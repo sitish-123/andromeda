@@ -26,6 +26,9 @@ namespace {
   constexpr float kMaxScrollAnimDurationMs = 900.0F;
   constexpr float kScrollAnimMsPerPx = 0.45F;
   constexpr float kFlingAnimMsPerPx = 0.55F;
+  constexpr float kRubberBandResistance = 0.5F;
+  constexpr float kPageFlickVelocity = 0.3F; // px/ms
+  constexpr float kPageProjectionMs = 120.0F;
 
   float primaryPosition(const InputArea::PointerData& data, ScrollOrientation orientation) {
     return orientation == ScrollOrientation::Horizontal ? data.localX : data.localY;
@@ -79,17 +82,10 @@ ScrollView::ScrollView() {
       m_dragVelocity = 0.0F;
       return;
     }
-    if (m_dragging) {
-      m_dragging = false;
-      startFling();
-    }
+    releaseDrag();
   });
   viewportArea->setOnLeave([this] {
-    if (!m_dragging) {
-      return;
-    }
-    m_dragging = false;
-    startFling();
+    releaseDrag();
   });
   viewportArea->setOnMotion([this](const InputArea::PointerData& data) {
     if (m_viewportArea == nullptr || !m_viewportArea->pressed() || !scrollable()) {
@@ -106,13 +102,31 @@ ScrollView::ScrollView() {
     m_lastDragSampleAt = now;
 
     const float delta = position - m_dragStartPosition;
-    applyScrollOffsetValue(clampOffset(m_dragStartOffset - delta));
+    float target = m_dragStartOffset - delta;
+    if (m_pageStep > 0.0F) {
+      const float limit = target < 0.0F ? 0.0F : m_maxScrollOffset;
+      if (target < 0.0F || target > m_maxScrollOffset) {
+        target = limit + (target - limit) * kRubberBandResistance;
+      }
+    }
+    applyScrollOffsetValue(target, true);
   });
   viewportArea->setOnAxisHandler([this](const InputArea::PointerData& data) {
     if (!scrollable() || data.axis != scrollAxis(m_orientation)) {
       return false;
     }
 
+    if (m_pageStep > 0.0F) {
+      // One page per gesture burst; the rest of the burst is ignored.
+      if (data.scrollStepStartsGesture() && data.scrollDelta(m_scrollWheelStep) != 0.0F) {
+        const float base = m_scrollAnimId != 0 ? m_targetScrollOffset : m_scrollOffset;
+        const auto from = static_cast<long>(std::lround(base / m_pageStep));
+        const long to = std::clamp(from + (data.scrollDelta(m_scrollWheelStep) > 0.0F ? 1L : -1L), 0L,
+                                   static_cast<long>(pageCount()) - 1);
+        springToPage(static_cast<std::size_t>(to), 0.0F);
+      }
+      return true;
+    }
     const float delta = data.scrollDelta(m_scrollWheelStep);
     if (data.axisSource == WL_POINTER_AXIS_SOURCE_FINGER) {
       setScrollOffset(m_scrollOffset + delta);
@@ -210,6 +224,56 @@ void ScrollView::animateScrollTo(float target, float durationMs) {
   markPaintDirty();
 }
 
+void ScrollView::setPaging(float step) { m_pageStep = std::max(step, 0.0F); }
+
+void ScrollView::scrollToPage(std::size_t page) { springToPage(std::min(page, pageCount() - 1), 0.0F); }
+
+void ScrollView::releaseDrag() {
+  if (!m_dragging) {
+    return;
+  }
+  m_dragging = false;
+  // A pointer that rested before release carries no speed.
+  const float idleMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - m_lastDragSampleAt).count();
+  if (idleMs > 80.0F) {
+    m_dragVelocity = 0.0F;
+  }
+  m_pageStep > 0.0F ? settlePage(-m_dragVelocity) : startFling();
+}
+
+std::size_t ScrollView::pageCount() const noexcept {
+  return m_pageStep > 0.0F ? static_cast<std::size_t>(std::ceil(m_maxScrollOffset / m_pageStep - 0.01F)) + 1 : 1;
+}
+
+void ScrollView::springToPage(std::size_t page, float velocityPxPerS) {
+  const float target = std::min(static_cast<float>(page) * m_pageStep, m_maxScrollOffset);
+  stopScrollAnimation();
+  m_targetScrollOffset = target;
+  if (animationManager() == nullptr) {
+    applyScrollOffsetValue(target);
+    return;
+  }
+  m_scrollAnimId = animationManager()->animateSpring(
+      m_scrollOffset, target, {.damping = Tokens::springPage.damping, .stiffness = Tokens::springPage.stiffness},
+      [this](float value) { applyScrollOffsetValue(value, true); }, [this] { m_scrollAnimId = 0; }, this,
+      velocityPxPerS
+  );
+  markPaintDirty();
+}
+
+// A flick past the slop or the velocity threshold moves one page; otherwise the nearest page after a short projection.
+void ScrollView::settlePage(float velocityPxPerMs) {
+  const auto last = static_cast<long>(pageCount()) - 1;
+  const auto start = std::clamp(static_cast<long>(std::lround(m_dragStartOffset / m_pageStep)), 0L, last);
+  const float moved = m_scrollOffset - static_cast<float>(start) * m_pageStep;
+  long target = static_cast<long>(std::lround((m_scrollOffset + velocityPxPerMs * kPageProjectionMs) / m_pageStep));
+  if (target == start && (std::abs(velocityPxPerMs) > kPageFlickVelocity || std::abs(moved) > 0.12F * m_pageStep)) {
+    target += (std::abs(velocityPxPerMs) > kPageFlickVelocity ? velocityPxPerMs : moved) > 0.0F ? 1 : -1;
+  }
+  target = std::clamp(target, std::max(0L, start - 1), std::min(last, start + 1));
+  springToPage(static_cast<std::size_t>(target), velocityPxPerMs * 1000.0F);
+}
+
 void ScrollView::startFling() {
   if (animationManager() == nullptr) {
     return;
@@ -231,8 +295,10 @@ void ScrollView::startFling() {
   animateScrollTo(target, duration);
 }
 
-void ScrollView::applyScrollOffsetValue(float offset) {
-  const float clamped = clampOffset(offset);
+void ScrollView::applyScrollOffsetValue(float offset, bool allowOverscroll) {
+  // Overscroll exists only while a paging view is dragged or springs back from a drag.
+  const float overscroll = allowOverscroll ? 0.3F * m_pageStep : 0.0F;
+  const float clamped = std::clamp(offset, -overscroll, m_maxScrollOffset + overscroll);
   if (std::abs(clamped - m_scrollOffset) < 0.001F) {
     return;
   }

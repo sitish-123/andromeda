@@ -60,7 +60,6 @@ private:
   // Sizes every page to the sheet width and to the height of page 1.
   void sizePages(Renderer& renderer, float width);
   void syncPager();
-  void snapPager();
   void refreshDots(float offset);
   std::unique_ptr<Flex> makePill(std::string_view glyph, Slider*& slider, Label*& value);
   void syncToggleRow(ToggleRow& row, const std::string& subtitle);
@@ -87,9 +86,7 @@ private:
   std::vector<Flex*> m_dots;
   Flex* m_dotsRow = nullptr;
   float m_pageStep = 0.0F; // page width + the gap between pages
-  std::size_t m_settledPage = 0; // the page a swipe starts from
   std::size_t m_page = 0;
-  Timer m_snapTimer;
 
   Flex* m_footer = nullptr;
   Flex* m_batteryBox = nullptr;

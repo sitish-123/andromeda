@@ -10,9 +10,9 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 2;
+    constexpr int kVersion = 3;
     constexpr uint32_t kPropertyCount = 5;
-    constexpr uint32_t kCurveCount = 7;
+    constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
 
     SurfaceMotion::Value toValue(int32_t a, int32_t b, int32_t c, int32_t d) {

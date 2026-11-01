@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="2">
+  <interface name="dsk_surface_manager_v1" version="3">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="2">
+  <interface name="dsk_surface_v1" version="3">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -87,6 +87,15 @@
       <entry name="ease_fast" value="4" summary="tokens motion.fast"/>
       <entry name="ease_normal" value="5" summary="tokens motion.normal"/>
       <entry name="ease_slow" value="6" summary="tokens motion.slow"/>
+      <entry name="spring_open" value="7" since="3" summary="tokens spring.open"/>
+      <entry name="spring_close" value="8" since="3" summary="tokens spring.close"/>
+      <entry name="spring_island_expand" value="9" since="3" summary="tokens spring.island_expand"/>
+      <entry name="spring_island_collapse" value="10" since="3" summary="tokens spring.island_collapse"/>
+      <entry name="spring_page" value="11" since="3" summary="tokens spring.page"/>
+      <entry name="spring_press" value="12" since="3" summary="tokens spring.press"/>
+      <entry name="spring_release" value="13" since="3" summary="tokens spring.release"/>
+      <entry name="spring_effects" value="14" since="3" summary="tokens spring.effects"/>
+      <entry name="spring_effects_fast" value="15" since="3" summary="tokens spring.effects_fast"/>
     </enum>
 
     <enum name="reason">
@@ -172,7 +181,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_tracker_v1" version="2">
+  <interface name="dsk_tracker_v1" version="3">
     <description summary="a compositor-owned gesture">
       A one-dimensional position the compositor drives from input, after
       the Windows InteractionTracker model: interacting, then inertia, then

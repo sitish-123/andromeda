@@ -15,6 +15,8 @@
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
 #include "ui/controls/label.h"
+#include "render/animation/animation_manager.h"
+#include "render/core/color.h"
 #include "render/scene/input_area.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/slider.h"
@@ -23,6 +25,8 @@
 
 #include <cmath>
 #include <format>
+#include <functional>
+#include <memory>
 #include <utility>
 
 namespace {
@@ -76,6 +80,72 @@ namespace {
     button->setOnClick(std::move(click));
     out = button.get();
     return button;
+  }
+
+  // Card hover and press (docs: DESIGN.md "Quick-sheet row hover"): the card goes fill-1 -> fill-2 and scales 0.97.
+  struct CardMotion {
+    float hover = 0.0F;
+    float press = 0.0F;
+    AnimationManager::Id hoverId = 0;
+    AnimationManager::Id pressId = 0;
+  };
+
+  desk::motion::SpringConfig springOf(const Tokens::Spring& token) {
+    return {.damping = token.damping, .stiffness = token.stiffness};
+  }
+
+  // The row owns the animations (Node cancels them when the row dies); the state lives as long as a setter holds it.
+  void driveCard(
+      Button& row, const std::shared_ptr<CardMotion>& motion, float CardMotion::* value,
+      AnimationManager::Id CardMotion::* idMember, float target, const Tokens::Spring& token,
+      std::function<void(Flex&, float)> apply
+  ) {
+    AnimationManager::Id& id = motion.get()->*idMember;
+    auto* card = dynamic_cast<Flex*>(row.parent());
+    AnimationManager* manager = row.animationManager();
+    if (card == nullptr || manager == nullptr) {
+      return;
+    }
+    if (id != 0 && manager->retarget(id, target, springOf(token))) {
+      return;
+    }
+    id = manager->animateSpring(
+        motion.get()->*value, target, springOf(token),
+        [card, motion, value, apply = std::move(apply)](float v) {
+          motion.get()->*value = v;
+          apply(*card, v);
+        },
+        {}, &row
+    );
+  }
+
+  void attachCardMotion(Button& row, float opacity, Button* icon) {
+    row.setStateFillless(true);
+    auto motion = std::make_shared<CardMotion>();
+    Button* rowPtr = &row;
+    const auto hoverTo = [rowPtr, motion, opacity, icon](float target) {
+      driveCard(*rowPtr, motion, &CardMotion::hover, &CardMotion::hoverId, target, Tokens::springEffects, [opacity, icon](Flex& card, float t) {
+        icon->setHoverMix(t);
+        card.setFill(
+            lerpColor(
+                resolveColorSpec(colorSpecFromRole(ColorRole::Fill1, opacity)),
+                resolveColorSpec(colorSpecFromRole(ColorRole::Fill2, opacity)), t
+            )
+        );
+      });
+    };
+    row.setOnEnter([hoverTo] { hoverTo(1.0F); });
+    row.setOnLeave([hoverTo] { hoverTo(0.0F); });
+    row.setOnPress([rowPtr, motion](float, float, bool pressed) {
+      driveCard(
+          *rowPtr, motion, &CardMotion::press, &CardMotion::pressId, pressed ? 1.0F : 0.0F,
+          pressed ? Tokens::springPress : Tokens::springRelease,
+          [](Flex& card, float t) {
+            card.setTransformOrigin(card.width() * 0.5F, card.height() * 0.5F);
+            card.setScale(1.0F - 0.03F * t);
+          }
+      );
+    });
   }
 
 } // namespace
@@ -143,6 +213,8 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
     }
   });
   icon->setZIndex(kAboveCardArea);
+  icon->setStateFillless(true);
+  attachCardMotion(*container, panelCardOpacity(), icon.get());
   container->addChild(std::move(icon));
 
   auto text = std::make_unique<Flex>();
@@ -224,8 +296,6 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_micValue = nullptr;
   m_page = 0;
   m_pageStep = 0.0F;
-  m_settledPage = 0;
-  m_snapTimer.stop();
   m_halfWidth.clear();
   auto root = std::make_unique<Flex>();
   m_root = root.get();
@@ -267,10 +337,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   pager->setViewportPaddingH(0.0F);
   pager->setViewportPaddingV(0.0F);
   pager->setContentScale(s);
-  pager->setOnScrollChanged([this](float offset) {
-    refreshDots(offset);
-    m_snapTimer.start(std::chrono::milliseconds(150), [this] { snapPager(); });
-  });
+  pager->setOnScrollChanged([this](float offset) { refreshDots(offset); });
   m_pager = pager.get();
   Flex* strip = pager->content();
   strip->setDirection(FlexDirection::Horizontal);
@@ -491,8 +558,7 @@ std::unique_ptr<Flex> QuickTab::makeDots(std::size_t pages) {
     area->setHitTestOutset({.left = kDotGap * 0.5F * s, .top = 6.0F * s, .right = kDotGap * 0.5F * s, .bottom = 6.0F * s});
     area->setOnClick([this, i](const InputArea::PointerData&) {
       if (m_pager != nullptr && m_pageStep > 0.0F) {
-        m_settledPage = i;
-        m_pager->setScrollOffset(static_cast<float>(i) * m_pageStep);
+        m_pager->scrollToPage(i);
       }
     });
     dot->addChild(std::move(area));
@@ -536,6 +602,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   m_profile = ShortcutRegistry::create("power_profile", m_services.shortcutServices());
   auto profile = std::make_unique<Button>();
   profile->setVariant(ButtonVariant::Ghost);
+  profile->setStateFillless(true);
   profile->setDirection(FlexDirection::Horizontal);
   profile->setAlign(FlexAlign::Center);
   profile->setPadding(0.0F);
@@ -562,6 +629,7 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
     return;
   }
   m_pageStep = width + 2.0F * Tokens::componentSheetPadding * contentScale();
+  m_pager->setPaging(m_pageStep);
   for (Flex* page : m_pages) {
     page->setMinWidth(width);
     page->setMaxWidth(width);
@@ -597,29 +665,6 @@ void QuickTab::syncPager() {
     return;
   }
   refreshDots(m_pager->scrollOffset());
-}
-
-void QuickTab::snapPager() {
-  if (m_pager == nullptr || m_pageStep <= 0.0F) {
-    return;
-  }
-  if (m_pager->dragging()) {
-    m_snapTimer.start(std::chrono::milliseconds(150), [this] { snapPager(); });
-    return;
-  }
-  // A flick: any movement past a small slop goes one page in its direction; less returns to the start page.
-  const float offset = m_pager->scrollOffset();
-  const float moved = offset - static_cast<float>(m_settledPage) * m_pageStep;
-  const float slop = 12.0F * contentScale();
-  if (moved > slop && m_settledPage + 1 < m_pages.size()) {
-    ++m_settledPage;
-  } else if (moved < -slop && m_settledPage > 0) {
-    --m_settledPage;
-  }
-  const float delta = static_cast<float>(m_settledPage) * m_pageStep - offset;
-  if (std::abs(delta) > 0.5F) {
-    m_pager->scrollBy(delta);
-  }
 }
 
 float QuickTab::measureHeight(Renderer& renderer, float width) {

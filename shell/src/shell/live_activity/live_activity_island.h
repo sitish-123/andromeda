@@ -192,7 +192,7 @@ private:
   void buildScene(Instance& inst, float width, float height);
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
-  void animateReveal(Instance& inst);
+  void animateReveal(Instance& inst, float velocity);
   void updateFace(Instance& inst);
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;

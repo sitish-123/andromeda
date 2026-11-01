@@ -14,7 +14,7 @@ if [[ ! -x $GLOBAL_CLIENT || ! -x $LAYER_CLIENT ]]; then
   exit 1
 fi
 
-"$GLOBAL_CLIENT" dsk_surface_manager_v1 present 2
+"$GLOBAL_CLIENT" dsk_surface_manager_v1 present 3
 
 mkfifo "$FIFO"
 exec {control_fd}<> "$FIFO"

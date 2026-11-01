@@ -9,6 +9,7 @@
 #include "core/ui_phase.h"
 #include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
+#include "render/animation/motion_service.h"
 #include "render/render_context.h"
 #include "render/scene/input_area.h"
 #include "scripting/plugin_id.h"
@@ -43,6 +44,8 @@
 PanelManager* PanelManager::s_instance = nullptr;
 
 namespace {
+  constexpr double kScaleOpenFrom = 0.92;
+  constexpr float kMorphMarginRatio = 0.08F;
 
   constexpr Logger kLog("panel");
   constexpr auto kKeyboardRelaxDelay = std::chrono::milliseconds(100);
@@ -739,8 +742,14 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
         isBottom ? barRect.top - panelGap - screenPadding : outputHeight - barRect.bottom - panelGap - screenPadding;
     panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, room)));
   }
-  const auto detachedShadowBleed =
+  auto detachedShadowBleed =
       shell::panel_surface::bleed(m_activePanel->hasDecoration(), m_config->config().shell.shadow);
+  // A morph from an island overshoots its clip into a transparent margin that the sheet fill extends over meanwhile.
+  m_morphMarginX = morphFromIsland ? static_cast<std::int32_t>(std::ceil(kMorphMarginRatio * static_cast<float>(panelWidth))) : 0;
+  m_morphMarginY = morphFromIsland ? static_cast<std::int32_t>(std::ceil(kMorphMarginRatio * static_cast<float>(panelHeight))) : 0;
+  detachedShadowBleed.left = std::max(detachedShadowBleed.left, m_morphMarginX);
+  detachedShadowBleed.right = std::max(detachedShadowBleed.right, m_morphMarginX);
+  detachedShadowBleed.down = std::max(detachedShadowBleed.down, m_morphMarginY);
   const std::uint32_t detachedSurfaceWidth =
       shell::panel_surface::surfaceExtent(panelWidth, detachedShadowBleed.left, detachedShadowBleed.right);
   const std::uint32_t detachedSurfaceHeight =
@@ -1557,19 +1566,17 @@ void PanelManager::closePanel(bool animateClose) {
           },
           m_attachedRevealClipNode
       );
-    } else if (!startDetachedMorphClose(gen)) {
+    } else if (!startDetachedMorphClose(gen) && !startDetachedScaleClose(gen)) {
       m_animations.cancelForOwner(m_sceneRoot.get());
-      m_animations.animate(
-          m_detachedRevealProgress, 0.0F, Style::animNormal, Easing::EaseInQuad,
-          [this](float v) { applyDetachedReveal(v); },
+      fadeSceneRoot(
+          0.0F,
           [this, gen] {
             DeferredCall::callLater([this, gen] {
               if (m_destroyGeneration == gen) {
                 destroyPanel();
               }
             });
-          },
-          m_sceneRoot.get()
+          }
       );
     }
     m_surface->requestRedraw();
@@ -1684,6 +1691,9 @@ void PanelManager::destroyPanel() {
   m_selectPopup.reset();
   m_sceneRoot.reset();
   m_dsk.reset();
+  m_scaleMode = false;
+  m_morphExtend = false;
+  m_morphClipRunning = false;
   m_morphSource = nullptr;
   m_gestureTracker.reset();
   m_commitTracker = nullptr;
@@ -2343,10 +2353,12 @@ void PanelManager::applyDetachedReveal(float progress) {
   if (m_contentNode != nullptr) {
     m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress));
   }
+  const int extendX = m_morphExtend ? m_morphMarginX : 0;
+  const int extendY = m_morphExtend ? m_morphMarginY : 0;
   applyPanelCompositorBlur(
-      m_panelInsetX, m_panelInsetY, static_cast<int>(m_panelVisualWidth), static_cast<int>(m_panelVisualHeight),
-      static_cast<int>(std::lround(clipX)), static_cast<int>(std::lround(clipY)), static_cast<int>(std::lround(clipW)),
-      static_cast<int>(std::lround(clipH))
+      m_panelInsetX - extendX, m_panelInsetY, static_cast<int>(m_panelVisualWidth) + 2 * extendX,
+      static_cast<int>(m_panelVisualHeight) + extendY, static_cast<int>(std::lround(clipX)),
+      static_cast<int>(std::lround(clipY)), static_cast<int>(std::lround(clipW)), static_cast<int>(std::lround(clipH))
   );
 }
 
@@ -2382,6 +2394,8 @@ bool PanelManager::startDetachedMorph() {
     return false;
   }
   // The sheet is drawn once at full size; the compositor grows its clip and corners out of the island.
+  m_morphExtend = true;
+  placePanelChrome();
   applyDetachedReveal(1.0F);
   m_morphSourceRadius = std::min(r[2], r[3]) * 0.5F;
   m_dsk->set(Property::Radius, {m_morphSourceRadius, 0.0, 0.0, 0.0});
@@ -2391,16 +2405,102 @@ bool PanelManager::startDetachedMorph() {
     m_dsk->setOnClipMapped([this](const DskSurfaceClient::Value& clip) { bindTrackerOpen(clip); });
     return true;
   }
-  m_dsk->animate(Property::Opacity, Curve::EaseFast, {1.0, 0.0, 0.0, 0.0});
-  m_dsk->animate(
-      Property::Radius, Curve::SpringStandard, {panelRadius(), 0.0, 0.0, 0.0}
-  );
-  m_dsk->animate(Property::Clip, Curve::SpringStandard, detachedSheetRect(), [this](DskSurfaceClient::EndReason reason) {
-    if (reason == DskSurfaceClient::EndReason::Finished) {
-      settleDetachedMorph();
-    }
-  });
+  m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Radius, Curve::SpringOpen, {panelRadius(), 0.0, 0.0, 0.0});
+  animateMorphClip();
+  m_morphClipRunning = true;
   return true;
+}
+
+// Reduce motion: panels crossfade on a timed ease, never pop and never spring.
+DskSurfaceClient::Curve PanelManager::opacityCurve(bool fast) {
+  using Curve = DskSurfaceClient::Curve;
+  if (!MotionService::instance().enabled()) {
+    return Curve::EaseNormal;
+  }
+  // The close fade rides the close spring, so the content stays visible while the sheet shrinks into its source.
+  return fast ? Curve::SpringClose : Curve::SpringEffects;
+}
+
+void PanelManager::fadeSceneRoot(float to, std::function<void()> onDone) {
+  const auto setter = [this](float v) { m_sceneRoot->setOpacity(v); };
+  if (MotionService::instance().enabled()) {
+    m_animations.animateSpring(m_sceneRoot->opacity(), to, effectsSpring(), setter, std::move(onDone), m_sceneRoot.get());
+  } else {
+    m_animations.animateTimer(
+        m_sceneRoot->opacity(), to, static_cast<float>(Tokens::motionNormal), Easing::EaseOutCubic, setter,
+        std::move(onDone), m_sceneRoot.get()
+    );
+  }
+}
+
+desk::motion::SpringConfig PanelManager::effectsSpring() {
+  return {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness};
+}
+
+// translate that keeps the sheet's anchor corner fixed while the surface scales about its center
+DskSurfaceClient::Value PanelManager::detachedScaleShift(double scale) const {
+  const DskSurfaceClient::Value sheet = detachedSheetRect();
+  const double sw = m_sceneRoot != nullptr ? m_sceneRoot->width() : 0.0;
+  const double sh = m_sceneRoot != nullptr ? m_sceneRoot->height() : 0.0;
+  const double cx = sheet[0] + sheet[2] * 0.5;
+  const double cy = sheet[1] + sheet[3] * 0.5;
+  const bool centered = std::abs(cx - sw * 0.5) < sw * 0.1;
+  const double ax = centered ? cx : (cx < sw * 0.5 ? sheet[0] : sheet[0] + sheet[2]);
+  const double ay = cy < sh * 0.5 ? sheet[1] : sheet[1] + sheet[3];
+  return {(1.0 - scale) * (ax - sw * 0.5), (1.0 - scale) * (ay - sh * 0.5), 0.0, 0.0};
+}
+
+bool PanelManager::startDetachedScaleOpen() {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  if (manager == nullptr || m_wlSurface == nullptr || m_activePanel == nullptr || !MotionService::instance().enabled()) {
+    return false;
+  }
+  m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  applyDetachedReveal(1.0F);
+  m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
+  m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
+  m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
+  m_scaleMode = true;
+  return true;
+}
+
+bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (m_dsk == nullptr || !m_scaleMode) {
+    return false;
+  }
+  m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Translate, Curve::SpringClose, detachedScaleShift(kScaleOpenFrom));
+  m_dsk->animate(
+      Property::Scale, Curve::SpringClose, {kScaleOpenFrom, 0.0, 0.0, 0.0},
+      [this, gen](DskSurfaceClient::EndReason) {
+        DeferredCall::callLater([this, gen] {
+          if (m_destroyGeneration == gen) {
+            destroyPanel();
+          }
+        });
+      }
+  );
+  return true;
+}
+
+void PanelManager::animateMorphClip() {
+  m_morphClipTarget = detachedSheetRect();
+  m_dsk->animate(
+      DskSurfaceClient::Property::Clip, DskSurfaceClient::Curve::SpringOpen, detachedSheetRect(),
+      [this](DskSurfaceClient::EndReason reason) {
+        if (reason == DskSurfaceClient::EndReason::Finished) {
+          settleDetachedMorph();
+        }
+      }
+  );
 }
 
 void PanelManager::settleDetachedMorph() {
@@ -2413,6 +2513,10 @@ void PanelManager::settleDetachedMorph() {
   m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
   m_dsk->set(Property::Opacity, {1.0, 0.0, 0.0, 0.0});
   m_morphSettled = true;
+  m_morphExtend = false;
+  m_morphClipRunning = false;
+  placePanelChrome();
+  applyDetachedReveal(m_detachedRevealProgress);
   if (m_surface != nullptr) {
     m_surface->requestRedraw();
   }
@@ -2461,9 +2565,9 @@ bool PanelManager::startDetachedMorphClose(std::uint64_t gen) {
     m_dsk->set(Property::Clip, detachedSheetRect());
     m_dsk->set(Property::Radius, {panelRadius(), 0.0, 0.0, 0.0});
   }
-  m_dsk->animate(Property::Opacity, Curve::EaseFast, {0.0, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Radius, Curve::SpringSnappy, {m_morphSourceRadius, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Clip, Curve::SpringSnappy, *m_dsk->mappedClip(), [this, gen](DskSurfaceClient::EndReason) {
+  m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Radius, Curve::SpringClose, {m_morphSourceRadius, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Clip, Curve::SpringClose, *m_dsk->mappedClip(), [this, gen](DskSurfaceClient::EndReason) {
     DeferredCall::callLater([this, gen] {
       if (m_destroyGeneration == gen) {
         destroyPanel();
@@ -2896,12 +3000,10 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
       m_sceneRoot->setOpacity(1.0F);
       applyAttachedReveal(0.0F);
       m_attachedOpenAnimationPending = true;
-    } else if (!startDetachedMorph()) {
-      applyDetachedReveal(0.0F);
-      m_animations.animate(
-          0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic, [this](float v) { applyDetachedReveal(v); }, {},
-          m_sceneRoot.get()
-      );
+    } else if (!startDetachedMorph() && !startDetachedScaleOpen()) {
+      applyDetachedReveal(1.0F);
+      m_sceneRoot->setOpacity(0.0F);
+      fadeSceneRoot(1.0F, {});
     }
 
     m_surface->setSceneRoot(m_sceneRoot.get());
@@ -3011,8 +3113,14 @@ void PanelManager::placePanelChrome() {
   }
 
   if (m_bgNode != nullptr) {
-    m_bgNode->setPosition(bgX, bgY);
-    m_bgNode->setSize(bgW, bgH);
+    const auto extendX = m_morphExtend ? static_cast<float>(m_morphMarginX) : 0.0F;
+    const auto extendY = m_morphExtend ? static_cast<float>(m_morphMarginY) : 0.0F;
+    m_bgNode->setPosition(bgX - extendX, bgY);
+    m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY);
+  }
+  // A content-fitted card changes height while the open spring runs: the clip follows it.
+  if (m_morphClipRunning && m_dsk != nullptr && !m_closing && m_morphClipTarget != detachedSheetRect()) {
+    animateMorphClip();
   }
 
   if (m_panelContactShadowNode != nullptr) {

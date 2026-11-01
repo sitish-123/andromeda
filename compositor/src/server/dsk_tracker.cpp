@@ -15,14 +15,7 @@ namespace andromeda {
     constexpr uint32_t kAxisCount = 3;
     constexpr uint32_t kPropertyCount = 5;
     constexpr uint32_t kComponentCount = 4;
-    constexpr uint32_t kCurveCount = 7;
-
-    desk::motion::SpringConfig springFor(SurfaceMotion::Curve curve) {
-      const Tokens::Spring& token = curve == SurfaceMotion::Curve::SpringSnappy ? Tokens::springSnappy
-          : curve == SurfaceMotion::Curve::SpringBouncy                         ? Tokens::springBouncy
-                                                                                : Tokens::springStandard;
-      return {.damping = token.damping, .stiffness = token.stiffness};
-    }
+    constexpr uint32_t kCurveCount = 16;
   } // namespace
 
   const struct dsk_tracker_v1_interface DskSurfaceManager::kTrackerImplementation = {
@@ -153,7 +146,7 @@ namespace andromeda {
       if (curve == SurfaceMotion::Curve::None || config().appearance.reduceMotion) {
         tracker->motion.jumpTo(target, ms);
       } else {
-        tracker->motion.moveTo(target, springFor(curve), ms);
+        tracker->motion.moveTo(target, SurfaceMotion::springConfig(curve), ms);
       }
       tracker->pendingMove.reset();
       tracker->manager->applyTracker(*tracker, ms);

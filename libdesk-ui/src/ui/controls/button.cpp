@@ -379,6 +379,19 @@ void Button::setHoverSuppressed(bool suppressed) {
   applyVisualState();
 }
 
+void Button::setHoverMix(float amount) {
+  m_hoverMix = std::clamp(amount, 0.0F, 1.0F);
+  applyColors(m_displayedBg, m_displayedBorder, m_displayedLabel);
+}
+
+void Button::setStateFillless(bool fillless) {
+  if (m_statefillless == fillless) {
+    return;
+  }
+  m_statefillless = fillless;
+  applyVisualState();
+}
+
 void Button::setHoveredVisual(bool hovered) {
   if (m_hoveredVisual == hovered) {
     return;
@@ -594,7 +607,7 @@ void Button::applyColors(const Color& bg, const Color& border, const Color& labe
   m_displayedBg = bg;
   m_displayedBorder = border;
   m_displayedLabel = label;
-  setFill(bg);
+  setFill(m_hoverMix > 0.0F ? lerpColor(bg, label, 0.08F * m_hoverMix) : bg);
   setBorder(border, effectiveBorderWidth());
   if (m_label != nullptr) {
     m_label->setColor(label);
@@ -662,6 +675,10 @@ void Button::resolveVisualStateColors(Color& targetBg, Color& targetBorder, Colo
     targetBg = resolveColorSpec(m_palette.normal.bg);
     targetBorder = resolveColorSpec(m_palette.normal.border);
     targetLabel = resolveColorSpec(m_palette.normal.label);
+  }
+  if (m_statefillless && m_enabled) {
+    targetBg = resolveColorSpec(m_palette.normal.bg);
+    targetBorder = resolveColorSpec(m_palette.normal.border);
   }
 }
 

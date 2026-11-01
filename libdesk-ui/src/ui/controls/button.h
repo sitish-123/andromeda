@@ -76,6 +76,10 @@ public:
   void setOnEnter(std::function<void()> callback);
   void setOnLeave(std::function<void()> callback);
   void setHoverSuppressed(bool suppressed);
+  // Hover and pressed keep the label color but draw no background or border: the owner shows the state itself.
+  void setStateFillless(bool fillless);
+  // Mixes the background 8 % * amount toward the label color; the owner drives amount 0..1 (a card hover).
+  void setHoverMix(float amount);
   void setHoveredVisual(bool hovered);
   void setPressedVisual(bool pressed);
   void setCursorShape(std::uint32_t shape);
@@ -153,6 +157,8 @@ private:
   bool m_selected = false;
   bool m_keyboardFocusHint = false;
   bool m_hoverSuppressed = false;
+  bool m_statefillless = false;
+  float m_hoverMix = 0.0F;
   bool m_hoveredVisual = false;
   bool m_pressedVisual = false;
   bool m_visualStateInitialized = false;

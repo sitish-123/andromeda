@@ -39,13 +39,32 @@ bool DskSurfaceClient::setClipFrom(wl_surface* source, const Value& rect) {
   return true;
 }
 
+DskSurfaceClient::Curve DskSurfaceClient::compatCurve(Curve curve, uint32_t version) {
+  if (version >= 3 || static_cast<uint32_t>(curve) < static_cast<uint32_t>(Curve::SpringOpen)) {
+    return curve;
+  }
+  switch (curve) {
+  case Curve::SpringClose:
+  case Curve::SpringPress:
+  case Curve::SpringEffectsFast:
+    return Curve::SpringSnappy;
+  case Curve::SpringOpen:
+  case Curve::SpringIslandExpand:
+  case Curve::SpringRelease:
+    return Curve::SpringBouncy;
+  default:
+    return Curve::SpringStandard;
+  }
+}
+
 void DskSurfaceClient::animate(Property property, Curve curve, const Value& to, DoneCallback onDone) {
   const uint32_t serial = m_nextSerial++;
   if (onDone) {
     m_pending.emplace(serial, std::move(onDone));
   }
   dsk_surface_v1_animate(
-      m_surface, serial, static_cast<uint32_t>(property), static_cast<uint32_t>(curve), fixed(to[0]), fixed(to[1]),
+      m_surface, serial, static_cast<uint32_t>(property),
+      static_cast<uint32_t>(compatCurve(curve, dsk_surface_v1_get_version(m_surface))), fixed(to[0]), fixed(to[1]),
       fixed(to[2]), fixed(to[3])
   );
 }
@@ -109,7 +128,8 @@ void DskTrackerClient::bind(
 }
 
 void DskTrackerClient::moveTo(double position, DskSurfaceClient::Curve curve) {
-  dsk_tracker_v1_move_to(m_tracker, fixed(position), static_cast<uint32_t>(curve));
+  dsk_tracker_v1_move_to(m_tracker, fixed(position),
+      static_cast<uint32_t>(DskSurfaceClient::compatCurve(curve, dsk_tracker_v1_get_version(m_tracker))));
 }
 
 void DskTrackerClient::watch(bool enabled) { dsk_tracker_v1_watch(m_tracker, enabled ? 1U : 0U); }

@@ -15,7 +15,10 @@ namespace andromeda {
     // Values match dsk_surface_v1.property.
     enum class Property : uint8_t { Translate, Scale, Opacity, Clip, Radius };
     // Values match dsk_surface_v1.curve.
-    enum class Curve : uint8_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow };
+    enum class Curve : uint8_t {
+      None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose,
+      SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast
+    };
     enum class Reason : uint8_t { Finished, Retargeted, Cancelled };
     static constexpr std::size_t kPropertyCount = 5;
 
@@ -26,6 +29,9 @@ namespace andromeda {
       uint32_t serial;
       Reason reason;
     };
+
+    static bool isSpring(Curve curve);
+    static desk::motion::SpringConfig springConfig(Curve curve);
 
     SurfaceMotion();
 

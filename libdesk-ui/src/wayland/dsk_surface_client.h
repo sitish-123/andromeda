@@ -21,7 +21,9 @@ class DskSurfaceClient {
 public:
   // Values match the protocol enums.
   enum class Property : uint32_t { Translate, Scale, Opacity, Clip, Radius };
-  enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow };
+  enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose, SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast };
+  // A compositor that binds protocol version < 3 knows only the first seven curves: use the closest one.
+  [[nodiscard]] static Curve compatCurve(Curve curve, uint32_t version);
   enum class Elevation : uint32_t { None, E1, E2 };
   enum class EndReason : uint32_t { Finished, Retargeted, Cancelled };
   using Value = std::array<double, 4>;

@@ -83,7 +83,7 @@ AnimationManager::Id AnimationManager::animateInternal(
 
 AnimationManager::Id AnimationManager::animateSpring(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner
+    std::function<void()> onComplete, const void* owner, float velocity
 ) {
   const float start = MotionService::instance().enabled() ? from : to;
   Id id = m_nextId++;
@@ -97,12 +97,21 @@ AnimationManager::Id AnimationManager::animateSpring(
               .endValue = to,
               .setter = std::move(setter),
               .onComplete = std::move(onComplete),
-              .spring = desk::motion::Spring(start, to, spring),
+              .spring = desk::motion::Spring(start, to, spring, velocity),
               .lastStep = std::chrono::steady_clock::now(),
           },
       }
   );
   return id;
+}
+
+float AnimationManager::velocity(Id id) const {
+  for (const auto& entry : m_animations) {
+    if (entry.id == id && entry.animation.spring && !entry.animation.finished) {
+      return static_cast<float>(entry.animation.spring->velocity());
+    }
+  }
+  return 0.0F;
 }
 
 bool AnimationManager::retarget(Id id, float to) {
@@ -111,6 +120,23 @@ bool AnimationManager::retarget(Id id, float to) {
       entry.animation.endValue = to;
       if (MotionService::instance().enabled()) {
         entry.animation.spring->retarget(to);
+      } else {
+        entry.animation.spring = desk::motion::Spring(to, to, {});
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+bool AnimationManager::retarget(Id id, float to, const desk::motion::SpringConfig& spring) {
+  for (auto& entry : m_animations) {
+    if (entry.id == id && entry.animation.spring && !entry.animation.finished) {
+      entry.animation.endValue = to;
+      if (MotionService::instance().enabled()) {
+        entry.animation.spring = desk::motion::Spring(
+            entry.animation.spring->value(), to, spring, entry.animation.spring->velocity()
+        );
       } else {
         entry.animation.spring = desk::motion::Spring(to, to, {});
       }

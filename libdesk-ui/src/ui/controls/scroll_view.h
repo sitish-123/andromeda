@@ -61,6 +61,10 @@ public:
   // toggle unless a caller passes an explicit showBorder.
   void setCardStyle(float scale = 1.0F, float fillOpacity = 1.0F, bool showBorder = Style::cardBordersEnabled());
   void bindState(ScrollViewState* state);
+  // Paging: the view rests on multiples of `step` (0 = off). A release or a wheel gesture springs to one page
+  // (spring.page, carrying the release velocity); the ends rubber-band while dragging.
+  void setPaging(float step);
+  void scrollToPage(std::size_t page);
   void setOnScrollChanged(std::function<void(float)> callback);
 
   [[nodiscard]] float scrollOffset() const noexcept { return m_scrollOffset; }
@@ -83,10 +87,14 @@ private:
   void doArrange(Renderer& renderer, const LayoutRect& rect) override;
   void applyPalette();
   void applyScrollOffset();
-  void applyScrollOffsetValue(float offset);
+  void applyScrollOffsetValue(float offset, bool allowOverscroll = false);
+  void releaseDrag();
   void stopScrollAnimation();
   void animateScrollTo(float target, float durationMs = -1.0F);
   void startFling();
+  void settlePage(float velocityPxPerMs);
+  void springToPage(std::size_t page, float velocityPxPerS);
+  [[nodiscard]] std::size_t pageCount() const noexcept;
   void updateTouchScrollAxis();
   [[nodiscard]] float clampOffset(float offset) const noexcept;
 
@@ -128,5 +136,6 @@ private:
   bool m_showScrollbar = true;
   bool m_reserveScrollbarGutter = false;
   bool m_dragging = false;
+  float m_pageStep = 0.0F;
   ScrollOrientation m_orientation = ScrollOrientation::Vertical;
 };
