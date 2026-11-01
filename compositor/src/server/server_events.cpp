@@ -2811,6 +2811,7 @@ namespace andromeda {
     }
     const bool hadRuntimeEffect = output->screenEffectSlot().runtimeSelector.has_value();
     m_overview->onOutputRemoved(output);
+    output->invalidateRefs();
     m_gestures->cancelForOutput(output);
     if (!m_cursor->isPassthrough()) {
       m_cursor->resetMode();

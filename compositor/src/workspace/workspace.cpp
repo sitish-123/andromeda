@@ -166,6 +166,7 @@ namespace andromeda {
   }
 
   Workspace::~Workspace() {
+    invalidateRefs();
     m_launchAnchor->workspace = nullptr;
     // Windows leaving with the workspace are no longer anyone's tabs.
     m_tabs.releaseAll();

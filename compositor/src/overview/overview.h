@@ -6,6 +6,7 @@
 #include "overview/navigation.h"
 #include "scene/hint_rect.h"
 #include "scene/surface_blur.h"
+#include "util/tracked.h"
 #include "view/chrome_attachment.h"
 
 #include <array>
@@ -140,7 +141,7 @@ namespace andromeda {
     [[nodiscard]] Workspace* navigationWorkspace() const;
     OverviewNavigation m_navigation;
     Output* m_navigationOutput = nullptr;
-    Workspace* m_navigationWorkspace = nullptr;
+    Ref<Workspace> m_navigationWorkspace;
     wlr_pointer* m_navigationPointer = nullptr;
     wl_listener m_navigationDeviceDestroy{};
     NavigationSource m_navigationSource = NavigationSource::Scroll;
@@ -405,7 +406,7 @@ namespace andromeda {
     double m_targetProgress = 0;
     double m_progressFrom = 0;
     AnimatedValue m_zoomAnim;
-    View* m_pendingFocus = nullptr;
+    Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     bool m_gestureOpenedHere = false;
     bool m_shortcutsDirty = true;
@@ -413,14 +414,14 @@ namespace andromeda {
     std::vector<ShortcutAssignment> m_shortcutAssignments;
     size_t m_shortcutLabelCapacity = 0;
     // Output under the pointer, which is the output the live target resolves against.
-    Output* m_pointerOutput = nullptr;
+    Ref<Output> m_pointerOutput;
 
     Card* m_pressCard = nullptr;
-    Workspace* m_pressWorkspace = nullptr;
+    Ref<Workspace> m_pressWorkspace;
     double m_pressX = 0;
     double m_pressY = 0;
     Card* m_middlePressCard = nullptr;
-    Output* m_middleOutput = nullptr;
+    Ref<Output> m_middleOutput;
     double m_middlePressX = 0;
     double m_middlePressY = 0;
     // Travel along the pressed output's workspace axis since the last step.
@@ -434,7 +435,7 @@ namespace andromeda {
     Card* m_dragCard = nullptr;
     double m_dragOffsetX = 0;
     double m_dragOffsetY = 0;
-    Workspace* m_dragSourceWorkspace = nullptr;
+    Ref<Workspace> m_dragSourceWorkspace;
     int m_dragSourceColumn = -1;
     int m_dragSourceRow = -1;
     std::optional<DropColumnWidth> m_dragSourceWidth;

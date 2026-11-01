@@ -48,7 +48,7 @@ namespace andromeda {
     MovedView,
   };
 
-  class Workspace {
+  class Workspace : public Trackable {
   public:
     enum class NamedScrollingColumnChange {
       Name,

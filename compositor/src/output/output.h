@@ -45,7 +45,7 @@ namespace andromeda {
   class WorkspaceGroup;
   struct OutputIdentity;
 
-  class Output {
+  class Output : public Trackable {
   public:
     static constexpr uint32_t kLayerCount = 4;
 

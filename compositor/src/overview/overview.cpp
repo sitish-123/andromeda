@@ -1987,7 +1987,7 @@ namespace andromeda {
       applyProgress();
       return;
     }
-    View* focus = m_pendingFocus;
+    View* focus = m_pendingFocus.get();
     m_pendingFocus = nullptr;
     // The real trees stay hidden until teardown, so a workspace switch during the close runs as the row scroll. The
     // close still ends with the zoom, so binds keep their timing; a row still travelling hands its offset and velocity
@@ -2699,7 +2699,7 @@ namespace andromeda {
         return true;
       }
       Card* card = m_pressCard;
-      Workspace* workspace = m_pressWorkspace;
+      Workspace* workspace = m_pressWorkspace.get();
       m_pressCard = nullptr;
       m_pressWorkspace = nullptr;
       if (card != nullptr && card->view != nullptr && card->view->mapped()) {
@@ -2787,11 +2787,11 @@ namespace andromeda {
       m_middlePressY = ly;
       while (m_middleAccum <= -kMiddleScrollStepPx) {
         m_middleAccum += kMiddleScrollStepPx;
-        selectRelativeWorkspace(1, m_middleOutput);
+        selectRelativeWorkspace(1, m_middleOutput.get());
       }
       while (m_middleAccum >= kMiddleScrollStepPx) {
         m_middleAccum -= kMiddleScrollStepPx;
-        selectRelativeWorkspace(-1, m_middleOutput);
+        selectRelativeWorkspace(-1, m_middleOutput.get());
       }
       return;
     }
@@ -2882,7 +2882,7 @@ namespace andromeda {
     if (group != nullptr) {
       for (size_t index = 0; index < group->workspaceCount(); ++index) {
         if (group->workspaceAt(index) == m_navigationWorkspace) {
-          return m_navigationWorkspace;
+          return m_navigationWorkspace.get();
         }
       }
     }
