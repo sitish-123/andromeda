@@ -31,7 +31,7 @@ public:
     bool showGlyph = true;
     bool showLabel = true;
     bool hideWhenInactive = false;
-    ColorSpec muteColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec muteColor = colorSpecFromRole(ColorRole::Danger);
   };
 
   VolumeWidget(PipeWireService* audio, EasyEffectsService* easyEffects, Options options);

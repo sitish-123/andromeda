@@ -352,7 +352,7 @@ void PluginWidget::doLayout(Renderer& renderer, float containerWidth, float cont
   if (!m_flex)
     return;
 
-  const ColorSpec fallback = colorSpecFromRole(ColorRole::OnSurface);
+  const ColorSpec fallback = colorSpecFromRole(ColorRole::Label1);
 
   m_flex->setDirection(m_isVertical ? FlexDirection::Vertical : FlexDirection::Horizontal);
 
@@ -572,7 +572,7 @@ ColorSpec PluginWidget::resolveScriptColor(const ScriptColorState& state, const 
   }
   if (!state.color->role.has_value()
       || state.mode == ScriptColorMode::Script
-      || *state.color->role != ColorRole::OnSurface) {
+      || *state.color->role != ColorRole::Label1) {
     return *state.color;
   }
   return defaultColor;

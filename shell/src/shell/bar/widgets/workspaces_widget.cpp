@@ -1,6 +1,7 @@
 #include "shell/bar/widgets/workspaces_widget.h"
 
 #include "compositors/workspace_backend.h"
+#include "config/app_icon_settings.h"
 #include "config/config_service.h"
 #include "core/ui_phase.h"
 #include "render/animation/animation.h"
@@ -628,7 +629,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         m_hoveredArea = areaPtr;
         updateHoverOverlay();
 
-        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
         auto applyHoverProgress = [this, fill](float p) {
           m_hoverProgress = p;
           if (m_hoverOverlay != nullptr) {
@@ -661,7 +662,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         m_hoveredArea = nullptr;
         updateHoverOverlay();
 
-        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
         auto applyHoverProgress = [this, fill](float p) {
           m_hoverProgress = p;
           if (m_hoverOverlay != nullptr) {
@@ -732,7 +733,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
 
   // Only minimal style draws the translucent per-item hover overlay.
   if (m_changeColorOnHover && isMinimal() && barCapsuleSpec().hoverHighlight) {
-    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     hoverFill.alpha = 0.0F;
     m_hoverOverlay = static_cast<Box*>(m_container->addChild(
         ui::box({
@@ -1214,10 +1215,10 @@ void WorkspacesWidget::updateHoverOverlay() {
   for (auto& item : m_items) {
     if (&item == &hoveredItem) {
       if (item.indicator != nullptr) {
-        item.indicator->setFill(colorSpecFromRole(ColorRole::Hover));
+        item.indicator->setFill(colorSpecFromRole(ColorRole::Fill3));
       }
       if (item.text != nullptr) {
-        item.text->setColor(colorSpecFromRole(isMinimal() ? ColorRole::Hover : ColorRole::OnHover));
+        item.text->setColor(colorSpecFromRole(isMinimal() ? ColorRole::Fill3 : ColorRole::Label1));
       }
     } else {
       applyItemVisualStyle(item);
@@ -1527,45 +1528,12 @@ ColorSpec WorkspacesWidget::workspaceTextColor(const Workspace& workspace, wl_ou
 
 ColorRole WorkspacesWidget::onRoleForFill(ColorRole fill) {
   switch (fill) {
-  case ColorRole::Primary:
-    return ColorRole::OnPrimary;
-  case ColorRole::Secondary:
-    return ColorRole::OnSecondary;
-  case ColorRole::Tertiary:
-    return ColorRole::OnTertiary;
-  case ColorRole::Error:
-    return ColorRole::OnError;
-  case ColorRole::PrimaryContainer:
-    return ColorRole::OnPrimaryContainer;
-  case ColorRole::SecondaryContainer:
-    return ColorRole::OnSecondaryContainer;
-  case ColorRole::TertiaryContainer:
-    return ColorRole::OnTertiaryContainer;
-  case ColorRole::ErrorContainer:
-    return ColorRole::OnErrorContainer;
-  case ColorRole::Surface:
-  case ColorRole::SurfaceContainerLow:
-  case ColorRole::SurfaceContainer:
-  case ColorRole::SurfaceContainerHigh:
-  case ColorRole::SurfaceContainerHighest:
-  case ColorRole::OutlineVariant:
-  case ColorRole::Shadow:
-  case ColorRole::Scrim:
-  case ColorRole::Hover:
-  case ColorRole::OnPrimary:
-  case ColorRole::OnPrimaryContainer:
-  case ColorRole::OnSecondary:
-  case ColorRole::OnSecondaryContainer:
-  case ColorRole::OnTertiary:
-  case ColorRole::OnTertiaryContainer:
-  case ColorRole::OnError:
-  case ColorRole::OnErrorContainer:
-  case ColorRole::OnSurface:
-  case ColorRole::OnSurfaceVariant:
-  case ColorRole::OnHover:
-    return ColorRole::OnSurface;
+  case ColorRole::Accent:
+  case ColorRole::Danger:
+    return ColorRole::OnAccent;
+  default:
+    return ColorRole::Label1;
   }
-  return ColorRole::OnSurface;
 }
 
 ColorSpec WorkspacesWidget::readableColorForFill(const ColorSpec& fill) {

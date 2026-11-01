@@ -253,7 +253,7 @@ void SysmonWidget::create() {
         .out = &m_glyph,
         .glyph = m_glyphOverride.empty() ? glyphName(m_stat) : m_glyphOverride,
         .glyphSize = Style::baseGlyphSize * m_contentScale,
-        .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+        .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
     });
   }
 
@@ -265,7 +265,7 @@ void SysmonWidget::create() {
         .fontSize = Style::fontSizeBody * fontScale(),
         .fontWeight = labelFontWeight(),
         .fontFamily = labelFontFamily(),
-        .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+        .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
     });
   }
 
@@ -298,7 +298,7 @@ void SysmonWidget::create() {
     m_coreGaugeRow = static_cast<Flex*>(coreRaw.get());
     graphOrGaugeNode = std::move(coreRaw);
   } else if (m_visualization == SysmonVisualization::Gauge) {
-    const ColorSpec base = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec base = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     graphOrGaugeNode = ui::progressBar({
         .fill = base,
         .track = gaugeTrackColor(base),
@@ -360,19 +360,19 @@ void SysmonWidget::create() {
 void SysmonWidget::syncVisualPalette() {
   if (m_chartBg != nullptr) {
     RoundedRectStyle bgStyle;
-    bgStyle.fill = colorForRole(ColorRole::SurfaceContainer);
+    bgStyle.fill = colorForRole(ColorRole::Fill2);
     bgStyle.radius = Style::scaledRadiusSm();
     bgStyle.softness = 0.5F;
     m_chartBg->setStyle(bgStyle);
   }
   if (m_graph != nullptr) {
-    m_graph->setColor(currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface))));
+    m_graph->setColor(currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1))));
   }
   if (m_gauge != nullptr) {
-    const ColorSpec base = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec base = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     m_gauge->setTrack(gaugeTrackColor(base));
   }
-  const ColorSpec coreBase = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+  const ColorSpec coreBase = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   const ColorSpec coreTrack = gaugeTrackColor(coreBase);
   const std::size_t coreCount = std::min(m_coreGauges.size(), m_lastCoreUsage.size());
   for (ProgressBar* gauge : m_coreGauges) {
@@ -387,7 +387,7 @@ void SysmonWidget::syncVisualPalette() {
 }
 
 void SysmonWidget::syncValueColor() {
-  const Color valueColor = currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  const Color valueColor = currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   const Color iconColor = m_widgetIconColor.has_value() ? resolveColorSpec(m_widgetIconColor.value()) : valueColor;
   if (m_glyph != nullptr) {
     m_glyph->setColor(iconColor);
@@ -422,7 +422,7 @@ Color SysmonWidget::currentValueColor(ColorSpec baseColor, std::optional<double>
 }
 
 void SysmonWidget::syncIdentity(Renderer& renderer) {
-  const Color valueColor = currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  const Color valueColor = currentValueColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   const Color iconColor = m_widgetIconColor.has_value() ? resolveColorSpec(m_widgetIconColor.value()) : valueColor;
   if (m_image != nullptr) {
     widget_custom_image::sync(*m_image, renderer, m_customImage, m_contentScale, fixedColorSpec(iconColor));
@@ -661,7 +661,7 @@ void SysmonWidget::rebuildCoreGauge(std::size_t coreCount) {
     (void)m_coreGaugeRow->removeChild(m_coreGaugeRow->children().front().get());
   }
 
-  const ColorSpec track = gaugeTrackColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  const ColorSpec track = gaugeTrackColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_coreGauges.reserve(coreCount);
   for (std::size_t i = 0; i < coreCount; ++i) {
     m_coreGauges.push_back(

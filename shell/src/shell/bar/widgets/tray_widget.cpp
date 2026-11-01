@@ -1,4 +1,5 @@
 #include "shell/bar/widgets/tray_widget.h"
+#include "config/app_icon_settings.h"
 
 #include "config/config_service.h"
 #include "core/log.h"
@@ -428,7 +429,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
     }
 
     Box* hoverBoxPtr = nullptr;
-    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     hoverFill.alpha = 0.0F;
     const float padding = barCapsuleSpec().padding * m_contentScale;
     const float boxSize = size + padding * 2.0F;
@@ -458,7 +459,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
       m_animations->animate(
           *progress, 1.0F, Style::animFast, Easing::EaseOutCubic,
           [this, hoverBoxPtr, fill, progress](float p) {
@@ -478,7 +479,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
       m_animations->animate(
           *progress, 0.0F, Style::animFast, Easing::EaseOutCubic,
           [this, hoverBoxPtr, fill, progress](float p) {
@@ -540,7 +541,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
       auto glyph = ui::glyph({
           .glyph = m_drawerChevronGlyph,
           .glyphSize = itemSize,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       });
       glyph->measure(renderer);
       glyph->setPosition(
@@ -586,7 +587,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
         image->setAppIconColorization(appIconTint);
       }
       bool loadedFromFile = false;
-      const Color symbolicColor = resolveColorSpec(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+      const Color symbolicColor = resolveColorSpec(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
       if (symbolicPath && isSvgPath(iconPath)) {
         if (auto symbolic = loadSymbolicTrayIcon(iconPath, iconRequestSize, symbolicColor)) {
           loadedFromFile = image->setSourceRaw(
@@ -712,8 +713,8 @@ void TrayWidget::rebuild(Renderer& renderer) {
       auto glyph = ui::glyph({
           .glyph = fallback,
           .glyphSize = iconSize,
-          .color = item.needsAttention ? colorSpecFromRole(ColorRole::Error)
-                                       : widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = item.needsAttention ? colorSpecFromRole(ColorRole::Danger)
+                                       : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       });
       glyph->measure(renderer);
       iconW = glyph->width();

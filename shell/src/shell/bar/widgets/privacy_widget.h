@@ -2,7 +2,7 @@
 
 #include "pipewire/privacy_filter.h"
 #include "shell/bar/widget.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "ui/palette.h"
 
 #include <string>
@@ -18,8 +18,8 @@ public:
   struct Options {
     bool hideInactive = false;
     int iconSpacing = 4;
-    ColorSpec activeColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec inactiveColor = colorSpecFromRole(ColorRole::OutlineVariant);
+    ColorSpec activeColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec inactiveColor = colorSpecFromRole(ColorRole::Stroke);
   };
 
   PrivacyWidget(PipeWireService* pipewire, ConfigService* configService, Options options);

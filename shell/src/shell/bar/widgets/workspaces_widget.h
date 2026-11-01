@@ -39,10 +39,10 @@ public:
     WorkspacesLabelSource labelSource = WorkspacesLabelSource::Id;
     bool showLabels = true;
     bool showIcons = true;
-    ColorSpec focusedColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec occupiedColor = colorSpecFromRole(ColorRole::Secondary);
-    ColorSpec emptyColor = colorSpecFromRole(ColorRole::Secondary);
-    ColorSpec urgentColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec focusedColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec occupiedColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec emptyColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec urgentColor = colorSpecFromRole(ColorRole::Danger);
     bool changeColorOnHover = true;
     std::size_t maxLabelChars = 1;
     bool labelsOnlyWhenOccupied = false;
@@ -202,8 +202,8 @@ private:
   bool m_isVertical = false;
 
   AnimationManager::Id m_animId = 0;
-  ColorSpec m_focusedColor = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_occupiedColor = colorSpecFromRole(ColorRole::Secondary);
-  ColorSpec m_emptyColor = colorSpecFromRole(ColorRole::Secondary);
-  ColorSpec m_urgentColor = colorSpecFromRole(ColorRole::Error);
+  ColorSpec m_focusedColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_occupiedColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_emptyColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_urgentColor = colorSpecFromRole(ColorRole::Danger);
 };

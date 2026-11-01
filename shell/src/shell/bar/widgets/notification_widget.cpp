@@ -25,14 +25,14 @@ void NotificationWidget::create() {
           .out = &m_glyph,
           .glyph = "bell",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
   const float dotSize = kDotBaseSize * m_contentScale;
   m_dot = area->addChild(
       ui::box({
-          .fill = colorSpecFromRole(ColorRole::Primary),
+          .fill = colorSpecFromRole(ColorRole::Accent),
           .radius = dotSize * 0.5F,
           .width = dotSize,
           .height = dotSize,
@@ -66,7 +66,7 @@ void NotificationWidget::doLayout(Renderer& renderer, float /*containerWidth*/, 
 
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
   m_glyph->setGlyph(m_dndEnabled ? "bell-off" : "bell");
-  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
   m_glyph->setPosition(0.0F, 0.0F);
   rootNode->setSize(m_glyph->width(), m_glyph->height());
@@ -102,7 +102,7 @@ void NotificationWidget::refreshIndicatorState() {
   m_dndEnabled = dndEnabled;
   if (m_glyph != nullptr) {
     m_glyph->setGlyph(m_dndEnabled ? "bell-off" : "bell");
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   }
   if (m_dot != nullptr) {
     m_dot->setVisible(m_hasNotifications && !m_dndEnabled);

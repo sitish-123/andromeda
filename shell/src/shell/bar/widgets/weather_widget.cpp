@@ -3,7 +3,7 @@
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "system/weather_service.h"
 #include "time/time_format.h"
 #include "ui/builders.h"
@@ -40,7 +40,7 @@ void WeatherWidget::create() {
           .out = &m_glyph,
           .glyph = "weather-cloud",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -66,11 +66,11 @@ void WeatherWidget::doLayout(Renderer& renderer, float containerWidth, float con
   sync(renderer);
 
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
   m_label->setTextAlign(m_isVertical ? TextAlign::Center : TextAlign::Start);
   m_label->setMaxWidth(m_isVertical ? containerWidth : (m_maxWidth * m_contentScale));
-  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_label->measure(renderer);
 
   const float spacing = m_label->text().empty() ? 0.0F : (Style::spaceXs * m_contentScale);
@@ -137,7 +137,7 @@ void WeatherWidget::sync(Renderer& renderer) {
   if (glyph != m_lastGlyph) {
     m_lastGlyph = glyph;
     m_glyph->setGlyph(glyph);
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     m_glyph->measure(renderer);
     changed = true;
   }
@@ -145,7 +145,7 @@ void WeatherWidget::sync(Renderer& renderer) {
   if (text != m_lastText) {
     m_lastText = text;
     m_label->setText(text);
-    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
     m_label->measure(renderer);
     changed = true;
   }

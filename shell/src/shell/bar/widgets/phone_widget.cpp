@@ -23,7 +23,7 @@ void PhoneWidget::create() {
           .out = &m_glyph,
           .glyph = "device-mobile",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
   area->addChild(
@@ -95,10 +95,10 @@ void PhoneWidget::syncState(Renderer& renderer) {
   m_glyph->setGlyph(phone::glyph(*phone, status));
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
   m_glyph->setColor(
-      widgetIconColorOr(colorSpecFromRole(phone->connected ? ColorRole::OnSurface : ColorRole::OnSurfaceVariant))
+      widgetIconColorOr(colorSpecFromRole(phone->connected ? ColorRole::Label1 : ColorRole::Label2))
   );
   m_label->setText(status != nullptr ? std::format("{}%", status->battery) : std::string{});
-  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
   m_label->measure(renderer);
 
