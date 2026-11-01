@@ -64,7 +64,6 @@ private:
   Label* m_brightnessValue = nullptr;
   Slider* m_volumeSlider = nullptr;
   Label* m_volumeValue = nullptr;
-  bool m_draggingSlider = false;
 
   Flex* m_mediaCard = nullptr;
   Label* m_mediaTitle = nullptr;

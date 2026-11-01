@@ -107,9 +107,15 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(ToggleRow& row, std::string_view
   container->setMinHeight(kRoundIcon * s);
   container->setGap(iconTextGap * s);
   container->setContentAlign(ButtonContentAlign::Start);
-  container->setOnClick([this, tab = std::string(detailTab)] { m_openTab(tab); });
-
   Shortcut* shortcut = row.shortcut.get();
+  // An empty detail tab means the card itself is the toggle.
+  container->setOnClick([this, shortcut, tab = std::string(detailTab)] {
+    if (!tab.empty()) {
+      m_openTab(tab);
+    } else if (shortcut != nullptr) {
+      shortcut->onClick();
+    }
+  });
   const std::string glyph = !row.glyph.empty() ? row.glyph : std::string(shortcut != nullptr ? shortcut->currentIcon() : "");
   container->addChild(makeGlyphButton(row.icon, glyph, s, [shortcut] {
     if (shortcut != nullptr) {
@@ -136,7 +142,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   pill->setPadding(0.0F, Tokens::componentSliderValueInset * s, 0.0F, Tokens::componentSliderIconInset * s);
   pill->setMinHeight(kPillHeight * s);
   pill->setRadius(Tokens::componentSliderRadius * s);
-  pill->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
+  pill->setFill(colorSpecFromRole(ColorRole::Fill3, panelCardOpacity()));
 
   auto bar = std::make_unique<Slider>();
   bar->setRange(0.0, 1.0);
@@ -145,7 +151,6 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   bar->setFilled(true);
   bar->setTrackRadius(Tokens::componentSliderRadius * s);
   bar->setParticipatesInLayout(false);
-  bar->setOnDragEnd([this] { m_draggingSlider = false; });
   slider = bar.get();
   pill->slider = slider;
   pill->addChild(std::move(bar));
@@ -195,7 +200,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   focus->addChild(makeToggleRow(m_focus, "notifications", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(focus));
   auto dark = makeCard();
-  dark->addChild(makeToggleRow(m_darkMode, "home", Tokens::componentCardSmallGap));
+  dark->addChild(makeToggleRow(m_darkMode, "", Tokens::componentCardSmallGap));
   smallCards->addChild(std::move(dark));
   top->addChild(std::move(smallCards));
   root->addChild(std::move(top));
@@ -203,7 +208,6 @@ std::unique_ptr<Flex> QuickTab::create() {
   auto brightness = makePill("sun", m_brightnessSlider, m_brightnessValue);
   m_brightnessPill = brightness.get();
   m_brightnessSlider->setOnValueChanged([this](double value) {
-    m_draggingSlider = true;
     if (m_services.brightness == nullptr) {
       return;
     }
@@ -218,7 +222,6 @@ std::unique_ptr<Flex> QuickTab::create() {
 
   auto volume = makePill("volume", m_volumeSlider, m_volumeValue);
   m_volumeSlider->setOnValueChanged([this](double value) {
-    m_draggingSlider = true;
     if (m_services.audio != nullptr) {
       if (const AudioNode* sink = m_services.audio->defaultSink(); sink != nullptr) {
         m_services.audio->setSinkVolume(sink->id, static_cast<float>(value));
@@ -344,7 +347,7 @@ void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
 }
 
 void QuickTab::syncSliders() {
-  if (m_draggingSlider) {
+  if (m_brightnessSlider->dragging() || m_volumeSlider->dragging()) {
     return;
   }
   const BrightnessDisplay* display = nullptr;
