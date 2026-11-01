@@ -8,7 +8,7 @@
 #include "scripting/script_runtime.h"
 #include "shell/panel/panel.h"
 #include "ui/ui_tree.h"
-#include "ui/ui_tree_reconciler.h"
+#include "scripting/ui_tree_reconciler.h"
 
 #include <filesystem>
 #include <memory>

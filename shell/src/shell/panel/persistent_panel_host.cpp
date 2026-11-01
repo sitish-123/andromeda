@@ -9,7 +9,7 @@
 #include "shell/panel/panel.h"
 #include "shell/panel/panel_surface_style.h"
 #include "shell/screen_position.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
@@ -327,7 +327,7 @@ void PersistentPanelHost::buildScene(Instance& instance, std::uint32_t width, st
   instance.sceneRoot->setSize(static_cast<float>(width), static_cast<float>(height));
 
   const auto& shadowConfig = m_config->config().shell.shadow;
-  if (hasDecoration && shell::surface_shadow::enabled(true, shadowConfig)) {
+  if (hasDecoration && ui::surface_shadow::enabled(true, shadowConfig)) {
     auto shadow = ui::box({});
     instance.shadowNode = static_cast<Box*>(instance.sceneRoot->addChild(std::move(shadow)));
     instance.shadowNode->setZIndex(-1);
@@ -338,7 +338,7 @@ void PersistentPanelHost::buildScene(Instance& instance, std::uint32_t width, st
   if (hasDecoration) {
     auto bg = ui::box({});
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(ColorRole::Surface, backgroundOpacity));
+    bg->setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, backgroundOpacity), shell::panel_surface::borderWidth(m_config)
@@ -414,7 +414,7 @@ void PersistentPanelHost::layoutScene(Instance& instance, std::uint32_t width, s
   if (instance.shadowNode != nullptr) {
     const auto& shadowConfig = m_config->config().shell.shadow;
     const bool panelShadow =
-        m_config->config().shell.panel.shadow && shell::surface_shadow::enabled(true, shadowConfig);
+        m_config->config().shell.panel.shadow && ui::surface_shadow::enabled(true, shadowConfig);
     instance.shadowNode->setVisible(panelShadow);
     const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
     instance.shadowNode->setPosition(
@@ -424,9 +424,9 @@ void PersistentPanelHost::layoutScene(Instance& instance, std::uint32_t width, s
     if (panelShadow) {
       const float radius = Style::scaledRadiusXl(instance.panel->contentScale());
       instance.shadowNode->setStyle(
-          shell::surface_shadow::style(
+          ui::surface_shadow::style(
               shadowConfig, shell::panel_surface::backgroundOpacity(m_config),
-              shell::surface_shadow::Shape{.radius = Radii{radius, radius, radius, radius}}
+              ui::surface_shadow::Shape{.radius = Radii{radius, radius, radius, radius}}
           )
       );
     }
@@ -621,7 +621,7 @@ void PersistentPanelHost::onConfigReloaded() {
     instance->panel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, backgroundOpacity));
     if (instance->bgNode != nullptr) {
       instance->bgNode->setPanelStyle(m_config->config().shell.panel.borders);
-      instance->bgNode->setFill(colorSpecFromRole(ColorRole::Surface, backgroundOpacity));
+      instance->bgNode->setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
       if (m_config->config().shell.panel.borders) {
         instance->bgNode->setBorder(
             shell::panel_surface::borderColor(m_config, backgroundOpacity), shell::panel_surface::borderWidth(m_config)

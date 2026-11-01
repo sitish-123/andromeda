@@ -1,4 +1,5 @@
 #include "shell/switcher/window_switcher.h"
+#include "config/app_icon_settings.h"
 
 #include "capture/toplevel_thumbnail_capture.h"
 #include "compositors/compositor_detect.h"
@@ -20,7 +21,7 @@
 #include "render/scene/input_area.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/switcher/window_switcher_carousel_style.h"
 #include "shell/switcher/window_switcher_compact_style.h"
 #include "shell/switcher/window_switcher_membership.h"
@@ -35,7 +36,7 @@
 #include "ui/style.h"
 #include "util/string_utils.h"
 #include "wayland/layer_surface.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -115,7 +116,7 @@ namespace {
     return config != nullptr ? config->config().accessibility.uiScale : 1.0F;
   }
 
-  [[nodiscard]] const WaylandOutput* findOutput(const WaylandConnection& wayland, wl_output* output) {
+  [[nodiscard]] const WaylandOutput* findOutput(const ShellWaylandConnection& wayland, wl_output* output) {
     for (const auto& entry : wayland.outputs()) {
       if (entry.output == output) {
         return &entry;
@@ -252,7 +253,7 @@ namespace {
   }
 
   [[nodiscard]] std::uintptr_t
-  resolveCaptureHandle(const WaylandConnection& wayland, std::string_view appId, std::string_view title) {
+  resolveCaptureHandle(const ShellWaylandConnection& wayland, std::string_view appId, std::string_view title) {
     const std::string idLower = StringUtils::toLower(appId);
     const auto windows = wayland.extWindowsForApp(idLower, idLower);
     ext_foreign_toplevel_handle_v1* matched = nullptr;
@@ -303,7 +304,7 @@ namespace {
   };
 
   [[nodiscard]] WindowSwitcherEntry makeEntryFromAssignment(
-      const CompositorPlatform& platform, const WaylandConnection& wayland, IconResolver& iconResolver, int iconSize,
+      const CompositorPlatform& platform, const ShellWaylandConnection& wayland, IconResolver& iconResolver, int iconSize,
       const WorkspaceWindowAssignment& assignment
   ) {
     WindowSwitcherEntry entry;
@@ -414,7 +415,7 @@ namespace {
   }
 
   [[nodiscard]] std::vector<switcher_membership::OutputMembership> collectOutputMemberships(
-      const CompositorPlatform& platform, const WaylandConnection& wayland, wl_output* outputFilter
+      const CompositorPlatform& platform, const ShellWaylandConnection& wayland, wl_output* outputFilter
   ) {
     std::vector<switcher_membership::OutputMembership> memberships;
     const auto appendForOutput = [&](wl_output* output) {
@@ -435,7 +436,7 @@ namespace {
   }
 
   [[nodiscard]] std::vector<WorkspaceWindowAssignment> collectSwitcherAssignments(
-      const CompositorPlatform& platform, const WaylandConnection& wayland, wl_output* outputFilter,
+      const CompositorPlatform& platform, const ShellWaylandConnection& wayland, wl_output* outputFilter,
       bool currentWorkspaceOnly, bool& membershipFilterApplied
   ) {
     membershipFilterApplied = false;
@@ -456,7 +457,7 @@ namespace {
   }
 
   void buildWindowEntries(
-      const CompositorPlatform& platform, const WaylandConnection& wayland, IconResolver& iconResolver, int iconSize,
+      const CompositorPlatform& platform, const ShellWaylandConnection& wayland, IconResolver& iconResolver, int iconSize,
       wl_output* outputFilter, std::vector<WindowSwitcherEntry>& out, const std::string& focusedKey,
       const std::deque<std::string>* mruKeys, bool currentWorkspaceOnly
   ) {
@@ -630,7 +631,7 @@ struct WindowSwitcher::Instance {
 };
 
 void WindowSwitcher::initialize(
-    WaylandConnection& wayland, RenderContext* renderContext, CompositorPlatform& platform, ConfigService* config,
+    ShellWaylandConnection& wayland, RenderContext* renderContext, CompositorPlatform& platform, ConfigService* config,
     AsyncTextureCache* asyncTextures
 ) {
   m_wayland = &wayland;
@@ -1863,8 +1864,8 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
   panel->addChild(
       ui::box({
           .out = &instance.panelBackground,
-          .fill = colorSpecFromRole(ColorRole::Surface),
-          .border = scaleAlpha(colorSpecFromRole(ColorRole::OutlineVariant), Style::disabledOutlineAlpha),
+          .fill = colorSpecFromRole(ColorRole::SolidRegular),
+          .border = scaleAlpha(colorSpecFromRole(ColorRole::Stroke), Style::disabledOutlineAlpha),
           .borderWidth = Style::borderWidth,
           .radius = Style::scaledRadiusXl(scale),
           .visible = layout.boxed,
@@ -1878,8 +1879,8 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
   const ShellConfig::ShadowConfig shadowConfig =
       m_config != nullptr ? m_config->config().shell.shadow : ShellConfig::ShadowConfig{};
   const float cardRadius = Style::scaledRadiusXl(scale);
-  const RoundedRectStyle selectedShadowStyle = shell::surface_shadow::style(
-      shadowConfig, 1.0F, shell::surface_shadow::Shape{.radius = Radii{cardRadius, cardRadius, cardRadius, cardRadius}}
+  const RoundedRectStyle selectedShadowStyle = ui::surface_shadow::style(
+      shadowConfig, 1.0F, ui::surface_shadow::Shape{.radius = Radii{cardRadius, cardRadius, cardRadius, cardRadius}}
   );
   auto strip = ui::inputArea({
       .out = &instance.strip,
@@ -1922,8 +1923,8 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
   if (switcherConfig.showCount) {
     auto countBackground = ui::box({
         .out = &instance.countBackground,
-        .fill = colorSpecFromRole(ColorRole::Surface),
-        .border = scaleAlpha(colorSpecFromRole(ColorRole::OutlineVariant), Style::disabledOutlineAlpha),
+        .fill = colorSpecFromRole(ColorRole::SolidRegular),
+        .border = scaleAlpha(colorSpecFromRole(ColorRole::Stroke), Style::disabledOutlineAlpha),
         .borderWidth = Style::borderWidth,
         .radius = Style::scaledRadiusMd(scale),
         .width = layout.countWidth,
@@ -1935,7 +1936,7 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
             .out = &instance.counterLabel,
             .fontSize = Style::fontSizeCaption * scale,
             .fontWeight = FontWeight::Medium,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .participatesInLayout = false,
         })
     );
@@ -1947,7 +1948,7 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
           .out = &instance.emptyLabel,
           .text = i18n::tr("window-switcher.empty"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .textAlign = TextAlign::Center,
           .visible = m_windows.empty(),
           .participatesInLayout = false,

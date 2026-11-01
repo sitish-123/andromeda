@@ -126,10 +126,10 @@ namespace {
 
   [[nodiscard]] ColorSpec toastBorderColor(const ConfigService* config, Urgency urgency) {
     if (urgency == Urgency::Critical) {
-      return colorSpecFromRole(ColorRole::Error);
+      return colorSpecFromRole(ColorRole::Danger);
     }
     if (config == nullptr) {
-      return colorSpecFromRole(ColorRole::OutlineVariant);
+      return colorSpecFromRole(ColorRole::Stroke);
     }
     return config->config().notification.borderColor;
   }
@@ -338,12 +338,12 @@ namespace {
   ColorSpec toastProgressFillColor(Urgency urgency) {
     switch (urgency) {
     case Urgency::Critical:
-      return colorSpecFromRole(ColorRole::Error);
+      return colorSpecFromRole(ColorRole::Danger);
     case Urgency::Low:
-      return colorSpecFromRole(ColorRole::OnSurface, 0.9F);
+      return colorSpecFromRole(ColorRole::Label1, 0.9F);
     case Urgency::Normal:
     default:
-      return colorSpecFromRole(ColorRole::Primary);
+      return colorSpecFromRole(ColorRole::Accent);
     }
   }
 
@@ -440,7 +440,7 @@ namespace {
             .text = StringUtils::trimLeadingBlankLines(summary),
             .fontSize = summaryFontSize(scale),
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxWidth = topTextMaxWidth,
             .maxLines = std::max(1, summaryLines),
         })
@@ -451,7 +451,7 @@ namespace {
           ui::label({
               .text = StringUtils::trimLeadingBlankLines(body),
               .fontSize = bodyFontSize(scale),
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxWidth = textMaxWidth,
               .maxLines = std::max(1, bodyLines),
           })
@@ -480,7 +480,7 @@ namespace {
               ui::label({
                   .text = std::string(appName),
                   .fontSize = metaFontSize(scale),
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxWidth = textMaxWidth,
                   .maxLines = 1,
                   .textAlign = TextAlign::End,
@@ -2442,7 +2442,7 @@ InputArea* NotificationToast::buildCard(
   });
   *outCardForeground = foreground.get();
 
-  const float bgAlpha = m_config != nullptr ? m_config->config().notification.backgroundOpacity : 0.97F;
+  const float bgAlpha = Style::glassAlpha(m_config != nullptr ? m_config->config().notification.backgroundOpacity : 0.97F);
   const float borderWidth = toastBorderWidth(m_config, entry.urgency, scale);
   const ColorSpec borderColor = toastBorderColor(m_config, entry.urgency);
   foreground->addChild(
@@ -2485,7 +2485,7 @@ InputArea* NotificationToast::buildCard(
             ui::glyph({
                 .glyph = std::string(glyphName),
                 .glyphSize = iconGlyphSize,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
                 .configure = [iconSize, &renderer](Glyph& glyph) {
                   glyph.measure(renderer);
                   glyph.setPosition(
@@ -2562,7 +2562,7 @@ InputArea* NotificationToast::buildCard(
         ui::glyph({
             .glyph = "bell",
             .glyphSize = iconGlyphSize,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .configure = [iconSize, &renderer](Glyph& glyph) {
               glyph.measure(renderer);
               glyph.setPosition(
@@ -2586,7 +2586,7 @@ InputArea* NotificationToast::buildCard(
           .text = displaySummary,
           .fontSize = summaryFontSize(scale),
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxWidth = topTextMaxWidth,
           .maxLines = kMaxSummaryLines,
       })
@@ -2734,7 +2734,7 @@ InputArea* NotificationToast::buildCard(
   auto body = ui::label({
       .text = displayBody,
       .fontSize = bodyFontSize(scale),
-      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+      .color = colorSpecFromRole(ColorRole::Label2),
       .maxWidth = textMaxWidth,
       .maxLines = std::max(1, entry.toastBodyLines),
       .visible = entry.toastBodyLines > 0 && !StringUtils::isBlank(displayBody),
@@ -2769,7 +2769,7 @@ InputArea* NotificationToast::buildCard(
         ui::label({
             .text = entry.appName,
             .fontSize = metaFontSize(scale),
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxWidth = textMaxWidth,
             .maxLines = 1,
             .textAlign = TextAlign::End,
@@ -2794,7 +2794,7 @@ InputArea* NotificationToast::buildCard(
           .configure = [scale, bgAlpha, borderWidth, borderColor](Box& box) {
             box.setCardStyle();
             box.setRadius(Style::scaledRadiusXl(scale));
-            box.setFill(colorSpecFromRole(ColorRole::Surface, bgAlpha));
+            box.setFill(colorSpecFromRole(ColorRole::SolidRegular, bgAlpha));
             box.setBorder(borderColor, borderWidth);
           },
       })

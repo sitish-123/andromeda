@@ -18,7 +18,7 @@ class ConfigService;
 class IpcService;
 class RenderContext;
 class ToplevelThumbnailCapture;
-class WaylandConnection;
+class ShellWaylandConnection;
 struct wl_callback;
 struct wl_output;
 
@@ -38,7 +38,7 @@ public:
   ~WindowSwitcher();
 
   void initialize(
-      WaylandConnection& wayland, RenderContext* renderContext, CompositorPlatform& platform, ConfigService* config,
+      ShellWaylandConnection& wayland, RenderContext* renderContext, CompositorPlatform& platform, ConfigService* config,
       AsyncTextureCache* asyncTextures
   );
   void registerIpc(IpcService& ipc);
@@ -87,7 +87,7 @@ private:
   void cancelShortcutModifierReleaseCheck();
   static void handleShortcutModifierReleaseSync(void* data, wl_callback* callback, std::uint32_t callbackData);
 
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   RenderContext* m_renderContext = nullptr;
   CompositorPlatform* m_platform = nullptr;
   ConfigService* m_config = nullptr;

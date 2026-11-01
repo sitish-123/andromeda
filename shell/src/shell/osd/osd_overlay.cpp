@@ -87,12 +87,12 @@ namespace {
     if (config == nullptr) {
       return 0.97F;
     }
-    return std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F);
+    return Style::glassAlpha(std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F));
   }
 
   [[nodiscard]] ColorSpec osdBorderColor(const ConfigService* config) {
     if (config == nullptr) {
-      return colorSpecFromRole(ColorRole::OutlineVariant);
+      return colorSpecFromRole(ColorRole::Stroke);
     }
     return config->config().osd.borderColor;
   }
@@ -736,7 +736,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
           .width = cw,
           .height = ch,
           .configure = [cardX, cardY, cw, ch, s, border, borderColor, backgroundOpacity](Box& box) {
-            box.setFill(colorSpecFromRole(ColorRole::Surface, backgroundOpacity));
+            box.setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
             box.setBorder(borderColor, border);
             box.setRadius(osdCardRadius(cw, ch, s));
             box.setPosition(cardX, cardY);
@@ -770,7 +770,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   auto icon = ui::glyph({
       .out = &inst.glyph,
       .glyphSize = glyphSize(s),
-      .color = colorSpecFromRole(ColorRole::Primary),
+      .color = colorSpecFromRole(ColorRole::Accent),
       .configure = [](Glyph& glyph) { glyph.setZIndex(1); },
   });
 
@@ -779,7 +779,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
       .text = "100%",
       .fontSize = valueFontSize(s),
       .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::OnSurface),
+      .color = colorSpecFromRole(ColorRole::Label1),
       .maxWidth = vertical ? cw - pad * 2.0F : 0.0F,
       .maxLines = 1,
       .textAlign = vertical ? TextAlign::Center : TextAlign::End,
@@ -793,8 +793,8 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   const float ph = progressHeight(s);
   auto progress = ui::progressBar({
       .out = &inst.progress,
-      .fill = colorSpecFromRole(ColorRole::Primary),
-      .track = colorSpecFromRole(ColorRole::SurfaceContainer),
+      .fill = colorSpecFromRole(ColorRole::Accent),
+      .track = colorSpecFromRole(ColorRole::Fill2),
       .radius = osdProgressRadius(s),
       .orientation = vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal,
       .width = vertical ? verticalProgressWidth(s) : 0.0F,
@@ -833,12 +833,12 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   // Card frame size is animated during reveal; measure layout against intrinsic size.
   const float cw = cardWidth(s, m_lastOrientation);
   const float ch = cardHeight(s, m_lastOrientation, m_lastShowProgress);
-  inst.background->setFill(colorSpecFromRole(ColorRole::Surface, osdBackgroundOpacity(m_config)));
+  inst.background->setFill(colorSpecFromRole(ColorRole::SolidRegular, osdBackgroundOpacity(m_config)));
   inst.background->setBorder(osdBorderColor(m_config), osdBorderWidth(m_config, s));
 
-  const ColorRole accentRole = m_content.overLimit ? ColorRole::Error
-      : m_content.inactive                         ? ColorRole::OnSurfaceVariant
-                                                   : ColorRole::Primary;
+  const ColorRole accentRole = m_content.overLimit ? ColorRole::Danger
+      : m_content.inactive                         ? ColorRole::Label2
+                                                   : ColorRole::Accent;
   inst.glyph->setGlyph(m_content.icon);
   inst.glyph->setColor(colorSpecFromRole(accentRole));
   inst.progress->setVisible(m_content.showProgress);
@@ -846,9 +846,9 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   inst.progress->setOrientation(vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal);
   inst.row->setJustify((vertical || !m_content.showProgress) ? FlexJustify::Center : FlexJustify::Start);
   inst.value->setFontSize(valueFontSize(s));
-  const ColorRole valueRole = m_content.overLimit ? ColorRole::Error
-      : m_content.inactive                        ? ColorRole::OnSurfaceVariant
-                                                  : ColorRole::OnSurface;
+  const ColorRole valueRole = m_content.overLimit ? ColorRole::Danger
+      : m_content.inactive                        ? ColorRole::Label2
+                                                  : ColorRole::Label1;
   inst.value->setColor(colorSpecFromRole(valueRole));
   inst.value->setTextAlign((vertical || !m_content.showProgress) ? TextAlign::Center : TextAlign::End);
   // Text OSDs (media title, device name, ...) carry arbitrary-length values; cap them to the card

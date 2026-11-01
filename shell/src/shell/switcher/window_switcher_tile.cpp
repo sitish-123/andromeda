@@ -47,7 +47,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
   addChild(
       ui::box({
           .out = &m_frame,
-          .fill = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::SolidRegular),
           .radius = cardRadius,
           .participatesInLayout = false,
           .configure = [](Box& box) { box.setClipChildren(true); },
@@ -56,7 +56,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
   m_frame->addChild(
       ui::box({
           .out = &m_previewHost,
-          .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+          .fill = colorSpecFromRole(ColorRole::Fill2),
           .radius = previewRadius,
           .participatesInLayout = false,
           .configure = [](Box& box) { box.setClipChildren(true); },
@@ -91,7 +91,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
       ui::glyph({
           .out = &m_fallbackGlyph,
           .glyph = "app-window",
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .participatesInLayout = false,
       })
   );
@@ -117,7 +117,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
   m_previewHost->addChild(
       ui::box({
           .out = &m_minimizeIndicator,
-          .fill = colorSpecFromRole(ColorRole::Secondary),
+          .fill = colorSpecFromRole(ColorRole::Accent),
           .radius = Style::borderWidth * 2.0F * m_contentScale,
           .visible = false,
           .participatesInLayout = false,
@@ -136,8 +136,8 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
 
   auto captionBadge = ui::box({
       .out = &m_captionBadge,
-      .fill = colorSpecFromRole(ColorRole::Surface),
-      .border = scaleAlpha(colorSpecFromRole(ColorRole::OutlineVariant), Style::disabledOutlineAlpha),
+      .fill = colorSpecFromRole(ColorRole::SolidRegular),
+      .border = scaleAlpha(colorSpecFromRole(ColorRole::Stroke), Style::disabledOutlineAlpha),
       .borderWidth = Style::borderWidth,
       .radius = cardRadius,
       .visible = false,
@@ -156,7 +156,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
               .out = &m_title,
               .fontSize = Style::fontSizeCaption * m_contentScale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .textAlign = TextAlign::Center,
               .ellipsize = TextEllipsize::End,
@@ -164,7 +164,7 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
           ui::label({
               .out = &m_subtitle,
               .fontSize = Style::fontSizeMini * m_contentScale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
               .textAlign = TextAlign::Center,
               .ellipsize = TextEllipsize::End,
@@ -298,19 +298,19 @@ bool WindowSwitcherTile::refreshIcon(Renderer& renderer) {
 
 void WindowSwitcherTile::applyVisualState() {
   if (m_selected) {
-    m_frame->setFill(colorSpecFromRole(ColorRole::Surface));
-    m_frame->setBorder(colorSpecFromRole(ColorRole::Primary), Style::emphasizedBorderWidth);
-    m_previewHost->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+    m_frame->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    m_frame->setBorder(colorSpecFromRole(ColorRole::Accent), Style::emphasizedBorderWidth);
+    m_previewHost->setFill(colorSpecFromRole(ColorRole::Fill2));
   } else if (m_pointerHovered) {
-    m_frame->setFill(colorSpecFromRole(ColorRole::Surface));
-    m_frame->setBorder(colorSpecFromRole(ColorRole::Hover), Style::emphasizedBorderWidth);
-    m_previewHost->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+    m_frame->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    m_frame->setBorder(colorSpecFromRole(ColorRole::Fill3), Style::emphasizedBorderWidth);
+    m_previewHost->setFill(colorSpecFromRole(ColorRole::Fill2));
   } else {
-    m_frame->setFill(colorSpecFromRole(ColorRole::Surface));
+    m_frame->setFill(colorSpecFromRole(ColorRole::SolidRegular));
     m_frame->setBorder(
-        scaleAlpha(colorSpecFromRole(ColorRole::OutlineVariant), Style::disabledOutlineAlpha), Style::borderWidth
+        scaleAlpha(colorSpecFromRole(ColorRole::Stroke), Style::disabledOutlineAlpha), Style::borderWidth
     );
-    m_previewHost->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+    m_previewHost->setFill(colorSpecFromRole(ColorRole::Fill2));
   }
   if (m_toneOverlay != nullptr) {
     const float tone = m_depth == WindowSwitcherTileDepth::Far
