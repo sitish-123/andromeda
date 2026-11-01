@@ -1,21 +1,27 @@
 #include "layer/layer_surface.h"
 
+#include "server/background_effect.h"
+
 #include "scene/effect_registry.h"
 extern "C" {
 #include <andromedafx/render/effect.h>
 }
 
 #include "config/resolve.h"
+#include "design_tokens.h"
 #include "core/dirty.h"
 #include "core/log.h"
 #include "input/seat.h"
 #include "output/output.h"
 #include "overview/overview.h"
+#include "server/dsk_surface.h"
 #include "server/server.h"
 #include "view/popup.h"
 #include "wlr.h"
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <cstdlib>
 
 namespace andromeda {
@@ -145,7 +151,25 @@ namespace andromeda {
     }
   }
 
+  bool LayerSurface::hasActiveAnimations() const {
+    if (m_fade.animating()) {
+      return true;
+    }
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    if (dsk == nullptr) {
+      return false;
+    }
+    const DskSurfaceManager::State* state = dsk->state(m_layerSurface->surface);
+    return (state != nullptr && state->motion.animating()) || dsk->driven(m_layerSurface->surface);
+  }
+
   bool LayerSurface::tickAnimations(double nowMsec) {
+    // A tracker in its interacting phase moves values from input, between ticks.
+    if (const DskSurfaceManager* dsk = m_server->dskSurfaces(); dsk != nullptr
+        && (dsk->tick(m_layerSurface->surface, static_cast<uint32_t>(nowMsec)) || dsk->driven(m_layerSurface->surface))) {
+      applySurfaceMotion();
+      applyFadeAlpha();
+    }
     const bool ticked = m_fade.tick(nowMsec);
     if (m_scene != nullptr) {
       bindAnimationEffect(&m_scene->tree->node, AnimationEvent::Layers, m_fade);
@@ -173,6 +197,10 @@ namespace andromeda {
     float alpha = m_fade.animating() && effectRegistry().animationEffect(AnimationEvent::Layers) != nullptr
         ? 1.0F
         : std::clamp(static_cast<float>(m_fade.current()), 0.0F, 1.0F);
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    if (const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr) {
+      alpha *= std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
+    }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
           &tree->node,
@@ -182,6 +210,82 @@ namespace andromeda {
           &alpha
       );
     }
+  }
+
+  wlr_scene_tree* LayerSurface::surfaceTree() const {
+    if (m_scene == nullptr) {
+      return nullptr;
+    }
+    // wlr_scene_layer_surface_v1_create makes the surface tree the only tree child; blur and shadow are not trees.
+    wlr_scene_node* child = nullptr;
+    wl_list_for_each(child, &m_scene->tree->children, link) {
+      if (child->type == WLR_SCENE_NODE_TREE) {
+        return wlr_scene_tree_from_node(child);
+      }
+    }
+    return nullptr;
+  }
+
+  void LayerSurface::applySurfaceMotion() {
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
+    wlr_scene_tree* tree = state != nullptr ? surfaceTree() : nullptr;
+    if (tree == nullptr) {
+      return;
+    }
+    using Property = SurfaceMotion::Property;
+    const SurfaceMotion& motion = state->motion;
+    const double scale = std::max(0.01, motion.value(Property::Scale)[0]);
+    const auto& translate = motion.value(Property::Translate);
+    const double width = m_layerSurface->surface->current.width;
+    const double height = m_layerSurface->surface->current.height;
+    // Scale about the surface center. The scene takes surface units per scene unit, the inverse of the shown size.
+    // Input follows: wlr_scene_node_at reports surface-local coordinates through the same scale.
+    wlr_scene_subsurface_tree_set_scale(&tree->node, 1.0 / scale);
+    wlr_scene_node_set_position(
+        &tree->node, static_cast<int>(std::lround(translate[0] + width * (1.0 - scale) / 2.0)),
+        static_cast<int>(std::lround(translate[1] + height * (1.0 - scale) / 2.0))
+    );
+
+    // The protocol's clip is in surface-local px; the tree clip and corner box are in scene units.
+    const auto& clip = motion.value(Property::Clip);
+    const wlr_box clipBox{
+        static_cast<int>(std::lround(clip[0] * scale)), static_cast<int>(std::lround(clip[1] * scale)),
+        static_cast<int>(std::lround(clip[2] * scale)), static_cast<int>(std::lround(clip[3] * scale))
+    };
+    const bool clipped = clipBox.width > 0 && clipBox.height > 0;
+    wlr_scene_tree_set_clip(tree, clipped ? &clipBox : nullptr);
+
+    struct Corners {
+      int radius;
+      const wlr_box* box;
+    } corners{static_cast<int>(std::lround(motion.value(Property::Radius)[0] * scale)), clipped ? &clipBox : nullptr};
+    wlr_scene_node_for_each_buffer(
+        &tree->node,
+        [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+          const auto* c = static_cast<const Corners*>(data);
+          wlr_scene_buffer_set_corner_radius(buffer, c->radius);
+          wlr_scene_buffer_set_corner_box(buffer, c->box);
+        },
+        &corners
+    );
+
+    if (state->elevation == DskSurfaceManager::Elevation::None) {
+      m_shadow.hide();
+      return;
+    }
+    const Tokens::Elevation& token =
+        state->elevation == DskSurfaceManager::Elevation::E1 ? Tokens::elevationE1 : Tokens::elevationE2;
+    m_shadow.setStyle(
+        ShadowStyle{.softness = token.softness, .offsetX = token.offsetX, .offsetY = token.offsetY, .opacity = token.opacity}
+    );
+    // The shadow follows the visible rect: the clip when set, else the whole surface, after translate and scale.
+    const wlr_box shape = clipped ? clipBox
+                                  : wlr_box{0, 0, static_cast<int>(std::lround(width * scale)),
+                                            static_cast<int>(std::lround(height * scale))};
+    m_shadow.update(
+        m_scene->tree, shape.width, shape.height, 0, corners.radius, 0, tree->node.x + shape.x, tree->node.y + shape.y
+    );
   }
 
   void LayerSurface::beginCloseAnimation(wlr_scene_tree* tree) {
@@ -316,6 +420,7 @@ namespace andromeda {
     wl_list_remove(&self->m_sceneDestroy.link);
     self->m_sceneUpdate.link.next = nullptr;
     self->m_sceneDestroy.link.next = nullptr;
+    self->m_shadow.reset();
     wlr_scene_node_destroy(&self->m_popupTree->node);
     self->m_popupTree = nullptr;
   }
@@ -395,7 +500,23 @@ namespace andromeda {
 
   void LayerSurface::updateBlur() {
     const wlr_box box{0, 0, m_layerSurface->surface->current.width, m_layerSurface->surface->current.height};
-    m_blur.update(m_scene->tree, m_layerSurface->surface, box, box, corner_radii_none(), nullptr, blurOptions());
+    SurfaceBlurOptions options = blurOptions();
+    // A client blur region (ext-background-effect-v1) turns blur on unless a layer rule turns it off; the blur draws
+    // only inside the region.
+    std::optional<wlr_box> clip;
+    const BackgroundEffectManager* effects = m_server->backgroundEffects();
+    const pixman_region32_t* region = effects != nullptr ? effects->blurRegion(m_layerSurface->surface) : nullptr;
+    if (region != nullptr && m_rule.blur.value_or(true)) {
+      const pixman_box32_t* extents = pixman_region32_extents(region);
+      clip = wlr_box{extents->x1, extents->y1, extents->x2 - extents->x1, extents->y2 - extents->y1};
+      options.enabled = true;
+    } else {
+      region = nullptr;
+    }
+    m_blur.update(
+        m_scene->tree, m_layerSurface->surface, box, box, corner_radii_none(), clip ? &*clip : nullptr, options, 1.0F,
+        nullptr, region
+    );
   }
 
   void LayerSurface::applyConfig() {
@@ -519,6 +640,15 @@ namespace andromeda {
 
   void LayerSurface::handleCommit() {
     updateBlur();
+    // dsk_surface_v1 state applied on this commit: show set values now, and run the frame loop for animations.
+    if (const DskSurfaceManager* dsk = m_server->dskSurfaces();
+        dsk != nullptr && dsk->state(m_layerSurface->surface) != nullptr) {
+      applySurfaceMotion();
+      applyFadeAlpha();
+      if (Output* out = hasActiveAnimations() ? output() : nullptr) {
+        wlr_output_schedule_frame(out->wlr());
+      }
+    }
     if (m_layerSurface->initial_commit) {
       if (Output* out = output()) {
         out->arrangeLayers();

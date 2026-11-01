@@ -14,18 +14,23 @@ extern "C" {
 namespace andromeda {
 
   void SurfaceShadow::update(
-      wlr_scene_tree* parent, int contentWidth, int contentHeight, int borderTotal, int cornerRadius, int topExtension
+      wlr_scene_tree* parent, int contentWidth, int contentHeight, int borderTotal, int cornerRadius, int topExtension,
+      int originX, int originY
   ) {
     const auto& cfg = config().appearance.shadow;
-    const auto& shadow = config().colors.shadow;
-    const int sigma = cfg.softness;
+    auto shadow = config().colors.shadow;
+    const ShadowStyle style = m_style.value_or(
+        ShadowStyle{.softness = cfg.softness, .offsetX = cfg.offsetX, .offsetY = cfg.offsetY, .opacity = 1.0F}
+    );
+    shadow[3] *= style.opacity;
+    const int sigma = style.softness;
 
     // Decorated box origin (in parent coords): (-borderTotal, -borderTotal)
     // Decorated box size: (contentWidth + 2*borderTotal, contentHeight + 2*borderTotal)
     const int decWidth = contentWidth + 2 * borderTotal;
     const int decHeight = contentHeight + topExtension + 2 * borderTotal;
 
-    const bool enabled = m_enabled.value_or(cfg.enabled);
+    const bool enabled = m_style.has_value() || m_enabled.value_or(cfg.enabled);
     const bool want = enabled && shadow[3] > 0.0F && contentWidth > 0 && contentHeight > 0;
     if (!want) {
       if (m_node != nullptr) {
@@ -47,14 +52,14 @@ namespace andromeda {
     // Node geometry: shadow extends sigma px beyond the decorated box on each side.
     int nodeWidth = decWidth + 2 * sigma;
     int nodeHeight = decHeight + 2 * sigma;
-    int nodeX = -borderTotal - sigma + cfg.offsetX;
-    int nodeY = -borderTotal - sigma + cfg.offsetY - topExtension;
+    int nodeX = originX - borderTotal - sigma + style.offsetX;
+    int nodeY = originY - borderTotal - sigma + style.offsetY - topExtension;
 
     // Hole punched over the window+borders so the shadow never shows through
     // transparent surfaces. Node-local coordinates.
     wlr_box hole{
-        .x = sigma - cfg.offsetX,
-        .y = sigma - cfg.offsetY,
+        .x = sigma - style.offsetX,
+        .y = sigma - style.offsetY,
         .width = decWidth,
         .height = decHeight,
     };
@@ -83,6 +88,8 @@ namespace andromeda {
   }
 
   void SurfaceShadow::setEnabled(std::optional<bool> enabled) { m_enabled = enabled; }
+
+  void SurfaceShadow::setStyle(std::optional<ShadowStyle> style) { m_style = style; }
 
   void SurfaceShadow::hide() {
     if (m_node != nullptr) {

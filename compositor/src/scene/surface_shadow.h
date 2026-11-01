@@ -15,6 +15,14 @@ namespace andromeda {
     std::array<float, 4> color{};
   };
 
+  // A shadow from design tokens (elevation.*) instead of appearance.shadow.
+  struct ShadowStyle {
+    int softness = 0;
+    int offsetX = 0;
+    int offsetY = 0;
+    float opacity = 1.0F; // scales the scheme's shadow color alpha
+  };
+
   // Owns the desired-state logic for one SceneFX drop-shadow node. The node is a
   // child of the owner's scene tree and freed by scene-tree teardown (no destructor).
   class SurfaceShadow {
@@ -23,8 +31,10 @@ namespace andromeda {
     // borders are disabled/hidden). cornerRadius: radius of the decoration's outer edge (0 = square).
     void update(
         wlr_scene_tree* parent, int contentWidth, int contentHeight, int borderTotal, int cornerRadius,
-        int topExtension = 0
+        int topExtension = 0, int originX = 0, int originY = 0
     );
+    // A style draws the shadow even when appearance.shadow.enabled is off; std::nullopt follows appearance.shadow.
+    void setStyle(std::optional<ShadowStyle> style);
     // Owner override of appearance.shadow.enabled. std::nullopt follows the global
     // switch, so a window rule can both drop a shadow the global config draws and
     // draw one it does not. Owners that never call this follow the global switch.
@@ -46,6 +56,7 @@ namespace andromeda {
     float m_alpha = 1.0F;
     // Follows appearance.shadow.enabled until an owner overrides it either way.
     std::optional<bool> m_enabled;
+    std::optional<ShadowStyle> m_style;
   };
 
 } // namespace andromeda

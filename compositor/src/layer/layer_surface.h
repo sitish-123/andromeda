@@ -4,6 +4,7 @@
 #include "core/animation.h"
 #include "scene/node.h"
 #include "scene/surface_blur.h"
+#include "scene/surface_shadow.h"
 
 #include <wayland-server-core.h>
 
@@ -37,6 +38,7 @@ namespace andromeda {
     [[nodiscard]] bool acceptsKeyboard() const;
     [[nodiscard]] bool hasKeyboardFocus() const;
     [[nodiscard]] SurfaceBlurOptions blurOptions() const;
+    [[nodiscard]] bool blurActive() const { return m_blur.active(); }
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
 
     void focus();
@@ -51,7 +53,7 @@ namespace andromeda {
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     bool tickAnimations(double nowMsec) override;
-    [[nodiscard]] bool hasActiveAnimations() const override { return m_fade.animating(); }
+    [[nodiscard]] bool hasActiveAnimations() const override;
     [[nodiscard]] bool animatesOn(const Output* output) const override;
 
   private:
@@ -78,6 +80,9 @@ namespace andromeda {
     void applyConfig();
     void refreshStartupRuleEffects();
     void applyFadeAlpha();
+    // Applies dsk_surface_v1 translate, scale, clip and radius to the surface tree.
+    void applySurfaceMotion();
+    [[nodiscard]] wlr_scene_tree* surfaceTree() const;
     void beginCloseAnimation(wlr_scene_tree* tree);
 
     Server* m_server = nullptr;
@@ -85,6 +90,7 @@ namespace andromeda {
     wlr_scene_layer_surface_v1* m_scene = nullptr;
     wlr_scene_tree* m_popupTree = nullptr;
     SurfaceBlur m_blur;
+    SurfaceShadow m_shadow; // dsk_surface_v1 elevation
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};
     bool m_mapped = false;

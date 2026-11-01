@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pixman.h>
 #include <optional>
 
 struct fx_corner_radii;
@@ -28,11 +29,13 @@ namespace andromeda {
     // (position + size of the node). surfaceBox: content box in surface-local coordinates (opaque-region test).
     // clipBox: optional visible subset in `parent` coordinates; nullptr = full nodeBox. surfaceOpacity: opacity applied
     // to the surface buffers, used only to decide whether an opaque client reveals the blur. maskSource: optional scene
-    // buffer to use instead of finding the surface's regular scene buffer.
+    // buffer to use instead of finding the surface's regular scene buffer. clipRegion: optional exact blur area in
+    // surface-local coordinates (a client blur region); the blur draws only inside it.
     void update(
         wlr_scene_tree* parent, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& surfaceBox,
         fx_corner_radii corners, const wlr_box* clipBox = nullptr, const SurfaceBlurOptions& options = {},
-        float surfaceOpacity = 1.0F, wlr_scene_buffer* maskSource = nullptr
+        float surfaceOpacity = 1.0F, wlr_scene_buffer* maskSource = nullptr,
+        const pixman_region32_t* clipRegion = nullptr
     );
     // Opacity of the blur effect itself. Keep this independent from surface
     // opacity so compositor opacity matches equivalent client alpha.
@@ -42,6 +45,8 @@ namespace andromeda {
     void setLive(bool live);
     // Disable the node (unmap path); update() re-enables.
     void hide();
+    // True while the blur node is shown.
+    [[nodiscard]] bool active() const;
 
   private:
     wlr_scene_blur* m_node = nullptr;

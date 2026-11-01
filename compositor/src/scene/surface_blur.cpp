@@ -46,7 +46,7 @@ namespace andromeda {
   void SurfaceBlur::update(
       wlr_scene_tree* parent, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& surfaceBox,
       fx_corner_radii corners, const wlr_box* clipBox, const SurfaceBlurOptions& options, float surfaceOpacity,
-      wlr_scene_buffer* maskSource
+      wlr_scene_buffer* maskSource, const pixman_region32_t* clipRegion
   ) {
     const Config::Appearance::Blur& cfg = config().appearance.blur;
     wlr_box drawBox = nodeBox;
@@ -119,9 +119,9 @@ namespace andromeda {
     wlr_scene_buffer* shapeSource = wlr_scene_blur_get_transparency_mask_source(m_node);
     const pixman_region32_t* shape =
         shapeSource != nullptr ? wlr_scene_node_get_clip_region(&shapeSource->node) : nullptr;
+    pixman_region32_t clip;
+    pixman_region32_init(&clip);
     if (shape != nullptr) {
-      pixman_region32_t clip;
-      pixman_region32_init(&clip);
       pixman_region32_copy(&clip, shape);
       int sourceX = 0;
       int sourceY = 0;
@@ -130,11 +130,21 @@ namespace andromeda {
       wlr_scene_node_coords(&shapeSource->node, &sourceX, &sourceY);
       wlr_scene_node_coords(&m_node->node, &blurX, &blurY);
       pixman_region32_translate(&clip, sourceX - blurX, sourceY - blurY);
-      wlr_scene_node_set_clip_region(&m_node->node, &clip);
-      pixman_region32_fini(&clip);
-    } else {
-      wlr_scene_node_set_clip_region(&m_node->node, nullptr);
     }
+    if (clipRegion != nullptr) {
+      pixman_region32_t region;
+      pixman_region32_init(&region);
+      pixman_region32_copy(&region, clipRegion);
+      pixman_region32_translate(&region, nodeBox.x - drawBox.x, nodeBox.y - drawBox.y);
+      if (shape != nullptr) {
+        pixman_region32_intersect(&clip, &clip, &region);
+      } else {
+        pixman_region32_copy(&clip, &region);
+      }
+      pixman_region32_fini(&region);
+    }
+    wlr_scene_node_set_clip_region(&m_node->node, shape != nullptr || clipRegion != nullptr ? &clip : nullptr);
+    pixman_region32_fini(&clip);
   }
 
   void SurfaceBlur::setAlpha(float alpha) {
@@ -156,5 +166,7 @@ namespace andromeda {
       wlr_scene_node_set_enabled(&m_node->node, false);
     }
   }
+
+  bool SurfaceBlur::active() const { return m_node != nullptr && m_node->node.enabled; }
 
 } // namespace andromeda
