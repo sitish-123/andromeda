@@ -58,7 +58,7 @@ public:
   bool initialize() override { return false; }
   bool initialize(ext_session_lock_v1* lock, wl_output* output, std::int32_t scale);
   void setLockedState(bool locked);
-  void setPromptState(std::string user, std::string password, std::string status, bool error, bool authenticating);
+  void setPromptState(std::string user, const std::string& password, std::string status, bool error, bool authenticating);
   void setKeyboardIndicators(bool capsLock, bool hasMultipleLayouts, bool layoutSwitchable, std::string layoutLabel);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);

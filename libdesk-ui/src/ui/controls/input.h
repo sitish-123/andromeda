@@ -149,6 +149,10 @@ private:
   [[nodiscard]] bool passwordMasked() const noexcept { return m_passwordMode && !m_passwordRevealed; }
   [[nodiscard]] EditSnapshot currentEditSnapshot() const;
   void deleteSelection();
+  void replaceValue(std::size_t pos, std::size_t len, std::string_view text);
+  void eraseValue(std::size_t pos, std::size_t len = std::string::npos);
+  void insertValue(std::size_t pos, std::string_view text);
+  void rewrapValue();
   void clearEditHistory();
   void resetUndoCoalescing();
   void pushUndoSnapshot(EditCoalesceKind kind);

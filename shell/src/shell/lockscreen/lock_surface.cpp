@@ -14,6 +14,7 @@
 #include "render/render_context.h"
 #include "render/scene/wallpaper_node.h"
 #include "render/text/font_registry.h"
+#include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "shell/lockscreen/lockscreen_session_actions.h"
 #include "shell/lockscreen/lockscreen_widgets_host.h"
@@ -640,6 +641,7 @@ void LockSurface::startRyokuIdleClock() {
 }
 
 LockSurface::~LockSurface() {
+  LockScreen::clearSensitiveString(m_password);
   invalidateSleepFrame();
   m_aliveGuard.reset();
   releaseCaptureTextures();
@@ -761,7 +763,7 @@ void LockSurface::focusPasswordField() {
 }
 
 void LockSurface::setPromptState(
-    std::string user, std::string password, std::string status, bool error, bool authenticating
+    std::string user, const std::string& password, std::string status, bool error, bool authenticating
 ) {
   if (m_user == user
       && m_password == password
@@ -771,7 +773,8 @@ void LockSurface::setPromptState(
     return;
   }
   m_user = std::move(user);
-  m_password = std::move(password);
+  LockScreen::clearSensitiveString(m_password);
+  m_password = password;
   m_status = std::move(status);
   m_error = error;
   m_authenticating = authenticating;

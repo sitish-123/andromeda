@@ -1,4 +1,5 @@
 #include "shell/lockscreen/lock_screen.h"
+#include "util/thread_name.h"
 
 #include "auth/face_authenticator.h"
 #include "auth/fingerprint_authenticator.h"
@@ -21,6 +22,7 @@
 #include "shell/session/session_action_runner.h"
 #include "shell/wallpaper/wallpaper_geometry.h"
 #include "ui/palette.h"
+#include "util/secure_wipe.h"
 #include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
@@ -1459,6 +1461,7 @@ void LockScreen::invalidatePendingAuthentication() {
 
 void LockScreen::handlePasswordEdited(const std::string& value) {
   if (m_authenticating) {
+    clearSensitiveString(m_password);
     m_password = value;
     updatePromptOnSurfaces();
     return;
@@ -1466,6 +1469,7 @@ void LockScreen::handlePasswordEdited(const std::string& value) {
   if (m_password == value && m_status.empty() && !m_statusIsError) {
     return;
   }
+  clearSensitiveString(m_password);
   m_password = value;
   m_status.clear();
   m_statusIsError = false;
@@ -1508,6 +1512,7 @@ void LockScreen::tryAuthenticate() {
   const std::weak_ptr<void> guard = m_aliveGuard;
   std::thread([this, guard, generation, password = std::move(password), authenticator, pamService, pamLanguage,
                pamStartFailure] mutable {
+    nameThisThread("dsk-pam");
     const auto result = authenticator.authenticateCurrentUser(password, pamService, pamLanguage, pamStartFailure);
     clearSensitiveString(password);
     DeferredCall::callLater([this, guard, generation, result] {
@@ -1588,9 +1593,5 @@ void LockScreen::handleBiometricStatus(const std::string& message, bool isError)
 }
 
 void LockScreen::clearSensitiveString(std::string& value) {
-  volatile char* ptr = value.empty() ? nullptr : value.data();
-  for (std::size_t i = 0; i < value.size(); ++i) {
-    ptr[i] = '\0';
-  }
-  value.clear();
+  util::secureWipe(value);
 }

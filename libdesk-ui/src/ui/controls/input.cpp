@@ -18,6 +18,7 @@
 #include "ui/controls/label.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "util/secure_wipe.h"
 #include "util/string_utils.h"
 #include "wayland/text_input_service.h"
 
@@ -401,12 +402,18 @@ Input::Input() {
 }
 
 Input::~Input() {
+  if (m_passwordMode) {
+    util::secureWipe(m_value);
+  }
   if (m_textInputService != nullptr) {
     m_textInputService->clearFocusedClient(this);
   }
 }
 
 void Input::setValue(std::string_view value) {
+  if (m_passwordMode) {
+    util::secureWipe(m_value);
+  }
   m_value = std::string(value);
   m_cursorPos = m_value.size();
   m_selectionAnchor = m_cursorPos;
@@ -461,6 +468,9 @@ void Input::setPasswordMode(bool enabled) {
   if (m_passwordMode == enabled) {
     return;
   }
+  if (!enabled) {
+    rewrapValue();
+  }
   m_passwordMode = enabled;
   m_passwordRevealed = false;
   if (m_passwordMode) {
@@ -492,6 +502,7 @@ void Input::setMultiline(bool enabled) {
   }
   m_multiline = enabled;
   if (enabled && m_passwordMode) {
+    rewrapValue();
     m_passwordMode = false;
     m_passwordRevealed = false;
     syncPasswordGlyphNodes(0);
@@ -719,6 +730,9 @@ TextInputState Input::textInputState() const {
   }
 
   const bool password = m_passwordMode;
+  if (password) {
+    util::secureWipe(surrounding);
+  }
   const float cursorWidth = m_cursor != nullptr ? m_cursor->width() : 1.0F;
   const float cursorHeight = m_cursor != nullptr ? m_cursor->height() : m_controlHeight;
   return TextInputState{
@@ -761,7 +775,7 @@ void Input::textInputApplyEdit(const TextInputEdit& edit) {
       displayChanged = true;
     }
     if (!edit.commitText.empty()) {
-      m_value.insert(m_cursorPos, edit.commitText);
+      insertValue(m_cursorPos, edit.commitText);
       m_cursorPos += edit.commitText.size();
       m_selectionAnchor = m_cursorPos;
       permanentChanged = true;
@@ -782,7 +796,7 @@ void Input::textInputApplyEdit(const TextInputEdit& edit) {
     if (!edit.preeditText.empty()) {
       m_preeditStart = m_cursorPos;
       m_preeditLen = edit.preeditText.size();
-      m_value.insert(m_cursorPos, edit.preeditText);
+      insertValue(m_cursorPos, edit.preeditText);
       const std::size_t preeditEnd = m_preeditStart + m_preeditLen;
       auto cursorOffset =
           edit.preeditCursorBegin < 0 ? m_preeditLen : static_cast<std::size_t>(edit.preeditCursorBegin);
@@ -806,7 +820,7 @@ void Input::textInputApplyEdit(const TextInputEdit& edit) {
     markPaintDirty();
   }
 
-  const std::optional<std::string> submitValue = edit.submit ? std::optional<std::string>{m_value} : std::nullopt;
+  std::optional<std::string> submitValue = edit.submit ? std::optional<std::string>{m_value} : std::nullopt;
   const auto onChange = m_onChange;
   const auto onSubmit = m_onSubmit;
   if (permanentValue.has_value() && onChange) {
@@ -814,6 +828,14 @@ void Input::textInputApplyEdit(const TextInputEdit& edit) {
   }
   if (submitValue.has_value() && onSubmit) {
     onSubmit(*submitValue);
+  }
+  if (m_passwordMode) {
+    if (permanentValue.has_value()) {
+      util::secureWipe(*permanentValue);
+    }
+    if (submitValue.has_value()) {
+      util::secureWipe(*submitValue);
+    }
   }
 }
 
@@ -1230,7 +1252,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
     if (g_readlineShortcuts) {
       if (m_cursorPos > 0) {
         pushUndoSnapshot(EditCoalesceKind::Discrete);
-        m_value.erase(0, m_cursorPos);
+        eraseValue(0, m_cursorPos);
         m_cursorPos = 0;
         m_selectionAnchor = 0;
         changed = true;
@@ -1238,7 +1260,11 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
     } else {
       if (!m_value.empty() || hasSelection()) {
         pushUndoSnapshot(EditCoalesceKind::Discrete);
-        m_value.clear();
+        if (m_passwordMode) {
+          util::secureWipe(m_value);
+        } else {
+          m_value.clear();
+        }
         m_cursorPos = 0;
         m_selectionAnchor = 0;
         changed = true;
@@ -1290,7 +1316,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
       const std::size_t prev = previousWordStartForByteOffset(m_cursorPos);
       if (prev != m_cursorPos) {
         pushUndoSnapshot(EditCoalesceKind::Discrete);
-        m_value.erase(prev, m_cursorPos - prev);
+        eraseValue(prev, m_cursorPos - prev);
         m_cursorPos = prev;
         m_selectionAnchor = prev;
         changed = true;
@@ -1299,7 +1325,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
   } else if (lineEditDeleteToEnd) {
     if (m_cursorPos < m_value.size()) {
       pushUndoSnapshot(EditCoalesceKind::Discrete);
-      m_value.erase(m_cursorPos);
+      eraseValue(m_cursorPos);
       m_selectionAnchor = m_cursorPos;
       changed = true;
     }
@@ -1307,7 +1333,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
     const std::size_t end = nextWordEndForByteOffset(m_cursorPos);
     if (end != m_cursorPos) {
       pushUndoSnapshot(EditCoalesceKind::Discrete);
-      m_value.erase(m_cursorPos, end - m_cursorPos);
+      eraseValue(m_cursorPos, end - m_cursorPos);
       m_selectionAnchor = m_cursorPos;
       changed = true;
     }
@@ -1331,7 +1357,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
         if (hasSelection()) {
           deleteSelection();
         }
-        m_value.insert(m_cursorPos, *text);
+        insertValue(m_cursorPos, *text);
         m_cursorPos += text->size();
         m_selectionAnchor = m_cursorPos;
         changed = true;
@@ -1345,7 +1371,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
     } else if (m_cursorPos > 0) {
       pushUndoSnapshot(EditCoalesceKind::Discrete);
       const std::size_t prev = ctrl ? previousWordStartForByteOffset(m_cursorPos) : prevCharPos(m_value, m_cursorPos);
-      m_value.erase(prev, m_cursorPos - prev);
+      eraseValue(prev, m_cursorPos - prev);
       m_cursorPos = prev;
       m_selectionAnchor = prev;
       changed = true;
@@ -1358,7 +1384,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
     } else if (m_cursorPos < m_value.size()) {
       pushUndoSnapshot(EditCoalesceKind::Discrete);
       const std::size_t next = ctrl ? nextWordEndForByteOffset(m_cursorPos) : nextCharPos(m_value, m_cursorPos);
-      m_value.erase(m_cursorPos, next - m_cursorPos);
+      eraseValue(m_cursorPos, next - m_cursorPos);
       changed = true;
     }
   } else if (KeySymbol::isLeft(sym) || KeySymbol::isRight(sym)) {
@@ -1414,7 +1440,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
       if (hasSelection()) {
         deleteSelection();
       }
-      m_value.insert(m_cursorPos, 1, '\n');
+      insertValue(m_cursorPos, "\n");
       ++m_cursorPos;
       m_selectionAnchor = m_cursorPos;
       changed = true;
@@ -1448,7 +1474,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
       deleteSelection();
     }
     const auto bytes = StringUtils::utf32ToUtf8(utf32);
-    m_value.insert(m_cursorPos, bytes);
+    insertValue(m_cursorPos, bytes);
     if (preedit) {
       m_preeditStart = m_cursorPos;
       m_preeditLen = bytes.size();
@@ -1506,7 +1532,7 @@ bool Input::removePreeditText() {
     return false;
   }
 
-  m_value.erase(m_preeditStart, len);
+  eraseValue(m_preeditStart, len);
   m_cursorPos = m_preeditStart;
   m_selectionAnchor = m_cursorPos;
   m_preeditStart = 0;
@@ -1531,10 +1557,10 @@ bool Input::deleteSurroundingText(std::uint32_t beforeLength, std::uint32_t afte
     return false;
   }
   if (afterStart < end) {
-    m_value.erase(afterStart, end - afterStart);
+    eraseValue(afterStart, end - afterStart);
   }
   if (start < beforeEnd) {
-    m_value.erase(start, beforeEnd - start);
+    eraseValue(start, beforeEnd - start);
   }
   m_cursorPos = start;
   m_selectionAnchor = hadSelection ? m_cursorPos + selectionLength : start;
@@ -2252,12 +2278,33 @@ Input::EditSnapshot Input::currentEditSnapshot() const {
   };
 }
 
+void Input::replaceValue(std::size_t pos, std::size_t len, std::string_view text) {
+  if (!m_passwordMode) {
+    m_value.replace(pos, len, text);
+    return;
+  }
+  len = std::min(len, m_value.size() - pos);
+  std::string next;
+  next.reserve(m_value.size() - len + text.size());
+  next.append(m_value.data(), pos);
+  next.append(text);
+  next.append(m_value.data() + pos + len, m_value.size() - pos - len);
+  util::secureWipe(m_value);
+  m_value = std::move(next);
+}
+
+void Input::eraseValue(std::size_t pos, std::size_t len) { replaceValue(pos, len, {}); }
+
+void Input::insertValue(std::size_t pos, std::string_view text) { replaceValue(pos, 0, text); }
+
+void Input::rewrapValue() { replaceValue(m_value.size(), 0, {}); }
+
 void Input::deleteSelection() {
   clampEditState();
 
   const std::size_t start = selectionStart();
   const std::size_t end = selectionEnd();
-  m_value.erase(start, end - start);
+  eraseValue(start, end - start);
   m_cursorPos = start;
   m_selectionAnchor = start;
 }

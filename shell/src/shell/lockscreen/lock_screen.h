@@ -110,6 +110,8 @@ public:
   static void handleLocked(void* data, ext_session_lock_v1* lock);
   static void handleFinished(void* data, ext_session_lock_v1* lock);
 
+  static void clearSensitiveString(std::string& value);
+
 private:
   struct Instance {
     std::uint32_t outputName = 0;
@@ -158,7 +160,6 @@ private:
   [[nodiscard]] bool faceEnabled() const;
   void startFace();
   void stopFace();
-  static void clearSensitiveString(std::string& value);
   /// Passwordless grace window: any keypress or pointer movement beyond 5px unlocks
   /// without a password while the window is live (matches hyprlock).
   [[nodiscard]] bool isInGracePeriod() const noexcept;
