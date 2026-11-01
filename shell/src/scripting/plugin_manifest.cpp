@@ -854,6 +854,7 @@ namespace scripting {
       manifest.description = tableString(root, "description");
       manifest.tags = tableStringArray(root, "tags");
       manifest.dependencies = tableStringArray(root, "dependencies");
+      manifest.permissions = parsePluginPermissions(root);
 
       std::string manifestError;
       for (const auto& [kind, tableName] : kEntryKinds) {
