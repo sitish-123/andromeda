@@ -1731,7 +1731,8 @@ namespace andromeda {
     return 0;
   }
 
-  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state) : m_output(output) {
+  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state, bool grouped)
+      : m_output(output), m_grouped(grouped) {
     wl_list_init(&m_commit.link);
     if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
       return;
@@ -1753,7 +1754,15 @@ namespace andromeda {
     if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
       return;
     }
+    if (self->m_counted) {
+      self->m_output.absorbGroupedCommit(event->output->commit_seq);
+      return;
+    }
     self->m_output.recordDirectScanout(self->m_state, event->output->commit_seq);
+    self->m_counted = true;
+    if (self->m_grouped) {
+      return;
+    }
     // A synchronous backend attempt can account for this built buffer only once.
     wl_list_remove(&self->m_commit.link);
     wl_list_init(&self->m_commit.link);

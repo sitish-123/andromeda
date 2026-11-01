@@ -457,7 +457,7 @@ if ! jq -e '
   exit 1
 fi
 # The commit counters advance between the two calls.
-steady='del(.[].direct_scanout.commits, .[].direct_scanout.scanout_commits, .[].direct_scanout.commit_seq)'
+steady='del(.[].direct_scanout.commits, .[].direct_scanout.scanout_commits, .[].direct_scanout.commit_seq, .[].direct_scanout.grouped_events)'
 if [[ $("$ANDROMEDA" outputs -j | jq -c "$steady") != "$(jq -c "$steady" <<< "$outputs")" ]]; then
   echo "outputs -j differs from outputs --json"
   exit 1

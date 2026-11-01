@@ -978,6 +978,7 @@ namespace andromeda {
             {"window", std::move(window)},
             {"commits", tracker.commits()},
             {"scanout_commits", tracker.scanoutCommits()},
+            {"grouped_events", tracker.groupedEvents()},
             {"commit_seq", tracker.commitSeq()},
         };
       }

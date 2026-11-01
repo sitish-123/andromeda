@@ -156,7 +156,8 @@ namespace andromeda {
     // when a grouped output transaction later fails on another backend.
     class SceneCommit {
     public:
-      SceneCommit(Output& output, const wlr_output_state& state);
+      // `grouped`: stay connected for the whole wlr_backend_commit; its later events for this buffer are not commits.
+      SceneCommit(Output& output, const wlr_output_state& state, bool grouped = false);
       ~SceneCommit();
       SceneCommit(const SceneCommit&) = delete;
       SceneCommit& operator=(const SceneCommit&) = delete;
@@ -165,6 +166,8 @@ namespace andromeda {
       static void onCommit(wl_listener* listener, void* data);
       Output& m_output;
       wlr_buffer* m_buffer = nullptr;
+      bool m_grouped = false;
+      bool m_counted = false;
       DirectScanoutState m_state;
       wl_listener m_commit{};
     };
@@ -241,6 +244,7 @@ namespace andromeda {
     void armFrameRetry();
     [[nodiscard]] DirectScanoutState builtDirectScanout() const;
     void recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq);
+    void absorbGroupedCommit(uint32_t commitSeq) { m_directScanout.absorbGroupedCommit(commitSeq); }
     void armEffectFrame(uint64_t nowMsec);
     // Render locks other than this output's animation lock.
     [[nodiscard]] int externalRenderLocks() const;

@@ -4060,7 +4060,7 @@ namespace andromeda {
       observations.reserve(pendingLen);
       for (size_t i = 0; i < pendingLen; ++i) {
         if (Output* output = outputFromWlr(pending[i].output)) {
-          observations.push_back(std::make_unique<Output::SceneCommit>(*output, pending[i].base));
+          observations.push_back(std::make_unique<Output::SceneCommit>(*output, pending[i].base, true));
         }
       }
       // Each output's successful commit event is authoritative even if a later child backend fails the group.

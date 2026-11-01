@@ -115,7 +115,14 @@ if ! "$ANDROMEDA" outputs | grep -q '^  Direct scanout: inactive (disabled)$'; t
   exit 1
 fi
 
-# Backend validation does not commit or advance history. This static client has no pending repaint after settling.
+# Backend validation does not commit or advance history. Wait until the repaint that follows the reload has landed.
+settled_seq=
+for _ in $(seq 60); do
+  seq_now=$(scanout | jq '.commit_seq')
+  [[ $seq_now == "$settled_seq" ]] && break
+  settled_seq=$seq_now
+  sleep 0.2
+done
 before_test=$(scanout)
 "$OUTPUT_MANAGEMENT" test disable HEADLESS-1 > /dev/null
 after_test=$(scanout)
@@ -125,13 +132,15 @@ if [[ $before_test != "$after_test" ]]; then
 fi
 
 # Applying an unchanged enabled head still commits a scene through the grouped backend path. Every commit in this
-# quiet phase carries a scene buffer, so the scene counter and backend sequence must advance by the same amount.
+# quiet phase carries a scene buffer. A grouped backend commit emits one event per backend level; the extra ones count as
+# grouped events, so scene commits plus grouped events must match the backend sequence.
 before_apply=$(scanout)
 "$OUTPUT_MANAGEMENT" apply enable HEADLESS-1 > /dev/null
 after_apply=$(scanout)
 if ! jq -en --argjson before "$before_apply" --argjson after "$after_apply" '
     ($after.active | not) and $after.reason == "disabled" and $after.commits > $before.commits
-    and ($after.commits - $before.commits) == ($after.commit_seq - $before.commit_seq)
+    and ($after.commits - $before.commits) + ($after.grouped_events - $before.grouped_events)
+      == ($after.commit_seq - $before.commit_seq)
     and $after.scanout_commits == $before.scanout_commits' > /dev/null; then
   echo "output-management scene commits were not counted exactly once: $before_apply versus $after_apply"
   exit 1
