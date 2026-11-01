@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -67,3 +68,27 @@ private:
   ModifierPolicy m_modifierPolicy = ModifierPolicy::Required;
   VisualState m_visualState = VisualState::Idle;
 };
+
+namespace ui {
+
+  struct KeybindRecorderProps {
+    KeybindRecorder** out = nullptr;
+    std::optional<KeyChord> chord = std::nullopt;
+    std::optional<float> scale = std::nullopt;
+    std::optional<bool> enabled = std::nullopt;
+    std::optional<std::string> unsetPlaceholder = std::nullopt;
+    std::optional<std::string> recordingPlaceholder = std::nullopt;
+    std::optional<ModifierPolicy> modifierPolicy = std::nullopt;
+    std::optional<float> width = std::nullopt;
+    std::optional<float> height = std::nullopt;
+    std::optional<float> flexGrow = std::nullopt;
+    std::optional<float> opacity = std::nullopt;
+    std::optional<bool> visible = std::nullopt;
+    std::optional<bool> participatesInLayout = std::nullopt;
+    std::function<void(KeyChord)> onCommit = nullptr;
+    std::function<void(KeybindRecorder&)> configure = nullptr;
+  };
+
+  [[nodiscard]] std::unique_ptr<KeybindRecorder> keybindRecorder(KeybindRecorderProps props);
+
+} // namespace ui

@@ -109,7 +109,7 @@ namespace settings {
             .text = i18n::tr("settings.export-config.title"),
             .fontSize = Style::fontSizeTitle * m_scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -162,21 +162,21 @@ namespace settings {
                 .configure =
                     [this](Flex& warning) {
                       warning.setRadius(Style::scaledRadiusMd(m_scale));
-                      warning.setFill(colorSpecFromRole(ColorRole::SecondaryContainer));
-                      warning.setBorder(colorSpecFromRole(ColorRole::Secondary), Style::borderWidth);
+                      warning.setFill(colorSpecFromRole(ColorRole::Fill1));
+                      warning.setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
                     },
             },
             ui::label({
                 .text = i18n::tr("settings.export-config.privacy-warning-title"),
                 .fontSize = Style::fontSizeBody * m_scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::OnSecondaryContainer),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .maxLines = 0,
             }),
             ui::label({
                 .text = i18n::tr("settings.export-config.privacy-warning-description"),
                 .fontSize = Style::fontSizeCaption * m_scale,
-                .color = colorSpecFromRole(ColorRole::OnSecondaryContainer),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .maxLines = 0,
             })
         )
@@ -286,8 +286,8 @@ namespace settings {
             .configure =
                 [this](Flex& row) {
                   row.setRadius(Style::scaledRadiusMd(m_scale));
-                  row.setFill(colorSpecFromRole(ColorRole::SurfaceContainerLow));
-                  row.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+                  row.setFill(colorSpecFromRole(ColorRole::SolidThin));
+                  row.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
                 },
         },
         ui::radioButton({
@@ -311,13 +311,13 @@ namespace settings {
                 .text = title,
                 .fontSize = Style::fontSizeBody * m_scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .maxLines = 1,
             }),
             ui::label({
                 .text = description,
                 .fontSize = Style::fontSizeCaption * m_scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
                 .maxWidth = (kDialogWidth - 92.0F) * m_scale,
                 .maxLines = 3,
             })

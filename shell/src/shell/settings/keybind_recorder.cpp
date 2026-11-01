@@ -1,4 +1,4 @@
-#include "ui/controls/keybind_recorder.h"
+#include "shell/settings/keybind_recorder.h"
 
 #include "config/config_types.h"
 #include "core/input/key_chord.h"
@@ -10,6 +10,7 @@
 #include "notification/notifications.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
+#include "ui/builders.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/label.h"
 #include "ui/palette.h"
@@ -35,7 +36,7 @@ KeybindRecorder::KeybindRecorder() {
 
   auto label = std::make_unique<Label>();
   label->setFontSize(Style::fontSizeCaption);
-  label->setColor(colorSpecFromRole(ColorRole::OnSurface));
+  label->setColor(colorSpecFromRole(ColorRole::Label1));
   label->setMaxLines(1);
   label->setEllipsize(TextEllipsize::End);
   label->setFlexGrow(1.0F);
@@ -44,7 +45,7 @@ KeybindRecorder::KeybindRecorder() {
   auto glyph = std::make_unique<Glyph>();
   glyph->setGlyph("keyboard");
   glyph->setGlyphSize(Style::fontSizeCaption);
-  glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+  glyph->setColor(colorSpecFromRole(ColorRole::Label2));
   m_glyph = static_cast<Glyph*>(addChild(std::move(glyph)));
 
   auto area = std::make_unique<InputArea>();
@@ -306,53 +307,90 @@ void KeybindRecorder::refreshLabel() {
 void KeybindRecorder::applyVisualState(VisualState state) {
   m_visualState = state;
   if (!m_enabled) {
-    setFill(colorSpecFromRole(ColorRole::SurfaceContainer, 0.4F));
-    setBorder(colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha), Style::borderWidth);
+    setFill(colorSpecFromRole(ColorRole::Fill2, 0.4F));
+    setBorder(colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha), Style::borderWidth);
     if (m_label != nullptr) {
-      m_label->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.55F));
+      m_label->setColor(colorSpecFromRole(ColorRole::Label2, 0.55F));
     }
     if (m_glyph != nullptr) {
-      m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.55F));
+      m_glyph->setColor(colorSpecFromRole(ColorRole::Label2, 0.55F));
     }
     return;
   }
 
   switch (state) {
   case VisualState::Idle:
-    setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
-    setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+    setFill(colorSpecFromRole(ColorRole::Fill2));
+    setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
     if (m_label != nullptr) {
       const bool placeholder = !m_chord.has_value() || m_chord->sym == 0;
       m_label->setColor(
-          placeholder ? colorSpecFromRole(ColorRole::OnSurfaceVariant) : colorSpecFromRole(ColorRole::OnSurface)
+          placeholder ? colorSpecFromRole(ColorRole::Label2) : colorSpecFromRole(ColorRole::Label1)
       );
     }
     if (m_glyph != nullptr) {
-      m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
     }
     break;
   case VisualState::Focused:
-    setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+    setFill(colorSpecFromRole(ColorRole::Fill2));
     setBorder(focusRingColorSpec(), Style::focusRingWidth);
     if (m_label != nullptr) {
       const bool placeholder = !m_chord.has_value() || m_chord->sym == 0;
       m_label->setColor(
-          placeholder ? colorSpecFromRole(ColorRole::OnSurfaceVariant) : colorSpecFromRole(ColorRole::OnSurface)
+          placeholder ? colorSpecFromRole(ColorRole::Label2) : colorSpecFromRole(ColorRole::Label1)
       );
     }
     if (m_glyph != nullptr) {
-      m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
     }
     break;
   case VisualState::Recording:
-    setFill(colorSpecFromRole(ColorRole::PrimaryContainer));
-    setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth);
+    setFill(colorSpecFromRole(ColorRole::Fill1));
+    setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
     if (m_label != nullptr) {
-      m_label->setColor(colorSpecFromRole(ColorRole::OnPrimaryContainer));
+      m_label->setColor(colorSpecFromRole(ColorRole::Label1));
     }
     if (m_glyph != nullptr) {
-      m_glyph->setColor(colorSpecFromRole(ColorRole::OnPrimaryContainer));
+      m_glyph->setColor(colorSpecFromRole(ColorRole::Label1));
     }
     break;
   }
 }
+
+namespace ui {
+
+  std::unique_ptr<KeybindRecorder> keybindRecorder(KeybindRecorderProps props) {
+    auto control = std::make_unique<KeybindRecorder>();
+    if (props.scale.has_value()) {
+      control->setScale(*props.scale);
+    }
+    if (props.chord.has_value()) {
+      control->setChord(props.chord);
+    }
+    if (props.unsetPlaceholder.has_value()) {
+      control->setUnsetPlaceholder(*props.unsetPlaceholder);
+    }
+    if (props.recordingPlaceholder.has_value()) {
+      control->setRecordingPlaceholder(*props.recordingPlaceholder);
+    }
+    if (props.modifierPolicy.has_value()) {
+      control->setModifierPolicy(*props.modifierPolicy);
+    }
+    if (props.enabled.has_value()) {
+      control->setEnabled(*props.enabled);
+    }
+    if (props.onCommit) {
+      control->setOnCommit(std::move(props.onCommit));
+    }
+    applyNodeProps(*control, props);
+    if (props.configure) {
+      props.configure(*control);
+    }
+    if (props.out != nullptr) {
+      *props.out = control.get();
+    }
+    return control;
+  }
+
+} // namespace ui
