@@ -535,8 +535,11 @@ namespace andromeda {
         pixman_region32_intersect_rect(&clipped, region, dskClip->x, dskClip->y, dskClip->width, dskClip->height);
         region = &clipped;
       }
-      const pixman_box32_t* extents = pixman_region32_extents(region);
-      clip = wlr_box{extents->x1, extents->y1, extents->x2 - extents->x1, extents->y2 - extents->y1};
+      // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to the
+      // region extents would misalign it. The region clips the blur instead.
+      if (!pixman_region32_not_empty(region)) {
+        clip = wlr_box{0, 0, 0, 0};
+      }
       options.enabled = true;
     } else {
       region = nullptr;
