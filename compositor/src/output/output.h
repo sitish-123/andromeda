@@ -8,6 +8,7 @@
 #include "output/hdr_transition.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
+#include "util/listener.h"
 #include "util/tracked.h"
 
 #include <array>
@@ -163,13 +164,13 @@ namespace andromeda {
       SceneCommit& operator=(const SceneCommit&) = delete;
 
     private:
-      static void onCommit(wl_listener* listener, void* data);
+      static void onCommit(SceneCommit* self, void* data);
       Output& m_output;
       wlr_buffer* m_buffer = nullptr;
       bool m_grouped = false;
       bool m_counted = false;
       DirectScanoutState m_state;
-      wl_listener m_commit{};
+      Listener m_commit;
     };
     [[nodiscard]] bool clientTearingHintAsync(const View* view) const;
     [[nodiscard]] bool tearingEligible(View* view) const;
@@ -217,12 +218,12 @@ namespace andromeda {
 
     Dirty m_dirty = Dirty::None;
 
-    static void onFrame(wl_listener* listener, void* data);
-    static void onRequestState(wl_listener* listener, void* data);
-    static void onPresent(wl_listener* listener, void* data);
-    static void onBackgroundUpdate(wl_listener* listener, void* data);
-    static void onBackgroundPopupUpdate(wl_listener* listener, void* data);
-    static void onDestroy(wl_listener* listener, void* data);
+    static void onFrame(Output* self, void* data);
+    static void onRequestState(Output* self, void* data);
+    static void onPresent(Output* self, void* data);
+    static void onBackgroundUpdate(Output* self, void* data);
+    static void onBackgroundPopupUpdate(Output* self, void* data);
+    static void onDestroy(Output* self, void* data);
     static int onFrameRetryTimer(void* data);
     static int onEffectFrameTimer(void* data);
     static int onDirectScanoutTimer(void* data);
@@ -349,12 +350,12 @@ namespace andromeda {
     int m_deferredHeight = 0;
     int m_deferredRefresh = 0;
 
-    wl_listener m_frame{};
-    wl_listener m_requestState{};
-    wl_listener m_present{};
-    wl_listener m_backgroundUpdate{};
-    wl_listener m_backgroundPopupUpdate{};
-    wl_listener m_destroy{};
+    Listener m_frame;
+    Listener m_requestState;
+    Listener m_present;
+    Listener m_backgroundUpdate;
+    Listener m_backgroundPopupUpdate;
+    Listener m_destroy;
   };
 
 } // namespace andromeda

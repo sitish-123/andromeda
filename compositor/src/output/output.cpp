@@ -174,17 +174,13 @@ namespace andromeda {
     }
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
 
-    m_frame.notify = onFrame;
-    wl_signal_add(&m_output->events.frame, &m_frame);
+    m_frame.connect(&m_output->events.frame, this, onFrame);
 
-    m_requestState.notify = onRequestState;
-    wl_signal_add(&m_output->events.request_state, &m_requestState);
+    m_requestState.connect(&m_output->events.request_state, this, onRequestState);
 
-    m_present.notify = onPresent;
-    wl_signal_add(&m_output->events.present, &m_present);
+    m_present.connect(&m_output->events.present, this, onPresent);
 
-    m_destroy.notify = onDestroy;
-    wl_signal_add(&m_output->events.destroy, &m_destroy);
+    m_destroy.connect(&m_output->events.destroy, this, onDestroy);
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
@@ -210,17 +206,17 @@ namespace andromeda {
       m_layerTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
       m_layerPopupTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
     }
-    m_backgroundUpdate.notify = onBackgroundUpdate;
-    if (!wlr_scene_node_add_update_listener(
-            &layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundUpdate
-        )) {
+    if (!m_backgroundUpdate.connectVia(this, onBackgroundUpdate, [this](wl_listener* listener) {
+          return wlr_scene_node_add_update_listener(&layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, listener);
+        })) {
       kLog.error("output '{}': failed to watch background scene updates", m_output->name);
       std::abort();
     }
-    m_backgroundPopupUpdate.notify = onBackgroundPopupUpdate;
-    if (!wlr_scene_node_add_update_listener(
-            &layerPopupTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundPopupUpdate
-        )) {
+    if (!m_backgroundPopupUpdate.connectVia(this, onBackgroundPopupUpdate, [this](wl_listener* listener) {
+          return wlr_scene_node_add_update_listener(
+              &layerPopupTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, listener
+          );
+        })) {
       kLog.error("output '{}': failed to watch background popup updates", m_output->name);
       std::abort();
     }
@@ -1449,14 +1445,8 @@ namespace andromeda {
     if (m_lastFrame != nullptr) {
       wlr_buffer_unlock(m_lastFrame);
     }
-    if (m_backgroundPopupUpdate.link.next != nullptr) {
-      wl_list_remove(&m_backgroundPopupUpdate.link);
-      m_backgroundPopupUpdate.link.next = nullptr;
-    }
-    if (m_backgroundUpdate.link.next != nullptr) {
-      wl_list_remove(&m_backgroundUpdate.link);
-      m_backgroundUpdate.link.next = nullptr;
-    }
+    m_backgroundPopupUpdate.disconnect();
+    m_backgroundUpdate.disconnect();
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
@@ -1480,12 +1470,10 @@ namespace andromeda {
     if (m_output != nullptr && m_output->data == this) {
       m_output->data = nullptr;
     }
-    if (m_frame.link.next != nullptr) {
-      wl_list_remove(&m_frame.link);
-      wl_list_remove(&m_requestState.link);
-      wl_list_remove(&m_present.link);
-      wl_list_remove(&m_destroy.link);
-    }
+    m_frame.disconnect();
+    m_requestState.disconnect();
+    m_present.disconnect();
+    m_destroy.disconnect();
     // Workspace destructors reparent leftover views onto the server trees, so the group has to go before the roots it
     // hangs under.
     m_workspaceGroup.reset();
@@ -1688,38 +1676,27 @@ namespace andromeda {
     wlr_output_schedule_frame(m_output);
   }
 
-  void Output::onFrame(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_frame);
+  void Output::onFrame(Output* self, void* /*data*/) {
     self->handleFrame();
   }
 
-  void Output::onBackgroundUpdate(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_backgroundUpdate);
+  void Output::onBackgroundUpdate(Output* self, void* /*data*/) {
     self->markBlurBackgroundDirty();
   }
 
-  void Output::onBackgroundPopupUpdate(wl_listener* listener, void* /*data*/) {
-    Output* self = wl_container_of(listener, self, m_backgroundPopupUpdate); // NOLINT(modernize-use-auto)
+  void Output::onBackgroundPopupUpdate(Output* self, void* /*data*/) {
     self->markBlurBackgroundDirty();
   }
 
-  void Output::onRequestState(wl_listener* listener, void* data) {
-    Output* self;
-    self = wl_container_of(listener, self, m_requestState);
+  void Output::onRequestState(Output* self, void* data) {
     self->handleRequestState(data);
   }
 
-  void Output::onPresent(wl_listener* listener, void* data) {
-    Output* self;
-    self = wl_container_of(listener, self, m_present);
+  void Output::onPresent(Output* self, void* data) {
     self->handlePresent(data);
   }
 
-  void Output::onDestroy(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_destroy);
+  void Output::onDestroy(Output* self, void* /*data*/) {
     self->handleDestroy();
   }
 
@@ -1733,7 +1710,6 @@ namespace andromeda {
 
   Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state, bool grouped)
       : m_output(output), m_grouped(grouped) {
-    wl_list_init(&m_commit.link);
     if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
       return;
     }
@@ -1741,15 +1717,12 @@ namespace andromeda {
     // the scene, and avoid attributing a later cursor or metadata commit to an earlier failed scene build.
     m_buffer = state.buffer;
     m_state = output.builtDirectScanout();
-    m_commit.notify = onCommit;
-    wl_signal_add(&output.m_output->events.commit, &m_commit);
+    m_commit.connect(&output.m_output->events.commit, this, onCommit);
   }
 
-  Output::SceneCommit::~SceneCommit() { wl_list_remove(&m_commit.link); }
+  Output::SceneCommit::~SceneCommit() = default;
 
-  void Output::SceneCommit::onCommit(wl_listener* listener, void* data) {
-    SceneCommit* self;
-    self = wl_container_of(listener, self, m_commit);
+  void Output::SceneCommit::onCommit(SceneCommit* self, void* data) {
     const auto* event = static_cast<wlr_output_event_commit*>(data);
     if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
       return;
@@ -1764,8 +1737,7 @@ namespace andromeda {
       return;
     }
     // A synchronous backend attempt can account for this built buffer only once.
-    wl_list_remove(&self->m_commit.link);
-    wl_list_init(&self->m_commit.link);
+    self->m_commit.disconnect();
   }
 
   DirectScanoutState Output::builtDirectScanout() const {
@@ -2360,14 +2332,10 @@ namespace andromeda {
     if (m_output->data == this) {
       m_output->data = nullptr;
     }
-    wl_list_remove(&m_frame.link);
-    wl_list_remove(&m_requestState.link);
-    wl_list_remove(&m_present.link);
-    wl_list_remove(&m_destroy.link);
-    m_frame.link.next = nullptr;
-    m_requestState.link.next = nullptr;
-    m_present.link.next = nullptr;
-    m_destroy.link.next = nullptr;
+    m_frame.disconnect();
+    m_requestState.disconnect();
+    m_present.disconnect();
+    m_destroy.disconnect();
     if (m_optimizedBlur != nullptr && m_server->scene() != nullptr) {
       wlr_scene_node_destroy(&m_optimizedBlur->node);
     }

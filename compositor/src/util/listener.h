@@ -38,6 +38,18 @@ namespace andromeda {
       wl_client_add_destroy_listener(client, &m_listener);
     }
 
+    // add(wl_listener*) links the listener itself and returns false when it did not.
+    template <class T, class Add> bool connectVia(T* self, void (*handler)(T*, void*), Add add) {
+      disconnect();
+      m_fn = [self, handler](void* data) { handler(self, data); };
+      m_listener.notify = &Listener::trampoline;
+      if (!add(&m_listener)) {
+        m_listener.link.next = nullptr;
+        return false;
+      }
+      return true;
+    }
+
     void disconnect() {
       if (m_listener.link.next != nullptr) {
         wl_list_remove(&m_listener.link);
