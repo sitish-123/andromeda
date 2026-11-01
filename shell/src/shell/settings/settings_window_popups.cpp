@@ -5,6 +5,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
+#include "core/shared_worker.h"
 #include "i18n/i18n.h"
 #include "net/url_open.h"
 #include "notification/notification_filter.h"
@@ -2361,39 +2362,50 @@ void SettingsWindow::openPluginStore() {
   // blobless clone, both network-bound. Only the sheet build runs on the main thread.
   auto* manager = m_pluginManager;
   PluginsConfig pluginsSnapshot = m_config->config().plugins;
-  std::thread([this, manager, pluginsSnapshot = std::move(pluginsSnapshot)] mutable {
-    manager->fetchStaleCatalogs(pluginsSnapshot);
-
-    const auto activePlugins = manager->list(pluginsSnapshot, scripting::CatalogAccess::Network);
-    std::unordered_map<std::string, std::string> owners;
-    for (const auto& plugin : activePlugins) {
-      owners.emplace(plugin.id, plugin.source);
-    }
+  struct StoreData {
     std::vector<settings::StoreCatalogEntry> catalog;
-    for (const auto& source : pluginsSnapshot.sources) {
-      if (!source.enabled) {
-        continue;
+    std::unordered_map<std::string, std::string> owners;
+  };
+  // Throttle bookkeeping happens here on the main thread; the git fetch and catalog reads run on the worker.
+  auto fetchSources = manager->claimStaleCatalogFetches(pluginsSnapshot);
+  SharedWorker::instance().post<StoreData>(
+      std::weak_ptr<void>(m_aliveGuard),
+      [fetchSources = std::move(fetchSources), pluginsSnapshot = std::move(pluginsSnapshot)] {
+        scripting::PluginManager::fetchCatalogSources(fetchSources);
+
+        const auto activePlugins = scripting::PluginManager::list(pluginsSnapshot, scripting::CatalogAccess::Network);
+    std::unordered_map<std::string, std::string> owners;
+      for (const auto& plugin : activePlugins) {
+        owners.emplace(plugin.id, plugin.source);
       }
-      auto result = scripting::discoverCatalog(source, scripting::CatalogAccess::Network);
-      if (!result.ok) {
-        continue;
-      }
-      for (auto& entry : result.entries) {
-        const auto owner = owners.find(entry.id);
-        if (owner == owners.end() || owner->second != source.name) {
+      std::vector<settings::StoreCatalogEntry> catalog;
+      for (const auto& source : pluginsSnapshot.sources) {
+        if (!source.enabled) {
           continue;
         }
-        catalog.push_back(
-            settings::StoreCatalogEntry{
-                .entry = std::move(entry),
-                .source = source.name,
-                .sourceConfig = source,
-            }
-        );
+        auto result = scripting::discoverCatalog(source, scripting::CatalogAccess::Network);
+        if (!result.ok) {
+          continue;
+        }
+        for (auto& entry : result.entries) {
+          const auto owner = owners.find(entry.id);
+          if (owner == owners.end() || owner->second != source.name) {
+            continue;
+          }
+          catalog.push_back(
+              settings::StoreCatalogEntry{
+                  .entry = std::move(entry),
+                  .source = source.name,
+                  .sourceConfig = source,
+              }
+          );
+        }
       }
-    }
-
-    DeferredCall::callLater([this, catalog = std::move(catalog), owners = std::move(owners)] mutable {
+        return StoreData{.catalog = std::move(catalog), .owners = std::move(owners)};
+      },
+      [this](StoreData data) mutable {
+        auto catalog = std::move(data.catalog);
+        auto owners = std::move(data.owners);
       if (m_wayland == nullptr
           || m_renderContext == nullptr
           || m_surface == nullptr
@@ -2593,8 +2605,8 @@ void SettingsWindow::openPluginStore() {
           }
       );
       m_pluginStoreSheetOpen = m_editorSheetModal->isOpen();
-    });
-  }).detach();
+    }
+  );
 }
 
 void SettingsWindow::openCommunityTemplateStore() {

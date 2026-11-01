@@ -3,6 +3,7 @@
 #include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "core/scoped_timer.h"
 #include "ipc/ipc_service.h"
 #include "net/http_client.h"
@@ -75,8 +76,8 @@ namespace noctalia::theme {
     ResolvedTheme resolveBuiltin(const ThemeConfig& cfg, std::string_view mode, std::string_view shellMode) {
       const auto* palette = findBuiltinPalette(cfg.builtinPalette);
       if (palette == nullptr) {
-        kLog.warn("unknown builtin palette '{}', falling back to Noctalia", cfg.builtinPalette);
-        palette = findBuiltinPalette("Noctalia");
+        kLog.warn("unknown builtin palette '{}', falling back to Andromeda", cfg.builtinPalette);
+        palette = findBuiltinPalette("Andromeda");
       }
       const GeneratedPalette generated = expandBuiltinPalette(*palette);
       return {
@@ -289,18 +290,7 @@ namespace noctalia::theme {
   ThemeService::ThemeService(ConfigService& config, HttpClient& httpClient)
       : m_config(config), m_httpClient(httpClient) {}
 
-  ThemeService::~ThemeService() {
-    m_alive.reset();
-    {
-      std::scoped_lock lock(m_wallpaperWorkerMutex);
-      m_wallpaperWorkerShutdown = true;
-      m_wallpaperQueued.reset();
-    }
-    m_wallpaperWorkerCv.notify_all();
-    if (m_wallpaperWorker.joinable()) {
-      m_wallpaperWorker.join();
-    }
-  }
+  ThemeService::~ThemeService() = default;
 
   namespace {
 
@@ -533,37 +523,10 @@ namespace noctalia::theme {
       return;
     }
     m_wallpaperRequested = key;
-    {
-      std::scoped_lock lock(m_wallpaperWorkerMutex);
-      m_wallpaperQueued = key;
-    }
-    if (!m_wallpaperWorker.joinable()) {
-      m_wallpaperWorker = std::thread([this] { wallpaperWorkerLoop(); });
-    }
-    m_wallpaperWorkerCv.notify_one();
-  }
-
-  void ThemeService::wallpaperWorkerLoop() {
-    const std::weak_ptr<bool> alive = m_alive;
-    while (true) {
-      WallpaperPaletteKey key;
-      {
-        std::unique_lock lock(m_wallpaperWorkerMutex);
-        m_wallpaperWorkerCv.wait(lock, [this] { return m_wallpaperWorkerShutdown || m_wallpaperQueued.has_value(); });
-        if (m_wallpaperWorkerShutdown) {
-          return;
-        }
-        key = std::move(*m_wallpaperQueued);
-        m_wallpaperQueued.reset();
-      }
-      auto generated = decodeWallpaperPalette(key.path, key.scheme);
-      DeferredCall::callLater([this, alive, key = std::move(key), generated = std::move(generated)] mutable {
-        if (alive.expired()) {
-          return;
-        }
-        onWallpaperPaletteDecoded(key, std::move(generated));
-      });
-    }
+    SharedWorker::instance().post<std::optional<GeneratedPalette>>(
+        std::weak_ptr<void>(m_alive), [key] { return decodeWallpaperPalette(key.path, key.scheme); },
+        [this, key](std::optional<GeneratedPalette> generated) { onWallpaperPaletteDecoded(key, std::move(generated)); }
+    );
   }
 
   void

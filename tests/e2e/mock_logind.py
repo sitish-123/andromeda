@@ -11,7 +11,17 @@ from gi.repository import GLib
 MANAGER = "org.freedesktop.login1.Manager"
 
 
-class Manager(dbus.service.Object):
+class Delayed:
+    """Answers every method call after MOCK_DELAY seconds (default 0)."""
+
+    def _message_cb(self, connection, message):
+        delay = float(os.environ.get("MOCK_DELAY", "0"))
+        if delay <= 0:
+            return super()._message_cb(connection, message)
+        GLib.timeout_add(int(delay * 1000), lambda: super(Delayed, self)._message_cb(connection, message) and False)
+
+
+class Manager(Delayed, dbus.service.Object):
     def __init__(self, bus, log):
         super().__init__(bus, "/org/freedesktop/login1")
         self.log = log

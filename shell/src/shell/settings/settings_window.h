@@ -289,6 +289,8 @@ private:
   IdleManager* m_idleManager = nullptr;
   ConfigService* m_config = nullptr;
   scripting::PluginManager* m_pluginManager = nullptr;
+  // Expires with the window; worker completions posted through DeferredCall check it first.
+  std::shared_ptr<void> m_aliveGuard = std::make_shared<char>();
   scripting::PluginRecommendations* m_pluginRecommendations = nullptr;
   // Cached PluginManager::list() — discovery can spawn git, so refresh it off the UI path.
   std::vector<scripting::PluginStatus> m_pluginList;

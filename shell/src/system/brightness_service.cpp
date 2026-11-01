@@ -1,4 +1,5 @@
 #include "system/brightness_service.h"
+#include "util/thread_name.h"
 
 #include "compositors/compositor_platform.h"
 #include "config/config_types.h"
@@ -393,35 +394,6 @@ namespace {
     return next.display.backlightName < current.display.backlightName;
   }
 
-  sdbus::ObjectPath resolveSessionPath(sdbus::IConnection& connection) {
-    try {
-      auto managerProxy = sdbus::createProxy(connection, kLogindBusName, sdbus::ObjectPath{"/org/freedesktop/login1"});
-
-      if (const char* sessionId = std::getenv("XDG_SESSION_ID"); sessionId != nullptr && sessionId[0] != '\0') {
-        try {
-          sdbus::ObjectPath sessionPath;
-          managerProxy->callMethod("GetSession")
-              .onInterface(kLogindManagerInterface)
-              .withArguments(std::string(sessionId))
-              .storeResultsTo(sessionPath);
-          return sessionPath;
-        } catch (const sdbus::Error& e) {
-          kLog.debug("failed to resolve logind session via XDG_SESSION_ID={}: {}", sessionId, e.what());
-        }
-      }
-
-      sdbus::ObjectPath sessionPath;
-      managerProxy->callMethod("GetSessionByPID")
-          .onInterface(kLogindManagerInterface)
-          .withArguments(static_cast<std::uint32_t>(::getpid()))
-          .storeResultsTo(sessionPath);
-      return sessionPath;
-    } catch (const sdbus::Error& e) {
-      kLog.warn("failed to resolve logind session: {}", e.what());
-      return sdbus::ObjectPath{"/org/freedesktop/login1/session/auto"};
-    }
-  }
-
   std::optional<int> parseTrailingInteger(std::string_view input) {
     std::size_t end = input.size();
     while (end > 0 && !std::isdigit(static_cast<unsigned char>(input[end - 1]))) {
@@ -729,7 +701,9 @@ struct BrightnessService::Impl {
   std::vector<BrightnessDisplay> publicDisplays;
   std::vector<DisplayInternal> internals;
 
+  std::unique_ptr<sdbus::IProxy> managerProxy;
   std::unique_ptr<sdbus::IProxy> sessionProxy;
+  std::shared_ptr<int> aliveToken = std::make_shared<int>(0);
   sdbus::ObjectPath sessionPath;
 
   Inotify m_inotify;
@@ -844,12 +818,57 @@ struct BrightnessService::Impl {
 
   void updateSessionProxy() {
     sessionProxy.reset();
+    managerProxy.reset();
     if (bus == nullptr) {
       return;
     }
 
-    sessionPath = resolveSessionPath(bus->connection());
-    sessionProxy = sdbus::createProxy(bus->connection(), kLogindBusName, sessionPath);
+    managerProxy = sdbus::createProxy(bus->connection(), kLogindBusName, sdbus::ObjectPath{"/org/freedesktop/login1"});
+    const std::weak_ptr<int> token = aliveToken;
+    const auto attach = [this, token](const sdbus::ObjectPath& path) {
+      if (token.expired()) {
+        return;
+      }
+      sessionPath = path;
+      sessionProxy = sdbus::createProxy(bus->connection(), kLogindBusName, sessionPath);
+    };
+    const auto byPid = [this, token, attach] {
+      managerProxy->callMethodAsync("GetSessionByPID")
+          .onInterface(kLogindManagerInterface)
+          .withArguments(static_cast<std::uint32_t>(::getpid()))
+          .uponReplyInvoke([token, attach](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
+            if (token.expired()) {
+              return;
+            }
+            if (e.has_value()) {
+              kLog.warn("failed to resolve logind session: {}", e->what());
+              path = sdbus::ObjectPath{"/org/freedesktop/login1/session/auto"};
+            }
+            attach(path);
+          });
+    };
+
+    const char* sessionId = std::getenv("XDG_SESSION_ID");
+    if (sessionId == nullptr || sessionId[0] == '\0') {
+      byPid();
+      return;
+    }
+    managerProxy->callMethodAsync("GetSession")
+        .onInterface(kLogindManagerInterface)
+        .withArguments(std::string(sessionId))
+        .uponReplyInvoke([token, attach, byPid, id = std::string(sessionId)](
+                             std::optional<sdbus::Error> e, sdbus::ObjectPath path
+                         ) {
+          if (token.expired()) {
+            return;
+          }
+          if (e.has_value()) {
+            kLog.debug("failed to resolve logind session via XDG_SESSION_ID={}: {}", id, e->what());
+            byPid();
+            return;
+          }
+          attach(path);
+        });
   }
 
   void clearBacklightWatches() {
@@ -1194,19 +1213,34 @@ struct BrightnessService::Impl {
     const auto rawValue = static_cast<std::uint32_t>(std::round(value * static_cast<float>(display.maxRaw)));
     const std::string& backlightName = display.backlightName.empty() ? display.pub.id : display.backlightName;
     if (sessionProxy != nullptr) {
-      try {
-        sessionProxy->callMethod("SetBrightness")
-            .onInterface(kLogindSessionInterface)
-            .withArguments(std::string("backlight"), backlightName, rawValue);
-        display.pub.brightness = value;
-        syncPublicDisplay(display);
-        if (changeCallback) {
-          changeCallback();
-        }
-        return;
-      } catch (const sdbus::Error& e) {
-        kLog.warn("SetBrightness failed for '{}' via '{}': {}", display.pub.id, backlightName, e.what());
-      }
+      const std::weak_ptr<int> token = aliveToken;
+      sessionProxy->callMethodAsync("SetBrightness")
+          .onInterface(kLogindSessionInterface)
+          .withArguments(std::string("backlight"), backlightName, rawValue)
+          .uponReplyInvoke([this, token, id = display.pub.id, backlightName, rawValue, value](
+                               std::optional<sdbus::Error> e
+                           ) {
+            if (token.expired()) {
+              return;
+            }
+            const auto it = std::ranges::find_if(internals, [&id](const DisplayInternal& candidate) {
+              return candidate.pub.id == id;
+            });
+            if (it == internals.end()) {
+              return;
+            }
+            if (e.has_value()) {
+              kLog.warn("SetBrightness failed for '{}' via '{}': {}", id, backlightName, e->what());
+              writeSysfsBacklight(*it, rawValue);
+              return;
+            }
+            it->pub.brightness = value;
+            syncPublicDisplay(*it);
+            if (changeCallback) {
+              changeCallback();
+            }
+          });
+      return;
     }
     writeSysfsBacklight(display, rawValue);
   }
@@ -1290,6 +1324,7 @@ struct BrightnessService::Impl {
   }
 
   void workerLoop() {
+    nameThisThread("dsk-ddc");
     while (true) {
       std::optional<DdcDetectJob> detectJob;
       std::optional<DdcJob> writeJob;

@@ -2,11 +2,13 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 class SystemBus;
 
 namespace sdbus {
   class IProxy;
+  class ObjectPath;
 }
 
 class LogindService {
@@ -39,14 +41,20 @@ public:
 
 private:
   void ensureSessionLockMonitor();
+  void attachSessionProxy(const sdbus::ObjectPath& sessionPath);
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_managerProxy;
   std::unique_ptr<sdbus::IProxy> m_sessionProxy;
   bool m_sessionLockIntegrationEnabled = false;
+  bool m_sessionResolving = false;
+  std::optional<bool> m_pendingLockedHint;
+  std::shared_ptr<int> m_aliveToken = std::make_shared<int>(0);
   PrepareForSleepCallback m_prepareForSleepCallback;
   SessionLockCallback m_lockCallback;
   SessionLockCallback m_unlockCallback;
   int m_idleInhibitFd = -1;
   int m_sleepDelayInhibitFd = -1;
+  bool m_sleepDelayInhibitPending = false;
+  bool m_sleepDelayInhibitCancelled = false;
 };

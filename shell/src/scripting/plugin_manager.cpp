@@ -1,4 +1,5 @@
 #include "scripting/plugin_manager.h"
+#include "util/thread_name.h"
 
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -347,7 +348,7 @@ namespace scripting {
     return std::nullopt;
   }
 
-  std::unordered_set<std::string> PluginManager::localPluginIds() const {
+  std::unordered_set<std::string> PluginManager::localPluginIds() {
     std::unordered_set<std::string> ids;
     const std::string data = FileUtils::dataDir();
     if (data.empty()) {
@@ -384,7 +385,7 @@ namespace scripting {
 
   bool PluginManager::materializeEnabledFromRepo(
       const PluginSourceConfig& source, const std::filesystem::path& repoRoot, const std::vector<std::string>& enabled
-  ) const {
+  ) {
     bool materialized = false;
     std::error_code ec;
     const auto catalogResult = readGitCatalog(repoRoot);
@@ -446,10 +447,11 @@ namespace scripting {
   void PluginManager::spawnMaterializeEnabled(
       PluginSourceConfig source, std::filesystem::path repoRoot, std::vector<std::string> enabled
   ) const {
-    // `this` is an Application member and outlives the worker; the registry rescan and
-    // bar rebuild marshal back to the main thread via DeferredCall.
-    std::thread([this, source = std::move(source), repoRoot = std::move(repoRoot),
+    // The worker never touches `this`; the registry rescan and bar rebuild marshal back
+    // to the main thread via DeferredCall, guarded by the alive token.
+    std::thread([alive = std::weak_ptr<void>(m_aliveGuard), this, source = std::move(source), repoRoot = std::move(repoRoot),
                  enabled = std::move(enabled)] mutable {
+      nameThisThread("dsk-plugin-git");
       auto sourceLock = plugin_source_locks::acquire(source.name);
       if (const auto prepared = plugin_git::ensureRepo(repoRoot, source.location); !prepared) {
         if (prepared.timedOut) {
@@ -462,7 +464,10 @@ namespace scripting {
       if (!materializeEnabledFromRepo(source, repoRoot, enabled)) {
         return; // nothing exported; the startup registry scan already reflects disk state
       }
-      DeferredCall::callLater([this] {
+      DeferredCall::callLater([alive, this] {
+        if (alive.expired()) {
+          return;
+        }
         m_lastManifests = manifestSnapshot(m_config.config().plugins);
         PluginRegistry::instance().scan(); // pick up the freshly exported plugins
         if (m_onChanged) {
@@ -520,7 +525,8 @@ namespace scripting {
     }
 
     auto sources = m_config.config().plugins.sources;
-    std::thread([this, id, subdir = *subdir, sources = std::move(sources)] mutable {
+    std::thread([alive = std::weak_ptr<void>(m_aliveGuard), this, id, subdir = *subdir, sources = std::move(sources)] mutable {
+      nameThisThread("dsk-plugin-scan");
       const auto started = std::chrono::steady_clock::now();
       // Highest precedence wins; skip disabled sources — the registry never scans them.
       struct Offering {
@@ -583,8 +589,11 @@ namespace scripting {
       const double elapsedMs =
           std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
 
-      DeferredCall::callLater([this, id, ok, incompatible, timedOut, elapsedMs, pluginApiVersion,
+      DeferredCall::callLater([alive, this, id, ok, incompatible, timedOut, elapsedMs, pluginApiVersion,
                                error = std::move(error)] mutable {
+        if (alive.expired()) {
+          return;
+        }
         m_enabling.erase(id);
         if (ok) {
           kLog.info("enabling plugin '{}' (resolved + exported in {:.0F}ms)", id, elapsedMs);
@@ -700,7 +709,7 @@ namespace scripting {
     return list(m_config.config().plugins, access);
   }
 
-  std::vector<PluginStatus> PluginManager::list(const PluginsConfig& plugins, CatalogAccess access) const {
+  std::vector<PluginStatus> PluginManager::list(const PluginsConfig& plugins, CatalogAccess access) {
     const std::unordered_set<std::string> enabledSet(plugins.enabled.begin(), plugins.enabled.end());
 
     std::vector<PluginStatus> out;
@@ -825,9 +834,10 @@ namespace scripting {
     }
 
     // The whole git sequence runs off-thread; only the final registry rescan marshals
-    // back to the main thread. `this` is an Application member, so it outlives the worker.
+    // back to the main thread, guarded by the alive token; the worker never touches `this`.
     const std::string sourceName = source.name;
-    std::thread([this, source, repoRoot, sourceName, enabled = std::move(enabled)] mutable {
+    std::thread([alive = std::weak_ptr<void>(m_aliveGuard), this, source, repoRoot, sourceName, enabled = std::move(enabled)] mutable {
+      nameThisThread("dsk-plugin-upd");
       auto sourceLock = plugin_source_locks::acquire(source.name);
       if (const auto prepared = plugin_git::ensureRepo(repoRoot, source.location); !prepared) {
         DeferredCall::callLater([sourceName, err = prepared.err] {
@@ -921,9 +931,12 @@ namespace scripting {
         applied = static_cast<bool>(result);
         applyError = result.err;
       }
-      DeferredCall::callLater([this, sourceName, ok = applied, err = std::move(applyError), newRev, curRev,
+      DeferredCall::callLater([alive, this, sourceName, ok = applied, err = std::move(applyError), newRev, curRev,
                                sourceRevisionChanged, materialized, exportFailures = std::move(exportFailures),
                                withheldUpdates = std::move(withheldUpdates)] mutable {
+        if (alive.expired()) {
+          return;
+        }
         for (const auto& [id, exportError] : exportFailures) {
           kLog.warn("update '{}': export '{}' failed: {}", sourceName, id, exportError);
         }
@@ -978,24 +991,30 @@ namespace scripting {
     }).detach();
   }
 
-  void PluginManager::fetchStaleCatalogs(const PluginsConfig& plugins) {
+  std::vector<PluginSourceConfig> PluginManager::claimStaleCatalogFetches(const PluginsConfig& plugins) {
     // Newly published plugins only become browsable after a fetch advances FETCH_HEAD;
     // throttle so repeated store opens don't hit the network every time.
     constexpr auto kThrottle = std::chrono::minutes(15);
     const auto now = std::chrono::steady_clock::now();
-    std::error_code ec;
+    std::vector<PluginSourceConfig> claimed;
     for (const auto& source : plugins.sources) {
       if (source.kind != PluginSourceKind::Git || !source.enabled) {
         continue;
       }
-      {
-        const std::scoped_lock lock(m_browseFetchMutex);
-        const auto it = m_lastBrowseFetch.find(source.name);
-        if (it != m_lastBrowseFetch.end() && now - it->second < kThrottle) {
-          continue;
-        }
-        m_lastBrowseFetch[source.name] = now;
+      const std::scoped_lock lock(m_browseFetchMutex);
+      const auto it = m_lastBrowseFetch.find(source.name);
+      if (it != m_lastBrowseFetch.end() && now - it->second < kThrottle) {
+        continue;
       }
+      m_lastBrowseFetch[source.name] = now;
+      claimed.push_back(source);
+    }
+    return claimed;
+  }
+
+  void PluginManager::fetchCatalogSources(const std::vector<PluginSourceConfig>& sources) {
+    std::error_code ec;
+    for (const auto& source : sources) {
       const std::filesystem::path repoRoot = plugin_paths::gitRepoRoot(source);
       if (repoRoot.empty() || !std::filesystem::exists(repoRoot / ".git", ec)) {
         continue; // nothing cloned yet; discoverCatalog clones on first browse
@@ -1009,6 +1028,10 @@ namespace scripting {
         kLog.warn("browse fetch '{}' failed: {}", source.name, fetched.err);
       }
     }
+  }
+
+  void PluginManager::fetchStaleCatalogs(const PluginsConfig& plugins) {
+    fetchCatalogSources(claimStaleCatalogFetches(plugins));
   }
 
   void PluginManager::updateAutoUpdateScope(PluginAutoUpdateMode mode) {

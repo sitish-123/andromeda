@@ -8,8 +8,8 @@
 
 namespace noctalia::cli {
 
-  inline constexpr std::array<std::string_view, 10> kBuiltinPaletteNames{
-      "Ayu", "Catppuccin", "Dracula", "Eldritch", "Gruvbox", "Kanagawa", "Noctalia", "Nord", "Rosé Pine", "Tokyo-Night",
+  inline constexpr std::array<std::string_view, 11> kBuiltinPaletteNames{
+      "Andromeda", "Ayu", "Catppuccin", "Dracula", "Eldritch", "Gruvbox", "Kanagawa", "Noctalia", "Nord", "Rosé Pine", "Tokyo-Night",
   };
 
   inline constexpr std::array kMsgColorSchemeSetBuiltinPositionals{
@@ -622,6 +622,9 @@ namespace noctalia::cli {
     inline constexpr Command logLevelStatus{
         "log-level-status", "Print the current console log level", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command debugThreads{
+        "debug-threads", "List the threads the shell created (dsk- prefix)", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command media{"media", "Control active media playback", {}, {}, {}, kMsgMediaPositionals, {},
                                    false};
     inline constexpr Command micMute{"mic-mute", "Toggle microphone mute", {}, {}, {}, {}, {}, false};
@@ -1185,6 +1188,7 @@ namespace noctalia::cli {
       msg::lockscreenWidgetsToggleEdit,
       msg::logLevelSet,
       msg::logLevelStatus,
+      msg::debugThreads,
       msg::media,
       msg::micMute,
       msg::micVolumeDown,

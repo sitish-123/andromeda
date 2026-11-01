@@ -96,7 +96,6 @@ namespace noctalia::theme {
     // Serves the memoized palette, or queues a background decode and reports it pending.
     WallpaperLookup lookupWallpaperGenerated(const ThemeConfig& cfg, const std::string& wallpaperPath);
     void requestWallpaperPalette(const WallpaperPaletteKey& key);
-    void wallpaperWorkerLoop();
     void onWallpaperPaletteDecoded(const WallpaperPaletteKey& key, std::optional<GeneratedPalette> generated);
     void queueResolvedCallback(const GeneratedPalette& generated, std::string_view mode);
     void flushResolvedCallback(bool defer);
@@ -119,12 +118,6 @@ namespace noctalia::theme {
     // broken file falls back to the builtin palette instead of re-queueing forever.
     std::optional<WallpaperPaletteKey> m_wallpaperRequested;
     std::optional<WallpaperPaletteKey> m_wallpaperFailed;
-    // Single decode worker; only the newest queued request survives.
-    std::mutex m_wallpaperWorkerMutex;
-    std::condition_variable m_wallpaperWorkerCv;
-    std::optional<WallpaperPaletteKey> m_wallpaperQueued;
-    bool m_wallpaperWorkerShutdown = false;
-    std::thread m_wallpaperWorker;
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
     ChangeCallback m_changeCallback;

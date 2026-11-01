@@ -5,6 +5,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
+#include "core/shared_worker.h"
 #include "core/files/file_watcher.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/key_symbols.h"
@@ -913,26 +914,30 @@ void SettingsWindow::refreshPluginListIfNeeded() {
   const std::uint64_t generation = m_pluginListRefreshGeneration;
   auto* manager = m_pluginManager;
   PluginsConfig pluginsSnapshot = m_config->config().plugins;
-  std::thread([this, manager, generation, pluginsSnapshot = std::move(pluginsSnapshot)] {
-    // Refresh the browsable catalog (throttled) so newly published plugins and update
-    // badges appear on open, then list against the fetched revision.
-    manager->fetchStaleCatalogs(pluginsSnapshot);
-    auto plugins = manager->list(pluginsSnapshot, scripting::CatalogAccess::Network);
-    DeferredCall::callLater([this, generation, plugins = std::move(plugins)] mutable {
-      m_pluginListRefreshInFlight = false;
-      if (generation != m_pluginListRefreshGeneration) {
-        refreshPluginListIfNeeded();
-        return;
+  // Refresh the browsable catalog (throttled) so newly published plugins and update
+  // badges appear on open, then list against the fetched revision.
+  auto fetchSources = manager->claimStaleCatalogFetches(pluginsSnapshot);
+  SharedWorker::instance().post<std::vector<scripting::PluginStatus>>(
+      std::weak_ptr<void>(m_aliveGuard),
+      [fetchSources = std::move(fetchSources), pluginsSnapshot = std::move(pluginsSnapshot)] {
+        scripting::PluginManager::fetchCatalogSources(fetchSources);
+        return scripting::PluginManager::list(pluginsSnapshot, scripting::CatalogAccess::Network);
+      },
+      [this, generation](std::vector<scripting::PluginStatus> plugins) mutable {
+        m_pluginListRefreshInFlight = false;
+        if (generation != m_pluginListRefreshGeneration) {
+          refreshPluginListIfNeeded();
+          return;
+        }
+        m_pluginList = std::move(plugins);
+        m_pluginListDirty = false;
+        if (isOpen() && m_selectedSection == "plugins") {
+          requestContentRebuild(
+              /*refreshRegistry=*/false, /*refreshFilterRow=*/false, /*rebuildEditorSheet=*/m_pluginStoreSheetOpen
+          );
+        }
       }
-      m_pluginList = std::move(plugins);
-      m_pluginListDirty = false;
-      if (isOpen() && m_selectedSection == "plugins") {
-        requestContentRebuild(
-            /*refreshRegistry=*/false, /*refreshFilterRow=*/false, /*rebuildEditorSheet=*/m_pluginStoreSheetOpen
-        );
-      }
-    });
-  }).detach();
+  );
 }
 
 void SettingsWindow::clearStatusMessage() {

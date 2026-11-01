@@ -1,4 +1,5 @@
 #include "security/secret_store.h"
+#include "util/thread_name.h"
 
 #include "core/log.h"
 
@@ -728,6 +729,7 @@ namespace security {
 
   private:
     void workerLoop() {
+      nameThisThread("dsk-secret");
       while (true) {
         Request request;
         {

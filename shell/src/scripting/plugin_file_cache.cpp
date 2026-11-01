@@ -1,4 +1,5 @@
 #include "scripting/plugin_file_cache.h"
+#include "util/thread_name.h"
 
 #include "config/config_types.h"
 #include "core/deferred_call.h"
@@ -100,28 +101,34 @@ namespace scripting {
     }
 
     const auto repoRoot = plugin_paths::gitRepoRoot(source);
-    std::thread([this, pluginId, key, repoPath = *subdir + "/" + filename, repoRoot, cached, filename] {
+    std::thread([alive = std::weak_ptr<void>(m_aliveGuard), this, pluginId, key, repoPath = *subdir + "/" + filename,
+                 repoRoot, cached, filename] {
+      nameThisThread("dsk-plugin-file");
       const auto result = plugin_git::showFile(repoRoot, repoPath);
-      if (!result.ok || result.out.empty()) {
-        std::scoped_lock lock(m_mutex);
-        m_inFlight.erase(key);
-        m_missing.insert(key);
-        return;
+      std::string resolvedPath;
+      if (result.ok && !result.out.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(std::filesystem::path(cached).parent_path(), ec);
+        if (!ec) {
+          std::ofstream out(cached, std::ios::binary);
+          out.write(result.out.data(), static_cast<std::streamsize>(result.out.size()));
+        }
+        if (!ec && std::filesystem::exists(cached)) {
+          resolvedPath = cached;
+        }
       }
+      const bool missing = !result.ok || result.out.empty();
 
-      std::error_code ec;
-      std::filesystem::create_directories(std::filesystem::path(cached).parent_path(), ec);
-      if (!ec) {
-        std::ofstream out(cached, std::ios::binary);
-        out.write(result.out.data(), static_cast<std::streamsize>(result.out.size()));
-      }
-
-      const std::string resolvedPath = (!ec && std::filesystem::exists(cached)) ? cached : std::string{};
-
-      DeferredCall::callLater([this, pluginId, filename, resolvedPath, key] {
+      DeferredCall::callLater([alive, this, pluginId, filename, resolvedPath, key, missing] {
+        if (alive.expired()) {
+          return;
+        }
         {
           std::scoped_lock lock(m_mutex);
           m_inFlight.erase(key);
+          if (missing) {
+            m_missing.insert(key);
+          }
         }
         if (!resolvedPath.empty() && m_onReady) {
           m_onReady(pluginId, filename, resolvedPath);

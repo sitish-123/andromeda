@@ -74,57 +74,119 @@ KeyboardBacklightService::KeyboardBacklightService(SystemBus& bus) : m_bus(bus) 
 
 KeyboardBacklightService::~KeyboardBacklightService() = default;
 
+struct KeyboardBacklightService::Batch {
+  std::vector<std::unique_ptr<Device>> devices;
+  std::vector<bool> failed;
+  int remaining = 0;
+};
+
 void KeyboardBacklightService::rescanDevices() {
-  std::vector<sdbus::ObjectPath> paths;
-  try {
-    m_upowerProxy->callMethod("EnumerateKbdBacklights").onInterface(kUpowerInterface).storeResultsTo(paths);
-  } catch (const sdbus::Error& e) {
-    kLog.warn("failed to enumerate keyboard backlights: {}", e.what());
+  m_batch.reset();
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  m_upowerProxy->callMethodAsync("EnumerateKbdBacklights")
+      .onInterface(kUpowerInterface)
+      .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, std::vector<sdbus::ObjectPath> paths) {
+        if (aliveToken.expired()) {
+          return;
+        }
+        if (e.has_value()) {
+          kLog.warn("failed to enumerate keyboard backlights: {}", e->what());
+          return;
+        }
+        probeDevices(paths);
+      });
+}
+
+void KeyboardBacklightService::probeDevices(const std::vector<sdbus::ObjectPath>& paths) {
+  auto batch = std::make_shared<Batch>();
+  m_batch = batch;
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  const std::weak_ptr<Batch> weakBatch = batch;
+
+  const auto settle = [this, aliveToken, weakBatch](std::size_t index, std::optional<sdbus::Error> e) {
+    const auto live = weakBatch.lock();
+    if (aliveToken.expired() || live == nullptr) {
+      return;
+    }
+    if (e.has_value()) {
+      live->failed[index] = true;
+      kLog.warn("failed to initialize keyboard backlight {}: {}", live->devices[index]->path, e->what());
+    }
+    if (--live->remaining == 0) {
+      commitDevices(*live);
+    }
+  };
+
+  batch->remaining = static_cast<int>(paths.size()) * 2;
+  batch->failed.assign(paths.size(), false);
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    auto device = std::make_unique<Device>();
+    device->path = paths[i];
+    device->proxy = sdbus::createProxy(m_bus.connection(), kUpowerBusName, paths[i]);
+    batch->devices.push_back(std::move(device));
+  }
+  if (paths.empty()) {
+    commitDevices(*batch);
     return;
   }
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    auto& device = *batch->devices[i];
+    device.proxy->callMethodAsync("GetMaxBrightness")
+        .onInterface(kKbdBacklightInterface)
+        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, int value) {
+          if (const auto live = weakBatch.lock(); live != nullptr && !e.has_value()) {
+            live->devices[i]->maxBrightness = value;
+          }
+          settle(i, std::move(e));
+        });
+    device.proxy->callMethodAsync("GetBrightness")
+        .onInterface(kKbdBacklightInterface)
+        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, int value) {
+          if (const auto live = weakBatch.lock(); live != nullptr && !e.has_value()) {
+            live->devices[i]->brightness = value;
+          }
+          settle(i, std::move(e));
+        });
+  }
+}
 
+void KeyboardBacklightService::commitDevices(Batch& batch) {
   std::vector<std::unique_ptr<Device>> devices;
-  devices.reserve(paths.size());
-  for (const auto& path : paths) {
-    try {
-      auto device = std::make_unique<Device>();
-      device->path = path;
-      device->proxy = sdbus::createProxy(m_bus.connection(), kUpowerBusName, path);
-      device->proxy->callMethod("GetMaxBrightness")
-          .onInterface(kKbdBacklightInterface)
-          .storeResultsTo(device->maxBrightness);
-      device->proxy->callMethod("GetBrightness").onInterface(kKbdBacklightInterface).storeResultsTo(device->brightness);
-      if (device->maxBrightness < 0) {
-        kLog.warn("keyboard backlight {} reported invalid maximum {}", device->path, device->maxBrightness);
-        continue;
-      }
-      device->brightness = util::clampOrdered(device->brightness, 0, device->maxBrightness);
-
-      const std::string devicePath = device->path;
-      device->proxy->uponSignal("BrightnessChanged")
-          .onInterface(kKbdBacklightInterface)
-          .call([this, devicePath](int32_t value) {
-            const auto it = std::ranges::find_if(m_devices, [&devicePath](const auto& candidate) {
-              return candidate->path == devicePath;
-            });
-            if (it == m_devices.end()) {
-              return;
-            }
-            auto& changed = **it;
-            const int brightness = util::clampOrdered<int>(value, 0, changed.maxBrightness);
-            if (brightness == changed.brightness) {
-              return;
-            }
-            changed.brightness = brightness;
-            publishBrightness(changed);
-          });
-      devices.push_back(std::move(device));
-    } catch (const sdbus::Error& e) {
-      kLog.warn("failed to initialize keyboard backlight {}: {}", std::string(path), e.what());
+  devices.reserve(batch.devices.size());
+  for (std::size_t i = 0; i < batch.devices.size(); ++i) {
+    auto& device = batch.devices[i];
+    if (batch.failed[i]) {
+      continue;
     }
+    if (device->maxBrightness < 0) {
+      kLog.warn("keyboard backlight {} reported invalid maximum {}", device->path, device->maxBrightness);
+      continue;
+    }
+    device->brightness = util::clampOrdered(device->brightness, 0, device->maxBrightness);
+
+    const std::string devicePath = device->path;
+    device->proxy->uponSignal("BrightnessChanged")
+        .onInterface(kKbdBacklightInterface)
+        .call([this, devicePath](int32_t value) {
+          const auto it = std::ranges::find_if(m_devices, [&devicePath](const auto& candidate) {
+            return candidate->path == devicePath;
+          });
+          if (it == m_devices.end()) {
+            return;
+          }
+          auto& changed = **it;
+          const int brightness = util::clampOrdered<int>(value, 0, changed.maxBrightness);
+          if (brightness == changed.brightness) {
+            return;
+          }
+          changed.brightness = brightness;
+          publishBrightness(changed);
+        });
+    devices.push_back(std::move(device));
   }
 
   m_devices = std::move(devices);
+  m_batch.reset();
   if (m_devices.empty()) {
     m_brightness = 0;
     m_maxBrightness = 0;

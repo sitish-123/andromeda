@@ -100,6 +100,9 @@ int main() {
 
   std::string resolved;
   for (int i = 0; i < 500 && resolved.empty(); ++i) {
+    for (const auto& pending : DeferredCall::takePending()) {
+      pending();
+    }
     resolved = store.resolve(appTheme.string(), "shallow-icon");
     if (resolved.empty()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));

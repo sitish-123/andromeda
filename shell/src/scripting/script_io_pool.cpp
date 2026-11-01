@@ -1,4 +1,5 @@
 #include "scripting/script_io_pool.h"
+#include "util/thread_name.h"
 
 #include <algorithm>
 
@@ -47,6 +48,7 @@ namespace scripting {
   }
 
   void ScriptIoPool::runWorker() {
+    nameThisThread("dsk-script-io");
     for (;;) {
       std::function<void()> task;
       {

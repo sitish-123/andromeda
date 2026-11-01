@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -138,6 +139,8 @@ struct UPowerDeviceInfo {
 enum class UPowerChangeOrigin : std::uint8_t {
   DeviceState,
   ChargeLimit,
+  // The first complete snapshot; state() holds it. Not a plug, unplug or charge change.
+  Initial,
 };
 
 struct UPowerChange {
@@ -192,7 +195,10 @@ private:
   ) const;
   [[nodiscard]] UPowerDeviceInfo
   readDeviceInfo(std::string path, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable) const;
-  void refreshDisplayDeviceProxy();
+  void refreshDisplayDeviceProxy(const std::optional<std::string>& displayPath);
+  void applyEnumeratedDevices(const std::vector<std::string>& paths);
+  void requestChargeMethodDetection(const TrackedDevice& device);
+  [[nodiscard]] bool finishFirstSnapshot();
   [[nodiscard]] bool refreshDefaultState();
   void emitChangedIfNeeded(bool devicesChanged, bool chargeLimitChanged = false, bool deviceCatalogChanged = false);
   void emitControlOperationChanged();
@@ -212,4 +218,9 @@ private:
   ChangeCallback m_changeCallback;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
   std::uint64_t m_nextChargeThresholdRequestId = 1;
+  std::set<std::string> m_introspectPending;
+  bool m_rescanInFlight = false;
+  bool m_rescanQueued = false;
+  bool m_firstSnapshotPending = true;
+  bool m_firstRescanDone = false;
 };

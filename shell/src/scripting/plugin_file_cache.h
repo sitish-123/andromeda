@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -27,6 +28,8 @@ namespace scripting {
     [[nodiscard]] static std::string
     cacheFilePath(const std::string& sourceName, const std::string& pluginSubdir, const std::string& filename);
 
+    // Expires with the cache; worker completions posted through DeferredCall check it first.
+    std::shared_ptr<void> m_aliveGuard = std::make_shared<char>();
     ReadyCallback m_onReady;
     std::mutex m_mutex;
     std::unordered_set<std::string> m_inFlight;

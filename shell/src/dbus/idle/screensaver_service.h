@@ -42,6 +42,7 @@ private:
 
   void registerScreenSaver();
   void registerLogindIdleMonitor(SystemBus* systemBus);
+  void readLogindBlockInhibited();
   void applyLogindBlockInhibited(const std::string& inhibits);
   std::uint32_t onInhibit(std::string app, std::string reason, const char* sender);
   void onUninhibit(std::uint32_t cookie, const char* sender);
@@ -56,6 +57,8 @@ private:
   std::uint32_t m_nextCookieId = 1337;
   bool m_active = false;
   bool m_logindIdleInhibited = false;
+  std::shared_ptr<int> m_aliveToken = std::make_shared<int>(0);
+  std::uint64_t m_blockInhibitedReads = 0;
   bool m_hasPendingEvents = false;
   std::vector<InhibitCookie> m_cookies;
   std::vector<std::unique_ptr<sdbus::IObject>> m_objects;
