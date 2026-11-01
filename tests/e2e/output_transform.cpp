@@ -1,6 +1,6 @@
 // Applies a transform to one output through OutputManagement, keeping every other head as reported.
 // Usage: output-transform OUTPUT TRANSFORM (a wl_output_transform value). Exits non-zero unless the apply succeeds.
-#include "wayland/output_management.h"
+#include "compositors/output_management.h"
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 
 #include <algorithm>

@@ -17,8 +17,8 @@ LD_PRELOAD=$RUNTIME/commit-fail.so FAIL_COMMIT_OUTPUT=HEADLESS-1 FAIL_COMMIT_FIL
 SRC=$ROOT/shell
 BUILD=$SRC/build-debug
 gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-protocol.c"
-g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/output-transform" \
-  "$(dirname "$0")/output_transform.cpp" "$SRC/src/wayland/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -I"$BUILD" -o "$RUNTIME/output-transform" \
+  "$(dirname "$0")/output_transform.cpp" "$SRC/src/compositors/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
 : > "$OUT/mode.txt"
 commits() { run "$ANDROMEDA" output-commits --json | jq ".\"${1:-HEADLESS-2}\""; }
 copies_since() { tail -n +"$(($1 + 1))" "$OUT/andromeda.log" | grep -c '^commit-shim: HEADLESS-2 committed=0x1$' || true; }

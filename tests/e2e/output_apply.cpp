@@ -1,6 +1,6 @@
 // Drives OutputManagement against a live compositor: apply, verify, disable, re-enable, revert.
 // Prints one line per step and exits non-zero on the first mismatch.
-#include "wayland/output_management.h"
+#include "compositors/output_management.h"
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 
 #include <algorithm>

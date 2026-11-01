@@ -8,9 +8,9 @@ OUT=${OUT:-$(pwd)/artifacts/native-spawns}
 source "$(dirname "$0")/lib.sh"
 
 SRC=$ROOT/shell/src
-g++ -std=c++23 -I"$SRC" $(pkg-config --cflags gio-2.0) \
+g++ -std=c++23 -I"$SRC" -I"$ROOT/libdesk-ui/src" $(pkg-config --cflags gio-2.0) \
   -o "$RUNTIME/url-open-test" \
-  "$(dirname "$0")/url_open_main.cpp" "$SRC/net/url_open.cpp" "$SRC/core/log.cpp" \
+  "$(dirname "$0")/url_open_main.cpp" "$SRC/net/url_open.cpp" "$ROOT/libdesk-ui/src/core/log.cpp" \
   $(pkg-config --libs gio-2.0)
 
 # A runtime dir with no wayland-0/X11 socket: any GUI app GIO resolves as the URL handler fails to open a display

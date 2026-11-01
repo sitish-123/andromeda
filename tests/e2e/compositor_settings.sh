@@ -18,8 +18,8 @@ run "$ANDROMEDA" msg config-reload > /dev/null
 SRC=$ROOT/shell
 BUILD=$SRC/build-debug
 gcc -c -o "$RUNTIME/dsk-proto.o" "$BUILD/desktop-unstable-v1-client-protocol.c"
-g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/settings-set" \
-  "$(dirname "$0")/settings_set.cpp" "$SRC/src/wayland/settings_control.cpp" "$RUNTIME/dsk-proto.o" -lwayland-client
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -I"$BUILD" -o "$RUNTIME/settings-set" \
+  "$(dirname "$0")/settings_set.cpp" "$SRC/src/compositors/settings_control.cpp" "$RUNTIME/dsk-proto.o" -lwayland-client
 
 step() { run "$RUNTIME/settings-set" "$@" | tee -a "$OUT/settings-set.txt"; }
 : > "$OUT/settings-set.txt"
