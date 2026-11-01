@@ -8,7 +8,7 @@
 #include "dbus/mpris/mpris_service.h"
 #include "ext-session-lock-v1-client-protocol.h"
 #include "i18n/i18n.h"
-#include "render/core/blur_cache.h"
+#include "render/backend/render_backend.h"
 #include "render/core/render_styles.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/render_context.h"
@@ -251,7 +251,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_mediaFallbackGlyph,
           .glyph = "disc",
           .glyphSize = 18.0F,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
       })
   );
@@ -275,7 +275,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_mediaTitle,
           .fontSize = Style::fontSizeBody,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -284,7 +284,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_mediaArtist,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -325,7 +325,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherGlyph,
           .glyph = "weather-cloud",
           .glyphSize = kWeatherGlyphSize,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
   m_weatherCurrent->addChild(
@@ -347,7 +347,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherTemp,
           .fontSize = Style::fontSizeBody,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -356,7 +356,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_weatherMeta,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -394,7 +394,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
         ui::label({
             .out = &column.day,
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .textAlign = TextAlign::Center,
         })
@@ -404,14 +404,14 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
             .out = &column.glyph,
             .glyph = "weather-cloud",
             .glyphSize = kForecastGlyphSize,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::Accent),
         })
     );
     column.column->addChild(
         ui::label({
             .out = &column.temps,
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .textAlign = TextAlign::Center,
         })
@@ -442,7 +442,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_authLabel,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Center,
           .configure = [](Label& label) {
@@ -799,12 +799,6 @@ void LockSurface::setWallpaperPath(std::string wallpaperPath) {
     return;
   }
 
-  if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-    renderContext()->backend().makeCurrentNoSurface();
-    renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-    m_blurredWallpaperTexture = {};
-  }
-
   // Keep the current wallpaper visible until applyWallpaperTexture() loads the new path.
   m_wallpaperPath = std::move(wallpaperPath);
   m_wallpaperDirty = true;
@@ -851,16 +845,10 @@ void LockSurface::setWallpaperFillColor(Color fillColor) {
   requestRedraw();
 }
 
-void LockSurface::setDesktopCapture(std::optional<ScreencopyImage> capture, bool useAsBackground) {
+void LockSurface::setDesktopCapture(std::optional<ScreencopyImage> capture) {
   m_desktopCapture = std::move(capture);
-  m_useDesktopCaptureBackground = useAsBackground && m_desktopCapture.has_value() && !m_desktopCapture->rgba.empty();
-  m_captureDirty = true;
   releaseCaptureTextures();
   requestLayout();
-}
-
-bool LockSurface::usesDesktopCaptureBackground() const noexcept {
-  return m_useDesktopCaptureBackground && m_desktopCapture.has_value() && !m_desktopCapture->rgba.empty();
 }
 
 void LockSurface::configureTransition(
@@ -976,10 +964,7 @@ void LockSurface::suppressEntryTransition() {
     renderContext()->backend().makeCurrentNoSurface();
     renderContext()->textureManager().unload(captureTexture);
   }
-  if (!m_useDesktopCaptureBackground) {
-    m_desktopCapture.reset();
-  }
-  m_captureDirty = true;
+  m_desktopCapture.reset();
   requestLayout();
   requestRedraw();
 }
@@ -998,10 +983,7 @@ void LockSurface::setBackgroundStyle(float blurIntensity, float tintIntensity) {
   }
   m_blurIntensity = blurIntensity;
   m_tintIntensity = tintIntensity;
-  m_captureDirty = true;
-  m_blurCache.invalidate();
   m_wallpaperDirty = true;
-  m_wallpaperBlurCache.invalidate();
   requestLayout();
 }
 
@@ -1096,7 +1078,6 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
 }
 
 void LockSurface::onThemeChanged() {
-  m_captureDirty = true;
   requestLayout();
 }
 
@@ -1328,9 +1309,12 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
 
   applyWallpaperTexture();
+  // Ryoku paints an opaque scene over the background, so a blur behind it is never seen.
+  const bool compositorBlur = m_ryoku == nullptr && m_blurIntensity > 0.0F && m_connection.hasBackgroundEffectBlur();
+  syncBlurRegion(compositorBlur, width, height);
 
   m_backgroundLayer->setVisible(true);
-  m_wallpaper->setVisible(true);
+  m_wallpaper->setVisible(!compositorBlur);
   m_widgetLayer->setVisible(true);
   const bool loginVisible = isLoginBoxEnabled();
   const lockscreen_login_box::LoginBoxStyle loginStyle = resolveLoginStyle();
@@ -1388,7 +1372,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
   m_backdrop->setPosition(0.0F, 0.0F);
   m_backdrop->setSize(sw, sh);
-  m_backdrop->setVisible(m_wallpaperFillColor.a > 0.0F);
+  m_backdrop->setVisible(!compositorBlur && m_wallpaperFillColor.a > 0.0F);
   m_backdrop->setStyle(
       RoundedRectStyle{
           .fill = m_wallpaperFillColor,
@@ -1405,7 +1389,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     if (showTint) {
       m_tintOverlay->setStyle(
           RoundedRectStyle{
-              .fill = colorForRole(ColorRole::Surface, tintIntensity),
+              .fill = colorForRole(ColorRole::SolidRegular, tintIntensity),
               .fillMode = FillMode::Solid,
           }
       );
@@ -1413,7 +1397,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
 
   m_loginPanel->setFill(loginStyle.panelFill);
-  m_loginPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
+  m_loginPanel->setBorder(colorForRole(ColorRole::Stroke, loginStyle.panelOpacity), Style::borderWidth);
   m_loginPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
   m_loginPanel->setSoftness(1.0F);
   m_loginPanel->setClipChildren(true);
@@ -1630,7 +1614,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_authLabel->setVisible(showAuth);
     if (showAuth) {
       m_authLabel->setText(authText);
-      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::Error : ColorRole::OnSurfaceVariant));
+      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::Danger : ColorRole::Label2));
       const float authFontSize = captionSize + (regular ? contentScale : 1.0F);
       m_authLabel->setFontSize(authFontSize);
       m_authLabel->setEllipsize(TextEllipsize::End);
@@ -1643,7 +1627,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
       m_authPanel->setPadding(authPadV, authPadH);
       m_authPanel->setFill(loginStyle.panelFill);
-      m_authPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
+      m_authPanel->setBorder(colorForRole(ColorRole::Stroke, loginStyle.panelOpacity), Style::borderWidth);
       m_authPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
       m_authPanel->setSoftness(1.0F);
       m_authPanel->setMinWidth(authW);
@@ -1733,7 +1717,7 @@ void LockSurface::updateCopy() {
     m_authLabel->setVisible(show);
     if (show) {
       m_authLabel->setText(text);
-      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::Error : ColorRole::OnSurfaceVariant));
+      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::Danger : ColorRole::Label2));
     }
   }
 
@@ -2062,13 +2046,6 @@ std::string LockSurface::resolveStatusText(const lockscreen_login_box::LoginBoxS
 }
 
 void LockSurface::applyWallpaperTexture() {
-  if (usesDesktopCaptureBackground()) {
-    applyBlurredDesktopTexture();
-    if (m_blurredDesktopTexture.id != 0) {
-      return;
-    }
-  }
-
   if (!m_wallpaperDirty) {
     return;
   }
@@ -2080,11 +2057,6 @@ void LockSurface::applyWallpaperTexture() {
     m_pendingWallpaperLease.reset();
     m_shownWallpaperPath.clear();
     m_pendingWallpaperPath.clear();
-    if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-      renderContext()->backend().makeCurrentNoSurface();
-      renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-      m_blurredWallpaperTexture = {};
-    }
     m_wallpaper->setSources(
         WallpaperSourceKind::Color, {}, color, WallpaperSourceKind::Image, {}, rgba(0.0F, 0.0F, 0.0F, 1.0F), 0.0F, 0.0F,
         0.0F, 0.0F
@@ -2125,28 +2097,9 @@ void LockSurface::applyWallpaperTexture() {
       loaded = false;
     } else {
       loaded = m_pendingWallpaperLease.empty();
-
-      if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-        renderContext()->backend().makeCurrentNoSurface();
-        renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-        m_blurredWallpaperTexture = {};
-      }
-      if (m_blurIntensity > 0.0F && renderContext() != nullptr) {
-        auto* renderer = renderContext();
-        renderer->makeCurrent(renderTarget());
-        static constexpr int kBlurRounds = 3;
-        const float blurRadius = m_blurIntensity * 40.0F;
-        const std::uint32_t blurWidth = renderTarget().bufferWidth();
-        const std::uint32_t blurHeight = renderTarget().bufferHeight();
-        m_blurredWallpaperTexture = m_wallpaperBlurCache.get(
-            renderer->backend(), wallpaperTexture, blurWidth, blurHeight, blurRadius, kBlurRounds
-        );
-      }
-      const TextureHandle textureToDisplay =
-          m_blurredWallpaperTexture.id != 0 ? m_blurredWallpaperTexture : wallpaperTexture;
       m_wallpaper->setTextures(
-          textureToDisplay.id, {}, static_cast<float>(textureToDisplay.width),
-          static_cast<float>(textureToDisplay.height), 0.0F, 0.0F
+          wallpaperTexture.id, {}, static_cast<float>(wallpaperTexture.width),
+          static_cast<float>(wallpaperTexture.height), 0.0F, 0.0F
       );
       m_wallpaper->setTransition(WallpaperTransition::Fade, 0.0F, TransitionParams{});
       m_wallpaper->setFillMode(m_wallpaperFillMode);
@@ -2167,90 +2120,27 @@ void LockSurface::applyWallpaperTexture() {
 
 void LockSurface::releaseCaptureTextures() {
   if (renderContext() == nullptr) {
-    m_blurredWallpaperTexture = {};
-    m_captureSourceTexture = {};
-    m_blurredDesktopTexture = {};
     m_transitionCaptureTexture = {};
-    m_blurCache.destroy();
-    m_wallpaperBlurCache.destroy();
     return;
-  }
-
-  auto& tm = renderContext()->textureManager();
-  renderContext()->backend().makeCurrentNoSurface();
-  if (m_blurredWallpaperTexture.id != 0) {
-    tm.unload(m_blurredWallpaperTexture);
-    m_blurredWallpaperTexture = {};
-  }
-  if (m_captureSourceTexture.id != 0) {
-    tm.unload(m_captureSourceTexture);
-    m_captureSourceTexture = {};
-  }
-  if (m_blurredDesktopTexture.id != 0) {
-    tm.unload(m_blurredDesktopTexture);
-    m_blurredDesktopTexture = {};
   }
   if (m_transitionCaptureTexture.id != 0) {
-    tm.unload(m_transitionCaptureTexture);
+    renderContext()->backend().makeCurrentNoSurface();
+    renderContext()->textureManager().unload(m_transitionCaptureTexture);
     m_transitionCaptureTexture = {};
   }
-  m_blurCache.destroy();
-  m_wallpaperBlurCache.destroy();
 }
 
-void LockSurface::applyBlurredDesktopTexture() {
-  if (!m_captureDirty || !usesDesktopCaptureBackground()) {
+void LockSurface::syncBlurRegion(bool enabled, std::uint32_t width, std::uint32_t height) {
+  const std::uint64_t key = enabled ? (static_cast<std::uint64_t>(width) << 32) | height : 0;
+  if (key == m_blurRegionKey) {
     return;
   }
-
-  auto* renderer = renderContext();
-  if (renderer == nullptr) {
-    return;
+  m_blurRegionKey = key;
+  if (enabled) {
+    setBlurRegion({InputRect{.x = 0, .y = 0, .width = static_cast<int>(width), .height = static_cast<int>(height)}});
+  } else {
+    clearBlurRegion();
   }
-
-  const ScreencopyImage& capture = *m_desktopCapture;
-  const int texW = capture.width;
-  const int texH = capture.height;
-  if (texW <= 0 || texH <= 0) {
-    return;
-  }
-
-  renderer->makeCurrent(renderTarget());
-  auto& tm = renderer->textureManager();
-  if (m_captureSourceTexture.id != 0) {
-    tm.unload(m_captureSourceTexture);
-    m_captureSourceTexture = {};
-  }
-  if (m_blurredDesktopTexture.id != 0) {
-    tm.unload(m_blurredDesktopTexture);
-    m_blurredDesktopTexture = {};
-  }
-
-  m_captureSourceTexture = tm.loadFromRgba(capture.rgba.data(), texW, texH, false);
-  if (m_captureSourceTexture.id == 0) {
-    return;
-  }
-
-  static constexpr int kBlurRounds = 3;
-  const float blurRadius = m_blurIntensity * 40.0F;
-  const std::uint32_t blurWidth = renderTarget().bufferWidth();
-  const std::uint32_t blurHeight = renderTarget().bufferHeight();
-  m_blurredDesktopTexture =
-      m_blurCache.get(renderer->backend(), m_captureSourceTexture, blurWidth, blurHeight, blurRadius, kBlurRounds);
-  if (m_blurredDesktopTexture.id == 0) {
-    return;
-  }
-
-  m_wallpaper->setTextures(
-      m_blurredDesktopTexture.id, {}, static_cast<float>(m_blurredDesktopTexture.width),
-      static_cast<float>(m_blurredDesktopTexture.height), 0.0F, 0.0F
-  );
-  m_wallpaper->setTransition(WallpaperTransition::Fade, 0.0F, TransitionParams{});
-  m_wallpaper->setFillMode(m_wallpaperFillMode);
-  m_wallpaper->setFillColor(rgba(0.0F, 0.0F, 0.0F, 0.0F));
-  m_backdrop->setVisible(false);
-  m_captureDirty = false;
-  m_wallpaperDirty = false;
 }
 
 void LockSurface::onGpuResourcesInvalidated() {
@@ -2274,19 +2164,12 @@ void LockSurface::onGpuResourcesInvalidated() {
     m_transitionProgress = 1.0F;
   }
 
-  m_captureDirty = true;
   m_wallpaperDirty = true;
   requestLayout();
 }
 
 void LockSurface::prepareForGraphicsReset() noexcept {
-  m_blurCache.abandon();
-  m_wallpaperBlurCache.abandon();
-  m_blurredWallpaperTexture = {};
-  m_captureSourceTexture = {};
-  m_blurredDesktopTexture = {};
   m_transitionCaptureTexture = {};
-  m_captureDirty = true;
   m_wallpaperDirty = true;
 }
 

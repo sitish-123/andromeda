@@ -34,7 +34,7 @@ class RenderContext;
 class SessionActionRunner;
 class SharedTextureCache;
 class SystemBus;
-class WaylandConnection;
+class ShellWaylandConnection;
 class WeatherService;
 enum class LockscreenTransition : std::uint8_t;
 
@@ -44,7 +44,7 @@ public:
   ~LockScreen();
 
   bool initialize(
-      WaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
+      ShellWaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
       SharedTextureCache* textureCache, SystemBus* systemBus, CompositorPlatform* compositorPlatform
   );
   void setSessionHooks(
@@ -167,7 +167,7 @@ private:
   /// (even if suppressed as a wake key), so the key is consumed.
   bool tryActionShortcut(std::uint32_t sym, std::uint32_t modifiers);
 
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   RenderContext* m_renderContext = nullptr;
   ConfigService* m_configService = nullptr;
   SharedTextureCache* m_textureCache = nullptr;

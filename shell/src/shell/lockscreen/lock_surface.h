@@ -4,7 +4,6 @@
 #include "config/config_service.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
-#include "render/core/blur_cache.h"
 #include "render/core/color.h"
 #include "render/core/lockscreen_transition_types.h"
 #include "render/core/shared_texture_cache.h"
@@ -66,7 +65,8 @@ public:
   void setWallpaperFillMode(WallpaperFillMode fillMode);
   void setWallpaperCoverage(TextureCoverage coverage);
   void setWallpaperFillColor(Color fillColor);
-  void setDesktopCapture(std::optional<ScreencopyImage> capture, bool useAsBackground);
+  // The desktop snapshot taken before lock, used only by the entry transition.
+  void setDesktopCapture(std::optional<ScreencopyImage> capture);
   void configureTransition(
       std::optional<LockscreenTransitionKind> transition, const LockscreenTransitionParams& params, float durationMs
   );
@@ -96,7 +96,6 @@ public:
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] wl_output* output() const noexcept { return m_output; }
   void syncOutputScale(std::int32_t bufferScale, std::uint32_t configuredScaleNumerator);
-  [[nodiscard]] bool usesDesktopCaptureBackground() const noexcept;
   [[nodiscard]] Node* widgetLayer() noexcept { return m_widgetLayer; }
   void setOutputKey(std::string outputKey) { m_outputKey = std::move(outputKey); }
   void setWidgetsHost(LockscreenWidgetsHost* host) noexcept { m_widgetsHost = host; }
@@ -145,7 +144,9 @@ private:
   void invalidateSleepFrame();
   static void handleSleepFrameDone(void* data, wl_callback* callback, std::uint32_t callbackData);
   void applyWallpaperTexture();
-  void applyBlurredDesktopTexture();
+  // With blur on and a compositor that blurs (ext-background-effect-v1), the surface draws no wallpaper and asks the
+  // compositor to blur the cached wallpaper behind it.
+  void syncBlurRegion(bool enabled, std::uint32_t width, std::uint32_t height);
   void releaseCaptureTextures();
   void layoutScene(std::uint32_t width, std::uint32_t height);
   void updateCopy();
@@ -210,12 +211,7 @@ private:
   SharedTextureCache* m_textureCache = nullptr;
   SharedTextureCache::Lease m_wallpaperLease;
   SharedTextureCache::Lease m_pendingWallpaperLease;
-  TextureHandle m_blurredWallpaperTexture{};
-  TextureHandle m_captureSourceTexture{};
-  TextureHandle m_blurredDesktopTexture{};
   TextureHandle m_transitionCaptureTexture{};
-  BlurCache m_blurCache;
-  BlurCache m_wallpaperBlurCache;
   std::optional<ScreencopyImage> m_desktopCapture;
   LockscreenTransitionKind m_transition = LockscreenTransitionKind::Fade;
   LockscreenTransitionParams m_transitionParams;
@@ -227,9 +223,8 @@ private:
   float m_tintIntensity = 0.3F;
   float m_regularContentScale = 1.0F;
   bool m_blackout = false;
-  bool m_useDesktopCaptureBackground = false;
   bool m_enterTransitionRequested = false;
-  bool m_captureDirty = true;
+  std::uint64_t m_blurRegionKey = 0; // width << 32 | height of the region sent; 0 when none
   std::string m_wallpaperPath;
   std::string m_shownWallpaperPath;
   std::string m_pendingWallpaperPath;

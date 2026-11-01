@@ -21,7 +21,7 @@
 #include "shell/session/session_action_runner.h"
 #include "shell/wallpaper/wallpaper_geometry.h"
 #include "ui/palette.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -88,7 +88,7 @@ namespace {
   }
 
   // An output can only carry a lock surface once it is complete and has real geometry.
-  bool hasUsableOutput(const WaylandConnection& wayland) {
+  bool hasUsableOutput(const ShellWaylandConnection& wayland) {
     return std::ranges::any_of(wayland.outputs(), [](const WaylandOutput& output) {
       return output.done && output.output != nullptr && output.hasUsableGeometry();
     });
@@ -111,7 +111,7 @@ LockScreen::~LockScreen() {
 }
 
 bool LockScreen::initialize(
-    WaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
+    ShellWaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
     SharedTextureCache* textureCache, SystemBus* systemBus, CompositorPlatform* compositorPlatform
 ) {
   m_wayland = &wayland;
@@ -691,9 +691,7 @@ void LockScreen::suppressEntryTransition() {
   }
   m_transitionSuppressed = true;
   m_activeTransition.reset();
-  if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
-    invalidateDesktopCaptures();
-  }
+  invalidateDesktopCaptures();
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {
       instance.surface->suppressEntryTransition();
@@ -712,7 +710,7 @@ void LockScreen::onOutputPowerChanged() {
   }
   if (isActive() || m_lockStarting || m_lockDeferred) {
     suppressEntryTransition();
-  } else if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
+  } else {
     invalidateDesktopCaptures();
   }
 }
@@ -730,9 +728,7 @@ void LockScreen::prepareForOutputPowerOff(std::function<void(bool)> done) {
     if (m_lockDeferred) {
       suppressEntryTransition();
     }
-    if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
-      invalidateDesktopCaptures();
-    }
+    invalidateDesktopCaptures();
     done(true);
     return;
   }
@@ -1015,7 +1011,7 @@ bool LockScreen::shouldCaptureDesktop() const {
     return false;
   }
   const auto& lockscreen = m_configService->config().lockscreen;
-  return lockscreen.blurredDesktop || (!m_transitionSuppressed && !lockscreen.transitions.empty());
+  return !m_transitionSuppressed && !lockscreen.transitions.empty();
 }
 
 bool LockScreen::allSurfacesReady() const {
@@ -1038,9 +1034,7 @@ void LockScreen::primeDesktopCaptures() {
     return;
   }
   invalidateDesktopCaptures();
-  if (m_compositorPlatform != nullptr
-      && m_compositorPlatform->shouldSuppressLockTransition()
-      && (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop)) {
+  if (m_compositorPlatform != nullptr && m_compositorPlatform->shouldSuppressLockTransition()) {
     return;
   }
   if (!shouldCaptureDesktop()) {
@@ -1080,7 +1074,7 @@ bool LockScreen::captureDesktopSnapshots() {
   }
 
   const auto firstCaptureDeadline = std::chrono::steady_clock::now() + screencopy::kBlockingCaptureTimeout;
-  WaylandConnection captureWayland(WaylandConnection::Purpose::Screencopy);
+  ShellWaylandConnection captureWayland(ShellWaylandConnection::Purpose::Screencopy);
   std::string setupError;
   if (!captureWayland.connectUntil(firstCaptureDeadline, m_wayland, setupError)) {
     kLog.warn("lockscreen desktop capture setup failed: {}", setupError);
@@ -1310,9 +1304,7 @@ void LockScreen::applyWallpaperStyleToSurfaces() {
   const WallpaperFillMode fillMode = wallpaperConfig.fillMode;
   const Color fillColor = resolveWallpaperFillColor(wallpaperConfig);
   for (auto& instance : m_instances) {
-    if (instance.surface == nullptr
-        || instance.surface->isBlackout()
-        || instance.surface->usesDesktopCaptureBackground()) {
+    if (instance.surface == nullptr || instance.surface->isBlackout()) {
       continue;
     }
     instance.surface->setWallpaperPath(wallpaperPathForOutput(instance.connectorName));
@@ -1339,8 +1331,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
     surface->setWallpaperFillColor(resolveWallpaperFillColor(m_configService->config().wallpaper));
   }
   if (auto captureIt = m_desktopCaptures.find(output.output); captureIt != m_desktopCaptures.end()) {
-    const bool useAsBackground = m_configService != nullptr && m_configService->config().lockscreen.blurredDesktop;
-    surface->setDesktopCapture(std::move(captureIt->second), useAsBackground);
+    surface->setDesktopCapture(std::move(captureIt->second));
     m_desktopCaptures.erase(captureIt);
   }
   const std::optional<LockscreenTransitionKind> transition =
@@ -1509,17 +1500,21 @@ void LockScreen::tryAuthenticate() {
   updatePromptOnSurfaces();
 
   const PamAuthenticator authenticator = m_authenticator;
-  // Authenticate against the "login" stack. If fingerprint is enabled, strip
-  // pam_fprintd from it: noctalia drives the reader itself over D-Bus and the
-  // two can't share the sensor. See docs/fingerprint.md.
+  // The "login" stack. stopFingerprint() above has released the reader, so a pam_fprintd in that stack can claim it.
   const std::string pamService = "login";
   const std::string pamLanguage(i18n::Service::instance().language());
   const std::string pamStartFailure = i18n::tr("auth.pam.start-failed");
-  std::thread([this, generation, password = std::move(password), authenticator, pamService, pamLanguage,
+  // The thread never touches `this`; the result hops back to the main loop and is dropped if the lock screen is gone.
+  const std::weak_ptr<void> guard = m_aliveGuard;
+  std::thread([this, guard, generation, password = std::move(password), authenticator, pamService, pamLanguage,
                pamStartFailure] mutable {
     const auto result = authenticator.authenticateCurrentUser(password, pamService, pamLanguage, pamStartFailure);
     clearSensitiveString(password);
-    DeferredCall::callLater([this, generation, result] { handleAuthResult(generation, result); });
+    DeferredCall::callLater([this, guard, generation, result] {
+      if (!guard.expired()) {
+        handleAuthResult(generation, result);
+      }
+    });
   }).detach();
 }
 
