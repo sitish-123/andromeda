@@ -33,15 +33,15 @@ namespace popup_chrome {
   }
 
   Geometry computeGeometry(
-      float contentWidth, float contentHeight, const ShellConfig::ShadowConfig& shadow, bool componentShadow
+      float contentWidth, float contentHeight, const ShadowStyle& shadow, bool componentShadow
   ) noexcept {
     Geometry geometry{
         .contentWidth = std::max(1.0F, contentWidth),
         .contentHeight = std::max(1.0F, contentHeight),
     };
 
-    if (shell::surface_shadow::enabled(componentShadow, shadow)) {
-      geometry.bleed = shell::surface_shadow::bleed(componentShadow, shadow);
+    if (ui::surface_shadow::enabled(componentShadow, shadow)) {
+      geometry.bleed = ui::surface_shadow::bleed(componentShadow, shadow);
       geometry.bleed.left += kShadowSafetyPadding;
       geometry.bleed.right += kShadowSafetyPadding;
       geometry.bleed.up += kShadowSafetyPadding;
@@ -97,17 +97,17 @@ namespace popup_chrome {
   }
 
   RectNode* addShadow(
-      Node& parent, const Geometry& geometry, const ShellConfig::ShadowConfig& shadow, float radius,
+      Node& parent, const Geometry& geometry, const ShadowStyle& shadow, float radius,
       float backgroundOpacity
   ) {
-    if (!shell::surface_shadow::enabled(true, shadow)) {
+    if (!ui::surface_shadow::enabled(true, shadow)) {
       return nullptr;
     }
 
     auto shadowNode = std::make_unique<RectNode>();
     shadowNode->setStyle(
-        shell::surface_shadow::style(
-            shadow, backgroundOpacity, shell::surface_shadow::Shape{.radius = Radii{radius, radius, radius, radius}}
+        ui::surface_shadow::style(
+            shadow, backgroundOpacity, ui::surface_shadow::Shape{.radius = Radii{radius, radius, radius, radius}}
         )
     );
     const auto offset = shadowDirectionOffset(shadow.direction);

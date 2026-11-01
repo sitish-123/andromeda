@@ -12,6 +12,8 @@ namespace {
   bool g_popupShadowsEnabled = true;
   bool g_cardBordersEnabled = true;
   bool g_closeButtonsEnabled = true;
+  float g_glassOpacity = 1.0F;
+  bool g_reduceTransparency = false;
 
 } // namespace
 
@@ -61,6 +63,15 @@ namespace Style {
 
   bool popupShadowsEnabled() noexcept { return g_popupShadowsEnabled; }
   void setPopupShadowsEnabled(bool enabled) { g_popupShadowsEnabled = enabled; }
+
+  void setGlass(float opacity, bool reduceTransparency) noexcept {
+    g_glassOpacity = std::clamp(opacity, 0.0F, 1.0F);
+    g_reduceTransparency = reduceTransparency;
+  }
+
+  float glassAlpha(float alpha) noexcept {
+    return g_reduceTransparency || alpha >= 1.0F ? 1.0F : alpha * g_glassOpacity;
+  }
 
   bool closeButtonsEnabled() noexcept { return g_closeButtonsEnabled; }
   void setCloseButtonsEnabled(bool enabled) { g_closeButtonsEnabled = enabled; }

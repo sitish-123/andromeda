@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <optional>
 
-struct ShellConfig;
 
 struct AppIconColorizationStyle {
   Color tint = rgba(1.0F, 1.0F, 1.0F, 1.0F);
@@ -23,8 +22,8 @@ struct ShellAppIconColorizationSettings {
 
 // App-icon bake: desktop/tray/taskbar/dock/launcher-panel bitmap icons (CPU desaturate + tint).
 
-[[nodiscard]] ShellAppIconColorizationSettings shellAppIconColorizationSettings(const ShellConfig& shell) noexcept;
-[[nodiscard]] std::optional<ColorSpec> effectiveShellAppIconColorizationTint(const ShellConfig& shell) noexcept;
+// The tint when colorization is on with no color set: a label color of the current theme.
+[[nodiscard]] ColorSpec defaultAppIconColorizationTint() noexcept;
 [[nodiscard]] AppIconColorizationStyle resolveAppIconColorization(const ColorSpec& tint) noexcept;
 void bakeAppIconForColorization(std::uint8_t* rgba, int width, int height, const Color& tint) noexcept;
 

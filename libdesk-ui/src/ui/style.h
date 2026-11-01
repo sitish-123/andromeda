@@ -1,19 +1,20 @@
 #pragma once
 
+#include "design_tokens.h"
 #include "ui/signal.h"
 
 namespace Style {
 
   inline constexpr int barThicknessDefault = 34;
 
-  inline constexpr int animFast = 100;
-  inline constexpr int animNormal = 200;
-  inline constexpr int animSlow = 400;
+  inline constexpr int animFast = Tokens::motionFast;
+  inline constexpr int animNormal = Tokens::motionNormal;
+  inline constexpr int animSlow = Tokens::motionSlow;
 
-  inline constexpr float radiusSm = 3.0F;
-  inline constexpr float radiusMd = 6.0F;
-  inline constexpr float radiusLg = 9.0F;
-  inline constexpr float radiusXl = 12.0F;
+  inline constexpr float radiusSm = Tokens::radiusXs;
+  inline constexpr float radiusMd = Tokens::radiusSm;
+  inline constexpr float radiusLg = Tokens::radiusMd;
+  inline constexpr float radiusXl = Tokens::radiusLg;
 
   inline constexpr float borderWidth = 1.0F;
   inline constexpr float emphasizedBorderWidth = 3.0F;
@@ -21,23 +22,23 @@ namespace Style {
   inline constexpr float progressMarkerWidth = 2.0F;
   inline constexpr float disabledOutlineAlpha = 0.5F;
 
-  inline constexpr float spaceXs = 4.0F;
-  inline constexpr float spaceSm = 8.0F;
-  inline constexpr float spaceMd = 12.0F;
-  inline constexpr float spaceLg = 16.0F;
+  inline constexpr float spaceXs = Tokens::spaceS1;
+  inline constexpr float spaceSm = Tokens::spaceS2;
+  inline constexpr float spaceMd = Tokens::spaceS3;
+  inline constexpr float spaceLg = Tokens::spaceS4;
 
-  inline constexpr float cardPadding = 14.0F;
-  inline constexpr float panelPadding = 14.0F;
+  inline constexpr float cardPadding = Tokens::spaceS3;
+  inline constexpr float panelPadding = Tokens::spaceS3;
 
   // Default inner inset for bar widget capsules (logical px, before bar content scale).
   inline constexpr float barCapsulePadding = 6.0F;
   inline constexpr float baseGlyphSize = 16.0F;
 
-  inline constexpr float fontSizeMini = 11.0F;
-  inline constexpr float fontSizeCaption = 13.0F;
-  inline constexpr float fontSizeBody = 14.0F;
-  inline constexpr float fontSizeTitle = 16.0F;
-  inline constexpr float fontSizeHeader = 20.0F;
+  inline constexpr float fontSizeMini = Tokens::typeMini.size;
+  inline constexpr float fontSizeCaption = Tokens::typeCaption.size;
+  inline constexpr float fontSizeBody = Tokens::typeBody.size;
+  inline constexpr float fontSizeTitle = Tokens::typeTitle.size;
+  inline constexpr float fontSizeHeader = Tokens::typeHeader.size;
 
   inline constexpr float controlHeightSm = 32.0F;
   inline constexpr float controlHeight = 38.0F;
@@ -117,6 +118,11 @@ namespace Style {
 
   [[nodiscard]] bool popupShadowsEnabled() noexcept;
   void setPopupShadowsEnabled(bool enabled);
+
+  // Live appearance for glass materials: `opacity` (0..1) multiplies their alpha; reduce transparency makes them solid.
+  void setGlass(float opacity, bool reduceTransparency) noexcept;
+  // Alpha a glass material fill uses in place of its configured `alpha`.
+  [[nodiscard]] float glassAlpha(float alpha) noexcept;
 
   [[nodiscard]] bool closeButtonsEnabled() noexcept;
   void setCloseButtonsEnabled(bool enabled);

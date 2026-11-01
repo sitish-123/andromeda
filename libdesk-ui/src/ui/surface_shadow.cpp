@@ -1,14 +1,14 @@
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 
 #include "render/core/color.h"
 
 #include <algorithm>
 
-namespace shell::surface_shadow {
+namespace ui::surface_shadow {
 
-  bool enabled(bool componentShadow, const ShellConfig::ShadowConfig& /*shadow*/) noexcept { return componentShadow; }
+  bool enabled(bool componentShadow, const ShadowStyle& /*shadow*/) noexcept { return componentShadow; }
 
-  Bleed bleed(bool componentShadow, const ShellConfig::ShadowConfig& shadow) noexcept {
+  Bleed bleed(bool componentShadow, const ShadowStyle& shadow) noexcept {
     if (!enabled(componentShadow, shadow)) {
       return {};
     }
@@ -22,7 +22,7 @@ namespace shell::surface_shadow {
   }
 
   RoundedRectStyle
-  style(const ShellConfig::ShadowConfig& shadow, float backgroundOpacity, const Shape& shape) noexcept {
+  style(const ShadowStyle& shadow, float backgroundOpacity, const Shape& shape) noexcept {
     const auto offset = shadowDirectionOffset(shadow.direction);
     const float shadowAlpha = std::clamp(shadow.alpha, 0.0F, 1.0F) * std::clamp(backgroundOpacity, 0.0F, 1.0F);
     return RoundedRectStyle{
@@ -40,8 +40,8 @@ namespace shell::surface_shadow {
     };
   }
 
-  bool sameSurfaceMetrics(const ShellConfig::ShadowConfig& previous, const ShellConfig::ShadowConfig& next) noexcept {
+  bool sameSurfaceMetrics(const ShadowStyle& previous, const ShadowStyle& next) noexcept {
     return previous.direction == next.direction;
   }
 
-} // namespace shell::surface_shadow
+} // namespace ui::surface_shadow
