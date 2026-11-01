@@ -436,6 +436,30 @@ namespace andromeda {
       double y;
     };
     std::optional<ClientPointerPress> m_clientPointerPress;
+    // A left press on a dsk_tracker_v1 drag region (fingers 0). The client gets the press; past kTrackerDragSlop px
+    // along the tracker's axis the compositor claims the drag and the client gets a pointer leave.
+    struct TrackerDrag {
+      wlr_surface* surface = nullptr;
+      double sx = 0.0;
+      double sy = 0.0;
+      double startX = 0.0;
+      double startY = 0.0;
+      bool horizontal = false;
+      bool claimed = false;
+    };
+    std::optional<TrackerDrag> m_trackerDrag;
+    // The touch counterpart: one touch point on a drag tracker; a claim sends the client a touch cancel.
+    struct TrackerTouch {
+      int32_t touchId = 0;
+      TrackerDrag drag;
+      double lastX = 0.0;
+      double lastY = 0.0;
+    };
+    std::optional<TrackerTouch> m_trackerTouch;
+    static constexpr double kTrackerDragSlop = 8.0;
+    // Returns true when the tracker drag owns this motion.
+    bool processTrackerDragMotion(uint32_t timeMsec, double oldX, double oldY);
+    bool handleTrackerTouchMotion(uint32_t timeMsec, double lx, double ly);
     // Last layout output under the pointer; crossing heads updates seat focus like workspace switch.
     wlr_output* m_pointerOutput = nullptr;
     double m_wheelAccum[2]{};
