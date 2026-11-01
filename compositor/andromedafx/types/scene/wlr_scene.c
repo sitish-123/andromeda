@@ -3300,7 +3300,8 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
   pixman_region32_init(&render_region);
   pixman_region32_copy(&render_region, &node->visible);
   pixman_region32_translate(&render_region, -data->logical.x, -data->logical.y);
-  logical_to_buffer_coords(&render_region, data, true);
+  // Blur draws the raw backdrop: the 1 px safety expansion for fractional scales would show it outside its clip.
+  logical_to_buffer_coords(&render_region, data, node->type != WLR_SCENE_NODE_BLUR);
   pixman_region32_intersect(&render_region, &render_region, &data->damage);
   if (pixman_region32_empty(&render_region)) {
     pixman_region32_fini(&render_region);

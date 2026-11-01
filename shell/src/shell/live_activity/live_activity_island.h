@@ -9,6 +9,7 @@
 #include "wayland/layer_surface.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -171,6 +172,19 @@ private:
     Timer collapse;
     float reveal = 1.0F; // 0..1 from `from` to `to`
     AnimationManager::Id revealAnimId = 0;
+    float osdProgress = 0.0F;
+    float dragOffset = 0.0F; // banner swipe: surface translate, px (negative = up)
+    float dragStartY = 0.0F;
+    float dragLastY = 0.0F;
+    float dragVelocity = 0.0F; // px/ms
+    std::chrono::steady_clock::time_point dragLastAt;
+    desk::motion::Spring dragSpring;
+    Timer dragTimer;
+    bool dragging = false;
+    bool dragMoved = false;
+    bool dragDismiss = false;
+    std::uint32_t dragBannerId = 0;
+    AnimationManager::Id osdAnimId = 0;
     Rect from;
     Rect to;
     Rect cur;
@@ -193,6 +207,14 @@ private:
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
   void animateReveal(Instance& inst, float velocity);
+  void bannerDragStart(Instance& inst, float y);
+  void bannerDragMove(Instance& inst, float y);
+  void bannerDragEnd(Instance& inst);
+  void startBannerSpring(Instance& inst, bool dismiss);
+  [[nodiscard]] bool bannerDragStale(const Instance& inst) const;
+  void finishBannerDrag(Instance& inst, bool dismiss);
+  void applyBannerOffset(Instance& inst, float offset);
+  [[nodiscard]] float bannerMinOffset(const Instance& inst) const;
   void updateFace(Instance& inst);
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;

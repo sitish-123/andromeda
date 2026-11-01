@@ -512,6 +512,8 @@ namespace andromeda {
     const pixman_region32_t* region = effects != nullptr ? effects->blurRegion(m_layerSurface->surface) : nullptr;
     // The blur is not under the surface tree, so a dsk_surface_v1 clip and its corners are applied here too.
     std::optional<wlr_box> dskClip;
+    // The surface tree moves with the dsk translate; the blur node is its sibling, so it moves by the same offset.
+    wlr_box nodeBox = box;
     fx_corner_radii corners = corner_radii_none();
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
     if (const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr) {
@@ -521,8 +523,13 @@ namespace andromeda {
           static_cast<int>(std::lround(c[0] * scale)), static_cast<int>(std::lround(c[1] * scale)),
           static_cast<int>(std::lround(c[2] * scale)), static_cast<int>(std::lround(c[3] * scale))
       };
+      const auto& translate = state->motion.value(SurfaceMotion::Property::Translate);
+      nodeBox.x = static_cast<int>(std::lround(translate[0] + box.width * (1.0 - scale) / 2.0));
+      nodeBox.y = static_cast<int>(std::lround(translate[1] + box.height * (1.0 - scale) / 2.0));
       if (scaled.width > 0 && scaled.height > 0) {
         dskClip = scaled;
+        dskClip->x += nodeBox.x;
+        dskClip->y += nodeBox.y;
         corners = corner_radii_all(
             static_cast<int>(std::lround(state->motion.value(SurfaceMotion::Property::Radius)[0] * scale))
         );
@@ -532,7 +539,9 @@ namespace andromeda {
     pixman_region32_init(&clipped);
     if (region != nullptr && m_rule.blur.value_or(true)) {
       if (dskClip) {
-        pixman_region32_intersect_rect(&clipped, region, dskClip->x, dskClip->y, dskClip->width, dskClip->height);
+        pixman_region32_intersect_rect(
+            &clipped, region, dskClip->x - nodeBox.x, dskClip->y - nodeBox.y, dskClip->width, dskClip->height
+        );
         region = &clipped;
       }
       // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to the
@@ -546,7 +555,7 @@ namespace andromeda {
       clip = dskClip;
     }
     m_blur.update(
-        m_scene->tree, m_layerSurface->surface, box, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
+        m_scene->tree, m_layerSurface->surface, nodeBox, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
         region
     );
     pixman_region32_fini(&clipped);

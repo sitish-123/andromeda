@@ -981,9 +981,16 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   auto restArea = ui::inputArea({
       .onEnter = [this, instPtr](const InputArea::PointerData&) { hoverEnter(*instPtr); },
       .onLeave = [this, instPtr] { hoverLeave(*instPtr); },
+      .onMotion = [this, instPtr](const InputArea::PointerData& d) { bannerDragMove(*instPtr, d.localY); },
+      .onPress =
+          [this, instPtr](const InputArea::PointerData& d) {
+            if (d.button == BTN_LEFT) {
+              d.pressed ? bannerDragStart(*instPtr, d.localY) : bannerDragEnd(*instPtr);
+            }
+          },
       .onClick =
           [this, instPtr](const InputArea::PointerData&) {
-            if (instPtr->face == Face::Live) {
+            if (std::exchange(instPtr->dragMoved, false) || instPtr->face == Face::Live) {
               return;
             }
             if (instPtr->face == Face::Banner && m_banner.has_value()) {
@@ -1188,7 +1195,22 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.osdGlyph->setGlyph(m_osd->icon);
     inst.osdValue->setText(m_osd->value);
     inst.osdBar->setVisible(m_osd->showProgress);
-    inst.osdBar->setProgress(std::clamp(m_osd->progress, 0.0F, 1.0F));
+    const float osdTarget = std::clamp(m_osd->progress, 0.0F, 1.0F);
+    if (inst.osdAnimId != 0 && inst.animations.retarget(inst.osdAnimId, osdTarget)) {
+      // A running spring keeps its velocity.
+    } else {
+      auto* instPtr = &inst;
+      inst.osdAnimId = inst.animations.animateSpatial(
+          inst.osdProgress, osdTarget,
+          {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+          [instPtr](float v) {
+            instPtr->osdProgress = v;
+            instPtr->osdBar->setProgress(std::clamp(v, 0.0F, 1.0F));
+            instPtr->surface->requestRedraw();
+          },
+          [instPtr] { instPtr->osdAnimId = 0; }, &inst
+      );
+    }
   }
   inst.faceWidth[static_cast<std::size_t>(Face::Osd)] = m_osd.has_value() && !m_osd->showProgress ? 160.0F : kOsdWidth;
 
@@ -1321,6 +1343,11 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
     if (instPtr->face == Face::Rest && instPtr->dsk != nullptr) {
       instPtr->dsk->setElevation(DskSurfaceClient::Elevation::None);
     }
+    if (instPtr->face != Face::Banner && instPtr->dragOffset != 0.0F && !instPtr->dragTimer.active()) {
+      instPtr->dragOffset = 0.0F;
+      instPtr->dsk->set(DskSurfaceClient::Property::Translate, {0.0, 0.0, 0.0, 0.0});
+      instPtr->surface->requestRedraw();
+    }
   };
   if (MotionService::instance().enabled()) {
     inst.revealAnimId = inst.animations.animateSpring(0.0F, 1.0F, revealSpring(inst.face != Face::Rest), setter, done, &inst, velocity);
@@ -1329,6 +1356,146 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
         inst.animations.animateTimer(0.0F, 1.0F, static_cast<float>(Tokens::motionFast), Easing::Linear, setter, done, &inst);
   }
   inst.surface->requestRedraw();
+}
+
+// Banner swipe: the island follows the pointer upward 1:1 and downward at 0.3; a release past 40 % of the card or a fast
+// upward flick dismisses it on the collapse spring with the release velocity, anything else springs back.
+void LiveActivityIsland::bannerDragStart(Instance& inst, float y) {
+  if (inst.face != Face::Banner || inst.dsk == nullptr || !MotionService::instance().enabled()) {
+    return;
+  }
+  if (!m_banner.has_value()) {
+    return;
+  }
+  inst.dragTimer.stop();
+  inst.dragBannerId = m_banner->id;
+  inst.dragging = true;
+  inst.dragMoved = false;
+  inst.dragStartY = y;
+  inst.dragLastY = inst.dragStartY;
+  inst.dragLastAt = std::chrono::steady_clock::now();
+  inst.dragVelocity = 0.0F;
+}
+
+float LiveActivityIsland::bannerMinOffset(const Instance& inst) const {
+  const Rect banner = faceRect(inst, Face::Banner);
+  return -(banner.y + banner.h - 1.0F);
+}
+
+void LiveActivityIsland::applyBannerOffset(Instance& inst, float offset) {
+  inst.dragOffset = offset;
+  inst.dsk->set(DskSurfaceClient::Property::Translate, {0.0, static_cast<double>(offset), 0.0, 0.0});
+  inst.surface->requestRedraw();
+}
+
+bool LiveActivityIsland::bannerDragStale(const Instance& inst) const {
+  return inst.face != Face::Banner || !m_banner.has_value() || m_banner->id != inst.dragBannerId;
+}
+
+void LiveActivityIsland::bannerDragMove(Instance& inst, float y) {
+  if (!inst.dragging) {
+    return;
+  }
+  if (bannerDragStale(inst)) {
+    inst.dragging = false;
+    startBannerSpring(inst, false);
+    return;
+  }
+  const float screenY = y; // the pointer reports output-relative y; the moving surface does not shift it
+  const auto now = std::chrono::steady_clock::now();
+  const float dtMs = std::chrono::duration<float, std::milli>(now - inst.dragLastAt).count();
+  // Samples closer than 4 ms are merged into the next one: they would give a wild speed.
+  if (dtMs >= 4.0F) {
+    inst.dragVelocity = dtMs < 80.0F ? std::clamp((screenY - inst.dragLastY) / dtMs, -4.0F, 4.0F) : 0.0F;
+    inst.dragLastY = screenY;
+    inst.dragLastAt = now;
+  }
+  const float delta = screenY - inst.dragStartY;
+  if (std::abs(delta) > 4.0F) {
+    inst.dragMoved = true;
+  }
+  if (inst.dragMoved) {
+    applyBannerOffset(inst, std::max(delta < 0.0F ? delta : delta * 0.3F, bannerMinOffset(inst)));
+  }
+}
+
+void LiveActivityIsland::bannerDragEnd(Instance& inst) {
+  if (!inst.dragging) {
+    return;
+  }
+  inst.dragging = false;
+  if (!inst.dragMoved) {
+    return;
+  }
+  if (std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - inst.dragLastAt).count() > 80.0F) {
+    inst.dragVelocity = 0.0F;
+  }
+  const Rect banner = faceRect(inst, Face::Banner);
+  const bool dismiss =
+      !bannerDragStale(inst) && (inst.dragOffset < -0.4F * banner.h || inst.dragVelocity < -0.5F);
+  startBannerSpring(inst, dismiss);
+}
+
+void LiveActivityIsland::startBannerSpring(Instance& inst, bool dismiss) {
+  // The card keeps its bottom row on the output: a surface with nothing visible gets no frame callbacks, and its
+  // client would never draw again.
+  const float target = dismiss ? bannerMinOffset(inst) : 0.0F;
+  auto* instPtr = &inst;
+  const Tokens::Spring& token = dismiss ? Tokens::springIslandCollapse : Tokens::springIslandExpand;
+  inst.dragDismiss = dismiss;
+  // A timer steps the spring: a card swiped off the output gets no frame callbacks, so the frame clock would stall.
+  inst.dragSpring = desk::motion::Spring(
+      inst.dragOffset, target, {.damping = token.damping, .stiffness = token.stiffness}, inst.dragVelocity * 1000.0F
+  );
+  inst.dragLastAt = std::chrono::steady_clock::now();
+  inst.dragTimer.startRepeating(std::chrono::milliseconds(8), [this, instPtr] {
+    if (instPtr->dsk == nullptr) {
+      instPtr->dragTimer.stop();
+      return;
+    }
+    if (instPtr->dragDismiss && bannerDragStale(*instPtr)) {
+      const Tokens::Spring& back = Tokens::springIslandExpand;
+      instPtr->dragDismiss = false;
+      instPtr->dragSpring = desk::motion::Spring(
+          instPtr->dragSpring.value(), 0.0, {.damping = back.damping, .stiffness = back.stiffness},
+          instPtr->dragSpring.velocity()
+      );
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const double dt = std::chrono::duration<double>(now - instPtr->dragLastAt).count();
+    instPtr->dragLastAt = now;
+    applyBannerOffset(*instPtr, static_cast<float>(instPtr->dragSpring.step(dt)));
+    if (!instPtr->dragSpring.settled()) {
+      return;
+    }
+    // stop() frees this closure: keep what follows out of its captures.
+    LiveActivityIsland* const self = this;
+    Instance* const inst = instPtr;
+    const bool dismissed = inst->dragDismiss;
+    inst->dragTimer.stop();
+    self->finishBannerDrag(*inst, dismissed);
+  });
+}
+
+void LiveActivityIsland::finishBannerDrag(Instance& inst, bool dismiss) {
+  auto* instPtr = &inst;
+  if (dismiss && m_banner.has_value() && m_banner->id == inst.dragBannerId) {
+    endBanner();
+    // The card is off the output: settle the new face at once, then bring the surface back.
+    if (instPtr->revealAnimId != 0) {
+      instPtr->animations.cancel(instPtr->revealAnimId);
+      instPtr->revealAnimId = 0;
+    }
+    instPtr->reveal = 1.0F;
+    instPtr->from = instPtr->to;
+    instPtr->prevFace = instPtr->face;
+    instPtr->dskTarget.reset();
+    syncDsk(*instPtr, false);
+    applyReveal(*instPtr, 1.0F);
+  }
+  if (instPtr->dsk != nullptr) {
+    applyBannerOffset(*instPtr, 0.0F);
+  }
 }
 
 void LiveActivityIsland::syncBars() {

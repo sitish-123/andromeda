@@ -339,8 +339,9 @@ namespace {
     if (animId != 0) {
       instance.animations.cancel(animId);
     }
-    animId = instance.animations.animate(
-        visualScale, targetScale, Style::animNormal, Easing::EaseOutCubic,
+    const Tokens::Spring& token = targetScale < visualScale ? Tokens::springPress : Tokens::springRelease;
+    animId = instance.animations.animateSpatial(
+        visualScale, targetScale, {.damping = token.damping, .stiffness = token.stiffness},
         [node = iconNode, visualScalePtr = &visualScale](float value) {
           *visualScalePtr = value;
           node->setScale(value);
@@ -706,6 +707,26 @@ namespace shell::dock {
         if (d.button != BTN_LEFT) {
           return;
         }
+        if (itemIndex < instPtr->items.size()) {
+          // Press scales the cell to 0.97 and release springs back.
+          auto& pressed = instPtr->items[itemIndex];
+          if (pressed.area != nullptr) {
+            const Tokens::Spring& token = d.pressed ? Tokens::springPress : Tokens::springRelease;
+            if (pressed.pressAnimId != 0) {
+              instPtr->animations.cancel(pressed.pressAnimId);
+            }
+            pressed.pressAnimId = instPtr->animations.animateSpatial(
+                pressed.pressScale, d.pressed ? 0.97F : 1.0F,
+                {.damping = token.damping, .stiffness = token.stiffness},
+                [item = &pressed](float v) {
+                  item->pressScale = v;
+                  item->area->setTransformOrigin(item->area->width() * 0.5F, item->area->height() * 0.5F);
+                  item->area->setScale(v);
+                },
+                [item = &pressed] { item->pressAnimId = 0; }, pressed.area
+            );
+          }
+        }
         auto& drag = instPtr->drag;
         const auto& dockCfg = instPtr->config;
         if (d.pressed) {
@@ -876,8 +897,9 @@ namespace shell::dock {
             if (item.opacityAnimId != 0) {
               instance.animations.cancel(item.opacityAnimId);
             }
-            item.opacityAnimId = instance.animations.animate(
-                item.visualOpacity, iconOpacity, Style::animNormal, Easing::EaseOutCubic,
+            item.opacityAnimId = instance.animations.animateSpatial(
+                item.visualOpacity, iconOpacity,
+                {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
                 [node = iconNode, itemPtr = &item](float value) {
                   itemPtr->visualOpacity = value;
                   node->setOpacity(value);
@@ -900,7 +922,32 @@ namespace shell::dock {
         item.minimizedIndicator->setVisible(model.allMinimized);
       }
       if (item.runningIndicator != nullptr) {
-        item.runningIndicator->setVisible(model.running && !model.allMinimized);
+        const bool runningNow = model.running && !model.allMinimized;
+        item.runningIndicator->setVisible(runningNow || item.runningScale > 0.001F);
+        if (runningNow != item.runningShown) {
+          item.runningShown = runningNow;
+          if (item.runningAnimId != 0) {
+            instance.animations.cancel(item.runningAnimId);
+          }
+          // The bar grows from its center along its length on the effects spring.
+          item.runningAnimId = instance.animations.animateSpatial(
+              item.runningScale, runningNow ? 1.0F : 0.0F,
+              {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+              [&instance, itemPtr = &item, vert = shell::dock::isVerticalEdge(cfg.position)](float v) {
+                itemPtr->runningScale = v;
+                Node* bar = itemPtr->runningIndicator;
+                bar->setTransformOrigin(bar->width() * 0.5F, bar->height() * 0.5F);
+                if (vert) {
+                  bar->setScale(1.0F, std::max(v, 0.0F));
+                } else {
+                  bar->setScale(std::max(v, 0.0F), 1.0F);
+                }
+                bar->setVisible(v > 0.001F);
+                instance.surface->requestRedraw();
+              },
+              [itemPtr = &item] { itemPtr->runningAnimId = 0; }, item.runningIndicator
+          );
+        }
       }
 
       if (cfg.showDots) {

@@ -120,6 +120,8 @@ private:
       AnimationManager::Id slideAnimId = 0;
       AnimationManager::Id exitAnimId = 0;
       bool replyMode = false;
+      // Unclamped reveal (a spring overshoots 1); shared with the animation setters.
+      std::shared_ptr<float> reveal = std::make_shared<float>(1.0F);
     };
     std::vector<CardState> cards;
     float lastPointerX = 0.0F;

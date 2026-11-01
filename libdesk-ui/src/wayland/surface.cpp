@@ -21,6 +21,7 @@
 #include <string_view>
 #include <typeinfo>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -28,6 +29,11 @@ namespace {
   constexpr Logger kLog("surface");
   constexpr float kSlowSurfaceOperationDebugMs = 50.0F;
   constexpr float kSlowSurfaceOperationWarnMs = 1000.0F;
+
+  std::unordered_set<const wl_surface*>& liveSurfaces() {
+    static std::unordered_set<const wl_surface*> surfaces;
+    return surfaces;
+  }
 
   const wl_callback_listener kFrameListener = {
       .done = &Surface::handleFrameDone,
@@ -428,11 +434,14 @@ void Surface::onSurfaceOutputLeave(wl_surface* surface, wl_output* output) {
   }
 }
 
+bool Surface::isLive(const wl_surface* surface) { return liveSurfaces().contains(surface); }
+
 bool Surface::createWlSurface() {
   m_surface = wl_compositor_create_surface(m_connection.compositor());
   if (m_surface == nullptr) {
     return false;
   }
+  liveSurfaces().insert(m_surface);
   traceSurfaceEvent(*this, "create-wl-surface");
   wl_surface_add_listener(m_surface, &kSurfaceListener, this);
 
@@ -1321,6 +1330,7 @@ void Surface::destroySurface() {
   }
 
   if (m_surface != nullptr) {
+    liveSurfaces().erase(m_surface);
     wl_surface_destroy(m_surface);
     m_surface = nullptr;
     m_opaque = false;

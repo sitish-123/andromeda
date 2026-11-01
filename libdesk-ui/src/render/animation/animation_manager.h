@@ -36,6 +36,11 @@ public:
   );
   // Units per second of a running spring; 0 when `id` is not one.
   [[nodiscard]] float velocity(Id id) const;
+  // Spatial motion: a spring; with motion off a timed ease over motion.normal (a crossfade, never a pop).
+  Id animateSpatial(
+      float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+      std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F
+  );
   // Moves a running spring's target and keeps its velocity. False when `id` is not a running spring.
   bool retarget(Id id, float to);
   // Same, and switches to `spring` (for example expand -> collapse) without losing velocity.

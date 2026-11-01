@@ -2,6 +2,8 @@
 
 #include "config/config_types.h"
 #include "core/timer_manager.h"
+#include "design_tokens.h"
+#include "motion/desk_motion.h"
 #include "render/scene/input_dispatcher.h"
 #include "shell/dock/dock_items.h"
 #include "shell/dock/dock_model.h"
@@ -23,6 +25,14 @@ class RenderContext;
 struct wl_output;
 
 namespace shell::dock {
+
+  // Auto-hide slide: no overshoot on the way out, the page spring on the way in.
+  inline desk::motion::SpringConfig dockShowSpring() {
+    return {.damping = Tokens::springPage.damping, .stiffness = Tokens::springPage.stiffness};
+  }
+  inline desk::motion::SpringConfig dockHideSpring() {
+    return {.damping = Tokens::springClose.damping, .stiffness = Tokens::springClose.stiffness};
+  }
 
   struct DockInstance {
     std::uint32_t outputName = 0;
@@ -109,6 +119,8 @@ namespace shell::dock {
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg);
   void syncDockSlideLayerTransform(DockInstance& instance, const DockConfig& cfg);
   void applyDockCompositorBlur(DockInstance& instance, const DockConfig& cfg);
+  // Slides the dock toward `target` (0 hidden, 1 shown); a running slide keeps its velocity. The value stays in 0..1.
+  void animateDockHide(DockInstance& instance, float target);
   void startHideFadeOut(DockInstance& instance);
   void revealAutoHideDock(DockInstance& instance);
 

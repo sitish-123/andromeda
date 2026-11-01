@@ -31,6 +31,7 @@
 #include <filesystem>
 #include <linux/input-event-codes.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -107,7 +108,14 @@ namespace {
     return static_cast<int>(timeout);
   }
   constexpr int kProgressHeight = 3;
-  constexpr int kContentSlideOffset = 12; // subtle foreground slide during reveal/retract
+  constexpr float kToastSlidePx = 12.0F;
+  desk::motion::SpringConfig toastSpring(bool enter) {
+    const Tokens::Spring& token = enter ? Tokens::springOpen : Tokens::springClose;
+    return {.damping = token.damping, .stiffness = token.stiffness};
+  }
+  desk::motion::SpringConfig pageSpring() {
+    return {.damping = Tokens::springPage.damping, .stiffness = Tokens::springPage.stiffness};
+  }
   TOKENS_LIVE(kMetaFontSize, Style::fontSizeMini);
   TOKENS_LIVE(kSummaryFontSize, Style::fontSizeTitle);
   TOKENS_LIVE(kBodyFontSize, Style::fontSizeBody);
@@ -207,35 +215,6 @@ namespace {
     return static_cast<std::uint32_t>(std::max(1, static_cast<int>(std::ceil(totalHeight))));
   }
 
-  float contentOpacityForReveal(float reveal) {
-    const float v = std::clamp(reveal, 0.0F, 1.0F);
-    if (v <= 0.15F) {
-      return 0.0F;
-    }
-    return std::clamp((v - 0.15F) / 0.85F, 0.0F, 1.0F);
-  }
-
-  float contentOffsetForReveal(float reveal, float scale) {
-    return std::round(static_cast<float>(kContentSlideOffset) * scale * (1.0F - std::clamp(reveal, 0.0F, 1.0F)));
-  }
-
-  float cardRevealFromNode(
-      const Node* cardNode, NotificationToast::RevealDirection direction, float cardHeight, float scale, float width
-  ) {
-    if (cardNode == nullptr) {
-      return 0.0F;
-    }
-    switch (direction) {
-    case NotificationToast::RevealDirection::FromLeft:
-    case NotificationToast::RevealDirection::FromRight:
-      return std::clamp(cardNode->width() / cardWidth(scale, width), 0.0F, 1.0F);
-    case NotificationToast::RevealDirection::FromTop:
-    case NotificationToast::RevealDirection::FromBottom:
-      return cardHeight > 0.0F ? std::clamp(cardNode->height() / cardHeight, 0.0F, 1.0F) : 0.0F;
-    }
-    return 0.0F;
-  }
-
   NotificationToast::RevealDirection revealDirectionForPosition(std::string_view position) {
     if (position.ends_with("_left"))
       return NotificationToast::RevealDirection::FromLeft;
@@ -247,56 +226,39 @@ namespace {
   }
 
   void applyCardRevealNodes(
-      Node* cardNode, Node* cardContent, Node* cardForeground, float reveal, float y,
+      float& revealStore, Node* cardNode, Node* cardContent, Node* cardForeground, float reveal, float y,
       NotificationToast::RevealDirection direction, float cardHeight, float scale, float width, float edgePadX
   ) {
     if (cardNode == nullptr || cardContent == nullptr || cardForeground == nullptr) {
       return;
     }
 
+    // Slide kToastSlidePx toward the screen edge and fade; the unclamped spring overshoots the slide.
+    revealStore = reveal;
     const float clampedReveal = std::clamp(reveal, 0.0F, 1.0F);
-    const float contentSlide = contentOffsetForReveal(clampedReveal, scale);
-
+    const float slide = std::round(kToastSlidePx * scale * (1.0F - reveal));
+    float dx = 0.0F;
+    float dy = 0.0F;
     switch (direction) {
-    case NotificationToast::RevealDirection::FromLeft: {
-      const float visibleWidth = std::round(cardWidth(scale, width) * clampedReveal);
-      cardNode->setPosition(edgePadX, y);
-      cardNode->setFrameSize(visibleWidth, cardHeight);
-      cardContent->setPosition(0.0F, 0.0F);
-      cardForeground->setOpacity(contentOpacityForReveal(clampedReveal));
-      cardForeground->setPosition(-contentSlide, 0.0F);
+    case NotificationToast::RevealDirection::FromLeft:
+      dx = -slide;
+      break;
+    case NotificationToast::RevealDirection::FromRight:
+      dx = slide;
+      break;
+    case NotificationToast::RevealDirection::FromTop:
+      dy = -slide;
+      break;
+    case NotificationToast::RevealDirection::FromBottom:
+      dy = slide;
       break;
     }
-    case NotificationToast::RevealDirection::FromRight: {
-      const float visibleWidth = std::round(cardWidth(scale, width) * clampedReveal);
-      const float hiddenWidth = cardWidth(scale, width) - visibleWidth;
-      cardNode->setPosition(edgePadX + hiddenWidth, y);
-      cardNode->setFrameSize(visibleWidth, cardHeight);
-      cardContent->setPosition(-hiddenWidth, 0.0F);
-      cardForeground->setOpacity(contentOpacityForReveal(clampedReveal));
-      cardForeground->setPosition(contentSlide, 0.0F);
-      break;
-    }
-    case NotificationToast::RevealDirection::FromTop: {
-      const float visibleHeight = std::round(cardHeight * clampedReveal);
-      cardNode->setPosition(edgePadX, y);
-      cardNode->setFrameSize(cardWidth(scale, width), visibleHeight);
-      cardContent->setPosition(0.0F, 0.0F);
-      cardForeground->setOpacity(contentOpacityForReveal(clampedReveal));
-      cardForeground->setPosition(0.0F, -contentSlide);
-      break;
-    }
-    case NotificationToast::RevealDirection::FromBottom: {
-      const float visibleHeight = std::round(cardHeight * clampedReveal);
-      const float hiddenHeight = cardHeight - visibleHeight;
-      cardNode->setPosition(edgePadX, y + hiddenHeight);
-      cardNode->setFrameSize(cardWidth(scale, width), visibleHeight);
-      cardContent->setPosition(0.0F, -hiddenHeight);
-      cardForeground->setOpacity(contentOpacityForReveal(clampedReveal));
-      cardForeground->setPosition(0.0F, contentSlide);
-      break;
-    }
-    }
+    cardNode->setPosition(edgePadX + dx, y + dy);
+    cardNode->setFrameSize(cardWidth(scale, width), cardHeight);
+    cardNode->setOpacity(clampedReveal);
+    cardContent->setPosition(0.0F, 0.0F);
+    cardForeground->setPosition(0.0F, 0.0F);
+    cardForeground->setOpacity(1.0F);
   }
 
   std::int32_t outputLogicalHeight(const WaylandOutput& output) { return output.effectiveLogicalHeight(); }
@@ -748,7 +710,7 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
 
           if (layoutChanged) {
             const float preservedReveal = cardReveal(cs, cs.clipHeight);
-            const float preservedContentOpacity = cs.cardForeground != nullptr ? cs.cardForeground->opacity() : 1.0F;
+            const float preservedVelocity = cs.entryAnimId != 0 ? inst->animations.velocity(cs.entryAnimId) : 0.0F;
             // If the entry reveal animation was still running when this update/replace
             // arrived (e.g. Thunar replacing its USB notification mid-reveal), the rebuilt
             // card would otherwise be frozen at the partial reveal forever — leaving it
@@ -782,28 +744,22 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
             cs.clipHeight = rebuilt->height();
             const float revealY = hasPlacement(m_entries[i]) ? cardSurfaceY(*inst, i) : 0.0F;
             applyCardReveal(cs, preservedReveal, revealY, cs.clipHeight);
-            if (cs.cardForeground != nullptr) {
-              cs.cardForeground->setOpacity(preservedContentOpacity);
-              cs.cardForeground->setPosition(
-                  contentOffsetForReveal(preservedReveal, notificationUiScale(m_config)), 0.0F
-              );
-            }
             if (inst->sceneRoot != nullptr) {
               inst->sceneRoot->addChild(std::unique_ptr<Node>(rebuilt));
             }
             // Resume an interrupted reveal so the card finishes opening instead of
             // staying scissored at its partial size.
-            if (entryRevealInFlight && preservedReveal < 1.0F && hasPlacement(m_entries[i])) {
+            if (entryRevealInFlight && hasPlacement(m_entries[i])) {
               const float targetY = cardSurfaceY(*inst, i);
               Instance* instPtr = inst.get();
-              cs.entryAnimId = inst->animations.animate(
-                  preservedReveal, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-                  [this, viewport = cs.cardNode, content = cs.cardContent, foreground = cs.cardForeground, targetY,
-                   cardHeight = cs.clipHeight, scale = notificationUiScale(m_config),
+              cs.entryAnimId = inst->animations.animateSpatial(
+                  preservedReveal, 1.0F, toastSpring(true),
+                  [this, rv = cs.reveal, viewport = cs.cardNode, content = cs.cardContent, foreground = cs.cardForeground,
+                   targetY, cardHeight = cs.clipHeight, scale = notificationUiScale(m_config),
                    width = notificationWidth(m_config),
                    edgePad = horizontalInnerPad(notificationUiScale(m_config))](float v) {
                     applyCardRevealNodes(
-                        viewport, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
+                        *rv, viewport, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
                     );
                   },
                   [this, instPtr, id = n.id] {
@@ -811,7 +767,7 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
                       state->entryAnimId = 0;
                     }
                   },
-                  cs.cardNode
+                  cs.cardNode, preservedVelocity
               );
             }
             regionChanged = true;
@@ -1083,13 +1039,13 @@ void NotificationToast::addCardToInstance(Instance& inst, std::size_t entryIndex
   inst.sceneRoot->addChild(std::unique_ptr<Node>(card));
 
   // Entry animation
-  cs.entryAnimId = inst.animations.animate(
-      0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-      [this, viewport = cs.cardNode, content = cs.cardContent, foreground = cs.cardForeground, targetY,
-       cardHeight = cs.clipHeight, scale = notificationUiScale(m_config), width = notificationWidth(m_config),
+  cs.entryAnimId = inst.animations.animateSpatial(
+      0.0F, 1.0F, toastSpring(true),
+      [this, rv = cs.reveal, viewport = cs.cardNode, content = cs.cardContent, foreground = cs.cardForeground,
+       targetY, cardHeight = cs.clipHeight, scale = notificationUiScale(m_config), width = notificationWidth(m_config),
        edgePad = horizontalInnerPad(notificationUiScale(m_config))](float v) {
         applyCardRevealNodes(
-            viewport, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
+            *rv, viewport, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
         );
       },
       [this, &inst, id = entry.notificationId] {
@@ -1289,12 +1245,12 @@ void NotificationToast::dismissCardFromInstance(Instance& inst, std::size_t entr
   const float targetY = card->y();
   const uint32_t removingId = (entryIndex < m_entries.size()) ? m_entries[entryIndex].notificationId : 0;
 
-  cs.exitAnimId = inst.animations.animate(
-      startReveal, 0.0F, Style::animNormal, Easing::EaseInOutQuad,
-      [this, card, content, foreground, targetY, cardHeight, scale = notificationUiScale(m_config),
+  cs.exitAnimId = inst.animations.animateSpatial(
+      startReveal, 0.0F, toastSpring(false),
+      [this, rv = cs.reveal, card, content, foreground, targetY, cardHeight, scale = notificationUiScale(m_config),
        width = notificationWidth(m_config), edgePad = horizontalInnerPad(notificationUiScale(m_config))](float v) {
         applyCardRevealNodes(
-            card, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
+            *rv, card, content, foreground, v, targetY, revealDirection(), cardHeight, scale, width, edgePad
         );
       },
       [this, &inst, removingId] {
@@ -1963,18 +1919,19 @@ void NotificationToast::collapseStack() {
 
         if (cs.entryAnimId != 0) {
           const float currentReveal = cardReveal(cs, cs.clipHeight);
+          const float currentVelocity = inst->animations.velocity(cs.entryAnimId);
           inst->animations.cancel(cs.entryAnimId);
           cs.entryAnimId = 0;
           const float cardHeight = cs.clipHeight;
           Node* viewport = cs.cardNode;
           Node* content = cs.cardContent;
           Node* foreground = cs.cardForeground;
-          cs.entryAnimId = inst->animations.animate(
-              currentReveal, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-              [this, viewport, content, foreground, newSurfY, cardHeight, scale, width = notificationWidth(m_config),
+          cs.entryAnimId = inst->animations.animateSpatial(
+              currentReveal, 1.0F, toastSpring(true),
+              [this, rv = cs.reveal, viewport, content, foreground, newSurfY, cardHeight, scale, width = notificationWidth(m_config),
                edgePad = horizontalInnerPad(scale)](float v) {
                 applyCardRevealNodes(
-                    viewport, content, foreground, v, newSurfY, revealDirection(), cardHeight, scale, width, edgePad
+                    *rv, viewport, content, foreground, v, newSurfY, revealDirection(), cardHeight, scale, width, edgePad
                 );
               },
               [this, instPtr, entryId] {
@@ -1982,7 +1939,7 @@ void NotificationToast::collapseStack() {
                   state->entryAnimId = 0;
                 }
               },
-              viewport
+              viewport, currentVelocity
           );
           continue;
         }
@@ -1991,8 +1948,8 @@ void NotificationToast::collapseStack() {
         const float oldSurfY = cs.cardNode->y();
         Node* cardNode = cs.cardNode;
 
-        cs.slideAnimId = inst->animations.animate(
-            oldSurfY, newSurfY, Style::animNormal, Easing::EaseInOutQuad,
+        cs.slideAnimId = inst->animations.animateSpatial(
+            oldSurfY, newSurfY, pageSpring(),
             [cardNode, px](float v) { cardNode->setPosition(px, v); },
             [this, instPtr, entryId] {
               if (auto* state = findCardState(*instPtr, entryId); state != nullptr) {
@@ -2393,18 +2350,16 @@ void NotificationToast::updateInputRegion(Instance& inst) const {
   }
 }
 
-float NotificationToast::cardReveal(const Instance::CardState& cs, float cardHeight) const {
-  return cardRevealFromNode(
-      cs.cardNode, revealDirection(), cardHeight, notificationUiScale(m_config), notificationWidth(m_config)
-  );
+float NotificationToast::cardReveal(const Instance::CardState& cs, float /*cardHeight*/) const {
+  return cs.cardNode == nullptr ? 0.0F : *cs.reveal;
 }
 
 void NotificationToast::applyCardReveal(Instance::CardState& cs, float reveal, float y, float cardHeight) const {
   const float scale = notificationUiScale(m_config);
   const float width = notificationWidth(m_config);
   applyCardRevealNodes(
-      cs.cardNode, cs.cardContent, cs.cardForeground, reveal, y, revealDirection(), cardHeight, scale, width,
-      horizontalInnerPad(scale)
+      *cs.reveal, cs.cardNode, cs.cardContent, cs.cardForeground, reveal, y, revealDirection(), cardHeight, scale,
+      width, horizontalInnerPad(scale)
   );
 }
 

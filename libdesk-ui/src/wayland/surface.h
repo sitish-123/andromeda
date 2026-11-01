@@ -148,6 +148,8 @@ public:
   void onSurfaceOutputEnter(wl_surface* surface, wl_output* output);
   void onSurfaceOutputLeave(wl_surface* surface, wl_output* output);
   [[nodiscard]] static bool hasPendingFrameWork();
+  // True while a Surface owns this wl_surface; a destroyed one must not be passed to a protocol request.
+  [[nodiscard]] static bool isLive(const wl_surface* surface);
   static void drainPendingFrameWork();
   [[nodiscard]] static bool hasPendingRenders();
   static void drainPendingRenders();

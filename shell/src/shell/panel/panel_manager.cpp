@@ -2383,7 +2383,7 @@ bool PanelManager::startDetachedMorph() {
   using Curve = DskSurfaceClient::Curve;
   wl_surface* source = std::exchange(m_morphSource, nullptr);
   dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
-  if (source == nullptr || manager == nullptr || m_wlSurface == nullptr || m_activePanel == nullptr) {
+  if (source == nullptr || !Surface::isLive(source) || manager == nullptr || m_wlSurface == nullptr || m_activePanel == nullptr) {
     return false;
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);

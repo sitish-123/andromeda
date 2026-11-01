@@ -1,5 +1,6 @@
 #include "render/animation/animation_manager.h"
 
+#include "design_tokens.h"
 #include "render/animation/motion_service.h"
 
 #include <chrono>
@@ -103,6 +104,19 @@ AnimationManager::Id AnimationManager::animateSpring(
       }
   );
   return id;
+}
+
+AnimationManager::Id AnimationManager::animateSpatial(
+    float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+    std::function<void()> onComplete, const void* owner, float velocity
+) {
+  if (MotionService::instance().enabled()) {
+    return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity);
+  }
+  return animateTimer(
+      from, to, static_cast<float>(Tokens::motionNormal), Easing::EaseOutCubic, std::move(setter), std::move(onComplete),
+      owner
+  );
 }
 
 float AnimationManager::velocity(Id id) const {
