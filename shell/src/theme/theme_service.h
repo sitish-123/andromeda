@@ -53,6 +53,9 @@ namespace noctalia::theme {
     // The resolved [theme].mode, which drives apps.
     [[nodiscard]] std::string_view resolvedMode() const noexcept;
 
+    // The compositor's live appearance: accent "#rrggbb" (empty keeps the token accent) and increased contrast.
+    void setLiveAppearance(std::string accent, bool increaseContrast);
+
     void setChangeCallback(ChangeCallback callback);
     void setResolvedCallback(ResolvedCallback callback);
 
@@ -63,6 +66,9 @@ namespace noctalia::theme {
     [[nodiscard]] bool saveWallpaperPaletteAsCustom(std::string* paletteNameOut, std::string* errorOut = nullptr);
 
   private:
+    std::string m_liveAccent;
+    bool m_liveHighContrast = false;
+
     // Identifies one wallpaper palette generation. mtime makes an edited wallpaper at the
     // same path re-decode; 0 means the stat failed and the result must not be cached.
     struct WallpaperPaletteKey {

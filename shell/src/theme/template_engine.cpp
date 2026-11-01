@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "core/toml.h" // IWYU pragma: keep
+#include "design_tokens.h"
 #include "cpp/cam/hct.h"
 #include "cpp/palettes/tones.h"
 #include "cpp/scheme/scheme_content.h"
@@ -23,6 +24,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -146,7 +148,7 @@ namespace noctalia::theme {
     constexpr std::string_view kUnknownPrefix = "{{";
 
     const std::unordered_set<std::string> kKnownFormats = {
-        "hex", "hex_stripped", "rgb",  "rgb_csv", "rgba", "hsl",        "hsla",
+        "hex", "hex_stripped", "hex_argb", "rgb",  "rgb_csv", "rgba", "hsl",        "hsla",
         "red", "green",        "blue", "alpha",   "hue",  "saturation", "lightness",
     };
 
@@ -350,6 +352,11 @@ namespace noctalia::theme {
     std::string formatColor(const RichColor& color, std::string_view formatType) {
       if (formatType == "hex")
         return color.color.toHex();
+      if (formatType == "hex_argb") {
+        char alpha[3];
+        std::snprintf(alpha, sizeof(alpha), "%02x", static_cast<int>(std::lround(color.alpha * 255.0)));
+        return "#" + std::string(alpha) + color.color.toHex().substr(1);
+      }
       if (formatType == "hex_stripped") {
         std::string out = color.color.toHex();
         if (!out.empty() && out.front() == '#')
@@ -938,6 +945,8 @@ namespace noctalia::theme {
         } else if (base.starts_with("colors.")) {
           resolved = ScopeValue(processColorExpression(base, filters));
           return resolved;
+        } else if (base.starts_with("tokens.")) {
+          return ScopeValue(processTokenExpression(base, filters));
         } else if (base.starts_with("palettes.")) {
           resolved = ScopeValue(processPaletteExpression(base, filters));
           return resolved;
@@ -1001,7 +1010,30 @@ namespace noctalia::theme {
           return "{{UNKNOWN:" + colorName + "." + mode + "}}";
         }
 
-        RichColor color{Color::fromHex(colorIt->second), 1.0};
+        return formatFiltered({Color::fromHex(colorIt->second), 1.0}, filters, formatType, base);
+      }
+
+      // tokens.<role>.<format>: a design-token scheme role for the current mode, alpha kept.
+      std::string processTokenExpression(const std::string& base, const std::vector<std::string>& filters) {
+        std::smatch match;
+        if (!std::regex_match(base, match, std::regex(R"(^tokens\.([a-z_0-9]+)\.([a-z_0-9]+)$)"))) {
+          logError();
+          return "{{" + base + "}}";
+        }
+        const auto& entries = m_options.defaultMode == "light" ? Tokens::schemeLightEntries : Tokens::schemeDarkEntries;
+        const auto it = std::ranges::find(entries, match[1].str(), &std::pair<std::string_view, std::uint32_t>::first);
+        if (it == entries.end()) {
+          logError();
+          return "{{UNKNOWN:" + base + "}}";
+        }
+        const std::uint32_t rgba = it->second;
+        const Color rgb(static_cast<int>(rgba >> 24), static_cast<int>((rgba >> 16) & 0xffU),
+                        static_cast<int>((rgba >> 8) & 0xffU));
+        return formatFiltered({rgb, static_cast<double>(rgba & 0xffU) / 255.0}, filters, match[2].str(), base);
+      }
+
+      std::string formatFiltered(RichColor color, const std::vector<std::string>& filters, const std::string& formatType,
+                                 const std::string& base) {
         for (const auto& filterStr : filters) {
           auto [name, arg] = parseFilter(filterStr);
           if (name == "replace")

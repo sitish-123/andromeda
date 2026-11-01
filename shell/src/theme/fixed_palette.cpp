@@ -391,38 +391,6 @@ namespace noctalia::theme {
     };
   }
 
-  ::Palette mapGeneratedPaletteMode(const TokenMap& t) {
-    return ::Palette{
-        .primary = tokenToColor(t, "primary"),
-        .onPrimary = tokenToColor(t, "on_primary"),
-        .primaryContainer = tokenToColor(t, "primary_container"),
-        .onPrimaryContainer = tokenToColor(t, "on_primary_container"),
-        .secondary = tokenToColor(t, "secondary"),
-        .onSecondary = tokenToColor(t, "on_secondary"),
-        .secondaryContainer = tokenToColor(t, "secondary_container"),
-        .onSecondaryContainer = tokenToColor(t, "on_secondary_container"),
-        .tertiary = tokenToColor(t, "tertiary"),
-        .onTertiary = tokenToColor(t, "on_tertiary"),
-        .tertiaryContainer = tokenToColor(t, "tertiary_container"),
-        .onTertiaryContainer = tokenToColor(t, "on_tertiary_container"),
-        .error = tokenToColor(t, "error"),
-        .onError = tokenToColor(t, "on_error"),
-        .errorContainer = tokenToColor(t, "error_container"),
-        .onErrorContainer = tokenToColor(t, "on_error_container"),
-        .surface = tokenToColor(t, "surface"),
-        .onSurface = tokenToColor(t, "on_surface"),
-        .onSurfaceVariant = tokenToColor(t, "on_surface_variant"),
-        .surfaceContainerLow = tokenToColor(t, "surface_container_low"),
-        .surfaceContainer = tokenToColor(t, "surface_container"),
-        .surfaceContainerHigh = tokenToColor(t, "surface_container_high"),
-        .surfaceContainerHighest = tokenToColor(t, "surface_container_highest"),
-        .outlineVariant = tokenToColor(t, "outline_variant"),
-        .shadow = tokenToColor(t, "shadow"),
-        .scrim = tokenToColor(t, "scrim"),
-        .hover = tokenToColor(t, "hover"),
-        .onHover = tokenToColor(t, "on_hover"),
-    };
-  }
 
   void setGeneratedHoverTokens(GeneratedPalette& palette) {
     for (TokenMap* tokens : {&palette.dark, &palette.light}) {

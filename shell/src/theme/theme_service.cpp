@@ -81,7 +81,7 @@ namespace noctalia::theme {
       const GeneratedPalette generated = expandBuiltinPalette(*palette);
       return {
           .generated = generated,
-          .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+          .palette = tokenPalette(shellMode == "light"),
           .mode = std::string(mode),
           .shellMode = std::string(shellMode),
       };
@@ -223,7 +223,7 @@ namespace noctalia::theme {
       const GeneratedPalette generated = expandBuiltinPalette(bp);
       return {
           .generated = generated,
-          .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+          .palette = tokenPalette(shellMode == "light"),
           .mode = std::string(mode),
           .shellMode = std::string(shellMode),
       };
@@ -300,6 +300,32 @@ namespace noctalia::theme {
     if (m_wallpaperWorker.joinable()) {
       m_wallpaperWorker.join();
     }
+  }
+
+  namespace {
+
+    // Applies the compositor accent; high contrast makes secondary text read as primary text and strokes opaque.
+    void applyLivePalette(::Palette& palette, std::string_view accent, bool highContrast) {
+      ::Color color;
+      if (!accent.empty() && tryParseHexColor(accent, color)) {
+        palette.accent = color;
+        palette.onAccent = readableTextColorForBackground(color);
+      }
+      if (highContrast) {
+        palette.label2 = palette.label1;
+        palette.stroke.a = 1.0F;
+      }
+    }
+
+  } // namespace
+
+  void ThemeService::setLiveAppearance(std::string accent, bool increaseContrast) {
+    if (accent == m_liveAccent && increaseContrast == m_liveHighContrast) {
+      return;
+    }
+    m_liveAccent = std::move(accent);
+    m_liveHighContrast = increaseContrast;
+    resolveAndSet(/*animate=*/true);
   }
 
   void ThemeService::apply() { resolveAndSet(/*animate=*/false); }
@@ -599,7 +625,7 @@ namespace noctalia::theme {
         const GeneratedPalette& generated = *lookup.generated;
         resolved = ResolvedTheme{
             .generated = generated,
-            .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+            .palette = tokenPalette(shellMode == "light"),
             .mode = mode,
             .shellMode = shellMode,
         };
@@ -636,17 +662,11 @@ namespace noctalia::theme {
     if (cfg.pureBlackDark) {
       applyPureBlackDark(resolved->generated);
     }
-    if (m_config.config().accessibility.highContrast) {
+    const bool highContrast = m_config.config().accessibility.highContrast || m_liveHighContrast;
+    if (highContrast) {
       applyHighContrast(resolved->generated);
     }
-
-    if (cfg.pureBlackDark || m_config.config().accessibility.highContrast) {
-      if (resolved->shellMode != "light") {
-        resolved->palette = mapGeneratedPaletteMode(resolved->generated.dark);
-      } else {
-        resolved->palette = mapGeneratedPaletteMode(resolved->generated.light);
-      }
-    }
+    applyLivePalette(resolved->palette, m_liveAccent, highContrast);
 
     queueResolvedCallback(resolved->generated, resolved->mode);
     m_isLightMode = resolved->mode == "light";
