@@ -75,7 +75,7 @@ void DesktopVolumeWidget::create() {
       ui::label({
           .out = &m_statusLabel,
           .fontSize = statusFontSize(contentScale()),
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .textAlign = TextAlign::Start,
       })
   );
@@ -83,7 +83,7 @@ void DesktopVolumeWidget::create() {
       ui::label({
           .out = &m_deviceLabel,
           .fontSize = deviceFontSize(contentScale()),
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 2,
           .textAlign = TextAlign::Start,
           .ellipsize = TextEllipsize::End,
@@ -408,10 +408,10 @@ void DesktopVolumeWidget::applyColors() {
     m_percentLabel->setColor(m_fillColor);
   }
   if (m_statusLabel != nullptr) {
-    m_statusLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_statusLabel->setColor(colorSpecFromRole(ColorRole::Label2));
   }
   if (m_deviceLabel != nullptr) {
-    m_deviceLabel->setColor(colorSpecFromRole(ColorRole::OnSurface));
+    m_deviceLabel->setColor(colorSpecFromRole(ColorRole::Label1));
   }
   if (m_trackGlyph != nullptr) {
     ColorSpec track = m_trackColor;

@@ -7,7 +7,7 @@
 #include "scripting/script_runtime.h"
 #include "shell/desktop/desktop_widget.h"
 #include "ui/ui_tree.h"
-#include "ui/ui_tree_reconciler.h"
+#include "scripting/ui_tree_reconciler.h"
 
 #include <filesystem>
 #include <memory>

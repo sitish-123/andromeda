@@ -15,7 +15,7 @@ class WeatherService;
 class DesktopWeatherWidget : public DesktopWidget {
 public:
   struct Options {
-    ColorSpec color = colorSpecFromRole(ColorRole::OnSurface);
+    ColorSpec color = colorSpecFromRole(ColorRole::Label1);
     bool shadow = true;
     bool showForecast = false;
     int forecastDays = 3;

@@ -170,7 +170,7 @@ namespace {
         ui::label({
             .text = std::string(labelText),
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .minWidth = 0.0F,
             .textAlign = TextAlign::Start,
             .ellipsize = TextEllipsize::End,
@@ -396,7 +396,7 @@ namespace {
         ui::label({
             .text = std::string(labelText),
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -464,7 +464,7 @@ namespace {
           ui::label({
               .text = "->",
               .fontSize = Style::fontSizeCaption,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -516,7 +516,7 @@ namespace {
         ui::label({
             .text = "->",
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     addRow->addChild(
@@ -840,7 +840,7 @@ namespace {
             .text = i18n::tr(labelKey),
             .fontSize = Style::fontSizeCaption,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::Secondary),
+            .color = colorSpecFromRole(ColorRole::Accent),
         })
     );
   }
@@ -1099,8 +1099,8 @@ void DesktopWidgetsEditor::buildInspector(
           .clipChildren = true,
           .configure =
               [panelRadius](Flex& flex) {
-                flex.setFill(colorSpecFromRole(ColorRole::Surface, 0.94F));
-                flex.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+                flex.setFill(colorSpecFromRole(ColorRole::SolidRegular, 0.94F));
+                flex.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
                 flex.setRadius(panelRadius);
                 flex.setZIndex(201);
               },
@@ -1112,7 +1112,7 @@ void DesktopWidgetsEditor::buildInspector(
               .gap = Style::spaceSm,
               .paddingV = Style::spaceXs,
               .paddingH = Style::spaceMd,
-              .fill = colorSpecFromRole(ColorRole::SurfaceContainer, 0.85F),
+              .fill = colorSpecFromRole(ColorRole::Fill2, 0.85F),
               .minHeight = Style::controlHeightSm,
               .fillWidth = true,
               .width = kInspectorWidth,

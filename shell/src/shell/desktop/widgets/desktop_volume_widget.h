@@ -18,8 +18,8 @@ class DesktopVolumeWidget : public DesktopWidget {
 public:
   struct Options {
     std::string glyph;
-    ColorSpec fillColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec trackColor = colorSpecFromRole(ColorRole::OnSurfaceVariant);
+    ColorSpec fillColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec trackColor = colorSpecFromRole(ColorRole::Label2);
     // false = default sink (output), true = default source (input / mic).
     bool input = false;
     bool showDevice = true;

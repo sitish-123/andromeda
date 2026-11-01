@@ -45,9 +45,9 @@ public:
     std::optional<DesktopSysmonStat> stat2;
     DesktopSysmonDisplayMode displayMode = DesktopSysmonDisplayMode::Graph;
     DesktopSysmonGaugeLayout gaugeLayout = DesktopSysmonGaugeLayout::Horizontal;
-    ColorSpec lineColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec lineColor2 = colorSpecFromRole(ColorRole::Secondary);
-    ColorSpec highlightColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec lineColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec lineColor2 = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec highlightColor = colorSpecFromRole(ColorRole::Danger);
     std::string networkInterface;
     FormatUnits::DecimalByteRateUnit networkSpeedUnit = FormatUnits::DecimalByteRateUnit::Auto;
     FormatUnits::ByteRateLabelStyle networkSpeedLabelStyle = FormatUnits::ByteRateLabelStyle::Full;

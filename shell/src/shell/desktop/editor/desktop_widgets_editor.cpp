@@ -688,7 +688,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
   }
 
   auto dim = ui::box({
-      .fill = colorSpecFromRole(ColorRole::SurfaceContainer, 0.14F),
+      .fill = colorSpecFromRole(ColorRole::Fill2, 0.14F),
   });
   dim->setPosition(0.0F, 0.0F);
   dim->setFrameSize(root->width(), root->height());
@@ -719,8 +719,8 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
   root->addChild(std::move(backgroundArea));
 
   auto lassoBox = ui::box({
-      .fill = colorSpecFromRole(ColorRole::Primary, 0.12F),
-      .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Primary), 1.0F); },
+      .fill = colorSpecFromRole(ColorRole::Accent, 0.12F),
+      .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Accent), 1.0F); },
   });
   lassoBox->setHitTestVisible(false);
   lassoBox->setVisible(false);
@@ -742,7 +742,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
       const int idx = std::abs(static_cast<int>(std::lround((x - centerX) / cell)));
       const bool major = (idx % majorInterval) == 0;
       auto line = ui::box({
-          .fill = colorSpecFromRole(major ? ColorRole::Primary : ColorRole::OutlineVariant, major ? 0.18F : 0.08F),
+          .fill = colorSpecFromRole(major ? ColorRole::Accent : ColorRole::Stroke, major ? 0.18F : 0.08F),
       });
       line->setPosition(x, 0.0F);
       line->setFrameSize(1.0F, height);
@@ -754,7 +754,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
       const int idx = std::abs(static_cast<int>(std::lround((y - centerY) / cell)));
       const bool major = (idx % majorInterval) == 0;
       auto line = ui::box({
-          .fill = colorSpecFromRole(major ? ColorRole::Primary : ColorRole::OutlineVariant, major ? 0.18F : 0.08F),
+          .fill = colorSpecFromRole(major ? ColorRole::Accent : ColorRole::Stroke, major ? 0.18F : 0.08F),
       });
       line->setPosition(0.0F, y);
       line->setFrameSize(width, 1.0F);
@@ -770,7 +770,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
   const float centerGuideOffset = kCenterGuideThickness * 0.5F;
 
   auto verticalGuide = ui::box({
-      .fill = colorSpecFromRole(ColorRole::Primary, 0.35F),
+      .fill = colorSpecFromRole(ColorRole::Accent, 0.35F),
   });
   verticalGuide->setPosition(centerX - centerGuideOffset, 0.0F);
   verticalGuide->setFrameSize(kCenterGuideThickness, height);
@@ -778,7 +778,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
   root->addChild(std::move(verticalGuide));
 
   auto horizontalGuide = ui::box({
-      .fill = colorSpecFromRole(ColorRole::Primary, 0.35F),
+      .fill = colorSpecFromRole(ColorRole::Accent, 0.35F),
   });
   horizontalGuide->setPosition(0.0F, centerY - centerGuideOffset);
   horizontalGuide->setFrameSize(width, kCenterGuideThickness);
@@ -917,7 +917,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
     auto border = ui::box({
         .fill = clearColorSpec(),
         .radius = Style::scaledRadiusMd(),
-        .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Primary), kSelectionStroke); },
+        .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Accent), kSelectionStroke); },
     });
     border->setZIndex(1);
     visual.border = border.get();
@@ -948,7 +948,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
       auto ring = ui::box({
           .fill = clearColorSpec(),
           .radius = Style::scaledRadiusMd() + kRotatePadding,
-          .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Primary), 1.0F); },
+          .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Accent), 1.0F); },
       });
       ring->setZIndex(1);
       surface.rotationRing = ring.get();
@@ -993,7 +993,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
     auto selectionBorder = ui::box({
         .fill = clearColorSpec(),
         .radius = Style::scaledRadiusMd(),
-        .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Primary), kSelectionStroke); },
+        .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Accent), kSelectionStroke); },
     });
     selectionBorder->setZIndex(1);
     surface.selectionBorder = selectionBorder.get();
@@ -1013,7 +1013,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
       root->addChild(std::move(scaleHandleShadow));
 
       auto scaleHandle = ui::box({
-          .fill = colorSpecFromRole(ColorRole::Primary),
+          .fill = colorSpecFromRole(ColorRole::Accent),
           .radius = Style::scaledRadiusSm(),
       });
       scaleHandle->setZIndex(104);
@@ -1118,8 +1118,8 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                       .configure =
                           [](Flex& flex) {
                             flex.setPadding(Style::spaceSm, Style::spaceMd);
-                            flex.setFill(colorSpecFromRole(ColorRole::Surface, 0.94F));
-                            flex.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+                            flex.setFill(colorSpecFromRole(ColorRole::SolidRegular, 0.94F));
+                            flex.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
                             flex.setRadius(Style::scaledRadiusXl());
                             flex.setZIndex(200);
                           },
@@ -1131,7 +1131,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                           .gap = Style::spaceXs,
                           .paddingV = Style::spaceXs,
                           .paddingH = Style::spaceSm,
-                          .fill = colorSpecFromRole(ColorRole::SurfaceContainer, 0.85F),
+                          .fill = colorSpecFromRole(ColorRole::Fill2, 0.85F),
                           .radius = Style::scaledRadiusLg(),
                           .minHeight = Style::controlHeightSm,
                       },

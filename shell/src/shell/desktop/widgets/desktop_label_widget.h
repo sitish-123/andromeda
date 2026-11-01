@@ -12,7 +12,7 @@ public:
   struct Options {
     std::string title = "Title";
     std::string description;
-    ColorSpec color = colorSpecFromRole(ColorRole::OnSurface);
+    ColorSpec color = colorSpecFromRole(ColorRole::Label1);
     float opacity = 1.0F;
     bool shadow = true;
   };

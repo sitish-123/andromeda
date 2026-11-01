@@ -9,7 +9,7 @@
 #include "time/time_format.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
-#include "ui/controls/calendar_view.h"
+#include "calendar/calendar_view.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/label.h"
 #include "ui/controls/scroll_view.h"
@@ -78,7 +78,7 @@ void DesktopCalendarWidget::create() {
           .fontSize = Style::fontSizeTitle * contentScale(),
           .fontWeight = FontWeight::Medium,
           .fontFamily = m_fontFamily,
-          .color = colorSpecFromRole(ColorRole::Secondary),
+          .color = colorSpecFromRole(ColorRole::Accent),
           .maxLines = 1,
           .configure = [this](Label& label) {
             label.setHitTestVisible(true);
@@ -107,7 +107,7 @@ void DesktopCalendarWidget::create() {
           .fontSize = (Style::fontSizeTitle + Style::spaceXs) * contentScale(),
           .fontWeight = FontWeight::Bold,
           .fontFamily = m_fontFamily,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
           .textAlign = TextAlign::Center,
           .flexGrow = 1.0F,
@@ -145,7 +145,7 @@ void DesktopCalendarWidget::create() {
           .fontSize = Style::fontSizeTitle * contentScale(),
           .fontWeight = FontWeight::Bold,
           .fontFamily = m_fontFamily,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 2,
       })
   );

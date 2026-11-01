@@ -313,7 +313,7 @@ void DesktopMediaPlayerWidget::layoutDecorations() {
   const float cardHeight = card->height();
   const float radius = backgroundRadius() > 0.0F ? backgroundRadius() : Style::scaledRadiusMd(contentScale());
   if (m_backgroundArtwork != nullptr) {
-    const Color surface = withAlpha(colorForRole(ColorRole::Surface), 0.62F);
+    const Color surface = withAlpha(colorForRole(ColorRole::SolidRegular), 0.62F);
     m_backgroundArtwork->setPosition(0.0F, 0.0F);
     m_backgroundArtwork->setSize(cardWidth, cardHeight);
     m_backgroundArtwork->setRadius(radius);

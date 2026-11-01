@@ -208,7 +208,7 @@ bool DesktopWidget::applySetting(
     return fb;
   };
 
-  ColorSpec bgColor = getColorSpec("background_color", colorSpecFromRole(ColorRole::Surface));
+  ColorSpec bgColor = getColorSpec("background_color", colorSpecFromRole(ColorRole::SolidRegular));
   bgColor.alpha *= std::clamp(getFloat("background_opacity", 0.8F), 0.0F, 1.0F);
   m_bgColor = bgColor;
   m_bgRadius = getFloat("background_radius", 12.0F);

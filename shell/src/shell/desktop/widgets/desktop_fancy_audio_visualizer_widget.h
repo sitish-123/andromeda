@@ -22,8 +22,8 @@ public:
     float waveThickness = 1.0F;
     float innerDiameter = 0.7F;
     bool fadeWhenIdle = true;
-    ColorSpec primaryColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec secondaryColor = colorSpecFromRole(ColorRole::Secondary);
+    ColorSpec primaryColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec secondaryColor = colorSpecFromRole(ColorRole::Accent);
   };
 
   DesktopFancyAudioVisualizerWidget(PipeWireSpectrum* spectrum, Options options);
