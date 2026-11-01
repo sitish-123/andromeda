@@ -338,7 +338,7 @@ void PersistentPanelHost::buildScene(Instance& instance, std::uint32_t width, st
   if (hasDecoration) {
     auto bg = ui::box({});
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
+    bg->setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, backgroundOpacity), shell::panel_surface::borderWidth(m_config)
@@ -621,7 +621,7 @@ void PersistentPanelHost::onConfigReloaded() {
     instance->panel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, backgroundOpacity));
     if (instance->bgNode != nullptr) {
       instance->bgNode->setPanelStyle(m_config->config().shell.panel.borders);
-      instance->bgNode->setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
+      instance->bgNode->setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
       if (m_config->config().shell.panel.borders) {
         instance->bgNode->setBorder(
             shell::panel_surface::borderColor(m_config, backgroundOpacity), shell::panel_surface::borderWidth(m_config)

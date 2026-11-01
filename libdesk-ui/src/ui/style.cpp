@@ -69,6 +69,8 @@ namespace Style {
     g_reduceTransparency = reduceTransparency;
   }
 
+  bool reduceTransparency() noexcept { return g_reduceTransparency; }
+
   float glassAlpha(float alpha) noexcept {
     return g_reduceTransparency || alpha >= 1.0F ? 1.0F : alpha * g_glassOpacity;
   }

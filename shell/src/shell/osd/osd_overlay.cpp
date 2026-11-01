@@ -736,7 +736,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
           .width = cw,
           .height = ch,
           .configure = [cardX, cardY, cw, ch, s, border, borderColor, backgroundOpacity](Box& box) {
-            box.setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
+            box.setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
             box.setBorder(borderColor, border);
             box.setRadius(osdCardRadius(cw, ch, s));
             box.setPosition(cardX, cardY);
@@ -833,7 +833,7 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   // Card frame size is animated during reveal; measure layout against intrinsic size.
   const float cw = cardWidth(s, m_lastOrientation);
   const float ch = cardHeight(s, m_lastOrientation, m_lastShowProgress);
-  inst.background->setFill(colorSpecFromRole(ColorRole::SolidRegular, osdBackgroundOpacity(m_config)));
+  inst.background->setFill(colorSpecFromRole(materialRole(), osdBackgroundOpacity(m_config)));
   inst.background->setBorder(osdBorderColor(m_config), osdBorderWidth(m_config, s));
 
   const ColorRole accentRole = m_content.overLimit ? ColorRole::Danger

@@ -123,6 +123,7 @@ namespace Style {
   void setGlass(float opacity, bool reduceTransparency) noexcept;
   // Alpha a glass material fill uses in place of its configured `alpha`.
   [[nodiscard]] float glassAlpha(float alpha) noexcept;
+  [[nodiscard]] bool reduceTransparency() noexcept;
 
   [[nodiscard]] bool closeButtonsEnabled() noexcept;
   void setCloseButtonsEnabled(bool enabled);

@@ -103,6 +103,8 @@ public:
   void setAttachedPanelAvailabilityCallback(std::function<bool(wl_output*, std::string_view)> callback);
   void setBarConfigProvider(std::function<std::optional<BarConfig>(wl_output*, std::string_view)> provider);
   void setAttachedPanelBarSettledCallback(std::function<bool(wl_output*, std::string_view)> callback);
+  // Fills the island anchor and source of a request that has none (IPC, keyboard), as a click on the island would.
+  void setIslandSourceProvider(std::function<void(PanelOpenRequest&, std::string_view)> provider);
   // Called when an auto-hide bar finishes revealing for an attached panel open.
   void onAttachedBarRevealSettled(wl_output* output, std::string_view barName);
 
@@ -257,6 +259,7 @@ private:
   std::function<bool(wl_output*, std::string_view)> m_attachedPanelAvailabilityCallback;
   std::function<std::optional<BarConfig>(wl_output*, std::string_view)> m_barConfigProvider;
   std::function<bool(wl_output*, std::string_view)> m_attachedPanelBarSettledCallback;
+  std::function<void(PanelOpenRequest&, std::string_view)> m_islandSourceProvider;
   PanelClickShield m_clickShield;
   PersistentPanelHost m_persistentHost;
   std::unique_ptr<FocusGrab> m_focusGrab;

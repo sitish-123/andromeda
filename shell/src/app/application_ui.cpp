@@ -1011,6 +1011,9 @@ void Application::initBarDockAndLayout() {
   m_panelManager.setAttachedPanelBarSettledCallback([this](wl_output* output, std::string_view barName) {
     return m_bar.isAttachedPanelBarSettled(output, barName);
   });
+  m_panelManager.setIslandSourceProvider([this](PanelOpenRequest& request, std::string_view panelId) {
+    m_bar.fillIslandSource(request, panelId);
+  });
   m_bar.setAutoHideSuppressionCallback([this](const BarInstance& instance) {
     if (m_trayMenu.isOpen()) {
       return true;

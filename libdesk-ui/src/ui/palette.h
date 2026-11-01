@@ -24,6 +24,7 @@ enum class ColorRole : std::uint8_t {
   OnAccent,
   Danger,
   Shadow,
+  TintRegular,
 };
 
 struct ColorRoleToken {
@@ -31,7 +32,7 @@ struct ColorRoleToken {
   std::string_view token;
 };
 
-inline constexpr std::array<ColorRoleToken, 12> kColorRoleTokens = {{
+inline constexpr std::array<ColorRoleToken, 13> kColorRoleTokens = {{
     {ColorRole::Label1, "label_1"},
     {ColorRole::Label2, "label_2"},
     {ColorRole::Fill1, "fill_1"},
@@ -44,6 +45,7 @@ inline constexpr std::array<ColorRoleToken, 12> kColorRoleTokens = {{
     {ColorRole::OnAccent, "on_accent"},
     {ColorRole::Danger, "danger"},
     {ColorRole::Shadow, "shadow"},
+    {ColorRole::TintRegular, "tint_regular"},
 }};
 
 [[nodiscard]] constexpr Color clearColor() noexcept { return rgba(0.0F, 0.0F, 0.0F, 0.0F); }
@@ -85,6 +87,7 @@ struct Palette {
   Color onAccent;
   Color danger;
   Color shadow;
+  Color tintRegular;
 
   bool operator==(const Palette&) const = default;
 };
@@ -98,6 +101,10 @@ extern Palette palette;
 [[nodiscard]] std::optional<ColorRole> colorRoleFromPluginToken(std::string_view token);
 [[nodiscard]] std::string_view colorRoleToken(ColorRole role) noexcept;
 [[nodiscard]] ColorSpec colorSpecFromRole(ColorRole role, float alpha = 1.0F) noexcept;
+// Glass material fill: the tint over the compositor blur, or the opaque solid when transparency is reduced.
+[[nodiscard]] inline ColorRole materialRole() noexcept {
+  return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintRegular;
+}
 [[nodiscard]] ColorSpec fixedColorSpec(const Color& color) noexcept;
 [[nodiscard]] Color resolveColorSpec(const ColorSpec& color) noexcept;
 [[nodiscard]] bool isLightPalette() noexcept;

@@ -422,7 +422,7 @@ namespace shell::dock {
     if (instance.panel == nullptr)
       return;
     const float opacity = Style::glassAlpha(cfg.backgroundOpacity);
-    instance.panel->setFill(colorSpecFromRole(ColorRole::SolidRegular, opacity));
+    instance.panel->setFill(colorSpecFromRole(materialRole(), opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }
 

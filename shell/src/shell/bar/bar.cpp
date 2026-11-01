@@ -2293,6 +2293,34 @@ std::optional<BarConfig> Bar::configForBar(wl_output* output, std::string_view b
   return instance->barConfig;
 }
 
+void Bar::fillIslandSource(PanelOpenRequest& request, std::string_view panelId) const {
+  if (panelId != "control-center") {
+    return;
+  }
+  for (const auto& instance : m_instances) {
+    if (instance->output != request.output || instance->sheetTracker == nullptr || instance->surface == nullptr) {
+      continue;
+    }
+    const auto& r = instance->sheetTrackerRect;
+    float anchorX = r[0] + r[2] * 0.5F;
+    float anchorY = r[1] + r[3] * 0.5F;
+    if (m_platform != nullptr) {
+      if (const auto* out = m_platform->findOutputByWl(instance->output); out != nullptr && out->hasUsableGeometry()) {
+        const auto [surfaceX, surfaceY] = surfaceOriginForOutputLocal(*instance, *out);
+        anchorX += surfaceX;
+        anchorY += surfaceY;
+      }
+    }
+    request.anchorX = anchorX;
+    request.anchorY = anchorY;
+    request.hasAnchorPosition = true;
+    request.sourceBarName = instance->barConfig.name;
+    request.sourceSurface = instance->surface->wlSurface();
+    request.sourceRect = r;
+    return;
+  }
+}
+
 LayerShellLayer Bar::highestLayerForOutput(wl_output* output) const noexcept {
   LayerShellLayer highest = LayerShellLayer::Top;
   for (const auto& instance : m_instances) {
@@ -3283,7 +3311,7 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
-  const Color material = colorForRole(ColorRole::SolidRegular, Style::glassAlpha(instance.barConfig.backgroundOpacity));
+  const Color material = colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity));
   const auto applyMaterial = [&](Box* box, bool painted) {
     auto style = box->style();
     style.fill = painted ? material : rgba(0.0F, 0.0F, 0.0F, 0.0F);
@@ -3650,7 +3678,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     // In islands mode the island pills carry the material; the bar body stays unpainted.
     const bool paintBody = !instance.barConfig.islands;
     const RoundedRectStyle bgStyle{
-        .fill = paintBody ? colorForRole(ColorRole::SolidRegular, Style::glassAlpha(instance.barConfig.backgroundOpacity))
+        .fill = paintBody ? colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity))
                           : rgba(0.0F, 0.0F, 0.0F, 0.0F),
         .border = resolveColorSpec(instance.barConfig.border),
         .fillMode = FillMode::Solid,

@@ -521,6 +521,10 @@ void PanelManager::setAttachedPanelBarSettledCallback(std::function<bool(wl_outp
   m_attachedPanelBarSettledCallback = std::move(callback);
 }
 
+void PanelManager::setIslandSourceProvider(std::function<void(PanelOpenRequest&, std::string_view)> provider) {
+  m_islandSourceProvider = std::move(provider);
+}
+
 void PanelManager::onAttachedBarRevealSettled(wl_output* output, std::string_view barName) {
   if (!m_attachedOpenAnimationPending || !isAttachedOpen() || m_output != output) {
     return;
@@ -604,6 +608,10 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       );
       return;
     }
+  }
+
+  if (m_islandSourceProvider != nullptr && request.sourceSurface == nullptr && !request.hasAnchorPosition) {
+    m_islandSourceProvider(request, panelId);
   }
 
   // Persistent panels live in their own host: opening one must leave the active
@@ -2641,7 +2649,7 @@ void PanelManager::applyAttachedDecorationStyle() {
 
   if (m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
-    bg->setFill(colorSpecFromRole(ColorRole::SolidRegular, m_attachedBackgroundOpacity));
+    bg->setFill(colorSpecFromRole(materialRole(), m_attachedBackgroundOpacity));
   }
 
   if (m_panelShadowNode != nullptr && m_config != nullptr) {
@@ -2717,7 +2725,7 @@ void PanelManager::onConfigReloaded() {
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(ColorRole::SolidRegular, panelBackgroundOpacity));
+    bg->setFill(colorSpecFromRole(materialRole(), panelBackgroundOpacity));
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
@@ -2836,7 +2844,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
         const float backgroundOpacity = detachedBackgroundOpacity();
-        bg->setFill(colorSpecFromRole(ColorRole::SolidRegular, backgroundOpacity));
+        bg->setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(
