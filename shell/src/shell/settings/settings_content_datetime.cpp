@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_control_factory.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -19,16 +20,6 @@ namespace settings {
   namespace {
 
     constexpr float kSelectWidth = 260.0F;
-
-    std::unique_ptr<Flex> makeRow(std::string_view title, std::unique_ptr<Node> control, float scale) {
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
-      );
-      row->addChild(ui::spacer());
-      row->addChild(std::move(control));
-      return row;
-    }
 
     std::string formatUtc(std::int64_t usec) {
       const std::time_t seconds = static_cast<std::time_t>(usec / 1'000'000);
@@ -50,7 +41,7 @@ namespace settings {
     const TimeDateService& td = *ctx.timedate;
     Flex* body = addSettingsCard(content, i18n::tr("settings.datetime.title"), ctx.scale);
 
-    body->addChild(makeRow(
+    body->addChild(SettingsControlFactory::makeRow(
         i18n::tr("settings.datetime.automatic"),
         ui::toggle({.checked = td.ntp(), .scale = ctx.scale, .onChange = [set = ctx.setNtp](bool v) { set(v); }}),
         ctx.scale
@@ -58,7 +49,7 @@ namespace settings {
 
     const auto& zones = td.timezones();
     const auto zoneIt = std::ranges::find(zones, td.timezone());
-    body->addChild(makeRow(
+    body->addChild(SettingsControlFactory::makeRow(
         i18n::tr("settings.datetime.timezone"),
         ui::select({
             .options = zones,
@@ -75,7 +66,7 @@ namespace settings {
     ));
 
     if (!td.ntp()) {
-      body->addChild(makeRow(
+      body->addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.datetime.set-time"),
           ui::input({
               .value = formatUtc(td.timeUsec()),
@@ -89,7 +80,7 @@ namespace settings {
       ));
     }
 
-    body->addChild(makeRow(
+    body->addChild(SettingsControlFactory::makeRow(
         i18n::tr("settings.datetime.local-rtc"),
         ui::toggle(
             {.checked = td.localRtc(), .scale = ctx.scale, .onChange = [set = ctx.setLocalRtc](bool v) { set(v); }}

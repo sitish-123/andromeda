@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_control_factory.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -81,16 +82,6 @@ namespace settings {
       return modes;
     }
 
-    std::unique_ptr<Flex> makeDisplayRow(std::string_view title, std::unique_ptr<Node> control, float scale) {
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
-      );
-      row->addChild(ui::spacer());
-      row->addChild(std::move(control));
-      return row;
-    }
-
     std::unique_ptr<Node> makeDisplaySelect(
         std::vector<std::string> options, std::optional<std::size_t> selected, float scale,
         std::function<void(std::size_t)> onSelect
@@ -129,7 +120,7 @@ namespace settings {
         bestModes.push_back(modesOfSize(head, size).front()->handle);
       }
       const auto sizeIt = std::ranges::find(sizes, currentSize);
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.resolution"),
           makeDisplaySelect(
               std::move(sizeLabels), static_cast<std::size_t>(sizeIt - sizes.begin()), ctx.scale,
@@ -152,7 +143,7 @@ namespace settings {
         refreshModes.push_back(mode->handle);
         refreshLabels.push_back(formatRefresh(mode->refreshMhz));
       }
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.refresh-rate"),
           makeDisplaySelect(
               std::move(refreshLabels), refreshIndex, ctx.scale,
@@ -180,7 +171,7 @@ namespace settings {
           selected = i;
         }
       }
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.scale"),
           makeDisplaySelect(
               std::move(labels), selected, ctx.scale,
@@ -198,7 +189,7 @@ namespace settings {
       std::vector<std::string> labels = {i18n::tr("settings.displays.rotation-normal"), "90°", "180°", "270°"};
       const std::optional<std::size_t> selected =
           config.transform <= 3 ? std::optional<std::size_t>{static_cast<std::size_t>(config.transform)} : std::nullopt;
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.rotation"),
           makeDisplaySelect(
               std::move(labels), selected, ctx.scale,
@@ -243,7 +234,7 @@ namespace settings {
       if (positions.empty()) {
         return;
       }
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.position"),
           makeDisplaySelect(
               std::move(labels), selected, ctx.scale,
@@ -280,7 +271,7 @@ namespace settings {
       if (sources.size() < 2) {
         return;
       }
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.mirror"),
           makeDisplaySelect(
               std::move(labels), selected, ctx.scale,
@@ -307,7 +298,7 @@ namespace settings {
         choices.emplace_back(value);
         labels.push_back(i18n::tr(std::string(labelKey) + "-options." + std::string(value)));
       }
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr(labelKey),
           makeDisplaySelect(
               std::move(labels), selected, ctx.scale,
@@ -322,7 +313,7 @@ namespace settings {
         Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx, std::string_view key,
         std::string_view labelKey
     ) {
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr(labelKey),
           ui::toggle({
               .checked = ctx.mirrors->property(head.name, key) == "true",
@@ -342,7 +333,7 @@ namespace settings {
       const std::string current = ctx.mirrors->property(head.name, key);
       int value = fallback;
       std::from_chars(current.data(), current.data() + current.size(), value);
-      body.addChild(makeDisplayRow(
+      body.addChild(SettingsControlFactory::makeRow(
           i18n::tr(labelKey),
           ui::stepper({
               .minValue = min,
@@ -374,7 +365,7 @@ namespace settings {
         body.addChild(makeSettingSubtitleLabel(i18n::tr("settings.displays.workspaces-named"), ctx.scale));
       } else {
         const bool dynamic = workspaces == "dynamic" || workspaces.empty();
-        body.addChild(makeDisplayRow(
+        body.addChild(SettingsControlFactory::makeRow(
             i18n::tr("settings.displays.workspaces"),
             makeDisplaySelect(
                 {i18n::tr("settings.displays.workspaces-options.dynamic"),
@@ -405,7 +396,7 @@ namespace settings {
     ) {
       Flex* body = addSettingsCard(content, displayTitle(head), ctx.scale);
       const bool onlyEnabled = config.enabled && std::ranges::count_if(ctx.edits, &OutputHeadConfig::enabled) == 1;
-      body->addChild(makeDisplayRow(
+      body->addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.enabled"),
           ui::toggle({
               .checked = config.enabled,
@@ -436,7 +427,7 @@ namespace settings {
       if (ctx.mirrors != nullptr && ctx.mirrors->ready()) {
         addPropertyRows(*body, head, ctx);
       } else if (head.adaptiveSyncReported) {
-        body->addChild(makeDisplayRow(
+        body->addChild(SettingsControlFactory::makeRow(
             i18n::tr("settings.displays.adaptive-sync"),
             ui::toggle({
                 .checked = config.adaptiveSync,

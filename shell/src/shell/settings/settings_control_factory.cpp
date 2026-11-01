@@ -278,17 +278,6 @@ namespace settings {
     }
     titleRow->addChild(ui::spacer());
 
-    ui::FlexProps copyProps{.align = FlexAlign::Start, .flexGrow = 1.0F};
-    if (!isTemplateEnableTogglePath(entry.path)) {
-      copyProps.gap = Style::spaceXs * scale;
-    }
-    auto copy = ui::column(copyProps);
-    copy->addChild(std::move(titleRow));
-
-    if (!entry.subtitle.empty()) {
-      copy->addChild(makeSettingSubtitleLabel(entry.subtitle, scale));
-    }
-
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
     if (overridden) {
       if (rangeSlider != nullptr) {
@@ -306,7 +295,38 @@ namespace settings {
     tagTabFocusKey(*control, joinSettingPath(entry.path));
     actions->addChild(std::move(control));
 
-    auto row = ui::row(
+    section.addChild(layoutRow(
+        std::move(titleRow), entry.subtitle, !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
+    ));
+  }
+
+  std::unique_ptr<Flex> SettingsControlFactory::makeRow(
+      std::string_view title, std::unique_ptr<Node> control, float scale, std::string_view subtitle
+  ) {
+    auto titleRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+    titleRow->addChild(
+        makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
+    );
+    titleRow->addChild(ui::spacer());
+    auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
+    actions->addChild(std::move(control));
+    return layoutRow(std::move(titleRow), subtitle, true, std::move(actions), scale);
+  }
+
+  std::unique_ptr<Flex> SettingsControlFactory::layoutRow(
+      std::unique_ptr<Flex> titleRow, std::string_view subtitle, bool tightCopy, std::unique_ptr<Flex> actions,
+      float scale
+  ) {
+    ui::FlexProps copyProps{.align = FlexAlign::Start, .flexGrow = 1.0F};
+    if (tightCopy) {
+      copyProps.gap = Style::spaceXs * scale;
+    }
+    auto copy = ui::column(copyProps);
+    copy->addChild(std::move(titleRow));
+    if (!subtitle.empty()) {
+      copy->addChild(makeSettingSubtitleLabel(subtitle, scale));
+    }
+    return ui::row(
         {.align = FlexAlign::Center,
          .justify = FlexJustify::SpaceBetween,
          .gap = Style::spaceXs * scale,
@@ -315,8 +335,6 @@ namespace settings {
          .minHeight = Style::controlHeight * scale},
         std::move(copy), std::move(actions)
     );
-
-    section.addChild(std::move(row));
   }
 
   std::unique_ptr<Toggle> SettingsControlFactory::makeToggle(

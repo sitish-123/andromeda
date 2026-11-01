@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -35,6 +36,9 @@ namespace settings {
     makeResetButton(const std::vector<std::string>& path, std::function<void()> onConfirmed);
 
     void makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control);
+    // Plain title/subtitle/control row for pages without a SettingEntry.
+    [[nodiscard]] static std::unique_ptr<Flex>
+    makeRow(std::string_view title, std::unique_ptr<Node> control, float scale, std::string_view subtitle = {});
 
     [[nodiscard]] std::unique_ptr<Toggle> makeToggle(
         bool checked, bool enabled, const std::vector<std::string>& path,
@@ -96,6 +100,10 @@ namespace settings {
     [[nodiscard]] std::unique_ptr<Flex> makeOverrideResetActions(const std::vector<std::string>& path);
 
   private:
+    [[nodiscard]] static std::unique_ptr<Flex> layoutRow(
+        std::unique_ptr<Flex> titleRow, std::string_view subtitle, bool tightCopy, std::unique_ptr<Flex> actions,
+        float scale
+    );
     [[nodiscard]] std::unique_ptr<Flex>
     makeStatusBadge(std::string_view label, const ColorSpec& fill, const ColorSpec& color, bool matchResetHeight);
     [[nodiscard]] std::unique_ptr<Flex> makeAdvancedBadge();
