@@ -118,7 +118,7 @@ void Box::setFlatStyle() {
 }
 
 void Box::setPanelStyle(bool showBorder) {
-  m_fill = colorSpecFromRole(materialRole(), Style::glassAlpha(kTintRegularAlpha));
+  m_fill = colorSpecFromRole(panelMaterialRole(), Style::glassAlpha(kTintThickAlpha));
   if (showBorder) {
     m_border = colorSpecFromRole(ColorRole::Stroke);
     m_borderWidth = Style::borderWidth;

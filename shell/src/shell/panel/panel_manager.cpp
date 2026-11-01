@@ -2649,7 +2649,7 @@ void PanelManager::applyAttachedDecorationStyle() {
 
   if (m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
-    bg->setFill(colorSpecFromRole(materialRole(), m_attachedBackgroundOpacity));
+    bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(m_attachedBackgroundOpacity)));
   }
 
   if (m_panelShadowNode != nullptr && m_config != nullptr) {
@@ -2725,7 +2725,7 @@ void PanelManager::onConfigReloaded() {
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(materialRole(), panelBackgroundOpacity));
+    bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(panelBackgroundOpacity)));
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
@@ -2844,7 +2844,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
         const float backgroundOpacity = detachedBackgroundOpacity();
-        bg->setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
+        bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(backgroundOpacity)));
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(

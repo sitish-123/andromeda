@@ -25,6 +25,7 @@ enum class ColorRole : std::uint8_t {
   Danger,
   Shadow,
   TintRegular,
+  TintThick,
   Label3,
 };
 
@@ -33,7 +34,7 @@ struct ColorRoleToken {
   std::string_view token;
 };
 
-inline constexpr std::array<ColorRoleToken, 14> kColorRoleTokens = {{
+inline constexpr std::array<ColorRoleToken, 15> kColorRoleTokens = {{
     {ColorRole::Label1, "label_1"},
     {ColorRole::Label2, "label_2"},
     {ColorRole::Fill1, "fill_1"},
@@ -47,6 +48,7 @@ inline constexpr std::array<ColorRoleToken, 14> kColorRoleTokens = {{
     {ColorRole::Danger, "danger"},
     {ColorRole::Shadow, "shadow"},
     {ColorRole::TintRegular, "tint_regular"},
+    {ColorRole::TintThick, "tint_thick"},
     {ColorRole::Label3, "label_3"},
 }};
 
@@ -90,6 +92,7 @@ struct Palette {
   Color danger;
   Color shadow;
   Color tintRegular;
+  Color tintThick;
   Color label3;
 
   bool operator==(const Palette&) const = default;
@@ -109,6 +112,14 @@ extern Palette palette;
 inline constexpr float kTintRegularAlpha = 0.70F;
 [[nodiscard]] inline ColorRole materialRole() noexcept {
   return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintRegular;
+}
+// Panel and sheet material: tint_thick. A caller opacity is relative to tint_regular (0.70 = the token alpha) and is rescaled to thick.
+inline constexpr float kTintThickAlpha = 0.84F;
+[[nodiscard]] inline ColorRole panelMaterialRole() noexcept {
+  return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintThick;
+}
+[[nodiscard]] inline float panelMaterialAlpha(float opacity) noexcept {
+  return opacity >= 1.0F ? 1.0F : std::min(1.0F, opacity * (kTintThickAlpha / kTintRegularAlpha));
 }
 [[nodiscard]] ColorSpec fixedColorSpec(const Color& color) noexcept;
 [[nodiscard]] Color resolveColorSpec(const ColorSpec& color) noexcept;
