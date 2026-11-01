@@ -18,10 +18,10 @@ namespace shell::dock {
     constexpr std::int32_t kScreenEdgeOverlapPx = 1;
     constexpr float kAutoHideSlideExtraPx = 16.0F;
     // Keep in sync with dock_items instance-count badge geometry.
-    constexpr float kBadgeSizeRatio = Tokens::componentBadgeHeight / Tokens::componentDockIcon;
+    TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
     constexpr float kBadgeMinSize = 16.0F;
     // Badge hangs past its icon corner by this fraction of its diameter.
-    constexpr float kBadgeCornerOverhang = Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
+    TOKENS_LIVE(kBadgeCornerOverhang, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
 
     [[nodiscard]] int dockAutoHideEdgeGutter(const DockConfig& cfg) noexcept {
       if ((!cfg.autoHide && !cfg.smartAutoHide) || cfg.marginEdge <= 0) {

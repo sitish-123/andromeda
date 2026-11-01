@@ -26,8 +26,8 @@ namespace {
   constexpr float kCalendarWidth = 340.0F;
   constexpr float kEventsWidth = 240.0F;
   constexpr float kWidgetHeight = 390.0F;
-  constexpr float kSectionGap = Style::spaceLg;
-  constexpr float kGridGap = Style::spaceXs;
+  TOKENS_LIVE(kSectionGap, Style::spaceLg);
+  TOKENS_LIVE(kGridGap, Style::spaceXs);
   constexpr float kHeaderHeight = Style::controlHeight;
   constexpr float kWeekdayHeight = 20.0F;
   constexpr float kDayCellHeight = 43.0F;

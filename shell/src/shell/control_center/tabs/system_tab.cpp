@@ -25,9 +25,9 @@ namespace {
 
   // Graph cards run tighter than the default section card so the plot fills more of the card,
   // but the title gets a touch more breathing room above it.
-  constexpr float kGraphCardPadTop = Style::spaceSm;
-  constexpr float kGraphCardPadV = Style::spaceXs;
-  constexpr float kGraphCardPadH = Style::spaceMd;
+  TOKENS_LIVE(kGraphCardPadTop, Style::spaceSm);
+  TOKENS_LIVE(kGraphCardPadV, Style::spaceXs);
+  TOKENS_LIVE(kGraphCardPadH, Style::spaceMd);
 
   // Section card style with reduced padding, shared by the four graph cards.
   void applyGraphCardStyle(Flex& section, float scale, float opacity) {

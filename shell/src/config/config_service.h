@@ -98,6 +98,8 @@ public:
   void setNotificationManager(NotificationManager* manager);
   void checkReload();
   void forceReload();
+  // forceReload() with every section marked changed, for edits that no config diff shows (dev token reload).
+  void reloadAllSections();
 
   void registerIpc(IpcService& ipc);
 

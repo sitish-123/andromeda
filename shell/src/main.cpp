@@ -11,6 +11,7 @@
 #include "ipc/cli.h"
 #include "launcher/dmenu_cli.h"
 #include "scripting/plugin_lint.h"
+#include "theme/dev_tokens.h"
 #include "theme/cli.h"
 #include "theme/firefox_theme/firefox_theme.h"
 
@@ -243,6 +244,7 @@ namespace {
     }
     raiseMainThreadPriority();
     try {
+      noctalia::theme::dev_tokens::applyFromEnv();
       Application app;
       app.run([] { completeDaemonStartup(0); });
     } catch (const std::exception& e) {

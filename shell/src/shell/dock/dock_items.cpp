@@ -32,18 +32,18 @@
 namespace {
 
   // Badge geometry (component.badge at component.dock.icon), scaled with the icon size.
-  constexpr float kBadgeSizeRatio = Tokens::componentBadgeHeight / Tokens::componentDockIcon;
+  TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
   constexpr float kBadgeMinSize = 16.0F;
-  constexpr float kBadgeFontRatio = Tokens::componentBadgeFont / Tokens::componentBadgeHeight;
-  constexpr float kBadgeCornerInsetX = 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
-  constexpr float kBadgeCornerInsetY = Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight;
+  TOKENS_LIVE(kBadgeFontRatio, Tokens::componentBadgeFont / Tokens::componentBadgeHeight);
+  TOKENS_LIVE(kBadgeCornerInsetX, 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
+  TOKENS_LIVE(kBadgeCornerInsetY, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   constexpr float kDotSizeRatio = 0.09F;
   constexpr float kDotMinSize = 4.0F;
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
-  constexpr float kRunningBarLength = Tokens::componentDockRunningWidth;
-  constexpr float kRunningBarThickness = Tokens::componentDockRunningHeight;
+  TOKENS_LIVE(kRunningBarLength, Tokens::componentDockRunningWidth);
+  TOKENS_LIVE(kRunningBarThickness, Tokens::componentDockRunningHeight);
   // component.dock.padding and .gap space the icons; a cell adds none.
   constexpr float kCellPad = 0.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
@@ -661,7 +661,7 @@ namespace shell::dock {
                 .configure = [vert, edge, cellMain](Box& box) {
                   const float centered = std::round((cellMain - kRunningBarLength) * 0.5F);
                   const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
-                  constexpr float kGap = Tokens::componentDockRunningOffset;
+                  TOKENS_LIVE(kGap, Tokens::componentDockRunningOffset);
                   const float outer = atStart ? -(kGap + kRunningBarThickness) : cellMain + kGap;
                   box.setPosition(vert ? outer : centered, vert ? centered : outer);
                 },

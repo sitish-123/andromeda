@@ -27,12 +27,12 @@
 
 namespace {
 
-  constexpr float kCalendarGridGap = Style::spaceSm;
+  TOKENS_LIVE(kCalendarGridGap, Style::spaceSm);
   constexpr float kCalendarNavButtonSize = Style::controlHeight;
-  constexpr float kCalendarWeekdayRowHeight = Style::fontSizeCaption + Style::spaceXs;
+  TOKENS_LIVE(kCalendarWeekdayRowHeight, Style::fontSizeCaption + Style::spaceXs);
   constexpr float kCalendarHeaderHeight = Style::controlHeight;
-  constexpr float kCalendarCellSizeMin = Style::controlHeightSm + Style::spaceXs;
-  constexpr float kCalendarCellSizeMax = Style::controlHeightLg + Style::spaceXs;
+  TOKENS_LIVE(kCalendarCellSizeMin, Style::controlHeightSm + Style::spaceXs);
+  TOKENS_LIVE(kCalendarCellSizeMax, Style::controlHeightLg + Style::spaceXs);
   constexpr float kCalendarDayButtonSizeMax = Style::controlHeightLg;
   constexpr float kCalendarLayoutEpsilon = 0.5F;
   // Week-number column: a fraction of a day column so it stays visually subordinate, floored at the

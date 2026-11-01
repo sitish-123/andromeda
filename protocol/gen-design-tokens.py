@@ -80,7 +80,10 @@ def is_struct_group(table):
     return all(k == keys[0] for k in keys) and all(not isinstance(v, dict) for c in children for v in c.values())
 
 
-def emit(table, path, out):
+KIND = {"bool": "b", "int": "i", "float": "f", "std::uint32_t": "c", "std::string_view": "s"}
+
+
+def emit(table, path, out, slots, refresh):
     for key, value in table.items():
         sub = path + (key,)
         if isinstance(value, dict) and is_struct_group(value):
@@ -92,16 +95,33 @@ def emit(table, path, out):
             out.append("  };")
             for child, values in value.items():
                 literals = ", ".join(scalar(sub + (child, k), v)[1] for k, v in values.items())
-                out.append(f"  inline constexpr {name} {camel(sub + (child,))}{{{literals}}};")
+                out.append(f"  inline TOKENS_CONST {name} {camel(sub + (child,))}{{{literals}}};")
+                for k, v in values.items():
+                    slots.append((".".join(sub + (child, k)), KIND[scalar((), v)[0]], f"&{camel(sub + (child,))}.{camel((k,))}", v))
                 if all(isinstance(v, str) and COLOR.fullmatch(v) for v in values.values()):
                     pairs = ", ".join(f'{{"{k}", {scalar((), v)[1]}}}' for k, v in values.items())
-                    out.append(f"  inline constexpr std::array<std::pair<std::string_view, std::uint32_t>, {len(values)}> "
+                    out.append(f"  inline TOKENS_CONST std::array<std::pair<std::string_view, std::uint32_t>, {len(values)}> "
                                f"{camel(sub + (child, 'entries'))}{{{{{pairs}}}}};")
+                    live = ", ".join(f'{{"{k}", {camel(sub + (child,))}.{camel((k,))}}}' for k in values)
+                    refresh.append(f"    {camel(sub + (child, 'entries'))} = {{{{{live}}}}};")
         elif isinstance(value, dict):
-            emit(value, sub, out)
+            emit(value, sub, out, slots, refresh)
         else:
             kind, literal = scalar(sub, value)
-            out.append(f"  inline constexpr {kind} {camel(sub)} = {literal};")
+            out.append(f"  inline TOKENS_CONST {kind} {camel(sub)} = {literal};")
+            slots.append((".".join(sub), KIND[kind], f"&{camel(sub)}", value))
+
+
+def default_number(v):
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    if isinstance(v, str):
+        return str(int(v[1:], 16)) if COLOR.fullmatch(v) else "0"
+    return repr(float(v))
+
+
+def default_text(v):
+    return scalar((), v)[1] if isinstance(v, str) and not COLOR.fullmatch(v) else '""'
 
 
 PX_GROUPS = ("radius", "space", "component")
@@ -338,9 +358,26 @@ def main(src, *out_paths):
 
 def emit_header(tokens, out_path):
     out = ["// Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py. Do not edit.", "#pragma once",
-           "", "#include <array>", "#include <cstdint>", "#include <string_view>", "#include <utility>", "", "namespace Tokens {", ""]
-    emit(tokens, (), out)
-    out += ["", "} // namespace Tokens", ""]
+           "", "#include <array>", "#include <cstdint>", "#include <string_view>", "#include <utility>", "",
+           "// TOKENS_RUNTIME: values are writable (live reload, see slots()); otherwise constexpr.",
+           "#ifdef TOKENS_RUNTIME", "#define TOKENS_CONST", "#else", "#define TOKENS_CONST constexpr", "#endif", "",
+           "// A float derived from tokens that re-reads them on every use: constexpr without TOKENS_RUNTIME.",
+           "#ifdef TOKENS_RUNTIME",
+           "namespace Tokens { template <class F> struct Live { F fn; operator float() const { return fn(); } }; }",
+           "#define TOKENS_LIVE(name, expr) const auto name = ::Tokens::Live{[] { return static_cast<float>(expr); }}",
+           "#else", "#define TOKENS_LIVE(name, expr) constexpr float name = (expr)",
+           "#endif", "",
+           "namespace Tokens {", ""]
+    slots, refresh = [], []
+    emit(tokens, (), out, slots, refresh)
+    out += ["", "#ifdef TOKENS_RUNTIME", "  struct Slot {", "    std::string_view path;",
+            "    char kind;  // b bool, i int, f float, c packed color, s string_view", "    void* ptr;",
+            "    double number;  // built-in value of a b, i, f or c slot", "    std::string_view text;  // built-in value of an s slot", "  };",
+            f"  inline const std::array<Slot, {len(slots)}>& slots() {{",
+            f"    static const std::array<Slot, {len(slots)}> table{{{{"]
+    out += [f'        {{"{p}", \'{k}\', {ptr}, {default_number(v)}, {default_text(v)}}},' for p, k, ptr, v in slots]
+    out += ["    }};", "    return table;", "  }", "  inline void refreshEntries() {", *refresh, "  }", "#endif", "",
+            "} // namespace Tokens", ""]
     with open(out_path, "w") as f:
         f.write("\n".join(out))
 

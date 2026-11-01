@@ -875,6 +875,7 @@ _noctalia_sources = files(
   'src/theme/community_palettes.cpp',
   'src/theme/community_templates.cpp',
   'src/theme/custom_palettes.cpp',
+  'src/theme/dev_tokens.cpp',
   'src/theme/fixed_palette.cpp',
   'src/theme/template_apply_service.cpp',
   'src/theme/toolkit_theme_files.cpp',

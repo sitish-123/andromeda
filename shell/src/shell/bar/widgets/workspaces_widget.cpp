@@ -32,9 +32,9 @@ namespace {
     return !workspace.occupied && !workspace.active && !workspace.urgent;
   }
 
-  constexpr float kWorkspaceGap = Style::spaceXs;
+  TOKENS_LIVE(kWorkspaceGap, Style::spaceXs);
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
-  constexpr float kWorkspaceAnimDurationMs = static_cast<float>(Style::animNormal);
+  TOKENS_LIVE(kWorkspaceAnimDurationMs, static_cast<float>(Style::animNormal));
 
   [[nodiscard]] constexpr float workspaceLabelFontSize(bool minimal) {
     return minimal ? Style::fontSizeBody : Style::fontSizeMini;

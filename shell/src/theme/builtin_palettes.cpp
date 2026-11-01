@@ -59,7 +59,7 @@ namespace noctalia::theme {
         .blue = hex("#2f6bff"), .magenta = hex("#8944ab"), .cyan = hex("#0071a4"), .white = hex("#f2f2f6"),
     };
 
-    constexpr std::array<BuiltinPalette, 11> kPalettes =
+    std::array<BuiltinPalette, 11> kPalettes =
         {
             {
                 {
@@ -1189,6 +1189,11 @@ namespace noctalia::theme {
     };
 
   } // namespace
+
+  void refreshBuiltinPalettes() {
+    kPalettes[0].dark.palette = tokenFixedPalette(Tokens::schemeDark);
+    kPalettes[0].light.palette = tokenFixedPalette(Tokens::schemeLight);
+  }
 
   std::span<const BuiltinPalette> builtinPalettes() { return kPalettes; }
 

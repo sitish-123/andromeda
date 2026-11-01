@@ -38,16 +38,16 @@ namespace {
   constexpr Logger kLog("notification");
 
   constexpr float kInlineReplyInputHeight = Style::controlHeightSm;
-  constexpr float kInlineReplyGap = Style::spaceSm;
+  TOKENS_LIVE(kInlineReplyGap, Style::spaceSm);
   constexpr float kInlineReplySendButtonSize = Style::controlHeightSm;
 
-  constexpr float kGap = Style::spaceSm;
-  constexpr float kPaddingX = Style::spaceMd;
+  TOKENS_LIVE(kGap, Style::spaceSm);
+  TOKENS_LIVE(kPaddingX, Style::spaceMd);
   constexpr float kPaddingTop = 0.0F;
-  constexpr float kPaddingBottom = Style::spaceMd;
+  TOKENS_LIVE(kPaddingBottom, Style::spaceMd);
   constexpr int kFallbackVisibleCards = 5;
   constexpr float kQueuedY = -1.0F;
-  constexpr float kCardInnerPad = Style::spaceMd;
+  TOKENS_LIVE(kCardInnerPad, Style::spaceMd);
   constexpr float kCloseButtonSize = 20.0F;
   constexpr float kCloseGlyphSize = 12.0F;
   constexpr float kNotificationIconSize = 45.0F;
@@ -55,7 +55,7 @@ namespace {
   constexpr float kNotificationIconGlyphSize = 24.0F;
   constexpr float kNotificationIconGlyphSizeCompact = 20.0F;
   constexpr float kNotificationIconReferenceSize = 36.0F;
-  constexpr float kTopProgressInset = Style::spaceMd;
+  TOKENS_LIVE(kTopProgressInset, Style::spaceMd);
   constexpr auto kExitFallbackGrace = std::chrono::milliseconds(50);
 
   float notificationIconRadius(float iconSize, float localScale = 1.0F) {
@@ -63,9 +63,9 @@ namespace {
     return std::min(iconSize * 0.5F, Style::scaledRadius(baseRadius, localScale));
   }
   constexpr std::string_view kNoctaliaGlyphIconPrefix = "noctalia-glyph:";
-  constexpr float kIconTextGap = Style::spaceSm;
-  constexpr float kActionGap = Style::spaceXs;
-  constexpr float kActionRowGap = Style::spaceSm;
+  TOKENS_LIVE(kIconTextGap, Style::spaceSm);
+  TOKENS_LIVE(kActionGap, Style::spaceXs);
+  TOKENS_LIVE(kActionRowGap, Style::spaceSm);
   std::string fallbackActionLabel() { return i18n::tr("notifications.actions.fallback"); }
 
   bool hasInlineReplyAction(const std::vector<std::string>& actions) {
@@ -108,9 +108,9 @@ namespace {
   }
   constexpr int kProgressHeight = 3;
   constexpr int kContentSlideOffset = 12; // subtle foreground slide during reveal/retract
-  constexpr float kMetaFontSize = Style::fontSizeMini;
-  constexpr float kSummaryFontSize = Style::fontSizeTitle;
-  constexpr float kBodyFontSize = Style::fontSizeBody;
+  TOKENS_LIVE(kMetaFontSize, Style::fontSizeMini);
+  TOKENS_LIVE(kSummaryFontSize, Style::fontSizeTitle);
+  TOKENS_LIVE(kBodyFontSize, Style::fontSizeBody);
   constexpr int kMaxSummaryLines = 2;
   constexpr int kToastMaxBodyLines = 3;
   constexpr int kMaxToastCardHeight = 320;

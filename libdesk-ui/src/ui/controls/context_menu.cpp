@@ -17,10 +17,10 @@ namespace {
   constexpr float kItemHeight = Style::controlHeightSm;
   constexpr float kSeparatorHeight = 10.0F;
   constexpr float kItemGap = 0.0F;
-  constexpr float kMenuFontSize = Style::fontSizeCaption;
-  constexpr float kMenuGlyphSize = Style::fontSizeCaption - 1.0F;
+  TOKENS_LIVE(kMenuFontSize, Style::fontSizeCaption);
+  TOKENS_LIVE(kMenuGlyphSize, Style::fontSizeCaption - 1.0F);
   // Leading check/radio column: the glyph plus a small gap before the label (or leading visual).
-  constexpr float kToggleSlot = kMenuGlyphSize + Style::spaceXs;
+  TOKENS_LIVE(kToggleSlot, kMenuGlyphSize + Style::spaceXs);
 
   float safeScale(float scale) noexcept { return std::max(0.1F, scale); }
 

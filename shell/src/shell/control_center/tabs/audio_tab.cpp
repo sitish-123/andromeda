@@ -39,7 +39,7 @@ using namespace control_center;
 
 namespace {
 
-  constexpr float kValueLabelWidth = Style::controlHeightLg + Style::spaceLg;
+  TOKENS_LIVE(kValueLabelWidth, Style::controlHeightLg + Style::spaceLg);
   constexpr Logger kLogProgramUi{"audio_tab"};
   constexpr float kVolumeSyncEpsilon = 0.005F; // 0.5%
   constexpr auto kVolumeCommitInterval = std::chrono::milliseconds(16);

@@ -28,9 +28,9 @@ namespace {
   constexpr float kMaxContentWidth = 280.0F;
   constexpr int kMaxTextLines = 3;
   constexpr float kTableMinPeerColumnWidth = 80.0F;
-  constexpr float kPadH = Style::spaceMd;
-  constexpr float kPadV = Style::spaceSm;
-  constexpr float kTableColumnGap = Style::spaceMd;
+  TOKENS_LIVE(kPadH, Style::spaceMd);
+  TOKENS_LIVE(kPadV, Style::spaceSm);
+  TOKENS_LIVE(kTableColumnGap, Style::spaceMd);
   constexpr float kBorder = Style::borderWidth;
   // Monospace so grid-mode value columns don't reflow on tiny per-tick content changes
   // (e.g. rising bitrate). Resolved via fontconfig — respects the user's `monospace` alias.

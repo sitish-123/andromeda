@@ -38,7 +38,7 @@ namespace {
   // Full-height cards need room for rounded-rect AA before the tab viewport clips them.
   constexpr float kTabViewportClipInset = 1.0F;
   // The quick sheet: 360 px of cards plus the panel padding on both sides.
-  constexpr float kQuickSheetWidth = Tokens::componentSheetWidth;
+  TOKENS_LIVE(kQuickSheetWidth, Tokens::componentSheetWidth);
 
   float tabContentHeight(float viewportHeight) {
     return std::max(1.0F, std::floor(viewportHeight - kTabViewportClipInset));

@@ -23,18 +23,18 @@ namespace {
   constexpr Logger kLog("live-activity");
 
   constexpr float kWidth = 440.0F;
-  constexpr float kHeight = Tokens::componentLiveHeight;
+  TOKENS_LIVE(kHeight, Tokens::componentLiveHeight);
   // Below this logical output width the island drops its progress bar, so it clears the bar's end island.
   constexpr std::int32_t kWideOutput = 1440;
   constexpr float kCompactWidth = 290.0F;
   // Collapsed size: the bar's center island, which the live island grows out of.
   constexpr float kCollapsedWidth = 120.0F;
-  constexpr float kCollapsedHeight = Tokens::componentIslandHeight;
-  constexpr float kPadding = Tokens::componentLivePadding;
-  constexpr float kIcon = Tokens::componentLiveLead;
-  constexpr float kButton = Tokens::componentLiveButton;
-  constexpr float kProgressWidth = Tokens::componentLiveProgressWidth;
-  constexpr float kProgressHeight = Tokens::componentLiveProgressHeight;
+  TOKENS_LIVE(kCollapsedHeight, Tokens::componentIslandHeight);
+  TOKENS_LIVE(kPadding, Tokens::componentLivePadding);
+  TOKENS_LIVE(kIcon, Tokens::componentLiveLead);
+  TOKENS_LIVE(kButton, Tokens::componentLiveButton);
+  TOKENS_LIVE(kProgressWidth, Tokens::componentLiveProgressWidth);
+  TOKENS_LIVE(kProgressHeight, Tokens::componentLiveProgressHeight);
   // White on the dark live tint in both schemes (docs/design-system.md "Live activity").
   constexpr Color kWhite{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = 1.0F};
   Color white(float alpha) { return Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = alpha}; }

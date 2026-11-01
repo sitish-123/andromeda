@@ -41,9 +41,9 @@ namespace {
   constexpr float kMediaUnit = 36.0F;
 
   constexpr float kArtworkSize = kMediaUnit * 6;
-  constexpr float kMediaNowCardMinHeight = kMediaUnit * 11 + Style::spaceSm * 2;
-  constexpr float kMediaControlsHeight = kMediaUnit + Style::spaceXs;
-  constexpr float kMediaPlayPauseHeight = kMediaUnit + Style::spaceSm;
+  TOKENS_LIVE(kMediaNowCardMinHeight, kMediaUnit * 11 + Style::spaceSm * 2);
+  TOKENS_LIVE(kMediaControlsHeight, kMediaUnit + Style::spaceXs);
+  TOKENS_LIVE(kMediaPlayPauseHeight, kMediaUnit + Style::spaceSm);
   constexpr float kMediaArtworkMinHeight = kMediaUnit * 4;
   constexpr auto kNoActivePlayerGrace = std::chrono::milliseconds(2000);
   constexpr auto kTransientPositionRegressionWindow = std::chrono::milliseconds(1500);

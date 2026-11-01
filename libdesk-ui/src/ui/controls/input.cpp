@@ -66,7 +66,7 @@ namespace {
   constexpr auto kTypingUndoCoalesceWindow = std::chrono::milliseconds(1000);
   // Multiline mode: vertical text inset, wheel step in lines, and the stub
   // highlight width (in em) marking a selected line break.
-  constexpr float kMultilinePadV = Style::spaceSm;
+  TOKENS_LIVE(kMultilinePadV, Style::spaceSm);
   constexpr int kWheelScrollLines = 3;
   constexpr float kSelectionLineBreakStubEm = 0.4F;
   constexpr float kLineYEpsilon = 0.5F;

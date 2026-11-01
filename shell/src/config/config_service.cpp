@@ -638,6 +638,12 @@ void ConfigService::forceReload() {
   fireReloadCallbacks();
 }
 
+void ConfigService::reloadAllSections() {
+  loadAll();
+  m_lastChange = ConfigChangeSet{};
+  fireReloadCallbacks();
+}
+
 void ConfigService::fireReloadCallbacks() {
   if (!noctalia::profiling::enabled()) {
     for (const auto& sub : m_reloadCallbacks) {

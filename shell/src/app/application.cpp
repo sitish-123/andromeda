@@ -1,6 +1,7 @@
 #include "application.h"
 
 #include "app/main_loop.h"
+#include "theme/dev_tokens.h"
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "compositors/compositor_detect.h"
@@ -219,6 +220,7 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
   initLogFile();
   initLogLevelFromEnvironment();
   kLog.info("noctalia {}", noctalia::build_info::displayVersion());
+  noctalia::theme::dev_tokens::watchEnv(m_fileWatcher, [this] { m_configService.reloadAllSections(); });
   // Claim the tray watcher name first. The tray UI itself is wired up later.
   // Item callbacks run from deferred work on the main loop, after the shell
   // is initialized.

@@ -7,14 +7,14 @@ namespace Style {
 
   inline constexpr int barThicknessDefault = 34;
 
-  inline constexpr int animFast = Tokens::motionFast;
-  inline constexpr int animNormal = Tokens::motionNormal;
-  inline constexpr int animSlow = Tokens::motionSlow;
+  inline constexpr const int& animFast = Tokens::motionFast;
+  inline constexpr const int& animNormal = Tokens::motionNormal;
+  inline constexpr const int& animSlow = Tokens::motionSlow;
 
-  inline constexpr float radiusSm = Tokens::radiusXs;
-  inline constexpr float radiusMd = Tokens::radiusSm;
-  inline constexpr float radiusLg = Tokens::radiusMd;
-  inline constexpr float radiusXl = Tokens::radiusLg;
+  inline constexpr const float& radiusSm = Tokens::radiusXs;
+  inline constexpr const float& radiusMd = Tokens::radiusSm;
+  inline constexpr const float& radiusLg = Tokens::radiusMd;
+  inline constexpr const float& radiusXl = Tokens::radiusLg;
 
   inline constexpr float borderWidth = 1.0F;
   inline constexpr float emphasizedBorderWidth = 3.0F;
@@ -22,23 +22,23 @@ namespace Style {
   inline constexpr float progressMarkerWidth = 2.0F;
   inline constexpr float disabledOutlineAlpha = 0.5F;
 
-  inline constexpr float spaceXs = Tokens::spaceS1;
-  inline constexpr float spaceSm = Tokens::spaceS2;
-  inline constexpr float spaceMd = Tokens::spaceS3;
-  inline constexpr float spaceLg = Tokens::spaceS4;
+  inline constexpr const float& spaceXs = Tokens::spaceS1;
+  inline constexpr const float& spaceSm = Tokens::spaceS2;
+  inline constexpr const float& spaceMd = Tokens::spaceS3;
+  inline constexpr const float& spaceLg = Tokens::spaceS4;
 
-  inline constexpr float cardPadding = Tokens::spaceS3;
-  inline constexpr float panelPadding = Tokens::spaceS3;
+  inline constexpr const float& cardPadding = Tokens::spaceS3;
+  inline constexpr const float& panelPadding = Tokens::spaceS3;
 
   // Default inner inset for bar widget capsules (logical px, before bar content scale).
   inline constexpr float barCapsulePadding = 6.0F;
   inline constexpr float baseGlyphSize = 16.0F;
 
-  inline constexpr float fontSizeMini = Tokens::typeMini.size;
-  inline constexpr float fontSizeCaption = Tokens::typeCaption.size;
-  inline constexpr float fontSizeBody = Tokens::typeBody.size;
-  inline constexpr float fontSizeTitle = Tokens::typeTitle.size;
-  inline constexpr float fontSizeHeader = Tokens::typeHeader.size;
+  inline constexpr const float& fontSizeMini = Tokens::typeMini.size;
+  inline constexpr const float& fontSizeCaption = Tokens::typeCaption.size;
+  inline constexpr const float& fontSizeBody = Tokens::typeBody.size;
+  inline constexpr const float& fontSizeTitle = Tokens::typeTitle.size;
+  inline constexpr const float& fontSizeHeader = Tokens::typeHeader.size;
 
   inline constexpr float controlHeightSm = 32.0F;
   inline constexpr float controlHeight = 38.0F;
@@ -51,7 +51,7 @@ namespace Style {
   // content as it expands, so hovering never reflows the scroll view.
   inline constexpr float scrollbarWidth = 6.0F;
   inline constexpr float scrollbarHoverWidth = 12.0F;
-  inline constexpr float scrollbarGap = spaceSm;
+  inline const float scrollbarGap = spaceSm;
   // Shortest the thumb gets on a long document; it must stay a usable drag target and read as a
   // bar rather than a lozenge next to the hovered thickness.
   inline constexpr float scrollbarMinThumbHeight = 32.0F;
@@ -68,12 +68,12 @@ namespace Style {
   inline constexpr float windowSwitcherFarCardWidth = 280.0F;
   inline constexpr float windowSwitcherCompactCardWidth = 220.0F;
   inline constexpr float windowSwitcherPreviewAspect = 1.6F;
-  inline constexpr float windowSwitcherCardOverlap = controlHeightLg + spaceLg;
+  inline const float windowSwitcherCardOverlap = controlHeightLg + spaceLg;
   inline constexpr float windowSwitcherNarrowLayoutThreshold = 0.72F;
   inline constexpr float windowSwitcherPreviewIconScale = 0.12F;
   inline constexpr float windowSwitcherFallbackIconScale = 0.28F;
   inline constexpr float windowSwitcherCaptionHeight = controlHeightLg;
-  inline constexpr float windowSwitcherCaptionLineGap = -spaceXs;
+  inline const float windowSwitcherCaptionLineGap = -spaceXs;
   inline constexpr float windowSwitcherIncomingCardScale = 0.9F;
   inline constexpr float windowSwitcherIncomingCardSlide = 0.25F;
   inline constexpr float windowSwitcherOutgoingCardSlide = 0.3F;

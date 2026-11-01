@@ -9,6 +9,10 @@ project('desk-ui', ['c', 'cpp'],
   ],
 )
 
+# Tokens are writable globals so the shell can reload them live (ANDROMEDA_DEV_TOKENS).
+_tokens_runtime = ['-DTOKENS_RUNTIME']
+add_project_arguments(_tokens_runtime, language: 'cpp')
+
 cc  = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
 
@@ -315,4 +319,5 @@ desk_ui_dep = declare_dependency(
   dependencies: _system_deps,
   include_directories: _desk_ui_inc,
   sources: _protocol_headers,
+  compile_args: _tokens_runtime,
 )

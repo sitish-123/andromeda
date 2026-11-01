@@ -80,3 +80,18 @@ package:
 design-reference:
     python3 protocol/gen-design-tokens.py protocol/design-tokens.toml /tmp/design_tokens.h docs/design/tokens.css
     google-chrome-stable --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,1010 --screenshot="$PWD/docs/design/reference.png" "file://$PWD/docs/design/reference.html"
+
+# Live shell loop: the user session runs shell/build-f7/noctalia; each new build-f7 binary (mold link) restarts the shell and captures the screen to /tmp/andromeda-live/last.png.
+dev-live:
+    meson configure shell/build-f7 -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
+    flock /tmp/build-f7.lock ninja -C shell/build-f7 noctalia
+    mkdir -p ~/.config/systemd/user/noctalia.service.d /tmp/andromeda-live
+    printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/noctalia\n' "$PWD" "$PWD" > ~/.config/systemd/user/noctalia.service.d/dev-live.conf
+    systemctl --user daemon-reload && systemctl --user restart noctalia.service
+    # Restart only on a new binary: a source watch restarts the live shell on every half-done agent edit.
+    watchexec -p -w shell/build-f7/noctalia --debounce 500ms -- 'systemctl --user restart noctalia.service && sleep 1 && grim /tmp/andromeda-live/last.png'
+
+# Back to the packaged shell.
+dev-live-off:
+    rm -f ~/.config/systemd/user/noctalia.service.d/dev-live.conf
+    systemctl --user daemon-reload && systemctl --user restart noctalia.service
