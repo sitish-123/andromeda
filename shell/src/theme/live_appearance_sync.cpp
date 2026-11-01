@@ -3,10 +3,12 @@
 #include "compositors/compositor_detect.h"
 #include "compositors/settings_control.h"
 #include "compositors/shell_wayland_connection.h"
+#include "design_tokens.h"
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <format>
 
 namespace {
 
@@ -61,6 +63,20 @@ void LiveAppearanceSync::flush() {
   }
   if (!m_accent.empty() && normalizeColor(m_control->value("appearance.accent")) != m_accent) {
     m_control->set("appearance.accent", m_accent);
+  }
+  if (!m_scheme.empty()) {
+    const bool light = m_scheme == "light";
+    const std::pair<const char*, float> recipe[] = {
+        {"appearance.blur.saturation", light ? Tokens::blurLightSaturation : Tokens::blurSaturation},
+        {"appearance.blur.brightness", light ? Tokens::blurLightBrightness : Tokens::blurBrightness},
+        {"appearance.blur.contrast", light ? Tokens::blurLightContrast : Tokens::blurContrast},
+    };
+    for (const auto& [key, value] : recipe) {
+      const std::string text = std::format("{:g}", value);
+      if (m_control->value(key) != text) {
+        m_control->set(key, text);
+      }
+    }
   }
 }
 

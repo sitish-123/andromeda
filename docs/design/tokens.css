@@ -38,6 +38,9 @@
   --blur-brightness: 0.95;
   --blur-contrast: 0.95;
   --blur-saturation: 1.6;
+  --blur-light-brightness: 1.05;
+  --blur-light-contrast: 1.0;
+  --blur-light-saturation: 1.8;
   --elevation-e1-softness: 14;
   --elevation-e1-offset-x: 0;
   --elevation-e1-offset-y: 4;
@@ -126,8 +129,8 @@
   --fill-2: rgba(0, 0, 0, 0.051);
   --fill-3: rgba(0, 0, 0, 0.09);
   --tint-thin: rgba(246, 246, 250, 0.549);
-  --tint-regular: rgba(246, 246, 250, 0.702);
-  --tint-thick: rgba(250, 250, 252, 0.839);
+  --tint-regular: rgba(255, 255, 255, 0.62);
+  --tint-thick: rgba(255, 255, 255, 0.761);
   --solid-thin: rgba(236, 236, 241, 1.0);
   --solid-regular: rgba(242, 242, 246, 1.0);
   --solid-thick: rgba(248, 248, 250, 1.0);

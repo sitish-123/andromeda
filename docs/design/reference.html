@@ -25,6 +25,8 @@ svg.i { width: var(--component-island-icon); height: var(--component-island-icon
 .glass { background: var(--tint-regular); backdrop-filter: blur(28px) saturate(var(--blur-saturation));
   box-shadow: 0 calc(var(--elevation-e2-offset-y) * 1px) calc(var(--elevation-e2-softness) * 1px) var(--shadow),
     inset 0 0.5px 0 var(--edge); border: 0.5px solid var(--stroke); }
+#light .glass { backdrop-filter: blur(28px) saturate(var(--blur-light-saturation)) brightness(var(--blur-light-brightness))
+  contrast(var(--blur-light-contrast)); }
 /* Smooth corners, the shader formula (radius.smoothing): set --r (radius) and, when the box may be too small to grow the
    corner, --half (half its shorter side). */
 .sheet, .card, .art, .app, .board, .sl, .sl .fill, .sw i, .radii div {

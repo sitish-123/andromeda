@@ -63,8 +63,8 @@ fill_1 = "#ffffff9e"
 fill_2 = "#0000000d"
 fill_3 = "#00000017"
 tint_thin = "#f6f6fa8c"
-tint_regular = "#f6f6fab3"
-tint_thick = "#fafafcd6"
+tint_regular = "#ffffff9e"
+tint_thick = "#ffffffc2"
 solid_thin = "#ececf1ff"
 solid_regular = "#f2f2f6ff"
 solid_thick = "#f8f8faff"
@@ -117,6 +117,12 @@ noise = 0.02
 brightness = 0.95
 contrast = 0.95
 saturation = 1.6
+
+# Light-scheme recipe; the shell applies it to the compositor while the shell mode is light.
+[blur_light]
+brightness = 1.05
+contrast = 1.0
+saturation = 1.8
 
 # Drawn by the compositor. softness and offset in px; opacity scales the scheme's shadow color.
 [elevation.e1]
