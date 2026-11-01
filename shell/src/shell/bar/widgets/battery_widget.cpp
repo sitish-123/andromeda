@@ -150,7 +150,7 @@ void BatteryWidget::createGraphicMode() {
             .out = &m_overlayLabel,
             .fontWeight = labelFontWeight(),
             .fontFamily = labelFontFamily(),
-            .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
             .textAlign = TextAlign::Center,
         })
     );
@@ -159,7 +159,7 @@ void BatteryWidget::createGraphicMode() {
   container->addChild(
       ui::glyph({
           .out = &m_overlayGlyph,
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .visible = false,
       })
   );
@@ -179,7 +179,7 @@ void BatteryWidget::createGlyphMode() {
           .out = &m_glyph,
           .glyph = "battery-4",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -374,7 +374,7 @@ void BatteryWidget::updateFillGeometry() {
 }
 
 void BatteryWidget::syncPalette() {
-  const ColorSpec normalFg = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+  const ColorSpec normalFg = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   const bool isWarning = m_warningThreshold > 0
       && m_lastPct >= 0.0
       && std::round(m_lastPct) <= m_warningThreshold
@@ -385,11 +385,11 @@ void BatteryWidget::syncPalette() {
     // Same light-on-dark body as the unlabelled battery, so it matches neighbouring glyphs. The track stays opaque and
     // light enough that surface-colored text reads on both sides of the moving fill boundary.
     const Color fg = resolveColorSpec(foreground);
-    const Color track = lerpColor(fg, colorForRole(ColorRole::Surface), 0.35F);
+    const Color track = lerpColor(fg, colorForRole(ColorRole::SolidRegular), 0.35F);
     m_bodyBg->setFill(track);
     m_fillRect->setFill(foreground);
     m_terminalNub->setFill(foreground);
-    m_overlayLabel->setColor(colorSpecFromRole(ColorRole::Surface));
+    m_overlayLabel->setColor(colorSpecFromRole(ColorRole::SolidRegular));
   } else {
     m_bodyBg->setFill(scaleAlpha(foreground, 0.3F));
     m_fillRect->setFill(foreground);
@@ -498,9 +498,9 @@ void BatteryWidget::syncState(Renderer& renderer) {
       m_overlayGlyph->setVisible(stateGlyph != nullptr);
     }
   } else if (m_displayMode == BatteryDisplayMode::Glyph) {
-    const ColorSpec iconColor = isWarning ? m_warningColor : widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec iconColor = isWarning ? m_warningColor : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1));
     const ColorSpec labelColor =
-        isWarning ? m_warningColor : widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        isWarning ? m_warningColor : widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
 
     if (m_glyph != nullptr) {
       m_glyph->setGlyph(batteryGlyphName(s.percentage, s.state));
@@ -516,7 +516,7 @@ void BatteryWidget::syncState(Renderer& renderer) {
       m_label->measure(renderer);
     }
   } else if (m_displayMode == BatteryDisplayMode::None) {
-    const ColorSpec normalFgColor = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec normalFgColor = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     const ColorSpec fgColor = isWarning ? m_warningColor : normalFgColor;
 
     if (m_label != nullptr && m_showLabel) {

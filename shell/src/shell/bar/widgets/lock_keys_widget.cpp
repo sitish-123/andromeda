@@ -42,7 +42,7 @@ void LockKeysWidget::create() {
           .out = &m_glyph,
           .glyph = "lock",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -200,7 +200,7 @@ void LockKeysWidget::sync(Renderer& renderer) {
 
   if (m_glyph != nullptr) {
     m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   }
 
   const bool full = m_displayMode == DisplayMode::Full;
@@ -219,20 +219,20 @@ void LockKeysWidget::sync(Renderer& renderer) {
 
   if (m_capsLabel != nullptr) {
     m_capsLabel->setColor(
-        lockState.capsLock ? colorSpecFromRole(ColorRole::Primary)
-                           : widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurfaceVariant))
+        lockState.capsLock ? colorSpecFromRole(ColorRole::Accent)
+                           : widgetForegroundOr(colorSpecFromRole(ColorRole::Label2))
     );
   }
   if (m_numLabel != nullptr) {
     m_numLabel->setColor(
-        lockState.numLock ? colorSpecFromRole(ColorRole::Primary)
-                          : widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurfaceVariant))
+        lockState.numLock ? colorSpecFromRole(ColorRole::Accent)
+                          : widgetForegroundOr(colorSpecFromRole(ColorRole::Label2))
     );
   }
   if (m_scrollLabel != nullptr) {
     m_scrollLabel->setColor(
-        lockState.scrollLock ? colorSpecFromRole(ColorRole::Primary)
-                             : widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurfaceVariant))
+        lockState.scrollLock ? colorSpecFromRole(ColorRole::Accent)
+                             : widgetForegroundOr(colorSpecFromRole(ColorRole::Label2))
     );
   }
 

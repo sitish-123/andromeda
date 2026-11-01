@@ -1,4 +1,5 @@
 #include "shell/bar/widgets/active_window_widget.h"
+#include "config/app_icon_settings.h"
 
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
@@ -54,7 +55,7 @@ void ActiveWindowWidget::create() {
           .fontSize = Style::fontSizeBody * fontScale(),
           .fontWeight = labelFontWeight(),
           .fontFamily = labelFontFamily(),
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .maxWidth = m_maxWidth * m_contentScale,
           .maxLines = 1,
           .autoScroll = false,
@@ -87,7 +88,7 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
   const float minLength = std::clamp(m_minWidth * m_contentScale, 0.0F, maxLength);
   m_icon->setSize(iconSize, iconSize);
 
-  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
 
   if (isVertical && !showingEmptyPlaceholder) {
     m_title->setVisible(false);
@@ -235,7 +236,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
   std::string iconPath = emptyState ? std::string{} : resolveIconPath(appId);
 
   m_title->setText(m_lastTitle);
-  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_title->setVisible(!m_lastTitle.empty());
   applyTitleScrollMode(m_title->visible());
   m_title->measure(renderer);

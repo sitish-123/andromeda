@@ -33,7 +33,7 @@ void CustomButtonWidget::create() {
             .out = &m_glyph,
             .glyph = m_glyphName,
             .glyphSize = Style::baseGlyphSize * m_contentScale,
-            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
             .visible = !m_glyphName.empty(),
         })
     );
@@ -46,7 +46,7 @@ void CustomButtonWidget::create() {
           .fontSize = Style::fontSizeBody * fontScale(),
           .fontWeight = labelFontWeight(),
           .fontFamily = labelFontFamily(),
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .maxLines = 1,
           .visible = !m_labelText.empty(),
       })
@@ -75,11 +75,11 @@ void CustomButtonWidget::doLayout(Renderer& renderer, float containerWidth, floa
 
   if (showImage) {
     widget_custom_image::sync(
-        *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface))
+        *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
     );
   } else if (showGlyph) {
     m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     m_glyph->measure(renderer);
   }
 
@@ -88,7 +88,7 @@ void CustomButtonWidget::doLayout(Renderer& renderer, float containerWidth, floa
     m_label->setFontWeight(labelFontWeight());
     m_label->setTextAlign(isVertical ? TextAlign::Center : TextAlign::Start);
     m_label->setMaxWidth(isVertical ? containerWidth : 0.0F);
-    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
     m_label->measure(renderer);
   }
 

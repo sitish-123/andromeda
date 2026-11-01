@@ -129,7 +129,7 @@ void ClockWidget::doLayout(Renderer& renderer, float containerWidth, float conta
   }
   m_isVertical = containerHeight > containerWidth;
   update(renderer);
-  const ColorSpec foreground = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+  const ColorSpec foreground = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   m_label->setColor(foreground);
   m_secondaryLabel->setColor(foreground);
 

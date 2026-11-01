@@ -21,7 +21,7 @@ void DebugIndicatorWidget::create() {
           .out = &m_glyph,
           .glyph = "bug",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::Error),
+          .color = colorSpecFromRole(ColorRole::Danger),
       }),
       ui::label({
           .out = &m_label,
@@ -29,7 +29,7 @@ void DebugIndicatorWidget::create() {
           .fontSize = Style::fontSizeBody * fontScale(),
           .fontWeight = labelFontWeight(),
           .fontFamily = labelFontFamily(),
-          .color = colorSpecFromRole(ColorRole::Error),
+          .color = colorSpecFromRole(ColorRole::Danger),
           .maxLines = 1,
       })
   );
@@ -44,11 +44,11 @@ void DebugIndicatorWidget::doLayout(Renderer& renderer, float containerWidth, fl
   const bool isVertical = containerHeight > containerWidth;
   const float gap = Style::spaceXs * m_contentScale;
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setColor(colorSpecFromRole(ColorRole::Error));
+  m_glyph->setColor(colorSpecFromRole(ColorRole::Danger));
   m_glyph->measure(renderer);
   m_label->setVisible(!isVertical);
   m_label->setFontSize(Style::fontSizeBody * fontScale());
-  m_label->setColor(colorSpecFromRole(ColorRole::Error));
+  m_label->setColor(colorSpecFromRole(ColorRole::Danger));
   m_label->setFontWeight(labelFontWeight());
 
   if (isVertical) {
