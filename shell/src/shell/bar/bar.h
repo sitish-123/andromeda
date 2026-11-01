@@ -4,6 +4,7 @@
 #include "ipc/ipc_invocation_context.h"
 #include "shell/bar/bar_instance.h"
 #include "shell/bar/bar_services.h"
+#include "shell/bar/center_island_space.h"
 #include "shell/bar/widget_action_dispatcher.h"
 #include "shell/bar/widget_factory.h"
 #include "ui/dialogs/layer_popup_host.h"
@@ -80,8 +81,11 @@ public:
   [[nodiscard]] bool wantsSecondTicks() const;
   void refresh();
   void requestLayout();
-  // Hides the center section and its island while the live activity island takes its place.
-  void setCenterIslandHidden(bool hidden);
+  // Hides the center section of the islands bar on `output` while the center island takes its place.
+  void setCenterIslandHidden(wl_output* output, bool hidden);
+  // Nullopt unless this output has a top or bottom islands bar that has been laid out.
+  [[nodiscard]] std::optional<CenterIslandSpace> centerIslandSpace(wl_output* output) const;
+  void setCenterIslandSpaceCallback(std::function<void()> callback) { m_centerIslandSpaceCallback = std::move(callback); }
   void setAutoHideSuppressionCallback(std::function<bool(const BarInstance&)> callback);
   // Re-run auto-hide after a panel closes so unrelated bars are not left visible.
   void reevaluateAutoHide();
@@ -214,7 +218,9 @@ private:
   scripting::ScriptApiContext* m_scriptApi = nullptr;
   std::unique_ptr<WidgetFactory> m_widgetFactory;
   std::vector<std::unique_ptr<BarInstance>> m_instances;
-  bool m_centerIslandHidden = false;
+  std::unordered_set<wl_output*> m_centerIslandHiddenOutputs;
+  std::function<void()> m_centerIslandSpaceCallback;
+  void notifyCenterIslandSpace(BarInstance& instance);
   // Wall-clock minute of the last full second-tick update, so minute-changing
   // widgets refresh on the first tick of a new minute even when it lands off
   // the :00 boundary (after suspend, a clock step, or the lock screen).

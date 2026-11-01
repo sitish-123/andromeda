@@ -65,6 +65,7 @@
   --component-island-dot-active-width: 20.0px;
   --component-island-dot-active-radius: 4.0px;
   --component-island-dot-gap: 5.0px;
+  --component-island-center-rest-width: 160.0px;
   --component-live-height: 52.0px;
   --component-live-radius: 26.0px;
   --component-live-padding: 8.0px;
@@ -78,6 +79,7 @@
   --component-sheet-radius: 28.0px;
   --component-sheet-padding: 12.0px;
   --component-sheet-gap: 8.0px;
+  --component-sheet-open-drag: 240.0px;
   --component-card-radius: 16.0px;
   --component-card-padding: 12.0px;
   --component-card-row-gap: 12.0px;

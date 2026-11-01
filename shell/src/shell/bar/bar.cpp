@@ -1809,6 +1809,9 @@ void Bar::closeAllInstances() {
   m_surfaceMap.clear();
   m_hoveredInstance = nullptr;
   m_instances.clear();
+  if (m_centerIslandSpaceCallback) {
+    m_centerIslandSpaceCallback();
+  }
 }
 
 void Bar::onOutputChange() { syncInstances(); }
@@ -1982,17 +1985,71 @@ void Bar::requestLayout() {
   }
 }
 
-void Bar::setCenterIslandHidden(bool hidden) {
-  if (m_centerIslandHidden == hidden) {
+void Bar::setCenterIslandHidden(wl_output* output, bool hidden) {
+  if (hidden ? !m_centerIslandHiddenOutputs.insert(output).second : m_centerIslandHiddenOutputs.erase(output) == 0) {
     return;
   }
-  m_centerIslandHidden = hidden;
   for (auto& inst : m_instances) {
-    if (inst->centerSection != nullptr) {
+    if (inst->output == output && inst->centerSection != nullptr && inst->barConfig.islands) {
       inst->centerSection->setVisible(!hidden);
     }
   }
   requestLayout();
+}
+
+std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const {
+  constexpr float kGap = 12.0F;
+  for (const auto& instance : m_instances) {
+    const BarConfig& cfg = instance->barConfig;
+    const bool horizontal = cfg.position == "top" || cfg.position == "bottom";
+    if (instance->output != output || !cfg.islands || !horizontal) {
+      continue;
+    }
+    if (instance->bg == nullptr || instance->surface == nullptr || instance->bg->height() <= 0.0F) {
+      return instance->centerSpace;
+    }
+    const float centerX = static_cast<float>(instance->surface->width()) * 0.5F;
+    float halfFree = centerX;
+    const auto limit = [&](const Box* island, bool isStart) {
+      if (island == nullptr || !island->visible()) {
+        return;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(island, x, y);
+      halfFree = std::min(halfFree, isStart ? centerX - (x + island->width()) : x - centerX);
+    };
+    limit(instance->islands[0], true);
+    limit(instance->islands[2], false);
+    instance->centerSpace = CenterIslandSpace{
+        .edgeMargin = cfg.marginEdge,
+        .height = instance->bg->height(),
+        .width = std::max(0.0F, 2.0F * (halfFree - kGap)),
+        .bottom = cfg.position == "bottom",
+        .opacity = instance->hideOpacity,
+        .backgroundOpacity = cfg.backgroundOpacity,
+        .border = cfg.border,
+        .borderWidth = cfg.borderWidth,
+    };
+    return instance->centerSpace;
+  }
+  return std::nullopt;
+}
+
+void Bar::notifyCenterIslandSpace(BarInstance& instance) {
+  const auto space = centerIslandSpace(instance.output);
+  std::array<float, 6> key{-1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+  if (space.has_value()) {
+    key = {space->width, space->height, static_cast<float>(space->edgeMargin), space->opacity,
+           space->backgroundOpacity, space->borderWidth};
+  }
+  if (key == instance.lastCenterSpaceKey) {
+    return;
+  }
+  instance.lastCenterSpaceKey = key;
+  if (m_centerIslandSpaceCallback) {
+    m_centerIslandSpaceCallback();
+  }
 }
 
 void Bar::setAutoHideSuppressionCallback(std::function<bool(const BarInstance&)> callback) {
@@ -2176,6 +2233,7 @@ void Bar::syncBarExclusiveZone(BarInstance& instance) {
 void Bar::syncBarSurfaceChrome(BarInstance& instance) {
   syncBarExclusiveZone(instance);
   applyBarCompositorBlur(instance);
+  notifyCenterIslandSpace(instance);
 }
 
 std::optional<LayerPopupParentContext> Bar::popupParentContextForSurface(wl_surface* surface) const noexcept {
@@ -2563,6 +2621,9 @@ void Bar::syncInstances() {
     }
     return !found || recreate;
   });
+  if (m_centerIslandSpaceCallback) {
+    m_centerIslandSpaceCallback();
+  }
 
   // Create instances for each bar definition × each output
   for (std::size_t barIdx = 0; barIdx < bars.size(); ++barIdx) {
@@ -2650,6 +2711,9 @@ void Bar::createInstance(const WaylandOutput& output, std::size_t barIndex, cons
 
   m_surfaceMap[instance->surface->wlSurface()] = instance.get();
   m_instances.push_back(std::move(instance));
+  if (m_centerIslandSpaceCallback) {
+    m_centerIslandSpaceCallback();
+  }
 }
 
 void Bar::destroyInstance(std::uint32_t outputName) {
@@ -2662,6 +2726,9 @@ void Bar::destroyInstance(std::uint32_t outputName) {
     }
     return inst->outputName == outputName;
   });
+  if (m_centerIslandSpaceCallback) {
+    m_centerIslandSpaceCallback();
+  }
 }
 
 void Bar::populateWidgets(BarInstance& instance) {
@@ -3284,7 +3351,7 @@ void Bar::rebuildInstanceContents(BarInstance& instance, const BarConfig& newCon
     instance.startSection->setGap(widgetSpacing);
   }
   if (instance.centerSection != nullptr) {
-    instance.centerSection->setVisible(!m_centerIslandHidden);
+    instance.centerSection->setVisible(!(instance.barConfig.islands && m_centerIslandHiddenOutputs.contains(instance.output)));
     instance.centerSection->setGap(widgetSpacing);
   }
   if (instance.endSection != nullptr) {
@@ -3749,6 +3816,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
   applyBarShadowStyle(instance, shadowConfig, w, h);
 
   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
+  notifyCenterIslandSpace(instance);
 
   float contentLeft = barAreaX;
   float contentTop = barAreaY;
@@ -3811,6 +3879,7 @@ void Bar::updateWidgets(BarInstance& instance) {
   updateSection(instance.centerWidgets);
   updateSection(instance.endWidgets);
   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
+  notifyCenterIslandSpace(instance);
   if (instance.barConfig.deadZone.clickThrough) {
     syncBarAutoHideInputRegion(instance);
   }  syncSheetTracker(instance);
@@ -3856,6 +3925,7 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
       widget->layout(renderer, barAreaW, barAreaH);
     }
     layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
+    notifyCenterIslandSpace(instance);
   }
   // Click-through input follows the widgets, which move whenever a widget resizes.
   if (instance.barConfig.deadZone.clickThrough) {

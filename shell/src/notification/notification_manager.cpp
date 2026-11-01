@@ -248,11 +248,32 @@ void NotificationManager::removeEventCallback(int token) {
   std::erase_if(m_eventCallbacks, [token](const auto& pair) { return pair.first == token; });
 }
 
+std::size_t NotificationManager::unreadNotificationCount() const noexcept {
+  return static_cast<std::size_t>(std::ranges::count_if(m_history, [](const NotificationHistoryEntry& entry) { return !entry.seen; }));
+}
+
 bool NotificationManager::computeHasUnreadNotificationHistory() const noexcept {
   return std::ranges::any_of(m_history, [](const NotificationHistoryEntry& entry) { return !entry.seen; });
 }
 
+int NotificationManager::addUnreadCountCallback(std::function<void()> callback) {
+  const int token = m_nextCallbackToken++;
+  m_unreadCountCallbacks.emplace_back(token, std::move(callback));
+  return token;
+}
+
+void NotificationManager::removeUnreadCountCallback(int token) {
+  std::erase_if(m_unreadCountCallbacks, [token](const auto& entry) { return entry.first == token; });
+}
+
 void NotificationManager::notifyUnreadStateChangedIfNeeded(bool previousUnreadState) {
+  if (const std::size_t count = unreadNotificationCount(); count != m_lastUnreadCount) {
+    m_lastUnreadCount = count;
+    const auto callbacks = m_unreadCountCallbacks;
+    for (const auto& entry : callbacks) {
+      entry.second();
+    }
+  }
   if (m_stateCallback == nullptr) {
     return;
   }

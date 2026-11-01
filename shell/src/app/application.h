@@ -445,6 +445,7 @@ private:
   PrivacyOsd m_privacyOsd;
   OsdOverlay m_osdOverlay;
   LiveActivityIsland m_liveActivity;
+  int m_islandUnreadToken = -1;
   HotCorners m_hotCorners{this};
   ScreenCorners m_screenCorners;
   TrayMenu m_trayMenu;

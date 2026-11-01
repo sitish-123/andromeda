@@ -841,7 +841,14 @@ void Application::initNotificationAndOsd() {
   TooltipManager::instance().initialize(m_wayland, &m_configService, &m_renderContext);
   m_osdOverlay.initialize(m_wayland, m_compositorPlatform, &m_configService, &m_renderContext);
   m_liveActivity.initialize(m_wayland, &m_configService, &m_renderContext);
-  m_liveActivity.setVisibilityCallback([this](bool visible) { m_bar.setCenterIslandHidden(visible); });
+  m_liveActivity.setVisibilityCallback([this](wl_output* output, bool visible) { m_bar.setCenterIslandHidden(output, visible); });
+  m_liveActivity.setSpaceProvider([this](wl_output* output) { return m_bar.centerIslandSpace(output); });
+  m_liveActivity.setRestSources([this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager, [this](wl_output* output) {
+    m_panelManager.togglePanel("control-center", PanelOpenRequest{.output = output, .context = "notifications"});
+  });
+  m_bar.setCenterIslandSpaceCallback(m_liveActivity.refresher());
+  m_configService.addReloadCallback(m_liveActivity.refresher());
+  m_islandUnreadToken = m_notificationManager.addUnreadCountCallback(m_liveActivity.refresher());
   m_windowSwitcher.initialize(
       m_wayland, &m_renderContext, m_compositorPlatform, &m_configService, &m_asyncTextureCache
   );
@@ -1203,6 +1210,7 @@ void Application::initWidgetControllersAndCallbacks() {
   );
 
   m_timeService.setTickCallback([this] {
+    m_liveActivity.onTimeTick();
     m_wallpaper.onSecondTick();
     if (m_lockScreen.isActive()) {
       m_lockscreenWidgetsController.onSecondTick();
@@ -1223,6 +1231,7 @@ void Application::initWidgetControllersAndCallbacks() {
         m_pipewireSpectrum->handleAudioStateChanged();
       }
       m_bar.refresh();
+      m_liveActivity.refresh();
       m_desktopWidgetsController.requestUpdate();
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();

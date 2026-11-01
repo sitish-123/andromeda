@@ -196,6 +196,8 @@ Application::Application()
 }
 
 Application::~Application() {
+  m_bar.setCenterIslandSpaceCallback({});
+  m_notificationManager.removeUnreadCountCallback(m_islandUnreadToken);
   m_compositorPlatform.setOutputPowerChangeCallback({});
   ++m_outputPowerRequestGeneration;
   m_lockScreen.cancelOutputPowerOff();

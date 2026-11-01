@@ -164,11 +164,15 @@ public:
   [[nodiscard]] bool doNotDisturb() const noexcept;
   [[nodiscard]] bool toggleDoNotDisturb();
   void setStateCallback(StateCallback callback);
+  // Runs whenever the unread count changes, not only when the any-unread flag flips.
+  int addUnreadCountCallback(std::function<void()> callback);
+  void removeUnreadCountCallback(int token);
   void setSoundPlayer(class SoundPlayer* soundPlayer);
 
   // Bar indicator: true when at least one notification was added since the user last
   // viewed the notification history (control center notifications tab).
   [[nodiscard]] bool hasUnreadNotificationHistory() const noexcept;
+  [[nodiscard]] std::size_t unreadNotificationCount() const noexcept;
   void markNotificationHistorySeen();
 
   // Secure existing files at startup; load history when its encryption key is ready.
@@ -237,6 +241,8 @@ private:
   CloseCallback m_closeCallback;
   std::vector<CloseCallback> m_closeObservers;
   StateCallback m_stateCallback;
+  std::vector<std::pair<int, std::function<void()>>> m_unreadCountCallbacks;
+  std::size_t m_lastUnreadCount = 0;
   ReplyCallback m_replyCallback;
   int m_nextCallbackToken{0};
   uint32_t m_nextId{1};

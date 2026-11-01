@@ -161,6 +161,9 @@ dot_active_width = 20.0
 dot_active_radius = 4.0
 dot_gap = 5.0
 
+[component.island_center]
+rest_width = 160.0   # rest pill of the always-on center island
+
 [component.live]
 height = 52.0
 radius = 26.0

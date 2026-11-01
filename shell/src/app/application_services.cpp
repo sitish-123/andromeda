@@ -225,6 +225,7 @@ void Application::scheduleNotificationShellRefresh() {
   DeferredCall::callLater([this] {
     m_notificationShellRefreshScheduled = false;
     m_bar.refresh();
+    m_liveActivity.refresh();
     m_dock.refresh();
     if (m_panelManager.isOpenPanel("control-center")) {
       m_panelManager.refresh();
@@ -1851,6 +1852,7 @@ void Application::initSessionBusServices() {
     if (mpris() != nullptr) {
       mpris()->setChangeCallback([this, shouldRefreshControlCenter] {
         m_bar.refresh();
+        m_liveActivity.refresh();
         m_desktopWidgetsController.requestUpdate();
         m_mediaOsd.onMprisChanged(*mpris());
         if (m_lockScreen.isActive()) {
