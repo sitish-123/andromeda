@@ -46,6 +46,7 @@ unit_tests = [
   ['hdr-metadata', ['unit/hdr_metadata.cpp'], [andromeda_core_dep]],
   ['color-description', ['unit/color_description.cpp'], [andromeda_core_dep]],
   ['hdr-format', ['unit/hdr_format.cpp'], []],
+  ['tracked', ['unit/tracked.cpp'], []],
   ['sdr-format', ['unit/sdr_format.cpp'], []],
   ['layout-struts', ['unit/layout_struts.cpp'], []],
   ['layout-motion', ['unit/layout_motion.cpp'], []],

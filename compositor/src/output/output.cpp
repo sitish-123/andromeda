@@ -1081,7 +1081,7 @@ namespace andromeda {
       m_fullscreenHdrRequested = hasFullscreenView();
     } else if (mode == HdrMode::Auto) {
       m_fullscreenHdrRequested = false;
-      if (!autoHdrEligible(m_autoHdrOwner)) {
+      if (!autoHdrEligible(m_autoHdrOwner.get())) {
         m_autoHdrOwner = findAutoHdrCandidate();
       }
     } else {
@@ -1095,12 +1095,9 @@ namespace andromeda {
     m_server->updateColorPreferences();
   }
 
-  void Output::forgetHdrView(const View* view) {
+  void Output::onViewRemoved(const View* view) {
     if (hdrMode() == HdrMode::Fullscreen && !hasFullscreenView(view)) {
       m_fullscreenHdrRequested = false;
-    }
-    if (m_autoHdrOwner == view) {
-      m_autoHdrOwner = nullptr;
     }
     if (m_hdrTransition.pending(m_output->enabled, hdrRequested())) {
       scheduleFullFrame();
@@ -1188,7 +1185,7 @@ namespace andromeda {
     const HdrMode nextHdrMode = hdrMode();
     if (nextHdrMode == HdrMode::Auto) {
       m_fullscreenHdrRequested = false;
-      if (!autoHdrEligible(m_autoHdrOwner)) {
+      if (!autoHdrEligible(m_autoHdrOwner.get())) {
         m_autoHdrOwner = findAutoHdrCandidate();
       }
     } else if (nextHdrMode == HdrMode::Fullscreen) {

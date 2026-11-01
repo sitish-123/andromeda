@@ -394,7 +394,9 @@ namespace andromeda {
     if (view == m_lastOnlyWindowView) {
       m_lastOnlyWindowView = nullptr;
     }
-    forgetShowDesktopFocus(view);
+    if (m_showDesktopFocus == view) {
+      m_showDesktopFocus = nullptr;
+    }
     updateUrgent();
     std::erase(m_floatingStack, view);
     std::erase(m_switchViews, view);
@@ -1718,18 +1720,13 @@ namespace andromeda {
       }
       view->setMinimized(false);
     }
-    focus = std::exchange(m_showDesktopFocus, nullptr);
+    focus = m_showDesktopFocus.get();
+    m_showDesktopFocus = nullptr;
     if (focus == nullptr || !focus->mapped() || focus->minimized() || focus->workspace() != this) {
       focus = m_focusedView != nullptr ? nullptr : latest;
     }
     if (focus != nullptr) {
       m_group->server()->focusView(focus, FocusReason::Directional);
-    }
-  }
-
-  void Workspace::forgetShowDesktopFocus(const View* view) {
-    if (m_showDesktopFocus == view) {
-      m_showDesktopFocus = nullptr;
     }
   }
 

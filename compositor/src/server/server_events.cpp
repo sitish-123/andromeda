@@ -3824,8 +3824,9 @@ namespace andromeda {
     if (view == nullptr) {
       return;
     }
+    view->invalidateRefs();
     for (const auto& output : m_outputs) {
-      output->forgetHdrView(view);
+      output->onViewRemoved(view);
     }
     const bool hadKeyboardFocus = m_seat->wlr()->keyboard_state.focused_surface == view->rootSurface();
     if (m_scratchpadManager != nullptr) {
@@ -3841,7 +3842,6 @@ namespace andromeda {
       view->detachWorkspace();
     }
     const bool restoreAfterRemoval = view->displacedHome().has_value();
-    m_cursor->forgetView(view);
     m_registry.remove(view);
     if (restoreAfterRemoval) {
       scheduleDisplacedViewRestore();

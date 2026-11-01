@@ -1,6 +1,7 @@
 #pragma once
 #include "layout/drop_target.h"
 #include "scene/ssd_frame_geometry.h"
+#include "util/tracked.h"
 #include "view/snap.h"
 
 #include <cstdint>
@@ -205,9 +206,6 @@ namespace andromeda {
     // A null seat client is an X11 move/resize request, which carries no serial.
     void beginClientMove(View* view, wlr_seat_client* seatClient, uint32_t serial);
     void beginClientResize(View* view, wlr_seat_client* seatClient, uint32_t serial, uint32_t edges);
-    // A view is going away: drop the click-pair record that references it. The
-    // grab reset paths cover any deferred or promoted press.
-    void forgetView(const View* view);
     void resetMode();
     // Warp the cursor to a layout position and run the motion pipeline (pointer focus, xcursor, pointer-output
     // tracking, idle). Output actions use it so focus follows the cursor onto the target monitor.
@@ -471,20 +469,20 @@ namespace andromeda {
       uint32_t timeMsec = 0;
       double x = 0;
       double y = 0;
-      View* view = nullptr;
+      Ref<View> view;
     };
     ModRightClick m_lastModRightClick;
     struct TitleBarClick {
       uint32_t timeMsec = 0;
       double x = 0;
       double y = 0;
-      View* view = nullptr;
+      Ref<View> view;
     } m_lastTitleBarClick;
     struct SsdButtonPress {
-      View* view = nullptr;
+      Ref<View> view;
       SsdFramePart part = SsdFramePart::None;
     } m_ssdButtonPress;
-    View* m_ssdHoverView = nullptr;
+    Ref<View> m_ssdHoverView;
     std::vector<std::unique_ptr<TabletToolState>> m_tools;
     bool m_hoverFocusInvalidated = false;
     bool m_compositorOwnsCursor = false;

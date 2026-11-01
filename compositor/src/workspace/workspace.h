@@ -3,6 +3,7 @@
 #include "core/animation.h"
 #include "layout/layout.h"
 #include "layout/layout_motion.h"
+#include "util/tracked.h"
 #include "workspace/displaced_workspace.h"
 #include "workspace/tab_presenter.h"
 
@@ -254,8 +255,6 @@ namespace andromeda {
     // Minimize every floating window here that can be, remembering the focus. When none is left to hide, restore
     // every minimized window here, however it was minimized, and return focus to where it was.
     void toggleShowDesktop();
-    // Drop a view that unmaps or leaves this workspace as the focus a show-desktop toggle restores.
-    void forgetShowDesktopFocus(const View* view);
     // Pull the scroll offset back into [0, maxScroll]. For removals and restored offsets only: a touchpad swipe
     // overscrolls on purpose.
     void clampScrollToRange();
@@ -325,7 +324,7 @@ namespace andromeda {
     std::optional<LayoutMode> m_layoutModeOverride;
     View* m_focusedView = nullptr;
     // The focus the last show-desktop toggle hid, restored with the windows.
-    View* m_showDesktopFocus = nullptr;
+    Ref<View> m_showDesktopFocus;
     bool m_floatingLayerActive = false;
     bool m_inSwitchTransition = false;
     bool m_arrangePending = false;

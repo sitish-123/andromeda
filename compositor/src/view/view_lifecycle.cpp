@@ -639,9 +639,7 @@ namespace andromeda {
         wlr_foreign_toplevel_handle_v1_set_minimized(m_foreign, false);
       }
     }
-    if (m_workspace != nullptr) {
-      m_workspace->forgetShowDesktopFocus(this);
-    }
+    invalidateRefs();
     // Choose the layout neighbor while this view still belongs to the layout. Waiting for destroy loses that position.
     // It remains the fallback when the pointer did not belong to the closing tile or no survivor takes its place.
     if (m_workspace != nullptr && m_workspace->focusedView() == this) {
@@ -733,9 +731,7 @@ namespace andromeda {
     }
     leaveForeignOutput();
     setForeignActivated(false);
-    // The click pair outlives the grab machinery, so drop it here; the grab
-    // reset below covers any deferred or promoted press.
-    m_server->cursor()->forgetView(this);
+    invalidateRefs();
     // Detaching a browser's last tab can unmap the origin while a different
     // toplevel is being carried by that same data drag.
     const View* carried = m_server->cursor()->toplevelDragView();

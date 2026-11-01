@@ -2229,20 +2229,6 @@ namespace andromeda {
     return workspace->layout().sanitizeResizeEdges(view, resizeEdgesForPoint(reachable, x, y));
   }
 
-  void Cursor::forgetView(const View* view) {
-    if (m_lastTitleBarClick.view == view)
-      m_lastTitleBarClick = {};
-    if (m_ssdButtonPress.view == view)
-      m_ssdButtonPress = {};
-    if (m_ssdHoverView == view)
-      m_ssdHoverView = nullptr;
-    // Only the click pair sits outside the grab machinery: the deferred press
-    // is a grab and handleUnmap's resetMode() drops it.
-    if (m_lastModRightClick.view == view) {
-      m_lastModRightClick = ModRightClick{};
-    }
-  }
-
   uint32_t Cursor::floatResizeEdges(View* view) const {
     if (view == nullptr || view->sceneTree() == nullptr) {
       return WLR_EDGE_RIGHT | WLR_EDGE_BOTTOM;

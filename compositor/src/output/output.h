@@ -8,6 +8,7 @@
 #include "output/hdr_transition.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
+#include "util/tracked.h"
 
 #include <array>
 #include <cstdint>
@@ -193,7 +194,8 @@ namespace andromeda {
     // Re-evaluate automatic HDR after surface color, fullscreen, visibility,
     // or output membership changes.
     void updateHdr();
-    void forgetHdrView(const View* view);
+    // Re-evaluate HDR after `view` left; the view has already invalidated its refs, so an auto owner is gone.
+    void onViewRemoved(const View* view);
     void markBlurBackgroundDirty();
     void scheduleFullFrame();
     // Commit this custom mode and arrange around it. `refreshMHz` paces frames; 0 keeps the backend's default.
@@ -325,7 +327,7 @@ namespace andromeda {
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads andromeda_time
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`
     bool m_effectCaptureBuilt = false; // the last built frame had an effect capture pending
-    View* m_autoHdrOwner = nullptr;
+    Ref<View> m_autoHdrOwner;
     std::string m_hdrFallbackReason;
     std::string m_tearingFallbackReason;
     std::string m_bitDepthFallbackReason;
