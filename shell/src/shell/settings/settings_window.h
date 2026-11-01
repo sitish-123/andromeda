@@ -22,9 +22,9 @@
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "ui/dialogs/search_picker_popup.h"
-#include "wayland/mirror_control.h"
-#include "wayland/output_management.h"
-#include "wayland/settings_control.h"
+#include "compositors/mirror_control.h"
+#include "compositors/output_management.h"
+#include "compositors/settings_control.h"
 #include "wayland/toplevel_surface.h"
 
 #include <cstdint>
@@ -43,6 +43,7 @@ class Button;
 class AccountsService;
 class CalendarService;
 class ClipboardService;
+class NotificationManager;
 class LinkService;
 class IpcService;
 class ConfigService;
@@ -60,7 +61,7 @@ class FileWatcher;
 class SystemBus;
 class ThumbnailService;
 class UPowerService;
-class WaylandConnection;
+class ShellWaylandConnection;
 struct KeyboardEvent;
 struct PointerEvent;
 struct wl_output;
@@ -87,7 +88,7 @@ public:
   ~SettingsWindow();
 
   void initialize(
-      WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
+      ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
       UPowerService* upower, IdleManager* idleManager, CompositorPlatform* platform, AccountsService* accounts = nullptr
   );
 
@@ -141,6 +142,7 @@ public:
   void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
+  void setNotificationManager(NotificationManager* manager) { m_notificationManager = manager; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
   // Backs plugin-store thumbnails; trimmed when the window closes.
   void setAsyncTextureCache(AsyncTextureCache* cache) { m_asyncTextures = cache; }
@@ -282,7 +284,7 @@ private:
   [[nodiscard]] std::optional<LayerPopupParentContext> topmostPopupParentContext() const;
   void dismissOpenSelectDropdown();
 
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   CompositorPlatform* m_platform = nullptr;
   IdleManager* m_idleManager = nullptr;
   ConfigService* m_config = nullptr;
@@ -306,6 +308,7 @@ private:
   CalendarService* m_calendarService = nullptr;
   std::optional<std::uint64_t> m_calendarCallbackId;
   std::uint64_t m_calendarSyncStatusRevision = 0;
+  NotificationManager* m_notificationManager = nullptr;
   ClipboardService* m_clipboardService = nullptr;
   std::unordered_map<std::string, std::uint32_t> m_templateColors;
   std::string m_templateColorMode;

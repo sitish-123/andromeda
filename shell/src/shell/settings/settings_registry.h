@@ -376,7 +376,7 @@ namespace settings {
   [[nodiscard]] std::string_view sectionGlyph(SettingsSection section);
   [[nodiscard]] std::optional<SettingsSection> settingsSectionFromId(std::string_view id);
   // Entries for compositor settings carry {"andromeda", <config key parts>...}; they commit through the compositor's
-  // settings manager instead of settings.toml. Returns the dotted compositor key, or nothing for a shell path.
+  // settings manager instead of overrides.toml. Returns the dotted compositor key, or nothing for a shell path.
   [[nodiscard]] std::optional<std::string> compositorSettingKey(const std::vector<std::string>& path);
   // Maps ids of merged sections (templates, osd, andromeda) to the page that now holds them.
   [[nodiscard]] std::string canonicalSettingsSectionId(std::string_view id);

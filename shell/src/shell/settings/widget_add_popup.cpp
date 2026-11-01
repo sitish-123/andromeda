@@ -358,7 +358,7 @@ namespace settings {
         .text = title,
         .fontSize = Style::fontSizeBody * m_scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
     });
     if (m_createFormVisible) {
       titleLabel->setMaxLines(2);
@@ -371,7 +371,7 @@ namespace settings {
           ui::label({
               .text = i18n::tr("settings.entities.widget.picker.instance-toggle"),
               .fontSize = Style::fontSizeCaption * m_scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
 
@@ -493,7 +493,7 @@ namespace settings {
             .out = &m_instanceDescription,
             .text = i18n::tr("settings.entities.widget.instance.id-description"),
             .fontSize = Style::fontSizeCaption * m_scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 2,
             .visible = false,
             .participatesInLayout = false,

@@ -74,7 +74,7 @@ namespace settings {
             .text = m_title,
             .fontSize = Style::fontSizeBody * m_scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
     header->addChild(ui::spacer());

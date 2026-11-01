@@ -76,14 +76,14 @@ namespace settings {
     // The header of the category holding the open page keeps the accent while collapsed.
     Button::ButtonPalette currentCategoryPalette() {
       const auto clear = clearColorSpec();
-      const auto primary = colorSpecFromRole(ColorRole::Primary);
+      const auto primary = colorSpecFromRole(ColorRole::Accent);
       return Button::ButtonPalette{
           .normal = {.bg = clear, .border = clear, .label = primary},
           .hover =
-              {.bg = colorSpecFromRole(ColorRole::Hover),
+              {.bg = colorSpecFromRole(ColorRole::Fill3),
                .border = clear,
-               .label = colorSpecFromRole(ColorRole::OnHover)},
-          .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceContainer), .border = clear, .label = primary},
+               .label = colorSpecFromRole(ColorRole::Label1)},
+          .pressed = {.bg = colorSpecFromRole(ColorRole::Fill2), .border = clear, .label = primary},
           .disabled = {.bg = clear, .border = clear, .label = primary},
       };
     }
@@ -187,7 +187,7 @@ namespace settings {
         .scrollbarVisible = true,
         .viewportPaddingH = 0.0F,
         .viewportPaddingV = 0.0F,
-        .fill = ctx.config.shell.settingsWindowTranslucent ? clearColorSpec() : colorSpecFromRole(ColorRole::Surface),
+        .fill = ctx.config.shell.settingsWindowTranslucent ? clearColorSpec() : colorSpecFromRole(ColorRole::SolidRegular),
         .radius = Style::scaledRadiusXl(scale),
         .minWidth = kSidebarWidth * scale,
         .fillHeight = true,
@@ -303,7 +303,7 @@ namespace settings {
               .out = &chevron,
               .glyph = "chevron-down",
               .glyphSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(currentCategory == category ? ColorRole::Primary : ColorRole::OnSurface),
+              .color = colorSpecFromRole(currentCategory == category ? ColorRole::Accent : ColorRole::Label1),
           })
       );
       Button* headerButton = header.get();
@@ -351,7 +351,7 @@ namespace settings {
 
       auto body = ui::row(
           {.align = FlexAlign::Stretch, .gap = kGuideGap * scale},
-          ui::box({.fill = colorSpecFromRole(ColorRole::OutlineVariant), .width = kGuideWidth * scale}),
+          ui::box({.fill = colorSpecFromRole(ColorRole::Stroke), .width = kGuideWidth * scale}),
           std::move(items)
       );
       body->setPadding(kSidebarGap * scale, 0.0F, Style::spaceXs * scale, kGuideInset * scale);

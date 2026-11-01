@@ -1,6 +1,6 @@
 #include "shell/settings/template_store_tile.h"
 
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "ui/builders.h"
 #include "ui/controls/checkbox.h"
 #include "ui/controls/label.h"
@@ -15,17 +15,17 @@ namespace settings {
     setAlign(FlexAlign::Center);
     setGap(Style::spaceXs * scale);
     setPadding(Style::spaceXs * scale, Style::spaceSm * scale);
-    setFill(colorSpecFromRole(ColorRole::SurfaceContainerLow));
-    setBorder(colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha), Style::borderWidth * scale);
+    setFill(colorSpecFromRole(ColorRole::SolidThin));
+    setBorder(colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha), Style::borderWidth * scale);
     setRadius(Style::scaledRadiusMd(scale));
 
     addChild(
         ui::checkbox({
             .out = &m_checkbox,
             .scale = scale,
-            .checkedFill = colorSpecFromRole(ColorRole::Surface),
-            .checkedBorder = colorSpecFromRole(ColorRole::OnPrimary),
-            .checkedGlyph = colorSpecFromRole(ColorRole::Primary),
+            .checkedFill = colorSpecFromRole(ColorRole::SolidRegular),
+            .checkedBorder = colorSpecFromRole(ColorRole::OnAccent),
+            .checkedGlyph = colorSpecFromRole(ColorRole::Accent),
         })
     );
 
@@ -35,7 +35,7 @@ namespace settings {
             .out = &m_nameLabel,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Medium,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
             .ellipsize = TextEllipsize::End,
         })
@@ -44,7 +44,7 @@ namespace settings {
         ui::label({
             .out = &m_categoryLabel,
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .ellipsize = TextEllipsize::End,
             .visible = false,
@@ -84,18 +84,18 @@ namespace settings {
     m_readmeButton->setParticipatesInLayout(hasReadme);
     auto readmePalette = Button::defaultPalette(ButtonVariant::Ghost);
     readmePalette.normal.label = colorSpecFromRole(
-        enabled ? ColorRole::OnPrimary : (hovered || selected ? ColorRole::OnHover : ColorRole::OnSurface)
+        enabled ? ColorRole::OnAccent : (hovered || selected ? ColorRole::Label1 : ColorRole::Label1)
     );
-    readmePalette.hover.bg = colorSpecFromRole(ColorRole::Surface);
-    readmePalette.hover.label = colorSpecFromRole(ColorRole::OnSurface);
+    readmePalette.hover.bg = colorSpecFromRole(ColorRole::SolidRegular);
+    readmePalette.hover.label = colorSpecFromRole(ColorRole::Label1);
     m_readmeButton->setCustomPalette(readmePalette);
 
     if (m_checkbox != nullptr) {
       m_checkbox->setOnChange(nullptr);
       m_checkbox->setChecked(enabled);
       m_checkbox->setCheckedColors(
-          colorSpecFromRole(ColorRole::Surface), colorSpecFromRole(ColorRole::OnPrimary),
-          colorSpecFromRole(ColorRole::Primary)
+          colorSpecFromRole(ColorRole::SolidRegular), colorSpecFromRole(ColorRole::OnAccent),
+          colorSpecFromRole(ColorRole::Accent)
       );
       m_checkbox->setOnChange([onToggle = std::move(onToggle)](bool next) {
         if (onToggle) {
@@ -107,20 +107,20 @@ namespace settings {
     // Same palette as built-in template Button::ButtonPalette (normal / hover).
     const float borderWidth = Style::borderWidth * m_scale;
     if (enabled) {
-      setFill(colorSpecFromRole(ColorRole::Primary));
-      setBorder(colorSpecFromRole(ColorRole::Primary, 0.9F), borderWidth);
-      m_nameLabel->setColor(colorSpecFromRole(ColorRole::OnPrimary));
-      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::OnPrimary, 0.75F));
+      setFill(colorSpecFromRole(ColorRole::Accent));
+      setBorder(colorSpecFromRole(ColorRole::Accent, 0.9F), borderWidth);
+      m_nameLabel->setColor(colorSpecFromRole(ColorRole::OnAccent));
+      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::OnAccent, 0.75F));
     } else if (hovered || selected) {
-      setFill(colorSpecFromRole(ColorRole::Hover));
-      setBorder(colorSpecFromRole(ColorRole::Hover), borderWidth);
-      m_nameLabel->setColor(colorSpecFromRole(ColorRole::OnHover));
-      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::OnHover, 0.75F));
+      setFill(colorSpecFromRole(ColorRole::Fill3));
+      setBorder(colorSpecFromRole(ColorRole::Fill3), borderWidth);
+      m_nameLabel->setColor(colorSpecFromRole(ColorRole::Label1));
+      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::Label1, 0.75F));
     } else {
-      setFill(colorSpecFromRole(ColorRole::SurfaceContainerLow));
-      setBorder(colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha), borderWidth);
-      m_nameLabel->setColor(colorSpecFromRole(ColorRole::OnSurface));
-      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      setFill(colorSpecFromRole(ColorRole::SolidThin));
+      setBorder(colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha), borderWidth);
+      m_nameLabel->setColor(colorSpecFromRole(ColorRole::Label1));
+      m_categoryLabel->setColor(colorSpecFromRole(ColorRole::Label2));
     }
   }
 

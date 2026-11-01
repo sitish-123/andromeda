@@ -5,7 +5,7 @@
 #include "shell/profile/avatar_path.h"
 #include "shell/settings/settings_window.h"
 #include "system/day_night_schedule.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <algorithm>
 #include <cstdint>

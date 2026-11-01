@@ -2,7 +2,7 @@
 #include "shell/settings/settings_content_input.h"
 #include "shell/settings/settings_content_shortcuts.h"
 #include "shell/settings/settings_window.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <utility>
 

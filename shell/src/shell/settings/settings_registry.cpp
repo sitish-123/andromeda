@@ -1,4 +1,5 @@
 #include "shell/settings/settings_registry.h"
+#include "config/app_icon_settings.h"
 
 #include "config/config_types.h"
 #include "config/schema/config_schema.h"
@@ -22,7 +23,7 @@
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <algorithm>
 #include <array>
@@ -636,6 +637,19 @@ namespace settings {
       );
       toggle(WindowStyle, "window-decorations", "appearance.opaque_fullscreen", "fullscreen opaque transparency", true);
 
+      toggle(TextScale, "accessibility", "appearance.increase_contrast", "accessibility high contrast visually impaired");
+      toggle(
+          TextScale, "accessibility", "appearance.reduce_transparency",
+          "accessibility reduce transparency glass solid opaque"
+      );
+      if (!isOn("appearance.reduce_transparency")) {
+        slider(
+            TextScale, "accessibility", "appearance.glass_opacity", 0.0, 1.0, 0.05, false,
+            "glass opacity transparency material"
+        );
+      }
+      toggle(Motion, "motion", "appearance.reduce_motion", "accessibility reduce motion animations");
+
       toggle(Motion, "window-motion", "animation.enabled", "window animations compositor");
       if (isOn("animation.enabled")) {
         stepper(Motion, "window-motion", "animation.duration_ms", 1, 10000, 25, "ms", "animation duration speed");
@@ -898,11 +912,14 @@ namespace settings {
         tr("settings.schema.appearance.ui-scale.description"), {"accessibility", "ui_scale"},
         sliderFor(cfg.accessibility.uiScale, noctalia::config::schema::kScaleRange, false), "size scale text panels"
     ));
-    entries.push_back(makeEntry(
-        SettingsSection::TextScale, "accessibility", tr("settings.schema.accessibility.high-contrast.label"),
-        tr("settings.schema.accessibility.high-contrast.description"), {"accessibility", "high_contrast"},
-        ToggleSetting{cfg.accessibility.highContrast}, "accessibility high contrast visually impaired"
-    ));
+    // On andromeda the compositor's appearance.increase_contrast row replaces this one.
+    if (env.compositorSettings == nullptr) {
+      entries.push_back(makeEntry(
+          SettingsSection::TextScale, "accessibility", tr("settings.schema.accessibility.high-contrast.label"),
+          tr("settings.schema.accessibility.high-contrast.description"), {"accessibility", "high_contrast"},
+          ToggleSetting{cfg.accessibility.highContrast}, "accessibility high contrast visually impaired"
+      ));
+    }
     entries.push_back(makeEntry(
         SettingsSection::Motion, "motion", tr("settings.schema.appearance.animations.label"),
         tr("settings.schema.appearance.animations.description"), {"shell", "animation", "enabled"},
@@ -1254,6 +1271,11 @@ namespace settings {
           SettingsSection::Dock, "behavior", tr("settings.schema.dock.show-dots.label"),
           tr("settings.schema.dock.show-dots.description"), path("show_dots"), ToggleSetting{dock.showDots},
           "running dots"
+      ));
+      entries.push_back(makeEntry(
+          SettingsSection::Dock, "behavior", tr("settings.schema.dock.running-bar.label"),
+          tr("settings.schema.dock.running-bar.description"), path("running_bar"), ToggleSetting{dock.runningBar},
+          "running indicator"
       ));
       entries.push_back(makeEntry(
           SettingsSection::Dock, "behavior", tr("settings.schema.dock.show-instance-count.label"),
@@ -2106,14 +2128,6 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     if (env.screencopySupported) {
-      auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.blurred-desktop.label"),
-          tr("settings.schema.lockscreen.blurred-desktop.description"), {"lockscreen", "blurred_desktop"},
-          ToggleSetting{cfg.lockscreen.blurredDesktop}, "lock screen desktop capture screencopy background"
-      );
-      e.visibleWhen = lockscreenOn;
-      entries.push_back(std::move(e));
-
       MultiSelectSetting transitions;
       transitions.options.reserve(std::size(kLockscreenTransitions));
       for (const auto& opt : kLockscreenTransitions) {
@@ -2153,7 +2167,7 @@ namespace settings {
     }
     {
       const SettingVisibility lockscreenWallpaperOn = [](const Config& c) {
-        return c.lockscreen.enabled && !c.lockscreen.blurredDesktop;
+        return c.lockscreen.enabled;
       };
       auto e = makeEntry(
           SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.wallpaper.label"),
@@ -4022,6 +4036,10 @@ namespace settings {
           section, "shape", tr("settings.schema.bar.border-width.label"),
           tr("settings.schema.bar.border-width.description"), path("border_width"),
           barReservedSlider(bar.borderWidth, 20.0F, 0.5F, false), "outline stroke", true
+      ));
+      entries.push_back(makeEntry(
+          section, "effects", tr("settings.schema.bar.islands.label"), tr("settings.schema.bar.islands.description"),
+          path("islands"), ToggleSetting{bar.islands}, "islands floating pills sections"
       ));
       entries.push_back(makeEntry(
           section, "effects", tr("settings.schema.shared.background-opacity.label"),

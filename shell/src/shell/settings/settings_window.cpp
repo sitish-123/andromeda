@@ -33,7 +33,7 @@
 #include "ui/style.h"
 #include "util/clamp.h"
 #include "wayland/toplevel_surface.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <cmath>
@@ -98,7 +98,7 @@ namespace {
     return {"bar", barName, std::string(lane)};
   }
 
-  void focusExistingSettingsWindow(CompositorPlatform& platform, WaylandConnection& wayland, wl_surface* surface) {
+  void focusExistingSettingsWindow(CompositorPlatform& platform, ShellWaylandConnection& wayland, wl_surface* surface) {
     static constexpr std::string_view kSettingsAppId = "dev.noctalia.Noctalia";
     wayland.activateSurface(surface);
     platform.activateToplevelForAppId(kSettingsAppId);
@@ -197,7 +197,7 @@ void SettingsWindow::setCalendarService(CalendarService* service) {
 }
 
 void SettingsWindow::initialize(
-    WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
+    ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
     UPowerService* upower, IdleManager* idleManager, CompositorPlatform* platform, AccountsService* accounts
 ) {
   m_wayland = &wayland;
@@ -1284,12 +1284,12 @@ void SettingsWindow::refreshIdleLiveStatusText() {
 
   const std::int64_t sec = m_idleManager != nullptr ? m_idleManager->liveIdleSeconds() : 0;
   if (sec <= 0) {
-    m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Label2));
     m_idleLiveStatusLabel->setText(i18n::tr("settings.idle.live-status.active"));
     return;
   }
 
-  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Accent));
   if (sec == 1) {
     m_idleLiveStatusLabel->setText(i18n::tr("settings.idle.live-status.idle-for-one"));
   } else {

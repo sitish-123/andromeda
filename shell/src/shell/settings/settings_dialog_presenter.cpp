@@ -116,7 +116,7 @@ namespace settings {
               if (const auto& initial = ColorPickerDialog::currentOptions().initialColor; initial.has_value()) {
                 sheet->colorPicker()->setColor(*initial);
               } else {
-                sheet->colorPicker()->setColor(colorForRole(ColorRole::Primary));
+                sheet->colorPicker()->setColor(colorForRole(ColorRole::Accent));
               }
               sheet->setOnCancel([this, aliveGuard] {
                 DeferredCall::callLater([this, aliveGuard] {

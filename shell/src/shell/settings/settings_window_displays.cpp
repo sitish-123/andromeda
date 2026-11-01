@@ -1,7 +1,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content_displays.h"
 #include "shell/settings/settings_window.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <chrono>

@@ -37,7 +37,7 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 #include "wayland/toplevel_surface.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -1358,7 +1358,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               .text = label,
               .fontSize = Style::fontSizeCaption * scale,
               .fontWeight = FontWeight::Medium,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       field->addChild(std::move(control));
@@ -1653,7 +1653,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               .text = i18n::tr("settings.calendar-accounts.calendars-label"),
               .fontSize = Style::fontSizeCaption * scale,
               .fontWeight = FontWeight::Medium,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
 
@@ -1661,7 +1661,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
           .align = FlexAlign::Stretch,
           .gap = Style::spaceXs * scale,
           .padding = Style::spaceSm * scale,
-          .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+          .fill = colorSpecFromRole(ColorRole::SolidThin),
           .radius = Style::scaledRadiusMd(scale),
       });
       for (const CalendarSource& source : draft->discoveredCalendars) {
@@ -1681,7 +1681,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
                 .text = source.name.empty() ? source.id : source.name,
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = FontWeight::Medium,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
             })
@@ -1691,7 +1691,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               ui::label({
                   .text = source.id,
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   .ellipsize = TextEllipsize::End,
               })
@@ -2154,7 +2154,7 @@ void SettingsWindow::openPluginSourceCreateEditor(std::optional<PluginSourceConf
                     .text = label,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontWeight = FontWeight::Medium,
-                    .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                    .color = colorSpecFromRole(ColorRole::Label2),
                 })
             );
             field->addChild(std::move(control));
@@ -2167,7 +2167,7 @@ void SettingsWindow::openPluginSourceCreateEditor(std::optional<PluginSourceConf
                     .text = draft->error,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontWeight = FontWeight::Medium,
-                    .color = colorSpecFromRole(ColorRole::Error),
+                    .color = colorSpecFromRole(ColorRole::Danger),
                 })
             );
           }

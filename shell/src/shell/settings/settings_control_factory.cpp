@@ -50,7 +50,7 @@ namespace settings {
           ui::label({
               .text = std::move(suffix),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }
@@ -83,7 +83,7 @@ namespace settings {
           ui::glyph({
               .glyph = "border-corner-pill",
               .glyphSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(enabled ? ColorRole::OnSurfaceVariant : ColorRole::OutlineVariant),
+              .color = colorSpecFromRole(enabled ? ColorRole::Label2 : ColorRole::Stroke),
               .visible = hidden,
           })
       );
@@ -229,8 +229,8 @@ namespace settings {
 
   std::unique_ptr<Flex> SettingsControlFactory::makeAdvancedBadge() {
     return makeStatusBadge(
-        i18n::tr("settings.badges.advanced"), colorSpecFromRole(ColorRole::SurfaceContainer),
-        colorSpecFromRole(ColorRole::OnSurfaceVariant), false
+        i18n::tr("settings.badges.advanced"), colorSpecFromRole(ColorRole::Fill2),
+        colorSpecFromRole(ColorRole::Label2), false
     );
   }
 
@@ -260,20 +260,20 @@ namespace settings {
         .fillWidth = true,
     });
     titleRow->addChild(
-        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
     );
     if (entry.advanced) {
       titleRow->addChild(makeAdvancedBadge());
     }
     if (monitorExplicit) {
       titleRow->addChild(makeStatusBadge(
-          i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::SecondaryContainer),
-          colorSpecFromRole(ColorRole::OnSecondaryContainer), false
+          i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::Fill1),
+          colorSpecFromRole(ColorRole::Label1), false
       ));
     } else if (monitorInherited) {
       titleRow->addChild(makeStatusBadge(
-          i18n::tr("settings.badges.inherited"), colorSpecFromRole(ColorRole::SurfaceContainer),
-          colorSpecFromRole(ColorRole::OnSurfaceVariant), false
+          i18n::tr("settings.badges.inherited"), colorSpecFromRole(ColorRole::Fill2),
+          colorSpecFromRole(ColorRole::Label2), false
       ));
     }
     titleRow->addChild(ui::spacer());
@@ -696,7 +696,7 @@ namespace settings {
 
     wrap->addChild(std::move(slider));
     wrap->addChild(std::move(lowInput));
-    wrap->addChild(makeLabel("–", Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant)));
+    wrap->addChild(makeLabel("–", Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
     wrap->addChild(std::move(highInput));
     if (auto suffix = makeSuffixSlot(setting.valueSuffix, scale)) {
       wrap->addChild(std::move(suffix));
@@ -1123,7 +1123,7 @@ namespace settings {
             .text = entry.title,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = titleMaxTwoLines ? std::optional<int>{2} : std::nullopt,
         })
     );
@@ -1259,7 +1259,7 @@ namespace settings {
           ui::label({
               .text = key,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .flexGrow = 1.0F,
           })
       );
@@ -1267,7 +1267,7 @@ namespace settings {
           ui::label({
               .text = "->",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -1329,7 +1329,7 @@ namespace settings {
           ui::label({
               .text = "->",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -1384,7 +1384,7 @@ namespace settings {
         ui::label({
             .text = "->",
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     addRow->addChild(
