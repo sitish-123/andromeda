@@ -23,7 +23,7 @@
 #include "ui/scroll_into_view.h"
 #include "ui/style.h"
 #include "ui/ui_tree.h"
-#include "ui/ui_tree_reconciler.h"
+#include "scripting/ui_tree_reconciler.h"
 
 #include <cstdlib>
 #include <optional>

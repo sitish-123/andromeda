@@ -2,7 +2,7 @@
 #include "config/config_types.h"
 #include "system/brightness_service.h"
 #include "tests/test_check.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <array>
@@ -196,7 +196,7 @@ namespace {
   struct Fixture {
     DdcExecutable ddc;
     OutputServer server;
-    WaylandConnection wayland;
+    ShellWaylandConnection wayland;
     CompositorPlatform platform;
     BrightnessConfig config;
     std::unique_ptr<BrightnessService> service;

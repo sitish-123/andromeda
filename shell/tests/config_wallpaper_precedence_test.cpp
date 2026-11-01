@@ -21,7 +21,7 @@ namespace {
     }
   }
 
-  // Check that wallpaper setting from config.toml isn't dropped when state/settings.toml
+  // Check that wallpaper setting from config.toml isn't dropped when state/overrides.toml
   // is written for the first time.
   void checkConfigSurvivesFirstSidecarWrite() {
     const std::filesystem::path root =
@@ -38,14 +38,14 @@ namespace {
       std::ofstream out(root / "config" / "noctalia" / "config.toml", std::ios::trunc);
       out << "[wallpaper]\nenabled = true\n\n[wallpaper.default]\npath = \"/tmp/from-config.png\"\n";
     }
-    const auto sidecar = root / "state" / "noctalia" / "settings.toml";
-    expect(!std::filesystem::exists(sidecar), "state dir should start without settings.toml");
+    const auto sidecar = root / "state" / "noctalia" / "overrides.toml";
+    expect(!std::filesystem::exists(sidecar), "state dir should start without overrides.toml");
 
     ConfigService config;
     expect(config.getDefaultWallpaperPath() == "/tmp/from-config.png", "path was not read from config.toml");
 
     expect(config.setOverride({"accessibility", "ui_scale"}, 1.25), "setOverride failed");
-    expect(std::filesystem::exists(sidecar), "setOverride did not create settings.toml");
+    expect(std::filesystem::exists(sidecar), "setOverride did not create overrides.toml");
 
     expect(
         config.getDefaultWallpaperPath() == "/tmp/from-config.png",
@@ -138,7 +138,7 @@ namespace {
     ::setenv("NOCTALIA_DATA_HOME", (root / "data").c_str(), 1);
 
     {
-      std::ofstream out(root / "state" / "noctalia" / "settings.toml", std::ios::trunc);
+      std::ofstream out(root / "state" / "noctalia" / "overrides.toml", std::ios::trunc);
       out << "[theme]\nmode = \"dark\"\n\n"
              "[[wallpaper.favorite]]\npath = \"/tmp/explicit.png\"\ntheme_mode = \"light\"\n";
     }

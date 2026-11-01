@@ -144,6 +144,9 @@ int main() {
         config.hasOverride({"dock", "monitor", "DP-1", "enabled"}),
         "sidecar migration persisted the enabled monitor override"
     );
+    const auto stateDir = overlayRoot / "state" / "noctalia";
+    expect(std::filesystem::exists(stateDir / "overrides.toml"), "legacy settings.toml was renamed to overrides.toml");
+    expect(!std::filesystem::exists(stateDir / "settings.toml"), "legacy settings.toml is gone after the rename");
   }
 
   // A bar-inherited widget setting resolves an unset value from the bar, so an explicit value equal to the

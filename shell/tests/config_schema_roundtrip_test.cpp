@@ -374,7 +374,6 @@ location = "https://example.invalid/bad"
     c.lockscreen = LockscreenConfig{
         .lockBeforeSuspend = false,
         .gracePeriodSeconds = 3,
-        .blurredDesktop = true,
         .transitions = {LockscreenTransition::Disc, LockscreenTransition::Zoom},
         .transitionDurationMs = 900.0F,
         .edgeSmoothness = 0.7F,
@@ -427,7 +426,7 @@ location = "https://example.invalid/bad"
     c.dock.enabled = true;
     c.dock.position = DockEdge::Left;
     c.dock.iconSize = 40;
-    c.dock.border = colorSpecFromRole(ColorRole::Primary);
+    c.dock.border = colorSpecFromRole(ColorRole::Accent);
     c.dock.borderWidth = 1.5F;
     c.dock.radius = 20;
     c.dock.radiusTopLeft = 10;
@@ -839,7 +838,7 @@ location = "https://example.invalid/bad"
     for (const auto text :
          {"auto_update = \"sometimes\"", "auto_update = 1.5", "auto_update = true", "auto_update = false"}) {
       const auto [plugins, diag] = parsePlugins(text);
-      if (plugins.autoUpdate != PluginAutoUpdateMode::All || !erroredOnAutoUpdate(diag)) {
+      if (plugins.autoUpdate != PluginAutoUpdateMode::None || !erroredOnAutoUpdate(diag)) {
         fail(std::string("plugins.auto_update: '") + text + "' should error and keep the default");
       }
     }
@@ -1174,6 +1173,7 @@ font_scale = 1.5
 font_weight = 600
 hover_highlight = false
 icon_color = "#0C0B0A"
+islands = false
 layer = "overlay"
 margin_edge = 5
 margin_ends = 100
@@ -1239,6 +1239,7 @@ widget_spacing = 8
     font_weight = 600
     hover_highlight = true
     icon_color = "#E3E2E1"
+    islands = false
     layer = "top"
     margin_edge = 9
     margin_ends = 70

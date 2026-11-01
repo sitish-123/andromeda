@@ -1,5 +1,5 @@
 // Locks that every capsule group style field edited in the settings GUI survives a restart. Group
-// overrides are written to settings.toml by a hand-listed serializer, so a field it forgets reads
+// overrides are written to overrides.toml by a hand-listed serializer, so a field it forgets reads
 // back as its default the next time the config loads.
 
 #include "config/color_spec.h"

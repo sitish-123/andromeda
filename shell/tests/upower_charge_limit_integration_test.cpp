@@ -380,7 +380,7 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::name(tab, 1) == "Secondary Battery");
     TEST_CHECK(findBattery(service, hiddenBattery.path) != nullptr);
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Can charge to 100%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
     TEST_CHECK(!PowerTabTestAccess::managementVisible(tab, 0));
     TEST_CHECK(PowerTabTestAccess::controlVisible(tab, 0));
@@ -446,13 +446,13 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::toggleChecked(tab, 0));
     TEST_CHECK(PowerTabTestAccess::toggleEnabled(tab, 0));
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Starts below 75% · Stops at 80%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
 
     TEST_CHECK(service.enableChargeThreshold(bat0.path, false));
     drainUntil(bus, [&]() { return bat0.pendingCount() == 1; });
     PowerTabTestAccess::rebuild(tab);
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Can charge to 100%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
     const int enabledReadsBeforeFailure = bat0.enabledReadCount();
     bat0.completeFailure("hardware rejected the write");
