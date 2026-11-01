@@ -116,10 +116,10 @@ void Application::requestAllSurfacesRedraw() {
 }
 
 void Application::onUpowerStateChangedForHooks() {
-  if (m_upowerService == nullptr) {
+  if (upower() == nullptr) {
     return;
   }
-  const auto& state = m_upowerService->state();
+  const auto& state = upower()->state();
   const auto plugged = state.isPresent ? batteryStatePlugged(state.state) : std::nullopt;
   if (plugged.has_value()) {
     if (m_prevBatteryPluggedForEvents.has_value()

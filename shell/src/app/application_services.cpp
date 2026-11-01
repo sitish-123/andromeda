@@ -103,6 +103,8 @@
 #include "ui/dialogs/color_picker_dialog.h"
 #include "ui/dialogs/file_dialog.h"
 #include "ui/dialogs/glyph_picker_dialog.h"
+#include "theme/toolkit_theme_files.h"
+#include "ui/palette.h"
 #include "ui/style.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -112,6 +114,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <gio/gio.h>
 #include <limits>
@@ -154,6 +157,16 @@ namespace {
     }
     GSettings* settings = g_settings_new("org.gnome.desktop.interface");
     g_settings_set_string(settings, "color-scheme", mode == "light" ? "prefer-light" : "prefer-dark");
+    // GTK 3 has no dark variant switch of its own: pick adw-gtk3 or adw-gtk3-dark when installed.
+    const std::string gtkTheme = mode == "light" ? "adw-gtk3" : "adw-gtk3-dark";
+    const char* home = std::getenv("HOME");
+    const bool installed = std::filesystem::exists("/usr/share/themes/" + gtkTheme)
+        || (home != nullptr
+            && (std::filesystem::exists(std::filesystem::path(home) / ".local/share/themes" / gtkTheme)
+                || std::filesystem::exists(std::filesystem::path(home) / ".themes" / gtkTheme)));
+    if (installed) {
+      g_settings_set_string(settings, "gtk-theme", gtkTheme.c_str());
+    }
     g_object_unref(settings);
   }
 } // namespace
@@ -171,6 +184,7 @@ void Application::syncLiveActivity() {
       if (call->ringing) {
         activity.actionGlyph = "phone-off";
         activity.action = [this, id = call->deviceId] { m_linkService->declineCall(id); };
+        activity.actionDestructive = true;
         activity.secondaryGlyph = "bell-off";
         activity.secondaryAction = [this, id = call->deviceId] { m_linkService->muteCall(id); };
       }
@@ -530,19 +544,19 @@ void Application::syncPolkitAgent() {
 }
 
 void Application::applyPowerSourceProfile() {
-  if (m_upowerService == nullptr || m_powerProfilesService == nullptr) {
+  if (upower() == nullptr || powerProfiles() == nullptr) {
     return;
   }
-  const bool onBattery = m_upowerService->state().onBattery;
+  const bool onBattery = upower()->state().onBattery;
   if (m_profileAppliedOnBattery == onBattery) {
     return;
   }
   m_profileAppliedOnBattery = onBattery;
   const BatteryConfig& battery = m_configService.config().battery;
   const std::string& profile = onBattery ? battery.profileOnBattery : battery.profileOnAc;
-  if (!profile.empty() && profile != m_powerProfilesService->activeProfile()) {
+  if (!profile.empty() && profile != powerProfiles()->activeProfile()) {
     kLog.info("power source {}: switching profile to {}", onBattery ? "battery" : "ac", profile);
-    (void)m_powerProfilesService->setActiveProfile(profile);
+    (void)powerProfiles()->setActiveProfile(profile);
   }
 }
 
@@ -867,6 +881,18 @@ void Application::initStyleThemeAndWayland() {
   m_themeService.apply();
   if (m_settingsPortal != nullptr) {
     m_settingsPortal->setDark(!m_themeService.isLightMode());
+    const Color accent = colorForRole(ColorRole::Accent, 1.0F);
+    m_settingsPortal->setAccent(accent.r, accent.g, accent.b);
+  }
+  if (m_configService.config().theme.toolkitThemes) {
+    toolkit_theme::write(
+        m_themeService.resolvedMode(), colorForRole(ColorRole::Accent, 1.0F), colorForRole(ColorRole::OnAccent, 1.0F)
+    );
+  } else {
+    toolkit_theme::remove();
+  }
+  if (m_configService.config().theme.syncColorScheme) {
+    syncGSettingsColorScheme(m_themeService.resolvedMode());
   }
   {
     // Enabling the key alone leaves the template inputs unchanged, so no application would
@@ -1079,6 +1105,20 @@ void Application::initAuxServicesAndHooks() {
   m_hookManager.setCommandRunner([this](const std::string& command) { return runShellCommand(command); });
   m_hookManager.setBlockingCommandRunner([this](const std::string& command) {
     return runShellCommandBlocking(command);
+  });
+  m_hookManager.setAsyncCommandRunner([](const std::string& command, std::function<void(bool)> done) {
+    process::RunOptions options;
+    options.maxOutputBytes = 8 * 1024;
+    process::RunCallbacks callbacks{.onExit = [command, done](process::RunResult result) {
+      if (!result) {
+        kLog.warn("command failed: {} exit_code={} stderr={}", command, result.exitCode, result.err);
+      }
+      done(static_cast<bool>(result));
+    }};
+    if (!process::runAsync(std::vector<std::string>{"/bin/sh", "-lc", command}, std::move(callbacks), std::move(options))) {
+      kLog.warn("command failed to launch: {}", command);
+      done(false);
+    }
   });
   m_hookManager.reload(m_configService.config().hooks);
   m_configService.addReloadCallback(
@@ -1319,11 +1359,11 @@ void Application::initSystemBusServices() {
           // BlueZ property-change signals can be missed across the suspend window, leaving our
           // cached adapter state stale. Re-sync now and again shortly after, since BlueZ may take a
           // moment to restore the adapter on resume.
-          if (m_bluetoothService != nullptr) {
-            m_bluetoothService->refresh();
+          if (bluetooth() != nullptr) {
+            bluetooth()->refresh();
             m_bluetoothResumeTimer.start(std::chrono::seconds(2), [this] {
-              if (m_bluetoothService != nullptr) {
-                m_bluetoothService->refresh();
+              if (bluetooth() != nullptr) {
+                bluetooth()->refresh();
               }
             });
           }
@@ -1353,34 +1393,6 @@ void Application::initSystemBusServices() {
       m_accountsService.reset();
     }
 
-    try {
-      m_powerProfilesService = std::make_unique<PowerProfilesService>(*m_systemBus);
-      m_powerProfilesService->setChangeCallback(
-          [this, shouldRefreshControlCenter](const PowerProfilesState& state, PowerProfilesChangeOrigin origin) {
-            m_bar.refresh();
-            if (shouldRefreshControlCenter()) {
-              m_panelManager.refresh();
-            }
-
-            const std::string& active = state.activeProfile;
-            if (active.empty()) {
-              return;
-            }
-            onPowerProfileChangedForEvents(state, origin);
-          }
-      );
-      if (m_powerProfilesService->hasStateSnapshot() && !m_powerProfilesService->activeProfile().empty()) {
-        m_prevPowerProfileActiveForEvents = m_powerProfilesService->activeProfile();
-        kLog.info("power profiles active profile: {}", m_powerProfilesService->activeProfile());
-      } else if (!m_powerProfilesService->hasStateSnapshot()) {
-        kLog.info("power profiles service active (state loading asynchronously)");
-      } else {
-        kLog.info("power profiles service active");
-      }
-    } catch (const std::exception& e) {
-      kLog.warn("power profiles disabled: {}", e.what());
-      m_powerProfilesService.reset();
-    }
 
     if (m_configService.config().shell.automountDrives) {
       try {
@@ -1423,52 +1435,160 @@ void Application::initSystemBusServices() {
         m_udisksService.reset();
       }
     }
-    try {
-      m_upowerService = std::make_unique<UPowerService>(*m_systemBus);
-      const auto& initialPower = m_upowerService->state();
-      m_batteryHookState.reset(initialPower);
-      m_prevBatteryPluggedForEvents = initialPower.isPresent ? batteryStatePlugged(initialPower.state) : std::nullopt;
-      m_batteryWarningMonitor.evaluate(m_configService.config().battery, *m_upowerService, m_notificationManager);
-      m_upowerService->setChangeCallback([this, shouldRefreshControlCenter](const UPowerChange& change) {
-        if (change.origin != UPowerService::ChangeOrigin::DeviceState) {
-          if (shouldRefreshControlCenter()) {
-            m_panelManager.refresh();
-          }
-          return;
+    m_powerProfilesModule = m_services.add<PowerProfilesModule>(
+        *m_systemBus,
+        PowerProfilesModule::Hooks{
+            .started =
+                [this](PowerProfilesService& service) {
+                  if (service.hasStateSnapshot() && !service.activeProfile().empty()) {
+                    m_prevPowerProfileActiveForEvents = service.activeProfile();
+                  }
+                },
+            .changed =
+                [this, shouldRefreshControlCenter](const PowerProfilesState& state, PowerProfilesChangeOrigin origin) {
+                  m_bar.refresh();
+                  if (shouldRefreshControlCenter()) {
+                    m_panelManager.refresh();
+                  }
+                  if (!state.activeProfile.empty()) {
+                    onPowerProfileChangedForEvents(state, origin);
+                  }
+                },
         }
-        onUpowerStateChangedForHooks();
-        applyPowerSourceProfile();
-        m_batteryWarningMonitor.evaluate(m_configService.config().battery, *m_upowerService, m_notificationManager);
-        if (m_bluetoothService != nullptr) {
-          m_bluetoothService->refreshBatteryFromUPower();
+    );
+    m_upowerModule = m_services.add<UPowerModule>(
+        *m_systemBus,
+        UPowerModule::Hooks{
+            .started =
+                [this, shouldRefreshControlCenter](UPowerService& service) {
+                  const auto& initialPower = service.state();
+                  m_batteryHookState.reset(initialPower);
+                  m_prevBatteryPluggedForEvents =
+                      initialPower.isPresent ? batteryStatePlugged(initialPower.state) : std::nullopt;
+                  m_batteryWarningMonitor.evaluate(m_configService.config().battery, service, m_notificationManager);
+                  applyPowerSourceProfile();
+                  // The first snapshot lands after startup: show it and give Bluetooth its peripheral batteries.
+                  if (bluetooth() != nullptr) {
+                    bluetooth()->refreshBatteryFromUPower();
+                  }
+                  m_bar.refresh();
+                  m_settingsWindow.onExternalOptionsChanged();
+                  if (shouldRefreshControlCenter()) {
+                    m_panelManager.refresh();
+                  }
+                },
+            .changed =
+                [this, shouldRefreshControlCenter](const UPowerChange& change) {
+                  if (change.origin != UPowerService::ChangeOrigin::DeviceState) {
+                    if (shouldRefreshControlCenter()) {
+                      m_panelManager.refresh();
+                    }
+                    return;
+                  }
+                  onUpowerStateChangedForHooks();
+                  applyPowerSourceProfile();
+                  m_batteryWarningMonitor.evaluate(m_configService.config().battery, *upower(), m_notificationManager);
+                  if (bluetooth() != nullptr) {
+                    bluetooth()->refreshBatteryFromUPower();
+                  }
+                  m_bar.refresh();
+                  if (change.deviceCatalogChanged) {
+                    m_settingsWindow.onExternalOptionsChanged();
+                  }
+                  if (shouldRefreshControlCenter()) {
+                    m_panelManager.refresh();
+                  }
+                },
+            .batteryChanged =
+                [this] {
+                  m_profileAppliedOnBattery.reset();
+                  applyPowerSourceProfile();
+                  m_batteryWarningMonitor.evaluate(m_configService.config().battery, *upower(), m_notificationManager);
+                  m_bar.refresh();
+                },
         }
-        m_bar.refresh();
-        if (change.deviceCatalogChanged) {
-          m_settingsWindow.onExternalOptionsChanged();
+    );
+    m_networkModule = m_services.add<NetworkModule>(
+        *m_systemBus,
+        NetworkModule::Hooks{
+            .started =
+                [this, shouldRefreshControlCenter](INetworkService& service) {
+                  if (service.hasStateSnapshot()) {
+                    m_prevWirelessEnabledForEvents = service.state().wirelessEnabled;
+                  }
+                  m_externalIpService.setNetworkService(&service);
+                  m_externalIpService.setChangeCallback([this, shouldRefreshControlCenter] {
+                    m_bar.refresh();
+                    if (shouldRefreshControlCenter()) {
+                      m_panelManager.refresh();
+                    }
+                  });
+                  m_externalIpService.onNetworkChanged();
+                },
+            .changed =
+                [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
+                  // NetworkManager leaving or returning is not a radio toggle.
+                  if (network()->available()) {
+                    onNetworkStateChangedForEvents(state, origin);
+                  }
+                  m_externalIpService.onNetworkChanged();
+                  m_bar.refresh();
+                  if (shouldRefreshControlCenter()) {
+                    m_panelManager.refresh();
+                  }
+                },
         }
-        if (shouldRefreshControlCenter()) {
-          m_panelManager.refresh();
+    );
+    auto refreshBluetoothUi = [this, shouldRefreshControlCenter] {
+      m_bar.refresh();
+      if (shouldRefreshControlCenter()) {
+        m_panelManager.refresh();
+      }
+    };
+    m_bluetoothModule = m_services.add<BluetoothModule>(
+        *m_systemBus, *m_upowerModule,
+        BluetoothModule::Hooks{
+            .started =
+                [this](BluetoothService& service) {
+                  if (service.hasStateSnapshot()) {
+                    m_prevBluetoothPoweredForEvents = service.state().powered;
+                  }
+                },
+            .stateChanged =
+                [this, refreshBluetoothUi](const BluetoothState& state, BluetoothStateChangeOrigin origin) {
+                  onBluetoothStateChangedForEvents(state, origin);
+                  refreshBluetoothUi();
+                },
+            .devicesChanged =
+                [refreshBluetoothUi](const std::vector<BluetoothDeviceInfo>& /*devices*/) { refreshBluetoothUi(); },
+            .pairingRequest =
+                [this, shouldRefreshControlCenter](const BluetoothPairingRequest& request) {
+                  const auto show = [this, shouldRefreshControlCenter]() {
+                    if (shouldRefreshControlCenter()) {
+                      m_panelManager.refresh();
+                    }
+                  };
+                  kLog.info(
+                      "bluetooth pairing request: kind {} for {}", static_cast<int>(request.kind), request.devicePath
+                  );
+                  // A phone that reported this code over its Link session is confirmed without asking.
+                  if (request.kind == BluetoothPairingKind::Confirm && m_linkService != nullptr) {
+                    m_linkService->confirmBluetoothPairing(request.passkey, [this, show](bool confirmed) {
+                      if (confirmed && bluetoothAgent() != nullptr) {
+                        bluetoothAgent()->acceptConfirm();
+                      } else {
+                        show();
+                      }
+                    });
+                    return;
+                  }
+                  show();
+                },
         }
-      });
-      applyPowerSourceProfile();
-      m_configService.addReloadCallback(
-          [this] {
-            if (m_configService.lastChange().battery && m_upowerService != nullptr) {
-              m_profileAppliedOnBattery.reset();
-              applyPowerSourceProfile();
-              m_batteryWarningMonitor.evaluate(
-                  m_configService.config().battery, *m_upowerService, m_notificationManager
-              );
-              m_bar.refresh();
-            }
-          },
-          "battery"
-      );
-    } catch (const std::exception& e) {
-      kLog.warn("upower disabled: {}", e.what());
-      m_upowerService.reset();
+    );
+    if (!m_services.start(m_configService.config())) {
+      kLog.error("service modules: {}", m_services.error());
     }
-
     try {
       m_keyboardBacklightService = std::make_unique<KeyboardBacklightService>(*m_systemBus);
       m_keyboardBacklightService->setChangeCallback([this] {
@@ -1479,140 +1599,7 @@ void Application::initSystemBusServices() {
       m_keyboardBacklightService.reset();
     }
 
-    // NetworkManager is preferred, and its backend follows the bus name when NetworkManager starts later
-    // or restarts. When it is not running at startup, a standalone wpa_supplicant or iwd takes over if
-    // one is; otherwise the NetworkManager backend waits for it to appear.
-    try {
-      m_networkService = std::make_unique<NetworkManagerService>(*m_systemBus);
-    } catch (const std::exception& e) {
-      kLog.warn("NetworkManager backend disabled: {}", e.what());
-    }
-    if (m_networkService == nullptr || !m_networkService->available()) {
-      try {
-        m_networkService = std::make_unique<WpaSupplicantService>(*m_systemBus);
-        kLog.info("network service active (wpa_supplicant)");
-      } catch (const std::exception& e) {
-        kLog.warn("wpa_supplicant unavailable ({}), trying iwd", e.what());
-        try {
-          m_networkService = std::make_unique<IwdService>(*m_systemBus);
-          kLog.info("network service active (iwd)");
-        } catch (const std::exception& e2) {
-          kLog.warn("iwd unavailable ({})", e2.what());
-        }
-      }
-    } else {
-      kLog.info("network service active");
-    }
-
-    if (m_networkService != nullptr) {
-      m_networkService->setChangeCallback(
-          [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
-            // NetworkManager leaving or returning is not a radio toggle.
-            if (m_networkService->available()) {
-              onNetworkStateChangedForEvents(state, origin);
-            }
-            m_externalIpService.onNetworkChanged();
-            m_bar.refresh();
-            if (shouldRefreshControlCenter()) {
-              m_panelManager.refresh();
-            }
-          }
-      );
-      if (m_networkService->hasStateSnapshot()) {
-        m_prevWirelessEnabledForEvents = m_networkService->state().wirelessEnabled;
-      }
-      m_externalIpService.setNetworkService(m_networkService.get());
-      m_externalIpService.setChangeCallback([this, shouldRefreshControlCenter] {
-        m_bar.refresh();
-        if (shouldRefreshControlCenter()) {
-          m_panelManager.refresh();
-        }
-      });
-      m_externalIpService.onNetworkChanged();
-    }
     m_configService.addReloadCallback([this] { m_externalIpService.onConfigReload(); });
-
-    try {
-      m_networkSecretAgent = std::make_unique<NetworkSecretAgent>(*m_systemBus);
-    } catch (const std::exception& e) {
-      kLog.warn("network secret agent disabled: {}", e.what());
-      m_networkSecretAgent.reset();
-    }
-
-    // Initialize iwd secret agent if iwd is the active network service
-    if (auto* iwdService = dynamic_cast<IwdService*>(m_networkService.get())) {
-      try {
-        m_iwdSecretAgent = std::make_unique<IwdSecretAgent>(*m_systemBus);
-        iwdService->setSecretAgent(m_iwdSecretAgent.get());
-      } catch (const std::exception& e) {
-        kLog.warn("iwd secret agent disabled: {}", e.what());
-        m_iwdSecretAgent.reset();
-      }
-    }
-
-    try {
-      m_bluetoothService = std::make_unique<BluetoothService>(*m_systemBus, m_upowerService.get());
-      m_bluetoothService->setConnectWhenEnabled(m_configService.config().bluetooth.connectWhenEnabled);
-      m_bluetoothService->setConnectionNotifications(m_configService.config().bluetooth.connectionNotifications);
-      auto refreshBluetoothUi = [this, shouldRefreshControlCenter] {
-        m_bar.refresh();
-        if (shouldRefreshControlCenter()) {
-          m_panelManager.refresh();
-        }
-      };
-      m_bluetoothService->setStateCallback(
-          [this, refreshBluetoothUi](const BluetoothState& state, BluetoothStateChangeOrigin origin) {
-            onBluetoothStateChangedForEvents(state, origin);
-            refreshBluetoothUi();
-          }
-      );
-      m_bluetoothService->setDevicesCallback([refreshBluetoothUi](const std::vector<BluetoothDeviceInfo>& /*devices*/) {
-        refreshBluetoothUi();
-      });
-      if (m_bluetoothService->hasStateSnapshot()) {
-        m_prevBluetoothPoweredForEvents = m_bluetoothService->state().powered;
-      }
-      kLog.info("bluetooth service active");
-    } catch (const std::exception& e) {
-      kLog.warn("bluetooth service disabled: {}", e.what());
-      m_bluetoothService.reset();
-    }
-
-    if (m_bluetoothService != nullptr) {
-      try {
-        m_bluetoothAgent = std::make_unique<BluetoothAgent>(*m_systemBus);
-        m_bluetoothAgent->setRequestCallback([this,
-                                              shouldRefreshControlCenter](const BluetoothPairingRequest& request) {
-          const auto show = [this, shouldRefreshControlCenter]() {
-            if (shouldRefreshControlCenter()) {
-              m_panelManager.refresh();
-            }
-          };
-          kLog.info("bluetooth pairing request: kind {} for {}", static_cast<int>(request.kind), request.devicePath);
-          // A phone that reported this code over its Link session is confirmed without asking.
-          if (request.kind == BluetoothPairingKind::Confirm && m_linkService != nullptr) {
-            m_linkService->confirmBluetoothPairing(request.passkey, [this, show](bool confirmed) {
-              if (confirmed && m_bluetoothAgent != nullptr) {
-                m_bluetoothAgent->acceptConfirm();
-              } else {
-                show();
-              }
-            });
-            return;
-          }
-          show();
-        });
-      } catch (const std::exception& e) {
-        kLog.warn("bluetooth agent disabled: {}", e.what());
-        m_bluetoothAgent.reset();
-      }
-    }
-    m_configService.addReloadCallback([this] {
-      if (m_bluetoothService != nullptr) {
-        m_bluetoothService->setConnectWhenEnabled(m_configService.config().bluetooth.connectWhenEnabled);
-        m_bluetoothService->setConnectionNotifications(m_configService.config().bluetooth.connectionNotifications);
-      }
-    });
 
     try {
       m_modemManagerService = std::make_unique<ModemManagerService>(*m_systemBus);
@@ -1630,6 +1617,10 @@ void Application::initSystemBusServices() {
 
     m_configService.addReloadCallback([this] { syncPolkitAgent(); });
   }
+
+  m_configService.addReloadCallback(
+      [this] { m_services.reload(m_configService.config(), m_configService.lastChange()); }, "service-modules"
+  );
 }
 
 void Application::initBrightnessAndPipewire() {
@@ -1664,17 +1655,22 @@ void Application::initBrightnessAndPipewire() {
     m_brightnessService.reset();
   }
 
-  try {
-    m_pipewireService = std::make_unique<PipeWireService>();
+  m_pipewireModule = m_services.add<PipeWireModule>();
+  if (!m_services.start(m_configService.config())) {
+    kLog.error("service modules: {}", m_services.error());
+  }
+  if (pipewire() == nullptr) {
+    kLog.warn("pipewire disabled: {}", m_pipewireModule->startError());
+  } else try {
     m_wirePlumberMixer = std::make_unique<WirePlumberMixer>();
-    m_pipewireService->setWirePlumberMixer(m_wirePlumberMixer.get());
-    m_wirePlumberMixer->setChangeCallback([svc = m_pipewireService.get()](std::uint32_t id, float volume, bool muted) {
+    pipewire()->setWirePlumberMixer(m_wirePlumberMixer.get());
+    m_wirePlumberMixer->setChangeCallback([svc = pipewire()](std::uint32_t id, float volume, bool muted) {
       svc->onMixerVolumeChanged(id, volume, muted);
     });
     m_easyEffectsService = std::make_unique<EasyEffectsService>();
     m_easyEffectsService->refreshProfiles();
     m_easyEffectsService->refreshActiveEffectsProfiles();
-    m_pipewireSpectrum = std::make_unique<PipeWireSpectrum>(*m_pipewireService);
+    m_pipewireSpectrum = std::make_unique<PipeWireSpectrum>(*pipewire());
     m_andromedaAudioProvider = std::make_unique<compositors::andromeda::AndromedaAudioProvider>(
         m_compositorPlatform.andromedaRuntime(), [this] {
           compositors::andromeda::AndromedaAudioProvider::Bands bands{};
@@ -1738,7 +1734,8 @@ void Application::initBrightnessAndPipewire() {
     m_andromedaAudioListener = 0;
     m_pipewireSpectrum.reset();
     m_easyEffectsService.reset();
-    m_pipewireService.reset();
+    // The service keeps a raw pointer to the mixer, so it goes first.
+    m_pipewireModule->stop();
     m_wirePlumberMixer.reset();
   }
 
@@ -1847,20 +1844,15 @@ void Application::initSessionBusServices() {
       kLog.warn("link client disabled: {}", e.what());
     }
 
-    try {
-      m_mprisService = std::make_unique<MprisService>(*m_bus);
-      auto applyMprisConfig = [this] {
-        if (m_mprisService == nullptr) {
-          return;
-        }
-        m_mprisService->setBlacklist(m_configService.config().shell.mpris.blacklist);
-      };
-      applyMprisConfig();
-      m_configService.addReloadCallback(applyMprisConfig);
-      m_mprisService->setChangeCallback([this, shouldRefreshControlCenter] {
+    m_mprisModule = m_services.add<MprisModule>(*m_bus);
+    if (!m_services.start(m_configService.config())) {
+      kLog.error("service modules: {}", m_services.error());
+    }
+    if (mpris() != nullptr) {
+      mpris()->setChangeCallback([this, shouldRefreshControlCenter] {
         m_bar.refresh();
         m_desktopWidgetsController.requestUpdate();
-        m_mediaOsd.onMprisChanged(*m_mprisService);
+        m_mediaOsd.onMprisChanged(*mpris());
         if (m_lockScreen.isActive()) {
           m_lockScreen.requestUpdate();
         }
@@ -1868,14 +1860,14 @@ void Application::initSessionBusServices() {
           m_panelManager.refresh();
         }
       });
-      m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, m_mprisService.get(), &m_weatherService, &m_httpClient);
+      m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, mpris(), &m_weatherService, &m_httpClient);
       kLog.info("mpris discovery active");
-    } catch (const std::exception& e) {
-      kLog.warn("mpris disabled: {}", e.what());
-      m_mprisService.reset();
+    } else {
+      const std::string& error = m_mprisModule->startError();
+      kLog.warn("mpris disabled: {}", error);
       m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, nullptr, &m_weatherService, &m_httpClient);
       m_notificationManager.addInternal(
-          "Noctalia", i18n::tr("notifications.internal.mpris-disabled"), e.what(), Urgency::Low
+          "Noctalia", i18n::tr("notifications.internal.mpris-disabled"), error, Urgency::Low
       );
     }
 

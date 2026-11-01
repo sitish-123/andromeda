@@ -93,6 +93,7 @@
 #include "ui/dialogs/color_picker_dialog.h"
 #include "ui/dialogs/file_dialog.h"
 #include "ui/dialogs/glyph_picker_dialog.h"
+#include "theme/toolkit_theme_files.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/file_utils.h"
@@ -164,7 +165,7 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_wallpaper.initialize(m_wayland, &m_configService, &m_renderContext, &m_sharedTextureCache, &m_themeService);
   m_backdrop.initialize(m_wayland, &m_configService, &m_sharedTextureCache, &m_glShared);
   m_settingsWindow.initialize(
-      m_wayland, &m_configService, &m_renderContext, &m_dependencyService, m_upowerService.get(), &m_idleManager,
+      m_wayland, &m_configService, &m_renderContext, &m_dependencyService, upower(), &m_idleManager,
       &m_compositorPlatform, m_accountsService.get()
   );
   m_settingsWindow.setSystemBus(m_systemBus.get());
@@ -351,7 +352,7 @@ void Application::initLockScreenAndSession() {
   m_lockScreen.initialize(
       m_wayland, &m_renderContext, &m_configService, &m_sharedTextureCache, m_systemBus.get(), &m_compositorPlatform
   );
-  m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, m_mprisService.get(), &m_weatherService, &m_httpClient);
+  m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, mpris(), &m_weatherService, &m_httpClient);
   m_wallpaper.setAutomationGate([this] {
     if (m_lockScreen.isActive()) {
       return false;
@@ -376,8 +377,8 @@ void Application::initLockScreenAndSession() {
         if (m_logindService != nullptr) {
           m_logindService->setSessionLockedHint(true);
         }
-        if (m_screenSaverService != nullptr) {
-          m_screenSaverService->emitActiveChanged(true);
+        if (screenSaver() != nullptr) {
+          screenSaver()->emitActiveChanged(true);
         }
       },
       [this] {
@@ -393,8 +394,8 @@ void Application::initLockScreenAndSession() {
         if (m_logindService != nullptr) {
           m_logindService->setSessionLockedHint(false);
         }
-        if (m_screenSaverService != nullptr) {
-          m_screenSaverService->emitActiveChanged(false);
+        if (screenSaver() != nullptr) {
+          screenSaver()->emitActiveChanged(false);
         }
       },
       [this] {
@@ -425,9 +426,15 @@ void Application::initLockScreenAndSession() {
   }
 
   SessionActionHooks sessionActionHooks;
-  sessionActionHooks.onLogout = [this] { return m_hookManager.fireBlocking(HookKind::LoggingOut); };
-  sessionActionHooks.onReboot = [this] { return m_hookManager.fireBlocking(HookKind::Rebooting); };
-  sessionActionHooks.onShutdown = [this] { return m_hookManager.fireBlocking(HookKind::ShuttingDown); };
+  sessionActionHooks.onLogout = [this](std::function<void(bool)> done) {
+    m_hookManager.fireAsync(HookKind::LoggingOut, std::move(done));
+  };
+  sessionActionHooks.onReboot = [this](std::function<void(bool)> done) {
+    m_hookManager.fireAsync(HookKind::Rebooting, std::move(done));
+  };
+  sessionActionHooks.onShutdown = [this](std::function<void(bool)> done) {
+    m_hookManager.fireAsync(HookKind::ShuttingDown, std::move(done));
+  };
   sessionActionHooks.onBeforePlainSuspend = [this] { m_skipLockOnNextSleep = true; };
   sessionActionHooks.onPlainSuspendAborted = [this] { m_skipLockOnNextSleep = false; };
   m_sessionActionRunner.setHooks(std::move(sessionActionHooks));
@@ -642,25 +649,25 @@ void Application::initPanelManagerAndPanels() {
   m_panelManager.registerPanel("phone", std::make_unique<PhonePanel>(m_linkService.get()));
   auto controlCenterPanel = std::make_unique<ControlCenterPanel>(ControlCenterServices{
       .notifications = &m_notificationManager,
-      .audio = m_pipewireService.get(),
+      .audio = pipewire(),
       .easyEffects = m_easyEffectsService.get(),
-      .mpris = m_mprisService.get(),
+      .mpris = mpris(),
       .config = &m_configService,
       .httpClient = &m_httpClient,
       .weather = &m_weatherService,
       .spectrum = m_pipewireSpectrum.get(),
-      .upower = m_upowerService.get(),
-      .powerProfiles = m_powerProfilesService.get(),
-      .network = m_networkService.get(),
+      .upower = upower(),
+      .powerProfiles = powerProfiles(),
+      .network = network(),
       .hotspot = m_hotspot.get(),
       .link = m_linkService.get(),
       .quickShare = m_quickShareService.get(),
       .screenRecorder = m_screenRecorder.get(),
       .modem = m_modemManagerService.get(),
-      .networkSecrets = m_networkSecretAgent.get(),
+      .networkSecrets = networkSecretAgent(),
       .externalIp = &m_externalIpService,
-      .bluetooth = m_bluetoothService.get(),
-      .bluetoothAgent = m_bluetoothAgent.get(),
+      .bluetooth = bluetooth(),
+      .bluetoothAgent = bluetoothAgent(),
       .brightness = m_brightnessService.get(),
       .sysmon = m_systemMonitor.get(),
       .screenTime = &m_screenTimeService,
@@ -892,21 +899,19 @@ void Application::initNotificationAndOsd() {
     DeferredCall::callLater([this] { m_settingsWindow.onIdleLiveStatusChanged(); });
   });
   m_idleManager.reload(m_configService.config().idle);
-  try {
-    m_screenSaverService = std::make_unique<ScreenSaverService>(m_systemBus.get());
-    if (m_screenSaverService->active()) {
-      m_screenSaverService->setChangeCallback([this](std::int64_t locks) {
-        m_idleManager.setScreenSaverInhibitLocks(locks);
-        m_pluginIdleWatches.setScreenSaverInhibited(locks > 0);
-      });
-      m_idleManager.setScreenSaverInhibitLocks(m_screenSaverService->inhibitLocks());
-      m_pluginIdleWatches.setScreenSaverInhibited(m_screenSaverService->inhibitLocks() > 0);
-    } else {
-      m_screenSaverService.reset();
-    }
-  } catch (const std::exception& e) {
-    kLog.warn("idle inhibit service disabled: {}", e.what());
-    m_screenSaverService.reset();
+  m_screenSaverModule = m_services.add<ScreenSaverModule>(m_systemBus.get());
+  if (!m_services.start(m_configService.config())) {
+    kLog.error("service modules: {}", m_services.error());
+  }
+  if (screenSaver() != nullptr) {
+    screenSaver()->setChangeCallback([this](std::int64_t locks) {
+      m_idleManager.setScreenSaverInhibitLocks(locks);
+      m_pluginIdleWatches.setScreenSaverInhibited(locks > 0);
+    });
+    m_idleManager.setScreenSaverInhibitLocks(screenSaver()->inhibitLocks());
+    m_pluginIdleWatches.setScreenSaverInhibited(screenSaver()->inhibitLocks() > 0);
+  } else if (!m_screenSaverModule->startError().empty()) {
+    kLog.warn("idle inhibit service disabled: {}", m_screenSaverModule->startError());
   }
   m_configService.addReloadCallback(
       [this] {
@@ -919,8 +924,8 @@ void Application::initNotificationAndOsd() {
   m_audioOsd.bindOverlay(m_osdOverlay);
   m_audioOsd.setSoundPlayer(m_soundPlayer.get());
   m_screenshotService.setSoundPlayer(m_soundPlayer.get());
-  if (m_pipewireService != nullptr) {
-    m_audioOsd.primeFromService(*m_pipewireService);
+  if (pipewire() != nullptr) {
+    m_audioOsd.primeFromService(*pipewire());
   }
   m_brightnessOsd.bindOverlay(m_osdOverlay);
   if (m_brightnessService != nullptr) {
@@ -939,7 +944,7 @@ void Application::initNotificationAndOsd() {
   m_configService.addReloadCallback(
       [this] {
         if (m_configService.lastChange().shell) {
-          m_privacyOsd.onConfigReload(m_configService.config(), m_pipewireService.get());
+          m_privacyOsd.onConfigReload(m_configService.config(), pipewire());
           m_bar.refresh();
         }
       },
@@ -956,23 +961,23 @@ void Application::initBarDockAndLayout() {
       .config = m_configService,
       .notifications = &m_notificationManager,
       .tray = m_trayService.get(),
-      .audio = m_pipewireService.get(),
+      .audio = pipewire(),
       .easyEffects = m_easyEffectsService.get(),
-      .upower = m_upowerService.get(),
+      .upower = upower(),
       .sysmon = m_systemMonitor.get(),
-      .powerProfiles = m_powerProfilesService.get(),
-      .network = m_networkService.get(),
+      .powerProfiles = powerProfiles(),
+      .network = network(),
       .modem = m_modemManagerService.get(),
       .externalIp = &m_externalIpService,
       .idleInhibitor = &m_idleInhibitor,
-      .mpris = m_mprisService.get(),
+      .mpris = mpris(),
       .audioSpectrum = m_pipewireSpectrum.get(),
       .httpClient = &m_httpClient,
       .weather = &m_weatherService,
       .renderContext = &m_renderContext,
       .nightLight = &m_gammaService,
       .theme = &m_themeService,
-      .bluetooth = m_bluetoothService.get(),
+      .bluetooth = bluetooth(),
       .link = m_linkService.get(),
       .brightness = m_brightnessService.get(),
       .lockKeys = kLockKeysEnabled ? &m_lockKeysService : nullptr,
@@ -1086,10 +1091,10 @@ void Application::initWidgetControllersAndCallbacks() {
   };
   const DesktopWidgetRuntimeServices desktopWidgetRuntime{
       .calendar = &m_calendarService,
-      .pipewire = m_pipewireService.get(),
+      .pipewire = pipewire(),
       .pipewireSpectrum = m_pipewireSpectrum.get(),
       .weather = &m_weatherService,
-      .mpris = m_mprisService.get(),
+      .mpris = mpris(),
       .httpClient = &m_httpClient,
       .sysmon = m_systemMonitor.get(),
       .scriptDeps = desktopWidgetScriptDeps,
@@ -1208,9 +1213,9 @@ void Application::initWidgetControllersAndCallbacks() {
   m_timeService.setPrecisionProvider([this] { return timePrecisionNeeded(); });
   m_timeService.setDeadlineProvider([this] { return m_wallpaper.nextAutomationDeadline(); });
 
-  if (m_pipewireService != nullptr) {
+  if (pipewire() != nullptr) {
     m_audioOsd.suppressFor(std::chrono::milliseconds(2000));
-    m_pipewireService->setChangeCallback([this, shouldRefreshControlCenter] {
+    pipewire()->setChangeCallback([this, shouldRefreshControlCenter] {
       if (m_pipewireSpectrum != nullptr) {
         m_pipewireSpectrum->handleAudioStateChanged();
       }
@@ -1219,13 +1224,13 @@ void Application::initWidgetControllersAndCallbacks() {
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();
       }
-      if (m_pipewireService != nullptr) {
-        m_hdmiAudioSwitch.onAudioStateChanged(*m_pipewireService, m_configService.config().audio.autoSwitchHdmi);
-        m_audioOsd.onAudioStateChanged(*m_pipewireService);
-        m_privacyOsd.onPrivacyStateChanged(*m_pipewireService);
+      if (pipewire() != nullptr) {
+        m_hdmiAudioSwitch.onAudioStateChanged(*pipewire(), m_configService.config().audio.autoSwitchHdmi);
+        m_audioOsd.onAudioStateChanged(*pipewire());
+        m_privacyOsd.onPrivacyStateChanged(*pipewire());
       }
     });
-    m_pipewireService->setVolumePreviewCallback([this](bool isInput, std::uint32_t id, float volume, bool muted) {
+    pipewire()->setVolumePreviewCallback([this](bool isInput, std::uint32_t id, float volume, bool muted) {
       if (isInput) {
         m_audioOsd.showInput(id, volume, muted);
       } else {
@@ -1248,6 +1253,9 @@ void Application::initWidgetControllersAndCallbacks() {
   // never occluded by shell chrome on their shared layer.
   m_screenCorners.initialize(m_wayland, &m_configService, &m_renderContext);
   m_hotCorners.initialize(m_wayland, &m_configService, &m_renderContext);
+  m_liveAppearance.setOnExternalScheme([this](std::string_view scheme) {
+    m_configService.setThemeMode(scheme == "light" ? ThemeMode::Light : ThemeMode::Dark);
+  });
   m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
     kLog.info(
         "live appearance: glass={:.2f} reduce_transparency={} increase_contrast={} reduce_motion={} accent={}",
@@ -1257,6 +1265,19 @@ void Application::initWidgetControllersAndCallbacks() {
     Style::setGlass(appearance.glassOpacity, appearance.reduceTransparency);
     MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled && !appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
+    if (m_settingsPortal != nullptr) {
+      const Color accent = colorForRole(ColorRole::Accent, 1.0F);
+      m_settingsPortal->setAccent(accent.r, accent.g, accent.b);
+      m_settingsPortal->setHighContrast(appearance.increaseContrast);
+      m_settingsPortal->setReducedMotion(appearance.reduceMotion);
+    }
+    if (m_configService.config().theme.toolkitThemes) {
+      toolkit_theme::write(
+          m_themeService.resolvedMode(), colorForRole(ColorRole::Accent, 1.0F), colorForRole(ColorRole::OnAccent, 1.0F)
+      );
+    } else {
+      toolkit_theme::remove();
+    }
     // Bar and dock re-apply their material fills on this signal; the other glass surfaces re-read them on reload.
     paletteChanged().emit();
     m_panelManager.onConfigReloaded();

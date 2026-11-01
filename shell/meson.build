@@ -376,6 +376,13 @@ _noctalia_sources = files(
   'src/app/application_plugins.cpp',
   'src/app/application_poll_sources.cpp',
   'src/app/application_services.cpp',
+  'src/app/modules/bluetooth_module.cpp',
+  'src/app/modules/mpris_module.cpp',
+  'src/app/modules/ui_modules.cpp',
+  'src/app/modules/pipewire_module.cpp',
+  'src/app/modules/network_module.cpp',
+  'src/app/modules/power_modules.cpp',
+  'src/app/service_host.cpp',
   'src/app/application_ui.cpp',
   'src/app/main_loop.cpp',
   'src/app/single_instance_lock.cpp',
@@ -414,6 +421,7 @@ _noctalia_sources = files(
   'src/core/build_info.cpp',
   'src/core/files/file_watcher.cpp',
   'src/core/process/process.cpp',
+  'src/core/shared_worker.cpp',
   'src/core/inotify/inotify.cpp',
   'src/dbus/accounts/accounts_service.cpp',
   'src/dbus/bluetooth/bluetooth_agent.cpp',
@@ -869,6 +877,7 @@ _noctalia_sources = files(
   'src/theme/custom_palettes.cpp',
   'src/theme/fixed_palette.cpp',
   'src/theme/template_apply_service.cpp',
+  'src/theme/toolkit_theme_files.cpp',
   'src/theme/gtk_extensions.cpp',
   'src/theme/live_appearance_sync.cpp',
   'src/theme/theme_service.cpp',
@@ -1182,6 +1191,8 @@ if build_tests
     'scrollbar_geometry',
     'secret_store',
     'security_primitives',
+    'service_host',
+    'shared_worker',
     'state_store',
     'string_utils',
     'surface_blur_region',
@@ -1231,8 +1242,6 @@ if build_tests
     test_args = []
     if test_name == 'desktop_entry_localization'
       test_args = [meson.project_source_root() / 'assets']
-    elif test_name == 'template_tokens'
-      test_args = [meson.project_source_root() / 'assets' / 'templates']
     elif test_name == 'i18n_supported_languages'
       test_args = [meson.project_source_root() / 'assets' / 'translations']
     endif

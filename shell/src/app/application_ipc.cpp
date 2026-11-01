@@ -1,4 +1,8 @@
 #include "app/main_loop.h"
+#include <vector>
+#include <system_error>
+#include <string>
+#include <fstream>
 #include "application.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
@@ -238,6 +242,28 @@ void Application::initIpc() {
         setLogLevel(*level);
         kLog.info("log level set to {}", logLevelName(*level));
         return "ok\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
+      noctalia::cli::msg::debugThreads,
+      [](const std::string&) -> std::string {
+        std::vector<std::string> names;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+          std::ifstream comm(entry.path() / "comm");
+          std::string name;
+          if (std::getline(comm, name) && name.starts_with("dsk-")) {
+            names.push_back(name);
+          }
+        }
+        std::ranges::sort(names);
+        std::string out = std::to_string(names.size()) + "\n";
+        for (const auto& name : names) {
+          out += name + "\n";
+        }
+        return out;
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
@@ -682,13 +708,13 @@ void Application::initIpc() {
 
   registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
 
-  if (m_powerProfilesService != nullptr) {
-    m_powerProfilesService->registerIpc(m_ipcService, [this](std::string_view profile) {
+  if (powerProfiles() != nullptr) {
+    powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {
       m_osdOverlay.show(powerProfileOsdContent(profile));
     });
   }
-  if (m_networkService != nullptr) {
-    m_networkService->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
+  if (network() != nullptr) {
+    network()->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
   }
   if (m_linkService != nullptr) {
     m_linkService->registerIpc(m_ipcService);
@@ -697,8 +723,8 @@ void Application::initIpc() {
     m_quickShareService->registerIpc(m_ipcService);
   }
   m_locationService.registerIpc(m_ipcService);
-  if (m_bluetoothService != nullptr) {
-    m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {
+  if (bluetooth() != nullptr) {
+    bluetooth()->registerIpc(m_ipcService, [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));
     });
   }
@@ -746,10 +772,10 @@ void Application::initIpc() {
     if (parts.size() > 1) {
       return "error: volume-osd accepts at most one optional [value]\n";
     }
-    if (m_pipewireService == nullptr) {
+    if (pipewire() == nullptr) {
       return "error: audio unavailable\n";
     }
-    const auto* sink = m_pipewireService->defaultSink();
+    const auto* sink = pipewire()->defaultSink();
     if (sink == nullptr) {
       return "error: no default output\n";
     }
@@ -770,10 +796,10 @@ void Application::initIpc() {
     if (parts.size() > 1) {
       return "error: mic-volume-osd accepts at most one optional [value]\n";
     }
-    if (m_pipewireService == nullptr) {
+    if (pipewire() == nullptr) {
       return "error: audio unavailable\n";
     }
-    const auto* source = m_pipewireService->defaultSource();
+    const auto* source = pipewire()->defaultSource();
     if (source == nullptr) {
       return "error: no default input\n";
     }
@@ -905,11 +931,11 @@ void Application::initIpc() {
       m_ipcService, m_configService, [this] { return m_themeService.resolvedShellMode(); }, &m_compositorPlatform,
       [this] { return m_logindService != nullptr; }
   );
-  if (m_mprisService) {
-    m_mprisService->registerIpc(m_ipcService);
+  if (mpris() != nullptr) {
+    mpris()->registerIpc(m_ipcService);
   }
-  if (m_pipewireService) {
-    m_pipewireService->registerIpc(m_ipcService, m_configService);
+  if (pipewire() != nullptr) {
+    pipewire()->registerIpc(m_ipcService, m_configService);
   }
   if (m_easyEffectsService) {
     m_easyEffectsService->registerIpc(

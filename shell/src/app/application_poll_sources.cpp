@@ -17,8 +17,8 @@ std::vector<PollSource*> Application::currentPollSources() {
   if (m_busPollSource != nullptr) {
     sources.push_back(m_busPollSource.get());
   }
-  if (m_screenSaverService != nullptr
-      && m_screenSaverService->hasScreenSaverBus()
+  if (screenSaver() != nullptr
+      && screenSaver()->hasScreenSaverBus()
       && m_screenSaverPollSource != nullptr) {
     sources.push_back(m_screenSaverPollSource.get());
   }
@@ -88,9 +88,9 @@ std::vector<PollSource*> Application::buildPollSources() {
   } else {
     m_busPollSource.reset();
   }
-  if (m_screenSaverService != nullptr && m_screenSaverService->hasScreenSaverBus()) {
+  if (screenSaver() != nullptr && screenSaver()->hasScreenSaverBus()) {
     if (m_screenSaverPollSource == nullptr) {
-      m_screenSaverPollSource = std::make_unique<ScreenSaverPollSource>(*m_screenSaverService);
+      m_screenSaverPollSource = std::make_unique<ScreenSaverPollSource>(*screenSaver());
     }
   } else {
     m_screenSaverPollSource.reset();
@@ -102,9 +102,9 @@ std::vector<PollSource*> Application::buildPollSources() {
   } else {
     m_systemBusPollSource.reset();
   }
-  if (m_pipewireService != nullptr) {
+  if (pipewire() != nullptr) {
     if (m_pipewirePollSource == nullptr) {
-      m_pipewirePollSource = std::make_unique<PipeWirePollSource>(*m_pipewireService);
+      m_pipewirePollSource = std::make_unique<PipeWirePollSource>(*pipewire());
     }
   } else {
     m_pipewirePollSource.reset();

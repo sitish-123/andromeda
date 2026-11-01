@@ -1,6 +1,13 @@
 #pragma once
 
 #include "app/deferred_call_poll_source.h"
+#include "app/modules/bluetooth_module.h"
+#include "app/modules/mpris_module.h"
+#include "app/modules/network_module.h"
+#include "app/modules/pipewire_module.h"
+#include "app/modules/power_modules.h"
+#include "app/modules/ui_modules.h"
+#include "app/service_host.h"
 #include "app/timer_poll_source.h"
 #include "calendar/calendar_poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
@@ -255,6 +262,33 @@ private:
   void releaseSleepDelayInhibitIfPending();
   void onUpowerStateChangedForHooks();
   void applyPowerSourceProfile();
+  [[nodiscard]] UPowerService* upower() const noexcept {
+    return m_upowerModule != nullptr ? m_upowerModule->service() : nullptr;
+  }
+  [[nodiscard]] PowerProfilesService* powerProfiles() const noexcept {
+    return m_powerProfilesModule != nullptr ? m_powerProfilesModule->service() : nullptr;
+  }
+  [[nodiscard]] INetworkService* network() const noexcept {
+    return m_networkModule != nullptr ? m_networkModule->service() : nullptr;
+  }
+  [[nodiscard]] NetworkSecretAgent* networkSecretAgent() const noexcept {
+    return m_networkModule != nullptr ? m_networkModule->secretAgent() : nullptr;
+  }
+  [[nodiscard]] BluetoothService* bluetooth() const noexcept {
+    return m_bluetoothModule != nullptr ? m_bluetoothModule->service() : nullptr;
+  }
+  [[nodiscard]] MprisService* mpris() const noexcept {
+    return m_mprisModule != nullptr ? m_mprisModule->service() : nullptr;
+  }
+  [[nodiscard]] PipeWireService* pipewire() const noexcept {
+    return m_pipewireModule != nullptr ? m_pipewireModule->service() : nullptr;
+  }
+  [[nodiscard]] ScreenSaverService* screenSaver() const noexcept {
+    return m_screenSaverModule != nullptr ? m_screenSaverModule->service() : nullptr;
+  }
+  [[nodiscard]] BluetoothAgent* bluetoothAgent() const noexcept {
+    return m_bluetoothModule != nullptr ? m_bluetoothModule->agent() : nullptr;
+  }
   void onNetworkStateChangedForEvents(const NetworkState& state, NetworkChangeOrigin origin);
   void onBluetoothStateChangedForEvents(const BluetoothState& state, BluetoothStateChangeOrigin origin);
   void onPowerProfileChangedForEvents(const PowerProfilesState& state, PowerProfilesChangeOrigin origin);
@@ -299,7 +333,6 @@ private:
   bool m_skipLockOnNextSleep = false;
   std::uint64_t m_outputPowerRequestGeneration = 0;
   std::unique_ptr<AccountsService> m_accountsService;
-  std::unique_ptr<ScreenSaverService> m_screenSaverService;
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
   std::unique_ptr<DebugService> m_debugService;
@@ -315,15 +348,19 @@ private:
   ScreenshotService m_screenshotService{
       m_wayland, m_compositorPlatform, m_configService, m_notificationManager, &m_clipboardService
   };
-  std::unique_ptr<MprisService> m_mprisService;
-  std::unique_ptr<PowerProfilesService> m_powerProfilesService;
+  // Declared before m_services: PipeWireService points to it and must be destroyed first.
+  std::unique_ptr<WirePlumberMixer> m_wirePlumberMixer;
+  // Owns the moved service modules (docs/m0-foundation.md §4); stops them in reverse start order.
+  ServiceHost m_services;
+  PowerProfilesModule* m_powerProfilesModule = nullptr;
+  UPowerModule* m_upowerModule = nullptr;
+  NetworkModule* m_networkModule = nullptr;
+  BluetoothModule* m_bluetoothModule = nullptr;
+  MprisModule* m_mprisModule = nullptr;
+  PipeWireModule* m_pipewireModule = nullptr;
+  ScreenSaverModule* m_screenSaverModule = nullptr;
   std::optional<bool> m_profileAppliedOnBattery;
-  std::unique_ptr<INetworkService> m_networkService;
-  std::unique_ptr<NetworkSecretAgent> m_networkSecretAgent;
   ExternalIpService m_externalIpService{&m_httpClient, &m_configService};
-  std::unique_ptr<IwdSecretAgent> m_iwdSecretAgent;
-  // Declared before m_bluetoothService so it outlives the raw pointer in that service.
-  std::unique_ptr<UPowerService> m_upowerService;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
@@ -333,8 +370,6 @@ private:
   std::unique_ptr<QuickShareService> m_quickShareService;
   std::unique_ptr<ScreenRecorder> m_screenRecorder;
   std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
-  std::unique_ptr<BluetoothService> m_bluetoothService;
-  std::unique_ptr<BluetoothAgent> m_bluetoothAgent;
   std::unique_ptr<ModemManagerService> m_modemManagerService;
   Timer m_bluetoothResumeTimer;
   std::unique_ptr<PolkitAgent> m_polkitAgent;
@@ -361,8 +396,6 @@ private:
   bool m_secretServiceOwned = false;
   bool m_storageKeyAutoRetried = false;
   bool m_calendarCredentialAutoRetried = false;
-  std::unique_ptr<PipeWireService> m_pipewireService;
-  std::unique_ptr<WirePlumberMixer> m_wirePlumberMixer;
   std::unique_ptr<EasyEffectsService> m_easyEffectsService;
   std::unique_ptr<PipeWireSpectrum> m_pipewireSpectrum;
   std::unique_ptr<compositors::andromeda::AndromedaAudioProvider> m_andromedaAudioProvider;
