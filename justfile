@@ -55,6 +55,6 @@ check: test link
     just e2e
 
 package:
-    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")" makepkg -f
+    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" makepkg -f
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
