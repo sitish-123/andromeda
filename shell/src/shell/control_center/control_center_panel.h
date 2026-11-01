@@ -7,6 +7,7 @@
 #include "shell/control_center/tabs/bluetooth_tab.h"
 #include "shell/control_center/tabs/calendar_tab.h"
 #include "shell/control_center/tabs/home_tab.h"
+#include "shell/control_center/tabs/quick_tab.h"
 #include "shell/control_center/tabs/media_tab.h"
 #include "shell/control_center/tabs/monitor_tab.h"
 #include "shell/control_center/tabs/network_tab.h"
@@ -98,6 +99,9 @@ public:
   [[nodiscard]] bool deferPointerRelayout() const override;
   [[nodiscard]] float preferredWidth() const override;
   [[nodiscard]] float preferredHeight() const override { return scaled(520.0F); }
+  // The quick sheet shows at its content's height; detail tabs opened from it use the full height.
+  [[nodiscard]] bool fitsContentHeight() const noexcept override;
+  [[nodiscard]] float measureContentHeight(Renderer& renderer, float contentWidth) override;
   [[nodiscard]] PanelPlacement panelPlacement() const noexcept override;
   [[nodiscard]] bool showsSidebar() const noexcept { return m_showSidebar; }
 
@@ -107,6 +111,7 @@ private:
   void doUpdate(Renderer& renderer) override;
 
   enum class TabId : std::uint8_t {
+    Quick,
     Home,
     Media,
     Audio,
@@ -131,6 +136,7 @@ private:
 
   static constexpr std::size_t kTabCount = static_cast<std::size_t>(TabId::Count);
   static constexpr std::array<TabMeta, kTabCount> kTabs{{
+      {TabId::Quick, "quick", "control-center.tabs.quick", "adjustments-horizontal"},
       {TabId::Home, "home", "control-center.tabs.home", "home"},
       {TabId::Media, "media", "control-center.tabs.media", "disc"},
       {TabId::Audio, "audio", "control-center.tabs.audio", "volume"},
@@ -187,11 +193,13 @@ private:
   Flex* m_contentHeaderActions = nullptr;
   Label* m_contentTitle = nullptr;
   Button* m_closeButton = nullptr;
+  // Without the sidebar, returns from a detail tab to the quick sheet.
+  Button* m_backButton = nullptr;
   Flex* m_tabBodies = nullptr;
   std::array<Button*, kTabCount> m_tabButtons{};
   std::array<Flex*, kTabCount> m_tabContainers{};
   std::array<Flex*, kTabCount> m_tabHeaderActions{};
-  TabId m_activeTab = TabId::Home;
+  TabId m_activeTab = TabId::Quick;
   bool m_activeTabForced = false;
   ConfigService* m_config = nullptr;
   MprisService* m_mpris = nullptr;
