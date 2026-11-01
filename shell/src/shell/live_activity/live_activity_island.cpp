@@ -10,6 +10,7 @@
 #include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
 
@@ -148,6 +149,9 @@ void LiveActivityIsland::ensureSurfaces() {
       continue;
     }
     inst->surface->setInputRegion({});
+    if (auto* manager = m_wayland->dskSurfaceManager(); manager != nullptr) {
+      inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
+    }
     if (m_activity.has_value()) {
       animateReveal(*inst, 1.0F);
     }
@@ -313,6 +317,20 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
     return;
   }
   const float t = std::clamp(reveal, 0.0F, 1.0F);
+  if (inst.dsk != nullptr) {
+    // The compositor clips the full-size island; the shell only fades the content.
+    const int fullW = static_cast<int>(inst.width);
+    const int fullH = static_cast<int>(kHeight);
+    inst.island->setPosition(0.0F, 0.0F);
+    inst.island->setSize(inst.width, kHeight);
+    inst.island->setRadius(kHeight * 0.5F);
+    inst.content->setPosition(0.0F, 0.0F);
+    inst.content->setOpacity(std::clamp((reveal - 0.4F) / 0.6F, 0.0F, 1.0F));
+    inst.surface->setBlurRegion(Surface::tessellateRoundedRect(0, 0, fullW, fullH, kHeight * 0.5F));
+    inst.surface->setInputRegion(t >= 1.0F ? std::vector<InputRect>{InputRect{0, 0, fullW, fullH}} : std::vector<InputRect>{});
+    inst.surface->requestRedraw();
+    return;
+  }
   const float w = std::round(lerp(kCollapsedWidth, inst.width, t));
   const float h = std::round(lerp(kCollapsedHeight, kHeight, t));
   const float x = std::round((inst.sceneRoot->width() - w) * 0.5F);
@@ -339,6 +357,21 @@ void LiveActivityIsland::animateReveal(Instance& inst, float to) {
   if (inst.revealAnimId != 0) {
     inst.animations.cancel(inst.revealAnimId);
     inst.revealAnimId = 0;
+  }
+  if (inst.dsk != nullptr) {
+    const double collapsedX = std::round((inst.width - kCollapsedWidth) * 0.5F);
+    const DskSurfaceClient::Value collapsed{collapsedX, 0.0, kCollapsedWidth, kCollapsedHeight};
+    const DskSurfaceClient::Value full{0.0, 0.0, inst.width, kHeight};
+    if (inst.reveal <= 0.0F) {
+      inst.dsk->set(DskSurfaceClient::Property::Clip, collapsed);
+      inst.dsk->set(DskSurfaceClient::Property::Radius, {kCollapsedHeight * 0.5, 0.0, 0.0, 0.0});
+    }
+    const bool grow = to > 0.0F;
+    inst.dsk->animate(DskSurfaceClient::Property::Clip, DskSurfaceClient::Curve::SpringStandard, grow ? full : collapsed);
+    inst.dsk->animate(
+        DskSurfaceClient::Property::Radius, DskSurfaceClient::Curve::SpringStandard,
+        {(grow ? kHeight : kCollapsedHeight) * 0.5, 0.0, 0.0, 0.0}
+    );
   }
   auto* instPtr = &inst;
   inst.revealAnimId = inst.animations.animateSpring(

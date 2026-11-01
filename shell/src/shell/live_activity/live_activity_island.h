@@ -12,6 +12,7 @@
 
 class Box;
 class Button;
+class DskSurfaceClient;
 class ConfigService;
 class Glyph;
 class Label;
@@ -58,6 +59,8 @@ private:
     wl_output* output = nullptr;
     float width = 0.0F;
     std::unique_ptr<LayerSurface> surface;
+    // Our compositor morphs the island (clip and radius); null on other compositors, where the shell resizes it.
+    std::unique_ptr<DskSurfaceClient> dsk;
     // sceneRoot must be destroyed before `animations`: ~Node() cancels its animations.
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
