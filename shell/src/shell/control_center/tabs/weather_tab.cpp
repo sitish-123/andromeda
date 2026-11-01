@@ -7,7 +7,7 @@
 #include "render/scene/effect_node.h"
 #include "render/scene/input_area.h"
 #include "shell/panel/panel_manager.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "system/weather_service.h"
 #include "time/time_format.h"
 #include "ui/builders.h"
@@ -95,7 +95,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
           .out = &m_currentGlyph,
           .glyph = "weather-cloud",
           .glyphSize = kCurrentGlyphSize * scale,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::Accent),
       })
   );
   currentCard->addChild(std::move(glyphColumn));
@@ -117,14 +117,14 @@ std::unique_ptr<Flex> WeatherTab::create() {
               .text = "--°C",
               .fontSize = Style::fontSizeTitle * 2.35F * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
           }),
           ui::label({
               .out = &m_currentHiLoLabel,
               .text = "--↑ --↓",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .maxLines = 1,
           })
       )
@@ -137,21 +137,21 @@ std::unique_ptr<Flex> WeatherTab::create() {
               .out = &m_currentDescLabel,
               .text = i18n::tr("control-center.weather.waiting"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
           }),
           ui::label({
               .out = &m_updatedLabel,
               .text = " ",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
           }),
           ui::label({
               .out = &m_statusLabel,
               .text = " ",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 1,
               .visible = false,
           })
@@ -173,7 +173,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
           .out = &m_locationPromptGlyph,
           .glyph = "map-pin-off",
           .glyphSize = Style::controlHeightLg * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       }),
       ui::column(
           {.align = FlexAlign::Stretch, .justify = FlexJustify::Center, .gap = Style::spaceXs * scale},
@@ -181,14 +181,14 @@ std::unique_ptr<Flex> WeatherTab::create() {
               .text = i18n::tr("control-center.weather.no-location-title"),
               .fontSize = Style::fontSizeBody * 1.1F * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
           }),
           ui::label({
               .out = &m_locationPromptBody,
               .text = i18n::tr("control-center.weather.no-location-body"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 2,
           })
       )
@@ -224,14 +224,14 @@ std::unique_ptr<Flex> WeatherTab::create() {
         ui::glyph({
             .glyph = std::string(iconName),
             .glyphSize = (Style::fontSizeBody + Style::spaceXs) * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     row->addChild(
         ui::label({
             .text = std::string(key),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .minWidth = detailKeyWidth - (Style::fontSizeBody + Style::spaceXs) * scale - Style::spaceSm * scale,
         })
     );
@@ -241,7 +241,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
             .text = "--",
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .textAlign = TextAlign::End,
             .flexGrow = 1.0F,
         })
@@ -290,7 +290,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
           .scale = scale,
           .compact = true,
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .equalSegmentWidths = true,
           .onChange = [this](std::size_t idx) {
             const ForecastView nextView = idx == 1 ? ForecastView::Hourly : ForecastView::Daily;
@@ -326,14 +326,14 @@ std::unique_ptr<Flex> WeatherTab::create() {
             .out = &m_forecastGlyphs[i],
             .glyph = "weather-cloud",
             .glyphSize = Style::fontSizeBody * 1.2F * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         }),
         ui::label({
             .out = &m_forecastMetas[i],
             .text = i18n::tr("control-center.weather.forecast-placeholder.day"),
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
         })
     );
@@ -349,7 +349,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
             .out = &m_forecastTemps[i],
             .text = i18n::tr("control-center.weather.forecast-placeholder.temperature"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
             .textAlign = TextAlign::End,
         })
@@ -361,7 +361,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
             .out = &m_forecastDescs[i],
             .text = i18n::tr("control-center.weather.forecast-placeholder.description"),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
         })
     );
@@ -753,7 +753,7 @@ void WeatherTab::sync(Renderer& renderer) {
   }
 
   if (m_weather == nullptr || !m_weather->enabled()) {
-    m_currentGlyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_currentGlyph->setColor(colorSpecFromRole(ColorRole::Label2));
     m_currentTempLabel->setText("--°C");
     if (m_currentHiLoLabel != nullptr) {
       m_currentHiLoLabel->setText("-- / --");
@@ -831,7 +831,7 @@ void WeatherTab::sync(Renderer& renderer) {
 
   const auto& snapshot = m_weather->snapshot();
   if (!snapshot.valid) {
-    m_currentGlyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_currentGlyph->setColor(colorSpecFromRole(ColorRole::Label2));
     m_currentTempLabel->setText(std::format("--{}", m_weather->displayTemperatureUnit()));
     if (m_currentHiLoLabel != nullptr) {
       m_currentHiLoLabel->setText("-- / --");
@@ -879,7 +879,7 @@ void WeatherTab::sync(Renderer& renderer) {
   }
 
   m_currentGlyph->setGlyph(WeatherService::glyphForCode(snapshot.current.weatherCode, snapshot.current.isDay));
-  m_currentGlyph->setColor(colorSpecFromRole(snapshot.current.isDay ? ColorRole::Primary : ColorRole::Secondary));
+  m_currentGlyph->setColor(colorSpecFromRole(snapshot.current.isDay ? ColorRole::Accent : ColorRole::Accent));
   m_currentTempLabel->setText(
       std::format(
           "{}{}", static_cast<int>(std::lround(m_weather->displayTemperature(snapshot.current.temperatureC))),
@@ -913,7 +913,7 @@ void WeatherTab::sync(Renderer& renderer) {
                                                   : (snapshot.valid ? std::string{} : m_weather->error());
   m_statusLabel->setText(status);
   m_statusLabel->setColor(
-      colorSpecFromRole(m_weather->error().empty() ? ColorRole::OnSurfaceVariant : ColorRole::Error)
+      colorSpecFromRole(m_weather->error().empty() ? ColorRole::Label2 : ColorRole::Danger)
   );
   m_statusLabel->setVisible(!status.empty());
   if (m_windLabel != nullptr) {
@@ -1009,7 +1009,7 @@ void WeatherTab::sync(Renderer& renderer) {
       m_shaderTime = 0.0F;
     }
     m_effectNode->setEffectType(m_activeEffect);
-    m_effectNode->setBgColor(colorForRole(ColorRole::Surface));
+    m_effectNode->setBgColor(colorForRole(ColorRole::SolidRegular));
     m_effectNode->setRadius(Style::scaledRadiusXl(contentScale()));
     m_effectNode->setVisible(m_activeEffect != EffectType::None);
   }
@@ -1058,7 +1058,7 @@ void WeatherTab::syncDailyForecast(Renderer& renderer, const WeatherSnapshot& sn
     }
     if (m_forecastGlyphs[i] != nullptr) {
       m_forecastGlyphs[i]->setGlyph(WeatherService::glyphForCode(day.weatherCode, true));
-      m_forecastGlyphs[i]->setColor(colorSpecFromRole(ColorRole::Primary));
+      m_forecastGlyphs[i]->setColor(colorSpecFromRole(ColorRole::Accent));
       m_forecastGlyphs[i]->measure(renderer);
     }
     if (m_forecastMetas[i] != nullptr) {
@@ -1111,7 +1111,7 @@ void WeatherTab::syncHourlyForecast(Renderer& renderer, const WeatherSnapshot& s
     }
     if (m_forecastGlyphs[i] != nullptr) {
       m_forecastGlyphs[i]->setGlyph(WeatherService::glyphForCode(hour.weatherCode, hour.isDay));
-      m_forecastGlyphs[i]->setColor(colorSpecFromRole(hour.isDay ? ColorRole::Primary : ColorRole::Secondary));
+      m_forecastGlyphs[i]->setColor(colorSpecFromRole(hour.isDay ? ColorRole::Accent : ColorRole::Accent));
       m_forecastGlyphs[i]->measure(renderer);
     }
     if (m_forecastMetas[i] != nullptr) {

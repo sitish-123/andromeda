@@ -331,7 +331,7 @@ namespace {
 
       m_iconSlot = static_cast<Box*>(m_leftCluster->addChild(
           ui::box({
-              .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+              .fill = colorSpecFromRole(ColorRole::Fill2),
               .radius = notificationIconRadius(kHistoryIconSize, scale),
               .width = kHistoryIconSize * scale,
               .height = kHistoryIconSize * scale,
@@ -378,7 +378,7 @@ namespace {
       m_body = static_cast<Label*>(addChild(
           ui::label({
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
           })
       ));
@@ -409,7 +409,7 @@ namespace {
       bindIcon(renderer, entry, iconResolver);
 
       m_meta->setText(metrics.metaLine);
-      m_meta->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_meta->setColor(colorSpecFromRole(ColorRole::Label2));
       m_meta->setMaxWidth(metrics.metaTextWidth);
       m_meta->measure(renderer);
 
@@ -500,7 +500,7 @@ namespace {
       const float iconPx = kHistoryIconSize * m_scale;
       m_fallback->setGlyph("bell");
       m_fallback->setGlyphSize(kHistoryIconGlyphSize * m_scale);
-      m_fallback->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+      m_fallback->setColor(colorSpecFromRole(ColorRole::Label2));
       m_fallback->measure(renderer);
       m_fallback->setPosition(
           std::round((iconPx - m_fallback->width()) * 0.5F), std::round((iconPx - m_fallback->height()) * 0.5F)
@@ -614,7 +614,7 @@ namespace {
           ui::label({
               .fontSize = Style::fontSizeCaption * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .flexGrow = 1.0F,
           })
       ));
@@ -852,12 +852,12 @@ std::unique_ptr<Flex> NotificationsTab::create() {
               .out = &m_emptyTitle,
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
           }),
           ui::label({
               .out = &m_emptyBody,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       )
   );

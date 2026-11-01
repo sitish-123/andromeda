@@ -7,7 +7,7 @@
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "shell/panel/panel_manager.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "system/app_identity.h"
 #include "system/desktop_entry.h"
 #include "system/icon_resolver.h"
@@ -78,7 +78,7 @@ namespace {
             .text = text,
             .fontSize = Style::fontSizeCaption * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     return ptr;
@@ -102,7 +102,7 @@ namespace {
   }
 
   [[nodiscard]] Color appSeriesColor(std::string_view appKey) {
-    const Color primary = colorForRole(ColorRole::Primary);
+    const Color primary = colorForRole(ColorRole::Accent);
     float baseH = 0.0F;
     float baseS = 0.0F;
     float baseV = 0.0F;
@@ -184,7 +184,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
               .out = &m_detailTitle,
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = FontWeight::Medium,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .flexGrow = 1.0F,
           })
       )
@@ -217,7 +217,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
           .out = &m_disabledLabel,
           .text = i18n::tr("control-center.screen-time.disabled"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
       })
   );
@@ -227,7 +227,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
           .out = &m_totalLabel,
           .fontSize = Style::fontSizeHeader * 1.6F * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
 
@@ -270,7 +270,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
     plotColumn->addChild(
         ui::box({
             .out = &bucketColumn.track,
-            .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+            .fill = colorSpecFromRole(ColorRole::Fill2),
             .participatesInLayout = false,
             .configure = [](Box& box) { box.setZIndex(-1); },
         })
@@ -304,7 +304,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
         ui::label({
             .out = &bucketColumn.label,
             .fontSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .flexGrow = 1.0F,
             .visible = false,
             .configure = [](Label& label) {
@@ -324,14 +324,14 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
                 return;
               }
               if (Label* dayLabel = m_bucketColumns[bucketIndex].label; dayLabel != nullptr) {
-                dayLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+                dayLabel->setColor(colorSpecFromRole(ColorRole::Accent));
               }
               PanelManager::instance().requestRedraw();
             },
         .onLeave =
             [this, bucketIndex] {
               if (Label* dayLabel = m_bucketColumns[bucketIndex].label; dayLabel != nullptr) {
-                dayLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+                dayLabel->setColor(colorSpecFromRole(ColorRole::Label2));
               }
               PanelManager::instance().requestRedraw();
             },
@@ -417,7 +417,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
               .out = &m_appRows[i].iconFallback,
               .glyph = "app-window",
               .glyphSize = kAppIconSize * 0.55F * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .participatesInLayout = false,
           })
       );
@@ -432,14 +432,14 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
                   ui::label({
                       .out = &m_appRows[i].name,
                       .fontSize = Style::fontSizeBody * scale,
-                      .color = colorSpecFromRole(ColorRole::OnSurface),
+                      .color = colorSpecFromRole(ColorRole::Label1),
                       .maxLines = 1,
                       .flexGrow = 1.0F,
                   }),
                   ui::label({
                       .out = &m_appRows[i].duration,
                       .fontSize = usageDurationFontSize(scale),
-                      .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                      .color = colorSpecFromRole(ColorRole::Label2),
                       .maxLines = 1,
                       .configure = [](Label& label) { label.setTextAlign(TextAlign::End); },
                   })
@@ -448,7 +448,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
                   {.out = &m_appRows[i].barHost, .align = FlexAlign::Center, .minHeight = kUsageBarHeight * scale},
                   ui::box({
                       .out = &m_appRows[i].barTrack,
-                      .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+                      .fill = colorSpecFromRole(ColorRole::Fill2),
                       .radius = Style::scaledRadiusSm(scale),
                       .participatesInLayout = false,
                       .configure = [](Box& box) { box.setZIndex(-1); },
@@ -474,7 +474,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
           .out = &m_emptyLabel,
           .text = i18n::tr("control-center.screen-time.empty"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -1085,7 +1085,7 @@ void ScreenTimeTab::syncDayLabelHover() {
   if (m_rangeDays <= 1 || !m_detailDayKey.empty()) {
     for (auto& columnWidgets : m_bucketColumns) {
       if (columnWidgets.label != nullptr && columnWidgets.label->visible()) {
-        columnWidgets.label->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+        columnWidgets.label->setColor(colorSpecFromRole(ColorRole::Label2));
       }
     }
     return;
@@ -1097,7 +1097,7 @@ void ScreenTimeTab::syncDayLabelHover() {
     }
     const bool hovered = columnWidgets.labelHit != nullptr && columnWidgets.labelHit->hovered();
     columnWidgets.label->setColor(
-        hovered ? colorSpecFromRole(ColorRole::Primary) : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+        hovered ? colorSpecFromRole(ColorRole::Accent) : colorSpecFromRole(ColorRole::Label2)
     );
   }
 }

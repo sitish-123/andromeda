@@ -199,7 +199,7 @@ namespace {
         .align = FlexAlign::Center,
         .paddingV = Style::spaceXs * 0.5F * scale,
         .paddingH = Style::spaceSm * scale,
-        .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+        .fill = colorSpecFromRole(ColorRole::Fill2),
         .radius = Style::scaledRadiusSm(scale),
     });
     pill->addChild(
@@ -207,7 +207,7 @@ namespace {
             .text = title,
             .fontSize = Style::fontSizeMini * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     row->addChild(std::move(pill));
@@ -247,7 +247,7 @@ public:
     setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
     setMinHeight(kRowMinHeight * scale);
     setRadius(Style::scaledRadiusMd(scale));
-    setFill(colorSpecFromRole(ColorRole::Surface));
+    setFill(colorSpecFromRole(ColorRole::SolidRegular));
     clearBorder();
 
     addChild(
@@ -255,7 +255,7 @@ public:
             .out = &m_signalGlyph,
             .glyph = network_display::wifiGlyphForSignal(m_ap.strength),
             .glyphSize = Style::baseGlyphSize * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
 
@@ -265,7 +265,7 @@ public:
             .text = m_ap.ssid,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = m_ap.active ? FontWeight::Bold : FontWeight::Normal,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -275,7 +275,7 @@ public:
           ui::glyph({
               .glyph = "lock",
               .glyphSize = Style::baseGlyphSize * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }
@@ -285,7 +285,7 @@ public:
             .out = &m_signalValue,
             .text = percentText(m_ap.strength),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -370,20 +370,20 @@ private:
     const bool hov = m_inputArea != nullptr && m_inputArea->hovered();
     const bool pressed = m_inputArea != nullptr && m_inputArea->pressed();
     if (pressed) {
-      setFill(colorSpecFromRole(ColorRole::Primary));
-      setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth);
+      setFill(colorSpecFromRole(ColorRole::Accent));
+      setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
       if (m_title != nullptr) {
-        m_title->setColor(colorSpecFromRole(ColorRole::OnPrimary));
+        m_title->setColor(colorSpecFromRole(ColorRole::OnAccent));
       }
     } else {
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       if (hov) {
-        setBorder(colorSpecFromRole(ColorRole::Hover), Style::borderWidth);
+        setBorder(colorSpecFromRole(ColorRole::Fill3), Style::borderWidth);
       } else {
         clearBorder();
       }
       if (m_title != nullptr) {
-        m_title->setColor(colorSpecFromRole(ColorRole::OnSurface));
+        m_title->setColor(colorSpecFromRole(ColorRole::Label1));
       }
     }
   }
@@ -414,7 +414,7 @@ namespace {
       setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
       setMinHeight(kRowMinHeight * scale);
       setRadius(Style::scaledRadiusMd(scale));
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       clearBorder();
 
       addChild(
@@ -423,7 +423,7 @@ namespace {
               .text = m_vpn.name,
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = m_vpn.active ? FontWeight::Bold : FontWeight::Normal,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .flexGrow = 1.0F,
           })
       );
@@ -503,21 +503,21 @@ namespace {
       const bool hov = m_inputArea != nullptr && m_inputArea->hovered();
       const bool pressed = m_inputArea != nullptr && m_inputArea->pressed();
       if (pressed) {
-        setFill(colorSpecFromRole(ColorRole::Primary));
-        setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth);
+        setFill(colorSpecFromRole(ColorRole::Accent));
+        setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
         if (m_title != nullptr) {
-          m_title->setColor(colorSpecFromRole(ColorRole::OnPrimary));
+          m_title->setColor(colorSpecFromRole(ColorRole::OnAccent));
         }
         return;
       }
-      setFill(colorSpecFromRole(ColorRole::Surface));
+      setFill(colorSpecFromRole(ColorRole::SolidRegular));
       if (hov) {
-        setBorder(colorSpecFromRole(ColorRole::Hover), Style::borderWidth);
+        setBorder(colorSpecFromRole(ColorRole::Fill3), Style::borderWidth);
       } else {
         clearBorder();
       }
       if (m_title != nullptr) {
-        m_title->setColor(colorSpecFromRole(ColorRole::OnSurface));
+        m_title->setColor(colorSpecFromRole(ColorRole::Label1));
       }
     }
 
@@ -544,7 +544,7 @@ public:
     setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
     setMinHeight(kRowMinHeight * scale);
     setRadius(Style::scaledRadiusMd(scale));
-    setFill(colorSpecFromRole(ColorRole::Surface));
+    setFill(colorSpecFromRole(ColorRole::SolidRegular));
     clearBorder();
 
     addChild(
@@ -552,7 +552,7 @@ public:
             .out = &m_signalGlyph,
             .glyph = cellularGlyphFor(m_modem),
             .glyphSize = Style::baseGlyphSize * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
 
@@ -561,7 +561,7 @@ public:
             .out = &m_title,
             .text = cellularTitleFor(m_modem),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -571,7 +571,7 @@ public:
             .out = &m_detail,
             .text = cellularDetailFor(m_modem),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
   }
@@ -639,12 +639,12 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_currentTitle,
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       }),
       ui::label({
           .out = &m_currentDetail,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .flexGrow = 1.0F,
       }),
       ui::button({
@@ -687,7 +687,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_passwordTitle,
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
 
@@ -695,7 +695,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
       ui::label({
           .out = &m_credentialError,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::Error),
+          .color = colorSpecFromRole(ColorRole::Danger),
           .maxLines = 4,
           .visible = false,
       })
@@ -758,7 +758,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_identityInput,
           .placeholder = i18n::tr("control-center.network.identity"),
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .onSubmit = submitFromForm,
       })
   );
@@ -768,7 +768,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_anonymousIdentityInput,
           .placeholder = i18n::tr("control-center.network.anonymous-identity"),
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .onSubmit = submitFromForm,
       })
   );
@@ -778,7 +778,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_domainMatchInput,
           .placeholder = i18n::tr("control-center.network.domain-suffix-match"),
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .onSubmit = submitFromForm,
       })
   );
@@ -788,7 +788,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .out = &m_caCertInput,
           .placeholder = i18n::tr("control-center.network.ca-certificate"),
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .onSubmit = submitFromForm,
       })
   );
@@ -802,7 +802,7 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .placeholder = i18n::tr("control-center.network.password"),
           .passwordMode = true,
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .flexGrow = 1.0F,
           .onSubmit = [this](const std::string& value) { submitPasswordPrompt(value); },
       }),
@@ -1329,7 +1329,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
           ui::label({
               .text = i18n::tr("control-center.network.no-networks"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     } else {
@@ -1420,7 +1420,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
         ui::label({
             .text = i18n::tr("control-center.network.unavailable-title"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
   } else {
@@ -1511,7 +1511,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
       wifiHeader->addChild(
           ui::spinner({
               .out = &m_scanSpinner,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .spinnerSize = Style::baseGlyphSize * scale,
               .visible = false,
           })
