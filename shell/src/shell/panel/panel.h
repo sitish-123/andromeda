@@ -37,6 +37,8 @@ public:
     (void)context;
     return false;
   }
+  // The page or tab the open panel shows, as its open context names it; empty when it has none.
+  [[nodiscard]] virtual std::string activeContext() const { return {}; }
   [[nodiscard]] virtual bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
     (void)sym;
     (void)modifiers;

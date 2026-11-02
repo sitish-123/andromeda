@@ -154,6 +154,8 @@ namespace control_center {
     PhoneDetailPage(LinkService* link, NotificationManager* notifications)
         : m_link(link), m_notifications(notifications) {}
     [[nodiscard]] std::string headerTitle() const override;
+    std::unique_ptr<Flex> createHeaderActions() override;
+    void setActive(bool active) override;
 
   private:
     struct PhoneNotification {
@@ -161,13 +163,21 @@ namespace control_center {
       std::string title;
       std::string body;
       bool canReply = false;
+      std::shared_ptr<const NotificationImageData> image;
+      std::vector<std::string> icons;
     };
 
     [[nodiscard]] std::string structureKey() const override;
     void build() override;
     [[nodiscard]] std::vector<FooterButton> footerButtons() override;
     [[nodiscard]] bool deferRebuild() const override;
-    void releaseControls() override { m_reply = nullptr; }
+    void releaseControls() override {
+      m_reply = nullptr;
+      m_toggle = nullptr;
+    }
+    void sync() override;
+    [[nodiscard]] std::string statusText(const LinkDevice& phone) const;
+    void showMessage(std::string text);
     [[nodiscard]] const LinkDevice* device() const;
     [[nodiscard]] std::vector<PhoneNotification> phoneNotifications(const std::string& deviceId) const;
     void addReplyForm(Flex& card, std::uint32_t id);
@@ -175,7 +185,17 @@ namespace control_center {
     LinkService* m_link = nullptr;
     NotificationManager* m_notifications = nullptr;
     Input* m_reply = nullptr;
+    Toggle* m_toggle = nullptr;
     std::uint32_t m_replyId = 0;
+    bool m_active = false;
+    bool m_photosAsked = false;
+    std::size_t m_thumbsReady = 0;
+    std::string m_message;
+    Timer m_messageTimer;
+    // The toggle position the user chose, held until Paused follows it, the call fails, or the time runs out.
+    std::optional<bool> m_pendingOn;
+    std::chrono::steady_clock::time_point m_pendingSince;
+    std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   };
 
 } // namespace control_center

@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "render/core/color.h"
 #include "render/core/renderer.h"
+#include "render/core/texture_manager.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "shell/panel/panel_manager.h"
@@ -200,23 +201,35 @@ namespace control_center {
     for (const Ellipsized& item : m_ellipsized) {
       item.label->setMaxWidth(std::max(0.0F, contentWidth - item.reserve));
     }
-    m_root->setSize(contentWidth, bodyHeight);
-    m_root->layout(renderer);
     for (IconSlot& slot : m_icons) {
       if (slot.done) {
         continue;
       }
       slot.done = true;
-      const int px = static_cast<int>(std::ceil(Tokens::spaceP24 * contentScale()));
-      for (const std::string& candidate : slot.candidates) {
-        const std::string& path = iconResolver().resolve(candidate, px);
-        if (!path.empty() && slot.image->setSourceFile(renderer, path, px, true)) {
-          slot.image->setVisible(true);
+      const int px = slot.px > 0 ? slot.px : static_cast<int>(std::ceil(Tokens::spaceP24 * contentScale()));
+      bool loaded = false;
+      if (slot.raw != nullptr && slot.raw->width > 0 && slot.raw->height > 0 && !slot.raw->data.empty()
+          && slot.raw->bitsPerSample == 8 && (slot.raw->channels == 3 || slot.raw->channels == 4)) {
+        const PixmapFormat format = slot.raw->channels == 3 ? PixmapFormat::RGB : PixmapFormat::RGBA;
+        loaded = slot.image->setSourceRaw(renderer, slot.raw->data.data(), slot.raw->data.size(), slot.raw->width,
+                                          slot.raw->height, slot.raw->rowStride, format, true);
+      }
+      for (std::size_t i = 0; !loaded && i < slot.candidates.size(); ++i) {
+        const std::string& candidate = slot.candidates[i];
+        const std::string path = !candidate.empty() && candidate.front() == '/' ? candidate : iconResolver().resolve(candidate, px);
+        loaded = !path.empty() && slot.image->setSourceFile(renderer, path, px, true);
+      }
+      if (loaded) {
+        slot.image->setVisible(true);
+        if (slot.fallback != nullptr) {
           slot.fallback->setVisible(false);
-          break;
         }
+      } else if (slot.frame != nullptr) {
+        slot.frame->setVisible(false);
       }
     }
+    m_root->setSize(contentWidth, bodyHeight);
+    m_root->layout(renderer);
   }
 
   Flex* DetailPage::addGroup(std::string_view header) {
@@ -243,6 +256,11 @@ namespace control_center {
     section->addChild(std::move(card));
     m_content->addChild(std::move(section));
     return raw;
+  }
+
+  void DetailPage::bindImage(Image* image, std::vector<std::string> candidates, int decodePx,
+                             std::shared_ptr<const NotificationImageData> raw) {
+    m_icons.push_back({.image = image, .candidates = std::move(candidates), .raw = std::move(raw), .px = decodePx});
   }
 
   void DetailPage::addBlock(std::unique_ptr<Node> node) {
@@ -310,7 +328,23 @@ namespace control_center {
     }
 
     float reserve = 2.0F * (Tokens::componentListCardPadding + Tokens::componentListRowInset);
-    if (!row.glyph.empty()) {
+    if (row.avatarImage != nullptr || !row.avatarIcons.empty()) {
+      const float box = Tokens::spaceP24 * s;
+      auto frame = std::make_unique<Flex>();
+      frame->setMinWidth(box);
+      frame->setMinHeight(box);
+      frame->setRadius(box * 0.5F);
+      auto image = std::make_unique<Image>();
+      image->setFit(ImageFit::Cover);
+      image->setSize(box, box);
+      image->setRadius(box * 0.5F);
+      image->setParticipatesInLayout(false);
+      image->setVisible(false);
+      m_icons.push_back({.image = image.get(), .candidates = row.avatarIcons, .raw = row.avatarImage, .frame = frame.get()});
+      frame->addChild(std::move(image));
+      button->addChild(std::move(frame));
+      reserve += Tokens::spaceP24 + Tokens::spaceP8;
+    } else if (!row.glyph.empty()) {
       button->addChild(glyph(row.glyph, Tokens::sizeSymbol * s, row.selected ? ColorRole::AccentText : ColorRole::Label2));
       reserve += Tokens::sizeSymbol + Tokens::spaceP8;
     }

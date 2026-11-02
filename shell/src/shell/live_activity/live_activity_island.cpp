@@ -1249,7 +1249,13 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           },
       .onClick =
           [this, instPtr](const InputArea::PointerData&) {
-            if (std::exchange(instPtr->dragMoved, false) || instPtr->face == Face::Live) {
+            if (std::exchange(instPtr->dragMoved, false)) {
+              return;
+            }
+            if (instPtr->face == Face::Live) {
+              if (m_activity.has_value() && m_activity->open) {
+                m_activity->open(instPtr->output);
+              }
               return;
             }
             if (instPtr->face == Face::Banner && m_banner.has_value()) {

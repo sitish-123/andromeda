@@ -9,6 +9,7 @@
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
 #include "pipewire/sound_player.h"
+#include "render/core/image_file_loader.h"
 #include "util/string_utils.h"
 #include "clipboard/clipboard_service.h"
 
@@ -17,6 +18,9 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <expected>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -256,6 +260,21 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed Devices: {}", e.what());
+    }
+    for (const LinkDevice& device : m_devices) {
+      if (device.connected) {
+        m_connectDeadline.erase(device.id);
+      } else {
+        forgetPhotos(device.id);
+      }
+    }
+  }
+  if (const auto it = properties.find("Paused"); it != properties.end()) {
+    try {
+      const auto ids = it->second.get<std::vector<std::string>>();
+      m_paused = std::set<std::string>(ids.begin(), ids.end());
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Paused: {}", e.what());
     }
   }
   if (const auto it = properties.find("LocalSendVisible"); it != properties.end()) {
@@ -806,6 +825,168 @@ void LinkService::onFinished(
   if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0 && !paths.empty()) {
     m_transferActions[id] = TransferAction{.transferId = transferId, .paths = paths};
   }
+}
+
+bool LinkService::connecting(const std::string& deviceId) const {
+  const auto it = m_connectDeadline.find(deviceId);
+  if (it == m_connectDeadline.end() || m_paused.contains(deviceId)) {
+    return false;
+  }
+  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
+  return device != m_devices.end() && !device->connected && std::chrono::steady_clock::now() < it->second;
+}
+
+namespace {
+
+  // The daemon's typed refusal: error org.andromeda.Link1.Error.Refused with the reason as its message.
+  bool isDenied(const sdbus::Error& error) {
+    return error.getName() == "org.andromeda.Link1.Error.Refused" && error.getMessage() == "denied";
+  }
+
+} // namespace
+
+void LinkService::connect(const std::string& deviceId, std::function<void(bool)> done) {
+  constexpr auto kPhoneRetry = std::chrono::seconds(30);
+  m_connectDeadline[deviceId] = std::chrono::steady_clock::now() + kPhoneRetry;
+  m_connectTimer.start(kPhoneRetry + std::chrono::seconds(1), [this] { notify(); });
+  m_link->callMethodAsync("Connect")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId)
+      .uponReplyInvoke([this, deviceId, done = std::move(done)](std::optional<sdbus::Error> error) {
+        logFailure("Connect", error);
+        if (error.has_value()) {
+          m_connectDeadline.erase(deviceId);
+        }
+        if (done) {
+          done(!error.has_value());
+        }
+        notify();
+      });
+}
+
+void LinkService::disconnect(const std::string& deviceId, std::function<void(bool)> done) {
+  m_connectDeadline.erase(deviceId);
+  m_link->callMethodAsync("Disconnect")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId)
+      .uponReplyInvoke([this, done = std::move(done)](std::optional<sdbus::Error> error) {
+        logFailure("Disconnect", error);
+        if (done) {
+          done(!error.has_value());
+        }
+        notify();
+      });
+}
+
+void LinkService::forgetPhotos(const std::string& deviceId) {
+  m_photoLists.erase(deviceId);
+  ++m_photoGeneration[deviceId];
+  for (auto it = m_thumbnails.begin(); it != m_thumbnails.end();) {
+    it = it->first.first == deviceId ? m_thumbnails.erase(it) : std::next(it);
+  }
+}
+
+void LinkService::requestPhotos(const std::string& deviceId, std::uint16_t count) {
+  m_photoLists[deviceId].state = LinkPhotosState::Loading;
+  const std::uint64_t generation = ++m_photoGeneration[deviceId];
+  m_link->callMethodAsync("RecentPhotos")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, count)
+      .uponReplyInvoke([this, deviceId, generation](
+                           std::optional<sdbus::Error> error,
+                           std::vector<sdbus::Struct<std::string, std::string, std::uint64_t>> photos
+                       ) {
+        if (m_photoGeneration[deviceId] != generation) {
+          return;
+        }
+        PhotoList& result = m_photoLists[deviceId];
+        result.photos.clear();
+        if (error.has_value()) {
+          result.state = isDenied(*error) ? LinkPhotosState::Denied : LinkPhotosState::Unavailable;
+          kLog.debug("RecentPhotos failed: {}", error->getMessage());
+        } else {
+          result.state = LinkPhotosState::Ready;
+          for (const auto& photo : photos) {
+            result.photos.push_back({.path = photo.get<0>(), .name = photo.get<1>(), .added = photo.get<2>()});
+          }
+        }
+        notify();
+      });
+}
+
+LinkPhotosState LinkService::photosState(const std::string& deviceId) const {
+  const auto it = m_photoLists.find(deviceId);
+  return it != m_photoLists.end() ? it->second.state : LinkPhotosState::Unknown;
+}
+
+const std::vector<LinkPhoto>* LinkService::photos(const std::string& deviceId) const {
+  const auto it = m_photoLists.find(deviceId);
+  return it != m_photoLists.end() && it->second.state == LinkPhotosState::Ready ? &it->second.photos : nullptr;
+}
+
+std::shared_ptr<const NotificationImageData>
+LinkService::photoThumbnail(const std::string& deviceId, const std::string& path, std::uint16_t size) {
+  const auto key = std::make_pair(deviceId, path);
+  if (const auto it = m_thumbnails.find(key); it != m_thumbnails.end()) {
+    return it->second;
+  }
+  m_thumbnails[key] = nullptr;
+  const std::uint64_t generation = m_photoGeneration[deviceId];
+  m_link->callMethodAsync("Thumbnail")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, path, size)
+      .uponReplyInvoke([this, key, generation](std::optional<sdbus::Error> error, std::vector<std::uint8_t> png) {
+        logFailure("Thumbnail", error);
+        if (m_photoGeneration[key.first] != generation) {
+          return;
+        }
+        if (error.has_value() || png.empty()) {
+          m_thumbnails.erase(key);
+          return;
+        }
+        // The decoder takes a file: write the PNG, decode it, and remove it.
+        char name[] = "/tmp/noctalia-link-thumbnail-XXXXXX";
+        const int fd = mkstemp(name);
+        if (fd < 0) {
+          m_thumbnails.erase(key);
+          return;
+        }
+        const bool wrote = write(fd, png.data(), png.size()) == static_cast<ssize_t>(png.size());
+        close(fd);
+        auto decoded = wrote ? loadImageFile(name) : std::unexpected(std::string("write failed"));
+        std::filesystem::remove(name);
+        if (!decoded) {
+          kLog.debug("thumbnail did not decode: {}", decoded.error());
+          m_thumbnails.erase(key);
+          return;
+        }
+        auto image = std::make_shared<NotificationImageData>();
+        image->width = decoded->width;
+        image->height = decoded->height;
+        image->rowStride = decoded->width * 4;
+        image->channels = 4;
+        image->hasAlpha = true;
+        image->data = std::move(decoded->rgba);
+        m_thumbnails[key] = std::move(image);
+        notify();
+      });
+  return nullptr;
+}
+
+void LinkService::savePhoto(
+    const std::string& deviceId, const std::string& path, std::function<void(LinkSaveResult)> done
+) {
+  m_link->callMethodAsync("SavePhoto")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, path)
+      .uponReplyInvoke([done = std::move(done)](std::optional<sdbus::Error> error, std::string) {
+        logFailure("SavePhoto", error);
+        if (!error.has_value()) {
+          done(LinkSaveResult::Saved);
+        } else {
+          done(isDenied(*error) ? LinkSaveResult::Denied : LinkSaveResult::Failed);
+        }
+      });
 }
 
 void LinkService::ring(const std::string& deviceId, bool on) {

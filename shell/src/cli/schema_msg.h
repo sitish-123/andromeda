@@ -767,6 +767,9 @@ namespace noctalia::cli {
         {},           kMsgPanelOpenPositionals,
         {},           false
     };
+    inline constexpr Command panelState{
+        "panel-state", "Print the open panel id and its page, or none", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command panelToggle{
         "panel-toggle",
         "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center audio)",
@@ -1234,6 +1237,7 @@ namespace noctalia::cli {
       msg::osdToggle,
       msg::panelClose,
       msg::panelOpen,
+      msg::panelState,
       msg::panelToggle,
       msg::plugin,
       msg::plugins,

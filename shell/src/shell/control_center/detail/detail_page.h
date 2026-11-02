@@ -1,5 +1,6 @@
 #pragma once
 
+#include "notification/notification.h"
 #include "shell/control_center/tab.h"
 
 #include <cstdint>
@@ -29,6 +30,9 @@ namespace control_center {
     std::string secondary;
     std::string trailing;
     std::vector<std::string> trailingGlyphs;
+    // A 24 round avatar before the title: the pixels, else the first icon name or file that resolves; none when neither does.
+    std::shared_ptr<const NotificationImageData> avatarImage;
+    std::vector<std::string> avatarIcons;
     bool selected = false; // lens
     bool enabled = true;
     std::function<void()> onClick;
@@ -75,6 +79,10 @@ namespace control_center {
     virtual void releaseControls() {}
 
     void requestRebuild();
+    // Loads `raw` pixels, else the first of `candidates` (files or icon names), into `image` at the next layout, decoded
+    // to `decodePx`.
+    void bindImage(Image* image, std::vector<std::string> candidates, int decodePx,
+                   std::shared_ptr<const NotificationImageData> raw = nullptr);
     // A free node in the list, outside any card.
     void addBlock(std::unique_ptr<Node> node);
     // A section header over a fill_1 card; returns the card.
@@ -97,6 +105,9 @@ namespace control_center {
       Image* image = nullptr;
       Glyph* fallback = nullptr;
       std::vector<std::string> candidates;
+      std::shared_ptr<const NotificationImageData> raw;
+      Flex* frame = nullptr; // hidden when no source loads (avatar slots only)
+      int px = 0;            // decode size; 0 = 24 at the content scale
       bool done = false;
     };
     struct Ellipsized {

@@ -194,6 +194,9 @@ void Application::syncLiveActivity() {
           .title = call->ringing ? i18n::tr("live-activity.call-ringing", "caller", call->caller)
                                  : i18n::tr("live-activity.call-active", "caller", call->caller),
           .subtitle = call->device,
+          .open = [this](wl_output* output) {
+            m_panelManager.openPanel("control-center", PanelOpenRequest{.output = output, .context = "detail-phone"});
+          },
       };
       if (call->ringing) {
         activity.actionGlyph = "phone-off";

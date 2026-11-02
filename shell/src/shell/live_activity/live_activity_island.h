@@ -56,6 +56,8 @@ struct LiveActivity {
   // Shown before the main action, for example mute before decline.
   std::string secondaryGlyph;
   std::function<void()> secondaryAction;
+  // A click on the island body; unset ignores it.
+  std::function<void(wl_output*)> open;
 };
 
 // The center island of the top or bottom islands bar. At rest it is a pill in the bar row with the privacy dots and the

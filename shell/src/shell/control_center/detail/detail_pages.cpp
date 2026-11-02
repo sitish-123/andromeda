@@ -16,6 +16,7 @@
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "ui/controls/input.h"
 #include "ui/controls/label.h"
 #include "ui/controls/toggle.h"
@@ -853,6 +854,9 @@ namespace control_center {
 
   namespace {
 
+    constexpr std::size_t kPhotoCount = 4;
+    constexpr std::uint16_t kThumbnailSize = 160;
+
     std::string capitalized(std::string text) {
       if (!text.empty()) {
         text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
@@ -918,9 +922,102 @@ namespace control_center {
       for (std::size_t i = 0; i < n.actions.size(); i += 2) {
         canReply = canReply || n.actions[i] == "inline-reply";
       }
-      out.push_back({n.id, n.summary.empty() ? n.appName : n.summary, n.body, canReply});
+      PhoneNotification shown{n.id, n.summary.empty() ? n.appName : n.summary, n.body, canReply, {}, {}};
+      if (n.imageData.has_value()) {
+        shown.image = std::make_shared<const NotificationImageData>(*n.imageData);
+      }
+      if (n.icon.has_value() && !n.icon->empty()) {
+        shown.icons.push_back(n.icon->starts_with("file://") ? n.icon->substr(7) : *n.icon);
+      }
+      if (n.desktopEntry.has_value() && !n.desktopEntry->empty()) {
+        shown.icons.push_back(*n.desktopEntry);
+      }
+      shown.icons.push_back(n.appName);
+      out.push_back(std::move(shown));
     }
     return out;
+  }
+
+  std::string PhoneDetailPage::statusText(const LinkDevice& phone) const {
+    if (m_link->paused(phone.id)) {
+      return tr("control-center.detail.phone.paused");
+    }
+    if (m_link->connecting(phone.id)) {
+      return tr("control-center.detail.phone.connecting");
+    }
+    return tr("bar.widgets.phone.not-connected");
+  }
+
+  std::unique_ptr<Flex> PhoneDetailPage::createHeaderActions() {
+    const LinkDevice* phone = device();
+    const bool on = phone != nullptr && !m_link->paused(phone->id);
+    return headerToggle(m_toggle, on, contentScale(), [this](bool enabled) {
+      const LinkDevice* current = device();
+      if (current == nullptr) {
+        return;
+      }
+      m_pendingOn = enabled;
+      m_pendingSince = std::chrono::steady_clock::now();
+      const std::weak_ptr<int> alive = m_alive;
+      const auto done = [this, alive, enabled](bool ok) {
+        if (alive.expired() || ok) {
+          return;
+        }
+        m_pendingOn.reset();
+        showMessage(tr(enabled ? "control-center.detail.phone.connect-failed" : "control-center.detail.phone.pause-failed"));
+      };
+      if (enabled) {
+        m_link->connect(current->id, done);
+      } else {
+        m_link->disconnect(current->id, done);
+      }
+    });
+  }
+
+  void PhoneDetailPage::setActive(bool active) {
+    m_active = active;
+    if (!active) {
+      m_photosAsked = false;
+    }
+  }
+
+  void PhoneDetailPage::showMessage(std::string text) {
+    constexpr auto kMessageTime = std::chrono::seconds(4);
+    m_message = std::move(text);
+    m_messageTimer.start(kMessageTime, [this] {
+      m_message.clear();
+      if (PanelManager::instance().isOpenPanel("control-center")) {
+        requestRebuild();
+      }
+    });
+    requestRebuild();
+  }
+
+  void PhoneDetailPage::sync() {
+    const LinkDevice* phone = device();
+    if (m_pendingOn.has_value()
+        && (*m_pendingOn == !m_link->paused(phone != nullptr ? phone->id : std::string{})
+            || std::chrono::steady_clock::now() - m_pendingSince > kPendingTimeout)) {
+      m_pendingOn.reset();
+    }
+    if (m_toggle != nullptr && phone != nullptr) {
+      m_toggle->setChecked(m_pendingOn.value_or(!m_link->paused(phone->id)));
+    }
+    if (phone == nullptr || !phone->connected) {
+      m_photosAsked = false;
+      m_thumbsReady = 0;
+      return;
+    }
+    if (m_active && !m_photosAsked) {
+      m_photosAsked = true;
+      m_link->requestPhotos(phone->id, kPhotoCount);
+    }
+    m_thumbsReady = 0;
+    if (const auto* photos = m_link->photos(phone->id); photos != nullptr) {
+      for (std::size_t i = 0; i < photos->size() && i < kPhotoCount; ++i) {
+        m_thumbsReady += m_link->photoThumbnail(phone->id, (*photos)[i].path, kThumbnailSize) != nullptr ? 1 : 0;
+      }
+    }
   }
 
   bool PhoneDetailPage::deferRebuild() const {
@@ -933,7 +1030,9 @@ namespace control_center {
     if (phone == nullptr) {
       return "none";
     }
-    std::string key = std::format("{}|{}|{}|{}", phone->id, phone->name, phone->connected, m_replyId);
+    std::string key = std::format("{}|{}|{}|{}|{}|{}", phone->id, phone->name, phone->connected, m_replyId,
+                                  m_link->paused(phone->id), m_link->connecting(phone->id));
+    key += std::format("|p{}|{}|{}", static_cast<int>(m_link->photosState(phone->id)), m_thumbsReady, m_message);
     if (const LinkStatus* status = m_link->status(phone->id); status != nullptr) {
       key += std::format("|{}|{}|{}", status->battery, status->charging, status->network);
     }
@@ -998,7 +1097,7 @@ namespace control_center {
 
     auto chipRow = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
     if (!connected) {
-      chipRow->addChild(chip("device-mobile-off", tr("bar.widgets.phone.not-connected"), s, panelCardOpacity()));
+      chipRow->addChild(chip("device-mobile-off", statusText(*phone), s, panelCardOpacity()));
     } else {
       const LinkStatus* status = m_link->status(id);
       if (status != nullptr) {
@@ -1038,8 +1137,77 @@ namespace control_center {
         })));
     addBlock(std::move(buttons));
 
+    if (!m_message.empty()) {
+      auto note = std::make_unique<Label>();
+      note->setFontSize(Tokens::typeFootnote.size * s);
+      note->setLineHeight(Tokens::typeFootnote.line * s);
+      note->setColor(colorSpecFromRole(ColorRole::Label2));
+      note->setText(m_message);
+      auto inset = std::make_unique<Flex>();
+      inset->setPadding(0.0F, 0.0F, 0.0F, (Tokens::componentListCardPadding + Tokens::componentListRowInset) * s);
+      inset->addChild(std::move(note));
+      addBlock(std::move(inset));
+    }
     if (!connected) {
       return;
+    }
+    const LinkPhotosState photosState = m_link->photosState(id);
+    if (photosState == LinkPhotosState::Denied || photosState == LinkPhotosState::Unavailable) {
+      auto note = std::make_unique<Label>();
+      note->setFontSize(Tokens::typeFootnote.size * s);
+      note->setLineHeight(Tokens::typeFootnote.line * s);
+      note->setColor(colorSpecFromRole(ColorRole::Label2));
+      note->setText(tr(photosState == LinkPhotosState::Denied ? "control-center.detail.phone.photos-denied"
+                                                              : "control-center.detail.phone.photos-unavailable"));
+      auto inset = std::make_unique<Flex>();
+      inset->setPadding(0.0F, 0.0F, 0.0F, (Tokens::componentListCardPadding + Tokens::componentListRowInset) * s);
+      inset->addChild(std::move(note));
+      addBlock(std::move(inset));
+    }
+    if (const auto* photos = m_link->photos(id); photos != nullptr && !photos->empty()) {
+      auto section = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::componentListHeaderGap * s});
+      auto header = std::make_unique<Label>();
+      header->setFontSize(Tokens::typeFootnote.size * s);
+      header->setLineHeight(Tokens::typeFootnote.line * s);
+      header->setFontWeight(static_cast<FontWeight>(Style::glassWeight(600)));
+      header->setColor(colorSpecFromRole(ColorRole::Label2));
+      header->setText(tr("control-center.detail.phone.recent-photos"));
+      auto inset = std::make_unique<Flex>();
+      inset->setPadding(0.0F, 0.0F, 0.0F, (Tokens::componentListCardPadding + Tokens::componentListRowInset) * s);
+      inset->addChild(std::move(header));
+      section->addChild(std::move(inset));
+      auto thumbs = ui::row({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s});
+      for (std::size_t i = 0; i < photos->size() && i < kPhotoCount; ++i) {
+        const LinkPhoto& photo = (*photos)[i];
+        auto tile = std::make_unique<Button>();
+        tile->setVariant(ButtonVariant::Default);
+        tile->setPadding(0.0F);
+        tile->setRadius(Tokens::componentButtonRadius * s);
+        tile->setMinHeight(Tokens::spaceP64 * s);
+        tile->setFlexGrow(1.0F);
+        auto image = std::make_unique<Image>();
+        image->setFit(ImageFit::Cover);
+        image->setSize(Tokens::spaceP64 * 1.2F * s, Tokens::spaceP64 * s);
+        image->setRadius(Tokens::componentButtonRadius * s);
+        image->setParticipatesInLayout(false);
+        if (auto thumb = m_link->photoThumbnail(id, photo.path, kThumbnailSize); thumb != nullptr) {
+          bindImage(image.get(), {}, static_cast<int>(kThumbnailSize), std::move(thumb));
+        }
+        tile->addChild(std::move(image));
+        tile->setOnClick([this, id, path = photo.path] {
+          m_link->savePhoto(id, path, [this, alive = std::weak_ptr<int>(m_alive)](LinkSaveResult result) {
+            if (alive.expired()) {
+              return;
+            }
+            showMessage(tr(result == LinkSaveResult::Saved    ? "control-center.detail.phone.photo-saved"
+                           : result == LinkSaveResult::Denied ? "control-center.detail.phone.photos-denied"
+                                                              : "control-center.detail.phone.photo-failed"));
+          });
+        });
+        thumbs->addChild(std::move(tile));
+      }
+      section->addChild(std::move(thumbs));
+      addBlock(std::move(section));
     }
     const std::vector<PhoneNotification> shown = phoneNotifications(id);
     const std::uint32_t count = m_link->notificationCount(id);
@@ -1064,7 +1232,8 @@ namespace control_center {
     Flex* card = addGroup(tr("control-center.detail.phone.notifications-title"));
     for (const PhoneNotification& n : shown) {
       DetailRow row;
-      row.glyph = "bell";
+      row.avatarImage = n.image;
+      row.avatarIcons = n.icons;
       row.title = n.title;
       row.secondary = n.body;
       if (n.canReply) {

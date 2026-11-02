@@ -1183,7 +1183,9 @@ void QuickTab::syncPhone() {
   std::string line;
   const auto append = [&line](const std::string& part) { line += line.empty() ? part : " · " + part; };
   if (!phone->connected) {
-    append(i18n::tr("bar.widgets.phone.not-connected"));
+    append(i18n::tr(m_services.link->paused(phone->id)       ? "control-center.detail.phone.paused"
+                    : m_services.link->connecting(phone->id) ? "control-center.detail.phone.connecting"
+                                                             : "bar.widgets.phone.not-connected"));
   } else if (const LinkStatus* status = m_services.link->status(phone->id); status != nullptr) {
     append(std::format("{}%", status->battery));
   }

@@ -389,6 +389,13 @@ void Application::initIpc() {
                                                                                : "error: invokeAction failed\n";
       }
   );
+  m_ipcService.bind(noctalia::cli::msg::panelState, [this](const std::string&) -> std::string {
+    if (!m_panelManager.isOpen() || m_panelManager.activePanel() == nullptr) {
+      return "none\n";
+    }
+    const std::string context = m_panelManager.activePanel()->activeContext();
+    return m_panelManager.activePanelId() + (context.empty() ? "" : " " + context) + "\n";
+  });
   m_ipcService.bind(noctalia::cli::msg::liveActivityStatus, [this](const std::string&) -> std::string {
     return m_liveActivity.describeActivity() + "\n";
   });

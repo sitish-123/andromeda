@@ -95,6 +95,7 @@ public:
   void onClose() override;
   [[nodiscard]] bool dismissTransientUi() override;
   [[nodiscard]] bool isContextActive(std::string_view context) const override;
+  [[nodiscard]] std::string activeContext() const override { return kTabs[static_cast<std::size_t>(m_activeTab)].key; }
   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   [[nodiscard]] bool deferExternalRefresh() const override;
   [[nodiscard]] bool deferPointerRelayout() const override;
