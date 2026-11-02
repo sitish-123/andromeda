@@ -120,9 +120,37 @@ void SettingsWindow::addUsersContent(float scale) {
           .detail = m_detail,
           .draft = m_accounts != nullptr ? &m_newUser : nullptr,
           // A create in flight keeps its draft: the reply writes to it, and a second create must wait.
+          .deleteConfirm = m_userDeleteConfirm,
+          .deleteBusy = m_userDeleteBusy,
+          .deleteError = m_userDeleteError,
+          .setDeleteConfirm =
+              [this](bool confirm) {
+                m_userDeleteConfirm = confirm;
+                m_userDeleteError.clear();
+                requestContentRebuild();
+              },
+          .deleteUser = m_accounts == nullptr ? std::function<void(unsigned)>{} : [this](unsigned uid) {
+            m_userDeleteConfirm = false;
+            m_userDeleteBusy = true;
+            requestContentRebuild();
+            m_accounts->deleteUser(uid, [this](std::string error) {
+              m_userDeleteBusy = false;
+              m_userDeleteError = std::move(error);
+              if (m_userDeleteError.empty() && m_detail.starts_with("user:")) {
+                leaveDetail();
+              }
+              if (isOpen()) {
+                requestContentRebuild();
+              }
+            });
+          },
           .openDetail = [this](std::string detail) {
             if (!m_newUser.busy) {
               clearNewUser();
+            }
+            if (!m_userDeleteBusy) {
+              m_userDeleteConfirm = false;
+              m_userDeleteError.clear();
             }
             openDetail(std::move(detail));
           },

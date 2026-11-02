@@ -170,6 +170,51 @@ namespace settings {
       content.addChild(std::move(actions));
     }
 
+    void addUserPage(Flex& content, const SettingsUsersContext& ctx, const std::vector<UserInfo>& users) {
+      const float scale = ctx.scale;
+      const std::string_view key = std::string_view(ctx.detail).substr(5);
+      const auto tab = key.find('\t');
+      const uid_t uid = tab == std::string_view::npos ? 0 : static_cast<uid_t>(std::stoul(std::string(key.substr(tab + 1))));
+      const auto user = std::ranges::find(users, uid, &UserInfo::uid);
+      if (tab == std::string_view::npos || user == users.end() || uid == getuid()) {
+        return;
+      }
+      Flex* card = addCard(content, scale);
+      auto r = row(scale);
+      r->setMinHeight(64.0F * scale);
+      r->setGap(Style::spaceMd * scale);
+      r->addChild(avatar(*user, 48.0F, scale));
+      auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
+      copy->addChild(makeLabel(user->name, Tokens::typeTitle3.size * scale, colorSpecFromRole(ColorRole::Label1),
+                               FontWeight::SemiBold));
+      copy->addChild(makeLabel(user->login + " · " + roleText(*user), Style::fontSizeCaption * scale,
+                               colorSpecFromRole(ColorRole::Label2)));
+      r->addChild(std::move(copy));
+      card->addChild(std::move(r));
+
+      auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+      const std::string status = ctx.deleteBusy ? i18n::tr("settings.users.creating")
+          : ctx.deleteConfirm                   ? i18n::tr("settings.users.delete-confirm", "name", user->login)
+                                                : ctx.deleteError;
+      actions->addChild(ui::label({
+          .text = status,
+          .fontSize = Style::fontSizeCaption * scale,
+          .color = colorSpecFromRole(ctx.deleteError.empty() || ctx.deleteConfirm ? ColorRole::Label2 : ColorRole::DangerText),
+          .maxLines = 2,
+          .flexGrow = 1.0F,
+      }));
+      if (ctx.deleteConfirm && !ctx.deleteBusy) {
+        actions->addChild(plainButton(i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, scale,
+                                      [set = ctx.setDeleteConfirm] { set(false); }));
+        actions->addChild(plainButton(i18n::tr("settings.users.delete"), ButtonVariant::Destructive, scale,
+                                      [del = ctx.deleteUser, uid] { del(uid); }));
+      } else if (!ctx.deleteBusy) {
+        actions->addChild(plainButton(i18n::tr("settings.users.delete-ellipsis"), ButtonVariant::Destructive, scale,
+                                      [set = ctx.setDeleteConfirm] { set(true); }));
+      }
+      content.addChild(std::move(actions));
+    }
+
   } // namespace
 
   std::string loginFromName(const std::string& fullName) {
@@ -195,11 +240,15 @@ namespace settings {
 
   void addSettingsUsers(Flex& content, const SettingsUsersContext& ctx) {
     const float scale = ctx.scale;
-    if (!ctx.detail.empty() && ctx.draft != nullptr) {
+    if (ctx.detail.starts_with("users:") && ctx.draft != nullptr) {
       addNewUserPage(content, ctx);
       return;
     }
     const auto users = loginUsers();
+    if (ctx.detail.starts_with("user:")) {
+      addUserPage(content, ctx, users);
+      return;
+    }
     const uid_t me = getuid();
     const auto self = std::ranges::find(users, me, &UserInfo::uid);
     if (self != users.end()) {
@@ -233,6 +282,12 @@ namespace settings {
       r->addChild(title(user.name, scale));
       r->addChild(ui::label({.text = roleText(user), .fontSize = Style::fontSizeBody * scale,
                              .color = colorSpecFromRole(ColorRole::Label2)}));
+      if (ctx.deleteUser) {
+        r->addChild(iconButton("chevron-right", i18n::tr("settings.wifi.details"), scale,
+                               [open = ctx.openDetail, detail = "user:" + user.name + "\t" + std::to_string(user.uid)] {
+                                 open(detail);
+                               }));
+      }
       card->addChild(std::move(r));
     }
     if (ctx.draft != nullptr) {

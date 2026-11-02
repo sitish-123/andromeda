@@ -20,10 +20,16 @@ namespace settings {
 
   struct SettingsUsersContext {
     float scale = 1.0F;
-    // "users:<title>" while the New User page is open, else empty.
+    // "users:<title>" for the New User page, "user:<name>\t<uid>" for one user's page, else empty.
     std::string detail;
     // Null when AccountsService is missing: no Add User button.
     NewUserDraft* draft = nullptr;
+    // The user page asks before it deletes; the text is the error of a failed delete.
+    bool deleteConfirm = false;
+    bool deleteBusy = false;
+    std::string deleteError;
+    std::function<void(bool)> setDeleteConfirm;
+    std::function<void(unsigned uid)> deleteUser;
     std::function<void(std::string)> openDetail;
     // Validates the draft, then creates the user.
     std::function<void()> create;

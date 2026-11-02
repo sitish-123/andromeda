@@ -240,3 +240,15 @@ void AccountsService::createUser(
       }
   );
 }
+
+void AccountsService::deleteUser(uid_t uid, std::function<void(std::string)> done) {
+  callInteractive(
+      kAccountsObjectPath, kAccountsInterface, "DeleteUser", g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
+      [done = std::move(done)](GVariant* deleted, std::string error) {
+        if (deleted == nullptr) {
+          kLog.warn("DeleteUser failed: {}", error);
+        }
+        done(deleted == nullptr ? std::move(error) : std::string{});
+      }
+  );
+}
