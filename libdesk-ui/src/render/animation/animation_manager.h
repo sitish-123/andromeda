@@ -45,8 +45,10 @@ public:
       std::function<void()> onComplete = {}, const void* owner = nullptr, Threshold unit = Unit::Opacity
   );
   [[nodiscard]] static float staggerDelayMs(int index);
-  // Retarget, never restart: when `id` is a running spring, it moves to `to` with its velocity and takes the new
-  // `setter`, `onComplete` and `spring`; otherwise a new spring starts at `from`. Returns the id (0 when motion is off).
+  // Retarget, never restart: when `id` is a running spring, it moves to `to` and takes the new `setter`, `onComplete`,
+  // `spring`, `unit` and gate base. It keeps its velocity unless `velocity` is non-zero. The replaced `onComplete`
+  // is dropped and never called, so one `onComplete` must do the same job for every direction. Otherwise a new
+  // spring starts at `from`. Returns the id (0 when motion is off and no completion is pending).
   Id drive(
       Id id, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
       std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F,
@@ -86,18 +88,22 @@ private:
     Id id = 0;
     const void* owner = nullptr;
     std::function<void()> fn;
+    bool cancelled = false;
   };
 
   std::vector<Entry> m_animations;
-  bool m_dispatching = false;
-  bool m_cancelledAll = false;
-  std::vector<Id> m_cancelledIds;
-  std::vector<const void*> m_cancelledOwners;
+  // Callback lists being dispatched (nested tickAt calls stack); a cancel marks the matching pending entries.
+  std::vector<std::vector<Pending>*> m_dispatchLists;
   Id m_nextId = 1;
 
-  static void jump(
-      float to, Threshold unit, const std::function<void(float)>& setter, const std::function<void()>& onComplete
+  // Motion off: runs the setter now and queues `onComplete` (and `onPass`) for the next tick as a settled entry.
+  // The returned id is non-zero while that completion is pending, so a caller's `m_id = ...` never overwrites an id
+  // the callback stored. 0 when there is no callback to run.
+  Id jump(
+      float to, Threshold unit, std::function<void(float)> setter, std::function<void()> onComplete,
+      const void* owner, std::function<void()> onPass = {}
   );
+  void cancelRunning(Id id);
   Id animateInternal(
       float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
       std::function<void()> onComplete, const void* owner, bool scaleDuration, bool respectMotionEnabled

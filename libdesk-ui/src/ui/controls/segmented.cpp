@@ -219,8 +219,8 @@ void Segmented::applyButtonMetrics(Button& button) const {
     return;
   }
 
-  button.setMinHeight(Style::controlHeight * m_scale);
-  button.setPadding(Style::spaceXs * m_scale, Style::spaceMd * m_scale);
+  button.setMinHeight((Style::controlHeight - 4.0F) * m_scale);
+  button.setPadding(0.0F, Style::spaceMd * m_scale);
 }
 
 void Segmented::setEqualSegmentWidths(bool equalWidths) {
@@ -238,23 +238,29 @@ void Segmented::setEqualSegmentWidths(bool equalWidths) {
 
 void Segmented::refreshVariants() {
   const std::size_t n = m_buttons.size();
-  const float r = Style::scaledRadiusMd(m_scale);
+  const float r = (Style::controlHeight * 0.5F - 2.0F) * m_scale;
   for (std::size_t i = 0; i < n; ++i) {
+    if (i > 0 && i - 1 < m_separators.size() && m_separators[i - 1] != nullptr) {
+      m_separators[i - 1]->setVisible(false);
+    }
     if (m_buttons[i] == nullptr) {
       continue;
     }
-    m_buttons[i]->setVariant(i == m_selected ? ButtonVariant::TabActive : ButtonVariant::Tab);
-    Radii radii;
-    if (n == 1) {
-      radii = Radii{r, r, r, r};
-    } else if (i == 0) {
-      radii = Radii{r, 0.0F, 0.0F, r};
-    } else if (i == n - 1) {
-      radii = Radii{0.0F, r, r, 0.0F};
-    } else {
-      radii = Radii{0.0F};
-    }
-    m_buttons[i]->setRadii(radii);
+    const bool on = i == m_selected;
+    const Button::ButtonStateColors none{
+        .bg = clearColorSpec(), .border = clearColorSpec(), .label = colorSpecFromRole(ColorRole::Label2)
+    };
+    const Button::ButtonStateColors lens{
+        .bg = colorSpecFromRole(ColorRole::Lens), .border = colorSpecFromRole(ColorRole::LensEdge),
+        .label = colorSpecFromRole(ColorRole::Label1)
+    };
+    const auto& state = on ? lens : none;
+    m_buttons[i]->setVariant(ButtonVariant::Ghost);
+    m_buttons[i]->setCustomPalette(Button::ButtonPalette{
+        .borderWidth = on ? 0.5F * m_scale : 0.0F, .normal = state, .hover = state, .pressed = state,
+        .disabled = state
+    });
+    m_buttons[i]->setRadii(Radii{r, r, r, r});
   }
 }
 
@@ -262,7 +268,7 @@ void Segmented::applyOuterStyle() {
   Flex::setPadding(m_outerPadding);
   setFill(colorSpecFromRole(m_surfaceRole, m_surfaceOpacity));
   clearBorder();
-  setRadius(Style::scaledRadiusMd(m_scale));
+  setRadius(Style::controlHeight * 0.5F * m_scale);
 }
 
 void Segmented::doLayout(Renderer& renderer) {

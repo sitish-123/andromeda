@@ -1222,6 +1222,9 @@ void NotificationToast::dismissCardFromInstance(Instance& inst, std::size_t entr
     cs.exitAnimId = 0;
   }
   if (cs.cardNode == nullptr) {
+    if (entryIndex < m_entries.size()) {
+      DeferredCall::callLater([this, id = m_entries[entryIndex].notificationId] { finishExitingEntryIfOrphaned(id); });
+    }
     return;
   }
 

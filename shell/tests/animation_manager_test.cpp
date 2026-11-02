@@ -39,15 +39,21 @@ int main() {
         0.0F, 10.0F, spring, [&value](float v) { value = v; }, [&completed]() { completed = true; }
     );
 
-    ok &= check(id == 0, "motion off: nothing should stay running");
     ok &= check(nearlyEqual(value, 10.0F), "motion off: setter did not run at once");
-    ok &= check(completed, "motion off: completion did not run at once");
-    ok &= check(!manager.hasActive(), "motion off: animation stayed active");
+    ok &= check(id != 0 && !completed && manager.hasActive(), "motion off: completion must wait for the next tick");
+    manager.tick(0.0F);
+    ok &= check(completed && !manager.hasActive(), "motion off: completion did not run on the next tick");
 
-    value = 0.0F;
+    // A callback that stores its own id must not be overwritten by the caller's assignment.
+    AnimationManager::Id slot = 0;
     completed = false;
-    manager.animateSpring(0.0F, 10.0F, spring, [&value](float v) { value = v; }, [&completed] { completed = true; });
-    ok &= check(nearlyEqual(value, 10.0F) && completed, "motion off: animateSpring did not finish at once");
+    slot = manager.animateSpring(0.0F, 10.0F, spring, {}, [&] {
+      slot = 0;
+      completed = true;
+    });
+    ok &= check(slot != 0 && !completed, "motion off: the id was overwritten by an inline callback");
+    manager.tick(0.0F);
+    ok &= check(slot == 0 && completed, "motion off: the callback did not clear its id");
   }
 
   resetMotion();
@@ -212,6 +218,31 @@ int main() {
     );
     manager.tickAt(std::chrono::steady_clock::now());
     ok &= check(!completed, "completion ran after its gate cancelled the animation");
+  }
+
+  {
+    // Cancel scope: a callback's cancel or drive on another animation never blocks a finished one.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 584.0};
+    int ownerA = 0;
+    int ownerB = 0;
+    int ownerD = 0;
+    bool bDone = false;
+    bool dRan = false;
+    AnimationManager::Id b = 0;
+    AnimationManager::Id d = 0;
+    manager.animateSpring(0.0F, 0.0F, spring, {}, [&] {
+      manager.drive(b, 1.0F, 0.0F, spring, {});
+      manager.cancelForOwner(&ownerA);
+      manager.cancel(d);
+      manager.tickAt(std::chrono::steady_clock::now());
+    }, &ownerA);
+    b = manager.animateSpring(0.0F, 0.0F, spring, {}, [&bDone] { bDone = true; }, &ownerB);
+    d = manager.animateSpring(0.0F, 0.0F, spring, {}, [&dRan] { dRan = true; }, &ownerD);
+    manager.tickAt(std::chrono::steady_clock::now());
+    ok &= check(bDone, "a stale drive or a cancel of another owner blocked a finished animation");
+    ok &= check(!dRan, "a cancelled animation still completed after a nested tick");
+    manager.cancelAll();
   }
 
   {

@@ -69,8 +69,8 @@ private:
   float m_scale = 1.0F;
   bool m_equalSegmentWidths = false;
   bool m_compact = false;
-  float m_outerPadding = 0.0F;
+  float m_outerPadding = 2.0F;
   float m_surfaceOpacity = 1.0F;
-  ColorRole m_surfaceRole = ColorRole::Fill2;
+  ColorRole m_surfaceRole = ColorRole::Fill1;
   bool m_enabled = true;
 };
