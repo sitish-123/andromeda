@@ -113,6 +113,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -406,6 +407,8 @@ private:
   ScreenTimeService m_screenTimeService;
 
   GlSharedContext m_glShared;
+  // Pending m_glShared.initialize() on a worker thread; destroyed before m_glShared, so it waits for the worker.
+  std::future<void> m_glSharedInit;
   SharedTextureCache m_sharedTextureCache;
   RenderContext m_renderContext;
   // Image controls in panels retain cache-backed handles during teardown.

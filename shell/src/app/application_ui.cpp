@@ -153,7 +153,7 @@ void Application::initUi() {
 }
 
 void Application::initUiRenderSurfacesAndSettings() {
-
+  m_glSharedInit.get();
   m_renderContext.initialize(m_glShared);
   m_glShared.setGraphicsResetCallback([this](RenderGraphicsResetStatus status) { onGraphicsReset(status); });
   if (!m_glShared.hasSharedContext()) {

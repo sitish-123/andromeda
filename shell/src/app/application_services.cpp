@@ -970,8 +970,14 @@ void Application::initStyleThemeAndWayland() {
   if (m_configService.config().shell.disableMipmaps) {
     TextureManager::setGlobalMipmapsEnabled(false);
   }
-  m_glShared.initialize(m_wayland.display(), m_configService.config().shell.sharedGlContext);
-  auto* sharedGlPtr = m_glShared.hasSharedContext() ? &m_glShared : nullptr;
+  // EGL init loads Mesa (~20 ms); it runs while the services start and joins in initUi. Mesa uses its own
+  // Wayland event queue, and no context is made current on the worker.
+  const bool sharedGlContext = m_configService.config().shell.sharedGlContext;
+  m_glSharedInit = std::async(std::launch::async, [this, sharedGlContext] {
+    m_glShared.initialize(m_wayland.display(), sharedGlContext);
+  });
+  // initialize() creates the root context or throws, so the config decides the share group up front.
+  auto* sharedGlPtr = sharedGlContext ? &m_glShared : nullptr;
   m_sharedTextureCache.initialize(sharedGlPtr);
   m_asyncTextureCache.initialize(sharedGlPtr);
   m_wayland.setTextInputService(&m_textInputService);
