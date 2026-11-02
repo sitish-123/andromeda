@@ -87,6 +87,9 @@
 
 namespace {
 
+  // Workspace dots (user, 2026-11-02): the current workspace is a 20 wide capsule.
+  constexpr float kIslandDot = 7.0F;
+  constexpr float kIslandDotActiveWidth = 20.0F;
   constexpr Logger kLog("shell");
 
   template <typename T, typename... Args> std::unique_ptr<Widget> createWidget(float contentScale, Args&&... args) {
@@ -205,12 +208,12 @@ std::unique_ptr<Widget> WidgetFactory::create(
       {"island_workspaces", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             auto options = workspacesWidgetDefinition().resolve(context.config, context.settingContext);
             options.islandDots = true;
-            options.showLabels = true;
-            options.pillScale = Tokens::componentIslandCell / Style::baseGlyphSize;
+            options.showLabels = false;
+            options.pillScale = kIslandDot / Style::baseGlyphSize;
             options.inactivePillSize = 1.0F;
-            options.activePillSize = 1.0F;
+            options.activePillSize = kIslandDotActiveWidth / kIslandDot;
             options.focusedColor = colorSpecFromRole(ColorRole::Label1);
-            options.occupiedColor = colorSpecFromRole(ColorRole::Label2);
+            options.occupiedColor = colorSpecFromRole(ColorRole::Label3);
             options.emptyColor = colorSpecFromRole(ColorRole::Label3);
             return createWidget<WorkspacesWidget>(
                 context.contentScale, f.m_platform, f.m_configService, context.output, options

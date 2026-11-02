@@ -2,3 +2,5 @@
 S1 | libdesk-ui/src/ui/style.h | | token header: sizes are defined here
 S1 | libdesk-ui/src/ui/shadow_style.h | | token header: shadow sizes are defined here
 D1 | shell/src/shell/wallpaper/wallpaper.cpp | kWallpaperTransitionEasing | wallpaper crossfade is a fixed-duration effect (animateTimer)
+S1 | shell/src/shell/bar/widget_factory.cpp | kIslandDotActiveWidth = | workspace dots: user choice 2026-11-02, see deviations.md
+S1 | shell/src/shell/bar/widgets/workspaces_widget.cpp | kIslandDotGap = | workspace dots: user choice 2026-11-02, see deviations.md
