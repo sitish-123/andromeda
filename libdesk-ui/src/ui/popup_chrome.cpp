@@ -120,8 +120,10 @@ namespace popup_chrome {
   }
 
   Box* addCardBackground(Node& parent, const Geometry& geometry, float contentScale) {
+    // Menus and popovers are over-plane surfaces: thick glass with a hairline stroke (rulebook 5, 9 menu).
     auto box = ui::box({});
-    box->setCardStyle(contentScale, 1.0F, Style::popupBordersEnabled());
+    box->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(kTintRegularAlpha)));
+    box->setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
     box->setRadius(Style::scaledRadiusLg(contentScale));
     box->setPosition(geometry.contentX(), geometry.contentY());
     box->setFrameSize(geometry.contentWidth, geometry.contentHeight);

@@ -15,6 +15,7 @@
 #include "compositors/settings_control.h"
 
 #include <array>
+#include <vector>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -267,9 +268,18 @@ namespace settings {
   }
 
   void addSettingsRowSeparators(Flex& body, float scale) {
-    for (std::size_t index = body.children().size(); index > 1; --index) {
+    // Only between shown rows. The card's own background rect is a child too; a separator after it draws a line
+    // on the card's top edge.
+    std::vector<std::size_t> shown;
+    for (std::size_t index = 0; index < body.children().size(); ++index) {
+      const auto& child = body.children()[index];
+      if (child->visible() && child->participatesInLayout()) {
+        shown.push_back(index);
+      }
+    }
+    for (std::size_t k = shown.size(); k > 1; --k) {
       body.insertChildAt(
-          index - 1,
+          shown[k - 1],
           ui::separator({.thickness = metrics::kRowSeparatorThickness * scale, .spacing = Style::spaceXs * scale, .gradientEdges = false})
       );
     }
