@@ -10,6 +10,8 @@
 
 class BluetoothService;
 class INetworkService;
+class LinkService;
+struct LinkDevice;
 class Input;
 class NotificationManager;
 class PipeWireService;
@@ -143,6 +145,37 @@ namespace control_center {
     std::chrono::system_clock::time_point m_endsAt;
     std::uint64_t m_revision = 0; // DND revision right after this page set the timed choice
     Timer m_timer;
+  };
+
+  // The paired phone (Link): status chips, actions and its latest notifications. Link has no connect call, so the
+  // page shows the state and cannot change it.
+  class PhoneDetailPage final : public DetailPage {
+  public:
+    PhoneDetailPage(LinkService* link, NotificationManager* notifications)
+        : m_link(link), m_notifications(notifications) {}
+    [[nodiscard]] std::string headerTitle() const override;
+
+  private:
+    struct PhoneNotification {
+      std::uint32_t id = 0;
+      std::string title;
+      std::string body;
+      bool canReply = false;
+    };
+
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+    [[nodiscard]] bool deferRebuild() const override;
+    void releaseControls() override { m_reply = nullptr; }
+    [[nodiscard]] const LinkDevice* device() const;
+    [[nodiscard]] std::vector<PhoneNotification> phoneNotifications(const std::string& deviceId) const;
+    void addReplyForm(Flex& card, std::uint32_t id);
+
+    LinkService* m_link = nullptr;
+    NotificationManager* m_notifications = nullptr;
+    Input* m_reply = nullptr;
+    std::uint32_t m_replyId = 0;
   };
 
 } // namespace control_center

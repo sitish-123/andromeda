@@ -405,6 +405,18 @@
         "tomorrow": "Until tomorrow",
         "until": "Until"
       },
+      "phone": {
+        "files": "Send files...",
+        "files-title": "Send files",
+        "no-notifications": "No notifications",
+        "no-notifications-body": "Phone notifications show up here.",
+        "notifications": "Notifications · {count}",
+        "on-phone": "on {phone}",
+        "open-link": "Open Link...",
+        "reply": "Reply",
+        "send": "Send",
+        "title": "Phone"
+      },
       "power": {
         "health": "Battery health {percent}%",
         "modes": "Power mode",

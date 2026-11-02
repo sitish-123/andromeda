@@ -131,6 +131,7 @@ private:
     DetailPower,
     DetailFocus,
     DetailSearch,
+    DetailPhone,
     Count,
   };
 
@@ -162,6 +163,7 @@ private:
       {TabId::DetailPower, "detail-power", "control-center.tabs.power", "battery-charging-2"},
       {TabId::DetailFocus, "detail-focus", "control-center.quick.focus", "moon"},
       {TabId::DetailSearch, "detail-search", "control-center.detail.search.title", "search"},
+      {TabId::DetailPhone, "detail-phone", "control-center.detail.phone.title", "device-mobile"},
   }};
 
   // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.

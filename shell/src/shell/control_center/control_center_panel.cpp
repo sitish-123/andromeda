@@ -97,6 +97,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
     PanelManager::instance().refresh();
   }));
   addDetail(TabId::DetailFocus, std::make_unique<control_center::FocusDetailPage>(services.notifications));
+  addDetail(TabId::DetailPhone, std::make_unique<control_center::PhoneDetailPage>(services.link, services.notifications));
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
@@ -666,7 +667,9 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
       m_tabButtons[idx]->setVariant(meta.id == tab ? ButtonVariant::TabActive : ButtonVariant::Tab);
     }
     if (meta.id == tab && m_contentTitle != nullptr) {
-      m_contentTitle->setText(i18n::tr(!m_showSidebar && tab == TabId::Network ? "control-center.network.wifi" : meta.titleKey));
+      const std::string dynamicTitle = m_tabs[idx] != nullptr ? m_tabs[idx]->headerTitle() : std::string{};
+      m_contentTitle->setText(!dynamicTitle.empty() ? dynamicTitle
+          : i18n::tr(!m_showSidebar && tab == TabId::Network ? "control-center.network.wifi" : meta.titleKey));
     }
     if (m_tabHeaderActions[idx] != nullptr) {
       m_tabHeaderActions[idx]->setVisible(tabEnabled && meta.id == tab);

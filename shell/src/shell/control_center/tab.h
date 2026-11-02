@@ -36,6 +36,9 @@ public:
   // while this tab is active.
   virtual std::unique_ptr<Flex> createHeaderActions();
 
+  // The header title while this tab is active; empty keeps the title from the tab table.
+  [[nodiscard]] virtual std::string headerTitle() const { return {}; }
+
   // Called by ControlCenterPanel::layout() with the available content dimensions.
   void layout(Renderer& renderer, float contentWidth, float bodyHeight) {
     UiPhaseScope layoutPhase(UiPhase::Layout);

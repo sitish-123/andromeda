@@ -184,6 +184,8 @@ private:
   Button* m_playButton = nullptr;
 
   Flex* m_phoneCard = nullptr;
+  Button* m_phoneRingButton = nullptr;
+  Button* m_phoneMirrorButton = nullptr;
   Label* m_phoneName = nullptr;
   Label* m_phoneStatus = nullptr;
   std::string m_phoneId;

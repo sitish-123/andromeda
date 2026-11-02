@@ -9,6 +9,7 @@
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/panel/panel_manager.h"
+#include "shell/phone/phone_state.h"
 #include "system/brightness_service.h"
 #include "system/rfkill_helper.h"
 #include "ui/controls/button.h"
@@ -43,6 +44,8 @@ namespace {
   // Anatomy: docs/design-system.md "Control center"; values: protocol/design-tokens.toml [component.*].
   TOKENS_LIVE(kRoundIcon, Tokens::componentRoundIconSize);
   TOKENS_LIVE(kPillHeight, Tokens::componentSliderHeight);
+  // The bus name andromeda-linkd exports a phone's player under, followed by the device id.
+  constexpr std::string_view kPhonePlayerPrefix = "org.mpris.MediaPlayer2.andromeda_link_";
   constexpr float kChevronGlyph = 12.0F;
   constexpr float kTileDragSlop = 8.0F;
   constexpr float kChevronHit = 12.0F; // the glyph sits at inset 12; the hit area grows by 6 each side
@@ -608,17 +611,36 @@ std::unique_ptr<Flex> QuickTab::create() {
   actions->setDirection(FlexDirection::Horizontal);
   actions->setAlign(FlexAlign::Center);
   actions->setGap(Tokens::componentRoundIconActionGap * s);
-  actions->addChild(makeGlyphButton(unused, "bell-ringing", s, [this] {
+  actions->addChild(makeGlyphButton(m_phoneRingButton, "bell-ringing", s, [this] {
     if (m_phoneRing != nullptr) {
       m_phoneRing->onClick();
     }
   }, Tokens::componentRoundIconAction));
-  actions->addChild(makeGlyphButton(unused, "screen-share", s, [this] {
+  actions->addChild(makeGlyphButton(m_phoneMirrorButton, "screen-share", s, [this] {
     if (m_services.link != nullptr && !m_phoneId.empty()) {
       m_services.link->mirror(m_phoneId);
     }
   }, Tokens::componentRoundIconAction));
   phone->addChild(std::move(actions));
+  auto phoneOpen = makeGlyphButton(unused, "chevron-right", s, [this] { m_openTab("detail-phone"); }, kChevronHit,
+                                   ButtonVariant::Ghost);
+  phoneOpen->setGlyphSize(kChevronGlyph * s);
+  if (phoneOpen->inputArea() != nullptr) {
+    constexpr float kOutset = 6.0F;
+    phoneOpen->inputArea()->setHitTestOutset({.left = kOutset * s, .top = kOutset * s, .right = kOutset * s, .bottom = kOutset * s});
+  }
+  if (phoneOpen->glyph() != nullptr) {
+    phoneOpen->glyph()->setColor(colorSpecFromRole(ColorRole::Label3));
+  }
+  phone->addChild(std::move(phoneOpen));
+  const auto openOnRightClick = [this](const InputArea::PointerData& d) {
+    if (d.pressed && d.button == BTN_RIGHT) {
+      m_openTab("detail-phone");
+    }
+  };
+  m_phoneName->setOnPress(openOnRightClick);
+  m_phoneStatus->setOnPress(openOnRightClick);
+  phoneIcon->setOnRightClick([this] { m_openTab("detail-phone"); });
   root->addChild(std::move(phone));
 
   root->addChild(makeFooter());
@@ -1114,7 +1136,18 @@ void QuickTab::syncMedia(Renderer& renderer) {
     return;
   }
   m_mediaTitle->setText(player->title);
-  m_mediaArtist->setText(joinedArtists(player->artists));
+  std::string artist = joinedArtists(player->artists);
+  if (m_services.link != nullptr && player->busName.starts_with(kPhonePlayerPrefix)) {
+    const std::string_view id = std::string_view(player->busName).substr(kPhonePlayerPrefix.size());
+    for (const LinkDevice& device : m_services.link->devices()) {
+      if (device.id == id) {
+        const std::string on = i18n::tr("control-center.detail.phone.on-phone", "phone", device.name);
+        artist = artist.empty() ? on : artist + " · " + on;
+        break;
+      }
+    }
+  }
+  m_mediaArtist->setText(artist);
   m_playButton->setGlyph(player->playbackStatus == "Playing" ? "player-pause" : "player-play");
 
   const std::string url = mpris::effectiveArtUrl(*player);
@@ -1137,27 +1170,24 @@ void QuickTab::syncMedia(Renderer& renderer) {
 }
 
 void QuickTab::syncPhone() {
-  const LinkDevice* phone = nullptr;
-  if (m_services.link != nullptr) {
-    for (const LinkDevice& device : m_services.link->devices()) {
-      if (device.connected) {
-        phone = &device;
-        break;
-      }
-    }
-  }
+  const LinkDevice* phone = m_services.link != nullptr ? phone::primary(*m_services.link) : nullptr;
   m_phoneCard->setVisible(phone != nullptr);
-  m_phoneId = phone != nullptr ? phone->id : std::string{};
+  m_phoneId = phone != nullptr && phone->connected ? phone->id : std::string{};
   if (phone == nullptr) {
     return;
   }
   m_phoneName->setText(phone->name);
+  m_phoneCard->setOpacity(phone->connected ? 1.0F : 0.6F);
+  m_phoneRingButton->setEnabled(phone->connected);
+  m_phoneMirrorButton->setEnabled(phone->connected);
   std::string line;
   const auto append = [&line](const std::string& part) { line += line.empty() ? part : " · " + part; };
-  if (const LinkStatus* status = m_services.link->status(phone->id); status != nullptr) {
+  if (!phone->connected) {
+    append(i18n::tr("bar.widgets.phone.not-connected"));
+  } else if (const LinkStatus* status = m_services.link->status(phone->id); status != nullptr) {
     append(std::format("{}%", status->battery));
   }
-  if (const std::uint32_t unread = m_services.link->notificationCount(phone->id); unread > 0) {
+  if (const std::uint32_t unread = m_services.link->notificationCount(phone->id); phone->connected && unread > 0) {
     append(i18n::tr("control-center.quick.notifications", "count", unread));
   }
   m_phoneStatus->setText(line);

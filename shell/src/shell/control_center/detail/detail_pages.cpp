@@ -1,6 +1,7 @@
 #include "shell/control_center/detail/detail_pages.h"
 
 #include "dbus/bluetooth/bluetooth_service.h"
+#include "dbus/link/link_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
 #include "dbus/power/power_profiles_service.h"
@@ -9,12 +10,16 @@
 #include "notification/notification_manager.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/control_center/tabs/bluetooth_tab.h"
+#include "shell/phone/phone_state.h"
 #include "shell/panel/panel_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/glyph.h"
 #include "ui/controls/input.h"
+#include "ui/controls/label.h"
 #include "ui/controls/toggle.h"
+#include "ui/dialogs/file_dialog.h"
 #include "ui/style.h"
 
 #include <algorithm>
@@ -842,6 +847,222 @@ namespace control_center {
     if (modules == nullptr && networks == nullptr) {
       addEmpty("search", tr("control-center.detail.search.none"), "");
     }
+  }
+
+  // ---- Phone ----
+
+  namespace {
+
+    std::string capitalized(std::string text) {
+      if (!text.empty()) {
+        text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+      }
+      return text;
+    }
+
+    std::unique_ptr<Flex> chip(std::string_view glyphName, const std::string& text, float s) {
+      auto g = std::make_unique<Glyph>();
+      g->setGlyph(glyphName);
+      g->setGlyphSize(Tokens::sizeSymbol * s);
+      g->setColor(colorSpecFromRole(ColorRole::Label2));
+      auto l = std::make_unique<Label>();
+      l->setFontSize(Tokens::typeFootnote.size * s);
+      l->setLineHeight(Tokens::typeFootnote.line * s);
+      l->setColor(colorSpecFromRole(ColorRole::Label1));
+      l->setText(text);
+      return ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s}, std::move(g), std::move(l));
+    }
+
+  } // namespace
+
+  const LinkDevice* PhoneDetailPage::device() const { return m_link != nullptr ? phone::primary(*m_link) : nullptr; }
+
+  std::string PhoneDetailPage::headerTitle() const {
+    const LinkDevice* phone = device();
+    return phone != nullptr ? phone->name : std::string{};
+  }
+
+  std::vector<PhoneDetailPage::PhoneNotification> PhoneDetailPage::phoneNotifications(const std::string& deviceId) const {
+    constexpr std::size_t kMaxShown = 3;
+    std::vector<PhoneNotification> out;
+    if (m_notifications == nullptr) {
+      return out;
+    }
+    const std::string prefix = deviceId + "/";
+    const auto& history = m_notifications->history();
+    for (auto it = history.rbegin(); it != history.rend() && out.size() < kMaxShown; ++it) {
+      const Notification& n = it->notification;
+      if (!it->active || !n.group.has_value() || !n.group->starts_with(prefix)) {
+        continue;
+      }
+      bool canReply = false;
+      for (std::size_t i = 0; i < n.actions.size(); i += 2) {
+        canReply = canReply || n.actions[i] == "inline-reply";
+      }
+      out.push_back({n.id, n.summary.empty() ? n.appName : n.summary, n.body, canReply});
+    }
+    return out;
+  }
+
+  bool PhoneDetailPage::deferRebuild() const {
+    return m_reply != nullptr
+        && (!m_reply->value().empty() || PanelManager::instance().inputDispatcher().focusedArea() == m_reply->inputArea());
+  }
+
+  std::string PhoneDetailPage::structureKey() const {
+    const LinkDevice* phone = device();
+    if (phone == nullptr) {
+      return "none";
+    }
+    std::string key = std::format("{}|{}|{}|{}", phone->id, phone->name, phone->connected, m_replyId);
+    if (const LinkStatus* status = m_link->status(phone->id); status != nullptr) {
+      key += std::format("|{}|{}|{}", status->battery, status->charging, status->network);
+    }
+    if (const LinkControls* controls = m_link->controls(phone->id); controls != nullptr) {
+      key += "|" + controls->ringer;
+    }
+    key += m_link->phoneRinging(phone->id) ? "|r" : "|-";
+    key += std::format("|{}", m_link->notificationCount(phone->id));
+    for (const PhoneNotification& n : phoneNotifications(phone->id)) {
+      key += std::format("|{}", n.id);
+    }
+    return key;
+  }
+
+  void PhoneDetailPage::addReplyForm(Flex& card, std::uint32_t id) {
+    const float s = contentScale();
+    auto form = std::make_unique<Flex>();
+    form->setDirection(FlexDirection::Horizontal);
+    form->setAlign(FlexAlign::Center);
+    form->setGap(Tokens::spaceP8 * s);
+    form->setPadding(Tokens::spaceP4 * s, Tokens::componentListRowInset * s, Tokens::spaceP8 * s,
+                     Tokens::componentListRowInset * s);
+    const auto send = [this, id](const std::string& text) {
+      if (text.empty() || m_notifications == nullptr) {
+        return;
+      }
+      (void)m_notifications->invokeInlineReply(id, text);
+      m_replyId = 0;
+      requestRebuild();
+    };
+    form->addChild(ui::input({
+        .out = &m_reply,
+        .placeholder = tr("control-center.detail.phone.reply"),
+        .surfaceOpacity = panelCardOpacity(),
+        .surfaceRole = ColorRole::SolidRegular,
+        .flexGrow = 1.0F,
+        .onSubmit = send,
+    }));
+    auto sendButton = std::make_unique<Button>();
+    sendButton->setVariant(ButtonVariant::Primary);
+    sendButton->setText(tr("control-center.detail.phone.send"));
+    sendButton->setControlHeight(Tokens::componentButtonHeightS * s);
+    sendButton->setRadius(Tokens::componentButtonRadius * s);
+    sendButton->setPadding(0.0F, Tokens::componentButtonInsetS * s, 0.0F, Tokens::componentButtonInsetS * s);
+    sendButton->setOnClick([this, send] {
+      if (m_reply != nullptr) {
+        send(m_reply->value());
+      }
+    });
+    form->addChild(std::move(sendButton));
+    card.addChild(std::move(form));
+  }
+
+  void PhoneDetailPage::build() {
+    const LinkDevice* phone = device();
+    if (phone == nullptr) {
+      return;
+    }
+    const float s = contentScale();
+    const std::string id = phone->id;
+    const bool connected = phone->connected;
+
+    Flex* chips = addGroup();
+    auto chipRow = std::make_unique<Flex>();
+    chipRow->setDirection(FlexDirection::Horizontal);
+    chipRow->setAlign(FlexAlign::Center);
+    chipRow->setJustify(FlexJustify::SpaceBetween);
+    chipRow->setMinHeight(Tokens::sizeRow * s);
+    if (!connected) {
+      chipRow->addChild(chip("device-mobile-off", tr("bar.widgets.phone.not-connected"), s));
+    } else {
+      const LinkStatus* status = m_link->status(id);
+      if (status != nullptr) {
+        chipRow->addChild(chip(phone::glyph(*phone, status), phone::batteryText(*status), s));
+        chipRow->addChild(chip("wifi", capitalized(i18n::tr("bar.widgets.phone.network-" + status->network)), s));
+      }
+      const LinkControls* controls = m_link->controls(id);
+      if (controls != nullptr && !controls->ringer.empty()) {
+        chipRow->addChild(chip(phone::ringerGlyph(controls->ringer), i18n::tr("bar.widgets.phone.ringer-" + controls->ringer), s));
+      }
+    }
+    chips->addChild(std::move(chipRow));
+
+    Flex* actions = addGroup();
+    const bool ringing = m_link->phoneRinging(id);
+    DetailRow ring;
+    ring.glyph = "bell-ringing";
+    ring.title = i18n::tr(ringing ? "bar.widgets.phone.stop-ring" : "bar.widgets.phone.ring");
+    ring.enabled = connected;
+    ring.onClick = [this, id, ringing] {
+      m_link->ring(id, !ringing);
+      requestRebuild();
+    };
+    addRow(*actions, ring);
+    DetailRow clipboard;
+    clipboard.glyph = "clipboard";
+    clipboard.title = i18n::tr("bar.widgets.phone.send-clipboard");
+    clipboard.enabled = connected;
+    clipboard.onClick = [this, id] { m_link->shareClipboard(id); };
+    addRow(*actions, clipboard);
+    DetailRow files;
+    files.glyph = "file-upload";
+    files.title = tr("control-center.detail.phone.files");
+    files.enabled = connected;
+    files.onClick = [this, id] {
+      FileDialogOptions options;
+      options.mode = FileDialogMode::Open;
+      options.title = tr("control-center.detail.phone.files-title");
+      (void)FileDialog::open(std::move(options), [this, id](std::optional<std::filesystem::path> picked) {
+        if (picked.has_value() && m_link != nullptr) {
+          (void)m_link->sendFiles(id, {picked->string()});
+        }
+      });
+    };
+    addRow(*actions, files);
+
+    if (!connected) {
+      return;
+    }
+    const std::vector<PhoneNotification> shown = phoneNotifications(id);
+    const std::uint32_t count = m_link->notificationCount(id);
+    if (shown.empty() && count == 0) {
+      addEmpty("bell-off", tr("control-center.detail.phone.no-notifications"),
+               tr("control-center.detail.phone.no-notifications-body"));
+      return;
+    }
+    Flex* card = addGroup(i18n::tr("control-center.detail.phone.notifications", "count", std::max(count, static_cast<std::uint32_t>(shown.size()))));
+    for (const PhoneNotification& n : shown) {
+      DetailRow row;
+      row.glyph = "bell";
+      row.title = n.title;
+      row.secondary = n.body;
+      if (n.canReply) {
+        row.trailing = tr("control-center.detail.phone.reply");
+        row.onClick = [this, nid = n.id] {
+          m_replyId = m_replyId == nid ? 0 : nid;
+          requestRebuild();
+        };
+      }
+      addRow(*card, row);
+      if (n.canReply && m_replyId == n.id) {
+        addReplyForm(*card, n.id);
+      }
+    }
+  }
+
+  std::vector<DetailPage::FooterButton> PhoneDetailPage::footerButtons() {
+    return {{tr("control-center.detail.phone.open-link"), [] { LinkService::openApp(); }}};
   }
 
 } // namespace control_center
