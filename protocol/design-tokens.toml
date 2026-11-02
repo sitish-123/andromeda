@@ -6,8 +6,8 @@
 # Every length is logical px at ui_scale 1 and a multiple of 4 (rulebook R1); 2 only inside controls of 32 or less.
 
 [radius]  # rulebook 2.1; nested radius = outer radius - padding (R7)
-# Corner smoothing (0 = circular arc, 0.6 = iOS continuous corner). A corner of radius r becomes a superellipse that
-# starts r x (1 + 0.88 s) from the corner with exponent 2 + 5 s; a corner that cannot grow (pill, circle) stays round.
+# Corner smoothing (0 = circular arc, 0.6 = Figma's iOS match). Our fit: a corner of radius r starts r x (1 + 0.88 s)
+# from the corner, exponent 2 + 5 s; a corner that cannot grow (pill, circle) stays round.
 smoothing = 0.6
 r4 = 4.0
 r8 = 8.0

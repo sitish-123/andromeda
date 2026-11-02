@@ -542,8 +542,8 @@ are not (§3).</p>
 <p><strong>R2 Height from content.</strong> A container's height is its content height plus two paddings. Only controls and rows
 take a fixed height from §2.1; their vertical padding follows: (height - line height) / 2.
 Example: row 40 with a 16 px line: padding 12. Two-line row 56: 16 + 16 lines, padding 12.</p>
-<p><strong>R3 Proximity ladder.</strong> Inside a group the gap is 4 or 8. Between groups the gap is at least twice the gap inside
-them. A container's padding is at least its largest inside gap. Lines of one text block have gap 0 (the line
+<p><strong>R3 Proximity ladder.</strong> Inside a group the gap is 4 or 8. Between groups the gap is at least one scale step
+larger than inside them (8 -&gt; 12 or 16, 4 -&gt; 8); Fluent 2 uses the same 8 -&gt; 12 step. A container's padding is at least its largest inside gap. Lines of one text block have gap 0 (the line
 heights space them).</p>
 <p><strong>R4 Symbol to label.</strong> A 12 or 16 symbol has gap 8 to its label; a 20 or larger symbol, or a round icon, has gap 12.</p>
 <p><strong>R5 End caps.</strong> In a capsule, a symbol at the end sits concentric with the cap: inset = (height - symbol) / 2.
@@ -557,7 +557,8 @@ indents its text past it (the separator indents with it); every row without one 
 <p><strong>R7 Concentric radius.</strong> A shape inside another shape, at padding p from it, has radius = outer radius - p.
 Choose p so the result lands on the radius scale. Below 4 the result is 4. Capsules and circles stay capsules and
 circles. The focus ring is concentric outward: ring radius = shape radius + ring offset.
-Corners are continuous: superellipse with smoothing 0.6 (docs/design-system.md rule 14), the same formula in the
+Corners are continuous: corner smoothing 0.6 as Figma defines it (its match to iOS; built from Bezier curves,
+not a true superellipse; our extent and exponent formula is our own fit), the same formula in the
 shell, the compositor mask and the CSS. A corner too small to grow falls back toward a circular arc.</p>
 <p><strong>R8 Chrome gap.</strong> Floating chrome keeps 8 from the screen edge and from other chrome: bar islands, the dock, sheets
 under their island, banners, tiled windows (window to window and window to screen or bar). One number: 8.</p>
@@ -565,7 +566,10 @@ under their island, banners, tiled windows (window to window and window to scree
 battery symbol (wider than tall) centres on its body, not its tip; a glyph in a circle under 24 uses size 12.</p>
 <h3 id="ch-2-2-3-hit-targets">2.3 Hit targets</h3>
 <p>Pointer: 24 x 24 minimum, invisible hit area extends a smaller visual to 24. Touch mode (tablet, touch input seen):
-40 minimum, rows grow to 48 / 56 and controls to 40. Targets never overlap; a gap of 4 or more splits them.</p>
+48 minimum (Material 48 dp, Apple 44 pt), rows grow to 56 / 72 and controls to 48 (§2.1). Targets never overlap; a gap of 4 or more splits them.</p>
+<p>Sources for this chapter: <code>.agent/research-space.md</code> (Fluent 2, WinUI, libadwaita, Material 3, Apple HIG and WWDC25
+layout talks, WCAG 2.5.8, Figma corner smoothing), checked 2026-11-02. Apple publishes no macOS row heights in text;
+32 control and 40 / 56 rows match Fluent and WinUI exactly.</p>
 </section>
 <!-- ============ FOUNDATIONS ============ -->
 <section class="demo" id="demo-1">
@@ -2168,7 +2172,7 @@ row says so.</p>
 <tbody>
 <tr>
 <td>frame</td>
-<td>r 20; E4 active, E3 inactive; 0.5 px stroke</td>
+<td>r 20 with the 40 title bar; r 24 with the 48 app header (concentric with its 32 controls at inset 8); E4 active, E3 inactive; 0.5 px stroke</td>
 </tr>
 <tr>
 <td>title bar (server-side)</td>
@@ -2180,7 +2184,7 @@ row says so.</p>
 </tr>
 <tr>
 <td>app header (our apps)</td>
-<td>h 48: back / forward icon buttons 32 at inset 8, title-2 g 12; window buttons as above at inset 12 (vertically centred; not concentric, the header is taller than the corner)</td>
+<td>h 48: back / forward icon buttons 32 at inset 8, title-2 g 12; window buttons as above at inset 12 (vertically centred); window radius 24</td>
 </tr>
 <tr>
 <td>resize</td>
