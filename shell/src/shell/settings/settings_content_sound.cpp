@@ -88,6 +88,45 @@ namespace settings {
       card->addChild(std::move(mute));
     }
 
+    // One row per playing program: name, its own volume, and a mute button.
+    void addProgramCard(Flex& content, PipeWireService& audio, const SettingsSoundContext& ctx) {
+      const float scale = ctx.scale;
+      const auto& programs = audio.state().programOutputs;
+      if (programs.empty()) {
+        return;
+      }
+      addHeader(content, i18n::tr("settings.sound.apps"), nullptr, scale);
+      Flex* card = addCard(content, scale);
+      for (const auto& program : programs) {
+        std::string name = !program.applicationName.empty() ? program.applicationName
+            : !program.streamTitle.empty()                  ? program.streamTitle
+                                                             : program.description;
+        auto r = row(scale);
+        r->addChild(title(std::move(name), scale));
+        Slider* slider = nullptr;
+        r->addChild(ui::slider({
+            .out = &slider,
+            .minValue = 0.0,
+            .maxValue = 1.0,
+            .step = 0.01,
+            .value = program.volume,
+            .width = 180.0F * scale,
+            .onValueChanged = [&audio, id = program.id](double v) {
+              audio.setProgramOutputVolume(id, static_cast<float>(v));
+            },
+        }));
+        r->addChild(iconButton(program.muted ? "volume-off" : "volume",
+                               i18n::tr("settings.sound.mute"), scale,
+                               [&audio, id = program.id, muted = program.muted] {
+                                 audio.setProgramOutputMuted(id, !muted);
+                               }));
+        if (ctx.programSliders != nullptr) {
+          ctx.programSliders->emplace_back(program.id, slider);
+        }
+        card->addChild(std::move(r));
+      }
+    }
+
   } // namespace
 
   void addSettingsSound(Flex& content, const SettingsSoundContext& ctx) {
@@ -97,6 +136,7 @@ namespace settings {
     }
     addDeviceCard(content, true, ctx);
     addDeviceCard(content, false, ctx);
+    addProgramCard(content, *ctx.audio, ctx);
   }
 
   std::string soundDeviceSignature(const PipeWireService* audio) {
@@ -110,6 +150,10 @@ namespace settings {
     }
     out += '|';
     for (const auto& node : state.sources) {
+      out += std::format("{}{},", node.id, node.muted ? "m" : "");
+    }
+    out += '|';
+    for (const auto& node : state.programOutputs) {
       out += std::format("{}{},", node.id, node.muted ? "m" : "");
     }
     return out;

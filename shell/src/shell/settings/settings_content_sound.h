@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 class Flex;
 class PipeWireService;
@@ -14,6 +17,8 @@ namespace settings {
     // Set to the volume sliders, so an outside volume change moves them without a rebuild.
     Slider** outputSlider = nullptr;
     Slider** inputSlider = nullptr;
+    // Filled with each program stream's slider, for the same reason.
+    std::vector<std::pair<std::uint32_t, Slider*>>* programSliders = nullptr;
   };
 
   // Sound page (direction A, .agent/DESIGN.md): Output and Input cards with the device list (current one checked) and
