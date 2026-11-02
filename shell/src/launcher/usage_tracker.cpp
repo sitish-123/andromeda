@@ -138,6 +138,19 @@ void UsageTracker::ensureLoaded() {
       }
     }
   }
+  // Counts from before use times were kept migrate as used now (docs/search.md §3).
+  const auto now =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  bool migrated = false;
+  for (const auto& [provider, ids] : m_counts) {
+    auto& times = m_lastUsed[provider];
+    for (const auto& [id, count] : ids) {
+      migrated |= times.try_emplace(id, now).second;
+    }
+  }
+  if (migrated) {
+    save();
+  }
 }
 
 void UsageTracker::save() const {

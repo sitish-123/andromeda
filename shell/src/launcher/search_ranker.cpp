@@ -9,7 +9,7 @@ namespace {
 
   constexpr double kUsageScorePerCount = 0.1;
   constexpr double kTypedUsageScoreCap = 0.5;
-  constexpr double kHalfLifeDays = 14.0;
+  constexpr double kHalfLifeDays = 7.0;
   constexpr double kSecondsPerDay = 86400.0;
 
 } // namespace
