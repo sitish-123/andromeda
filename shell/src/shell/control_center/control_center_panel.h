@@ -234,6 +234,8 @@ private:
   TabId m_tabTransitionOutgoing = TabId::Home;
   float m_tabTransitionProgress = 1.0F;
   int m_tabTransitionDirection = 1;
+  // Quick to a detail page or back: parallax (P12 deeper level) instead of a side-by-side slide.
+  bool m_tabTransitionDeeper = false;
   bool m_tabTransitionActive = false;
   bool m_firstOpenAfterCreate = false;
 };

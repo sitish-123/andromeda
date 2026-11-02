@@ -698,7 +698,10 @@ void ControlCenterPanel::applyTabContainerVisibility(TabId activeTab) {
 }
 
 void ControlCenterPanel::layoutTabContainers(float bodyWidth, float bodyHeight) {
-  const float travel = bodyHeight > 0.0F ? bodyHeight : 0.0F;
+  // P12: pages slide side by side with a 32 gap; a deeper level moves the lower page 30 % and dims it.
+  constexpr float kPageGap = 32.0F;
+  constexpr float kParallax = 0.3F;
+  const float travel = bodyWidth > 0.0F ? bodyWidth + kPageGap * m_contentScale : 0.0F;
   const float contentHeight = tabContentHeight(bodyHeight);
   for (std::size_t i = 0; i < kTabCount; ++i) {
     auto* container = m_tabContainers[i];
@@ -708,24 +711,39 @@ void ControlCenterPanel::layoutTabContainers(float bodyWidth, float bodyHeight) 
 
     container->setSize(bodyWidth, contentHeight);
 
-    float offsetY = 0.0F;
+    float offsetX = 0.0F;
     float opacity = 1.0F;
+    int z = 0;
     const auto tabId = static_cast<TabId>(i);
     if (m_tabTransitionActive && travel > 0.0F) {
       const auto direction = static_cast<float>(m_tabTransitionDirection);
-      if (tabId == m_tabTransitionOutgoing) {
-        offsetY = -direction * travel * m_tabTransitionProgress;
-        opacity = 1.0F - 0.3F * m_tabTransitionProgress;
-      } else if (tabId == m_activeTab) {
-        offsetY = direction * travel * (1.0F - m_tabTransitionProgress);
-        opacity = 0.7F + 0.3F * m_tabTransitionProgress;
+      const float p = m_tabTransitionProgress;
+      const bool outgoing = tabId == m_tabTransitionOutgoing;
+      const bool incoming = tabId == m_activeTab;
+      if (m_tabTransitionDeeper) {
+        // The detail page is the upper layer; the sheet is glass, so the lower page fades out under it.
+        const bool forward = direction > 0.0F;
+        const bool upper = forward ? incoming : outgoing;
+        const float shown = forward ? p : 1.0F - p;
+        if (upper && (incoming || outgoing)) {
+          offsetX = bodyWidth * (1.0F - shown);
+          z = 1;
+        } else if (incoming || outgoing) {
+          offsetX = -kParallax * bodyWidth * shown;
+          opacity = 1.0F - shown;
+        }
+      } else if (outgoing) {
+        offsetX = -direction * travel * p;
+      } else if (incoming) {
+        offsetX = direction * travel * (1.0F - p);
+        z = 1;
       }
     }
 
-    container->setPosition(0.0F, offsetY);
+    container->setPosition(offsetX, 0.0F);
     container->setOpacity(opacity);
     if (m_tabTransitionActive) {
-      container->setZIndex(tabId == m_activeTab ? 1 : 0);
+      container->setZIndex(z);
     } else {
       container->setZIndex(0);
     }
@@ -777,7 +795,8 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
 
   const int fromOrdinal = visibleTabOrdinal(from);
   const int toOrdinal = visibleTabOrdinal(to);
-  m_tabTransitionDirection = toOrdinal >= fromOrdinal ? 1 : -1;
+  m_tabTransitionDeeper = (from == TabId::Quick && isDetailTab(to)) || (isDetailTab(from) && to == TabId::Quick);
+  m_tabTransitionDirection = m_tabTransitionDeeper ? (isDetailTab(to) ? 1 : -1) : (toOrdinal >= fromOrdinal ? 1 : -1);
 
   for (const auto& meta : kTabs) {
     const std::size_t idx = tabIndex(meta.id);
