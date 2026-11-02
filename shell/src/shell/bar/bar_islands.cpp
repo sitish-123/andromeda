@@ -296,12 +296,8 @@ namespace bar_detail {
       const bool shown = section != nullptr && section->visible() && main > 0.5F;
       island->setVisible(shown);
       Box* shadow = instance.islandShadows[i];
-      Box* edge = instance.islandEdges[i];
       if (shadow != nullptr) {
         shadow->setVisible(shown);
-      }
-      if (edge != nullptr) {
-        edge->setVisible(shown);
       }
       if (!shown) {
         continue;
@@ -323,12 +319,6 @@ namespace bar_detail {
         shadow->setPosition(island->x(), island->y());
         shadow->setSize(w, h);
         shadow->setRadius(std::min(w, h) * 0.5F);
-      }
-      if (edge != nullptr) {
-        const float r = std::min(w, h) * 0.5F;
-        edge->setPosition(island->x() + r * 0.55F, island->y());
-        edge->setSize(std::max(0.0F, w - r * 1.1F), kIslandStrokeWidth);
-        edge->setStyle(RoundedRectStyle{.fill = islandEdgeColor(), .radius = Radii{kIslandStrokeWidth * 0.5F}});
       }
     }
   }

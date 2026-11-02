@@ -1053,10 +1053,6 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
       island = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
       island->setHitTestVisible(false);
       island->setVisible(instance.barConfig.islands);
-      auto edge = ui::box();
-      edge->setHitTestVisible(false);
-      edge->setVisible(false);
-      instance.islandEdges[i] = static_cast<Box*>(instance.slideRoot->addChild(std::move(edge)));
     }
 
     // Shadow — bar shape copy rendered with large SDF softness to simulate a blurred drop shadow.
@@ -1192,6 +1188,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
       inst->surface->requestRedraw();
     }
   });
+  applyBackgroundPalette(instance);
   if (instance.contentClip != nullptr) {
     instance.contentClip->setPosition(barAreaX, barAreaY);
     instance.contentClip->setSize(barAreaW, barAreaH);

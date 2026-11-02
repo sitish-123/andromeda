@@ -129,7 +129,6 @@ private:
     InputDispatcher inputDispatcher; // after sceneRoot: it points into the scene
     bool pointerInside = false;
     Box* shadow = nullptr; // glass drop shadow of the rest pill
-    Box* edge = nullptr;   // glass top edge highlight of the rest pill
     float pad = 0.0F;      // surface rows above the island, for the shadow bleed
     Box* material = nullptr;
     Box* tint = nullptr;

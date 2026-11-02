@@ -1283,7 +1283,6 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   restArea->addChild(std::move(material));
   restArea->addChild(std::move(tint));
   restArea->addChild(std::move(ring));
-  restArea->addChild(ui::box({.out = &inst.edge}));
   inst.sceneRoot->addChild(std::move(restArea));
   inst.inputDispatcher.setSceneRoot(inst.sceneRoot.get());
   inst.inputDispatcher.setCursorShapeCallback([this](std::uint32_t serial, std::uint32_t shape) {
@@ -1631,13 +1630,6 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   // With the elevation property the compositor draws the one shadow along the clip; the shell box is the fallback.
   const bool compositorShadow = inst.dsk != nullptr && inst.dsk->hasElevationProperty();
   inst.shadow->setOpacity(compositorShadow ? 0.0F : restMix);
-  {
-    const float r = cur.radius;
-    inst.edge->setStyle(RoundedRectStyle{.fill = islandEdgeColor(), .radius = Radii{kIslandStrokeWidth * 0.5F}});
-    inst.edge->setPosition(cur.x + r * 0.55F, cur.y);
-    inst.edge->setSize(std::max(0.0F, cur.w - r * 1.1F), kIslandStrokeWidth);
-    inst.edge->setOpacity(restMix);
-  }
 
   for (std::size_t i = 0; i < kFaceCount; ++i) {
     const auto f = static_cast<Face>(i);
