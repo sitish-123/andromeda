@@ -106,7 +106,6 @@ namespace settings {
     );
     [[nodiscard]] std::unique_ptr<Flex>
     makeStatusBadge(std::string_view label, const ColorSpec& fill, const ColorSpec& color, bool matchResetHeight);
-    [[nodiscard]] std::unique_ptr<Flex> makeAdvancedBadge();
     // Resets several config paths as one setting (e.g. a range slider's low + high paths).
     [[nodiscard]] std::unique_ptr<Button>
     makeGroupedResetButton(std::vector<std::vector<std::string>> paths, std::function<void()> onConfirmed = nullptr);

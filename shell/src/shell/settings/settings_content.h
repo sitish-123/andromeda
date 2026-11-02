@@ -3,6 +3,7 @@
 #include "shell/settings/settings_registry.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -38,6 +39,8 @@ namespace settings {
     std::function<void(const std::string&)> onSelect;
   };
 
+  enum class RowScope : std::uint8_t { Main, Expert };
+
   struct SettingsContentContext {
     const Config& config;
     ConfigService* configService = nullptr;
@@ -47,7 +50,12 @@ namespace settings {
     std::string_view selectedSection;
     const BarConfig* selectedBar = nullptr;
     std::string_view selectedMonitorOverride;
-    bool showAdvanced = false;
+    // The page's own rows (Main) or the rows behind its last row (Expert).
+    RowScope rowScope = RowScope::Main;
+    // Filters the expert rows of the open page; empty shows all.
+    std::string_view pageQuery;
+    // Key of the row a search result opened; drawn highlighted and scrolled into view.
+    std::string_view highlightKey;
     std::vector<SelectOption> batteryDeviceOptions;
 
     std::string& editingWidgetName;
@@ -60,14 +68,14 @@ namespace settings {
     std::string& pendingGestureVerb;
     std::string& actionsExpandedFor;
     std::unordered_map<std::string, std::unordered_set<std::string>>& expandedGroupsByPage;
-    // Fixed page title row above the group pills, null when no host exists.
-    Flex* pageTitleRow = nullptr;
-    // Sticky pill row above the content scroll view, null when no host exists.
-    Flex* groupJumpRow = nullptr;
     // Bindable IPC commands for the gesture action picker: value = command, label = usage,
     // description = the command's --help text.
     std::vector<GestureActionOption> actionCatalog;
 
+    // Opens the expert rows of the open page.
+    std::function<void()> openExpert;
+    // Opens the page a search result belongs to, with the row highlighted.
+    std::function<void(const SettingEntry&)> openSearchResult;
     std::function<void()> requestRebuild;
     std::function<void()> requestContentRebuild;
     std::function<void()> resetContentScroll;
@@ -105,6 +113,10 @@ namespace settings {
     std::function<void()> closeHostedEditor;
     bool supportsTaskbarWorkspaceGrouping = true;
   };
+
+  // Global search: a list of matching rows from every page, expert ones included; a result opens its page.
+  std::size_t
+  addSettingsSearchResults(Flex& content, const std::vector<SettingEntry>& registry, const SettingsContentContext& ctx);
 
   std::size_t
   addSettingsContentSections(Flex& content, const std::vector<SettingEntry>& registry, SettingsContentContext ctx);

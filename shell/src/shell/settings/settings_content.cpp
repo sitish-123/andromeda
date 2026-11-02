@@ -7,6 +7,8 @@
 #include "notification/notification_filter.h"
 #include "shell/settings/bar_widget_editor.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_pages.h"
+#include "shell/settings/settings_selection_style.h"
 #include "shell/settings/settings_control_factory.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
@@ -23,6 +25,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -66,7 +69,7 @@ namespace settings {
         .config = ctx.config,
         .configService = ctx.configService,
         .scale = ctx.scale,
-        .showAdvanced = ctx.showAdvanced,
+        .showAdvanced = true,
         .batteryDeviceOptions = ctx.batteryDeviceOptions,
         .editingWidgetName = ctx.editingWidgetName,
         .editingCapsuleGroupId = ctx.editingCapsuleGroupId,
@@ -142,58 +145,12 @@ namespace settings {
   std::size_t
   addSettingsContentSections(Flex& content, const std::vector<SettingEntry>& registry, SettingsContentContext ctx) {
     const float scale = ctx.scale;
-
-    const auto sectionLabel = [](SettingsSection section) { return i18n::tr(settingsSectionLabelKey(section)); };
+    if (!ctx.searchQuery.empty()) {
+      return addSettingsSearchResults(content, registry, ctx);
+    }
 
     const auto groupLabel = [](std::string_view group) -> std::string {
       return i18n::tr("settings.navigation.groups." + std::string(group));
-    };
-
-    const auto makeSection = [&](std::string_view title, SettingsSection sectionKey) -> Flex* {
-      auto titleRow = ui::row(
-          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-          ui::glyph({
-              .glyph = std::string(sectionGlyph(sectionKey)),
-              .glyphSize = Style::fontSizeHeader * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
-          }),
-          makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
-      );
-      auto section = ui::column({
-          .align = FlexAlign::Stretch,
-          .gap = Style::spaceSm * scale,
-          .padding = Style::spaceLg * scale,
-          .fill = clearColorSpec(),
-      });
-      if (ctx.pageTitleRow != nullptr && ctx.searchQuery.empty() && ctx.pageTitleRow->children().empty()) {
-        ctx.pageTitleRow->addChild(std::move(titleRow));
-      } else {
-        section->addChild(std::move(titleRow));
-      }
-      auto* raw = section.get();
-      content.addChild(std::move(section));
-      return raw;
-    };
-
-    const auto addGroupLabel = [&](Flex& section, std::string_view title, bool isFirst) {
-      if (title.empty()) {
-        return;
-      }
-      if (!isFirst) {
-        section.addChild(
-            ui::column(
-                {.align = FlexAlign::Stretch,
-                 .gap = Style::spaceSm * scale,
-                 .configure = [scale](Flex& flex) { flex.setPadding(Style::spaceSm * scale, 0.0F, 0.0F, 0.0F); }},
-                ui::separator(),
-                makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
-            )
-        );
-      } else {
-        section.addChild(
-            makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
-        );
-      }
     };
 
     SettingsControlFactory factory(ctx);
@@ -1238,17 +1195,13 @@ namespace settings {
 
     std::string activeSectionKey;
     std::string activeGroupKey;
-    Flex* activeSection = nullptr;
     Flex* activeGroupBody = nullptr;
     constexpr std::size_t kKeybindsPerRow = 2;
     Flex* activeKeybindRow = nullptr;
     std::size_t activeKeybindRowCount = 0;
     std::size_t visibleEntries = 0;
-    // Very short queries (one or two letters) match hundreds of entries and building the subtree for every match is
-    // costly. Cap how many results we render and hint that the list was truncated.
-    constexpr std::size_t kMaxSearchResults = 50;
-    bool truncated = false;
-    const std::string normalizedSearchQuery = normalizedSettingQuery(ctx.searchQuery);
+    std::vector<Flex*> cardBodies;
+    const std::string normalizedPageQuery = normalizedSettingQuery(ctx.pageQuery);
 
     BarWidgetEditorContext barWidgetEditorCtx = makeBarWidgetEditorContext(factory);
 
@@ -1259,9 +1212,14 @@ namespace settings {
     const std::string_view selectedBarName =
         ctx.selectedBar != nullptr ? std::string_view{ctx.selectedBar->name} : std::string_view{};
     const std::string_view selectedMonitorMatch = ctx.selectedMonitorOverride;
-    const std::optional<SettingsSection> selectedSettingsSection =
-        ctx.selectedSection != "bar" && ctx.selectedSection != "dock" ? settingsSectionFromId(ctx.selectedSection)
-                                                                      : std::nullopt;
+
+    const auto entryOnOpenPage = [&](const SettingEntry& entry) -> bool {
+      return settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, selectedMonitorMatch)
+          && isEntryVisible(entry);
+    };
+    const std::size_t expertEntryCount = static_cast<std::size_t>(std::ranges::count_if(
+        registry, [&](const SettingEntry& entry) { return settingEntryIsExpert(entry) && entryOnOpenPage(entry); }
+    ));
 
     // Coalesce entries by (content section, group) so each group renders once even if its entries were
     // declared non-contiguously in the registry. See coalesceByGroupKey().
@@ -1269,189 +1227,107 @@ namespace settings {
       return barSettingContentSectionKey(registry[i]) + '\x1F' + registry[i].group;
     });
     const auto entryPassesFilters = [&](const SettingEntry& entry) -> bool {
-      if (ctx.searchQuery.empty()
-          && !ctx.selectedSection.empty()
-          && ctx.selectedSection != "bar"
-          && ctx.selectedSection != "dock"
-          && (!selectedSettingsSection.has_value() || entry.section != *selectedSettingsSection)) {
+      if (!entryOnOpenPage(entry)) {
         return false;
       }
-      if (ctx.searchQuery.empty()
-          && ctx.selectedSection == "bar"
-          && !settingEntryMatchesBarNavigation(entry, selectedBarName, selectedMonitorMatch)) {
-        return false;
+      if (ctx.rowScope == RowScope::Main) {
+        return !settingEntryIsExpert(entry);
       }
-      if (ctx.searchQuery.empty()
-          && ctx.selectedSection == "dock"
-          && !settingEntryMatchesDockNavigation(entry, selectedMonitorMatch)) {
-        return false;
-      }
-      if (!ctx.showAdvanced && entry.advanced) {
-        return false;
-      }
-      if (!isEntryVisible(entry)) {
-        return false;
-      }
-      return matchesNormalizedSettingQuery(entry, normalizedSearchQuery);
+      return settingEntryIsExpert(entry) && matchesNormalizedSettingQuery(entry, normalizedPageQuery);
     };
-
-    std::string pageKey;
-    std::vector<std::string> pageGroupKeys;
-    if (ctx.searchQuery.empty()) {
-      std::unordered_set<std::string> seenGroupKeys;
-      for (const std::size_t entryIndex : entryOrder) {
-        const auto& entry = registry[entryIndex];
-        if (!entryPassesFilters(entry) || entry.group.empty()) {
-          continue;
-        }
-        if (pageKey.empty()) {
-          pageKey = barSettingContentSectionKey(entry);
-        }
-        if (seenGroupKeys.insert(entry.group).second) {
-          pageGroupKeys.push_back(entry.group);
-        }
-      }
-    }
-    // A page with several groups shows them as tabs, one group at a time; the page's entry in expandedGroupsByPage
-    // holds the open tab. settings_expand_all_groups lays every group out as a titled card instead.
-    const bool tabbedGroups =
-        ctx.searchQuery.empty() && pageGroupKeys.size() > 1 && !ctx.config.shell.settingsExpandAllGroups;
-    std::string selectedGroup;
-    if (tabbedGroups) {
-      auto& openTab = ctx.expandedGroupsByPage[pageKey];
-      if (openTab.size() != 1 || !std::ranges::contains(pageGroupKeys, *openTab.begin())) {
-        openTab = {pageGroupKeys.front()};
-      }
-      selectedGroup = *openTab.begin();
-      if (ctx.groupJumpRow != nullptr) {
-        for (const auto& group : pageGroupKeys) {
-          ctx.groupJumpRow->addChild(
-              ui::button({
-                  .text = groupLabel(group),
-                  .fontSize = Style::fontSizeCaption * scale,
-                  .variant = group == selectedGroup ? ButtonVariant::TabActive : ButtonVariant::Tab,
-                  .radius = Style::scaledRadiusMd(scale),
-                  .onClick = [&openTab, group, resetScroll = ctx.resetContentScroll,
-                              rebuild = ctx.requestContentRebuild]() {
-                    openTab = {group};
-                    resetScroll();
-                    rebuild();
-                  },
-              })
-          );
-        }
-      }
-    }
 
     for (const std::size_t entryIndex : entryOrder) {
       const auto& entry = registry[entryIndex];
-      if (!entryPassesFilters(entry) || (tabbedGroups && entry.group != selectedGroup)) {
+      if (!entryPassesFilters(entry)) {
         continue;
-      }
-      // Cap only once a genuinely-matching entry is about to be rendered, so the truncation hint never
-      // shows when exactly kMaxSearchResults entries matched and the remainder were filtered out anyway.
-      if (!ctx.searchQuery.empty() && visibleEntries >= kMaxSearchResults) {
-        truncated = true;
-        break;
       }
 
       const std::string contentSectionKey = barSettingContentSectionKey(entry);
       if (contentSectionKey != activeSectionKey) {
         activeSectionKey = contentSectionKey;
         activeGroupKey.clear();
+        activeGroupBody = nullptr;
         activeKeybindRow = nullptr;
         activeKeybindRowCount = 0;
-        std::string displayTitle;
-        if (entry.section == SettingsSection::Bar && entry.path.size() >= 2) {
-          displayTitle = i18n::tr("settings.entities.bar.label", "name", entry.path[1]);
-          if (isBarMonitorOverrideSettingPath(entry.path)) {
-            displayTitle += " / " + entry.path[3];
-          }
-        } else if (isDockMonitorOverrideSettingPath(entry.path)) {
-          displayTitle = sectionLabel(entry.section) + " / " + entry.path[2];
-        } else {
-          displayTitle = sectionLabel(entry.section);
-        }
-        activeSection = makeSection(displayTitle, entry.section);
-        activeGroupBody = activeSection;
         if (ctx.config.shell.offlineMode && settingsSectionNeedsOfflineModeNotice(entry.section)) {
           const bool showDisableHint = entry.section != SettingsSection::Security;
-          activeSection->addChild(
-              makeOfflineModeNotice(scale, offlineModeNoticeMessage(entry.section), showDisableHint)
+          content.addChild(makeOfflineModeNotice(scale, offlineModeNoticeMessage(entry.section), showDisableHint));
+        }
+      }
+      if (activeGroupBody == nullptr || entry.group != activeGroupKey) {
+        activeGroupKey = entry.group;
+        activeKeybindRow = nullptr;
+        activeKeybindRowCount = 0;
+        activeGroupBody = addSettingsGroupCard(content, entry.group.empty() ? std::string{} : groupLabel(entry.group), scale);
+        cardBodies.push_back(activeGroupBody);
+        if (entry.section == SettingsSection::Power && entry.group == "idle") {
+          addIdleLiveStatusPanel(*activeGroupBody, ctx, scale);
+        }
+        if (entry.section == SettingsSection::Screenshot && entry.group == "screenshot-output") {
+          activeGroupBody->addChild(
+              ui::label({
+                  .text = i18n::tr("settings.schema.shell.screenshot-output.description"),
+                  .fontSize = Style::fontSizeBody * scale,
+                  .color = colorSpecFromRole(ColorRole::Label2),
+                  .maxLines = 0,
+              })
           );
         }
       }
-      if (activeSection != nullptr && activeGroupBody != nullptr) {
-        if (entry.group != activeGroupKey) {
-          const bool isFirstGroup = activeGroupKey.empty();
-          activeGroupKey = entry.group;
-          activeKeybindRow = nullptr;
-          activeKeybindRowCount = 0;
-          if (tabbedGroups) {
-            activeGroupBody = addSettingsCard(*activeSection, {}, scale);
-          } else if (!entry.group.empty()) {
-            activeGroupBody = addSettingsCard(*activeSection, groupLabel(entry.group), scale);
-          } else {
-            addGroupLabel(*activeSection, groupLabel(entry.group), isFirstGroup);
-            activeGroupBody = activeSection;
-          }
-          if (entry.section == SettingsSection::Power && entry.group == "idle") {
-            addIdleLiveStatusPanel(*activeGroupBody, ctx, scale);
-          }
-          if (entry.section == SettingsSection::Screenshot && entry.group == "screenshot-output") {
-            activeGroupBody->addChild(
-                ui::label({
-                    .text = i18n::tr("settings.schema.shell.screenshot-output.description"),
-                    .fontSize = Style::fontSizeBody * scale,
-                    .color = colorSpecFromRole(ColorRole::Label2),
-                    .maxLines = 0,
-                })
-            );
-          }
-        }
-        if (!std::holds_alternative<KeybindListSetting>(entry.control)) {
-          activeKeybindRow = nullptr;
-          activeKeybindRowCount = 0;
-        }
-        if (const auto* list = std::get_if<ListSetting>(&entry.control)) {
-          if (isFirstBarWidgetListPath(entry.path)) {
-            addBarWidgetLaneEditor(*activeGroupBody, entry, barWidgetEditorCtx);
-          } else if (!isBarWidgetListPath(entry.path)) {
-            makeListBlock(*activeGroupBody, entry, *list);
-          }
-        } else if (const auto* map = std::get_if<StringMapSetting>(&entry.control)) {
-          factory.makeStringMapBlock(*activeGroupBody, entry, *map);
-        } else if (const auto* shortcuts = std::get_if<ShortcutListSetting>(&entry.control)) {
-          makeShortcutListBlock(*activeGroupBody, entry, *shortcuts);
-        } else if (const auto* keybindList = std::get_if<KeybindListSetting>(&entry.control)) {
-          if (activeKeybindRow == nullptr || activeKeybindRowCount >= kKeybindsPerRow) {
-            auto row = ui::row({
-                .align = FlexAlign::Start,
-                .gap = Style::spaceMd * scale,
-                .fillWidth = true,
-            });
-            activeKeybindRow = static_cast<Flex*>(activeGroupBody->addChild(std::move(row)));
-            activeKeybindRowCount = 0;
-          }
-          makeKeybindListBlock(*activeKeybindRow, entry, *keybindList);
-          ++activeKeybindRowCount;
-        } else if (const auto* sessionActs = std::get_if<SessionPanelActionsSetting>(&entry.control)) {
-          makeSessionActionsInlineBlock(*activeGroupBody, entry, *sessionActs);
-        } else if (const auto* idle = std::get_if<IdleBehaviorsSetting>(&entry.control)) {
-          makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
-        } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
-          makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
-        } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {
-          makeRow(*activeGroupBody, entry, makeSearchPickerButton(entry, *picker));
-        } else if (const auto* multi = std::get_if<MultiSelectSetting>(&entry.control)) {
-          makeMultiSelectBlock(*activeGroupBody, entry, *multi);
-        } else if (const auto* templates = std::get_if<TemplateGridSetting>(&entry.control)) {
-          makeTemplateGridBlock(*activeGroupBody, entry, *templates);
-        } else {
-          makeRow(*activeGroupBody, entry, makeControl(entry));
-        }
-        ++visibleEntries;
+      if (!std::holds_alternative<KeybindListSetting>(entry.control)) {
+        activeKeybindRow = nullptr;
+        activeKeybindRowCount = 0;
       }
+      const std::size_t childrenBefore = activeGroupBody->children().size();
+      if (const auto* list = std::get_if<ListSetting>(&entry.control)) {
+        if (isFirstBarWidgetListPath(entry.path)) {
+          addBarWidgetLaneEditor(*activeGroupBody, entry, barWidgetEditorCtx);
+        } else if (!isBarWidgetListPath(entry.path)) {
+          makeListBlock(*activeGroupBody, entry, *list);
+        }
+      } else if (const auto* map = std::get_if<StringMapSetting>(&entry.control)) {
+        factory.makeStringMapBlock(*activeGroupBody, entry, *map);
+      } else if (const auto* shortcuts = std::get_if<ShortcutListSetting>(&entry.control)) {
+        makeShortcutListBlock(*activeGroupBody, entry, *shortcuts);
+      } else if (const auto* keybindList = std::get_if<KeybindListSetting>(&entry.control)) {
+        if (activeKeybindRow == nullptr || activeKeybindRowCount >= kKeybindsPerRow) {
+          auto row = ui::row({
+              .align = FlexAlign::Start,
+              .gap = Style::spaceMd * scale,
+              .fillWidth = true,
+          });
+          activeKeybindRow = static_cast<Flex*>(activeGroupBody->addChild(std::move(row)));
+          activeKeybindRowCount = 0;
+        }
+        makeKeybindListBlock(*activeKeybindRow, entry, *keybindList);
+        ++activeKeybindRowCount;
+      } else if (const auto* sessionActs = std::get_if<SessionPanelActionsSetting>(&entry.control)) {
+        makeSessionActionsInlineBlock(*activeGroupBody, entry, *sessionActs);
+      } else if (const auto* idle = std::get_if<IdleBehaviorsSetting>(&entry.control)) {
+        makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
+      } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
+        makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
+      } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {
+        makeRow(*activeGroupBody, entry, makeSearchPickerButton(entry, *picker));
+      } else if (const auto* multi = std::get_if<MultiSelectSetting>(&entry.control)) {
+        makeMultiSelectBlock(*activeGroupBody, entry, *multi);
+      } else if (const auto* templates = std::get_if<TemplateGridSetting>(&entry.control)) {
+        makeTemplateGridBlock(*activeGroupBody, entry, *templates);
+      } else {
+        makeRow(*activeGroupBody, entry, makeControl(entry));
+      }
+      if (!ctx.highlightKey.empty() && ctx.highlightKey == settingEntryKey(entry)) {
+        const auto& body = activeGroupBody->children();
+        const bool grew = body.size() > childrenBefore;
+        if (auto* target = dynamic_cast<Flex*>(grew ? body[childrenBefore].get() : body.empty() ? nullptr : body.back().get())) {
+          target->setFill(selectionStyle().highlightFill);
+          target->setRadius(Style::scaledRadiusMd(scale));
+          if (ctx.setScrollTarget) {
+            ctx.setScrollTarget(target);
+          }
+        }
+      }
+      ++visibleEntries;
     }
 
     if (activeKeybindRow != nullptr && activeKeybindRowCount > 0 && activeKeybindRowCount < kKeybindsPerRow) {
@@ -1460,18 +1336,25 @@ namespace settings {
         ++activeKeybindRowCount;
       }
     }
+    for (Flex* body : cardBodies) {
+      addSettingsRowSeparators(*body, scale);
+    }
 
-    // The Plugins section has no registry entries — it renders fully custom
-    // content (addSettingsPlugins), so suppress the "no settings found" state.
-    if (visibleEntries == 0
-        && ctx.selectedSection != "plugins"
-        && ctx.selectedSection != "displays"
-        && ctx.selectedSection != "input"
-        && ctx.selectedSection != "shortcuts"
-        && ctx.selectedSection != "date-time"
-        && ctx.selectedSection != "language"
-        && ctx.selectedSection != "default-apps"
-        && ctx.selectedSection != "devices") {
+    if (ctx.rowScope == RowScope::Main && expertEntryCount > 0 && ctx.openExpert) {
+      Flex* body = addSettingsGroupCard(content, {}, scale);
+      body->addChild(makeSettingsLinkRow(
+          i18n::tr("settings.expert.row"), std::to_string(expertEntryCount), scale, ctx.openExpert
+      ));
+    }
+
+    // Pages with custom content (addSettingsPlugins and the window's add*Content) fill the rest of the page.
+    const bool customPage = std::ranges::any_of(
+        std::array{"plugins", "displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
+        [&](std::string_view sectionId) { return selectedPageShows(ctx.selectedSection, sectionId); }
+    );
+    const auto* openPage = settingsPageFromId(ctx.selectedSection);
+    const bool placeholderPage = openPage != nullptr && openPage->sections.empty();
+    if (visibleEntries == 0 && !customPage && (ctx.rowScope == RowScope::Expert || expertEntryCount == 0)) {
       auto emptyState = ui::column(
           {.align = FlexAlign::Center,
            .justify = FlexJustify::Center,
@@ -1485,12 +1368,12 @@ namespace settings {
            .fillWidth = true,
            .flexGrow = 2.0F},
           makeLabel(
-              i18n::tr("settings.window.no-results"), Style::fontSizeHeader * scale,
-              colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
+              i18n::tr(placeholderPage ? "settings.pages.empty-title" : "settings.window.no-results"),
+              Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
           ),
           makeLabel(
-              i18n::tr("settings.window.no-results-hint"), Style::fontSizeBody * scale,
-              colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
+              i18n::tr(placeholderPage ? "settings.pages.empty-hint" : "settings.window.no-results-hint"),
+              Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
 
@@ -1498,18 +1381,6 @@ namespace settings {
           ui::row(
               {.align = FlexAlign::Center, .fillWidth = true}, ui::box({.flexGrow = 0.5F}), std::move(emptyState),
               ui::box({.flexGrow = 0.5F})
-          )
-      );
-    }
-
-    if (truncated) {
-      content.addChild(
-          ui::row(
-              {.align = FlexAlign::Center, .justify = FlexJustify::Center, .fillWidth = true},
-              makeLabel(
-                  i18n::tr("settings.window.search-truncated", "count", std::to_string(kMaxSearchResults)),
-                  Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
-              )
           )
       );
     }

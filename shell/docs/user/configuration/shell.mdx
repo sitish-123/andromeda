@@ -46,8 +46,7 @@ polkit_agent          = false           # register Noctalia's native polkit auth
 password_style        = "default"       # default | random
 readline_shortcuts    = false           # readline-style shortcuts in every text field
 avatar_path           = "~/Pictures/avatar.png"
-settings_show_advanced = true           # show advanced settings by default in Settings
-settings_expand_all_groups = false      # expand every Settings group by default
+settings_expand_all_groups = false      # show the Plugins page groups without tabs
 settings_window_translucent = false     # translucent Settings window background
 show_location         = true            # show weather location text in shell UI
 launch_apps_as_systemd_services = false # launch apps as transient systemd services (needs Noctalia to be a user unit)
@@ -254,9 +253,8 @@ Notes:
 
 - `readline_shortcuts`: when `true`, every text field (launcher, Settings, polkit, lock screen, and others) uses readline-style shortcuts; see [Text editing shortcuts](/noctalia/launcher/#text-editing-shortcuts). `Ctrl+A` then moves the caret to the start instead of selecting all, and `Ctrl+U` deletes back to the start instead of clearing the field. Configure under **Settings → Shell → General**.
 
-- `settings_show_advanced`: when `true`, Settings opens with advanced entries visible.
 
-- `settings_expand_all_groups`: when `true`, every collapsible group on a Settings page starts expanded; when `false`, only the first group does. Changing it resets the expanded groups on every page.
+- `settings_expand_all_groups`: when `true`, the Plugins page shows its groups (plugins and sources) on one scrolling page; when `false`, they are tabs.
 
 - `settings_window_translucent`: when `true`, the Settings window background is drawn translucent. Compositor blur or other effects can be applied via compositor window rules.
 

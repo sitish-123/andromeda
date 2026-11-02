@@ -2347,7 +2347,7 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
         return;
       }
       settings::buildPluginSettingsEditor(
-          body, m_config->config(), *m_editorSheetFactory, pluginId, *currentManifest, m_showAdvanced, uiScale()
+          body, m_config->config(), *m_editorSheetFactory, pluginId, *currentManifest, true, uiScale()
       );
     });
   });

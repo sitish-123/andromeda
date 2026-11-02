@@ -317,9 +317,7 @@ void SettingsWindow::createBar(std::string name) {
       return;
     }
     if (m_config->createBarOverride(name)) {
-      m_selectedSection = "bar";
-      m_selectedBarName = name;
-      m_selectedMonitorOverride.clear();
+      navigateTo("bar", name);
       m_creatingBarName.clear();
       m_renamingBarName.clear();
       m_pendingDeleteBarName.clear();
@@ -402,9 +400,7 @@ void SettingsWindow::createMonitorOverride(std::string barName, std::string matc
       return;
     }
     if (m_config->createMonitorOverride(barName, match)) {
-      m_selectedSection = "bar";
-      m_selectedBarName = barName;
-      m_selectedMonitorOverride = match;
+      navigateTo("bar", barName, false, {}, match);
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
       m_pendingDeleteMonitorOverrideBarName.clear();
@@ -466,8 +462,7 @@ void SettingsWindow::createDockMonitorOverride(std::string match) {
       return;
     }
     if (m_config->createDockMonitorOverride(match)) {
-      m_selectedSection = "dock";
-      m_selectedMonitorOverride = match;
+      navigateTo("desktop-dock", {}, false, {}, match);
       m_renamingDockMonitorOverride.clear();
       m_pendingDeleteDockMonitorOverride.clear();
       m_contentScrollState.offset = 0.0F;
@@ -484,7 +479,7 @@ void SettingsWindow::renameDockMonitorOverride(std::string oldTableName, std::st
       return;
     }
     if (m_config->renameDockMonitorOverride(oldTableName, newMatch)) {
-      if (m_selectedSection == "dock" && m_selectedMonitorOverride == oldTableName) {
+      if (m_selectedSection == "desktop-dock" && m_selectedMonitorOverride == oldTableName) {
         m_selectedMonitorOverride = newMatch;
       }
       m_renamingDockMonitorOverride.clear();
@@ -503,7 +498,7 @@ void SettingsWindow::deleteDockMonitorOverride(std::string tableName) {
       return;
     }
     if (m_config->deleteDockMonitorOverride(tableName)) {
-      if (m_selectedSection == "dock" && m_selectedMonitorOverride == tableName) {
+      if (m_selectedSection == "desktop-dock" && m_selectedMonitorOverride == tableName) {
         m_selectedMonitorOverride.clear();
         m_contentScrollState.offset = 0.0F;
       }

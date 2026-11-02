@@ -1,5 +1,7 @@
 #include "shell/settings/settings_window.h"
 
+#include "shell/settings/settings_pages.h"
+
 #include "calendar/calendar_service.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
@@ -209,7 +211,6 @@ void SettingsWindow::initialize(
   m_dependencies = dependencies;
   m_upower = upower;
   m_accounts = accounts;
-  m_showAdvanced = m_config != nullptr ? m_config->config().shell.settingsShowAdvanced : false;
   m_modalHost.initialize(
       m_inputDispatcher,
       [this] {
@@ -414,12 +415,33 @@ std::optional<LayerPopupParentContext> SettingsWindow::popupParentContextForSurf
 void SettingsWindow::open(std::string context) {
   TooltipManager::instance().forceDestroy();
 
-  const bool navigate = !context.empty() && context != m_selectedSection;
+  // Context forms: "bar:<name>", "search:<query>", "<page or legacy section id>" with an optional "/expert" suffix.
+  std::string page;
+  std::string bar;
+  std::string search;
+  bool expert = false;
   if (context.starts_with("bar:")) {
-    m_selectedBarName = context.substr(4);
-    m_selectedSection = "bar";
+    page = "bar";
+    bar = context.substr(4);
+  } else if (context.starts_with("search:")) {
+    search = context.substr(7);
   } else if (!context.empty()) {
-    m_selectedSection = settings::canonicalSettingsSectionId(context);
+    constexpr std::string_view kExpertSuffix = "/expert";
+    expert = context.ends_with(kExpertSuffix);
+    if (expert) {
+      context.resize(context.size() - kExpertSuffix.size());
+    }
+    if (const auto* target = settings::settingsPageFromId(context)) {
+      page = target->id;
+    }
+  }
+  const bool navigate = !page.empty() || !search.empty();
+  if (!page.empty()) {
+    navigateTo(page, bar, expert);
+  }
+  if (!search.empty()) {
+    m_searchQuery = std::move(search);
+    m_focusSearchOnRebuild = false;
   }
 
   if (m_wayland == nullptr || m_renderContext == nullptr || !m_wayland->hasXdgShell()) {
@@ -432,9 +454,6 @@ void SettingsWindow::open(std::string context) {
 
   if (isOpen()) {
     if (navigate) {
-      m_searchQuery.clear();
-      m_selectedMonitorOverride.clear();
-      m_contentScrollState.offset = 0.0F;
       requestSceneRebuild();
     }
     const auto refocus = [this] {
@@ -446,8 +465,6 @@ void SettingsWindow::open(std::string context) {
     DeferredCall::callLater(refocus);
     return;
   }
-
-  m_showAdvanced = m_config != nullptr ? m_config->config().shell.settingsShowAdvanced : false;
 
   wl_output* output = m_wayland->lastPointerOutput();
   if (output == nullptr) {
@@ -527,13 +544,8 @@ void SettingsWindow::open(std::string context) {
 }
 
 void SettingsWindow::openToBarWidget(std::string barName, std::string widgetName) {
-  clearTransientSettingsState();
   clearStatusMessage();
-  m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_selectedSection = "bar";
-  m_selectedBarName = std::move(barName);
-  m_selectedMonitorOverride.clear();
+  navigateTo("bar", std::move(barName));
   m_pendingOpenWidgetInspectorName = std::move(widgetName);
   m_contentScrollState.offset = 0.0F;
   m_sidebarScrollState.offset = 0.0F;
@@ -551,11 +563,8 @@ bool SettingsWindow::openToPlugin(std::string pluginId) {
     return false;
   }
 
-  clearTransientSettingsState();
   clearStatusMessage();
-  m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_selectedSection = "plugins";
+  navigateTo("plugins");
   m_pendingOpenPluginSettingsId = std::move(pluginId);
   m_contentScrollState.offset = 0.0F;
   m_sidebarScrollState.offset = 0.0F;
@@ -623,9 +632,7 @@ void SettingsWindow::destroyWindow() {
   m_idleLiveStatusLabel = nullptr;
   m_mainContainer = nullptr;
   m_headerRow = nullptr;
-  m_filterRow = nullptr;
   m_contentContainer = nullptr;
-  m_pageTitleRow = nullptr;
   m_groupJumpRow = nullptr;
   m_contentScrollView = nullptr;
   m_sidebarScrollView = nullptr;
@@ -681,6 +688,11 @@ void SettingsWindow::destroyWindow() {
   m_selectedSection.clear();
   m_selectedBarName.clear();
   m_selectedMonitorOverride.clear();
+  m_navHistory.clear();
+  m_navIndex = 0;
+  m_expertOpen = false;
+  m_expertQuery.clear();
+  m_highlightKey.clear();
   m_pendingOpenWidgetInspectorName.clear();
   m_pendingOpenPluginSettingsId.clear();
   m_editingWidgetName.clear();
@@ -963,6 +975,9 @@ void SettingsWindow::clearTransientSettingsState() {
   m_pendingDeleteMonitorOverrideMatch.clear();
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
+  m_expertOpen = false;
+  m_expertQuery.clear();
+  m_highlightKey.clear();
   if (m_widgetAddPopup != nullptr && m_widgetAddPopup->isOpen()) {
     m_widgetAddPopup->close();
   }

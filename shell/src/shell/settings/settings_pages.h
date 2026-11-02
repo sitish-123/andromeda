@@ -1,0 +1,45 @@
+#pragma once
+
+#include "shell/settings/settings_registry.h"
+
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+
+namespace settings {
+
+  enum class PageGroup : std::uint8_t { Connectivity, LookAndFeel, Desktop, System };
+
+  // One sidebar page of the Settings window. A page shows the registry entries of its sections; a page with no
+  // section has no content yet.
+  struct SettingsPage {
+    std::string_view id;
+    PageGroup group;
+    std::string_view glyph;
+    std::span<const SettingsSection> sections;
+    // False for pages reached from elsewhere, such as the account card.
+    bool inSidebar = true;
+  };
+
+  [[nodiscard]] std::span<const SettingsPage> settingsPages();
+  // Resolves a page id, a legacy section id or a merged-section alias to its page; null when unknown.
+  [[nodiscard]] const SettingsPage* settingsPageFromId(std::string_view id);
+  // The page that shows `section`; every section belongs to exactly one page.
+  [[nodiscard]] const SettingsPage& settingsPageForSection(SettingsSection section);
+  [[nodiscard]] bool settingsPageShowsSection(const SettingsPage& page, SettingsSection section);
+  // True when `selectedPageId` names a page that shows the section with id `sectionId`.
+  [[nodiscard]] bool selectedPageShows(std::string_view selectedPageId, std::string_view sectionId);
+  [[nodiscard]] std::string settingsPageLabelKey(const SettingsPage& page);
+
+  // True when `entry` belongs on the page with id `selectedPageId` for the current bar and monitor selection.
+  [[nodiscard]] bool settingEntryOnPage(
+      const SettingEntry& entry, std::string_view selectedPageId, std::string_view selectedBarName,
+      std::string_view selectedMonitorOverride
+  );
+  // Stable identity of a row: its config path, or section and title for a row without one.
+  [[nodiscard]] std::string settingEntryKey(const SettingEntry& entry);
+  // Expert entries live behind the page's last row; every other entry is on the page itself.
+  [[nodiscard]] inline bool settingEntryIsExpert(const SettingEntry& entry) noexcept { return entry.advanced; }
+
+} // namespace settings

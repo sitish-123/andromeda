@@ -1544,6 +1544,45 @@
         "idle-for-seconds": "Idle for {seconds} seconds"
       }
     },
+    "account": {
+      "caption": "Account"
+    },
+    "expert": {
+      "count": "{count} options",
+      "row": "More options",
+      "search-placeholder": "Search in {page}"
+    },
+    "pages": {
+      "empty-hint": "The controls for this page arrive in a later update.",
+      "empty-title": "Nothing to set here yet",
+      "wifi": "Wi-Fi",
+      "bluetooth": "Bluetooth",
+      "network": "Network",
+      "appearance": "Appearance",
+      "wallpaper": "Wallpaper",
+      "displays": "Displays",
+      "sound": "Sound",
+      "notifications": "Notifications",
+      "desktop-dock": "Desktop and Dock",
+      "bar": "Bar and Islands",
+      "control-center": "Control Center",
+      "launcher": "Launcher and Search",
+      "windows": "Windows",
+      "keyboard": "Keyboard",
+      "mouse": "Mouse and Touchpad",
+      "devices": "Devices",
+      "power": "Battery and Power",
+      "privacy": "Privacy and Security",
+      "date-time": "Date and Time",
+      "language": "Language and Region",
+      "default-apps": "Default Apps",
+      "screenshot": "Screenshots and Recording",
+      "services": "Apps and Services",
+      "plugins": "Plugins",
+      "automation": "Automation",
+      "about": "About and Updates",
+      "users": "Users"
+    },
     "navigation": {
       "groups": {
         "accessibility": "Accessibility",
@@ -3849,8 +3888,8 @@
           "label": "Skip Editor on Copy or Save"
         },
         "settings-expand-all-groups": {
-          "description": "Show every group of a settings page on one scrolling page instead of as tabs",
-          "label": "Show All Groups Without Tabs"
+          "description": "Show the Plugins page groups (plugins and sources) on one scrolling page instead of as tabs",
+          "label": "Show Plugin Groups Without Tabs"
         },
         "settings-window-translucent": {
           "description": "Make the Settings background translucent for compositor effects",
@@ -5670,6 +5709,7 @@
       "reset-page": "Reset page to defaults",
       "reset-page-confirm": "Reset every setting on this page",
       "search-placeholder": "Search settings…",
+      "search-results": "Search results",
       "search-truncated": "Showing the first {count} matches. Refine your search to narrow results.",
       "support-report": "Support Report",
       "support-report-saved": "Support report saved.",

@@ -4,7 +4,10 @@
 #include "config/config_types.h"
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
+#include "ui/controls/button.h"
+#include "ui/controls/glyph.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/palette.h"
 #include "ui/style.h"
@@ -17,13 +20,6 @@
 #include <utility>
 
 namespace settings {
-
-  namespace {
-    // Cards sit on the Surface window background and hold controls that fill SurfaceContainer at full
-    // opacity, so a full-strength card fill would match them. Mixing the theme's own elevated tone
-    // partway toward Surface keeps the palette hue and still reads distinct from those controls.
-    constexpr float kCardFillOpacity = 0.4F;
-  } // namespace
 
   bool isMonitorOverrideSettingPath(const std::vector<std::string>& path) {
     return path.size() >= 5 && path[0] == "bar" && path[2] == "monitor";
@@ -203,7 +199,7 @@ namespace settings {
         .gap = Style::spaceSm * scale,
         .configure = [scale](Flex& container) {
           container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
-          container.setCardStyle(scale, kCardFillOpacity);
+          container.setCardStyle(scale, metrics::kCardFillOpacity);
         },
     });
     if (!title.empty()) {
@@ -220,6 +216,71 @@ namespace settings {
     );
     parent.addChild(std::move(card));
     return bodyRaw;
+  }
+
+  Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale) {
+    Flex* bodyRaw = nullptr;
+    auto group = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale});
+    if (!caption.empty()) {
+      auto captionRow = ui::column({.align = FlexAlign::Stretch});
+      captionRow->setPadding(Style::spaceXs * scale, Style::spaceXs * scale);
+      captionRow->addChild(
+          makeLabel(caption, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Bold)
+      );
+      group->addChild(std::move(captionRow));
+    }
+    group->addChild(
+        ui::column({
+            .out = &bodyRaw,
+            .align = FlexAlign::Stretch,
+            .gap = 0.0F,
+            .configure = [scale](Flex& container) {
+              container.setFill(frameColors().cardFill);
+              container.setBorder(frameColors().cardBorder, metrics::kCardBorderWidth * scale);
+              container.setRadius(Style::scaledRadiusXl(scale));
+              container.setPadding(Style::spaceXs * scale, Style::spaceMd * scale);
+            },
+        })
+    );
+    parent.addChild(std::move(group));
+    return bodyRaw;
+  }
+
+  void addSettingsRowSeparators(Flex& body, float scale) {
+    for (std::size_t index = body.children().size(); index > 1; --index) {
+      body.insertChildAt(
+          index - 1,
+          ui::separator({.thickness = metrics::kRowSeparatorThickness * scale, .spacing = Style::spaceXs * scale, .gradientEdges = false})
+      );
+    }
+  }
+
+  std::unique_ptr<Button>
+  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick) {
+    auto row = ui::button({
+        .text = std::string(label),
+        .fontSize = Style::fontSizeBody * scale,
+        .contentAlign = ButtonContentAlign::Start,
+        .variant = ButtonVariant::Tab,
+        .minHeight = Style::controlHeight * scale,
+        .paddingV = Style::spaceXs * scale,
+        .paddingH = 0.0F,
+        .gap = Style::spaceSm * scale,
+        .radius = Style::scaledRadiusMd(scale),
+        .onClick = std::move(onClick),
+    });
+    row->addChild(ui::spacer());
+    if (!trailing.empty()) {
+      row->addChild(makeLabel(trailing, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2)));
+    }
+    row->addChild(
+        ui::glyph({
+            .glyph = "chevron-right",
+            .glyphSize = Style::fontSizeBody * scale,
+            .color = colorSpecFromRole(ColorRole::Label3),
+        })
+    );
+    return row;
   }
 
   void updateSettingsStatusBanner(Flex& banner, Label& message, std::string_view text, bool error) {

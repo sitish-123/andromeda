@@ -1,6 +1,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content_input.h"
 #include "shell/settings/settings_content_shortcuts.h"
+#include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_window.h"
 #include "compositors/shell_wayland_connection.h"
 
@@ -38,7 +39,7 @@ void SettingsWindow::setCompositorSetting(const std::string& key, const std::str
 }
 
 void SettingsWindow::addInputContent(float scale) {
-  if (m_selectedSection != "input") {
+  if (!settings::selectedPageShows(m_selectedSection, "input")) {
     m_xkbCatalog.reset();
     return;
   }
@@ -58,7 +59,7 @@ void SettingsWindow::addInputContent(float scale) {
 }
 
 void SettingsWindow::addShortcutsContent(float scale) {
-  if (m_selectedSection != "shortcuts") {
+  if (!settings::selectedPageShows(m_selectedSection, "shortcuts")) {
     if (m_compositorSettings != nullptr && m_compositorSettings->capturing()) {
       m_compositorSettings->cancelCapture();
     }

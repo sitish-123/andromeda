@@ -693,24 +693,6 @@ namespace settings {
     Flex* section = sectionCol.get();
     content.addChild(std::move(sectionCol));
 
-    auto titleRow = ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true},
-        ui::glyph({
-            .glyph = "puzzle",
-            .glyphSize = Style::fontSizeHeader * scale,
-            .color = colorSpecFromRole(ColorRole::Accent),
-        }),
-        makeLabel(
-            i18n::tr("settings.navigation.sections.plugins"), Style::fontSizeHeader * scale, ColorRole::Accent,
-            FontWeight::Bold
-        )
-    );
-    if (ctx.pageTitleRow != nullptr && !ctx.searchActive && ctx.pageTitleRow->children().empty()) {
-      ctx.pageTitleRow->addChild(std::move(titleRow));
-    } else {
-      section->addChild(std::move(titleRow));
-    }
-
     const std::string sourcesTitle = i18n::tr("settings.plugins.sources.title");
     const std::string pluginsTitle = i18n::tr("settings.plugins.plugins.title");
     // Sources and Plugins are tabs like every registry page; settings_expand_all_groups shows both.

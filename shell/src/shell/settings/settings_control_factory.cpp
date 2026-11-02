@@ -1,4 +1,5 @@
 #include "shell/settings/settings_control_factory.h"
+#include "shell/settings/settings_pages.h"
 
 #include "config/config_service.h"
 #include "config/config_types.h"
@@ -227,13 +228,6 @@ namespace settings {
     );
   }
 
-  std::unique_ptr<Flex> SettingsControlFactory::makeAdvancedBadge() {
-    return makeStatusBadge(
-        i18n::tr("settings.badges.advanced"), colorSpecFromRole(ColorRole::Fill2),
-        colorSpecFromRole(ColorRole::Label2), false
-    );
-  }
-
   std::unique_ptr<Flex> SettingsControlFactory::makeOverrideResetActions(const std::vector<std::string>& path) {
     const float scale = m_scale;
     return ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, makeResetButton(path));
@@ -260,11 +254,8 @@ namespace settings {
         .fillWidth = true,
     });
     titleRow->addChild(
-        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
+        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
     );
-    if (entry.advanced) {
-      titleRow->addChild(makeAdvancedBadge());
-    }
     if (monitorExplicit) {
       titleRow->addChild(makeStatusBadge(
           i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::Fill1),
@@ -295,9 +286,10 @@ namespace settings {
     tagTabFocusKey(*control, joinSettingPath(entry.path));
     actions->addChild(std::move(control));
 
-    section.addChild(layoutRow(
+    auto row = layoutRow(
         std::move(titleRow), entry.subtitle, !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
-    ));
+    );
+    section.addChild(std::move(row));
   }
 
   std::unique_ptr<Flex> SettingsControlFactory::makeRow(
@@ -305,7 +297,7 @@ namespace settings {
   ) {
     auto titleRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
     titleRow->addChild(
-        makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
+        makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
     );
     titleRow->addChild(ui::spacer());
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});

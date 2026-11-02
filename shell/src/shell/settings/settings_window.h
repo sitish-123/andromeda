@@ -32,6 +32,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -79,6 +80,7 @@ namespace settings {
   class PaletteInspectorContent;
   class SettingsDialogPresenter;
   struct SettingsContentContext;
+  struct SettingsPage;
 } // namespace settings
 
 // Standalone xdg-toplevel settings UI (same binary as the shell; shares RenderContext).
@@ -165,6 +167,14 @@ public:
   void showTransientStatus(std::string message, bool isError = false);
 
 private:
+  // One visited page in the back/forward history.
+  struct NavEntry {
+    std::string page;
+    std::string bar;
+    std::string monitor;
+    bool expert = false;
+    bool operator==(const NavEntry&) const = default;
+  };
   void destroyWindow();
   [[nodiscard]] bool shouldUseModalDialogs() const noexcept;
   void prepareFrame(bool needsUpdate, bool needsLayout);
@@ -174,13 +184,16 @@ private:
   [[nodiscard]] std::vector<settings::SelectOption> availableOutputs() const;
   void refreshSettingsRegistry(const Config& cfg);
   void syncSelectedBarState(const Config& cfg, const std::vector<std::string>& availableBars);
-  [[nodiscard]] std::unique_ptr<Flex> buildHeaderRow(float scale);
-  [[nodiscard]] std::unique_ptr<Flex>
-  buildFilterRow(float scale, const std::string& resetPageScope, std::vector<std::vector<std::string>> resetPagePaths);
+  [[nodiscard]] std::unique_ptr<Flex> buildSearchField(float scale);
+  [[nodiscard]] std::unique_ptr<Flex> buildExpertSearchRow(float scale, std::size_t optionCount, std::string_view pageLabel);
+  [[nodiscard]] std::unique_ptr<Flex> buildHeaderRow(
+      float scale, const std::string& resetPageScope, std::vector<std::vector<std::string>> resetPagePaths
+  );
   [[nodiscard]] std::unique_ptr<Flex> buildStatusRow(float scale);
   [[nodiscard]] std::unique_ptr<Flex> buildBody(
-      float scale, const Config& cfg, const std::vector<settings::SettingsSection>& sections,
-      const std::vector<std::string>& availableBars
+      float scale, const Config& cfg, const std::vector<const settings::SettingsPage*>& pages,
+      const std::vector<std::string>& availableBars, const std::string& resetPageScope,
+      std::vector<std::vector<std::string>> resetPagePaths
   );
   [[nodiscard]] std::vector<settings::SelectOption> batteryDeviceOptions() const;
   // Bindable IPC commands, for the bar widget gesture action picker.
@@ -196,6 +209,13 @@ private:
   );
   [[nodiscard]] bool tryPatchSettingsRegistryResetValues(const std::vector<std::vector<std::string>>& paths);
   void rebuildFilterRow(float scale);
+  void applyNavEntry(const NavEntry& entry);
+  void navigateTo(
+      std::string page, std::string bar = {}, bool expert = false, std::string highlight = {},
+      std::string monitor = {}
+  );
+  void navigateHistory(int delta);
+  void openSearchResult(const settings::SettingEntry& entry);
   void requestSceneRebuild();
   void requestResetPageConfirmation();
   // Sends a compositor-owned path to the compositor's settings manager; false for a shell path. Empty clears it.
@@ -328,10 +348,8 @@ private:
   Flex* m_mainContainer = nullptr; // Outer Flex inside m_sceneRoot, sized to the window
   Box* m_panelBackground = nullptr;
   Node* m_headerRow = nullptr;
-  Node* m_filterRow = nullptr;
   Button* m_actionsMenuButton = nullptr;
   Flex* m_contentContainer = nullptr;
-  Flex* m_pageTitleRow = nullptr;
   Flex* m_groupJumpRow = nullptr;
   ScrollView* m_contentScrollView = nullptr;
   ScrollView* m_sidebarScrollView = nullptr;
@@ -437,15 +455,19 @@ private:
   std::string m_selectedBarName;
   std::string m_selectedMonitorOverride;
   std::string m_selectedSection;
-  std::optional<settings::SettingsCategory> m_expandedCategory;
-  // The page the sidebar last expanded a category for; selecting another page from outside re-expands.
-  std::string m_expandedForSection;
+  // Back/forward history of visited pages; m_navIndex is the current entry.
+  std::vector<NavEntry> m_navHistory;
+  std::size_t m_navIndex = 0;
+  // True while the page's expert options are open instead of the page itself.
+  bool m_expertOpen = false;
+  std::string m_expertQuery;
+  // Config path (or "section/title" for pathless rows) of the row a search result opened; shown highlighted.
+  std::string m_highlightKey;
   std::string m_reopenAfterWidgetEditorSection;
   std::string m_statusMessage;
   std::string m_pendingResetPageScope;
   std::vector<std::vector<std::string>> m_pendingResetSettingPaths;
   bool m_forceEnTranslation = false;
-  bool m_showAdvanced = false;
   bool m_statusIsError = false;
   bool m_pendingEncryptedStorageReset = false;
   std::function<void()> m_openDesktopWidgetEditor;

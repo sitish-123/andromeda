@@ -1294,7 +1294,6 @@ struct ShellConfig {
   bool readlineShortcuts = false;
   AnimationConfig animation;
   std::string avatarPath;
-  bool settingsShowAdvanced = true;
   bool settingsExpandAllGroups = false;
   bool settingsWindowTranslucent = false;
   bool showLocation = true;

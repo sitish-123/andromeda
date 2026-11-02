@@ -328,7 +328,7 @@ namespace settings {
 
     void addDockMonitorManagement(Flex& content, SettingsBarManagementContext& ctx) {
       if (!ctx.searchQuery.empty()
-          || ctx.selectedSection != "dock"
+          || ctx.selectedSection != "desktop-dock"
           || ctx.selectedDockMonitorOverride == nullptr
           || ctx.configService == nullptr
           || !ctx.configService->isOverrideOnlyDockMonitorOverride(ctx.selectedDockMonitorOverride->tableName)) {

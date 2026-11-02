@@ -2810,7 +2810,6 @@ namespace noctalia::config::schema {
                 .tags = "readline emacs keyboard shortcuts text input line editing",
             }
         ),
-        field(&ShellConfig::settingsShowAdvanced, "settings_show_advanced"),
         field(
             &ShellConfig::settingsExpandAllGroups, "settings_expand_all_groups",
             RowSpec{.section = "shell", .group = "general", .tags = "settings window groups expand collapse expanded"}
