@@ -1380,6 +1380,13 @@ namespace andromeda {
     }
   }
 
+  Keyboard* Server::syntheticKeyboard() const {
+    if (m_keyboardInputSource != nullptr) {
+      return m_keyboardInputSource;
+    }
+    return m_keyboards.empty() ? nullptr : m_keyboards.front().get();
+  }
+
   bool Server::syncingKeyboardLocks() const { return m_keyboardLeds != nullptr && m_keyboardLeds->syncing(); }
 
   void Server::refreshKeyboardLeds() {

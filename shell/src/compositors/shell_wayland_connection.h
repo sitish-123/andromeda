@@ -49,6 +49,25 @@ public:
   void setShellActionCallback(std::function<void(const std::string& command)> callback);
   void setShellBellCallback(std::function<void(const std::string& appId)> callback);
   void setCompositorLockKeysCallback(ChangeCallback callback);
+  // dsk_shell_v1 version 3. Each request returns false on a compositor that bound a lower version.
+  struct TextInputState {
+    bool enabled = false;
+    std::uint32_t purpose = 0;
+    std::uint32_t hint = 0;
+    int x = 0; // cursor rectangle in output coordinates
+    int y = 0;
+    int width = 0;
+    int height = 0;
+  };
+  void setTextInputStateCallback(std::function<void(const TextInputState& state)> callback);
+  void setRelockCallback(std::function<void()> callback);
+  void setRecoveredCallback(std::function<void()> callback);
+  bool sendAppActivity(std::uint32_t pid, std::uint32_t flags);
+  bool insertText(const std::string& text);
+  bool sendKey(std::uint32_t keysym, bool pressed);
+  void onShellTextInputState(const TextInputState& state);
+  void onShellRelock();
+  void onShellRecovered();
   [[nodiscard]] bool hasCompositorLockKeys() const noexcept { return m_hasCompositorLockKeys; }
   [[nodiscard]] WaylandSeat::LockKeysState compositorLockKeys() const noexcept { return m_compositorLockKeys; }
   void onShellAction(const std::string& command);
@@ -138,6 +157,9 @@ private:
   dsk_shell_v1* m_desktopShell = nullptr;
   std::function<void(const std::string&)> m_shellActionCallback;
   std::function<void(const std::string&)> m_shellBellCallback;
+  std::function<void(const TextInputState&)> m_textInputStateCallback;
+  std::function<void()> m_relockCallback;
+  std::function<void()> m_recoveredCallback;
   ChangeCallback m_compositorLockKeysCallback;
   WaylandSeat::LockKeysState m_compositorLockKeys;
   bool m_hasCompositorLockKeys = false;

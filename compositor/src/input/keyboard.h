@@ -13,6 +13,7 @@
 struct wlr_input_device;
 struct wlr_input_method_keyboard_grab_v2;
 struct wlr_keyboard;
+struct wlr_keyboard_modifiers;
 
 namespace andromeda {
 
@@ -48,8 +49,17 @@ namespace andromeda {
     // VT switch. Otherwise the stale entry swallows a later, unrelated release.
     void forgetConsumedKeycodes() { m_consumedKeycodes.clear(); }
     void prepareInputCapture(bool ending);
+    // Runs a key through the pipeline after the bindings stage, as dsk_shell_v1 key and insert_text need. The key is
+    // the one in the current layout whose base level (insert_text) or lowest level (key) yields `keysym`; a key above
+    // the base level carries its level's modifiers. Returns its evdev keycode, or nullopt when the keymap has no such
+    // key or an input-capture session owns the keyboard.
+    std::optional<uint32_t> injectKeysym(xkb_keysym_t keysym, uint32_t state, bool baseLevelOnly);
+    // Same pipeline entry for a known evdev keycode. A modifier key also updates the seat modifier state.
+    void injectKeycode(uint32_t keycode, uint32_t state);
 
   private:
+    void sendSeatModifiers(wlr_keyboard_modifiers modifiers);
+    [[nodiscard]] bool inputCaptureOwnsKeyboard() const;
     static void onModifiers(wl_listener* listener, void* data);
     static void onKey(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);

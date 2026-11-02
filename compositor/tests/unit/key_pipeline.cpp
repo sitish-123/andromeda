@@ -74,7 +74,7 @@ ANDROMEDA_TEST(emptySlotsPass) {
   CHECK(pipeline.run(event) == KeyResult::Pass);
 }
 
-ANDROMEDA_TEST(syntheticEntrySkipsStagesUpToBindings) {
+ANDROMEDA_TEST(syntheticEntryStartsAtInputMethodGrab) {
   KeyPipeline pipeline;
   std::vector<int> seen;
   for (KeyStage slot : kAll) {
@@ -82,7 +82,7 @@ ANDROMEDA_TEST(syntheticEntrySkipsStagesUpToBindings) {
   }
   KeyEvent event;
   pipeline.runAfterBindings(event);
-  CHECK_EQ(seen, (std::vector<int>{3, 4, 5}));
+  CHECK_EQ(seen, (std::vector<int>{4, 5}));
 }
 
 int main() { return RUN_TESTS(); }

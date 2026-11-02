@@ -504,6 +504,8 @@ namespace andromeda {
     void reassignOutputViews(Output* source, Output* destination, bool joinActive = false);
     void scheduleDisplacedViewRestore();
     void rememberKeyboardInputSource(Keyboard& keyboard);
+    // The keyboard synthetic keys run through; null when the seat has none.
+    [[nodiscard]] Keyboard* syntheticKeyboard() const;
     void refreshKeyboardLeds();
     [[nodiscard]] bool syncingKeyboardLocks() const;
     void removeKeyboard(Keyboard* keyboard);

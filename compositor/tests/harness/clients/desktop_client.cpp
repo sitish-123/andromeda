@@ -14,16 +14,24 @@
 //   desktop-client keybinds-state            print "CHORD=ACTION" per effective keybind, " customized" as above
 //   desktop-client keybind-set CHORD ACTION  exit 1 and print the reason if the compositor rejects it
 //   desktop-client shell-events              bind dsk_shell_v1 as the shell does and print "ready", then
-//                                            "action COMMAND" and "bell APP_ID" per event until killed
+//                                            "action COMMAND", "bell APP_ID", "text-input-state enabled=E purpose=P hint=H
+//                                            rect=X,Y,W,H", "relock" and "recovered" per event until killed. Stdin lines
+//                                            send requests: "insert TEXT" (a backslash and n sends a newline), "key KEYSYM STATE" (decimal), "activity PID
+//                                            FLAGS", and "mark LABEL" prints "mark LABEL" after the compositor handled
+//                                            every earlier request. DESKTOP_CLIENT_SHELL_VERSION=2 binds version 2.
 #include "desktop-unstable-v1-client-protocol.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <poll.h>
 #include <print>
 #include <string>
 #include <string_view>
+#include <unistd.h>
 #include <wayland-client.h>
 
 namespace {
@@ -101,14 +109,35 @@ namespace {
     std::println("bell {}", appId);
     std::fflush(stdout);
   }
-  const dsk_shell_v1_listener kShell = {.action = onShellAction, .lock_keys = onShellLockKeys, .bell = onShellBell};
+  void onShellTextInputState(
+      void*, dsk_shell_v1*, uint32_t enabled, uint32_t purpose, uint32_t hint, int32_t x, int32_t y, int32_t w, int32_t h
+  ) {
+    std::println("text-input-state enabled={} purpose={} hint={} rect={},{},{},{}", enabled, purpose, hint, x, y, w, h);
+    std::fflush(stdout);
+  }
+  void onShellRelock(void*, dsk_shell_v1*) {
+    std::println("relock");
+    std::fflush(stdout);
+  }
+  void onShellRecovered(void*, dsk_shell_v1*) {
+    std::println("recovered");
+    std::fflush(stdout);
+  }
+  const dsk_shell_v1_listener kShell = {
+      .action = onShellAction,
+      .lock_keys = onShellLockKeys,
+      .bell = onShellBell,
+      .text_input_state = onShellTextInputState,
+      .relock = onShellRelock,
+      .recovered = onShellRecovered,
+  };
 
   uint32_t settingsVersion() {
     const char* forced = std::getenv("DESKTOP_CLIENT_SETTINGS_VERSION");
     return forced != nullptr ? static_cast<uint32_t>(std::atoi(forced)) : 2U;
   }
 
-  void global(void* data, wl_registry* registry, uint32_t name, const char* interface, uint32_t) {
+  void global(void* data, wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
     if (std::strcmp(interface, dsk_output_manager_v1_interface.name) == 0) {
       auto* state = static_cast<State*>(data);
       state->manager =
@@ -122,7 +151,10 @@ namespace {
       dsk_settings_manager_v1_add_listener(state->input, &kInput, state);
     } else if (std::strcmp(interface, dsk_shell_v1_interface.name) == 0) {
       auto* state = static_cast<State*>(data);
-      state->shell = static_cast<dsk_shell_v1*>(wl_registry_bind(registry, name, &dsk_shell_v1_interface, 2));
+      const char* wanted = std::getenv("DESKTOP_CLIENT_SHELL_VERSION");
+      state->shell = static_cast<dsk_shell_v1*>(wl_registry_bind(
+          registry, name, &dsk_shell_v1_interface, std::min(version, wanted != nullptr ? static_cast<uint32_t>(std::atoi(wanted)) : 3U)
+      ));
       dsk_shell_v1_add_listener(state->shell, &kShell, state);
     }
   }
@@ -179,7 +211,58 @@ int main(int argc, char** argv) {
     wl_display_roundtrip(display);
     std::println("ready");
     std::fflush(stdout);
-    while (wl_display_dispatch(display) >= 0) {
+    bool stdinOpen = true;
+    std::string pending;
+    while (wl_display_flush(display) >= 0) {
+      while (wl_display_prepare_read(display) != 0) {
+        wl_display_dispatch_pending(display);
+      }
+      pollfd fds[2] = {{wl_display_get_fd(display), POLLIN, 0}, {STDIN_FILENO, POLLIN, 0}};
+      if (poll(fds, stdinOpen ? 2 : 1, -1) < 0) {
+        wl_display_cancel_read(display);
+        return 1;
+      }
+      if ((fds[0].revents & POLLIN) == 0) {
+        wl_display_cancel_read(display);
+      } else if (wl_display_read_events(display) < 0) {
+        return 1;
+      }
+      wl_display_dispatch_pending(display);
+      if (stdinOpen && (fds[1].revents & (POLLIN | POLLHUP)) != 0) {
+        char chunk[512];
+        const ssize_t got = read(STDIN_FILENO, chunk, sizeof(chunk));
+        if (got <= 0) {
+          stdinOpen = false;
+        } else {
+          pending.append(chunk, static_cast<size_t>(got));
+        }
+      }
+      for (size_t end; (end = pending.find('\n')) != std::string::npos;) {
+        const std::string line = pending.substr(0, end);
+        pending.erase(0, end + 1);
+        const std::string_view text(line);
+        if (text.starts_with("insert ")) {
+          std::string inserted = line.substr(7);
+          for (size_t at; (at = inserted.find("\\n")) != std::string::npos;) {
+            inserted.replace(at, 2, "\n");
+          }
+          dsk_shell_v1_insert_text(state.shell, inserted.c_str());
+        } else if (text.starts_with("key ")) {
+          unsigned long keysym = 0;
+          unsigned long keyState = 0;
+          std::sscanf(line.c_str() + 4, "%lu %lu", &keysym, &keyState);
+          dsk_shell_v1_key(state.shell, static_cast<uint32_t>(keysym), static_cast<uint32_t>(keyState));
+        } else if (text.starts_with("activity ")) {
+          unsigned long pid = 0;
+          unsigned long flags = 0;
+          std::sscanf(line.c_str() + 9, "%lu %lu", &pid, &flags);
+          dsk_shell_v1_app_activity(state.shell, static_cast<uint32_t>(pid), static_cast<uint32_t>(flags));
+        } else if (text.starts_with("mark ")) {
+          wl_display_roundtrip(display);
+          std::println("mark {}", line.c_str() + 5);
+          std::fflush(stdout);
+        }
+      }
     }
     return 0;
   }

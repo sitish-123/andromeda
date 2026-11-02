@@ -42,9 +42,9 @@ namespace andromeda {
     // Runs every stage in order. Returns Consume when a stage consumed the event, else Pass.
     KeyResult run(KeyEvent& event) const { return runFrom(KeyStage::AccessibilityFilter, event); }
 
-    // Entry point for synthetic keys (dsk_shell_v1 insert_text/key): they skip stages 1 to 3, so no binding fires on
-    // them, and start at the snippet matcher.
-    KeyResult runAfterBindings(KeyEvent& event) const { return runFrom(KeyStage::SnippetMatcher, event); }
+    // Entry point for synthetic keys (dsk_shell_v1 insert_text/key): they skip stages 1 to 4, so no binding fires on
+    // them, and start at the input-method grab.
+    KeyResult runAfterBindings(KeyEvent& event) const { return runFrom(KeyStage::InputMethodGrab, event); }
 
   private:
     KeyResult runFrom(KeyStage first, KeyEvent& event) const;

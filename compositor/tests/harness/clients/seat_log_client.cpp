@@ -10,7 +10,8 @@
 // SHORTCUTS_INHIBIT_CONTROL accepts i/u to create/destroy a shortcut inhibitor.
 // REDRAW_CONTROL accepts a byte on stdin to commit another frame at the current size.
 // TEXT_INPUT_LATE_STATE (with ENABLE_TEXT_INPUT) sets surrounding text and content type in a
-// commit after the one that enables the text input, as Chromium does.
+// commit after the one that enables the text input, as Chromium does. TEXT_INPUT_CURSOR_RECT=x,y,w,h sets the cursor
+// rectangle in the enabling commit.
 
 #include "keyboard-shortcuts-inhibit-unstable-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
@@ -142,6 +143,14 @@ namespace {
       return;
     }
     zwp_text_input_v3_enable(textInput);
+    if (const char* rect = std::getenv("TEXT_INPUT_CURSOR_RECT")) {
+      int x = 0;
+      int y = 0;
+      int w = 0;
+      int h = 0;
+      std::sscanf(rect, "%d,%d,%d,%d", &x, &y, &w, &h);
+      zwp_text_input_v3_set_cursor_rectangle(textInput, x, y, w, h);
+    }
     zwp_text_input_v3_commit(textInput);
     if (state.lateTextInputState) {
       zwp_text_input_v3_set_surrounding_text(textInput, "late text", 9, 9);
@@ -160,7 +169,9 @@ namespace {
   }
 
   void textInputPreeditString(void*, zwp_text_input_v3*, const char*, int32_t, int32_t) {}
-  void textInputCommitString(void*, zwp_text_input_v3*, const char*) {}
+  void textInputCommitString(void*, zwp_text_input_v3*, const char* text) {
+    std::println("text-input-commit-string '{}'", text != nullptr ? text : "");
+  }
   void textInputDeleteSurroundingText(void*, zwp_text_input_v3*, uint32_t, uint32_t) {}
   void textInputDone(void*, zwp_text_input_v3*, uint32_t) {}
 

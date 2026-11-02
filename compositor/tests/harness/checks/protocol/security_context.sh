@@ -45,6 +45,7 @@ readonly -a NORMAL_GLOBALS=(
 
 readonly -a RESTRICTED_GLOBALS=(
   wp_security_context_manager_v1
+  dsk_shell_v1
   zxdg_output_manager_v1
   zxdg_importer_v2
   ext_idle_notifier_v1

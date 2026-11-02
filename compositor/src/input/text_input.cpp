@@ -3,8 +3,11 @@
 #include "input/input_capture.h"
 #include "input/seat.h"
 #include "layer/layer_surface.h"
+#include "server/desktop_shell.h"
 #include "server/server.h"
 #include "wlr.h"
+
+#include <string>
 
 namespace andromeda {
 
@@ -116,6 +119,7 @@ namespace andromeda {
     if (textInput->relay->m_activeTextInput == textInput->input) {
       textInput->relay->sendStateToInputMethod();
       textInput->relay->updatePopupPositions();
+      textInput->relay->reportTextInputState();
     }
   }
 
@@ -360,6 +364,48 @@ namespace andromeda {
       sendStateToInputMethod();
       updatePopupPositions();
     }
+    reportTextInputState();
+  }
+
+  bool InputMethodRelay::commitText(std::string_view text) {
+    if (m_activeTextInput == nullptr) {
+      return false;
+    }
+    const std::string line(text);
+    wlr_text_input_v3_send_commit_string(m_activeTextInput, line.c_str());
+    wlr_text_input_v3_send_done(m_activeTextInput);
+    return true;
+  }
+
+  void InputMethodRelay::reportTextInputState() {
+    ReportedState state;
+    if (m_activeTextInput != nullptr) {
+      const wlr_text_input_v3_state& current = m_activeTextInput->current;
+      state.enabled = true;
+      if ((current.features & WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE) != 0) {
+        state.purpose = current.content_type.purpose;
+        state.hint = current.content_type.hint;
+      }
+      if (const std::optional<wlr_box> rect = cursorRectInLayout()) {
+        state.rect = *rect;
+        wlr_output* output = wlr_output_layout_output_at(m_server->outputLayout(), rect->x, rect->y);
+        wlr_box outputBox{};
+        if (output != nullptr) {
+          wlr_output_layout_get_box(m_server->outputLayout(), output, &outputBox);
+        }
+        state.rect.x -= outputBox.x;
+        state.rect.y -= outputBox.y;
+      }
+    }
+    if (state == m_reported) {
+      return;
+    }
+    m_reported = state;
+    if (DesktopShell* shell = m_server->desktopShell()) {
+      shell->setTextInputState(
+          state.enabled, state.purpose, state.hint, state.rect.x, state.rect.y, state.rect.width, state.rect.height
+      );
+    }
   }
 
   void InputMethodRelay::sendStateToInputMethod() {
@@ -384,9 +430,9 @@ namespace andromeda {
     wlr_input_method_v2_send_done(m_inputMethod);
   }
 
-  void InputMethodRelay::updatePopupPosition(Popup& popup) {
-    if (m_activeTextInput == nullptr || m_focusedSurface == nullptr || !popup.popup->surface->mapped) {
-      return;
+  std::optional<wlr_box> InputMethodRelay::cursorRectInLayout() const {
+    if (m_activeTextInput == nullptr || m_focusedSurface == nullptr) {
+      return std::nullopt;
     }
 
     wlr_box cursorRect{};
@@ -415,8 +461,21 @@ namespace andromeda {
       cursorRect.x += lx;
       cursorRect.y += ly;
     } else {
+      return std::nullopt;
+    }
+    return cursorRect;
+  }
+
+  void InputMethodRelay::updatePopupPosition(Popup& popup) {
+    if (m_activeTextInput == nullptr || m_focusedSurface == nullptr || !popup.popup->surface->mapped) {
       return;
     }
+
+    const std::optional<wlr_box> layoutRect = cursorRectInLayout();
+    if (!layoutRect.has_value()) {
+      return;
+    }
+    wlr_box cursorRect = *layoutRect;
 
     wlr_output* output = wlr_output_layout_output_at(m_server->outputLayout(), cursorRect.x, cursorRect.y);
     if (output == nullptr) {

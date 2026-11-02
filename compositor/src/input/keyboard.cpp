@@ -19,6 +19,7 @@
 #include "wlr.h"
 
 #include <algorithm>
+#include <ctime>
 #include <optional>
 #include <utility>
 
@@ -396,6 +397,111 @@ namespace andromeda {
     if (m_modifierTap.has_value()) {
       const Keybind tap = *std::exchange(m_modifierTap, std::nullopt);
       m_server->executeKeybindAction(tap);
+    }
+  }
+
+  std::optional<uint32_t> Keyboard::injectKeysym(xkb_keysym_t keysym, uint32_t state, bool baseLevelOnly) {
+    xkb_keymap* keymap = m_keyboard->keymap;
+    if (keymap == nullptr || inputCaptureOwnsKeyboard()) {
+      return std::nullopt;
+    }
+    struct Lookup {
+      xkb_keysym_t keysym;
+      xkb_layout_index_t layout;
+      bool baseLevelOnly;
+      xkb_keycode_t keycode = XKB_KEYCODE_INVALID;
+      xkb_level_index_t level = 0;
+    } lookup{keysym, xkb_state_serialize_layout(m_keyboard->xkb_state, XKB_STATE_LAYOUT_EFFECTIVE), baseLevelOnly};
+    xkb_keymap_key_for_each(
+        keymap,
+        [](xkb_keymap* map, xkb_keycode_t key, void* data) {
+          auto& found = *static_cast<Lookup*>(data);
+          if (found.layout >= xkb_keymap_num_layouts_for_key(map, key)) {
+            return;
+          }
+          const xkb_level_index_t levels = xkb_keymap_num_levels_for_key(map, key, found.layout);
+          for (xkb_level_index_t level = 0; level < (found.baseLevelOnly ? std::min(levels, 1U) : levels); ++level) {
+            const xkb_keysym_t* syms = nullptr;
+            const int count = xkb_keymap_key_get_syms_by_level(map, key, found.layout, level, &syms);
+            if (count == 1 && syms[0] == found.keysym) {
+              if (found.keycode == XKB_KEYCODE_INVALID || level < found.level) {
+                found.keycode = key;
+                found.level = level;
+              }
+              return;
+            }
+          }
+        },
+        &lookup
+    );
+    if (lookup.keycode == XKB_KEYCODE_INVALID) {
+      return std::nullopt;
+    }
+    // The client derives the keysym from the modifiers it last received, so a key above the base level needs its
+    // level's modifiers around it.
+    xkb_mod_mask_t levelMods = 0;
+    if (lookup.level > 0) {
+      xkb_mod_mask_t masks[1] = {0};
+      if (xkb_keymap_key_get_mods_for_level(keymap, lookup.keycode, lookup.layout, lookup.level, masks, 1) > 0) {
+        levelMods = masks[0];
+      }
+    }
+    const uint32_t keycode = lookup.keycode - 8;
+    if (levelMods == 0) {
+      injectKeycode(keycode, state);
+      return keycode;
+    }
+    wlr_keyboard_modifiers shifted = m_keyboard->modifiers;
+    shifted.depressed |= levelMods;
+    sendSeatModifiers(shifted);
+    injectKeycode(keycode, state);
+    sendSeatModifiers(m_keyboard->modifiers);
+    return keycode;
+  }
+
+  bool Keyboard::inputCaptureOwnsKeyboard() const {
+    const InputCapture* capture = m_server->inputCapture();
+    return capture != nullptr && (capture->active() || (capture->capabilities() & 1U) != 0);
+  }
+
+  void Keyboard::injectKeycode(uint32_t keycode, uint32_t state) {
+    if (inputCaptureOwnsKeyboard()) {
+      return;
+    }
+    if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+      m_server->notifyInputActivity();
+    } else {
+      m_server->notifyIdleActivity();
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    KeyEvent event{
+        .time_msec = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000),
+        .keycode = keycode,
+        .state = state,
+    };
+    m_pipeline.runAfterBindings(event);
+    // The key event above goes first, as for a physical key; then the seat modifier state follows a modifier key.
+    const xkb_keysym_t* syms = nullptr;
+    const int nsyms = xkb_state_key_get_syms(m_keyboard->xkb_state, keycode + 8, &syms);
+    if (nsyms > 0 && syms[0] >= XKB_KEY_Shift_L && syms[0] <= XKB_KEY_Hyper_R) {
+      xkb_state* xkb = m_keyboard->xkb_state;
+      xkb_state_update_key(xkb, keycode + 8, state == WL_KEYBOARD_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
+      wlr_keyboard_notify_modifiers(
+          m_keyboard,
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_DEPRESSED),
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_LATCHED),
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_LOCKED),
+          xkb_state_serialize_layout(xkb, XKB_STATE_LAYOUT_LOCKED)
+      );
+    }
+  }
+
+  void Keyboard::sendSeatModifiers(wlr_keyboard_modifiers modifiers) {
+    if (wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab(); grab != nullptr) {
+      wlr_input_method_keyboard_grab_v2_send_modifiers(grab, &modifiers);
+    } else {
+      wlr_seat_keyboard_notify_modifiers(m_server->seat()->wlr(), &modifiers);
     }
   }
 

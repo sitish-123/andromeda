@@ -114,6 +114,9 @@ namespace andromeda {
       if (m_eisInput != nullptr) {
         m_eisInput->setSessionLocked(true);
       }
+      if (m_desktopShell != nullptr) {
+        m_desktopShell->releaseKeys();
+      }
       m_sessionLocked = true;
       m_effects.setSuspended(true);
       m_effects.applyOutputEffects();
@@ -135,6 +138,9 @@ namespace andromeda {
     updateLockBlank();
     setLockBlankEnabled(true);
     raiseLockTree();
+    if (m_desktopShell != nullptr) {
+      m_desktopShell->sendRecovered();
+    }
   }
 
   void Server::unlockSession() {
@@ -167,6 +173,8 @@ namespace andromeda {
     m_sessionLock.reset();
     if (!m_sessionLocked) {
       wlr_scene_node_set_enabled(&m_lockTree->node, false);
+    } else if (m_desktopShell != nullptr) {
+      m_desktopShell->sendRelock();
     }
   }
 

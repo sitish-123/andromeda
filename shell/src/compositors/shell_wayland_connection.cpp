@@ -34,7 +34,7 @@ namespace {
   constexpr std::uint32_t kHyprlandToplevelMappingManagerVersion = 1;
   constexpr std::uint32_t kVirtualKeyboardManagerVersion = 1;
   constexpr std::uint32_t kGammaControlManagerVersion = 1;
-  constexpr std::uint32_t kDesktopShellVersion = 2;
+  constexpr std::uint32_t kDesktopShellVersion = 3;
   constexpr std::uint32_t kScreencopyManagerVersion = 3;
   constexpr std::uint32_t kImageCopyCaptureManagerVersion = 1;
   constexpr std::uint32_t kOutputImageCaptureSourceManagerVersion = 1;
@@ -57,10 +57,29 @@ namespace {
     self->onShellBell(appId);
   }
 
+  void shellTextInputState(
+      void* data, dsk_shell_v1* /*shell*/, uint32_t enabled, uint32_t purpose, uint32_t hint, int32_t x, int32_t y,
+      int32_t width, int32_t height
+  ) {
+    auto* self = static_cast<ShellWaylandConnection*>(data);
+    self->onShellTextInputState({
+        .enabled = enabled != 0, .purpose = purpose, .hint = hint, .x = x, .y = y, .width = width, .height = height
+    });
+  }
+
+  void shellRelock(void* data, dsk_shell_v1* /*shell*/) { static_cast<ShellWaylandConnection*>(data)->onShellRelock(); }
+
+  void shellRecovered(void* data, dsk_shell_v1* /*shell*/) {
+    static_cast<ShellWaylandConnection*>(data)->onShellRecovered();
+  }
+
   constexpr dsk_shell_v1_listener kShellListener = {
       .action = shellAction,
       .lock_keys = shellLockKeys,
       .bell = shellBell,
+      .text_input_state = shellTextInputState,
+      .relock = shellRelock,
+      .recovered = shellRecovered,
   };
 
   template <typename T> T* bindAs(wl_registry* registry, std::uint32_t name, const wl_interface& iface, std::uint32_t version) {
@@ -108,6 +127,58 @@ void ShellWaylandConnection::setShellBellCallback(std::function<void(const std::
 
 void ShellWaylandConnection::setCompositorLockKeysCallback(ChangeCallback callback) {
   m_compositorLockKeysCallback = std::move(callback);
+}
+
+void ShellWaylandConnection::setTextInputStateCallback(std::function<void(const TextInputState& state)> callback) {
+  m_textInputStateCallback = std::move(callback);
+}
+
+void ShellWaylandConnection::setRelockCallback(std::function<void()> callback) { m_relockCallback = std::move(callback); }
+
+void ShellWaylandConnection::setRecoveredCallback(std::function<void()> callback) {
+  m_recoveredCallback = std::move(callback);
+}
+
+bool ShellWaylandConnection::sendAppActivity(std::uint32_t pid, std::uint32_t flags) {
+  if (m_desktopShell == nullptr || dsk_shell_v1_get_version(m_desktopShell) < DSK_SHELL_V1_APP_ACTIVITY_SINCE_VERSION) {
+    return false;
+  }
+  dsk_shell_v1_app_activity(m_desktopShell, pid, flags);
+  return true;
+}
+
+bool ShellWaylandConnection::insertText(const std::string& text) {
+  if (m_desktopShell == nullptr || dsk_shell_v1_get_version(m_desktopShell) < DSK_SHELL_V1_INSERT_TEXT_SINCE_VERSION) {
+    return false;
+  }
+  dsk_shell_v1_insert_text(m_desktopShell, text.c_str());
+  return true;
+}
+
+bool ShellWaylandConnection::sendKey(std::uint32_t keysym, bool pressed) {
+  if (m_desktopShell == nullptr || dsk_shell_v1_get_version(m_desktopShell) < DSK_SHELL_V1_KEY_SINCE_VERSION) {
+    return false;
+  }
+  dsk_shell_v1_key(m_desktopShell, keysym, pressed ? 1 : 0);
+  return true;
+}
+
+void ShellWaylandConnection::onShellTextInputState(const TextInputState& state) {
+  if (m_textInputStateCallback) {
+    m_textInputStateCallback(state);
+  }
+}
+
+void ShellWaylandConnection::onShellRelock() {
+  if (m_relockCallback) {
+    m_relockCallback();
+  }
+}
+
+void ShellWaylandConnection::onShellRecovered() {
+  if (m_recoveredCallback) {
+    m_recoveredCallback();
+  }
 }
 
 void ShellWaylandConnection::onShellAction(const std::string& command) {
