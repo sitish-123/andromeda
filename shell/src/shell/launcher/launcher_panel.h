@@ -76,6 +76,7 @@ public:
   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   [[nodiscard]] PanelPlacement panelPlacement() const noexcept override;
   [[nodiscard]] bool ignorePointerEvent() const override;
+  [[nodiscard]] bool isContextActive(std::string_view context) const override;
 
 private:
   friend class LauncherPanelTestAccess;
@@ -145,7 +146,13 @@ private:
   void reorderPinnedApplication(std::string_view sourcePath, std::string_view targetPath);
   void syncLauncherAvatar(Renderer& renderer);
   void bindPreview(Renderer& renderer);
-  void activateSelectedDesktopAction();
+  void setMode(std::string_view providerId);
+  void cycleMode(int direction);
+  void syncModeTabs();
+  [[nodiscard]] bool pillExpanded() const;
+  void activatePreviewAction();
+  void deleteSelectedClipboardEntry();
+  void activateEmojiVariant(std::size_t tone);
   void showProviderOverview();
   void showSessionActions();
   [[nodiscard]] bool usesBrowserLayout() const;
@@ -202,20 +209,31 @@ private:
   bool m_browserMode = false;
   Separator* m_pillSeparator = nullptr;
   Flex* m_pillFooter = nullptr;
+  // Media modes (DESIGN.md "Launcher media modes"): the provider the tabs scope the search to; empty = search.
+  std::string m_modeProviderId;
+  Flex* m_modeTabs = nullptr;
+  Separator* m_modeTabsLine = nullptr;
+  std::vector<std::pair<std::string, Flex*>> m_modeTabItems;
   // Direction C preview pane (right of the result list).
   Flex* m_previewPane = nullptr;
   Separator* m_previewDivider = nullptr;
   Image* m_previewImage = nullptr;
   Glyph* m_previewGlyph = nullptr;
+  Label* m_previewEmoji = nullptr;
+  Flex* m_previewTones = nullptr;
+  std::array<Label*, 5> m_previewToneLabels{};
   Label* m_previewTitle = nullptr;
   Label* m_previewKind = nullptr;
   Button* m_previewOpen = nullptr;
   Button* m_previewAction = nullptr;
+  Button* m_previewDelete = nullptr;
+  Label* m_previewBody = nullptr;
   std::array<Flex*, 3> m_previewMetaRows{};
   std::array<Label*, 3> m_previewMetaKeys{};
   std::array<Label*, 3> m_previewMetaValues{};
   std::string m_previewIconPath;
   Label* m_pillCount = nullptr;
+  Label* m_pillOpenHint = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
   std::optional<BrowserViewState> m_sessionReturnView;

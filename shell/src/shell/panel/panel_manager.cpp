@@ -579,7 +579,16 @@ void PanelManager::unregisterPanel(const std::string& id) {
   m_panels.erase(it);
 }
 
+void PanelManager::setPanelAlias(std::string from, std::string to, std::string context) {
+  m_panelAliases[std::move(from)] = {std::move(to), std::move(context)};
+}
+
 void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest request) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    request.context = alias->second.second;
+    openPanel(alias->second.first, request);
+    return;
+  }
   if (m_inTransition || m_afterCaptureClose) {
     return;
   }
@@ -1774,6 +1783,11 @@ void PanelManager::destroyPanel() {
 }
 
 void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest request) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    request.context = alias->second.second;
+    togglePanel(alias->second.first, request);
+    return;
+  }
   if (m_persistentHost.hasPanel(panelId)) {
     if (m_persistentHost.isOpen(panelId)) {
       m_persistentHost.close(panelId);
@@ -1806,6 +1820,10 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
 }
 
 void PanelManager::togglePanel(const std::string& panelId) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    togglePanel(alias->second.first, PanelOpenRequest{.context = alias->second.second});
+    return;
+  }
   if (m_persistentHost.hasPanel(panelId)) {
     if (m_persistentHost.isOpen(panelId)) {
       m_persistentHost.close(panelId);

@@ -1028,6 +1028,9 @@
       "calculator": {
         "title": "Calculator"
       },
+      "clipboard": {
+        "title": "Clipboard"
+      },
       "emoji": {
         "title": "Emoji"
       },
@@ -1061,6 +1064,17 @@
         "title": "Windows"
       }
     },
+    "clipboard": {
+      "copied": "Copied",
+      "delete": "Delete",
+      "earlier": "Earlier",
+      "image": "Image",
+      "pin": "Pin",
+      "pinned": "Pinned",
+      "today": "Today",
+      "unpin": "Unpin",
+      "yesterday": "Yesterday"
+    },
     "pill": {
       "actions-hint": "Actions",
       "category": "Category",
@@ -1069,10 +1083,16 @@
       "last-opened": "Last opened",
       "open-hint": "Open ↩",
       "opened": "Opened",
+      "paste": "Paste",
+      "paste-hint": "Paste ↩",
+      "recent": "Recent",
       "result-count": "{count} results",
+      "results": "Results",
       "search-web": "Search the web for “{query}”",
       "times": "{count} time",
-      "times-plural": "{count} times"
+      "times-plural": "{count} times",
+      "unicode": "Unicode",
+      "used": "Used"
     },
     "search-placeholder": "Search"
   },

@@ -43,6 +43,7 @@
 #include "ipc/ipc_arg_parse.h"
 #include "launcher/app_provider.h"
 #include "launcher/dmenu_provider.h"
+#include "launcher/clipboard_provider.h"
 #include "launcher/emoji_provider.h"
 #include "launcher/math_provider.h"
 #include "launcher/panel_provider.h"
@@ -648,6 +649,10 @@ void Application::initPanelManagerAndPanels() {
     });
   });
   m_panelManager.registerPanel("clipboard", std::move(clipboardPanel));
+  // The Spotlight launcher owns clipboard history as a mode (DESIGN.md "Launcher media modes").
+  if (m_configService.config().shell.launcher.layout == ShellConfig::LauncherLayout::Full) {
+    m_panelManager.setPanelAlias("clipboard", "launcher", "mode:Clipboard");
+  }
   syncClipboardService();
   m_panelManager.registerPanel("session", std::make_unique<SessionPanel>(&m_configService, m_sessionActionRunner));
   m_panelManager.registerPanel("display-mode", std::make_unique<DisplayModePanel>(m_wayland));
@@ -707,6 +712,7 @@ void Application::initPanelManagerAndPanels() {
     launcherPanel->addProvider(std::make_unique<WebSearchProvider>());
     launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
     launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService));
+    launcherPanel->addProvider(std::make_unique<ClipboardProvider>(&m_clipboardService));
     launcherPanel->setCopiedActivationCallback([this] {
       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
       if (mode == ClipboardAutoPasteMode::Off) {

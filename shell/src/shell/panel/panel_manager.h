@@ -110,6 +110,8 @@ public:
   void onAttachedBarRevealSettled(wl_output* output, std::string_view barName);
 
   void registerPanel(const std::string& id, std::unique_ptr<Panel> content);
+  // Requests for `from` open `to` with `context` instead (the clipboard panel became a launcher mode).
+  void setPanelAlias(std::string from, std::string to, std::string context);
   // Drops a previously registered panel, closing it first if it is open. Used to
   // retire plugin-backed panels on a plugin enable/disable/reload.
   void unregisterPanel(const std::string& id);
@@ -331,6 +333,7 @@ private:
   std::uint32_t m_panelVisualWidth = 0;
   std::uint32_t m_panelVisualHeight = 0;
   std::optional<InputRect> m_panelOutputInputRect;
+  std::unordered_map<std::string, std::pair<std::string, std::string>> m_panelAliases;
   // Content-fitted panels (Panel::fitsContentHeight): the surface is sized once at open for
   // the panel's maximum height (the slot), and the visible card moves within it as the
   // content changes. The card keeps the slot edge the panel is anchored to: top-anchored

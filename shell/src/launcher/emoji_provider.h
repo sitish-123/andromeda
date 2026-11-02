@@ -33,7 +33,10 @@ private:
     std::string nameLower;
     std::vector<std::string> keywords;
     std::string category;
+    std::vector<std::string> tones;
   };
+
+  [[nodiscard]] LauncherResult resultFor(const EmojiEntry& entry, double score) const;
 
   std::vector<EmojiEntry> m_entries;
   ClipboardService* m_clipboard = nullptr;

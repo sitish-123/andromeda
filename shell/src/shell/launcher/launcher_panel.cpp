@@ -10,6 +10,7 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "i18n/i18n.h"
 #include "launcher/app_provider.h"
+#include "launcher/clipboard_provider.h"
 #include "launcher/search_ranker.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/async_texture_cache.h"
@@ -51,6 +52,9 @@ namespace {
   constexpr float kIconSizeDefault = 40.0F;
   constexpr float kIconSizeCompact = 28.0F;
   constexpr std::size_t kAppGridColumns = 6;
+  // Emoji mode grid (DESIGN.md "Launcher media modes"): 8 cells across the 360 list pane.
+  constexpr std::size_t kEmojiColumns = 8;
+  constexpr std::size_t kMaxSectionColumns = kEmojiColumns;
   // Rulebook 9.14 at its tallest (the apps grid): field, hairline, p, grid rows with g 8, page dots, p.
   [[nodiscard]] float launcherSheetHeight() {
     const float rows = static_cast<float>(Tokens::componentLauncherRows);
@@ -58,6 +62,9 @@ namespace {
         + rows * Tokens::componentLauncherCellHeight + rows * Tokens::spaceP8 + Tokens::componentPageDotsRow;
   }
   [[nodiscard]] bool isAppsQuery(std::string_view query) { return query == "apps"; }
+  // Tab order of the media modes; a mode shows only when its provider is registered.
+  constexpr std::array<std::string_view, 5> kModeProviders{"Clipboard", "Emoji", "Gifs", "Stickers", "Symbols"};
+  constexpr std::string_view kModeContextPrefix = "mode:";
   constexpr std::int32_t kCompactNavigationWidth = 680;
   constexpr float kLauncherAvatarSize = 44.0F;
   constexpr std::string_view kApplicationsProviderId = "Applications";
@@ -377,7 +384,8 @@ namespace {
       m_title->setText(singleLinePreview(result.title));
       m_title->setMaxWidth(textWidth);
 
-      const bool showSubtitle = !m_style.compact && !m_style.pill && !result.subtitle.empty();
+      const bool showSubtitle = !m_style.compact && (!m_style.pill || result.presentation.starts_with("clipboard"))
+          && !result.subtitle.empty();
       if (!showSubtitle) {
         m_subtitle->setVisible(false);
         m_subtitle->setText("");
@@ -754,7 +762,7 @@ namespace {
     Kind kind = Kind::Header;
     std::string label;
     std::string glyphName;
-    std::array<std::size_t, kAppGridColumns> resultIndices{};
+    std::array<std::size_t, kMaxSectionColumns> resultIndices{};
     std::size_t resultCount = 0;
   };
 
@@ -795,7 +803,7 @@ namespace {
       );
       addChild(std::move(header));
 
-      for (std::size_t slot = 0; slot < kAppGridColumns; ++slot) {
+      for (std::size_t slot = 0; slot < kMaxSectionColumns; ++slot) {
         auto area = std::make_unique<InputArea>();
         area->setAcceptedButtons(InputArea::buttonMask({BTN_LEFT, BTN_RIGHT}));
         area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
@@ -840,6 +848,20 @@ namespace {
         auto listRow = std::make_unique<LauncherResultRow>(m_style, asyncTextures);
         listRow->setVisible(false);
         m_listRows[slot] = listRow.get();
+        auto emojiCell = ui::row({
+            .out = &m_emojiCells[slot],
+            .align = FlexAlign::Center,
+            .justify = FlexJustify::Center,
+            .radius = Tokens::radiusR8 * m_style.scale,
+            .visible = false,
+        });
+        emojiCell->addChild(ui::label({
+            .out = &m_emojiLabels[slot],
+            .fontSize = Tokens::componentLauncherEmoji * m_style.scale,
+            .color = colorSpecFromRole(ColorRole::Label1),
+            .maxLines = 1,
+        }));
+        area->addChild(std::move(emojiCell));
         area->addChild(std::move(listRow));
         m_areas[slot] = static_cast<InputArea*>(addChild(std::move(area)));
       }
@@ -847,6 +869,7 @@ namespace {
 
     void setListStyle(LauncherListStyle style) { m_style = style; }
     void setGridView(bool gridView) { m_gridView = gridView; }
+    void setEmojiGrid(bool emojiGrid) { m_emojiGrid = emojiGrid; }
     void setPillStyle(bool pill) {
       if (m_pillStyle == pill) {
         return;
@@ -879,16 +902,17 @@ namespace {
         m_headerLabel->setMaxWidth(std::max(0.0F, width - Style::controlHeight * m_style.scale));
       }
 
-      const std::size_t columns = m_gridView ? kAppGridColumns : 1;
-      const float gap = m_gridView ? Style::spaceSm * m_style.scale : 0.0F;
+      const std::size_t columns = m_emojiGrid ? kEmojiColumns : (m_gridView ? kAppGridColumns : 1);
+      const float gap = m_gridView && !m_emojiGrid ? Style::spaceSm * m_style.scale : 0.0F;
       const auto columnCount = static_cast<float>(columns);
       const float cellWidth = std::max(0.0F, (width - static_cast<float>(columns - 1) * gap) / columnCount);
-      for (std::size_t slot = 0; slot < kAppGridColumns; ++slot) {
+      for (std::size_t slot = 0; slot < kMaxSectionColumns; ++slot) {
         const bool active = !headerVisible && slot < row.resultCount && row.resultIndices[slot] < results.size();
         m_boundResultIndices[slot] = active ? std::optional<std::size_t>(row.resultIndices[slot]) : std::nullopt;
         m_areas[slot]->setVisible(active);
-        m_tiles[slot]->setVisible(active && m_gridView);
-        m_listRows[slot]->setVisible(active && !m_gridView);
+        m_tiles[slot]->setVisible(active && m_gridView && !m_emojiGrid);
+        m_listRows[slot]->setVisible(active && !m_gridView && !m_emojiGrid);
+        m_emojiCells[slot]->setVisible(active && m_emojiGrid);
         if (!active) {
           continue;
         }
@@ -899,6 +923,8 @@ namespace {
         m_tiles[slot]->setSize(cellWidth, height);
         m_listRows[slot]->setPosition(0.0F, 0.0F);
         m_listRows[slot]->setSize(cellWidth, height);
+        m_emojiCells[slot]->setPosition(0.0F, 0.0F);
+        m_emojiCells[slot]->setFrameSize(cellWidth, height);
       }
     }
 
@@ -911,7 +937,7 @@ namespace {
       if (m_results == nullptr) {
         return;
       }
-      for (std::size_t slot = 0; slot < kAppGridColumns; ++slot) {
+      for (std::size_t slot = 0; slot < kMaxSectionColumns; ++slot) {
         if (!m_boundResultIndices[slot].has_value()) {
           continue;
         }
@@ -919,7 +945,14 @@ namespace {
         if (resultIndex >= m_results->size()) {
           continue;
         }
-        if (m_gridView) {
+        if (m_emojiGrid) {
+          const bool selected = m_selectedResultIndex == resultIndex;
+          m_emojiLabels[slot]->setText((*m_results)[resultIndex].badge);
+          m_emojiCells[slot]->setFill(
+              selected ? colorSpecFromRole(ColorRole::Lens)
+                       : (m_areas[slot]->hovered() ? colorSpecFromRole(ColorRole::Fill1) : clearColorSpec())
+          );
+        } else if (m_gridView) {
           m_tiles[slot]->setListStyle(m_style);
           m_tiles[slot]->bind(
               renderer, (*m_results)[resultIndex], m_areas[slot]->width(), m_areas[slot]->height(),
@@ -942,10 +975,13 @@ namespace {
     Flex* m_header = nullptr;
     Glyph* m_headerGlyph = nullptr;
     Label* m_headerLabel = nullptr;
-    std::array<InputArea*, kAppGridColumns> m_areas{};
-    std::array<LauncherAppGridTile*, kAppGridColumns> m_tiles{};
-    std::array<LauncherResultRow*, kAppGridColumns> m_listRows{};
-    std::array<std::optional<std::size_t>, kAppGridColumns> m_boundResultIndices{};
+    bool m_emojiGrid = false;
+    std::array<InputArea*, kMaxSectionColumns> m_areas{};
+    std::array<LauncherAppGridTile*, kMaxSectionColumns> m_tiles{};
+    std::array<LauncherResultRow*, kMaxSectionColumns> m_listRows{};
+    std::array<Flex*, kMaxSectionColumns> m_emojiCells{};
+    std::array<Label*, kMaxSectionColumns> m_emojiLabels{};
+    std::array<std::optional<std::size_t>, kMaxSectionColumns> m_boundResultIndices{};
     const std::vector<LauncherResult>* m_results = nullptr;
     std::optional<std::size_t> m_selectedResultIndex;
     SelectCallback m_onSelect;
@@ -1327,7 +1363,7 @@ public:
     if (m_results == nullptr) {
       return;
     }
-    const std::size_t columns = m_gridView ? kAppGridColumns : 1;
+    const std::size_t columns = m_emojiGrid ? kEmojiColumns : (m_gridView ? kAppGridColumns : 1);
     for (const Section& section : sections) {
       if (section.resultIndices.empty()) {
         continue;
@@ -1355,6 +1391,13 @@ public:
         }
         m_rows.push_back(std::move(row));
       }
+    }
+  }
+
+  void setEmojiGrid(bool emojiGrid) {
+    if (m_emojiGrid != emojiGrid) {
+      m_emojiGrid = emojiGrid;
+      ++m_revision;
     }
   }
 
@@ -1394,7 +1437,7 @@ public:
   }
 
   [[nodiscard]] std::optional<std::size_t> moveHorizontal(std::size_t resultIndex, int direction) const {
-    if (!m_gridView) {
+    if (!m_gridView && !m_emojiGrid) {
       return resultIndex < m_resultPositions.size() && m_resultPositions[resultIndex].has_value()
           ? std::optional<std::size_t>(resultIndex)
           : firstResultIndex();
@@ -1483,6 +1526,7 @@ public:
     auto* row = static_cast<LauncherSectionRow*>(&item);
     row->setListStyle(m_style);
     row->setGridView(m_gridView);
+    row->setEmojiGrid(m_emojiGrid);
     row->setPillStyle(m_pillStyle);
     row->bind(m_rows[index], *m_results, m_selectedResultIndex, width, item.height());
   }
@@ -1507,6 +1551,7 @@ private:
   std::uint64_t m_revision = 0;
   float m_applicationRowHeight = 1.0F;
   bool m_gridView = false;
+  bool m_emojiGrid = false;
   bool m_pillStyle = false;
 };
 
@@ -1527,7 +1572,7 @@ float LauncherPanel::preferredHeight() const { return scaled(usesBrowserLayout()
 float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*contentWidth*/) {
   const float scale = contentScale();
   const float field = Tokens::componentLauncherSearch * scale;
-  if (m_query.empty()) {
+  if (!pillExpanded()) {
     return field;
   }
   if (!shouldUseLauncherSections() || m_launcherSectionsAdapter == nullptr || m_results.empty()) {
@@ -1536,8 +1581,10 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
   // Field, the taller of the list (p 8, 8 rows visible) and the preview, footer (rulebook 9.14, direction C).
   const float list = 2.0F * Tokens::spaceP8 * scale + m_launcherSectionsAdapter->pillContentHeight(8);
   const float previewHeight = Tokens::componentLauncherPreviewMin * scale;
-  constexpr float kHairlines = 2.0F; // under the field and above the footer
-  return field + kHairlines + std::max(list, previewHeight) + Tokens::componentLauncherFooter * scale;
+  const bool tabs = !m_modeProviderId.empty();
+  const float hairlines = tabs ? 3.0F : 2.0F; // under the field (and the tabs) and above the footer
+  return field + hairlines + (tabs ? Tokens::componentLauncherTabs * scale : 0.0F) + std::max(list, previewHeight)
+      + Tokens::componentLauncherFooter * scale;
 }
 
 PanelPlacement LauncherPanel::panelPlacement() const noexcept {
@@ -1842,6 +1889,24 @@ void LauncherPanel::create() {
         .visible = false,
         .participatesInLayout = false,
     }));
+    container->addChild(ui::row({
+        .out = &m_modeTabs,
+        .align = FlexAlign::Center,
+        .gap = Tokens::spaceP4 * scale,
+        .paddingH = Tokens::spaceP12 * scale,
+        .minHeight = Tokens::componentLauncherTabs * scale,
+        .fillWidth = true,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    container->addChild(ui::separator({
+        .out = &m_modeTabsLine,
+        .color = colorSpecFromRole(ColorRole::Separator),
+        .thickness = 1.0F,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    m_modeTabItems.clear();
     body->setPadding(Tokens::componentLauncherPadding * scale);
     body->setVisible(false);
     body->setParticipatesInLayout(false);
@@ -1877,6 +1942,14 @@ void LauncherPanel::create() {
         .visible = false,
     }));
     preview->addChild(ui::label({
+        .out = &m_previewEmoji,
+        .fontSize = Tokens::componentLauncherEmojiPreview * scale,
+        .color = colorSpecFromRole(ColorRole::Label1),
+        .maxLines = 1,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    preview->addChild(ui::label({
         .out = &m_previewTitle,
         .fontSize = Tokens::typeTitle3.size * scale,
         .fontWeight = FontWeight::SemiBold,
@@ -1891,6 +1964,40 @@ void LauncherPanel::create() {
         .maxLines = 1,
         .ellipsize = TextEllipsize::End,
     }));
+    preview->addChild(ui::label({
+        .out = &m_previewBody,
+        .fontSize = Style::fontSizeCaption * scale,
+        .color = colorSpecFromRole(ColorRole::Label1),
+        .maxLines = 8,
+        .ellipsize = TextEllipsize::End,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    auto tones = ui::row({
+        .out = &m_previewTones,
+        .align = FlexAlign::Center,
+        .gap = Tokens::spaceP4 * scale,
+        .visible = false,
+        .participatesInLayout = false,
+    });
+    for (std::size_t i = 0; i < m_previewToneLabels.size(); ++i) {
+      auto cell = ui::row({
+          .align = FlexAlign::Center,
+          .justify = FlexJustify::Center,
+          .radius = Tokens::radiusR8 * scale,
+          .minWidth = Tokens::sizeControlM * scale,
+          .minHeight = Tokens::sizeControlM * scale,
+      });
+      cell->addChild(ui::label({.out = &m_previewToneLabels[i], .fontSize = Tokens::componentLauncherEmoji * scale, .maxLines = 1}));
+      auto area = std::make_unique<InputArea>();
+      area->setParticipatesInLayout(false);
+      area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
+      area->setFrameSize(Tokens::sizeControlM * scale, Tokens::sizeControlM * scale);
+      area->setOnClick([this, i](const InputArea::PointerData&) { activateEmojiVariant(i); });
+      cell->addChild(std::move(area));
+      tones->addChild(std::move(cell));
+    }
+    preview->addChild(std::move(tones));
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale});
     actions->setPadding(Tokens::spaceP12 * scale, 0.0F, 0.0F, 0.0F);
     actions->addChild(ui::button({
@@ -1906,7 +2013,16 @@ void LauncherPanel::create() {
         .variant = ButtonVariant::Default,
         .visible = false,
         .participatesInLayout = false,
-        .onClick = [this] { activateSelectedDesktopAction(); },
+        .onClick = [this] { activatePreviewAction(); },
+    }));
+    actions->addChild(ui::button({
+        .out = &m_previewDelete,
+        .text = i18n::tr("launcher.clipboard.delete"),
+        .controlHeight = Tokens::sizeControlS * scale,
+        .variant = ButtonVariant::Default,
+        .visible = false,
+        .participatesInLayout = false,
+        .onClick = [this] { deleteSelectedClipboardEntry(); },
     }));
     preview->addChild(std::move(actions));
     auto meta = ui::column({.align = FlexAlign::Stretch, .fillWidth = true});
@@ -1930,10 +2046,10 @@ void LauncherPanel::create() {
     container->addChild(std::move(body));
 
     // Rulebook 9.14 footer: hairline, h 36, count leading, key hints trailing.
-    const auto keyHint = [scale](std::string text, std::string key) {
+    const auto keyHint = [scale](std::string text, std::string key, Label** out = nullptr) {
       return ui::row(
           {.align = FlexAlign::Center, .gap = Tokens::spaceP4 * scale},
-          ui::label({.text = std::move(text), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
+          ui::label({.out = out, .text = std::move(text), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
           ui::row(
               {.align = FlexAlign::Center,
                .paddingH = Tokens::spaceP4 * scale,
@@ -1958,7 +2074,7 @@ void LauncherPanel::create() {
         .color = colorSpecFromRole(ColorRole::Label3),
         .flexGrow = 1.0F,
     }));
-    footerRow->addChild(keyHint(i18n::tr("launcher.pill.open"), "↩"));
+    footerRow->addChild(keyHint(i18n::tr("launcher.pill.open"), "↩", &m_pillOpenHint));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.actions-hint"), "⌘K"));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.close-hint"), "esc"));
     footer->addChild(std::move(footerRow));
@@ -2121,7 +2237,7 @@ void LauncherPanel::animateResultsTransition() {
 }
 
 bool LauncherPanel::shouldUseLauncherSections() const {
-  return m_browserMode && !m_query.empty() && !shouldUseAppGrid();
+  return m_browserMode && pillExpanded() && !shouldUseAppGrid();
 }
 
 namespace {
@@ -2173,6 +2289,61 @@ namespace {
   return ordered;
 }
 
+  // One section per result category, in the order the provider returns them (clipboard: Pinned, Today, ...).
+  std::vector<LauncherSectionsAdapter::Section> categorySections(const std::vector<LauncherResult>& results) {
+    std::vector<LauncherSectionsAdapter::Section> sections;
+    for (std::size_t i = 0; i < results.size(); ++i) {
+      auto it = std::ranges::find(sections, results[i].category, &LauncherSectionsAdapter::Section::label);
+      if (it == sections.end()) {
+        sections.push_back({.label = results[i].category, .glyphName = {}, .resultIndices = {}});
+        it = std::prev(sections.end());
+      }
+      it->resultIndices.push_back(i);
+    }
+    return sections;
+  }
+
+  // Emoji mode: "Recent" first (no query), then the Unicode groups in order; a query shows one "Results" section.
+  std::vector<LauncherSectionsAdapter::Section> emojiSections(
+      const std::vector<LauncherResult>& results, const std::vector<std::unique_ptr<LauncherProvider>>& providers,
+      bool searching
+  ) {
+    std::vector<LauncherSectionsAdapter::Section> sections;
+    if (searching) {
+      LauncherSectionsAdapter::Section all{.label = i18n::tr("launcher.pill.results"), .glyphName = {}, .resultIndices = {}};
+      for (std::size_t i = 0; i < results.size(); ++i) {
+        all.resultIndices.push_back(i);
+      }
+      sections.push_back(std::move(all));
+      return sections;
+    }
+    std::vector<std::size_t> recent;
+    for (std::size_t i = 0; i < results.size(); ++i) {
+      if (results[i].recentlyUsedIndex > 0) {
+        recent.push_back(i);
+      }
+    }
+    std::ranges::sort(recent, std::ranges::greater{}, [&](std::size_t i) { return results[i].recentlyUsedIndex; });
+    if (recent.size() > kEmojiColumns * 2) {
+      recent.resize(kEmojiColumns * 2);
+    }
+    sections.push_back({.label = i18n::tr("launcher.pill.recent"), .glyphName = {}, .resultIndices = std::move(recent)});
+    const auto emoji = std::ranges::find(providers, "Emoji", [](const auto& p) { return p->id(); });
+    if (emoji == providers.end()) {
+      return sections;
+    }
+    for (const LauncherCategory& category : (*emoji)->categories()) {
+      LauncherSectionsAdapter::Section section{.label = category.label, .glyphName = {}, .resultIndices = {}};
+      for (std::size_t i = 0; i < results.size(); ++i) {
+        if (results[i].category == category.label) {
+          section.resultIndices.push_back(i);
+        }
+      }
+      sections.push_back(std::move(section));
+    }
+    return sections;
+  }
+
 } // namespace
 
 void LauncherPanel::rebuildLauncherSections() {
@@ -2180,7 +2351,17 @@ void LauncherPanel::rebuildLauncherSections() {
     return;
   }
   m_launcherSectionsAdapter->setPillStyle(m_browserMode);
-  if (m_browserMode && shouldUseLauncherSections()) {
+  const bool emojiMode = m_modeProviderId == "Emoji";
+  m_launcherSectionsAdapter->setEmojiGrid(emojiMode);
+  if (m_browserMode && shouldUseLauncherSections() && emojiMode) {
+    (void)m_launcherSectionsAdapter->setGridView(false);
+    m_launcherSectionsAdapter->rebuildSections(emojiSections(m_results, m_providers, !m_query.empty()));
+    m_launcherSectionsAdapter->setSelectedResultIndex(m_selectedIndex);
+  } else if (m_browserMode && shouldUseLauncherSections() && m_modeProviderId == "Clipboard") {
+    (void)m_launcherSectionsAdapter->setGridView(false);
+    m_launcherSectionsAdapter->rebuildSections(categorySections(m_results));
+    m_launcherSectionsAdapter->setSelectedResultIndex(m_selectedIndex);
+  } else if (m_browserMode && shouldUseLauncherSections()) {
     (void)m_launcherSectionsAdapter->setGridView(false);
     m_launcherSectionsAdapter->rebuildSections(providerSections(m_results, m_providers));
     m_launcherSectionsAdapter->setSelectedResultIndex(m_selectedIndex);
@@ -2231,7 +2412,7 @@ void LauncherPanel::syncLauncherViewLayout(Renderer* renderer) {
 
   if (m_browserMode && m_body != nullptr && m_resultsViewport != nullptr && m_previewPane != nullptr) {
     // Rulebook 9.14: the grid sits at p 16; direction C puts the list in a 360 pane, lens at inset 8.
-    const bool split = !useGrid && !m_query.empty();
+    const bool split = !useGrid && pillExpanded();
     m_body->setPadding(useGrid ? Tokens::componentLauncherPadding * scale : 0.0F);
     m_resultsViewport->setPadding(split ? Tokens::spaceP8 * scale : 0.0F);
     m_resultsViewport->setFlexGrow(split ? 0.0F : 1.0F);
@@ -2363,6 +2544,88 @@ void LauncherPanel::onPanelCardOpacityChanged(float opacity) {
   }
 }
 
+bool LauncherPanel::isContextActive(std::string_view context) const {
+  if (m_modeProviderId.empty()) {
+    return false;
+  }
+  if (context.starts_with(kModeContextPrefix)) {
+    return context.substr(kModeContextPrefix.size()) == m_modeProviderId;
+  }
+  const auto provider = std::ranges::find(m_providers, std::string_view(m_modeProviderId), [](const auto& p) { return p->id(); });
+  return provider != m_providers.end() && StringUtils::trim(context) == (*provider)->prefix();
+}
+
+bool LauncherPanel::pillExpanded() const { return !m_query.empty() || !m_modeProviderId.empty(); }
+
+void LauncherPanel::syncModeTabs() {
+  if (m_modeTabs == nullptr) {
+    return;
+  }
+  const float scale = contentScale();
+  if (m_modeTabItems.empty()) {
+    for (const std::string_view id : kModeProviders) {
+      const auto provider = std::ranges::find(m_providers, id, [](const auto& p) { return p->id(); });
+      if (provider == m_providers.end()) {
+        continue;
+      }
+      auto tab = ui::row({
+          .align = FlexAlign::Center,
+          .paddingH = Tokens::spaceP12 * scale,
+          .radius = Tokens::sizeControlS * 0.5F * scale,
+          .minHeight = Tokens::sizeControlS * scale,
+      });
+      tab->addChild(ui::label({
+          .text = (*provider)->displayName(),
+          .fontSize = Style::fontSizeBody * scale,
+          .color = colorSpecFromRole(ColorRole::Label2),
+      }));
+      auto area = std::make_unique<InputArea>();
+      area->setParticipatesInLayout(false);
+      area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
+      area->setOnClick([this, modeId = std::string(id)](const InputArea::PointerData&) { setMode(modeId); });
+      Flex* tabPtr = tab.get();
+      tab->addChild(std::move(area));
+      m_modeTabs->addChild(std::move(tab));
+      m_modeTabItems.emplace_back(std::string(id), tabPtr);
+    }
+  }
+  const bool show = m_browserMode && !m_modeProviderId.empty();
+  m_modeTabs->setVisible(show);
+  m_modeTabs->setParticipatesInLayout(show);
+  m_modeTabsLine->setVisible(show);
+  m_modeTabsLine->setParticipatesInLayout(show);
+  for (auto& [id, tab] : m_modeTabItems) {
+    const bool on = id == m_modeProviderId;
+    tab->setFill(on ? colorSpecFromRole(ColorRole::Lens) : clearColorSpec());
+    if (auto* label = dynamic_cast<Label*>(tab->children().front().get())) {
+      label->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
+    }
+    if (auto* area = dynamic_cast<InputArea*>(tab->children().back().get())) {
+      area->setFrameSize(tab->width(), tab->height());
+    }
+  }
+}
+
+void LauncherPanel::setMode(std::string_view providerId) {
+  m_modeProviderId = std::string(providerId);
+  m_selectedIndex = 0;
+  syncModeTabs();
+  if (m_input != nullptr && !m_input->value().empty()) {
+    m_input->setValue("");
+  }
+  onInputChanged("");
+}
+
+void LauncherPanel::cycleMode(int direction) {
+  if (m_modeTabItems.empty() || m_modeProviderId.empty()) {
+    return;
+  }
+  const auto it = std::ranges::find(m_modeTabItems, m_modeProviderId, &std::pair<std::string, Flex*>::first);
+  const auto count = static_cast<int>(m_modeTabItems.size());
+  const int index = it == m_modeTabItems.end() ? 0 : static_cast<int>(it - m_modeTabItems.begin());
+  setMode(m_modeTabItems[static_cast<std::size_t>((index + direction + count) % count)].first);
+}
+
 void LauncherPanel::bindPreview(Renderer& renderer) {
   if (m_previewPane == nullptr || !m_previewPane->visible() || m_selectedIndex >= m_results.size()) {
     return;
@@ -2370,8 +2633,18 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   const LauncherResult& result = m_results[m_selectedIndex];
   const float scale = contentScale();
   const int iconSize = static_cast<int>(std::round(Tokens::componentLauncherIcon * scale));
+  const bool emoji = !result.badge.empty();
+  m_previewEmoji->setVisible(emoji);
+  m_previewEmoji->setParticipatesInLayout(emoji);
+  m_previewEmoji->setText(result.badge);
+  const bool tones = emoji && result.variants.size() == m_previewToneLabels.size();
+  m_previewTones->setVisible(tones);
+  m_previewTones->setParticipatesInLayout(tones);
+  for (std::size_t i = 0; tones && i < m_previewToneLabels.size(); ++i) {
+    m_previewToneLabels[i]->setText(result.variants[i]);
+  }
   bool imageReady = false;
-  if (!result.iconPath.empty()) {
+  if (!emoji && !result.iconPath.empty()) {
     if (result.iconPath != m_previewIconPath) {
       m_previewImage->clear(renderer);
       m_previewIconPath = result.iconPath;
@@ -2383,14 +2656,16 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   m_previewImage->setVisible(imageReady);
   m_previewImage->setParticipatesInLayout(imageReady);
   m_previewGlyph->setGlyph(result.glyphName.empty() ? "app-window" : result.glyphName);
-  m_previewGlyph->setVisible(!imageReady);
-  m_previewGlyph->setParticipatesInLayout(!imageReady);
+  m_previewGlyph->setVisible(!imageReady && !emoji);
+  m_previewGlyph->setParticipatesInLayout(!imageReady && !emoji);
+  m_previewOpen->setText(i18n::tr(emoji ? "launcher.pill.paste-hint" : "launcher.pill.open-hint"));
 
   m_previewTitle->setText(singleLinePreview(result.title));
   m_previewTitle->setMaxWidth(m_previewPane->width() - 2.0F * Tokens::spaceP20 * scale);
   const std::string kind = result.origin.empty() ? result.subtitle : result.subtitle + " · " + result.origin;
   m_previewKind->setText(singleLinePreview(kind));
-  m_previewKind->setVisible(!kind.empty());
+  // A clipboard entry's time already shows in its details.
+  m_previewKind->setVisible(!kind.empty() && !result.presentation.starts_with("clipboard"));
 
   const DesktopEntry* entry = nullptr;
   if (!result.desktopEntryPath.empty()) {
@@ -2398,11 +2673,30 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     const auto it = std::ranges::find(entries, result.desktopEntryPath, &DesktopEntry::path);
     entry = it == entries.end() ? nullptr : &*it;
   }
-  const bool hasAction = entry != nullptr && !entry->actions.empty();
+  const bool clip = result.presentation.starts_with("clipboard");
+  const bool hasAction = clip || (entry != nullptr && !entry->actions.empty());
   m_previewAction->setVisible(hasAction);
   m_previewAction->setParticipatesInLayout(hasAction);
-  if (hasAction) {
+  if (clip) {
+    m_previewAction->setText(i18n::tr(result.pinned ? "launcher.clipboard.unpin" : "launcher.clipboard.pin"));
+  } else if (hasAction) {
     m_previewAction->setText(entry->actions.front().name);
+  }
+  m_previewDelete->setVisible(clip);
+  m_previewDelete->setParticipatesInLayout(clip);
+  const bool body = result.presentation == "clipboard-text";
+  m_previewBody->setVisible(body);
+  m_previewBody->setParticipatesInLayout(body);
+  m_previewTitle->setVisible(!body);
+  m_previewTitle->setParticipatesInLayout(!body);
+  if (body) {
+    const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
+    const auto* clipboard = provider == m_providers.end() ? nullptr : dynamic_cast<const ClipboardProvider*>(provider->get());
+    m_previewBody->setText(clipboard == nullptr ? result.title : clipboard->text(result));
+    m_previewBody->setMaxWidth(m_previewPane->width() - 2.0F * Tokens::spaceP20 * scale);
+  }
+  if (clip) {
+    m_previewOpen->setText(i18n::tr("launcher.pill.paste-hint"));
   }
 
   std::array<std::pair<std::string, std::string>, 3> meta{};
@@ -2419,6 +2713,28 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     if (!result.category.empty()) {
       meta[count++] = {i18n::tr("launcher.pill.category"), result.category};
     }
+  } else if (clip) {
+    meta[count++] = {i18n::tr("launcher.clipboard.copied"), result.subtitle};
+  } else if (emoji) {
+    meta[count++] = {i18n::tr("launcher.pill.category"), result.category};
+    std::string codepoints;
+    for (std::size_t i = 0; i < result.badge.size();) {
+      char32_t cp = 0;
+      const auto c = static_cast<unsigned char>(result.badge[i]);
+      const std::size_t len = c < 0x80 ? 1 : (c < 0xE0 ? 2 : (c < 0xF0 ? 3 : 4));
+      cp = len == 1 ? c : (c & (0xFF >> (len + 1)));
+      for (std::size_t k = 1; k < len && i + k < result.badge.size(); ++k) {
+        cp = (cp << 6) | (static_cast<unsigned char>(result.badge[i + k]) & 0x3F);
+      }
+      i += len;
+      if (cp != 0xFE0F && cp != 0x200D) {
+        codepoints += std::format("{}U+{:04X}", codepoints.empty() ? "" : " ", static_cast<std::uint32_t>(cp));
+      }
+    }
+    meta[count++] = {i18n::tr("launcher.pill.unicode"), codepoints};
+    if (const int uses = m_usageTracker.getCount(result.providerId, result.id); uses > 0) {
+      meta[count++] = {i18n::tr("launcher.pill.used"), i18n::trp("launcher.pill.times", uses)};
+    }
   }
   for (std::size_t i = 0; i < m_previewMetaRows.size(); ++i) {
     const bool show = i < count;
@@ -2431,8 +2747,45 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   }
 }
 
-void LauncherPanel::activateSelectedDesktopAction() {
+void LauncherPanel::activateEmojiVariant(std::size_t tone) {
+  if (m_selectedIndex >= m_results.size() || tone >= m_results[m_selectedIndex].variants.size()) {
+    return;
+  }
+  LauncherResult result = m_results[m_selectedIndex];
+  result.id = "emoji-" + result.variants[tone];
+  for (auto& provider : m_providers) {
+    if (provider->id() == std::string_view(result.providerId) && provider->activate(result)) {
+      finishActivation(*provider, result.id, provider->supportsAutoPaste());
+      return;
+    }
+  }
+}
+
+void LauncherPanel::deleteSelectedClipboardEntry() {
   if (m_selectedIndex >= m_results.size()) {
+    return;
+  }
+  const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
+  if (provider != m_providers.end()) {
+    if (auto* clipboard = dynamic_cast<ClipboardProvider*>(provider->get()); clipboard != nullptr
+        && clipboard->remove(m_results[m_selectedIndex])) {
+      reapplyCurrentQuery();
+    }
+  }
+}
+
+void LauncherPanel::activatePreviewAction() {
+  if (m_selectedIndex >= m_results.size()) {
+    return;
+  }
+  if (m_results[m_selectedIndex].presentation.starts_with("clipboard")) {
+    const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
+    if (provider != m_providers.end()) {
+      if (auto* clipboard = dynamic_cast<ClipboardProvider*>(provider->get()); clipboard != nullptr
+          && clipboard->togglePinned(m_results[m_selectedIndex])) {
+        reapplyCurrentQuery();
+      }
+    }
     return;
   }
   LauncherResult result = m_results[m_selectedIndex];
@@ -2599,7 +2952,30 @@ void LauncherPanel::onOpen(std::string_view context) {
   m_launcherProviderViewId.clear();
   m_sessionReturnView.reset();
 
-  const std::string initialValue(context);
+  // "mode:<provider>" or a mode provider's prefix (Mod+Period sends "/emo") opens that mode with an empty field.
+  std::string initialValue(context);
+  m_modeProviderId.clear();
+  if (m_browserMode) {
+    std::string_view requested;
+    if (initialValue.starts_with(kModeContextPrefix)) {
+      requested = std::string_view(initialValue).substr(kModeContextPrefix.size());
+    } else {
+      for (const std::string_view id : kModeProviders) {
+        const auto provider = std::ranges::find(m_providers, id, [](const auto& p) { return p->id(); });
+        if (provider != m_providers.end() && !(*provider)->prefix().empty()
+            && StringUtils::trim(initialValue) == (*provider)->prefix()) {
+          requested = id;
+        }
+      }
+    }
+    const auto known = std::ranges::find(kModeProviders, requested);
+    if (!requested.empty() && known != kModeProviders.end()
+        && std::ranges::any_of(m_providers, [&](const auto& p) { return p->id() == requested; })) {
+      m_modeProviderId = std::string(requested);
+      initialValue.clear();
+    }
+    syncModeTabs();
+  }
   if (m_input != nullptr) {
     m_input->setPlaceholder(
         m_scopedPlaceholder.empty() ? i18n::tr("launcher.search-placeholder") : m_scopedPlaceholder
@@ -2803,8 +3179,10 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   auto outcome = m_searchBroker.search({
       .text = m_browserMode && isAppsQuery(text) ? std::string() : text,
       .scopedProviderId = m_scopedProviderId,
-      .providerViewId = m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string(),
-      .applicationsOnly = m_browserMode && (text.empty() || isAppsQuery(text)),
+      .providerViewId = !m_modeProviderId.empty()
+          ? m_modeProviderId
+          : (m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string()),
+      .applicationsOnly = m_browserMode && m_modeProviderId.empty() && (text.empty() || isAppsQuery(text)),
       .trackUsage = trackUsage,
       .sortByUsage = trackUsage && m_config != nullptr && launcher.sortByUsage,
   });
@@ -3410,7 +3788,7 @@ void LauncherPanel::refreshResults() {
     return;
   }
 
-  if (m_browserMode && m_results.empty() && !m_query.empty() && !m_anyProviderLoading) {
+  if (m_browserMode && m_modeProviderId.empty() && m_results.empty() && !m_query.empty() && !m_anyProviderLoading) {
     // Rulebook 9.14 / docs/search.md §1: never an empty sheet; offer the web search row.
     const auto web = std::ranges::find(m_providers, "Web", [](const auto& provider) { return provider->id(); });
     if (web != m_providers.end()) {
@@ -3478,7 +3856,7 @@ void LauncherPanel::applyEmptyState() {
   m_emptyLabel->setVisible(empty);
   m_emptyLabel->setParticipatesInLayout(empty);
   if (m_browserMode && m_body != nullptr && m_pillSeparator != nullptr && m_pillFooter != nullptr) {
-    const bool expanded = !m_query.empty();
+    const bool expanded = pillExpanded();
     m_body->setVisible(expanded);
     m_body->setParticipatesInLayout(expanded);
     m_pillSeparator->setVisible(expanded);
@@ -3487,6 +3865,8 @@ void LauncherPanel::applyEmptyState() {
     m_pillFooter->setVisible(footer);
     m_pillFooter->setParticipatesInLayout(footer);
     m_pillCount->setText(i18n::tr("launcher.pill.result-count", "count", m_results.size()));
+    const bool pasteMode = m_modeProviderId == "Emoji" || m_modeProviderId == "Clipboard";
+    m_pillOpenHint->setText(i18n::tr(pasteMode ? "launcher.pill.paste" : "launcher.pill.open"));
   }
   if (empty) {
     if (m_anyProviderLoading && !m_query.empty()) {
@@ -3772,6 +4152,11 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
       selectResult(*next, true);
     }
   };
+
+  if (!m_modeProviderId.empty() && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
+    cycleMode((sym == XKB_KEY_ISO_Left_Tab || (modifiers & KeyMod::Shift) != 0) ? -1 : 1);
+    return true;
+  }
 
   if (KeySymbol::isPageUp(sym)) {
     if (sectionNav) {
