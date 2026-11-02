@@ -118,6 +118,11 @@ namespace settings {
   std::size_t
   addSettingsSearchResults(Flex& content, const std::vector<SettingEntry>& registry, const SettingsContentContext& ctx);
 
+  // True when the window adds this page's custom content after the generated rows; its expert row then comes last.
+  [[nodiscard]] bool settingsPageAddsContentAfterRows(std::string_view selectedSection);
+  // The page's last row: it opens the expert options. Adds nothing in expert scope or without expert rows.
+  void addSettingsExpertRow(Flex& content, const std::vector<SettingEntry>& registry, const SettingsContentContext& ctx);
+
   std::size_t
   addSettingsContentSections(Flex& content, const std::vector<SettingEntry>& registry, SettingsContentContext ctx);
 

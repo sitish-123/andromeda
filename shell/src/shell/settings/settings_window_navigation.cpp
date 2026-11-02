@@ -58,7 +58,7 @@ void SettingsWindow::openSearchResult(const settings::SettingEntry& entry) {
     monitor = entry.path[2];
   }
   navigateTo(
-      std::string(settings::settingsPageForSection(entry.section).id), std::move(bar), settings::settingEntryIsExpert(entry),
+      std::string(settings::settingsPageForEntry(entry).id), std::move(bar), settings::settingEntryIsExpert(entry),
       settings::settingEntryKey(entry), std::move(monitor)
   );
 }

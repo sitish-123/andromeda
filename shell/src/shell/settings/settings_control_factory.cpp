@@ -10,6 +10,7 @@
 #include "shell/settings/color_spec_picker.h"
 #include "shell/settings/path_browse.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
@@ -233,6 +234,68 @@ namespace settings {
     return ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, makeResetButton(path));
   }
 
+  namespace {
+
+    constexpr float kPreviewWidth = metrics::kPickerTileWidth - 2.0F * 2.0F;
+    constexpr float kPreviewHeight = metrics::kPickerTileHeight - 2.0F * 2.0F;
+    constexpr float kPreviewRadius = metrics::kPickerRadius - 2.0F;
+
+    // A miniature screen: light, dark, or the two split for auto.
+    std::unique_ptr<Flex> makeModePreview(std::string_view value, float scale) {
+      const ColorSpec light = fixedColorSpec(rgbHex(0xF2F2F7));
+      const ColorSpec dark = fixedColorSpec(rgbHex(0x1C1C1E));
+      auto screen = ui::row({
+          .align = FlexAlign::Stretch,
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Stroke),
+          .clipChildren = true,
+          .width = kPreviewWidth * scale,
+          .height = kPreviewHeight * scale,
+      });
+      const auto half = [&](const ColorSpec& fill) {
+        return ui::column(
+            {.align = FlexAlign::Center,
+             .justify = FlexJustify::Center,
+             .fill = fill,
+             .flexGrow = 1.0F},
+            ui::box({.fill = colorSpecFromRole(ColorRole::Accent), .radius = Style::spaceXs * scale,
+                     .width = 24.0F * scale, .height = 12.0F * scale})
+        );
+      };
+      if (value == "auto") {
+        screen->addChild(half(light));
+        screen->addChild(half(dark));
+      } else {
+        screen->addChild(half(value == "dark" ? dark : light));
+      }
+      return screen;
+    }
+
+    // A miniature screen with the dock or bar capsule on the chosen edge.
+    std::unique_ptr<Flex> makeEdgePreview(std::string_view value, float scale) {
+      const bool vertical = value == "left" || value == "right";
+      const bool atEnd = value == "bottom" || value == "right";
+      auto screen = ui::column({
+          .align = vertical ? (atEnd ? FlexAlign::End : FlexAlign::Start) : FlexAlign::Center,
+          .justify = vertical ? FlexJustify::Center : (atEnd ? FlexJustify::End : FlexJustify::Start),
+          .padding = Style::spaceSm * scale,
+          .fill = colorSpecFromRole(ColorRole::Fill3),
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Stroke),
+          .width = kPreviewWidth * scale,
+          .height = kPreviewHeight * scale,
+      });
+      screen->addChild(ui::box({
+          .fill = colorSpecFromRole(ColorRole::Accent),
+          .radius = Style::spaceXs * scale,
+          .width = (vertical ? 8.0F : 48.0F) * scale,
+          .height = (vertical ? 32.0F : 8.0F) * scale,
+      }));
+      return screen;
+    }
+
+  } // namespace
+
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
     auto& ctx = m_ctx;
     const float scale = m_scale;
@@ -287,7 +350,8 @@ namespace settings {
     actions->addChild(std::move(control));
 
     auto row = layoutRow(
-        std::move(titleRow), entry.subtitle, !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
+        std::move(titleRow), settingEntryShowsCaption(entry) ? std::string_view{entry.subtitle} : std::string_view{},
+        !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
     );
     section.addChild(std::move(row));
   }
@@ -324,7 +388,7 @@ namespace settings {
          .gap = Style::spaceXs * scale,
          .paddingV = 2.0F * scale,
          .paddingH = 0.0F,
-         .minHeight = Style::controlHeight * scale},
+         .minHeight = (subtitle.empty() ? metrics::kRowHeight : metrics::kRowHeightTwoLine) * scale},
         std::move(copy), std::move(actions)
     );
   }
@@ -367,6 +431,53 @@ namespace settings {
   SettingsControlFactory::makeSelect(const SelectSetting& setting, const std::vector<std::string>& path) {
     auto& ctx = m_ctx;
     const float scale = m_scale;
+    if (setting.tiles) {
+      const bool modeTiles = !path.empty() && path.back() == "mode";
+      auto strip = ui::row({.align = FlexAlign::Start, .gap = metrics::kPickerGap * scale});
+      auto ordered = setting.options;
+      if (modeTiles) {
+        std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
+          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+        });
+      }
+      for (const auto& opt : ordered) {
+        const bool selected = opt.value == setting.selectedValue;
+        const ColorSpec none = clearColorSpec();
+        const Button::ButtonStateColors state{
+            .bg = none, .border = selected ? colorSpecFromRole(ColorRole::Accent) : none,
+            .label = colorSpecFromRole(ColorRole::Label1)
+        };
+        auto tile = ui::button({
+            .variant = ButtonVariant::Ghost,
+            .customPalette = Button::ButtonPalette{
+                .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+                .disabled = state
+            },
+            .minWidth = metrics::kPickerTileWidth * scale,
+            .minHeight = metrics::kPickerTileHeight * scale,
+            .padding = Style::focusRingGap * scale,
+            .radius = metrics::kPickerRadius * scale,
+            .onClick = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild, path, value = opt.value] {
+              setOverride(path, value);
+              if (requestRebuild) {
+                requestRebuild();
+              }
+            },
+            .configure = [value = opt.value, modeTiles, scale](Button& button) {
+              button.setTabStop(false);
+              button.addChild(modeTiles ? makeModePreview(value, scale) : makeEdgePreview(value, scale));
+            },
+        });
+        strip->addChild(ui::column(
+            {.align = FlexAlign::Center, .gap = Style::spaceXs * scale}, std::move(tile),
+            makeLabel(
+                opt.label, Style::fontSizeCaption * scale,
+                colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2), FontWeight::Medium
+            )
+        ));
+      }
+      return strip;
+    }
     if (setting.segmented) {
       std::vector<ui::SegmentedOption> segmentedOptions;
       segmentedOptions.reserve(setting.options.size());

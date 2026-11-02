@@ -1603,7 +1603,7 @@
         "clipboard": "Clipboard",
         "community": "Community",
         "control-center": "Control Center",
-        "dead-zone": "Dead Zone",
+        "dead-zone": "Empty bar area",
         "directories": "Directories",
         "display": "Display",
         "effects": "Effects",
@@ -2177,11 +2177,11 @@
         "palette-inspector": {
           "button": "Inspect Colors",
           "description": "View template color names, swatches, and hex values for the active palette",
-          "label": "Palette Inspector"
+          "label": "Show Palette Colors"
         },
         "palette-source": {
-          "description": "Colors for terminal and app templates. The shell always uses the design tokens.",
-          "label": "Palette Source"
+          "description": "",
+          "label": "Colour theme"
         },
         "popup-borders": {
           "description": "Draw outlines around popups and dropdowns",
@@ -2205,11 +2205,11 @@
         },
         "sync-color-scheme": {
           "description": "Set the system dark/light preference read by browsers and other apps to follow Theme Mode",
-          "label": "Sync App Color Scheme"
+          "label": "Apps Follow the Color Scheme"
         },
         "toolkit-themes": {
           "description": "Color GTK, Qt, KDE and fcitx5 apps with the desktop's colors and accent",
-          "label": "Theme GTK, Qt and KDE Apps"
+          "label": "Match GTK and Qt Apps"
         },
         "theme-mode": {
           "description": "Choose Dark, Light, or Auto based on time of day; also applies to apps through templates",
@@ -2221,7 +2221,7 @@
         },
         "wallpaper-generation-scheme": {
           "description": "Choose how wallpaper colors are converted into a palette",
-          "label": "Wallpaper Generation Scheme"
+          "label": "Wallpaper Color Style"
         }
       },
       "backdrop": {
@@ -2330,7 +2330,7 @@
           "description": "Action run on the parts of the bar no widget covers"
         },
         "dead-zone-click-through": {
-          "description": "Let clicks on the parts of the bar no widget covers reach the window below; dead zone actions stop firing",
+          "description": "Let clicks on the parts of the bar no widget covers reach the window below; the actions for the empty bar area stop firing",
           "label": "Click Through"
         },
         "edge-margin": {

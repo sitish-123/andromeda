@@ -60,7 +60,7 @@ namespace settings {
 
     std::string resultCaption(const Hit& hit) {
       const auto& entry = *hit.entry;
-      const auto& page = settingsPageForSection(entry.section);
+      const auto& page = settingsPageForEntry(entry);
       std::string caption = i18n::tr(settingsPageLabelKey(page));
       if (!hit.bars.empty()) {
         caption += " / ";
@@ -77,7 +77,7 @@ namespace settings {
     std::unique_ptr<Button> makeResultRow(const Hit& hit, const SettingsContentContext& ctx) {
       const auto& entry = *hit.entry;
       const float scale = ctx.scale;
-      const auto& page = settingsPageForSection(entry.section);
+      const auto& page = settingsPageForEntry(entry);
       auto row = ui::button({
           .contentAlign = ButtonContentAlign::Start,
           .variant = ButtonVariant::Tab,

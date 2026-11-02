@@ -1114,6 +1114,11 @@ void SettingsWindow::rebuildSettingsContent() {
     addLanguageContent(scale);
     addDefaultAppsContent(scale);
     addDevicesContent(scale);
+    if (settings::settingsPageAddsContentAfterRows(m_selectedSection)) {
+      settings::addSettingsExpertRow(
+          *m_contentContainer, m_settingsRegistry, makeContentContext(cfg, selectedBar, selectedMonitorOverride)
+      );
+    }
   }
 
   if (pageRows && m_selectedSection == "plugins" && m_pluginManager != nullptr) {

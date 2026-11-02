@@ -7,6 +7,7 @@
 #include "config/config_validate.h"
 #include "core/log.h"
 #include "core/toml.h" // IWYU pragma: keep
+#include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_registry.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -92,7 +93,9 @@ namespace noctalia::config {
       if (parsed->has("--list")) {
         for (const auto& entry : registry) {
           std::println(
-              "{}\t{}\t{}", settings::settingsSectionId(entry.section), entry.group, StringUtils::join(entry.path, ".")
+              "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", settings::settingsSectionId(entry.section), entry.group,
+              StringUtils::join(entry.path, "."), settings::settingEntryIsExpert(entry) ? "expert" : "main",
+              entry.control.index(), settings::settingsPageForEntry(entry).id, entry.title, entry.subtitle
           );
         }
         return 0;

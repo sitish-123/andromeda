@@ -118,6 +118,7 @@ namespace settings {
     bool clearOnEmpty = false;
     bool allowEmptySelection = false; // empty selectedValue shows a cleared select (no matching option)
     bool segmented = false;           // render as Segmented pill group instead of dropdown Select
+    bool tiles = false;               // render as a row of preview tiles (mode, edge)
     SelectValueType valueType = SelectValueType::String; // storage type for option values
     float preferredWidth = 0.0F;                         // 0 = default settings dropdown width
     std::vector<std::string> linkedPath;                 // companion path for groupedCommit / override reset

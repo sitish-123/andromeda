@@ -39,7 +39,12 @@ namespace settings {
   );
   // Stable identity of a row: its config path, or section and title for a row without one.
   [[nodiscard]] std::string settingEntryKey(const SettingEntry& entry);
-  // Expert entries live behind the page's last row; every other entry is on the page itself.
-  [[nodiscard]] inline bool settingEntryIsExpert(const SettingEntry& entry) noexcept { return entry.advanced; }
+  // The page that shows `entry`: its section's page, unless a path rule moves it (night light to Displays).
+  [[nodiscard]] const SettingsPage& settingsPageForEntry(const SettingEntry& entry);
+  // Expert entries live behind the page's last row. An entry is main only when it is not `advanced` and a typical
+  // user changes it (the curated list in settings_pages.cpp); every other entry is expert and stays in search.
+  [[nodiscard]] bool settingEntryIsExpert(const SettingEntry& entry);
+  // Main rows drop their caption unless the label alone is ambiguous.
+  [[nodiscard]] bool settingEntryShowsCaption(const SettingEntry& entry);
 
 } // namespace settings

@@ -142,6 +142,32 @@ namespace settings {
     };
   }
 
+  bool settingsPageAddsContentAfterRows(std::string_view selectedSection) {
+    return std::ranges::any_of(
+        std::array{"displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
+        [&](std::string_view sectionId) { return selectedPageShows(selectedSection, sectionId); }
+    );
+  }
+
+  void
+  addSettingsExpertRow(Flex& content, const std::vector<SettingEntry>& registry, const SettingsContentContext& ctx) {
+    if (ctx.rowScope != RowScope::Main || !ctx.openExpert) {
+      return;
+    }
+    const std::string_view selectedBarName =
+        ctx.selectedBar != nullptr ? std::string_view{ctx.selectedBar->name} : std::string_view{};
+    const std::size_t count = static_cast<std::size_t>(std::ranges::count_if(registry, [&](const SettingEntry& entry) {
+      return settingEntryIsExpert(entry)
+          && settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, ctx.selectedMonitorOverride)
+          && (!entry.visibleWhen || entry.visibleWhen(ctx.config));
+    }));
+    if (count == 0) {
+      return;
+    }
+    Flex* body = addSettingsGroupCard(content, {}, ctx.scale);
+    body->addChild(makeSettingsLinkRow(i18n::tr("settings.expert.row"), std::to_string(count), ctx.scale, ctx.openExpert));
+  }
+
   std::size_t
   addSettingsContentSections(Flex& content, const std::vector<SettingEntry>& registry, SettingsContentContext ctx) {
     const float scale = ctx.scale;
@@ -1307,6 +1333,12 @@ namespace settings {
         makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
       } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
         makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
+      } else if (const auto* tiles = std::get_if<SelectSetting>(&entry.control); tiles != nullptr && tiles->tiles) {
+        activeGroupBody->addChild(ui::row(
+            {.align = FlexAlign::Start, .justify = FlexJustify::Center, .paddingV = Style::spaceSm * scale,
+             .fillWidth = true},
+            factory.makeSelect(*tiles, entry.path)
+        ));
       } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {
         makeRow(*activeGroupBody, entry, makeSearchPickerButton(entry, *picker));
       } else if (const auto* multi = std::get_if<MultiSelectSetting>(&entry.control)) {
@@ -1340,11 +1372,8 @@ namespace settings {
       addSettingsRowSeparators(*body, scale);
     }
 
-    if (ctx.rowScope == RowScope::Main && expertEntryCount > 0 && ctx.openExpert) {
-      Flex* body = addSettingsGroupCard(content, {}, scale);
-      body->addChild(makeSettingsLinkRow(
-          i18n::tr("settings.expert.row"), std::to_string(expertEntryCount), scale, ctx.openExpert
-      ));
+    if (!settingsPageAddsContentAfterRows(ctx.selectedSection)) {
+      addSettingsExpertRow(content, registry, ctx);
     }
 
     // Pages with custom content (addSettingsPlugins and the window's add*Content) fill the rest of the page.

@@ -28,6 +28,12 @@ namespace settings {
     inline constexpr float kCardBorderWidth = 0.5F;
     inline constexpr float kCardFillOpacity = 0.4F;
     inline constexpr float kRowSeparatorThickness = 0.5F;
+    inline constexpr float kRowHeight = 40.0F;
+    inline constexpr float kRowHeightTwoLine = 56.0F;
+    inline constexpr float kPickerTileWidth = 96.0F;
+    inline constexpr float kPickerTileHeight = 64.0F;
+    inline constexpr float kPickerGap = 8.0F;
+    inline constexpr float kPickerRadius = 12.0F;
   } // namespace metrics
 
   // The one place that decides how a selected item looks in Settings: the open sidebar page, the open bar row and
