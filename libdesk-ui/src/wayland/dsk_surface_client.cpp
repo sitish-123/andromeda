@@ -1,6 +1,7 @@
 #include "wayland/dsk_surface_client.h"
 
 #include "dsk-surface-v1-client-protocol.h"
+#include "render/animation/motion_service.h"
 
 #include <utility>
 
@@ -68,6 +69,11 @@ DskSurfaceClient::Curve DskSurfaceClient::effectiveCurve(Curve curve) const {
 void DskSurfaceClient::animate(
     Property property, Curve curve, const Value& to, DoneCallback onDone, StartedCallback onStarted
 ) {
+  // Rulebook 7.8: animations off make every change instant; reduced motion keeps only the opacity crossfade.
+  const auto& motion = MotionService::instance();
+  if (!motion.enabled() || (motion.reduced() && property != Property::Opacity)) {
+    curve = Curve::None;
+  }
   const uint32_t serial = m_nextSerial++;
   if (onDone) {
     m_pending.emplace(serial, std::move(onDone));
