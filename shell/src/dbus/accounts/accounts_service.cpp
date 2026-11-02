@@ -3,6 +3,9 @@
 #include "core/log.h"
 #include "dbus/system_bus.h"
 
+#include <gio/gio.h>
+#include <pwd.h>
+#include <crypt.h>
 #include <cstdint>
 #include <optional>
 #include <sdbus-c++/Error.h>
@@ -10,6 +13,8 @@
 #include <sdbus-c++/Types.h>
 #include <string>
 #include <unistd.h>
+#include <cstdlib>
+#include <cstring>
 #include <utility>
 
 namespace {
@@ -137,4 +142,101 @@ void AccountsService::emitChangedIfNeeded(std::string_view nextIconFile) {
   if (m_changeCallback) {
     m_changeCallback();
   }
+}
+
+namespace {
+
+  using InteractiveReply = std::function<void(GVariant* result, std::string error)>;
+
+  // GDBus, not sdbus-c++: only GDBus sets ALLOW_INTERACTIVE_AUTHORIZATION, without which accounts-daemon denies at
+  // once instead of asking the polkit agent. The reply runs on the default GLib context, which the polkit agent pumps.
+  void callInteractive(const std::string& path, const char* iface, const char* method, GVariant* args,
+                       InteractiveReply reply) {
+    constexpr int kAuthTimeoutMs = 5 * 60 * 1000;
+    GError* error = nullptr;
+    GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
+    if (bus == nullptr) {
+      std::string message = error->message;
+      g_error_free(error);
+      g_variant_unref(g_variant_ref_sink(args));
+      reply(nullptr, std::move(message));
+      return;
+    }
+    g_dbus_connection_call(
+        bus, "org.freedesktop.Accounts", path.c_str(), iface, method, args, nullptr,
+        G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION, kAuthTimeoutMs, nullptr,
+        [](GObject* source, GAsyncResult* result, gpointer data) {
+          std::unique_ptr<InteractiveReply> callback(static_cast<InteractiveReply*>(data));
+          GError* callError = nullptr;
+          GVariant* value = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &callError);
+          if (value == nullptr) {
+            g_dbus_error_strip_remote_error(callError);
+            std::string message = callError->message;
+            g_error_free(callError);
+            (*callback)(nullptr, std::move(message));
+            return;
+          }
+          (*callback)(value, {});
+          g_variant_unref(value);
+        },
+        new InteractiveReply(std::move(reply))
+    );
+    g_object_unref(bus);
+  }
+
+} // namespace
+
+void AccountsService::createUser(
+    const std::string& login, const std::string& realName, bool admin, const std::string& password,
+    std::function<void(std::string)> done
+) {
+  const char* salt = crypt_gensalt_ra(nullptr, 0, nullptr, 0);
+  crypt_data data{};
+  const char* hashed = salt != nullptr ? crypt_r(password.c_str(), salt, &data) : nullptr;
+  std::free(const_cast<char*>(salt));
+  const std::string hash = hashed != nullptr && hashed[0] != '*' ? std::string(hashed) : std::string{};
+  explicit_bzero(&data, sizeof(data));
+  if (hash.empty()) {
+    done("could not hash the password");
+    return;
+  }
+  callInteractive(
+      kAccountsObjectPath, kAccountsInterface, "CreateUser",
+      g_variant_new("(ssi)", login.c_str(), realName.c_str(), admin ? 1 : 0),
+      [hash, login, done = std::move(done)](GVariant* created, std::string error) {
+        if (created == nullptr) {
+          kLog.warn("CreateUser failed: {}", error);
+          done(std::move(error));
+          return;
+        }
+        const char* userPath = nullptr;
+        g_variant_get(created, "(&o)", &userPath);
+        callInteractive(
+            userPath, kUserInterface, "SetPassword", g_variant_new("(ss)", hash.c_str(), ""),
+            [login, done](GVariant* set, std::string passwordError) {
+              if (set != nullptr) {
+                done({});
+                return;
+              }
+              kLog.warn("SetPassword failed: {}", passwordError);
+              // An account without a password cannot log in and blocks a retry with the same name: remove it.
+              const passwd* pw = getpwnam(login.c_str());
+              if (pw == nullptr) {
+                done(std::move(passwordError));
+                return;
+              }
+              callInteractive(
+                  kAccountsObjectPath, kAccountsInterface, "DeleteUser",
+                  g_variant_new("(xb)", static_cast<gint64>(pw->pw_uid), TRUE),
+                  [done, passwordError](GVariant* deleted, std::string deleteError) {
+                    if (deleted == nullptr) {
+                      kLog.warn("DeleteUser after a failed SetPassword failed: {}", deleteError);
+                    }
+                    done(passwordError);
+                  }
+              );
+            }
+        );
+      }
+  );
 }

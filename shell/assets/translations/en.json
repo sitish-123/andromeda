@@ -1678,10 +1678,23 @@
       "use": "Use"
     },
     "users": {
+      "account-name": "Account Name",
+      "account-type": "Account Type",
+      "add": "Add User…",
       "admin": "Admin",
+      "administrator": "Administrator",
+      "create": "Create User",
+      "creating": "Waiting for authorization…",
+      "error-login": "Use lowercase letters, digits, - and _; start with a letter.",
+      "error-mismatch": "The passwords do not match.",
+      "error-password": "Enter a password.",
+      "full-name": "Full Name",
+      "new-user": "New User",
       "none": "No other users",
       "others": "Other Users",
-      "standard": "Standard"
+      "password": "Password",
+      "standard": "Standard",
+      "verify": "Verify"
     },
     "wifi": {
       "band": "Band",

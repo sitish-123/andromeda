@@ -25,6 +25,13 @@ public:
 
   [[nodiscard]] bool setIconFile(std::string_view filename);
 
+  // Creates a login user, then sets its password. Async: the polkit prompt comes from this process.
+  // `done` gets an empty string on success, else the error text.
+  void createUser(
+      const std::string& login, const std::string& realName, bool admin, const std::string& password,
+      std::function<void(std::string)> done
+  );
+
 private:
   void readIconFile();
   void emitChangedIfNeeded(std::string_view nextIconFile);

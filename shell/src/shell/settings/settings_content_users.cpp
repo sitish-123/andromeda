@@ -6,6 +6,7 @@
 #include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/input.h"
 #include "ui/style.h"
 
 #include <grp.h>
@@ -13,6 +14,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cctype>
+#include <functional>
 #include <array>
 #include <string>
 #include <vector>
@@ -87,9 +90,115 @@ namespace settings {
       return i18n::tr(user.admin ? "settings.users.admin" : "settings.users.standard");
     }
 
+    std::unique_ptr<Node> formInput(
+        std::string value, std::string placeholder, bool password, float scale, std::function<void(std::string)> onChange,
+        std::function<void()> onSubmit
+    ) {
+      constexpr float kFieldWidth = 240.0F;
+      return ui::input({
+          .value = std::move(value),
+          .placeholder = std::move(placeholder),
+          .passwordMode = password,
+          .width = kFieldWidth * scale,
+          .onChange = [onChange = std::move(onChange)](const std::string& text) { onChange(text); },
+          .onSubmit = [onSubmit = std::move(onSubmit)](const std::string&) { onSubmit(); },
+      });
+    }
+
+    void addFormRow(Flex& card, std::string_view label, std::unique_ptr<Node> control, float scale) {
+      auto r = row(scale);
+      r->addChild(title(std::string(label), scale));
+      r->addChild(std::move(control));
+      card.addChild(std::move(r));
+    }
+
+    void addNewUserPage(Flex& content, const SettingsUsersContext& ctx) {
+      const float scale = ctx.scale;
+      NewUserDraft* draft = ctx.draft;
+      Flex* card = addCard(content, scale);
+      // The account name follows the full name until the user types in it; the input is set in place, as a
+      // rebuild per key would drop the focus.
+      auto login = formInput(draft->login, {}, false, scale, [draft](std::string t) {
+        draft->login = std::move(t);
+        draft->loginEdited = true;
+      }, ctx.create);
+      auto* loginInput = static_cast<Input*>(login.get());
+      addFormRow(*card, i18n::tr("settings.users.full-name"),
+                 formInput(draft->fullName, {}, false, scale, [draft, loginInput](std::string t) {
+                   draft->fullName = std::move(t);
+                   if (!draft->loginEdited) {
+                     draft->login = loginFromName(draft->fullName);
+                     loginInput->setValue(draft->login);
+                   }
+                 }, ctx.create),
+                 scale);
+      addFormRow(*card, i18n::tr("settings.users.account-name"), std::move(login), scale);
+      addFormRow(*card, i18n::tr("settings.users.account-type"),
+                 ui::segmented({
+                     .options = std::vector<ui::SegmentedOption>{
+                         ui::SegmentedOption{.label = i18n::tr("settings.users.standard")},
+                         ui::SegmentedOption{.label = i18n::tr("settings.users.administrator")}},
+                     .selectedIndex = draft->admin ? std::size_t{1} : std::size_t{0},
+                     .scale = scale,
+                     .onChange = [draft](std::size_t index) { draft->admin = index == 1; },
+                 }),
+                 scale);
+
+      Flex* secret = addCard(content, scale);
+      addFormRow(*secret, i18n::tr("settings.users.password"),
+                 formInput(draft->password, {}, true, scale, [draft](std::string t) { draft->password = std::move(t); },
+                           ctx.create),
+                 scale);
+      addFormRow(*secret, i18n::tr("settings.users.verify"),
+                 formInput(draft->verify, {}, true, scale, [draft](std::string t) { draft->verify = std::move(t); },
+                           ctx.create),
+                 scale);
+
+      auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+      const std::string status = draft->busy ? i18n::tr("settings.users.creating") : draft->error;
+      actions->addChild(ui::label({
+          .text = status,
+          .fontSize = Style::fontSizeCaption * scale,
+          .color = colorSpecFromRole(draft->busy ? ColorRole::Label2 : ColorRole::DangerText),
+          .maxLines = 2,
+          .flexGrow = 1.0F,
+      }));
+      if (!draft->busy) {
+        actions->addChild(plainButton(i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, scale, ctx.back));
+        actions->addChild(plainButton(i18n::tr("settings.users.create"), ButtonVariant::Primary, scale, ctx.create));
+      }
+      content.addChild(std::move(actions));
+    }
+
   } // namespace
 
-  void addSettingsUsers(Flex& content, float scale) {
+  std::string loginFromName(const std::string& fullName) {
+    std::string login;
+    for (const char c : fullName.substr(0, fullName.find(' '))) {
+      const auto u = static_cast<unsigned char>(c);
+      if (std::isalnum(u) != 0 && u < 0x80U) {
+        login.push_back(static_cast<char>(std::tolower(u)));
+      }
+    }
+    return validLogin(login) ? login : std::string{};
+  }
+
+  bool validLogin(const std::string& login) {
+    constexpr std::size_t kMaxLogin = 32;
+    if (login.empty() || login.size() > kMaxLogin || std::islower(static_cast<unsigned char>(login[0])) == 0) {
+      return false;
+    }
+    return std::ranges::all_of(login, [](char c) {
+      return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+    });
+  }
+
+  void addSettingsUsers(Flex& content, const SettingsUsersContext& ctx) {
+    const float scale = ctx.scale;
+    if (!ctx.detail.empty() && ctx.draft != nullptr) {
+      addNewUserPage(content, ctx);
+      return;
+    }
     const auto users = loginUsers();
     const uid_t me = getuid();
     const auto self = std::ranges::find(users, me, &UserInfo::uid);
@@ -117,7 +226,6 @@ namespace settings {
       r->addChild(ui::label({.text = i18n::tr("settings.users.none"), .fontSize = Style::fontSizeBody * scale,
                              .color = colorSpecFromRole(ColorRole::Label2)}));
       card->addChild(std::move(r));
-      return;
     }
     for (const auto& user : others) {
       auto r = row(scale);
@@ -126,6 +234,12 @@ namespace settings {
       r->addChild(ui::label({.text = roleText(user), .fontSize = Style::fontSizeBody * scale,
                              .color = colorSpecFromRole(ColorRole::Label2)}));
       card->addChild(std::move(r));
+    }
+    if (ctx.draft != nullptr) {
+      auto actions = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .fillWidth = true});
+      actions->addChild(plainButton(i18n::tr("settings.users.add"), ButtonVariant::Default, scale,
+                                    [open = ctx.openDetail] { open("users:" + i18n::tr("settings.users.new-user")); }));
+      content.addChild(std::move(actions));
     }
   }
 

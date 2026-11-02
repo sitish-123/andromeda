@@ -10,6 +10,7 @@
 #include "scripting/plugin_manager.h"
 #include "shell/settings/config_export_dialog_modal.h"
 #include "shell/settings/settings_content_shortcuts.h"
+#include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_modal_host.h"
 #include "shell/settings/settings_registry.h"
@@ -261,6 +262,8 @@ private:
   void addUsersContent(float scale);
   void openDetail(std::string detail);
   void leaveDetail();
+  void createNewUser();
+  void clearNewUser();
   void pushNavEntry(NavEntry entry);
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
@@ -495,6 +498,7 @@ private:
   // The Wi-Fi network whose password row is open, and the text typed so far.
   std::string m_wifiJoinSsid;
   std::string m_wifiPassword;
+  settings::NewUserDraft m_newUser;
   std::string m_expertQuery;
   // Config path (or "section/title" for pathless rows) of the row a search result opened; shown highlighted.
   std::string m_highlightKey;
