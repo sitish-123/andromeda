@@ -1066,7 +1066,8 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 <h3 id="ch-7-7-1-rules">7.1 Rules</h3>
 <ol>
 <li><strong>Springs only.</strong> Every animation is a spring with a response d (s) and bounce b. No duration-and-easing
-   animations, except continuous loops (spinners, indeterminate bars, shimmer), which are linear.</li>
+   animations, except continuous loops (spinners, indeterminate bars, shimmer), which are linear, and
+   transitions whose length the user sets (wallpaper change, lock-screen shader).</li>
 <li><strong>Spatial may bounce; effects never do.</strong> Position, size, clip, radius, scale and elevation use spatial springs.
    Opacity, colour and blur use effect springs (bounce 0).</li>
 <li><strong>Bounce where momentum arrives.</strong> Opening, morphing, a release after a press and a lens arrival bounce.
@@ -1274,8 +1275,8 @@ reduced motion.</p>
 <li><strong>Exits overlap.</strong> On Return, content <code>fade_out</code> and the shape's <code>close</code> start on the same frame. Nothing waits.</li>
 <li><strong>Cross the faces.</strong> In a Morph the outgoing face fades out (fade_out), scales to 0.92 and blurs to 8 px; the
   incoming face fades in from 50 % of travel, from scale 0.92 and blur 8 px to 1 and 0. Both stay inside the clip.</li>
-<li><strong>Stagger entries only.</strong> Children of a growing surface start 16 ms apart, at most 6 children (96 ms); the rest
-  start with the sixth. This is the one time offset in the system. Exits never stagger.</li>
+<li><strong>Stagger entries only.</strong> Children of a growing surface start 16 ms apart; the sixth starts at 80 ms and the rest
+  start with it. This is the one time offset in the system. Exits never stagger.</li>
 <li><strong>Source hand-off.</strong> A source that becomes the surface (the center island, a dock icon that opens a window, a banner
   that opens the notification center) hides its face on the frame Grow starts: the growing shape IS the source. On
   Return its face fades back in from 70 % of the close travel. A source that stays in place (a bar island, a button)
