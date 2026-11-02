@@ -539,6 +539,7 @@ footer = 36.0
 tabs = 40.0
 list_pane = 360.0
 preview_min = 320.0
+preview_media = 160.0
 
 [component.lock]  # 9.15
 dim = 0.2

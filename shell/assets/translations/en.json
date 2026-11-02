@@ -1034,6 +1034,9 @@
       "emoji": {
         "title": "Emoji"
       },
+      "symbols": {
+        "title": "Symbols"
+      },
       "web": {
         "title": "Web"
       },
@@ -1071,6 +1074,7 @@
       "image": "Image",
       "pin": "Pin",
       "pinned": "Pinned",
+      "size": "Size",
       "today": "Today",
       "unpin": "Unpin",
       "yesterday": "Yesterday"
@@ -1094,7 +1098,16 @@
       "unicode": "Unicode",
       "used": "Used"
     },
-    "search-placeholder": "Search"
+    "search-placeholder": "Search",
+    "symbols": {
+      "arrows": "Arrows",
+      "currency": "Currency",
+      "greek": "Greek",
+      "kaomoji": "Kaomoji",
+      "keys": "Keys",
+      "math": "Math",
+      "typography": "Typography"
+    }
   },
   "live-activity": {
     "call-active": "On a call with {caller}",

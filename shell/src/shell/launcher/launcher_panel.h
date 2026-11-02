@@ -149,6 +149,7 @@ private:
   void setMode(std::string_view providerId);
   void cycleMode(int direction);
   void syncModeTabs();
+  void syncEmojiStrip();
   [[nodiscard]] bool pillExpanded() const;
   void activatePreviewAction();
   void deleteSelectedClipboardEntry();
@@ -212,6 +213,7 @@ private:
   // Media modes (DESIGN.md "Launcher media modes"): the provider the tabs scope the search to; empty = search.
   std::string m_modeProviderId;
   Flex* m_modeTabs = nullptr;
+  Flex* m_emojiStrip = nullptr;
   Separator* m_modeTabsLine = nullptr;
   std::vector<std::pair<std::string, Flex*>> m_modeTabItems;
   // Direction C preview pane (right of the result list).
@@ -228,6 +230,8 @@ private:
   Button* m_previewAction = nullptr;
   Button* m_previewDelete = nullptr;
   Label* m_previewBody = nullptr;
+  Image* m_previewShot = nullptr;
+  std::string m_previewShotId;
   std::array<Flex*, 3> m_previewMetaRows{};
   std::array<Label*, 3> m_previewMetaKeys{};
   std::array<Label*, 3> m_previewMetaValues{};

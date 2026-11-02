@@ -1,0 +1,845 @@
+[
+ {
+  "id": "kaomoji",
+  "items": [
+   {
+    "text": "¯\\_(ツ)_/¯",
+    "name": "shrug"
+   },
+   {
+    "text": "(╯°□°)╯︵ ┻━┻",
+    "name": "table flip"
+   },
+   {
+    "text": "┬─┬ノ( º _ ºノ)",
+    "name": "put table back"
+   },
+   {
+    "text": "( ͡° ͜ʖ ͡°)",
+    "name": "lenny"
+   },
+   {
+    "text": "(ಠ_ಠ)",
+    "name": "disapproval"
+   },
+   {
+    "text": "ʕ•ᴥ•ʔ",
+    "name": "bear"
+   },
+   {
+    "text": "(づ｡◕‿‿◕｡)づ",
+    "name": "hug"
+   },
+   {
+    "text": "(•‿•)",
+    "name": "smile"
+   },
+   {
+    "text": "(◕‿◕✿)",
+    "name": "flower smile"
+   },
+   {
+    "text": "(ノ◕ヮ◕)ノ*:･ﾟ✧",
+    "name": "sparkles"
+   },
+   {
+    "text": "(～￣▽￣)～",
+    "name": "dance"
+   },
+   {
+    "text": "(＾▽＾)",
+    "name": "happy"
+   },
+   {
+    "text": "(´・ω・`)",
+    "name": "sad"
+   },
+   {
+    "text": "(T_T)",
+    "name": "crying"
+   },
+   {
+    "text": "(；一_一)",
+    "name": "annoyed"
+   },
+   {
+    "text": "(¬_¬)",
+    "name": "side eye"
+   },
+   {
+    "text": "(⌐■_■)",
+    "name": "cool"
+   },
+   {
+    "text": "ᕙ(⇀‸↼‶)ᕗ",
+    "name": "strong"
+   },
+   {
+    "text": "(ง'̀-'́)ง",
+    "name": "fight"
+   },
+   {
+    "text": "(っ˘ڡ˘ς)",
+    "name": "yummy"
+   },
+   {
+    "text": "(=^･ω･^=)",
+    "name": "cat"
+   },
+   {
+    "text": "U・ᴥ・U",
+    "name": "dog"
+   },
+   {
+    "text": "(˘▾˘~)",
+    "name": "wave"
+   },
+   {
+    "text": "(｡♥‿♥｡)",
+    "name": "love"
+   },
+   {
+    "text": "(⊙_⊙)",
+    "name": "shock"
+   },
+   {
+    "text": "(°ロ°)☝",
+    "name": "idea"
+   },
+   {
+    "text": "(-_-) zzZ",
+    "name": "sleep"
+   },
+   {
+    "text": "¯\\(°_o)/¯",
+    "name": "confused"
+   },
+   {
+    "text": "(☞ﾟヮﾟ)☞",
+    "name": "point"
+   },
+   {
+    "text": "ヽ(´▽`)/",
+    "name": "yay"
+   }
+  ]
+ },
+ {
+  "id": "arrows",
+  "items": [
+   {
+    "text": "←",
+    "name": "leftwards arrow"
+   },
+   {
+    "text": "→",
+    "name": "rightwards arrow"
+   },
+   {
+    "text": "↑",
+    "name": "upwards arrow"
+   },
+   {
+    "text": "↓",
+    "name": "downwards arrow"
+   },
+   {
+    "text": "↔",
+    "name": "left right arrow"
+   },
+   {
+    "text": "↕",
+    "name": "up down arrow"
+   },
+   {
+    "text": "↖",
+    "name": "north west arrow"
+   },
+   {
+    "text": "↗",
+    "name": "north east arrow"
+   },
+   {
+    "text": "↘",
+    "name": "south east arrow"
+   },
+   {
+    "text": "↙",
+    "name": "south west arrow"
+   },
+   {
+    "text": "⇐",
+    "name": "leftwards double arrow"
+   },
+   {
+    "text": "⇒",
+    "name": "rightwards double arrow"
+   },
+   {
+    "text": "⇑",
+    "name": "upwards double arrow"
+   },
+   {
+    "text": "⇓",
+    "name": "downwards double arrow"
+   },
+   {
+    "text": "⇔",
+    "name": "left right double arrow"
+   },
+   {
+    "text": "⟵",
+    "name": "long leftwards arrow"
+   },
+   {
+    "text": "⟶",
+    "name": "long rightwards arrow"
+   },
+   {
+    "text": "⟷",
+    "name": "long left right arrow"
+   },
+   {
+    "text": "↩",
+    "name": "leftwards arrow with hook"
+   },
+   {
+    "text": "↪",
+    "name": "rightwards arrow with hook"
+   },
+   {
+    "text": "↺",
+    "name": "anticlockwise open circle arrow"
+   },
+   {
+    "text": "↻",
+    "name": "clockwise open circle arrow"
+   },
+   {
+    "text": "⤴",
+    "name": "arrow pointing rightwards then curving upwards"
+   },
+   {
+    "text": "⤵",
+    "name": "arrow pointing rightwards then curving downwards"
+   },
+   {
+    "text": "➜",
+    "name": "heavy round-tipped rightwards arrow"
+   },
+   {
+    "text": "➔",
+    "name": "heavy wide-headed rightwards arrow"
+   },
+   {
+    "text": "⇄",
+    "name": "rightwards arrow over leftwards arrow"
+   },
+   {
+    "text": "⇅",
+    "name": "upwards arrow leftwards of downwards arrow"
+   }
+  ]
+ },
+ {
+  "id": "keys",
+  "items": [
+   {
+    "text": "⌘",
+    "name": "place of interest sign"
+   },
+   {
+    "text": "⌥",
+    "name": "option key"
+   },
+   {
+    "text": "⇧",
+    "name": "upwards white arrow"
+   },
+   {
+    "text": "⌃",
+    "name": "up arrowhead"
+   },
+   {
+    "text": "⎋",
+    "name": "broken circle with northwest arrow"
+   },
+   {
+    "text": "⏎",
+    "name": "return symbol"
+   },
+   {
+    "text": "⌫",
+    "name": "erase to the left"
+   },
+   {
+    "text": "⌦",
+    "name": "erase to the right"
+   },
+   {
+    "text": "⇥",
+    "name": "rightwards arrow to bar"
+   },
+   {
+    "text": "⇤",
+    "name": "leftwards arrow to bar"
+   },
+   {
+    "text": "⇪",
+    "name": "upwards white arrow from bar"
+   },
+   {
+    "text": "⏏",
+    "name": "eject symbol"
+   },
+   {
+    "text": "⌽",
+    "name": "apl functional symbol circle stile"
+   },
+   {
+    "text": "⎈",
+    "name": "helm symbol"
+   },
+   {
+    "text": "⌨",
+    "name": "keyboard"
+   },
+   {
+    "text": "⏻",
+    "name": "power symbol"
+   }
+  ]
+ },
+ {
+  "id": "math",
+  "items": [
+   {
+    "text": "±",
+    "name": "plus-minus sign"
+   },
+   {
+    "text": "×",
+    "name": "multiplication sign"
+   },
+   {
+    "text": "÷",
+    "name": "division sign"
+   },
+   {
+    "text": "−",
+    "name": "minus sign"
+   },
+   {
+    "text": "≈",
+    "name": "almost equal to"
+   },
+   {
+    "text": "≠",
+    "name": "not equal to"
+   },
+   {
+    "text": "≤",
+    "name": "less-than or equal to"
+   },
+   {
+    "text": "≥",
+    "name": "greater-than or equal to"
+   },
+   {
+    "text": "∞",
+    "name": "infinity"
+   },
+   {
+    "text": "√",
+    "name": "square root"
+   },
+   {
+    "text": "∛",
+    "name": "cube root"
+   },
+   {
+    "text": "∑",
+    "name": "n-ary summation"
+   },
+   {
+    "text": "∏",
+    "name": "n-ary product"
+   },
+   {
+    "text": "∫",
+    "name": "integral"
+   },
+   {
+    "text": "∂",
+    "name": "partial differential"
+   },
+   {
+    "text": "∆",
+    "name": "increment"
+   },
+   {
+    "text": "∇",
+    "name": "nabla"
+   },
+   {
+    "text": "∈",
+    "name": "element of"
+   },
+   {
+    "text": "∉",
+    "name": "not an element of"
+   },
+   {
+    "text": "∩",
+    "name": "intersection"
+   },
+   {
+    "text": "∪",
+    "name": "union"
+   },
+   {
+    "text": "⊂",
+    "name": "subset of"
+   },
+   {
+    "text": "⊃",
+    "name": "superset of"
+   },
+   {
+    "text": "⊆",
+    "name": "subset of or equal to"
+   },
+   {
+    "text": "⊇",
+    "name": "superset of or equal to"
+   },
+   {
+    "text": "∧",
+    "name": "logical and"
+   },
+   {
+    "text": "∨",
+    "name": "logical or"
+   },
+   {
+    "text": "¬",
+    "name": "not sign"
+   },
+   {
+    "text": "∀",
+    "name": "for all"
+   },
+   {
+    "text": "∃",
+    "name": "there exists"
+   },
+   {
+    "text": "∅",
+    "name": "empty set"
+   },
+   {
+    "text": "°",
+    "name": "degree sign"
+   },
+   {
+    "text": "‰",
+    "name": "per mille sign"
+   },
+   {
+    "text": "′",
+    "name": "prime"
+   },
+   {
+    "text": "″",
+    "name": "double prime"
+   },
+   {
+    "text": "½",
+    "name": "vulgar fraction one half"
+   },
+   {
+    "text": "⅓",
+    "name": "vulgar fraction one third"
+   },
+   {
+    "text": "¼",
+    "name": "vulgar fraction one quarter"
+   },
+   {
+    "text": "¾",
+    "name": "vulgar fraction three quarters"
+   },
+   {
+    "text": "²",
+    "name": "superscript two"
+   },
+   {
+    "text": "³",
+    "name": "superscript three"
+   },
+   {
+    "text": "ⁿ",
+    "name": "superscript latin small letter n"
+   },
+   {
+    "text": "π",
+    "name": "greek small letter pi"
+   }
+  ]
+ },
+ {
+  "id": "currency",
+  "items": [
+   {
+    "text": "€",
+    "name": "euro sign"
+   },
+   {
+    "text": "£",
+    "name": "pound sign"
+   },
+   {
+    "text": "¥",
+    "name": "yen sign"
+   },
+   {
+    "text": "₹",
+    "name": "indian rupee sign"
+   },
+   {
+    "text": "₩",
+    "name": "won sign"
+   },
+   {
+    "text": "₽",
+    "name": "ruble sign"
+   },
+   {
+    "text": "₺",
+    "name": "turkish lira sign"
+   },
+   {
+    "text": "₪",
+    "name": "new sheqel sign"
+   },
+   {
+    "text": "₫",
+    "name": "dong sign"
+   },
+   {
+    "text": "฿",
+    "name": "thai currency symbol baht"
+   },
+   {
+    "text": "₿",
+    "name": "bitcoin sign"
+   },
+   {
+    "text": "¢",
+    "name": "cent sign"
+   },
+   {
+    "text": "₴",
+    "name": "hryvnia sign"
+   },
+   {
+    "text": "₦",
+    "name": "naira sign"
+   },
+   {
+    "text": "₱",
+    "name": "peso sign"
+   },
+   {
+    "text": "$",
+    "name": "dollar sign"
+   }
+  ]
+ },
+ {
+  "id": "typography",
+  "items": [
+   {
+    "text": "…",
+    "name": "horizontal ellipsis"
+   },
+   {
+    "text": "—",
+    "name": "em dash"
+   },
+   {
+    "text": "–",
+    "name": "en dash"
+   },
+   {
+    "text": "·",
+    "name": "middle dot"
+   },
+   {
+    "text": "•",
+    "name": "bullet"
+   },
+   {
+    "text": "‹",
+    "name": "single left-pointing angle quotation mark"
+   },
+   {
+    "text": "›",
+    "name": "single right-pointing angle quotation mark"
+   },
+   {
+    "text": "«",
+    "name": "left-pointing double angle quotation mark"
+   },
+   {
+    "text": "»",
+    "name": "right-pointing double angle quotation mark"
+   },
+   {
+    "text": "„",
+    "name": "double low-9 quotation mark"
+   },
+   {
+    "text": "“",
+    "name": "left double quotation mark"
+   },
+   {
+    "text": "”",
+    "name": "right double quotation mark"
+   },
+   {
+    "text": "‘",
+    "name": "left single quotation mark"
+   },
+   {
+    "text": "’",
+    "name": "right single quotation mark"
+   },
+   {
+    "text": "§",
+    "name": "section sign"
+   },
+   {
+    "text": "¶",
+    "name": "pilcrow sign"
+   },
+   {
+    "text": "†",
+    "name": "dagger"
+   },
+   {
+    "text": "‡",
+    "name": "double dagger"
+   },
+   {
+    "text": "©",
+    "name": "copyright sign"
+   },
+   {
+    "text": "®",
+    "name": "registered sign"
+   },
+   {
+    "text": "™",
+    "name": "trade mark sign"
+   },
+   {
+    "text": "№",
+    "name": "numero sign"
+   },
+   {
+    "text": "℃",
+    "name": "degree celsius"
+   },
+   {
+    "text": "℉",
+    "name": "degree fahrenheit"
+   },
+   {
+    "text": "✓",
+    "name": "check mark"
+   },
+   {
+    "text": "✗",
+    "name": "ballot x"
+   },
+   {
+    "text": "★",
+    "name": "black star"
+   },
+   {
+    "text": "☆",
+    "name": "white star"
+   },
+   {
+    "text": "♥",
+    "name": "black heart suit"
+   },
+   {
+    "text": "♦",
+    "name": "black diamond suit"
+   },
+   {
+    "text": "♣",
+    "name": "black club suit"
+   },
+   {
+    "text": "♠",
+    "name": "black spade suit"
+   },
+   {
+    "text": "♪",
+    "name": "eighth note"
+   },
+   {
+    "text": "♫",
+    "name": "beamed eighth notes"
+   }
+  ]
+ },
+ {
+  "id": "greek",
+  "items": [
+   {
+    "text": "α",
+    "name": "greek small letter alpha"
+   },
+   {
+    "text": "β",
+    "name": "greek small letter beta"
+   },
+   {
+    "text": "γ",
+    "name": "greek small letter gamma"
+   },
+   {
+    "text": "δ",
+    "name": "greek small letter delta"
+   },
+   {
+    "text": "ε",
+    "name": "greek small letter epsilon"
+   },
+   {
+    "text": "ζ",
+    "name": "greek small letter zeta"
+   },
+   {
+    "text": "η",
+    "name": "greek small letter eta"
+   },
+   {
+    "text": "θ",
+    "name": "greek small letter theta"
+   },
+   {
+    "text": "ι",
+    "name": "greek small letter iota"
+   },
+   {
+    "text": "κ",
+    "name": "greek small letter kappa"
+   },
+   {
+    "text": "λ",
+    "name": "greek small letter lamda"
+   },
+   {
+    "text": "μ",
+    "name": "greek small letter mu"
+   },
+   {
+    "text": "ν",
+    "name": "greek small letter nu"
+   },
+   {
+    "text": "ξ",
+    "name": "greek small letter xi"
+   },
+   {
+    "text": "ο",
+    "name": "greek small letter omicron"
+   },
+   {
+    "text": "π",
+    "name": "greek small letter pi"
+   },
+   {
+    "text": "ρ",
+    "name": "greek small letter rho"
+   },
+   {
+    "text": "σ",
+    "name": "greek small letter sigma"
+   },
+   {
+    "text": "τ",
+    "name": "greek small letter tau"
+   },
+   {
+    "text": "υ",
+    "name": "greek small letter upsilon"
+   },
+   {
+    "text": "φ",
+    "name": "greek small letter phi"
+   },
+   {
+    "text": "χ",
+    "name": "greek small letter chi"
+   },
+   {
+    "text": "ψ",
+    "name": "greek small letter psi"
+   },
+   {
+    "text": "ω",
+    "name": "greek small letter omega"
+   },
+   {
+    "text": "Α",
+    "name": "greek capital letter alpha"
+   },
+   {
+    "text": "Β",
+    "name": "greek capital letter beta"
+   },
+   {
+    "text": "Γ",
+    "name": "greek capital letter gamma"
+   },
+   {
+    "text": "Δ",
+    "name": "greek capital letter delta"
+   },
+   {
+    "text": "Θ",
+    "name": "greek capital letter theta"
+   },
+   {
+    "text": "Λ",
+    "name": "greek capital letter lamda"
+   },
+   {
+    "text": "Π",
+    "name": "greek capital letter pi"
+   },
+   {
+    "text": "Σ",
+    "name": "greek capital letter sigma"
+   },
+   {
+    "text": "Φ",
+    "name": "greek capital letter phi"
+   },
+   {
+    "text": "Ψ",
+    "name": "greek capital letter psi"
+   },
+   {
+    "text": "Ω",
+    "name": "greek capital letter omega"
+   }
+  ]
+ }
+]

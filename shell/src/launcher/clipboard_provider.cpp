@@ -121,3 +121,17 @@ std::string ClipboardProvider::text(const LauncherResult& result) const {
   const std::size_t index = indexOf(result);
   return index == static_cast<std::size_t>(-1) ? std::string() : m_clipboard->history()[index].textPreview;
 }
+
+std::vector<std::uint8_t> ClipboardProvider::imageBytes(const LauncherResult& result) {
+  const std::size_t index = indexOf(result);
+  if (index == static_cast<std::size_t>(-1) || !m_clipboard->history()[index].isImage()
+      || !m_clipboard->ensureEntryLoaded(index)) {
+    return {};
+  }
+  return m_clipboard->history()[index].data;
+}
+
+std::size_t ClipboardProvider::byteSize(const LauncherResult& result) const {
+  const std::size_t index = indexOf(result);
+  return index == static_cast<std::size_t>(-1) ? 0 : m_clipboard->history()[index].byteSize;
+}
