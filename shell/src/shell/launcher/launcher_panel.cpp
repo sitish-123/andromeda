@@ -2034,7 +2034,7 @@ void LauncherPanel::animateResultsTransition() {
         m_resultsTransitionActive = false;
       },
       viewport
-  );
+  , 0.0F, Unit::Progress);
 }
 
 bool LauncherPanel::shouldUseLauncherSections() const { return false; }

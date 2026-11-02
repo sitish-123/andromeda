@@ -1032,7 +1032,7 @@ void NotificationsTab::beginFilterSlideOut(std::size_t nextIndex) {
         PanelManager::instance().requestLayout();
       },
       m_list
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void NotificationsTab::beginFilterSlideIn() {
@@ -1060,7 +1060,7 @@ void NotificationsTab::beginFilterSlideIn() {
         }
       },
       m_list
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void NotificationsTab::clearAllNotifications() {

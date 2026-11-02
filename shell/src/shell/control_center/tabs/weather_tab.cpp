@@ -456,7 +456,7 @@ void WeatherTab::beginForecastSlideOut(ForecastView nextView) {
         PanelManager::instance().refresh();
       },
       m_forecastColumn
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void WeatherTab::beginForecastSlideIn() {
@@ -481,7 +481,7 @@ void WeatherTab::beginForecastSlideIn() {
         }
       },
       m_forecastColumn
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void WeatherTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {

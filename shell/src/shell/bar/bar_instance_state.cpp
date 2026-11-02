@@ -375,7 +375,6 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
 
   instance.autoHideDelayTimer.stop();
   instance.ipcLayoutReleased = false;
-  instance.animations.cancelForOwner(instance.slideRoot);
   const float current = instance.hideOpacity;
   wl_output* output = instance.output;
   const std::string barName = instance.barConfig.name;
@@ -395,14 +394,14 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
     return;
   }
 
-  instance.animations.animateSpring(
-      current, 1.0F, Style::spring(Tokens::springMove),
+  instance.slideAnimId = instance.animations.drive(
+      instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
       [inst = &instance, this](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);
         syncBarSurfaceChrome(*inst);
       },
-      notifyAttachedPanel, instance.slideRoot
+      notifyAttachedPanel, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
   );
   const int surfW = static_cast<int>(instance.surface->width());
   const int surfH = static_cast<int>(instance.surface->height());
@@ -506,8 +505,8 @@ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
   }
   instance.autoHideDelayTimer.stop();
   const float current = instance.hideOpacity;
-  instance.animations.animateSpring(
-      current, 0.0F, Style::spring(Tokens::springClose),
+  instance.slideAnimId = instance.animations.drive(
+      instance.slideAnimId, current, 0.0F, Style::spring(Tokens::springClose),
       [this, inst = &instance](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);
@@ -521,7 +520,7 @@ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
         syncBarSurfaceChrome(*inst);
         inst->surface->requestRedraw();
       },
-      instance.slideRoot
+      instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
   );
   syncBarSurfaceChrome(instance);
   if (instance.surface != nullptr) {

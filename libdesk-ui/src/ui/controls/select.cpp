@@ -380,17 +380,14 @@ void Select::applyVisualState() {
 void Select::animateCaret(bool open) {
   const float to = open ? 1.0F : 0.0F;
   if (animationManager() != nullptr) {
-    if (m_caretAnimId != 0) {
-      animationManager()->cancel(m_caretAnimId);
-    }
-    m_caretAnimId = animationManager()->animateSpring(
-        m_caretProgress, to, Style::spring(Tokens::springSnap),
+    m_caretAnimId = animationManager()->drive(
+        m_caretAnimId, m_caretProgress, to, Style::spring(Tokens::springSnap),
         [this](float t) {
           m_caretProgress = t;
           applyVisualState();
           markPaintDirty();
         },
-        [this] { m_caretAnimId = 0; }, this
+        [this] { m_caretAnimId = 0; }, this, 0.0F, Unit::Progress, true
     );
     markPaintDirty();
   } else {

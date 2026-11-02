@@ -57,8 +57,6 @@ namespace {
   constexpr float kNotificationIconGlyphSizeCompact = 20.0F;
   constexpr float kNotificationIconReferenceSize = 36.0F;
   TOKENS_LIVE(kTopProgressInset, Style::spaceMd);
-  constexpr auto kExitSpringSettle = std::chrono::milliseconds(330);
-  constexpr auto kExitFallbackGrace = std::chrono::milliseconds(50);
 
   float notificationIconRadius(float iconSize, float localScale = 1.0F) {
     const float baseRadius = Tokens::radiusR8 * (iconSize / kNotificationIconReferenceSize);
@@ -951,19 +949,6 @@ void NotificationToast::dismissPopup(std::size_t index) {
     return;
   }
   entry.exiting = true;
-  entry.exitFallbackTimer.start(
-      kExitSpringSettle + kExitFallbackGrace, [this, notificationId = entry.notificationId] {
-        if (findEntry(notificationId) != nullptr) {
-          finishRemoval(notificationId);
-          for (auto& inst : m_instances) {
-            if (inst->surface != nullptr) {
-              inst->surface->renderNow();
-            }
-          }
-        }
-      }
-  );
-
   bool hadVisibleCard = false;
   for (auto& inst : m_instances) {
     if (index < inst->cards.size() && inst->cards[index].cardNode != nullptr) {
@@ -1961,7 +1946,7 @@ void NotificationToast::collapseStack() {
               }
             },
             cardNode
-        );
+        , 0.0F, Unit::Px);
       }
     }
   };

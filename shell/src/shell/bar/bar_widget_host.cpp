@@ -743,7 +743,7 @@ void Bar::beginAccordionAnimation(BarInstance& instance, BarCapsuleRun& run, boo
         }
       },
       {}, run.shell
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void Bar::updateAccordionExpansion(BarInstance& instance, InputArea* hoveredArea) {

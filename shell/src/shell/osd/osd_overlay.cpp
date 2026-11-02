@@ -991,7 +991,7 @@ void OsdOverlay::animateInstance(Instance& inst) {
             inst.showAnimId = 0;
             inst.visible = true;
           }
-      );
+      , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
     }
   } else {
     applyReveal(inst, 1.0F);
@@ -1018,7 +1018,7 @@ void OsdOverlay::animateInstance(Instance& inst) {
                 }
               });
             }
-        );
+        , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
       }
   );
 }

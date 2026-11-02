@@ -437,7 +437,7 @@ void RyokuScene::playGranted(std::function<void()> onDone) {
           done();
         }
       }
-  );
+  , nullptr, 0.0F, Unit::Progress);
 }
 
 void RyokuScene::layoutMenu(Renderer& renderer, Menu& menu, float right, float anchorY) {
@@ -479,7 +479,7 @@ void RyokuScene::toggleMenu(Menu& menu) {
   m_animations->animateSpring(
       menu.reveal, menu.open ? 1.0f : 0.0f, Style::spring(menu.open ? Tokens::springOpen : Tokens::springClose), [&menu](float v) { menu.reveal = v; },
       [&menu]() { menu.group->setVisible(menu.reveal > 0.0f); }, &menu.reveal
-  );
+  , 0.0F, Unit::Progress);
   fadeColor(menu.opener, menu.open);
   if (m_onMenuChanged) {
     m_onMenuChanged();

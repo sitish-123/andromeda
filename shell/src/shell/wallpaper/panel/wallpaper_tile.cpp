@@ -578,19 +578,16 @@ void WallpaperTile::animateThumbScale(float targetScale) {
     return;
   }
 
-  if (m_thumbScaleAnimId != 0 && animationManager() != nullptr) {
-    animationManager()->cancel(m_thumbScaleAnimId);
-    m_thumbScaleAnimId = 0;
-  }
-
-  if (std::abs(m_thumbScale - targetScale) <= 0.001F || animationManager() == nullptr) {
+  if (animationManager() == nullptr) {
     applyThumbScale(targetScale);
     return;
   }
 
-  m_thumbScaleAnimId = animationManager()->animateSpring(
-      m_thumbScale, targetScale, Style::spring(targetScale > m_thumbScale ? Tokens::springSnap : Tokens::springMove), [this](float value) { applyThumbScale(value); },
-      [this] { m_thumbScaleAnimId = 0; }, this
+  m_thumbScaleAnimId = animationManager()->drive(
+      m_thumbScaleAnimId, m_thumbScale, targetScale,
+      Style::spring(targetScale > m_thumbScale ? Tokens::springSnap : Tokens::springMove),
+      [this](float value) { applyThumbScale(value); }, [this] { m_thumbScaleAnimId = 0; }, this, 0.0F, Unit::Scale,
+      true
   );
   markPaintDirty();
 }

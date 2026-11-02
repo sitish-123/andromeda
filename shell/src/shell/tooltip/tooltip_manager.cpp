@@ -470,11 +470,8 @@ void TooltipManager::dismissPopup() {
       return;
     }
     m_state = State::FadingOut;
-    if (m_fadeAnimId != 0) {
-      m_animations.cancel(m_fadeAnimId);
-    }
-    m_fadeAnimId = m_animations.animateSpring(
-        m_sceneRoot->opacity(), 0.0F, Style::spring(Tokens::springFadeOut),
+    m_fadeAnimId = m_animations.drive(
+        m_fadeAnimId, m_sceneRoot->opacity(), 0.0F, Style::spring(Tokens::springFadeOut),
         [this](float v) {
           if (m_sceneRoot != nullptr) {
             m_sceneRoot->setOpacity(v);
@@ -485,7 +482,7 @@ void TooltipManager::dismissPopup() {
           m_fadeAnimId = 0;
           scheduleDestroyPopup();
         },
-        this
+        this, 0.0F, Unit::Progress
     );
     if (m_surface != nullptr) {
       m_surface->requestRedraw();
@@ -799,18 +796,15 @@ void TooltipManager::prepareFrame(bool /*needsUpdate*/, bool /*needsLayout*/) {
     UiPhaseScope layoutPhase(UiPhase::Layout);
     buildScene(m_pendingContent, w, h);
 
-    if (m_fadeAnimId != 0) {
-      m_animations.cancel(m_fadeAnimId);
-    }
-    m_fadeAnimId = m_animations.animateSpring(
-        0.0F, 1.0F, Style::spring(Tokens::springFade),
+    m_fadeAnimId = m_animations.drive(
+        m_fadeAnimId, 0.0F, 1.0F, Style::spring(Tokens::springFade),
         [this](float v) {
           if (m_sceneRoot != nullptr) {
             m_sceneRoot->setOpacity(v);
             m_sceneRoot->markPaintDirty();
           }
         },
-        [this] { m_fadeAnimId = 0; }, this
+        [this] { m_fadeAnimId = 0; }, this, 0.0F, Unit::Progress
     );
   }
 }

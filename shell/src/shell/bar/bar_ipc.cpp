@@ -349,8 +349,8 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
     if (instance.barConfig.autoHide && instance.hideOpacity < 0.999F) {
       const float current = instance.hideOpacity;
       instance.autoHideDisablePending = true;
-      instance.animations.animateSpring(
-          current, 1.0F, Style::spring(Tokens::springMove),
+      instance.slideAnimId = instance.animations.drive(
+          instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
           [this, inst = &instance](float v) {
             inst->hideOpacity = v;
             syncBarSlideLayerTransform(*inst);
@@ -367,7 +367,7 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
               inst->surface->requestRedraw();
             }
           },
-          instance.slideRoot
+          instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
       );
       if (instance.surface != nullptr) {
         instance.surface->requestRedraw();

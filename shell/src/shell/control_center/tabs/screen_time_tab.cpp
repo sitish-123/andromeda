@@ -561,7 +561,7 @@ void ScreenTimeTab::beginRangeSlideOut(int nextRangeDays) {
         PanelManager::instance().refresh();
       },
       m_root
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void ScreenTimeTab::beginRangeSlideIn() {
@@ -586,7 +586,7 @@ void ScreenTimeTab::beginRangeSlideIn() {
         }
       },
       m_root
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void ScreenTimeTab::onClose() {

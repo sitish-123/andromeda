@@ -85,7 +85,6 @@ private:
     std::uint64_t hoverResetToken = 0;
     bool hoverResetPending = false;
     bool replyInputFocused = false;
-    Timer exitFallbackTimer;
   };
 
   // Per-output instance (each has its own surface, scene, animations)

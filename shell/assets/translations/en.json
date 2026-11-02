@@ -1555,6 +1555,10 @@
     "pages": {
       "empty-hint": "The controls for this page arrive in a later update.",
       "empty-title": "Nothing to set here yet",
+      "group-connectivity": "Connectivity",
+      "group-desktop": "Desktop",
+      "group-look": "Look and feel",
+      "group-system": "System",
       "wifi": "Wi-Fi",
       "bluetooth": "Bluetooth",
       "network": "Network",
@@ -5687,6 +5691,7 @@
       }
     },
     "window": {
+      "title": "Settings",
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
       "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Noctalia is applying the replacement only temporarily. Run noctalia config validate to list every required change.",

@@ -798,15 +798,14 @@ void Bar::setInstanceIpcVisible(BarInstance& instance, bool visible) {
   if (instance.slideRoot == nullptr) {
     return;
   }
-  instance.animations.cancelForOwner(instance.slideRoot);
   instance.slideRoot->setOpacity(1.0F);
   if (!visible) {
     clearInstancePointerState(instance);
   }
   const float current = instance.hideOpacity;
   const float target = visible ? 1.0F : 0.0F;
-  instance.animations.animateSpring(
-      current, target, Style::spring(visible ? Tokens::springMove : Tokens::springClose),
+  instance.slideAnimId = instance.animations.drive(
+      instance.slideAnimId, current, target, Style::spring(visible ? Tokens::springMove : Tokens::springClose),
       [inst = &instance, this](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);
@@ -820,7 +819,7 @@ void Bar::setInstanceIpcVisible(BarInstance& instance, bool visible) {
           inst->surface->requestRedraw();
         }
       },
-      instance.slideRoot
+      instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
   );
   syncBarAutoHideInputRegion(instance);
   syncBarSurfaceChrome(instance);

@@ -1323,7 +1323,7 @@ void WindowSwitcher::syncSelection(bool animate) {
         }
       },
       animationOwner
-  );
+  , 0.0F, Unit::Progress);
 }
 
 bool WindowSwitcher::matchesTrigger(const KeyboardEvent& event) const noexcept {

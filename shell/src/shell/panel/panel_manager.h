@@ -348,6 +348,8 @@ private:
   float m_attachedBackgroundOpacity = 1.0F;
   bool m_attachedContactShadow = false;
   float m_attachedRevealProgress = 1.0F;
+  AnimationManager::Id m_attachedRevealAnimId = 0;
+  [[nodiscard]] float attachedRevealTravelPx() const;
   float m_detachedRevealProgress = 1.0F;
   AttachedRevealDirection m_attachedRevealDirection = AttachedRevealDirection::Down;
   AttachedRevealDirection m_detachedRevealDirection = AttachedRevealDirection::Down;

@@ -58,14 +58,9 @@ void Toggle::setChecked(bool checked) {
   m_checked = checked;
 
   if (animationManager() != nullptr) {
-    if (m_animId != 0) {
-      animationManager()->cancel(m_animId);
-    }
-    float from = m_checked ? 0.0F : 1.0F;
-    float to = m_checked ? 1.0F : 0.0F;
-    m_animId = animationManager()->animateSpring(
-        from, to, Style::spring(Tokens::springSnap), [this](float t) { applyAnimatedState(t); },
-        [this] { m_animId = 0; }, this
+    m_animId = animationManager()->drive(
+        m_animId, m_animationProgress, m_checked ? 1.0F : 0.0F, Style::spring(Tokens::springSnap),
+        [this](float t) { applyAnimatedState(t); }, [this] { m_animId = 0; }, this, 0.0F, Unit::Scale, true
     );
     // Mark dirty so the surface's frame loop restarts and ticks the animation
     markPaintDirty();
@@ -175,8 +170,9 @@ void Toggle::applyState() { applyAnimatedState(m_checked ? 1.0F : 0.0F); }
 
 void Toggle::applyAnimatedState(float t) {
   m_animationProgress = t;
-  const Color trackColor = lerpColor(colorForRole(ColorRole::Stroke), colorForRole(ColorRole::Accent), t);
-  const Color thumbColor = lerpColor(colorForRole(ColorRole::OnAccent), colorForRole(ColorRole::OnAccent), t);
+  const float mixT = std::clamp(t, 0.0F, 1.0F);
+  const Color trackColor = lerpColor(colorForRole(ColorRole::Stroke), colorForRole(ColorRole::Accent), mixT);
+  const Color thumbColor = lerpColor(colorForRole(ColorRole::OnAccent), colorForRole(ColorRole::OnAccent), mixT);
   const float thumbX = m_inset + m_travel * (Style::rtl() ? 1.0F - t : t);
   ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
 

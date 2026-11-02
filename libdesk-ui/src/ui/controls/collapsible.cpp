@@ -93,14 +93,9 @@ void Collapsible::setExpanded(bool expanded) {
   m_expanded = expanded;
 
   if (animationManager() != nullptr) {
-    if (m_animId != 0) {
-      animationManager()->cancel(m_animId);
-    }
-    float from = m_expandProgress;
-    float to = m_expanded ? 1.0F : 0.0F;
-    m_animId = animationManager()->animateSpring(
-        from, to, Style::spring(Tokens::springMove), [this](float t) { applyExpandedProgress(t); },
-        [this] { m_animId = 0; }, this
+    m_animId = animationManager()->drive(
+        m_animId, m_expandProgress, m_expanded ? 1.0F : 0.0F, Style::spring(Tokens::springMove),
+        [this](float t) { applyExpandedProgress(t); }, [this] { m_animId = 0; }, this, 0.0F, Unit::Progress, true
     );
     markPaintDirty();
   } else {

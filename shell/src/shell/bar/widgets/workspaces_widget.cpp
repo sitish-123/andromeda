@@ -1025,7 +1025,7 @@ void WorkspacesWidget::startAnimation() {
         }
       },
       [this] { finishAnimation(); }, this
-  );
+  , 0.0F, Unit::Progress);
 
   // Reserve final bounds before the first animated frame to avoid one-frame overflow.
   updateContainerSize();

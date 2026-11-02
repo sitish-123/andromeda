@@ -192,7 +192,7 @@ void ScrollView::stopScrollAnimation() {
   m_targetScrollOffset = m_scrollOffset;
 }
 
-void ScrollView::animateScrollTo(float target) {
+void ScrollView::animateScrollTo(float target, float velocityPxPerS) {
   const float clampedTarget = clampOffset(target);
 
   if (animationManager() == nullptr) {
@@ -200,17 +200,21 @@ void ScrollView::animateScrollTo(float target) {
     return;
   }
 
-  stopScrollAnimation();
+  const bool running = m_scrollAnimId != 0;
+  if (!running) {
+    stopScrollAnimation();
+  }
   m_targetScrollOffset = clampedTarget;
 
-  if (std::abs(clampedTarget - m_scrollOffset) < 0.5F) {
+  if (!running && std::abs(clampedTarget - m_scrollOffset) < 0.5F) {
     applyScrollOffsetValue(clampedTarget);
     return;
   }
 
-  m_scrollAnimId = animationManager()->animateSpring(
-      m_scrollOffset, clampedTarget, Style::spring(Tokens::springMove),
-      [this](float value) { applyScrollOffsetValue(value); }, [this] { m_scrollAnimId = 0; }, this, 0.0F, Unit::Px
+  m_scrollAnimId = animationManager()->drive(
+      m_scrollAnimId, m_scrollOffset, clampedTarget, Style::spring(Tokens::springMove),
+      [this](float value) { applyScrollOffsetValue(value); }, [this] { m_scrollAnimId = 0; }, this, velocityPxPerS,
+      Unit::Px
   );
   markPaintDirty();
 }
@@ -247,7 +251,7 @@ void ScrollView::springToPage(std::size_t page, float velocityPxPerS) {
   m_scrollAnimId = animationManager()->animateSpring(
       m_scrollOffset, target, Style::spring(Tokens::springPage),
       [this](float value) { applyScrollOffsetValue(value, true); }, [this] { m_scrollAnimId = 0; }, this,
-      velocityPxPerS
+      velocityPxPerS, Unit::Px
   );
   markPaintDirty();
 }
@@ -281,7 +285,7 @@ void ScrollView::startFling() {
     return;
   }
 
-  animateScrollTo(target);
+  animateScrollTo(target, offsetVelocity * 1000.0F);
 }
 
 void ScrollView::applyScrollOffsetValue(float offset, bool allowOverscroll) {

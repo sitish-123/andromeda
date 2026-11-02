@@ -1553,9 +1553,8 @@ void PanelManager::closePanel(bool animateClose) {
   if (animateClose && m_sceneRoot != nullptr && m_activePanel != nullptr && m_activePanel->wantsCloseAnimation()) {
     const std::uint64_t gen = ++m_destroyGeneration;
     if (m_attachedToBar && m_attachedRevealClipNode != nullptr) {
-      m_animations.cancelForOwner(m_attachedRevealClipNode);
-      m_animations.animateSpring(
-          m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
+      m_attachedRevealAnimId = m_animations.drive(
+          m_attachedRevealAnimId, m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
           [this](float v) { applyAttachedReveal(v); },
           [this, gen] {
             DeferredCall::callLater([this, gen] {
@@ -1564,7 +1563,7 @@ void PanelManager::closePanel(bool animateClose) {
               }
             });
           },
-          m_attachedRevealClipNode
+          m_attachedRevealClipNode, 0.0F, Threshold::px(attachedRevealTravelPx())
       );
     } else if (!startDetachedMorphClose(gen) && !startDetachedScaleClose(gen)) {
       m_animations.cancelForOwner(m_sceneRoot.get());
@@ -2240,6 +2239,10 @@ void PanelManager::onKeyboardEvent(const KeyboardEvent& event) {
   }
 }
 
+float PanelManager::attachedRevealTravelPx() const {
+  return static_cast<float>(std::max(m_panelVisualWidth, m_panelVisualHeight));
+}
+
 void PanelManager::applyAttachedReveal(float progress) {
   m_attachedRevealProgress = std::clamp(progress, 0.0F, 1.0F);
   if (!m_attachedToBar || m_attachedRevealClipNode == nullptr || m_sceneRoot == nullptr) {
@@ -2581,9 +2584,10 @@ void PanelManager::startAttachedOpenAnimation() {
   }
 
   m_attachedOpenAnimationPending = false;
-  m_animations.animateSpring(
-      m_attachedRevealProgress, 1.0F, Style::spring(Tokens::springOpen),
-      [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode
+  m_attachedRevealAnimId = m_animations.drive(
+      m_attachedRevealAnimId, m_attachedRevealProgress, 1.0F, Style::spring(Tokens::springOpen),
+      [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode, 0.0F,
+      Threshold::px(attachedRevealTravelPx())
   );
 }
 
@@ -3175,16 +3179,16 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
   if (target != m_contentFit.targetHeight) {
     const bool firstMeasure = m_contentFit.targetHeight == 0;
     m_contentFit.targetHeight = target;
-    if (m_contentFit.animation != 0) {
-      m_animations.cancel(m_contentFit.animation);
-      m_contentFit.animation = 0;
-    }
     if (firstMeasure || m_panelVisualHeight == target) {
       // The open reveal already animates the first appearance.
+      if (m_contentFit.animation != 0) {
+        m_animations.cancel(m_contentFit.animation);
+        m_contentFit.animation = 0;
+      }
       (void)setCardHeight(target);
     } else {
-      m_contentFit.animation = m_animations.animateSpring(
-          static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::spring(Tokens::springMove),
+      m_contentFit.animation = m_animations.drive(
+          m_contentFit.animation, static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::spring(Tokens::springMove),
           [this](float height) {
             if (setCardHeight(static_cast<std::uint32_t>(std::lround(height)))) {
               placePanelChrome();

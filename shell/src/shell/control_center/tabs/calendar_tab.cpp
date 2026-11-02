@@ -449,7 +449,7 @@ void CalendarTab::beginSlideOut(int delta) {
         PanelManager::instance().refresh();
       },
       m_gridViewport
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void CalendarTab::beginSlideIn() {
@@ -474,7 +474,7 @@ void CalendarTab::beginSlideIn() {
         }
       },
       m_gridViewport
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void CalendarTab::rebuild() {

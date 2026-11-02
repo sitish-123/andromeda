@@ -29,28 +29,35 @@ public:
   Id animateSpring(
       float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
       std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F,
-      Unit unit = Unit::Opacity
+      Threshold unit = Unit::Opacity
   );
   // Progress gate: a spring that runs `onPass` once when it has covered `fraction` of its travel, so a choreography
   // follows the shape and not the clock. `onPass` may start a child spring.
   Id animateGated(
       float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
       float fraction, std::function<void()> onPass, std::function<void()> onComplete = {},
-      const void* owner = nullptr, float velocity = 0.0F, Unit unit = Unit::Opacity
+      const void* owner = nullptr, float velocity = 0.0F, Threshold unit = Unit::Opacity
   );
   // Stagger for entries: child `index` starts 16 ms after child `index - 1`; children from the sixth on start together.
   // Exits never stagger. Without motion (off or reduced) every child starts at once.
   Id animateStaggered(
       int index, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-      std::function<void()> onComplete = {}, const void* owner = nullptr, Unit unit = Unit::Opacity
+      std::function<void()> onComplete = {}, const void* owner = nullptr, Threshold unit = Unit::Opacity
   );
   [[nodiscard]] static float staggerDelayMs(int index);
+  // Retarget, never restart: when `id` is a running spring, it moves to `to` with its velocity and takes the new
+  // `setter`, `onComplete` and `spring`; otherwise a new spring starts at `from`. Returns the id (0 when motion is off).
+  Id drive(
+      Id id, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+      std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F,
+      Threshold unit = Unit::Opacity, bool spatial = false
+  );
   // Units per second of a running spring; 0 when `id` is not one.
   [[nodiscard]] float velocity(Id id) const;
   // Spatial motion: a spring. With motion off or reduced it jumps to `to`; the caller crossfades on fade / fade_out.
   Id animateSpatial(
       float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-      std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F, Unit unit = Unit::Px
+      std::function<void()> onComplete = {}, const void* owner = nullptr, float velocity = 0.0F, Threshold unit = Unit::Scale
   );
   // Moves a running spring's target and keeps its velocity. False when `id` is not a running spring.
   bool retarget(Id id, float to);
@@ -75,9 +82,22 @@ private:
     Animation animation;
   };
 
+  struct Pending {
+    Id id = 0;
+    const void* owner = nullptr;
+    std::function<void()> fn;
+  };
+
   std::vector<Entry> m_animations;
+  bool m_dispatching = false;
+  bool m_cancelledAll = false;
+  std::vector<Id> m_cancelledIds;
+  std::vector<const void*> m_cancelledOwners;
   Id m_nextId = 1;
 
+  static void jump(
+      float to, Threshold unit, const std::function<void(float)>& setter, const std::function<void()>& onComplete
+  );
   Id animateInternal(
       float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
       std::function<void()> onComplete, const void* owner, bool scaleDuration, bool respectMotionEnabled

@@ -501,7 +501,7 @@ void BatteryWidget::syncState(Renderer& renderer) {
             requestRedraw();
           },
           [this] { m_fillAnim = 0; }, this
-      );
+      , 0.0F, Unit::Px);
       requestFrameTick();
     } else {
       m_animatedPct = newPct;

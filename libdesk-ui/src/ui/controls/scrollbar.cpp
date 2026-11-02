@@ -218,12 +218,9 @@ void Scrollbar::setExpanded(bool expanded) {
     applyExpansion(target);
     return;
   }
-  if (m_expandAnim != 0) {
-    animations->cancel(m_expandAnim);
-  }
-  m_expandAnim = animations->animateSpring(
-      m_expansion, target, Style::spring(target > m_expansion ? Tokens::springSnap : Tokens::springMove),
-      [this](float value) { applyExpansion(value); }, [this] { m_expandAnim = 0; }, this
+  m_expandAnim = animations->drive(
+      m_expandAnim, m_expansion, target, Style::spring(target > m_expansion ? Tokens::springSnap : Tokens::springMove),
+      [this](float value) { applyExpansion(value); }, [this] { m_expandAnim = 0; }, this, 0.0F, Unit::Progress, true
   );
   // Starting an animation mutates nothing yet, so the surface has no reason to schedule a frame
   // and would never tick it. Ask for the repaint that starts the frame loop.

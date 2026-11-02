@@ -369,7 +369,7 @@ void Label::startSnapToZero() {
         applyScrollPosition();
       },
       this
-  );
+  , 0.0F, Unit::Px);
   markPaintDirty();
 }
 

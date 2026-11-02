@@ -765,7 +765,7 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
         PanelManager::instance().requestRedraw();
       },
       m_tabBodies
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void ControlCenterPanel::finishTabTransition() {

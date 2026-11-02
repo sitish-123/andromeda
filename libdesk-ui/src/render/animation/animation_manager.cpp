@@ -79,12 +79,14 @@ AnimationManager::Id AnimationManager::animateInternal(
 
 AnimationManager::Id AnimationManager::animateSpring(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner, float velocity, Unit unit
+    std::function<void()> onComplete, const void* owner, float velocity, Threshold unit
 ) {
-  const float start = MotionService::instance().enabled() ? from : to;
-  const float threshold = unitThreshold(unit);
-  desk::motion::Spring motion(start, to, spring, velocity);
-  motion.setThreshold(threshold);
+  if (!MotionService::instance().enabled()) {
+    jump(to, unit, setter, onComplete);
+    return 0;
+  }
+  desk::motion::Spring motion(from, to, spring, velocity);
+  motion.setThreshold(unit.value);
   Id id = m_nextId++;
   m_animations.push_back(
       Entry{
@@ -92,37 +94,82 @@ AnimationManager::Id AnimationManager::animateSpring(
           .owner = owner,
           .respectMotionEnabled = true,
           .animation = Animation{
-              .startValue = start,
+              .startValue = from,
               .endValue = to,
               .setter = std::move(setter),
               .onComplete = std::move(onComplete),
               .spring = motion,
               .lastStep = std::chrono::steady_clock::now(),
-              .threshold = threshold,
+              .threshold = unit.value,
+              .clamp01 = unit.clamp01,
           },
       }
   );
   return id;
 }
 
+void AnimationManager::jump(
+    float to, Threshold unit, const std::function<void(float)>& setter, const std::function<void()>& onComplete
+) {
+  if (setter) {
+    setter(unit.clamp01 ? std::clamp(to, 0.0F, 1.0F) : to);
+  }
+  if (onComplete) {
+    onComplete();
+  }
+}
+
 AnimationManager::Id AnimationManager::animateSpatial(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner, float velocity, Unit unit
+    std::function<void()> onComplete, const void* owner, float velocity, Threshold unit
+) {
+  if (MotionService::instance().reduced()) {
+    jump(to, unit, setter, onComplete);
+    return 0;
+  }
+  return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
+}
+
+AnimationManager::Id AnimationManager::drive(
+    Id id, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+    std::function<void()> onComplete, const void* owner, float velocity, Threshold unit, bool spatial
 ) {
   const auto& motion = MotionService::instance();
-  if (motion.enabled() && !motion.reduced()) {
-    return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
+  const bool instant = !motion.enabled() || (spatial && motion.reduced());
+  if (!instant) {
+    for (auto& entry : m_animations) {
+      if (entry.id == id && entry.animation.spring && !entry.animation.finished) {
+        retarget(id, to, spring);
+        entry.animation.setter = std::move(setter);
+        entry.animation.onComplete = std::move(onComplete);
+        return id;
+      }
+    }
   }
-  if (setter) {
-    setter(to);
+  if (id != 0) {
+    cancel(id);
   }
-  return animateSpring(to, to, spring, {}, std::move(onComplete), owner, 0.0F, unit);
+  if (instant) {
+    jump(to, unit, setter, onComplete);
+    return 0;
+  }
+  return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
 }
 
 AnimationManager::Id AnimationManager::animateGated(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter, float fraction,
-    std::function<void()> onPass, std::function<void()> onComplete, const void* owner, float velocity, Unit unit
+    std::function<void()> onPass, std::function<void()> onComplete, const void* owner, float velocity, Threshold unit
 ) {
+  if (!MotionService::instance().enabled()) {
+    jump(to, unit, setter, {});
+    if (onPass) {
+      onPass();
+    }
+    if (onComplete) {
+      onComplete();
+    }
+    return 0;
+  }
   const Id id = animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
   auto& anim = m_animations.back().animation;
   anim.gateFraction = std::clamp(fraction, 0.0F, 1.0F);
@@ -138,12 +185,12 @@ float AnimationManager::staggerDelayMs(int index) {
 
 AnimationManager::Id AnimationManager::animateStaggered(
     int index, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner, Unit unit
+    std::function<void()> onComplete, const void* owner, Threshold unit
 ) {
   const auto& motion = MotionService::instance();
   const Id id = animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, 0.0F, unit);
-  if (motion.enabled() && !motion.reduced()) {
-    m_animations.back().animation.delayMs = staggerDelayMs(index);
+  if (id != 0 && !motion.reduced()) {
+    m_animations.back().animation.delayMs = staggerDelayMs(index) / motion.speed();
   }
   return id;
 }
@@ -191,10 +238,21 @@ bool AnimationManager::retarget(Id id, float to, const desk::motion::SpringConfi
 }
 
 void AnimationManager::cancel(Id id) {
+  if (m_dispatching) {
+    m_cancelledIds.push_back(id);
+  }
   std::erase_if(m_animations, [id](const Entry& e) { return e.id == id; });
 }
 
-void AnimationManager::cancelAll() { m_animations.clear(); }
+void AnimationManager::cancelAll() {
+  if (m_dispatching) {
+    for (const auto& e : m_animations) {
+      m_cancelledIds.push_back(e.id);
+    }
+    m_cancelledAll = true;
+  }
+  m_animations.clear();
+}
 
 void AnimationManager::reduceMotion() {
   const auto now = std::chrono::steady_clock::now();
@@ -226,6 +284,9 @@ void AnimationManager::cancelForOwner(const void* owner) {
   if (owner == nullptr) {
     return;
   }
+  if (m_dispatching) {
+    m_cancelledOwners.push_back(owner);
+  }
   std::erase_if(m_animations, [owner](const Entry& e) { return e.owner == owner; });
 }
 
@@ -234,8 +295,8 @@ void AnimationManager::tick(float /*deltaMs*/) { tickAt(std::chrono::steady_cloc
 void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
   // Collect completed callbacks separately — onComplete may call animate()
   // which would push_back and invalidate iterators during iteration.
-  std::vector<std::function<void()>> completedCallbacks;
-  std::vector<std::function<void()>> gateCallbacks;
+  std::vector<Pending> completedCallbacks;
+  std::vector<Pending> gateCallbacks;
 
   for (auto& entry : m_animations) {
     auto& anim = entry.animation;
@@ -252,24 +313,24 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
         if (anim.delayMs > 0.0F) {
           continue;
         }
-        stepMs = -anim.delayMs;
+        stepMs = 0.0F;
         anim.delayMs = 0.0F;
       }
       const float value = static_cast<float>(anim.spring->step(stepMs * MotionService::instance().speed() / 1000.0F));
       anim.finished = anim.spring->settled();
       if (anim.setter) {
-        anim.setter(value);
+        anim.setter(anim.clamp01 ? std::clamp(value, 0.0F, 1.0F) : value);
       }
       if (anim.onGate) {
         const float travel = anim.endValue - anim.startValue;
         const float progress = std::fabs(travel) > 1e-6F ? (value - anim.startValue) / travel : 1.0F;
         if (anim.finished || progress >= anim.gateFraction) {
-          gateCallbacks.push_back(std::move(anim.onGate));
+          gateCallbacks.push_back({entry.id, entry.owner, std::move(anim.onGate)});
           anim.onGate = nullptr;
         }
       }
       if (anim.finished && anim.onComplete) {
-        completedCallbacks.push_back(std::move(anim.onComplete));
+        completedCallbacks.push_back({entry.id, entry.owner, std::move(anim.onComplete)});
       }
       continue;
     }
@@ -293,18 +354,29 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
     }
 
     if (anim.finished && anim.onComplete) {
-      completedCallbacks.push_back(std::move(anim.onComplete));
+      completedCallbacks.push_back({entry.id, entry.owner, std::move(anim.onComplete)});
     }
   }
 
   std::erase_if(m_animations, [](const Entry& e) { return e.animation.finished; });
 
-  for (auto& cb : gateCallbacks) {
-    cb();
-  }
-  for (auto& cb : completedCallbacks) {
-    cb();
-  }
+  // A callback that cancels an animation or its owner also stops that animation's later callbacks in this tick.
+  m_dispatching = true;
+  m_cancelledAll = false;
+  const auto dispatch = [this](std::vector<Pending>& list) {
+    for (auto& cb : list) {
+      const bool cancelled = m_cancelledAll || std::ranges::find(m_cancelledIds, cb.id) != m_cancelledIds.end()
+          || (cb.owner != nullptr && std::ranges::find(m_cancelledOwners, cb.owner) != m_cancelledOwners.end());
+      if (!cancelled) {
+        cb.fn();
+      }
+    }
+  };
+  dispatch(gateCallbacks);
+  dispatch(completedCallbacks);
+  m_dispatching = false;
+  m_cancelledIds.clear();
+  m_cancelledOwners.clear();
 }
 
 bool AnimationManager::hasActive() const { return !m_animations.empty(); }
