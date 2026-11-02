@@ -274,15 +274,23 @@ namespace andromeda {
     );
 
     updateBlur();
-    if (state->elevation == DskSurfaceManager::Elevation::None) {
+    const double level = std::clamp(motion.value(Property::Elevation)[0], 0.0, 2.0);
+    if (level < 0.005) {
       m_shadow.hide();
       return;
     }
-    const Tokens::Elevation& token =
-        state->elevation == DskSurfaceManager::Elevation::E1 ? Tokens::elevationE1 : Tokens::elevationE2;
-    m_shadow.setStyle(
-        ShadowStyle{.softness = token.softness, .offsetX = token.offsetX, .offsetY = token.offsetY, .opacity = token.opacity}
-    );
+    // Level 0..1 grows e1 from nothing at constant softness; 1..2 blends e1 into e2.
+    const Tokens::Elevation& e1 = Tokens::elevationE1;
+    const Tokens::Elevation& e2 = Tokens::elevationE2;
+    const auto mix = [](double a, double b, double t) { return a + (b - a) * t; };
+    const double up = std::clamp(level - 1.0, 0.0, 1.0);
+    const double base = std::min(level, 1.0);
+    m_shadow.setStyle(ShadowStyle{
+        .softness = static_cast<int>(std::lround(mix(e1.softness, e2.softness, up))),
+        .offsetX = static_cast<int>(std::lround(mix(e1.offsetX * base, e2.offsetX, up))),
+        .offsetY = static_cast<int>(std::lround(mix(e1.offsetY * base, e2.offsetY, up))),
+        .opacity = static_cast<float>(mix(e1.opacity * base, e2.opacity, up)),
+    });
     // The shadow follows the visible rect: the clip when set, else the whole surface, after translate and scale.
     const wlr_box shape = clipped ? clipBox
                                   : wlr_box{0, 0, static_cast<int>(std::lround(width * scale)),

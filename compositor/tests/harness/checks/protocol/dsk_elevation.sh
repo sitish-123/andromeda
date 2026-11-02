@@ -63,3 +63,53 @@ if ((left != 0 || moved < 4000)); then
   exit 1
 fi
 echo "elevation e2 shadow: $raised dark pixels; after translate 100: $moved at the new edge, $left at the old"
+
+# property 5 = elevation (version 4): 0 removes the shadow, 2 draws e2 again
+printf '%s\n' "dsk-set flat 5 0 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done flat' 1
+flat_prop=$(dark_below 140)
+printf '%s\n' "dsk-set high 5 2 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done high' 1
+high_prop=$(dark_below 140)
+if ((flat_prop != 0 || high_prop < 4000)); then
+  echo "the elevation property does not drive the shadow: $flat_prop dark at level 0, $high_prop at level 2"
+  exit 1
+fi
+echo "elevation property: level 0 $flat_prop dark pixels, level 2 $high_prop"
+
+# fractional levels and animate: the shadow grows from e1 (1) through 1.5 to e2 (2)
+printf '%s\n' "dsk-set one 5 1 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done one' 1
+dark_one=$(dark_below 140)
+printf '%s\n' "dsk-set half 5 1.5 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done half' 1
+dark_half=$(dark_below 140)
+if ((dark_one >= dark_half || dark_half >= high_prop)); then
+  echo "level 1.5 is not between e1 and e2: $dark_one, $dark_half, $high_prop dark pixels at levels 1, 1.5, 2"
+  exit 1
+fi
+# animate 5 with spring_standard (1); the animation setting is off, so it lands at once
+printf '%s\n' "dsk-set zero 5 0 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done zero' 1
+printf '%s\n' "dsk-animate grow 7 5 1 1.5 0 0 0" >&"$control_fd"
+await_lines "$LOG" 'done grow' 1
+await_lines "$LOG" 'dsk-done 7 0' 1
+dark_anim=$(dark_below 140)
+if ((dark_anim != dark_half)); then
+  echo "animate of the elevation property ends at $dark_anim dark pixels, set 1.5 gives $dark_half"
+  exit 1
+fi
+echo "elevation levels 1 / 1.5 / 2: $dark_one / $dark_half / $high_prop dark pixels; animate to 1.5: $dark_anim"
+
+# a client that bound version 3 must not use the version 4 property
+readonly OLD_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-elevation-v3.log"
+readonly OLD_FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-elevation-v3.fifo"
+mkfifo "$OLD_FIFO"
+exec {old_fd}<> "$OLD_FIFO"
+LAYER_DSK_VERSION=3 LAYER_CONTROL=1 "$LAYER_CLIENT" HEADLESS-1 40 <&"$old_fd" > "$OLD_LOG" 2>&1 &
+old_pid=$!
+trap 'kill "$client_pid" "$old_pid" 2> /dev/null || true' EXIT
+await_lines "$OLD_LOG" ready 1
+printf '%s\n' "dsk-set bad 5 1 0 0 0" >&"$old_fd"
+await_lines "$OLD_LOG" 'protocol-error' 1
+echo "a version 3 client gets a protocol error for the elevation property"

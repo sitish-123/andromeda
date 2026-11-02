@@ -27,12 +27,8 @@ namespace andromeda {
   // our own clients' surfaces. Requests are double-buffered and apply on the surface's next commit.
   class DskSurfaceManager {
   public:
-    // Values match dsk_surface_v1.elevation.
-    enum class Elevation : uint8_t { None, E1, E2 };
-
     struct State {
       SurfaceMotion motion;
-      Elevation elevation = Elevation::None;
     };
 
     explicit DskSurfaceManager(wl_display* display);
@@ -124,8 +120,6 @@ namespace andromeda {
       wlr_addon addon{};
       wl_listener clientCommit{};
       std::vector<Op> pending{};
-      bool pendingElevationSet = false;
-      Elevation pendingElevation = Elevation::None;
       State current{};
     };
 

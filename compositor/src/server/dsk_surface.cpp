@@ -10,10 +10,18 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 3;
-    constexpr uint32_t kPropertyCount = 5;
+    constexpr int kVersion = 4;
+    constexpr uint32_t kPropertyCount = 6;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
+
+    constexpr int kElevationPropertySince = 4;
+
+    bool validProperty(wl_resource* resource, uint32_t property) {
+      return property < kPropertyCount
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Elevation)
+              || wl_resource_get_version(resource) >= kElevationPropertySince);
+    }
 
     SurfaceMotion::Value toValue(int32_t a, int32_t b, int32_t c, int32_t d) {
       return {wl_fixed_to_double(a), wl_fixed_to_double(b), wl_fixed_to_double(c), wl_fixed_to_double(d)};
@@ -176,8 +184,13 @@ namespace andromeda {
       wl_resource_post_error(resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid elevation %u", level);
       return;
     }
-    state->pendingElevation = static_cast<Elevation>(level);
-    state->pendingElevationSet = true;
+    state->pending.push_back(
+        {.kind = Op::Kind::Set,
+         .serial = 0,
+         .property = SurfaceMotion::Property::Elevation,
+         .curve = SurfaceMotion::Curve::None,
+         .value = {static_cast<double>(level), 0.0, 0.0, 0.0}}
+    );
   }
 
   void DskSurfaceManager::handleSet(
@@ -187,7 +200,7 @@ namespace andromeda {
     if (state == nullptr) {
       return;
     }
-    if (property >= kPropertyCount) {
+    if (!validProperty(resource, property)) {
       wl_resource_post_error(resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u", property);
       return;
     }
@@ -232,7 +245,7 @@ namespace andromeda {
     if (state == nullptr) {
       return;
     }
-    if (property >= kPropertyCount || curve >= kCurveCount) {
+    if (!validProperty(resource, property) || curve >= kCurveCount) {
       wl_resource_post_error(
           resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u or curve %u", property, curve
       );
@@ -269,10 +282,6 @@ namespace andromeda {
 
   void DskSurfaceManager::handleClientCommit(wl_listener* listener, void* /*data*/) {
     Surface* state = wl_container_of(listener, state, clientCommit);
-    if (state->pendingElevationSet) {
-      state->current.elevation = state->pendingElevation;
-      state->pendingElevationSet = false;
-    }
     for (const Op& op : state->pending) {
       if (op.kind == Op::Kind::ClipFrom) {
         const auto to = state->manager->m_originLookup ? state->manager->m_originLookup(state->surface) : std::nullopt;

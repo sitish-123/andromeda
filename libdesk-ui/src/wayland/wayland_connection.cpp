@@ -1377,7 +1377,7 @@ void WaylandConnection::bindGlobal(
 
   if (interfaceName == dsk_surface_manager_v1_interface.name) {
     m_dskSurfaceManager =
-        static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 3U)));
+        static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 4U)));
     return;
   }
 

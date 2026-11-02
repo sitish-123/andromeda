@@ -57,19 +57,40 @@ DskSurfaceClient::Curve DskSurfaceClient::compatCurve(Curve curve, uint32_t vers
   }
 }
 
-void DskSurfaceClient::animate(Property property, Curve curve, const Value& to, DoneCallback onDone) {
+bool DskSurfaceClient::hasElevationProperty() const {
+  return dsk_surface_v1_get_version(m_surface) >= 4;
+}
+
+DskSurfaceClient::Curve DskSurfaceClient::effectiveCurve(Curve curve) const {
+  return compatCurve(curve, dsk_surface_v1_get_version(m_surface));
+}
+
+void DskSurfaceClient::animate(
+    Property property, Curve curve, const Value& to, DoneCallback onDone, StartedCallback onStarted
+) {
   const uint32_t serial = m_nextSerial++;
   if (onDone) {
     m_pending.emplace(serial, std::move(onDone));
   }
+  if (onStarted) {
+    m_started.emplace(serial, std::move(onStarted));
+  }
   dsk_surface_v1_animate(
       m_surface, serial, static_cast<uint32_t>(property),
-      static_cast<uint32_t>(compatCurve(curve, dsk_surface_v1_get_version(m_surface))), fixed(to[0]), fixed(to[1]),
-      fixed(to[2]), fixed(to[3])
+      static_cast<uint32_t>(effectiveCurve(curve)), fixed(to[0]), fixed(to[1]), fixed(to[2]), fixed(to[3])
   );
 }
 
-void DskSurfaceClient::handleStarted(void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t /*serial*/, uint32_t /*time*/) {}
+void DskSurfaceClient::handleStarted(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t time) {
+  auto* self = static_cast<DskSurfaceClient*>(data);
+  const auto it = self->m_started.find(serial);
+  if (it == self->m_started.end()) {
+    return;
+  }
+  StartedCallback callback = std::move(it->second);
+  self->m_started.erase(it);
+  callback(time);
+}
 
 void DskSurfaceClient::handleClipMapped(
     void* data, dsk_surface_v1* /*surface*/, int32_t x, int32_t y, int32_t width, int32_t height
@@ -84,6 +105,7 @@ void DskSurfaceClient::handleClipMapped(
 
 void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t reason) {
   auto* self = static_cast<DskSurfaceClient*>(data);
+  self->m_started.erase(serial);
   const auto it = self->m_pending.find(serial);
   if (it == self->m_pending.end()) {
     return;

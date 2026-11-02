@@ -190,6 +190,27 @@ private:
     Rect cur;
     bool shapeInit = false;
     std::optional<Rect> dskTarget;
+    // Mirror of the compositor's clip and radius springs (x, y, w, h, radius), started by the `started` event, so
+    // `cur`, the face fades, the blur and the input region follow the clip frame for frame. Off without a compositor
+    // or with reduced motion.
+    struct Mirror {
+      std::array<desk::motion::Spring, 5> shape;
+      desk::motion::Spring fade; // 0..1 from the last face change
+      bool active = false;
+      bool waiting = false;     // requested, no `started` yet: values hold
+      bool fadePending = false; // the next `started` also starts `fade`
+      bool retarget = false;    // the compositor keeps a running spring: its first tick already steps one frame
+      std::uint32_t generation = 0;
+      std::uint32_t lastStepMs = 0;
+      std::uint32_t frameMs = 16; // last measured step interval
+      std::uint32_t startMs = 0;
+      std::uint32_t fadeStartMs = 0;
+      double shapeSec = 0.0;
+      double fadeSec = 0.0;
+      std::chrono::steady_clock::time_point requested;
+    } mirror;
+    Timer mirrorStop;
+    double dskLevel = 0.0; // last elevation level sent (protocol version 4)
   };
 
   struct BannerItem {
@@ -219,6 +240,11 @@ private:
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;
   void syncDsk(Instance& inst, bool animate);
+  void startMirror(Instance& inst, const Rect& target, bool grow, bool waitForStart);
+  void stepMirror(Instance& inst);
+  void ensureMirrorDriver(Instance& inst);
+  [[nodiscard]] static bool mirrored(const Instance& inst);
+  void finishReveal(Instance& inst);
   [[nodiscard]] float surfaceHeight() const;
   [[nodiscard]] static std::int32_t surfaceMargin(const CenterIslandSpace& space);
   [[nodiscard]] Rect faceRect(const Instance& inst, Face face) const;

@@ -735,8 +735,12 @@ namespace {
           wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4U))
       );
     } else if (std::strcmp(interface, dsk_surface_manager_v1_interface.name) == 0) {
-      state.dskManager =
-          static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 2U)));
+      // LAYER_DSK_VERSION lowers the bound version to test the since= gates.
+      const char* requested = std::getenv("LAYER_DSK_VERSION");
+      const auto bound = std::min(version, requested != nullptr ? static_cast<uint32_t>(std::atoi(requested)) : 4U);
+      state.dskManager = static_cast<dsk_surface_manager_v1*>(
+          wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, bound)
+      );
     } else if (std::strcmp(interface, ext_background_effect_manager_v1_interface.name) == 0) {
       state.blurManager = static_cast<ext_background_effect_manager_v1*>(
           wl_registry_bind(registry, name, &ext_background_effect_manager_v1_interface, 1)
@@ -945,6 +949,14 @@ int main(int argc, char** argv) {
   }
   for (const auto& output : state.outputs) {
     wl_output_release(output->resource);
+  }
+  if (!state.closed) {
+    // The compositor closes the socket after a protocol error: read the error event the loop left unread.
+    wl_display_dispatch(state.display);
+  }
+  if (wl_display_get_error(state.display) == EPROTO) {
+    std::println("protocol-error");
+    std::fflush(stdout);
   }
   zwlr_layer_shell_v1_destroy(state.layerShell);
   wl_shm_destroy(state.shm);

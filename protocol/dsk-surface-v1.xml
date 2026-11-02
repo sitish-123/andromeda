@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="3">
+  <interface name="dsk_surface_manager_v1" version="4">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="3">
+  <interface name="dsk_surface_v1" version="4">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -73,6 +73,7 @@
       <entry name="opacity" value="2" summary="a = 0..1"/>
       <entry name="clip" value="3" summary="a, b, c, d = x, y, width, height, surface-local px"/>
       <entry name="radius" value="4" summary="a = corner radius, px"/>
+      <entry name="elevation" value="5" since="4" summary="a = level 0..2: 0 none, 1 elevation.e1, 2 elevation.e2"/>
     </enum>
 
     <enum name="curve">
@@ -105,6 +106,13 @@
     </enum>
 
     <request name="set_elevation">
+      <description summary="set the shadow level at once">
+        Same as set of the elevation property with a whole level. From version
+        4 the level is a property: animate it with the clip so the shadow
+        grows with the shape. Between none and e1 the softness stays that of
+        e1 while offset and opacity scale with the level; between e1 and e2 all
+        three interpolate.
+      </description>
       <arg name="level" type="uint" enum="elevation"/>
     </request>
 
@@ -181,7 +189,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_tracker_v1" version="3">
+  <interface name="dsk_tracker_v1" version="4">
     <description summary="a compositor-owned gesture">
       A one-dimensional position the compositor drives from input, after
       the Windows InteractionTracker model: interacting, then inertia, then
@@ -230,7 +238,7 @@
       <description summary="drive a property from the position">
         Maps position p0..p1 linearly to value v0..v1 on one component
         (0 = a .. 3 = d) of a property of target. Values clamp outside the
-        range.
+        range. The elevation property cannot be bound (invalid_value).
       </description>
       <arg name="target" type="object" interface="dsk_surface_v1"/>
       <arg name="property" type="uint"/>

@@ -125,11 +125,11 @@ contrast = 1.0
 saturation = 1.8
 
 # Drawn by the compositor. softness and offset in px; opacity scales the scheme's shadow color.
-[elevation.e1]
-softness = 14
+[elevation.e1]  # the bar island and rest pill shadow
+softness = 8
 offset_x = 0
-offset_y = 4
-opacity = 0.6
+offset_y = 2
+opacity = 0.9
 [elevation.e2]
 softness = 48
 offset_x = 0
