@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_page_rows.h"
 #include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -151,27 +153,48 @@ namespace settings {
       return button;
     }
 
+    // "noctalia msg screenshot-region" reads as "Screenshot region"; other commands show as typed.
+    std::string commandTitle(std::string_view command) {
+      constexpr std::string_view kMsg = "noctalia msg ";
+      if (!command.starts_with(kMsg)) {
+        return std::string(command);
+      }
+      std::string verb(command.substr(kMsg.size(), command.find(' ', kMsg.size()) - kMsg.size()));
+      std::ranges::replace(verb, '-', ' ');
+      if (!verb.empty()) {
+        verb[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(verb[0])));
+      }
+      return verb;
+    }
+
+    std::string shortcutTitle(const CompositorKeybind& bind, const CompositorAction* action) {
+      const std::string_view name = actionName(bind.action);
+      const std::size_t colon = bind.action.find(':');
+      const std::string_view argument =
+          colon == std::string::npos ? std::string_view{} : std::string_view(bind.action).substr(colon + 1);
+      if (!argument.empty() && (name == "spawn" || name == "shell")) {
+        return commandTitle(argument);
+      }
+      std::string title = action != nullptr && !action->summary.empty() ? action->summary : std::string(name);
+      return argument.empty() ? title : title + " · " + std::string(argument);
+    }
+
     void addShortcutRow(Flex& body, const SettingsShortcutsContext& ctx, const CompositorKeybind& bind) {
       const float scale = ctx.scale;
       const bool disabled = bind.action == "none";
       const CompositorAction* action = findAction(*ctx.compositor, actionName(bind.action));
-      const std::string title = disabled                  ? bind.chord
-          : action != nullptr && !action->summary.empty() ? action->summary
-                                                          : std::string(actionName(bind.action));
 
-      auto copy = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * scale, .flexGrow = 1.0F});
-      copy->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
-      );
-      copy->addChild(makeSettingSubtitleLabel(disabled ? i18n::tr("settings.shortcuts.unbound") : bind.action, scale));
-
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(std::move(copy));
+      auto row = page_rows::row(scale);
+      row->addChild(page_rows::title(disabled ? bind.chord : shortcutTitle(bind, action), scale));
+      if (disabled) {
+        row->addChild(makeLabel(
+            i18n::tr("settings.shortcuts.unbound"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2)
+        ));
+      }
       if (bind.customized) {
-        row->addChild(makeButton(
-            {}, "arrow-back-up", ButtonVariant::Ghost, scale,
-            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, ""); }, true,
-            i18n::tr("settings.actions.reset-to-default")
+        row->addChild(page_rows::iconButton(
+            "arrow-back-up", i18n::tr("settings.actions.reset-to-default"), scale,
+            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, ""); }
         ));
       }
       if (!disabled) {
@@ -185,10 +208,9 @@ namespace settings {
               }
             }
         ));
-        row->addChild(makeButton(
-            {}, "trash", ButtonVariant::Ghost, scale,
-            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); }, true,
-            i18n::tr("settings.shortcuts.remove")
+        row->addChild(page_rows::iconButton(
+            "trash", i18n::tr("settings.shortcuts.remove"), scale,
+            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); }
         ));
       }
       body.addChild(std::move(row));
@@ -207,7 +229,7 @@ namespace settings {
           selected = names.size();
         }
         names.push_back(action.name);
-        labels.push_back(action.summary.empty() ? action.name : action.name + " — " + action.summary);
+        labels.push_back(action.summary.empty() ? action.name : action.summary);
       }
       const CompositorAction* chosen = findAction(*ctx.compositor, draft->action);
 
