@@ -144,6 +144,7 @@ public:
   struct CallStatus {
     std::string deviceId;
     std::string caller;
+    // The phone's name, after the app for an app call: "Messenger · OnePlus 12".
     std::string device;
     bool ringing = false;
     // When the call was answered; unset while it rings.
@@ -257,8 +258,10 @@ private:
   void onHotspot(const std::string& deviceId, const std::string& ssid);
   void onHotspotRequested(const std::string& deviceId, const std::string& ssid);
   void onPinged(const std::string& deviceId, const std::string& message);
-  void
-  onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
+  void onCall(
+      const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name,
+      const std::string& app
+  );
   void stopRinging();
   [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
 

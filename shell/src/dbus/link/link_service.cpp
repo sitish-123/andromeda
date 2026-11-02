@@ -181,8 +181,8 @@ LinkService::LinkService(
       .onInterface(kLinkInterface)
       .call([this](
                 const std::string& deviceId, const std::string& state, const std::string& number,
-                const std::string& name
-            ) { onCall(deviceId, state, number, name); });
+                const std::string& name, const std::string& app
+            ) { onCall(deviceId, state, number, name, app); });
   m_link->uponSignal("RingRequested").onInterface(kLinkInterface).call([this](const std::string& deviceId, bool on) {
     onRingRequested(deviceId, on);
   });
@@ -1092,7 +1092,8 @@ void LinkService::onRingRequested(const std::string& deviceId, bool on) {
 }
 
 void LinkService::onCall(
-    const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
+    const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name,
+    const std::string& app
 ) {
   const bool wasRinging = m_call.has_value() && m_call->deviceId == deviceId && m_call->ringing;
   if (state == "ringing" || state == "active") {
@@ -1102,7 +1103,7 @@ void LinkService::onCall(
     m_call = CallStatus{
         .deviceId = deviceId,
         .caller = who,
-        .device = deviceName(deviceId),
+        .device = app.empty() ? deviceName(deviceId) : app + " · " + deviceName(deviceId),
         .ringing = state == "ringing",
         .since = state == "ringing" ? std::nullopt
             : wasActive             ? m_call->since
@@ -1137,9 +1138,8 @@ void LinkService::onCall(
   request.replacesId = shown != m_callNotifications.end() ? shown->second : 0;
   request.appName = i18n::tr("notifications.internal.link");
   request.summary = i18n::tr("notifications.internal.link-call-title", "caller", caller);
-  request.body = name.empty() || number.empty()
-      ? i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId))
-      : number + " · " + i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId));
+  const std::string body = i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId));
+  request.body = !app.empty() ? app + " · " + body : name.empty() || number.empty() ? body : number + " · " + body;
   request.origin = NotificationOrigin::Internal;
   request.urgency = Urgency::Critical;
   request.timeout = 0;
