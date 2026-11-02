@@ -63,12 +63,12 @@ nav#nav .grp { padding: 16px 8px 4px; font: 600 11px/16px var(--font); color: va
 nav#nav .navlens { position: absolute; left: 0; right: 0; border-radius: 8px; background: var(--f2); z-index: 0; }
 main { min-width: 0; }
 .doc { padding: 48px 56px 8px; }
-.cover h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; margin-bottom: 8px; }
+.cover h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; margin-bottom: 8px; }
 .cover { border-bottom: 1px solid var(--rule); padding-bottom: 40px; }
 .hero { padding-top: 32px; }
 .heropair { display: grid; grid-template-columns: repeat(2, 560px); gap: 24px; margin-top: 8px; }
 .comp { zoom: .5; border-radius: 32px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
-.doc h2 { font: 600 28px/32px var(--font); letter-spacing: -.021em; margin-bottom: 16px; }
+.doc h2 { font: 600 28px/36px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 28; margin-bottom: 16px; }
 .doc h3 { font: 600 17px/24px var(--font); letter-spacing: -.013em; margin: 32px 0 8px; scroll-margin-top: 16px; }
 .doc p, .doc li { font: 400 14px/22px var(--font); color: var(--ink); max-width: 880px; }
 .doc p { margin: 8px 0; } .doc ul, .doc ol { padding-left: 20px; margin: 8px 0; } .doc li { margin: 4px 0; }
@@ -91,8 +91,8 @@ svg.i12 { width: 12px; height: 12px; } svg.i20 { width: 20px; height: 20px; } sv
 .top label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 section { padding: 48px 56px; border-bottom: 1px solid var(--rule); }
 .eyebrow { font: 600 11px/16px var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; }
-h2 { font: 600 22px/28px var(--font); letter-spacing: -.018em; margin-bottom: 8px; }
+h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; }
+h2 { font: 600 22px/28px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 22; margin-bottom: 8px; }
 h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4px; }
 .lead { font: 400 15px/24px var(--font); color: var(--muted); max-width: 840px; margin-top: 8px; }
 .note { font: 400 12px/16px var(--font); color: var(--muted); max-width: 1100px; }
@@ -113,12 +113,13 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
   box-shadow: var(--e2), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
 .glass.thick { background: var(--thick); box-shadow: var(--e3), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
 .lens { background: var(--lens); box-shadow: var(--e1), var(--lens-edge); }
+body { font-optical-sizing: none; font-variation-settings: "opsz" 14; }
 .cap11 { font: 500 11px/16px var(--font); letter-spacing: .005em; }
-.fn { font: 400 12px/16px var(--font); }
+.fn { font: 400 12px/16px var(--font); letter-spacing: .0005em; }
 .glass .fn, .glass .body { font-weight: 500; }
 .hl { font: 600 13px/16px var(--font); letter-spacing: -.003em; }
-.t3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; }
-.t2 { font: 600 17px/24px var(--font); letter-spacing: -.013em; }
+.t3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; font-variation-settings: "opsz" 15; }
+.t2 { font: 600 17px/24px var(--font); letter-spacing: -.013em; font-variation-settings: "opsz" 17; }
 .lab2 { color: var(--l2); } .lab3 { color: var(--l3); }
 
 /* island */

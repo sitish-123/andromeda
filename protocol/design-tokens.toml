@@ -91,22 +91,22 @@ tracking = -0.0128
 size = 22.0
 line = 28.0
 weight = 600
-tracking = -0.0183
+tracking = 0.0
 [type.large]
 size = 28.0
-line = 32.0
+line = 36.0
 weight = 600
-tracking = -0.0209
+tracking = 0.0
 [type.display]
 size = 34.0
 line = 40.0
 weight = 500
-tracking = -0.0218
+tracking = 0.0
 [type.hero]
 size = 80.0
 line = 80.0
 weight = 300
-tracking = -0.0223
+tracking = 0.0
 
 [type_rules]
 glass_weight_add = 100   # body and footnote on glass: 400 -> 500

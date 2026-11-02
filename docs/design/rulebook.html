@@ -62,12 +62,12 @@ nav#nav .grp { padding: 16px 8px 4px; font: 600 11px/16px var(--font); color: va
 nav#nav .navlens { position: absolute; left: 0; right: 0; border-radius: 8px; background: var(--f2); z-index: 0; }
 main { min-width: 0; }
 .doc { padding: 48px 56px 8px; }
-.cover h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; margin-bottom: 8px; }
+.cover h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; margin-bottom: 8px; }
 .cover { border-bottom: 1px solid var(--rule); padding-bottom: 40px; }
 .hero { padding-top: 32px; }
 .heropair { display: grid; grid-template-columns: repeat(2, 560px); gap: 24px; margin-top: 8px; }
 .comp { zoom: .5; border-radius: 32px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
-.doc h2 { font: 600 28px/32px var(--font); letter-spacing: -.021em; margin-bottom: 16px; }
+.doc h2 { font: 600 28px/36px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 28; margin-bottom: 16px; }
 .doc h3 { font: 600 17px/24px var(--font); letter-spacing: -.013em; margin: 32px 0 8px; scroll-margin-top: 16px; }
 .doc p, .doc li { font: 400 14px/22px var(--font); color: var(--ink); max-width: 880px; }
 .doc p { margin: 8px 0; } .doc ul, .doc ol { padding-left: 20px; margin: 8px 0; } .doc li { margin: 4px 0; }
@@ -90,8 +90,8 @@ svg.i12 { width: 12px; height: 12px; } svg.i20 { width: 20px; height: 20px; } sv
 .top label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 section { padding: 48px 56px; border-bottom: 1px solid var(--rule); }
 .eyebrow { font: 600 11px/16px var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; }
-h2 { font: 600 22px/28px var(--font); letter-spacing: -.018em; margin-bottom: 8px; }
+h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; }
+h2 { font: 600 22px/28px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 22; margin-bottom: 8px; }
 h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4px; }
 .lead { font: 400 15px/24px var(--font); color: var(--muted); max-width: 840px; margin-top: 8px; }
 .note { font: 400 12px/16px var(--font); color: var(--muted); max-width: 1100px; }
@@ -112,12 +112,13 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
   box-shadow: var(--e2), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
 .glass.thick { background: var(--thick); box-shadow: var(--e3), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
 .lens { background: var(--lens); box-shadow: var(--e1), var(--lens-edge); }
+body { font-optical-sizing: none; font-variation-settings: "opsz" 14; }
 .cap11 { font: 500 11px/16px var(--font); letter-spacing: .005em; }
-.fn { font: 400 12px/16px var(--font); }
+.fn { font: 400 12px/16px var(--font); letter-spacing: .0005em; }
 .glass .fn, .glass .body { font-weight: 500; }
 .hl { font: 600 13px/16px var(--font); letter-spacing: -.003em; }
-.t3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; }
-.t2 { font: 600 17px/24px var(--font); letter-spacing: -.013em; }
+.t3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; font-variation-settings: "opsz" 15; }
+.t2 { font: 600 17px/24px var(--font); letter-spacing: -.013em; font-variation-settings: "opsz" 17; }
 .lab2 { color: var(--l2); } .lab3 { color: var(--l3); }
 
 /* island */
@@ -598,7 +599,11 @@ battery symbol (wider than tall) centres on its body, not its tip; a glyph in a 
 
 <section class="doc" id="ch-3"><h2>3. Type</h2>
 <p>Inter (variable), tabular figures wherever a number changes (clock, percent, time, counts), <code>cv11</code> single-storey a off.
-Line heights are multiples of 4. Tracking follows Inter's dynamic metrics: tracking(em) = -0.0223 + 0.185 x e^(-0.1745 x size).</p>
+Line heights are multiples of 4. Optical size is set per style, never left to the renderer: <code>opsz</code> = size in px,
+clamped to 14..32 (Pango maps px x 0.75 by itself, the browser maps px: pinning keeps shell and CSS identical).
+Below 20 px, tracking follows Inter's dynamic metrics, tracking(em) = -0.0223 + 0.185 x e^(-0.1745 x size)
+(<a href="https://web.archive.org/web/2023/https://rsms.me/inter/dynmetrics/">Inter 3 dynamic metrics</a>); from 20 px the
+display optical size carries its own tight spacing, so tracking is 0 (adding both tightens twice).</p>
 <table>
 <thead>
 <tr>
@@ -621,7 +626,7 @@ Line heights are multiples of 4. Tracking follows Inter's dynamic metrics: track
 <td>footnote</td>
 <td>12 / 16</td>
 <td>400</td>
-<td>0</td>
+<td>+0.05 %</td>
 <td>secondary lines, section headers (600), tooltips, field help</td>
 </tr>
 <tr>
@@ -656,39 +661,44 @@ Line heights are multiples of 4. Tracking follows Inter's dynamic metrics: track
 <td>title-1</td>
 <td>22 / 28</td>
 <td>600</td>
-<td>-1.8 %</td>
+<td>0</td>
 <td>large page titles, launcher section titles</td>
 </tr>
 <tr>
 <td>large</td>
-<td>28 / 32</td>
+<td>28 / 36</td>
 <td>600</td>
-<td>-2.1 %</td>
+<td>0</td>
 <td>onboarding, big numbers in widgets</td>
 </tr>
 <tr>
 <td>display</td>
 <td>34 / 40</td>
 <td>500</td>
-<td>-2.2 %</td>
+<td>0</td>
 <td>lock-screen date line, OSD big values</td>
 </tr>
 <tr>
 <td>hero</td>
 <td>80 / 80</td>
 <td>300</td>
-<td>-2.2 %</td>
+<td>0</td>
 <td>lock-screen clock only</td>
 </tr>
 </tbody>
 </table>
 <ul>
-<li>Three weights only: 400, 500, 600 (300 for hero). No 700.</li>
-<li><strong>On glass, +100 weight</strong> for body and footnote (400 -&gt; 500): text over blur needs the extra stem.</li>
+<li>Three weights only: 400, 500, 600. 300 only at 48 px and up (hero): Apple HIG avoids Light weights at small sizes.
+  No 700.</li>
+<li><strong>No text below 11 px</strong> at text size M (HIG minimums: macOS 10 pt, iOS 11 pt). Size S may reach 10 px.</li>
+<li><strong>On glass, +100 weight</strong> for body and footnote (400 -&gt; 500): text over blur needs the extra stem. The solid
+  fallback keeps the same weight, so text never reflows when glass turns solid.</li>
 <li>One line: ellipsis at the end; never shrink type to fit. Two lines maximum in rows and banners; then ellipsis.</li>
 <li>Text size setting (S / M / L / XL = 0.92 / 1 / 1.15 / 1.3) scales sizes, rounds line heights up to the 4 grid, and
   containers grow by R2. Chrome heights (islands, dock) do not grow above L; their text truncates instead.</li>
 </ul>
+<p>Sources for this chapter: <code>.agent/research-type.md</code> (Apple HIG typography, Material 3 TypographyTokens, libadwaita,
+Inter docs, WCAG), checked 2026-11-02.</p>
 </section>
 <section class="demo" id="demo-2">
   <div class="eyebrow">3 · Type</div>
