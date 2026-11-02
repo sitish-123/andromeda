@@ -412,8 +412,8 @@
   --danger-text: rgba(255, 107, 94, 1.0);
   --warning: rgba(245, 165, 36, 1.0);
   --success: rgba(63, 185, 80, 1.0);
-  --slider-fill: rgba(255, 255, 255, 0.761);
-  --on-slider-fill: rgba(0, 0, 0, 0.62);
+  --slider-fill: rgba(255, 255, 255, 0.239);
+  --on-slider-fill: rgba(255, 255, 255, 0.922);
   --slider-track: rgba(255, 255, 255, 0.102);
   --slider-edge: rgba(0, 0, 0, 0.0);
   --scrim: rgba(0, 0, 0, 0.4);
