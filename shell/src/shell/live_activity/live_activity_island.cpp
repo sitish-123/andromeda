@@ -1327,7 +1327,7 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   Renderer& renderer = inst.surface->renderTarget().renderer();
 
   inst.material->setFill(colorSpecFromRole(materialRole(), Style::glassAlpha(inst.space.backgroundOpacity)));
-  inst.ring->setBorder(inst.space.border, std::max(inst.space.borderWidth, kIslandStrokeWidth));
+  inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 
   bool mic = false;
   bool camera = false;
@@ -1624,7 +1624,11 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   inst.ring->setSize(cur.w, cur.h);
   inst.ring->setRadius(cur.radius);
   inst.ring->setOpacity(restMix);
-  inst.shadow->setPosition(cur.x, cur.y);
+  {
+    // The style cuts the pill out at +offset, so the shadow node sits at the pill + offset.
+    const auto offset = shadowDirectionOffset(m_config->config().shell.shadow.direction);
+    inst.shadow->setPosition(cur.x + static_cast<float>(offset.x), cur.y + static_cast<float>(offset.y));
+  }
   inst.shadow->setSize(cur.w, cur.h);
   inst.shadow->setRadius(cur.radius);
   // With the elevation property the compositor draws the one shadow along the clip; the shell box is the fallback.

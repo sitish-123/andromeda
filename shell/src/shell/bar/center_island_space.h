@@ -7,6 +7,12 @@
 // Hairline stroke of the glass material (--stroke) in logical pixels.
 inline constexpr float kIslandStrokeWidth = 0.5F;
 
+// Island outline width: a configured width wins; else the hairline in light only, since the dark stroke
+// (white 8 %) reads as a highlight on a dark pill (user, 2026-11-02).
+[[nodiscard]] inline float islandStrokeWidth(float configured) noexcept {
+  return configured > 0.0F ? configured : (isResolvedLightTheme() ? kIslandStrokeWidth : 0.0F);
+}
+
 // Where the always-on center island may sit on one output: the bar row between the side islands.
 struct CenterIslandSpace {
   std::int32_t edgeMargin = 0; // screen edge to the island row

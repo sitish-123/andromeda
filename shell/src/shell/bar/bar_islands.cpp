@@ -252,10 +252,10 @@ namespace {
   IslandInsets barIslandInsets(const BarConfig& config, std::size_t island) {
     const float symbol = std::round(Tokens::componentIslandInsetSymbol * config.scale);
     const float text = barIslandInset(config);
-    const float track = std::round(Tokens::componentIslandCellInset * config.scale);
     switch (island) {
     case 0:
-      return {symbol, track};
+      // The workspace dots end the island concentric: (32 - 7) / 2 rounds to the text inset.
+      return {symbol, text};
     case 2:
       return {symbol, text};
     default:
@@ -316,7 +316,9 @@ namespace bar_detail {
       island->setRadius(std::min(w, h) * 0.5F);
       if (shadow != nullptr && instance.islandShadowStyle.has_value()) {
         shadow->setStyle(*instance.islandShadowStyle);
-        shadow->setPosition(island->x(), island->y());
+        // The style cuts the island out at +offset, so the shadow node sits at the island + offset (as the dock).
+        const ShadowDirectionOffset offset = instance.islandShadowOffset;
+        shadow->setPosition(island->x() + static_cast<float>(offset.x), island->y() + static_cast<float>(offset.y));
         shadow->setSize(w, h);
         shadow->setRadius(std::min(w, h) * 0.5F);
       }

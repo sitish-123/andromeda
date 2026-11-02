@@ -319,8 +319,8 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
     style.fill = painted ? material : rgba(0.0F, 0.0F, 0.0F, 0.0F);
     style.border = resolveColorSpec(instance.barConfig.border);
     style.borderWidth = painted ? instance.barConfig.borderWidth : 0.0F;
-    if (painted && instance.barConfig.islands && style.borderWidth <= 0.0F) {
-      style.borderWidth = kIslandStrokeWidth;
+    if (painted && instance.barConfig.islands) {
+      style.borderWidth = islandStrokeWidth(style.borderWidth);
     }
     box->setStyle(style);
   };
@@ -447,10 +447,13 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
       float x = 0.0F;
       float y = 0.0F;
       Node::absolutePosition(island, x, y);
+      // The region is a pixel staircase; 1 px inside the pill it stays under the tint's anti-aliased edge.
+      constexpr int kInset = 1;
       const auto rects = Surface::tessellateRoundedRect(
-          static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
-          static_cast<int>(std::lround(island->width())), static_cast<int>(std::lround(island->height())),
-          std::min(island->width(), island->height()) * 0.5F
+          static_cast<int>(std::lround(x)) + kInset, static_cast<int>(std::lround(y)) + kInset,
+          static_cast<int>(std::lround(island->width())) - 2 * kInset,
+          static_cast<int>(std::lround(island->height())) - 2 * kInset,
+          std::min(island->width(), island->height()) * 0.5F - static_cast<float>(kInset)
       );
       strips.insert(strips.end(), rects.begin(), rects.end());
     }

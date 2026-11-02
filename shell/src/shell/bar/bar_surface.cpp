@@ -456,6 +456,7 @@ namespace bar_detail {
     }
     if (instance.barConfig.islands) {
       instance.shadow->setVisible(false);
+      instance.islandShadowOffset = shadowDirectionOffset(shadowConfig.direction);
       instance.islandShadowStyle = ui::surface_shadow::style(
           shadowConfig, Style::glassAlpha(std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F)),
           ui::surface_shadow::Shape{}

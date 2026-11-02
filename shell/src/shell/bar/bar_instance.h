@@ -101,6 +101,7 @@ struct BarInstance {
   // Glass recipe of each island: drop shadow below it and the top edge highlight above its fill.
   std::array<Box*, 3> islandShadows{};
   std::optional<RoundedRectStyle> islandShadowStyle;
+  ShadowDirectionOffset islandShadowOffset{};
   std::array<float, 6> lastCenterSpaceKey{-2.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
   std::optional<CenterIslandSpace> centerSpace;
   Box* shadow = nullptr;
