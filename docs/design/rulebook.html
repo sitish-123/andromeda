@@ -355,6 +355,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
 <a class="sub" href="#ch-9-9-13-states" data-ch="9">9.13 States</a>
 <a class="sub" href="#ch-9-9-14-launcher" data-ch="9">9.14 Launcher</a>
 <a class="sub" href="#ch-9-9-15-lock-screen" data-ch="9">9.15 Lock screen</a>
+<a class="sub" href="#ch-9-9-16-control-center" data-ch="9">9.16 Control center</a>
 <a class="sub" href="#demo-10" data-ch="9">Live: Controls</a>
 <a class="sub" href="#demo-11" data-ch="9">Live: Lists, windows, dialogs, states</a>
 <a href="#ch-10" data-ch="10"><i>10</i>Icons and cursors</a>
@@ -2189,6 +2190,168 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 </tbody>
 </table>
+<h3 id="ch-9-9-16-control-center">9.16 Control center</h3>
+<p>One thick-glass sheet that Grows out of the right island (P5). The layout of 9.3 stays; this section adds pages,
+detail pages, editing and every state. Mockup: <code>.agent/mockups/cc-v2-final.html</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Spec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>order</td>
+<td>control grid (pages) / page dots / brightness / volume + output button / media / phone / footer; a part whose device is absent hides, the sheet height follows (R2)</td>
+</tr>
+<tr>
+<td>control grid</td>
+<td>2 x 2 tiles per page (§9.3 tile); pages Slide (P12) with drag, touchpad swipe, Page Up / Page Down, Left / Right at a row end; dots (§9.3) only when there are 2 or more pages; no peek</td>
+</tr>
+<tr>
+<td>tile</td>
+<td>tap toggles; the chevron (12, label_3, at inset 12) or a right-click opens the detail page; a tile with nothing to toggle (Cast Screen) opens its detail on tap and shows no chevron</td>
+</tr>
+<tr>
+<td>volume row</td>
+<td>pill (flex) + 48 output button (r 16, fill_2, symbol 16 of the current output); the pill shows only the percentage</td>
+</tr>
+<tr>
+<td>footer</td>
+<td>h 32: battery symbol + "99% · Charging" footnote label_2; power profile small secondary button; edit and Settings icon buttons 32</td>
+</tr>
+<tr>
+<td>detail page</td>
+<td>Slides in inside the sheet (P12); header h 48: back icon button 32, title-3, the module's toggle at the end; content = grouped rows (§9.7) on fill_1 cards r 16; footer: plain small buttons, the last opens the Settings page; Escape or back returns</td>
+</tr>
+<tr>
+<td>edit mode</td>
+<td>from the footer pen: title-3 "Edit Controls" + small primary "Done"; each tile shows a remove badge 16 (label_2 circle, white minus) at -4 / -4; drag to reorder across pages (the grid scrolls pages at the sheet edge after 400 ms); "Add controls" gallery below: tiles with a 1 px separator outline, an accent add badge 20; Done or Escape saves</td>
+</tr>
+</tbody>
+</table>
+<p>Modules and their detail pages:</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Tile (title / status)</th>
+<th>Detail page</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Wi-Fi</td>
+<td>network name or "Off"</td>
+<td>toggle; Connected group (lens row, signal, lock); Other networks (sorted by signal, 5 then "Show all"); "Other Network..." (hidden SSID join), "Wi-Fi Settings..."</td>
+</tr>
+<tr>
+<td>Bluetooth</td>
+<td>"2 devices" / device name / "Off"</td>
+<td>toggle; Connected devices with battery; Paired; "Pair New Device..." (scans while open), "Bluetooth Settings..."</td>
+</tr>
+<tr>
+<td>Focus</td>
+<td>mode name or "Off"</td>
+<td>modes as rows (Do Not Disturb, Work, Sleep + user modes) with "Until" choices (1 hour, until tomorrow, until I turn it off)</td>
+</tr>
+<tr>
+<td>Dark Mode</td>
+<td>"On" / "Off"</td>
+<td>none (toggle only); right-click offers Auto / Light / Dark</td>
+</tr>
+<tr>
+<td>Night Light</td>
+<td>"Until 7:00" / "Off"</td>
+<td>toggle; warmth range slider (window slider §9.6); schedule (sunset to sunrise, custom)</td>
+</tr>
+<tr>
+<td>Airplane</td>
+<td>"On" / "Off"</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Caffeine</td>
+<td>"Until 14:00" / "Off"</td>
+<td>durations: 30 min, 1 hour, until turned off</td>
+</tr>
+<tr>
+<td>Cast Screen</td>
+<td>"" / receiver name</td>
+<td>receivers list; "Stop casting" when active</td>
+</tr>
+<tr>
+<td>Phone (Link)</td>
+<td>name / "Linked · 26%"</td>
+<td>battery, ring, find, files, clipboard; actions as rows</td>
+</tr>
+<tr>
+<td>Sound output</td>
+<td>(volume row button)</td>
+<td>outputs (lens = current) with the per-device volume; per-app volume rows (app icon 24, name, window slider); input device + level meter</td>
+</tr>
+<tr>
+<td>Display</td>
+<td>(brightness row, right-click)</td>
+<td>per-display brightness; Night Light link; scale and resolution open Settings</td>
+</tr>
+<tr>
+<td>Media</td>
+<td>(media card tap)</td>
+<td>players list (MPRIS) when 2 or more; seek bar with times</td>
+</tr>
+<tr>
+<td>Power</td>
+<td>(footer profile button)</td>
+<td>profiles as rows (Power Saver, Balanced, Performance) with the lens; battery health line; "Battery Settings..."</td>
+</tr>
+</tbody>
+</table>
+<p>States:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Look</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>off</td>
+<td>round icon fill_2 label_1, status "Off"</td>
+</tr>
+<tr>
+<td>connecting / loading</td>
+<td>status text ("Connecting..."); a 16 spinner replaces the chevron; nothing else moves</td>
+</tr>
+<tr>
+<td>unavailable (no adapter, no backlight, no player, no phone)</td>
+<td>the tile or row hides; a hidden tile frees its slot (the grid reflows on move)</td>
+</tr>
+<tr>
+<td>error</td>
+<td>status in danger_text ("Wrong password", "Not reachable"); detail page shows the inline error (§9.13)</td>
+</tr>
+<tr>
+<td>longest text</td>
+<td>title and status one line each with ellipsis; full text in the detail header and a tooltip</td>
+</tr>
+<tr>
+<td>many devices</td>
+<td>detail lists show 5 rows and "Show all"; the sheet never grows past the output height minus 2 x 48 (bar and dock rows) - then the detail page scrolls (overlay scrollbar)</td>
+</tr>
+</tbody>
+</table>
+<p>Keyboard: Super+S opens (the right island is the source). Focus starts on the first tile. Arrows move tile to tile
+(roving), Left / Right past a page edge changes page, Down from the grid goes to the sliders (Left / Right change the
+value by 5 %, Shift by 1 %), then media and phone controls. Space toggles, Enter or Right-click-key opens detail,
+Escape: detail -&gt; sheet -&gt; closed (focus returns to the island). <code>/</code> searches modules and Wi-Fi networks.</p>
+<p>Motion: open P5 (tiles stagger, max 6); page change P12; detail page P12 deeper-level (the sheet's height morphs on
+<code>move</code> at the same time; the tile's header text moves to the detail title: keep relative placement, §7.4); edit
+mode: tiles get badges on <code>fade</code>, a dragged tile lifts to E3 at scale 1.04 on <code>snap</code> and others reflow on <code>move</code>.</p>
+<p>Vertical bar (left or right bar): the sheet Grows from the status island sideways, 8 from the bar, top edge aligned
+with the island's top, clamped to the output; same content.</p>
 </section>
 <section class="demo" id="demo-10">
   <div class="eyebrow">9 · Components</div>
