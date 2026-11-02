@@ -77,6 +77,10 @@ package:
     git checkout pkg/PKGBUILD
 
 # The design reference: tokens.css from protocol/design-tokens.toml, then docs/design/reference.png (1600 px wide).
+# Rebuild docs/design/rulebook.html from rulebook.md, deviations.md and rulebook-specimen.html.
+design-rulebook:
+    python3 docs/design/build_rulebook.py
+
 design-reference:
     python3 protocol/gen-design-tokens.py protocol/design-tokens.toml /tmp/design_tokens.h docs/design/tokens.css
     google-chrome-stable --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,1010 --screenshot="$PWD/docs/design/reference.png" "file://$PWD/docs/design/reference.html"
