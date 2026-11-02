@@ -226,36 +226,36 @@ void SoundPlayer::setTheme(std::string theme) {
   }
 
   m_theme = std::move(theme);
-  loadThemeSounds();
+  m_buffers.clear();
 }
 
-void SoundPlayer::loadThemeSounds() {
-  m_buffers.clear();
+std::shared_ptr<const SoundPlayer::SoundBuffer> SoundPlayer::themeSound(std::string_view event) {
   if (!m_shellSoundsEnabled || m_theme.empty()) {
-    return;
+    return nullptr;
+  }
+  auto [it, inserted] = m_buffers.try_emplace(std::string(event));
+  if (!inserted) {
+    return it->second;
   }
 
-  for (const std::string_view event :
-       {kEventNotification, kEventVolumeChange, kEventPowerPlug, kEventPowerUnplug, kEventScreenCapture,
-        std::string_view{"alarm-clock-elapsed"}, std::string_view{"bell"}}) {
-    const auto result = findThemeSound(event, m_theme);
-    if (result.state == ThemeSoundLookupState::Disabled) {
-      kLog.info("sound theme '{}': event '{}' is disabled", m_theme, event);
-      continue;
-    }
-    if (result.state == ThemeSoundLookupState::NotFound) {
-      kLog.error("sound theme '{}' is missing sound '{}'", m_theme, event);
-      continue;
-    }
-
-    SoundBuffer buffer;
-    if (const auto error = decode(result.path, buffer)) {
-      kLog.warn("failed to load sound \"{}\" from {}: {}", event, result.path.string(), *error);
-      continue;
-    }
-    m_buffers[std::string(event)] = std::make_shared<const SoundBuffer>(std::move(buffer));
-    kLog.info("sound theme '{}': loaded {} for event '{}'", m_theme, result.path.c_str(), event);
+  const auto result = findThemeSound(event, m_theme);
+  if (result.state == ThemeSoundLookupState::Disabled) {
+    kLog.info("sound theme '{}': event '{}' is disabled", m_theme, event);
+    return nullptr;
   }
+  if (result.state == ThemeSoundLookupState::NotFound) {
+    kLog.error("sound theme '{}' is missing sound '{}'", m_theme, event);
+    return nullptr;
+  }
+
+  SoundBuffer buffer;
+  if (const auto error = decode(result.path, buffer)) {
+    kLog.warn("failed to load sound \"{}\" from {}: {}", event, result.path.string(), *error);
+    return nullptr;
+  }
+  it->second = std::make_shared<const SoundBuffer>(std::move(buffer));
+  kLog.info("sound theme '{}': loaded {} for event '{}'", m_theme, result.path.c_str(), event);
+  return it->second;
 }
 
 SoundPlayer::~SoundPlayer() {
@@ -328,20 +328,18 @@ void SoundPlayer::play(std::string_view name) {
   if (!m_shellSoundsEnabled || m_disabledEvents.contains(name)) {
     return;
   }
-  const auto it = m_buffers.find(std::string(name));
-  if (it == m_buffers.end()) {
-    return;
+  if (const auto buffer = themeSound(name)) {
+    playBuffer(std::string(name), buffer, uiGain());
   }
-  playBuffer(std::string(name), it->second, uiGain());
 }
 
 void SoundPlayer::playAlert(const std::string& name) {
-  const auto it = m_buffers.find(name);
-  if (it == m_buffers.end()) {
+  const auto buffer = themeSound(name);
+  if (buffer == nullptr) {
     kLog.warn("alert sound \"{}\" is not in the theme", name);
     return;
   }
-  playBuffer(name, it->second, 1.0F);
+  playBuffer(name, buffer, 1.0F);
 }
 
 float SoundPlayer::uiGain() const { return std::pow(m_volume, kUiSoundGamma); }
@@ -423,7 +421,7 @@ void SoundPlayer::setShellSoundsEnabled(bool enabled) {
     return;
   }
   m_shellSoundsEnabled = enabled;
-  loadThemeSounds();
+  m_buffers.clear();
 }
 
 void SoundPlayer::setEventEnabled(std::string_view event, bool enabled) {
