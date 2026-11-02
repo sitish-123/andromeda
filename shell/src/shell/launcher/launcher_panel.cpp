@@ -1737,6 +1737,8 @@ void LauncherPanel::create() {
     ));
     container->addChild(std::move(body));
     setRoot(std::move(container));
+    // The rulebook 9.14 sheet has no category tabs: the filter is not in the tree and dies with this scope.
+    m_categoryFilter = nullptr;
   } else {
     auto container = ui::column({
         .out = &m_container,
@@ -2282,6 +2284,8 @@ void LauncherPanel::onClose() {
   m_launcherGridButton = nullptr;
   m_launcherPowerButton = nullptr;
   m_grid = nullptr;
+  m_pageDotsRow = nullptr;
+  m_pageDots.clear();
   m_launcherSections = nullptr;
   m_detailScroll = nullptr;
   m_detailSubtitle = nullptr;
