@@ -1,4 +1,8 @@
+#include "shell/settings/settings_content_about.h"
 #include "shell/settings/settings_content_bluetooth.h"
+#include "dbus/system_interactive_call.h"
+
+#include <gio/gio.h>
 #include "shell/settings/settings_content_network.h"
 #include "shell/settings/settings_content_power.h"
 #include "shell/settings/settings_content_sound.h"
@@ -231,4 +235,48 @@ void SettingsWindow::onPowerChanged() {
   if (isOpen() && m_selectedSection == "power" && m_searchQuery.empty() && !m_expertOpen) {
     requestContentRebuild();
   }
+}
+
+void SettingsWindow::addAboutContent(float scale) {
+  if (m_selectedSection != "about" || !m_detail.empty()) {
+    return;
+  }
+  settings::addSettingsAbout(
+      *m_contentContainer,
+      settings::SettingsAboutContext{
+          .scale = scale,
+          .renaming = m_renaming,
+          .renameError = m_renameError,
+          .rename =
+              [this](std::string name) {
+                const std::string hostname = settings::hostnameFromName(name);
+                m_renaming = true;
+                m_renameError.clear();
+                requestContentRebuild();
+                const auto finish = [this](std::string error) {
+                  m_renaming = false;
+                  m_renameError = std::move(error);
+                  if (isOpen()) {
+                    requestContentRebuild();
+                  }
+                };
+                // The pretty name keeps the user's spelling; the static hostname is its DNS-safe form.
+                dbus::callInteractive(
+                    "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1",
+                    "SetPrettyHostname", g_variant_new("(sb)", name.c_str(), TRUE),
+                    [finish, hostname](GVariant* done, std::string error) {
+                      if (done == nullptr || hostname.empty()) {
+                        finish(std::move(error));
+                        return;
+                      }
+                      dbus::callInteractive(
+                          "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1",
+                          "SetStaticHostname", g_variant_new("(sb)", hostname.c_str(), TRUE),
+                          [finish](GVariant*, std::string staticError) { finish(std::move(staticError)); }
+                      );
+                    }
+                );
+              },
+      }
+  );
 }

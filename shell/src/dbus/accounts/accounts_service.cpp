@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "dbus/system_bus.h"
+#include "dbus/system_interactive_call.h"
 
 #include <gio/gio.h>
 #include <pwd.h>
@@ -18,6 +19,8 @@
 #include <utility>
 
 namespace {
+
+  using dbus::callInteractive;
 
   constexpr Logger kLog("accounts");
 
@@ -144,48 +147,6 @@ void AccountsService::emitChangedIfNeeded(std::string_view nextIconFile) {
   }
 }
 
-namespace {
-
-  using InteractiveReply = std::function<void(GVariant* result, std::string error)>;
-
-  // GDBus, not sdbus-c++: only GDBus sets ALLOW_INTERACTIVE_AUTHORIZATION, without which accounts-daemon denies at
-  // once instead of asking the polkit agent. The reply runs on the default GLib context, which the polkit agent pumps.
-  void callInteractive(const std::string& path, const char* iface, const char* method, GVariant* args,
-                       InteractiveReply reply) {
-    constexpr int kAuthTimeoutMs = 5 * 60 * 1000;
-    GError* error = nullptr;
-    GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
-    if (bus == nullptr) {
-      std::string message = error->message;
-      g_error_free(error);
-      g_variant_unref(g_variant_ref_sink(args));
-      reply(nullptr, std::move(message));
-      return;
-    }
-    g_dbus_connection_call(
-        bus, "org.freedesktop.Accounts", path.c_str(), iface, method, args, nullptr,
-        G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION, kAuthTimeoutMs, nullptr,
-        [](GObject* source, GAsyncResult* result, gpointer data) {
-          std::unique_ptr<InteractiveReply> callback(static_cast<InteractiveReply*>(data));
-          GError* callError = nullptr;
-          GVariant* value = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &callError);
-          if (value == nullptr) {
-            g_dbus_error_strip_remote_error(callError);
-            std::string message = callError->message;
-            g_error_free(callError);
-            (*callback)(nullptr, std::move(message));
-            return;
-          }
-          (*callback)(value, {});
-          g_variant_unref(value);
-        },
-        new InteractiveReply(std::move(reply))
-    );
-    g_object_unref(bus);
-  }
-
-} // namespace
-
 void AccountsService::createUser(
     const std::string& login, const std::string& realName, bool admin, const std::string& password,
     std::function<void(std::string)> done
@@ -201,7 +162,7 @@ void AccountsService::createUser(
     return;
   }
   callInteractive(
-      kAccountsObjectPath, kAccountsInterface, "CreateUser",
+      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "CreateUser",
       g_variant_new("(ssi)", login.c_str(), realName.c_str(), admin ? 1 : 0),
       [hash, login, done = std::move(done)](GVariant* created, std::string error) {
         if (created == nullptr) {
@@ -212,7 +173,7 @@ void AccountsService::createUser(
         const char* userPath = nullptr;
         g_variant_get(created, "(&o)", &userPath);
         callInteractive(
-            userPath, kUserInterface, "SetPassword", g_variant_new("(ss)", hash.c_str(), ""),
+            "org.freedesktop.Accounts", userPath, kUserInterface, "SetPassword", g_variant_new("(ss)", hash.c_str(), ""),
             [login, done](GVariant* set, std::string passwordError) {
               if (set != nullptr) {
                 done({});
@@ -226,7 +187,7 @@ void AccountsService::createUser(
                 return;
               }
               callInteractive(
-                  kAccountsObjectPath, kAccountsInterface, "DeleteUser",
+                  "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser",
                   g_variant_new("(xb)", static_cast<gint64>(pw->pw_uid), TRUE),
                   [done, passwordError](GVariant* deleted, std::string deleteError) {
                     if (deleted == nullptr) {
@@ -243,7 +204,7 @@ void AccountsService::createUser(
 
 void AccountsService::deleteUser(uid_t uid, std::function<void(std::string)> done) {
   callInteractive(
-      kAccountsObjectPath, kAccountsInterface, "DeleteUser", g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
+      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser", g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
       [done = std::move(done)](GVariant* deleted, std::string error) {
         if (deleted == nullptr) {
           kLog.warn("DeleteUser failed: {}", error);

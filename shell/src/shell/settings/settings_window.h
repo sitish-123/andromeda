@@ -267,6 +267,7 @@ private:
   void addSoundContent(float scale);
   void addUsersContent(float scale);
   void addPowerContent(float scale);
+  void addAboutContent(float scale);
   void openDetail(std::string detail);
   void leaveDetail();
   void createNewUser();
@@ -508,6 +509,8 @@ private:
   std::string m_wifiPassword;
   settings::NewUserDraft m_newUser;
   bool m_userDeleteConfirm = false;
+  bool m_renaming = false;
+  std::string m_renameError;
   bool m_userDeleteBusy = false;
   std::string m_userDeleteError;
   std::string m_expertQuery;
