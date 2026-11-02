@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# On-CPU profile of one warm shell start to its first frame, in a headless Andromeda (user-space samples only).
+# Flat on-CPU profile (self time) of one warm shell start to its first frame, in a headless Andromeda.
 # Results: $OUT/report.txt (top symbols, self time) and $OUT/perf.data. Env: NOCTALIA (absolute path), ANDROMEDA.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,12 +16,13 @@ run env NOCTALIA="$NOCTALIA" OUT="$OUT" dbus-run-session --config-file="$RUNTIME
   # Warm-up start: fills the Mesa, font and icon caches.
   "$NOCTALIA" > "$OUT/warmup.log" 2>&1 & pid=$!
   first_frame "$OUT/warmup.log"; kill $pid; wait $pid || true
-  perf record -F 10000 -g -o "$OUT/perf.data" -- "$NOCTALIA" > "$OUT/shell.log" 2>&1 & perf=$!
+  # User-space samples without call graphs: perf_event_paranoid 2 refuses callchains.
+  perf record -e cpu-clock:u -F 10000 -o "$OUT/perf.data" -- "$NOCTALIA" > "$OUT/shell.log" 2>&1 & perf=$!
   first_frame "$OUT/shell.log"
   kill -INT $perf; wait $perf || true
 '
 grep -o "first frame at.*" "$OUT/shell.log" | tee "$OUT/report.txt"
-perf report -i "$OUT/perf.data" --no-children --sort dso,sym --stdio 2>/dev/null | grep -v "^#" | grep -v "^$" \
-  | head -60 >> "$OUT/report.txt"
-perf report -i "$OUT/perf.data" --no-children --sort dso --stdio 2>/dev/null | grep -v "^#" | grep -v "^$" \
-  | head -20 >> "$OUT/report.txt"
+perf report -i "$OUT/perf.data" --no-children --sort dso,sym --stdio > "$OUT/symbols.txt" 2>/dev/null
+perf report -i "$OUT/perf.data" --no-children --sort dso --stdio > "$OUT/dsos.txt" 2>/dev/null
+grep -v -e "^#" -e "^$" "$OUT/symbols.txt" | sed -n 1,60p >> "$OUT/report.txt"
+grep -v -e "^#" -e "^$" "$OUT/dsos.txt" | sed -n 1,20p >> "$OUT/report.txt"
