@@ -147,7 +147,7 @@ inline constexpr float kTintRegularAlpha = 0.70F;
   return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintRegular;
 }
 // Panel and sheet material: tint_thick. A caller opacity is relative to tint_regular (0.70 = the token alpha) and is rescaled to thick.
-inline constexpr float kTintThickAlpha = 0.84F;
+inline constexpr float kTintThickAlpha = 0.92F;
 [[nodiscard]] inline ColorRole panelMaterialRole() noexcept {
   return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintThick;
 }

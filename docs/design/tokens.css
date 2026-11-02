@@ -326,6 +326,8 @@
   --component-launcher-search-radius: 12.0px;
   --component-launcher-columns: 6;
   --component-launcher-rows: 4;
+  --component-launcher-cell-height: 112.0px;
+  --component-launcher-icon: 64.0px;
   --component-lock-dim: 0.2;
   --component-lock-password-width: 240.0px;
   --component-lock-password-height: 40.0px;
@@ -359,7 +361,7 @@
   --lens-edge: rgba(0, 0, 0, 0.0);
   --tint-thin: rgba(246, 246, 250, 0.549);
   --tint-regular: rgba(255, 255, 255, 0.62);
-  --tint-thick: rgba(255, 255, 255, 0.761);
+  --tint-thick: rgba(255, 255, 255, 0.878);
   --solid-thin: rgba(236, 236, 241, 1.0);
   --solid-regular: rgba(242, 242, 246, 1.0);
   --solid-thick: rgba(248, 248, 250, 1.0);
@@ -401,7 +403,7 @@
   --lens-edge: rgba(255, 255, 255, 0.18);
   --tint-thin: rgba(28, 28, 32, 0.549);
   --tint-regular: rgba(28, 28, 32, 0.702);
-  --tint-thick: rgba(32, 32, 36, 0.839);
+  --tint-thick: rgba(32, 32, 36, 0.922);
   --solid-thin: rgba(28, 28, 32, 1.0);
   --solid-regular: rgba(34, 34, 38, 1.0);
   --solid-thick: rgba(40, 40, 44, 1.0);
