@@ -14,7 +14,7 @@
   --l1: rgba(20,20,24,.92); --l2: rgba(20,20,24,.62); --l3: rgba(20,20,24,.38);
   --f1: rgba(0,0,0,.04); --f2: rgba(0,0,0,.08); --f3: rgba(0,0,0,.12);
   --sep: rgba(0,0,0,.08); --stroke: rgba(0,0,0,.07); --edge: rgba(255,255,255,.75);
-  --acc: #5147e5; --acct: #5147e5; --danger: #d93025; --warn: #b45309; --ok: #1a7f37;
+  --acc: #5147e5; --acct: #5147e5; --danger: #d93025; --dangert: #d93025; --warn: #b45309; --ok: #1a7f37;
   --reg: rgba(255,255,255,.62); --thick: rgba(255,255,255,.76);
   --lens: rgba(255,255,255,.92); --lens-edge: 0 0 0 transparent;
   --plane: #f2f2f6; --card: #fff; --view: #fff; --header: #ececf1; --popover: #f8f8fa; --sidebar: #ececf1;
@@ -27,7 +27,7 @@
   --l1: rgba(244,244,246,.92); --l2: rgba(244,244,246,.62); --l3: rgba(244,244,246,.38);
   --f1: rgba(255,255,255,.06); --f2: rgba(255,255,255,.10); --f3: rgba(255,255,255,.16);
   --sep: rgba(255,255,255,.08); --stroke: rgba(255,255,255,.08); --edge: rgba(255,255,255,.12);
-  --acc: #6159f5; --acct: #8c85ff; --danger: #ff6b5e; --warn: #f5a524; --ok: #3fb950;
+  --acc: #6159f5; --acct: #8c85ff; --danger: #d93025; --dangert: #ff6b5e; --warn: #f5a524; --ok: #3fb950;
   --reg: rgba(28,28,32,.70); --thick: rgba(32,32,36,.84);
   --lens: rgba(255,255,255,.14); --lens-edge: inset 0 .5px 0 rgba(255,255,255,.18);
   --plane: #1e1e22; --card: #28282c; --view: #18181b; --header: #222226; --popover: #28282c; --sidebar: #1c1c20;
@@ -64,6 +64,9 @@ main { min-width: 0; }
 .doc { padding: 48px 56px 8px; }
 .cover h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; margin-bottom: 8px; }
 .cover { border-bottom: 1px solid var(--rule); padding-bottom: 40px; }
+.hero { padding-top: 32px; }
+.heropair { display: grid; grid-template-columns: repeat(2, 560px); gap: 24px; margin-top: 8px; }
+.comp { zoom: .5; border-radius: 32px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
 .doc h2 { font: 600 28px/32px var(--font); letter-spacing: -.021em; margin-bottom: 16px; }
 .doc h3 { font: 600 17px/24px var(--font); letter-spacing: -.013em; margin: 32px 0 8px; scroll-margin-top: 16px; }
 .doc p, .doc li { font: 400 14px/22px var(--font); color: var(--ink); max-width: 880px; }
@@ -148,7 +151,7 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 /* dock */
 .dock { height: 64px; border-radius: 24px; padding: 8px; display: inline-flex; gap: 8px; position: relative; }
 .app { width: 48px; height: 48px; border-radius: 12px; position: relative; z-index: 1; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
-.dot4 { position: absolute; bottom: 2px; width: 4px; height: 4px; border-radius: 2px; background: var(--l2); z-index: 1; }
+.dot4 { position: absolute; bottom: 2px; margin-left: -2px; width: 4px; height: 4px; border-radius: 2px; background: var(--l2); z-index: 1; }
 .badge { position: absolute; top: -4px; right: -4px; height: 16px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger);
   color: #fff; font: 600 11px/16px var(--font); text-align: center; z-index: 2; }
 
@@ -207,6 +210,8 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 .lrow.two { height: 56px; gap: 12px; }
 .lrow:hover { background: var(--f1); }
 .lrow + .lrow::before { content: ""; position: absolute; left: 12px; right: -4px; top: 0; height: 1px; background: var(--sep); }
+.lrow:has(> svg:first-child) + .lrow:has(> svg:first-child)::before { left: 36px; }
+.lrow.two + .lrow::before, .lrow + .lrow.two::before { left: 56px; }
 .lrow:hover::before, .lrow:hover + .lrow::before { opacity: 0; }
 .lrow .grow { flex: 1; min-width: 0; }
 .shead { padding: 0 16px 8px; font: 600 12px/16px var(--font); color: var(--l2); }
@@ -239,7 +244,7 @@ body.rm .skel::after, body.rm .bar4.ind > i { animation: none; }
 .scale i { display: block; background: rgba(81,71,229,.18); box-shadow: inset 0 0 0 1px rgba(81,71,229,.5); }
 .typ div { display: flex; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .typ small { width: 200px; font: 500 11px/16px var(--font); color: var(--muted); flex: none; }
-.sw { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.sw { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .sw div { font: 500 11px/16px var(--font); color: var(--muted); }
 .sw i { display: block; height: 40px; border-radius: 8px; margin-bottom: 4px; box-shadow: 0 0 0 .5px rgba(128,128,128,.3); }
 .states { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
@@ -298,7 +303,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
 <div class="grp">Rulebook</div>
 <a href="#ch-0" data-ch="0"><i>0</i>How to use this book</a>
 <a href="#ch-1" data-ch="1"><i>1</i>Principles</a>
-<a href="#ch-2" data-ch="2"><i>2</i>Foundations: grid, space, size, shape</a>
+<a href="#ch-2" data-ch="2"><i>2</i>Space, size and shape</a>
 <a class="sub" href="#ch-2-2-1-scales" data-ch="2">2.1 Scales</a>
 <a class="sub" href="#ch-2-2-2-derivation-rules" data-ch="2">2.2 Derivation rules</a>
 <a class="sub" href="#ch-2-2-3-hit-targets" data-ch="2">2.3 Hit targets</a>
@@ -346,6 +351,8 @@ canvas.plot { width: 100%; height: 120px; display: block; }
 <a class="sub" href="#ch-9-9-11-notifications-toasts-tooltips" data-ch="9">9.11 Notifications, toasts, tooltips</a>
 <a class="sub" href="#ch-9-9-12-windows" data-ch="9">9.12 Windows</a>
 <a class="sub" href="#ch-9-9-13-states" data-ch="9">9.13 States</a>
+<a class="sub" href="#ch-9-9-14-launcher" data-ch="9">9.14 Launcher</a>
+<a class="sub" href="#ch-9-9-15-lock-screen" data-ch="9">9.15 Lock screen</a>
 <a class="sub" href="#demo-10" data-ch="9">Live: Controls</a>
 <a class="sub" href="#demo-11" data-ch="9">Live: Lists, windows, dialogs, states</a>
 <a href="#ch-10" data-ch="10"><i>10</i>Icons and cursors</a>
@@ -370,10 +377,95 @@ map (build: <code>python3 docs/design/build_rulebook.py</code>). This book is th
 this book, or not derived by one of its rules, is a bug. <code>protocol/design-tokens.toml</code> holds the same values as data;
 when the two differ, this book wins and the TOML is fixed.</p>
 </section>
+<section class="hero" id="hero">
+  <div class="eyebrow">The desktop, built only from these rules</div>
+  <div class="heropair">
+    <div class="comp light"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side" style="width:200px">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+    <div class="comp dark"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side" style="width:200px">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+  </div>
+</section>
 <section class="doc" id="ch-0"><h2>0. How to use this book</h2>
 <ul>
 <li>Every size, gap, padding and radius comes from a scale (§2) or from a derivation rule (§2.2 R1-R9). Each
-  component table in §6-§12 names the rule next to each value. A reviewer checks a surface against the table, not
+  component table in §6 and §9 names the rule next to each value. A reviewer checks a surface against the table, not
   against a screenshot.</li>
 <li>Values are logical pixels at <code>ui_scale</code> 1. The toolkit multiplies by the scale and snaps edges to device pixels
   once, at layout. Never snap a size on its own: snap both edges, so a gap stays equal at 1.25 and 1.5.</li>
@@ -398,7 +490,7 @@ when the two differ, this book wins and the TOML is fixed.</p>
    wait. Input is accepted on the first frame of every animation.</li>
 </ol>
 </section>
-<section class="doc" id="ch-2"><h2>2. Foundations: grid, space, size, shape</h2>
+<section class="doc" id="ch-2"><h2>2. Space, size and shape</h2>
 <h3 id="ch-2-2-1-scales">2.1 Scales</h3>
 <table>
 <thead>
@@ -451,7 +543,8 @@ heights space them).</p>
 <p><strong>R4 Symbol to label.</strong> A 12 or 16 symbol has gap 8 to its label; a 20 or larger symbol, or a round icon, has gap 12.</p>
 <p><strong>R5 End caps.</strong> In a capsule, a symbol at the end sits concentric with the cap: inset = (height - symbol) / 2.
 Text at the end of a capsule has inset = height x 3/8, rounded to 4 (24 -&gt; 8, 32 -&gt; 12, 40 -&gt; 16, 56 -&gt; 20).
-In a rounded rectangle, text inset is 12 at height 32 or more and 8 below that.</p>
+In a rounded rectangle, text inset is 12 at height 32 or more and 8 below that. A leading symbol in a rounded
+rectangle has inset = (height - symbol) / 2 rounded up to the 4 grid, at most 12 (28 -&gt; 8, 32 -&gt; 8, 40 -&gt; 12).</p>
 <p><strong>R6 One edge.</strong> Inside a container, text starts on one vertical line. A section header, a row label and a footnote
 of the same group share that line. Symbols hang to the left of it, never push it.</p>
 <p><strong>R7 Concentric radius.</strong> A shape inside another shape, at padding p from it, has radius = outer radius - p.
@@ -481,7 +574,7 @@ battery symbol (wider than tall) centres on its body, not its tip; a glyph in a 
     <div class="panel"><h3>Concentric (R7)</h3><p class="note">Sheet r 28, p 12 → tile r 16, p 8 → image r 8. The dock: r 24, inset 4 → lens r 20. The island: 32 capsule, inset 4 → 24 capsule.</p>
       <div class="row-flex" style="margin-top:16px;align-items:flex-start">
         <div style="padding:12px;border-radius:28px;background:var(--f2)" data-m="r 28 · p 12"><div style="padding:8px;border-radius:16px;background:var(--card);box-shadow:0 0 0 .5px var(--stroke)" data-m="r 16 · p 8"><div style="width:120px;height:56px;border-radius:8px;background:rgba(81,71,229,.18)" data-m="r 8"></div></div></div>
-        <div class="island glass stage-like" style="background:var(--f2);box-shadow:none;padding:0 4px" data-m="32 capsule · inset 4"><div style="width:24px;height:24px;border-radius:12px;background:var(--lens);box-shadow:var(--e1)"></div><div style="width:24px"></div><div style="width:24px"></div></div>
+        <div class="island" style="background:var(--f2);padding:0 4px" data-m="32 capsule · inset 4 → 24 capsule"><span class="ws"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
       </div></div>
   </div>
   <div class="grid3">
@@ -680,8 +773,14 @@ Line heights are multiples of 4. Tracking follows Inter's dynamic metrics: track
 <tr>
 <td>danger</td>
 <td>#d93025</td>
+<td>#d93025</td>
+<td>destructive fills and the dock badge; white text on it (4.8:1)</td>
+</tr>
+<tr>
+<td>danger_text</td>
+<td>#d93025</td>
 <td>#ff6b5e</td>
-<td>destructive actions, errors, the dock badge</td>
+<td>error symbols and text, destructive menu items (4.8:1 / 6.3:1)</td>
 </tr>
 <tr>
 <td>warning</td>
@@ -799,8 +898,10 @@ label_2 at 4.5:1 or more.</p>
 <p>Every glass shape draws: tint, 0.5 px <code>stroke</code> outline, 0.5 px <code>edge</code> highlight on the inner top edge, then its
 shadow. The compositor draws blur and shadow; the client draws tint and content.</p>
 <h3 id="ch-5-5-3-readable-glass">5.3 Readable glass</h3>
-<p>The float tint rises from regular toward thick until label_2 over the sampled backdrop reaches 4.5:1. Over a calm
-wallpaper it stays at regular; over a busy or dark window it reaches thick. Reduce transparency replaces every
+<p>Each tint rises toward the next material until label_2 over the sampled backdrop reaches 4.5:1: regular toward
+thick, thick toward its solid fallback. Over a calm wallpaper nothing changes; over a busy or black window the
+float plane reaches thick and the over plane nears solid (thick light glass over pure black gives label_2 only 4.1:1
+without this rule). Reduce transparency replaces every
 material with its solid fallback (light #f2f2f6 / #f8f8fa, dark #222226 / #28282c).</p>
 <h3 id="ch-5-5-4-elevation">5.4 Elevation</h3>
 <p>Two shadows per level: a key shadow (y offset = 3/8 of blur) and a contact shadow. Shadow colour: light
@@ -847,7 +948,7 @@ rgb(20,20,40), dark black.</p>
 </tr>
 </tbody>
 </table>
-<p>Elevation is an animatable property: a morph from E2 to E3 interpolates the shadow on the shape's spring (§8).</p>
+<p>Elevation is an animatable property: a morph from E2 to E3 interpolates the shadow on the shape's spring (§7).</p>
 </section>
 <section class="demo" id="demo-4">
   <div class="eyebrow">5 · Material and depth</div>
@@ -933,7 +1034,7 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 </tr>
 <tr>
 <td>pressed</td>
-<td>lens at 97 % scale, fill dimmed 3 %</td>
+<td>lens at the P2 press scale, fill dimmed 3 %</td>
 </tr>
 <tr>
 <td>selected</td>
@@ -949,7 +1050,7 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 </tr>
 </tbody>
 </table>
-<p>The lens never fades between items: it travels (§8.6 P1). One track has exactly one lens.</p>
+<p>The lens never fades between items: it travels (§7.6 P1). One track has exactly one lens.</p>
 </section>
 <section class="demo" id="demo-5">
   <div class="eyebrow">6 · The lens</div>
@@ -1171,7 +1272,7 @@ reduced motion.</p>
 <li><strong>Cross the faces.</strong> In a Morph the outgoing face fades out (fade_out), scales to 0.92 and blurs to 8 px; the
   incoming face fades in from 50 % of travel, from scale 0.92 and blur 8 px to 1 and 0. Both stay inside the clip.</li>
 <li><strong>Stagger entries only.</strong> Children of a growing surface start 16 ms apart, at most 6 children (96 ms); the rest
-  start with the sixth. Exits never stagger.</li>
+  start with the sixth. This is the one time offset in the system. Exits never stagger.</li>
 <li><strong>Source hand-off.</strong> A source that becomes the surface (the center island, a dock icon that opens a window, a banner
   that opens the notification center) hides its face on the frame Grow starts: the growing shape IS the source. On
   Return its face fades back in from 70 % of the close travel. A source that stays in place (a bar island, a button)
@@ -1213,7 +1314,7 @@ focused control as the source; global shortcuts use the island that owns the sur
 <td>P3</td>
 <td>Hover</td>
 <td>pointer enters / leaves</td>
-<td>fill one ladder step: fade in, fade_out x 2 slower out (d 0.2): out lags so a quick pass does not flicker</td>
+<td>fill one ladder step: in on fade_out (quick), out on fade (slower), so a quick pass does not flicker</td>
 </tr>
 <tr>
 <td>P4</td>
@@ -1255,7 +1356,7 @@ focused control as the source; global shortcuts use the island that owns the sur
 <td>P10</td>
 <td>Menu / popover</td>
 <td>click a button, right-click</td>
-<td>Grow from the anchor corner (button edge or pointer point): scale 0.92 -&gt; 1 on open with opacity on fade; Return: fade_out only, scale 1 -&gt; 0.96 on close</td>
+<td>Grow from the anchor corner (button edge or pointer point): scale 0.92 -&gt; 1 on open with opacity on fade; Return: opacity on fade_out with scale 1 -&gt; 0.96 toward the anchor on close</td>
 </tr>
 <tr>
 <td>P11</td>
@@ -1388,9 +1489,9 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
   <h2>Grow from the island, morph in place</h2>
   <p class="note">Click the right island (or drag down from it): the sheet grows out of it, keeps its right edge, and returns into it. Click the center island buttons to morph it. Click again during any motion: it turns around from its current velocity.</p>
   <div class="stage" id="deskStage" style="height:560px;margin-top:24px">
-    <div class="island glass txt" style="position:absolute;left:8px;top:8px" id="leftIsl">
+    <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px" id="leftIsl">
       <span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#6cc3ff,#3d6cf0);box-shadow:none"></span><span class="hl">Files</span></span>
-      <span class="ws" id="wsDemo" style="margin-left:12px;margin-right:-8px"><span class="occ">1</span><span class="occ">2</span><span>3</span><span>4</span></span>
+      <span class="ws" id="wsDemo" style="margin-left:12px"><span class="occ">1</span><span class="occ">2</span><span>3</span><span>4</span></span>
     </div>
     <div id="center" class="glass" style="position:absolute;top:8px;overflow:hidden">
       <div class="face" data-face="rest" style="width:160px;height:32px;display:flex;align-items:center;justify-content:center;gap:8px">
@@ -1409,7 +1510,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
           <div class="hl">Anna</div><div class="fn lab2" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">Are we still on for 7? I booked the place by the river, the one with the long tables.</div></div></div>
     </div>
     <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 12px;cursor:pointer" id="rightIsl">
-      <span class="g12" id="rightFace"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+      <span class="g12" id="rightFace" style="margin-left:-4px"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
     <div id="sheetShape" class="glass thick" style="position:absolute;display:none;overflow:hidden">
       <div class="sheet" id="sheetContent" style="position:absolute;right:0;top:0;transform-origin:100% 0">
         <div class="tile on st0"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
@@ -1424,7 +1525,8 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
     </div>
     <div id="stack" style="position:absolute;left:0;top:0"></div>
     <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)" id="dockDemo">
-      <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span>
+      <span class="lens" style="position:absolute;left:4px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+      <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="dot4" style="left:88px"></span><span class="dot4" style="left:200px"></span>
       <span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
       <span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
       <span class="app" style="background:linear-gradient(135deg,#c3a6ff,#7b5cf0)"></span>
@@ -1483,7 +1585,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>left island</td>
-<td>app icon 16, g 8 (R4), app name headline, g 12, workspace track</td>
+<td>symbol end 8 (R5), app icon 16, g 8 (R4), app name headline, g 12, workspace track; the track ends the island at inset 4</td>
 </tr>
 <tr>
 <td>workspace track</td>
@@ -1491,7 +1593,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>right island</td>
-<td>status symbols 16 with g 8; group to clock g 12 (R3); clock headline, tabular</td>
+<td>symbol end 8, status symbols 16 with g 8; group to clock g 12 (R3); clock headline, tabular, text end 12</td>
 </tr>
 <tr>
 <td>center rest</td>
@@ -1518,11 +1620,11 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>banner</td>
-<td>w 360, r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines; actions h 32 capsules, g 8, 12 above</td>
+<td>w 360 x 88 (12 + 64 text block + 12), r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines; actions h 32 capsules, g 8, 12 above</td>
 </tr>
 <tr>
 <td>media</td>
-<td>w 360, r 24, p 12; art 48 r 12 (R7: 24 - 12), g 12, title headline + artist footnote; controls 32 round, g 8; progress h 4 capsule full width, 12 above</td>
+<td>w 360 x 88 (same height as a banner, so they morph without a size jump), r 24, p 12; art 48 r 12 (R7: 24 - 12), g 12, title headline + artist footnote; controls 32 round, g 8; progress h 4 capsule full width, 12 above</td>
 </tr>
 </tbody>
 </table>
@@ -1553,7 +1655,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>slider pill</td>
-<td>full width x 48, r 16 (R7), fill_2 track; level fill white 92 % (both schemes) from the start edge, no knob; symbol 16 at inset 16 (R5 in a 48 rect: (48 - 16) / 2), black 62 % on the fill; value footnote label_2 at inset 16 from the end</td>
+<td>full width x 48, r 16 (R7), fill_2 track; level fill white 92 % (both schemes) from the start edge, no knob; symbol 16 at inset 16 (R5 in a 48 rect: (48 - 16) / 2), black 62 % on the fill; value footnote at inset 16 from the end: label_2 on the track, black 62 % where the fill passes under it</td>
 </tr>
 <tr>
 <td>media card</td>
@@ -1565,7 +1667,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>page dots</td>
-<td>dot 6 circle label_3, current 16 x 6 capsule label_1, g 6; 8 below the last card</td>
+<td>a 16 high row, g 8 after the last card; dot 6 circle label_3, current 16 x 6 capsule label_1, g 6</td>
 </tr>
 <tr>
 <td>layout</td>
@@ -1592,11 +1694,11 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>focused app</td>
-<td>lens 56 x 56 r 20 (R7: 24 - 4), behind the icon</td>
+<td>lens 56 x 56 r 20 (R7: 24 - 4), behind the icon; no running dot (the lens says it)</td>
 </tr>
 <tr>
 <td>running</td>
-<td>dot 4 label_2, centred in the bottom padding (2 below the icon)</td>
+<td>dot 4 label_2, centred in the bottom padding (2 below the icon), apps that are open but not focused</td>
 </tr>
 <tr>
 <td>separator</td>
@@ -1628,7 +1730,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 <tr>
 <td>small</td>
 <td>24</td>
-<td>8</td>
+<td>8 (footnote 500)</td>
 <td>12</td>
 <td>48</td>
 </tr>
@@ -1717,6 +1819,10 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 <td>h 32 capsule track fill_1, inset 2, segments h 28 capsule; text inset 12; equal widths; the current segment is the lens (P1)</td>
 </tr>
 <tr>
+<td>tabs</td>
+<td>strip h 40, r 12, p 4, fill_1; tabs h 32 r 8 (R7: 12 - 4), favicon 16 at inset 8 (R5), g 8, text end 12; the current tab is the lens</td>
+</tr>
+<tr>
 <td>toggle</td>
 <td>40 x 24 capsule, knob 20 white E1, inset 2; off fill_2, on accent (P4)</td>
 </tr>
@@ -1785,7 +1891,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>icon grid (launcher)</td>
-<td>cell 96 x 112: icon 64 at 8 from the top, label footnote 2 lines centred, 8 below the icon; g 8; current cell = lens r 16</td>
+<td>cell 96 x 112: icon 64 at 8 from the top, label footnote 2 lines centred, 8 below the icon; g 8; current cell = lens r 12 (R7 in the launcher: 28 - 16)</td>
 </tr>
 <tr>
 <td>thumbnail grid</td>
@@ -1891,7 +1997,11 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>destructive item</td>
-<td>label danger</td>
+<td>label danger_text</td>
+</tr>
+<tr>
+<td>popover</td>
+<td>r 20, p 12, thick glass, E3; 8 from its anchor; content rows r 8 (R7: 20 - 12)</td>
 </tr>
 </tbody>
 </table>
@@ -1941,7 +2051,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>toast (in an app)</td>
-<td>h 40 capsule, thick glass, E3; symbol 16 inset 12 (R5), g 8, body; 24 above the window's bottom edge, centred</td>
+<td>h 40 capsule, thick glass, E3; symbol 16 inset 12 (R5), g 8, body, text end 16 (R5); 24 above the window's bottom edge, centred</td>
 </tr>
 <tr>
 <td>tooltip</td>
@@ -1972,7 +2082,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>app header (our apps)</td>
-<td>h 48: back / forward icon buttons 32 at inset 8, title-2 g 12; window buttons as above, vertically centred</td>
+<td>h 48: back / forward icon buttons 32 at inset 8, title-2 g 12; window buttons as above at inset 12 (vertically centred; not concentric, the header is taller than the corner)</td>
 </tr>
 <tr>
 <td>resize</td>
@@ -2007,7 +2117,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 </tr>
 <tr>
 <td>error</td>
-<td>inline where it happened: symbol 16 danger, g 8, footnote label_1 text, plain button "Try Again"; modal only when nothing else can continue</td>
+<td>inline where it happened: symbol 16 danger_text, g 8, footnote label_1 text, plain button "Try Again"; modal only when nothing else can continue</td>
 </tr>
 <tr>
 <td>offline / no permission</td>
@@ -2016,6 +2126,64 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 <tr>
 <td>longest text</td>
 <td>ellipsis at the end (§3); a hover tooltip shows the full text after 600 ms</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ch-9-9-14-launcher">9.14 Launcher</h3>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Spec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sheet</td>
+<td>w = 2 x 16 + 6 x 96 + 5 x 8 = 648, r 28, p 16, thick glass, E3; Grows from the dock launcher button (P19)</td>
+</tr>
+<tr>
+<td>search</td>
+<td>h 40, r 12 (R7: 28 - 16), symbol 16 at inset 12 (R5), title-3 placeholder label_3; g 16 to the grid</td>
+</tr>
+<tr>
+<td>grid</td>
+<td>6 columns x 4 rows of 96 x 112 cells, g 8 (§9.7); pages Slide (P12) with page dots below (§9.3)</td>
+</tr>
+<tr>
+<td>results</td>
+<td>when typing, the grid becomes a list: rows 48 (app icon 32 g 12, name body + kind footnote label_2), current row = lens r 12</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ch-9-9-15-lock-screen">9.15 Lock screen</h3>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Spec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>backdrop</td>
+<td>the wallpaper, blurred (same recipe) and dimmed 20 % black; text on it is white with a 0 / 1 / 2 black 30 % shadow</td>
+</tr>
+<tr>
+<td>clock</td>
+<td>hero, centred, top at 1/4 of the output height; date title-3 8 above it</td>
+</tr>
+<tr>
+<td>account</td>
+<td>avatar 64, g 12, name title-3; centred at 2/3 of the height</td>
+</tr>
+<tr>
+<td>password</td>
+<td>h 40 capsule, w 240, thick glass, text inset 16 (R5), placeholder label_3; g 16 below the name; wrong password: the field shakes (3 x 8 px on snap)</td>
+</tr>
+<tr>
+<td>status</td>
+<td>battery, network, keyboard layout as a 32 island top right (§9.1); the session menu button bottom right (icon button 40)</td>
 </tr>
 </tbody>
 </table>
@@ -2060,7 +2228,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
           <div class="mi"><span style="width:16px"></span>Size<span class="sc">⌘3</span></div>
           <div class="msep"></div>
           <div class="mi"><span style="width:16px"></span>Show Hidden Files</div>
-          <div class="mi" style="color:var(--danger)"><span style="width:16px"></span>Move to Trash</div>
+          <div class="mi" style="color:var(--dangert)"><span style="width:16px"></span>Move to Trash</div>
         </div></div></div>
   </div>
 </section>
@@ -2106,7 +2274,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
           <div class="t3" style="margin-top:16px">No notifications</div><p class="lab2" style="margin-top:4px;line-height:20px">New ones show up here.</p></div></div>
         <div class="panel"><div class="skel" style="height:16px;width:60%;border-radius:4px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:12px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:8px"></div>
           <p class="cap">Loading: skeleton after 200 ms.</p></div>
-        <div class="panel"><div class="row-flex" style="gap:8px;align-items:flex-start"><svg class="i" style="color:var(--danger)"><use href="#alert"/></svg><span class="fn" style="flex:1">Couldn’t reach the update server.</span></div>
+        <div class="panel"><div class="row-flex" style="gap:8px;align-items:flex-start"><svg class="i" style="color:var(--dangert)"><use href="#alert"/></svg><span class="fn" style="flex:1">Couldn’t reach the update server.</span></div>
           <span class="btn s plain" style="margin-top:8px;color:var(--acct)">Try Again</span><p class="cap">Error: inline, where it happened.</p></div>
       </div>
     </div>
@@ -2191,8 +2359,7 @@ visible. freedesktop sound names; each under 500 ms (except ringtones); peak -12
 <section class="doc" id="ch-14"><h2>14. Writing</h2>
 <p>Sentence case. Labels name the thing ("Wi-Fi"), buttons say the verb ("Connect"). No full stop in labels; full stops
 in sentences. Status words are short and current ("On", "Off", "2 devices", "Charging"). Ellipsis only on a command
-that asks for more input ("Rename..."). Numbers as digits, units after a space ("40 %" in Settings, "40%" in the
-island where space is tight: the island form is the one exception).</p>
+that asks for more input ("Rename..."). Numbers as digits; percent without a space ("40%"), other units with one ("4.2 MB", "5 min").</p>
 </section>
 <section class="doc" id="ch-15"><h2>15. Review checklist</h2>
 <ol>
@@ -2299,8 +2466,8 @@ island where space is tight: the island form is the one exception).</p>
 </tr>
 <tr>
 <td>danger</td>
-<td>#ff3b30 (3.6:1 on white) / #ff453a</td>
-<td>#d93025 (4.8:1) / #ff6b5e</td>
+<td>#ff3b30 (3.6:1 on white) / #ff453a (white text 2.8:1)</td>
+<td>danger fill #d93025 in both schemes (white 4.8:1); danger_text #d93025 / #ff6b5e</td>
 </tr>
 <tr>
 <td>warning, success</td>
@@ -2446,7 +2613,7 @@ rulebook yet, full restyle.</p>
 <tr>
 <td>Dock</td>
 <td>N</td>
-<td>margin 12 -&gt; 8 (R8); padding 10 -&gt; 8; radius 30 -&gt; 24; gap 10 -&gt; 8; icon 54 -&gt; 48; running bar 14 x 3 -&gt; dot 4; focused app -&gt; lens 56 r 20; badge 18 -&gt; 16, padding 5 -&gt; 4; separator -&gt; 1 x 32 centred</td>
+<td>margin 12 -&gt; 8 (R8); padding 10 -&gt; 8; radius 30 -&gt; 24; gap 10 -&gt; 8; icon 54 -&gt; 48; running bar 14 x 3 -&gt; dot 4 (open, not focused apps); focused app -&gt; lens 56 r 20, no dot; badge 18 -&gt; 16, padding 5 -&gt; 4; separator -&gt; 1 x 32 centred</td>
 </tr>
 <tr>
 <td>Settings window (S0, uncommitted)</td>
@@ -2456,7 +2623,7 @@ rulebook yet, full restyle.</p>
 <tr>
 <td>Launcher</td>
 <td>O</td>
-<td>list + tabs -&gt; rulebook grid sheet: search 40 r 12, cells 96 x 112, icon 64, lens r 16; P19 Grow from the dock launcher button</td>
+<td>list + tabs -&gt; rulebook 9.14: sheet 648, p 16, search 40 r 12, 6 x 4 grid of 96 x 112 cells, lens r 12, typed results as 48 rows; P19 Grow from the dock launcher button</td>
 </tr>
 <tr>
 <td>Notification popup</td>
@@ -2496,7 +2663,7 @@ rulebook yet, full restyle.</p>
 <tr>
 <td>Lock screen</td>
 <td>O</td>
-<td>51 off-grid literals; layout needs /ui-design; motion P20; hero clock 80 / 300</td>
+<td>51 off-grid literals -&gt; rulebook 9.15 (hero clock at 1/4 height, account at 2/3, password capsule 240 x 40, status island); motion P20</td>
 </tr>
 <tr>
 <td>Window switcher</td>
@@ -2595,8 +2762,8 @@ $('#hScale').innerHTML = [[24,'S'],[32,'M'],[40,'L'],[48,'XL'],[32,'row c'],[40,
 const TYPES = [['caption',11,16,500],['footnote',12,16,400],['body',13,16,400],['headline',13,16,600],['title-3',15,20,600],['title-2',17,24,600],['title-1',22,28,600],['large',28,32,600],['display',34,40,500],['hero',80,80,300]];
 const track = s => (-0.0223 + 0.185*Math.exp(-0.1745*s));
 $('#typeScale').innerHTML = TYPES.map(([n,s,l,w]) => `<div><small>${n} · ${s} / ${l} · ${w} · ${(track(s)*100).toFixed(1)} %</small><span style="font:${w} ${s}px/${l}px var(--font);letter-spacing:${track(s).toFixed(4)}em;background:rgba(81,71,229,.08)">${n === 'hero' ? '14:05' : 'Wi-Fi joins Home 5G'}</span></div>`).join('');
-const ROLES = ['l1:label_1','l2:label_2','l3:label_3','f1:fill_1','f2:fill_2','f3:fill_3','sep:separator','acc:accent','acct:accent_text','danger:danger','warn:warning','ok:success','reg:glass regular','thick:glass thick'];
-$('#swatches').innerHTML = ROLES.map(r => { const [v,n] = r.split(':'); return `<div><i style="background:var(--${v})"></i>${n}</div>`; }).join('');
+const ROLES = ['l1:label_1','l2:label_2','l3:label_3','f1:fill_1','f2:fill_2','f3:fill_3','sep:separator','acc:accent','acct:accent_text','danger:danger','dangert:danger_text','warn:warning','ok:success','reg:glass regular','thick:glass thick'];
+$('#swatches').innerHTML = ROLES.map(r => { const [v,n] = r.split(':'); const bg = (v === 'reg' || v === 'thick') ? `linear-gradient(var(--${v}),var(--${v})),var(--wall)` : `var(--${v})`; return `<div><i style="background:${bg}"></i>${n}</div>`; }).join('');
 $('#lensStates').innerHTML = [['','Rest'],['background:var(--f1)','Hover · fill_1'],['background:var(--lens);box-shadow:var(--e1);transform:scale(.97);filter:brightness(.97)','Pressed · lens 97 %'],
   ['background:var(--lens);box-shadow:var(--e1)','Selected · lens'],['background:var(--lens);box-shadow:var(--e1),0 0 0 2px var(--page),0 0 0 4px var(--acc)','Selected + focus'],['opacity:.38','Disabled · 38 %']]
   .map(([s,c],i) => `<div class="st"><div class="srow ${i>=3&&i<5?'on':''}" style="${s}"><svg class="i"><use href="#img"/></svg>Wallpaper</div><span class="cap">${c}</span></div>`).join('');
@@ -2686,7 +2853,7 @@ function renderRoll(prev, next){
     }
     r.append(cell);
   }
-  r.append(Object.assign(document.createElement('span'), { textContent: '%', style: 'margin-left:2px' }));
+  r.append(Object.assign(document.createElement('span'), { textContent: '%' }));
 }
 renderRoll(vol, vol);
 $('#vUp').onclick = () => { const p = vol; vol = Math.min(100, vol + 7); renderRoll(p, vol); };
@@ -2881,6 +3048,7 @@ $$('#wdock .app').forEach((icon, idx) => icon.addEventListener('click', () => {
   w.querySelector('.x').onclick = () => { st.s.to(.96, 'close'); st.o.done = () => { w.remove(); wins.delete(idx); }; st.o.to(0, 'fade_out'); };
   w.querySelector('.dl').onclick = e => { e.stopPropagation(); openAlert(w, e.currentTarget); };
 }));
+requestAnimationFrame(() => $$('#wdock .app')[0].click());
 function openAlert(win, btn){
   const scrim = document.createElement('div'); scrim.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;z-index:3';
   win.append(scrim);

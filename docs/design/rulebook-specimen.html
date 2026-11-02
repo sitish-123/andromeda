@@ -15,7 +15,7 @@
   --l1: rgba(20,20,24,.92); --l2: rgba(20,20,24,.62); --l3: rgba(20,20,24,.38);
   --f1: rgba(0,0,0,.04); --f2: rgba(0,0,0,.08); --f3: rgba(0,0,0,.12);
   --sep: rgba(0,0,0,.08); --stroke: rgba(0,0,0,.07); --edge: rgba(255,255,255,.75);
-  --acc: #5147e5; --acct: #5147e5; --danger: #d93025; --warn: #b45309; --ok: #1a7f37;
+  --acc: #5147e5; --acct: #5147e5; --danger: #d93025; --dangert: #d93025; --warn: #b45309; --ok: #1a7f37;
   --reg: rgba(255,255,255,.62); --thick: rgba(255,255,255,.76);
   --lens: rgba(255,255,255,.92); --lens-edge: 0 0 0 transparent;
   --plane: #f2f2f6; --card: #fff; --view: #fff; --header: #ececf1; --popover: #f8f8fa; --sidebar: #ececf1;
@@ -28,7 +28,7 @@
   --l1: rgba(244,244,246,.92); --l2: rgba(244,244,246,.62); --l3: rgba(244,244,246,.38);
   --f1: rgba(255,255,255,.06); --f2: rgba(255,255,255,.10); --f3: rgba(255,255,255,.16);
   --sep: rgba(255,255,255,.08); --stroke: rgba(255,255,255,.08); --edge: rgba(255,255,255,.12);
-  --acc: #6159f5; --acct: #8c85ff; --danger: #ff6b5e; --warn: #f5a524; --ok: #3fb950;
+  --acc: #6159f5; --acct: #8c85ff; --danger: #d93025; --dangert: #ff6b5e; --warn: #f5a524; --ok: #3fb950;
   --reg: rgba(28,28,32,.70); --thick: rgba(32,32,36,.84);
   --lens: rgba(255,255,255,.14); --lens-edge: inset 0 .5px 0 rgba(255,255,255,.18);
   --plane: #1e1e22; --card: #28282c; --view: #18181b; --header: #222226; --popover: #28282c; --sidebar: #1c1c20;
@@ -65,6 +65,9 @@ main { min-width: 0; }
 .doc { padding: 48px 56px 8px; }
 .cover h1 { font: 600 34px/40px var(--font); letter-spacing: -.022em; margin-bottom: 8px; }
 .cover { border-bottom: 1px solid var(--rule); padding-bottom: 40px; }
+.hero { padding-top: 32px; }
+.heropair { display: grid; grid-template-columns: repeat(2, 560px); gap: 24px; margin-top: 8px; }
+.comp { zoom: .5; border-radius: 32px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
 .doc h2 { font: 600 28px/32px var(--font); letter-spacing: -.021em; margin-bottom: 16px; }
 .doc h3 { font: 600 17px/24px var(--font); letter-spacing: -.013em; margin: 32px 0 8px; scroll-margin-top: 16px; }
 .doc p, .doc li { font: 400 14px/22px var(--font); color: var(--ink); max-width: 880px; }
@@ -149,7 +152,7 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 /* dock */
 .dock { height: 64px; border-radius: 24px; padding: 8px; display: inline-flex; gap: 8px; position: relative; }
 .app { width: 48px; height: 48px; border-radius: 12px; position: relative; z-index: 1; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
-.dot4 { position: absolute; bottom: 2px; width: 4px; height: 4px; border-radius: 2px; background: var(--l2); z-index: 1; }
+.dot4 { position: absolute; bottom: 2px; margin-left: -2px; width: 4px; height: 4px; border-radius: 2px; background: var(--l2); z-index: 1; }
 .badge { position: absolute; top: -4px; right: -4px; height: 16px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger);
   color: #fff; font: 600 11px/16px var(--font); text-align: center; z-index: 2; }
 
@@ -208,6 +211,8 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 .lrow.two { height: 56px; gap: 12px; }
 .lrow:hover { background: var(--f1); }
 .lrow + .lrow::before { content: ""; position: absolute; left: 12px; right: -4px; top: 0; height: 1px; background: var(--sep); }
+.lrow:has(> svg:first-child) + .lrow:has(> svg:first-child)::before { left: 36px; }
+.lrow.two + .lrow::before, .lrow + .lrow.two::before { left: 56px; }
 .lrow:hover::before, .lrow:hover + .lrow::before { opacity: 0; }
 .lrow .grow { flex: 1; min-width: 0; }
 .shead { padding: 0 16px 8px; font: 600 12px/16px var(--font); color: var(--l2); }
@@ -240,7 +245,7 @@ body.rm .skel::after, body.rm .bar4.ind > i { animation: none; }
 .scale i { display: block; background: rgba(81,71,229,.18); box-shadow: inset 0 0 0 1px rgba(81,71,229,.5); }
 .typ div { display: flex; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .typ small { width: 200px; font: 500 11px/16px var(--font); color: var(--muted); flex: none; }
-.sw { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.sw { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .sw div { font: 500 11px/16px var(--font); color: var(--muted); }
 .sw i { display: block; height: 40px; border-radius: 8px; margin-bottom: 4px; box-shadow: 0 0 0 .5px rgba(128,128,128,.3); }
 .states { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
@@ -299,6 +304,91 @@ canvas.plot { width: 100%; height: 120px; display: block; }
 </nav>
 <main>
 <!--COVER-->
+<section class="hero" id="hero">
+  <div class="eyebrow">The desktop, built only from these rules</div>
+  <div class="heropair">
+    <div class="comp light"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side" style="width:200px">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+    <div class="comp dark"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side" style="width:200px">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+  </div>
+</section>
 <!--CH:0-->
 <!--CH:1-->
 <!--CH:2-->
@@ -316,7 +406,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
     <div class="panel"><h3>Concentric (R7)</h3><p class="note">Sheet r 28, p 12 → tile r 16, p 8 → image r 8. The dock: r 24, inset 4 → lens r 20. The island: 32 capsule, inset 4 → 24 capsule.</p>
       <div class="row-flex" style="margin-top:16px;align-items:flex-start">
         <div style="padding:12px;border-radius:28px;background:var(--f2)" data-m="r 28 · p 12"><div style="padding:8px;border-radius:16px;background:var(--card);box-shadow:0 0 0 .5px var(--stroke)" data-m="r 16 · p 8"><div style="width:120px;height:56px;border-radius:8px;background:rgba(81,71,229,.18)" data-m="r 8"></div></div></div>
-        <div class="island glass stage-like" style="background:var(--f2);box-shadow:none;padding:0 4px" data-m="32 capsule · inset 4"><div style="width:24px;height:24px;border-radius:12px;background:var(--lens);box-shadow:var(--e1)"></div><div style="width:24px"></div><div style="width:24px"></div></div>
+        <div class="island" style="background:var(--f2);padding:0 4px" data-m="32 capsule · inset 4 → 24 capsule"><span class="ws"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
       </div></div>
   </div>
   <div class="grid3">
@@ -407,9 +497,9 @@ canvas.plot { width: 100%; height: 120px; display: block; }
   <h2>Grow from the island, morph in place</h2>
   <p class="note">Click the right island (or drag down from it): the sheet grows out of it, keeps its right edge, and returns into it. Click the center island buttons to morph it. Click again during any motion: it turns around from its current velocity.</p>
   <div class="stage" id="deskStage" style="height:560px;margin-top:24px">
-    <div class="island glass txt" style="position:absolute;left:8px;top:8px" id="leftIsl">
+    <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px" id="leftIsl">
       <span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#6cc3ff,#3d6cf0);box-shadow:none"></span><span class="hl">Files</span></span>
-      <span class="ws" id="wsDemo" style="margin-left:12px;margin-right:-8px"><span class="occ">1</span><span class="occ">2</span><span>3</span><span>4</span></span>
+      <span class="ws" id="wsDemo" style="margin-left:12px"><span class="occ">1</span><span class="occ">2</span><span>3</span><span>4</span></span>
     </div>
     <div id="center" class="glass" style="position:absolute;top:8px;overflow:hidden">
       <div class="face" data-face="rest" style="width:160px;height:32px;display:flex;align-items:center;justify-content:center;gap:8px">
@@ -428,7 +518,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
           <div class="hl">Anna</div><div class="fn lab2" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">Are we still on for 7? I booked the place by the river, the one with the long tables.</div></div></div>
     </div>
     <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 12px;cursor:pointer" id="rightIsl">
-      <span class="g12" id="rightFace"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+      <span class="g12" id="rightFace" style="margin-left:-4px"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
     <div id="sheetShape" class="glass thick" style="position:absolute;display:none;overflow:hidden">
       <div class="sheet" id="sheetContent" style="position:absolute;right:0;top:0;transform-origin:100% 0">
         <div class="tile on st0"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
@@ -443,7 +533,8 @@ canvas.plot { width: 100%; height: 120px; display: block; }
     </div>
     <div id="stack" style="position:absolute;left:0;top:0"></div>
     <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)" id="dockDemo">
-      <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span>
+      <span class="lens" style="position:absolute;left:4px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+      <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="dot4" style="left:88px"></span><span class="dot4" style="left:200px"></span>
       <span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
       <span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
       <span class="app" style="background:linear-gradient(135deg,#c3a6ff,#7b5cf0)"></span>
@@ -515,7 +606,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
           <div class="mi"><span style="width:16px"></span>Size<span class="sc">⌘3</span></div>
           <div class="msep"></div>
           <div class="mi"><span style="width:16px"></span>Show Hidden Files</div>
-          <div class="mi" style="color:var(--danger)"><span style="width:16px"></span>Move to Trash</div>
+          <div class="mi" style="color:var(--dangert)"><span style="width:16px"></span>Move to Trash</div>
         </div></div></div>
   </div>
 </section>
@@ -561,7 +652,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
           <div class="t3" style="margin-top:16px">No notifications</div><p class="lab2" style="margin-top:4px;line-height:20px">New ones show up here.</p></div></div>
         <div class="panel"><div class="skel" style="height:16px;width:60%;border-radius:4px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:12px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:8px"></div>
           <p class="cap">Loading: skeleton after 200 ms.</p></div>
-        <div class="panel"><div class="row-flex" style="gap:8px;align-items:flex-start"><svg class="i" style="color:var(--danger)"><use href="#alert"/></svg><span class="fn" style="flex:1">Couldn’t reach the update server.</span></div>
+        <div class="panel"><div class="row-flex" style="gap:8px;align-items:flex-start"><svg class="i" style="color:var(--dangert)"><use href="#alert"/></svg><span class="fn" style="flex:1">Couldn’t reach the update server.</span></div>
           <span class="btn s plain" style="margin-top:8px;color:var(--acct)">Try Again</span><p class="cap">Error: inline, where it happened.</p></div>
       </div>
     </div>
@@ -618,8 +709,8 @@ $('#hScale').innerHTML = [[24,'S'],[32,'M'],[40,'L'],[48,'XL'],[32,'row c'],[40,
 const TYPES = [['caption',11,16,500],['footnote',12,16,400],['body',13,16,400],['headline',13,16,600],['title-3',15,20,600],['title-2',17,24,600],['title-1',22,28,600],['large',28,32,600],['display',34,40,500],['hero',80,80,300]];
 const track = s => (-0.0223 + 0.185*Math.exp(-0.1745*s));
 $('#typeScale').innerHTML = TYPES.map(([n,s,l,w]) => `<div><small>${n} · ${s} / ${l} · ${w} · ${(track(s)*100).toFixed(1)} %</small><span style="font:${w} ${s}px/${l}px var(--font);letter-spacing:${track(s).toFixed(4)}em;background:rgba(81,71,229,.08)">${n === 'hero' ? '14:05' : 'Wi-Fi joins Home 5G'}</span></div>`).join('');
-const ROLES = ['l1:label_1','l2:label_2','l3:label_3','f1:fill_1','f2:fill_2','f3:fill_3','sep:separator','acc:accent','acct:accent_text','danger:danger','warn:warning','ok:success','reg:glass regular','thick:glass thick'];
-$('#swatches').innerHTML = ROLES.map(r => { const [v,n] = r.split(':'); return `<div><i style="background:var(--${v})"></i>${n}</div>`; }).join('');
+const ROLES = ['l1:label_1','l2:label_2','l3:label_3','f1:fill_1','f2:fill_2','f3:fill_3','sep:separator','acc:accent','acct:accent_text','danger:danger','dangert:danger_text','warn:warning','ok:success','reg:glass regular','thick:glass thick'];
+$('#swatches').innerHTML = ROLES.map(r => { const [v,n] = r.split(':'); const bg = (v === 'reg' || v === 'thick') ? `linear-gradient(var(--${v}),var(--${v})),var(--wall)` : `var(--${v})`; return `<div><i style="background:${bg}"></i>${n}</div>`; }).join('');
 $('#lensStates').innerHTML = [['','Rest'],['background:var(--f1)','Hover · fill_1'],['background:var(--lens);box-shadow:var(--e1);transform:scale(.97);filter:brightness(.97)','Pressed · lens 97 %'],
   ['background:var(--lens);box-shadow:var(--e1)','Selected · lens'],['background:var(--lens);box-shadow:var(--e1),0 0 0 2px var(--page),0 0 0 4px var(--acc)','Selected + focus'],['opacity:.38','Disabled · 38 %']]
   .map(([s,c],i) => `<div class="st"><div class="srow ${i>=3&&i<5?'on':''}" style="${s}"><svg class="i"><use href="#img"/></svg>Wallpaper</div><span class="cap">${c}</span></div>`).join('');
@@ -709,7 +800,7 @@ function renderRoll(prev, next){
     }
     r.append(cell);
   }
-  r.append(Object.assign(document.createElement('span'), { textContent: '%', style: 'margin-left:2px' }));
+  r.append(Object.assign(document.createElement('span'), { textContent: '%' }));
 }
 renderRoll(vol, vol);
 $('#vUp').onclick = () => { const p = vol; vol = Math.min(100, vol + 7); renderRoll(p, vol); };
@@ -904,6 +995,7 @@ $$('#wdock .app').forEach((icon, idx) => icon.addEventListener('click', () => {
   w.querySelector('.x').onclick = () => { st.s.to(.96, 'close'); st.o.done = () => { w.remove(); wins.delete(idx); }; st.o.to(0, 'fade_out'); };
   w.querySelector('.dl').onclick = e => { e.stopPropagation(); openAlert(w, e.currentTarget); };
 }));
+requestAnimationFrame(() => $$('#wdock .app')[0].click());
 function openAlert(win, btn){
   const scrim = document.createElement('div'); scrim.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;z-index:3';
   win.append(scrim);
