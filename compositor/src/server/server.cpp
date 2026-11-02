@@ -1805,11 +1805,11 @@ namespace andromeda {
     if (m_shadow.tree != nullptr) {
       wlr_scene_node_destroy(&m_shadow.tree->node);
     }
+    if (m_blurBackground && m_output != nullptr && m_tree != nullptr) {
+      m_output->markBlurBackgroundDirty(&m_tree->node);
+    }
     if (m_tree != nullptr) {
       wlr_scene_node_destroy(&m_tree->node);
-    }
-    if (m_blurBackground && m_output != nullptr) {
-      m_output->markBlurBackgroundDirty();
     }
     if (m_server != nullptr) {
       m_server->effects().releaseRequirements(
@@ -1997,8 +1997,8 @@ namespace andromeda {
     }
 
     applyPresentation();
-    if (m_blurBackground && m_output != nullptr) {
-      m_output->markBlurBackgroundDirty();
+    if (m_blurBackground && m_output != nullptr && m_tree != nullptr) {
+      m_output->markBlurBackgroundDirty(&m_tree->node);
     }
     return m_alpha.animating() || m_slide.animating();
   }

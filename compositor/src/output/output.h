@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <wayland-server-core.h>
 
 struct wlr_buffer;
@@ -27,6 +28,7 @@ struct wlr_buffer;
 struct wlr_output_layout_output;
 struct wlr_scene_rect;
 struct wlr_scene_output;
+struct wlr_scene_node;
 struct wlr_scene_optimized_blur;
 struct wlr_scene_tree;
 struct wlr_surface;
@@ -200,7 +202,13 @@ namespace andromeda {
     void updateHdr();
     // Re-evaluate HDR after `view` left; the view has already invalidated its refs, so an auto owner is gone.
     void onViewRemoved(const View* view);
+    // Whole output.
     void markBlurBackgroundDirty();
+    // `box` is in layout coordinates.
+    void markBlurBackgroundDirty(const wlr_box& box);
+    // The node's drawn bounds now and at its previous call; a destroyed or hidden node marks only the previous ones.
+    void markBlurBackgroundDirty(wlr_scene_node* node);
+    [[nodiscard]] size_t blurNodeCount() const { return m_blurNodeBoxes.size(); }
     void scheduleFullFrame();
     // Commit this custom mode and arrange around it. `refreshMHz` paces frames; 0 keeps the backend's default.
     void applyMode(int width, int height, int refreshMHz = 0);
@@ -277,6 +285,7 @@ namespace andromeda {
     wlr_scene_tree* m_fullscreenRoot = nullptr;
     wlr_scene_tree* m_pinnedRoot = nullptr;
     wlr_scene_optimized_blur* m_optimizedBlur = nullptr;
+    std::unordered_map<const wlr_scene_node*, wlr_box> m_blurNodeBoxes;
     std::unique_ptr<WorkspaceGroup> m_workspaceGroup;
     wlr_box m_localUsableArea{};
     wlr_box m_loggedUsableArea{};

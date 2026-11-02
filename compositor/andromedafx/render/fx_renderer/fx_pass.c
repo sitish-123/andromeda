@@ -3066,6 +3066,9 @@ bool fx_render_pass_add_optimized_blur(
 
   pixman_region32_t clip;
   pixman_region32_init_rect(&clip, dst_box.x, dst_box.y, dst_box.width, dst_box.height);
+  if (fx_options->tex_options.base.clip != NULL) {
+    pixman_region32_intersect(&clip, &clip, fx_options->tex_options.base.clip);
+  }
 
   // Render the blur into its own buffer. Buffers that don't fit are replaced
   // below and hold nothing yet; buffers that fit keep their last render until
@@ -3094,6 +3097,13 @@ bool fx_render_pass_add_optimized_blur(
     rendered = fx_render_pass_read_to_buffer(pass, &clip, no_blur_buffer, backdrop) && rendered;
     fbos->optimized_blur_valid = rendered;
     fbos->optimized_blur_sdr_tf = linear_sdr_tf(pass);
+    if (rendered) {
+      int rects = 0;
+      const pixman_box32_t* boxes = pixman_region32_rectangles(&clip, &rects);
+      for (int i = 0; i < rects; i++) {
+        fbos->optimized_blur_pixels += (uint64_t)(boxes[i].x2 - boxes[i].x1) * (boxes[i].y2 - boxes[i].y1);
+      }
+    }
   }
 
   pixman_region32_fini(&clip);
@@ -3224,6 +3234,11 @@ void fx_renderer_fail_animation_capture_for_test(struct wlr_renderer* renderer, 
 
 void fx_renderer_fail_effect_capture_for_test(struct wlr_renderer* renderer, bool fail) {
   fx_get_renderer(renderer)->fail_effect_capture_for_test = fail;
+}
+
+uint64_t fx_output_optimized_blur_pixels_for_test(struct wlr_output* output) {
+  const struct fx_offscreen_buffers* fbos = fx_offscreen_buffers_try_get(output);
+  return fbos != NULL ? fbos->optimized_blur_pixels : 0;
 }
 
 void fx_renderer_split_blur_composite_for_test(struct wlr_renderer* renderer, bool split) {

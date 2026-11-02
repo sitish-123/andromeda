@@ -181,7 +181,7 @@ namespace andromeda {
     applyFadeAlpha();
     if (m_layerSurface != nullptr && m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
       if (Output* out = output()) {
-        out->markBlurBackgroundDirty();
+        out->markBlurBackgroundDirty(&m_scene->tree->node);
       }
     }
     return true;
@@ -402,6 +402,8 @@ namespace andromeda {
     if (out == nullptr || m_scene == nullptr) {
       return;
     }
+    // Leaving or entering the watched background tree sends no update to its listener.
+    out->markBlurBackgroundDirty();
     wlr_scene_node_reparent(&m_popupTree->node, out->layerPopupTree(layer));
     wlr_scene_node_reparent(&m_scene->tree->node, out->layerTree(layer));
   }
@@ -612,7 +614,7 @@ namespace andromeda {
     if (Output* out = output()) {
       out->markDirty(Dirty::LayerArrange);
       if (m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
-        out->markBlurBackgroundDirty();
+        out->markBlurBackgroundDirty(&m_scene->tree->node);
       }
     }
     // Protocol requires focus for exclusive. On-demand layers also take it as they map: launchers,
@@ -657,7 +659,7 @@ namespace andromeda {
     if (Output* out = output()) {
       out->markDirty(Dirty::LayerArrange);
       if (m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
-        out->markBlurBackgroundDirty();
+        out->markBlurBackgroundDirty(&m_scene->tree->node);
       }
     }
     m_arrangingOut = false;

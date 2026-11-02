@@ -46,6 +46,7 @@ namespace andromeda {
     static nlohmann::json blurCompositeSplit(Server& server, std::string_view arg);
     static nlohmann::json planeCursor(Server& server, std::string_view arg);
     static nlohmann::json effectFrames(Server& server, std::string_view arg);
+    static nlohmann::json blurCachePixels(Server& server, std::string_view arg);
     static nlohmann::json cursorState(Server& server, std::string_view arg);
 #endif
   };

@@ -1663,6 +1663,45 @@ namespace andromeda {
     }
   }
 
+  void Output::markBlurBackgroundDirty(const wlr_box& box) {
+    if (m_optimizedBlur != nullptr && !wlr_box_empty(&box)) {
+      wlr_scene_optimized_blur_mark_dirty_box(m_optimizedBlur, &box);
+    }
+  }
+
+  void Output::markBlurBackgroundDirty(wlr_scene_node* node) {
+    if (node->type == WLR_SCENE_NODE_TREE) {
+      // A moved or hidden tree leaves each leaf's previous box; the leaves remember it.
+      wlr_scene_node* child = nullptr;
+      wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+        markBlurBackgroundDirty(child);
+      }
+      return;
+    }
+    wlr_box box{};
+    int x = 0;
+    int y = 0;
+    const bool drawn = wlr_scene_node_coords(node, &x, &y) && wlr_scene_node_effect_bounds(node, &box);
+    auto previous = m_blurNodeBoxes.find(node);
+    if (!drawn) {
+      if (previous != m_blurNodeBoxes.end()) {
+        markBlurBackgroundDirty(previous->second);
+        m_blurNodeBoxes.erase(previous);
+      }
+      return;
+    }
+    box.x += x;
+    box.y += y;
+    if (previous == m_blurNodeBoxes.end()) {
+      // The node's earlier box is unknown (it moved in from another tree).
+      markBlurBackgroundDirty();
+    } else {
+      markBlurBackgroundDirty(previous->second);
+    }
+    markBlurBackgroundDirty(box);
+    m_blurNodeBoxes[node] = box;
+  }
+
   void Output::onGammaChanged(wlr_gamma_control_v1* control) {
     updateSceneHdrWhitePoint(control);
     if (hdrActive()) {
@@ -1680,12 +1719,12 @@ namespace andromeda {
     self->handleFrame();
   }
 
-  void Output::onBackgroundUpdate(Output* self, void* /*data*/) {
-    self->markBlurBackgroundDirty();
+  void Output::onBackgroundUpdate(Output* self, void* data) {
+    self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
   }
 
-  void Output::onBackgroundPopupUpdate(Output* self, void* /*data*/) {
-    self->markBlurBackgroundDirty();
+  void Output::onBackgroundPopupUpdate(Output* self, void* data) {
+    self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
   }
 
   void Output::onRequestState(Output* self, void* data) {

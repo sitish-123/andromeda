@@ -164,6 +164,8 @@ struct wlr_scene {
     bool highlight_transparent_region;
 
     struct blur_data blur_data;
+    // Bumped on every node update; keys the optimized blur's consumer cache.
+    uint64_t update_serial;
 
     // Painted where no node covers the output. A rect matching it exactly
     // is dropped from the render list instead of drawn.
@@ -245,7 +247,15 @@ struct wlr_scene_optimized_blur {
   struct wlr_scene_node node;
   int width, height;
 
+  // The whole node is stale.
   bool dirty;
+  // Layout coordinates. Stale parts of the cache that no blur node samples yet.
+  pixman_region32_t pending;
+  // Boxes of the blur nodes that sample the cache, grown by the blur reach, as of scene update_serial.
+  pixman_region32_t consumers;
+  uint64_t consumers_serial;
+  int consumers_reach;
+  bool consumers_valid;
 };
 
 struct wlr_scene_outputs_update_event {
@@ -930,6 +940,13 @@ void wlr_scene_optimized_blur_set_size(struct wlr_scene_optimized_blur* blur_nod
  * wallpaper.
  */
 void wlr_scene_optimized_blur_mark_dirty(struct wlr_scene_optimized_blur* blur_node);
+
+/**
+ * Tells the renderer that only the layout-coordinate box changed. The cache
+ * re-renders the box grown by the blur reach, and only where a blur node
+ * samples it.
+ */
+void wlr_scene_optimized_blur_mark_dirty_box(struct wlr_scene_optimized_blur* blur_node, const struct wlr_box* box);
 
 /**
  * Add a node displaying a buffer to the scene-graph.
