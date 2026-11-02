@@ -1,8 +1,10 @@
 #pragma once
 
 #include "config/config.h"
+#include "input/key_pipeline.h"
 
 #include <string>
+#include <optional>
 #include <string_view>
 #include <unordered_set>
 #include <wayland-server-core.h>
@@ -54,6 +56,10 @@ namespace andromeda {
 
     void handleModifiers();
     void handleKey(void* data);
+    // Pipeline stages 3, 5 and 6; stages 1, 2 and 4 are empty slots.
+    KeyResult bindingsStage(KeyEvent& event);
+    KeyResult inputMethodStage(KeyEvent& event);
+    KeyResult focusedClientStage(KeyEvent& event);
     void handleDestroy();
     void setLayout(xkb_layout_index_t group);
     // Report a real effective-group transition. Initial setup, config reloads,
@@ -65,6 +71,18 @@ namespace andromeda {
     void armRepeat(const Keybind& bind, uint32_t keycode);
     void cancelRepeat();
     static int onRepeatTimer(void* data);
+
+    // Per-event state shared by handleKey and the bindings stage; valid only during a pipeline run.
+    struct KeyContext {
+      const xkb_keysym_t* syms;
+      int nsyms;
+      uint32_t rawSym;
+      bool modifierOnly;
+      uint32_t modifiers;
+    };
+    const KeyContext* m_context = nullptr;
+    std::optional<Keybind> m_modifierTap;
+    KeyPipeline m_pipeline;
 
     Server* m_server = nullptr;
     wlr_keyboard* m_keyboard = nullptr;

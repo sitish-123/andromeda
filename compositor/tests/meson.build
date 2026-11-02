@@ -23,6 +23,7 @@ unit_tests = [
   ['lid-state', ['unit/lid_state.cpp'], []],
   ['output-enable-overrides', ['unit/output_enable_overrides.cpp'], []],
   ['modifier-tap', ['unit/modifier_tap.cpp'], []],
+  ['key-pipeline', ['unit/key_pipeline.cpp'], []],
   ['keyboard-layout', ['unit/keyboard_layout.cpp'], []],
   ['keyboard-leds', ['unit/keyboard_leds.cpp'], [wayland_server_dep]],
   ['keyboard-state', ['unit/keyboard_state.cpp'], [wayland_server_dep]],

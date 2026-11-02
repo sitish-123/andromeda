@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <utility>
 
 namespace andromeda {
 
@@ -44,6 +45,9 @@ namespace andromeda {
     wl_signal_add(&m_keyboard->events.key, &m_key);
     m_destroy.notify = onDestroy;
     wl_signal_add(&device->events.destroy, &m_destroy);
+    m_pipeline.set(KeyStage::Bindings, [this](KeyEvent& event) { return bindingsStage(event); });
+    m_pipeline.set(KeyStage::InputMethodGrab, [this](KeyEvent& event) { return inputMethodStage(event); });
+    m_pipeline.set(KeyStage::FocusedClient, [this](KeyEvent& event) { return focusedClientStage(event); });
   }
   void Keyboard::applyConfig() {
     cancelRepeat();
@@ -328,7 +332,6 @@ namespace andromeda {
     } else {
       m_server->notifyIdleActivity();
     }
-    wlr_seat* seat = m_server->seat()->wlr();
 
     uint32_t keycode = event->keycode + 8;
     const xkb_keysym_t* syms = nullptr;
@@ -338,8 +341,6 @@ namespace andromeda {
     const uint32_t rawSym = rawShortcutKeysym(keymap, keycode, layout);
     const bool modifierOnly = nsyms > 0 && syms[0] >= XKB_KEY_Shift_L && syms[0] <= XKB_KEY_Hyper_R;
 
-    bool handled = false;
-    std::optional<Keybind> modifierTap;
     // An XF86 key can arrive from a dedicated hotkey device while its modifiers are held on the main keyboard. Match
     // against the combined seat-wide state so those chords behave like keys on one device.
     uint32_t modifiers = m_server->keyboardModifiers(true);
@@ -383,6 +384,32 @@ namespace andromeda {
         return;
       }
     }
+    KeyEvent keyEvent{.time_msec = event->time_msec, .keycode = event->keycode, .state = event->state};
+    const KeyContext context{
+        .syms = syms, .nsyms = nsyms, .rawSym = rawSym, .modifierOnly = modifierOnly, .modifiers = modifiers
+    };
+    m_context = &context;
+    m_pipeline.run(keyEvent);
+    m_context = nullptr;
+    // A modifier-only action runs after its release reaches the focused
+    // client, so opening a surface cannot strand the old focus with Mod held.
+    if (m_modifierTap.has_value()) {
+      const Keybind tap = *std::exchange(m_modifierTap, std::nullopt);
+      m_server->executeKeybindAction(tap);
+    }
+  }
+
+  KeyResult Keyboard::bindingsStage(KeyEvent& keyEvent) {
+    const KeyEvent* event = &keyEvent;
+    const KeyContext& ctx = *m_context;
+    const xkb_keysym_t* syms = ctx.syms;
+    const int nsyms = ctx.nsyms;
+    const uint32_t rawSym = ctx.rawSym;
+    const bool modifierOnly = ctx.modifierOnly;
+    const uint32_t modifiers = ctx.modifiers;
+    wlr_seat* seat = m_server->seat()->wlr();
+    bool handled = false;
+    std::optional<Keybind>& modifierTap = m_modifierTap;
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
       if (!modifierOnly && nsyms > 0) {
         m_server->cursor()->noteTyping();
@@ -515,29 +542,36 @@ namespace andromeda {
       handled = m_consumedKeycodes.erase(event->keycode) > 0;
     }
 
-    if (!handled) {
-      wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab();
-      if (grab != nullptr) {
-        wlr_input_method_keyboard_grab_v2_set_keyboard(grab, m_keyboard);
-        wlr_input_method_keyboard_grab_v2_send_key(grab, event->time_msec, event->keycode, event->state);
-      } else {
-        // Overview holds the seat, so windows see no keys until it closes. It never hands keyboard focus to a view
-        // while open (focusView skips the seat enter), so a non-null focus here is a layer surface that took it
-        // deliberately, e.g. a launcher panel; those keep typing.
-        const Overview* overview = m_server->overview();
-        const bool overviewOwnsKeyboard =
-            overview != nullptr && overview->active() && seat->keyboard_state.focused_surface == nullptr;
-        if (!overviewOwnsKeyboard) {
-          wlr_seat_set_keyboard(seat, m_keyboard);
-          wlr_seat_keyboard_notify_key(seat, event->time_msec, event->keycode, event->state);
-        }
-      }
+    return handled ? KeyResult::Consume : KeyResult::Pass;
+  }
+
+  KeyResult Keyboard::inputMethodStage(KeyEvent& event) {
+    wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab();
+    if (grab == nullptr) {
+      return KeyResult::Pass;
     }
-    // A modifier-only action runs after its release reaches the focused
-    // client, so opening a surface cannot strand the old focus with Mod held.
-    if (modifierTap.has_value()) {
-      m_server->executeKeybindAction(*modifierTap);
+    wlr_input_method_keyboard_grab_v2_set_keyboard(grab, m_keyboard);
+    wlr_input_method_keyboard_grab_v2_send_key(
+        grab, event.time_msec, event.keycode, static_cast<wl_keyboard_key_state>(event.state)
+    );
+    return KeyResult::Consume;
+  }
+
+  KeyResult Keyboard::focusedClientStage(KeyEvent& event) {
+    wlr_seat* seat = m_server->seat()->wlr();
+    // Overview holds the seat, so windows see no keys until it closes. It never hands keyboard focus to a view
+    // while open (focusView skips the seat enter), so a non-null focus here is a layer surface that took it
+    // deliberately, e.g. a launcher panel; those keep typing.
+    const Overview* overview = m_server->overview();
+    const bool overviewOwnsKeyboard =
+        overview != nullptr && overview->active() && seat->keyboard_state.focused_surface == nullptr;
+    if (!overviewOwnsKeyboard) {
+      wlr_seat_set_keyboard(seat, m_keyboard);
+      wlr_seat_keyboard_notify_key(
+          seat, event.time_msec, event.keycode, static_cast<wl_keyboard_key_state>(event.state)
+      );
     }
+    return KeyResult::Consume;
   }
 
   void Keyboard::handleDestroy() {

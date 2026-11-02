@@ -805,6 +805,7 @@ pure_sources = files(
   'src/input/lid_state.cpp',
   'src/input/modifier_tap.cpp',
   'src/input/swipe_tracker.cpp',
+  'src/input/key_pipeline.cpp',
   'src/input/keyboard_layout.cpp',
   'src/input/keyboard_leds.cpp',
   'src/input/keyboard_state.cpp',
