@@ -528,6 +528,8 @@ search = 40.0
 search_radius = "= component.sheet.radius - component.launcher.padding"
 columns = 6
 rows = 4
+cell_height = 112.0
+icon = 64.0
 
 [component.lock]  # 9.15
 dim = 0.2

@@ -123,6 +123,7 @@ private:
   void applyActiveCategory();
   void syncLauncherListStyle();
   void syncLauncherViewLayout(Renderer* renderer = nullptr);
+  void updatePageDots(std::size_t page, std::size_t pages);
   void queueResultsTransition(ResultsTransition transition);
   void animateResultsTransition();
   [[nodiscard]] bool shouldUseAppGrid() const;
@@ -160,6 +161,9 @@ private:
   Button* m_launcherGridButton = nullptr;
   Button* m_launcherPowerButton = nullptr;
   VirtualGridView* m_grid = nullptr;
+  Flex* m_pageDotsRow = nullptr;
+  std::vector<Flex*> m_pageDots;
+  bool m_pageDotsChanged = false;
   VirtualListView* m_launcherSections = nullptr;
   ScrollView* m_detailScroll = nullptr;
   Label* m_detailSubtitle = nullptr;

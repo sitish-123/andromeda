@@ -84,7 +84,9 @@ ScrollView::ScrollView() {
     dragMove(primaryPosition(data, m_orientation));
   });
   viewportArea->setOnAxisHandler([this](const InputArea::PointerData& data) {
-    if (!scrollable() || data.axis != scrollAxis(m_orientation)) {
+    // A pager also turns on a mouse wheel of the other axis; a touchpad swipe must match the axis.
+    const bool wheelPages = m_pageStep > 0.0F && data.axisSource != WL_POINTER_AXIS_SOURCE_FINGER;
+    if (!scrollable() || (data.axis != scrollAxis(m_orientation) && !wheelPages)) {
       return false;
     }
 

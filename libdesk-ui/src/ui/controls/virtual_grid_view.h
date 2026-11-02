@@ -143,6 +143,15 @@ public:
 
   void setOnSelectionChanged(std::function<void(std::optional<std::size_t>)> callback);
 
+  // Paged mode (rows > 0): pages of columns x rows slide horizontally, `pageGap` apart; a press-drag swipes,
+  // and a click activates on release. rows 0 = one vertically scrolling grid.
+  void setPaged(std::size_t rows, float pageGap);
+  [[nodiscard]] std::size_t pageCount() const noexcept { return m_pageCount; }
+  [[nodiscard]] std::size_t currentPage() const noexcept;
+  void scrollToPage(std::size_t page);
+  // Called after a layout or scroll when the current page or the page count changes.
+  void setOnPageChanged(std::function<void(std::size_t page, std::size_t pages)> callback);
+
   [[nodiscard]] ScrollView& scrollView() noexcept { return *m_scroll; }
 
 protected:
@@ -164,6 +173,8 @@ private:
   void onSecondaryPointerPress(float localX, float localY);
   [[nodiscard]] std::optional<std::size_t> indexAt(float localX, float localY) const noexcept;
   void cellLocalAt(float localX, float localY, std::size_t index, float& cellLocalX, float& cellLocalY) const noexcept;
+  void cellOrigin(std::size_t index, float& x, float& y) const noexcept;
+  void notifyPageChanged();
   [[nodiscard]] std::size_t visualCol(std::size_t col) const noexcept {
     return Style::rtl() ? m_layoutColumns - 1 - col : col;
   }
@@ -217,4 +228,18 @@ private:
   bool m_dragThresholdPassed = false;
   // Hides the hovered item's tooltip after an adapter-consumed press, until the hover target changes.
   bool m_tooltipSuppressed = false;
+
+  std::size_t m_pageRows = 0;
+  float m_pageGap = 0.0F;
+  float m_pageStride = 0.0F; // viewport width + page gap, from the last layout
+  std::size_t m_pageCount = 1;
+  std::optional<std::size_t> m_reportedPage;
+  std::size_t m_reportedPageCount = 0;
+  std::optional<std::size_t> m_pendingPage;
+  std::function<void(std::size_t, std::size_t)> m_onPageChanged;
+  // Paged mode: a left press not taken by the adapter; it swipes once past the drag threshold.
+  bool m_swipePress = false;
+  bool m_swiping = false;
+  std::optional<std::size_t> m_swipePressIndex;
+  float m_swipePressViewX = 0.0F;
 };
