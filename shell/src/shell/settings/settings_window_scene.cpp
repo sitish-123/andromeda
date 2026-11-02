@@ -1325,8 +1325,8 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
         .glyphSize = Style::fontSizeTitle * scale,
         .enabled = enabled,
         .variant = ButtonVariant::Ghost,
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .padding = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
         .onClick = [this, delta] { navigateHistory(delta); },
@@ -1373,7 +1373,7 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
 
   static const bool translatorMode = SysUtils::isEnvFlagOn("NOCTALIA_TRANSLATOR");
   if (translatorMode) {
-    row->addChild(makeLabel("en", Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Danger)));
+    row->addChild(makeLabel("en", Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::DangerText)));
     row->addChild(
         ui::toggle({
             .checked = m_forceEnTranslation,
@@ -1397,7 +1397,7 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
             .text = i18n::tr("settings.window.reset-page-confirm"),
             .fontSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Destructive,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
             .paddingV = Style::spaceXs * scale,
             .paddingH = Style::spaceSm * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -1411,7 +1411,7 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
             .text = i18n::tr("common.actions.cancel"),
             .fontSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
             .paddingV = Style::spaceXs * scale,
             .paddingH = Style::spaceSm * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -1429,8 +1429,8 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
           .glyph = "more-vertical",
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Ghost,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] { openActionsMenu(); },
@@ -1443,8 +1443,8 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
             .glyph = "close",
             .glyphSize = Style::fontSizeBody * scale,
             .variant = ButtonVariant::Default,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [this] { close(); },

@@ -240,7 +240,7 @@ namespace {
   // Island content inset from its pill edge; the bar's main-axis padding equals it so the pill's outer edge sits at
   // the bar's end margin.
   float barIslandInset(const BarConfig& config) {
-    return std::round(Tokens::componentIslandPaddingX * config.scale);
+    return std::round(Tokens::componentIslandInsetText * config.scale);
   }
 
 

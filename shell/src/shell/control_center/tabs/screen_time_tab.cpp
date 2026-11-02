@@ -324,7 +324,7 @@ std::unique_ptr<Flex> ScreenTimeTab::create() {
                 return;
               }
               if (Label* dayLabel = m_bucketColumns[bucketIndex].label; dayLabel != nullptr) {
-                dayLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+                dayLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
               }
               PanelManager::instance().requestRedraw();
             },
@@ -1097,7 +1097,7 @@ void ScreenTimeTab::syncDayLabelHover() {
     }
     const bool hovered = columnWidgets.labelHit != nullptr && columnWidgets.labelHit->hovered();
     columnWidgets.label->setColor(
-        hovered ? colorSpecFromRole(ColorRole::Accent) : colorSpecFromRole(ColorRole::Label2)
+        hovered ? colorSpecFromRole(ColorRole::AccentText) : colorSpecFromRole(ColorRole::Label2)
     );
   }
 }

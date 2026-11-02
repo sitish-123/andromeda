@@ -422,7 +422,7 @@ namespace settings {
             .out = &card,
             .contentAlign = ButtonContentAlign::Start,
             .customPalette = cardPaletteFor(checked),
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
             .paddingV = Style::spaceXs * scale,
             .paddingH = Style::spaceSm * scale,
             .gap = Style::spaceXs * scale,
@@ -436,7 +436,7 @@ namespace settings {
                 .scale = scale,
                 .checkedFill = colorSpecFromRole(ColorRole::SolidRegular),
                 .checkedBorder = colorSpecFromRole(ColorRole::OnAccent),
-                .checkedGlyph = colorSpecFromRole(ColorRole::Accent),
+                .checkedGlyph = colorSpecFromRole(ColorRole::AccentText),
             })
         );
 
@@ -473,11 +473,11 @@ namespace settings {
                   .out = &documentationButton,
                   .glyph = "external-link",
                   .glyphSize = Style::fontSizeBody * scale,
-                  .controlHeight = Style::controlHeightSm * scale,
+                  .controlHeight = Style::controlHeight * scale,
                   .variant = ButtonVariant::Ghost,
                   .tooltip = i18n::tr("settings.templates.documentation"),
-                  .width = Style::controlHeightSm * scale,
-                  .height = Style::controlHeightSm * scale,
+                  .width = Style::controlHeight * scale,
+                  .height = Style::controlHeight * scale,
                   .onClick = [url = option.documentationUrl] { (void)net::openInBrowser(url); },
                   .configure = [](Button& button) { button.setZIndex(2); },
               })
@@ -646,10 +646,10 @@ namespace settings {
             .glyph = "close",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
-            .maxWidth = Style::controlHeightSm * scale,
-            .maxHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
+            .maxWidth = Style::controlHeight * scale,
+            .maxHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [commitItems, items = keybinds.items, i] mutable {
@@ -692,7 +692,7 @@ namespace settings {
         });
         addRow->addChild(std::move(addRecorder));
         // Reserve the remove-button column so the add recorder lines up with the recorded ones.
-        addRow->addChild(ui::row({.width = Style::controlHeightSm * scale}));
+        addRow->addChild(ui::row({.width = Style::controlHeight * scale}));
 
         list->addChild(std::move(addRow));
       }
@@ -783,7 +783,7 @@ namespace settings {
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
         });
 
         Label* summaryLabel = nullptr;
@@ -806,7 +806,7 @@ namespace settings {
             .glyphSize = Style::fontSizeBody * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
             .minHeight = iconBtnH,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -825,7 +825,7 @@ namespace settings {
             .glyphSize = Style::fontSizeBody * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
             .minHeight = iconBtnH,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -844,8 +844,8 @@ namespace settings {
             .glyph = "settings",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [openEntry = ctx.openSessionActionEntryEditor, rowIndex = idx] {
@@ -918,7 +918,7 @@ namespace settings {
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
         });
 
         auto summary = ui::label({
@@ -936,7 +936,7 @@ namespace settings {
             .glyphSize = Style::fontSizeBody * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
             .minHeight = iconBtnH,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -955,7 +955,7 @@ namespace settings {
             .glyphSize = Style::fontSizeBody * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
             .minHeight = iconBtnH,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
@@ -974,8 +974,8 @@ namespace settings {
             .glyph = "settings",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [openEntry = ctx.openIdleBehaviorEntryEditor, rowIndex = idx] {
@@ -1043,7 +1043,7 @@ namespace settings {
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
         });
 
         auto summary = ui::label({
@@ -1058,8 +1058,8 @@ namespace settings {
             .glyph = "settings",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [openEntry = ctx.openNotificationFilterEntryEditor, rowIndex = idx] {

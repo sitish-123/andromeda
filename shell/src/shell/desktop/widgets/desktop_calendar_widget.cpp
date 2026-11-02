@@ -28,7 +28,7 @@ namespace {
   constexpr float kWidgetHeight = 390.0F;
   TOKENS_LIVE(kSectionGap, Style::spaceLg);
   TOKENS_LIVE(kGridGap, Style::spaceXs);
-  constexpr float kHeaderHeight = Style::controlHeight;
+  TOKENS_LIVE(kHeaderHeight, Style::controlHeight);
   constexpr float kWeekdayHeight = 20.0F;
   constexpr float kDayCellHeight = 43.0F;
   constexpr float kDayButtonSize = 34.0F;
@@ -78,7 +78,7 @@ void DesktopCalendarWidget::create() {
           .fontSize = Style::fontSizeTitle * contentScale(),
           .fontWeight = FontWeight::Medium,
           .fontFamily = m_fontFamily,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
           .configure = [this](Label& label) {
             label.setHitTestVisible(true);

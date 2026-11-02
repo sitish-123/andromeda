@@ -56,8 +56,6 @@ namespace andromeda {
       bool started = false;
       // A retarget keeps moving on its start frame; a fresh animation shows its start value first.
       bool stepOnStart = false;
-      uint32_t startMs = 0;
-      Value from{};
       Value to{};
       std::array<desk::motion::Spring, 4> springs{};
     };

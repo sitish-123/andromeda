@@ -93,7 +93,7 @@ namespace {
     }
     ctx.view->addChild(ui::row({.height = Style::spaceSm * ctx.scale}));
     ctx.view->addChild(makeMarkdownLabel(
-        ctx.textBuf, fontSize, ctx.scale * ctx.fontScale, ColorRole::Accent, FontWeight::Bold, true, 1
+        ctx.textBuf, fontSize, ctx.scale * ctx.fontScale, ColorRole::AccentText, FontWeight::Bold, true, 1
     ));
     ctx.view->addChild(ui::separator({.spacing = Style::spaceXs * ctx.scale * 0.5F}));
   }

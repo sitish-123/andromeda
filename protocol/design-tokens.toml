@@ -1,113 +1,198 @@
-# The design system's fixed values (docs/design-system.md). protocol/gen-design-tokens.py turns this file into the
-# C++ header the shell and the compositor build with. Floats stay floats, integers stay integers, "#rrggbbaa"
-# strings become packed RGBA colors, other strings become string views. A table whose children are tables with the
-# same keys (scheme.light / scheme.dark, type.*, elevation.*, spring.*) becomes a struct with one constant per child.
+# The rulebook's values as data (docs/design/rulebook.md wins where they differ). protocol/gen-design-tokens.py turns
+# this file into the C++ header the shell and the compositor build with, CSS, GTK, Qt, KDE and fcitx5 themes.
+# Floats stay floats, integers stay integers, "#rrggbbaa" strings become packed RGBA colors, other strings become
+# string views. A table whose children are tables with the same keys (scheme.*, type.*, elevation.*, spring.*)
+# becomes a struct with one constant per child. A string "= a.b - c.d" is computed from other tokens.
+# Every length is logical px at ui_scale 1 and a multiple of 4 (rulebook R1); 2 only inside controls of 32 or less.
 
-[radius]  # px; a nested radius is the outer radius minus the padding
+[radius]  # rulebook 2.1; nested radius = outer radius - padding (R7)
 # Corner smoothing (0 = circular arc, 0.6 = iOS continuous corner). A corner of radius r becomes a superellipse that
 # starts r x (1 + 0.88 s) from the corner with exponent 2 + 5 s; a corner that cannot grow (pill, circle) stays round.
 smoothing = 0.6
-xs = 6.0
-sm = 10.0
-md = 14.0
-lg = 20.0
-xl = 28.0
+r4 = 4.0
+r8 = 8.0
+r12 = 12.0
+r16 = 16.0
+r20 = 20.0
+r24 = 24.0
+r28 = 28.0
 pill = 999.0
 
-[space]  # px, 4-point grid
-s1 = 4.0
-s2 = 8.0
-s3 = 12.0
-s4 = 16.0
-s5 = 20.0
-s6 = 24.0
+[space]  # rulebook 2.1
+p2 = 2.0             # inside controls of height 32 or less only
+p4 = 4.0
+p8 = 8.0
+p12 = 12.0
+p16 = 16.0
+p20 = 20.0
+p24 = 24.0
+p32 = 32.0
+p40 = 40.0
+p48 = 48.0
+p64 = 64.0
+chrome_gap = 8.0     # R8: floating chrome to the screen edge and to other chrome
+
+[size]  # rulebook 2.1
+control_s = 24.0
+control_m = 32.0
+control_l = 40.0
+control_xl = 48.0    # touch
+row_compact = 32.0
+row = 40.0
+row_two_compact = 48.0
+row_two = 56.0
+symbol_inline = 12.0
+symbol = 16.0
+symbol_l = 20.0
+hit_min = 24.0
+hit_touch = 40.0
 
 [font]
 family = "Inter"
 
-# line_height is a multiple of size (CSS line-height); a label box is size x line_height, text centered in it.
-
-[type.mini]
-size = 11.0
-weight = 500
-line_height = 1.25
+# line is the line box in px (a multiple of 4); tracking in em, from Inter's dynamic metrics
+# (-0.0223 + 0.185 e^(-0.1745 size)). A label box is one line box per line, text centred in it.
 [type.caption]
-size = 11.5
+size = 11.0
+line = 16.0
 weight = 500
-line_height = 1.25
+tracking = 0.0048
+[type.footnote]
+size = 12.0
+line = 16.0
+weight = 400
+tracking = 0.0005
 [type.body]
 size = 13.0
-weight = 500
-line_height = 1.3
-[type.title]
-size = 13.5
+line = 16.0
+weight = 400
+tracking = -0.0032
+[type.paragraph]
+size = 13.0
+line = 20.0
+weight = 400
+tracking = -0.0032
+[type.headline]
+size = 13.0
+line = 16.0
 weight = 600
-line_height = 1.25
-[type.large]
+tracking = -0.0032
+[type.title3]
 size = 15.0
+line = 20.0
 weight = 600
-line_height = 1.2
-[type.header]
-size = 20.0
+tracking = -0.0088
+[type.title2]
+size = 17.0
+line = 24.0
 weight = 600
-line_height = 1.2
+tracking = -0.0128
+[type.title1]
+size = 22.0
+line = 28.0
+weight = 600
+tracking = -0.0183
+[type.large]
+size = 28.0
+line = 32.0
+weight = 600
+tracking = -0.0209
+[type.display]
+size = 34.0
+line = 40.0
+weight = 500
+tracking = -0.0218
+[type.hero]
+size = 80.0
+line = 80.0
+weight = 300
+tracking = -0.0223
 
-# Semantic color roles. tint_* is a material's fill over the compositor blur; solid_* replaces it when reduce
-# transparency is on. The accent is the default; the live accent setting overrides it. window..separator are the
-# opaque backgrounds for GTK and Qt apps ({{tokens.<role>.<format>}} in shell templates).
+[type_rules]
+glass_weight_add = 100   # body and footnote on glass: 400 -> 500
+text_scale_s = 0.92
+text_scale_l = 1.15
+text_scale_xl = 1.3
+
+# Colour roles (rulebook 4.1). Labels and fills are black (light) or white (dark) at an opacity. tint_* is a
+# material's fill over the compositor blur; solid_* replaces it when reduce transparency is on. accent / danger are
+# fills with white content on them; accent_text / danger_text are for symbols and text on planes. window..separator
+# are the opaque backgrounds for GTK and Qt apps. shadow is the elevation colour; the level gives the opacity.
 [scheme.light]
 label_1 = "#141418eb"
-label_2 = "#14141894"
-label_3 = "#1414185c"
-fill_1 = "#ffffff9e"
-fill_2 = "#0000000d"
-fill_3 = "#00000017"
+label_2 = "#1414189e"
+label_3 = "#14141861"
+fill_1 = "#0000000a"
+fill_2 = "#00000014"
+fill_3 = "#0000001f"
+separator = "#00000014"
+stroke = "#00000012"
+edge = "#ffffffbf"
+lens = "#ffffffeb"
+lens_edge = "#00000000"
 tint_thin = "#f6f6fa8c"
 tint_regular = "#ffffff9e"
 tint_thick = "#ffffffc2"
 solid_thin = "#ececf1ff"
 solid_regular = "#f2f2f6ff"
 solid_thick = "#f8f8faff"
-stroke = "#00000014"
-edge = "#ffffff8c"
-accent = "#2f6bffff"
+accent = "#5147e5ff"
+accent_text = "#5147e5ff"
 on_accent = "#ffffffff"
-danger = "#ff3b30ff"
-shadow = "#00000038"
+danger = "#d93025ff"
+danger_text = "#d93025ff"
+warning = "#b45309ff"
+success = "#1a7f37ff"
+slider_fill = "#ffffffef"
+on_slider_fill = "#1414189e"
+slider_track = "#00000033"
+slider_edge = "#00000012"
+scrim = "#00000033"
+shadow = "#141428ff"
 window = "#f2f2f6ff"
 view = "#ffffffff"
 card = "#ffffffff"
 header = "#ececf1ff"
 popover = "#f8f8faff"
 sidebar = "#ececf1ff"
-separator = "#0000001f"
 
 [scheme.dark]
-label_1 = "#f5f5f7eb"
-label_2 = "#f5f5f794"
-label_3 = "#f5f5f75c"
-fill_1 = "#ffffff1a"
-fill_2 = "#ffffff0d"
-fill_3 = "#ffffff1f"
+label_1 = "#f4f4f6eb"
+label_2 = "#f4f4f69e"
+label_3 = "#f4f4f661"
+fill_1 = "#ffffff0f"
+fill_2 = "#ffffff1a"
+fill_3 = "#ffffff29"
+separator = "#ffffff14"
+stroke = "#ffffff14"
+edge = "#ffffff1f"
+lens = "#ffffff24"
+lens_edge = "#ffffff2e"
 tint_thin = "#1c1c208c"
 tint_regular = "#1c1c20b3"
 tint_thick = "#202024d6"
 solid_thin = "#1c1c20ff"
 solid_regular = "#222226ff"
 solid_thick = "#28282cff"
-stroke = "#ffffff14"
-edge = "#ffffff1f"
-accent = "#4a80ffff"
+accent = "#6159f5ff"
+accent_text = "#8c85ffff"
 on_accent = "#ffffffff"
-danger = "#ff453aff"
-shadow = "#00000066"
+danger = "#d93025ff"
+danger_text = "#ff6b5eff"
+warning = "#f5a524ff"
+success = "#3fb950ff"
+slider_fill = "#ffffffeb"
+on_slider_fill = "#0000009e"
+slider_track = "#ffffff1a"
+slider_edge = "#00000000"
+scrim = "#00000066"
+shadow = "#000000ff"
 window = "#1e1e22ff"
 view = "#18181bff"
 card = "#28282cff"
 header = "#222226ff"
 popover = "#28282cff"
 sidebar = "#1c1c20ff"
-separator = "#ffffff1a"
 
 # One blur recipe for every material, drawn by the compositor and cached while the backdrop is static.
 [blur]
@@ -124,138 +209,325 @@ brightness = 1.05
 contrast = 1.0
 saturation = 1.8
 
-# Drawn by the compositor. softness and offset in px; opacity scales the scheme's shadow color.
-[elevation.e1]  # the bar island and rest pill shadow
-softness = 8
-offset_x = 0
-offset_y = 2
-opacity = 0.9
-[elevation.e2]
-softness = 48
-offset_x = 0
-offset_y = 18
-opacity = 1.0
+# Drawn by the compositor (rulebook 5.4). Two shadows per level: key (y = 3/8 of blur) and contact. blur and y in px;
+# opacity scales the scheme's shadow colour, per scheme. e0 (stroke only) has no entry.
+[elevation.e1]  # the lens, toggle and slider knobs
+key_y = 1.0
+key_blur = 2.0
+key_light = 0.10
+key_dark = 0.30
+contact_y = 0.0
+contact_blur = 0.0
+contact_light = 0.0
+contact_dark = 0.0
+[elevation.e2]  # float plane: bar islands, dock, center island at rest
+key_y = 6.0
+key_blur = 16.0
+key_light = 0.12
+key_dark = 0.30
+contact_y = 1.0
+contact_blur = 4.0
+contact_light = 0.08
+contact_dark = 0.20
+[elevation.e3]  # over plane: sheets, menus, banners, tooltips, inactive windows
+key_y = 12.0
+key_blur = 32.0
+key_light = 0.16
+key_dark = 0.40
+contact_y = 2.0
+contact_blur = 8.0
+contact_light = 0.08
+contact_dark = 0.24
+[elevation.e4]  # active windows, dialogs
+key_y = 24.0
+key_blur = 64.0
+key_light = 0.22
+key_dark = 0.50
+contact_y = 2.0
+contact_blur = 8.0
+contact_light = 0.10
+contact_dark = 0.30
 
-[motion]  # ms
-fast = 120
-normal = 200
-slow = 320
-
-# damping is the ratio to critical damping: 1.0 settles without overshoot.
-[spring.standard]
-stiffness = 900.0
-damping = 1.0
-[spring.snappy]
-stiffness = 1400.0
-damping = 1.0
-[spring.bouncy]
-stiffness = 700.0
-damping = 0.8
-
-# Presets by use (docs: .agent/anim-research.md). Spatial springs may overshoot; effects (opacity, blur) never do.
-[spring.open]
-stiffness = 380.0
+# Springs (rulebook 7.2), mass 1. stiffness = (2 pi / response)^2, damping = ratio to critical = 1 - bounce.
+# Spatial springs may overshoot; effect springs (fade, fade_out) never do. There are no duration animations.
+[spring.snap]      # response 0.26 s, bounce 0.20: lens leading edge, toggle knob, small control positions
+stiffness = 584.0
+damping = 0.80
+[spring.trail]     # response 0.34 s, bounce 0.20: lens trailing edge
+stiffness = 341.5
+damping = 0.80
+[spring.move]      # response 0.35 s, bounce 0.10: reflow, banner stack, tiling
+stiffness = 322.3
+damping = 0.90
+[spring.open]      # response 0.42 s, bounce 0.22: Grow from a source
+stiffness = 223.8
+damping = 0.78
+[spring.close]     # response 0.28 s, bounce 0: Return, dismissals
+stiffness = 503.6
+damping = 1.00
+[spring.morph]     # response 0.46 s, bounce 0.28: center island expands
+stiffness = 186.6
+damping = 0.72
+[spring.collapse]  # response 0.32 s, bounce 0.10: center island returns to rest
+stiffness = 385.5
+damping = 0.90
+[spring.page]      # response 0.32 s, bounce 0.05: pages, workspaces, gesture release with velocity
+stiffness = 385.5
+damping = 0.95
+[spring.press]     # response 0.12 s, bounce 0
+stiffness = 2741.6
+damping = 1.00
+[spring.release]   # response 0.32 s, bounce 0.35
+stiffness = 385.5
 damping = 0.65
-[spring.close]
-stiffness = 500.0
-damping = 1.0
-[spring.island_expand]
-stiffness = 200.0
-damping = 0.6
-[spring.island_collapse]
-stiffness = 380.0
-damping = 0.85
-[spring.page]
-stiffness = 700.0
-damping = 0.9
-[spring.press]
-stiffness = 1500.0
-damping = 1.0
-[spring.release]
-stiffness = 800.0
-damping = 0.6
-[spring.effects]
-stiffness = 1600.0
-damping = 1.0
-[spring.effects_fast]
-stiffness = 3800.0
-damping = 1.0
+[spring.fade]      # response 0.16 s, bounce 0: opacity, colour, blur in
+stiffness = 1542.1
+damping = 1.00
+[spring.fade_out]  # response 0.10 s, bounce 0: opacity, colour, blur out
+stiffness = 3947.8
+damping = 1.00
 
-# Component anatomy (docs/design-system.md "Components", docs/design/reference.html). px at scale 1.
-# A value equal to a scale token says so in its comment. A string "= a.b - c.d" is computed from other tokens: every
-# nested radius is "= <outer radius> - <outer padding>", so it cannot drift from its container.
-[component.island]
-height = 34.0
-margin = 8.0         # from the screen edge and between an island and its sheet
-padding_x = 16.0     # s4
-gap = 12.0           # s3
+[motion]  # rulebook 7.4 / 7.7
+content_gate = 0.35      # content fades in after this fraction of the shape's travel
+face_gate = 0.5          # Morph: the incoming face fades in after this fraction
+return_face_gate = 0.7   # Return: the source face fades back in after this fraction of the close travel
+stagger_ms = 16
+stagger_max = 6
+face_scale = 0.92
+face_blur = 8.0
+press_scale_small = 0.96 # items up to 96 px
+press_scale_medium = 0.98 # items up to 240 px
+slop = 8.0
+rubber_band = 0.55
+projection_decay = 0.998
+open_velocity = 300.0    # px/s toward open
+loading_delay_ms = 200
+loading_min_ms = 400
+
+# Component anatomy (rulebook 9). A value equal to a scale token says so in its comment; a nested radius is an
+# expression so it cannot drift from its container.
+[component.island]  # 9.1
+height = 32.0
+inset_symbol = 8.0   # R5: (32 - 16) / 2
+inset_text = 12.0    # R5: 32 x 3/8
+gap = 8.0            # inside a group
+group_gap = 12.0     # between groups (R3)
 icon = 16.0
-logo = 18.0
-dot = 7.0            # workspace dot
-dot_active_width = 20.0
-dot_active_radius = 4.0
-dot_gap = 5.0
+cell = 24.0          # workspace cell, capsule
+cell_inset = 4.0     # R7: 16 - 4 = 12 = capsule 24
+divider_height = 12.0
+privacy_dot = 6.0
 
 [component.island_center]
-rest_width = 160.0   # rest pill of the always-on center island
+rest_width = 160.0
+osd_width = 240.0
+osd_height = 40.0
+expanded_width = 360.0
+live_height = 56.0
+live_padding = 8.0   # R5: (56 - 40) / 2
+live_lead = 40.0
+banner_height = 88.0 # 12 + 64 + 12; media uses the same height
+banner_radius = 24.0
+banner_padding = 12.0
+banner_icon = 32.0
+art = 48.0
+art_radius = "= component.island_center.banner_radius - component.island_center.banner_padding"
+level_height = 4.0
 
-[component.live]
-height = 52.0
-radius = 26.0
-padding = 8.0        # s2
-gap = 12.0           # s3
-lead = 36.0          # round leading icon
-button = 36.0
-progress_width = 150.0
-progress_height = 6.0
-tint = "#16161acc"   # dark in both schemes; labels are white
-
-[component.sheet]
+[component.sheet]  # 9.3
 width = 360.0
-radius = 28.0        # xl
-padding = 12.0       # s3
-gap = 8.0            # s2
+radius = 28.0        # r28
+padding = 12.0
+gap = 8.0
+column = 164.0       # (360 - 24 - 8) / 2
 open_drag = 240.0    # drag distance that opens the sheet fully from its island
 
-[component.card]
+[component.tile]
+height = 56.0
 radius = "= component.sheet.radius - component.sheet.padding"
-padding = 12.0       # s3
-row_gap = 12.0       # between the rows of the connectivity card; icon to text in a wide row
-small_gap = 8.0      # icon to text in a small card
+padding = 12.0
+gap = 12.0           # R4: round icon to text
 
 [component.round_icon]
-size = 30.0
+size = 32.0
 glyph = 16.0
-action = 32.0        # phone card actions
-action_gap = 6.0
+action = 32.0
+action_gap = 8.0
 
-[component.slider]
-height = 40.0
+[component.slider]  # sheet slider pill
+height = 48.0
 radius = "= component.sheet.radius - component.sheet.padding"
-icon_inset = 14.0
-value_inset = 16.0
-fill = "#ffffffff"   # white in both schemes; the icon on it is black 60 %
+inset = 16.0         # symbol and value: (48 - 16) / 2
 
 [component.media]
-art = 40.0
-art_radius = "= component.card.radius - component.card.padding"
-controls_gap = 12.0  # s3
+height = 72.0
+padding = 8.0        # image-led card
+art = 56.0
+art_radius = "= component.tile.radius - component.media.padding"
+controls_gap = 8.0
 
-[component.dock]
-margin = 12.0
-padding = 10.0
-radius = 30.0
-gap = 10.0
-icon = 54.0
-icon_radius = "= component.dock.radius - component.dock.padding"
-running_width = 14.0
-running_height = 3.0
-running_offset = 4.0 # gap between the icon and the running bar
-separator_inset = 8.0
+[component.page_dots]
+row = 16.0
+dot = 6.0
+current_width = 16.0
+gap = 6.0
+
+[component.dock]  # 9.4
+height = 64.0
+radius = 24.0        # r24
+padding = 8.0
+gap = 8.0
+icon = 48.0
+lens = 56.0
+lens_radius = "= component.dock.radius - component.dock.lens_inset"
+lens_inset = 4.0
+running_dot = 4.0
+separator_height = 32.0
 
 [component.badge]
-height = 18.0
-overhang = 4.0       # past the icon's top and side edges
-padding_x = 5.0
-font = 11.0
-font_weight = 600
+height = 16.0
+padding_x = 4.0
+overhang = 4.0
+
+[component.button]  # 9.5; capsules
+height_s = 24.0
+height_m = 32.0
+height_l = 40.0
+inset_s = 8.0
+inset_m = 12.0
+inset_l = 16.0
+min_width_s = 48.0
+min_width_m = 64.0
+min_width_l = 80.0
+gap = 8.0
+
+[component.field]  # 9.6
+height = 32.0
+radius = 8.0
+inset = 12.0
+symbol_inset = 8.0
+
+[component.segmented]
+height = 32.0
+inset = 2.0
+
+[component.tabs]
+height = 40.0
+radius = 12.0
+padding = 4.0
+tab_radius = "= component.tabs.radius - component.tabs.padding"
+
+[component.toggle]
+width = 40.0
+height = 24.0
+knob = 20.0
+inset = 2.0
+press_widen = 6.0
+
+[component.check]
+size = 16.0
+radius = 4.0
+radio_dot = 6.0
+
+[component.range]  # slider in windows
+track = 4.0
+knob = 20.0
+hit = 24.0
+
+[component.list]  # 9.7
+card_radius = 12.0
+card_padding = 4.0
+row_radius = "= component.list.card_radius - component.list.card_padding"
+row_inset = 12.0
+header_gap = 8.0
+group_gap = 24.0
+table_header = 32.0
+
+[component.sidebar]
+width = 240.0
+padding = 8.0
+row = 32.0
+row_radius = 8.0
+row_inset = 8.0
+group_top = 16.0
+group_bottom = 4.0
+
+[component.grid]
+cell_width = 96.0
+cell_height = 112.0
+icon = 64.0
+gap = 8.0
+
+[component.scrollbar]
+width = 4.0
+hover_width = 8.0
+inset = 2.0
+min_length = 32.0
+hide_ms = 800
+
+[component.menu]  # 9.9
+radius = 12.0
+padding = 4.0
+item = 28.0
+item_radius = "= component.menu.radius - component.menu.padding"
+item_inset = 8.0
+header = 24.0
+separator = 8.0
+min_width = 160.0
+max_width = 320.0
+submenu_delay_ms = 200
+
+[component.popover]
+radius = 20.0
+padding = 12.0
+offset = 8.0
+
+[component.dialog]  # 9.10
+alert_width = 320.0
+width = 480.0
+radius = 24.0
+padding = 24.0
+header = 56.0
+
+[component.tooltip]  # 9.11
+height = 24.0
+radius = 8.0
+padding_x = 8.0
+offset = 8.0
+delay_ms = 600
+
+[component.toast]
+height = 40.0
+
+[component.notification]
+timeout_ms = 5000
+stack_visible = 3
+stack_offset = 8.0
+stack_scale = 0.96
+
+[component.window]  # 9.12
+radius = 20.0
+title_bar = 40.0
+header = 48.0
+button = 24.0
+button_inset = 8.0
+resize_band = 8.0
+
+[component.launcher]  # 9.14
+width = 648.0
+padding = 16.0
+search = 40.0
+search_radius = "= component.sheet.radius - component.launcher.padding"
+columns = 6
+rows = 4
+
+[component.lock]  # 9.15
+dim = 0.2
+password_width = 240.0
+password_height = 40.0
+avatar = 64.0
+
+[component.page]  # window content, 8
+padding = 24.0
+padding_compact = 16.0
+column = 640.0

@@ -229,7 +229,7 @@ namespace capture {
               .gradientStops =
                   {GradientStop{0.0F, start}, GradientStop{0.0F, start}, GradientStop{1.0F, end},
                    GradientStop{1.0F, end}},
-              .radius = Style::radiusSm,
+              .radius = Tokens::radiusR8,
               .borderWidth = selected ? 2.5F : Style::borderWidth,
           }
       );
@@ -1332,7 +1332,7 @@ namespace capture {
         .paddingV = Style::spaceSm,
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(toolbarFill),
-        .radius = Style::radiusXl,
+        .radius = Tokens::radiusR20,
         .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
     });
@@ -1341,7 +1341,7 @@ namespace capture {
       return static_cast<Separator*>(toolbar->addChild(
           ui::separator({
               .orientation = SeparatorOrientation::VerticalRule,
-              .height = Style::controlHeightSm * 0.6F,
+              .height = Style::controlHeight * 0.6F,
           })
       ));
     };
@@ -1412,7 +1412,7 @@ namespace capture {
             .maxWidth = kStrokeButtonSize,
             .maxHeight = kStrokeButtonSize,
             .padding = 0.0F,
-            .radius = Style::radiusSm,
+            .radius = Tokens::radiusR8,
             .width = kStrokeButtonSize,
             .height = kStrokeButtonSize,
             .onClick = [this] { toggleStrokePanel(); },
@@ -2737,7 +2737,7 @@ namespace capture {
         .paddingV = Style::spaceMd,
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(panelFill),
-        .radius = Style::radiusXl,
+        .radius = Tokens::radiusR20,
         .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
         .width = kBackdropPanelContentWidth + (2.0F * Style::spaceMd),
@@ -2782,10 +2782,10 @@ namespace capture {
           .out = &valueInput,
           .value = formatBackdropValue(spec, value),
           .fontSize = Style::fontSizeCaption,
-          .controlHeight = Style::controlHeightSm,
+          .controlHeight = Style::controlHeight,
           .horizontalPadding = Style::spaceXs,
           .width = kBackdropValueWidth,
-          .height = Style::controlHeightSm,
+          .height = Style::controlHeight,
       });
 
       Slider* slider = nullptr;
@@ -3052,7 +3052,7 @@ namespace capture {
         .paddingV = Style::spaceMd,
         .paddingH = Style::spaceMd,
         .fill = fixedColorSpec(panelFill),
-        .radius = Style::radiusXl,
+        .radius = Tokens::radiusR20,
         .border = colorSpecFromRole(ColorRole::Stroke),
         .borderWidth = Style::borderWidth,
         .visible = false,
@@ -3073,7 +3073,7 @@ namespace capture {
               .maxWidth = kSwatchSize,
               .maxHeight = kSwatchSize,
               .padding = 0.0F,
-              .radius = Style::radiusSm,
+              .radius = Tokens::radiusR8,
               .width = kSwatchSize,
               .height = kSwatchSize,
               .onClick = [this, color] { setToolColor(color); },

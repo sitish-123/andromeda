@@ -39,7 +39,7 @@ namespace control_center {
 
   std::unique_ptr<Flex> makeCardHeaderRow(const std::string& title, float scale) {
     return ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = Style::controlHeightSm * scale},
+        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = Style::controlHeight * scale},
         ui::label({
             .text = title,
             .fontSize = Style::fontSizeBody * scale,

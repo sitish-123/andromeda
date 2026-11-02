@@ -9,7 +9,7 @@ A palette is the set of colors selected by [`[theme]`](/noctalia/theming/). The 
 
 ## Color Roles
 
-The shell draws with the 12 color roles below. Their values come from the `[scheme.light]` and `[scheme.dark]` tables of `protocol/design-tokens.toml`, so the shell looks the same with every palette source. The palette source (built-in, wallpaper, community or custom) colors only the [templates](/noctalia/theming/templates/) for terminals and other apps.
+The shell draws with the 26 color roles below. Their values come from the `[scheme.light]` and `[scheme.dark]` tables of `protocol/design-tokens.toml`, so the shell looks the same with every palette source. The palette source (built-in, wallpaper, community or custom) colors only the [templates](/noctalia/theming/templates/) for terminals and other apps.
 
 User-facing color settings use these lowercase `snake_case` names. Fixed hex colors (`#RGB`, `#RGBA`, `#RRGGBB`, `#RRGGBBAA`) are supported where a deliberately non-palette color is needed.
 
@@ -27,6 +27,20 @@ User-facing color settings use these lowercase `snake_case` names. Fixed hex col
 | `on_accent`     | Text and icons placed on `accent` or `danger`.              |
 | `danger`        | Error and destructive-action color.                         |
 | `shadow`        | Shadow and scrim color.                                     |
+| `label_3`       | Tertiary text, disabled content and placeholders.           |
+| `tint_regular`  | Regular glass fill over the compositor blur.                |
+| `tint_thick`    | Thick glass fill for sheets, panels and the expanded island. |
+| `accent_text`   | Accent for text and symbols on planes (`accent` is a fill). |
+| `danger_text`   | Danger for text and symbols on planes (`danger` is a fill). |
+| `separator`     | Hairlines between rows and groups.                          |
+| `lens`          | The moving selection plane.                                 |
+| `lens_edge`     | Inner edge of the lens (dark scheme).                       |
+| `warning`       | Warning text and symbols.                                   |
+| `success`       | Success text and symbols.                                   |
+| `slider_fill`   | Level of a sheet slider.                                    |
+| `on_slider_fill`| Symbol and value drawn over the slider level.               |
+| `slider_track`  | Track of a sheet slider.                                    |
+| `slider_edge`   | 1 px inner edge drawn over the slider level.                |
 
 The former Material role names (`primary`, `on_surface`, `surface_container`, `outline_variant` and the others) still work in config files and plugins. Each one maps to the nearest token role: for example `primary`, `secondary` and `tertiary` all map to `accent`, and `on_surface_variant` maps to `label_2`.
 

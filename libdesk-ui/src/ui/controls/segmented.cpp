@@ -214,7 +214,7 @@ Segmented::makeSegmentButton(std::string_view label, std::string_view glyph, std
 
 void Segmented::applyButtonMetrics(Button& button) const {
   if (m_compact) {
-    button.setMinHeight(Style::controlHeightSm * m_scale);
+    button.setMinHeight(Style::controlHeight * m_scale);
     button.setPadding(Style::spaceXs * m_scale, Style::spaceSm * m_scale);
     return;
   }

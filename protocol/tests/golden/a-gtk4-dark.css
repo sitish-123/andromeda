@@ -1,13 +1,15 @@
 /* Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py (dark). Do not edit. */
-@define-color accent_color #e0a020;
+@define-color accent_color #7be04f;
 @define-color accent_bg_color #e0a020;
 @define-color accent_fg_color #fdf7eb;
 @define-color destructive_bg_color #1a4eb6;
 @define-color destructive_fg_color #fdf7eb;
-@define-color destructive_color #1a4eb6;
+@define-color destructive_color #ff8a6b;
 @define-color error_bg_color #1a4eb6;
 @define-color error_fg_color #fdf7eb;
-@define-color error_color #1a4eb6;
+@define-color error_color #ff8a6b;
+@define-color warning_color #f0b030;
+@define-color success_color #4fd081;
 @define-color window_bg_color #54fc4c;
 @define-color window_fg_color #4ade06;
 @define-color view_bg_color #715317;
@@ -37,15 +39,17 @@
 @define-color headerbar_backdrop_color @window_bg_color;
 @define-color sidebar_backdrop_color @window_bg_color;
 :root {
-  --accent-color: #e0a020;
+  --accent-color: #7be04f;
   --accent-bg-color: #e0a020;
   --accent-fg-color: #fdf7eb;
   --destructive-bg-color: #1a4eb6;
   --destructive-fg-color: #fdf7eb;
-  --destructive-color: #1a4eb6;
+  --destructive-color: #ff8a6b;
   --error-bg-color: #1a4eb6;
   --error-fg-color: #fdf7eb;
-  --error-color: #1a4eb6;
+  --error-color: #ff8a6b;
+  --warning-color: #f0b030;
+  --success-color: #4fd081;
   --window-bg-color: #54fc4c;
   --window-fg-color: #4ade06;
   --view-bg-color: #715317;
@@ -66,5 +70,5 @@
   --secondary-sidebar-fg-color: #4ade06;
   --sidebar-border-color: rgba(2, 6, 14, 0.502);
   --border-color: rgba(2, 6, 14, 0.502);
-  --window-radius: 12.0px;
+  --window-radius: 18.0px;
 }

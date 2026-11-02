@@ -96,6 +96,28 @@ const Color& colorForRole(ColorRole role) noexcept {
     return palette.tintThick;
   case ColorRole::Label3:
     return palette.label3;
+  case ColorRole::AccentText:
+    return palette.accentText;
+  case ColorRole::DangerText:
+    return palette.dangerText;
+  case ColorRole::Separator:
+    return palette.separator;
+  case ColorRole::Lens:
+    return palette.lens;
+  case ColorRole::LensEdge:
+    return palette.lensEdge;
+  case ColorRole::Warning:
+    return palette.warning;
+  case ColorRole::Success:
+    return palette.success;
+  case ColorRole::SliderFill:
+    return palette.sliderFill;
+  case ColorRole::OnSliderFill:
+    return palette.onSliderFill;
+  case ColorRole::SliderTrack:
+    return palette.sliderTrack;
+  case ColorRole::SliderEdge:
+    return palette.sliderEdge;
   }
 
   return palette.label1;
@@ -209,6 +231,17 @@ Palette lerpPalette(const Palette& a, const Palette& b, float t) {
       .tintRegular = lerpColor(a.tintRegular, b.tintRegular, t),
       .tintThick = lerpColor(a.tintThick, b.tintThick, t),
       .label3 = lerpColor(a.label3, b.label3, t),
+      .accentText = lerpColor(a.accentText, b.accentText, t),
+      .dangerText = lerpColor(a.dangerText, b.dangerText, t),
+      .separator = lerpColor(a.separator, b.separator, t),
+      .lens = lerpColor(a.lens, b.lens, t),
+      .lensEdge = lerpColor(a.lensEdge, b.lensEdge, t),
+      .warning = lerpColor(a.warning, b.warning, t),
+      .success = lerpColor(a.success, b.success, t),
+      .sliderFill = lerpColor(a.sliderFill, b.sliderFill, t),
+      .onSliderFill = lerpColor(a.onSliderFill, b.onSliderFill, t),
+      .sliderTrack = lerpColor(a.sliderTrack, b.sliderTrack, t),
+      .sliderEdge = lerpColor(a.sliderEdge, b.sliderEdge, t),
   };
 }
 
@@ -230,5 +263,16 @@ Palette tokenPalette(bool light) noexcept {
       .tintRegular = tokenColor(s.tintRegular | 0xffU), // callers carry the alpha: kTintRegularAlpha, glass opacity
       .tintThick = tokenColor(s.tintThick | 0xffU),
       .label3 = tokenColor(s.label3),
+      .accentText = tokenColor(s.accentText),
+      .dangerText = tokenColor(s.dangerText),
+      .separator = tokenColor(s.separator),
+      .lens = tokenColor(s.lens),
+      .lensEdge = tokenColor(s.lensEdge),
+      .warning = tokenColor(s.warning),
+      .success = tokenColor(s.success),
+      .sliderFill = tokenColor(s.sliderFill),
+      .onSliderFill = tokenColor(s.onSliderFill),
+      .sliderTrack = tokenColor(s.sliderTrack),
+      .sliderEdge = tokenColor(s.sliderEdge),
   };
 }

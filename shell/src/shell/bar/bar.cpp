@@ -633,7 +633,7 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
         continue;
       }
       instance->centerSpace = CenterIslandSpace{
-          .edgeMargin = static_cast<std::int32_t>(Tokens::componentIslandMargin),
+          .edgeMargin = static_cast<std::int32_t>(Tokens::spaceChromeGap),
           .height = instance->bg->width(),
           .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - 4.0F * (instance->bg->width() + 2.0F * kGap)),
           .restless = true,

@@ -203,7 +203,7 @@ std::unique_ptr<Flex> MediaTab::create() {
       {.align = FlexAlign::Center,
        .justify = FlexJustify::SpaceBetween,
        .gap = Style::spaceSm * scale,
-       .minHeight = Style::controlHeightSm * scale},
+       .minHeight = Style::controlHeight * scale},
       ui::label({
           .text = i18n::tr("control-center.media.now-playing"),
           .fontSize = Style::fontSizeTitle * scale,
@@ -217,8 +217,8 @@ std::unique_ptr<Flex> MediaTab::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .enabled = false,
           .variant = ButtonVariant::Ghost,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .onClick = [this] {
             if (m_playerBusNames.empty()) {
@@ -262,7 +262,7 @@ std::unique_ptr<Flex> MediaTab::create() {
               .text = i18n::tr("control-center.media.nothing-playing"),
               .fontSize = Style::fontSizeTitle * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::label({
               .out = &m_trackArtist,
@@ -274,7 +274,7 @@ std::unique_ptr<Flex> MediaTab::create() {
               .out = &m_trackAlbum,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .visible = false,
           })
       )

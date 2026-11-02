@@ -738,7 +738,7 @@ void TooltipManager::buildScene(const TooltipContent& content, float w, float h,
       auto keyLabel = ui::label({
           .text = row.key,
           .fontSize = fontSize,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
       });
       const auto km = renderer.measureText(row.key, fontSize);

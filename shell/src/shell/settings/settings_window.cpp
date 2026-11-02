@@ -1309,7 +1309,7 @@ void SettingsWindow::refreshIdleLiveStatusText() {
     return;
   }
 
-  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   if (sec == 1) {
     m_idleLiveStatusLabel->setText(i18n::tr("settings.idle.live-status.idle-for-one"));
   } else {

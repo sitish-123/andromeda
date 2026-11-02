@@ -41,7 +41,7 @@ struct BarCapsuleGroupStyle {
   // Outline thickness in logical pixels before content-scale; only drawn when `border` is set.
   float borderWidth = Style::borderWidth;
   std::optional<ColorSpec> foreground;
-  float padding = Style::barCapsulePadding;
+  float padding = Style::barCapsuleInsetSymbol;
   std::optional<float> radius;
   float opacity = 1.0F;
   // Collapse the group to its first member; hovering the capsule reveals the rest inline.
@@ -156,18 +156,18 @@ struct BarConfig {
   [[nodiscard]] constexpr bool isAutoHideEnabled() const noexcept { return autoHide || smartAutoHide; }
   bool reserveSpace = true;  // reserve compositor exclusive zone; applies with or without auto_hide
   std::string layer = "top"; // top | overlay; attached panels use the same layer
-  std::int32_t thickness = Style::barThicknessDefault;
+  std::int32_t thickness = static_cast<std::int32_t>(Style::barThicknessDefault);
   float backgroundOpacity = 0.70F; // tint_regular token alpha (0xb3)
   bool compositorBlur = true;
   bool islands = true; // one floating pill per section instead of one full-length background
   // Inside outline for the bar background; attached panels inherit the resolved values.
   ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
   float borderWidth = 0.0F;
-  std::int32_t radius = static_cast<std::int32_t>(Style::radiusXl);
-  std::int32_t radiusTopLeft = static_cast<std::int32_t>(Style::radiusXl);
-  std::int32_t radiusTopRight = static_cast<std::int32_t>(Style::radiusXl);
-  std::int32_t radiusBottomLeft = static_cast<std::int32_t>(Style::radiusXl);
-  std::int32_t radiusBottomRight = static_cast<std::int32_t>(Style::radiusXl);
+  std::int32_t radius = static_cast<std::int32_t>(Tokens::radiusR20);
+  std::int32_t radiusTopLeft = static_cast<std::int32_t>(Tokens::radiusR20);
+  std::int32_t radiusTopRight = static_cast<std::int32_t>(Tokens::radiusR20);
+  std::int32_t radiusBottomLeft = static_cast<std::int32_t>(Tokens::radiusR20);
+  std::int32_t radiusBottomRight = static_cast<std::int32_t>(Tokens::radiusR20);
   bool concaveEdgeCorners = true;
   std::int32_t marginEnds = 100;       // inset from each end of the bar along its main axis
   std::int32_t marginEdge = 8;         // distance from the nearest screen edge (floats the bar when > 0)
@@ -203,7 +203,7 @@ struct BarConfig {
   std::optional<ColorSpec> widgetIconColor;
   std::vector<BarCapsuleGroupStyle> widgetCapsuleGroups;
   // Inner padding between capsule edge and widget content (logical px), multiplied by widget content scale on the bar.
-  float widgetCapsulePadding = Style::barCapsulePadding;
+  float widgetCapsulePadding = Style::barCapsuleInsetSymbol;
   // Capsule corner radius in logical pixels before content-scale; unset means automatic pill radius.
   std::optional<double> widgetCapsuleRadius;
   // Capsule background opacity multiplier (0.0–1.0).
@@ -389,7 +389,7 @@ struct WidgetBarCapsuleSpec {
   // Icon + primary label color when the capsule is visible; unset = widget defaults.
   std::optional<ColorSpec> foreground;
   // Inner padding in logical pixels before content-scale (see `capsule_padding` / bar default).
-  float padding = Style::barCapsulePadding;
+  float padding = Style::barCapsuleInsetSymbol;
   // Corner radius in logical pixels before content-scale; unset means automatic pill radius.
   std::optional<float> radius;
   // Capsule background opacity multiplier (0.0–1.0).
@@ -716,7 +716,7 @@ struct DockConfig {
   std::int32_t radiusBottomRight = static_cast<std::int32_t>(Tokens::componentDockRadius); // dock background bottom-right corner radius
   bool concaveEdgeCorners = false;     // carve concave corners on the side that touches the screen edge
   std::int32_t marginEnds = 0;         // inset from each end of the dock along its main axis
-  std::int32_t marginEdge = static_cast<std::int32_t>(Tokens::componentDockMargin);       // distance from the nearest screen edge (floats the dock when > 0)
+  std::int32_t marginEdge = static_cast<std::int32_t>(Tokens::spaceChromeGap);       // distance from the nearest screen edge (floats the dock when > 0)
   bool shadow = true;                  // use the global shell shadow
   bool showRunning = true;             // also show running apps not in pinned list
   bool autoHide = false;               // slide out when not hovered (overlay mode)

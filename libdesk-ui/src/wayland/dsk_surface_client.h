@@ -24,7 +24,8 @@ public:
   enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose, SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast };
   // A compositor that binds protocol version < 3 knows only the first seven curves: use the closest one.
   [[nodiscard]] static Curve compatCurve(Curve curve, uint32_t version);
-  enum class Elevation : uint32_t { None, E1, E2 };
+  // Values 1 and 2 are the protocol levels e1 and e2; they draw tokens elevation.e2 (float) and e3 (over).
+  enum class Elevation : uint32_t { None, E2, E3 };
   enum class EndReason : uint32_t { Finished, Retargeted, Cancelled };
   using Value = std::array<double, 4>;
   using DoneCallback = std::function<void(EndReason)>;

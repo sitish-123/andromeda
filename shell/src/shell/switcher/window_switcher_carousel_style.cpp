@@ -23,8 +23,8 @@ WindowSwitcherStyleLayout computeWindowSwitcherCarouselLayout(const WindowSwitch
   WindowSwitcherStyleLayout layout;
   layout.cards.resize(context.windowCount);
 
-  const float screenMargin = Style::controlHeightSm * context.scale;
-  const float countHeight = context.showCount ? Style::controlHeightSm * context.scale : 0.0F;
+  const float screenMargin = Style::controlHeight * context.scale;
+  const float countHeight = context.showCount ? Style::controlHeight * context.scale : 0.0F;
   const float countWidth = context.showCount ? Style::controlHeightLg * context.scale * 2.0F : 0.0F;
   const float sectionGap = context.showCount ? Style::spaceMd * context.scale : 0.0F;
   const float captionHeight = context.showCaption ? Style::windowSwitcherCaptionHeight * context.scale : 0.0F;

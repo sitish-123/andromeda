@@ -28,7 +28,7 @@ namespace {
     if (health >= 50.0) {
       return ColorRole::Accent;
     }
-    return ColorRole::Danger;
+    return ColorRole::DangerText;
   }
 
   std::string deviceDisplayName(const UPowerDeviceInfo& info) {
@@ -312,7 +312,7 @@ void PowerTab::buildProfilesCard(Flex& root, float scale) {
       ui::glyph({
           .glyph = "alert-triangle",
           .glyphSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::Danger),
+          .color = colorSpecFromRole(ColorRole::DangerText),
       }),
       ui::label({
           .out = &m_inhibitedLabel,
@@ -543,7 +543,7 @@ void PowerTab::rebuildChargeLimits() {
               .out = &entry.errorLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Danger),
+              .color = colorSpecFromRole(ColorRole::DangerText),
               .visible = false,
           })
       );
@@ -776,7 +776,7 @@ void PowerTab::rebuildPeripherals() {
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
               .color = colorSpecFromRole(ColorRole::Label2),
-              .minWidth = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
           })
       );
       m_peripheralsList->addChild(std::move(row));

@@ -31,7 +31,7 @@ KeybindRecorder::KeybindRecorder() {
   setGap(Style::spaceXs);
   setPadding(Style::spaceXs, Style::spaceSm);
   setRadius(Style::scaledRadiusMd());
-  setMinHeight(Style::controlHeightSm);
+  setMinHeight(Style::controlHeight);
   setMinWidth(kRecorderMinWidth);
 
   auto label = std::make_unique<Label>();
@@ -110,7 +110,7 @@ void KeybindRecorder::setScale(float scale) {
   setGap(Style::spaceXs * m_scale);
   setPadding(Style::spaceXs * m_scale, Style::spaceSm * m_scale);
   setRadius(Style::scaledRadiusMd(m_scale));
-  setMinHeight(Style::controlHeightSm * m_scale);
+  setMinHeight(Style::controlHeight * m_scale);
   setMinWidth(kRecorderMinWidth * m_scale);
   if (m_label != nullptr) {
     m_label->setFontSize(Style::fontSizeCaption * m_scale);

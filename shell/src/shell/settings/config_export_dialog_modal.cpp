@@ -119,8 +119,8 @@ namespace settings {
               .glyph = "close",
               .glyphSize = Style::fontSizeBody * m_scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * m_scale,
-              .minHeight = Style::controlHeightSm * m_scale,
+              .minWidth = Style::controlHeight * m_scale,
+              .minHeight = Style::controlHeight * m_scale,
               .padding = Style::spaceXs * m_scale,
               .radius = Style::scaledRadiusMd(m_scale),
               .onClick = [this] {

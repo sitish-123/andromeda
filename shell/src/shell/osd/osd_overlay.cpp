@@ -781,7 +781,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   auto icon = ui::glyph({
       .out = &inst.glyph,
       .glyphSize = glyphSize(s),
-      .color = colorSpecFromRole(ColorRole::Accent),
+      .color = colorSpecFromRole(ColorRole::AccentText),
       .configure = [](Glyph& glyph) { glyph.setZIndex(1); },
   });
 

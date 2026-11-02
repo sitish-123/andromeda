@@ -161,7 +161,7 @@ void ControlCenterPanel::create() {
     sidebar->addChild(std::move(sidebarScrollArea));
 
     const std::optional<float> sidebarScrollWidth =
-        m_compact ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt;
+        m_compact ? std::optional<float>{Style::controlHeight * scale} : std::nullopt;
 
     auto sidebarScroll = ui::scrollView({
         .out = &m_sidebarScrollView,
@@ -212,8 +212,8 @@ void ControlCenterPanel::create() {
               .contentAlign = m_compact ? ButtonContentAlign::Center : ButtonContentAlign::Start,
               .variant = ButtonVariant::Tab,
               .tooltip = m_compact ? i18n::tr(tab.titleKey) : std::string{},
-              .minWidth = m_compact ? std::optional<float>{Style::controlHeightSm * scale} : std::optional<float>{},
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = m_compact ? std::optional<float>{Style::controlHeight * scale} : std::optional<float>{},
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = (m_compact ? Style::spaceXs : Style::spaceSm) * scale,
               .gap = Style::spaceSm * scale,
@@ -281,7 +281,7 @@ void ControlCenterPanel::create() {
           .text = i18n::tr("control-center.tabs.home"),
           .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeLarge.size) * scale,
           .fontWeight = m_showSidebar ? FontWeight::Bold : static_cast<FontWeight>(Tokens::typeLarge.weight),
-          .color = colorSpecFromRole(m_showSidebar ? ColorRole::Accent : ColorRole::Label1),
+          .color = colorSpecFromRole(m_showSidebar ? ColorRole::AccentText : ColorRole::Label1),
           .flexGrow = 1.0F,
       })
   );
@@ -924,7 +924,7 @@ void ControlCenterPanel::layoutFullSidebarWidth(Renderer& renderer) {
     maxTabWidth = std::max(maxTabWidth, paddingH + glyphW + gap + text.width);
   }
 
-  const float minWidth = Style::controlHeightSm * scale;
+  const float minWidth = Style::controlHeight * scale;
   const float contentWidth = std::max(minWidth, std::ceil(maxTabWidth));
 
   // Scrollbar gutter lives inside the scroll viewport; reserve it only when the nav overflows.

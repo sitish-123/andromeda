@@ -37,7 +37,7 @@ void TestPanel::create() {
       .text = "Test",
       .fontSize = Style::fontSizeTitle * scale,
       .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::Accent),
+      .color = colorSpecFromRole(ColorRole::AccentText),
   });
   headerRow->addChild(std::move(header));
 
@@ -61,8 +61,8 @@ void TestPanel::create() {
         .glyphSize = Style::fontSizeBody * scale,
         .variant = ButtonVariant::Default,
         .surfaceOpacity = panelCardOpacity(),
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .padding = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
         .onClick = [] { PanelManager::instance().closePanel(); },
@@ -508,7 +508,7 @@ void TestPanel::create() {
             }
             if (result.has_value()) {
               m_fileDialogResultLabel->setText(result->string());
-              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
             } else {
               m_fileDialogResultLabel->setText("Cancelled");
               m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::Label2));
@@ -606,7 +606,7 @@ void TestPanel::create() {
             }
             if (m_glyphPickerResultLabel != nullptr) {
               m_glyphPickerResultLabel->setText(result->name);
-              m_glyphPickerResultLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+              m_glyphPickerResultLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
             }
             if (m_glyphButton != nullptr) {
               m_glyphButton->setGlyph(result->name);
@@ -663,7 +663,7 @@ void TestPanel::create() {
               [this, tileIndex = i, label = std::string(tileData.label)] {
                 if (m_gridSelectionLabel != nullptr) {
                   m_gridSelectionLabel->setText("Selected: " + label);
-                  m_gridSelectionLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+                  m_gridSelectionLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
                 }
                 for (std::size_t buttonIndex = 0; buttonIndex < m_gridTileButtons.size(); ++buttonIndex) {
                   if (m_gridTileButtons[buttonIndex] != nullptr) {
@@ -739,7 +739,7 @@ void TestPanel::create() {
         .onClick = [this] {
           if (m_transformHelp != nullptr) {
             m_transformHelp->setText("Transform button clicked!");
-            m_transformHelp->setColor(colorSpecFromRole(ColorRole::Accent));
+            m_transformHelp->setColor(colorSpecFromRole(ColorRole::AccentText));
           }
         },
     });
@@ -749,7 +749,7 @@ void TestPanel::create() {
         .out = &m_transformDemoGlyph,
         .glyph = "noctalia",
         .glyphSize = 24.0F * scale,
-        .color = colorSpecFromRole(ColorRole::Accent),
+        .color = colorSpecFromRole(ColorRole::AccentText),
         .configure = [scale](Glyph& glyph) {
           glyph.setPosition(150.0F * scale, 60.0F * scale);
           glyph.setRotation(std::numbers::pi_v<float> * 0.5F);
@@ -898,7 +898,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
             .text = "Text Lab",
             .fontSize = Style::fontSizeHeader * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::Accent),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
   }
@@ -953,7 +953,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
               .text = preset,
               .fontSize = Style::fontSizeCaption * scale,
               .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * scale,
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .radius = Style::scaledRadiusMd(scale),
@@ -1005,7 +1005,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::glyph({
               .glyph = "home",
               .glyphSize = s.size * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           })
       );
       row->addChild(
@@ -1049,7 +1049,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::glyph({
               .glyph = "settings",
               .glyphSize = gs * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           })
       );
       row->addChild(
@@ -1367,7 +1367,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::glyph({
               .glyph = c.glyph,
               .glyphSize = Style::baseGlyphSize * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::label({
               .text = c.text,
@@ -1468,7 +1468,7 @@ void TestPanel::applyTestFontFamily(const std::string& family) {
   ctx->setTextFontFamily(trimmed);
   if (m_fontStatusLabel != nullptr) {
     m_fontStatusLabel->setText("Active: " + trimmed);
-    m_fontStatusLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_fontStatusLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   PanelManager::instance().requestLayout();
 }

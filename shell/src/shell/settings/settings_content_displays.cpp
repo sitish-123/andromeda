@@ -473,7 +473,7 @@ namespace settings {
         );
       } else {
         if (!ctx.error.empty()) {
-          row->addChild(makeLabel(ctx.error, Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Danger)));
+          row->addChild(makeLabel(ctx.error, Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::DangerText)));
         }
         row->addChild(ui::spacer());
         const bool idle = !ctx.outputs->busy();

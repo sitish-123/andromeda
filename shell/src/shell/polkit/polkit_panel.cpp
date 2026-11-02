@@ -107,7 +107,7 @@ void PolkitPanel::create() {
               .text = i18n::tr("auth.polkit.title"),
               .fontSize = Style::fontSizeTitle * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::label({
               .out = &m_messageLabel,
@@ -127,7 +127,7 @@ void PolkitPanel::create() {
               .out = &m_faceGlyph,
               .glyph = "face-id",
               .glyphSize = Style::fontSizeTitle * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .visible = false,
           }),
           ui::label({
@@ -324,7 +324,7 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
   if (m_faceGlyph != nullptr) {
     m_faceGlyph->setVisible(face != PolkitFaceState::None);
     m_faceGlyph->setGlyph(face == PolkitFaceState::Failed ? "face-id-error" : "face-id");
-    m_faceGlyph->setColor(colorSpecFromRole(face == PolkitFaceState::Failed ? ColorRole::Danger : ColorRole::Accent));
+    m_faceGlyph->setColor(colorSpecFromRole(face == PolkitFaceState::Failed ? ColorRole::DangerText : ColorRole::AccentText));
   }
   m_input->setVisible(needsInput && !agent->faceConfirmIsPrompt());
   m_submitButton->setVisible(needsInput);

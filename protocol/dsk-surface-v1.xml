@@ -63,8 +63,8 @@
 
     <enum name="elevation">
       <entry name="none" value="0"/>
-      <entry name="e1" value="1" summary="tokens elevation.e1"/>
-      <entry name="e2" value="2" summary="tokens elevation.e2"/>
+      <entry name="e1" value="1" summary="float: tokens elevation.e2"/>
+      <entry name="e2" value="2" summary="over: tokens elevation.e3"/>
     </enum>
 
     <enum name="property">
@@ -73,30 +73,30 @@
       <entry name="opacity" value="2" summary="a = 0..1"/>
       <entry name="clip" value="3" summary="a, b, c, d = x, y, width, height, surface-local px"/>
       <entry name="radius" value="4" summary="a = corner radius, px"/>
-      <entry name="elevation" value="5" since="4" summary="a = level 0..2: 0 none, 1 elevation.e1, 2 elevation.e2"/>
+      <entry name="elevation" value="5" since="4" summary="a = level 0..2: 0 none, 1 float (elevation.e2), 2 over (elevation.e3)"/>
     </enum>
 
     <enum name="curve">
       <description summary="motion tokens">
         Springs use the tokens spring.* (damping is the ratio to critical).
-        ease_* are ease-out cubic over the tokens motion.* duration.
+        There are no duration animations: ease_* are deprecated and map to a critically damped fade spring (they never overshot).
       </description>
       <entry name="none" value="0" summary="jump"/>
-      <entry name="spring_standard" value="1"/>
-      <entry name="spring_snappy" value="2"/>
-      <entry name="spring_bouncy" value="3"/>
-      <entry name="ease_fast" value="4" summary="tokens motion.fast"/>
-      <entry name="ease_normal" value="5" summary="tokens motion.normal"/>
-      <entry name="ease_slow" value="6" summary="tokens motion.slow"/>
+      <entry name="spring_standard" value="1" summary="tokens spring.move"/>
+      <entry name="spring_snappy" value="2" summary="tokens spring.snap"/>
+      <entry name="spring_bouncy" value="3" summary="tokens spring.open"/>
+      <entry name="ease_fast" value="4" summary="deprecated: maps to tokens spring.fade_out"/>
+      <entry name="ease_normal" value="5" summary="deprecated: maps to tokens spring.fade"/>
+      <entry name="ease_slow" value="6" summary="deprecated: maps to tokens spring.fade"/>
       <entry name="spring_open" value="7" since="3" summary="tokens spring.open"/>
       <entry name="spring_close" value="8" since="3" summary="tokens spring.close"/>
-      <entry name="spring_island_expand" value="9" since="3" summary="tokens spring.island_expand"/>
-      <entry name="spring_island_collapse" value="10" since="3" summary="tokens spring.island_collapse"/>
+      <entry name="spring_island_expand" value="9" since="3" summary="tokens spring.morph"/>
+      <entry name="spring_island_collapse" value="10" since="3" summary="tokens spring.collapse"/>
       <entry name="spring_page" value="11" since="3" summary="tokens spring.page"/>
       <entry name="spring_press" value="12" since="3" summary="tokens spring.press"/>
       <entry name="spring_release" value="13" since="3" summary="tokens spring.release"/>
-      <entry name="spring_effects" value="14" since="3" summary="tokens spring.effects"/>
-      <entry name="spring_effects_fast" value="15" since="3" summary="tokens spring.effects_fast"/>
+      <entry name="spring_effects" value="14" since="3" summary="tokens spring.fade"/>
+      <entry name="spring_effects_fast" value="15" since="3" summary="tokens spring.fade_out"/>
     </enum>
 
     <enum name="reason">
@@ -109,9 +109,9 @@
       <description summary="set the shadow level at once">
         Same as set of the elevation property with a whole level. From version
         4 the level is a property: animate it with the clip so the shadow
-        grows with the shape. Between none and e1 the softness stays that of
-        e1 while offset and opacity scale with the level; between e1 and e2 all
-        three interpolate.
+        grows with the shape. Each level draws a key and a contact shadow. Between
+        none and e1 the blur stays that of the float level while offset and
+        opacity scale with the level; between e1 and e2 all values interpolate.
       </description>
       <arg name="level" type="uint" enum="elevation"/>
     </request>

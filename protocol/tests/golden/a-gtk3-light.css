@@ -1,13 +1,15 @@
 /* Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py (light). Do not edit. */
-@define-color accent_color #bb311d;
+@define-color accent_color #3b8f2a;
 @define-color accent_bg_color #bb311d;
 @define-color accent_fg_color #d888e8;
 @define-color destructive_bg_color #f5dfb3;
 @define-color destructive_fg_color #d888e8;
-@define-color destructive_color #f5dfb3;
+@define-color destructive_color #c4561d;
 @define-color error_bg_color #f5dfb3;
 @define-color error_fg_color #d888e8;
-@define-color error_color #f5dfb3;
+@define-color error_color #c4561d;
+@define-color warning_color #a07a10;
+@define-color success_color #1f9a55;
 @define-color window_bg_color #2f8d49;
 @define-color window_fg_color #256f03;
 @define-color view_bg_color #4ce414;

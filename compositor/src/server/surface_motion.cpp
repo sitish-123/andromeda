@@ -11,40 +11,30 @@ namespace andromeda {
 
     using Curve = SurfaceMotion::Curve;
 
-    uint32_t easeDurationMs(Curve curve) {
-      switch (curve) {
-      case Curve::EaseFast:
-        return Tokens::motionFast;
-      case Curve::EaseSlow:
-        return Tokens::motionSlow;
-      default:
-        return Tokens::motionNormal;
-      }
-    }
-
     // Wrap-safe: CLOCK_MONOTONIC ms in a uint32_t wraps after 49 days.
     double secondsBetween(uint32_t fromMs, uint32_t toMs) { return static_cast<double>(toMs - fromMs) / 1000.0; }
 
   } // namespace
 
-  bool SurfaceMotion::isSpring(Curve curve) {
-    return curve != Curve::None && curve != Curve::EaseFast && curve != Curve::EaseNormal && curve != Curve::EaseSlow;
-  }
+  bool SurfaceMotion::isSpring(Curve curve) { return curve != Curve::None; }
 
   desk::motion::SpringConfig SurfaceMotion::springConfig(Curve curve) {
-    const Tokens::Spring* token = &Tokens::springStandard;
+    const Tokens::Spring* token = &Tokens::springMove;
     switch (curve) {
-    case Curve::SpringSnappy: token = &Tokens::springSnappy; break;
-    case Curve::SpringBouncy: token = &Tokens::springBouncy; break;
+    case Curve::SpringSnappy: token = &Tokens::springSnap; break;
+    case Curve::SpringBouncy:
     case Curve::SpringOpen: token = &Tokens::springOpen; break;
     case Curve::SpringClose: token = &Tokens::springClose; break;
-    case Curve::SpringIslandExpand: token = &Tokens::springIslandExpand; break;
-    case Curve::SpringIslandCollapse: token = &Tokens::springIslandCollapse; break;
+    case Curve::SpringIslandExpand: token = &Tokens::springMorph; break;
+    case Curve::SpringIslandCollapse: token = &Tokens::springCollapse; break;
     case Curve::SpringPage: token = &Tokens::springPage; break;
     case Curve::SpringPress: token = &Tokens::springPress; break;
     case Curve::SpringRelease: token = &Tokens::springRelease; break;
-    case Curve::SpringEffects: token = &Tokens::springEffects; break;
-    case Curve::SpringEffectsFast: token = &Tokens::springEffectsFast; break;
+    case Curve::EaseNormal:
+    case Curve::EaseSlow:
+    case Curve::SpringEffects: token = &Tokens::springFade; break;
+    case Curve::EaseFast:
+    case Curve::SpringEffectsFast: token = &Tokens::springFadeOut; break;
     default: break;
     }
     return {.damping = token->damping, .stiffness = token->stiffness};
@@ -109,7 +99,6 @@ namespace andromeda {
     track.running = true;
     track.started = false;
     track.stepOnStart = keepVelocity;
-    track.from = current;
     track.to = to;
   }
 
@@ -124,7 +113,6 @@ namespace andromeda {
       }
       if (!track.started) {
         track.started = true;
-        track.startMs = nowMs;
         m_events.push_back({.kind = Event::Kind::Started, .serial = track.serial, .reason = Reason::Finished});
         if (!track.stepOnStart) {
           continue;
@@ -133,18 +121,9 @@ namespace andromeda {
 
       Value& value = m_values[index];
       bool settled = true;
-      if (isSpring(track.curve)) {
-        for (std::size_t i = 0; i < 4; ++i) {
-          value[i] = track.springs[i].step(dt);
-          settled = settled && track.springs[i].settled();
-        }
-      } else {
-        const double progress = std::min(1.0, secondsBetween(track.startMs, nowMs) * 1000.0 / easeDurationMs(track.curve));
-        const double eased = desk::motion::applyEasing({.easing = desk::motion::Easing::EaseOutCubic}, progress);
-        for (std::size_t i = 0; i < 4; ++i) {
-          value[i] = track.from[i] + (track.to[i] - track.from[i]) * eased;
-        }
-        settled = progress >= 1.0;
+      for (std::size_t i = 0; i < 4; ++i) {
+        value[i] = track.springs[i].step(dt);
+        settled = settled && track.springs[i].settled();
       }
       changed = true;
       if (settled) {

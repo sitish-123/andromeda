@@ -28,7 +28,7 @@ using namespace control_center;
 
 namespace {
 
-  constexpr float kRowMinHeight = Style::controlHeightLg;
+  TOKENS_LIVE(kRowMinHeight, Style::controlHeightLg);
 
   // Label and wire value in one row, so the visible dropdown order and the value
   // sent to NetworkManager cannot drift apart.
@@ -226,8 +226,8 @@ namespace {
   std::unique_ptr<Label> makeLabel(Label*& out, const Tokens::Type& type, float scale, ColorRole role) {
     auto label = std::make_unique<Label>();
     label->setFontSize(type.size * scale);
-    label->setLineHeight(type.size * type.lineHeight * scale);
-    label->setFontWeight(static_cast<FontWeight>(type.weight));
+    label->setLineHeight(type.line * scale);
+    label->setFontWeight(static_cast<FontWeight>(Style::glassWeight(type.weight)));
     label->setColor(colorSpecFromRole(role));
     label->setMaxLines(1);
     out = label.get();
@@ -255,9 +255,9 @@ namespace {
     applySectionCardStyle(*card, scale, opacity);
     card->setFill(colorSpecFromRole(ColorRole::Fill1, opacity));
     card->clearBorder();
-    card->setRadius(Tokens::componentCardRadius * scale);
-    card->setPadding(Tokens::componentCardPadding * scale);
-    card->setGap(Tokens::componentCardRowGap * scale);
+    card->setRadius(Tokens::componentTileRadius * scale);
+    card->setPadding(Tokens::componentTilePadding * scale);
+    card->setGap(Tokens::spaceP12 * scale);
     return card;
   }
 
@@ -277,7 +277,7 @@ namespace {
     row->setAlign(FlexAlign::Center);
     row->setPadding(0.0F);
     row->setMinHeight(kRoundIcon * scale);
-    row->setGap(Tokens::componentCardRowGap * scale);
+    row->setGap(Tokens::spaceP12 * scale);
     row->setContentAlign(ButtonContentAlign::Start);
     row->setOnClick(model.onClick);
 
@@ -291,8 +291,8 @@ namespace {
     text->setDirection(FlexDirection::Vertical);
     text->setAlign(FlexAlign::Start);
     text->setFlexGrow(1.0F);
-    text->addChild(makeLabel(ui.title, Tokens::typeTitle, scale, ColorRole::Label1));
-    text->addChild(makeLabel(ui.caption, Tokens::typeCaption, scale, ColorRole::Label2));
+    text->addChild(makeLabel(ui.title, Tokens::typeHeadline, scale, ColorRole::Label1));
+    text->addChild(makeLabel(ui.caption, Tokens::typeFootnote, scale, ColorRole::Label2));
     ui.title->setText(model.title);
     ui.caption->setText(model.caption);
     ui.caption->setVisible(!model.caption.empty());
@@ -357,15 +357,15 @@ NetworkTab::~NetworkTab() {
 std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
   const float scale = contentScale();
   const float opacity = panelCardOpacity();
-  auto card = makeColumn(Tokens::componentCardSmallGap * scale);
+  auto card = makeColumn(Tokens::spaceP8 * scale);
   m_passwordCard = card.get();
   card->setVisible(false);
 
   card->addChild(
       ui::label({
           .out = &m_passwordTitle,
-          .fontSize = Tokens::typeTitle.size * scale,
-          .fontWeight = static_cast<FontWeight>(Tokens::typeTitle.weight),
+          .fontSize = Tokens::typeHeadline.size * scale,
+          .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
           .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
@@ -373,8 +373,8 @@ std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
   card->addChild(
       ui::label({
           .out = &m_credentialError,
-          .fontSize = Tokens::typeCaption.size * scale,
-          .color = colorSpecFromRole(ColorRole::Danger),
+          .fontSize = Tokens::typeFootnote.size * scale,
+          .color = colorSpecFromRole(ColorRole::DangerText),
           .maxLines = 4,
           .visible = false,
       })
@@ -389,12 +389,12 @@ std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
       // Flex defaults to Center on the cross axis, which collapses each field to its natural width.
       .align = FlexAlign::Stretch,
       .visible = false,
-      .configure = [scale](Flex& column) { column.setGap(Tokens::componentCardSmallGap * scale); },
+      .configure = [scale](Flex& column) { column.setGap(Tokens::spaceP8 * scale); },
   });
 
   enterpriseFields->addChild(
       ui::row(
-          {.align = FlexAlign::Center, .gap = Tokens::componentCardSmallGap * scale},
+          {.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale},
           ui::select({
               .out = &m_eapSelect,
               .options = optionLabels(kEapOptions),
@@ -448,7 +448,7 @@ std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
 
   card->addChild(
       ui::row(
-          {.align = FlexAlign::Center, .gap = Tokens::componentCardSmallGap * scale},
+          {.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale},
           ui::input({
               .out = &m_passwordInput,
               .placeholder = i18n::tr("control-center.network.password"),
@@ -464,8 +464,8 @@ std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
               .glyphSize = Tokens::componentRoundIconGlyph * scale,
               .variant = ButtonVariant::Ghost,
               .tooltip = i18n::tr("control-center.network.show-password"),
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick =
@@ -487,7 +487,7 @@ std::unique_ptr<Flex> NetworkTab::makePasswordCard() {
   spacer->setFlexGrow(1.0F);
   card->addChild(
       ui::row(
-          {.align = FlexAlign::Center, .gap = Tokens::componentCardSmallGap * scale},
+          {.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale},
           std::move(spacer),
           ui::button({
               .text = i18n::tr("common.actions.cancel"),
@@ -549,12 +549,12 @@ std::unique_ptr<Flex> NetworkTab::create() {
           .contentAlign = ButtonContentAlign::Start,
           .variant = ButtonVariant::Ghost,
           .paddingV = Style::spaceSm * scale,
-          .paddingH = Tokens::componentCardPadding * scale,
+          .paddingH = Tokens::componentTilePadding * scale,
           .onClick = [] { PanelManager::instance().openSettingsWindow(); },
           .configure = [scale](Button& button) {
             if (button.label() != nullptr) {
               button.label()->setColor(colorSpecFromRole(ColorRole::Label2));
-              button.label()->setFontSize(Tokens::typeTitle.size * scale);
+              button.label()->setFontSize(Tokens::typeHeadline.size * scale);
             }
           },
       })
@@ -1161,8 +1161,8 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
     auto card = makeCard(scale, opacity);
     Label* title = nullptr;
     Label* detail = nullptr;
-    card->addChild(makeLabel(title, Tokens::typeTitle, scale, ColorRole::Label1));
-    card->addChild(makeLabel(detail, Tokens::typeCaption, scale, ColorRole::Label2));
+    card->addChild(makeLabel(title, Tokens::typeHeadline, scale, ColorRole::Label1));
+    card->addChild(makeLabel(detail, Tokens::typeFootnote, scale, ColorRole::Label2));
     detail->setMaxLines(4);
     title->setText(i18n::tr("control-center.network.unavailable-title"));
     detail->setText(i18n::tr("control-center.network.unavailable-detail"));
@@ -1177,7 +1177,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
     return;
   }
 
-  const float indent = (kRoundIcon + Tokens::componentCardRowGap) * scale;
+  const float indent = (kRoundIcon + Tokens::spaceP12) * scale;
   const bool agentPrompt = m_hasPendingSecret && !m_pendingAccessPoint.has_value();
   bool formPlaced = false;
   if (m_passwordTitle != nullptr) {
@@ -1187,16 +1187,16 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
   auto card1Box = makeCard(scale, opacity);
   for (const auto& model : card1) {
     RowUi ui;
-    auto wrapper = makeColumn(Tokens::componentCardSmallGap * scale);
+    auto wrapper = makeColumn(Tokens::spaceP8 * scale);
     wrapper->addChild(makeRow(model, scale, ui));
     if (model.current && ui.signal != nullptr) {
       m_apSignals[model.ssid] = ui.signal;
     }
     if (model.current && m_currentExpanded) {
-      auto details = makeColumn(Tokens::componentCardSmallGap * scale);
+      auto details = makeColumn(Tokens::spaceP8 * scale);
       details->setPadding(0.0F, 0.0F, 0.0F, indent);
       Label* detailText = nullptr;
-      details->addChild(makeLabel(detailText, Tokens::typeCaption, scale, ColorRole::Label2));
+      details->addChild(makeLabel(detailText, Tokens::typeFootnote, scale, ColorRole::Label2));
       detailText->setMaxLines(3);
       static const std::string kNoExternalIp;
       const std::string& externalIp = m_externalIpService != nullptr ? m_externalIpService->externalIp() : kNoExternalIp;
@@ -1205,7 +1205,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
       auto actions = std::make_unique<Flex>();
       actions->setDirection(FlexDirection::Horizontal);
       actions->setAlign(FlexAlign::Center);
-      actions->setGap(Tokens::componentCardSmallGap * scale);
+      actions->setGap(Tokens::spaceP8 * scale);
       actions->addChild(
           ui::button({
               .text = i18n::tr("control-center.network.disconnect"),
@@ -1272,10 +1272,10 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
   auto header = std::make_unique<Flex>();
   header->setDirection(FlexDirection::Horizontal);
   header->setAlign(FlexAlign::Center);
-  header->setGap(Tokens::componentCardSmallGap * scale);
-  header->setPadding(0.0F, 0.0F, 0.0F, Tokens::componentCardPadding * scale);
+  header->setGap(Tokens::spaceP8 * scale);
+  header->setPadding(0.0F, 0.0F, 0.0F, Tokens::componentTilePadding * scale);
   Label* sectionTitle = nullptr;
-  auto sectionLabel = makeLabel(sectionTitle, Tokens::typeCaption, scale, ColorRole::Label2);
+  auto sectionLabel = makeLabel(sectionTitle, Tokens::typeFootnote, scale, ColorRole::Label2);
   sectionLabel->setFlexGrow(1.0F);
   sectionTitle->setText(i18n::tr("control-center.network.other-networks"));
   header->addChild(std::move(sectionLabel));
@@ -1308,12 +1308,12 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
   auto card2Box = makeCard(scale, opacity);
   if (card2.empty()) {
     Label* empty = nullptr;
-    card2Box->addChild(makeLabel(empty, Tokens::typeCaption, scale, ColorRole::Label2));
+    card2Box->addChild(makeLabel(empty, Tokens::typeFootnote, scale, ColorRole::Label2));
     empty->setText(i18n::tr("control-center.network.no-networks-short"));
   }
   for (const auto& model : card2) {
     RowUi ui;
-    auto wrapper = makeColumn(Tokens::componentCardSmallGap * scale);
+    auto wrapper = makeColumn(Tokens::spaceP8 * scale);
     wrapper->addChild(makeRow(model, scale, ui));
     if (ui.signal != nullptr) {
       m_apSignals[model.ssid] = ui.signal;

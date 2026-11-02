@@ -464,7 +464,7 @@ std::unique_ptr<Flex> HomeTab::create() {
               .out = &m_mediaProgress,
               .text = " ",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
               .visible = false,
@@ -498,7 +498,7 @@ std::unique_ptr<Flex> HomeTab::create() {
           .text = formatShellTime(m_config),
           .fontSize = Style::fontSizeTitle * 1.7F * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       }),
       ui::column(
           {.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = Style::spaceXs * 0.5F * scale},
@@ -514,7 +514,7 @@ std::unique_ptr<Flex> HomeTab::create() {
                   .out = &m_weatherGlyph,
                   .glyph = "weather-cloud-sun",
                   .glyphSize = Style::fontSizeCaption * 1.12F * scale,
-                  .color = colorSpecFromRole(ColorRole::Accent),
+                  .color = colorSpecFromRole(ColorRole::AccentText),
               }),
               ui::label({
                   .out = &m_weatherLine,
@@ -1510,7 +1510,7 @@ void HomeTab::sync(Renderer& renderer) {
         );
       } else {
         m_weatherGlyph->setGlyph(WeatherService::glyphForCode(snapshot.current.weatherCode, snapshot.current.isDay));
-        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::Accent));
+        m_weatherGlyph->setColor(colorSpecFromRole(ColorRole::AccentText));
         const int t = static_cast<int>(std::lround(m_weather->displayTemperature(snapshot.current.temperatureC)));
         m_weatherLine->setText(
             std::format(
@@ -1647,7 +1647,7 @@ void HomeTab::sync(Renderer& renderer) {
         std::string statusText;
         if (active->playbackStatus == "Playing") {
           statusText = i18n::tr("control-center.home.media.playing");
-          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Accent));
+          m_mediaStatus->setColor(colorSpecFromRole(ColorRole::AccentText));
         } else if (active->playbackStatus == "Paused") {
           statusText = i18n::tr("control-center.home.media.paused");
           m_mediaStatus->setColor(colorSpecFromRole(ColorRole::Label2));

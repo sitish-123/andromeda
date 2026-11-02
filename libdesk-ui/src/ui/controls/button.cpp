@@ -200,7 +200,7 @@ Button::ButtonPalette Button::defaultPalette(ButtonVariant variant) { return pal
 
 Button::Button() {
   setAlign(FlexAlign::Center);
-  setMinHeight(Style::controlHeightSm);
+  setMinHeight(Style::controlHeight);
   setPadding(Style::spaceSm);
   setRadius(Style::scaledRadiusMd());
 

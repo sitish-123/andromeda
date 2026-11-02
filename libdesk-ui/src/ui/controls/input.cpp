@@ -1623,7 +1623,7 @@ void Input::applyVisualState() {
 
     const bool showingPlaceholder = m_value.empty() && !m_placeholder.empty();
     if (m_invalid) {
-      m_label->setColor(colorSpecFromRole(ColorRole::Danger));
+      m_label->setColor(colorSpecFromRole(ColorRole::DangerText));
     } else if (showingPlaceholder) {
       m_label->setColor(colorSpecFromRole(ColorRole::OnAccent, kPrimaryPlaceholderAlpha));
     } else if (readOnly) {

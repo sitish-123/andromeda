@@ -108,7 +108,7 @@ namespace settings {
         header->addChild(ui::separator());
       }
       header->addChild(
-          makeLabel(title, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Accent), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::AccentText), FontWeight::Bold)
       );
       return header;
     }
@@ -175,7 +175,7 @@ namespace settings {
       collapsible->setHeaderPadding(0.0F, 0.0F);
       collapsible->setHeader(makeLabel(
           widgetSettingGroupTitle(kGestureActionsGroup), Style::fontSizeCaption * ctx.scale,
-          colorSpecFromRole(ColorRole::Accent), FontWeight::Bold
+          colorSpecFromRole(ColorRole::AccentText), FontWeight::Bold
       ));
       collapsible->setBody(std::move(body));
       collapsible->setExpandedImmediate(ctx.actionsExpandedFor == widgetName);
@@ -946,7 +946,7 @@ namespace settings {
       const float x = Style::spaceSm * scale;
       const float width = std::max(1.0F, lane.width() - Style::spaceSm * scale * 2.0F);
       const float gapHalf = Style::spaceXs * scale * 0.5F;
-      float y = Style::controlHeightSm * scale + Style::spaceSm * scale;
+      float y = Style::controlHeight * scale + Style::spaceSm * scale;
       if (!itemNodes.empty()) {
         if (insertionIndex == itemNodes.size()) {
           const auto* target = itemNodes.back();
@@ -1363,7 +1363,7 @@ namespace settings {
                 .gap = Style::spaceSm * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = 0,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
             },
             makeLabel(
                 key, Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
@@ -1384,8 +1384,8 @@ namespace settings {
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .glyphSize = Style::fontSizeCaption * ctx.scale,
                   .variant = pendingDelete ? ButtonVariant::Default : ButtonVariant::Ghost,
-                  .minWidth = Style::controlHeightSm * ctx.scale,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minWidth = Style::controlHeight * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .padding = Style::spaceXs * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
                   .onClick = [&pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath, deleteKey, path,
@@ -1820,7 +1820,7 @@ namespace settings {
         if (!capsuleGroup.empty()) {
           auto groupRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * ctx.scale, .fillWidth = true});
           groupRow->addChild(
-              makeGlyph("stack-2", Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Accent))
+              makeGlyph("stack-2", Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::AccentText))
           );
           auto hint = makeLabel(
               i18n::tr("settings.entities.widget.group.hint"), Style::fontSizeCaption * ctx.scale,
@@ -1834,7 +1834,7 @@ namespace settings {
                   .text = i18n::tr("settings.entities.widget.group.edit"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Ghost,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1872,7 +1872,7 @@ namespace settings {
                     .text = i18n::tr("settings.entities.widget.inspector.move-to-lane", "lane", laneLabel(targetLane)),
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1897,7 +1897,7 @@ namespace settings {
                     .text = i18n::tr("settings.entities.widget.instance.rename"),
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1918,7 +1918,7 @@ namespace settings {
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .glyphSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1948,10 +1948,10 @@ namespace settings {
               .value = widgetName,
               .placeholder = i18n::tr("settings.entities.widget.instance.id-placeholder"),
               .fontSize = Style::fontSizeCaption * ctx.scale,
-              .controlHeight = Style::controlHeightSm * ctx.scale,
+              .controlHeight = Style::controlHeight * ctx.scale,
               .horizontalPadding = Style::spaceXs * ctx.scale,
               .width = 140.0F * ctx.scale,
-              .height = Style::controlHeightSm * ctx.scale,
+              .height = Style::controlHeight * ctx.scale,
               .flexGrow = 1.0F,
           });
 
@@ -1980,7 +1980,7 @@ namespace settings {
                   .text = i18n::tr("settings.entities.widget.instance.rename-save"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Default,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1992,7 +1992,7 @@ namespace settings {
                   .text = i18n::tr("common.actions.cancel"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Ghost,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2033,7 +2033,7 @@ namespace settings {
                       .text = i18n::tr("common.actions.cancel"),
                       .fontSize = Style::fontSizeCaption * ctx.scale,
                       .variant = ButtonVariant::Ghost,
-                      .minHeight = Style::controlHeightSm * ctx.scale,
+                      .minHeight = Style::controlHeight * ctx.scale,
                       .paddingV = Style::spaceXs * ctx.scale,
                       .paddingH = Style::spaceSm * ctx.scale,
                       .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2050,7 +2050,7 @@ namespace settings {
                       .fontSize = Style::fontSizeCaption * ctx.scale,
                       .glyphSize = Style::fontSizeCaption * ctx.scale,
                       .variant = ButtonVariant::Destructive,
-                      .minHeight = Style::controlHeightSm * ctx.scale,
+                      .minHeight = Style::controlHeight * ctx.scale,
                       .paddingV = Style::spaceXs * ctx.scale,
                       .paddingH = Style::spaceSm * ctx.scale,
                       .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2178,10 +2178,10 @@ namespace settings {
           .out = &valueInputPtr,
           .value = formatSliderValue(value, integerValue),
           .fontSize = Style::fontSizeCaption * ctx.scale,
-          .controlHeight = Style::controlHeightSm * ctx.scale,
+          .controlHeight = Style::controlHeight * ctx.scale,
           .horizontalPadding = Style::spaceXs * ctx.scale,
           .width = 50.0F * ctx.scale,
-          .height = Style::controlHeightSm * ctx.scale,
+          .height = Style::controlHeight * ctx.scale,
       });
 
       Slider* sliderPtr = nullptr;
@@ -2507,7 +2507,7 @@ namespace settings {
               .fontSize = Style::fontSizeCaption * ctx.scale,
               .glyphSize = Style::fontSizeCaption * ctx.scale,
               .variant = ButtonVariant::Default,
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
               .paddingV = Style::spaceXs * ctx.scale,
               .paddingH = Style::spaceSm * ctx.scale,
               .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2629,7 +2629,7 @@ namespace settings {
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .glyphSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Primary,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2679,7 +2679,7 @@ namespace settings {
               .text = i18n::tr("settings.entities.widget.group.clear"),
               .fontSize = Style::fontSizeCaption * ctx.scale,
               .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
               .paddingV = Style::spaceXs * ctx.scale,
               .paddingH = Style::spaceSm * ctx.scale,
               .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2800,7 +2800,7 @@ namespace settings {
     auto zones = std::make_shared<std::vector<DropZone>>();
 
     // Shared compact icon-button footprint for lane cards and group headers.
-    const float iconSize = Style::controlHeightSm * 0.84F * ctx.scale;
+    const float iconSize = Style::controlHeight * 0.84F * ctx.scale;
     const float iconPad = 2.0F * ctx.scale;
     const float rowGap = 2.0F * ctx.scale;
 
@@ -3141,7 +3141,7 @@ namespace settings {
               .align = FlexAlign::Center,
               .gap = Style::spaceXs * ctx.scale,
               // Fixed height so lanes with a reset button line up with plain ones.
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
           },
           makeLabel(
               laneLabel(laneKey), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1),
@@ -3174,7 +3174,7 @@ namespace settings {
                 .text = i18n::tr("settings.entities.widget.lanes.customize"),
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusSm(ctx.scale),
@@ -3222,7 +3222,7 @@ namespace settings {
                       .glyphSize = Style::fontSizeCaption * ctx.scale,
                       .variant = ButtonVariant::Ghost,
                       .tooltip = i18n::tr("settings.entities.widget.group.remove-orphan"),
-                      .minHeight = Style::controlHeightSm * ctx.scale,
+                      .minHeight = Style::controlHeight * ctx.scale,
                       .padding = Style::spaceXs * ctx.scale,
                       .radius = Style::scaledRadiusSm(ctx.scale),
                       .onClick = [&selectedLaneWidgets = ctx.selectedLaneWidgets, setOverride = ctx.setOverride,
@@ -3557,7 +3557,7 @@ namespace settings {
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .glyphSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusMd(ctx.scale),

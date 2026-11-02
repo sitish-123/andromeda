@@ -23,7 +23,7 @@ using namespace control_center;
 
 namespace {
 
-  constexpr float kRowMinHeight = Style::controlHeightLg;
+  TOKENS_LIVE(kRowMinHeight, Style::controlHeightLg);
 
   // Bounds an explicit Rescan: BlueZ discovery is stopped again when this window elapses.
   constexpr auto kDiscoveryTimeout = std::chrono::seconds(10);
@@ -393,7 +393,7 @@ std::unique_ptr<Flex> BluetoothTab::create() {
           .out = &m_pairingCode,
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
 
@@ -897,8 +897,8 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
     auto powerRow = ui::row(
         {.align = FlexAlign::Center,
          .gap = Style::spaceSm * scale,
-         .minHeight = Style::controlHeightSm * scale,
-         .maxHeight = Style::controlHeightSm * scale},
+         .minHeight = Style::controlHeight * scale,
+         .maxHeight = Style::controlHeight * scale},
         ui::label({
             .text = i18n::tr("control-center.bluetooth.bluetooth"),
             .fontSize = Style::fontSizeBody * scale,
@@ -960,8 +960,8 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
     auto visibleRow = ui::row(
         {.align = FlexAlign::Center,
          .gap = Style::spaceSm * scale,
-         .minHeight = Style::controlHeightSm * scale,
-         .maxHeight = Style::controlHeightSm * scale},
+         .minHeight = Style::controlHeight * scale,
+         .maxHeight = Style::controlHeight * scale},
         ui::label({
             .text = i18n::tr("control-center.bluetooth.visible"),
             .fontSize = Style::fontSizeBody * scale,

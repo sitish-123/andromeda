@@ -124,8 +124,9 @@ def default_text(v):
     return scalar((), v)[1] if isinstance(v, str) and not COLOR.fullmatch(v) else '""'
 
 
-PX_GROUPS = ("radius", "space", "component")
-UNITLESS = ("weight", "line_height", "font_weight", "smoothing")
+PX_GROUPS = ("radius", "space", "size", "component")
+UNITLESS = ("weight", "smoothing", "dim", "stack_scale", "stack_visible", "columns", "rows")
+PX_KEYS = ("line", "slop", "face_blur")
 
 
 def css_value(path, value):
@@ -134,7 +135,12 @@ def css_value(path, value):
         return f"rgba({r}, {g}, {b}, {round(a / 255, 3)})"
     if isinstance(value, str):
         return f'"{value}"'
-    px = (path[0] in PX_GROUPS or path[-1] == "size") and path[-1] not in UNITLESS
+    if path[-1].endswith("_ms"):
+        return f"{value}ms"
+    if path[-1] == "tracking":
+        return f"{value}em"
+    px = path[-1] in PX_KEYS or path[-1] == "size" or (path[0] in PX_GROUPS and path[-1] not in UNITLESS)
+    px = px or (path[0] == "elevation" and path[-1].endswith(("_y", "_blur")))
     return f"{value}px" if px else str(value)
 
 
@@ -147,19 +153,33 @@ def css_vars(table, path, out):
             out.append(f"  --{'-'.join(sub).replace('_', '-')}: {css_value(sub, value)};")
 
 
+def css_shadows(tokens, scheme):
+    """box-shadow value per level: key shadow then contact shadow, in the scheme's shadow colour."""
+    r, g, b = (int(tokens["scheme"][scheme]["shadow"][i:i + 2], 16) for i in (1, 3, 5))
+    out = []
+    for level, e in tokens.get("elevation", {}).items():
+        parts = [f"0 {e['key_y']}px {e['key_blur']}px rgba({r}, {g}, {b}, {e['key_' + scheme]})"]
+        if e["contact_blur"]:
+            parts.append(f"0 {e['contact_y']}px {e['contact_blur']}px rgba({r}, {g}, {b}, {e['contact_' + scheme]})")
+        out.append(f"  --shadow-{level}: {', '.join(parts)};")
+    return out
+
+
 def emit_css(tokens, out_path):
     schemes = tokens.get("scheme", {})
     rest = {k: v for k, v in tokens.items() if k != "scheme"}
     out = ["/* Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py. Do not edit. */", ":root {"]
     css_vars(rest, (), out)
     for name, t in tokens.get("type", {}).items():
-        out.append(f"  --type-{name}: {t['weight']} {t['size']}px/{t['line_height']} var(--font-family);")
+        out.append(f"  --type-{name}: {t['weight']} {t['size']}px/{t['line']}px var(--font-family);")
     smoothing = tokens.get("radius", {}).get("smoothing", 0.0)
     out.append(f"  --corner-extent: {round(1 + 0.88 * smoothing, 4)};")
     out.append(f"  --corner-k: {round(math.log2(2 + 5 * smoothing), 4)};")
     css_vars(schemes.get("light", {}), (), out)
+    out += css_shadows(tokens, "light")
     out += ["}", ".dark {"]
     css_vars(schemes.get("dark", {}), (), out)
+    out += css_shadows(tokens, "dark")
     out += ["}", ""]
     with open(out_path, "w") as f:
         f.write("\n".join(out))
@@ -196,9 +216,10 @@ def css_color(value):
 def emit_gtk(tokens, out_path, scheme, gtk4):
     t = tokens["scheme"][scheme]
     colors = {
-        "accent_color": t["accent"], "accent_bg_color": t["accent"], "accent_fg_color": t["on_accent"],
-        "destructive_bg_color": t["danger"], "destructive_fg_color": t["on_accent"], "destructive_color": t["danger"],
-        "error_bg_color": t["danger"], "error_fg_color": t["on_accent"], "error_color": t["danger"],
+        "accent_color": t["accent_text"], "accent_bg_color": t["accent"], "accent_fg_color": t["on_accent"],
+        "destructive_bg_color": t["danger"], "destructive_fg_color": t["on_accent"], "destructive_color": t["danger_text"],
+        "error_bg_color": t["danger"], "error_fg_color": t["on_accent"], "error_color": t["danger_text"],
+        "warning_color": t["warning"], "success_color": t["success"],
     }
     for name, role in GTK_SURFACES.items():
         colors[f"{name}_bg_color"] = t[role]
@@ -219,7 +240,7 @@ def emit_gtk(tokens, out_path, scheme, gtk4):
         out.append(":root {")
         out += [f"  --{name.replace('_', '-')}: {css_color(value)};" for name, value in colors.items() if name != "borders"]
         out.append(f"  --border-color: {css_color(t['separator'])};")
-        out.append(f"  --window-radius: {tokens['radius']['md']}px;")
+        out.append(f"  --window-radius: {tokens['component']['window']['radius']}px;")
         out.append("}")
     with open(out_path, "w") as f:
         f.write("\n".join(out) + "\n")
@@ -245,7 +266,8 @@ def emit_qt(tokens, out_path, scheme):
         roles = [  # QPalette order used by qt5ct/qt6ct
             over(label, w), t["card"], t["view"], t["solid_thick"], t["solid_thin"], over(t["separator"], w),
             over(label, w), t["on_accent"], over(label, w), t["view"], w, t["shadow"], t["accent"], t["on_accent"],
-            t["accent"], t["accent"], t["sidebar"], w, t["popover"], over(label, t["popover"]), over(t["label_3"], w),
+            t["accent_text"], t["accent_text"], over(t["fill_1"], t["view"]), w, t["popover"], over(label, t["popover"]),
+            over(t["label_3"], w),
             t["accent"],
         ]
         return ", ".join(argb(c) for c in roles)
@@ -268,14 +290,14 @@ def emit_kde(tokens, out_path, scheme):
         return {
             "BackgroundNormal": rgb(bg), "BackgroundAlternate": rgb(alt),
             "ForegroundNormal": rgb(over(t["label_1"], bg)), "ForegroundInactive": rgb(over(t["label_2"], bg)),
-            "ForegroundActive": rgb(t["accent"]), "ForegroundLink": rgb(t["accent"]),
-            "ForegroundVisited": rgb(t["accent"]), "ForegroundNegative": rgb(t["danger"]),
-            "ForegroundNeutral": rgb(over(t["label_2"], bg)), "ForegroundPositive": rgb(t["accent"]),
+            "ForegroundActive": rgb(t["accent_text"]), "ForegroundLink": rgb(t["accent_text"]),
+            "ForegroundVisited": rgb(t["accent_text"]), "ForegroundNegative": rgb(t["danger_text"]),
+            "ForegroundNeutral": rgb(t["warning"]), "ForegroundPositive": rgb(t["success"]),
             "DecorationFocus": rgb(t["accent"]), "DecorationHover": rgb(t["accent"]),
         }
 
     groups = {
-        "Window": group(w, t["sidebar"]), "View": group(t["view"], t["window"]), "Button": group(t["card"], w),
+        "Window": group(w, t["sidebar"]), "View": group(t["view"], over(t["fill_1"], t["view"])), "Button": group(t["card"], w),
         "Tooltip": group(t["popover"], t["popover"]), "Header": group(t["header"], w),
         "Complementary": group(t["popover"], t["popover"]),
     }
@@ -299,8 +321,8 @@ def emit_kde(tokens, out_path, scheme):
 def emit_fcitx5(tokens, out_path, scheme):
     import os
     t = tokens["scheme"][scheme]
-    r = tokens["radius"]
-    pad = tokens["space"]["s2"]
+    menu = tokens["component"]["menu"]
+    pad = tokens["space"]["p8"]
     directory = os.path.dirname(out_path)
 
     def svg(name, fill, radius):
@@ -312,8 +334,8 @@ def emit_fcitx5(tokens, out_path, scheme):
                     f'<rect width="{size}" height="{size}" rx="{radius}" fill="{rgb}" fill-opacity="{alpha}"/></svg>\n')
         return int(radius)
 
-    panel = svg("panel.svg", t["popover"], r["md"])
-    highlight = svg("highlight.svg", t["accent"], r["xs"])
+    panel = svg("panel.svg", t["popover"], menu["radius"])
+    highlight = svg("highlight.svg", t["accent"], menu["item_radius"])
     label1, label2 = over(t["label_1"], t["popover"]), over(t["label_2"], t["popover"])
     out = [
         f"# Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py ({scheme}). Do not edit.",

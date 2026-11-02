@@ -848,7 +848,7 @@ namespace capture {
     badgeFill.a = 0.94F;
     auto dimensionsBadge = ui::box({
         .fill = fixedColorSpec(badgeFill),
-        .radius = Style::radiusSm,
+        .radius = Tokens::radiusR8,
         .visible = false,
         .configure = [border](Box& box) { box.setBorder(fixedColorSpec(border), 1.0F); },
     });

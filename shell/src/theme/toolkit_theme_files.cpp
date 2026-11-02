@@ -131,7 +131,10 @@ namespace toolkit_theme {
       writeIfChanged(path, out);
     }
 
-    void writeGtk(GtkToolkit toolkit, std::string_view scheme, const std::string& accent, const std::string& onAccent) {
+    void writeGtk(
+        GtkToolkit toolkit, std::string_view scheme, const std::string& accent, const std::string& accentText,
+        const std::string& onAccent
+    ) {
       const bool gtk4 = toolkit == GtkToolkit::Gtk4;
       const auto base = findData(std::format("andromeda/gtk/andromeda-gtk{}-{}.css", gtk4 ? 4 : 3, scheme));
       if (!base) {
@@ -144,12 +147,12 @@ namespace toolkit_theme {
         css += std::format("@import url(\"{}\");\n", kGtkExtensionIndexFile);
       }
       css += std::format(
-          "@define-color accent_color {0};\n@define-color accent_bg_color {0};\n@define-color accent_fg_color {1};\n",
-          accent, onAccent
+          "@define-color accent_color {2};\n@define-color accent_bg_color {0};\n@define-color accent_fg_color {1};\n",
+          accent, onAccent, accentText
       );
       if (gtk4) {
-        css += std::format(":root {{\n  --accent-color: {0};\n  --accent-bg-color: {0};\n  --accent-fg-color: {1};\n}}\n",
-                           accent, onAccent);
+        css += std::format(":root {{\n  --accent-color: {2};\n  --accent-bg-color: {0};\n  --accent-fg-color: {1};\n}}\n",
+                           accent, onAccent, accentText);
       }
       writeIfChanged(dir / "andromeda.css", css);
       // GTK reads only gtk.css: import ours once, first, so the user's own rules still win.
@@ -190,17 +193,29 @@ namespace toolkit_theme {
       kLog.debug("generated toolkit themes not installed; skipping");
       return false;
     }
-    writeGtk(GtkToolkit::Gtk3, scheme, accentHex, onAccentHex);
-    writeGtk(GtkToolkit::Gtk4, scheme, accentHex, onAccentHex);
+    // accent is a fill; accent_text is for text and symbols. The token pair stays as the generator wrote it until the
+    // live accent differs from the token accent, then the live accent serves both.
+    const auto& tokens = scheme == "light" ? Tokens::schemeLight : Tokens::schemeDark;
+    const bool customAccent = accentHex != std::format("#{:06x}", tokens.accent >> 8U);
+    const std::string accentTextHex = customAccent ? accentHex : std::format("#{:06x}", tokens.accentText >> 8U);
+    writeGtk(GtkToolkit::Gtk3, scheme, accentHex, accentTextHex, onAccentHex);
+    writeGtk(GtkToolkit::Gtk4, scheme, accentHex, accentTextHex, onAccentHex);
 
     // qt6ct has no import: copy the scheme palette with the token accent replaced by the live one.
     if (const auto base = findData(std::format("qt6ct/colors/andromeda-qt-{}.conf", scheme))) {
       std::string palette = readFile(*base).value_or("");
-      const std::string tokenAccent = argb(scheme == "light" ? Tokens::schemeLight.accent : Tokens::schemeDark.accent);
+      const std::string tokenAccent = argb(tokens.accent);
       const std::string liveAccent = "#ff" + accentHex.substr(1);
       for (std::size_t at = palette.find(tokenAccent); at != std::string::npos;
            at = palette.find(tokenAccent, at + liveAccent.size())) {
         palette.replace(at, tokenAccent.size(), liveAccent);
+      }
+      if (customAccent) {
+        const std::string tokenText = argb(tokens.accentText);
+        for (std::size_t at = palette.find(tokenText); at != std::string::npos;
+             at = palette.find(tokenText, at + liveAccent.size())) {
+          palette.replace(at, tokenText.size(), liveAccent);
+        }
       }
       const std::filesystem::path colors = FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/qt6ct/colors/andromeda.conf");
       writeIfChanged(colors, palette);
@@ -214,8 +229,9 @@ namespace toolkit_theme {
     const std::string schemeName = scheme == "light" ? "AndromedaLight" : "AndromedaDark";
     if (const auto base = findData(std::format("color-schemes/{}.colors", schemeName))) {
       const std::filesystem::path kdeglobals = FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/kdeglobals");
-      const std::uint32_t token = scheme == "light" ? Tokens::schemeLight.accent : Tokens::schemeDark.accent;
-      const std::string tokenRgb = std::format("{},{},{}", token >> 24U, (token >> 16U) & 0xFFU, (token >> 8U) & 0xFFU);
+      const auto rgbOf = [](std::uint32_t c) { return std::format("{},{},{}", c >> 24U, (c >> 16U) & 0xFFU, (c >> 8U) & 0xFFU); };
+      const std::string tokenRgb = rgbOf(tokens.accent);
+      const std::string tokenTextRgb = rgbOf(tokens.accentText);
       const std::string liveRgb = std::format(
           "{},{},{}", static_cast<int>(std::lround(accent.r * 255.0F)), static_cast<int>(std::lround(accent.g * 255.0F)),
           static_cast<int>(std::lround(accent.b * 255.0F))
@@ -235,7 +251,7 @@ namespace toolkit_theme {
           section = line.substr(1, line.find(']') - 1);
         } else if (const auto eq = line.find('='); eq != std::string::npos && !line.starts_with('#')) {
           std::string value = line.substr(eq + 1);
-          keys.emplace_back(line.substr(0, eq), value == tokenRgb ? liveRgb : value);
+          keys.emplace_back(line.substr(0, eq), value == tokenRgb || (customAccent && value == tokenTextRgb) ? liveRgb : value);
         }
       }
       flush();

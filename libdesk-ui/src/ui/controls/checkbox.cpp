@@ -97,7 +97,7 @@ bool Checkbox::hovered() const noexcept { return m_inputArea != nullptr && m_inp
 bool Checkbox::pressed() const noexcept { return m_inputArea != nullptr && m_inputArea->pressed(); }
 
 void Checkbox::doLayout(Renderer& renderer) {
-  const float touchSize = Style::controlHeightSm * m_scale;
+  const float touchSize = Style::controlHeight * m_scale;
   const float boxSize = (Style::fontSizeTitle + Style::spaceXs) * m_scale;
   const float boxInset = (touchSize - boxSize) * 0.5F;
 

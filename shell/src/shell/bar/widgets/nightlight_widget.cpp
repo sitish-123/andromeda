@@ -74,7 +74,7 @@ void NightLightWidget::syncState(Renderer& renderer) {
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
 
   if (forced || (enabled && active)) {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Accent)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::AccentText)));
   } else if (enabled) {
     m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   } else {

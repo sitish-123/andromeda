@@ -88,7 +88,7 @@ namespace {
 float ColorPicker::intrinsicColumnHeight(float pickerWidth, float scale) {
   const float s = std::max(0.1F, scale);
   const float pw = std::max(120.0F, pickerWidth);
-  return std::round(pw * kPlaneAspect) + kStripHeight * s + Style::controlHeightSm * s + 2.0F * Style::spaceSm * s;
+  return std::round(pw * kPlaneAspect) + kStripHeight * s + Style::controlHeight * s + 2.0F * Style::spaceSm * s;
 }
 
 ColorPicker::ColorPicker() {
@@ -120,7 +120,7 @@ ColorPicker::ColorPicker() {
           .options = std::vector<std::string>{"HEX", "RGB", "HSL"},
           .selectedIndex = 0,
           .fontSize = Style::fontSizeCaption,
-          .controlHeight = Style::controlHeightSm,
+          .controlHeight = Style::controlHeight,
           .horizontalPadding = Style::spaceSm,
           .width = kFormatSelectWidth,
           .onSelectionChanged = [this](std::size_t index, std::string_view /*text*/) {
@@ -132,7 +132,7 @@ ColorPicker::ColorPicker() {
     return ui::input({
         .out = out,
         .fontSize = Style::fontSizeCaption,
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .horizontalPadding = Style::spaceSm,
         .flexGrow = 1.0F,
     });
@@ -146,7 +146,7 @@ ColorPicker::ColorPicker() {
       ui::input({
           .out = &m_alphaField,
           .fontSize = Style::fontSizeCaption,
-          .controlHeight = Style::controlHeightSm,
+          .controlHeight = Style::controlHeight,
           .horizontalPadding = Style::spaceSm,
           .width = kAlphaFieldWidth,
           .visible = false,
@@ -157,7 +157,7 @@ ColorPicker::ColorPicker() {
           .out = &m_copyButton,
           .glyph = "copy",
           .glyphSize = Style::fontSizeCaption,
-          .controlHeight = Style::controlHeightSm,
+          .controlHeight = Style::controlHeight,
           .variant = ButtonVariant::Ghost,
           .tooltip = i18n::tr("ui.dialogs.color-picker.copy"),
           .onClick = [this] {
@@ -255,7 +255,7 @@ void ColorPicker::applyStyle() {
   m_fieldsRow->setGap(Style::spaceXs * m_scale);
   m_swatchRow->setGap(Style::spaceXs * m_scale);
   const float fontSize = Style::fontSizeCaption * m_scale;
-  const float controlHeight = Style::controlHeightSm * m_scale;
+  const float controlHeight = Style::controlHeight * m_scale;
   const float padding = Style::spaceSm * m_scale;
   m_formatSelect->setFontSize(fontSize);
   m_formatSelect->setControlHeight(controlHeight);
@@ -811,7 +811,7 @@ ColorPickerSheet::ColorPickerSheet(float chromeScale) : m_chromeScale(std::max(0
           .text = i18n::tr("ui.dialogs.color-picker.title"),
           .fontSize = Style::fontSizeTitle * m_chromeScale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   headerRow->addChild(ui::spacer());
@@ -821,8 +821,8 @@ ColorPickerSheet::ColorPickerSheet(float chromeScale) : m_chromeScale(std::max(0
             .glyph = "close",
             .glyphSize = Style::fontSizeBody * m_chromeScale,
             .variant = ButtonVariant::Default,
-            .minWidth = Style::controlHeightSm * m_chromeScale,
-            .minHeight = Style::controlHeightSm * m_chromeScale,
+            .minWidth = Style::controlHeight * m_chromeScale,
+            .minHeight = Style::controlHeight * m_chromeScale,
             .padding = Style::spaceXs * m_chromeScale,
             .radius = Style::scaledRadiusMd(m_chromeScale),
             .onClick = [this] {

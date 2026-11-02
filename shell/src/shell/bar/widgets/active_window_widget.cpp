@@ -43,7 +43,7 @@ void ActiveWindowWidget::create() {
       ui::image({
           .out = &m_icon,
           .fit = ImageFit::Contain,
-          .radius = Style::radiusSm,
+          .radius = Tokens::radiusR8,
           .width = m_iconSize * m_contentScale,
           .height = m_iconSize * m_contentScale,
       })

@@ -1,5 +1,5 @@
 # Generated from protocol/design-tokens.toml by protocol/gen-design-tokens.py (dark). Do not edit.
 [ColorScheme]
-active_colors=#ff4ade06, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff4ade06, #fffdf7eb, #ff4ade06, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ffe0a020, #ffe0a020, #ffe5af43, #ff54fc4c, #ffc85878, #ff4ade06, #ff6cc474, #ffe0a020
-inactive_colors=#ff4ade06, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff4ade06, #fffdf7eb, #ff4ade06, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ffe0a020, #ffe0a020, #ffe5af43, #ff54fc4c, #ffc85878, #ff4ade06, #ff6cc474, #ffe0a020
-disabled_colors=#ff6cc474, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff6cc474, #fffdf7eb, #ff6cc474, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ffe0a020, #ffe0a020, #ffe5af43, #ff54fc4c, #ffc85878, #ffa6728a, #ff6cc474, #ffe0a020
+active_colors=#ff4ade06, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff4ade06, #fffdf7eb, #ff4ade06, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ff7be04f, #ff7be04f, #ff899b3f, #ff54fc4c, #ffc85878, #ff4ade06, #ff6cc474, #ffe0a020
+inactive_colors=#ff4ade06, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff4ade06, #fffdf7eb, #ff4ade06, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ff7be04f, #ff7be04f, #ff899b3f, #ff54fc4c, #ffc85878, #ff4ade06, #ff6cc474, #ffe0a020
+disabled_colors=#ff6cc474, #ff8eaae2, #ff715317, #ff899bbf, #ff4fed29, #ff2b812d, #ff6cc474, #fffdf7eb, #ff6cc474, #ff715317, #ff54fc4c, #8037a581, #ffe0a020, #fffdf7eb, #ff7be04f, #ff7be04f, #ff899b3f, #ff54fc4c, #ffc85878, #ffa6728a, #ff6cc474, #ffe0a020

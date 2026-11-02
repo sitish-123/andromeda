@@ -5,61 +5,62 @@
 
 namespace Style {
 
-  inline constexpr int barThicknessDefault = 34;
+  TOKENS_LIVE(barThicknessDefault, Tokens::componentIslandHeight);
 
-  inline constexpr const int& animFast = Tokens::motionFast;
-  inline constexpr const int& animNormal = Tokens::motionNormal;
-  inline constexpr const int& animSlow = Tokens::motionSlow;
-
-  inline constexpr const float& radiusSm = Tokens::radiusXs;
-  inline constexpr const float& radiusMd = Tokens::radiusSm;
-  inline constexpr const float& radiusLg = Tokens::radiusMd;
-  inline constexpr const float& radiusXl = Tokens::radiusLg;
+  // duration animations are removed in M2
+  inline constexpr int animFast = 120;
+  inline constexpr int animNormal = 200;
+  inline constexpr int animSlow = 320;
 
   inline constexpr float borderWidth = 1.0F;
   inline constexpr float emphasizedBorderWidth = 3.0F;
   inline constexpr float focusRingWidth = 2.0F;
+  inline constexpr float focusRingGap = 2.0F;
   inline constexpr float progressMarkerWidth = 2.0F;
   inline constexpr float disabledOutlineAlpha = 0.5F;
 
-  inline constexpr const float& spaceXs = Tokens::spaceS1;
-  inline constexpr const float& spaceSm = Tokens::spaceS2;
-  inline constexpr const float& spaceMd = Tokens::spaceS3;
-  inline constexpr const float& spaceLg = Tokens::spaceS4;
+  inline constexpr const float& spaceXs = Tokens::spaceP4;
+  inline constexpr const float& spaceSm = Tokens::spaceP8;
+  inline constexpr const float& spaceMd = Tokens::spaceP12;
+  inline constexpr const float& spaceLg = Tokens::spaceP16;
 
-  inline constexpr const float& cardPadding = Tokens::spaceS3;
-  inline constexpr const float& panelPadding = Tokens::spaceS3;
+  inline constexpr const float& cardPadding = Tokens::spaceP12;
+  inline constexpr const float& panelPadding = Tokens::spaceP12;
 
-  // Default inner inset for bar widget capsules (logical px, before bar content scale).
-  inline constexpr float barCapsulePadding = 6.0F;
+  // Default inner inset for bar widget capsules (logical px, before bar content scale): R5, symbol end and text end.
+  inline constexpr const float& barCapsuleInsetSymbol = Tokens::componentIslandInsetSymbol;
+  inline constexpr const float& barCapsuleInsetText = Tokens::componentIslandInsetText;
   inline constexpr float baseGlyphSize = 16.0F;
 
-  inline constexpr const float& fontSizeMini = Tokens::typeMini.size;
-  inline constexpr const float& fontSizeCaption = Tokens::typeCaption.size;
+  inline constexpr const float& fontSizeMini = Tokens::typeCaption.size;
+  inline constexpr const float& fontSizeCaption = Tokens::typeFootnote.size;
   inline constexpr const float& fontSizeBody = Tokens::typeBody.size;
-  inline constexpr const float& fontSizeTitle = Tokens::typeTitle.size;
-  inline constexpr const float& fontSizeHeader = Tokens::typeHeader.size;
+  inline constexpr const float& fontSizeTitle = Tokens::typeHeadline.size;
+  inline constexpr const float& fontSizeHeader = Tokens::typeTitle1.size;
 
-  inline constexpr float controlHeightSm = 32.0F;
-  inline constexpr float controlHeight = 38.0F;
-  inline constexpr float controlHeightLg = 44.0F;
+  inline constexpr const float& controlHeightSm = Tokens::sizeControlS;
+  inline constexpr const float& controlHeight = Tokens::sizeControlM;
+  inline constexpr const float& controlHeightLg = Tokens::sizeControlL;
+  // Body and footnote text on glass is one step heavier (400 -> 500); other weights stay.
+  [[nodiscard]] inline int glassWeight(int weight) noexcept {
+    return weight == 400 ? weight + Tokens::typeRulesGlassWeightAdd : weight;
+  }
   inline constexpr float scrollWheelStep = 56.0F;
   // Pointer distance in logical px before an armed drag becomes active.
-  inline constexpr float dragStartThreshold = 6.0F;
+  inline constexpr const float& dragStartThreshold = Tokens::motionSlop;
 
   // Base scrollbar thickness at rest, and while the pointer is over it. The bar overlays the
   // content as it expands, so hovering never reflows the scroll view.
-  inline constexpr float scrollbarWidth = 6.0F;
-  inline constexpr float scrollbarHoverWidth = 12.0F;
-  TOKENS_LIVE(scrollbarGap, spaceSm);
-  // Shortest the thumb gets on a long document; it must stay a usable drag target and read as a
-  // bar rather than a lozenge next to the hovered thickness.
-  inline constexpr float scrollbarMinThumbHeight = 32.0F;
+  inline constexpr const float& scrollbarWidth = Tokens::componentScrollbarWidth;
+  inline constexpr const float& scrollbarHoverWidth = Tokens::componentScrollbarHoverWidth;
+  inline constexpr const float& scrollbarGap = Tokens::componentScrollbarInset;
+  // Shortest the thumb gets on a long document; it must stay a usable drag target.
+  inline constexpr const float& scrollbarMinThumbHeight = Tokens::componentScrollbarMinLength;
   // Pointer margin on the content side of the bar, so a thin bar stays an easy grab target.
-  inline constexpr float scrollbarHitSlop = 6.0F;
+  inline constexpr const float& scrollbarHitSlop = Tokens::motionSlop;
 
   // Growth cap (logical px, before content scale) for menus/dropdowns that size to their content.
-  inline constexpr float menuAutoMaxWidth = 420.0F;
+  inline constexpr const float& menuAutoMaxWidth = Tokens::componentMenuMaxWidth;
 
   // Window switcher carousel geometry and depth treatment.
   inline constexpr float windowSwitcherDimOpacity = 0.3F;
@@ -72,28 +73,28 @@ namespace Style {
   inline constexpr float windowSwitcherNarrowLayoutThreshold = 0.72F;
   inline constexpr float windowSwitcherPreviewIconScale = 0.12F;
   inline constexpr float windowSwitcherFallbackIconScale = 0.28F;
-  inline constexpr float windowSwitcherCaptionHeight = controlHeightLg;
+  TOKENS_LIVE(windowSwitcherCaptionHeight, controlHeightLg);
   TOKENS_LIVE(windowSwitcherCaptionLineGap, -spaceXs);
   inline constexpr float windowSwitcherIncomingCardScale = 0.9F;
   inline constexpr float windowSwitcherIncomingCardSlide = 0.25F;
   inline constexpr float windowSwitcherOutgoingCardSlide = 0.3F;
   inline constexpr float windowSwitcherRevealScale = 0.95F;
 
-  // Toggle preset geometry. Track height = thumb + 2 * inset; track width = thumb + 2 * inset + travel.
-  inline constexpr float toggleThumbSizeSm = 14.0F;
-  inline constexpr float toggleInsetSm = 2.0F;
-  inline constexpr float toggleTravelSm = 12.0F;
-  inline constexpr float toggleThumbSizeMd = 18.0F;
-  inline constexpr float toggleInsetMd = 3.0F;
-  inline constexpr float toggleTravelMd = 16.0F;
-  inline constexpr float toggleThumbSizeLg = 22.0F;
-  inline constexpr float toggleInsetLg = 4.0F;
-  inline constexpr float toggleTravelLg = 20.0F;
+  // One toggle size for every preset. Track height = thumb + 2 * inset; track width = thumb + 2 * inset + travel.
+  inline constexpr const float& toggleThumbSizeSm = Tokens::componentToggleKnob;
+  inline constexpr const float& toggleInsetSm = Tokens::componentToggleInset;
+  TOKENS_LIVE(toggleTravelSm, Tokens::componentToggleWidth - Tokens::componentToggleKnob - 2.0F * Tokens::componentToggleInset);
+  inline constexpr const float& toggleThumbSizeMd = Tokens::componentToggleKnob;
+  inline constexpr const float& toggleInsetMd = Tokens::componentToggleInset;
+  TOKENS_LIVE(toggleTravelMd, toggleTravelSm);
+  inline constexpr const float& toggleThumbSizeLg = Tokens::componentToggleKnob;
+  inline constexpr const float& toggleInsetLg = Tokens::componentToggleInset;
+  TOKENS_LIVE(toggleTravelLg, toggleTravelSm);
 
   // Slider geometry.
   inline constexpr float sliderDefaultWidth = 180.0F;
-  inline constexpr float sliderTrackHeight = 8.0F;
-  inline constexpr float sliderThumbSize = 18.0F;
+  inline constexpr const float& sliderTrackHeight = Tokens::componentRangeTrack;
+  inline constexpr const float& sliderThumbSize = Tokens::componentRangeKnob;
   inline constexpr float sliderHorizontalPadding = 2.0F;
 
   [[nodiscard]] float cornerRadiusScale() noexcept;

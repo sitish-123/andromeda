@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ANDROMEDA_DEV_TOKENS reloads the design tokens live: after the TOML copy changes, the bar looks different within 2 s
-# (island padding and the window color), an invalid file keeps the last good look, and deleting the keys reverts it. Writes before.png, after.png,
+# (island inset and the window color), an invalid file keeps the last good look, and deleting the keys reverts it. Writes before.png, after.png,
 # invalid.png, deleted.png, and result.txt to $OUT (default ./artifacts/dev-tokens).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/dev-tokens}
@@ -14,7 +14,7 @@ boot_headless 1
 with_noctalia '
   sleep 2 # real time: the bar settles
   grim "$OUT/before.png"
-  sed -i -e "s/^padding_x = 16.0/padding_x = 40.0/" -e "s/^window = \"#[0-9a-f]*\"/window = \"#ff0000ff\"/" \
+  sed -i -e "s/^inset_text = 12.0/inset_text = 40.0/" -e "s/^window = \"#[0-9a-f]*\"/window = \"#ff0000ff\"/" \
     -e "s/^view = \"#[0-9a-f]*\"/view = \"#ff0000ff\"/" -e "s/^header = \"#[0-9a-f]*\"/header = \"#ff0000ff\"/" \
     -e "s/^solid_regular = \"#[0-9a-f]*\"/solid_regular = \"#ff0000ff\"/" -e "s/^tint_regular = \"#[0-9a-f]*\"/tint_regular = \"#ff0000ff\"/" \
     "$ANDROMEDA_DEV_TOKENS"
@@ -23,7 +23,7 @@ with_noctalia '
   echo "no_such_key = 1" >> "$ANDROMEDA_DEV_TOKENS"
   sleep 1.5
   grim "$OUT/invalid.png"
-  sed -i -e "/^no_such_key/d" -e "/^padding_x = 40.0/d" -e "/= \"#ff0000ff\"/d" "$ANDROMEDA_DEV_TOKENS"
+  sed -i -e "/^no_such_key/d" -e "/^inset_text = 40.0/d" -e "/= \"#ff0000ff\"/d" "$ANDROMEDA_DEV_TOKENS"
   sleep 1.5
   grim "$OUT/deleted.png"
 '

@@ -191,8 +191,8 @@ namespace settings {
         .glyphSize = Style::fontSizeBody * scale,
         .variant = pendingConfirmation ? ButtonVariant::Destructive : ButtonVariant::Ghost,
         .tooltip = i18n::tr("settings.actions.reset-to-default"),
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .paddingV = Style::spaceXs * scale,
         .paddingH = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
@@ -223,7 +223,7 @@ namespace settings {
          .paddingH = matchResetHeight ? Style::spaceSm * scale : Style::spaceXs * scale,
          .fill = fill,
          .radius = Style::scaledRadiusSm(scale),
-         .minHeight = matchResetHeight ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt},
+         .minHeight = matchResetHeight ? std::optional<float>{Style::controlHeight * scale} : std::nullopt},
         makeLabel(label, Style::fontSizeCaption * scale, color, FontWeight::Bold)
     );
   }
@@ -512,10 +512,10 @@ namespace settings {
         .out = &valueInputPtr,
         .value = formatSliderValue(sliderValue, integerValue),
         .fontSize = Style::fontSizeCaption * scale,
-        .controlHeight = Style::controlHeightSm * scale,
+        .controlHeight = Style::controlHeight * scale,
         .horizontalPadding = Style::spaceXs * scale,
         .width = 50.0F * scale,
-        .height = Style::controlHeightSm * scale,
+        .height = Style::controlHeight * scale,
     });
 
     Slider* sliderPtr = nullptr;
@@ -613,10 +613,10 @@ namespace settings {
           .out = out,
           .value = formatSliderValue(value, integerValue),
           .fontSize = Style::fontSizeCaption * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceXs * scale,
           .width = 50.0F * scale,
-          .height = Style::controlHeightSm * scale,
+          .height = Style::controlHeight * scale,
       });
     };
 
@@ -1125,7 +1125,7 @@ namespace settings {
     auto titleRow = ui::row({
         .align = FlexAlign::Center,
         .gap = Style::spaceSm * scale,
-        .minHeight = reserveTitleHeight ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt,
+        .minHeight = reserveTitleHeight ? std::optional<float>{Style::controlHeight * scale} : std::nullopt,
         .fillWidth = compactTitleDescription ? std::optional<bool>{true} : std::nullopt,
     });
     titleRow->addChild(

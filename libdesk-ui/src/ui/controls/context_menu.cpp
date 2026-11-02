@@ -14,7 +14,7 @@
 namespace {
 
   constexpr float kMenuPadding = 6.0F;
-  constexpr float kItemHeight = Style::controlHeightSm;
+  TOKENS_LIVE(kItemHeight, Tokens::componentMenuItem);
   constexpr float kSeparatorHeight = 10.0F;
   constexpr float kItemGap = 0.0F;
   TOKENS_LIVE(kMenuFontSize, Style::fontSizeCaption);

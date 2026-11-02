@@ -30,7 +30,7 @@ namespace settings {
           .align = FlexAlign::Center,
           .justify = FlexJustify::SpaceBetween,
           .gap = Style::spaceSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
       });
       row->addChild(makeLabel(
           std::move(label), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
@@ -225,7 +225,7 @@ namespace settings {
         .align = FlexAlign::Center,
         .justify = FlexJustify::SpaceBetween,
         .gap = Style::spaceSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minHeight = Style::controlHeight * scale,
     });
     durationRow->addChild(makeLabel(
         i18n::tr("settings.notifications.filter.override-duration"), Style::fontSizeBody * scale,

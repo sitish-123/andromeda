@@ -285,7 +285,7 @@ namespace settings {
 
   void updateSettingsStatusBanner(Flex& banner, Label& message, std::string_view text, bool error) {
     message.setText(text);
-    message.setColor(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent));
+    message.setColor(colorSpecFromRole(error ? ColorRole::DangerText : ColorRole::AccentText));
     banner.setFill(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.14F));
     banner.setBorder(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.45F), Style::borderWidth);
     banner.setVisible(!text.empty());
@@ -311,7 +311,7 @@ namespace settings {
         .text = std::move(props.message),
         .fontSize = Style::fontSizeCaption * scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent),
+        .color = colorSpecFromRole(error ? ColorRole::DangerText : ColorRole::AccentText),
         .maxLines = props.scrollable ? 0 : 3,
         .flexGrow = props.scrollable ? 0.0F : 1.0F,
     });
@@ -345,8 +345,8 @@ namespace settings {
               .glyph = "close",
               .glyphSize = Style::fontSizeCaption * scale,
               .variant = ButtonVariant::Ghost,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusSm(scale),
               .onClick = std::move(props.onDismiss),

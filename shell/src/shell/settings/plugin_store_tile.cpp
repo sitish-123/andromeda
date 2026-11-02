@@ -49,7 +49,7 @@ namespace settings {
                 .out = &m_icon,
                 .glyph = "apps",
                 .glyphSize = Style::fontSizeHeader * 1.5F * scale,
-                .color = colorSpecFromRole(ColorRole::Accent),
+                .color = colorSpecFromRole(ColorRole::AccentText),
             })
         )
     );
@@ -88,7 +88,7 @@ namespace settings {
                 .out = &m_badgeLabel,
                 .fontSize = Style::fontSizeMini * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::Accent),
+                .color = colorSpecFromRole(ColorRole::AccentText),
                 .maxWidth = (kSourceBadgeMaxWidth - (Style::spaceXs * 2.0F)) * scale,
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
@@ -109,7 +109,7 @@ namespace settings {
                 .out = &m_statusLabel,
                 .fontSize = Style::fontSizeMini * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::Danger),
+                .color = colorSpecFromRole(ColorRole::DangerText),
                 .maxWidth = (kSourceBadgeMaxWidth - (Style::spaceXs * 2.0F)) * scale,
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
@@ -163,7 +163,7 @@ namespace settings {
             .out = &m_addedGlyph,
             .glyph = "check",
             .glyphSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::Accent),
+            .color = colorSpecFromRole(ColorRole::AccentText),
             .visible = false,
         })
     );
@@ -242,7 +242,7 @@ namespace settings {
     m_descLabel->setText(entry.description);
     m_authorLabel->setText(entry.author.empty() ? std::string() : entry.author);
 
-    const auto recommendationColor = colorSpecFromRole(recommended ? ColorRole::Accent : ColorRole::Label2);
+    const auto recommendationColor = colorSpecFromRole(recommended ? ColorRole::AccentText : ColorRole::Label2);
     m_recommendationsLabel->setColor(recommendationColor);
     m_recommendationsGlyph->setColor(recommendationColor);
     m_recommendationsGlyph->setGlyph(recommended ? "thumb-up-filled" : "thumb-up");

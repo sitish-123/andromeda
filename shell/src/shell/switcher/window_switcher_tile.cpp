@@ -100,11 +100,11 @@ WindowSwitcherTile::WindowSwitcherTile(float contentScale, AsyncTextureCache* as
           .out = &m_close,
           .glyph = "close",
           .glyphSize = Style::fontSizeCaption * m_contentScale,
-          .controlHeight = (Style::controlHeightSm - Style::spaceSm) * m_contentScale,
+          .controlHeight = (Style::controlHeight - Style::spaceSm) * m_contentScale,
           .variant = ButtonVariant::Outline,
           .padding = 0.0F,
-          .width = (Style::controlHeightSm - Style::spaceSm) * m_contentScale,
-          .height = (Style::controlHeightSm - Style::spaceSm) * m_contentScale,
+          .width = (Style::controlHeight - Style::spaceSm) * m_contentScale,
+          .height = (Style::controlHeight - Style::spaceSm) * m_contentScale,
           .participatesInLayout = false,
           .onClick = [this] {
             if (m_onClose) {
@@ -391,7 +391,7 @@ void WindowSwitcherTile::layoutContent(Renderer& renderer) {
       std::round(iconY + (iconSize - m_fallbackGlyph->height()) * 0.5F)
   );
 
-  const float closeSize = (Style::controlHeightSm - Style::spaceSm) * m_contentScale;
+  const float closeSize = (Style::controlHeight - Style::spaceSm) * m_contentScale;
   const float closeInset = Style::spaceXs * m_contentScale;
   const float closeX =
       m_closePlacement == WindowSwitcherHorizontalPlacement::Left ? closeInset : innerW - closeSize - closeInset;

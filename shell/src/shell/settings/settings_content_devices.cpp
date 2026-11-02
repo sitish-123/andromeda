@@ -24,7 +24,7 @@ namespace settings {
             ui::glyph({
                 .glyph = "device-mobile",
                 .glyphSize = Style::fontSizeTitle * scale,
-                .color = colorSpecFromRole(ColorRole::Accent),
+                .color = colorSpecFromRole(ColorRole::AccentText),
             }),
             ui::column(
                 {.align = FlexAlign::Start, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},

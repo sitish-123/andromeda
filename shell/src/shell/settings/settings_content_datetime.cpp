@@ -89,7 +89,7 @@ namespace settings {
     ));
 
     if (!td.lastError().empty()) {
-      body->addChild(makeLabel(td.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Danger)));
+      body->addChild(makeLabel(td.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::DangerText)));
     }
   }
 

@@ -149,7 +149,7 @@ void FileDialogView::create() {
           .out = &m_titleLabel,
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   headerRow->addChild(ui::spacer());
@@ -159,8 +159,8 @@ void FileDialogView::create() {
             .glyph = "close",
             .glyphSize = Style::fontSizeBody * scale,
             .variant = ButtonVariant::Default,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [this] {
@@ -182,7 +182,7 @@ void FileDialogView::create() {
           .out = &m_breadcrumbRow,
           .align = FlexAlign::Center,
           .gap = Style::spaceXs * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
           .fillWidth = true,
           .clipChildren = true,
       })
@@ -215,8 +215,8 @@ void FileDialogView::create() {
               .glyph = "eye",
               .glyphSize = Style::fontSizeBody * scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick =
@@ -234,8 +234,8 @@ void FileDialogView::create() {
               .out = &m_viewToggle,
               .glyphSize = Style::fontSizeBody * scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick = [this] {
@@ -282,7 +282,7 @@ void FileDialogView::create() {
               .text = i18n::tr("ui.dialogs.file.sort.name"),
               .contentAlign = ButtonContentAlign::Start,
               .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * scale,
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .flexGrow = 1.0F,
@@ -303,7 +303,7 @@ void FileDialogView::create() {
               .contentAlign = ButtonContentAlign::End,
               .variant = ButtonVariant::Ghost,
               .minWidth = 96.0F * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .onClick =
@@ -323,7 +323,7 @@ void FileDialogView::create() {
               .contentAlign = ButtonContentAlign::End,
               .variant = ButtonVariant::Ghost,
               .minWidth = 152.0F * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .onClick = [this] {
@@ -808,8 +808,8 @@ void FileDialogView::rebuildBreadcrumb() {
           .glyph = "arrow-big-up",
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] {
@@ -830,8 +830,8 @@ void FileDialogView::rebuildBreadcrumb() {
           .glyph = "home",
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] {

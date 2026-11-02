@@ -190,8 +190,8 @@ namespace {
         .glyph = std::move(glyph),
         .glyphSize = Style::fontSizeBody * scale,
         .variant = variant,
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .padding = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
         .visible = visible,
@@ -224,7 +224,7 @@ namespace {
     props.text = std::move(text);
     props.fontSize = Style::fontSizeCaption * scale;
     props.variant = variant;
-    props.minHeight = Style::controlHeightSm * scale;
+    props.minHeight = Style::controlHeight * scale;
     props.paddingV = Style::spaceXs * scale;
     props.paddingH = Style::spaceSm * scale;
     props.radius = Style::scaledRadiusSm(scale);
@@ -461,7 +461,7 @@ namespace {
       if (m_pinGlyph != nullptr) {
         m_pinGlyph->setVisible(m_pinned);
         m_pinGlyph->setParticipatesInLayout(m_pinned);
-        m_pinGlyph->setColor(colorSpecFromRole(active ? activeRole : ColorRole::Accent));
+        m_pinGlyph->setColor(colorSpecFromRole(active ? activeRole : ColorRole::AccentText));
       }
     }
 
@@ -599,14 +599,14 @@ void ClipboardPanel::create() {
           .align = FlexAlign::Center,
           .justify = FlexJustify::SpaceBetween,
           .gap = Style::spaceSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
       },
       ui::label({
           .out = &m_sidebarTitle,
           .text = i18n::tr("clipboard.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       }),
       makeCompactIconButton(&m_clearHistoryButton, "trash", ButtonVariant::Destructive, scale, [this] {
         requestClearUnpinnedHistory();
@@ -750,7 +750,7 @@ void ClipboardPanel::create() {
           .text = i18n::tr("clipboard.entry.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .flexGrow = 1.0F,
       }),
       std::move(previewActions)

@@ -44,59 +44,61 @@ namespace {
   constexpr Logger kLog("live-activity");
 
   constexpr float kWidth = 440.0F;
-  TOKENS_LIVE(kHeight, Tokens::componentLiveHeight);
+  TOKENS_LIVE(kHeight, Tokens::componentIslandCenterLiveHeight);
   // Below this logical output width the island drops its progress bar, so it clears the bar's end island.
   constexpr std::int32_t kWideOutput = 1440;
   constexpr float kCompactWidth = 290.0F;
   // Narrowest live card.
   constexpr float kCollapsedWidth = 120.0F;
-  TOKENS_LIVE(kPadding, Tokens::componentLivePadding);
-  TOKENS_LIVE(kIcon, Tokens::componentLiveLead);
-  TOKENS_LIVE(kButton, Tokens::componentLiveButton);
-  TOKENS_LIVE(kProgressWidth, Tokens::componentLiveProgressWidth);
-  TOKENS_LIVE(kProgressHeight, Tokens::componentLiveProgressHeight);
-  // White on the dark live tint in both schemes (docs/design-system.md "Live activity").
-  constexpr Color kWhite{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = 1.0F};
-  Color white(float alpha) { return Color{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = alpha}; }
+  TOKENS_LIVE(kPadding, Tokens::componentIslandCenterLivePadding);
+  TOKENS_LIVE(kIcon, Tokens::componentIslandCenterLiveLead);
+  TOKENS_LIVE(kButton, Tokens::componentIslandCenterLiveLead);
+  // M3: live activity progress -> full width, 4 high (rulebook 9.2)
+  constexpr float kProgressWidth = 150.0F;
+  TOKENS_LIVE(kProgressHeight, Tokens::componentIslandCenterLevelHeight);
+  // The expanded island is the scheme's thick glass: labels and fills are the scheme roles.
+  ColorSpec liveLabel() { return colorSpecFromRole(ColorRole::Label1); }
+  ColorSpec liveLabel2() { return colorSpecFromRole(ColorRole::Label2); }
 
   Button::ButtonPalette livePalette(bool destructive) {
-    const ColorSpec bg = destructive ? colorSpecFromRole(ColorRole::Danger) : fixedColorSpec(white(0.14F));
-    const ColorSpec hover = destructive ? colorSpecFromRole(ColorRole::Danger, 0.85F) : fixedColorSpec(white(0.22F));
-    const Button::ButtonStateColors normal{.bg = bg, .border = clearColorSpec(), .label = fixedColorSpec(kWhite)};
+    const ColorSpec bg = destructive ? colorSpecFromRole(ColorRole::Danger) : colorSpecFromRole(ColorRole::Fill2);
+    const ColorSpec hover = destructive ? colorSpecFromRole(ColorRole::Danger, 0.85F) : colorSpecFromRole(ColorRole::Fill3);
+    const ColorSpec label = destructive ? colorSpecFromRole(ColorRole::OnAccent) : liveLabel();
+    const Button::ButtonStateColors normal{.bg = bg, .border = clearColorSpec(), .label = label};
     return Button::ButtonPalette{
         .normal = normal,
-        .hover = {.bg = hover, .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
-        .pressed = {.bg = fixedColorSpec(white(0.3F)), .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
+        .hover = {.bg = hover, .border = clearColorSpec(), .label = label},
+        .pressed = {.bg = colorSpecFromRole(ColorRole::Fill3), .border = clearColorSpec(), .label = label},
         .disabled = normal,
     };
   }
-  // Width left for text: 440 - 2 x 8 padding - 36 icon - 150 bar - 36 button - 3 x 12 gaps.
-  constexpr float kTitleMaxWidth = 166.0F;
+  // Width left for text: 440 - 2 x 8 padding - 40 icon - 150 bar - 40 button - 3 x 12 gaps.
+  constexpr float kTitleMaxWidth = 158.0F;
   // The compositor clip uses the same preset (syncDsk), so the fill and the clip stay together.
   desk::motion::SpringConfig revealSpring(bool grow) {
-    const Tokens::Spring& token = grow ? Tokens::springIslandExpand : Tokens::springIslandCollapse;
+    const Tokens::Spring& token = grow ? Tokens::springMorph : Tokens::springCollapse;
     return {.damping = token.damping, .stiffness = token.stiffness};
   }
   // The spring the compositor really runs for the clip: protocol version < 3 maps the island curves to older ones.
   desk::motion::SpringConfig clipSpring(const DskSurfaceClient& dsk, bool grow) {
-    const Tokens::Spring* token = &Tokens::springStandard;
+    const Tokens::Spring* token = &Tokens::springMove;
     switch (dsk.effectiveCurve(grow ? DskSurfaceClient::Curve::SpringIslandExpand : DskSurfaceClient::Curve::SpringIslandCollapse)) {
-    case DskSurfaceClient::Curve::SpringSnappy: token = &Tokens::springSnappy; break;
-    case DskSurfaceClient::Curve::SpringBouncy: token = &Tokens::springBouncy; break;
-    case DskSurfaceClient::Curve::SpringIslandExpand: token = &Tokens::springIslandExpand; break;
-    case DskSurfaceClient::Curve::SpringIslandCollapse: token = &Tokens::springIslandCollapse; break;
+    case DskSurfaceClient::Curve::SpringSnappy: token = &Tokens::springSnap; break;
+    case DskSurfaceClient::Curve::SpringBouncy: token = &Tokens::springOpen; break;
+    case DskSurfaceClient::Curve::SpringIslandExpand: token = &Tokens::springMorph; break;
+    case DskSurfaceClient::Curve::SpringIslandCollapse: token = &Tokens::springCollapse; break;
     default: break;
     }
     return {.damping = token->damping, .stiffness = token->stiffness};
   }
-  // Shadow level (dsk_surface_v1 elevation property): 1 is elevation.e1, 2 is elevation.e2. The rest pill uses e1, the
-  // same look as the shell shadow of the bar islands.
+  // Shadow level (dsk_surface_v1 elevation property): 1 is the float plane (elevation.e2), 2 the over plane (e3). The
+  // rest pill floats like the bar islands.
   constexpr double kRestElevation = 1.0;
   constexpr double kExpandedElevation = 2.0;
   constexpr float kMirrorMaxMs = 4000.0F;
   constexpr auto kStartWait = std::chrono::milliseconds(500);
-  TOKENS_LIVE(kLiveRadius, Tokens::componentLiveRadius);
-  TOKENS_LIVE(kDot, Tokens::componentIslandDot);
+  TOKENS_LIVE(kLiveRadius, Tokens::radiusR28);
+  TOKENS_LIVE(kDot, Tokens::componentIslandPrivacyDot);
   TOKENS_LIVE(kRestWidth, Tokens::componentIslandCenterRestWidth);
   constexpr float kArt = 22.0F;
   constexpr float kArtRadius = 6.0F;
@@ -123,11 +125,11 @@ namespace {
   constexpr auto kBannerTime = std::chrono::milliseconds(5000);
 
   Button::ButtonPalette ghostPalette() {
-    const Button::ButtonStateColors normal{.bg = clearColorSpec(), .border = clearColorSpec(), .label = fixedColorSpec(kWhite)};
+    const Button::ButtonStateColors normal{.bg = clearColorSpec(), .border = clearColorSpec(), .label = liveLabel()};
     return Button::ButtonPalette{
         .normal = normal,
-        .hover = {.bg = fixedColorSpec(white(0.16F)), .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
-        .pressed = {.bg = fixedColorSpec(white(0.3F)), .border = clearColorSpec(), .label = fixedColorSpec(kWhite)},
+        .hover = {.bg = colorSpecFromRole(ColorRole::Fill3), .border = clearColorSpec(), .label = liveLabel()},
+        .pressed = {.bg = colorSpecFromRole(ColorRole::Fill3), .border = clearColorSpec(), .label = liveLabel()},
         .disabled = normal,
     };
   }
@@ -683,7 +685,7 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
     }
     inst.dskLevel = elevation;
   } else if (expanded) {
-    inst.dsk->setElevation(DskSurfaceClient::Elevation::E2);
+    inst.dsk->setElevation(DskSurfaceClient::Elevation::E3);
   } else if (jump) {
     inst.dsk->setElevation(DskSurfaceClient::Elevation::None);
   }
@@ -838,7 +840,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   material->setClipChildren(true);
   auto tint = ui::box({
       .out = &inst.tint,
-      .fill = fixedColorSpec(rgbaHex(Tokens::componentLiveTint)),
+      .fill = colorSpecFromRole(panelMaterialRole(), Style::glassAlpha(kTintThickAlpha)),
   });
   tint->setClipChildren(true);
 
@@ -912,24 +914,24 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           .visible = false,
       })
   );
-  inst.count->setLineHeight(restFont * Tokens::typeBody.lineHeight);
-  inst.date->setLineHeight(restFont * Tokens::typeBody.lineHeight);
+  inst.count->setLineHeight(Tokens::typeBody.line);
+  inst.date->setLineHeight(Tokens::typeBody.line);
   inst.faceNode[static_cast<std::size_t>(Face::Rest)] = restContent.get();
   material->addChild(std::move(restContent));
 
   // Live card (call, recording, transfer).
   auto title = ui::label({
       .out = &inst.title,
-      .fontSize = Tokens::typeTitle.size,
-      .fontWeight = static_cast<FontWeight>(Tokens::typeTitle.weight),
-      .color = fixedColorSpec(kWhite),
+      .fontSize = Tokens::typeHeadline.size,
+      .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
+      .color = liveLabel(),
       .maxWidth = kTitleMaxWidth,
       .maxLines = 1,
   });
   auto subtitle = ui::label({
       .out = &inst.subtitle,
-      .fontSize = Tokens::typeCaption.size,
-      .color = fixedColorSpec(white(0.7F)),
+      .fontSize = Tokens::typeFootnote.size,
+      .color = liveLabel2(),
       .maxWidth = kTitleMaxWidth,
       .maxLines = 1,
   });
@@ -955,7 +957,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   auto content = ui::row(
       {
           .align = FlexAlign::Center,
-          .gap = Tokens::componentLiveGap,
+          .gap = Tokens::componentIslandGroupGap,
           .paddingH = kPadding,
           .width = inst.width,
           .height = kHeight,
@@ -964,8 +966,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F}, std::move(title), std::move(subtitle)),
       ui::progressBar({
           .out = &inst.progress,
-          .fill = fixedColorSpec(kWhite),
-          .track = fixedColorSpec(white(0.2F)),
+          .fill = liveLabel(),
+          .track = colorSpecFromRole(ColorRole::Fill3),
           .radius = kProgressHeight * 0.5F,
           .width = kProgressWidth,
           .height = kProgressHeight,
@@ -999,8 +1001,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               },
       })
   );
-  inst.title->setLineHeight(Tokens::typeTitle.size * Tokens::typeTitle.lineHeight);
-  inst.subtitle->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.title->setLineHeight(Tokens::typeHeadline.line);
+  inst.subtitle->setLineHeight(Tokens::typeFootnote.line);
   inst.secondary->setCustomPalette(livePalette(false));
   inst.action->setCustomPalette(livePalette(false));
   inst.faceNode[static_cast<std::size_t>(Face::Live)] = content.get();
@@ -1045,16 +1047,16 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           {.align = FlexAlign::Start, .flexGrow = 1.0F},
           ui::label({
               .out = &inst.hoverTitle,
-              .fontSize = Tokens::typeTitle.size,
-              .fontWeight = static_cast<FontWeight>(Tokens::typeTitle.weight),
-              .color = fixedColorSpec(kWhite),
+              .fontSize = Tokens::typeHeadline.size,
+              .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
+              .color = liveLabel(),
               .maxLines = 1,
               .autoScroll = true,
           }),
           ui::label({
               .out = &inst.hoverArtist,
-              .fontSize = Tokens::typeCaption.size,
-              .color = fixedColorSpec(white(0.7F)),
+              .fontSize = Tokens::typeFootnote.size,
+              .color = liveLabel2(),
               .maxLines = 1,
               .autoScroll = true,
           })
@@ -1063,8 +1065,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       mediaButton(&inst.playPause, "media-play", true, control(&MprisService::playPause)),
       mediaButton(&inst.next, "media-next", false, control(&MprisService::next))
   );
-  inst.hoverTitle->setLineHeight(Tokens::typeTitle.size * Tokens::typeTitle.lineHeight);
-  inst.hoverArtist->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.hoverTitle->setLineHeight(Tokens::typeHeadline.line);
+  inst.hoverArtist->setLineHeight(Tokens::typeFootnote.line);
   inst.faceNode[static_cast<std::size_t>(Face::HoverMedia)] = hoverMedia.get();
   tint->addChild(std::move(hoverMedia));
 
@@ -1075,54 +1077,54 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           .out = &inst.idleTime,
           .fontSize = 22.0F,
           .fontWeight = FontWeight::SemiBold,
-          .color = fixedColorSpec(kWhite),
+          .color = liveLabel(),
           .maxLines = 1,
       }),
       ui::column(
           {.align = FlexAlign::Start, .flexGrow = 1.0F},
           ui::label({
               .out = &inst.idleDate,
-              .fontSize = Tokens::typeCaption.size,
+              .fontSize = Tokens::typeFootnote.size,
               .fontWeight = FontWeight::SemiBold,
-              .color = fixedColorSpec(kWhite),
+              .color = liveLabel(),
               .maxLines = 1,
           }),
           ui::label({
               .out = &inst.idleEvent,
-              .fontSize = Tokens::typeCaption.size,
-              .color = fixedColorSpec(white(0.7F)),
+              .fontSize = Tokens::typeFootnote.size,
+              .color = liveLabel2(),
               .maxLines = 1,
           })
       )
   );
-  inst.idleDate->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
-  inst.idleEvent->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.idleDate->setLineHeight(Tokens::typeFootnote.line);
+  inst.idleEvent->setLineHeight(Tokens::typeFootnote.line);
   inst.faceNode[static_cast<std::size_t>(Face::HoverIdle)] = hoverIdle.get();
   tint->addChild(std::move(hoverIdle));
 
   // OSD face.
   auto osd = ui::row(
       {.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = 12.0F, .paddingH = 16.0F, .width = inst.width, .height = kHeight},
-      ui::glyph({.out = &inst.osdGlyph, .glyphSize = 20.0F, .color = fixedColorSpec(kWhite)}),
+      ui::glyph({.out = &inst.osdGlyph, .glyphSize = 20.0F, .color = liveLabel()}),
       ui::progressBar({
           .out = &inst.osdBar,
-          .fill = fixedColorSpec(kWhite),
-          .track = fixedColorSpec(white(0.2F)),
+          .fill = liveLabel(),
+          .track = colorSpecFromRole(ColorRole::Fill3),
           .radius = kOsdBarHeight * 0.5F,
           .width = kOsdBarWidth,
           .height = kOsdBarHeight,
       }),
       ui::label({
           .out = &inst.osdValue,
-          .fontSize = Tokens::typeCaption.size,
+          .fontSize = Tokens::typeFootnote.size,
           .fontWeight = FontWeight::SemiBold,
-          .color = fixedColorSpec(kWhite),
+          .color = liveLabel(),
           .minWidth = 36.0F,
           .maxLines = 1,
           .textAlign = TextAlign::End,
       })
   );
-  inst.osdValue->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.osdValue->setLineHeight(Tokens::typeFootnote.line);
   inst.faceNode[static_cast<std::size_t>(Face::Osd)] = osd.get();
   tint->addChild(std::move(osd));
 
@@ -1134,22 +1136,22 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           {.align = FlexAlign::Start, .flexGrow = 1.0F},
           ui::label({
               .out = &inst.bannerTitle,
-              .fontSize = Tokens::typeTitle.size,
-              .fontWeight = static_cast<FontWeight>(Tokens::typeTitle.weight),
-              .color = fixedColorSpec(kWhite),
+              .fontSize = Tokens::typeHeadline.size,
+              .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
+              .color = liveLabel(),
               .maxLines = 1,
           }),
           ui::label({
               .out = &inst.bannerBody,
-              .fontSize = Tokens::typeCaption.size,
-              .color = fixedColorSpec(white(0.7F)),
+              .fontSize = Tokens::typeFootnote.size,
+              .color = liveLabel2(),
               .maxLines = 2,
           })
       )
   );
   inst.bannerGlyph->setGlyph("bell");
-  inst.bannerTitle->setLineHeight(Tokens::typeTitle.size * Tokens::typeTitle.lineHeight);
-  inst.bannerBody->setLineHeight(Tokens::typeCaption.size * Tokens::typeCaption.lineHeight);
+  inst.bannerTitle->setLineHeight(Tokens::typeHeadline.line);
+  inst.bannerBody->setLineHeight(Tokens::typeFootnote.line);
   inst.faceNode[static_cast<std::size_t>(Face::Banner)] = banner.get();
   tint->addChild(std::move(banner));
 
@@ -1313,7 +1315,7 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   const bool showBar = inst.progress->visible();
   const int buttons = (a.actionGlyph.empty() ? 0 : 1) + (a.secondaryGlyph.empty() ? 0 : 1);
   const int gaps = 1 + (showBar ? 1 : 0) + buttons;
-  const float textWidth = inst.liveWidth - 2.0F * kPadding - kIcon - static_cast<float>(gaps) * Tokens::componentLiveGap
+  const float textWidth = inst.liveWidth - 2.0F * kPadding - kIcon - static_cast<float>(gaps) * Tokens::componentIslandGroupGap
       - (showBar ? kProgressWidth : 0.0F) - static_cast<float>(buttons) * kButton;
   inst.title->setMaxWidth(std::max(0.0F, textWidth));
   inst.subtitle->setMaxWidth(std::max(0.0F, textWidth));
@@ -1378,7 +1380,7 @@ void LiveActivityIsland::applyContent(Instance& inst) {
       auto* instPtr = &inst;
       inst.osdAnimId = inst.animations.animateSpatial(
           inst.osdProgress, osdTarget,
-          {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+          {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
           [instPtr](float v) {
             instPtr->osdProgress = v;
             instPtr->osdBar->setProgress(std::clamp(v, 0.0F, 1.0F));
@@ -1553,7 +1555,7 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
     inst.revealAnimId = inst.animations.animateSpring(0.0F, 1.0F, revealSpring(inst.face != Face::Rest), setter, done, &inst, velocity);
   } else {
     inst.revealAnimId =
-        inst.animations.animateTimer(0.0F, 1.0F, static_cast<float>(Tokens::motionFast), Easing::Linear, setter, done, &inst);
+        inst.animations.animateTimer(0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::Linear, setter, done, &inst);
   }
   inst.surface->requestRedraw();
 }
@@ -1641,7 +1643,7 @@ void LiveActivityIsland::startBannerSpring(Instance& inst, bool dismiss) {
   // client would never draw again.
   const float target = dismiss ? bannerMinOffset(inst) : 0.0F;
   auto* instPtr = &inst;
-  const Tokens::Spring& token = dismiss ? Tokens::springIslandCollapse : Tokens::springIslandExpand;
+  const Tokens::Spring& token = dismiss ? Tokens::springCollapse : Tokens::springMorph;
   inst.dragDismiss = dismiss;
   // A timer steps the spring: a card swiped off the output gets no frame callbacks, so the frame clock would stall.
   inst.dragSpring = desk::motion::Spring(
@@ -1654,7 +1656,7 @@ void LiveActivityIsland::startBannerSpring(Instance& inst, bool dismiss) {
       return;
     }
     if (instPtr->dragDismiss && bannerDragStale(*instPtr)) {
-      const Tokens::Spring& back = Tokens::springIslandExpand;
+      const Tokens::Spring& back = Tokens::springMorph;
       instPtr->dragDismiss = false;
       instPtr->dragSpring = desk::motion::Spring(
           instPtr->dragSpring.value(), 0.0, {.damping = back.damping, .stiffness = back.stiffness},

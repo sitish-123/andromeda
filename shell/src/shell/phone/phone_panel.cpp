@@ -45,7 +45,7 @@ void PhonePanel::create() {
               .out = &m_glyph,
               .glyph = "device-mobile",
               .glyphSize = Style::fontSizeTitle * 1.5F * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::column(
               {.align = FlexAlign::Stretch, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},

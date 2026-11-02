@@ -830,7 +830,7 @@ namespace settings {
           ui::glyph({
               .glyph = entry.icon.empty() ? std::string("apps") : entry.icon,
               .glyphSize = Style::fontSizeHeader * 2.0F * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .width = 80.0F * scale,
               .height = 80.0F * scale,
           })
@@ -908,7 +908,7 @@ namespace settings {
       addMetaItem(pill(storeEntry.source, ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth));
     }
     if (entry.deprecated) {
-      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::Danger, ColorRole::Danger, 0.15F));
+      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::DangerText, ColorRole::DangerText, 0.15F));
     }
     if (entry.heldBack) {
       addMetaItem(pill(i18n::tr("settings.plugins.store.held-back"), ColorRole::Accent, ColorRole::Accent, 0.15F));
@@ -938,7 +938,7 @@ namespace settings {
                   "current", scripting::kCurrentPluginApiVersion
               ),
               .fontSize = Style::fontSizeMini * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .maxLines = 3,
           })
       );
@@ -950,7 +950,7 @@ namespace settings {
                   scripting::kOldestSupportedPluginApiVersion, "current", scripting::kCurrentPluginApiVersion
               ),
               .fontSize = Style::fontSizeMini * scale,
-              .color = colorSpecFromRole(ColorRole::Danger),
+              .color = colorSpecFromRole(ColorRole::DangerText),
               .maxLines = 3,
           })
       );
@@ -998,7 +998,7 @@ namespace settings {
         );
         if (state.pending) {
           installActions->addChild(
-              ui::spinner({.spinnerSize = Style::controlHeightSm * scale * 0.7F, .spinning = true})
+              ui::spinner({.spinnerSize = Style::controlHeight * scale * 0.7F, .spinning = true})
           );
         }
       }
@@ -1015,7 +1015,7 @@ namespace settings {
     } else if (enabling) {
       installActions->addChild(
           ui::spinner({
-              .spinnerSize = Style::controlHeightSm * scale * 0.7F,
+              .spinnerSize = Style::controlHeight * scale * 0.7F,
               .spinning = true,
           })
       );
@@ -1048,7 +1048,7 @@ namespace settings {
               ui::glyph({
                   .glyph = "check",
                   .glyphSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::Accent),
+                  .color = colorSpecFromRole(ColorRole::AccentText),
               }),
               ui::label({
                   .text = i18n::tr("settings.plugins.store.installed"),
@@ -1089,7 +1089,7 @@ namespace settings {
             ui::label(
                 {.text = i18n::tr(errorKey),
                  .fontSize = Style::fontSizeMini * scale,
-                 .color = colorSpecFromRole(ColorRole::Danger),
+                 .color = colorSpecFromRole(ColorRole::DangerText),
                  .maxLines = 3}
             )
         );
@@ -1101,7 +1101,7 @@ namespace settings {
     if (m_detailReadmeLoading) {
       dc->addChild(
           ui::spinner({
-              .spinnerSize = Style::controlHeightSm * scale,
+              .spinnerSize = Style::controlHeight * scale,
               .spinning = true,
           })
       );

@@ -319,7 +319,7 @@ namespace shell::dock {
         instance.slideRoot->setOpacity(0.0F);
         instance.hideOpacity = 1.0F;
         instance.animations.animateSpatial(
-            0.0F, 1.0F, {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+            0.0F, 1.0F, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
             [slide = instance.slideRoot](float v) { slide->setOpacity(v); }, {}, instance.slideRoot
         );
       }

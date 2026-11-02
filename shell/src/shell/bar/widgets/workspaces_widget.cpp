@@ -33,6 +33,8 @@ namespace {
   }
 
   TOKENS_LIVE(kWorkspaceGap, Style::spaceXs);
+  // M3: workspace dots -> lens cells (rulebook 9.1)
+  constexpr float kIslandDotGap = 5.0F;
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
   TOKENS_LIVE(kWorkspaceAnimDurationMs, static_cast<float>(Style::animNormal));
 
@@ -445,7 +447,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     }
   }
 
-  const float gap = (m_islandDots ? Tokens::componentIslandDotGap : kWorkspaceGap) * m_contentScale;
+  const float gap = (m_islandDots ? kIslandDotGap : kWorkspaceGap) * m_contentScale;
   const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
   // Active and inactive labels share the configured weight: a heavier weight selects a different
@@ -604,7 +606,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
       item.icon = static_cast<Image*>(area->addChild(
           ui::image({
               .fit = ImageFit::Contain,
-              .radius = Style::radiusSm,
+              .radius = Tokens::radiusR8,
               .width = focusedPillIconSize(),
               .height = focusedPillIconSize(),
           })
@@ -912,7 +914,7 @@ void WorkspacesWidget::recalculateItemMetrics(
     item.icon = static_cast<Image*>(item.area->addChild(
         ui::image({
             .fit = ImageFit::Contain,
-            .radius = Style::radiusSm,
+            .radius = Tokens::radiusR8,
             .width = focusedPillIconSize(),
             .height = focusedPillIconSize(),
         })

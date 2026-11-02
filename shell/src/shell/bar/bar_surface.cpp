@@ -275,7 +275,7 @@ namespace bar_detail {
     const bool isBottom = barConfig.position == "bottom";
     const bool isRight = barConfig.position == "right";
     const std::int32_t mEnds =
-        barConfig.islands ? static_cast<std::int32_t>(Tokens::componentIslandMargin) : barConfig.marginEnds;
+        barConfig.islands ? static_cast<std::int32_t>(Tokens::spaceChromeGap) : barConfig.marginEnds;
     const std::int32_t mEdge = barConfig.marginEdge;
     const auto sb = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
     const int edgeGutter = barAutoHideEdgeGutter(barConfig);

@@ -271,7 +271,7 @@ void SetupWizardPanel::create() {
                   m_wallpaperDir = parentDir;
                   if (m_wallpaperLabel != nullptr) {
                     m_wallpaperLabel->setText(fullPath);
-                    m_wallpaperLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+                    m_wallpaperLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
                     m_wallpaperLabel->setMaxLines(1);
                   }
                   m_config->setOverride({"wallpaper", "directory"}, parentDir);

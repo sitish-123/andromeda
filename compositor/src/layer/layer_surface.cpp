@@ -279,17 +279,23 @@ namespace andromeda {
       m_shadow.hide();
       return;
     }
-    // Level 0..1 grows e1 from nothing at constant softness; 1..2 blends e1 into e2.
-    const Tokens::Elevation& e1 = Tokens::elevationE1;
-    const Tokens::Elevation& e2 = Tokens::elevationE2;
+    // Level 0..1 grows the float plane (e2) from nothing at constant blur; 1..2 blends float into over (e3).
+    const Tokens::Elevation& from = Tokens::elevationE2;
+    const Tokens::Elevation& to = Tokens::elevationE3;
     const auto mix = [](double a, double b, double t) { return a + (b - a) * t; };
+    const auto round = [](double v) { return static_cast<int>(std::lround(v)); };
     const double up = std::clamp(level - 1.0, 0.0, 1.0);
     const double base = std::min(level, 1.0);
+    const auto opacity = [&](double a, double b) { return static_cast<float>(mix(a * base, b, up)); };
     m_shadow.setStyle(ShadowStyle{
-        .softness = static_cast<int>(std::lround(mix(e1.softness, e2.softness, up))),
-        .offsetX = static_cast<int>(std::lround(mix(e1.offsetX * base, e2.offsetX, up))),
-        .offsetY = static_cast<int>(std::lround(mix(e1.offsetY * base, e2.offsetY, up))),
-        .opacity = static_cast<float>(mix(e1.opacity * base, e2.opacity, up)),
+        .softness = round(mix(from.keyBlur, to.keyBlur, up)),
+        .offsetX = 0,
+        .offsetY = round(mix(from.keyY * base, to.keyY, up)),
+        .opacity = {.light = opacity(from.keyLight, to.keyLight), .dark = opacity(from.keyDark, to.keyDark)},
+        .contactSoftness = round(mix(from.contactBlur, to.contactBlur, up)),
+        .contactOffsetY = round(mix(from.contactY * base, to.contactY, up)),
+        .contactOpacity = {.light = opacity(from.contactLight, to.contactLight),
+                           .dark = opacity(from.contactDark, to.contactDark)},
     });
     // The shadow follows the visible rect: the clip when set, else the whole surface, after translate and scale.
     const wlr_box shape = clipped ? clipBox

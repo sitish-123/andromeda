@@ -54,7 +54,7 @@ namespace settings {
       }
       props.fontSize = Style::fontSizeCaption * scale;
       props.variant = variant;
-      props.minHeight = Style::controlHeightSm * scale;
+      props.minHeight = Style::controlHeight * scale;
       props.paddingV = Style::spaceXs * scale;
       props.paddingH = Style::spaceSm * scale;
       props.radius = Style::scaledRadiusSm(scale);
@@ -228,9 +228,9 @@ namespace settings {
           ui::glyph({
               .glyph = plugin.icon.empty() ? std::string("apps") : plugin.icon,
               .glyphSize = Style::fontSizeHeader * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
-              .width = Style::controlHeightSm * scale,
-              .height = Style::controlHeightSm * scale,
+              .color = colorSpecFromRole(ColorRole::AccentText),
+              .width = Style::controlHeight * scale,
+              .height = Style::controlHeight * scale,
           })
       );
 
@@ -250,7 +250,7 @@ namespace settings {
       title->addChild(makeLabel("v" + version, Style::fontSizeCaption * scale, ColorRole::Label2));
       if (!plugin.compatible) {
         title->addChild(makeLabel(
-            i18n::tr("settings.plugins.plugins.incompatible-plugin-api"), Style::fontSizeMini * scale, ColorRole::Danger,
+            i18n::tr("settings.plugins.plugins.incompatible-plugin-api"), Style::fontSizeMini * scale, ColorRole::DangerText,
             FontWeight::Bold
         ));
       }
@@ -259,7 +259,7 @@ namespace settings {
       }
       if (plugin.deprecated) {
         title->addChild(makeLabel(
-            i18n::tr("settings.plugins.plugins.deprecated"), Style::fontSizeMini * scale, ColorRole::Accent,
+            i18n::tr("settings.plugins.plugins.deprecated"), Style::fontSizeMini * scale, ColorRole::AccentText,
             FontWeight::Bold
         ));
       }
@@ -276,7 +276,7 @@ namespace settings {
                 "settings.plugins.plugins.held-back-hint", "version", plugin.latestVersion, "required",
                 plugin.latestPluginApiVersion, "current", scripting::kCurrentPluginApiVersion
             ),
-            Style::fontSizeMini * scale, ColorRole::Accent
+            Style::fontSizeMini * scale, ColorRole::AccentText
         ));
       }
       if (!plugin.description.empty()) {
@@ -285,7 +285,7 @@ namespace settings {
       if (!plugin.dependencies.empty()) {
         info->addChild(makeLabel(
             i18n::tr("settings.plugins.plugins.requires", "dependencies", StringUtils::join(plugin.dependencies, ", ")),
-            Style::fontSizeCaption * scale, ColorRole::Accent
+            Style::fontSizeCaption * scale, ColorRole::AccentText
         ));
       }
       r->addChild(std::move(info));
@@ -344,7 +344,7 @@ namespace settings {
       if (busy) {
         r->addChild(
             ui::spinner({
-                .spinnerSize = Style::controlHeightSm * scale * 0.7F,
+                .spinnerSize = Style::controlHeight * scale * 0.7F,
                 .spinning = true,
             })
         );

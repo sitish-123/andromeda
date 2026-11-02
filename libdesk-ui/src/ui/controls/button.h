@@ -56,7 +56,7 @@ public:
   void setGlyph(std::string_view name);
   void setFontSize(float size);
   void setGlyphSize(float size);
-  // Pin the button to an exact height (e.g. Style::controlHeightSm) instead of the content-derived
+  // Pin the button to an exact height (e.g. Style::controlHeight) instead of the content-derived
   // default, so it can sit on the same size tier as the Select/Input controls beside it.
   void setControlHeight(float height);
   void setEnabled(bool enabled);

@@ -47,7 +47,7 @@ public:
     DesktopSysmonGaugeLayout gaugeLayout = DesktopSysmonGaugeLayout::Horizontal;
     ColorSpec lineColor = colorSpecFromRole(ColorRole::Accent);
     ColorSpec lineColor2 = colorSpecFromRole(ColorRole::Accent);
-    ColorSpec highlightColor = colorSpecFromRole(ColorRole::Danger);
+    ColorSpec highlightColor = colorSpecFromRole(ColorRole::DangerText);
     std::string networkInterface;
     FormatUnits::DecimalByteRateUnit networkSpeedUnit = FormatUnits::DecimalByteRateUnit::Auto;
     FormatUnits::ByteRateLabelStyle networkSpeedLabelStyle = FormatUnits::ByteRateLabelStyle::Full;

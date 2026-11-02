@@ -28,6 +28,8 @@ public:
   void setOnDragEnd(std::function<void()> callback);
 
   [[nodiscard]] double value() const noexcept { return m_value; }
+  void setOnLevelChanged(std::function<void()> callback) { m_onLevelChanged = std::move(callback); }
+  [[nodiscard]] float normalizedValue() const noexcept;
   [[nodiscard]] double minValue() const noexcept { return m_min; }
   [[nodiscard]] double maxValue() const noexcept { return m_max; }
   [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
@@ -41,7 +43,6 @@ private:
   void updateFromLocalX(float x);
   void updateGeometry();
   void applyVisualState();
-  [[nodiscard]] float normalizedValue() const noexcept;
   [[nodiscard]] double snapped(double value) const noexcept;
 
   RectNode* m_track = nullptr;
@@ -50,6 +51,7 @@ private:
   InputArea* m_inputArea = nullptr;
 
   std::function<void(double)> m_onValueChanged;
+  std::function<void()> m_onLevelChanged;
   std::function<void()> m_onDragEnd;
 
   double m_min = 0.0;

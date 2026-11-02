@@ -221,7 +221,7 @@ namespace calendar_view {
               .fontWeight = FontWeight::Medium,
               .fontFamily = options.fontFamily,
               .color =
-                  colorSpecFromRole(weekday == 0 || weekday == 6 ? ColorRole::Accent : ColorRole::Label2),
+                  colorSpecFromRole(weekday == 0 || weekday == 6 ? ColorRole::AccentText : ColorRole::Label2),
               .maxLines = 1,
           })
       );
@@ -317,7 +317,7 @@ namespace calendar_view {
       } else {
         if (state.isCurrentMonth && date.day == state.current.day) {
           Button::ButtonPalette today = Button::defaultPalette(ButtonVariant::Ghost);
-          today.normal.label = colorSpecFromRole(ColorRole::Accent);
+          today.normal.label = colorSpecFromRole(ColorRole::AccentText);
           button->setCustomPalette(today);
         }
         if (button->label() != nullptr) {
@@ -447,7 +447,7 @@ namespace calendar_view {
            .justify = FlexJustify::Start,
            .gap = Style::spaceSm * scale,
            .paddingV = Style::spaceXs * scale,
-           .radius = Style::radiusSm * scale},
+           .radius = Tokens::radiusR8 * scale},
           ui::glyph({
               .out = &glyph,
               .glyph = expanded ? "chevron-up" : "chevron-down",
@@ -627,7 +627,7 @@ namespace calendar_view {
           area->setTooltip(link);
 
           Flex* row = eventRow;
-          row->setRadius(Style::radiusSm * options.scale);
+          row->setRadius(Tokens::radiusR8 * options.scale);
           const auto setHovered = [row, titleLabel, timeLabel, linkGlyph, eventAlpha,
                                    requestRedraw = options.requestRedraw](bool hovered) {
             if (hovered) {

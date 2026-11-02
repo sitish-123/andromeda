@@ -80,12 +80,12 @@ namespace Style {
 
   float scaledRadius(float radius, float localScale) noexcept { return radius * localScale * g_cornerRadiusScale; }
 
-  float scaledRadiusSm(float localScale) noexcept { return scaledRadius(radiusSm, localScale); }
+  float scaledRadiusSm(float localScale) noexcept { return scaledRadius(Tokens::radiusR8, localScale); }
 
-  float scaledRadiusMd(float localScale) noexcept { return scaledRadius(radiusMd, localScale); }
+  float scaledRadiusMd(float localScale) noexcept { return scaledRadius(Tokens::radiusR8, localScale); }
 
-  float scaledRadiusLg(float localScale) noexcept { return scaledRadius(radiusLg, localScale); }
+  float scaledRadiusLg(float localScale) noexcept { return scaledRadius(Tokens::radiusR12, localScale); }
 
-  float scaledRadiusXl(float localScale) noexcept { return scaledRadius(radiusXl, localScale); }
+  float scaledRadiusXl(float localScale) noexcept { return scaledRadius(Tokens::radiusR20, localScale); }
 
 } // namespace Style

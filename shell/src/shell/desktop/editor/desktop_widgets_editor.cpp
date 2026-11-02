@@ -1133,7 +1133,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                           .paddingH = Style::spaceSm,
                           .fill = colorSpecFromRole(ColorRole::Fill2, 0.85F),
                           .radius = Style::scaledRadiusLg(),
-                          .minHeight = Style::controlHeightSm,
+                          .minHeight = Style::controlHeight,
                       },
                       ui::glyph({
                           .glyph = "menu-2",
@@ -1149,7 +1149,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                   ui::select({
                       .options = std::move(typeLabels),
                       .selectedIndex = selectedTypeIndex,
-                      .controlHeight = Style::controlHeightSm,
+                      .controlHeight = Style::controlHeight,
                       .onSelectionChanged =
                           [this](std::size_t index, std::string_view) {
                             const auto options = desktop_settings::desktopWidgetTypeOptions();
@@ -1265,7 +1265,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                   ui::button(
                       {
                           .text = i18n::tr("desktop-widgets.editor.state.grid"),
-                          .controlHeight = Style::controlHeightSm,
+                          .controlHeight = Style::controlHeight,
                           .selected = m_snapshot.grid.visible,
                           .variant = ButtonVariant::Default,
                           .onClick =
@@ -1281,7 +1281,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                       {
                           .options = std::vector<std::string>{"8", "16", "24", "32", "64"},
                           .selectedIndex = selectedGridIndex,
-                          .controlHeight = Style::controlHeightSm,
+                          .controlHeight = Style::controlHeight,
                           .onSelectionChanged =
                               [this](std::size_t /*index*/, std::string_view text) {
                                 deferEditorMutation([this, value = std::string(text)] {
@@ -1296,7 +1296,7 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                   ),
                   ui::button({
                       .text = i18n::tr("desktop-widgets.editor.actions.done"),
-                      .controlHeight = Style::controlHeightSm,
+                      .controlHeight = Style::controlHeight,
                       .variant = ButtonVariant::Secondary,
                       .onClick = [this] { requestExit(); },
                   })

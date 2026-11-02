@@ -761,7 +761,7 @@ namespace {
           ui::glyph({
               .out = &m_headerGlyph,
               .glyphSize = Style::fontSizeTitle * m_style.scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           })
       );
       header->addChild(
@@ -1623,7 +1623,7 @@ void LauncherPanel::create() {
                     : "launcher.browser.options.sort-by-frequency"
             ),
             .radius = Style::scaledRadiusMd(scale),
-            .width = Style::controlHeightSm * scale,
+            .width = Style::controlHeight * scale,
             .onClick =
                 [this] {
                   if (m_config == nullptr) {
@@ -1634,7 +1634,7 @@ void LauncherPanel::create() {
                 },
             .configure =
                 [scale](Button& button) {
-                  button.setControlHeight(Style::controlHeightSm * scale);
+                  button.setControlHeight(Style::controlHeight * scale);
                   button.inputArea()->setTabFocusKey("launcher.sort-by-usage");
                 },
         }),
@@ -1649,7 +1649,7 @@ void LauncherPanel::create() {
                                                                                  : "launcher.browser.options.show-grid"
             ),
             .radius = Style::scaledRadiusMd(scale),
-            .width = Style::controlHeightSm * scale,
+            .width = Style::controlHeight * scale,
             .onClick =
                 [this] {
                   if (m_config == nullptr || !supportsResultGrid()) {
@@ -1660,7 +1660,7 @@ void LauncherPanel::create() {
                 },
             .configure =
                 [scale](Button& button) {
-                  button.setControlHeight(Style::controlHeightSm * scale);
+                  button.setControlHeight(Style::controlHeight * scale);
                   button.inputArea()->setTabFocusKey("launcher.grid-view");
                 },
         })
@@ -1675,11 +1675,11 @@ void LauncherPanel::create() {
               .surfaceOpacity = panelCardOpacity(),
               .tooltip = i18n::tr("launcher.browser.actions.settings"),
               .radius = Style::scaledRadiusMd(scale),
-              .width = Style::controlHeightSm * scale,
+              .width = Style::controlHeight * scale,
               .onClick = [] { PanelManager::instance().openSettingsWindow(); },
               .configure =
                   [scale](Button& button) {
-                    button.setControlHeight(Style::controlHeightSm * scale);
+                    button.setControlHeight(Style::controlHeight * scale);
                     button.inputArea()->setTabFocusKey("launcher.settings");
                   },
           })
@@ -1861,7 +1861,7 @@ void LauncherPanel::create() {
             .out = &m_launcherAvatarFallback,
             .glyph = "user-circle",
             .glyphSize = 38.0F * scale,
-            .color = colorSpecFromRole(ColorRole::Accent),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
     m_launcherAvatar->setAsyncReadyCallback([this] {
@@ -2948,7 +2948,7 @@ void LauncherPanel::rebuildLauncherNavigation() {
   m_launcherNavigation->setOnChange({});
   m_launcherNavigation->clearOptions();
   const float settingsButtonWidth =
-      m_launcherSettingsButton != nullptr ? Style::controlHeightSm + Style::spaceXs : 0.0F;
+      m_launcherSettingsButton != nullptr ? Style::controlHeight + Style::spaceXs : 0.0F;
   const bool iconOnly = m_config != nullptr
       && (!m_config->config().shell.launcher.showNavigationLabels
           || static_cast<float>(m_config->config().shell.launcher.width)

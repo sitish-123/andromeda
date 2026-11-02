@@ -728,7 +728,7 @@ namespace andromeda {
       } titleBar;
       int borderWidth = 2;
       int outerBorderWidth = 0;
-      int cornerRadius = static_cast<int>(Tokens::radiusSm);
+      int cornerRadius = static_cast<int>(Tokens::componentWindowRadius);
       double dragOpacity = 0.75;
       // Fullscreen windows ignore window rule opacity and draw over the backdrop. When false, a fullscreen window with
       // rule or client transparency shows the desktop instead.
@@ -746,9 +746,10 @@ namespace andromeda {
       } blur;
       struct Shadow {
         bool enabled = true;
-        int softness = Tokens::elevationE2.softness;
-        int offsetX = Tokens::elevationE2.offsetX;
-        int offsetY = Tokens::elevationE2.offsetY;
+        // Window shadows keep the pre-rulebook look until they move to elevation.e4.
+        int softness = 48;
+        int offsetX = 0;
+        int offsetY = 18;
         bool operator==(const Shadow&) const = default;
       } shadow;
       // The strip a tabbed column draws across one edge.

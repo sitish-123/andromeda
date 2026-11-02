@@ -1188,7 +1188,7 @@ int main() {
 
     auto* column = dynamic_cast<Flex*>(host.children().front().get());
     auto* control = column != nullptr ? dynamic_cast<Button*>(column->children()[0].get()) : nullptr;
-    const float expected = Style::controlHeightSm * 2.0F;
+    const float expected = Style::controlHeight * 2.0F;
     ok = expect(
              control != nullptr && control->minHeight() == expected && control->maxHeight() == expected,
              "button controlSize 'sm' pins the scaled small control height"
@@ -1214,7 +1214,7 @@ int main() {
     if (column != nullptr && column->children().size() == 3) {
       for (const auto& child : column->children()) {
         const LayoutSize size = child->measure(renderer, LayoutConstraints::unconstrained());
-        ok = expect(size.height == Style::controlHeightSm, "controlSize 'sm' measures at the small control height")
+        ok = expect(size.height == Style::controlHeight, "controlSize 'sm' measures at the small control height")
             && ok;
       }
     }

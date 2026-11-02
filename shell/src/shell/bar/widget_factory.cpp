@@ -86,6 +86,10 @@
 #include <utility>
 
 namespace {
+
+  // M3: workspace dots -> lens cells (rulebook 9.1)
+  constexpr float kIslandDot = 7.0F;
+  constexpr float kIslandDotActiveWidth = 20.0F;
   constexpr Logger kLog("shell");
 
   template <typename T, typename... Args> std::unique_ptr<Widget> createWidget(float contentScale, Args&&... args) {
@@ -161,7 +165,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
           }},
       {"island_app", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             auto options = activeWindowWidgetDefinition().resolve(context.config, context.settingContext);
-            options.iconSize = static_cast<int>(Tokens::componentIslandLogo);
+            options.iconSize = static_cast<int>(Tokens::componentIslandIcon);
             options.minWidth = 0;
             options.appName = true;
             options.iconGap = Tokens::componentIslandGap * context.contentScale;
@@ -199,9 +203,9 @@ std::unique_ptr<Widget> WidgetFactory::create(
             auto options = workspacesWidgetDefinition().resolve(context.config, context.settingContext);
             options.islandDots = true;
             options.showLabels = false;
-            options.pillScale = Tokens::componentIslandDot / Style::baseGlyphSize;
+            options.pillScale = kIslandDot / Style::baseGlyphSize;
             options.inactivePillSize = 1.0F;
-            options.activePillSize = Tokens::componentIslandDotActiveWidth / Tokens::componentIslandDot;
+            options.activePillSize = kIslandDotActiveWidth / kIslandDot;
             options.focusedColor = colorSpecFromRole(ColorRole::Label1);
             options.occupiedColor = colorSpecFromRole(ColorRole::Label3);
             options.emptyColor = colorSpecFromRole(ColorRole::Label3);

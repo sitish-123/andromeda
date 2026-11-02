@@ -1,6 +1,6 @@
 #include "render/animation/animation_manager.h"
 
-#include "design_tokens.h"
+#include "ui/style.h"
 #include "render/animation/motion_service.h"
 
 #include <chrono>
@@ -114,7 +114,7 @@ AnimationManager::Id AnimationManager::animateSpatial(
     return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity);
   }
   return animateTimer(
-      from, to, static_cast<float>(Tokens::motionNormal), Easing::EaseOutCubic, std::move(setter), std::move(onComplete),
+      from, to, static_cast<float>(Style::animNormal), Easing::EaseOutCubic, std::move(setter), std::move(onComplete),
       owner
   );
 }

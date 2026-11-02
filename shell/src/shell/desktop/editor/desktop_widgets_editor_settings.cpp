@@ -189,11 +189,11 @@ namespace {
         .out = &valueInputPtr,
         .value = settings::formatSliderValue(value, integerValue),
         .fontSize = Style::fontSizeCaption,
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .horizontalPadding = Style::spaceXs,
         .textAlign = TextAlign::End,
         .width = 52.0F,
-        .height = Style::controlHeightSm,
+        .height = Style::controlHeight,
     });
 
     Slider* sliderPtr = nullptr;
@@ -205,7 +205,7 @@ namespace {
         .value = value,
         .trackHeight = Style::sliderTrackHeight,
         .thumbSize = Style::sliderThumbSize,
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .flexGrow = 1.0F,
         .onValueChanged = [valueInputPtr, integerValue, editor, key](double val) {
           valueInputPtr->setInvalid(false);
@@ -319,7 +319,7 @@ namespace {
         .allowNone = false,
         .allowCustomColor = true,
         .noneLabel = {},
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .glyphSize = Style::fontSizeCaption,
         .flexGrow = true,
     };
@@ -335,7 +335,7 @@ namespace {
   ) {
     auto input = ui::input({
         .value = value,
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .flexGrow = 1.0F,
         .onChange = [editor, key](const std::string& val) { editor->applySettingChange(key, val); },
     });
@@ -343,8 +343,8 @@ namespace {
         .glyph = "apps",
         .glyphSize = Style::fontSizeBody,
         .variant = ButtonVariant::Default,
-        .minWidth = Style::controlHeightSm,
-        .minHeight = Style::controlHeightSm,
+        .minWidth = Style::controlHeight,
+        .minHeight = Style::controlHeight,
         .paddingV = Style::spaceXs,
         .paddingH = Style::spaceSm,
         .onClick = [editor, key, currentValue = value] {
@@ -380,7 +380,7 @@ namespace {
         ui::input({
             .value = value,
             .placeholder = placeholder,
-            .controlHeight = Style::controlHeightSm,
+            .controlHeight = Style::controlHeight,
             .flexGrow = 1.0F,
             .onChange = [editor, key](const std::string& val) { editor->applySettingChange(key, val); },
         })
@@ -446,7 +446,7 @@ namespace {
           ui::input({
               .value = entryKey,
               .placeholder = i18n::tr("settings.widgets.map-placeholders.key"),
-              .controlHeight = Style::controlHeightSm,
+              .controlHeight = Style::controlHeight,
               .flexGrow = 1.0F,
               .onSubmit =
                   [editor, key, entries, oldKey = entryKey, entryValue](const std::string& newKey) mutable {
@@ -471,7 +471,7 @@ namespace {
           ui::input({
               .value = entryValue,
               .placeholder = i18n::tr("settings.widgets.map-placeholders.value"),
-              .controlHeight = Style::controlHeightSm,
+              .controlHeight = Style::controlHeight,
               .flexGrow = 1.0F,
               .onSubmit =
                   [editor, key, entries, entryKey](const std::string& newValue) mutable {
@@ -490,8 +490,8 @@ namespace {
               .glyph = "close",
               .glyphSize = Style::fontSizeCaption,
               .variant = ButtonVariant::Ghost,
-              .minWidth = Style::controlHeightSm,
-              .minHeight = Style::controlHeightSm,
+              .minWidth = Style::controlHeight,
+              .minHeight = Style::controlHeight,
               .onClick = [editor, key, entries, entryKey] mutable {
                 entries.erase(entryKey);
                 editor->applySettingChange(key, entries);
@@ -508,7 +508,7 @@ namespace {
         ui::input({
             .out = &keyInput,
             .placeholder = i18n::tr("settings.widgets.map-placeholders.key"),
-            .controlHeight = Style::controlHeightSm,
+            .controlHeight = Style::controlHeight,
             .flexGrow = 1.0F,
         })
     );
@@ -523,7 +523,7 @@ namespace {
         ui::input({
             .out = &valueInput,
             .placeholder = i18n::tr("settings.widgets.map-placeholders.value"),
-            .controlHeight = Style::controlHeightSm,
+            .controlHeight = Style::controlHeight,
             .flexGrow = 1.0F,
         })
     );
@@ -532,8 +532,8 @@ namespace {
             .glyph = "add",
             .glyphSize = Style::fontSizeCaption,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm,
-            .minHeight = Style::controlHeightSm,
+            .minWidth = Style::controlHeight,
+            .minHeight = Style::controlHeight,
             .onClick = [editor, key, entries = std::move(entries), keyInput, valueInput] mutable {
               if (keyInput == nullptr
                   || valueInput == nullptr
@@ -558,7 +558,7 @@ namespace {
     auto input = ui::input({
         .out = &inputPtr,
         .value = value,
-        .controlHeight = Style::controlHeightSm,
+        .controlHeight = Style::controlHeight,
         .flexGrow = 1.0F,
         .onChange = [editor, key](const std::string& path) { editor->applySettingChange(key, path); },
     });
@@ -567,8 +567,8 @@ namespace {
         .glyph = selectFolder ? "folder" : "file-text",
         .glyphSize = Style::fontSizeBody,
         .variant = ButtonVariant::Default,
-        .minWidth = Style::controlHeightSm,
-        .minHeight = Style::controlHeightSm,
+        .minWidth = Style::controlHeight,
+        .minHeight = Style::controlHeight,
         .paddingV = Style::spaceXs,
         .paddingH = Style::spaceSm,
         .onClick = [editor, key, inputPtr, kind, selectFolder, extensions = std::move(extensions)] {
@@ -650,7 +650,7 @@ namespace {
         ui::select({
             .options = std::move(labels),
             .selectedIndex = selectedIndex,
-            .controlHeight = Style::controlHeightSm,
+            .controlHeight = Style::controlHeight,
             .flexGrow = 1.0F,
             .onSelectionChanged = [editor, key, values = std::move(values)](std::size_t index, std::string_view) {
               if (index < values.size()) {
@@ -840,7 +840,7 @@ namespace {
             .text = i18n::tr(labelKey),
             .fontSize = Style::fontSizeCaption,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::Accent),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
   }
@@ -1113,7 +1113,7 @@ void DesktopWidgetsEditor::buildInspector(
               .paddingV = Style::spaceXs,
               .paddingH = Style::spaceMd,
               .fill = colorSpecFromRole(ColorRole::Fill2, 0.85F),
-              .minHeight = Style::controlHeightSm,
+              .minHeight = Style::controlHeight,
               .fillWidth = true,
               .width = kInspectorWidth,
               .configure = [panelRadius](Flex& flex) { flex.setRadii(Radii(panelRadius, panelRadius, 0.0F, 0.0F)); },
@@ -1125,7 +1125,7 @@ void DesktopWidgetsEditor::buildInspector(
                   .gap = Style::spaceXs,
                   .paddingV = Style::spaceXs,
                   .paddingH = Style::spaceSm,
-                  .minHeight = Style::controlHeightSm,
+                  .minHeight = Style::controlHeight,
               },
               ui::glyph({
                   .glyph = "menu-2",

@@ -26,7 +26,7 @@ namespace {
   // Set to a specific effect to bypass weather-code detection. Reset to None when done testing.
   constexpr EffectType kTestEffect = EffectType::None;
 
-  constexpr float kCurrentGlyphSize = Style::controlHeightLg * 2.2F;
+  TOKENS_LIVE(kCurrentGlyphSize, Style::controlHeightLg * 2.2F);
 
   std::string windDirectionLabel(int degrees) {
     static constexpr std::array<const char*, 8> kDirs = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
@@ -95,7 +95,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
           .out = &m_currentGlyph,
           .glyph = "weather-cloud",
           .glyphSize = kCurrentGlyphSize * scale,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   currentCard->addChild(std::move(glyphColumn));
@@ -124,7 +124,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
               .out = &m_currentHiLoLabel,
               .text = "--↑ --↓",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::Accent),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .maxLines = 1,
           })
       )
@@ -879,7 +879,7 @@ void WeatherTab::sync(Renderer& renderer) {
   }
 
   m_currentGlyph->setGlyph(WeatherService::glyphForCode(snapshot.current.weatherCode, snapshot.current.isDay));
-  m_currentGlyph->setColor(colorSpecFromRole(snapshot.current.isDay ? ColorRole::Accent : ColorRole::Accent));
+  m_currentGlyph->setColor(colorSpecFromRole(snapshot.current.isDay ? ColorRole::AccentText : ColorRole::AccentText));
   m_currentTempLabel->setText(
       std::format(
           "{}{}", static_cast<int>(std::lround(m_weather->displayTemperature(snapshot.current.temperatureC))),
@@ -1058,7 +1058,7 @@ void WeatherTab::syncDailyForecast(Renderer& renderer, const WeatherSnapshot& sn
     }
     if (m_forecastGlyphs[i] != nullptr) {
       m_forecastGlyphs[i]->setGlyph(WeatherService::glyphForCode(day.weatherCode, true));
-      m_forecastGlyphs[i]->setColor(colorSpecFromRole(ColorRole::Accent));
+      m_forecastGlyphs[i]->setColor(colorSpecFromRole(ColorRole::AccentText));
       m_forecastGlyphs[i]->measure(renderer);
     }
     if (m_forecastMetas[i] != nullptr) {
@@ -1111,7 +1111,7 @@ void WeatherTab::syncHourlyForecast(Renderer& renderer, const WeatherSnapshot& s
     }
     if (m_forecastGlyphs[i] != nullptr) {
       m_forecastGlyphs[i]->setGlyph(WeatherService::glyphForCode(hour.weatherCode, hour.isDay));
-      m_forecastGlyphs[i]->setColor(colorSpecFromRole(hour.isDay ? ColorRole::Accent : ColorRole::Accent));
+      m_forecastGlyphs[i]->setColor(colorSpecFromRole(hour.isDay ? ColorRole::AccentText : ColorRole::AccentText));
       m_forecastGlyphs[i]->measure(renderer);
     }
     if (m_forecastMetas[i] != nullptr) {

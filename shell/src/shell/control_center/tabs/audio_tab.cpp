@@ -1102,8 +1102,8 @@ namespace {
               .glyph = "headphones",
               .glyphSize = Style::fontSizeBody * scale,
               .variant = ButtonVariant::Ghost,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick = [this] {
@@ -1120,8 +1120,8 @@ namespace {
               .glyph = "volume-high",
               .glyphSize = Style::fontSizeBody * scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick = [this] {
@@ -1180,7 +1180,7 @@ namespace {
                 - m_iconContentGap
                 - m_valueLabelMinWidth
                 - Style::spaceSm * m_scale
-                - Style::controlHeightSm * m_scale
+                - Style::controlHeight * m_scale
                 - gap()
         );
         const bool showSubtitle = m_subtitleLabel != nullptr && m_subtitleLabel->visible();
@@ -1712,8 +1712,8 @@ std::unique_ptr<Flex> AudioTab::createDeviceVolumeCard(DeviceVolumeCardSpec card
               .glyphSize = Style::fontSizeCaption * scale,
               .enabled = false,
               .variant = ButtonVariant::Ghost,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusMd(scale),
               .onClick =
@@ -1782,8 +1782,8 @@ std::unique_ptr<Flex> AudioTab::createDeviceVolumeCard(DeviceVolumeCardSpec card
                   .glyph = std::string(card.muteGlyph),
                   .glyphSize = Style::fontSizeBody * scale,
                   .variant = ButtonVariant::Default,
-                  .minWidth = Style::controlHeightSm * scale,
-                  .minHeight = Style::controlHeightSm * scale,
+                  .minWidth = Style::controlHeight * scale,
+                  .minHeight = Style::controlHeight * scale,
                   .padding = Style::spaceXs * scale,
                   .radius = Style::scaledRadiusMd(scale),
                   .onClick =
@@ -1814,13 +1814,13 @@ std::unique_ptr<Flex> AudioTab::createDeviceVolumeCard(DeviceVolumeCardSpec card
               .out = &card.state.effectsProfileSelect,
               .placeholder = i18n::tr("control-center.audio.choose-effects-profile"),
               .fontSize = Style::fontSizeCaption * scale,
-              .controlHeight = Style::controlHeightSm * scale,
+              .controlHeight = Style::controlHeight * scale,
               .horizontalPadding = Style::spaceSm * scale,
               .glyphSize = Style::fontSizeBody * scale,
               .notifyOnReselect = true,
               .enabled = false,
               .surfaceOpacity = panelCardOpacity(),
-              .height = Style::controlHeightSm * scale,
+              .height = Style::controlHeight * scale,
               .flexGrow = 1.0F,
           })
       )

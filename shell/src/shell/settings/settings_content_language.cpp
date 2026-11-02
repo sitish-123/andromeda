@@ -85,7 +85,7 @@ namespace settings {
 
     if (!locale.lastError().empty()) {
       body->addChild(
-          makeLabel(locale.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Danger))
+          makeLabel(locale.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::DangerText))
       );
     }
   }

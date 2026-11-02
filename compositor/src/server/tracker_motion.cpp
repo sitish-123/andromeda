@@ -11,7 +11,7 @@ namespace andromeda {
 
   namespace {
     desk::motion::SpringConfig releaseSpring() {
-      return {.damping = Tokens::springSnappy.damping, .stiffness = Tokens::springSnappy.stiffness};
+      return {.damping = Tokens::springSnap.damping, .stiffness = Tokens::springSnap.stiffness};
     }
   } // namespace
 

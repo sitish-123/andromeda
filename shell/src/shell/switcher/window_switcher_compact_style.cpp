@@ -24,10 +24,10 @@ WindowSwitcherStyleLayout computeWindowSwitcherCompactLayout(const WindowSwitche
   layout.cards.resize(context.windowCount);
   layout.visibleCards = std::max<std::size_t>(1, std::min(kVisibleCards, context.windowCount));
 
-  const float outerMargin = Style::controlHeightSm * context.scale;
+  const float outerMargin = Style::controlHeight * context.scale;
   const float panelPadding = Style::spaceLg * context.scale;
   const float cardGap = Style::spaceMd * context.scale;
-  const float countHeight = context.showCount ? Style::controlHeightSm * context.scale : 0.0F;
+  const float countHeight = context.showCount ? Style::controlHeight * context.scale : 0.0F;
   const float countWidth = context.showCount ? Style::controlHeightLg * context.scale * 2.0F : 0.0F;
   const float sectionGap = context.showCount ? Style::spaceMd * context.scale : 0.0F;
   const float captionHeight = context.showCaption ? Style::windowSwitcherCaptionHeight * context.scale : 0.0F;

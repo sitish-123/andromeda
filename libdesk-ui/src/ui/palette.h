@@ -27,6 +27,17 @@ enum class ColorRole : std::uint8_t {
   TintRegular,
   TintThick,
   Label3,
+  AccentText,
+  DangerText,
+  Separator,
+  Lens,
+  LensEdge,
+  Warning,
+  Success,
+  SliderFill,
+  OnSliderFill,
+  SliderTrack,
+  SliderEdge,
 };
 
 struct ColorRoleToken {
@@ -34,7 +45,7 @@ struct ColorRoleToken {
   std::string_view token;
 };
 
-inline constexpr std::array<ColorRoleToken, 15> kColorRoleTokens = {{
+inline constexpr std::array<ColorRoleToken, 26> kColorRoleTokens = {{
     {ColorRole::Label1, "label_1"},
     {ColorRole::Label2, "label_2"},
     {ColorRole::Fill1, "fill_1"},
@@ -50,6 +61,17 @@ inline constexpr std::array<ColorRoleToken, 15> kColorRoleTokens = {{
     {ColorRole::TintRegular, "tint_regular"},
     {ColorRole::TintThick, "tint_thick"},
     {ColorRole::Label3, "label_3"},
+    {ColorRole::AccentText, "accent_text"},
+    {ColorRole::DangerText, "danger_text"},
+    {ColorRole::Separator, "separator"},
+    {ColorRole::Lens, "lens"},
+    {ColorRole::LensEdge, "lens_edge"},
+    {ColorRole::Warning, "warning"},
+    {ColorRole::Success, "success"},
+    {ColorRole::SliderFill, "slider_fill"},
+    {ColorRole::OnSliderFill, "on_slider_fill"},
+    {ColorRole::SliderTrack, "slider_track"},
+    {ColorRole::SliderEdge, "slider_edge"},
 }};
 
 [[nodiscard]] constexpr Color clearColor() noexcept { return rgba(0.0F, 0.0F, 0.0F, 0.0F); }
@@ -94,6 +116,17 @@ struct Palette {
   Color tintRegular;
   Color tintThick;
   Color label3;
+  Color accentText;
+  Color dangerText;
+  Color separator;
+  Color lens;
+  Color lensEdge;
+  Color warning;
+  Color success;
+  Color sliderFill;
+  Color onSliderFill;
+  Color sliderTrack;
+  Color sliderEdge;
 
   bool operator==(const Palette&) const = default;
 };

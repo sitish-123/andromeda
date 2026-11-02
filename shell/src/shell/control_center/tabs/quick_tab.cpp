@@ -34,17 +34,23 @@ namespace {
   // Anatomy: docs/design-system.md "Control center"; values: protocol/design-tokens.toml [component.*].
   TOKENS_LIVE(kRoundIcon, Tokens::componentRoundIconSize);
   TOKENS_LIVE(kPillHeight, Tokens::componentSliderHeight);
+  // M3: connectivity card -> two tiles (rulebook 9.3)
+  constexpr float kCardRowGap = 12.0F;
 
   // The slider fills the whole pill; the icon and the value label draw over it.
   class SliderPill : public Flex {
   public:
     Slider* slider = nullptr;
+    std::function<void()> restyle; // symbol colours depend on the arranged width
 
   protected:
     void doArrange(Renderer& renderer, const LayoutRect& rect) override {
       Flex::doArrange(renderer, rect);
       if (slider != nullptr) {
         slider->arrange(renderer, LayoutRect{.width = width(), .height = height()});
+      }
+      if (restyle) {
+        restyle();
       }
     }
   };
@@ -57,8 +63,8 @@ namespace {
   std::unique_ptr<Label> makeLabel(Label*& out, const Tokens::Type& type, float scale, ColorRole role) {
     auto label = std::make_unique<Label>();
     label->setFontSize(type.size * scale);
-    label->setLineHeight(type.size * type.lineHeight * scale);
-    label->setFontWeight(static_cast<FontWeight>(type.weight));
+    label->setLineHeight(type.line * scale);
+    label->setFontWeight(static_cast<FontWeight>(Style::glassWeight(type.weight)));
     label->setColor(colorSpecFromRole(role));
     label->setMaxLines(1);
     out = label.get();
@@ -124,7 +130,7 @@ namespace {
     auto motion = std::make_shared<CardMotion>();
     Button* rowPtr = &row;
     const auto hoverTo = [rowPtr, motion, opacity, icon](float target) {
-      driveCard(*rowPtr, motion, &CardMotion::hover, &CardMotion::hoverId, target, Tokens::springEffects, [opacity, icon](Flex& card, float t) {
+      driveCard(*rowPtr, motion, &CardMotion::hover, &CardMotion::hoverId, target, Tokens::springFade, [opacity, icon](Flex& card, float t) {
         icon->setHoverMix(t);
         card.setFill(
             lerpColor(
@@ -168,9 +174,9 @@ std::unique_ptr<Flex> QuickTab::makeCard() {
   // Cards on a material are fill-1 (docs/design-system.md), lighter than the sheet; the shared card style is fill-2.
   card->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
   card->clearBorder();
-  card->setRadius(Tokens::componentCardRadius * s);
-  card->setPadding(Tokens::componentCardPadding * s);
-  card->setGap(Tokens::componentCardRowGap * s);
+  card->setRadius(Tokens::componentTileRadius * s);
+  card->setPadding(Tokens::componentTilePadding * s);
+  card->setGap(kCardRowGap * s);
   card->setJustify(FlexJustify::Center);
   return card;
 }
@@ -179,8 +185,8 @@ void QuickTab::addSingleRow(Flex& card, std::unique_ptr<Button> row) {
   // The row is the whole card, so its press fill covers the card instead of an inset rectangle.
   const float s = contentScale();
   card.setPadding(0.0F);
-  row->setPadding(Tokens::componentCardPadding * s);
-  row->setRadius(Tokens::componentCardRadius * s);
+  row->setPadding(Tokens::componentTilePadding * s);
+  row->setRadius(Tokens::componentTileRadius * s);
   row->setFlexGrow(1.0F);
   card.addChild(std::move(row));
 }
@@ -221,8 +227,8 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   text->setDirection(FlexDirection::Vertical);
   text->setAlign(FlexAlign::Start);
   text->setFlexGrow(1.0F);
-  text->addChild(makeLabel(row.title, Tokens::typeTitle, s, ColorRole::Label1));
-  text->addChild(makeLabel(row.subtitle, Tokens::typeCaption, s, ColorRole::Label2));
+  text->addChild(makeLabel(row.title, Tokens::typeHeadline, s, ColorRole::Label1));
+  text->addChild(makeLabel(row.subtitle, Tokens::typeFootnote, s, ColorRole::Label2));
   container->addChild(std::move(text));
   if (chevron) {
     Button* unused = nullptr;
@@ -243,7 +249,7 @@ std::unique_ptr<Flex> QuickTab::makeExtraCard(std::string_view type, std::string
   }
   auto card = makeCard();
   card->setFlexGrow(1.0F);
-  addSingleRow(*card, makeToggleRow(row, detailTab, Tokens::componentCardSmallGap, chevron));
+  addSingleRow(*card, makeToggleRow(row, detailTab, Tokens::componentTileGap, chevron));
   row.title->setText(row.shortcut->defaultLabel());
   m_extras.push_back(std::move(row));
   return card;
@@ -254,11 +260,11 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   auto pill = std::make_unique<SliderPill>();
   pill->setDirection(FlexDirection::Horizontal);
   pill->setAlign(FlexAlign::Center);
-  pill->setGap(Tokens::componentSliderIconInset * s);
-  pill->setPadding(0.0F, Tokens::componentSliderValueInset * s, 0.0F, Tokens::componentSliderIconInset * s);
+  pill->setGap(Tokens::componentSliderInset * s);
+  pill->setPadding(0.0F, Tokens::componentSliderInset * s, 0.0F, Tokens::componentSliderInset * s);
   pill->setMinHeight(kPillHeight * s);
   pill->setRadius(Tokens::componentSliderRadius * s);
-  pill->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
+  pill->setFill(colorSpecFromRole(ColorRole::SliderTrack));
 
   auto bar = std::make_unique<Slider>();
   bar->setRange(0.0, 1.0);
@@ -274,17 +280,28 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   auto icon = std::make_unique<Glyph>();
   icon->setGlyph(glyph);
   icon->setGlyphSize(Tokens::componentRoundIconGlyph * s);
-  // The icon always sits on the white slider fill.
-  icon->setColor(fixedColorSpec(Color{.a = 0.6F}));
+  Glyph* iconPtr = icon.get();
   pill->addChild(std::move(icon));
 
   auto spacer = std::make_unique<Flex>();
   spacer->setFlexGrow(1.0F);
   pill->addChild(std::move(spacer));
 
-  auto label = makeLabel(value, Tokens::typeCaption, s, ColorRole::Label2);
+  auto label = makeLabel(value, Tokens::typeFootnote, s, ColorRole::Label2);
   label->setMaxWidth(120.0F * s);
+  Label* labelPtr = label.get();
   pill->addChild(std::move(label));
+  // The symbol and the value use on_slider_fill only where the level covers them; over the bare track they use label_2.
+  const auto restyle = [pillPtr = pill.get(), iconPtr, labelPtr, s] {
+    const float level = pillPtr->slider->normalizedValue() * pillPtr->width();
+    const float inset = Tokens::componentSliderInset * s;
+    const bool iconCovered = level >= inset + iconPtr->width() * 0.5F;
+    const bool valueCovered = level >= pillPtr->width() - inset - labelPtr->width() * 0.5F;
+    iconPtr->setColor(colorSpecFromRole(iconCovered ? ColorRole::OnSliderFill : ColorRole::Label2));
+    labelPtr->setColor(colorSpecFromRole(valueCovered ? ColorRole::OnSliderFill : ColorRole::Label2));
+  };
+  slider->setOnLevelChanged(restyle);
+  pill->restyle = restyle;
   return pill;
 }
 
@@ -310,8 +327,8 @@ std::unique_ptr<Flex> QuickTab::create() {
 
   auto connectivity = makeCard();
   connectivity->setFlexGrow(1.0F);
-  connectivity->addChild(makeToggleRow(m_wifi, "network", Tokens::componentCardRowGap));
-  connectivity->addChild(makeToggleRow(m_bluetooth, "bluetooth", Tokens::componentCardRowGap));
+  connectivity->addChild(makeToggleRow(m_wifi, "network", Tokens::componentTileGap));
+  connectivity->addChild(makeToggleRow(m_bluetooth, "bluetooth", Tokens::componentTileGap));
   top->addChild(std::move(connectivity));
 
   auto smallCards = std::make_unique<Flex>();
@@ -320,10 +337,10 @@ std::unique_ptr<Flex> QuickTab::create() {
   smallCards->setGap(Tokens::componentSheetGap * s);
   smallCards->setFlexGrow(1.0F);
   auto focus = makeCard();
-  addSingleRow(*focus, makeToggleRow(m_focus, "notifications", Tokens::componentCardSmallGap));
+  addSingleRow(*focus, makeToggleRow(m_focus, "notifications", Tokens::componentTileGap));
   smallCards->addChild(std::move(focus));
   auto dark = makeCard();
-  addSingleRow(*dark, makeToggleRow(m_darkMode, "", Tokens::componentCardSmallGap));
+  addSingleRow(*dark, makeToggleRow(m_darkMode, "", Tokens::componentTileGap));
   smallCards->addChild(std::move(dark));
   top->addChild(std::move(smallCards));
   // Page 1 is the reference block; the mode toggles fill pages 2 and 3, four per page, and the mic slider joins the
@@ -450,6 +467,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   media->setDirection(FlexDirection::Horizontal);
   media->setAlign(FlexAlign::Center);
   m_mediaCard = media.get();
+  media->setPadding(Tokens::componentMediaPadding * s);
+  media->setMinHeight(Tokens::componentMediaHeight * s);
   // fill_3 shows while there is no artwork.
   const float art = Tokens::componentMediaArt * s;
   auto artBox = std::make_unique<Flex>();
@@ -469,8 +488,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   mediaText->setDirection(FlexDirection::Vertical);
   mediaText->setAlign(FlexAlign::Start);
   mediaText->setFlexGrow(1.0F);
-  mediaText->addChild(makeLabel(m_mediaTitle, Tokens::typeTitle, s, ColorRole::Label1));
-  mediaText->addChild(makeLabel(m_mediaArtist, Tokens::typeCaption, s, ColorRole::Label2));
+  mediaText->addChild(makeLabel(m_mediaTitle, Tokens::typeHeadline, s, ColorRole::Label1));
+  mediaText->addChild(makeLabel(m_mediaArtist, Tokens::typeFootnote, s, ColorRole::Label2));
   media->addChild(std::move(mediaText));
   // Bare glyphs; each button is glyph + gap wide, so glyph centers sit glyph + controls_gap apart as in the reference.
   TOKENS_LIVE(kMediaControl, Tokens::componentRoundIconGlyph + Tokens::componentMediaControlsGap);
@@ -506,8 +525,8 @@ std::unique_ptr<Flex> QuickTab::create() {
   phoneText->setDirection(FlexDirection::Vertical);
   phoneText->setAlign(FlexAlign::Start);
   phoneText->setFlexGrow(1.0F);
-  phoneText->addChild(makeLabel(m_phoneName, Tokens::typeTitle, s, ColorRole::Label1));
-  phoneText->addChild(makeLabel(m_phoneStatus, Tokens::typeCaption, s, ColorRole::Label2));
+  phoneText->addChild(makeLabel(m_phoneName, Tokens::typeHeadline, s, ColorRole::Label1));
+  phoneText->addChild(makeLabel(m_phoneStatus, Tokens::typeFootnote, s, ColorRole::Label2));
   phone->addChild(std::move(phoneText));
   auto actions = std::make_unique<Flex>();
   actions->setDirection(FlexDirection::Horizontal);
@@ -575,7 +594,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   footer->setDirection(FlexDirection::Horizontal);
   footer->setAlign(FlexAlign::Center);
   footer->setMinHeight(kFooterHeight * s);
-  footer->setPadding(0.0F, Tokens::componentCardPadding * s, 0.0F, Tokens::componentCardPadding * s);
+  footer->setPadding(0.0F, Tokens::componentTilePadding * s, 0.0F, Tokens::componentTilePadding * s);
   m_footer = footer.get();
 
   const auto makeGlyph = [&](Glyph*& out) {
@@ -589,10 +608,10 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   auto battery = std::make_unique<Flex>();
   battery->setDirection(FlexDirection::Horizontal);
   battery->setAlign(FlexAlign::Center);
-  battery->setGap(Tokens::componentCardSmallGap * s);
+  battery->setGap(Tokens::spaceP8 * s);
   m_batteryBox = battery.get();
   battery->addChild(makeGlyph(m_batteryGlyph));
-  battery->addChild(makeLabel(m_batteryText, Tokens::typeCaption, s, ColorRole::Label2));
+  battery->addChild(makeLabel(m_batteryText, Tokens::typeFootnote, s, ColorRole::Label2));
   footer->addChild(std::move(battery));
 
   auto spacer = std::make_unique<Flex>();
@@ -606,7 +625,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   profile->setDirection(FlexDirection::Horizontal);
   profile->setAlign(FlexAlign::Center);
   profile->setPadding(0.0F);
-  profile->setGap(Tokens::componentCardSmallGap * s);
+  profile->setGap(Tokens::spaceP8 * s);
   profile->setOnClick([this] {
     if (m_profile != nullptr) {
       m_profile->onClick();
@@ -614,7 +633,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   });
   m_profileBox = profile.get();
   profile->addChild(makeGlyph(m_profileGlyph));
-  profile->addChild(makeLabel(m_profileText, Tokens::typeCaption, s, ColorRole::Label2));
+  profile->addChild(makeLabel(m_profileText, Tokens::typeFootnote, s, ColorRole::Label2));
   Button* unused = nullptr;
   auto openPower = makeGlyphButton(unused, "chevron-right", s, [this] { m_openTab("power"); }, kRoundIcon * 0.75F,
                                    ButtonVariant::Ghost);

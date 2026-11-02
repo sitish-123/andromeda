@@ -404,7 +404,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
             .gaugeLayout = gaugeLayout,
             .lineColor = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Accent)),
             .lineColor2 = getColorSpecSetting(settings, "color2", colorSpecFromRole(ColorRole::Accent)),
-            .highlightColor = getColorSpecSetting(settings, "highlight_color", colorSpecFromRole(ColorRole::Danger)),
+            .highlightColor = getColorSpecSetting(settings, "highlight_color", colorSpecFromRole(ColorRole::DangerText)),
             .networkInterface = getStringSetting(settings, "interface"),
             .networkSpeedUnit =
                 FormatUnits::decimalByteRateUnitFromString(getStringSetting(settings, "network_speed_unit", "auto")),

@@ -264,7 +264,7 @@ private:
   bool m_embeddedOnSolidPrimary = false;
   ColorRole m_surfaceRole = ColorRole::Fill2;
   float m_surfaceOpacity = 1.0F;
-  float m_frameRadius = Style::radiusMd;
+  float m_frameRadius = Tokens::radiusR8;
   bool m_enabled = true;
   TextInputService* m_textInputService = nullptr;
   float m_minLayoutWidth = 0.0F;

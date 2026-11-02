@@ -326,7 +326,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherGlyph,
           .glyph = "weather-cloud",
           .glyphSize = kWeatherGlyphSize,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   m_weatherCurrent->addChild(
@@ -348,7 +348,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherTemp,
           .fontSize = Style::fontSizeBody,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -405,7 +405,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
             .out = &column.glyph,
             .glyph = "weather-cloud",
             .glyphSize = kForecastGlyphSize,
-            .color = colorSpecFromRole(ColorRole::Accent),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
     column.column->addChild(
@@ -1617,7 +1617,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_authLabel->setVisible(showAuth);
     if (showAuth) {
       m_authLabel->setText(authText);
-      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::Danger : ColorRole::Label2));
+      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::DangerText : ColorRole::Label2));
       const float authFontSize = captionSize + (regular ? contentScale : 1.0F);
       m_authLabel->setFontSize(authFontSize);
       m_authLabel->setEllipsize(TextEllipsize::End);
@@ -1720,7 +1720,7 @@ void LockSurface::updateCopy() {
     m_authLabel->setVisible(show);
     if (show) {
       m_authLabel->setText(text);
-      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::Danger : ColorRole::Label2));
+      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::DangerText : ColorRole::Label2));
     }
   }
 

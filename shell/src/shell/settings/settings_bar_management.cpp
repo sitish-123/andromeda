@@ -44,7 +44,7 @@ namespace settings {
       props.fontSize = Style::fontSizeCaption * scale;
       props.enabled = enabled;
       props.variant = variant;
-      props.minHeight = Style::controlHeightSm * scale;
+      props.minHeight = Style::controlHeight * scale;
       props.paddingV = Style::spaceXs * scale;
       props.paddingH = Style::spaceSm * scale;
       props.radius = Style::scaledRadiusSm(scale);

@@ -1396,7 +1396,7 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   const float gap = Style::spaceSm;
   const float inputWidth = std::max(120.0f, contentWidth - buttonWidth - gap);
 
-  const float selectorH = Style::controlHeightSm;
+  const float selectorH = Style::controlHeight;
   const float schemeW = measureIconSelectorWidth(m_schemeSelectIcon, m_schemeSelectGlyph);
 
   // Determine scheme selector position based on config
@@ -2540,7 +2540,7 @@ void GreeterSurface::rebuildFocusRing() {
 
 float GreeterSurface::measureIconSelectorWidth(Glyph* icon, Glyph* chevron) const {
   if (m_renderContext == nullptr) {
-    return Style::controlHeightSm;
+    return Style::controlHeight;
   }
 
   auto& renderer = m_window->renderTarget().renderer();
@@ -2556,7 +2556,7 @@ float GreeterSurface::measureIconSelectorWidth(Glyph* icon, Glyph* chevron) cons
     const auto chevronMetrics = renderer.measureGlyph(chevron->codepoint(), chevron->fontSize());
     width += chevronMetrics.right - chevronMetrics.left;
   }
-  return std::max(width, Style::controlHeightSm);
+  return std::max(width, Style::controlHeight);
 }
 
 void GreeterSurface::layoutSelector(
@@ -3633,7 +3633,7 @@ void GreeterSurface::buildMenu(
   }
   (void)selected;
 
-  const float rowH = Style::controlHeightSm;
+  const float rowH = Style::controlHeight;
   const float anchorX = anchor->x();
   const float anchorW = anchor->width();
   const float h = rowH * static_cast<float>(count);

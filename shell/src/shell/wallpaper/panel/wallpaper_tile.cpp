@@ -26,7 +26,7 @@ namespace {
     return tryParseHexColor(path.substr(kPrefix.size()), out);
   }
 
-  [[nodiscard]] float overlayControlSize(float contentScale) { return Style::controlHeightSm * contentScale; }
+  [[nodiscard]] float overlayControlSize(float contentScale) { return Style::controlHeight * contentScale; }
 
   // Star hit box sits flush in the thumbnail's top-right corner, glyph centered inside it.
   [[nodiscard]] float starButtonSize(float contentScale) { return overlayControlSize(contentScale); }
@@ -145,7 +145,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       ui::glyph({
           .out = &m_folderGlyph,
           .glyph = "folder",
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -609,10 +609,10 @@ void WallpaperTile::applyStarVisualState() {
 
   if (m_favorited) {
     m_starGlyph->setGlyph("star-filled");
-    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::Accent), m_contentScale);
+    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::AccentText), m_contentScale);
   } else if (m_starHoveredVisual) {
     m_starGlyph->setGlyph("star");
-    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::Accent), m_contentScale);
+    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::AccentText), m_contentScale);
   } else {
     m_starGlyph->setGlyph("star");
     // High-contrast overlay on arbitrary thumbnails: no pill/background, just fill + shadow.
@@ -640,7 +640,7 @@ void WallpaperTile::applyVisualState() {
       : m_hoveredVisual              ? colorSpecFromRole(ColorRole::Fill3)
                                      : colorSpecFromRole(ColorRole::Stroke);
   ColorSpec labelColor =
-      m_current ? colorSpecFromRole(ColorRole::Accent) : colorSpecFromRole(ColorRole::Label2);
+      m_current ? colorSpecFromRole(ColorRole::AccentText) : colorSpecFromRole(ColorRole::Label2);
   ColorSpec frameBg = colorSpecFromRole(ColorRole::Fill2);
   m_label->setColor(labelColor);
 

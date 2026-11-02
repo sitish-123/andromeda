@@ -156,7 +156,7 @@ GlyphPicker::GlyphPicker(float chromeScale) : m_chromeScale(std::max(0.1F, chrom
           .text = i18n::tr("ui.dialogs.glyph-picker.title"),
           .fontSize = Style::fontSizeTitle * m_chromeScale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   headerRow->addChild(ui::spacer());
@@ -166,8 +166,8 @@ GlyphPicker::GlyphPicker(float chromeScale) : m_chromeScale(std::max(0.1F, chrom
             .glyph = "close",
             .glyphSize = Style::fontSizeBody * m_chromeScale,
             .variant = ButtonVariant::Default,
-            .minWidth = Style::controlHeightSm * m_chromeScale,
-            .minHeight = Style::controlHeightSm * m_chromeScale,
+            .minWidth = Style::controlHeight * m_chromeScale,
+            .minHeight = Style::controlHeight * m_chromeScale,
             .padding = Style::spaceXs * m_chromeScale,
             .radius = Style::scaledRadiusMd(m_chromeScale),
             .onClick = [this] {

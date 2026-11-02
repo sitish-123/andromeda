@@ -38,9 +38,9 @@ namespace {
 
   constexpr Logger kLog("notification");
 
-  constexpr float kInlineReplyInputHeight = Style::controlHeightSm;
+  TOKENS_LIVE(kInlineReplyInputHeight, Style::controlHeight);
   TOKENS_LIVE(kInlineReplyGap, Style::spaceSm);
-  constexpr float kInlineReplySendButtonSize = Style::controlHeightSm;
+  TOKENS_LIVE(kInlineReplySendButtonSize, Style::controlHeight);
 
   TOKENS_LIVE(kGap, Style::spaceSm);
   TOKENS_LIVE(kPaddingX, Style::spaceMd);
@@ -60,7 +60,7 @@ namespace {
   constexpr auto kExitFallbackGrace = std::chrono::milliseconds(50);
 
   float notificationIconRadius(float iconSize, float localScale = 1.0F) {
-    const float baseRadius = Style::radiusMd * (iconSize / kNotificationIconReferenceSize);
+    const float baseRadius = Tokens::radiusR8 * (iconSize / kNotificationIconReferenceSize);
     return std::min(iconSize * 0.5F, Style::scaledRadius(baseRadius, localScale));
   }
   constexpr std::string_view kNoctaliaGlyphIconPrefix = "noctalia-glyph:";

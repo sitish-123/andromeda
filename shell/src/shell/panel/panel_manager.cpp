@@ -2412,11 +2412,11 @@ bool PanelManager::startDetachedMorph() {
   return true;
 }
 
-// Reduce motion: panels crossfade on a timed ease, never pop and never spring.
+// Reduce motion (rulebook 7.8): panels crossfade on the fade springs (critically damped), never pop.
 DskSurfaceClient::Curve PanelManager::opacityCurve(bool fast) {
   using Curve = DskSurfaceClient::Curve;
   if (!MotionService::instance().enabled()) {
-    return Curve::EaseNormal;
+    return fast ? Curve::SpringEffectsFast : Curve::SpringEffects;
   }
   // The close fade rides the close spring, so the content stays visible while the sheet shrinks into its source.
   return fast ? Curve::SpringClose : Curve::SpringEffects;
@@ -2428,14 +2428,14 @@ void PanelManager::fadeSceneRoot(float to, std::function<void()> onDone) {
     m_animations.animateSpring(m_sceneRoot->opacity(), to, effectsSpring(), setter, std::move(onDone), m_sceneRoot.get());
   } else {
     m_animations.animateTimer(
-        m_sceneRoot->opacity(), to, static_cast<float>(Tokens::motionNormal), Easing::EaseOutCubic, setter,
+        m_sceneRoot->opacity(), to, static_cast<float>(Style::animNormal), Easing::EaseOutCubic, setter,
         std::move(onDone), m_sceneRoot.get()
     );
   }
 }
 
 desk::motion::SpringConfig PanelManager::effectsSpring() {
-  return {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness};
+  return {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness};
 }
 
 // translate that keeps the sheet's anchor corner fixed while the surface scales about its center

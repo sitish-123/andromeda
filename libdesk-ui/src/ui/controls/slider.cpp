@@ -188,9 +188,15 @@ void Slider::setValue(double value) {
   }
   m_value = next;
   updateGeometry();
+  if (m_filled) {
+    applyVisualState();
+  }
   markPaintDirty();
   if (m_onValueChanged) {
     m_onValueChanged(m_value);
+  }
+  if (m_onLevelChanged) {
+    m_onLevelChanged();
   }
 }
 
@@ -328,9 +334,9 @@ void Slider::applyVisualState() {
   }
 
   if (m_filled) {
-    // The parent pill draws the track; the fill is white in light and dark schemes.
+    // The parent pill draws the track (slider_track); the level is slider_fill with a 1 px slider_edge inside.
     trackColor = Color{.a = 0.0F};
-    fillColor = rgbaHex(Tokens::componentSliderFill);
+    fillColor = resolved(ColorRole::SliderFill);
     fillColor.a *= m_enabled ? 1.0F : 0.45F;
     m_thumb->setVisible(false);
   }
@@ -341,6 +347,11 @@ void Slider::applyVisualState() {
   m_track->setStyle(trackStyle);
 
   auto fillStyle = solidStyle(fillColor, radius);
+  if (m_filled) {
+    // No edge on an empty level: a 0-wide fill would draw a stray hairline.
+    fillStyle.border = resolved(ColorRole::SliderEdge, m_enabled ? 1.0F : 0.45F);
+    fillStyle.borderWidth = normalizedValue() > 0.0F ? Style::borderWidth : 0.0F;
+  }
   m_fill->setStyle(fillStyle);
 
   auto thumbStyle = solidStyle(thumbColor, m_thumbSizePx * 0.5F);

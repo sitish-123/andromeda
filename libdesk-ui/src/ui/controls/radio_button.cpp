@@ -66,7 +66,7 @@ bool RadioButton::hovered() const noexcept { return m_inputArea != nullptr && m_
 bool RadioButton::pressed() const noexcept { return m_inputArea != nullptr && m_inputArea->pressed(); }
 
 void RadioButton::doLayout(Renderer& /*renderer*/) {
-  const float touchSize = Style::controlHeightSm * m_scale;
+  const float touchSize = Style::controlHeight * m_scale;
   const float indicatorSize = (Style::fontSizeTitle + Style::spaceXs) * m_scale;
   const float indicatorInset = (touchSize - indicatorSize) * 0.5F;
   const float innerInset = (Style::spaceXs + Style::borderWidth) * m_scale;

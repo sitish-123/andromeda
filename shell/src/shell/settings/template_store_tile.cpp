@@ -25,7 +25,7 @@ namespace settings {
             .scale = scale,
             .checkedFill = colorSpecFromRole(ColorRole::SolidRegular),
             .checkedBorder = colorSpecFromRole(ColorRole::OnAccent),
-            .checkedGlyph = colorSpecFromRole(ColorRole::Accent),
+            .checkedGlyph = colorSpecFromRole(ColorRole::AccentText),
         })
     );
 
@@ -56,10 +56,10 @@ namespace settings {
             .out = &m_readmeButton,
             .glyph = "external-link",
             .glyphSize = Style::fontSizeBody * scale,
-            .controlHeight = Style::controlHeightSm * scale,
+            .controlHeight = Style::controlHeight * scale,
             .variant = ButtonVariant::Ghost,
-            .width = Style::controlHeightSm * scale,
-            .height = Style::controlHeightSm * scale,
+            .width = Style::controlHeight * scale,
+            .height = Style::controlHeight * scale,
             .visible = false,
             .participatesInLayout = false,
             .configure = [](Button& button) {
@@ -135,7 +135,7 @@ namespace settings {
   }
 
   TooltipAnchorInsets TemplateStoreTile::readmeTooltipAnchorInsets(float cellWidth, float cellHeight, float scale) {
-    const float size = Style::controlHeightSm * scale;
+    const float size = Style::controlHeight * scale;
     const float inset = Style::spaceSm * scale;
     const float left = Style::rtl() ? inset : cellWidth - inset - size;
     const float top = (cellHeight - size) * 0.5F;

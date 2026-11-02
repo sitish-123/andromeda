@@ -24,7 +24,7 @@ namespace settings {
     inline constexpr float kResultTile = 28.0F;
     inline constexpr float kEmptyStateMinHeight = 160.0F;
     inline constexpr float kTitleBarHeight = 52.0F;
-    inline constexpr float kPagePadding = 24.0F;
+    inline constexpr const float& kPagePadding = Tokens::componentPagePadding;
     inline constexpr float kCardBorderWidth = 0.5F;
     inline constexpr float kCardFillOpacity = 0.4F;
     inline constexpr float kRowSeparatorThickness = 0.5F;

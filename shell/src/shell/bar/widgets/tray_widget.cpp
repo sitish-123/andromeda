@@ -713,7 +713,7 @@ void TrayWidget::rebuild(Renderer& renderer) {
       auto glyph = ui::glyph({
           .glyph = fallback,
           .glyphSize = iconSize,
-          .color = item.needsAttention ? colorSpecFromRole(ColorRole::Danger)
+          .color = item.needsAttention ? colorSpecFromRole(ColorRole::DangerText)
                                        : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       });
       glyph->measure(renderer);

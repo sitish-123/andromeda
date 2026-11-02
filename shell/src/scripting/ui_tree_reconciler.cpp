@@ -319,7 +319,7 @@ namespace ui {
         return std::nullopt;
       }
       if (*token == "sm")
-        return Style::controlHeightSm;
+        return Style::controlHeight;
       if (*token == "md")
         return Style::controlHeight;
       if (*token == "lg")

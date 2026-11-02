@@ -46,10 +46,10 @@ namespace {
   constexpr float kHistoryIconReferenceSize = 36.0F;
 
   float notificationIconRadius(float iconSize, float localScale) {
-    const float baseRadius = Style::radiusMd * (iconSize / kHistoryIconReferenceSize);
+    const float baseRadius = Tokens::radiusR8 * (iconSize / kHistoryIconReferenceSize);
     return std::min(iconSize * 0.5F, Style::scaledRadius(baseRadius, localScale));
   }
-  constexpr float kNotificationActionButtonSize = Style::controlHeightSm;
+  TOKENS_LIVE(kNotificationActionButtonSize, Style::controlHeight);
 
   std::string historyActionLabel(std::string_view actionKey, std::string_view actionLabel) {
     if (!StringUtils::isBlank(actionLabel)) {

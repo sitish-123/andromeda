@@ -15,12 +15,21 @@ namespace andromeda {
     std::array<float, 4> color{};
   };
 
-  // A shadow from design tokens (elevation.*) instead of appearance.shadow.
+  struct ShadowOpacity {
+    float light = 1.0F;
+    float dark = 1.0F;
+  };
+
+  // A shadow from design tokens (elevation.*) instead of appearance.shadow: a key shadow and a contact shadow.
   struct ShadowStyle {
     int softness = 0;
     int offsetX = 0;
     int offsetY = 0;
-    float opacity = 1.0F; // scales the scheme's shadow color alpha
+    // Scale the scheme's shadow color alpha; the active scheme picks one, so a scheme switch needs no new style.
+    ShadowOpacity opacity;
+    int contactSoftness = 0;
+    int contactOffsetY = 0;
+    ShadowOpacity contactOpacity; // 0 in both schemes draws no contact shadow
   };
 
   // Owns the desired-state logic for one SceneFX drop-shadow node. The node is a
@@ -53,9 +62,16 @@ namespace andromeda {
 
   private:
     // A style takes the scheme's design-token shadow color; otherwise colors.shadow. Without the fade alpha.
-    [[nodiscard]] std::array<float, 4> baseColor() const;
+    [[nodiscard]] std::array<float, 4> baseColor(ShadowOpacity opacity) const;
+    // Creates `node` when null, then sizes, places and colours it around the decorated box.
+    void place(
+        wlr_scene_shadow*& node, wlr_scene_tree* parent, int sigma, int offsetX, int offsetY,
+        const std::array<float, 4>& color, int decWidth, int decHeight, int borderTotal, int topExtension, int originX,
+        int originY, int cornerRadius
+    );
 
     wlr_scene_shadow* m_node = nullptr;
+    wlr_scene_shadow* m_contact = nullptr; // only with a style that has a contact shadow
     float m_alpha = 1.0F;
     // Follows appearance.shadow.enabled until an owner overrides it either way.
     std::optional<bool> m_enabled;

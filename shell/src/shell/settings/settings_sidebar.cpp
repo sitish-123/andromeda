@@ -115,7 +115,7 @@ namespace settings {
           .customPalette = selected
               ? std::optional{selectedRowPalette(selectionStyle().childFill, colorSpecFromRole(ColorRole::Label1))}
               : std::nullopt,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
           .paddingTop = Style::spaceXs * scale,
           .paddingRight = Style::spaceMd * scale,
           .paddingBottom = Style::spaceXs * scale,
@@ -132,7 +132,7 @@ namespace settings {
           .text = std::move(text),
           .fontSize = Style::fontSizeCaption * scale,
           .variant = ButtonVariant::Default,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
           .paddingV = Style::spaceXs * scale,
           .paddingH = Style::spaceSm * scale,
           .radius = Style::scaledRadiusSm(scale),
@@ -145,8 +145,8 @@ namespace settings {
           .glyph = "close",
           .glyphSize = Style::fontSizeCaption * scale,
           .variant = ButtonVariant::Ghost,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusSm(scale),
           .onClick = std::move(onClick),
@@ -320,10 +320,10 @@ namespace settings {
           .value = *creatingBarName,
           .placeholder = i18n::tr("settings.entities.bar.id-placeholder"),
           .fontSize = Style::fontSizeCaption * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceXs * scale,
           .width = metrics::kNewBarInputWidth * scale,
-          .height = Style::controlHeightSm * scale,
+          .height = Style::controlHeight * scale,
       });
 
       auto doCreate = [existingBarNames, createBar, inputPtr](const std::string& rawName) {

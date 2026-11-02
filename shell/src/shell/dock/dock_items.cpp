@@ -34,7 +34,7 @@ namespace {
   // Badge geometry (component.badge at component.dock.icon), scaled with the icon size.
   TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
   constexpr float kBadgeMinSize = 16.0F;
-  TOKENS_LIVE(kBadgeFontRatio, Tokens::componentBadgeFont / Tokens::componentBadgeHeight);
+  TOKENS_LIVE(kBadgeFontRatio, Tokens::typeCaption.size / Tokens::componentBadgeHeight);
   TOKENS_LIVE(kBadgeCornerInsetX, 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   TOKENS_LIVE(kBadgeCornerInsetY, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   constexpr float kDotSizeRatio = 0.09F;
@@ -42,8 +42,10 @@ namespace {
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
-  TOKENS_LIVE(kRunningBarLength, Tokens::componentDockRunningWidth);
-  TOKENS_LIVE(kRunningBarThickness, Tokens::componentDockRunningHeight);
+  // M3: dock running bar -> dot, focused app -> lens (rulebook 9.4)
+  constexpr float kRunningBarLength = 14.0F;
+  constexpr float kRunningBarThickness = 3.0F;
+  constexpr float kRunningBarOffset = 4.0F;
   // component.dock.padding and .gap space the icons; a cell adds none.
   constexpr float kCellPad = 0.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
@@ -662,8 +664,7 @@ namespace shell::dock {
                 .configure = [vert, edge, cellMain](Box& box) {
                   const float centered = std::round((cellMain - kRunningBarLength) * 0.5F);
                   const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
-                  TOKENS_LIVE(kGap, Tokens::componentDockRunningOffset);
-                  const float outer = atStart ? -(kGap + kRunningBarThickness) : cellMain + kGap;
+                  const float outer = atStart ? -(kRunningBarOffset + kRunningBarThickness) : cellMain + kRunningBarOffset;
                   box.setPosition(vert ? outer : centered, vert ? centered : outer);
                 },
             })
@@ -690,7 +691,7 @@ namespace shell::dock {
             ui::label({
                 .out = &item.badgeLabel,
                 .fontSize = bd * kBadgeFontRatio,
-                .fontWeight = static_cast<FontWeight>(Tokens::componentBadgeFontWeight),
+                .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
                 .maxLines = 1,
                 .visible = false,
             })
@@ -899,7 +900,7 @@ namespace shell::dock {
             }
             item.opacityAnimId = instance.animations.animateSpatial(
                 item.visualOpacity, iconOpacity,
-                {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+                {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
                 [node = iconNode, itemPtr = &item](float value) {
                   itemPtr->visualOpacity = value;
                   node->setOpacity(value);
@@ -932,7 +933,7 @@ namespace shell::dock {
           // The bar grows from its center along its length on the effects spring.
           item.runningAnimId = instance.animations.animateSpatial(
               item.runningScale, runningNow ? 1.0F : 0.0F,
-              {.damping = Tokens::springEffects.damping, .stiffness = Tokens::springEffects.stiffness},
+              {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
               [&instance, itemPtr = &item, vert = shell::dock::isVerticalEdge(cfg.position)](float v) {
                 itemPtr->runningScale = v;
                 Node* bar = itemPtr->runningIndicator;

@@ -565,53 +565,53 @@ void SystemTab::doUpdate(Renderer& renderer) {
 
   if (m_cpuGraph != nullptr) {
     m_cpuGraph->setColor(colorSpecFromRole(ColorRole::Accent));
-    m_cpuGraph->setColor2(colorSpecFromRole(ColorRole::Danger));
+    m_cpuGraph->setColor2(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_cpuPctIcon != nullptr) {
-    m_cpuPctIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_cpuPctIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_cpuPctLabel != nullptr) {
-    m_cpuPctLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_cpuPctLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_cpuTempIcon != nullptr) {
-    m_cpuTempIcon->setColor(colorSpecFromRole(ColorRole::Danger));
+    m_cpuTempIcon->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_cpuTempLabel != nullptr) {
-    m_cpuTempLabel->setColor(colorSpecFromRole(ColorRole::Danger));
+    m_cpuTempLabel->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
 
   if (m_ramGraph != nullptr) {
     m_ramGraph->setColor(colorSpecFromRole(ColorRole::Accent));
   }
   if (m_ramIcon != nullptr) {
-    m_ramIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_ramIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_ramLabel != nullptr) {
-    m_ramLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_ramLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
 
   if (m_gpuGraph != nullptr) {
     m_gpuGraph->setColor(colorSpecFromRole(ColorRole::Accent));
     m_gpuGraph->setColor2(colorSpecFromRole(ColorRole::Label2));
-    m_gpuGraph->setColor3(colorSpecFromRole(ColorRole::Danger));
+    m_gpuGraph->setColor3(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_gpuUsageIcon != nullptr) {
-    m_gpuUsageIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_gpuUsageIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuUsageLabel != nullptr) {
-    m_gpuUsageLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_gpuUsageLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuVramIcon != nullptr) {
-    m_gpuVramIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_gpuVramIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuVramLabel != nullptr) {
-    m_gpuVramLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_gpuVramLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuTempIcon != nullptr) {
-    m_gpuTempIcon->setColor(colorSpecFromRole(ColorRole::Danger));
+    m_gpuTempIcon->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_gpuTempLabel != nullptr) {
-    m_gpuTempLabel->setColor(colorSpecFromRole(ColorRole::Danger));
+    m_gpuTempLabel->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
 
   if (m_netGraph != nullptr) {
@@ -619,16 +619,16 @@ void SystemTab::doUpdate(Renderer& renderer) {
     m_netGraph->setColor2(colorSpecFromRole(ColorRole::Label2));
   }
   if (m_rxIcon != nullptr) {
-    m_rxIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_rxIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_rxLabel != nullptr) {
-    m_rxLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_rxLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_txIcon != nullptr) {
-    m_txIcon->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_txIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_txLabel != nullptr) {
-    m_txLabel->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_txLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
 
   if (monitorRunning) {

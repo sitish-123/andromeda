@@ -68,7 +68,7 @@ void IdleInhibitorWidget::syncState(Renderer& renderer) {
   if (!available) {
     m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
   } else if (enabled) {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Accent)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::AccentText)));
   } else {
     m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   }

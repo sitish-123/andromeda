@@ -28,12 +28,12 @@
 namespace {
 
   TOKENS_LIVE(kCalendarGridGap, Style::spaceSm);
-  constexpr float kCalendarNavButtonSize = Style::controlHeight;
+  TOKENS_LIVE(kCalendarNavButtonSize, Style::controlHeight);
   TOKENS_LIVE(kCalendarWeekdayRowHeight, Style::fontSizeCaption + Style::spaceXs);
-  constexpr float kCalendarHeaderHeight = Style::controlHeight;
-  TOKENS_LIVE(kCalendarCellSizeMin, Style::controlHeightSm + Style::spaceXs);
+  TOKENS_LIVE(kCalendarHeaderHeight, Style::controlHeight);
+  TOKENS_LIVE(kCalendarCellSizeMin, Style::controlHeight + Style::spaceXs);
   TOKENS_LIVE(kCalendarCellSizeMax, Style::controlHeightLg + Style::spaceXs);
-  constexpr float kCalendarDayButtonSizeMax = Style::controlHeightLg;
+  TOKENS_LIVE(kCalendarDayButtonSizeMax, Style::controlHeightLg);
   constexpr float kCalendarLayoutEpsilon = 0.5F;
   // Week-number column: a fraction of a day column so it stays visually subordinate, floored at the
   // width of the two digits it holds (as a multiple of the caption font size) so it can never clip.
@@ -98,7 +98,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .text = formatShellDate(m_config),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Medium,
-          .color = colorSpecFromRole(ColorRole::Accent),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
           .configure = [this](Label& label) {
             label.setHitTestVisible(true);
