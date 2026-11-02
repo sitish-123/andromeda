@@ -2,6 +2,7 @@
 
 #include "render/animation/animation_manager.h"
 #include "shell/control_center/control_center_services.h"
+#include "shell/control_center/detail/detail_pages.h"
 #include "shell/control_center/tab.h"
 #include "shell/control_center/tabs/audio_tab.h"
 #include "shell/control_center/tabs/bluetooth_tab.h"
@@ -98,7 +99,7 @@ public:
   [[nodiscard]] bool deferExternalRefresh() const override;
   [[nodiscard]] bool deferPointerRelayout() const override;
   [[nodiscard]] float preferredWidth() const override;
-  [[nodiscard]] float preferredHeight() const override { return scaled(520.0F); }
+  [[nodiscard]] float preferredHeight() const override;
   // The quick sheet shows at its content's height; detail tabs opened from it use the full height.
   [[nodiscard]] bool fitsContentHeight() const noexcept override;
   [[nodiscard]] float measureContentHeight(Renderer& renderer, float contentWidth) override;
@@ -124,6 +125,11 @@ private:
     Notifications,
     ScreenTime,
     Power,
+    DetailWifi,
+    DetailBluetooth,
+    DetailSound,
+    DetailPower,
+    DetailFocus,
     Count,
   };
 
@@ -149,8 +155,15 @@ private:
       {TabId::Calendar, "calendar", "control-center.tabs.calendar", "calendar-event"},
       {TabId::Notifications, "notifications", "control-center.tabs.notifications", "bell"},
       {TabId::ScreenTime, "screen-time", "control-center.tabs.screen-time", "hourglass"},
+      {TabId::DetailWifi, "detail-wifi", "control-center.network.wifi", "wifi"},
+      {TabId::DetailBluetooth, "detail-bluetooth", "control-center.tabs.bluetooth", "bluetooth"},
+      {TabId::DetailSound, "detail-sound", "control-center.detail.sound.title", "volume"},
+      {TabId::DetailPower, "detail-power", "control-center.tabs.power", "battery-charging-2"},
+      {TabId::DetailFocus, "detail-focus", "control-center.quick.focus", "moon"},
   }};
 
+  // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.
+  [[nodiscard]] static constexpr bool isDetailTab(TabId tab) noexcept { return tab >= TabId::DetailWifi; }
   void selectTab(TabId tab, bool animated = false);
   void selectAdjacentVisibleTab(int direction);
   void wireSidebarScroll(InputArea* area);

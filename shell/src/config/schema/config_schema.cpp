@@ -829,6 +829,7 @@ namespace noctalia::config::schema {
             }
         ),
         field(&ControlCenterConfig::hiddenTabs, "hidden_tabs"),
+        field(&ControlCenterConfig::quickTiles, "quick_tiles"),
         subTable(&ControlCenterConfig::calendarTab, "calendar", calendarTabSchema()),
         subTable(&ControlCenterConfig::mediaTab, "media", mediaTabSchema()),
         arrayOf<ControlCenterConfig, ShortcutConfig>(

@@ -162,6 +162,8 @@ public:
   void setHistoryRetentionHours(int hours);
   void setDoNotDisturb(bool enabled);
   [[nodiscard]] bool doNotDisturb() const noexcept;
+  // Counts every change of the Do Not Disturb state, so a holder of a timed choice can tell it was overridden.
+  [[nodiscard]] std::uint64_t doNotDisturbRevision() const noexcept { return m_doNotDisturbRevision; }
   [[nodiscard]] bool toggleDoNotDisturb();
   void setStateCallback(StateCallback callback);
   // Runs whenever the unread count changes, not only when the any-unread flag flips.
@@ -248,5 +250,6 @@ private:
   uint32_t m_nextId{1};
   std::uint64_t m_changeSerial{0};
   bool m_doNotDisturb = false;
+  std::uint64_t m_doNotDisturbRevision = 0;
   class SoundPlayer* m_soundPlayer = nullptr;
 };

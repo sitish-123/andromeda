@@ -383,6 +383,63 @@
       "today": "Today",
       "toggle-events-card": "Toggle events card"
     },
+    "detail": {
+      "bluetooth": {
+        "connected-devices": "Connected devices",
+        "nearby": "Nearby devices",
+        "off": "Bluetooth is off",
+        "off-body": "Turn on Bluetooth to see your devices.",
+        "pair-new": "Pair New Device...",
+        "paired": "Paired",
+        "scanning": "Searching...",
+        "settings": "Bluetooth Settings...",
+        "unavailable": "Bluetooth unavailable",
+        "unavailable-body": "No Bluetooth adapter was found."
+      },
+      "focus": {
+        "active-until": "Do Not Disturb until {time}",
+        "dnd": "Do Not Disturb",
+        "manual": "Until I turn it off",
+        "one-hour": "1 hour",
+        "settings": "Notification Settings...",
+        "tomorrow": "Until tomorrow",
+        "until": "Until"
+      },
+      "power": {
+        "health": "Battery health {percent}%",
+        "modes": "Power mode",
+        "settings": "Battery Settings...",
+        "unavailable": "Power profiles unavailable",
+        "unavailable-body": "No power profile service is running."
+      },
+      "show-all": "Show all",
+      "show-fewer": "Show fewer",
+      "sound": {
+        "applications": "Applications",
+        "input": "Input",
+        "microphone": "Microphone",
+        "no-input": "No input devices",
+        "output": "Output",
+        "settings": "Sound Settings...",
+        "title": "Sound",
+        "unavailable": "Sound unavailable",
+        "unavailable-body": "No audio service is running."
+      },
+      "try-again": "Try Again",
+      "wifi": {
+        "connect-failed": "Could not connect to {ssid}",
+        "connected": "Connected",
+        "needs-settings": "Join in Wi-Fi Settings",
+        "none": "No networks in range",
+        "off": "Wi-Fi is off",
+        "off-body": "Turn on Wi-Fi to see networks.",
+        "other-network": "Other Network...",
+        "other-networks": "Other networks",
+        "settings": "Wi-Fi Settings...",
+        "unavailable": "Wi-Fi unavailable",
+        "unavailable-body": "No network service is running."
+      }
+    },
     "display": {
       "disabled": "Disabled",
       "no-displays": "No monitors available",
@@ -654,13 +711,20 @@
       "waiting": "Waiting for weather data"
     },
     "quick": {
+      "add-controls": "Add controls",
       "bluetooth": "Bluetooth",
+      "connecting": "Connecting...",
       "dark-mode": "Dark Mode",
+      "done": "Done",
+      "edit-controls": "Edit Controls",
+      "edit-hint": "Drag to reorder. Page 2 starts after the fourth control.",
+      "edit-tooltip": "Edit controls",
       "focus": "Focus",
       "muted": "Muted",
       "notifications": "{count} notifications",
       "off": "Off",
       "on": "On",
+      "settings-tooltip": "Settings",
       "wifi": "Wi-Fi"
     }
   },
@@ -1592,6 +1656,7 @@
         "accessibility": "Accessibility",
         "audio": "Audio",
         "authentication": "Authentication",
+        "desktop": "Desktop",
         "automation": "Automation",
         "backdrop": "Backdrop",
         "background": "Background",
@@ -1656,7 +1721,6 @@
         "screenshot-output": "Output",
         "security": "Security",
         "session-panel": "Session Panel",
-        "desktop": "Desktop",
         "shape": "Shape",
         "system": "System",
         "theme": "Theme",
@@ -2161,6 +2225,9 @@
           "description": "Save the current wallpaper-generated palette as a reusable custom palette file",
           "label": "Export Wallpaper Palette"
         },
+        "from-wallpaper": {
+          "label": "From Wallpaper"
+        },
         "font-family": {
           "description": "Font family for the shell interface",
           "label": "Font"
@@ -2225,9 +2292,6 @@
           "label": "Text Size"
         },
         "wallpaper-generation-scheme": {
-        "from-wallpaper": {
-          "label": "From Wallpaper"
-        },
           "description": "Choose how wallpaper colors are converted into a palette",
           "label": "Wallpaper Color Style"
         }
@@ -5694,6 +5758,14 @@
         "workspaces": "Workspaces"
       }
     },
+    "sliders": {
+      "fast": "Fast",
+      "large": "Large",
+      "long": "Long",
+      "short": "Short",
+      "slow": "Slow",
+      "small": "Small"
+    },
     "window": {
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
@@ -5725,6 +5797,15 @@
       "title": "Settings"
     },
     "displays": {
+      "built-in": "Built-in display",
+      "extend": "Extend",
+      "multiple": "Multiple displays",
+      "night-light": "Night Light",
+      "night-light-off": "Off",
+      "night-light-on": "On",
+      "scale-default": "Default",
+      "scale-larger": "Larger text",
+      "scale-space": "More space",
       "enabled": "Enabled",
       "resolution": "Resolution",
       "refresh-rate": "Refresh rate",
@@ -5757,14 +5838,6 @@
         "fullscreen": "Fullscreen Only"
       },
       "hdr": "HDR",
-    "sliders": {
-      "fast": "Fast",
-      "large": "Large",
-      "long": "Long",
-      "short": "Short",
-      "slow": "Slow",
-      "small": "Small"
-    },
       "hdr-options": {
         "off": "Off",
         "on": "On",
@@ -5797,18 +5870,12 @@
         "adaptive": "Adaptive"
       },
       "keyboard": "Keyboard",
-      "built-in": "Built-in display",
-      "extend": "Extend",
-      "multiple": "Multiple displays",
-      "night-light": "Night Light",
-      "night-light-off": "Off",
-      "night-light-on": "On",
-      "scale-default": "Default",
-      "scale-larger": "Larger text",
-      "scale-space": "More space",
       "keyboard.layout": "Layout",
       "keyboard.variant": "Variant",
       "keyboard.variant-default": "Default",
+      "keyboard.add-source": "Add input source",
+      "keyboard.default-source": "Default",
+      "keyboard.remove-source": "Remove",
       "keyboard.repeat-rate": "Repeat rate",
       "keyboard.repeat-delay": "Repeat delay",
       "keyboard.numlock": "Enable Num Lock at login",
@@ -5873,9 +5940,6 @@
       "open": "Open Link"
     }
   },
-      "keyboard.add-source": "Add input source",
-      "keyboard.default-source": "Default",
-      "keyboard.remove-source": "Remove",
   "setup-wizard": {
     "browse": "Browse",
     "builtin-palette": "Built-In Palette",

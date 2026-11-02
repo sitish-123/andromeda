@@ -78,6 +78,17 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
   m_tabs[tabIndex(TabId::Power)] = std::make_unique<PowerTab>(services.upower, services.powerProfiles);
+  const auto back = [this] { selectTab(TabId::Quick, /*animated=*/true); };
+  const auto addDetail = [this, &back](TabId id, auto page) {
+    page->setOnBack(back);
+    m_tabs[tabIndex(id)] = std::move(page);
+  };
+  addDetail(TabId::DetailWifi, std::make_unique<control_center::WifiDetailPage>(services.network));
+  addDetail(TabId::DetailBluetooth, std::make_unique<control_center::BluetoothDetailPage>(services.bluetooth));
+  addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio));
+  addDetail(TabId::DetailPower,
+            std::make_unique<control_center::PowerDetailPage>(services.powerProfiles, services.upower));
+  addDetail(TabId::DetailFocus, std::make_unique<control_center::FocusDetailPage>(services.notifications));
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
@@ -101,10 +112,23 @@ float ControlCenterPanel::preferredWidth() const {
 }
 
 bool ControlCenterPanel::fitsContentHeight() const noexcept {
-  return tabFromContext(pendingOpenContext()) == TabId::Quick;
+  const TabId tab = tabFromContext(pendingOpenContext());
+  return tab == TabId::Quick || isDetailTab(tab);
+}
+
+float ControlCenterPanel::preferredHeight() const {
+  // The sheet is the slot a detail page may grow into: the manager clamps it to the room it grants.
+  return scaled(fitsContentHeight() ? 4096.0F : 520.0F);
 }
 
 float ControlCenterPanel::measureContentHeight(Renderer& renderer, float contentWidth) {
+  if (isDetailTab(m_activeTab) && m_contentHeader != nullptr && m_content != nullptr) {
+    auto* page = dynamic_cast<control_center::DetailPage*>(m_tabs[tabIndex(m_activeTab)].get());
+    if (page != nullptr) {
+      return std::max(m_contentHeader->height(), Tokens::componentSheetDetailHeader * contentScale()) + m_content->gap() + m_content->paddingTop() + m_content->paddingBottom()
+          + kTabViewportClipInset + page->measureHeight(renderer, contentWidth);
+    }
+  }
   auto* quick = dynamic_cast<QuickTab*>(m_tabs[tabIndex(TabId::Quick)].get());
   if (m_activeTab != TabId::Quick || quick == nullptr || m_contentHeader == nullptr || m_content == nullptr) {
     return preferredHeight();
@@ -198,6 +222,9 @@ void ControlCenterPanel::create() {
     m_sidebarNav = sidebarNav.get();
 
     for (const auto& tab : kTabs) {
+      if (isDetailTab(tab.id)) {
+        continue;
+      }
       const std::size_t idx = tabIndex(tab.id);
       const auto onClick = [this, id = tab.id] {
         selectTab(id, true);
@@ -269,6 +296,9 @@ void ControlCenterPanel::create() {
       .gap = Style::spaceSm * scale,
   });
 
+  if (!m_showSidebar) {
+    header->setMinHeight(Tokens::componentSheetDetailHeader * scale);
+  }
   header->addChild(ui::button({
       .out = &m_backButton,
       .glyph = "chevron-left",
@@ -279,8 +309,9 @@ void ControlCenterPanel::create() {
       ui::label({
           .out = &m_contentTitle,
           .text = i18n::tr("control-center.tabs.home"),
-          .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeLarge.size) * scale,
-          .fontWeight = m_showSidebar ? FontWeight::Bold : static_cast<FontWeight>(Tokens::typeLarge.weight),
+          .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeTitle3.size) * scale,
+          .fontWeight = m_showSidebar ? FontWeight::Bold
+                                      : static_cast<FontWeight>(Style::glassWeight(Tokens::typeTitle3.weight)),
           .color = colorSpecFromRole(m_showSidebar ? ColorRole::AccentText : ColorRole::Label1),
           .flexGrow = 1.0F,
       })
@@ -301,7 +332,7 @@ void ControlCenterPanel::create() {
     }
   }
 
-  if (Style::closeButtonsEnabled()) {
+  if (Style::closeButtonsEnabled() && m_showSidebar) {
     m_contentHeaderActions->addChild(
         ui::button({
             .out = &m_closeButton,
@@ -537,7 +568,7 @@ bool ControlCenterPanel::isTabFeatureAvailable(TabId tab) const {
 }
 
 bool ControlCenterPanel::isTabVisible(TabId tab) const {
-  if (!isTabFeatureAvailable(tab)) {
+  if (isDetailTab(tab) || !isTabFeatureAvailable(tab)) {
     return false;
   }
   // Home is always shown so the panel never opens to an empty surface.
@@ -559,7 +590,7 @@ std::vector<ControlCenterPanel::TabCatalogEntry> ControlCenterPanel::hideableTab
   std::vector<TabCatalogEntry> out;
   out.reserve(kTabCount - 1);
   for (const auto& meta : kTabs) {
-    if (meta.id == TabId::Quick || meta.id == TabId::Home) {
+    if (meta.id == TabId::Quick || meta.id == TabId::Home || isDetailTab(meta.id)) {
       continue;
     }
     out.push_back({.key = meta.key, .titleKey = meta.titleKey});
@@ -739,7 +770,7 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
 
   for (const auto& meta : kTabs) {
     const std::size_t idx = tabIndex(meta.id);
-    if (m_tabContainers[idx] == nullptr || !isTabVisible(meta.id)) {
+    if (m_tabContainers[idx] == nullptr) {
       continue;
     }
     const bool show = meta.id == from || meta.id == to;
@@ -879,7 +910,7 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
 
 bool ControlCenterPanel::isSheetContext(std::string_view context) const {
   const TabId tab = tabFromContext(context);
-  return tab == TabId::Quick || tab == TabId::Network;
+  return tab == TabId::Quick || tab == TabId::Network || isDetailTab(tab);
 }
 
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {
@@ -967,7 +998,8 @@ void ControlCenterPanel::scrollFocusedInputIntoView(InputArea* area) {
     }
   }
 
-  if (ScrollView* scrollView = findEnclosingScrollView(area)) {
+  // A horizontal view is the quick sheet's pager: it rests on whole pages, so a margin scroll would leave it 12 px off.
+  if (ScrollView* scrollView = findEnclosingScrollView(area); scrollView != nullptr && scrollView->orientation() == ScrollOrientation::Vertical) {
     scrollNodeIntoScrollView(*scrollView, nullptr, *area, Style::spaceMd * contentScale());
     PanelManager::instance().requestLayout();
   }

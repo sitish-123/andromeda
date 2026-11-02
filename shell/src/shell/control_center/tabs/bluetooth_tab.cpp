@@ -1059,3 +1059,5 @@ void BluetoothTab::onPanelCardOpacityChanged(float opacity) {
     applySectionCardStyle(*m_adapterCard, contentScale(), opacity);
   }
 }
+
+const char* bluetoothDeviceGlyph(BluetoothDeviceKind kind) { return glyphFor(kind); }

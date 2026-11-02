@@ -18,9 +18,12 @@ class Button;
 class Flex;
 class Glyph;
 class Image;
+class InputArea;
+class Node;
 class Label;
 class ScrollView;
 class Slider;
+class Spinner;
 
 // The control center's first view: a compact sheet. The top toggle block pages horizontally (reference block, mode
 // toggles, record and microphone); brightness, volume, media, phone and a battery and power-profile footer stay fixed.
@@ -31,6 +34,8 @@ public:
   QuickTab(const ControlCenterServices& services, OpenTabCallback openTab);
 
   std::unique_ptr<Flex> create() override;
+  bool handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
+  void onClose() override;
   // Natural height of the sheet at `width`.
   [[nodiscard]] float measureHeight(Renderer& renderer, float width);
 
@@ -42,24 +47,47 @@ private:
     Label* title = nullptr;
     Label* subtitle = nullptr;
     std::string glyph; // replaces the shortcut icon when set
+    std::string id;    // shortcut type; the key stored in [control_center] quick_tiles
+    Flex* card = nullptr;
+    Button* body = nullptr;    // the tile row (tooltip, right-click)
+    std::string detail;        // detail tab key; empty = none
+    Button* chevron = nullptr; // hidden while connecting
+    Spinner* spinner = nullptr;
   };
 
   void doLayout(Renderer& renderer, float contentWidth, float bodyHeight) override;
   void doUpdate(Renderer& renderer) override;
 
-  std::unique_ptr<Flex> makeCard();
+  std::unique_ptr<Flex> makeCard(bool badged = false);
   void addSingleRow(Flex& card, std::unique_ptr<Button> row);
   // An empty `detailTab` makes the card toggle; with `chevron` the card toggles and a chevron opens `detailTab`.
   std::unique_ptr<Button> makeToggleRow(
       ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron = false
   );
   // A small toggle card for the shortcut `type`, kept in m_extras; null when the type has no shortcut.
-  std::unique_ptr<Flex> makeExtraCard(std::string_view type, std::string_view detailTab, bool chevron);
-  std::unique_ptr<Flex> makeDots(std::size_t pages);
+  std::unique_ptr<Flex> makeTileCard(std::string_view type, bool plain = false);
+  // Fills the pager with 2 x 2 pages of the tiles in `order`; an unavailable tile is skipped.
+  void buildPages(const std::vector<std::string>& order);
+  // The stored order (or the default), deduplicated; tileOrder() falls back to the default when none is available.
+  [[nodiscard]] std::vector<std::string> savedTileOrder() const;
+  [[nodiscard]] std::vector<std::string> tileOrder() const;
+  void saveEdit();
+  [[nodiscard]] static const std::vector<std::string>& tileOrderDefault();
+  std::unique_ptr<Flex> makeDots();
+  void fillDots(std::size_t pages);
+  void goToPage(std::size_t page);
+  [[nodiscard]] bool tileAvailable(std::string_view id) const;
   std::unique_ptr<Flex> makeFooter();
   // Sizes every page to the sheet width and to the height of page 1.
   void sizePages(Renderer& renderer, float width);
   void syncPager();
+  void setEditing(bool editing);
+  bool moveFocus(int index);
+  void buildEditParts(Flex& root);
+  void rebuildEdit();
+  void reflowEditGrid();
+  [[nodiscard]] int editSlotAt(float x, float y) const;
+  [[nodiscard]] static float offsetIn(const Node* node, const Node* ancestor, bool y);
   void refreshDots(float offset);
   std::unique_ptr<Flex> makePill(std::string_view glyph, Slider*& slider, Label*& value);
   void syncToggleRow(ToggleRow& row, const std::string& subtitle);
@@ -73,12 +101,7 @@ private:
   OpenTabCallback m_openTab;
   Flex* m_root = nullptr;
 
-  ToggleRow m_wifi;
-  ToggleRow m_bluetooth;
-  ToggleRow m_focus;
-  ToggleRow m_darkMode;
-
-  // Mode toggles on the pages after the reference block.
+  // Every tile on every page, in order.
   std::vector<ToggleRow> m_extras;
   ScrollView* m_pager = nullptr;
   std::vector<Flex*> m_pages; // page 1 first
@@ -89,6 +112,29 @@ private:
   std::size_t m_page = 0;
 
   Flex* m_footer = nullptr;
+  Button* m_editButton = nullptr;
+  bool m_editing = false;
+  std::vector<Node*> m_normalParts;
+  Flex* m_editHeader = nullptr;
+  Flex* m_editGrid = nullptr;
+  Flex* m_editGallery = nullptr;
+  InputArea* m_editArea = nullptr;
+  InputArea* m_galleryArea = nullptr;
+  std::vector<std::string> m_editOrder;
+  std::vector<Flex*> m_editCards;   // cards of m_editOrder, same order
+  std::vector<Flex*> m_editRows;
+  std::vector<Flex*> m_editHalf; // edit and gallery cells and fillers: half a page each
+  std::vector<Flex*> m_galleryHalf;
+  bool m_editReflowPending = false;
+  bool m_editRebuildPending = false;
+  std::vector<std::string> m_galleryIds;
+  std::vector<Flex*> m_galleryCards;
+  int m_dragIndex = -1;
+  int m_pressedIndex = -1;
+  bool m_pressedBadge = false;
+  float m_pressY = 0.0F;
+  float m_pressX = 0.0F;
+  bool m_dragMoved = false;
   Flex* m_batteryBox = nullptr;
   Glyph* m_batteryGlyph = nullptr;
   Label* m_batteryText = nullptr;
@@ -103,9 +149,7 @@ private:
   Label* m_brightnessValue = nullptr;
   Slider* m_volumeSlider = nullptr;
   Label* m_volumeValue = nullptr;
-  Flex* m_micPill = nullptr;
-  Slider* m_micSlider = nullptr;
-  Label* m_micValue = nullptr;
+  Button* m_outputButton = nullptr;
 
   Flex* m_mediaCard = nullptr;
   Label* m_mediaTitle = nullptr;

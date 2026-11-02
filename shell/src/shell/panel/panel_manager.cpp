@@ -742,6 +742,11 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
         isBottom ? barRect.top - panelGap - screenPadding : outputHeight - barRect.bottom - panelGap - screenPadding;
     panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, room)));
   }
+  // The sheet never grows past the output minus a bar row and a dock row (rulebook 9.16).
+  if (m_contentFit.enabled) {
+    const float chromeRows = 2.0F * Tokens::sizeControlXl * m_activePanel->contentScale();
+    panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1.0F, static_cast<float>(outputHeight) - chromeRows)));
+  }
   auto detachedShadowBleed =
       shell::panel_surface::bleed(m_activePanel->hasDecoration(), m_config->config().shell.shadow);
   // A morph from an island overshoots its clip into a transparent margin that the sheet fill extends over meanwhile.

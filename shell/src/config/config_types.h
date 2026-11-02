@@ -1822,6 +1822,7 @@ struct ControlCenterConfig {
 
   std::vector<ShortcutConfig> shortcuts;
   std::vector<std::string> hiddenTabs; // tab keys (see kTabs) the user has hidden; empty = all available shown
+  std::vector<std::string> quickTiles; // quick-sheet tile ids in order (edit mode); empty = every available tile, default order
   ControlCenterSidebarMode sidebarMode = ControlCenterSidebarMode::Compact;
   ControlCenterSidebarMode sidebarSectionMode = ControlCenterSidebarMode::Compact;
   std::int32_t width = kDefaultWidth; // full-sidebar logical width; compact/none modes scale down from this

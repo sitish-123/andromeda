@@ -884,6 +884,7 @@ void NotificationManager::setDoNotDisturb(bool enabled) {
     return;
   }
   m_doNotDisturb = enabled;
+  ++m_doNotDisturbRevision;
   if (m_stateCallback) {
     m_stateCallback();
   }
