@@ -174,7 +174,7 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 /* fields */
 .field { height: 32px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--view);
   box-shadow: inset 0 0 0 1px var(--sep); color: var(--l3); width: 240px; }
-.field.search { padding: 0 8px; } .field .kc { margin-left: auto; }
+.field.search { padding: 0 6px 0 8px; } .field .kc { margin-left: auto; }
 .field.popup { color: var(--l1); justify-content: space-between; }
 .focus { box-shadow: inset 0 0 0 1px var(--sep), 0 0 0 2px var(--page), 0 0 0 4px var(--acc) !important; }
 .kc { height: 20px; border-radius: 4px; padding: 0 4px; font: 500 11px/20px var(--font); color: var(--l2); box-shadow: inset 0 0 0 1px var(--sep); }
@@ -314,10 +314,10 @@ canvas.plot { width: 100%; height: 120px; display: block; }
     <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
   <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
   <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
-  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
     <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
     <div style="display:flex;flex:1;min-height:0">
-      <div class="side" style="width:200px">
+      <div class="side">
         <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="sgh">Look and feel</div>
@@ -354,10 +354,10 @@ canvas.plot { width: 100%; height: 120px; display: block; }
     <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
   <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
   <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
-  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
     <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
     <div style="display:flex;flex:1;min-height:0">
-      <div class="side" style="width:200px">
+      <div class="side">
         <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="sgh">Look and feel</div>
@@ -473,7 +473,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
   <h2>Travel, press, toggle, content swap</h2>
   <div class="grid4">
     <div class="panel"><h3>P1 Lens travel</h3><p class="note">Leading edge on snap, trailing edge on trail: it stretches toward the target, then settles. Click rows fast.</p>
-      <div class="side" style="margin-top:16px;border-radius:12px;width:200px" id="sideDemo">
+      <div class="side" style="margin-top:16px;border-radius:12px" id="sideDemo">
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="srow"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div>
         <div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div><div class="srow"><svg class="i"><use href="#kb"/></svg>Keyboard</div></div>

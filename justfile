@@ -81,6 +81,10 @@ package:
 design-rulebook:
     python3 docs/design/build_rulebook.py
 
+# Check a mockup or the specimen against the rulebook (R1, R5, R6, R7, component sizes).
+design-check file='docs/design/rulebook.html':
+    python3 docs/design/check_layout.py {{file}}
+
 design-reference:
     python3 protocol/gen-design-tokens.py protocol/design-tokens.toml /tmp/design_tokens.h docs/design/tokens.css
     google-chrome-stable --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1600,1010 --screenshot="$PWD/docs/design/reference.png" "file://$PWD/docs/design/reference.html"

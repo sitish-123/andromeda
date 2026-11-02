@@ -173,7 +173,7 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 /* fields */
 .field { height: 32px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--view);
   box-shadow: inset 0 0 0 1px var(--sep); color: var(--l3); width: 240px; }
-.field.search { padding: 0 8px; } .field .kc { margin-left: auto; }
+.field.search { padding: 0 6px 0 8px; } .field .kc { margin-left: auto; }
 .field.popup { color: var(--l1); justify-content: space-between; }
 .focus { box-shadow: inset 0 0 0 1px var(--sep), 0 0 0 2px var(--page), 0 0 0 4px var(--acc) !important; }
 .kc { height: 20px; border-radius: 4px; padding: 0 4px; font: 500 11px/20px var(--font); color: var(--l2); box-shadow: inset 0 0 0 1px var(--sep); }
@@ -388,10 +388,10 @@ when the two differ, this book wins and the TOML is fixed.</p>
     <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
   <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
   <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
-  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
     <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
     <div style="display:flex;flex:1;min-height:0">
-      <div class="side" style="width:200px">
+      <div class="side">
         <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="sgh">Look and feel</div>
@@ -428,10 +428,10 @@ when the two differ, this book wins and the TOML is fixed.</p>
     <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
   <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
   <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
-  <div class="win" style="position:absolute;left:48px;top:72px;width:620px;height:500px;display:flex;flex-direction:column">
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
     <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
     <div style="display:flex;flex:1;min-height:0">
-      <div class="side" style="width:200px">
+      <div class="side">
         <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="sgh">Look and feel</div>
@@ -547,9 +547,11 @@ heights space them).</p>
 <p><strong>R5 End caps.</strong> In a capsule, a symbol at the end sits concentric with the cap: inset = (height - symbol) / 2.
 Text at the end of a capsule has inset = height x 3/8, rounded to 4 (24 -&gt; 8, 32 -&gt; 12, 40 -&gt; 16, 56 -&gt; 20).
 In a rounded rectangle, text inset is 12 at height 32 or more and 8 below that. A leading symbol in a rounded
-rectangle has inset = (height - symbol) / 2 rounded up to the 4 grid, at most 12 (28 -&gt; 8, 32 -&gt; 8, 40 -&gt; 12).</p>
+rectangle has inset = (height - symbol) / 2 rounded up to the 4 grid, at most 12 (28 -&gt; 8, 32 -&gt; 8, 40 -&gt; 12). A key cap or chip at the end of a field
+keeps one inset on its top, bottom and end: (height - cap) / 2 (32 field, 20 cap -&gt; 6).</p>
 <p><strong>R6 One edge.</strong> Inside a container, text starts on one vertical line. A section header, a row label and a footnote
-of the same group share that line. Symbols hang to the left of it, never push it.</p>
+of the same group share that line. In a list, a row with a leading symbol, avatar or app icon
+indents its text past it (the separator indents with it); every row without one stays on the edge.</p>
 <p><strong>R7 Concentric radius.</strong> A shape inside another shape, at padding p from it, has radius = outer radius - p.
 Choose p so the result lands on the radius scale. Below 4 the result is 4. Capsules and circles stay capsules and
 circles. The focus ring is concentric outward: ring radius = shape radius + ring offset.
@@ -1467,7 +1469,7 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
   <h2>Travel, press, toggle, content swap</h2>
   <div class="grid4">
     <div class="panel"><h3>P1 Lens travel</h3><p class="note">Leading edge on snap, trailing edge on trail: it stretches toward the target, then settles. Click rows fast.</p>
-      <div class="side" style="margin-top:16px;border-radius:12px;width:200px" id="sideDemo">
+      <div class="side" style="margin-top:16px;border-radius:12px" id="sideDemo">
         <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
         <div class="srow"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div>
         <div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div><div class="srow"><svg class="i"><use href="#kb"/></svg>Keyboard</div></div>
