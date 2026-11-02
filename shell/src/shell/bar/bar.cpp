@@ -1086,7 +1086,7 @@ namespace {
         shadow->setSize(w, h);
         shadow->setRadius(std::min(w, h) * 0.5F);
       }
-      if (edge != nullptr && !isVertical) {
+      if (edge != nullptr) {
         const float r = std::min(w, h) * 0.5F;
         edge->setPosition(island->x() + r * 0.55F, island->y());
         edge->setSize(std::max(0.0F, w - r * 1.1F), kIslandStrokeWidth);
@@ -2026,8 +2026,29 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
   for (const auto& instance : m_instances) {
     const BarConfig& cfg = instance->barConfig;
     const bool horizontal = cfg.position == "top" || cfg.position == "bottom";
-    if (instance->output != output || !cfg.islands || !horizontal) {
+    if (instance->output != output || !cfg.islands) {
       continue;
+    }
+    if (!horizontal) {
+      if (instance->bg == nullptr || m_platform == nullptr || instance->bg->width() <= 0.0F) {
+        return instance->centerSpace;
+      }
+      const auto& outputs = m_platform->wayland().outputs();
+      const auto it = std::ranges::find_if(outputs, [output](const auto& o) { return o.output == output; });
+      if (it == outputs.end()) {
+        continue;
+      }
+      instance->centerSpace = CenterIslandSpace{
+          .edgeMargin = static_cast<std::int32_t>(Tokens::componentIslandMargin),
+          .height = instance->bg->width(),
+          .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - 4.0F * (instance->bg->width() + 2.0F * kGap)),
+          .restless = true,
+          .opacity = instance->hideOpacity,
+          .backgroundOpacity = cfg.backgroundOpacity,
+          .border = cfg.border,
+          .borderWidth = cfg.borderWidth,
+      };
+      return instance->centerSpace;
     }
     if (instance->bg == nullptr || instance->surface == nullptr || instance->bg->height() <= 0.0F) {
       return instance->centerSpace;
@@ -3697,7 +3718,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     // Bar background
     instance.bg = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
     for (std::size_t i = 0; i < instance.islands.size(); ++i) {
-      if (shadowSize > 0.0F && !isVertical) {
+      if (shadowSize > 0.0F) {
         auto shadow = ui::box();
         shadow->setHitTestVisible(false);
         shadow->setZIndex(-1);

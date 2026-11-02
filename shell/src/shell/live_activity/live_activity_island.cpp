@@ -1312,7 +1312,7 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   }
 
   // The pill follows the bar's auto-hide fade; an expanded face stays.
-  const float shown = lerp(inst.space.opacity, 1.0F, 1.0F - restMix);
+  const float shown = lerp(inst.space.restless ? 0.0F : inst.space.opacity, 1.0F, 1.0F - restMix);
   inst.sceneRoot->setOpacity(shown);
 
   const auto ix = static_cast<int>(cur.x);

@@ -1118,10 +1118,7 @@ BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOu
     break; // first match wins
   }
 
-  // Islands are designed for horizontal bars only; a vertical bar keeps its full-length background.
-  if (resolved.position == "left" || resolved.position == "right") {
-    resolved.islands = false;
-  } else if (resolved.islands) {
+  if (resolved.islands) {
     const BarConfig defaults;
     if (resolved.startWidgets == defaults.startWidgets
         && resolved.centerWidgets == defaults.centerWidgets
