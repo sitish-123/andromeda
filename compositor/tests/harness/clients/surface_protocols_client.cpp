@@ -3,6 +3,7 @@
 //   single-pixel   the window's content is one opaque red wp_single_pixel_buffer pixel, scaled by wp_viewporter
 //   alpha          white content; each stdin line "alpha <0..1>" sets its wp_alpha_modifier multiplier and prints
 //                  "alpha <value>" after that commit is drawn
+//   opaque-lie     half-transparent premultiplied white ARGB8888 content whose opaque region is the whole surface
 //   dialog         then maps a child toplevel "<title>-modal" that xdg-dialog marks modal; "modal" once it is drawn
 //   icon           names its xdg-toplevel-icon "utilities-terminal"
 //   bell           rings xdg_system_bell_v1 with its surface and prints "rang"
@@ -221,6 +222,12 @@ namespace {
         window.viewport = wp_viewporter_get_viewport(state.viewporter, window.surface);
       }
       wp_viewport_set_destination(window.viewport, window.width, window.height);
+    } else if (state.mode == "opaque-lie" && &window == &state.main) {
+      buffer = shmBuffer(state, window.width, window.height, 0x80808080);
+      wl_region* region = wl_compositor_create_region(state.compositor);
+      wl_region_add(region, 0, 0, window.width, window.height);
+      wl_surface_set_opaque_region(window.surface, region);
+      wl_region_destroy(region);
     } else {
       buffer = shmBuffer(state, window.width, window.height, &window == &state.main ? 0xFFFFFFFF : 0xFF808080);
     }
@@ -409,6 +416,9 @@ namespace {
     }
     if (state.mode == "alpha") {
       return state.alphaModifier;
+    }
+    if (state.mode == "opaque-lie") {
+      return state.compositor;
     }
     if (state.mode == "dialog") {
       return state.dialogs;

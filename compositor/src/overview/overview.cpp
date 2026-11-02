@@ -987,7 +987,6 @@ namespace andromeda {
     viewSurfaceSize(entry.sourceBuffer, surface, &width, &height);
     wlr_scene_buffer_set_dest_size(entry.buffer, width, height);
     wlr_scene_buffer_set_transform(entry.buffer, surface->current.transform);
-    wlr_scene_buffer_set_opaque_region(entry.buffer, &surface->opaque_region);
 
     // Protocol-derived display properties (alpha-modifier, color management)
     // are clip-independent, so the view's scene buffer is a safe source.
