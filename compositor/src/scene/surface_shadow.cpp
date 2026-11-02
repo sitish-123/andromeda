@@ -22,7 +22,7 @@ namespace andromeda {
     const ShadowStyle style = m_style.value_or(
         ShadowStyle{.softness = cfg.softness, .offsetX = cfg.offsetX, .offsetY = cfg.offsetY, .opacity = 1.0F}
     );
-    const std::array<float, 4> shadow = color();
+    std::array<float, 4> shadow = baseColor();
     const int sigma = style.softness;
 
     // Decorated box origin (in parent coords): (-borderTotal, -borderTotal)
@@ -38,6 +38,8 @@ namespace andromeda {
       }
       return;
     }
+
+    shadow[3] *= m_alpha;
 
     // Lazy create: first time only.
     if (m_node == nullptr) {
@@ -98,20 +100,20 @@ namespace andromeda {
   void SurfaceShadow::setAlpha(float alpha) {
     m_alpha = alpha;
     if (m_node != nullptr) {
-      wlr_scene_shadow_set_color(m_node, color().data());
+      auto shadow = baseColor();
+      shadow[3] *= m_alpha;
+      wlr_scene_shadow_set_color(m_node, shadow.data());
     }
   }
 
-  std::array<float, 4> SurfaceShadow::color() const {
+  std::array<float, 4> SurfaceShadow::baseColor() const {
     if (!m_style.has_value()) {
-      auto shadow = config().colors.shadow;
-      shadow[3] *= m_alpha;
-      return shadow;
+      return config().colors.shadow;
     }
     const std::uint32_t rgba =
         config().appearance.scheme == ColorScheme::Light ? Tokens::schemeLight.shadow : Tokens::schemeDark.shadow;
     const auto channel = [rgba](int shift) { return static_cast<float>((rgba >> shift) & 0xFFU) / 255.0F; };
-    return {channel(24), channel(16), channel(8), channel(0) * m_style->opacity * m_alpha};
+    return {channel(24), channel(16), channel(8), channel(0) * m_style->opacity};
   }
 
   void SurfaceShadow::reset() { m_node = nullptr; }

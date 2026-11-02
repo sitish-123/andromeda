@@ -52,8 +52,8 @@ namespace andromeda {
     [[nodiscard]] const wlr_scene_shadow* node() const { return m_node; }
 
   private:
-    // A style takes the scheme's design-token shadow color; otherwise colors.shadow.
-    [[nodiscard]] std::array<float, 4> color() const;
+    // A style takes the scheme's design-token shadow color; otherwise colors.shadow. Without the fade alpha.
+    [[nodiscard]] std::array<float, 4> baseColor() const;
 
     wlr_scene_shadow* m_node = nullptr;
     float m_alpha = 1.0F;
