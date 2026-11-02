@@ -130,6 +130,7 @@ private:
     DetailSound,
     DetailPower,
     DetailFocus,
+    DetailSearch,
     Count,
   };
 
@@ -160,6 +161,7 @@ private:
       {TabId::DetailSound, "detail-sound", "control-center.detail.sound.title", "volume"},
       {TabId::DetailPower, "detail-power", "control-center.tabs.power", "battery-charging-2"},
       {TabId::DetailFocus, "detail-focus", "control-center.quick.focus", "moon"},
+      {TabId::DetailSearch, "detail-search", "control-center.detail.search.title", "search"},
   }};
 
   // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.

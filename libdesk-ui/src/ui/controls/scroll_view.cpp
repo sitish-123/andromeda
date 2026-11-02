@@ -69,13 +69,7 @@ ScrollView::ScrollView() {
       return;
     }
     if (data.pressed) {
-      stopScrollAnimation();
-      m_dragging = true;
-      m_dragStartPosition = primaryPosition(data, m_orientation);
-      m_dragStartOffset = m_scrollOffset;
-      m_lastDragPosition = m_dragStartPosition;
-      m_lastDragSampleAt = std::chrono::steady_clock::now();
-      m_dragVelocity = 0.0F;
+      dragBegin(primaryPosition(data, m_orientation));
       return;
     }
     releaseDrag();
@@ -87,25 +81,7 @@ ScrollView::ScrollView() {
     if (m_viewportArea == nullptr || !m_viewportArea->pressed() || !scrollable()) {
       return;
     }
-    const auto now = std::chrono::steady_clock::now();
-    const float dtMs = std::chrono::duration<float, std::milli>(now - m_lastDragSampleAt).count();
-    if (dtMs > 0.0F && dtMs < 80.0F) {
-      const float position = primaryPosition(data, m_orientation);
-      m_dragVelocity = (position - m_lastDragPosition) / dtMs;
-    }
-    const float position = primaryPosition(data, m_orientation);
-    m_lastDragPosition = position;
-    m_lastDragSampleAt = now;
-
-    const float delta = position - m_dragStartPosition;
-    float target = m_dragStartOffset - delta;
-    if (m_pageStep > 0.0F) {
-      const float limit = target < 0.0F ? 0.0F : m_maxScrollOffset;
-      if (target < 0.0F || target > m_maxScrollOffset) {
-        target = limit + (target - limit) * kRubberBandResistance;
-      }
-    }
-    applyScrollOffsetValue(target, true);
+    dragMove(primaryPosition(data, m_orientation));
   });
   viewportArea->setOnAxisHandler([this](const InputArea::PointerData& data) {
     if (!scrollable() || data.axis != scrollAxis(m_orientation)) {
@@ -217,6 +193,39 @@ void ScrollView::animateScrollTo(float target, float velocityPxPerS) {
       Unit::Px
   );
   markPaintDirty();
+}
+
+void ScrollView::dragBegin(float position) {
+  stopScrollAnimation();
+  m_dragging = true;
+  m_dragStartPosition = position;
+  m_dragStartOffset = m_scrollOffset;
+  m_lastDragPosition = position;
+  m_lastDragSampleAt = std::chrono::steady_clock::now();
+  m_dragVelocity = 0.0F;
+}
+
+void ScrollView::dragMove(float position) {
+  if (!m_dragging) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  const float dtMs = std::chrono::duration<float, std::milli>(now - m_lastDragSampleAt).count();
+  if (dtMs > 0.0F && dtMs < 80.0F) {
+    m_dragVelocity = (position - m_lastDragPosition) / dtMs;
+  }
+  m_lastDragPosition = position;
+  m_lastDragSampleAt = now;
+
+  const float delta = position - m_dragStartPosition;
+  float target = m_dragStartOffset - delta;
+  if (m_pageStep > 0.0F) {
+    const float limit = target < 0.0F ? 0.0F : m_maxScrollOffset;
+    if (target < 0.0F || target > m_maxScrollOffset) {
+      target = limit + (target - limit) * kRubberBandResistance;
+    }
+  }
+  applyScrollOffsetValue(target, true);
 }
 
 void ScrollView::setPaging(float step) { m_pageStep = std::max(step, 0.0F); }

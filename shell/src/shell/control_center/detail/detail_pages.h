@@ -4,6 +4,7 @@
 #include "shell/control_center/detail/detail_page.h"
 
 #include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -94,6 +95,29 @@ namespace control_center {
 
     PowerProfilesService* m_profiles = nullptr;
     UPowerService* m_upower = nullptr;
+  };
+
+  // `/` on the quick sheet: modules with a detail page and Wi-Fi networks that match the typed text.
+  class SearchDetailPage final : public DetailPage {
+  public:
+    SearchDetailPage(INetworkService* network, std::function<void(std::string_view)> openTab)
+        : m_network(network), m_openTab(std::move(openTab)) {}
+    void setActive(bool active) override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override { return {}; }
+    std::unique_ptr<Node> createTop() override;
+    void sync() override;
+    void releaseControls() override { m_input = nullptr; }
+
+    INetworkService* m_network = nullptr;
+    std::function<void(std::string_view)> m_openTab;
+    Input* m_input = nullptr;
+    std::string m_query;
+    bool m_focusPending = false;
+    std::function<void()> m_firstResult;
   };
 
   // Only Do Not Disturb, with "Until" choices. The timer lives in the shell; a restart drops it.

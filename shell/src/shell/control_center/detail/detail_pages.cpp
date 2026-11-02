@@ -723,4 +723,125 @@ namespace control_center {
     return {{tr("control-center.detail.focus.settings"), [] { openSettings("notifications"); }}};
   }
 
+  // ---- Search ----
+
+  namespace {
+
+    bool contains(std::string_view text, std::string_view query) {
+      const auto lower = [](std::string_view v) {
+        std::string out(v);
+        std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return out;
+      };
+      return lower(text).find(lower(query)) != std::string::npos;
+    }
+
+  } // namespace
+
+  void SearchDetailPage::setActive(bool active) {
+    if (active) {
+      m_query.clear();
+      if (m_input != nullptr) {
+        m_input->setValue("");
+      }
+      m_focusPending = true;
+    }
+  }
+
+  std::unique_ptr<Node> SearchDetailPage::createTop() {
+    return ui::input({
+        .out = &m_input,
+        .placeholder = tr("control-center.detail.search.placeholder"),
+        .clearButtonEnabled = true,
+        .surfaceOpacity = panelCardOpacity(),
+        .surfaceRole = ColorRole::SolidRegular,
+        .onChange = [this](const std::string& text) {
+          m_query = text;
+        },
+        .onSubmit = [this](const std::string&) {
+          if (m_firstResult) {
+            m_firstResult();
+          }
+        },
+    });
+  }
+
+  void SearchDetailPage::sync() {
+    if (m_focusPending && m_input != nullptr && m_input->inputArea() != nullptr) {
+      m_focusPending = false;
+      PanelManager::instance().inputDispatcher().setFocus(m_input->inputArea());
+    }
+  }
+
+  std::string SearchDetailPage::structureKey() const {
+    std::string key = m_query;
+    if (m_network != nullptr && m_network->available() && !m_query.empty()) {
+      for (const AccessPointInfo& ap : m_network->accessPoints()) {
+        if (contains(ap.ssid, m_query)) {
+          key += "|" + ap.ssid;
+        }
+      }
+    }
+    return key;
+  }
+
+  void SearchDetailPage::build() {
+    m_firstResult = nullptr;
+    struct Module {
+      const char* title;
+      const char* glyph;
+      const char* page;
+    };
+    static constexpr Module kModules[] = {
+        {"control-center.network.wifi", "wifi", "detail-wifi"},
+        {"control-center.tabs.bluetooth", "bluetooth", "detail-bluetooth"},
+        {"control-center.quick.focus", "moon", "detail-focus"},
+        {"control-center.detail.sound.title", "volume", "detail-sound"},
+        {"control-center.tabs.power", "battery-charging-2", "detail-power"},
+    };
+    Flex* modules = nullptr;
+    for (const Module& m : kModules) {
+      const std::string name = tr(m.title);
+      if (!m_query.empty() && !contains(name, m_query)) {
+        continue;
+      }
+      if (modules == nullptr) {
+        modules = addGroup(tr("control-center.detail.search.modules"));
+      }
+      DetailRow row;
+      row.glyph = m.glyph;
+      row.title = name;
+      row.onClick = [this, page = std::string(m.page)] { m_openTab(page); };
+      if (!m_firstResult) {
+        m_firstResult = row.onClick;
+      }
+      addRow(*modules, row);
+    }
+    Flex* networks = nullptr;
+    if (!m_query.empty() && m_network != nullptr && m_network->available()) {
+      for (const AccessPointInfo& ap : m_network->accessPoints()) {
+        if (!contains(ap.ssid, m_query)) {
+          continue;
+        }
+        if (networks == nullptr) {
+          networks = addGroup(tr("control-center.detail.search.networks"));
+        }
+        DetailRow row;
+        row.glyph = network_display::wifiGlyphForSignal(ap.strength);
+        row.title = ap.ssid;
+        if (ap.secured) {
+          row.trailingGlyphs.push_back("lock");
+        }
+        row.onClick = [this] { m_openTab("detail-wifi"); };
+        if (!m_firstResult) {
+          m_firstResult = row.onClick;
+        }
+        addRow(*networks, row);
+      }
+    }
+    if (modules == nullptr && networks == nullptr) {
+      addEmpty("search", tr("control-center.detail.search.none"), "");
+    }
+  }
+
 } // namespace control_center

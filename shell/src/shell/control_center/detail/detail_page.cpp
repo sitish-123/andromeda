@@ -4,6 +4,7 @@
 #include "render/core/color.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
+#include "render/scene/node.h"
 #include "shell/panel/panel_manager.h"
 #include "system/icon_resolver.h"
 #include "ui/controls/button.h"
@@ -82,6 +83,12 @@ namespace control_center {
     root->setAlign(FlexAlign::Stretch);
     root->setGap(Tokens::spaceP8 * s);
 
+    m_top = nullptr;
+    if (auto top = createTop(); top != nullptr) {
+      m_top = top.get();
+      root->addChild(std::move(top));
+    }
+
     auto scroll = std::make_unique<ScrollView>();
     scroll->setOrientation(ScrollOrientation::Vertical);
     scroll->setContentScale(s);
@@ -123,7 +130,8 @@ namespace control_center {
     }
     LayoutConstraints constraints;
     constraints.setExactWidth(width);
-    return m_content->measure(renderer, constraints).height + m_root->gap() + m_footer->measure(renderer, constraints).height;
+    const float top = m_top != nullptr ? m_top->measure(renderer, constraints).height + m_root->gap() : 0.0F;
+    return top + m_content->measure(renderer, constraints).height + m_root->gap() + m_footer->measure(renderer, constraints).height;
   }
 
   bool DetailPage::handleKey(std::uint32_t sym, std::uint32_t /*modifiers*/, bool pressed, bool preedit) {
@@ -137,6 +145,7 @@ namespace control_center {
   void DetailPage::onClose() {
     releaseControls();
     m_footer = nullptr;
+    m_top = nullptr;
     m_root = nullptr;
     m_scroll = nullptr;
     m_content = nullptr;

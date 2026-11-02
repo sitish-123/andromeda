@@ -412,6 +412,13 @@
         "unavailable": "Power profiles unavailable",
         "unavailable-body": "No power profile service is running."
       },
+      "search": {
+        "modules": "Controls",
+        "networks": "Wi-Fi networks",
+        "none": "No results",
+        "placeholder": "Search controls and networks",
+        "title": "Search"
+      },
       "show-all": "Show all",
       "show-fewer": "Show fewer",
       "sound": {

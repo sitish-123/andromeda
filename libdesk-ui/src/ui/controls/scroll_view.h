@@ -66,6 +66,11 @@ public:
   void setPaging(float step);
   void scrollToPage(std::size_t page);
   void setOnScrollChanged(std::function<void(float)> callback);
+  // A drag driven from outside the viewport area (a child that took the press): `position` is the pointer along
+  // the scroll axis in the view's own frame.
+  void dragBegin(float position);
+  void dragMove(float position);
+  void dragEnd() { releaseDrag(); }
 
   [[nodiscard]] float scrollOffset() const noexcept { return m_scrollOffset; }
   [[nodiscard]] float maxScrollOffset() const noexcept { return m_maxScrollOffset; }

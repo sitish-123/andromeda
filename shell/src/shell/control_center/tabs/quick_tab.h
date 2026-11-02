@@ -5,6 +5,7 @@
 #include "core/timer_manager.h"
 #include "shell/control_center/tab.h"
 
+#include <array>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -36,6 +37,7 @@ public:
   std::unique_ptr<Flex> create() override;
   bool handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   void onClose() override;
+  void setActive(bool active) override;
   // Natural height of the sheet at `width`.
   [[nodiscard]] float measureHeight(Renderer& renderer, float width);
 
@@ -65,7 +67,12 @@ private:
       ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron = false
   );
   // A small toggle card for the shortcut `type`, kept in m_extras; null when the type has no shortcut.
+  // The toggle row of a tile, registered in m_extras; its card is set by the caller.
+  std::unique_ptr<Button> makeTileRow(std::string_view type, bool plain);
   std::unique_ptr<Flex> makeTileCard(std::string_view type, bool plain = false);
+  void attachTileDrag(Button& button);
+  void tilePress(Button* button, float x, float y, bool pressed);
+  void tileMotion(Button* button, float x, float y);
   // Fills the pager with 2 x 2 pages of the tiles in `order`; an unavailable tile is skipped.
   void buildPages(const std::vector<std::string>& order);
   // The stored order (or the default), deduplicated; tileOrder() falls back to the default when none is available.
@@ -83,6 +90,14 @@ private:
   void syncPager();
   void setEditing(bool editing);
   bool moveFocus(int index);
+  // Edit-mode motion: scale on `snap`, tile moves on `move`, badges on `fade` (rulebook 9.16).
+  void animateScale(Flex& card, float to);
+  void animateFlip();
+  void fadeIn(Node& node, float delayMs = 0.0F);
+  void startStagger();
+  bool focusSlider(Slider* slider);
+  // Left/Right/Up/Down on a focused slider; false when no slider holds focus.
+  bool handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const InputArea* focused);
   void buildEditParts(Flex& root);
   void rebuildEdit();
   void reflowEditGrid();
@@ -127,6 +142,15 @@ private:
   std::vector<Flex*> m_galleryHalf;
   bool m_editReflowPending = false;
   bool m_editRebuildPending = false;
+  bool m_focusFirstTile = false;
+  bool m_staggerPending = false;
+  std::vector<std::pair<Flex*, std::pair<float, float>>> m_flipFrom; // tile -> position in the grid before a reflow
+  std::array<Timer, 6> m_staggerTimers;
+  Button* m_tileSource = nullptr;
+  bool m_tileDragging = false;
+  bool m_swallowClick = false;
+  float m_tilePressX = 0.0F;
+  float m_tilePressY = 0.0F;
   std::vector<std::string> m_galleryIds;
   std::vector<Flex*> m_galleryCards;
   int m_dragIndex = -1;
@@ -149,7 +173,6 @@ private:
   Label* m_brightnessValue = nullptr;
   Slider* m_volumeSlider = nullptr;
   Label* m_volumeValue = nullptr;
-  Button* m_outputButton = nullptr;
 
   Flex* m_mediaCard = nullptr;
   Label* m_mediaTitle = nullptr;

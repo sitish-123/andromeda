@@ -35,6 +35,7 @@ public:
   [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
   [[nodiscard]] bool wheelAdjustEnabled() const noexcept { return m_wheelAdjustEnabled; }
   [[nodiscard]] bool dragging() const noexcept;
+  [[nodiscard]] InputArea* inputArea() const noexcept { return m_inputArea; }
 
 private:
   void doLayout(Renderer& renderer) override;

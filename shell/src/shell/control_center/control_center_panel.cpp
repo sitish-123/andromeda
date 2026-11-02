@@ -55,6 +55,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_dependencies = services.dependencies;
   m_tabs[tabIndex(TabId::Quick)] = std::make_unique<QuickTab>(services, [this](std::string_view tabKey) {
     selectTab(tabFromContext(tabKey), /*animated=*/true);
+    PanelManager::instance().refresh();
   });
   m_tabs[tabIndex(TabId::Home)] = std::make_unique<HomeTab>(services);
   m_tabs[tabIndex(TabId::Media)] = std::make_unique<MediaTab>(
@@ -78,7 +79,10 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
   m_tabs[tabIndex(TabId::Power)] = std::make_unique<PowerTab>(services.upower, services.powerProfiles);
-  const auto back = [this] { selectTab(TabId::Quick, /*animated=*/true); };
+  const auto back = [this] {
+    selectTab(TabId::Quick, /*animated=*/true);
+    PanelManager::instance().refresh();
+  };
   const auto addDetail = [this, &back](TabId id, auto page) {
     page->setOnBack(back);
     m_tabs[tabIndex(id)] = std::move(page);
@@ -88,6 +92,10 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio));
   addDetail(TabId::DetailPower,
             std::make_unique<control_center::PowerDetailPage>(services.powerProfiles, services.upower));
+  addDetail(TabId::DetailSearch, std::make_unique<control_center::SearchDetailPage>(services.network, [this](std::string_view key) {
+    selectTab(tabFromContext(key), /*animated=*/true);
+    PanelManager::instance().refresh();
+  }));
   addDetail(TabId::DetailFocus, std::make_unique<control_center::FocusDetailPage>(services.notifications));
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);

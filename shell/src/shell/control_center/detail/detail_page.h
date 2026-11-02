@@ -15,6 +15,7 @@ class Flex;
 class Glyph;
 class Image;
 class Label;
+class Node;
 class Renderer;
 class ScrollView;
 class Slider;
@@ -66,6 +67,8 @@ namespace control_center {
     [[nodiscard]] virtual std::vector<FooterButton> footerButtons() = 0;
     // Live values that do not change the structure (toggle position).
     virtual void sync() {}
+    // A node above the list that survives rebuilds (a search field); null for none.
+    virtual std::unique_ptr<Node> createTop() { return nullptr; }
     // True while a structure change alone must wait (typed text); requestRebuild() still rebuilds.
     [[nodiscard]] virtual bool deferRebuild() const { return false; }
     // Drops pointers into the header and body nodes the panel frees on close.
@@ -108,6 +111,7 @@ namespace control_center {
     ScrollView* m_scroll = nullptr;
     Flex* m_content = nullptr;
     Flex* m_footer = nullptr;
+    Node* m_top = nullptr;
     Flex* m_rowCard = nullptr; // the card whose last row was added; a separator goes before the next row
     std::function<void()> m_onBack;
     std::string m_key;

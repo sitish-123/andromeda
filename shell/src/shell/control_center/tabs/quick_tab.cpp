@@ -29,6 +29,8 @@
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
+#include "core/input/key_modifiers.h"
+
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -42,6 +44,7 @@ namespace {
   TOKENS_LIVE(kRoundIcon, Tokens::componentRoundIconSize);
   TOKENS_LIVE(kPillHeight, Tokens::componentSliderHeight);
   constexpr float kChevronGlyph = 12.0F;
+  constexpr float kTileDragSlop = 8.0F;
   constexpr float kChevronHit = 12.0F; // the glyph sits at inset 12; the hit area grows by 6 each side
 
   // The slider fills the whole pill; the icon and the value label draw over it.
@@ -153,7 +156,7 @@ namespace {
     );
   }
 
-  void attachCardMotion(Button& row, float opacity, Button* icon) {
+  void attachCardMotion(Button& row, float opacity, Button* icon, std::function<void(float, float, bool)> onPressExtra = {}) {
     row.setStateFillless(true);
     auto motion = std::make_shared<CardMotion>();
     Button* rowPtr = &row;
@@ -170,7 +173,10 @@ namespace {
     };
     row.setOnEnter([hoverTo] { hoverTo(1.0F); });
     row.setOnLeave([hoverTo] { hoverTo(0.0F); });
-    row.setOnPress([rowPtr, motion](float, float, bool pressed) {
+    row.setOnPress([rowPtr, motion, onPressExtra = std::move(onPressExtra)](float x, float y, bool pressed) {
+      if (onPressExtra) {
+        onPressExtra(x, y, pressed);
+      }
       driveCard(
           *rowPtr, motion, &CardMotion::press, &CardMotion::pressId, pressed ? 1.0F : 0.0F,
           pressed ? Tokens::springPress : Tokens::springRelease,
@@ -228,6 +234,9 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   Shortcut* shortcut = row.shortcut.get();
   // An empty detail tab means the card itself is the toggle.
   container->setOnClick([this, shortcut, tab = std::string(detailTab), chevron] {
+    if (m_swallowClick) {
+      return;
+    }
     if (!tab.empty() && !chevron) {
       m_openTab(tab);
     } else if (shortcut != nullptr) {
@@ -235,14 +244,21 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
     }
   });
   const std::string glyph = !row.glyph.empty() ? row.glyph : std::string(shortcut != nullptr ? shortcut->currentIcon() : "");
-  auto icon = makeGlyphButton(row.icon, glyph, s, [shortcut] {
+  auto icon = makeGlyphButton(row.icon, glyph, s, [this, shortcut] {
+    if (m_swallowClick) {
+      return;
+    }
     if (shortcut != nullptr) {
       shortcut->onClick();
     }
   });
   icon->setZIndex(kAboveCardArea);
   icon->setStateFillless(true);
-  attachCardMotion(*container, panelCardOpacity(), icon.get());
+  Button* body = container.get();
+  attachCardMotion(*container, panelCardOpacity(), icon.get(),
+                   [this, body](float x, float y, bool pressed) { tilePress(body, x, y, pressed); });
+  attachTileDrag(*icon);
+  container->setOnPointerMotion([this, body](float x, float y) { tileMotion(body, x, y); });
   container->addChild(std::move(icon));
 
   auto text = std::make_unique<Flex>();
@@ -254,7 +270,11 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   container->addChild(std::move(text));
   if (chevron) {
     Button* unused = nullptr;
-    auto open = makeGlyphButton(unused, "chevron-right", s, [this, tab = std::string(detailTab)] { m_openTab(tab); },
+    auto open = makeGlyphButton(unused, "chevron-right", s, [this, tab = std::string(detailTab)] {
+      if (!m_swallowClick) {
+        m_openTab(tab);
+      }
+    },
                                 kChevronHit, ButtonVariant::Ghost);
     open->setGlyphSize(kChevronGlyph * s);
     open->setZIndex(kAboveCardArea);
@@ -265,6 +285,7 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
     if (open->glyph() != nullptr) {
       open->glyph()->setColor(colorSpecFromRole(ColorRole::Label3));
     }
+    attachTileDrag(*open);
     row.chevron = open.get();
     container->addChild(std::move(open));
     auto spinner = std::make_unique<Spinner>();
@@ -280,7 +301,56 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   return container;
 }
 
-std::unique_ptr<Flex> QuickTab::makeTileCard(std::string_view type, bool plain) {
+void QuickTab::attachTileDrag(Button& button) {
+  Button* source = &button;
+  button.setOnPress([this, source](float x, float y, bool pressed) { tilePress(source, x, y, pressed); });
+  button.setOnPointerMotion([this, source](float x, float y) { tileMotion(source, x, y); });
+}
+
+// A press that moves sideways past the slop hands the gesture to the pager; the tile then does not toggle.
+void QuickTab::tilePress(Button* button, float x, float y, bool pressed) {
+  if (m_pager == nullptr) {
+    return;
+  }
+  if (!pressed && m_tileDragging) {
+    m_pager->dragEnd(); // also when edit mode started mid-drag
+  }
+  if (m_editing) {
+    m_tileDragging = false;
+    m_tileSource = nullptr;
+    return;
+  }
+  if (pressed) {
+    m_tileSource = button;
+    m_tileDragging = false;
+    m_swallowClick = false;
+    m_tilePressX = offsetIn(button, m_pager, false) + x;
+    m_tilePressY = offsetIn(button, m_pager, true) + y;
+    return;
+  }
+  m_tileDragging = false;
+  m_tileSource = nullptr;
+}
+
+void QuickTab::tileMotion(Button* button, float x, float y) {
+  if (m_tileSource != button || m_editing || m_pager == nullptr) {
+    return;
+  }
+  const float position = offsetIn(button, m_pager, false) + x;
+  if (!m_tileDragging) {
+    const float dx = position - m_tilePressX;
+    const float dy = offsetIn(button, m_pager, true) + y - m_tilePressY;
+    if (std::abs(dx) < kTileDragSlop * contentScale() || std::abs(dx) < std::abs(dy)) {
+      return;
+    }
+    m_tileDragging = true;
+    m_swallowClick = true;
+    m_pager->dragBegin(position);
+  }
+  m_pager->dragMove(position);
+}
+
+std::unique_ptr<Button> QuickTab::makeTileRow(std::string_view type, bool plain) {
   ToggleRow row;
   row.id = std::string(type);
   row.shortcut = ShortcutRegistry::create(type, m_services.shortcutServices());
@@ -301,15 +371,24 @@ std::unique_ptr<Flex> QuickTab::makeTileCard(std::string_view type, bool plain) 
   if (type == "notification") {
     row.glyph = "moon";
   }
-  auto card = makeCard(plain);
-  card->setFlexGrow(1.0F);
-  addSingleRow(*card, makeToggleRow(row, detail, Tokens::componentTileGap, !detail.empty()));
+  auto button = makeToggleRow(row, detail, Tokens::componentTileGap, !detail.empty());
   row.title->setText(type == "notification" ? i18n::tr("control-center.quick.focus")
                      : type == "dark_mode"  ? i18n::tr("control-center.quick.dark-mode")
                                             : row.shortcut->defaultLabel());
-  row.card = card.get();
   row.detail = std::string(detail);
   m_extras.push_back(std::move(row));
+  return button;
+}
+
+std::unique_ptr<Flex> QuickTab::makeTileCard(std::string_view type, bool plain) {
+  auto row = makeTileRow(type, plain);
+  if (row == nullptr) {
+    return nullptr;
+  }
+  auto card = makeCard(plain);
+  card->setFlexGrow(1.0F);
+  addSingleRow(*card, std::move(row));
+  m_extras.back().card = card.get();
   return card;
 }
 
@@ -370,6 +449,14 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_dragIndex = -1;
   m_pressedIndex = -1;
   m_pressedBadge = false;
+  m_tileSource = nullptr;
+  m_tileDragging = false;
+  m_swallowClick = false;
+  m_flipFrom.clear();
+  m_staggerPending = true;
+  for (Timer& timer : m_staggerTimers) {
+    timer.stop();
+  }
   m_editReflowPending = false;
   m_editRebuildPending = false;
   m_editArea = nullptr;
@@ -438,17 +525,19 @@ std::unique_ptr<Flex> QuickTab::create() {
       }
     }
   });
-  auto volumeRow = std::make_unique<Flex>();
-  volumeRow->setDirection(FlexDirection::Horizontal);
-  volumeRow->setAlign(FlexAlign::Center);
-  volumeRow->setGap(Tokens::componentSheetGap * s);
-  volume->setFlexGrow(1.0F);
-  volumeRow->addChild(std::move(volume));
-  auto output = makeGlyphButton(m_outputButton, "device-speaker", s, [this] { m_openTab("detail-sound"); }, kPillHeight,
-                                ButtonVariant::Tonal);
-  m_outputButton->setRadius(Tokens::componentSliderRadius * s);
-  volumeRow->addChild(std::move(output));
-  root->addChild(std::move(volumeRow));
+  // The output device name sits at the trailing end of the pill; a tap or a right-click opens the Sound page.
+  m_volumeValue->setEllipsize(TextEllipsize::End);
+  m_volumeValue->setOnPress([this](const InputArea::PointerData& d) {
+    if (d.pressed && d.button == BTN_RIGHT) {
+      m_openTab("detail-sound");
+    }
+  });
+  m_volumeValue->setOnClick([this](const InputArea::PointerData& d) {
+    if (d.button == BTN_LEFT) {
+      m_openTab("detail-sound");
+    }
+  });
+  root->addChild(std::move(volume));
 
   auto media = makeCard();
   media->setDirection(FlexDirection::Horizontal);
@@ -643,18 +732,59 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
   m_pages.clear();
   m_halfWidth.clear();
   m_extras.clear();
-  std::vector<std::unique_ptr<Flex>> cards;
+  std::vector<std::string> connectivity;
+  std::vector<std::string> others;
   for (const std::string& id : order) {
     if (!tileAvailable(id)) {
       continue;
     }
-    if (auto card = makeTileCard(id); card != nullptr) {
-      cards.push_back(std::move(card));
+    (id == "wifi" || id == "bluetooth" ? connectivity : others).push_back(id);
+  }
+  std::ranges::sort(connectivity, std::greater<>{}); // "wifi" before "bluetooth"
+
+  // Page 1: the connectivity card (Wi-Fi and Bluetooth rows) beside the next two tiles stacked. The tiles are made in
+  // row-major order so keyboard indices follow the screen.
+  auto top = std::make_unique<Flex>();
+  top->setDirection(FlexDirection::Horizontal);
+  top->setAlign(FlexAlign::Stretch);
+  top->setGap(Tokens::componentSheetGap * s);
+  auto card = makeCard();
+  card->setFlexGrow(1.0F);
+  auto stack = std::make_unique<Flex>();
+  stack->setDirection(FlexDirection::Vertical);
+  stack->setAlign(FlexAlign::Stretch);
+  stack->setGap(Tokens::componentSheetGap * s);
+  std::size_t nextOther = 0;
+  for (std::size_t i = 0; i < 2; ++i) {
+    if (i < connectivity.size()) {
+      if (auto row = makeTileRow(connectivity[i], false); row != nullptr) {
+        m_extras.back().card = card.get();
+        card->addChild(std::move(row));
+      }
+    }
+    while (nextOther < others.size()) {
+      if (auto tile = makeTileCard(others[nextOther++]); tile != nullptr) {
+        stack->addChild(std::move(tile));
+        break;
+      }
+    }
+  }
+  m_halfWidth.push_back(card.get());
+  m_halfWidth.push_back(stack.get());
+  top->addChild(std::move(card));
+  top->addChild(std::move(stack));
+  m_pages.push_back(top.get());
+  strip->addChild(std::move(top));
+
+  std::vector<std::unique_ptr<Flex>> cards;
+  for (; nextOther < others.size(); ++nextOther) {
+    if (auto tile = makeTileCard(others[nextOther]); tile != nullptr) {
+      cards.push_back(std::move(tile));
     }
   }
   constexpr std::size_t kTilesPerPage = 4;
-  const std::size_t pages = std::max<std::size_t>(1, (cards.size() + kTilesPerPage - 1) / kTilesPerPage);
-  for (std::size_t p = 0; p < pages; ++p) {
+  const std::size_t extraPages = (cards.size() + kTilesPerPage - 1) / kTilesPerPage;
+  for (std::size_t p = 0; p < extraPages; ++p) {
     auto page = std::make_unique<Flex>();
     page->setDirection(FlexDirection::Vertical);
     page->setAlign(FlexAlign::Stretch);
@@ -776,6 +906,7 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
   }
   m_pager->setMinHeight(height);
   m_pager->setMaxHeight(height);
+  m_volumeValue->setMaxWidth(width * 0.5F);
 }
 
 void QuickTab::refreshDots(float offset) {
@@ -820,6 +951,71 @@ void QuickTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight
     m_galleryArea->setFrameSize(m_editGallery->width(), m_editGallery->height());
   }
   m_editReflowPending = false;
+  animateFlip();
+}
+
+void QuickTab::animateScale(Flex& card, float to) {
+  AnimationManager* manager = card.animationManager();
+  if (manager == nullptr) {
+    card.setScale(to);
+    return;
+  }
+  Flex* target = &card;
+  manager->animateSpring(
+      card.scaleX(), to, springOf(Tokens::springSnap), [target](float v) { target->setScale(v); }, {}, target
+  );
+}
+
+// The tiles that changed slot slide from where they were to where layout put them.
+void QuickTab::animateFlip() {
+  for (const auto& [card, from] : m_flipFrom) {
+    AnimationManager* manager = card->animationManager();
+    const float toX = card->x();
+    const float toY = card->y();
+    const float dx = from.first - offsetIn(card, m_editGrid, false) + toX;
+    const float dy = from.second - offsetIn(card, m_editGrid, true) + toY;
+    if (manager == nullptr || (std::abs(dx - toX) < 0.5F && std::abs(dy - toY) < 0.5F)) {
+      continue;
+    }
+    Flex* target = card;
+    card->setPosition(dx, dy);
+    manager->animateSpring(
+        0.0F, 1.0F, springOf(Tokens::springMove),
+        [target, dx, dy, toX, toY](float t) { target->setPosition(dx + (toX - dx) * t, dy + (toY - dy) * t); }, {},
+        target, 0.0F, Unit::Progress
+    );
+  }
+  m_flipFrom.clear();
+}
+
+void QuickTab::fadeIn(Node& node, float delayMs) {
+  (void)delayMs;
+  AnimationManager* manager = node.animationManager();
+  if (manager == nullptr) {
+    return;
+  }
+  Node* target = &node;
+  target->setOpacity(0.0F);
+  manager->animateSpring(0.0F, 1.0F, springOf(Tokens::springFade), [target](float v) { target->setOpacity(v); }, {}, target, 0.0F, Unit::Progress);
+}
+
+void QuickTab::startStagger() {
+  // Rulebook P5: tiles stagger in after the content gate (35 % of the open spring), 16 ms apart, six at most.
+  constexpr int kGateMs = 150;
+  constexpr int kStaggerMs = 16;
+  for (std::size_t i = 0; i < std::min(m_extras.size(), m_staggerTimers.size()); ++i) {
+    Flex* card = m_extras[i].card;
+    if (card == nullptr) {
+      continue;
+    }
+    card->setOpacity(0.0F);
+    m_staggerTimers[i].start(std::chrono::milliseconds(kGateMs + kStaggerMs * static_cast<int>(i)), [this, i] {
+      if (i < m_extras.size() && m_extras[i].card != nullptr) {
+        fadeIn(*m_extras[i].card);
+        PanelManager::instance().requestRedraw();
+      }
+    });
+  }
 }
 
 void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
@@ -906,7 +1102,7 @@ void QuickTab::syncSliders() {
   const AudioNode* sink = m_services.audio != nullptr ? m_services.audio->defaultSink() : nullptr;
   m_volumeSlider->setEnabled(sink != nullptr);
   m_volumeSlider->setValue(sink != nullptr ? sink->volume : 0.0);
-  m_volumeValue->setText(sink == nullptr ? std::string{} : percent(sink->volume));
+  m_volumeValue->setText(sink == nullptr ? std::string{} : (!sink->description.empty() ? sink->description : sink->name));
 
   m_syncingSliders = false;
 }
@@ -1064,7 +1260,7 @@ void QuickTab::buildEditParts(Flex& root) {
     const int index = m_pressedIndex;
     const bool badge = m_pressedBadge;
     if (m_dragIndex >= 0 && static_cast<std::size_t>(m_dragIndex) < m_editCards.size()) {
-      m_editCards[static_cast<std::size_t>(m_dragIndex)]->setScale(1.0F);
+      animateScale(*m_editCards[static_cast<std::size_t>(m_dragIndex)], 1.0F);
     }
     m_dragIndex = -1;
     m_pressedIndex = -1;
@@ -1086,7 +1282,7 @@ void QuickTab::buildEditParts(Flex& root) {
       m_dragMoved = true;
       Flex* card = m_editCards[static_cast<std::size_t>(m_dragIndex)];
       card->setTransformOrigin(card->width() * 0.5F, card->height() * 0.5F);
-      card->setScale(Tokens::componentEditDragScale);
+      animateScale(*card, Tokens::componentEditDragScale);
       card->setZIndex(5);
     }
     const int slot = editSlotAt(d.localX, d.localY);
@@ -1104,6 +1300,10 @@ void QuickTab::buildEditParts(Flex& root) {
     }
     m_dragIndex = slot;
     m_editReflowPending = true;
+    m_flipFrom.clear();
+    for (Flex* card : m_editCards) {
+      m_flipFrom.push_back({card, {offsetIn(card, m_editGrid, false), offsetIn(card, m_editGrid, true)}});
+    }
     reflowEditGrid();
     m_editCards[static_cast<std::size_t>(slot)]->setScale(Tokens::componentEditDragScale);
     PanelManager::instance().requestLayout();
@@ -1296,6 +1496,9 @@ void QuickTab::saveEdit() {
 }
 
 void QuickTab::onClose() {
+  for (Timer& timer : m_staggerTimers) {
+    timer.stop();
+  }
   if (m_editing) {
     saveEdit();
     m_editing = false;
@@ -1316,6 +1519,13 @@ void QuickTab::setEditing(bool editing) {
       }
     }
     rebuildEdit();
+    for (const std::vector<Flex*>* cards : {&m_editCards, &m_galleryCards}) {
+      for (Flex* card : *cards) {
+        if (auto* badge = static_cast<BadgedCard*>(card)->badge; badge != nullptr) {
+          fadeIn(*badge);
+        }
+      }
+    }
   } else {
     saveEdit();
     m_extras.clear();
@@ -1350,6 +1560,51 @@ void QuickTab::setEditing(bool editing) {
   PanelManager::instance().requestLayout();
 }
 
+void QuickTab::setActive(bool active) {
+  if (active && m_staggerPending) {
+    m_staggerPending = false;
+    startStagger();
+  }
+  m_focusFirstTile = active && !m_editing;
+}
+
+bool QuickTab::focusSlider(Slider* slider) {
+  if (slider != nullptr && slider->inputArea() != nullptr) {
+    PanelManager::instance().inputDispatcher().setFocus(slider->inputArea());
+  }
+  return true;
+}
+
+bool QuickTab::handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const InputArea* focused) {
+  Slider* slider = nullptr;
+  if (m_brightnessSlider != nullptr && focused == m_brightnessSlider->inputArea()) {
+    slider = m_brightnessSlider;
+  } else if (m_volumeSlider != nullptr && focused == m_volumeSlider->inputArea()) {
+    slider = m_volumeSlider;
+  }
+  if (slider == nullptr) {
+    return false;
+  }
+  const double step = (modifiers & KeyMod::Shift) != 0 ? 0.01 : 0.05;
+  switch (sym) {
+  case XKB_KEY_Left:
+    slider->setValue(slider->value() - step);
+    return true;
+  case XKB_KEY_Right:
+    slider->setValue(slider->value() + step);
+    return true;
+  case XKB_KEY_Down:
+    return slider == m_brightnessSlider ? focusSlider(m_volumeSlider) : true;
+  case XKB_KEY_Up:
+    if (slider == m_volumeSlider && m_brightnessPill->visible()) {
+      return focusSlider(m_brightnessSlider);
+    }
+    return moveFocus(static_cast<int>(std::min(m_page * 4 + 2, m_extras.size() - 1)));
+  default:
+    return false;
+  }
+}
+
 bool QuickTab::moveFocus(int index) {
   if (index < 0 || static_cast<std::size_t>(index) >= m_extras.size() || m_extras[static_cast<std::size_t>(index)].body == nullptr) {
     return true;
@@ -1360,7 +1615,6 @@ bool QuickTab::moveFocus(int index) {
 }
 
 bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
-  (void)modifiers;
   if (!pressed || preedit) {
     return false;
   }
@@ -1372,6 +1626,9 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
     return false;
   }
   const InputArea* focused = PanelManager::instance().inputDispatcher().focusedArea();
+  if (focused != nullptr && handleSliderKey(sym, modifiers, focused)) {
+    return true;
+  }
   int at = -1;
   for (std::size_t i = 0; i < m_extras.size(); ++i) {
     if (m_extras[i].body != nullptr && focused != nullptr && m_extras[i].body->inputArea() == focused) {
@@ -1391,7 +1648,10 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
     case XKB_KEY_Up:
       return rowInPage == 1 ? moveFocus(at - 2) : true;
     case XKB_KEY_Down:
-      return rowInPage == 0 && index + 2 < m_extras.size() && (at + 2) / 4 == at / 4 ? moveFocus(at + 2) : false;
+      if (rowInPage == 0 && index + 2 < m_extras.size() && (at + 2) / 4 == at / 4) {
+        return moveFocus(at + 2);
+      }
+      return focusSlider(m_brightnessPill->visible() ? m_brightnessSlider : m_volumeSlider);
     case XKB_KEY_Menu:
       if (!m_extras[index].detail.empty()) {
         m_openTab(m_extras[index].detail);
@@ -1400,6 +1660,10 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
     default:
       break;
     }
+  }
+  if (sym == XKB_KEY_slash && (modifiers & (KeyMod::Ctrl | KeyMod::Alt | KeyMod::Super)) == 0) {
+    m_openTab("detail-search");
+    return true;
   }
   if (sym == XKB_KEY_Page_Down) {
     goToPage(m_page + 1);
@@ -1414,6 +1678,14 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
 
 
 void QuickTab::doUpdate(Renderer& renderer) {
+  // A drag swallows only the click of its own release; keyboard activation later must work.
+  if (m_swallowClick && !m_tileDragging && m_tileSource == nullptr) {
+    m_swallowClick = false;
+  }
+  if (m_focusFirstTile && !m_editing && !m_extras.empty()) {
+    m_focusFirstTile = false;
+    moveFocus(0);
+  }
   if (m_editRebuildPending) {
     m_editRebuildPending = false;
     rebuildEdit();
