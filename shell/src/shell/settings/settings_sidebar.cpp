@@ -59,12 +59,11 @@ namespace settings {
       }
     }
 
+    // The row symbol: label_2, accent text inside the lens.
     std::unique_ptr<Flex> makeTile(std::string_view glyph, float scale, bool selected) {
       return ui::row(
           {.align = FlexAlign::Center,
            .justify = FlexJustify::Center,
-           .fill = selected ? selectionStyle().tileFill : frameColors().tileFill,
-           .radius = Style::scaledRadiusSm(scale),
            .minWidth = metrics::kSidebarTile * scale,
            .minHeight = metrics::kSidebarTile * scale,
            .width = metrics::kSidebarTile * scale,
@@ -186,7 +185,7 @@ namespace settings {
              .height = avatarSize},
             ui::label({
                 .text = initial,
-                .fontSize = Style::fontSizeTitle * scale,
+                .fontSize = Style::fontSizeCaption * scale,
                 .fontWeight = FontWeight::Bold,
                 .color = frameColors().avatarInitial,
             })
@@ -195,31 +194,20 @@ namespace settings {
       auto button = ui::button({
           .contentAlign = ButtonContentAlign::Start,
           .variant = ButtonVariant::Tab,
-          .minHeight = (metrics::kAccountAvatar + 2.0F * Style::spaceSm) * scale,
-          .paddingV = Style::spaceSm * scale,
+          .minHeight = metrics::kSidebarRowHeight * scale,
+          .paddingV = 0.0F,
           .paddingH = metrics::kSidebarRowPaddingH * scale,
-          .gap = Style::spaceMd * scale,
+          .gap = metrics::kSidebarRowGap * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = std::move(onClick),
           .configure = [](Button& card) { card.setTabStop(false); },
       });
       button->addChild(std::move(avatar));
-      button->addChild(
-          ui::column(
-              {.align = FlexAlign::Start, .justify = FlexJustify::Center},
-              ui::label({
-                  .text = ctx.accountName,
-                  .fontSize = Style::fontSizeTitle * scale,
-                  .fontWeight = FontWeight::Bold,
-                  .color = colorSpecFromRole(ColorRole::Label1),
-              }),
-              ui::label({
-                  .text = i18n::tr("settings.account.caption"),
-                  .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::Label2),
-              })
-          )
-      );
+      button->addChild(ui::label({
+          .text = ctx.accountName,
+          .fontSize = Style::fontSizeBody * scale,
+          .color = colorSpecFromRole(ColorRole::Label1),
+      }));
       return button;
     }
 
@@ -272,7 +260,20 @@ namespace settings {
     std::optional<PageGroup> lastGroup;
     for (const auto* page : ctx.pages) {
       if (lastGroup.has_value() && *lastGroup != page->group) {
-        nav->addChild(ui::column({.height = metrics::kSidebarGroupGap * scale}));
+        nav->addChild(ui::column(
+            {.align = FlexAlign::Start, .configure = [scale](Flex& header) {
+              header.setPadding(
+                  metrics::kSidebarGroupGap * scale, metrics::kSidebarRowPaddingH * scale, Style::spaceXs * scale,
+                  metrics::kSidebarRowPaddingH * scale
+              );
+            }},
+            ui::label({
+                .text = i18n::tr(settingsPageGroupLabelKey(page->group)),
+                .fontSize = Style::fontSizeMini * scale,
+                .fontWeight = FontWeight::Bold,
+                .color = colorSpecFromRole(ColorRole::Label3),
+            })
+        ));
       }
       lastGroup = page->group;
 
@@ -375,6 +376,7 @@ namespace settings {
     auto sidebar = ui::column({
         .align = FlexAlign::Stretch,
         .gap = Style::spaceSm * scale,
+        .fill = colorSpecFromRole(ColorRole::Fill2),
         .minWidth = metrics::kSidebarWidth * scale,
         .fillHeight = true,
         .width = metrics::kSidebarWidth * scale,

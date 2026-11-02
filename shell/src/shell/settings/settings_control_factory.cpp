@@ -479,17 +479,22 @@ namespace settings {
       return strip;
     }
     if (setting.segmented) {
+      auto options = setting.options;
+      if (path == std::vector<std::string>{"theme", "mode"}) {
+        std::ranges::stable_sort(options, {}, [](const SelectOption& option) {
+          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+        });
+      }
       std::vector<ui::SegmentedOption> segmentedOptions;
-      segmentedOptions.reserve(setting.options.size());
-      for (const auto& opt : setting.options) {
+      segmentedOptions.reserve(options.size());
+      for (const auto& opt : options) {
         segmentedOptions.push_back(ui::SegmentedOption{.label = opt.label});
       }
-      auto options = setting.options;
       const SelectValueType valueType = setting.valueType;
       const auto groupedCommit = setting.groupedCommit;
       return ui::segmented({
           .options = std::move(segmentedOptions),
-          .selectedIndex = optionIndex(setting.options, setting.selectedValue),
+          .selectedIndex = optionIndex(options, setting.selectedValue),
           .scale = scale,
           .onChange = [setOverride = ctx.setOverride, setOverrides = ctx.setOverrides,
                        clearOverride = ctx.clearOverride, requestRebuild = ctx.requestRebuild, path, options, valueType,

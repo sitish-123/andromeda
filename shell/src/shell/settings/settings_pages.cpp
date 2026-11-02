@@ -142,11 +142,6 @@ namespace settings {
     });
     // Hooks are scripts the user writes; the whole Automation page is main.
     constexpr std::string_view kHookPrefix = "hooks.";
-    // Main rows whose label alone is not enough.
-    constexpr auto kCaptionRows = std::to_array<std::string_view>({
-        "dock.auto_hide", "bar.*.auto_hide", "shell.offline_mode", "shell.telemetry_enabled",
-        "lockscreen.grace_period_seconds", "shell.corner_radius_scale", "andromeda.appearance.reduce_transparency",
-    });
 
     std::string mainRowKey(const SettingEntry& entry) {
       std::string key;
@@ -178,7 +173,7 @@ namespace settings {
   }
 
   bool settingEntryShowsCaption(const SettingEntry& entry) {
-    return settingEntryIsExpert(entry) || std::ranges::contains(kCaptionRows, mainRowKey(entry));
+    return settingEntryIsExpert(entry);
   }
 
   std::span<const SettingsPage> settingsPages() { return kPages; }
@@ -214,6 +209,11 @@ namespace settings {
     const auto section = settingsSectionFromId(sectionId);
     const auto* page = settingsPageFromId(selectedPageId);
     return section.has_value() && page != nullptr && settingsPageShowsSection(*page, *section);
+  }
+
+  std::string settingsPageGroupLabelKey(PageGroup group) {
+    constexpr std::array<std::string_view, 4> kIds{"connectivity", "look", "desktop", "system"};
+    return "settings.pages.group-" + std::string(kIds[static_cast<std::size_t>(group)]);
   }
 
   std::string settingsPageLabelKey(const SettingsPage& page) { return "settings.pages." + std::string(page.id); }

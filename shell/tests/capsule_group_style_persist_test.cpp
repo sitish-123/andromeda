@@ -60,7 +60,6 @@ start = [ "clock", "weather" ]
   group.opacity = 0.5F;
   group.accordion = true;
   group.accordionDirection = BarAccordionDirection::Start;
-  group.accordionDurationMs = 325;
   group.accordionDelayMs = 125;
   group.widgetSpacing = 3;
 

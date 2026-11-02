@@ -31,6 +31,7 @@ namespace settings {
   // True when `selectedPageId` names a page that shows the section with id `sectionId`.
   [[nodiscard]] bool selectedPageShows(std::string_view selectedPageId, std::string_view sectionId);
   [[nodiscard]] std::string settingsPageLabelKey(const SettingsPage& page);
+  [[nodiscard]] std::string settingsPageGroupLabelKey(PageGroup group);
 
   // True when `entry` belongs on the page with id `selectedPageId` for the current bar and monitor selection.
   [[nodiscard]] bool settingEntryOnPage(

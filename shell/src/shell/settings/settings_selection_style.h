@@ -8,22 +8,22 @@ namespace settings {
   // Every size of the Settings frame (sidebar, rows, cards, page) in unscaled design units; layout code
   // multiplies by the ui scale. A restyle edits this header only.
   namespace metrics {
-    inline constexpr float kSidebarWidth = 248.0F;
-    inline constexpr float kSidebarPaddingV = 12.0F;
-    inline constexpr float kSidebarPaddingH = 10.0F;
-    inline constexpr float kSidebarGap = 2.0F;
-    inline constexpr float kSidebarGroupGap = 10.0F;
-    inline constexpr float kSidebarRowHeight = 30.0F;
-    inline constexpr float kSidebarRowPaddingH = 6.0F;
+    inline constexpr float kSidebarWidth = 240.0F;
+    inline constexpr float kSidebarPaddingV = 8.0F;
+    inline constexpr float kSidebarPaddingH = 8.0F;
+    inline constexpr float kSidebarGap = 0.0F;
+    inline constexpr float kSidebarGroupGap = 16.0F;
+    inline constexpr float kSidebarRowHeight = 32.0F;
+    inline constexpr float kSidebarRowPaddingH = 8.0F;
     inline constexpr float kSidebarRowGap = 8.0F;
     inline constexpr float kSidebarTile = 22.0F;
-    inline constexpr float kSidebarTileGlyph = 14.0F;
-    inline constexpr float kAccountAvatar = 36.0F;
+    inline constexpr float kSidebarTileGlyph = 16.0F;
+    inline constexpr float kAccountAvatar = 24.0F;
     inline constexpr float kNewBarInputWidth = 120.0F;
-    inline constexpr float kSearchFieldHeight = 30.0F;
+    inline constexpr float kSearchFieldHeight = 32.0F;
     inline constexpr float kResultTile = 28.0F;
     inline constexpr float kEmptyStateMinHeight = 160.0F;
-    inline constexpr float kTitleBarHeight = 52.0F;
+    inline constexpr float kTitleBarHeight = 40.0F;
     inline constexpr const float& kPagePadding = Tokens::componentPagePadding;
     inline constexpr float kCardBorderWidth = 0.5F;
     inline constexpr float kCardFillOpacity = 0.4F;
@@ -49,10 +49,10 @@ namespace settings {
 
   [[nodiscard]] inline SelectionStyle selectionStyle() {
     return SelectionStyle{
-        .rowFill = colorSpecFromRole(ColorRole::Accent),
-        .rowLabel = colorSpecFromRole(ColorRole::OnAccent),
-        .tileFill = colorSpecFromRole(ColorRole::OnAccent, 0.22F),
-        .tileGlyph = colorSpecFromRole(ColorRole::OnAccent),
+        .rowFill = colorSpecFromRole(ColorRole::Lens),
+        .rowLabel = colorSpecFromRole(ColorRole::Label1),
+        .tileFill = clearColorSpec(),
+        .tileGlyph = colorSpecFromRole(ColorRole::AccentText),
         .childFill = colorSpecFromRole(ColorRole::Fill3),
         .highlightFill = colorSpecFromRole(ColorRole::Accent, 0.14F),
     };
@@ -70,9 +70,9 @@ namespace settings {
 
   [[nodiscard]] inline FrameColors frameColors() {
     return FrameColors{
-        .tileFill = colorSpecFromRole(ColorRole::Fill3),
-        .tileGlyph = colorSpecFromRole(ColorRole::Label1),
-        .cardFill = colorSpecFromRole(ColorRole::Fill1),
+        .tileFill = clearColorSpec(),
+        .tileGlyph = colorSpecFromRole(ColorRole::Label2),
+        .cardFill = colorSpecFromRole(ColorRole::SolidRegular),
         .cardBorder = colorSpecFromRole(ColorRole::Stroke),
         .avatarFill = colorSpecFromRole(ColorRole::Accent),
         .avatarInitial = colorSpecFromRole(ColorRole::OnAccent),

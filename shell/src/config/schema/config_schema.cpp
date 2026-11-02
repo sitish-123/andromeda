@@ -3413,8 +3413,10 @@ namespace noctalia::config::schema {
           field(&BarCapsuleGroupStyle::opacity, "opacity", kBarOpacityRange),
           field(&BarCapsuleGroupStyle::accordion, "accordion"),
           enumField(&BarCapsuleGroupStyle::accordionDirection, "accordion_direction", kBarAccordionDirections),
-          optionalIntField(
-              &BarCapsuleGroupStyle::accordionDurationMs, "accordion_duration", kBarCapsuleAccordionMsRange
+          // Retired key: read and dropped so old configs load without a warning.
+          custom<BarCapsuleGroupStyle>(
+              "accordion_duration", [](const toml::table&, BarCapsuleGroupStyle&, std::string_view, Diagnostics&) {},
+              [](toml::table&, const BarCapsuleGroupStyle&) {}
           ),
           optionalIntField(&BarCapsuleGroupStyle::accordionDelayMs, "accordion_delay_ms", kBarCapsuleAccordionMsRange),
           optionalIntField(&BarCapsuleGroupStyle::widgetSpacing, "widget_spacing"),

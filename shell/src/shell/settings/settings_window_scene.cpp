@@ -1099,6 +1099,21 @@ void SettingsWindow::rebuildSettingsContent() {
   logSettingsProfile("rebuildContent barManagement", phaseProfileWatch);
   phaseProfileWatch.reset();
 
+  {
+    const auto* titlePage = settings::settingsPageFromId(m_selectedSection);
+    const std::string pageLabel =
+        titlePage != nullptr ? i18n::tr(settings::settingsPageLabelKey(*titlePage)) : std::string{};
+    std::string title = pageLabel;
+    if (!m_searchQuery.empty()) {
+      title = i18n::tr("settings.window.search-results");
+    } else if (m_expertOpen) {
+      title = pageLabel + " › " + i18n::tr("settings.expert.row");
+    }
+    m_contentContainer->addChild(
+        makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
+    );
+  }
+
   const std::size_t visibleEntries = settings::addSettingsContentSections(
       *m_contentContainer, m_settingsRegistry, makeContentContext(cfg, selectedBar, selectedMonitorOverride)
   );
@@ -1267,7 +1282,7 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
        .paddingH = Style::spaceSm * scale,
-       .fill = colorSpecFromRole(ColorRole::Fill2),
+       .fill = colorSpecFromRole(ColorRole::SolidRegular),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
       ui::glyph({
@@ -1298,7 +1313,7 @@ std::unique_ptr<Flex> SettingsWindow::buildExpertSearchRow(float scale, std::siz
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
        .paddingH = Style::spaceMd * scale,
-       .fill = colorSpecFromRole(ColorRole::Fill2),
+       .fill = colorSpecFromRole(ColorRole::SolidRegular),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
       ui::glyph({
@@ -1339,41 +1354,21 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
     });
   };
 
-  const auto* page = settings::settingsPageFromId(m_selectedSection);
-  const std::string pageLabel = page != nullptr ? i18n::tr(settings::settingsPageLabelKey(*page)) : std::string{};
-  const bool searching = !m_searchQuery.empty();
-
   auto row = ui::row({
       .align = FlexAlign::Center,
       .gap = Style::spaceSm * scale,
+      .fill = colorSpecFromRole(ColorRole::Fill1),
       .minHeight = settings::metrics::kTitleBarHeight * scale,
       .fillWidth = true,
-      .configure = [scale](Flex& flex) { flex.setPadding(0.0F, settings::metrics::kPagePadding * scale); },
+      .configure = [scale](Flex& flex) { flex.setPadding(0.0F, Style::spaceSm * scale); },
   });
   row->addChild(navButton("chevron-left", m_navIndex > 0, -1));
   row->addChild(navButton("chevron-right", m_navIndex + 1 < m_navHistory.size(), 1));
-  const auto titleColor = colorSpecFromRole(ColorRole::Label1);
-  if (searching) {
-    row->addChild(makeLabel(
-        i18n::tr("settings.window.search-results"), Style::fontSizeHeader * scale, titleColor, FontWeight::Bold
-    ));
-  } else if (m_expertOpen) {
-    row->addChild(makeLabel(
-        pageLabel, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Bold
-    ));
-    row->addChild(
-        ui::glyph({
-            .glyph = "chevron-right",
-            .glyphSize = Style::fontSizeTitle * scale,
-            .color = colorSpecFromRole(ColorRole::Label3),
-        })
-    );
-    row->addChild(makeLabel(
-        i18n::tr("settings.expert.row"), Style::fontSizeHeader * scale, titleColor, FontWeight::Bold
-    ));
-  } else {
-    row->addChild(makeLabel(pageLabel, Style::fontSizeHeader * scale, titleColor, FontWeight::Bold));
-  }
+  row->addChild(ui::spacer());
+  row->addChild(makeLabel(
+      i18n::tr("settings.window.title"), Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::Label1),
+      FontWeight::Bold
+  ));
   row->addChild(ui::spacer());
 
   static const bool translatorMode = SysUtils::isEnvFlagOn("NOCTALIA_TRANSLATOR");
@@ -1498,7 +1493,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   const auto createBar = [this](std::string name) { this->createBar(std::move(name)); };
   const auto clearTransientSettingsState = [this]() { this->clearTransientSettingsState(); };
 
-  auto body = ui::row({.align = FlexAlign::Stretch});
+  auto body = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
 
   auto sidebar = settings::buildSettingsSidebar(
       settings::SettingsSidebarContext{
@@ -1527,10 +1522,11 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   );
 
   body->addChild(std::move(sidebar));
-  body->addChild(ui::separator());
 
-  auto contentColumn = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
-  m_headerRow = contentColumn->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
+  auto contentColumn =
+      ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Fill1), .flexGrow = 1.0F});
+  auto outer = ui::column({.align = FlexAlign::Stretch});
+  m_headerRow = outer->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
   if (m_expertOpen && m_searchQuery.empty()) {
     const auto* page = settings::settingsPageFromId(m_selectedSection);
     std::size_t optionCount = 0;
@@ -1587,7 +1583,8 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
 
   contentColumn->addChild(std::move(scroll));
   body->addChild(std::move(contentColumn));
-  return body;
+  outer->addChild(std::move(body));
+  return outer;
 }
 
 void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {

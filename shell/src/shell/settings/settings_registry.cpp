@@ -312,8 +312,7 @@ namespace settings {
 
     for (auto& entry : ctx.entries) {
       if (auto* select = std::get_if<SelectSetting>(&entry.control);
-          select != nullptr && (entry.path == std::vector<std::string>{"theme", "mode"}
-                                || entry.path == std::vector<std::string>{"dock", "position"})) {
+          select != nullptr && entry.path == std::vector<std::string>{"dock", "position"}) {
         select->tiles = true;
       }
     }
