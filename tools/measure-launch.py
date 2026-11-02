@@ -5,8 +5,10 @@ First frame = the first output commit after the start mark; an idle headless out
 Shell IPC goes straight to the socket, so no client process start counts. Compositor polls spawn its CLI
 (a few ms per poll; the poll cost is printed with the results).
 """
+import ctypes
 import json
 import os
+import signal
 import socket
 import statistics
 import subprocess
@@ -72,6 +74,37 @@ def ipc(command):
         return s.makefile().read()
 
 
+PR_SET_CHILD_SUBREAPER = 36
+
+
+def descendants():
+    children = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat") as f:
+                    ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            except (OSError, IndexError, ValueError):
+                continue
+            children.setdefault(ppid, []).append(int(entry))
+    found, todo = [], [os.getpid()]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            found.append(child)
+            todo.append(child)
+    return found
+
+
+def stop_descendants(sig, keep):
+    """Apps such as `code` detach into a new session; as a child subreaper this script still owns them."""
+    for pid in descendants():
+        if pid not in keep:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+
+
 def msg(*args):
     """Untimed shell IPC through the CLI client (the raw socket got a reset on panel-close, cause unknown)."""
     return subprocess.run([NOCTALIA, "msg", *args], capture_output=True, text=True).returncode == 0
@@ -93,6 +126,8 @@ def summary(name, values):
 
 
 def main():
+    # Orphans of a detaching app re-parent to this script, so stop_descendants() reaches them.
+    ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1)
     lines = []
     poll = []
     for _ in range(20):
@@ -137,15 +172,16 @@ def main():
         for _ in range(RUNS):
             wait_idle()
             base = window_count()
+            keep = set(descendants())
             start = time.monotonic()
             proc = subprocess.Popen([app], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             wait_for(lambda: window_count() > base, app + " window")
             times.append(ms_since(start))
-            proc.terminate()
+            stop_descendants(signal.SIGTERM, keep)
             try:
                 proc.wait(timeout=TIMEOUT_S)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                stop_descendants(signal.SIGKILL, keep)
             wait_for(lambda: window_count() <= base, app + " close")
         lines.append(summary(f"{app} exec to first window", times))
 
