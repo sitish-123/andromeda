@@ -1,6 +1,7 @@
 #include "scene/surface_shadow.h"
 
 #include "config/config.h"
+#include "design_tokens.h"
 
 #include <algorithm>
 extern "C" {
@@ -18,11 +19,10 @@ namespace andromeda {
       int originX, int originY
   ) {
     const auto& cfg = config().appearance.shadow;
-    auto shadow = config().colors.shadow;
     const ShadowStyle style = m_style.value_or(
         ShadowStyle{.softness = cfg.softness, .offsetX = cfg.offsetX, .offsetY = cfg.offsetY, .opacity = 1.0F}
     );
-    shadow[3] *= style.opacity;
+    const std::array<float, 4> shadow = color();
     const int sigma = style.softness;
 
     // Decorated box origin (in parent coords): (-borderTotal, -borderTotal)
@@ -41,8 +41,7 @@ namespace andromeda {
 
     // Lazy create: first time only.
     if (m_node == nullptr) {
-      const float initColor[4] = {shadow[0], shadow[1], shadow[2], shadow[3] * m_alpha};
-      m_node = wlr_scene_shadow_create(parent, 0, 0, 0, static_cast<float>(sigma), initColor);
+      m_node = wlr_scene_shadow_create(parent, 0, 0, 0, static_cast<float>(sigma), shadow.data());
       if (m_node == nullptr) {
         return;
       }
@@ -73,9 +72,8 @@ namespace andromeda {
     if (m_node->blur_sigma != static_cast<float>(sigma)) {
       wlr_scene_shadow_set_blur_sigma(m_node, static_cast<float>(sigma));
     }
-    const float color[4] = {shadow[0], shadow[1], shadow[2], shadow[3] * m_alpha};
-    if (std::memcmp(m_node->color, color, sizeof(m_node->color)) != 0) {
-      wlr_scene_shadow_set_color(m_node, color);
+    if (std::memcmp(m_node->color, shadow.data(), sizeof(m_node->color)) != 0) {
+      wlr_scene_shadow_set_color(m_node, shadow.data());
     }
     if (m_node->corner_radius != cornerRadius) {
       wlr_scene_shadow_set_corner_radius(m_node, cornerRadius);
@@ -100,10 +98,20 @@ namespace andromeda {
   void SurfaceShadow::setAlpha(float alpha) {
     m_alpha = alpha;
     if (m_node != nullptr) {
-      const auto& shadow = config().colors.shadow;
-      const float color[4] = {shadow[0], shadow[1], shadow[2], shadow[3] * m_alpha};
-      wlr_scene_shadow_set_color(m_node, color);
+      wlr_scene_shadow_set_color(m_node, color().data());
     }
+  }
+
+  std::array<float, 4> SurfaceShadow::color() const {
+    if (!m_style.has_value()) {
+      auto shadow = config().colors.shadow;
+      shadow[3] *= m_alpha;
+      return shadow;
+    }
+    const std::uint32_t rgba =
+        config().appearance.scheme == ColorScheme::Light ? Tokens::schemeLight.shadow : Tokens::schemeDark.shadow;
+    const auto channel = [rgba](int shift) { return static_cast<float>((rgba >> shift) & 0xFFU) / 255.0F; };
+    return {channel(24), channel(16), channel(8), channel(0) * m_style->opacity * m_alpha};
   }
 
   void SurfaceShadow::reset() { m_node = nullptr; }

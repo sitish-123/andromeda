@@ -535,15 +535,13 @@ namespace andromeda {
         );
       }
     }
-    pixman_region32_t clipped;
-    pixman_region32_init(&clipped);
-    if (region != nullptr && m_rule.blur.value_or(true)) {
-      if (dskClip) {
-        pixman_region32_intersect_rect(
-            &clipped, region, dskClip->x - nodeBox.x, dskClip->y - nodeBox.y, dskClip->width, dskClip->height
-        );
-        region = &clipped;
-      }
+    if (region != nullptr && m_rule.blur.value_or(true) && dskClip && pixman_region32_not_empty(region)) {
+      // The clip and its corner radius are the exact shape; a client region is a pixel staircase that shows past the
+      // anti-aliased corner.
+      region = nullptr;
+      clip = dskClip;
+      options.enabled = true;
+    } else if (region != nullptr && m_rule.blur.value_or(true)) {
       // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to the
       // region extents would misalign it. The region clips the blur instead.
       if (!pixman_region32_not_empty(region)) {
@@ -558,7 +556,6 @@ namespace andromeda {
         m_scene->tree, m_layerSurface->surface, nodeBox, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
         region
     );
-    pixman_region32_fini(&clipped);
   }
 
   void LayerSurface::applyConfig() {
