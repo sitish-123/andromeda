@@ -142,7 +142,8 @@ h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4p
 .pill { height: 48px; border-radius: 16px; background: var(--f2); position: relative; overflow: hidden; display: flex; align-items: center; }
 .pill > i { position: absolute; inset: 0 auto 0 0; background: rgba(255,255,255,.92); }
 .pill > svg { position: relative; margin-left: 16px; color: rgba(0,0,0,.62); }
-.light .pill > i { background: rgba(20,20,24,.86); } .light .pill > svg { color: #fff; }
+.light .pill { background: rgba(0,0,0,.20); } .light .pill > i { background: rgba(255,255,255,.94); } .light .pill > svg { color: rgba(20,20,24,.62); }
+.pill::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(0,0,0,.07); pointer-events: none; } .dark .pill::after { box-shadow: none; }
 .pill > span { position: relative; margin-left: auto; margin-right: 16px; color: var(--l2); }
 .media { height: 72px; border-radius: 16px; padding: 8px; display: flex; align-items: center; gap: 12px; background: var(--f1); }
 .art { width: 56px; height: 56px; border-radius: 8px; background: linear-gradient(135deg, #ff9a6b, #8a5cff); flex: none; }
