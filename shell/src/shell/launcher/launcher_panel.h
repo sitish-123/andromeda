@@ -1,6 +1,7 @@
 #pragma once
 
 #include "launcher/launcher_provider.h"
+#include "launcher/search_broker.h"
 #include "launcher/usage_tracker.h"
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
@@ -97,7 +98,7 @@ private:
   // Re-gather the current query, preserving the selected result by identity.
   void reapplyCurrentQuery();
   // A plugin provider delivered fresh async results — re-gather if the panel is open.
-  void onProviderResultsChanged();
+  void onProviderResultsChanged(const LauncherProvider& provider);
   void refreshResults();
   void activateAt(std::size_t index);
   void activateSelected();
@@ -145,6 +146,7 @@ private:
   std::vector<LauncherResult> m_results;
   std::vector<LauncherResult> m_allResults;
   UsageTracker m_usageTracker;
+  SearchBroker m_searchBroker{m_providers, m_usageTracker, "/"};
   IconResolver m_iconResolver;
 
   Flex* m_container = nullptr;

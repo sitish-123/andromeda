@@ -10,6 +10,7 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "i18n/i18n.h"
 #include "launcher/app_provider.h"
+#include "launcher/search_ranker.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/async_texture_cache.h"
 #include "render/core/renderer.h"
@@ -46,7 +47,6 @@ namespace {
 
   constexpr std::size_t kRowOverscan = 3;
   // Minimum trimmed query length before prefixed opt-in providers join the global search.
-  constexpr std::size_t kGlobalOptInMinChars = 2;
   constexpr float kIconSizeDefault = 40.0F;
   constexpr float kIconSizeCompact = 28.0F;
   constexpr std::size_t kAppGridColumns = 6;
@@ -60,28 +60,8 @@ namespace {
   constexpr float kLauncherAvatarSize = 44.0F;
   constexpr std::string_view kApplicationsProviderId = "Applications";
   constexpr std::string_view kSessionProviderId = "Session";
-  constexpr double kUsageScorePerCount = 0.1;
-  constexpr double kTypedUsageScoreCap = 0.5;
   constexpr std::string_view kProviderOverviewProviderId = "__launcher_provider_overview__";
   constexpr std::string_view kProviderOverviewResultPrefix = "provider:";
-
-  double usageBoostForScore(double score, int usageCount, bool typedQuery) {
-    if (usageCount <= 0) {
-      return 0.0;
-    }
-
-    const double rawBoost = static_cast<double>(usageCount) * kUsageScorePerCount;
-    if (!typedQuery) {
-      return rawBoost;
-    }
-    if (!FuzzyMatch::isMatch(score)) {
-      return 0.0;
-    }
-
-    // For typed searches, usage should nudge close matches without letting a
-    // weak fuzzy hit outrank a much stronger lexical match.
-    return std::min(rawBoost, kTypedUsageScoreCap);
-  }
 
   [[nodiscard]] bool isDescendantOf(const Node* node, const Node* ancestor) {
     if (node == nullptr || ancestor == nullptr) {
@@ -120,10 +100,6 @@ namespace {
     std::string id(kProviderOverviewResultPrefix);
     id += prefix;
     return id;
-  }
-
-  void sortResultsByScore(std::vector<LauncherResult>& results) {
-    std::ranges::stable_sort(results, std::ranges::greater{}, &LauncherResult::score);
   }
 
   struct LauncherListStyle {
@@ -1484,9 +1460,9 @@ void LauncherPanel::finishActivation(
 void LauncherPanel::addProvider(std::unique_ptr<LauncherProvider> provider) {
   applyProviderConfig(*provider);
   provider->initialize();
-  provider->setResultsChangedCallback([this] { onProviderResultsChanged(); });
-  provider->setQueryRequestedCallback([this](const std::string& query) { setQuery(query); });
   LauncherProvider* providerPtr = provider.get();
+  provider->setResultsChangedCallback([this, providerPtr] { onProviderResultsChanged(*providerPtr); });
+  provider->setQueryRequestedCallback([this](const std::string& query) { setQuery(query); });
   provider->setActivationDoneCallback([this, providerPtr](const std::string& resultId, bool copied) {
     finishActivation(*providerPtr, resultId, copied);
   });
@@ -2349,10 +2325,10 @@ void LauncherPanel::setQuery(const std::string& query) {
   onInputChanged(query);
 }
 
-void LauncherPanel::onProviderResultsChanged() {
+void LauncherPanel::onProviderResultsChanged(const LauncherProvider& provider) {
   // Only re-gather while the panel is open and built; after onClose the scene
   // nodes are gone and a refresh would touch null grid/label pointers.
-  if (m_input == nullptr) {
+  if (m_input == nullptr || !m_searchBroker.acceptsAnswer(provider)) {
     return;
   }
   reapplyCurrentQuery();
@@ -2403,132 +2379,29 @@ void LauncherPanel::onInputChanged(const std::string& text) {
     m_activeCategorySlotIndex =
         allSlot == m_categoryFilterSlots.end() ? 0 : static_cast<std::size_t>(allSlot - m_categoryFilterSlots.begin());
   }
-  m_allResults.clear();
-
-  std::vector<LauncherCategory> newCategories;
-  bool hasRecentlyUsed = false;
-  bool anyProviderLoading = false;
-  const bool trackUsage = m_config == nullptr || m_config->config().shell.launcher.trackUsage;
-  const bool sortByUsage = trackUsage && m_config != nullptr && m_config->config().shell.launcher.sortByUsage;
-
-  if (!m_scopedProviderId.empty()) {
-    m_resultProviderId = m_scopedProviderId;
-    for (auto& provider : m_providers) {
-      if (provider->id() != m_scopedProviderId) {
-        continue;
-      }
-      m_allResults = provider->query(text);
-      anyProviderLoading = provider->isLoading();
-      for (auto& result : m_allResults) {
-        result.providerId = provider->id();
-      }
-      sortResultsByScore(m_allResults);
-      break;
-    }
-  } else {
-    // Route query to providers
-    LauncherProvider* activeProvider = nullptr;
-    std::string_view queryText = text;
-
-    if (!m_launcherProviderViewId.empty()) {
-      const auto provider =
-          std::ranges::find(m_providers, std::string_view(m_launcherProviderViewId), [](const auto& candidate) {
-            return candidate->id();
-          });
-      if (provider != m_providers.end()) {
-        activeProvider = provider->get();
-      } else {
-        m_launcherProviderViewId.clear();
-      }
-    }
-
-    if (activeProvider == nullptr) {
-      // Check for prefix match (longest first)
-      for (auto& provider : m_providers) {
-        auto prefix = provider->prefix();
-        if (prefix.empty()) {
-          continue;
-        }
-        if (text.size() >= prefix.size()
-            && std::string_view(text).starts_with(prefix)
-            && (activeProvider == nullptr || prefix.size() > activeProvider->prefix().size())) {
-          activeProvider = provider.get();
-          queryText = std::string_view(text).substr(prefix.size());
-        }
-      }
-    }
-    // Trim leading space after prefix
-    if (activeProvider != nullptr && !queryText.empty() && queryText.front() == ' ') {
-      queryText = queryText.substr(1);
-    }
-
-    const bool typedQuery = !queryText.empty();
-    auto applyUsageMetadata = [&](std::vector<LauncherResult>& results, const LauncherProvider& provider) {
-      for (auto& result : results) {
-        if (sortByUsage) {
-          const int usageCount = m_usageTracker.getCount(provider.id(), result.id);
-          result.score += usageBoostForScore(result.score, usageCount, typedQuery);
-        }
-        result.recentlyUsedIndex = m_usageTracker.getRecentlyUsedIndex(provider.id(), result.id);
-      }
-    };
-
-    if (activeProvider != nullptr) {
-      m_resultProviderId = activeProvider->id();
-      m_allResults = activeProvider->queryPrefixed(queryText);
-      anyProviderLoading = activeProvider->isLoading();
-      if (trackUsage && activeProvider->trackUsage()) {
-        applyUsageMetadata(m_allResults, *activeProvider);
-        if (m_usageTracker.getRecentlyUsedCount(activeProvider->id()) > 0) {
-          hasRecentlyUsed = true;
-        }
-      }
-      for (auto& result : m_allResults) {
-        result.providerId = activeProvider->id();
-      }
-      sortResultsByScore(m_allResults);
-      newCategories = activeProvider->categories();
-    } else if (startsWithLauncherPrefix(text)) {
-      m_allResults = providerOverviewResults(text);
-      m_showingProviderOverview = true;
-    } else {
-      // Query default providers (empty prefix), plus prefixed providers that opt into global search.
-      // Prefixed opt-in providers (e.g. Session) only contribute once the query is long enough,
-      // so opening the launcher with no/short input does not flood it with their entries.
-      const bool allowGlobalOptIn =
-          StringUtils::trimRightView(StringUtils::trimLeftView(queryText)).size() >= kGlobalOptInMinChars;
-      const bool browserAppBrowse = m_browserMode && text.empty();
-      for (auto& provider : m_providers) {
-        if (browserAppBrowse && provider->id() != kApplicationsProviderId) {
-          continue;
-        }
-        const bool isDefault = provider->prefix().empty();
-        if (!isDefault && (!provider->includeInGlobalSearch() || !allowGlobalOptIn)) {
-          continue;
-        }
-        auto results = provider->query(queryText);
-        if (provider->isLoading()) {
-          anyProviderLoading = true;
-        }
-        if (trackUsage && provider->trackUsage()) {
-          applyUsageMetadata(results, *provider);
-          if (m_usageTracker.getRecentlyUsedCount(provider->id()) > 0) {
-            hasRecentlyUsed = true;
-          }
-        }
-        for (auto& result : results) {
-          result.providerId = provider->id();
-        }
-        m_allResults.insert(
-            m_allResults.end(), std::make_move_iterator(results.begin()), std::make_move_iterator(results.end())
-        );
-        auto providerCats = provider->categories();
-        for (auto& cat : providerCats) {
-          newCategories.push_back(std::move(cat));
-        }
-      }
-      sortResultsByScore(m_allResults);
-    }
+  static const ShellConfig::LauncherConfig kDefaultLauncher{};
+  const auto& launcher = m_config != nullptr ? m_config->config().shell.launcher : kDefaultLauncher;
+  const bool trackUsage = m_config == nullptr || launcher.trackUsage;
+  m_searchBroker.setOverviewPrefix(m_config != nullptr ? launcher.providerPrefix : "/");
+  auto outcome = m_searchBroker.search({
+      .text = text,
+      .scopedProviderId = m_scopedProviderId,
+      .providerViewId = m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string(),
+      .applicationsOnly = m_browserMode && text.empty(),
+      .trackUsage = trackUsage,
+      .sortByUsage = trackUsage && m_config != nullptr && launcher.sortByUsage,
+  });
+  if (outcome.providerViewMissing) {
+    m_launcherProviderViewId.clear();
+  }
+  m_allResults = std::move(outcome.results);
+  m_resultProviderId = std::move(outcome.resultProviderId);
+  std::vector<LauncherCategory> newCategories = std::move(outcome.categories);
+  bool hasRecentlyUsed = outcome.hasRecentlyUsed;
+  const bool anyProviderLoading = outcome.loading;
+  if (outcome.providerOverview) {
+    m_allResults = providerOverviewResults(text);
+    m_showingProviderOverview = true;
   }
 
   if (m_browserMode) {
@@ -3064,7 +2937,7 @@ std::vector<LauncherResult> LauncherPanel::providerOverviewResults(std::string_v
   }
 
   if (!filter.empty()) {
-    sortResultsByScore(results);
+    search_ranker::sort(results);
   }
   return results;
 }
