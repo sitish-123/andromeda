@@ -372,7 +372,7 @@
   --success: rgba(26, 127, 55, 1.0);
   --slider-fill: rgba(255, 255, 255, 0.937);
   --on-slider-fill: rgba(20, 20, 24, 0.62);
-  --slider-track: rgba(255, 255, 255, 0.459);
+  --slider-track: rgba(0, 0, 0, 0.059);
   --slider-edge: rgba(0, 0, 0, 0.0);
   --scrim: rgba(0, 0, 0, 0.2);
   --shadow: rgba(20, 20, 40, 1.0);
