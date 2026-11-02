@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <fontconfig/fontconfig.h>
+#include <format>
 #include <functional>
 #include <hb-ot.h>
 #include <limits>
@@ -51,6 +52,7 @@ namespace {
     std::size_t seed = std::hash<std::string>{}(font.family);
     hashCombine(seed, std::hash<int>{}(static_cast<int>(font.weight)));
     hashCombine(seed, std::hash<std::string>{}(font.features));
+    hashCombine(seed, std::hash<float>{}(font.tracking));
     return seed;
   }
 
@@ -369,11 +371,13 @@ void CairoTextRenderer::maybeSyncFontConfig() {
 
 // ── Layout construction ─────────────────────────────────────────────────────
 
-PangoFontDescription* CairoTextRenderer::newFontDescription(const TextFont& font, float rasterSize) const {
+PangoFontDescription* CairoTextRenderer::newFontDescription(const TextFont& font, float rasterSize, float opsz) const {
   PangoFontDescription* desc = pango_font_description_new();
   pango_font_description_set_family(desc, font.family.empty() ? m_fontFamily.c_str() : font.family.c_str());
   pango_font_description_set_weight(desc, static_cast<PangoWeight>(font.weight));
   pango_font_description_set_absolute_size(desc, static_cast<double>(rasterSize) * PANGO_SCALE);
+  // Fonts without an opsz axis ignore the variation. The axis is pinned to the logical size, never the renderer's pick.
+  pango_font_description_set_variations(desc, std::format("opsz={:.2f}", std::clamp(opsz, 14.0F, 32.0F)).c_str());
   return desc;
 }
 
@@ -386,7 +390,7 @@ PangoLayout* CairoTextRenderer::buildLayout(
                                                                               : PANGO_ELLIPSIZE_END;
   PangoLayout* layout = pango_layout_new(m_pangoContext);
 
-  PangoFontDescription* desc = newFontDescription(font, std::max(1.0F, fontSize * contentScale));
+  PangoFontDescription* desc = newFontDescription(font, std::max(1.0F, fontSize * contentScale), fontSize);
   pango_layout_set_font_description(layout, desc);
   pango_font_description_free(desc);
 
@@ -410,7 +414,7 @@ PangoLayout* CairoTextRenderer::buildLayout(
   // blow up memory / GL textures. Higher than any real UI needs, so unlimited
   // wrap never reaches it in practice.
   constexpr int kHardMaxLines = 500;
-  if (!font.features.empty() || maxWidthPxScaled > 0.0F) {
+  if (!font.features.empty() || maxWidthPxScaled > 0.0F || font.tracking != 0.0F) {
     PangoAttrList* existingAttrs = pango_layout_get_attributes(layout);
     PangoAttrList* attrs = existingAttrs != nullptr ? pango_attr_list_copy(existingAttrs) : pango_attr_list_new();
     if (!font.features.empty()) {
@@ -418,6 +422,13 @@ PangoLayout* CairoTextRenderer::buildLayout(
       featureAttr->start_index = 0;
       featureAttr->end_index = PANGO_ATTR_INDEX_TO_TEXT_END;
       pango_attr_list_insert(attrs, featureAttr);
+    }
+    if (font.tracking != 0.0F) {
+      const int spacing = static_cast<int>(std::lround(font.tracking * fontSize * contentScale * PANGO_SCALE));
+      PangoAttribute* letterSpacing = pango_attr_letter_spacing_new(spacing);
+      letterSpacing->start_index = 0;
+      letterSpacing->end_index = PANGO_ATTR_INDEX_TO_TEXT_END;
+      pango_attr_list_insert(attrs, letterSpacing);
     }
     if (maxWidthPxScaled > 0.0F) {
       // Avoid Pango inserting hyphens at intra-word line breaks (looks like stray "-" in wrapped UI text).
@@ -545,7 +556,7 @@ CairoTextRenderer::measureFont(float contentScale, float fontSize, const TextFon
     return it->second;
   }
 
-  PangoFontDescription* desc = newFontDescription(font, std::max(1.0F, fontSize * contentScale));
+  PangoFontDescription* desc = newFontDescription(font, std::max(1.0F, fontSize * contentScale), fontSize);
 
   PangoFontMetrics* metrics = pango_context_get_metrics(m_pangoContext, desc, pango_language_get_default());
   if (metrics == nullptr) {

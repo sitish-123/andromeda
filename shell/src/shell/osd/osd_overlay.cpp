@@ -805,6 +805,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
       .text = "100%",
       .fontSize = valueFontSize(s),
       .fontWeight = FontWeight::Bold,
+      .fontFeatures = "tnum",
       .color = colorSpecFromRole(ColorRole::Label1),
       .maxWidth = vertical ? cw - pad * 2.0F : 0.0F,
       .maxLines = 1,

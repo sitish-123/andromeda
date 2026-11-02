@@ -38,6 +38,7 @@ public:
       return;
     }
     m_fontSize = size;
+    m_font.tracking = dynamicTracking(size);
     markContentDirty();
   }
 

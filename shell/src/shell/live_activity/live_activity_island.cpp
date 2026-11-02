@@ -1167,6 +1167,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           .out = &inst.osdValue,
           .fontSize = Tokens::typeCaption.size,
           .fontWeight = FontWeight::SemiBold,
+          .fontFeatures = "tnum",
           .color = liveLabel(),
           .minWidth = 40.0F, // reserves the width of "100%", so the level bar does not move with the digits
           .maxLines = 1,

@@ -30,6 +30,11 @@ enum class FontWeight : int {
   UltraHeavy = 1000,
 };
 
+// Rulebook tracking in em: Inter dynamic metrics below 20 px; the display optical size spaces itself from 20 px.
+[[nodiscard]] inline float dynamicTracking(float sizePx) noexcept {
+  return sizePx >= 20.0F ? 0.0F : -0.0223F + 0.185F * std::exp(-0.1745F * sizePx);
+}
+
 // Font selection for a run of text. An empty family means the renderer-global
 // family (shell.font_family). `features` is an OpenType feature list in Pango's
 // font-features syntax (e.g. "tnum"); empty applies the font defaults.
@@ -37,6 +42,7 @@ struct TextFont {
   FontWeight weight = FontWeight::Normal;
   std::string family;
   std::string features;
+  float tracking = 0.0F; // letter spacing in em, from dynamicTracking(size)
 
   bool operator==(const TextFont&) const = default;
 };

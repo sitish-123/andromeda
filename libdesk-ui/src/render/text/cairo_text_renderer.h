@@ -185,7 +185,7 @@ private:
 
   // Font description for `font` at a raster pixel size; an empty family resolves to
   // the active family. Caller owns it (pango_font_description_free).
-  PangoFontDescription* newFontDescription(const TextFont& font, float rasterSize) const;
+  PangoFontDescription* newFontDescription(const TextFont& font, float rasterSize, float opsz) const;
   // Build a PangoLayout at the given scaled size. Caller owns the layout (g_object_unref).
   PangoLayout* buildLayout(
       float contentScale, std::string_view text, float fontSize, const TextFont& font, float maxWidthPxScaled,
