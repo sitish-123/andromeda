@@ -168,6 +168,20 @@ namespace {
       g_settings_set_string(settings, "gtk-theme", gtkTheme.c_str());
     }
     g_object_unref(settings);
+    // GSettings has no prefer-dark key, so a stale settings.ini value would mix a dark theme into light apps.
+    if (home == nullptr) {
+      return;
+    }
+    for (const char* dir : {"gtk-3.0", "gtk-4.0"}) {
+      const std::string path = std::string(home) + "/.config/" + dir + "/settings.ini";
+      GKeyFile* ini = g_key_file_new();
+      if (g_key_file_load_from_file(ini, path.c_str(), G_KEY_FILE_KEEP_COMMENTS, nullptr) != FALSE
+          && g_key_file_has_key(ini, "Settings", "gtk-application-prefer-dark-theme", nullptr) != FALSE) {
+        g_key_file_set_boolean(ini, "Settings", "gtk-application-prefer-dark-theme", mode == "light" ? FALSE : TRUE);
+        g_key_file_save_to_file(ini, path.c_str(), nullptr);
+      }
+      g_key_file_free(ini);
+    }
   }
 } // namespace
 
