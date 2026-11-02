@@ -6,6 +6,7 @@
 #include "ui/signal.h"
 #include "ui/style.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -41,6 +42,11 @@ public:
   void requestScrollIntoView(const Node* target);
   void scrollBy(float delta);
   void setScrollbarVisible(bool visible);
+  void setScrollbarAutoHide(bool autoHide) {
+    if (m_scrollbar != nullptr) {
+      m_scrollbar->setAutoHide(autoHide);
+    }
+  }
   void setReserveScrollbarGutter(bool reserve);
   // Vertical clearance at both track ends (e.g. the host card's corner radius).
   void setScrollbarInsetV(float inset);
@@ -79,7 +85,11 @@ public:
 
   [[nodiscard]] float contentViewportWidth(bool reserveScrollbarGutter = false) const noexcept;
   [[nodiscard]] float contentViewportHeight() const noexcept;
-  [[nodiscard]] float viewportPaddingH() const noexcept { return m_viewportPaddingH; }
+  // Grows past the set padding to centre the content when the view is wider than the max content width.
+  [[nodiscard]] float viewportPaddingH() const noexcept {
+    return m_maxContentWidth > 0.0F ? std::max(m_viewportPaddingH, (width() - m_maxContentWidth) * 0.5F) : m_viewportPaddingH;
+  }
+  void setMaxContentWidth(float width) { m_maxContentWidth = width; }
   [[nodiscard]] float viewportPaddingV() const noexcept { return m_viewportPaddingV; }
   [[nodiscard]] bool reservesScrollbarGutter() const noexcept { return m_reserveScrollbarGutter; }
   // Width reserved for the vertical scrollbar plus its gap, at the current content scale.
@@ -120,6 +130,7 @@ private:
   Signal<>::ScopedConnection m_paletteConn;
 
   float m_viewportPaddingH = Style::spaceXs;
+  float m_maxContentWidth = 0.0F;
   float m_viewportPaddingV = Style::spaceSm;
   float m_scrollOffset = 0.0F;
   float m_targetScrollOffset = 0.0F;

@@ -10,6 +10,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <chrono>
 #include <linux/input-event-codes.h>
 #include <memory>
 #include <wayland-client-protocol.h>
@@ -135,6 +136,7 @@ float Scrollbar::thickness() const noexcept {
 void Scrollbar::update(float viewportExtent, float contentExtent, float scrollOffset) {
   m_viewportExtent = viewportExtent;
   m_contentExtent = contentExtent;
+  const bool moved = scrollOffset != m_lastScrollOffset;
   m_lastScrollOffset = scrollOffset;
   m_maxScroll = std::max(0.0F, contentExtent - viewportExtent);
 
@@ -150,6 +152,53 @@ void Scrollbar::update(float viewportExtent, float contentExtent, float scrollOf
   }
 
   applyGeometry();
+  if (moved) {
+    reveal();
+  }
+}
+
+void Scrollbar::setAutoHide(bool autoHide) {
+  m_autoHide = autoHide;
+  m_hideTimer.stop();
+  if (m_revealAnim != 0 && animationManager() != nullptr) {
+    animationManager()->cancel(m_revealAnim);
+  }
+  m_revealAnim = 0;
+  m_reveal = autoHide ? 0.0F : 1.0F;
+  setOpacity(m_reveal);
+}
+
+void Scrollbar::reveal() {
+  if (!m_autoHide) {
+    return;
+  }
+  driveReveal(1.0F);
+  constexpr std::chrono::milliseconds kHideDelay{1000};
+  m_hideTimer.start(kHideDelay, [this] {
+    if (m_expansion > 0.0F) {
+      reveal();
+      return;
+    }
+    driveReveal(0.0F);
+  });
+}
+
+void Scrollbar::driveReveal(float target) {
+  AnimationManager* animations = animationManager();
+  if (animations == nullptr) {
+    m_reveal = target;
+    setOpacity(target);
+    return;
+  }
+  m_revealAnim = animations->drive(
+      m_revealAnim, m_reveal, target, Style::spring(target > m_reveal ? Tokens::springFade : Tokens::springFadeOut),
+      [this](float value) {
+        m_reveal = value;
+        setOpacity(value);
+      },
+      [this] { m_revealAnim = 0; }, this, 0.0F, Unit::Progress, true
+  );
+  markPaintDirty();
 }
 
 void Scrollbar::applyGeometry() {
@@ -206,6 +255,9 @@ void Scrollbar::updateExpanded() {
       (m_trackArea != nullptr && m_trackArea->hovered()) || (m_thumbArea != nullptr && m_thumbArea->hovered());
   const bool dragging = m_thumbArea != nullptr && m_thumbArea->pressed();
   setExpanded(m_shown && (hovered || dragging));
+  if (m_shown && (hovered || dragging)) {
+    reveal();
+  }
 }
 
 void Scrollbar::setExpanded(bool expanded) {

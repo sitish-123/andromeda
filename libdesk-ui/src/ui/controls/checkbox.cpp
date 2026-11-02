@@ -98,7 +98,7 @@ bool Checkbox::pressed() const noexcept { return m_inputArea != nullptr && m_inp
 
 void Checkbox::doLayout(Renderer& renderer) {
   const float touchSize = Style::controlHeight * m_scale;
-  const float boxSize = (Style::fontSizeTitle + Style::spaceXs) * m_scale;
+  const float boxSize = Tokens::sizeSymbol * m_scale;
   const float boxInset = (touchSize - boxSize) * 0.5F;
 
   setSize(touchSize, touchSize);
@@ -106,11 +106,11 @@ void Checkbox::doLayout(Renderer& renderer) {
   if (m_box != nullptr) {
     m_box->setPosition(boxInset, boxInset);
     m_box->setFrameSize(boxSize, boxSize);
-    m_box->setRadius(Style::scaledRadiusSm(m_scale));
+    m_box->setRadius(Tokens::radiusR4 * m_scale);
   }
 
   if (m_checkGlyph != nullptr) {
-    m_checkGlyph->setGlyphSize((Style::fontSizeBody + Style::spaceXs * 0.5F) * m_scale);
+    m_checkGlyph->setGlyphSize(Tokens::sizeSymbolInline * m_scale);
     m_checkGlyph->measure(renderer);
     m_checkGlyph->setPosition(
         std::round(boxInset + (boxSize - m_checkGlyph->width()) * 0.5F),
@@ -130,7 +130,7 @@ void Checkbox::applyState() {
   }
 
   ColorSpec fill = colorSpecFromRole(ColorRole::SolidRegular);
-  ColorSpec border = colorSpecFromRole(ColorRole::Stroke);
+  ColorSpec border = colorSpecFromRole(ColorRole::Label3);
   ColorSpec glyph = colorSpecFromRole(ColorRole::OnAccent);
   float borderWidth = Style::borderWidth * m_scale;
   const bool focused = (m_inputArea != nullptr && m_inputArea->focused());

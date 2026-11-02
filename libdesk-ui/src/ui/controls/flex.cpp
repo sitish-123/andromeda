@@ -208,6 +208,7 @@ void Flex::setPadding(float vertical, float horizontal) { setPadding(vertical, h
 
 void Flex::setFill(const ColorSpec& color) {
   m_fill = color;
+  m_fillGradient.reset();
   ensureBackground();
   applyPalette();
 }
@@ -216,6 +217,7 @@ void Flex::setFill(const Color& color) { setFill(fixedColorSpec(color)); }
 
 void Flex::clearFill() {
   m_fill = clearColorSpec();
+  m_fillGradient.reset();
   if (m_background != nullptr) {
     applyPalette();
   }
@@ -264,7 +266,19 @@ void Flex::applyPalette() {
   style.fill = resolveColorSpec(m_fill);
   style.border = resolveColorSpec(m_border);
   style.fillMode = FillMode::Solid;
+  if (m_fillGradient.has_value()) {
+    style.fillMode = FillMode::LinearGradient;
+    style.gradientDirection = m_fillGradient->first;
+    style.gradientStops = m_fillGradient->second;
+  }
   m_background->setStyle(style);
+}
+
+void Flex::setFillGradient(GradientDirection direction, const std::array<GradientStop, 4>& stops) {
+  m_fillGradient = std::make_pair(direction, stops);
+  m_fill = fixedColorSpec(stops[0].color);
+  ensureBackground();
+  applyPalette();
 }
 
 void Flex::setSoftness(float softness) {

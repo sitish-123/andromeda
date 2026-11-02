@@ -2,6 +2,7 @@
 
 #include "render/core/color.h"
 #include "ui/controls/flex.h"
+#include "ui/palette.h"
 #include "ui/signal.h"
 
 #include <functional>
@@ -85,6 +86,10 @@ public:
   void setCursorShape(std::uint32_t shape);
   void setBadge(std::string_view text);
   void setBadgeFontSize(float size);
+  // Thumbnail selection (rulebook 9.7): a 2 px label_1 ring on the edge and an accent circle 20 with a white
+  // check 12 at inset 8 from the top end corner, both above the content.
+  void setCheckBadge(bool shown, float scale, float radius, bool badge = true,
+                     const ColorSpec& ring = colorSpecFromRole(ColorRole::Label1));
   void setTooltip(std::string_view text);
 
   void setTabStop(bool tabStop);
@@ -128,6 +133,11 @@ private:
   Label* m_label = nullptr;
   Flex* m_badge = nullptr;
   Label* m_badgeLabel = nullptr;
+  Flex* m_checkBadge = nullptr;
+  Flex* m_selectionRing = nullptr;
+  float m_selectionRingRadius = 0.0F;
+  class Glyph* m_checkBadgeGlyph = nullptr;
+  float m_checkBadgeScale = 1.0F;
   InputArea* m_inputArea = nullptr;
   std::uint32_t m_animId = 0;
   std::function<void()> m_onClick;

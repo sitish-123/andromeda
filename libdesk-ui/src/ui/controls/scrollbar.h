@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/timer_manager.h"
 #include "render/scene/node.h"
 #include "ui/signal.h"
 #include "ui/style.h"
@@ -32,6 +33,10 @@ public:
 
   void update(float viewportExtent, float contentExtent, float scrollOffset);
 
+  // Overlay bar: hidden at rest, shown while the offset changes or the pointer is on it.
+  void setAutoHide(bool autoHide);
+  [[nodiscard]] bool autoHide() const noexcept { return m_autoHide; }
+
   [[nodiscard]] float thumbTravel() const noexcept { return m_thumbTravel; }
   [[nodiscard]] bool visible() const noexcept { return m_shown; }
 
@@ -50,6 +55,8 @@ private:
   void updateExpanded();
   void setExpanded(bool expanded);
   void applyExpansion(float expansion);
+  void reveal();
+  void driveReveal(float target);
 
   RectNode* m_track = nullptr;
   RectNode* m_thumb = nullptr;
@@ -73,5 +80,9 @@ private:
   float m_dragStartOffset = 0.0F;
   float m_lastScrollOffset = 0.0F;
   bool m_shown = false;
+  bool m_autoHide = false;
+  float m_reveal = 1.0F;
+  std::uint32_t m_revealAnim = 0;
+  Timer m_hideTimer;
   ScrollOrientation m_orientation = ScrollOrientation::Vertical;
 };

@@ -35,7 +35,7 @@ namespace {
     auto sep = std::make_unique<Separator>();
     sep->setOrientation(SeparatorOrientation::VerticalRule);
     sep->setThickness(std::max(1.0F, Style::borderWidth * scale));
-    sep->setColor(colorSpecFromRole(ColorRole::Stroke));
+    sep->setColor(colorSpecFromRole(ColorRole::Separator));
     sep->setFlexGrow(0.0F);
     return sep;
   }
@@ -61,17 +61,18 @@ Stepper::Stepper() {
   setGap(0.0F);
   setPadding(0.0F);
   setMinWidth(kDefaultMinWidth);
-  setFill(colorSpecFromRole(ColorRole::Fill2, m_surfaceOpacity));
+  setFill(colorSpecFromRole(ColorRole::Fill1, m_surfaceOpacity));
   clearBorder();
-  setRadius(Style::scaledRadiusMd());
+  setRadius(Tokens::sizeControlS * 0.5F);
 
   auto makeStepButton = [this](bool increment) -> std::unique_ptr<Button> {
     auto btn = std::make_unique<Button>();
     btn->setVariant(ButtonVariant::Tab);
     btn->setGlyph(increment ? "plus" : "minus");
-    btn->setGlyphSize(Style::fontSizeBody);
-    btn->setMinHeight(Style::controlHeight);
-    btn->setPadding(Style::spaceXs, Style::spaceMd);
+    btn->setGlyphSize(Tokens::sizeSymbolInline);
+    btn->setMinHeight(Tokens::sizeControlS);
+    btn->setMinWidth(Tokens::sizeControlS);
+    btn->setPadding(0.0F);
     btn->setContentAlign(ButtonContentAlign::Center);
     btn->setFlexGrow(0.0F);
     btn->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
@@ -107,7 +108,7 @@ Stepper::Stepper() {
     track->setGap(0.0F);
     track->setPadding(0.0F);
     track->setFlexGrow(1.0F);
-    track->setMinHeight(Style::controlHeight);
+    track->setMinHeight(Tokens::sizeControlS);
     track->clearFill();
     track->clearBorder();
     track->setRadii(Radii{});
@@ -117,7 +118,7 @@ Stepper::Stepper() {
     field->setFrameVisible(false);
     field->setTextAlign(TextAlign::Center);
     field->setFontSize(Style::fontSizeBody);
-    field->setControlHeight(Style::controlHeight);
+    field->setControlHeight(Tokens::sizeControlS);
     field->setHorizontalPadding(valueInputHorizontalPadding(m_scale));
     field->setFlexGrow(1.0F);
     field->setOnSubmit([this](const std::string& /*text*/) { commitValueField(); });
@@ -228,22 +229,24 @@ void Stepper::setScale(float scale) {
   setMinWidth(kDefaultMinWidth * m_scale);
   clearBorder();
   if (m_valueTrack != nullptr) {
-    m_valueTrack->setMinHeight(Style::controlHeight * m_scale);
+    m_valueTrack->setMinHeight(Tokens::sizeControlS * m_scale);
   }
   if (m_valueInput != nullptr) {
     m_valueInput->setFontSize(Style::fontSizeBody * m_scale);
-    m_valueInput->setControlHeight(Style::controlHeight * m_scale);
+    m_valueInput->setControlHeight(Tokens::sizeControlS * m_scale);
     m_valueInput->setHorizontalPadding(valueInputHorizontalPadding(m_scale));
   }
   if (m_decrement != nullptr) {
-    m_decrement->setGlyphSize(Style::fontSizeBody * m_scale);
-    m_decrement->setMinHeight(Style::controlHeight * m_scale);
-    m_decrement->setPadding(Style::spaceXs * m_scale, Style::spaceMd * m_scale);
+    m_decrement->setGlyphSize(Tokens::sizeSymbolInline * m_scale);
+    m_decrement->setMinHeight(Tokens::sizeControlS * m_scale);
+    m_decrement->setMinWidth(Tokens::sizeControlS * m_scale);
+    m_decrement->setPadding(0.0F);
   }
   if (m_increment != nullptr) {
-    m_increment->setGlyphSize(Style::fontSizeBody * m_scale);
-    m_increment->setMinHeight(Style::controlHeight * m_scale);
-    m_increment->setPadding(Style::spaceXs * m_scale, Style::spaceMd * m_scale);
+    m_increment->setGlyphSize(Tokens::sizeSymbolInline * m_scale);
+    m_increment->setMinHeight(Tokens::sizeControlS * m_scale);
+    m_increment->setMinWidth(Tokens::sizeControlS * m_scale);
+    m_increment->setPadding(0.0F);
   }
   refreshSegmentStyle();
   markLayoutDirty();
@@ -419,8 +422,8 @@ void Stepper::refreshButtons() {
 }
 
 void Stepper::refreshSegmentStyle() {
-  const float r = Style::scaledRadiusMd(m_scale);
-  setFill(colorSpecFromRole(ColorRole::Fill2, m_surfaceOpacity));
+  const float r = Tokens::sizeControlS * 0.5F * m_scale;
+  setFill(colorSpecFromRole(ColorRole::Fill1, m_surfaceOpacity));
   clearBorder();
   setRadius(r);
   if (m_decrement != nullptr) {

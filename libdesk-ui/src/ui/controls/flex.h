@@ -1,10 +1,13 @@
 #pragma once
 
+#include "render/core/render_styles.h"
 #include "render/scene/node.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
+#include <array>
 #include <optional>
+#include <utility>
 #include <unordered_set>
 
 class Renderer;
@@ -54,6 +57,8 @@ public:
   void setFill(const ColorSpec& color);
   // Explicit fixed color.
   void setFill(const Color& color);
+  // An illustration fill (a wallpaper in a preview); setFill returns to a solid fill.
+  void setFillGradient(GradientDirection direction, const std::array<GradientStop, 4>& stops);
   void clearFill();
   void setRadius(float radius);
   void setRadii(const Radii& radii);
@@ -128,6 +133,7 @@ private:
 
   RectNode* m_background = nullptr;
   ColorSpec m_fill = clearColorSpec();
+  std::optional<std::pair<GradientDirection, std::array<GradientStop, 4>>> m_fillGradient;
   ColorSpec m_border = clearColorSpec();
   Signal<>::ScopedConnection m_paletteConn;
   FlexDirection m_direction = FlexDirection::Horizontal;

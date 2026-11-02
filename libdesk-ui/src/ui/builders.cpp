@@ -739,8 +739,14 @@ namespace ui {
     if (props.state != nullptr) {
       control->bindState(props.state);
     }
+    if (props.scrollbarAutoHide.has_value()) {
+      control->setScrollbarAutoHide(*props.scrollbarAutoHide);
+    }
     if (props.scrollbarVisible.has_value()) {
       control->setScrollbarVisible(*props.scrollbarVisible);
+    }
+    if (props.maxContentWidth.has_value()) {
+      control->setMaxContentWidth(*props.maxContentWidth);
     }
     if (props.viewportPaddingH.has_value()) {
       control->setViewportPaddingH(*props.viewportPaddingH);

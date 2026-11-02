@@ -424,7 +424,9 @@ namespace ui {
     std::optional<float> contentScale = std::nullopt;
     std::optional<ScrollOrientation> orientation = std::nullopt;
     std::optional<bool> scrollbarVisible = std::nullopt;
+    std::optional<bool> scrollbarAutoHide = std::nullopt;
     std::optional<float> viewportPaddingH = std::nullopt;
+    std::optional<float> maxContentWidth = std::nullopt;
     std::optional<float> viewportPaddingV = std::nullopt;
     std::optional<ColorSpec> fill = std::nullopt;
     std::optional<float> radius = std::nullopt;

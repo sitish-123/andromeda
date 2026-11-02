@@ -1,5 +1,7 @@
 #include "ui/controls/separator.h"
 
+#include "ui/style.h"
+
 #include "render/core/render_styles.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/flex.h"
@@ -36,6 +38,11 @@ void Separator::setOrientation(SeparatorOrientation orientation) {
     return;
   }
   m_orientation = orientation;
+  markLayoutDirty();
+}
+
+void Separator::setEndOutset(float outset) {
+  m_endOutset = outset;
   markLayoutDirty();
 }
 
@@ -89,11 +96,13 @@ void Separator::doLayout(Renderer& /*renderer*/) {
   if (horiz) {
     const float w = width() > 0.0F ? width() : (parent() != nullptr ? parent()->width() : 0.0F);
     setSize(w, m_thickness + 2.0F * m_spacing);
-    const float halfW = w * 0.5F;
-    m_rectStart->setPosition(0.0F, m_spacing);
+    const float drawn = w + m_endOutset;
+    const float startX = Style::rtl() ? -m_endOutset : 0.0F;
+    const float halfW = drawn * 0.5F;
+    m_rectStart->setPosition(startX, m_spacing);
     m_rectStart->setFrameSize(halfW, m_thickness);
-    m_rectEnd->setPosition(halfW, m_spacing);
-    m_rectEnd->setFrameSize(w - halfW, m_thickness);
+    m_rectEnd->setPosition(startX + halfW, m_spacing);
+    m_rectEnd->setFrameSize(drawn - halfW, m_thickness);
   } else {
     const float lineH = height() > 0.0F ? height() : (parent() != nullptr ? parent()->height() : 0.0F);
     setSize(m_thickness + 2.0F * m_spacing, lineH);

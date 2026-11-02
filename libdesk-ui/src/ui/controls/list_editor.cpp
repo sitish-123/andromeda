@@ -12,8 +12,8 @@ namespace {
 
   constexpr float kLabelCellWidth = 200.0F;
   constexpr float kFreeformInputWidth = 190.0F;
-  constexpr float kItemRowHeight = 26.0F;
-  constexpr float kSuggestedAddHeight = 30.0F;
+  constexpr float kItemRowHeight = 40.0F; // one-line row (rulebook 9.7)
+  constexpr float kSuggestedAddHeight = 32.0F;
   constexpr float kVerticalGap = 2.0F;
 
   std::unique_ptr<Label> makeListLabel(std::string_view text, float scale) {
@@ -223,21 +223,21 @@ void ListEditor::rebuildRows() {
     );
     itemRow->addChild(std::move(labelCell));
 
-    addGhostIconButton(*itemRow, "close", Style::fontSizeCaption * m_scale, [this, i] {
+    addGhostIconButton(*itemRow, "close", Tokens::sizeSymbolInline * m_scale, [this, i] {
       if (m_onRemoveRequested) {
         m_onRemoveRequested(i);
       }
     });
 
     if (i > 0) {
-      addGhostIconButton(*itemRow, "chevron-up", Style::fontSizeCaption * m_scale, [this, i] {
+      addGhostIconButton(*itemRow, "chevron-up", Tokens::sizeSymbolInline * m_scale, [this, i] {
         if (m_onMoveRequested) {
           m_onMoveRequested(i, i - 1);
         }
       });
     }
     if (i + 1 < m_items.size()) {
-      addGhostIconButton(*itemRow, "chevron-down", Style::fontSizeCaption * m_scale, [this, i] {
+      addGhostIconButton(*itemRow, "chevron-down", Tokens::sizeSymbolInline * m_scale, [this, i] {
         if (m_onMoveRequested) {
           m_onMoveRequested(i, i + 1);
         }
@@ -256,10 +256,10 @@ void ListEditor::addGhostIconButton(Flex& row, std::string_view glyph, float siz
           .glyph = std::string(glyph),
           .glyphSize = size,
           .variant = ButtonVariant::Ghost,
-          .minWidth = kItemRowHeight * m_scale,
-          .minHeight = kItemRowHeight * m_scale,
-          .padding = Style::spaceXs * m_scale,
-          .radius = Style::scaledRadiusSm(m_scale),
+          .minWidth = Tokens::sizeControlS * m_scale,
+          .minHeight = Tokens::sizeControlS * m_scale,
+          .padding = 0.0F,
+          .radius = Style::scaledRadiusMd(m_scale),
           .onClick = std::move(callback),
       })
   );

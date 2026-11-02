@@ -450,6 +450,42 @@ void Button::setKeyboardFocusHint(bool hint) {
   applyVisualState();
 }
 
+void Button::setCheckBadge(bool shown, float scale, float radius, bool badge, const ColorSpec& ring) {
+  m_checkBadgeScale = scale;
+  if (m_checkBadge == nullptr) {
+    if (!shown) {
+      return;
+    }
+    auto badge = std::make_unique<Flex>();
+    badge->setAlign(FlexAlign::Center);
+    badge->setJustify(FlexJustify::Center);
+    badge->setParticipatesInLayout(false);
+    badge->setFill(colorSpecFromRole(ColorRole::Accent));
+    auto check = std::make_unique<Glyph>();
+    check->setGlyph("check");
+    check->setColor(colorSpecFromRole(ColorRole::OnAccent));
+    m_checkBadgeGlyph = static_cast<Glyph*>(badge->addChild(std::move(check)));
+    m_checkBadge = static_cast<Flex*>(addChild(std::move(badge)));
+  }
+  constexpr float kBadgeSize = 20.0F;
+  m_checkBadge->setRadius(kBadgeSize * 0.5F * scale);
+  m_checkBadge->setSize(kBadgeSize * scale, kBadgeSize * scale);
+  m_checkBadge->setMinWidth(kBadgeSize * scale);
+  m_checkBadge->setMinHeight(kBadgeSize * scale);
+  m_checkBadgeGlyph->setGlyphSize(Tokens::sizeSymbolInline * scale);
+  m_checkBadge->setVisible(shown && badge);
+  if (m_selectionRing == nullptr) {
+    auto ring = std::make_unique<Flex>();
+    ring->setParticipatesInLayout(false);
+    m_selectionRing = static_cast<Flex*>(addChild(std::move(ring)));
+  }
+  m_selectionRing->setBorder(ring, Style::focusRingWidth * scale);
+  m_selectionRingRadius = radius;
+  m_selectionRing->setVisible(shown);
+  m_checkBadge->setZIndex(1);
+  markLayoutDirty();
+}
+
 void Button::ensureBadge() {
   if (m_badge != nullptr) {
     return;
@@ -616,7 +652,8 @@ void Button::applyColors(const Color& bg, const Color& border, const Color& labe
     m_glyph->setColor(label);
   }
   for (const auto& child : children()) {
-    if (child.get() == m_label || child.get() == m_glyph || child.get() == m_badge) {
+    if (child.get() == m_label || child.get() == m_glyph || child.get() == m_badge || child.get() == m_checkBadge
+        || child.get() == m_selectionRing) {
       continue;
     }
     if (auto* lbl = dynamic_cast<Label*>(child.get())) {
@@ -869,6 +906,18 @@ void Button::doLayout(Renderer& renderer) {
     m_badge->layout(renderer);
     const float margin = Style::spaceXs;
     m_badge->setPosition(width() - m_badge->width() - margin, margin);
+  }
+
+  if (m_selectionRing != nullptr && m_selectionRing->visible()) {
+    m_selectionRing->setPosition(0.0F, 0.0F);
+    m_selectionRing->setSize(width(), height());
+    m_selectionRing->setRadius(m_selectionRingRadius);
+  }
+  if (m_checkBadge != nullptr && m_checkBadge->visible()) {
+    m_checkBadge->layout(renderer);
+    const float inset = Style::spaceSm * m_checkBadgeScale;
+    const float x = Style::rtl() ? inset : width() - m_checkBadge->width() - inset;
+    m_checkBadge->setPosition(std::round(x), std::round(inset));
   }
 
   // Only apply visual state if no animation is in progress — a running

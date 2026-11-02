@@ -23,8 +23,15 @@ Toggle::Toggle() {
 
   auto area = std::make_unique<InputArea>();
   area->setOnEnter([this](const InputArea::PointerData& /*data*/) { applyState(); });
-  area->setOnLeave([this] { applyState(); });
-  area->setOnPress([this](const InputArea::PointerData& /*data*/) { applyState(); });
+  area->setOnLeave([this] {
+    updatePressWiden();
+    applyState();
+  });
+  area->setOnPress([this](const InputArea::PointerData& /*data*/) {
+    updatePressWiden();
+    applyState();
+  });
+  area->setOnCancel([this] { updatePressWiden(); });
   area->setOnClick([this](const InputArea::PointerData& /*data*/) {
     if (!m_enabled) {
       return;
@@ -62,6 +69,15 @@ void Toggle::setChecked(bool checked) {
         m_animId, m_animationProgress, m_checked ? 1.0F : 0.0F, Style::spring(Tokens::springSnap),
         [this](float t) { applyAnimatedState(t); }, [this] { m_animId = 0; }, this, 0.0F, Unit::Scale, true
     );
+    // P4: the track colour runs on fade, apart from the knob's snap travel.
+    m_colorAnimId = animationManager()->drive(
+        m_colorAnimId, m_colorProgress, m_checked ? 1.0F : 0.0F, Style::spring(Tokens::springFade),
+        [this](float t) {
+          m_colorProgress = t;
+          applyAnimatedState(m_animationProgress);
+        },
+        [this] { m_colorAnimId = 0; }, this, 0.0F, Unit::Progress, true
+    );
     // Mark dirty so the surface's frame loop restarts and ticks the animation
     markPaintDirty();
   } else {
@@ -77,6 +93,10 @@ void Toggle::setCheckedImmediate(bool checked) {
   if (m_animId != 0 && animationManager() != nullptr) {
     animationManager()->cancel(m_animId);
     m_animId = 0;
+  }
+  if (m_colorAnimId != 0 && animationManager() != nullptr) {
+    animationManager()->cancel(m_colorAnimId);
+    m_colorAnimId = 0;
   }
   applyState();
 }
@@ -166,14 +186,43 @@ void Toggle::applySize() {
   setRadius((m_thumbSize + (m_inset * 2.0F)) * 0.5F);
 }
 
-void Toggle::applyState() { applyAnimatedState(m_checked ? 1.0F : 0.0F); }
+void Toggle::applyState() {
+  if (m_animId == 0 && m_colorAnimId == 0) {
+    m_colorProgress = m_checked ? 1.0F : 0.0F;
+    applyAnimatedState(m_checked ? 1.0F : 0.0F);
+  } else {
+    applyAnimatedState(m_animationProgress);
+  }
+}
+
+// P4: while pressed the knob widens toward its travel side, on snap.
+void Toggle::updatePressWiden() {
+  const float target = m_enabled && pressed() ? 1.0F : 0.0F;
+  if (animationManager() == nullptr) {
+    m_widen = target;
+    applyAnimatedState(m_animationProgress);
+    return;
+  }
+  m_widenAnimId = animationManager()->drive(
+      m_widenAnimId, m_widen, target, Style::spring(Tokens::springSnap),
+      [this](float w) {
+        m_widen = w;
+        applyAnimatedState(m_animationProgress);
+      },
+      [this] { m_widenAnimId = 0; }, this, 0.0F, Unit::Progress, true
+  );
+  markPaintDirty();
+}
 
 void Toggle::applyAnimatedState(float t) {
   m_animationProgress = t;
-  const float mixT = std::clamp(t, 0.0F, 1.0F);
+  const float mixT = std::clamp(m_colorProgress, 0.0F, 1.0F);
   const Color trackColor = lerpColor(colorForRole(ColorRole::Stroke), colorForRole(ColorRole::Accent), mixT);
   const Color thumbColor = lerpColor(colorForRole(ColorRole::OnAccent), colorForRole(ColorRole::OnAccent), mixT);
-  const float thumbX = m_inset + m_travel * (Style::rtl() ? 1.0F - t : t);
+  const float along = Style::rtl() ? 1.0F - t : t;
+  const float extra = Tokens::componentTogglePressWiden * m_scale * m_widen;
+  const float thumbX = m_inset + m_travel * along - extra * along;
+  const float thumbW = m_thumbSize + extra;
   ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
 
   if (m_enabled) {
@@ -193,13 +242,14 @@ void Toggle::applyAnimatedState(float t) {
   auto thumbStyle = m_thumb->style();
   thumbStyle.fillMode = FillMode::Solid;
   thumbStyle.radius = m_thumbSize * 0.5F;
+  m_thumb->setFrameSize(thumbW, m_thumbSize);
   thumbStyle.softness = 1.0F;
   thumbStyle.borderWidth = 0.0F;
   thumbStyle.fill = thumbColor;
   m_thumb->setStyle(thumbStyle);
 
   // Padding keeps Flex size consistent regardless of thumb position
-  const float rightPad = m_inset + m_travel - (thumbX - m_inset);
+  const float rightPad = m_inset + m_travel - (thumbX - m_inset) - extra;
   setPadding(m_inset, rightPad, m_inset, thumbX);
 
   if (m_enabled) {
