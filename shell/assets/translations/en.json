@@ -1063,11 +1063,16 @@
     },
     "pill": {
       "actions-hint": "Actions",
+      "category": "Category",
       "close-hint": "Close",
       "open": "Open",
+      "last-opened": "Last opened",
       "open-hint": "Open ↩",
+      "opened": "Opened",
       "result-count": "{count} results",
-      "search-web": "Search the web for “{query}”"
+      "search-web": "Search the web for “{query}”",
+      "times": "{count} time",
+      "times-plural": "{count} times"
     },
     "search-placeholder": "Search"
   },

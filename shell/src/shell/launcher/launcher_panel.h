@@ -7,6 +7,7 @@
 #include "system/icon_resolver.h"
 #include "ui/signal.h"
 
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -143,6 +144,8 @@ private:
   void applyPinnedApplicationOrder();
   void reorderPinnedApplication(std::string_view sourcePath, std::string_view targetPath);
   void syncLauncherAvatar(Renderer& renderer);
+  void bindPreview(Renderer& renderer);
+  void activateSelectedDesktopAction();
   void showProviderOverview();
   void showSessionActions();
   [[nodiscard]] bool usesBrowserLayout() const;
@@ -199,6 +202,19 @@ private:
   bool m_browserMode = false;
   Separator* m_pillSeparator = nullptr;
   Flex* m_pillFooter = nullptr;
+  // Direction C preview pane (right of the result list).
+  Flex* m_previewPane = nullptr;
+  Separator* m_previewDivider = nullptr;
+  Image* m_previewImage = nullptr;
+  Glyph* m_previewGlyph = nullptr;
+  Label* m_previewTitle = nullptr;
+  Label* m_previewKind = nullptr;
+  Button* m_previewOpen = nullptr;
+  Button* m_previewAction = nullptr;
+  std::array<Flex*, 3> m_previewMetaRows{};
+  std::array<Label*, 3> m_previewMetaKeys{};
+  std::array<Label*, 3> m_previewMetaValues{};
+  std::string m_previewIconPath;
   Label* m_pillCount = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
