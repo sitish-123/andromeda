@@ -12,6 +12,8 @@
 #include "shell/phone/phone_state.h"
 #include "system/brightness_service.h"
 #include "system/rfkill_helper.h"
+#include "ui/builders.h"
+#include "ui/controls/box.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
@@ -465,6 +467,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   m_editArea = nullptr;
   m_galleryArea = nullptr;
   m_editCards.clear();
+  m_liftShadow = nullptr;
   m_editRows.clear();
   m_editHalf.clear();
   m_galleryHalf.clear();
@@ -576,21 +579,22 @@ std::unique_ptr<Flex> QuickTab::create() {
   controls->setDirection(FlexDirection::Horizontal);
   controls->setAlign(FlexAlign::Center);
   Button* unused = nullptr;
-  controls->addChild(makeGlyphButton(unused, "player-skip-back", s, [this] {
+  controls->addChild(makeGlyphButton(m_mediaKeys[0], "player-skip-back", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->previousActive();
     }
   }, kMediaControl, ButtonVariant::Ghost));
-  controls->addChild(makeGlyphButton(m_playButton, "player-play", s, [this] {
+  controls->addChild(makeGlyphButton(m_mediaKeys[1], "player-play", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->playPauseActive();
     }
   }, kMediaControl, ButtonVariant::Ghost));
-  controls->addChild(makeGlyphButton(unused, "player-skip-forward", s, [this] {
+  controls->addChild(makeGlyphButton(m_mediaKeys[2], "player-skip-forward", s, [this] {
     if (m_services.mpris != nullptr) {
       m_services.mpris->nextActive();
     }
   }, kMediaControl, ButtonVariant::Ghost));
+  m_playButton = m_mediaKeys[1];
   media->addChild(std::move(controls));
   root->addChild(std::move(media));
 
@@ -611,12 +615,12 @@ std::unique_ptr<Flex> QuickTab::create() {
   actions->setDirection(FlexDirection::Horizontal);
   actions->setAlign(FlexAlign::Center);
   actions->setGap(Tokens::componentRoundIconActionGap * s);
-  actions->addChild(makeGlyphButton(m_phoneRingButton, "bell-ringing", s, [this] {
+  actions->addChild(makeGlyphButton(m_phoneKeys[0], "bell-ringing", s, [this] {
     if (m_phoneRing != nullptr) {
       m_phoneRing->onClick();
     }
   }, Tokens::componentRoundIconAction));
-  actions->addChild(makeGlyphButton(m_phoneMirrorButton, "screen-share", s, [this] {
+  actions->addChild(makeGlyphButton(m_phoneKeys[1], "screen-share", s, [this] {
     if (m_services.link != nullptr && !m_phoneId.empty()) {
       m_services.link->mirror(m_phoneId);
     }
@@ -632,6 +636,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   if (phoneOpen->glyph() != nullptr) {
     phoneOpen->glyph()->setColor(colorSpecFromRole(ColorRole::Label3));
   }
+  m_phoneKeys[2] = phoneOpen.get();
   phone->addChild(std::move(phoneOpen));
   const auto openOnRightClick = [this](const InputArea::PointerData& d) {
     if (d.pressed && d.button == BTN_RIGHT) {
@@ -898,6 +903,9 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   return footer;
 }
 
+// Badge overhang and lift growth (about 7 px), rounded up to the 4 grid.
+float QuickTab::editGridMargin() const { return Tokens::spaceP8 * contentScale(); }
+
 void QuickTab::sizePages(Renderer& renderer, float width) {
   if (m_pager == nullptr || m_pages.empty()) {
     return;
@@ -914,11 +922,16 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
     cell->setMinWidth(half);
     cell->setMaxWidth(half);
   }
-  for (const auto* cells : {&m_editHalf, &m_galleryHalf}) {
-    for (Flex* cell : *cells) {
-      cell->setMinWidth(half);
-      cell->setMaxWidth(half);
-    }
+  // The edit grid keeps a margin for the remove badges (they overhang the tile) and the 1.04 lift.
+  const float editMargin = editGridMargin();
+  const float editHalf = std::floor((width - 2.0F * editMargin - Tokens::componentSheetGap * contentScale()) * 0.5F);
+  for (Flex* cell : m_editHalf) {
+    cell->setMinWidth(editHalf);
+    cell->setMaxWidth(editHalf);
+  }
+  for (Flex* cell : m_galleryHalf) {
+    cell->setMinWidth(half);
+    cell->setMaxWidth(half);
   }
   LayoutConstraints constraints;
   constraints.setExactWidth(width);
@@ -1023,7 +1036,7 @@ void QuickTab::fadeIn(Node& node, float delayMs) {
 
 void QuickTab::startStagger() {
   // Rulebook P5: tiles stagger in after the content gate (35 % of the open spring), 16 ms apart, six at most.
-  constexpr int kGateMs = 150;
+  const int kGateMs = static_cast<int>(PanelManager::openContentGate().count());
   constexpr int kStaggerMs = 16;
   for (std::size_t i = 0; i < std::min(m_extras.size(), m_staggerTimers.size()); ++i) {
     Flex* card = m_extras[i].card;
@@ -1178,8 +1191,8 @@ void QuickTab::syncPhone() {
   }
   m_phoneName->setText(phone->name);
   m_phoneCard->setOpacity(phone->connected ? 1.0F : 0.6F);
-  m_phoneRingButton->setEnabled(phone->connected);
-  m_phoneMirrorButton->setEnabled(phone->connected);
+  m_phoneKeys[0]->setEnabled(phone->connected);
+  m_phoneKeys[1]->setEnabled(phone->connected);
   std::string line;
   const auto append = [&line](const std::string& part) { line += line.empty() ? part : " · " + part; };
   if (!phone->connected) {
@@ -1264,6 +1277,7 @@ void QuickTab::buildEditParts(Flex& root) {
   grid->setDirection(FlexDirection::Vertical);
   grid->setAlign(FlexAlign::Stretch);
   grid->setGap(Tokens::componentSheetGap * s);
+  grid->setPadding(editGridMargin(), editGridMargin(), 0.0F, editGridMargin());
   grid->setVisible(false);
   m_editGrid = grid.get();
   auto area = std::make_unique<InputArea>();
@@ -1370,6 +1384,39 @@ void QuickTab::buildEditParts(Flex& root) {
   root.addChild(std::move(gallery));
 }
 
+// The dragged tile lifts to E3 (rulebook 9.16): a soft shadow under it, behind the rows of the grid.
+void QuickTab::syncLiftShadow() {
+  const bool lifted = m_editing && m_editGrid != nullptr && m_dragIndex >= 0
+      && static_cast<std::size_t>(m_dragIndex) < m_editCards.size();
+  if (!lifted) {
+    if (m_liftShadow != nullptr && m_liftShadow->parent() != nullptr) {
+      m_liftShadow->setVisible(false);
+    }
+    return;
+  }
+  const float s = contentScale();
+  if (m_liftShadow == nullptr || m_liftShadow->parent() != m_editGrid) {
+    auto shadow = ui::box({.visible = false, .participatesInLayout = false});
+    shadow->setSoftness(Tokens::elevationE3.keyBlur * s);
+    shadow->setFill(colorSpecFromRole(
+        ColorRole::Shadow, isResolvedLightTheme() ? Tokens::elevationE3.keyLight : Tokens::elevationE3.keyDark
+    ));
+    shadow->setZIndex(-1);
+    m_liftShadow = static_cast<Box*>(m_editGrid->addChild(std::move(shadow)));
+  }
+  const Flex* card = m_editCards[static_cast<std::size_t>(m_dragIndex)];
+  const float scale = card->scaleX();
+  const float w = card->width() * scale;
+  const float h = card->height() * scale;
+  m_liftShadow->setVisible(true);
+  m_liftShadow->setRadius(Tokens::componentTileRadius * s * scale);
+  m_liftShadow->setPosition(
+      offsetIn(card, m_editGrid, false) + (card->width() - w) * 0.5F,
+      offsetIn(card, m_editGrid, true) + (card->height() - h) * 0.5F + Tokens::elevationE3.keyY * s
+  );
+  m_liftShadow->setFrameSize(w, h);
+}
+
 void QuickTab::reflowEditGrid() {
   const float s = contentScale();
   std::vector<std::unique_ptr<Flex>> held;
@@ -1378,6 +1425,7 @@ void QuickTab::reflowEditGrid() {
     held.emplace_back(static_cast<Flex*>(node.release()));
   }
   clearChildren(*m_editGrid, m_editArea);
+  m_liftShadow = nullptr;
   m_editRows.clear();
   m_editCards.clear();
   m_editHalf.clear();
@@ -1423,6 +1471,7 @@ void QuickTab::rebuildEdit() {
   m_galleryIds.clear();
   m_editCards.clear();
   clearChildren(*m_editGrid, m_editArea);
+  m_liftShadow = nullptr;
   clearChildren(*m_editGallery, m_galleryArea);
   m_editRows.clear();
   m_editHalf.clear();
@@ -1535,6 +1584,9 @@ void QuickTab::onClose() {
     saveEdit();
     m_editing = false;
   }
+  m_mediaKeys = {};
+  m_phoneKeys = {};
+  m_liftShadow = nullptr;
 }
 
 void QuickTab::setEditing(bool editing) {
@@ -1592,6 +1644,18 @@ void QuickTab::setEditing(bool editing) {
   PanelManager::instance().requestLayout();
 }
 
+Label* QuickTab::sharedTitleFor(std::string_view detailKey) {
+  if (detailKey == "detail-phone") {
+    return m_phoneCard != nullptr && m_phoneCard->visible() ? m_phoneName : nullptr;
+  }
+  for (const ToggleRow& row : m_extras) {
+    if (row.detail == detailKey && row.title != nullptr && row.body != nullptr && row.body->visible()) {
+      return row.title;
+    }
+  }
+  return nullptr;
+}
+
 void QuickTab::setActive(bool active) {
   if (active && m_staggerPending) {
     m_staggerPending = false;
@@ -1631,7 +1695,11 @@ bool QuickTab::handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const
     slider->setValue(slider->value() + step);
     return true;
   case XKB_KEY_Down:
-    return slider == m_brightnessSlider ? focusSlider(m_volumeSlider) : true;
+    if (slider == m_brightnessSlider) {
+      return focusSlider(m_volumeSlider);
+    }
+    (void)handleCardKey(sym, focused);
+    return true;
   case XKB_KEY_Up:
     if (slider == m_volumeSlider && m_brightnessPill->visible()) {
       return focusSlider(m_brightnessSlider);
@@ -1651,6 +1719,82 @@ bool QuickTab::moveFocus(int index) {
   return true;
 }
 
+// The media and phone cards are rows of buttons below the volume pill: Down reaches them, Left and Right move along a row.
+bool QuickTab::handleCardKey(std::uint32_t sym, const InputArea* focused) {
+  const std::array<std::array<Button*, 3>*, 2> rows{&m_mediaKeys, &m_phoneKeys};
+  const std::array<const Node*, 2> cards{m_mediaCard, m_phoneCard};
+  const auto shown = [&](std::size_t row) { return cards[row] != nullptr && cards[row]->visible(); };
+  // Focuses the enabled button nearest to `column` in the row, none when the row has none.
+  const auto focusRow = [&](std::size_t row, std::size_t column) {
+    Button* best = nullptr;
+    std::size_t bestDistance = rows[row]->size();
+    for (std::size_t i = 0; i < rows[row]->size(); ++i) {
+      Button* candidate = (*rows[row])[i];
+      const std::size_t distance = i > column ? i - column : column - i;
+      if (candidate != nullptr && candidate->enabled() && candidate->inputArea() != nullptr && distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    if (best == nullptr) {
+      return false;
+    }
+    PanelManager::instance().inputDispatcher().setFocus(best->inputArea());
+    return true;
+  };
+  if (m_volumeSlider != nullptr && focused == m_volumeSlider->inputArea() && sym == XKB_KEY_Down) {
+    for (std::size_t row = 0; row < rows.size(); ++row) {
+      if (shown(row) && focusRow(row, 0)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  for (std::size_t row = 0; row < rows.size(); ++row) {
+    for (std::size_t column = 0; column < rows[row]->size(); ++column) {
+      Button* button = (*rows[row])[column];
+      if (button == nullptr || button->inputArea() != focused) {
+        continue;
+      }
+      switch (sym) {
+      case XKB_KEY_Left:
+        for (std::size_t next = column; next-- > 0;) {
+          Button* candidate = (*rows[row])[next];
+          if (candidate != nullptr && candidate->enabled()) {
+            return focusRow(row, next);
+          }
+        }
+        return true;
+      case XKB_KEY_Right:
+        for (std::size_t next = column + 1; next < rows[row]->size(); ++next) {
+          Button* candidate = (*rows[row])[next];
+          if (candidate != nullptr && candidate->enabled()) {
+            return focusRow(row, next);
+          }
+        }
+        return true;
+      case XKB_KEY_Down:
+        for (std::size_t next = row + 1; next < rows.size(); ++next) {
+          if (shown(next) && focusRow(next, column)) {
+            return true;
+          }
+        }
+        return true;
+      case XKB_KEY_Up:
+        for (std::size_t previous = row; previous-- > 0;) {
+          if (shown(previous) && focusRow(previous, column)) {
+            return true;
+          }
+        }
+        return focusSlider(m_volumeSlider);
+      default:
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
   if (!pressed || preedit) {
     return false;
@@ -1664,6 +1808,9 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
   }
   const InputArea* focused = PanelManager::instance().inputDispatcher().focusedArea();
   if (focused != nullptr && handleSliderKey(sym, modifiers, focused)) {
+    return true;
+  }
+  if (focused != nullptr && handleCardKey(sym, focused)) {
     return true;
   }
   int at = -1;
@@ -1727,6 +1874,7 @@ void QuickTab::doUpdate(Renderer& renderer) {
     m_editRebuildPending = false;
     rebuildEdit();
   }
+  syncLiftShadow();
   if (m_editing) {
     syncExtras();
     return;

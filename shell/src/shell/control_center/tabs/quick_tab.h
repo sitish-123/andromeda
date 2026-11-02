@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+class Box;
 class Button;
 class Flex;
 class Glyph;
@@ -38,6 +39,7 @@ public:
   bool handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   void onClose() override;
   void setActive(bool active) override;
+  Label* sharedTitleFor(std::string_view detailKey) override;
   // Natural height of the sheet at `width`.
   [[nodiscard]] float measureHeight(Renderer& renderer, float width);
 
@@ -97,6 +99,7 @@ private:
   void startStagger();
   bool focusSlider(Slider* slider);
   // Left/Right/Up/Down on a focused slider; false when no slider holds focus.
+  bool handleCardKey(std::uint32_t sym, const InputArea* focused);
   bool handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const InputArea* focused);
   void buildEditParts(Flex& root);
   void rebuildEdit();
@@ -154,6 +157,9 @@ private:
   std::vector<std::string> m_galleryIds;
   std::vector<Flex*> m_galleryCards;
   int m_dragIndex = -1;
+  Box* m_liftShadow = nullptr;
+  void syncLiftShadow();
+  [[nodiscard]] float editGridMargin() const;
   int m_pressedIndex = -1;
   bool m_pressedBadge = false;
   float m_pressY = 0.0F;
@@ -184,8 +190,8 @@ private:
   Button* m_playButton = nullptr;
 
   Flex* m_phoneCard = nullptr;
-  Button* m_phoneRingButton = nullptr;
-  Button* m_phoneMirrorButton = nullptr;
+  std::array<Button*, 3> m_mediaKeys{};
+  std::array<Button*, 3> m_phoneKeys{}; // ring, mirror, open
   Label* m_phoneName = nullptr;
   Label* m_phoneStatus = nullptr;
   std::string m_phoneId;

@@ -220,6 +220,21 @@ private:
   std::array<Flex*, kTabCount> m_tabContainers{};
   std::array<Flex*, kTabCount> m_tabHeaderActions{};
   TabId m_activeTab = TabId::Quick;
+  // §7.4: the tile title flies into the detail header; the overlay carries it while the real title waits.
+  struct TitleMove {
+    Label* overlay = nullptr;
+    float fromX = 0.0F;
+    float fromY = 0.0F;
+    float fromSize = 0.0F;
+    float fromLine = 0.0F;
+    bool pending = false;
+    int waitedFrames = 0;
+    AnimationManager::Id animation = 0;
+  };
+  TitleMove m_titleMove;
+  void beginTitleMove(Label& source);
+  void runTitleMove();
+  void endTitleMove();
   bool m_activeTabForced = false;
   ConfigService* m_config = nullptr;
   MprisService* m_mpris = nullptr;

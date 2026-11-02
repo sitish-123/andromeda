@@ -36,6 +36,9 @@ public:
   // while this tab is active.
   virtual std::unique_ptr<Flex> createHeaderActions();
 
+  // The label that becomes the header title of the detail page `detailKey` (rulebook 7.4); null for none.
+  [[nodiscard]] virtual Label* sharedTitleFor(std::string_view detailKey) { (void)detailKey; return nullptr; }
+
   // The header title while this tab is active; empty keeps the title from the tab table.
   [[nodiscard]] virtual std::string headerTitle() const { return {}; }
 

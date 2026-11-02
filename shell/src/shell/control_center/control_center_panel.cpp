@@ -11,6 +11,7 @@
 #include "render/scene/node.h"
 #include "shell/control_center/tabs/screen_time_tab.h"
 #include "shell/panel/panel_button_style.h"
+#include "render/animation/motion_service.h"
 #include "shell/panel/panel_manager.h"
 #include "system/dependency_service.h"
 #include "system/easyeffects_service.h"
@@ -467,6 +468,7 @@ void ControlCenterPanel::doUpdate(Renderer& renderer) {
   if (m_tabs[activeIdx] != nullptr) {
     m_tabs[activeIdx]->update(renderer);
   }
+  runTitleMove();
 }
 
 void ControlCenterPanel::onFrameTick(float deltaMs) {
@@ -510,6 +512,10 @@ bool ControlCenterPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifi
 }
 
 void ControlCenterPanel::onClose() {
+  if (m_titleMove.animation != 0 && m_animations != nullptr) {
+    m_animations->cancel(m_titleMove.animation);
+  }
+  m_titleMove = {};
   if (m_tabTransitionAnimId != 0 && m_animations != nullptr) {
     m_animations->cancel(m_tabTransitionAnimId);
     m_tabTransitionAnimId = 0;
@@ -890,6 +896,13 @@ void ControlCenterPanel::selectTab(TabId tab, bool animated) {
     finishTabTransition();
   }
 
+  endTitleMove();
+  if (animated && previousTab == TabId::Quick && isDetailTab(tab) && m_tabs[tabIndex(previousTab)] != nullptr
+      && MotionService::instance().enabled()) {
+    if (Label* source = m_tabs[tabIndex(previousTab)]->sharedTitleFor(kTabs[tabIndex(tab)].key); source != nullptr) {
+      beginTitleMove(*source);
+    }
+  }
   m_activeTab = tab;
   if (tab == TabId::Notifications && m_notificationManager != nullptr) {
     m_notificationManager->markNotificationHistorySeen();
@@ -906,6 +919,94 @@ void ControlCenterPanel::selectTab(TabId tab, bool animated) {
   }
 
   scheduleMprisRefreshFor(tab);
+}
+
+void ControlCenterPanel::beginTitleMove(Label& source) {
+  if (m_rootLayout == nullptr || m_contentTitle == nullptr || source.text().empty()) {
+    return;
+  }
+  float sx = 0.0F;
+  float sy = 0.0F;
+  float rx = 0.0F;
+  float ry = 0.0F;
+  Node::absolutePosition(&source, sx, sy);
+  Node::absolutePosition(m_rootLayout, rx, ry);
+  auto overlay = std::make_unique<Label>();
+  overlay->setParticipatesInLayout(false);
+  overlay->setText(source.text());
+  overlay->setMaxLines(1);
+  overlay->setFontSize(Tokens::typeHeadline.size * m_contentScale);
+  overlay->setLineHeight(Tokens::typeHeadline.line * m_contentScale);
+  overlay->setFontWeight(static_cast<FontWeight>(Style::glassWeight(Tokens::typeHeadline.weight)));
+  overlay->setColor(colorSpecFromRole(ColorRole::Label1));
+  overlay->setZIndex(100);
+  overlay->setPosition(sx - rx, sy - ry);
+  m_titleMove = TitleMove{
+      .overlay = static_cast<Label*>(m_rootLayout->addChild(std::move(overlay))),
+      .fromX = sx - rx,
+      .fromY = sy - ry,
+      .fromSize = Tokens::typeHeadline.size * m_contentScale,
+      .fromLine = Tokens::typeHeadline.line * m_contentScale,
+      .pending = true,
+  };
+  m_contentTitle->setOpacity(0.0F);
+}
+
+// The header has its place after the next layout: fly the overlay there, then hand over to the real title.
+void ControlCenterPanel::runTitleMove() {
+  if (!m_titleMove.pending || m_titleMove.overlay == nullptr || m_contentTitle == nullptr || m_rootLayout == nullptr
+      || m_animations == nullptr) {
+    return;
+  }
+  float tx = 0.0F;
+  float ty = 0.0F;
+  float rx = 0.0F;
+  float ry = 0.0F;
+  Node::absolutePosition(m_contentTitle, tx, ty);
+  Node::absolutePosition(m_rootLayout, rx, ry);
+  if (m_contentTitle->width() <= 0.0F) {
+    constexpr int kMaxWaitFrames = 30;
+    if (++m_titleMove.waitedFrames > kMaxWaitFrames) {
+      endTitleMove();
+    }
+    return;
+  }
+  m_titleMove.pending = false;
+  const float toX = tx - rx;
+  const float toY = ty - ry;
+  const float toSize = Tokens::typeTitle3.size * m_contentScale;
+  const float toLine = Tokens::typeTitle3.line * m_contentScale;
+  const TitleMove start = m_titleMove;
+  m_titleMove.animation = m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
+      [this, start, toX, toY, toSize, toLine](float p) {
+        if (m_titleMove.overlay == nullptr) {
+          return;
+        }
+        m_titleMove.overlay->setPosition(start.fromX + (toX - start.fromX) * p, start.fromY + (toY - start.fromY) * p);
+        m_titleMove.overlay->setFontSize(start.fromSize + (toSize - start.fromSize) * p);
+        m_titleMove.overlay->setLineHeight(start.fromLine + (toLine - start.fromLine) * p);
+        PanelManager::instance().requestRedraw();
+      },
+      [this] {
+        m_titleMove.animation = 0;
+        endTitleMove();
+      },
+      m_rootLayout, 0.0F, Unit::Progress
+  );
+}
+
+void ControlCenterPanel::endTitleMove() {
+  if (m_titleMove.animation != 0 && m_animations != nullptr) {
+    m_animations->cancel(m_titleMove.animation);
+  }
+  if (m_titleMove.overlay != nullptr && m_rootLayout != nullptr) {
+    m_rootLayout->removeChild(m_titleMove.overlay);
+  }
+  m_titleMove = {};
+  if (m_contentTitle != nullptr) {
+    m_contentTitle->setOpacity(1.0F);
+  }
 }
 
 void ControlCenterPanel::scheduleMprisRefreshFor(TabId tab) {

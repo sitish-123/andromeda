@@ -20,6 +20,11 @@ with_noctalia '
     fail "$what"
   }
   phone() { "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" "$@" 2>> "$OUT/phone.log"; }
+  wait_state() {
+    local want=$1
+    for _ in $(seq 100); do [[ $(msg panel-state) == "$want" ]] && return; sleep 0.1; done
+    fail "panel-state is \"$(msg panel-state)\", wanted \"$want\""
+  }
   phone_saw() { [[ $(grep -c "$1" "$OUT/hold.jsonl") -ge ${2:-1} ]]; }
   ringing() { [[ $(msg link-ringing) == "$1" ]]; }
   click() { "$POINTER" 1280 720 move "$1" "$2" > /dev/null; "$POINTER" 1280 720 move "$1" "$2" click 272 move 5 715 > /dev/null; }
@@ -69,6 +74,20 @@ PY
   sleep 1 # real time: the card repaints
   grim "$OUT/phone-card.png"
 
+  # Keyboard: Down from the first tile reaches the volume pill, then the phone card; Right moves to its chevron and
+  # Enter opens the phone page. One held virtual keyboard keeps the shell bound to it, so no key is lost.
+  "$POINTER" 1280 720 keyboard-only mod none pause 120000 > /dev/null 2>&1 &
+  holder=$!
+  wait_for "the shell did not bind the held keyboard" grep -q "keyboard: bound" "$OUT/noctalia.log"
+  key() { local a=() k; for k in "$@"; do a+=(tap "$k"); done; "$POINTER" 1280 720 "${a[@]}" > /dev/null; }
+  wait_state "control-center quick"
+  # Down and Right stop at the last row and the last button, so extra presses are harmless.
+  key 108 108 108 108 108 108 106 106 106 28
+  wait_state "control-center detail-phone"
+  kill "$holder" 2> /dev/null || true
+  msg panel-close > /dev/null
+  wait_state none
+
   msg panel-open control-center detail-phone > /dev/null
   # The tiles are flat grey until the thumbnails arrive; a loaded gradient spans a wide range of grey.
   thumbs_ready() {
@@ -99,7 +118,7 @@ PY
 
   # A click on a phone call in the center island opens the sheet on this page.
   msg panel-close > /dev/null
-  wait_for "the sheet did not close: $(msg panel-state)" eval "[[ \$(msg panel-state) == none ]]"
+  wait_state none
   say() { printf "%s\n" "$*" >&3; }
   say "call {\"state\":\"ringing\",\"number\":\"+1 555 0100\",\"name\":\"Ada Lovelace\"}"
   wait_for "the call is not a live activity" eval "[[ \$(msg live-activity) == *Ada* ]]"
@@ -108,7 +127,7 @@ PY
   click "${ISLAND_X:-560}" "${ISLAND_Y:-24}"
   sleep 1 # real time: the sheet opens
   grim "$OUT/phone-from-island.png"
-  wait_for "the island click did not open the phone page: $(msg panel-state)" eval "[[ \$(msg panel-state) == \"control-center detail-phone\" ]]"
+  wait_state "control-center detail-phone"
 
   # The header toggle pauses and resumes the phone here.
   paused() { python3 -I -c "import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))[\"peers\"][0].get(\"paused\") else 1)" "$RUNTIME/linkd/andromeda-link/devices.json"; }
