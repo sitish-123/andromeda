@@ -265,12 +265,12 @@ damping = 0.78
 [spring.close]     # response 0.28 s, bounce 0: Return, dismissals
 stiffness = 503.6
 damping = 1.00
-[spring.morph]     # response 0.46 s, bounce 0.25: center island expands
+[spring.morph]     # response 0.46 s, bounce 0.18: center island expands
 stiffness = 186.6
-damping = 0.75
-[spring.collapse]  # response 0.32 s, bounce 0.10: center island returns to rest
-stiffness = 385.5
-damping = 0.90
+damping = 0.82
+[spring.collapse]  # response 0.42 s, bounce 0.20: center island returns to rest
+stiffness = 223.8
+damping = 0.80
 [spring.page]      # response 0.32 s, bounce 0.05: pages, workspaces, gesture release with velocity
 stiffness = 385.5
 damping = 0.95
@@ -365,6 +365,12 @@ padding = 8.0        # image-led card
 art = 56.0
 art_radius = "= component.tile.radius - component.media.padding"
 controls_gap = 8.0
+
+[component.edit]  # 9.16 edit mode
+badge_remove = 16.0  # label_2 circle at -4 / -4
+badge_add = 20.0     # accent circle, centred at the tile's right inset 12
+badge_inset = 4.0
+drag_scale = 1.04
 
 [component.page_dots]
 row = 16.0

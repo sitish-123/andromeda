@@ -1193,21 +1193,21 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 <tr>
 <td>morph</td>
 <td>0.46</td>
-<td>0.25</td>
+<td>0.18</td>
 <td>187</td>
-<td>0.75</td>
-<td>530 ms</td>
-<td>2.8 %</td>
+<td>0.82</td>
+<td>470 ms</td>
+<td>1.0 %</td>
 <td>center island expands (media, banner, OSD, live activity)</td>
 </tr>
 <tr>
 <td>collapse</td>
-<td>0.32</td>
-<td>0.10</td>
-<td>386</td>
-<td>0.90</td>
-<td>280 ms</td>
-<td>0.1 %</td>
+<td>0.42</td>
+<td>0.20</td>
+<td>224</td>
+<td>0.80</td>
+<td>470 ms</td>
+<td>1.5 %</td>
 <td>center island returns to rest</td>
 </tr>
 <tr>
@@ -1563,10 +1563,10 @@ row says so.</p>
 <td>snap and release lowered to 0.15 / 0.25; input never waits (7.1.8)</td>
 </tr>
 <tr>
-<td>morph recipe</td>
-<td>no primary source: Apple does not publish Dynamic Island parameters. Recreations (<a href="https://www.sinasamaki.com/dynamic-island/">sinasamaki</a>, smoothui) use a spring on size, a short scale + blur crossfade on content, a firmer spring to collapse</td>
-<td>morph 0.46 / 0.25, collapse 0.32 / 0.10, faces 0.92 + blur 8 (7.4) are our choice; tune by side-by-side recording</td>
-<td></td>
+<td>morph timing</td>
+<td>Measured: side-by-side slow-motion screen recording of iOS 16.2 / 18.4 (<a href="https://x.com/xezrunner/status/1898159152590918120">xezrunner</a>), width per frame at 60 fps, damped-spring fit (rms &lt;= 0.024)</td>
+<td>expand bounce 0.18 (iOS 16) / 0.12 (iOS 18); collapse bounce 0.24 (iOS 18); collapse response = 0.93 x expand. Video time scale unknown: response 0.46 kept from recreations</td>
+<td>morph 0.46 / 0.18, collapse 0.42 / 0.20; faces 0.92 + blur 8 our choice</td>
 </tr>
 <tr>
 <td>content fade inside a moving shape</td>
@@ -3037,7 +3037,7 @@ rulebook yet, full restyle.</p>
 </div>
 <script>
 /* ---------- Spring engine (rulebook 7.2) ---------- */
-const SP = { snap:[.26,.15], trail:[.34,.20], move:[.35,.10], open:[.42,.22], close:[.28,0], morph:[.46,.25], collapse:[.32,.10],
+const SP = { snap:[.26,.15], trail:[.34,.20], move:[.35,.10], open:[.42,.22], close:[.28,0], morph:[.46,.18], collapse:[.42,.20],
   page:[.32,.05], press:[.12,0], release:[.32,.25], fade:[.16,0], fade_out:[.10,0] };
 const EFFECT = new Set(['fade','fade_out']);
 const opt = { rm:false, slow:false, still: location.hash.includes('still') };
