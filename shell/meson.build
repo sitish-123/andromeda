@@ -993,7 +993,6 @@ _noctalia_system_dependencies = [
   pipewire_dep,
   wireplumber_dep,
   curl_dep,
-  libqalculate_dep,
   pam_dep,
   nlohmann_dep,
   libxml2_dep,
@@ -1021,6 +1020,7 @@ _noctalia_test_dependencies = _noctalia_system_dependencies + [
 _noctalia_compile_definitions = [
   '-DNOCTALIA_INSTALL_PREFIX="' + get_option('prefix') + '"',
   '-DNOCTALIA_INSTALL_DATADIR="' + get_option('datadir') + '"',
+  '-DNOCTALIA_INSTALL_LIBDIR="' + get_option('libdir') + '"',
   '-DNOCTALIA_VERSION="' + meson.project_version() + '"',
 ] + jemalloc_cpp_args
 
@@ -1053,6 +1053,18 @@ noctalia_exe = executable('noctalia',
   cpp_args: _noctalia_cpp_args,
   objects: noctalia_core_lib.extract_all_objects(recursive: false),
   install: true,
+)
+
+# libqalculate and its library tree load on the first calculator use, not at shell start.
+noctalia_calc_module = shared_module('noctalia-calc',
+  sources: files('src/launcher/calc_engine.cpp'),
+  dependencies: [libqalculate_dep],
+  include_directories: _noctalia_inc,
+  cpp_args: _noctalia_cpp_args,
+  name_prefix: '',
+  gnu_symbol_visibility: 'hidden',
+  install: true,
+  install_dir: get_option('libdir') / 'noctalia',
 )
 
 install_subdir('assets',
@@ -1283,7 +1295,7 @@ if build_tests
         meson.project_source_root() / 'assets' / 'translations' / 'en.json',
       ]
     endif
-    test(test_name, test_exe, args: test_args)
+    test(test_name, test_exe, args: test_args, depends: test_name == 'math_provider' ? [noctalia_calc_module] : [])
     if test_name == 'plugin_recommendations' and git_program.found()
       recommendations_python = find_program('python3', required: false)
       recommendations_openssl = find_program('openssl', required: false)

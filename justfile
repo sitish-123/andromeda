@@ -92,7 +92,7 @@ design-reference:
 # Live shell loop: the user session runs shell/build-f7/noctalia; each new build-f7 binary (mold link) restarts the shell and captures the screen to /tmp/andromeda-live/last.png.
 dev-live:
     meson configure shell/build-f7 -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
-    flock /tmp/build-f7.lock ninja -C shell/build-f7 noctalia
+    flock /tmp/build-f7.lock ninja -C shell/build-f7 noctalia noctalia-calc.so
     mkdir -p ~/.config/systemd/user/noctalia.service.d /tmp/andromeda-live
     printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/noctalia\n' "$PWD" "$PWD" > ~/.config/systemd/user/noctalia.service.d/dev-live.conf
     systemctl --user daemon-reload && systemctl --user restart noctalia.service

@@ -46,6 +46,9 @@ int main() {
   // Starts without a definitions directory, so no watch is set up.
   MathProvider provider(nullptr, nullptr, nullptr);
   provider.initialize();
+  // The calculator loads on the first launcher open, or later after start.
+  TEST_CHECK(provider.queryPrefixed("2 + 2").empty());
+  provider.onLauncherOpened();
 
   TEST_CHECK(provider.query("EUR").empty());
   TEST_CHECK(!provider.queryPrefixed("EUR").empty());

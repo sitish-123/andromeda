@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/inotify/inotify.h"
+#include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
 
 #include <filesystem>
@@ -10,7 +11,7 @@
 class ClipboardService;
 class ConfigService;
 class HttpClient;
-class Calculator;
+class CalcEngine;
 
 class MathProvider : public LauncherProvider {
 public:
@@ -36,9 +37,9 @@ public:
 private:
   [[nodiscard]] std::vector<LauncherResult> evaluate(std::string_view text) const;
 
-  // Replace m_calc with a fresh Calculator loaded with exchange rates and global + user
-  // definitions, with unsafe functions disabled.
+  // Replace m_calc with a fresh engine from the noctalia-calc module; nullptr when the module is missing.
   void rebuildCalculator();
+  void loadCalculator();
 
   // Start watching the user definitions directory if it exists. Returns whether a watch was added.
   bool watchDefinitionsDir();
@@ -50,7 +51,8 @@ private:
   ClipboardService* m_clipboard = nullptr;
   ConfigService* m_config = nullptr;
   HttpClient* m_httpClient = nullptr;
-  std::unique_ptr<Calculator> m_calc;
+  std::unique_ptr<CalcEngine> m_calc;
+  Timer m_loadTimer;
   std::filesystem::path m_definitionsDir;
   Inotify m_inotify;
   std::optional<int> m_definitionsWatcher;
