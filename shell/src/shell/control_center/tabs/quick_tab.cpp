@@ -1565,7 +1565,12 @@ void QuickTab::setActive(bool active) {
     m_staggerPending = false;
     startStagger();
   }
+  // Focus moves now, not in the next update: a key that arrives first would reach the hidden page's text field.
   m_focusFirstTile = active && !m_editing;
+  if (m_focusFirstTile && m_root != nullptr && !m_extras.empty()) {
+    m_focusFirstTile = false;
+    moveFocus(0);
+  }
 }
 
 bool QuickTab::focusSlider(Slider* slider) {

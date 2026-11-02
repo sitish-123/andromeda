@@ -70,9 +70,9 @@ PY
   wait_for 5 panel_matches "$OUT/3-wifi-detail.png" || fail "the search did not find Wi-Fi"
   step 6d-back 940 80
 
-  # A keyboard that already sent events needs no priming: "/" after Escape reopens the search. The pauses let the sheet
-  # finish its height morph: the shell drops a key press that arrives while the card resizes (finding in .agent/m3b-detail.md).
-  "$POINTER" 1280 720 tap 119 tap 119 tap 53 pause 700 tap 1 pause 700 tap 53 > /dev/null
+  # A keyboard that already sent events needs no priming: "/" right after Escape reopens the search. The page left by
+  # Escape must not keep keyboard focus in its text field.
+  "$POINTER" 1280 720 tap 119 tap 119 tap 53 tap 1 tap 53 > /dev/null
   cp "$OUT/4-back.png" "$OUT/last.png"
   wait_for 5 panel_changed || fail "an unprimed / after Escape did not reopen the search"
   panel_matches "$OUT/closed.png" && fail "the sheet closed instead of reopening the search"
