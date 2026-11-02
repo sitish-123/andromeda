@@ -1098,7 +1098,16 @@ void LinkService::onCall(
   if (state == "ringing" || state == "active") {
     const std::string who =
         !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
-    m_call = CallStatus{.deviceId = deviceId, .caller = who, .device = deviceName(deviceId), .ringing = state == "ringing"};
+    const bool wasActive = m_call.has_value() && m_call->deviceId == deviceId && m_call->since.has_value();
+    m_call = CallStatus{
+        .deviceId = deviceId,
+        .caller = who,
+        .device = deviceName(deviceId),
+        .ringing = state == "ringing",
+        .since = state == "ringing" ? std::nullopt
+            : wasActive             ? m_call->since
+                                    : std::optional(std::chrono::steady_clock::now()),
+    };
   } else if (m_call.has_value() && m_call->deviceId == deviceId) {
     m_call.reset();
   }

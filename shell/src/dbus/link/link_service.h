@@ -146,6 +146,8 @@ public:
     std::string caller;
     std::string device;
     bool ringing = false;
+    // When the call was answered; unset while it rings.
+    std::optional<std::chrono::steady_clock::time_point> since;
   };
   // The phone call that is ringing or active; empty when none.
   [[nodiscard]] std::optional<CallStatus> activeCall() const;

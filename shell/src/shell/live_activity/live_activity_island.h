@@ -58,6 +58,8 @@ struct LiveActivity {
   std::function<void()> secondaryAction;
   // A click on the island body; unset ignores it.
   std::function<void(wl_output*)> open;
+  // Set for an answered call: the island rests in the bar row with the glyph and the elapsed time; hover shows the card.
+  std::optional<std::chrono::steady_clock::time_point> since;
 };
 
 // The center island of the top or bottom islands bar. At rest it is a pill in the bar row with the privacy dots and the
@@ -148,6 +150,7 @@ private:
     std::array<Box*, 3> barBox{};
     std::array<float, 3> barLevel{};
     Label* date = nullptr;
+    Glyph* callGlyph = nullptr;
     Box* divider = nullptr;
     Label* count = nullptr;
     Glyph* icon = nullptr;
@@ -303,6 +306,7 @@ private:
   Timer m_osdTimer;
   std::optional<OsdContent> m_osd;
   Timer m_bannerTimer;
+  Timer m_callTimer;
   IconResolver m_iconResolver;
   std::optional<BannerItem> m_banner;
   std::vector<BannerItem> m_bannerQueue;

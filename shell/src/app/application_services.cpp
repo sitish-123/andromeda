@@ -208,6 +208,7 @@ void Application::syncLiveActivity() {
         activity.actionGlyph = "phone-off";
         activity.action = [this, id = call->deviceId] { m_linkService->declineCall(id); };
         activity.actionDestructive = true;
+        activity.since = call->since;
       }
       m_liveActivity.setActivity(std::move(activity));
       return;

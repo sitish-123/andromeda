@@ -38,6 +38,7 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <format>
 #include <string>
 #include <utility>
 
@@ -183,6 +184,13 @@ namespace {
 
   float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
+  // m:ss, or h:mm:ss from one hour.
+  std::string elapsedText(std::chrono::steady_clock::time_point since) {
+    const auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - since).count();
+    const long long s = std::max<long long>(0, secs);
+    return s >= 3600 ? std::format("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) : std::format("{}:{:02}", s / 60, s % 60);
+  }
+
 } // namespace
 
 LiveActivityIsland::LiveActivityIsland() = default;
@@ -217,6 +225,13 @@ void LiveActivityIsland::setRestSources(
 void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
   const bool had = m_activity.has_value();
   m_activity = std::move(activity);
+  if (m_activity.has_value() && m_activity->since.has_value()) {
+    if (!m_callTimer.active()) {
+      m_callTimer.startRepeating(std::chrono::seconds(1), [this] { refresh(); });
+    }
+  } else {
+    m_callTimer.stop();
+  }
   if (m_activity.has_value()) {
     m_shown = *m_activity;
     // The banner waits behind the call, recording or transfer.
@@ -565,7 +580,7 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
-  if (m_activity.has_value()) {
+  if (m_activity.has_value() && (!m_activity->since.has_value() || inst.hovered || inst.space.restless)) {
     return Face::Live;
   }
   if (m_osd.has_value()) {
@@ -620,12 +635,18 @@ void LiveActivityIsland::updateFace(Instance& inst) {
 
 void LiveActivityIsland::hoverEnter(Instance& inst) {
   inst.collapse.stop();
-  if (inst.hovered || m_activity.has_value()) {
+  if (inst.hovered) {
     return;
   }
   const MprisService* mpris = m_mpris ? m_mpris() : nullptr;
   const auto player = mpris != nullptr ? mpris->activePlayer() : std::nullopt;
-  inst.hoverMedia = player.has_value() && player->playbackStatus == "Playing";
+  const bool playing = player.has_value() && player->playbackStatus == "Playing";
+  const bool compactCall = m_activity.has_value() && m_activity->since.has_value();
+  // The date pill has no hover face; an expanded activity is already the card.
+  if (m_activity.has_value() ? !compactCall : !playing) {
+    return;
+  }
+  inst.hoverMedia = !m_activity.has_value();
   inst.hovered = true;
   updateFace(inst);
 }
@@ -919,6 +940,13 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   auto restContent = ui::row(
       {.align = FlexAlign::Center, .gap = Style::spaceSm},
       std::move(mediaGroup),
+      ui::glyph({
+          .out = &inst.callGlyph,
+          .glyph = "phone-call",
+          .glyphSize = Tokens::componentIslandIcon,
+          .color = colorSpecFromRole(ColorRole::Success),
+          .visible = false,
+      }),
       ui::label({
           .out = &inst.date,
           .fontSize = restFont,
@@ -1357,11 +1385,13 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   const auto player = mpris != nullptr ? mpris->activePlayer() : std::nullopt;
   const bool playing = player.has_value() && player->playbackStatus == "Playing";
   m_date = dateText();
-  inst.mediaGroup->setVisible(playing);
+  const bool compactCall = m_activity.has_value() && m_activity->since.has_value();
+  inst.mediaGroup->setVisible(playing && !compactCall);
   inst.mediaTitle->setText(playing ? (!player->title.empty() ? player->title : player->identity) : std::string{});
   inst.mediaTitle->setMaxWidth(kRestMaxWidth);
-  inst.date->setVisible(!playing);
-  inst.date->setText(m_date);
+  inst.callGlyph->setVisible(compactCall);
+  inst.date->setVisible(!playing || compactCall);
+  inst.date->setText(compactCall ? elapsedText(*m_activity->since) : m_date);
   inst.divider->setVisible(mic || camera || screen || unread > 0);
   inst.micDot->setVisible(mic);
   inst.cameraDot->setVisible(camera);
