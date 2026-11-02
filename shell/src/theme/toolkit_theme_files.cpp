@@ -186,18 +186,17 @@ namespace toolkit_theme {
     }
   }
 
-  bool write(std::string_view scheme, const Color& accent, const Color& onAccent) {
+  bool write(std::string_view scheme, const Color& accent, const Color& accentText, const Color& onAccent) {
     const std::string accentHex = formatRgbHex(accent);
     const std::string onAccentHex = formatRgbHex(onAccent);
     if (!findData(std::format("andromeda/gtk/andromeda-gtk4-{}.css", scheme))) {
       kLog.debug("generated toolkit themes not installed; skipping");
       return false;
     }
-    // accent is a fill; accent_text is for text and symbols. The token pair stays as the generator wrote it until the
-    // live accent differs from the token accent, then the live accent serves both.
+    // accent is a fill; accent_text is for text and symbols. Both come from the shell's resolved palette.
     const auto& tokens = scheme == "light" ? Tokens::schemeLight : Tokens::schemeDark;
-    const bool customAccent = accentHex != std::format("#{:06x}", tokens.accent >> 8U);
-    const std::string accentTextHex = customAccent ? accentHex : std::format("#{:06x}", tokens.accentText >> 8U);
+    const Color& accentTextColor = accentText;
+    const std::string accentTextHex = formatRgbHex(accentText);
     writeGtk(GtkToolkit::Gtk3, scheme, accentHex, accentTextHex, onAccentHex);
     writeGtk(GtkToolkit::Gtk4, scheme, accentHex, accentTextHex, onAccentHex);
 
@@ -206,16 +205,17 @@ namespace toolkit_theme {
       std::string palette = readFile(*base).value_or("");
       const std::string tokenAccent = argb(tokens.accent);
       const std::string liveAccent = "#ff" + accentHex.substr(1);
+      const std::string tokenText = argb(tokens.accentText);
+      if (tokenText != tokenAccent) {
+        const std::string liveText = "#ff" + accentTextHex.substr(1);
+        for (std::size_t at = palette.find(tokenText); at != std::string::npos;
+             at = palette.find(tokenText, at + liveText.size())) {
+          palette.replace(at, tokenText.size(), liveText);
+        }
+      }
       for (std::size_t at = palette.find(tokenAccent); at != std::string::npos;
            at = palette.find(tokenAccent, at + liveAccent.size())) {
         palette.replace(at, tokenAccent.size(), liveAccent);
-      }
-      if (customAccent) {
-        const std::string tokenText = argb(tokens.accentText);
-        for (std::size_t at = palette.find(tokenText); at != std::string::npos;
-             at = palette.find(tokenText, at + liveAccent.size())) {
-          palette.replace(at, tokenText.size(), liveAccent);
-        }
       }
       const std::filesystem::path colors = FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/qt6ct/colors/andromeda.conf");
       writeIfChanged(colors, palette);
@@ -236,6 +236,11 @@ namespace toolkit_theme {
           "{},{},{}", static_cast<int>(std::lround(accent.r * 255.0F)), static_cast<int>(std::lround(accent.g * 255.0F)),
           static_cast<int>(std::lround(accent.b * 255.0F))
       );
+      const std::string liveTextRgb = std::format(
+          "{},{},{}", static_cast<int>(std::lround(accentTextColor.r * 255.0F)),
+          static_cast<int>(std::lround(accentTextColor.g * 255.0F)),
+          static_cast<int>(std::lround(accentTextColor.b * 255.0F))
+      );
       std::string section;
       std::vector<std::pair<std::string, std::string>> keys;
       const auto flush = [&] {
@@ -251,7 +256,12 @@ namespace toolkit_theme {
           section = line.substr(1, line.find(']') - 1);
         } else if (const auto eq = line.find('='); eq != std::string::npos && !line.starts_with('#')) {
           std::string value = line.substr(eq + 1);
-          keys.emplace_back(line.substr(0, eq), value == tokenRgb || (customAccent && value == tokenTextRgb) ? liveRgb : value);
+          if (value == tokenRgb) {
+            value = liveRgb;
+          } else if (value == tokenTextRgb) {
+            value = liveTextRgb;
+          }
+          keys.emplace_back(line.substr(0, eq), value);
         }
       }
       flush();

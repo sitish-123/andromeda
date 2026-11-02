@@ -16,6 +16,7 @@
 #include "theme/palette_generator.h"
 #include "theme/palette_transform.h"
 #include "theme/scheme.h"
+#include "theme/shell_palette.h"
 #include "ui/app_icon_colorization.h"
 #include "util/checksum.h"
 #include "util/string_utils.h"
@@ -48,6 +49,8 @@ namespace noctalia::theme {
       // Resolved [theme].mode (apps) and the mode Noctalia itself runs in.
       std::string mode;
       std::string shellMode;
+      // The Andromeda palette is the tokens themselves: the shell palette is not recoloured.
+      bool tokensOnly = false;
     };
 
     // Pure and thread-safe: runs on the wallpaper palette worker as well as the main thread.
@@ -85,6 +88,7 @@ namespace noctalia::theme {
           .palette = tokenPalette(shellMode == "light"),
           .mode = std::string(mode),
           .shellMode = std::string(shellMode),
+          .tokensOnly = palette->name == "Andromeda",
       };
     }
 
@@ -299,7 +303,8 @@ namespace noctalia::theme {
       ::Color color;
       if (!accent.empty() && tryParseHexColor(accent, color)) {
         palette.accent = color;
-        palette.onAccent = readableTextColorForBackground(color);
+        palette.onAccent = onAccentOn(readableTextColorForBackground(color), color);
+        palette.accentText = accentTextOn(color, palette.solidRegular);
       }
       if (highContrast) {
         palette.label2 = palette.label1;
@@ -629,7 +634,14 @@ namespace noctalia::theme {
     if (highContrast) {
       applyHighContrast(resolved->generated);
     }
-    applyLivePalette(resolved->palette, m_liveAccent, highContrast);
+    const auto paletteFor = [&](bool light) {
+      ::Palette p = resolved->tokensOnly ? tokenPalette(light) : recolorShellPalette(tokenPalette(light), resolved->generated, light);
+      applyLivePalette(p, m_liveAccent, highContrast);
+      return p;
+    };
+    resolved->palette = paletteFor(resolved->shellMode == "light");
+    const ::Palette appPalette = resolved->mode == resolved->shellMode ? resolved->palette : paletteFor(resolved->mode == "light");
+    m_toolkitColors = {.accent = appPalette.accent, .accentText = appPalette.accentText, .onAccent = appPalette.onAccent};
 
     queueResolvedCallback(resolved->generated, resolved->mode);
     m_isLightMode = resolved->mode == "light";
@@ -697,8 +709,8 @@ namespace noctalia::theme {
     m_fromPalette = palette;
     m_targetPalette = target;
     m_transitionResolvedCallbackFlushed = false;
-    m_transitionAnimId = m_animations.animate(
-        0.0F, 1.0F, kTransitionDurationMs, Easing::EaseOutCubic,
+    m_transitionAnimId = m_animations.animateSpring(
+        0.0F, 1.0F, Style::spring(Tokens::springFade),
         [this](float t) {
           setPalette(lerpPalette(m_fromPalette, m_targetPalette, t));
           if (m_changeCallback) {

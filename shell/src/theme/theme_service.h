@@ -56,6 +56,14 @@ namespace noctalia::theme {
     // The compositor's live appearance: accent "#rrggbb" (empty keeps the token accent) and increased contrast.
     void setLiveAppearance(std::string accent, bool increaseContrast);
 
+    // Accent colors for GTK/Qt/KDE files in the resolved app mode: the target palette, not a mid-fade value.
+    struct ToolkitColors {
+      ::Color accent;
+      ::Color accentText;
+      ::Color onAccent;
+    };
+    [[nodiscard]] const ToolkitColors& toolkitColors() const noexcept { return m_toolkitColors; }
+
     void setChangeCallback(ChangeCallback callback);
     void setResolvedCallback(ResolvedCallback callback);
 
@@ -66,6 +74,7 @@ namespace noctalia::theme {
     [[nodiscard]] bool saveWallpaperPaletteAsCustom(std::string* paletteNameOut, std::string* errorOut = nullptr);
 
   private:
+    ToolkitColors m_toolkitColors{};
     std::string m_liveAccent;
     bool m_liveHighContrast = false;
 

@@ -12,7 +12,7 @@
 namespace toolkit_theme {
 
   // scheme: "light" or "dark". Returns false when the generated files are not installed.
-  bool write(std::string_view scheme, const Color& accent, const Color& onAccent);
+  bool write(std::string_view scheme, const Color& accent, const Color& accentText, const Color& onAccent);
   // Removes the gtk.css imports write() added; the user's own lines and the other toolkits' settings stay.
   void remove();
 
