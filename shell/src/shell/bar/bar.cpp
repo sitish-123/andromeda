@@ -162,6 +162,7 @@ namespace {
         && a.reserveSpace == b.reserveSpace
         && a.layer == b.layer
         && a.thickness == b.thickness
+        && a.scale == b.scale
         // Corner radii feed the concave-corner bulge, which changes the surface size.
         && a.radiusTopLeft == b.radiusTopLeft
         && a.radiusTopRight == b.radiusTopRight
@@ -355,7 +356,7 @@ void Bar::reload() {
     if (outIt == outputs.end()) {
       return true;
     }
-    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt);
+    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt, m_config->config().accessibility.uiScale);
     if (!resolved.enabled) {
       return true;
     }
@@ -399,7 +400,7 @@ void Bar::reload() {
       return destroy();
     }
 
-    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt);
+    auto resolved = ConfigService::resolveForOutput(*it->second.first, *outIt, m_config->config().accessibility.uiScale);
     if (!resolved.enabled) {
       return destroy();
     }
@@ -637,6 +638,7 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
           .height = instance->bg->width(),
           .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - 4.0F * (instance->bg->width() + 2.0F * kGap)),
           .restless = true,
+          .scale = cfg.scale,
           .opacity = instance->hideOpacity,
           .backgroundOpacity = cfg.backgroundOpacity,
           .border = cfg.border,
@@ -665,6 +667,7 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
         .height = instance->bg->height(),
         .width = std::max(0.0F, 2.0F * (halfFree - kGap)),
         .bottom = cfg.position == "bottom",
+        .scale = cfg.scale,
         .opacity = instance->hideOpacity,
         .backgroundOpacity = cfg.backgroundOpacity,
         .border = cfg.border,

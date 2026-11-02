@@ -193,8 +193,8 @@ namespace {
       wlOutput = platform->findOutputByWl(output);
     }
 
-    const auto resolve = [wlOutput](const BarConfig& bar) {
-      return wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput) : bar;
+    const auto resolve = [wlOutput, configService](const BarConfig& bar) {
+      return wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput, configService->config().accessibility.uiScale) : bar;
     };
     const auto runtimeConfig = [&](std::string_view name) -> std::optional<BarConfig> {
       if (!barConfigProvider || output == nullptr) {
@@ -249,7 +249,7 @@ namespace {
 
     std::size_t count = 0;
     for (const auto& bar : configService->config().bars) {
-      const BarConfig resolved = wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput) : bar;
+      const BarConfig resolved = wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput, configService->config().accessibility.uiScale) : bar;
       if (!resolved.enabled || resolved.position != position) {
         continue;
       }

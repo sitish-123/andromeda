@@ -1723,7 +1723,7 @@ row says so.</p>
 </tr>
 <tr>
 <td>center rest</td>
-<td>160 x 32 capsule: media title or date (footnote 500), divider 1 x 12 separator, privacy dots 6 (camera success, mic warning), unread count caption</td>
+<td>160 to 280 x 32 capsule, p 8, g 8, width hugs content; date state: date (footnote 500); media state: art 20 circle at the leading edge, song title (footnote, label_1, one line, ellipsis) in the middle, waveform at the trailing edge; then divider 1 x 12 separator, privacy dots 6 (camera success, mic warning), unread count caption; a change between states morphs the width on morph / collapse</td>
 </tr>
 </tbody>
 </table>
@@ -1738,19 +1738,19 @@ row says so.</p>
 <tbody>
 <tr>
 <td>OSD</td>
-<td>h 40, w 240, capsule; symbol 16 inset 12 (R5), level bar h 4 capsule fill_2 / label_1 fill, value caption tabular, g 12</td>
+<td>w 240 or more (hugs content), h 56 or more, capsule; symbol 16 inset 12, g 12; level h 4 capsule, level slider_fill on slider_track (as the slider, 9.3); the level moves on snap and retargets with no jump when the value changes fast; value caption ("60%") with tabular digits, width reserved for "100%"</td>
 </tr>
 <tr>
 <td>live activity</td>
-<td>w 360, h 56, capsule (r 28), p 8; lead round icon 40 accent (R5: (56 - 40) / 2 = 8), g 12, title headline + status footnote; buttons 40 round, g 8 (decline danger)</td>
+<td>w 240 to 360 (content), h 56 or more on the 4 grid, capsule at 56 (r 28), p 8; lead round icon 40 accent (R5: (56 - 40) / 2 = 8), g 12, title headline + status footnote (ellipsis at 360); optional progress h 4 capsule (accent on fill_2) under the status, text column width; buttons 40 round, g 8 at the trailing end (decline and end call danger). A call timer uses tabular digits, so the width does not jitter</td>
 </tr>
 <tr>
 <td>banner</td>
-<td>w 360 x 88 (12 + 64 text block + 12), r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines; actions h 32 r 8 (primary capsule), g 8, 12 above</td>
+<td>w 240 to 360 (content), h = 12 + text block + 12 rounded up to the 4 grid, min 56 (1-line body 72, 2-line body 88), r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines at most; actions h 32 r 8 (primary capsule), g 8, 12 above</td>
 </tr>
 <tr>
 <td>media</td>
-<td>w 360 x 88 (same height as a banner, so they morph without a size jump), r 24, p 12; art 48 r 12 (R7: 24 - 12), g 12, title headline + artist footnote; controls 32 round, g 8; progress h 4 capsule full width, 12 above</td>
+<td>w 240 to 360 (content), h 88 (12 + art 48 + 12 + progress 4 + 12), r 24, p 12; art 48 r 12 (R7: 24 - 12), g 12, title headline + artist footnote; controls 32 round, g 8; progress h 4 capsule full width, 12 above. Every expanded state changes size on morph / collapse and retargets without a jump when its content changes</td>
 </tr>
 </tbody>
 </table>

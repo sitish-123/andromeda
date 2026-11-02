@@ -986,7 +986,7 @@ void ConfigService::applyPendingWatchReload() {
   fireReloadCallbacks();
 }
 
-BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOutput& output) {
+BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOutput& output, float uiScale) {
   BarConfig resolved = base;
 
   for (const auto& ovr : base.monitorOverrides) {
@@ -1130,6 +1130,10 @@ BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOu
       }
     }
   }
+  // ui_scale grows the bar: its thickness and its content scale.
+  const float scale = std::max(0.1F, uiScale);
+  resolved.thickness = static_cast<std::int32_t>(std::lround(static_cast<float>(resolved.thickness) * scale));
+  resolved.scale *= scale;
   return resolved;
 }
 

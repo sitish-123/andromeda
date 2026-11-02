@@ -97,7 +97,7 @@ namespace {
     for (const auto& base : config->config().bars) {
       BarConfig resolved = base;
       if (wlOutput != nullptr) {
-        resolved = ConfigService::resolveForOutput(base, *wlOutput);
+        resolved = ConfigService::resolveForOutput(base, *wlOutput, config->config().accessibility.uiScale);
       }
       if (!resolved.enabled) {
         continue;

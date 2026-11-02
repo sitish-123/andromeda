@@ -214,7 +214,7 @@ void Bar::syncInstances() {
         return inst->outputName == output.name && inst->barIndex == barIdx;
       });
       if (!exists) {
-        auto resolved = ConfigService::resolveForOutput(bars[barIdx], output);
+        auto resolved = ConfigService::resolveForOutput(bars[barIdx], output, m_config->config().accessibility.uiScale);
         if (!resolved.enabled) {
           continue;
         }

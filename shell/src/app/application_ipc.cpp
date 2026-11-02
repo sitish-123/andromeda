@@ -389,6 +389,16 @@ void Application::initIpc() {
                                                                                : "error: invokeAction failed\n";
       }
   );
+  m_ipcService.bind(noctalia::cli::msg::liveActivityStatus, [this](const std::string&) -> std::string {
+    return m_liveActivity.describeActivity() + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::liveActivityAction, [this](const std::string& args) -> std::string {
+    const std::string button = StringUtils::trim(args);
+    if (button != "primary" && button != "secondary") {
+      return "error: live-activity-action takes primary or secondary\n";
+    }
+    return m_liveActivity.pressActivityButton(button == "secondary") ? "ok\n" : "error: no such button\n";
+  });
   m_ipcService.bind(
       noctalia::cli::msg::notificationReplyLatest, [this, latestWithAction](const std::string& args) -> std::string {
         const Notification* notification = latestWithAction("inline-reply");

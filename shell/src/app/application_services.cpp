@@ -201,6 +201,10 @@ void Application::syncLiveActivity() {
         activity.actionDestructive = true;
         activity.secondaryGlyph = "bell-off";
         activity.secondaryAction = [this, id = call->deviceId] { m_linkService->muteCall(id); };
+      } else {
+        activity.actionGlyph = "phone-off";
+        activity.action = [this, id = call->deviceId] { m_linkService->declineCall(id); };
+        activity.actionDestructive = true;
       }
       m_liveActivity.setActivity(std::move(activity));
       return;

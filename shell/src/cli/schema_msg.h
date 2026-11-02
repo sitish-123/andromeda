@@ -173,6 +173,9 @@ namespace noctalia::cli {
       Positional{"summary", {}, {}, true, false, false},
       Positional{"body", {}, {}, true, false, true},
   };
+  inline constexpr std::array kMsgLiveActivityActionPositionals{
+      Positional{"button", {}, {}, true, false, false},
+  };
   inline constexpr std::array kMsgNotificationActionLatestPositionals{
       Positional{"action", {}, {}, true, false, false},
   };
@@ -181,7 +184,7 @@ namespace noctalia::cli {
   };
   inline constexpr std::array kMsgOsdShowPositionals{
       Positional{"icon", {}, {}, true, false, false},
-      Positional{"value", "Text shown next to the icon", {}, false, false, true},
+      Positional{"value", "Text shown next to the icon; NN% or a decimal 0.0 to 1.0 also draws the level bar", {}, false, false, true},
   };
   inline constexpr std::array kMsgPanelClosePositionals{
       Positional{"id", {}, {}, false, false, false},
@@ -699,6 +702,19 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command liveActivityStatus{
+        "live-activity", "Print the center island live activity: title, subtitle and its buttons, or none", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command liveActivityAction{
+        "live-activity-action",
+        "Press a button of the center island live activity: secondary (mute) or primary (decline, stop)",
+        {},
+        {},
+        {},
+        kMsgLiveActivityActionPositionals,
+        {},
+        false
+    };
     inline constexpr Command notificationActionLatest{
         "notification-action-latest",
         "Invoke an action of the most recent active notification that has it",
@@ -1179,6 +1195,8 @@ namespace noctalia::cli {
       msg::linkRinging,
       msg::linkShare,
       msg::linkUnpair,
+      msg::liveActivityAction,
+      msg::liveActivityStatus,
       msg::quickShareVisible,
       msg::locationStatus,
       msg::quickShareNearby,

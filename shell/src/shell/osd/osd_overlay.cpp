@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <regex>
 #include <nlohmann/json.hpp>
 
 namespace {
@@ -305,6 +306,20 @@ void OsdOverlay::registerIpc(IpcService& ipc) {
       icon = input.substr(0, split);
       if (split != std::string::npos) {
         value = StringUtils::trim(input.substr(split));
+        // A level is "NN%" or a decimal 0.0 to 1.0 with a point (strict digits, no hex); other text is a label.
+        static const std::regex kPercent(R"(^(\d{1,3}(\.\d+)?)%$)");
+        static const std::regex kUnit(R"(^[01]\.\d+$)");
+        std::smatch match;
+        std::optional<double> level;
+        if (std::regex_match(value, match, kPercent)) {
+          level = std::stod(match[1].str()) / 100.0;
+        } else if (std::regex_match(value, match, kUnit)) {
+          level = std::stod(value);
+        }
+        if (level.has_value() && *level >= 0.0 && *level <= 1.0) {
+          progress = *level;
+          value = std::to_string(static_cast<int>(std::lround(*level * 100.0))) + "%";
+        }
       }
     }
 

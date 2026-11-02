@@ -201,7 +201,8 @@ public:
   bool clearOverrides(const std::vector<std::vector<std::string>>& paths, bool* changed);
   bool renameOverrideTable(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
 
-  [[nodiscard]] static BarConfig resolveForOutput(const BarConfig& base, const WaylandOutput& output);
+  // uiScale (accessibility.ui_scale) grows the resolved bar thickness and content scale.
+  [[nodiscard]] static BarConfig resolveForOutput(const BarConfig& base, const WaylandOutput& output, float uiScale);
   [[nodiscard]] static DockConfig resolveForOutput(const DockConfig& base, const WaylandOutput& output);
 
   // Recursively overlays `overlay` onto `base` (tables merge, everything else

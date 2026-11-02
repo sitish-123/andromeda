@@ -4,7 +4,9 @@
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
+#include "notification/notification.h"
 #include "shell/bar/center_island_space.h"
+#include "system/icon_resolver.h"
 #include "shell/osd/osd_overlay.h"
 #include "wayland/layer_surface.h"
 
@@ -87,6 +89,9 @@ public:
   [[nodiscard]] bool osdVisible() const;
   [[nodiscard]] bool showBanner(const Notification& notification, NotificationEvent event);
   void setActivity(std::optional<LiveActivity> activity);
+  // IPC: "none" or "title|subtitle|secondary glyph|primary glyph"; press runs the button's action.
+  [[nodiscard]] std::string describeActivity() const;
+  bool pressActivityButton(bool secondary);
   // The bar layout, the config, the privacy state or the unread count changed.
   void refresh();
   // A callable that refreshes while this island lives and does nothing after.
@@ -112,6 +117,7 @@ private:
     CenterIslandSpace space;
     float liveWidth = 0.0F; // widest card the free center space allows
     float restWidth = 0.0F;
+    float scale = 1.0F; // surface px per layout px
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
@@ -129,10 +135,12 @@ private:
     InputArea* restArea = nullptr;
     std::array<Node*, kFaceCount> faceNode{};
     std::array<float, kFaceCount> faceWidth{};
+    std::array<float, kFaceCount> faceHeight{};
     Box* micDot = nullptr;
     Box* cameraDot = nullptr;
     Box* screenDot = nullptr;
     Node* mediaGroup = nullptr;
+    Label* mediaTitle = nullptr;
     Node* artPlaceholder = nullptr;
     Image* art = nullptr;
     Node* bars = nullptr;
@@ -159,8 +167,14 @@ private:
     Label* idleEvent = nullptr;
     Glyph* osdGlyph = nullptr;
     ProgressBar* osdBar = nullptr;
+    ProgressBar* hoverProgress = nullptr;
     Label* osdValue = nullptr;
     Glyph* bannerGlyph = nullptr;
+    Node* bannerCircle = nullptr;
+    Image* bannerImage = nullptr;
+    std::string bannerIconKey; // banner id, icon and entry the icon node shows
+    Label* bannerApp = nullptr;
+    Label* bannerTime = nullptr;
     Label* bannerTitle = nullptr;
     Label* bannerBody = nullptr;
     std::string artUrl;
@@ -218,6 +232,11 @@ private:
     std::string title;
     std::string body;
     bool defaultAction = false;
+    std::string appName;
+    std::string time;
+    std::string icon;
+    std::string desktopEntry;
+    std::optional<NotificationImageData> imageData;
   };
 
   void refreshNow();
@@ -245,7 +264,7 @@ private:
   void ensureMirrorDriver(Instance& inst);
   [[nodiscard]] static bool mirrored(const Instance& inst);
   void finishReveal(Instance& inst);
-  [[nodiscard]] float surfaceHeight() const;
+  [[nodiscard]] float surfaceHeight(float scale) const;
   [[nodiscard]] static std::int32_t surfaceMargin(const CenterIslandSpace& space);
   [[nodiscard]] Rect faceRect(const Instance& inst, Face face) const;
   void hoverEnter(Instance& inst);
@@ -253,6 +272,7 @@ private:
   void loadArt(Instance& inst, Renderer& renderer, const std::string& artUrl);
   void syncBars();
   void tickBars();
+  void syncHoverProgress(Instance& inst);
   void startNextBanner();
   void endBanner();
   void syncVisibility();
@@ -282,6 +302,7 @@ private:
   Timer m_osdTimer;
   std::optional<OsdContent> m_osd;
   Timer m_bannerTimer;
+  IconResolver m_iconResolver;
   std::optional<BannerItem> m_banner;
   std::vector<BannerItem> m_bannerQueue;
   // Ids the island showed as a banner: their later updates never raise a toast.
