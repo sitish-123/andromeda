@@ -45,6 +45,11 @@ PY
     grim "$OUT/$1.png"; cp "$OUT/$1.png" "$OUT/last.png"
   }
 
+  # A keyboard that stays bound: the shell binds a new virtual keyboard after it appears, and the keys that client sends
+  # first are lost. The pointer-client calls below create one each; with this one held, their keys arrive at once.
+  "$POINTER" 1280 720 keyboard-only mod none pause 300000 > /dev/null 2>&1 &
+  holder=$!
+  wait_for 5 grep -q "keyboard: bound" "$OUT/noctalia.log" || fail "the shell did not bind the held keyboard"
   "$NOCTALIA" msg theme-mode-set light > /dev/null
   wait_for 5 theme_is light || fail "theme did not become light"
   grim "$OUT/last.png"; cp "$OUT/last.png" "$OUT/closed.png"
@@ -61,13 +66,12 @@ PY
   # press_until REF KEY: a key can still be lost while the shell takes focus of a new virtual keyboard, so resend
   # until the screen matches REF (at most 3 sends).
   press_until() { local ref=$1 try; shift; for try in 1 2 3; do key "$@"; wait_for 2 panel_matches "$ref" && return 0; cp "$OUT/now.png" "$OUT/press-miss-$try.png"; done; return 1; }
-  key 53
-  wait_for 5 panel_changed || fail "/ did not open the search"
+  for try in 1 2 3; do key 53; wait_for 2 panel_changed && break; done
+  panel_changed || fail "/ did not open the search"
   cp "$OUT/now.png" "$OUT/last.png"
   key 17 23
   wait_for 5 panel_changed || fail "typing did not filter the search"
-  key 28
-  wait_for 5 panel_matches "$OUT/3-wifi-detail.png" || fail "the search did not find Wi-Fi"
+  press_until "$OUT/3-wifi-detail.png" 28 || fail "the search did not find Wi-Fi"
   step 6d-back 940 80
 
   # A keyboard that already sent events needs no priming: "/" right after Escape reopens the search. The page left by
@@ -118,4 +122,5 @@ PY
   tiles=$(sed -n "/quick_tiles/,/]/p" "$conf")
   [[ $tiles == *bluetooth* ]] || fail "saved tiles lost Bluetooth: $tiles"
   [[ $tiles != *wifi* ]] || fail "saved tiles still hold Wi-Fi: $tiles"
+  kill "$holder" 2> /dev/null || true
 '

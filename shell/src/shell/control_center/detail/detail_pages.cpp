@@ -860,17 +860,36 @@ namespace control_center {
       return text;
     }
 
-    std::unique_ptr<Flex> chip(std::string_view glyphName, const std::string& text, float s) {
+    std::unique_ptr<Flex> chip(std::string_view glyphName, const std::string& text, float s, float opacity) {
       auto g = std::make_unique<Glyph>();
       g->setGlyph(glyphName);
-      g->setGlyphSize(Tokens::sizeSymbol * s);
+      g->setGlyphSize(Tokens::spaceP12 * s);
       g->setColor(colorSpecFromRole(ColorRole::Label2));
       auto l = std::make_unique<Label>();
       l->setFontSize(Tokens::typeFootnote.size * s);
       l->setLineHeight(Tokens::typeFootnote.line * s);
       l->setColor(colorSpecFromRole(ColorRole::Label1));
       l->setText(text);
-      return ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s}, std::move(g), std::move(l));
+      auto c = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s}, std::move(g), std::move(l));
+      c->setPadding(0.0F, Tokens::spaceP8 * s);
+      c->setMinHeight(Tokens::spaceP24 * s);
+      c->setRadius(Tokens::spaceP12 * s);
+      c->setFill(colorSpecFromRole(ColorRole::Fill1, opacity));
+      return c;
+    }
+
+    std::unique_ptr<Button> actionButton(std::string_view glyphName, const std::string& text, bool enabled, float s,
+                                         std::function<void()> onClick) {
+      auto b = std::make_unique<Button>();
+      b->setVariant(ButtonVariant::Default);
+      b->setGlyph(glyphName);
+      b->setText(text);
+      b->setControlHeight(Tokens::componentButtonHeightM * s);
+      b->setRadius(Tokens::componentButtonRadius * s);
+      b->setFlexGrow(1.0F);
+      b->setEnabled(enabled);
+      b->setOnClick(std::move(onClick));
+      return b;
     }
 
   } // namespace
@@ -977,59 +996,47 @@ namespace control_center {
     const std::string id = phone->id;
     const bool connected = phone->connected;
 
-    Flex* chips = addGroup();
-    auto chipRow = std::make_unique<Flex>();
-    chipRow->setDirection(FlexDirection::Horizontal);
-    chipRow->setAlign(FlexAlign::Center);
-    chipRow->setJustify(FlexJustify::SpaceBetween);
-    chipRow->setMinHeight(Tokens::sizeRow * s);
+    auto chipRow = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
     if (!connected) {
-      chipRow->addChild(chip("device-mobile-off", tr("bar.widgets.phone.not-connected"), s));
+      chipRow->addChild(chip("device-mobile-off", tr("bar.widgets.phone.not-connected"), s, panelCardOpacity()));
     } else {
       const LinkStatus* status = m_link->status(id);
       if (status != nullptr) {
-        chipRow->addChild(chip(phone::glyph(*phone, status), phone::batteryText(*status), s));
-        chipRow->addChild(chip("wifi", capitalized(i18n::tr("bar.widgets.phone.network-" + status->network)), s));
+        chipRow->addChild(chip(phone::glyph(*phone, status), phone::batteryText(*status), s, panelCardOpacity()));
+        chipRow->addChild(chip("wifi", capitalized(i18n::tr("bar.widgets.phone.network-" + status->network)), s, panelCardOpacity()));
       }
       const LinkControls* controls = m_link->controls(id);
       if (controls != nullptr && !controls->ringer.empty()) {
-        chipRow->addChild(chip(phone::ringerGlyph(controls->ringer), i18n::tr("bar.widgets.phone.ringer-" + controls->ringer), s));
+        chipRow->addChild(chip(phone::ringerGlyph(controls->ringer), i18n::tr("bar.widgets.phone.ringer-" + controls->ringer), s, panelCardOpacity()));
       }
     }
-    chips->addChild(std::move(chipRow));
+    addBlock(std::move(chipRow));
 
-    Flex* actions = addGroup();
+    // Three buttons do not fit one row at 360 without ellipsis: two on the first, one full width on the second.
     const bool ringing = m_link->phoneRinging(id);
-    DetailRow ring;
-    ring.glyph = "bell-ringing";
-    ring.title = i18n::tr(ringing ? "bar.widgets.phone.stop-ring" : "bar.widgets.phone.ring");
-    ring.enabled = connected;
-    ring.onClick = [this, id, ringing] {
-      m_link->ring(id, !ringing);
-      requestRebuild();
-    };
-    addRow(*actions, ring);
-    DetailRow clipboard;
-    clipboard.glyph = "clipboard";
-    clipboard.title = i18n::tr("bar.widgets.phone.send-clipboard");
-    clipboard.enabled = connected;
-    clipboard.onClick = [this, id] { m_link->shareClipboard(id); };
-    addRow(*actions, clipboard);
-    DetailRow files;
-    files.glyph = "file-upload";
-    files.title = tr("control-center.detail.phone.files");
-    files.enabled = connected;
-    files.onClick = [this, id] {
-      FileDialogOptions options;
-      options.mode = FileDialogMode::Open;
-      options.title = tr("control-center.detail.phone.files-title");
-      (void)FileDialog::open(std::move(options), [this, id](std::optional<std::filesystem::path> picked) {
-        if (picked.has_value() && m_link != nullptr) {
-          (void)m_link->sendFiles(id, {picked->string()});
-        }
-      });
-    };
-    addRow(*actions, files);
+    auto buttons = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s});
+    buttons->addChild(ui::row(
+        {.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s},
+        actionButton("bell-ringing", i18n::tr(ringing ? "bar.widgets.phone.stop-ring" : "bar.widgets.phone.ring"), connected, s,
+                     [this, id, ringing] {
+                       m_link->ring(id, !ringing);
+                       requestRebuild();
+                     }),
+        actionButton("clipboard", i18n::tr("bar.widgets.phone.send-clipboard"), connected, s,
+                     [this, id] { m_link->shareClipboard(id); })));
+    buttons->addChild(ui::row(
+        {.align = FlexAlign::Stretch},
+        actionButton("file-upload", tr("control-center.detail.phone.files"), connected, s, [this, id] {
+          FileDialogOptions options;
+          options.mode = FileDialogMode::Open;
+          options.title = tr("control-center.detail.phone.files-title");
+          (void)FileDialog::open(std::move(options), [this, id](std::optional<std::filesystem::path> picked) {
+            if (picked.has_value() && m_link != nullptr) {
+              (void)m_link->sendFiles(id, {picked->string()});
+            }
+          });
+        })));
+    addBlock(std::move(buttons));
 
     if (!connected) {
       return;
@@ -1037,11 +1044,24 @@ namespace control_center {
     const std::vector<PhoneNotification> shown = phoneNotifications(id);
     const std::uint32_t count = m_link->notificationCount(id);
     if (shown.empty() && count == 0) {
-      addEmpty("bell-off", tr("control-center.detail.phone.no-notifications"),
-               tr("control-center.detail.phone.no-notifications-body"));
+      Flex* empty = addGroup(tr("control-center.detail.phone.notifications-title"));
+      auto title = std::make_unique<Label>();
+      title->setFontSize(Tokens::typeBody.size * s);
+      title->setLineHeight(Tokens::typeBody.line * s);
+      title->setFontWeight(static_cast<FontWeight>(Style::glassWeight(600)));
+      title->setColor(colorSpecFromRole(ColorRole::Label1));
+      title->setText(tr("control-center.detail.phone.no-notifications"));
+      auto body = std::make_unique<Label>();
+      body->setFontSize(Tokens::typeFootnote.size * s);
+      body->setLineHeight(Tokens::typeFootnote.line * s);
+      body->setColor(colorSpecFromRole(ColorRole::Label2));
+      body->setText(tr("control-center.detail.phone.no-notifications-body"));
+      auto column = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center}, std::move(title), std::move(body));
+      column->setPadding(Tokens::spaceP16 * s, 0.0F);
+      empty->addChild(std::move(column));
       return;
     }
-    Flex* card = addGroup(i18n::tr("control-center.detail.phone.notifications", "count", std::max(count, static_cast<std::uint32_t>(shown.size()))));
+    Flex* card = addGroup(tr("control-center.detail.phone.notifications-title"));
     for (const PhoneNotification& n : shown) {
       DetailRow row;
       row.glyph = "bell";

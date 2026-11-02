@@ -75,6 +75,8 @@ namespace control_center {
     virtual void releaseControls() {}
 
     void requestRebuild();
+    // A free node in the list, outside any card.
+    void addBlock(std::unique_ptr<Node> node);
     // A section header over a fill_1 card; returns the card.
     Flex* addGroup(std::string_view header = {});
     void addGroupFooter(Flex& card, std::string_view text);

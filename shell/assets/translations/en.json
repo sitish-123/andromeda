@@ -410,7 +410,7 @@
         "files-title": "Send files",
         "no-notifications": "No notifications",
         "no-notifications-body": "Phone notifications show up here.",
-        "notifications": "Notifications · {count}",
+        "notifications-title": "Notifications",
         "on-phone": "on {phone}",
         "open-link": "Open Link...",
         "reply": "Reply",

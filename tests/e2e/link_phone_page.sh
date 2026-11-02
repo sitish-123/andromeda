@@ -51,10 +51,10 @@ with_noctalia '
   msg panel-open control-center detail-phone > /dev/null
   sleep 1 # real time: the page opens
   grim "$OUT/phone-connected.png"
-  click "${RING_X:-1000}" "${RING_Y:-200}"
+  click "${RING_X:-1000}" "${RING_Y:-180}"
   wait_for "pressing Ring did not ring the phone" phone_saw "\"event\":\"ring\",\"on\":true"
   wait_for "the shell does not show the phone ringing" ringing "phone $ID"
-  click "${RING_X:-1000}" "${RING_Y:-200}"
+  click "${RING_X:-1000}" "${RING_Y:-180}"
   wait_for "pressing Stop did not stop the phone" phone_saw "\"event\":\"ring\",\"on\":false"
 
   kill "$hold"

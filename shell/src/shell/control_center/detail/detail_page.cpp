@@ -245,6 +245,11 @@ namespace control_center {
     return raw;
   }
 
+  void DetailPage::addBlock(std::unique_ptr<Node> node) {
+    m_rowCard = nullptr;
+    m_content->addChild(std::move(node));
+  }
+
   void DetailPage::addGroupFooter(Flex& card, std::string_view text) {
     const float s = contentScale();
     Label* note = nullptr;
