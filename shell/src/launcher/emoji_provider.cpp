@@ -4,6 +4,7 @@
 #include "i18n/i18n.h"
 #include "util/string_utils.h"
 #include "clipboard/clipboard_service.h"
+#include "config/config_service.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -86,11 +87,14 @@ std::vector<LauncherCategory> EmojiProvider::categories() const {
 
 LauncherResult EmojiProvider::resultFor(const EmojiEntry& entry, double score) const {
   LauncherResult r;
-  r.id = "emoji-" + entry.emoji;
+  const auto tone =
+      m_config == nullptr ? 0U : static_cast<std::size_t>(m_config->config().shell.launcher.emojiSkinTone);
+  const std::string& emoji = tone > 0 && tone <= entry.tones.size() ? entry.tones[tone - 1] : entry.emoji;
+  r.id = "emoji-" + emoji;
   r.title = entry.name;
   r.subtitle = emojiCategoryLabel(entry.category);
   r.category = r.subtitle;
-  r.badge = entry.emoji;
+  r.badge = emoji;
   r.variants = entry.tones;
   r.score = score;
   return r;

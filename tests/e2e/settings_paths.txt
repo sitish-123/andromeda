@@ -270,7 +270,9 @@ shell.launcher.categories
 shell.launcher.category_icons_only
 shell.launcher.compact
 shell.launcher.default_view
+shell.launcher.emoji_skin_tone
 shell.launcher.fetch_exchange_rates
+shell.launcher.gif_api_key
 shell.launcher.ignore_mouse
 shell.launcher.layout
 shell.launcher.panels.ignored

@@ -11,6 +11,10 @@
 #include "i18n/i18n.h"
 #include "launcher/app_provider.h"
 #include "launcher/clipboard_provider.h"
+#include "launcher/klipy_provider.h"
+#include "render/core/image_decoder.h"
+#include "render/core/texture_manager.h"
+#include "util/file_utils.h"
 #include "launcher/search_ranker.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/async_texture_cache.h"
@@ -55,6 +59,39 @@ namespace {
   // Emoji mode grid (DESIGN.md "Launcher media modes"): 8 cells across the 360 list pane.
   constexpr std::size_t kEmojiColumns = 8;
   constexpr std::size_t kMaxSectionColumns = kEmojiColumns;
+  // Klipy "sm" GIFs are short loops; the caps bound GPU memory for a hostile file.
+  constexpr int kMaxPreviewGifFrames = 120;
+  constexpr std::size_t kMaxPreviewGifBytes = 64ULL * 1024 * 1024;
+
+  // Cell grids of the media modes: emoji glyphs, or GIF and sticker thumbnails.
+  enum class CellGrid : std::uint8_t { None, Emoji, Gif, Sticker };
+
+  [[nodiscard]] std::size_t cellColumns(CellGrid grid) {
+    switch (grid) {
+    case CellGrid::Emoji:
+      return kEmojiColumns;
+    case CellGrid::Gif:
+      return 3;
+    case CellGrid::Sticker:
+      return 4;
+    case CellGrid::None:
+      break;
+    }
+    return 0;
+  }
+
+  [[nodiscard]] float cellRowHeight(CellGrid grid) {
+    switch (grid) {
+    case CellGrid::Gif:
+      return Tokens::componentLauncherGifCell;
+    case CellGrid::Sticker:
+      return Tokens::componentLauncherStickerCell;
+    case CellGrid::Emoji:
+    case CellGrid::None:
+      break;
+    }
+    return Tokens::componentLauncherRow;
+  }
   // Rulebook 9.14 at its tallest (the apps grid): field, hairline, p, grid rows with g 8, page dots, p.
   [[nodiscard]] float launcherSheetHeight() {
     const float rows = static_cast<float>(Tokens::componentLauncherRows);
@@ -113,6 +150,9 @@ namespace {
   }
 
   [[nodiscard]] bool isDetailPresentation(const LauncherResult& result) { return result.presentation == "detail"; }
+  [[nodiscard]] bool isMediaPresentation(const LauncherResult& result) {
+    return result.presentation == "gif" || result.presentation == "sticker";
+  }
 
   [[nodiscard]] std::string providerOverviewId(std::string_view prefix) {
     std::string id(kProviderOverviewResultPrefix);
@@ -785,8 +825,8 @@ namespace {
         LauncherListStyle style, AsyncTextureCache* asyncTextures, SelectCallback onSelect, ActivateCallback onActivate,
         SecondaryActivateCallback onSecondaryActivate
     )
-        : m_style(style), m_onSelect(std::move(onSelect)), m_onActivate(std::move(onActivate)),
-          m_onSecondaryActivate(std::move(onSecondaryActivate)) {
+        : m_style(style), m_asyncTextures(asyncTextures), m_onSelect(std::move(onSelect)),
+          m_onActivate(std::move(onActivate)), m_onSecondaryActivate(std::move(onSecondaryActivate)) {
       auto header = ui::row({
           .out = &m_header,
           .align = FlexAlign::Center,
@@ -870,6 +910,12 @@ namespace {
             .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
         }));
+        emojiCell->addChild(ui::image({
+            .out = &m_cellImages[slot],
+            .visible = false,
+            .participatesInLayout = false,
+            .configure = [this](Image& image) { image.setRadius(Tokens::radiusR8 * m_style.scale); },
+        }));
         area->addChild(std::move(emojiCell));
         area->addChild(std::move(listRow));
         m_areas[slot] = static_cast<InputArea*>(addChild(std::move(area)));
@@ -878,7 +924,7 @@ namespace {
 
     void setListStyle(LauncherListStyle style) { m_style = style; }
     void setGridView(bool gridView) { m_gridView = gridView; }
-    void setEmojiGrid(bool emojiGrid) { m_emojiGrid = emojiGrid; }
+    void setCellGrid(CellGrid grid) { m_cellGrid = grid; }
     void setPillStyle(bool pill) {
       if (m_pillStyle == pill) {
         return;
@@ -911,17 +957,20 @@ namespace {
         m_headerLabel->setMaxWidth(std::max(0.0F, width - Style::controlHeight * m_style.scale));
       }
 
-      const std::size_t columns = m_emojiGrid ? kEmojiColumns : (m_gridView ? kAppGridColumns : 1);
-      const float gap = m_gridView && !m_emojiGrid ? Style::spaceSm * m_style.scale : 0.0F;
+      const bool cells = m_cellGrid != CellGrid::None;
+      const std::size_t columns = cells ? cellColumns(m_cellGrid) : (m_gridView ? kAppGridColumns : 1);
+      const float gap = m_gridView && !cells ? Style::spaceSm * m_style.scale : 0.0F;
       const auto columnCount = static_cast<float>(columns);
       const float cellWidth = std::max(0.0F, (width - static_cast<float>(columns - 1) * gap) / columnCount);
       for (std::size_t slot = 0; slot < kMaxSectionColumns; ++slot) {
         const bool active = !headerVisible && slot < row.resultCount && row.resultIndices[slot] < results.size();
         m_boundResultIndices[slot] = active ? std::optional<std::size_t>(row.resultIndices[slot]) : std::nullopt;
         m_areas[slot]->setVisible(active);
-        m_tiles[slot]->setVisible(active && m_gridView && !m_emojiGrid);
-        m_listRows[slot]->setVisible(active && !m_gridView && !m_emojiGrid);
-        m_emojiCells[slot]->setVisible(active && m_emojiGrid);
+        m_tiles[slot]->setVisible(active && m_gridView && !cells);
+        m_listRows[slot]->setVisible(active && !m_gridView && !cells);
+        m_emojiCells[slot]->setVisible(active && cells);
+        m_emojiLabels[slot]->setVisible(m_cellGrid == CellGrid::Emoji);
+        m_cellImages[slot]->setVisible(false);
         if (!active) {
           continue;
         }
@@ -934,6 +983,9 @@ namespace {
         m_listRows[slot]->setSize(cellWidth, height);
         m_emojiCells[slot]->setPosition(0.0F, 0.0F);
         m_emojiCells[slot]->setFrameSize(cellWidth, height);
+        const float inset = Tokens::spaceP4 * m_style.scale;
+        m_cellImages[slot]->setPosition(inset, inset);
+        m_cellImages[slot]->setSize(std::max(0.0F, cellWidth - 2.0F * inset), std::max(0.0F, height - 2.0F * inset));
       }
     }
 
@@ -954,9 +1006,16 @@ namespace {
         if (resultIndex >= m_results->size()) {
           continue;
         }
-        if (m_emojiGrid) {
+        if (m_cellGrid != CellGrid::None) {
           const bool selected = m_selectedResultIndex == resultIndex;
-          m_emojiLabels[slot]->setText((*m_results)[resultIndex].badge);
+          const LauncherResult& result = (*m_results)[resultIndex];
+          m_emojiLabels[slot]->setText(result.badge);
+          if (m_cellGrid != CellGrid::Emoji && m_asyncTextures != nullptr && !result.iconPath.empty()) {
+            Image& image = *m_cellImages[slot];
+            image.setFit(m_cellGrid == CellGrid::Sticker ? ImageFit::Contain : ImageFit::Cover);
+            const int target = static_cast<int>(std::round(std::max(image.width(), image.height())));
+            image.setVisible(image.setSourceFileAsync(renderer, *m_asyncTextures, result.iconPath, target, true));
+          }
           m_emojiCells[slot]->setFill(
               selected ? colorSpecFromRole(ColorRole::Lens)
                        : (m_areas[slot]->hovered() ? colorSpecFromRole(ColorRole::Fill1) : clearColorSpec())
@@ -984,7 +1043,9 @@ namespace {
     Flex* m_header = nullptr;
     Glyph* m_headerGlyph = nullptr;
     Label* m_headerLabel = nullptr;
-    bool m_emojiGrid = false;
+    CellGrid m_cellGrid = CellGrid::None;
+    AsyncTextureCache* m_asyncTextures = nullptr;
+    std::array<Image*, kMaxSectionColumns> m_cellImages{};
     std::array<InputArea*, kMaxSectionColumns> m_areas{};
     std::array<LauncherAppGridTile*, kMaxSectionColumns> m_tiles{};
     std::array<LauncherResultRow*, kMaxSectionColumns> m_listRows{};
@@ -1372,7 +1433,8 @@ public:
     if (m_results == nullptr) {
       return;
     }
-    const std::size_t columns = m_emojiGrid ? kEmojiColumns : (m_gridView ? kAppGridColumns : 1);
+    const std::size_t columns =
+        m_cellGrid != CellGrid::None ? cellColumns(m_cellGrid) : (m_gridView ? kAppGridColumns : 1);
     for (const Section& section : sections) {
       if (section.resultIndices.empty()) {
         continue;
@@ -1403,9 +1465,9 @@ public:
     }
   }
 
-  void setEmojiGrid(bool emojiGrid) {
-    if (m_emojiGrid != emojiGrid) {
-      m_emojiGrid = emojiGrid;
+  void setCellGrid(CellGrid grid) {
+    if (m_cellGrid != grid) {
+      m_cellGrid = grid;
       ++m_revision;
     }
   }
@@ -1422,11 +1484,15 @@ public:
   [[nodiscard]] float pillContentHeight(std::size_t maxRows) const {
     float height = 0.0F;
     std::size_t rows = 0;
+    // Taller media cells show fewer rows in the same space.
+    maxRows = std::max<std::size_t>(
+        1, static_cast<std::size_t>(static_cast<float>(maxRows) * Tokens::componentLauncherRow / cellRowHeight(m_cellGrid))
+    );
     for (const auto& row : m_rows) {
       if (row.kind == LauncherSectionRowData::Kind::Header) {
         height += Tokens::componentLauncherSectionHeader * m_style.scale;
       } else if (rows++ < maxRows) {
-        height += Tokens::componentLauncherRow * m_style.scale;
+        height += cellRowHeight(m_cellGrid) * m_style.scale;
       } else {
         break;
       }
@@ -1455,7 +1521,7 @@ public:
   }
 
   [[nodiscard]] std::optional<std::size_t> moveHorizontal(std::size_t resultIndex, int direction) const {
-    if (!m_gridView && !m_emojiGrid) {
+    if (!m_gridView && m_cellGrid == CellGrid::None) {
       return resultIndex < m_resultPositions.size() && m_resultPositions[resultIndex].has_value()
           ? std::optional<std::size_t>(resultIndex)
           : firstResultIndex();
@@ -1520,7 +1586,7 @@ public:
     }
     if (m_pillStyle) {
       return (m_rows[index].kind == LauncherSectionRowData::Kind::Header ? Tokens::componentLauncherSectionHeader
-                                                                         : Tokens::componentLauncherRow)
+                                                                         : cellRowHeight(m_cellGrid))
           * m_style.scale;
     }
     if (m_rows[index].kind == LauncherSectionRowData::Kind::Header) {
@@ -1544,7 +1610,7 @@ public:
     auto* row = static_cast<LauncherSectionRow*>(&item);
     row->setListStyle(m_style);
     row->setGridView(m_gridView);
-    row->setEmojiGrid(m_emojiGrid);
+    row->setCellGrid(m_cellGrid);
     row->setPillStyle(m_pillStyle);
     row->bind(m_rows[index], *m_results, m_selectedResultIndex, width, item.height());
   }
@@ -1569,7 +1635,7 @@ private:
   std::uint64_t m_revision = 0;
   float m_applicationRowHeight = 1.0F;
   bool m_gridView = false;
-  bool m_emojiGrid = false;
+  CellGrid m_cellGrid = CellGrid::None;
   bool m_pillStyle = false;
 };
 
@@ -1601,7 +1667,8 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
   const float list = 2.0F * Tokens::spaceP8 * scale + m_launcherSectionsAdapter->pillContentHeight(8)
       + (strip ? Tokens::componentLauncherTabs * scale : 0.0F);
   // A clipboard image replaces the 64 icon with a 160 high picture.
-  const bool picture = m_selectedIndex < m_results.size() && m_results[m_selectedIndex].presentation == "clipboard-image";
+  const bool picture = m_selectedIndex < m_results.size()
+      && (m_results[m_selectedIndex].presentation == "clipboard-image" || isMediaPresentation(m_results[m_selectedIndex]));
   const float previewHeight = (Tokens::componentLauncherPreviewMin
                                + (picture ? Tokens::componentLauncherPreviewMedia - Tokens::componentLauncherIcon : 0.0F))
       * scale;
@@ -2399,7 +2466,15 @@ void LauncherPanel::rebuildLauncherSections() {
   }
   m_launcherSectionsAdapter->setPillStyle(m_browserMode);
   const bool emojiMode = m_modeProviderId == "Emoji";
-  m_launcherSectionsAdapter->setEmojiGrid(emojiMode);
+  const auto thumbs = [this](std::string_view presentation) {
+    return std::ranges::any_of(m_results, [&](const LauncherResult& r) { return r.presentation == presentation; });
+  };
+  m_launcherSectionsAdapter->setCellGrid(
+      emojiMode                                          ? CellGrid::Emoji
+          : m_modeProviderId == "Gifs" && thumbs("gif")         ? CellGrid::Gif
+          : m_modeProviderId == "Stickers" && thumbs("sticker") ? CellGrid::Sticker
+                                                                : CellGrid::None
+  );
   if (m_browserMode && shouldUseLauncherSections() && emojiMode) {
     (void)m_launcherSectionsAdapter->setGridView(false);
     m_launcherSectionsAdapter->rebuildSections(emojiSections(m_results, m_providers, !m_query.empty()));
@@ -2729,7 +2804,8 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     m_previewToneLabels[i]->setText(result.variants[i]);
   }
   bool imageReady = false;
-  if (!emoji && !result.iconPath.empty()) {
+  const bool media = isMediaPresentation(result);
+  if (!emoji && !media && !result.iconPath.empty()) {
     if (result.iconPath != m_previewIconPath) {
       m_previewImage->clear(renderer);
       m_previewIconPath = result.iconPath;
@@ -2744,7 +2820,10 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   m_previewGlyph->setVisible(!imageReady && !emoji);
   m_previewGlyph->setParticipatesInLayout(!imageReady && !emoji);
   m_previewOpen->setText(
-      i18n::tr(emoji || !m_modeProviderId.empty() ? "launcher.pill.paste-hint" : "launcher.pill.open-hint")
+      i18n::tr(
+          emoji || (!m_modeProviderId.empty() && result.presentation != "action") ? "launcher.pill.paste-hint"
+                                                                                  : "launcher.pill.open-hint"
+      )
   );
 
   m_previewTitle->setText(singleLinePreview(result.title));
@@ -2782,7 +2861,25 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     m_previewBody->setText(clipboard == nullptr ? result.title : clipboard->text(result));
     m_previewBody->setMaxWidth(m_previewPane->width() - 2.0F * Tokens::spaceP20 * scale);
   }
-  const bool shot = result.presentation == "clipboard-image";
+  bool shot = result.presentation == "clipboard-image";
+  std::string gif;
+  if (result.presentation == "gif") {
+    const auto provider = std::ranges::find(m_providers, "Gifs", [](const auto& p) { return p->id(); });
+    if (auto* klipy = provider == m_providers.end() ? nullptr : dynamic_cast<KlipyProvider*>(provider->get())) {
+      gif = klipy->previewGif(result);
+    }
+  }
+  if (!gif.empty() && playPreviewGif(renderer, gif)) {
+    m_previewShotId.clear();
+    shot = true;
+  } else if (media && m_asyncTextures != nullptr) {
+    stopPreviewGif();
+    m_previewShotId.clear();
+    shot = !result.iconPath.empty() && m_previewShot->setSourceFileAsync(
+        renderer, *m_asyncTextures, result.iconPath,
+        static_cast<int>(std::round(Tokens::componentLauncherPreviewMedia * 1.75F * scale)), true
+    );
+  }
   m_previewShot->setVisible(shot);
   m_previewShot->setParticipatesInLayout(shot);
   ClipboardProvider* clipboard = nullptr;
@@ -2792,6 +2889,9 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     clipboard = provider == m_providers.end() ? nullptr : dynamic_cast<ClipboardProvider*>(provider->get());
   }
   // Decode only when the selection moves to another image: the payload may load from disk.
+  if (!media) {
+    stopPreviewGif();
+  }
   if (shot && clipboard != nullptr && m_previewShotId != result.id) {
     m_previewShotId = result.id;
     const auto bytes = clipboard->imageBytes(result);
@@ -2799,7 +2899,7 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
       m_previewShot->clear(renderer);
     }
   }
-  if (shot) {
+  if (shot || media) {
     m_previewGlyph->setVisible(false);
     m_previewGlyph->setParticipatesInLayout(false);
   }
@@ -3104,7 +3204,63 @@ void LauncherPanel::onOpen(std::string_view context) {
   onInputChanged(initialValue);
 }
 
+bool LauncherPanel::playPreviewGif(Renderer& renderer, const std::string& path) {
+  if (path == m_previewGifPath && !m_previewFrames.empty()) {
+    return true;
+  }
+  stopPreviewGif();
+  const std::vector<std::uint8_t> bytes = FileUtils::readBinaryFile(path);
+  auto decoded = decodeAnimatedGif(bytes.data(), bytes.size(), kMaxPreviewGifFrames, kMaxPreviewGifBytes);
+  if (!decoded || decoded->frames.empty()) {
+    return false;
+  }
+  for (const auto& frame : decoded->frames) {
+    const TextureHandle handle = renderer.textureManager().loadFromRgba(frame.rgba.data(), decoded->width, decoded->height, false);
+    if (handle.id == 0) {
+      break;
+    }
+    m_previewFrames.push_back({handle, std::chrono::milliseconds(std::max<std::uint32_t>(frame.durationMs, 20))});
+  }
+  if (m_previewFrames.empty()) {
+    return false;
+  }
+  m_previewRenderer = &renderer;
+  m_previewGifPath = path;
+  m_previewFrame = 0;
+  m_previewShot->setExternalTexture(renderer, m_previewFrames.front().handle);
+  if (m_previewFrames.size() > 1) {
+    m_previewFrameTimer.start(m_previewFrames.front().duration, [this] { showNextPreviewFrame(); });
+  }
+  return true;
+}
+
+void LauncherPanel::showNextPreviewFrame() {
+  if (m_previewFrames.size() <= 1 || m_previewRenderer == nullptr || m_previewShot == nullptr) {
+    return;
+  }
+  m_previewFrame = (m_previewFrame + 1) % m_previewFrames.size();
+  m_previewShot->setExternalTexture(*m_previewRenderer, m_previewFrames[m_previewFrame].handle);
+  PanelManager::instance().requestRedraw();
+  m_previewFrameTimer.start(m_previewFrames[m_previewFrame].duration, [this] { showNextPreviewFrame(); });
+}
+
+void LauncherPanel::stopPreviewGif() {
+  m_previewFrameTimer.stop();
+  if (m_previewFrames.empty()) {
+    return;
+  }
+  if (m_previewShot != nullptr && m_previewRenderer != nullptr) {
+    m_previewShot->clear(*m_previewRenderer);
+  }
+  for (PreviewFrame& frame : m_previewFrames) {
+    m_previewRenderer->textureManager().unload(frame.handle);
+  }
+  m_previewFrames.clear();
+  m_previewGifPath.clear();
+}
+
 void LauncherPanel::onClose() {
+  stopPreviewGif();
   if (m_actionsMenu != nullptr && m_actionsMenu->isOpen()) {
     m_actionsMenu->close();
   }

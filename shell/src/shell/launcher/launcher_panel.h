@@ -1,13 +1,16 @@
 #pragma once
 
+#include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
 #include "launcher/search_broker.h"
 #include "launcher/usage_tracker.h"
+#include "render/core/texture_handle.h"
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
 #include "ui/signal.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -232,6 +235,19 @@ private:
   Label* m_previewBody = nullptr;
   Image* m_previewShot = nullptr;
   std::string m_previewShotId;
+  // Frames of the animated GIF preview; the textures belong to the panel and unload on change or close.
+  struct PreviewFrame {
+    TextureHandle handle;
+    std::chrono::milliseconds duration{0};
+  };
+  std::vector<PreviewFrame> m_previewFrames;
+  std::size_t m_previewFrame = 0;
+  std::string m_previewGifPath;
+  Renderer* m_previewRenderer = nullptr;
+  Timer m_previewFrameTimer;
+  bool playPreviewGif(Renderer& renderer, const std::string& path);
+  void stopPreviewGif();
+  void showNextPreviewFrame();
   std::array<Flex*, 3> m_previewMetaRows{};
   std::array<Label*, 3> m_previewMetaKeys{};
   std::array<Label*, 3> m_previewMetaValues{};

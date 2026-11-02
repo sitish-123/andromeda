@@ -884,6 +884,25 @@ constexpr EnumOption<ClipboardAutoPasteMode> kClipboardAutoPasteModes[] = {
     {ClipboardAutoPasteMode::ShiftInsert, "shift_insert", "settings.options.clipboard.auto-paste.shift-insert"},
 };
 
+// Default skin tone of emoji that have tones (Fitzpatrick 1-2 .. 6); None keeps the yellow default.
+enum class EmojiSkinTone : std::uint8_t {
+  None = 0,
+  Light = 1,
+  MediumLight = 2,
+  Medium = 3,
+  MediumDark = 4,
+  Dark = 5,
+};
+
+constexpr EnumOption<EmojiSkinTone> kEmojiSkinTones[] = {
+    {EmojiSkinTone::None, "none", "settings.options.emoji-tone.none"},
+    {EmojiSkinTone::Light, "light", "settings.options.emoji-tone.light"},
+    {EmojiSkinTone::MediumLight, "medium_light", "settings.options.emoji-tone.medium-light"},
+    {EmojiSkinTone::Medium, "medium", "settings.options.emoji-tone.medium"},
+    {EmojiSkinTone::MediumDark, "medium_dark", "settings.options.emoji-tone.medium-dark"},
+    {EmojiSkinTone::Dark, "dark", "settings.options.emoji-tone.dark"},
+};
+
 enum class StorageKeySource : std::uint8_t {
   SecretService = 0,
   File = 1,
@@ -1160,6 +1179,9 @@ struct ShellConfig {
     std::vector<std::string> pinned;
     /// When true, refresh currency exchange rates from libqalculate's online sources.
     bool fetchExchangeRates = true;
+    /// Klipy API key for the GIFs and Stickers launcher modes; empty shows an "add your key" row.
+    std::string gifApiKey;
+    EmojiSkinTone emojiSkinTone = EmojiSkinTone::None;
     std::string providerPrefix = "/";
     /// Paste shortcut after a copy-style launcher activation (calculator, emoji, …).
     ClipboardAutoPasteMode autoPaste = ClipboardAutoPasteMode::Auto;

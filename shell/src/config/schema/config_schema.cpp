@@ -2126,6 +2126,16 @@ namespace noctalia::config::schema {
               }
           ),
           field(
+              &ShellConfig::LauncherConfig::gifApiKey, "gif_api_key",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-gif-api-key",
+                  .tags = "launcher gif gifs stickers klipy api key",
+              }
+          ),
+          field(
               &ShellConfig::LauncherConfig::providerPrefix, "provider_prefix",
               RowSpec{
                   .kind = RowSpec::Kind::Text,
@@ -2144,6 +2154,16 @@ namespace noctalia::config::schema {
                   .group = "behavior",
                   .label = "panels.launcher-auto-paste",
                   .tags = "launcher auto paste",
+              }
+          ),
+          enumField(
+              &ShellConfig::LauncherConfig::emojiSkinTone, "emoji_skin_tone", kEmojiSkinTones,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-emoji-skin-tone",
+                  .tags = "launcher emoji skin tone default",
               }
           ),
           subTable(&ShellConfig::LauncherConfig::dmenu, "dmenu", shellLauncherDmenuSchema()),

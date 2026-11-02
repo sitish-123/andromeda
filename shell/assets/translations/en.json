@@ -1065,6 +1065,12 @@
       },
       "window": {
         "title": "Windows"
+      },
+      "gifs": {
+        "title": "GIFs"
+      },
+      "stickers": {
+        "title": "Stickers"
       }
     },
     "clipboard": {
@@ -1107,6 +1113,12 @@
       "keys": "Keys",
       "math": "Math",
       "typography": "Typography"
+    },
+    "klipy": {
+      "add-key": "Add a Klipy API key",
+      "add-key-hint": "Settings → Launcher → GIF API Key",
+      "trending": "Trending",
+      "fluent": "Fluent 3D"
     }
   },
   "live-activity": {
@@ -2230,6 +2242,14 @@
           "imperial": "Imperial",
           "metric": "Metric"
         }
+      },
+      "emoji-tone": {
+        "dark": "Dark",
+        "light": "Light",
+        "medium": "Medium",
+        "medium-dark": "Medium Dark",
+        "medium-light": "Medium Light",
+        "none": "Default (Yellow)"
       }
     },
     "palette-inspector": {
@@ -3468,6 +3488,14 @@
         "wallpaper-show-names": {
           "description": "Caption each thumbnail with its file name in the wallpaper picker.",
           "label": "Show File Names"
+        },
+        "launcher-gif-api-key": {
+          "description": "Key for GIFs and Stickers from klipy.com",
+          "label": "GIF API Key"
+        },
+        "launcher-emoji-skin-tone": {
+          "description": "Skin tone for emoji that have tones",
+          "label": "Emoji Skin Tone"
         }
       },
       "power": {

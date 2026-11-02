@@ -98,6 +98,8 @@ sort_by_usage = true                    # boost frequently used results
 ignore_mouse  = false                   # ignore mouse hover and clicks inside the launcher
 pinned        = []                      # ordered apps in the Pinned view, e.g. ["firefox", "code", "kitty"]
 fetch_exchange_rates = true             # refresh currency rates from third-party sources
+gif_api_key   = ""                      # Klipy API key for the GIFs and Stickers launcher modes
+emoji_skin_tone = "none"                # none | light | medium_light | medium | medium_dark | dark
 provider_prefix = "/"                     # common prefix character for provider trigger words (e.g. "/" or ".")
 auto_paste = "auto"                       # off | auto | ctrl_v | ctrl_shift_v | shift_insert (copy activations)
 

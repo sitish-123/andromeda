@@ -49,6 +49,7 @@
 #include "launcher/panel_provider.h"
 #include "launcher/plugin_launcher_provider.h"
 #include "launcher/session_provider.h"
+#include "launcher/klipy_provider.h"
 #include "launcher/symbol_provider.h"
 #include "launcher/web_search_provider.h"
 #include "launcher/wallpaper_provider.h"
@@ -712,8 +713,14 @@ void Application::initPanelManagerAndPanels() {
     launcherPanel->addProvider(std::make_unique<SessionProvider>(&m_configService, &m_sessionActionRunner));
     launcherPanel->addProvider(std::make_unique<WebSearchProvider>());
     launcherPanel->addProvider(std::make_unique<MathProvider>(&m_clipboardService, &m_configService, &m_httpClient));
-    launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService));
+    launcherPanel->addProvider(std::make_unique<EmojiProvider>(&m_clipboardService, &m_configService));
     launcherPanel->addProvider(std::make_unique<ClipboardProvider>(&m_clipboardService));
+    launcherPanel->addProvider(std::make_unique<KlipyProvider>(
+        KlipyProvider::Kind::Gifs, &m_configService, &m_httpClient, &m_clipboardService
+    ));
+    launcherPanel->addProvider(std::make_unique<KlipyProvider>(
+        KlipyProvider::Kind::Stickers, &m_configService, &m_httpClient, &m_clipboardService
+    ));
     launcherPanel->addProvider(std::make_unique<SymbolProvider>(&m_clipboardService));
     launcherPanel->setCopiedActivationCallback([this] {
       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
