@@ -14,7 +14,9 @@
 #include "util/string_utils.h"
 #include "compositors/settings_control.h"
 
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <unordered_set>
 #include <utility>
@@ -193,29 +195,7 @@ namespace settings {
   }
 
   Flex* addSettingsCard(Flex& parent, std::string_view title, float scale) {
-    Flex* bodyRaw = nullptr;
-    auto card = ui::column({
-        .align = FlexAlign::Stretch,
-        .gap = Style::spaceSm * scale,
-        .configure = [scale](Flex& container) {
-          container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
-          container.setCardStyle(scale, metrics::kCardFillOpacity);
-        },
-    });
-    if (!title.empty()) {
-      card->addChild(
-          makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
-      );
-    }
-    card->addChild(
-        ui::column({
-            .out = &bodyRaw,
-            .align = FlexAlign::Stretch,
-            .gap = Style::spaceSm * scale,
-        })
-    );
-    parent.addChild(std::move(card));
-    return bodyRaw;
+    return addSettingsGroupCard(parent, title, scale);
   }
 
   Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale) {
@@ -244,6 +224,46 @@ namespace settings {
     );
     parent.addChild(std::move(group));
     return bodyRaw;
+  }
+
+  std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale) {
+    constexpr float kPreviewHeight = 120.0F;
+    constexpr float kPreviewInset = 12.0F;
+    constexpr float kShrink = 0.8F; // preview icons are 0.8 of the real size
+    constexpr std::array<std::uint32_t, 5> kApps{0x3D6CF0, 0xF0603D, 0x5147E5, 0x2B9E63, 0xE8A23C};
+    const bool vertical = dock.position == DockEdge::Left || dock.position == DockEdge::Right;
+    const bool atEnd = dock.position == DockEdge::Bottom || dock.position == DockEdge::Right;
+    const float icon = static_cast<float>(dock.iconSize) * kShrink;
+    auto capsule = ui::row({
+        .align = FlexAlign::Center,
+        .gap = Style::spaceXs * scale,
+        .padding = Style::spaceXs * scale,
+        .fill = colorSpecFromRole(ColorRole::SolidThin),
+        .radius = Style::scaledRadiusXl(scale),
+    });
+    if (vertical) {
+      capsule->setDirection(FlexDirection::Vertical);
+    }
+    for (std::size_t i = 0; i < kApps.size(); ++i) {
+      const float size = dock.magnification && i == 2 ? icon * dock.magnificationScale : icon;
+      capsule->addChild(ui::box({
+          .fill = fixedColorSpec(rgbHex(kApps[i])),
+          .radius = Style::spaceMd * scale,
+          .width = size * scale,
+          .height = size * scale,
+      }));
+    }
+    auto plane = ui::column({
+        .align = vertical ? (atEnd ? FlexAlign::End : FlexAlign::Start) : FlexAlign::Center,
+        .justify = vertical ? FlexJustify::Center : (atEnd ? FlexJustify::End : FlexJustify::Start),
+        .padding = kPreviewInset * scale,
+        .fill = colorSpecFromRole(ColorRole::Fill2),
+        .radius = Style::scaledRadiusMd(scale),
+        .minHeight = kPreviewHeight * scale,
+        .fillWidth = true,
+    });
+    plane->addChild(std::move(capsule));
+    return plane;
   }
 
   void addSettingsRowSeparators(Flex& body, float scale) {

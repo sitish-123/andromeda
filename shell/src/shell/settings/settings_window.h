@@ -405,6 +405,7 @@ private:
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
   std::string m_displayError;
+  std::string m_selectedDisplay;
   // Exists while the window is open, on compositors that advertise dsk_settings_manager_v1.
   std::unique_ptr<SettingsControl> m_compositorSettings;
   std::string m_shownCompositorFailure;

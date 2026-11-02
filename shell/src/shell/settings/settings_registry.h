@@ -88,6 +88,11 @@ namespace settings {
   struct ToggleSetting {
     bool checked = false;
     bool enabled = true; // false renders the toggle in a disabled/non-interactive state
+    // A toggle that writes a string key: `onValue` when on, `offValue` when off, to `valuePath`.
+    std::vector<std::string> valuePath;
+    std::string onValue;
+    std::string offValue;
+    std::string id; // stable key of a row without a config path
   };
 
   struct SelectOption {

@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -88,9 +89,9 @@ namespace settings {
         std::string_view title, std::unique_ptr<Node> control, std::string_view key, const SettingsInputContext& ctx
     ) {
       const float scale = ctx.scale;
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = metrics::kRowHeight * scale, .fillWidth = true});
       row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
       );
       row->addChild(ui::spacer());
       if (ctx.input->customized(key)) {
@@ -140,9 +141,9 @@ namespace settings {
 
     std::unique_ptr<Node> makeInputSlider(
         double value, double minValue, double maxValue, double step, bool integerValue, float scale,
-        std::function<void(double)> onCommit
+        std::function<void(double)> onCommit, std::string startLabel = {}, std::string endLabel = {}
     ) {
-      return ui::slider({
+      auto slider = ui::slider({
           .minValue = minValue,
           .maxValue = maxValue,
           .step = step,
@@ -152,6 +153,16 @@ namespace settings {
             onCommit(integerValue ? std::round(v) : v);
           },
       });
+      if (startLabel.empty()) {
+        return slider;
+      }
+      const auto end = [&](std::string text) {
+        return makeLabel(text, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2));
+      };
+      return ui::row(
+          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, end(std::move(startLabel)), std::move(slider),
+          end(std::move(endLabel))
+      );
     }
 
     void addKeyboardCard(Flex& content, const SettingsInputContext& ctx) {
@@ -163,29 +174,68 @@ namespace settings {
       const std::string currentVariant = input.value("input.keyboard.variant");
       constexpr std::string_view layoutKey = "input.keyboard.layout";
 
-      std::vector<std::string> layoutLabels;
-      std::vector<std::string> layoutNames;
-      std::optional<std::size_t> layoutSelected;
-      for (const xkb::Layout& layout : catalog.layouts) {
-        if (layout.name == currentLayout) {
-          layoutSelected = layoutNames.size();
+      // Input sources: the compositor's layout key holds them comma separated, the first is the default.
+      std::vector<std::string> sources = splitOptions(currentLayout);
+      const auto describe = [&](const std::string& name) {
+        const xkb::Layout* found = xkb::findLayout(catalog, name);
+        return found != nullptr ? found->description : name;
+      };
+      for (std::size_t i = 0; i < sources.size(); ++i) {
+        auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * ctx.scale,
+                            .minHeight = metrics::kRowHeight * ctx.scale, .fillWidth = true});
+        row->addChild(makeLabel(describe(sources[i]), Style::fontSizeBody * ctx.scale,
+                                colorSpecFromRole(ColorRole::Label1), FontWeight::Medium));
+        row->addChild(ui::spacer());
+        if (i == 0 && sources.size() > 1) {
+          row->addChild(makeLabel(i18n::tr("settings.input.keyboard.default-source"), Style::fontSizeBody * ctx.scale,
+                                  colorSpecFromRole(ColorRole::Label2)));
         }
-        layoutNames.push_back(layout.name);
-        layoutLabels.push_back(layout.description);
+        if (sources.size() > 1) {
+          row->addChild(ui::button({
+              .glyph = "minus",
+              .glyphSize = Style::fontSizeBody * ctx.scale,
+              .variant = ButtonVariant::Ghost,
+              .tooltip = i18n::tr("settings.input.keyboard.remove-source"),
+              .minWidth = Style::controlHeight * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
+              .padding = Style::spaceXs * ctx.scale,
+              .radius = Style::spaceSm * ctx.scale,
+              .onClick = [set = ctx.set, sources, i]() {
+                std::vector<std::string> rest = sources;
+                rest.erase(rest.begin() + static_cast<std::ptrdiff_t>(i));
+                set("input.keyboard.layout", joinOptions(rest));
+                if (i == 0) {
+                  set("input.keyboard.variant", "");
+                }
+              },
+          }));
+        }
+        body->addChild(std::move(row));
       }
-      body->addChild(makeInputRow(
-          i18n::tr("settings.input.keyboard.layout"),
-          makeInputSelect(
-              std::move(layoutLabels), layoutSelected, ctx.scale,
-              [set = ctx.set, layoutNames = std::move(layoutNames)](std::size_t index) {
-                set("input.keyboard.layout", layoutNames[index]);
-                set("input.keyboard.variant", "");
-              }
-          ),
-          layoutKey, ctx
-      ));
+      {
+        std::vector<std::string> addLabels;
+        std::vector<std::string> addNames;
+        for (const xkb::Layout& layout : catalog.layouts) {
+          if (!std::ranges::contains(sources, layout.name)) {
+            addNames.push_back(layout.name);
+            addLabels.push_back(layout.description);
+          }
+        }
+        body->addChild(makeInputRow(
+            i18n::tr("settings.input.keyboard.add-source"),
+            makeInputSelect(
+                std::move(addLabels), std::nullopt, ctx.scale,
+                [set = ctx.set, sources, addNames = std::move(addNames)](std::size_t index) {
+                  std::vector<std::string> next = sources;
+                  next.push_back(addNames[index]);
+                  set("input.keyboard.layout", joinOptions(next));
+                }
+            ),
+            layoutKey, ctx
+        ));
+      }
 
-      if (const xkb::Layout* layout = xkb::findLayout(catalog, currentLayout);
+      if (const xkb::Layout* layout = sources.size() == 1 ? xkb::findLayout(catalog, currentLayout) : nullptr;
           layout != nullptr && !layout->variants.empty()) {
         std::vector<std::string> variantLabels = {i18n::tr("settings.input.keyboard.variant-default")};
         std::vector<std::string> variantNames = {""};
@@ -215,7 +265,8 @@ namespace settings {
           i18n::tr("settings.input.keyboard.repeat-rate"),
           makeInputSlider(
               toDouble(input.value("input.keyboard.repeat_rate"), 25.0), 0.0, 1000.0, 1.0, true, ctx.scale,
-              [set = ctx.set](double v) { set("input.keyboard.repeat_rate", std::format("{}", static_cast<int>(v))); }
+              [set = ctx.set](double v) { set("input.keyboard.repeat_rate", std::format("{}", static_cast<int>(v))); },
+              i18n::tr("settings.sliders.slow"), i18n::tr("settings.sliders.fast")
           ),
           repeatRateKey, ctx
       ));
@@ -225,7 +276,8 @@ namespace settings {
           i18n::tr("settings.input.keyboard.repeat-delay"),
           makeInputSlider(
               toDouble(input.value("input.keyboard.repeat_delay"), 600.0), 0.0, 10000.0, 50.0, true, ctx.scale,
-              [set = ctx.set](double v) { set("input.keyboard.repeat_delay", std::format("{}", static_cast<int>(v))); }
+              [set = ctx.set](double v) { set("input.keyboard.repeat_delay", std::format("{}", static_cast<int>(v))); },
+              i18n::tr("settings.sliders.short"), i18n::tr("settings.sliders.long")
           ),
           repeatDelayKey, ctx
       ));

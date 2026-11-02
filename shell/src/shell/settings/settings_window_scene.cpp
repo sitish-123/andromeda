@@ -1114,6 +1114,9 @@ void SettingsWindow::rebuildSettingsContent() {
     );
   }
 
+  if (pageRows) {
+    addDisplaysContent(scale);
+  }
   const std::size_t visibleEntries = settings::addSettingsContentSections(
       *m_contentContainer, m_settingsRegistry, makeContentContext(cfg, selectedBar, selectedMonitorOverride)
   );
@@ -1122,7 +1125,6 @@ void SettingsWindow::rebuildSettingsContent() {
   phaseProfileWatch.reset();
 
   if (pageRows) {
-    addDisplaysContent(scale);
     addInputContent(scale);
     addShortcutsContent(scale);
     addDateTimeContent(scale);
@@ -1281,7 +1283,7 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
   return ui::row(
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
-       .paddingH = Style::spaceSm * scale,
+       .paddingH = (Style::spaceSm - 2.0F) * scale,
        .fill = colorSpecFromRole(ColorRole::SolidRegular),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
@@ -1290,7 +1292,17 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
           .glyphSize = Style::fontSizeBody * scale,
           .color = colorSpecFromRole(ColorRole::Label3),
       }),
-      std::move(input)
+      std::move(input),
+      ui::row(
+          {.align = FlexAlign::Center,
+           .justify = FlexJustify::Center,
+           .paddingH = Style::spaceXs * scale,
+           .radius = Style::spaceXs * scale,
+           .border = colorSpecFromRole(ColorRole::Separator),
+           .minWidth = settings::metrics::kKeycapHeight * scale,
+           .minHeight = settings::metrics::kKeycapHeight * scale},
+          makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
+      )
   );
 }
 

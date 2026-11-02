@@ -4,6 +4,8 @@
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
 #include "shell/settings/settings_control_factory.h"
+#include "shell/settings/settings_selection_style.h"
+#include "ui/controls/button.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -14,6 +16,7 @@
 #include <charconv>
 #include <cmath>
 #include <format>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -27,7 +30,6 @@ namespace settings {
 
   namespace {
 
-    constexpr std::array<double, 7> kScalePresets = {1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0};
     constexpr float kSelectWidth = 190.0F;
 
     const OutputMode* findMode(const OutputHead& head, const zwlr_output_mode_v1* handle) {
@@ -47,8 +49,6 @@ namespace settings {
       }
       return std::format("{:.2f} Hz", static_cast<double>(refreshMhz) / 1000.0);
     }
-
-    std::string formatScale(double scale) { return std::format("{:g}×", scale); }
 
     const std::string* mirrorSourceOf(const SettingsDisplaysContext& ctx, const std::string& name) {
       if (ctx.mirrors == nullptr) {
@@ -122,7 +122,9 @@ namespace settings {
       const auto sizeIt = std::ranges::find(sizes, currentSize);
       body.addChild(SettingsControlFactory::makeRow(
           i18n::tr("settings.displays.resolution"),
-          makeDisplaySelect(
+          sizes.size() == 1
+              ? makeLabel(sizeLabels.front(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label2))
+              : makeDisplaySelect(
               std::move(sizeLabels), static_cast<std::size_t>(sizeIt - sizes.begin()), ctx.scale,
               [edit = ctx.edit, config, bestModes = std::move(bestModes)](std::size_t index) {
                 OutputHeadConfig next = config;
@@ -157,31 +159,74 @@ namespace settings {
       ));
     }
 
+    // Scale as five thumbnails from larger text (high scale) to more space: more text lines per thumbnail.
     void addScaleRow(Flex& body, const OutputHeadConfig& config, const SettingsDisplaysContext& ctx) {
-      std::vector<double> scales(kScalePresets.begin(), kScalePresets.end());
-      if (!std::ranges::any_of(scales, [&](double s) { return std::abs(s - config.scale) < 0.001; })) {
-        scales.push_back(config.scale);
-        std::ranges::sort(scales);
+      std::vector<double> thumbScales = {2.0, 1.75, 1.5, 1.25, 1.0};
+      if (!std::ranges::any_of(thumbScales, [&](double v) { return std::abs(v - config.scale) < 0.001; })) {
+        thumbScales.push_back(config.scale);
+        std::ranges::sort(thumbScales, std::greater<>{});
       }
-      std::vector<std::string> labels;
-      std::optional<std::size_t> selected;
-      for (std::size_t i = 0; i < scales.size(); ++i) {
-        labels.push_back(formatScale(scales[i]));
-        if (std::abs(scales[i] - config.scale) < 0.001) {
-          selected = i;
+      const float scale = ctx.scale;
+      auto strip = ui::row({.align = FlexAlign::Start, .gap = Style::spaceSm * scale, .fillWidth = true});
+      for (std::size_t i = 0; i < thumbScales.size(); ++i) {
+        const double value = thumbScales[i];
+        const bool selected = std::abs(value - config.scale) < 0.001;
+        const ColorSpec none = clearColorSpec();
+        const Button::ButtonStateColors state{
+            .bg = none, .border = selected ? colorSpecFromRole(ColorRole::Label1) : none, .label = none
+        };
+        auto preview = ui::column({
+            .align = FlexAlign::Stretch,
+            .gap = Style::spaceXs * scale,
+            .padding = Style::spaceSm * scale,
+            .fill = colorSpecFromRole(ColorRole::Fill1),
+            .radius = (metrics::kPickerRadius - Style::focusRingGap) * scale,
+            .height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
+            .flexGrow = 1.0F,
+        });
+        for (std::size_t line = 0; line < 3 + i; ++line) {
+          preview->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Label3), .radius = Style::spaceXs * scale,
+                                     .height = 2.0F * scale}));
         }
+        auto tile = ui::button({
+            .variant = ButtonVariant::Ghost,
+            .customPalette = Button::ButtonPalette{
+                .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+                .disabled = state
+            },
+            .minHeight = metrics::kThumbHeight * scale,
+            .padding = Style::focusRingGap * scale,
+            .radius = metrics::kPickerRadius * scale,
+            .onClick = [edit = ctx.edit, config, value] {
+              OutputHeadConfig next = config;
+              next.scale = value;
+              edit(std::move(next));
+            },
+            .configure = [](Button& button) {
+              button.setTabStop(false);
+              button.setFlexGrow(1.0F);
+            },
+        });
+        tile->addChild(std::move(preview));
+        const char* caption = value == 2.0 ? "settings.displays.scale-larger" : value == 1.5
+            ? "settings.displays.scale-default" : value == 1.0 ? "settings.displays.scale-space" : nullptr;
+        strip->addChild(ui::column(
+            {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale, .minWidth = metrics::kPickerTileWidth * scale,
+             .flexGrow = 1.0F},
+            std::move(tile),
+            ui::row(
+                {.justify = FlexJustify::Center},
+                makeLabel(
+                    caption != nullptr ? i18n::tr(caption) : std::string{}, Style::fontSizeCaption * scale,
+                    colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
+                    selected ? FontWeight::Bold : FontWeight::Medium
+                )
+            )
+        ));
       }
-      body.addChild(SettingsControlFactory::makeRow(
-          i18n::tr("settings.displays.scale"),
-          makeDisplaySelect(
-              std::move(labels), selected, ctx.scale,
-              [edit = ctx.edit, config, scales](std::size_t index) {
-                OutputHeadConfig next = config;
-                next.scale = scales[index];
-                edit(std::move(next));
-              }
-          ),
-          ctx.scale
+      body.addChild(ui::column(
+          {.align = FlexAlign::Stretch, .paddingV = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale},
+          std::move(strip)
       ));
     }
 
@@ -242,41 +287,6 @@ namespace settings {
                 OutputHeadConfig next = config;
                 std::tie(next.x, next.y) = positions[index];
                 edit(std::move(next));
-              }
-          ),
-          ctx.scale
-      ));
-    }
-
-    void addMirrorRow(Flex& body, const OutputHead& head, const SettingsDisplaysContext& ctx) {
-      if (ctx.mirrors == nullptr || !ctx.mirrors->ready()) {
-        return;
-      }
-      std::vector<std::string> labels = {i18n::tr("settings.displays.mirror-off")};
-      std::vector<std::string> sources = {""};
-      const std::string* current = mirrorSourceOf(ctx, head.name);
-      std::optional<std::size_t> selected = current == nullptr ? std::optional<std::size_t>{0} : std::nullopt;
-      const auto& heads = ctx.outputs->heads();
-      for (std::size_t i = 0; i < heads.size(); ++i) {
-        const bool isMirror = mirrorSourceOf(ctx, heads[i].name) != nullptr;
-        if (heads[i].name == head.name || !ctx.edits[i].enabled || isMirror) {
-          continue;
-        }
-        if (current != nullptr && *current == heads[i].name) {
-          selected = labels.size();
-        }
-        labels.push_back(displayTitle(heads[i]));
-        sources.push_back(heads[i].name);
-      }
-      if (sources.size() < 2) {
-        return;
-      }
-      body.addChild(SettingsControlFactory::makeRow(
-          i18n::tr("settings.displays.mirror"),
-          makeDisplaySelect(
-              std::move(labels), selected, ctx.scale,
-              [setMirror = ctx.setMirror, target = head.name, sources = std::move(sources)](std::size_t index) {
-                setMirror(target, sources[index]);
               }
           ),
           ctx.scale
@@ -391,42 +401,95 @@ namespace settings {
       addToggleProperty(body, head, ctx, "cyclic_workspaces", "settings.displays.cyclic-workspaces");
     }
 
-    void addDisplayCard(
-        Flex& content, const OutputHead& head, const OutputHeadConfig& config, const SettingsDisplaysContext& ctx
-    ) {
-      Flex* body = addSettingsCard(content, displayTitle(head), ctx.scale);
-      const bool onlyEnabled = config.enabled && std::ranges::count_if(ctx.edits, &OutputHeadConfig::enabled) == 1;
-      body->addChild(SettingsControlFactory::makeRow(
-          i18n::tr("settings.displays.enabled"),
-          ui::toggle({
-              .checked = config.enabled,
-              .enabled = !onlyEnabled,
+    bool isBuiltIn(const OutputHead& head) {
+      return head.name.starts_with("eDP") || head.name.starts_with("LVDS") || head.name.starts_with("DSI");
+    }
+
+    void addNightLightRow(Flex& body, const SettingsDisplaysContext& ctx) {
+      if (!ctx.setNightLight) {
+        return;
+      }
+      auto control = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * ctx.scale});
+      control->addChild(makeLabel(
+          i18n::tr(ctx.nightLight ? "settings.displays.night-light-on" : "settings.displays.night-light-off"),
+          Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label2)
+      ));
+      control->addChild(ui::toggle({
+          .checked = ctx.nightLight,
+          .scale = ctx.scale,
+          .onChange = [set = ctx.setNightLight](bool on) { set(on); },
+      }));
+      body.addChild(SettingsControlFactory::makeRow(i18n::tr("settings.displays.night-light"), std::move(control), ctx.scale));
+    }
+
+    // Extend or mirror, for exactly two enabled displays: the second mirrors the first.
+    void addMultipleDisplaysRow(Flex& body, const SettingsDisplaysContext& ctx) {
+      const auto& heads = ctx.outputs->heads();
+      std::vector<std::string> enabled;
+      for (std::size_t i = 0; i < heads.size() && i < ctx.edits.size(); ++i) {
+        if (ctx.edits[i].enabled) {
+          enabled.push_back(heads[i].name);
+        }
+      }
+      if (enabled.size() != 2 || ctx.mirrors == nullptr || !ctx.mirrors->ready() || !ctx.setMirror) {
+        return;
+      }
+      const std::string source = enabled[0];
+      const std::string target = enabled[1];
+      const bool mirrored = mirrorSourceOf(ctx, target) != nullptr;
+      body.addChild(SettingsControlFactory::makeRow(
+          i18n::tr("settings.displays.multiple"),
+          ui::segmented({
+              .options = std::vector<ui::SegmentedOption>{
+                  {.label = i18n::tr("settings.displays.extend")}, {.label = i18n::tr("settings.displays.mirror")}
+              },
+              .selectedIndex = mirrored ? 1U : 0U,
               .scale = ctx.scale,
-              .onChange =
-                  [edit = ctx.edit, config](bool enabled) {
-                    OutputHeadConfig next = config;
-                    next.enabled = enabled;
-                    edit(std::move(next));
-                  },
+              .onChange = [set = ctx.setMirror, target, source](std::size_t index) {
+                set(target, index == 1 ? source : std::string{});
+              },
           }),
           ctx.scale
       ));
+    }
+
+    void addDisplayCard(
+        Flex& content, const OutputHead& head, const OutputHeadConfig& config, const SettingsDisplaysContext& ctx
+    ) {
+      Flex* body = addSettingsCard(
+          content, isBuiltIn(head) ? i18n::tr("settings.displays.built-in") : displayTitle(head), ctx.scale
+      );
+      const bool onlyEnabled = config.enabled && std::ranges::count_if(ctx.edits, &OutputHeadConfig::enabled) == 1;
+      const auto addEnabledRow = [&] {
+        body->addChild(SettingsControlFactory::makeRow(
+            i18n::tr("settings.displays.enabled"),
+            ui::toggle({
+                .checked = config.enabled,
+                .enabled = !onlyEnabled,
+                .scale = ctx.scale,
+                .onChange =
+                    [edit = ctx.edit, config](bool enabled) {
+                      OutputHeadConfig next = config;
+                      next.enabled = enabled;
+                      edit(std::move(next));
+                    },
+            }),
+            ctx.scale
+        ));
+      };
       if (!config.enabled) {
+        addEnabledRow();
         return;
       }
-      addMirrorRow(*body, head, ctx);
-      addModeRows(*body, head, config, ctx);
       // A mirror is scaled to fit and has no place on the desktop, so only its mode and rotation matter.
-      if (mirrorSourceOf(ctx, head.name) != nullptr) {
-        addRotationRow(*body, config, ctx);
-        return;
+      const bool mirror = mirrorSourceOf(ctx, head.name) != nullptr;
+      if (!mirror) {
+        addScaleRow(*body, config, ctx);
       }
-      addScaleRow(*body, config, ctx);
-      addRotationRow(*body, config, ctx);
-      addPlacementRow(*body, head, config, ctx);
-      if (ctx.mirrors != nullptr && ctx.mirrors->ready()) {
+      addModeRows(*body, head, config, ctx);
+      if (!mirror && ctx.mirrors != nullptr && ctx.mirrors->ready()) {
         addPropertyRows(*body, head, ctx);
-      } else if (head.adaptiveSyncReported) {
+      } else if (!mirror && head.adaptiveSyncReported) {
         body->addChild(SettingsControlFactory::makeRow(
             i18n::tr("settings.displays.adaptive-sync"),
             ui::toggle({
@@ -442,6 +505,13 @@ namespace settings {
             ctx.scale
         ));
       }
+      addNightLightRow(*body, ctx);
+      addMultipleDisplaysRow(*body, ctx);
+      addRotationRow(*body, config, ctx);
+      if (!mirror) {
+        addPlacementRow(*body, head, config, ctx);
+      }
+      addEnabledRow();
     }
 
     std::unique_ptr<Node> makeActionButton(
@@ -517,14 +587,217 @@ namespace settings {
     return {anchor.x, anchor.y};
   }
 
+  namespace {
+
+    std::string selectedHeadName(const SettingsDisplaysContext& ctx) {
+      const auto& heads = ctx.outputs->heads();
+      for (const OutputHead& head : heads) {
+        if (head.name == ctx.selected) {
+          return head.name;
+        }
+      }
+      return heads.empty() ? std::string{} : heads.front().name;
+    }
+
+    struct LayoutRect {
+      std::size_t index;
+      int x, y, w, h;
+      bool active; // enabled and draggable; a disabled head is a dimmed tile placed beside the layout
+    };
+
+    bool overlapsAny(const std::vector<LayoutRect>& rects, const LayoutRect& moved, int x, int y) {
+      return std::ranges::any_of(rects, [&](const LayoutRect& o) {
+        return o.active && o.index != moved.index && x < o.x + o.w && o.x < x + moved.w && y < o.y + o.h
+            && o.y < y + moved.h;
+      });
+    }
+
+    // Moves `moved` by (dx, dy), then pulls it against the edges and tops/lefts of the other displays within kSnap.
+    std::pair<int, int> snappedPosition(const std::vector<LayoutRect>& rects, const LayoutRect& moved, int dx, int dy) {
+      constexpr int kSnap = 48; // layout pixels
+      int x = moved.x + dx;
+      int y = moved.y + dy;
+      int bestX = kSnap + 1;
+      int bestY = kSnap + 1;
+      int snapX = x;
+      int snapY = y;
+      const auto consider = [](int value, int target, int& best, int& out) {
+        if (std::abs(value - target) < best) {
+          best = std::abs(value - target);
+          out = target;
+        }
+      };
+      for (const LayoutRect& o : rects) {
+        if (o.index == moved.index || !o.active) {
+          continue;
+        }
+        consider(x, o.x + o.w, bestX, snapX);
+        consider(x + moved.w, o.x, bestX, snapX);
+        consider(x, o.x, bestX, snapX);
+        consider(y, o.y + o.h, bestY, snapY);
+        consider(y + moved.h, o.y, bestY, snapY);
+        consider(y, o.y, bestY, snapY);
+      }
+      return {bestX <= kSnap ? snapX : x, bestY <= kSnap ? snapY : y};
+    }
+
+    // Layout rectangles scaled into a canvas; a drag snaps the display against the edges of its neighbours.
+    void addArrangementCanvas(Flex& content, const SettingsDisplaysContext& ctx) {
+      constexpr float kCanvasHeight = 148.0F;
+      constexpr float kCanvasInset = 16.0F;
+      constexpr float kCanvasWidth = 560.0F;
+      const float scale = ctx.scale;
+      const auto& heads = ctx.outputs->heads();
+      std::vector<LayoutRect> rects;
+      for (std::size_t i = 0; i < heads.size() && i < ctx.edits.size(); ++i) {
+        if (!ctx.edits[i].enabled || mirrorSourceOf(ctx, heads[i].name) != nullptr) {
+          continue;
+        }
+        const auto [w, h] = displayLogicalSize(heads[i], ctx.edits[i]);
+        if (w > 0 && h > 0) {
+          rects.push_back({i, ctx.edits[i].x, ctx.edits[i].y, w, h, true});
+        }
+      }
+      if (rects.empty()) {
+        return;
+      }
+      int minX = rects[0].x;
+      int minY = rects[0].y;
+      int maxX = rects[0].x + rects[0].w;
+      int maxY = rects[0].y + rects[0].h;
+      for (const LayoutRect& r : rects) {
+        minX = std::min(minX, r.x);
+        minY = std::min(minY, r.y);
+        maxX = std::max(maxX, r.x + r.w);
+        maxY = std::max(maxY, r.y + r.h);
+      }
+      // Disabled heads sit in a row to the right of the layout so they stay selectable.
+      const int gap = (maxX - minX) / 16 + 1;
+      int nextX = maxX + gap;
+      for (std::size_t i = 0; i < heads.size() && i < ctx.edits.size(); ++i) {
+        if (ctx.edits[i].enabled) {
+          continue;
+        }
+        const auto mode = std::ranges::find_if(heads[i].modes, &OutputMode::preferred);
+        const OutputMode* shown = ctx.edits[i].mode != nullptr ? findMode(heads[i], ctx.edits[i].mode)
+            : mode != heads[i].modes.end()                    ? &*mode
+            : heads[i].modes.empty()                          ? nullptr
+                                                              : &heads[i].modes.front();
+        if (shown == nullptr) {
+          continue;
+        }
+        OutputHeadConfig sized = ctx.edits[i];
+        sized.mode = shown->handle;
+        const auto [w, h] = displayLogicalSize(heads[i], sized);
+        if (w <= 0 || h <= 0) {
+          continue;
+        }
+        rects.push_back({i, nextX, minY, w, h, false});
+        nextX += w + gap;
+        maxX = std::max(maxX, nextX - gap);
+        maxY = std::max(maxY, minY + h);
+      }
+      const float fit = std::min(
+          (kCanvasWidth - 2.0F * kCanvasInset) / static_cast<float>(std::max(1, maxX - minX)),
+          (kCanvasHeight - 2.0F * kCanvasInset) / static_cast<float>(std::max(1, maxY - minY))
+      );
+      const std::string selectedName = selectedHeadName(ctx);
+      const float layoutW = static_cast<float>(maxX - minX) * fit;
+      const float layoutH = static_cast<float>(maxY - minY) * fit;
+
+      auto layout = ui::column({.width = layoutW * scale, .height = layoutH * scale});
+      for (const LayoutRect& r : rects) {
+        const bool selected = heads[r.index].name == selectedName;
+        const ColorSpec none = clearColorSpec();
+        const Button::ButtonStateColors state{
+            .bg = colorSpecFromRole(r.active ? ColorRole::Fill3 : ColorRole::Fill2),
+            .border = selected ? colorSpecFromRole(ColorRole::Accent) : none,
+            .label = colorSpecFromRole(r.active ? ColorRole::Label1 : ColorRole::Label3)
+        };
+        struct Press {
+          bool active = false;
+          float x = 0.0F;
+          float y = 0.0F;
+        };
+        auto pressAt = std::make_shared<Press>();
+        layout->addChild(ui::button({
+            .text = heads[r.index].name,
+            .fontSize = Style::fontSizeCaption * scale,
+            .variant = ButtonVariant::Ghost,
+            .customPalette = Button::ButtonPalette{
+                .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+                .disabled = state
+            },
+            .minWidth = static_cast<float>(r.w) * fit * scale,
+            .minHeight = static_cast<float>(r.h) * fit * scale,
+            .padding = 0.0F,
+            .radius = Style::spaceSm * scale,
+            .width = static_cast<float>(r.w) * fit * scale,
+            .height = static_cast<float>(r.h) * fit * scale,
+            .onPress = [pressAt, rects, r, fit, scale, edit = ctx.edit, select = ctx.select, name = heads[r.index].name,
+                        config = ctx.edits[r.index]](
+                           float x, float y, bool pressed
+                       ) {
+              if (pressed) {
+                *pressAt = {true, x, y};
+                return;
+              }
+              if (!std::exchange(pressAt->active, false)) {
+                return;
+              }
+              const float unit = fit * scale;
+              const int dx = static_cast<int>(std::lround((x - pressAt->x) / unit));
+              const int dy = static_cast<int>(std::lround((y - pressAt->y) / unit));
+              if ((dx == 0 && dy == 0) || !r.active) {
+                if (select) {
+                  select(name);
+                }
+                return;
+              }
+              const auto [nx, ny] = snappedPosition(rects, r, dx, dy);
+              if (overlapsAny(rects, r, nx, ny)) {
+                return;
+              }
+              OutputHeadConfig next = config;
+              next.x = nx;
+              next.y = ny;
+              edit(std::move(next));
+            },
+            .configure = [r, fit, scale, minX, minY](Button& button) {
+              button.setTabStop(false);
+              button.setParticipatesInLayout(false);
+              button.setPosition(
+                  static_cast<float>(r.x - minX) * fit * scale, static_cast<float>(r.y - minY) * fit * scale
+              );
+            },
+        }));
+      }
+      auto plane = ui::row(
+          {.align = FlexAlign::Center,
+           .justify = FlexJustify::Center,
+           .fill = colorSpecFromRole(ColorRole::Fill1),
+           .radius = Style::scaledRadiusMd(scale),
+           .minHeight = kCanvasHeight * scale,
+           .fillWidth = true},
+          std::move(layout)
+      );
+      addSettingsGroupCard(content, {}, scale)->addChild(std::move(plane));
+    }
+
+  } // namespace
+
   void addSettingsDisplays(Flex& content, const SettingsDisplaysContext& ctx) {
     if (ctx.outputs == nullptr || !ctx.outputs->ready()) {
       content.addChild(makeSettingSubtitleLabel(i18n::tr("settings.displays.unavailable"), ctx.scale));
       return;
     }
     const auto& heads = ctx.outputs->heads();
+    addArrangementCanvas(content, ctx);
+    const std::string selectedName = selectedHeadName(ctx);
     for (std::size_t i = 0; i < heads.size() && i < ctx.edits.size(); ++i) {
-      addDisplayCard(content, heads[i], ctx.edits[i], ctx);
+      if (heads[i].name == selectedName) {
+        addDisplayCard(content, heads[i], ctx.edits[i], ctx);
+      }
     }
     addActions(content, ctx);
   }

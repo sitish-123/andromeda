@@ -1,3 +1,4 @@
+#include "config/config_service.h"
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content_displays.h"
 #include "shell/settings/settings_window.h"
@@ -71,6 +72,13 @@ void SettingsWindow::addDisplaysContent(float scale) {
           .dirty = dirty,
           .confirmSecondsLeft = m_displayConfirmSecondsLeft,
           .error = m_displayError,
+          .selected = m_selectedDisplay,
+          .nightLight = m_config != nullptr && m_config->config().nightlight.enabled,
+          .select = [this](std::string name) {
+            m_selectedDisplay = std::move(name);
+            requestContentRebuild();
+          },
+          .setNightLight = [this](bool on) { setSettingOverride({"nightlight", "enabled"}, on); },
           .edit = [this](OutputHeadConfig config) { editDisplay(std::move(config)); },
           .apply = [this]() { applyDisplays(m_displayEdits, /*confirm=*/true); },
           .discard =

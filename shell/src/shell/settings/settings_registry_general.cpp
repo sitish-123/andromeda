@@ -54,6 +54,30 @@ namespace settings {
     for (const auto* key : {"mode", "shell_mode", "source"}) {
       appendRow(entries, themeRows, key);
     }
+    {
+      const std::string_view fromWallpaper = "wallpaper";
+      // Off returns to the source whose palette is configured; the active source needs no guess.
+      std::string offSource = "builtin";
+      if (cfg.theme.source == PaletteSource::Community
+          || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.communityPalette.empty())) {
+        offSource = "community";
+      } else if (cfg.theme.source == PaletteSource::Custom
+                 || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.customPalette.empty())) {
+        offSource = "custom";
+      }
+      SettingEntry toggle = makeEntry(
+          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.from-wallpaper.label"), {}, {},
+          ToggleSetting{
+              .checked = cfg.theme.source == PaletteSource::Wallpaper,
+              .valuePath = {"theme", "source"},
+              .onValue = std::string(fromWallpaper),
+              .offValue = offSource,
+              .id = "theme.from_wallpaper",
+          },
+          "wallpaper accent colors palette source"
+      );
+      entries.push_back(std::move(toggle));
+    }
     if (cfg.theme.source == PaletteSource::Builtin) {
       entries.push_back(makeEntry(
           SettingsSection::Appearance, "theme", tr("settings.schema.appearance.builtin-palette.label"),

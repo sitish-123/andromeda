@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -19,7 +20,6 @@ namespace settings {
 
   namespace {
 
-    constexpr float kChordWidth = 180.0F;
     constexpr float kActionSelectWidth = 280.0F;
     constexpr float kArgumentWidth = 220.0F;
 
@@ -86,25 +86,68 @@ namespace settings {
       return ui::button(std::move(props));
     }
 
-    // The chord control: shows the chord, and while recording asks for the keys. Clicking it again cancels.
+    // The chord control: one key cap per key; while recording it asks for the keys and is outlined in accent.
+    // Clicking it again cancels.
     std::unique_ptr<Button> makeChordButton(
         const SettingsShortcutsContext& ctx, std::string row, std::string_view shown,
         std::function<void(std::string)> onCaptured
     ) {
       const bool recording = ctx.recordingRow == row;
-      auto button = makeButton(
-          recording ? i18n::tr("settings.shortcuts.press-keys")
-                    : (shown.empty() ? i18n::tr("settings.shortcuts.set-keys") : std::string(shown)),
-          "keyboard", recording ? ButtonVariant::Primary : ButtonVariant::Default, ctx.scale,
-          [record = ctx.record, cancel = ctx.cancelRecording, recording, row, onCaptured = std::move(onCaptured)]() {
+      const float scale = ctx.scale;
+      const ColorSpec none = clearColorSpec();
+      const Button::ButtonStateColors state{
+          .bg = none, .border = recording ? colorSpecFromRole(ColorRole::Accent) : none,
+          .label = colorSpecFromRole(ColorRole::Label2)
+      };
+      auto button = ui::button({
+          .variant = ButtonVariant::Ghost,
+          .customPalette = Button::ButtonPalette{
+              .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+              .disabled = state
+          },
+          .minHeight = (metrics::kKeycapHeight + 2.0F * Style::spaceSm) * scale,
+          .paddingV = Style::spaceXs * scale,
+          .paddingH = Style::spaceSm * scale,
+          .gap = Style::spaceXs * scale,
+          .radius = Style::spaceSm * scale,
+          .onClick = [record = ctx.record, cancel = ctx.cancelRecording, recording, row,
+                      onCaptured = std::move(onCaptured)]() {
             if (recording) {
               cancel();
             } else {
               record(row, onCaptured);
             }
-          }
-      );
-      button->setMinWidth(kChordWidth * ctx.scale);
+          },
+          .configure = [](Button& chord) { chord.setTabStop(false); },
+      });
+      if (recording || shown.empty()) {
+        button->addChild(makeLabel(
+            i18n::tr(recording ? "settings.shortcuts.press-keys" : "settings.shortcuts.set-keys"),
+            Style::fontSizeCaption * scale,
+            colorSpecFromRole(recording ? ColorRole::AccentText : ColorRole::Label2), FontWeight::Medium
+        ));
+        return button;
+      }
+      for (std::size_t start = 0; start <= shown.size();) {
+        const std::size_t plus = shown.find('+', start);
+        const std::string_view part = shown.substr(start, plus == std::string_view::npos ? plus : plus - start);
+        if (!part.empty()) {
+          button->addChild(ui::row(
+              {.align = FlexAlign::Center,
+               .justify = FlexJustify::Center,
+               .paddingH = Style::spaceXs * scale,
+               .radius = Style::spaceXs * scale,
+               .border = colorSpecFromRole(ColorRole::Separator),
+               .minWidth = metrics::kKeycapHeight * scale,
+               .minHeight = metrics::kKeycapHeight * scale},
+              makeLabel(std::string(part), Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
+          ));
+        }
+        if (plus == std::string_view::npos) {
+          break;
+        }
+        start = plus + 1;
+      }
       return button;
     }
 

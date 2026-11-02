@@ -1140,6 +1140,19 @@ namespace settings {
           [&](const auto& control) -> std::unique_ptr<Node> {
             using T = std::decay_t<decltype(control)>;
             if constexpr (std::is_same_v<T, ToggleSetting>) {
+              if (!control.valuePath.empty()) {
+                return ui::toggle({
+                    .checked = control.checked,
+                    .scale = scale,
+                    .onChange = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild,
+                                 path = control.valuePath, on = control.onValue, off = control.offValue](bool value) {
+                      setOverride(path, value ? on : off);
+                      if (requestRebuild) {
+                        requestRebuild();
+                      }
+                    },
+                });
+              }
               return makeToggle(control.checked, control.enabled, entry.path);
             } else if constexpr (std::is_same_v<T, SelectSetting>) {
               return makeSelect(control, entry.path);
@@ -1262,6 +1275,10 @@ namespace settings {
       return settingEntryIsExpert(entry) && matchesNormalizedSettingQuery(entry, normalizedPageQuery);
     };
 
+    if (ctx.rowScope == RowScope::Main && selectedPageShows(ctx.selectedSection, "dock")) {
+      addSettingsGroupCard(content, {}, scale)->addChild(makeDockPreview(ctx.config.dock, scale));
+    }
+
     for (const std::size_t entryIndex : entryOrder) {
       const auto& entry = registry[entryIndex];
       if (!entryPassesFilters(entry)) {
@@ -1284,7 +1301,9 @@ namespace settings {
         activeGroupKey = entry.group;
         activeKeybindRow = nullptr;
         activeKeybindRowCount = 0;
-        activeGroupBody = addSettingsGroupCard(content, entry.group.empty() ? std::string{} : groupLabel(entry.group), scale);
+        activeGroupBody = addSettingsGroupCard(
+            content, entry.group.empty() || entry.group.front() == '~' ? std::string{} : groupLabel(entry.group), scale
+        );
         cardBodies.push_back(activeGroupBody);
         if (entry.section == SettingsSection::Power && entry.group == "idle") {
           addIdleLiveStatusPanel(*activeGroupBody, ctx, scale);
@@ -1333,10 +1352,10 @@ namespace settings {
         makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
       } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
         makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
-      } else if (const auto* tiles = std::get_if<SelectSetting>(&entry.control); tiles != nullptr && tiles->tiles) {
-        activeGroupBody->addChild(ui::row(
-            {.align = FlexAlign::Start, .justify = FlexJustify::Center, .paddingV = Style::spaceSm * scale,
-             .fillWidth = true},
+      } else if (const auto* tiles = std::get_if<SelectSetting>(&entry.control);
+                 tiles != nullptr && tiles->tiles && entry.path.back() == "mode") {
+        activeGroupBody->addChild(ui::column(
+            {.align = FlexAlign::Stretch, .paddingV = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale},
             factory.makeSelect(*tiles, entry.path)
         ));
       } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {

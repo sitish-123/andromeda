@@ -1,4 +1,5 @@
 #include "shell/settings/settings_registry.h"
+#include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_registry_internal.h"
 #include "config/app_icon_settings.h"
 
@@ -311,10 +312,34 @@ namespace settings {
 
 
     for (auto& entry : ctx.entries) {
+      if (const auto group = settingGroupOverride(entry); !group.empty()) {
+        entry.group = std::string(group);
+        if (entry.group.front() == '~' && settingsPageForSection(entry.section).id == "appearance") {
+          entry.section = SettingsSection::Appearance;
+        }
+      }
       if (auto* select = std::get_if<SelectSetting>(&entry.control);
-          select != nullptr && entry.path == std::vector<std::string>{"dock", "position"}) {
+          select != nullptr
+          && (entry.path == std::vector<std::string>{"theme", "mode"}
+              || entry.path == std::vector<std::string>{"theme", "builtin"})) {
         select->tiles = true;
       }
+    }
+
+    // Grouped rows swap into each other's slots so each card lists them in the table's order.
+    std::vector<std::size_t> slots;
+    for (std::size_t i = 0; i < ctx.entries.size(); ++i) {
+      if (settingGroupOrder(ctx.entries[i]) >= 0) {
+        slots.push_back(i);
+      }
+    }
+    std::vector<SettingEntry> grouped;
+    for (const std::size_t slot : slots) {
+      grouped.push_back(std::move(ctx.entries[slot]));
+    }
+    std::ranges::stable_sort(grouped, {}, [](const SettingEntry& e) { return settingGroupOrder(e); });
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+      ctx.entries[slots[i]] = std::move(grouped[i]);
     }
 
     return std::move(ctx.entries);

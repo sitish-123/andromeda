@@ -795,6 +795,11 @@ void Button::doLayout(Renderer& renderer) {
     }
   }
 
+  // The one primary action is a capsule; every other button keeps its rounded-rectangle radius (rulebook 9.5).
+  if (m_variant == ButtonVariant::Primary && height() > 0.0F) {
+    setRadius(height() * 0.5F);
+  }
+
   // After Flex layout the content row is leading-anchored inside the padding.
   // Shift the whole group to honor m_contentAlign (Start leaves it as-is).
   if (m_contentAlign != ButtonContentAlign::Start) {

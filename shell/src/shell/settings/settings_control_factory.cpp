@@ -236,8 +236,6 @@ namespace settings {
 
   namespace {
 
-    constexpr float kPreviewWidth = metrics::kPickerTileWidth - 2.0F * 2.0F;
-    constexpr float kPreviewHeight = metrics::kPickerTileHeight - 2.0F * 2.0F;
     constexpr float kPreviewRadius = metrics::kPickerRadius - 2.0F;
 
     // A miniature screen: light, dark, or the two split for auto.
@@ -249,48 +247,20 @@ namespace settings {
           .radius = kPreviewRadius * scale,
           .border = colorSpecFromRole(ColorRole::Stroke),
           .clipChildren = true,
-          .width = kPreviewWidth * scale,
-          .height = kPreviewHeight * scale,
+          .height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
+          .flexGrow = 1.0F,
       });
       const auto half = [&](const ColorSpec& fill) {
         return ui::column(
             {.align = FlexAlign::Center,
              .justify = FlexJustify::Center,
              .fill = fill,
-             .flexGrow = 1.0F},
-            ui::box({.fill = colorSpecFromRole(ColorRole::Accent), .radius = Style::spaceXs * scale,
-                     .width = 24.0F * scale, .height = 12.0F * scale})
+             .flexGrow = 1.0F}
         );
       };
-      if (value == "auto") {
-        screen->addChild(half(light));
-        screen->addChild(half(dark));
-      } else {
-        screen->addChild(half(value == "dark" ? dark : light));
-      }
-      return screen;
-    }
-
-    // A miniature screen with the dock or bar capsule on the chosen edge.
-    std::unique_ptr<Flex> makeEdgePreview(std::string_view value, float scale) {
-      const bool vertical = value == "left" || value == "right";
-      const bool atEnd = value == "bottom" || value == "right";
-      auto screen = ui::column({
-          .align = vertical ? (atEnd ? FlexAlign::End : FlexAlign::Start) : FlexAlign::Center,
-          .justify = vertical ? FlexJustify::Center : (atEnd ? FlexJustify::End : FlexJustify::Start),
-          .padding = Style::spaceSm * scale,
-          .fill = colorSpecFromRole(ColorRole::Fill3),
-          .radius = kPreviewRadius * scale,
-          .border = colorSpecFromRole(ColorRole::Stroke),
-          .width = kPreviewWidth * scale,
-          .height = kPreviewHeight * scale,
-      });
-      screen->addChild(ui::box({
-          .fill = colorSpecFromRole(ColorRole::Accent),
-          .radius = Style::spaceXs * scale,
-          .width = (vertical ? 8.0F : 48.0F) * scale,
-          .height = (vertical ? 32.0F : 8.0F) * scale,
-      }));
+      const bool auto_ = value == "auto";
+      screen->addChild(half(value == "dark" ? dark : light));
+      screen->addChild(half(auto_ || value == "dark" ? dark : light));
       return screen;
     }
 
@@ -432,59 +402,127 @@ namespace settings {
     auto& ctx = m_ctx;
     const float scale = m_scale;
     if (setting.tiles) {
-      const bool modeTiles = !path.empty() && path.back() == "mode";
-      auto strip = ui::row({.align = FlexAlign::Start, .gap = metrics::kPickerGap * scale});
-      auto ordered = setting.options;
-      if (modeTiles) {
-        std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
-          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
-        });
-      }
-      for (const auto& opt : ordered) {
-        const bool selected = opt.value == setting.selectedValue;
+      const bool swatches = !path.empty() && path.back() == "builtin";
+      const auto commit = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild, path](std::string value) {
+        setOverride(path, std::move(value));
+        if (requestRebuild) {
+          requestRebuild();
+        }
+      };
+      const auto ringed = [scale](bool selected, const ColorSpec& ring) {
         const ColorSpec none = clearColorSpec();
-        const Button::ButtonStateColors state{
-            .bg = none, .border = selected ? colorSpecFromRole(ColorRole::Accent) : none,
-            .label = colorSpecFromRole(ColorRole::Label1)
+        const Button::ButtonStateColors state{.bg = none, .border = selected ? ring : none, .label = none};
+        return Button::ButtonPalette{
+            .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+            .disabled = state
         };
-        auto tile = ui::button({
-            .variant = ButtonVariant::Ghost,
+      };
+      if (swatches) {
+        // The first palettes as 20 px circles; the last circle opens the whole catalog.
+        constexpr std::size_t kShown = 5;
+        auto strip = ui::row({.align = FlexAlign::Center, .gap = Style::focusRingGap * scale});
+        std::vector<SelectOption> shown;
+        for (const auto& opt : setting.options) {
+          if (shown.size() < kShown) {
+            shown.push_back(opt);
+          }
+        }
+        // The positions stay fixed; a choice beyond them rings the catalog button.
+        const bool hiddenSelected = !setting.selectedValue.empty()
+            && std::ranges::none_of(shown, [&](const SelectOption& o) { return o.value == setting.selectedValue; });
+        const ColorSpec ringFill = colorSpecFromRole(ColorRole::Fill2);
+        const Button::ButtonStateColors catalogState{
+            .bg = ringFill, .border = hiddenSelected ? colorSpecFromRole(ColorRole::Label3) : clearColorSpec(),
+            .label = colorSpecFromRole(ColorRole::Label2)
+        };
+        const float circle = metrics::kSwatchSize * scale;
+        for (const auto& opt : shown) {
+          const bool selected = opt.value == setting.selectedValue;
+          const ColorSpec fill = opt.preview.swatches.empty() ? colorSpecFromRole(ColorRole::Accent) : opt.preview.swatches.front();
+          auto dot = ui::button({
+              .variant = ButtonVariant::Ghost,
+              .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label3)),
+              .tooltip = opt.label,
+              .minWidth = circle + 2.0F * Style::focusRingWidth * scale + 2.0F * Style::focusRingGap * scale,
+              .minHeight = circle + 2.0F * Style::focusRingWidth * scale + 2.0F * Style::focusRingGap * scale,
+              .padding = Style::focusRingGap * scale,
+              .radius = circle,
+              .onClick = [commit, value = opt.value] { commit(value); },
+              .configure = [fill, circle](Button& button) {
+                button.setTabStop(false);
+                button.addChild(ui::box({.fill = fill, .radius = circle * 0.5F, .width = circle, .height = circle}));
+              },
+          });
+          strip->addChild(std::move(dot));
+        }
+        strip->addChild(ui::button({
+            .glyph = "chevron-down",
+            .glyphSize = Style::fontSizeCaption * scale,
+            .variant = ButtonVariant::Tonal,
             .customPalette = Button::ButtonPalette{
-                .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
-                .disabled = state
+                .borderWidth = Style::focusRingWidth * scale, .normal = catalogState, .hover = catalogState,
+                .pressed = catalogState, .disabled = catalogState
             },
-            .minWidth = metrics::kPickerTileWidth * scale,
-            .minHeight = metrics::kPickerTileHeight * scale,
-            .padding = Style::focusRingGap * scale,
-            .radius = metrics::kPickerRadius * scale,
-            .onClick = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild, path, value = opt.value] {
-              setOverride(path, value);
-              if (requestRebuild) {
-                requestRebuild();
+            .tooltip = i18n::tr("settings.schema.appearance.builtin-palette.label"),
+            .minWidth = circle,
+            .minHeight = circle,
+            .padding = 0.0F,
+            .radius = circle * 0.5F,
+            .onClick = [openPopup = ctx.openSearchPickerPopup, options = setting.options,
+                        selectedValue = setting.selectedValue, path, commit] {
+              if (openPopup) {
+                openPopup(SearchPickerOpenRequest{
+                    .title = i18n::tr("settings.schema.appearance.builtin-palette.label"),
+                    .options = options,
+                    .selectedValue = selectedValue,
+                    .settingPath = path,
+                    .onSelect = commit,
+                });
               }
             },
-            .configure = [value = opt.value, modeTiles, scale](Button& button) {
+            .configure = [](Button& button) { button.setTabStop(false); },
+        }));
+        return strip;
+      }
+      // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
+      auto strip = ui::row({.align = FlexAlign::Start, .gap = metrics::kPickerGap * scale, .fillWidth = true});
+      auto ordered = setting.options;
+      std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
+        return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+      });
+      for (const auto& opt : ordered) {
+        const bool selected = opt.value == setting.selectedValue;
+        auto tile = ui::button({
+            .variant = ButtonVariant::Ghost,
+            .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label1)),
+            .minHeight = metrics::kThumbHeight * scale,
+            .padding = Style::focusRingGap * scale,
+            .radius = metrics::kPickerRadius * scale,
+            .onClick = [commit, value = opt.value] { commit(value); },
+            .configure = [value = opt.value, scale](Button& button) {
               button.setTabStop(false);
-              button.addChild(modeTiles ? makeModePreview(value, scale) : makeEdgePreview(value, scale));
+              button.setFlexGrow(1.0F);
+              button.addChild(makeModePreview(value, scale));
             },
         });
         strip->addChild(ui::column(
-            {.align = FlexAlign::Center, .gap = Style::spaceXs * scale}, std::move(tile),
-            makeLabel(
-                opt.label, Style::fontSizeCaption * scale,
-                colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2), FontWeight::Medium
+            {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale, .minWidth = metrics::kPickerTileWidth * scale,
+             .flexGrow = 1.0F},
+            std::move(tile),
+            ui::row(
+                {.justify = FlexJustify::Center},
+                makeLabel(
+                    opt.label, Style::fontSizeCaption * scale,
+                    colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
+                    selected ? FontWeight::Bold : FontWeight::Medium
+                )
             )
         ));
       }
       return strip;
     }
     if (setting.segmented) {
-      auto options = setting.options;
-      if (path == std::vector<std::string>{"theme", "mode"}) {
-        std::ranges::stable_sort(options, {}, [](const SelectOption& option) {
-          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
-        });
-      }
+      const auto& options = setting.options;
       std::vector<ui::SegmentedOption> segmentedOptions;
       segmentedOptions.reserve(options.size());
       for (const auto& opt : options) {
@@ -708,7 +746,29 @@ namespace settings {
     if (auto invert = makeInvertSlot(invertSlot, invertEnabled, inverted, commitValue, sliderPtr, scale)) {
       wrap->addChild(std::move(invert));
     }
+    const std::string joined = joinSettingPath(path);
+    std::pair<std::string, std::string> ends;
+    if (joined == "accessibility.ui_scale") {
+      ends = {"A", "A"};
+    } else if (joined == "dock.icon_size") {
+      ends = {i18n::tr("settings.sliders.small"), i18n::tr("settings.sliders.large")};
+    }
+    const bool labelled = !ends.first.empty();
+    const auto endLabel = [&](const std::string& text, bool large) {
+      return makeLabel(
+          text, (large ? Style::fontSizeTitle : Style::fontSizeCaption) * scale,
+          colorSpecFromRole(ColorRole::Label2)
+      );
+    };
+    if (labelled) {
+      wrap->addChild(endLabel(ends.first, false));
+    }
     wrap->addChild(std::move(slider));
+    if (labelled) {
+      wrap->addChild(endLabel(ends.second, true));
+      valueInput->setVisible(false);
+      valueInput->setParticipatesInLayout(false);
+    }
     wrap->addChild(std::move(valueInput));
     if (auto suffix = makeSuffixSlot(std::move(valueSuffix), scale)) {
       wrap->addChild(std::move(suffix));

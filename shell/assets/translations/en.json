@@ -1656,6 +1656,7 @@
         "screenshot-output": "Output",
         "security": "Security",
         "session-panel": "Session Panel",
+        "desktop": "Desktop",
         "shape": "Shape",
         "system": "System",
         "theme": "Theme",
@@ -2131,7 +2132,7 @@
         },
         "builtin-palette": {
           "description": "Choose a palette from the bundled catalog",
-          "label": "Built-In Palette"
+          "label": "Colour Theme"
         },
         "button-borders": {
           "description": "Draw outlines around buttons throughout the shell",
@@ -2162,7 +2163,7 @@
         },
         "font-family": {
           "description": "Font family for the shell interface",
-          "label": "Font Family"
+          "label": "Font"
         },
         "global-shadow-alpha": {
           "description": "Global surface shadow opacity"
@@ -2221,9 +2222,12 @@
         },
         "ui-scale": {
           "description": "Scale the entire interface up or down",
-          "label": "UI Scale"
+          "label": "Text Size"
         },
         "wallpaper-generation-scheme": {
+        "from-wallpaper": {
+          "label": "From Wallpaper"
+        },
           "description": "Choose how wallpaper colors are converted into a palette",
           "label": "Wallpaper Color Style"
         }
@@ -2546,7 +2550,7 @@
         },
         "icon-size": {
           "description": "Size of dock icons in pixels",
-          "label": "Icon Size"
+          "label": "Size"
         },
         "inactive-icon-opacity": {
           "description": "Opacity of unfocused dock icons",
@@ -2619,7 +2623,7 @@
         },
         "show-running": {
           "description": "Show running applications that are not pinned",
-          "label": "Show Running"
+          "label": "Show Running Apps"
         }
       },
       "hooks": {
@@ -3499,7 +3503,7 @@
       },
       "shared": {
         "auto-hide": {
-          "label": "Auto-Hide"
+          "label": "Hide Automatically"
         },
         "background-opacity": {
           "label": "Background Opacity"
@@ -5691,7 +5695,6 @@
       }
     },
     "window": {
-      "title": "Settings",
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
       "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Noctalia is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
@@ -5754,6 +5757,14 @@
         "fullscreen": "Fullscreen Only"
       },
       "hdr": "HDR",
+    "sliders": {
+      "fast": "Fast",
+      "large": "Large",
+      "long": "Long",
+      "short": "Short",
+      "slow": "Slow",
+      "small": "Small"
+    },
       "hdr-options": {
         "off": "Off",
         "on": "On",
@@ -5786,6 +5797,15 @@
         "adaptive": "Adaptive"
       },
       "keyboard": "Keyboard",
+      "built-in": "Built-in display",
+      "extend": "Extend",
+      "multiple": "Multiple displays",
+      "night-light": "Night Light",
+      "night-light-off": "Off",
+      "night-light-on": "On",
+      "scale-default": "Default",
+      "scale-larger": "Larger text",
+      "scale-space": "More space",
       "keyboard.layout": "Layout",
       "keyboard.variant": "Variant",
       "keyboard.variant-default": "Default",
@@ -5853,6 +5873,9 @@
       "open": "Open Link"
     }
   },
+      "keyboard.add-source": "Add input source",
+      "keyboard.default-source": "Default",
+      "keyboard.remove-source": "Remove",
   "setup-wizard": {
     "browse": "Browse",
     "builtin-palette": "Built-In Palette",

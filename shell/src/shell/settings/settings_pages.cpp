@@ -102,20 +102,16 @@ namespace settings {
 
     // Rows a typical user changes and that have a visual control. Bar rows are keyed `bar.*.<key>`.
     constexpr auto kMainRows = std::to_array<std::string_view>({
-        "theme.mode", "theme.source", "theme.sync_color_scheme", "theme.toolkit_themes", "shell.corner_radius_scale",
-        "accessibility.ui_scale", "accessibility.high_contrast", "shell.font_family", "shell.animation.enabled",
-        "andromeda.appearance.reduce_motion", "andromeda.appearance.reduce_transparency",
-        "andromeda.appearance.glass_opacity", "andromeda.appearance.blur.enabled",
-        "andromeda.appearance.shadow.enabled", "andromeda.appearance.corner_radius",
+        "theme.mode", "theme.builtin", "theme.from_wallpaper", "andromeda.appearance.reduce_transparency", "accessibility.ui_scale",
+        "shell.font_family",
         "wallpaper.enabled", "wallpaper.fill_mode", "wallpaper.directory", "wallpaper.transition",
         "wallpaper.automation.enabled", "wallpaper.automation.interval_seconds",
-        "nightlight.enabled", "brightness.sync_all_monitors",
+        "brightness.sync_all_monitors",
         "audio.enable_sounds", "audio.sound_volume", "audio.auto_switch_hdmi", "bluetooth.connect_when_enabled",
         "notification.enable_daemon", "notification.position", "notification.show_app_name",
         "notification.keep_dismissed_in_history", "osd.enabled", "osd.position",
-        "dock.enabled", "dock.position", "dock.icon_size", "dock.magnification", "dock.magnification_scale",
-        "dock.auto_hide", "dock.show_running", "dock.show_dots", "dock.pinned", "desktop_widgets.enabled",
-        "shell.screen_corners.enabled",
+        "dock.enabled", "dock.icon_size", "dock.magnification", "dock.position", "dock.auto_hide", "dock.show_running",
+        "desktop_widgets.enabled", "shell.screen_corners.enabled",
         "bar.*.enabled", "bar.*.position", "bar.*.auto_hide", "bar.*.auto_hide_delay_ms",
         "bar.*.show_on_workspace_switch", "bar.*.reserve_space", "bar.*.layer", "bar.*.islands", "bar.*.thickness",
         "bar.*.scale", "bar.*.show_tooltip", "bar.*.start", "bar.*.center", "bar.*.end",
@@ -140,10 +136,34 @@ namespace settings {
         "shell.clipboard_enabled",
         "shell.avatar_path", "shell.settings_window_translucent",
     });
+    // Rows that share one uncaptioned card (a group starting with '~' has no caption), in the mockup's order.
+    struct GroupRule {
+      std::string_view path;
+      std::string_view group;
+    };
+    constexpr auto kGroupRules = std::to_array<GroupRule>({
+        {"theme.mode", "~mode"},
+        {"theme.builtin", "~colour"},
+        {"theme.from_wallpaper", "~colour"},
+        {"andromeda.appearance.reduce_transparency", "~colour"},
+        {"accessibility.ui_scale", "~text"},
+        {"shell.font_family", "~text"},
+        {"dock.icon_size", "~dock"},
+        {"dock.magnification", "~dock"},
+        {"dock.position", "~dock"},
+        {"dock.auto_hide", "~dock"},
+        {"dock.show_running", "~dock"},
+        {"desktop_widgets.enabled", "desktop"},
+        {"shell.screen_corners.enabled", "desktop"},
+    });
     // Hooks are scripts the user writes; the whole Automation page is main.
     constexpr std::string_view kHookPrefix = "hooks.";
 
     std::string mainRowKey(const SettingEntry& entry) {
+      if (entry.path.empty()) {
+        const auto* toggle = std::get_if<ToggleSetting>(&entry.control);
+        return toggle != nullptr ? toggle->id : std::string{};
+      }
       std::string key;
       for (std::size_t i = 0; i < entry.path.size(); ++i) {
         key += (i == 0 ? "" : ".");
@@ -164,8 +184,20 @@ namespace settings {
     return settingsPageForSection(entry.section);
   }
 
+  int settingGroupOrder(const SettingEntry& entry) {
+    const std::string key = mainRowKey(entry);
+    const auto it = std::ranges::find(kGroupRules, key, &GroupRule::path);
+    return it == kGroupRules.end() ? -1 : static_cast<int>(it - kGroupRules.begin());
+  }
+
+  std::string_view settingGroupOverride(const SettingEntry& entry) {
+    const std::string key = mainRowKey(entry);
+    const auto it = std::ranges::find(kGroupRules, key, &GroupRule::path);
+    return it == kGroupRules.end() ? std::string_view{} : it->group;
+  }
+
   bool settingEntryIsExpert(const SettingEntry& entry) {
-    if (entry.advanced || entry.path.empty()) {
+    if (entry.advanced) {
       return true;
     }
     const std::string key = mainRowKey(entry);
