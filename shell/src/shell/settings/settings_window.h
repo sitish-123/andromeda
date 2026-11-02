@@ -47,6 +47,7 @@ class INetworkService;
 class AsyncTextureCache;
 class Button;
 class AccountsService;
+class PowerProfilesService;
 class CalendarService;
 class ClipboardService;
 class NotificationManager;
@@ -154,6 +155,11 @@ public:
   // Rebuilds an open Wi-Fi, Bluetooth or Network page; skipped while a password field is open.
   void onConnectivityChanged();
   void setAudioProvider(std::function<PipeWireService*()> audio) { m_audioProvider = std::move(audio); }
+  void setPowerProfilesProvider(std::function<PowerProfilesService*()> profiles) {
+    m_powerProfilesProvider = std::move(profiles);
+  }
+  // Battery level, charge limit or power mode changed: the Battery and Power page shows them.
+  void onPowerChanged();
   // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
   void onAudioChanged();
   void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
@@ -260,6 +266,7 @@ private:
   void addNetworkContent(float scale);
   void addSoundContent(float scale);
   void addUsersContent(float scale);
+  void addPowerContent(float scale);
   void openDetail(std::string detail);
   void leaveDetail();
   void createNewUser();
@@ -492,6 +499,7 @@ private:
   std::function<INetworkService*()> m_networkProvider;
   std::function<BluetoothService*()> m_bluetoothProvider;
   std::function<PipeWireService*()> m_audioProvider;
+  std::function<PowerProfilesService*()> m_powerProfilesProvider;
   std::string m_soundSignature;
   Slider* m_soundOutputSlider = nullptr;
   Slider* m_soundInputSlider = nullptr;

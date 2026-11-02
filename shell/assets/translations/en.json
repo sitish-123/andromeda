@@ -1677,6 +1677,13 @@
       "unavailable": "Sound is not available",
       "use": "Use"
     },
+    "power": {
+      "battery": "Battery",
+      "health": "Battery Health",
+      "limit": "Limit Charging",
+      "limit-to": "Limit Charging to {percent}%",
+      "mode": "Power Mode"
+    },
     "users": {
       "account-name": "Account Name",
       "account-type": "Account Type",

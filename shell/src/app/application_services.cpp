@@ -1469,6 +1469,7 @@ void Application::initSystemBusServices() {
             .changed =
                 [this, shouldRefreshControlCenter](const PowerProfilesState& state, PowerProfilesChangeOrigin origin) {
                   m_bar.refresh();
+                  m_settingsWindow.onPowerChanged();
                   if (shouldRefreshControlCenter()) {
                     m_panelManager.refresh();
                   }
@@ -1501,6 +1502,7 @@ void Application::initSystemBusServices() {
                 },
             .changed =
                 [this, shouldRefreshControlCenter](const UPowerChange& change) {
+                  m_settingsWindow.onPowerChanged();
                   if (change.origin != UPowerService::ChangeOrigin::DeviceState) {
                     if (shouldRefreshControlCenter()) {
                       m_panelManager.refresh();

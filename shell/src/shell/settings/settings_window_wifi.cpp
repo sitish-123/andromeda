@@ -1,5 +1,6 @@
 #include "shell/settings/settings_content_bluetooth.h"
 #include "shell/settings/settings_content_network.h"
+#include "shell/settings/settings_content_power.h"
 #include "shell/settings/settings_content_sound.h"
 #include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_content_wifi.h"
@@ -210,4 +211,24 @@ void SettingsWindow::leaveDetail() {
   // The detail is gone (forgotten): Forward must not return to it.
   navigateHistory(-1);
   m_navHistory.resize(m_navIndex + 1);
+}
+
+void SettingsWindow::addPowerContent(float scale) {
+  if (m_selectedSection != "power" || !m_detail.empty()) {
+    return;
+  }
+  settings::addSettingsPower(
+      *m_contentContainer,
+      settings::SettingsPowerContext{
+          .scale = scale,
+          .upower = m_upower,
+          .profiles = m_powerProfilesProvider ? m_powerProfilesProvider() : nullptr,
+      }
+  );
+}
+
+void SettingsWindow::onPowerChanged() {
+  if (isOpen() && m_selectedSection == "power" && m_searchQuery.empty() && !m_expertOpen) {
+    requestContentRebuild();
+  }
 }
