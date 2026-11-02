@@ -138,12 +138,12 @@ namespace settings {
     appendGroup(entries, themeRows, "theme");
     {
       SettingControl fontFamilyControl =
-          TextSetting{.value = cfg.shell.fontFamily, .placeholder = "sans-serif", .browseFileExtensions = {}};
+          TextSetting{.value = cfg.shell.fontFamily, .placeholder = "Inter", .browseFileExtensions = {}};
       if (!env.fontFamilies.empty()) {
         fontFamilyControl = SearchPickerSetting{
             .options = env.fontFamilies,
             .selectedValue = cfg.shell.fontFamily,
-            .placeholder = "sans-serif",
+            .placeholder = "Inter",
             .emptyText = tr("ui.controls.search-picker.empty"),
             .preferredHeight = 280.0F,
         };

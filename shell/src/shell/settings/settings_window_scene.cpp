@@ -1044,11 +1044,12 @@ void SettingsWindow::rebuildSettingsContent() {
 
   m_contentContainer->setDirection(FlexDirection::Vertical);
   m_contentContainer->setAlign(FlexAlign::Stretch);
-  m_contentContainer->setGap(Style::spaceMd * scale);
+  m_contentContainer->setGap(Tokens::spaceP24 * scale);
   logSettingsProfile("rebuildContent setup", phaseProfileWatch);
   phaseProfileWatch.reset();
 
-  const bool pageRows = m_searchQuery.empty() && !m_expertOpen;
+  const bool detailOpen = m_searchQuery.empty() && !m_detail.empty();
+  const bool pageRows = m_searchQuery.empty() && !m_expertOpen && !detailOpen;
   if (pageRows) {
     settings::addSettingsBarManagement(
       *m_contentContainer,
@@ -1108,6 +1109,12 @@ void SettingsWindow::rebuildSettingsContent() {
       title = i18n::tr("settings.window.search-results");
     } else if (m_expertOpen) {
       title = pageLabel + " › " + i18n::tr("settings.expert.row");
+    } else if (detailOpen) {
+      // "kind:name" or "kind:name<TAB>id"; the title is the name only.
+      const auto colon = m_detail.find(':');
+      std::string name = colon == std::string::npos ? m_detail : m_detail.substr(colon + 1);
+      name = name.substr(0, name.find('\t'));
+      title = name.empty() ? pageLabel : pageLabel + " › " + name;
     }
     m_contentContainer->addChild(
         makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold)
@@ -1117,9 +1124,19 @@ void SettingsWindow::rebuildSettingsContent() {
   if (pageRows) {
     addDisplaysContent(scale);
   }
-  const std::size_t visibleEntries = settings::addSettingsContentSections(
-      *m_contentContainer, m_settingsRegistry, makeContentContext(cfg, selectedBar, selectedMonitorOverride)
-  );
+  // Hand-built pages lead with their hero card; the page's registry rows and More options follow.
+  if (pageRows || detailOpen) {
+    addWifiContent(scale);
+    addBluetoothContent(scale);
+    addNetworkContent(scale);
+    addSoundContent(scale);
+    addUsersContent(scale);
+  }
+  const std::size_t visibleEntries = detailOpen ? 0
+      : settings::addSettingsContentSections(
+            *m_contentContainer, m_settingsRegistry, makeContentContext(cfg, selectedBar, selectedMonitorOverride)
+        );
+
 
   logSettingsProfile("rebuildContent sections", phaseProfileWatch);
   phaseProfileWatch.reset();
@@ -1453,12 +1470,12 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
     row->addChild(
         ui::button({
             .glyph = "close",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .variant = ButtonVariant::Default,
-            .minWidth = Style::controlHeight * scale,
-            .minHeight = Style::controlHeight * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusMd(scale),
+            .minWidth = Tokens::sizeControlS * scale,
+            .minHeight = Tokens::sizeControlS * scale,
+            .padding = 0.0F,
+            .radius = Tokens::sizeControlS * 0.5F * scale,
             .onClick = [this] { close(); },
             .configure = [](Button& button) { button.setTabStop(false); },
         })
@@ -1555,6 +1572,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
       ui::row({
           .out = &m_groupJumpRow,
           .align = FlexAlign::Center,
+          .justify = FlexJustify::Center,
           .wrap = true,
           .gap = Style::spaceXs * scale,
           .fillWidth = true,
@@ -1575,7 +1593,9 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
       .state = &m_contentScrollState,
       .contentScale = scale,
       .scrollbarVisible = true,
+      .scrollbarAutoHide = true,
       .viewportPaddingH = settings::metrics::kPagePadding * scale,
+      .maxContentWidth = settings::metrics::kContentMaxWidth * scale,
       .viewportPaddingV = Style::spaceXs * scale,
       .flexGrow = 1.0F,
       .onScrollChanged = [this](float /*offset*/) { dismissOpenSelectDropdown(); },

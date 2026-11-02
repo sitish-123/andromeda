@@ -102,7 +102,7 @@ namespace settings {
 
     // Rows a typical user changes and that have a visual control. Bar rows are keyed `bar.*.<key>`.
     constexpr auto kMainRows = std::to_array<std::string_view>({
-        "theme.mode", "theme.builtin", "theme.from_wallpaper", "andromeda.appearance.reduce_transparency", "accessibility.ui_scale",
+        "theme.mode", "theme.builtin", "theme.community_palette", "theme.custom_palette", "theme.from_wallpaper", "andromeda.appearance.reduce_transparency", "accessibility.ui_scale",
         "shell.font_family",
         "wallpaper.enabled", "wallpaper.fill_mode", "wallpaper.directory", "wallpaper.transition",
         "wallpaper.automation.enabled", "wallpaper.automation.interval_seconds",
@@ -209,6 +209,8 @@ namespace settings {
   }
 
   std::span<const SettingsPage> settingsPages() { return kPages; }
+
+  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users"; }
 
   const SettingsPage* settingsPageFromId(std::string_view id) {
     if (const auto* it = std::ranges::find(kPages, id, &SettingsPage::id); it != kPages.end()) {

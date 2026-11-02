@@ -691,6 +691,7 @@ void SettingsWindow::destroyWindow() {
   m_navHistory.clear();
   m_navIndex = 0;
   m_expertOpen = false;
+  m_detail.clear();
   m_expertQuery.clear();
   m_highlightKey.clear();
   m_pendingOpenWidgetInspectorName.clear();
@@ -976,6 +977,7 @@ void SettingsWindow::clearTransientSettingsState() {
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
   m_expertOpen = false;
+  m_detail.clear();
   m_expertQuery.clear();
   m_highlightKey.clear();
   if (m_widgetAddPopup != nullptr && m_widgetAddPopup->isOpen()) {

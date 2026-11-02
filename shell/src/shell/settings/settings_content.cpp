@@ -802,14 +802,14 @@ namespace settings {
         req();
       };
 
-      const float iconBtnH = Style::controlHeight * scale;
+      const float iconBtnH = Tokens::sizeControlS * scale;
 
       for (std::size_t idx = 0; idx < state->size(); ++idx) {
         auto row = ui::row({
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeight * scale,
+            .minHeight = metrics::kRowHeight * scale,
         });
 
         Label* summaryLabel = nullptr;
@@ -829,12 +829,12 @@ namespace settings {
 
         auto upBtn = ui::button({
             .glyph = "chevron-up",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex == 0 || rowIndex >= state->size()) {
@@ -848,12 +848,12 @@ namespace settings {
 
         auto downBtn = ui::button({
             .glyph = "chevron-down",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex + 1 >= state->size()) {
@@ -868,12 +868,12 @@ namespace settings {
 
         auto entrySettings = ui::button({
             .glyph = "settings",
-            .glyphSize = Style::fontSizeCaption * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
-            .minHeight = Style::controlHeight * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusSm(scale),
+            .minWidth = iconBtnH,
+            .minHeight = iconBtnH,
+            .padding = 0.0F,
+            .radius = Style::scaledRadiusMd(scale),
             .onClick = [openEntry = ctx.openSessionActionEntryEditor, rowIndex = idx] {
               if (openEntry) {
                 openEntry(rowIndex);
@@ -919,7 +919,7 @@ namespace settings {
             commit();
           },
       });
-      block->addChild(std::move(addBtn));
+      block->addChild(ui::row({.paddingV = Style::spaceXs * scale}, std::move(addBtn)));
 
       section.addChild(std::move(block));
     };
@@ -938,13 +938,13 @@ namespace settings {
         req();
       };
 
-      const float iconBtnH = Style::controlHeight * scale;
+      const float iconBtnH = Tokens::sizeControlS * scale;
       for (std::size_t idx = 0; idx < state->size(); ++idx) {
         auto row = ui::row({
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeight * scale,
+            .minHeight = metrics::kRowHeight * scale,
         });
 
         auto summary = ui::label({
@@ -959,12 +959,12 @@ namespace settings {
 
         auto upBtn = ui::button({
             .glyph = "chevron-up",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex == 0 || rowIndex >= state->size()) {
@@ -978,12 +978,12 @@ namespace settings {
 
         auto downBtn = ui::button({
             .glyph = "chevron-down",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex + 1 >= state->size()) {
@@ -998,12 +998,12 @@ namespace settings {
 
         auto entrySettings = ui::button({
             .glyph = "settings",
-            .glyphSize = Style::fontSizeCaption * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeight * scale,
-            .minHeight = Style::controlHeight * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusSm(scale),
+            .minWidth = iconBtnH,
+            .minHeight = iconBtnH,
+            .padding = 0.0F,
+            .radius = Style::scaledRadiusMd(scale),
             .onClick = [openEntry = ctx.openIdleBehaviorEntryEditor, rowIndex = idx] {
               if (openEntry) {
                 openEntry(rowIndex);
@@ -1045,7 +1045,7 @@ namespace settings {
             }
           },
       });
-      block->addChild(std::move(addBtn));
+      block->addChild(ui::row({.paddingV = Style::spaceXs * scale}, std::move(addBtn)));
 
       section.addChild(std::move(block));
     };
@@ -1399,38 +1399,32 @@ namespace settings {
     const bool customPage = std::ranges::any_of(
         std::array{"plugins", "displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
         [&](std::string_view sectionId) { return selectedPageShows(ctx.selectedSection, sectionId); }
-    );
+    ) || settingsPageHasOwnContent(ctx.selectedSection);
     const auto* openPage = settingsPageFromId(ctx.selectedSection);
     const bool placeholderPage = openPage != nullptr && openPage->sections.empty();
     if (visibleEntries == 0 && !customPage && (ctx.rowScope == RowScope::Expert || expertEntryCount == 0)) {
-      auto emptyState = ui::column(
-          {.align = FlexAlign::Center,
-           .justify = FlexJustify::Center,
-           .gap = Style::spaceSm * scale,
-           .padding = (Style::spaceLg * 2.0F) * scale,
-           .fill = colorSpecFromRole(ColorRole::SolidThin),
-           .radius = Style::scaledRadiusMd(scale),
-           .border = colorSpecFromRole(ColorRole::Stroke),
-           .minWidth = 360.0F * scale,
-           .minHeight = 160.0F * scale,
-           .fillWidth = true,
-           .flexGrow = 2.0F},
-          makeLabel(
-              i18n::tr(placeholderPage ? "settings.pages.empty-title" : "settings.window.no-results"),
-              Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
-          ),
-          makeLabel(
-              i18n::tr(placeholderPage ? "settings.pages.empty-hint" : "settings.window.no-results-hint"),
-              Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
-          )
-      );
-
-      content.addChild(
-          ui::row(
-              {.align = FlexAlign::Center, .fillWidth = true}, ui::box({.flexGrow = 0.5F}), std::move(emptyState),
-              ui::box({.flexGrow = 0.5F})
-          )
-      );
+      // Empty state (rulebook 9.13): symbol 48 label_3, title-3, one footnote line; no card.
+      auto emptyState = ui::column({
+          .align = FlexAlign::Center,
+          .justify = FlexJustify::Center,
+          .gap = Style::spaceSm * scale,
+          .padding = Tokens::spaceP48 * scale,
+          .fillWidth = true,
+      });
+      emptyState->addChild(ui::glyph({
+          .glyph = std::string(placeholderPage && !openPage->glyph.empty() ? openPage->glyph : "search"),
+          .glyphSize = 48.0F * scale,
+          .color = colorSpecFromRole(ColorRole::Label3),
+      }));
+      emptyState->addChild(makeLabel(
+          i18n::tr(placeholderPage ? "settings.pages.empty-title" : "settings.window.no-results"),
+          Tokens::typeTitle3.size * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold
+      ));
+      emptyState->addChild(makeLabel(
+          i18n::tr(placeholderPage ? "settings.pages.empty-hint" : "settings.window.no-results-hint"),
+          Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
+      ));
+      content.addChild(std::move(emptyState));
     }
 
     return visibleEntries;

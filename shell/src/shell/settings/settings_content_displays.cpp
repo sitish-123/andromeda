@@ -26,6 +26,24 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
+  // The arrangement canvas places each output by hand (participatesInLayout false). Flex skips such children, so their
+  // own content (the wallpaper and the name) would never lay out; lay them out at the size they were given.
+  class PositionedLayout final : public Flex {
+  protected:
+    void doLayout(Renderer& renderer) override {
+      Flex::doLayout(renderer);
+      for (const auto& child : children()) {
+        if (child->visible() && !child->participatesInLayout()) {
+          child->layout(renderer);
+        }
+      }
+    }
+  };
+
+} // namespace
+
 namespace settings {
 
   namespace {
@@ -178,11 +196,15 @@ namespace settings {
         auto preview = ui::column({
             .align = FlexAlign::Stretch,
             .gap = Style::spaceXs * scale,
-            .padding = Style::spaceSm * scale,
             .fill = colorSpecFromRole(ColorRole::Fill1),
-            .radius = (metrics::kPickerRadius - Style::focusRingGap) * scale,
-            .height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
+            .radius = (metrics::kPickerRadius - (Style::focusRingWidth + Style::focusRingGap)) * scale,
+            .height = (metrics::kThumbHeight - 2.0F * (Style::focusRingWidth + Style::focusRingGap)) * scale,
             .flexGrow = 1.0F,
+            // The end inset keeps the text lines clear of the selection badge (20 at inset 8).
+            .configure = [scale](Flex& flex) {
+              flex.setPadding(Style::spaceSm * scale, (Style::spaceSm + 20.0F + Style::spaceXs) * scale,
+                              Style::spaceSm * scale, Style::spaceSm * scale);
+            },
         });
         for (std::size_t line = 0; line < 3 + i; ++line) {
           preview->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Label3), .radius = Style::spaceXs * scale,
@@ -195,7 +217,7 @@ namespace settings {
                 .disabled = state
             },
             .minHeight = metrics::kThumbHeight * scale,
-            .padding = Style::focusRingGap * scale,
+            .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
             .onClick = [edit = ctx.edit, config, value] {
               OutputHeadConfig next = config;
@@ -208,8 +230,11 @@ namespace settings {
             },
         });
         tile->addChild(std::move(preview));
-        const char* caption = value == 2.0 ? "settings.displays.scale-larger" : value == 1.5
+        tile->setCheckBadge(selected, scale, metrics::kPickerRadius * scale);
+        const char* captionKey = value == 2.0 ? "settings.displays.scale-larger" : value == 1.5
             ? "settings.displays.scale-default" : value == 1.0 ? "settings.displays.scale-space" : nullptr;
+        const std::string caption =
+            captionKey != nullptr ? i18n::tr(captionKey) : std::format("{} %", static_cast<int>(std::lround(value * 100.0)));
         strip->addChild(ui::column(
             {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale, .minWidth = metrics::kPickerTileWidth * scale,
              .flexGrow = 1.0F},
@@ -217,7 +242,7 @@ namespace settings {
             ui::row(
                 {.justify = FlexJustify::Center},
                 makeLabel(
-                    caption != nullptr ? i18n::tr(caption) : std::string{}, Style::fontSizeCaption * scale,
+                    caption, Style::fontSizeCaption * scale,
                     colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
                     selected ? FontWeight::Bold : FontWeight::Medium
                 )
@@ -705,14 +730,18 @@ namespace settings {
       const float layoutW = static_cast<float>(maxX - minX) * fit;
       const float layoutH = static_cast<float>(maxY - minY) * fit;
 
-      auto layout = ui::column({.width = layoutW * scale, .height = layoutH * scale});
+      auto layout = std::make_unique<PositionedLayout>();
+      layout->setDirection(FlexDirection::Vertical);
+      layout->setSize(layoutW * scale, layoutH * scale);
+      layout->setMinWidth(layoutW * scale);
+      layout->setMinHeight(layoutH * scale);
       for (const LayoutRect& r : rects) {
         const bool selected = heads[r.index].name == selectedName;
         const ColorSpec none = clearColorSpec();
         const Button::ButtonStateColors state{
-            .bg = colorSpecFromRole(r.active ? ColorRole::Fill3 : ColorRole::Fill2),
+            .bg = none,
             .border = selected ? colorSpecFromRole(ColorRole::Accent) : none,
-            .label = colorSpecFromRole(r.active ? ColorRole::Label1 : ColorRole::Label3)
+            .label = r.active ? fixedColorSpec(rgbHex(0xFFFFFF)) : colorSpecFromRole(ColorRole::Label3)
         };
         struct Press {
           bool active = false;
@@ -721,8 +750,6 @@ namespace settings {
         };
         auto pressAt = std::make_shared<Press>();
         layout->addChild(ui::button({
-            .text = heads[r.index].name,
-            .fontSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
             .customPalette = Button::ButtonPalette{
                 .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
@@ -730,7 +757,7 @@ namespace settings {
             },
             .minWidth = static_cast<float>(r.w) * fit * scale,
             .minHeight = static_cast<float>(r.h) * fit * scale,
-            .padding = 0.0F,
+            .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = Style::spaceSm * scale,
             .width = static_cast<float>(r.w) * fit * scale,
             .height = static_cast<float>(r.h) * fit * scale,
@@ -763,8 +790,29 @@ namespace settings {
               next.y = ny;
               edit(std::move(next));
             },
-            .configure = [r, fit, scale, minX, minY](Button& button) {
+            .configure = [r, fit, scale, minX, minY, name = heads[r.index].name](Button& button) {
               button.setTabStop(false);
+              button.setDirection(FlexDirection::Vertical);
+              button.setAlign(FlexAlign::Stretch);
+              // The output shows its wallpaper (mockup settings-v2 Displays); off outputs stay a plain fill.
+              auto screen = ui::column({
+                  .align = FlexAlign::Center,
+                  .justify = FlexJustify::Center,
+                  .fill = colorSpecFromRole(ColorRole::Fill2),
+                  .radius = (Style::spaceSm - Style::focusRingWidth - Style::focusRingGap) * scale,
+                  .flexGrow = 1.0F,
+              });
+              if (r.active) {
+                applyWallpaperIllustration(*screen);
+              }
+              screen->addChild(ui::label({
+                  .text = name,
+                  .fontSize = Style::fontSizeCaption * scale,
+                  .fontWeight = FontWeight::SemiBold,
+                  .color = r.active ? fixedColorSpec(rgbHex(0xFFFFFF)) : colorSpecFromRole(ColorRole::Label3),
+                  .maxLines = 1,
+              }));
+              button.addChild(std::move(screen));
               button.setParticipatesInLayout(false);
               button.setPosition(
                   static_cast<float>(r.x - minX) * fit * scale, static_cast<float>(r.y - minY) * fit * scale
@@ -775,8 +823,6 @@ namespace settings {
       auto plane = ui::row(
           {.align = FlexAlign::Center,
            .justify = FlexJustify::Center,
-           .fill = colorSpecFromRole(ColorRole::Fill1),
-           .radius = Style::scaledRadiusMd(scale),
            .minHeight = kCanvasHeight * scale,
            .fillWidth = true},
           std::move(layout)

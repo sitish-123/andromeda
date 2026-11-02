@@ -23,6 +23,8 @@ namespace settings {
   };
 
   [[nodiscard]] std::span<const SettingsPage> settingsPages();
+  // Pages built by their own content code (no registry rows), such as Wi-Fi.
+  [[nodiscard]] bool settingsPageHasOwnContent(std::string_view pageId);
   // Resolves a page id, a legacy section id or a merged-section alias to its page; null when unknown.
   [[nodiscard]] const SettingsPage* settingsPageFromId(std::string_view id);
   // The page that shows `section`; every section belongs to exactly one page.

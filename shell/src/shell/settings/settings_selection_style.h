@@ -27,7 +27,8 @@ namespace settings {
     inline constexpr const float& kPagePadding = Tokens::componentPagePadding;
     inline constexpr float kCardBorderWidth = 0.5F;
     inline constexpr float kCardFillOpacity = 0.4F;
-    inline constexpr float kRowSeparatorThickness = 0.5F;
+    inline constexpr float kRowSeparatorThickness = 1.0F;
+    inline constexpr float kContentMaxWidth = 640.0F;
     inline constexpr float kRowHeight = 40.0F;
     inline constexpr float kRowHeightTwoLine = 56.0F;
     inline constexpr float kPickerTileWidth = 96.0F;
@@ -75,7 +76,8 @@ namespace settings {
     return FrameColors{
         .tileFill = clearColorSpec(),
         .tileGlyph = colorSpecFromRole(ColorRole::Label2),
-        .cardFill = colorSpecFromRole(ColorRole::SolidRegular),
+        // Scheme token `card` (white in light, #28282c in dark): grouped cards read white on the window plane.
+        .cardFill = fixedColorSpec(rgbaHex(isResolvedLightTheme() ? Tokens::schemeLight.card : Tokens::schemeDark.card)),
         .cardBorder = colorSpecFromRole(ColorRole::Stroke),
         .avatarFill = colorSpecFromRole(ColorRole::Accent),
         .avatarInitial = colorSpecFromRole(ColorRole::OnAccent),

@@ -455,9 +455,12 @@ namespace settings {
       content.addChild(makeSettingSubtitleLabel(i18n::tr("settings.input.unavailable"), ctx.scale));
       return;
     }
-    addKeyboardCard(content, ctx);
-    addTouchpadCard(content, ctx);
-    addMouseCard(content, ctx);
+    if (ctx.pointer) {
+      addMouseCard(content, ctx);
+      addTouchpadCard(content, ctx);
+    } else {
+      addKeyboardCard(content, ctx);
+    }
   }
 
 } // namespace settings

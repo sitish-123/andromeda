@@ -39,7 +39,8 @@ void SettingsWindow::setCompositorSetting(const std::string& key, const std::str
 }
 
 void SettingsWindow::addInputContent(float scale) {
-  if (!settings::selectedPageShows(m_selectedSection, "input")) {
+  const bool pointer = m_selectedSection == "mouse";
+  if (!pointer && !settings::selectedPageShows(m_selectedSection, "input")) {
     m_xkbCatalog.reset();
     return;
   }
@@ -54,6 +55,7 @@ void SettingsWindow::addInputContent(float scale) {
           .input = m_compositorSettings.get(),
           .catalog = &*m_xkbCatalog,
           .set = [this](std::string key, std::string value) { setCompositorSetting(key, value); },
+          .pointer = pointer,
       }
   );
 }

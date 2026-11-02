@@ -5,6 +5,7 @@
 #include "config/config_types.h"
 #include "i18n/i18n.h"
 #include "render/scene/input_area.h"
+#include "render/scene/rect_node.h"
 #include "shell/bar/widget_action.h"
 #include "shell/bar/widget_gesture.h"
 #include "shell/settings/color_spec_picker.h"
@@ -236,32 +237,76 @@ namespace settings {
 
   namespace {
 
-    constexpr float kPreviewRadius = metrics::kPickerRadius - 2.0F;
+    // R7: the tile radius minus its ring and gap.
+    constexpr float kPreviewRadius = metrics::kPickerRadius - Style::focusRingWidth - Style::focusRingGap;
 
-    // A miniature screen: light, dark, or the two split for auto.
-    std::unique_ptr<Flex> makeModePreview(std::string_view value, float scale) {
-      const ColorSpec light = fixedColorSpec(rgbHex(0xF2F2F7));
-      const ColorSpec dark = fixedColorSpec(rgbHex(0x1C1C1E));
-      auto screen = ui::row({
-          .align = FlexAlign::Stretch,
-          .radius = kPreviewRadius * scale,
-          .border = colorSpecFromRole(ColorRole::Stroke),
-          .clipChildren = true,
-          .height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
-          .flexGrow = 1.0F,
+    // Mode illustration (mockup .agent/mockups/settings.html A): wallpaper, two bar pills and a window in the mode's
+    // colours; auto splits all three down the middle. 116 x 74 at r 10 (R7 inside the 12 tile with its 2 + 2 ring).
+    constexpr float kModeThumbWidth = 116.0F;
+    constexpr float kModeThumbHeight = 74.0F;
+
+    std::unique_ptr<RectNode> modeLayer(float x, float y, float w, float h, float radius, std::array<Color, 3> stops,
+                                        bool split) {
+      auto rect = std::make_unique<RectNode>();
+      rect->setParticipatesInLayout(false);
+      rect->setPosition(x, y);
+      rect->setFrameSize(w, h);
+      const float mid = split ? 0.5F : 0.6F;
+      rect->setStyle(RoundedRectStyle{
+          .fill = stops[0],
+          .border = clearColor(),
+          .fillMode = FillMode::LinearGradient,
+          .gradientDirection = GradientDirection::Horizontal,
+          .gradientStops = {GradientStop{0.0F, stops[0]}, GradientStop{mid, stops[split ? 0 : 1]},
+                            GradientStop{mid, stops[split ? 2 : 1]}, GradientStop{1.0F, stops[2]}},
+          .radius = radius,
+          .softness = 1.0F,
+          .borderWidth = 0.0F,
       });
-      const auto half = [&](const ColorSpec& fill) {
-        return ui::column(
-            {.align = FlexAlign::Center,
-             .justify = FlexJustify::Center,
-             .fill = fill,
-             .flexGrow = 1.0F}
-        );
-      };
-      const bool auto_ = value == "auto";
-      screen->addChild(half(value == "dark" ? dark : light));
-      screen->addChild(half(auto_ || value == "dark" ? dark : light));
-      return screen;
+      return rect;
+    }
+
+    std::unique_ptr<Flex> makeModePreview(std::string_view value, float scale) {
+      const bool dark = value == "dark";
+      const bool split = value == "auto";
+      const float w = kModeThumbWidth * scale;
+      const float h = kModeThumbHeight * scale;
+      const Color wpLight0 = rgbHex(0xF6C9A8);
+      const Color wpLight1 = rgbHex(0x9FB6FF);
+      const Color wpLight2 = rgbHex(0x8FE6D2);
+      const Color wpDark0 = rgbHex(0x24161C);
+      const Color wpDark1 = rgbHex(0x121A33);
+      const Color wpDark2 = rgbHex(0x0C2A28);
+      const Color winLight = rgbHex(0xF2F2F6);
+      const Color winDark = rgbHex(0x1E1E22);
+      const Color pillLight{1.0F, 1.0F, 1.0F, 0.7F};
+      const Color pillDark{28.0F / 255.0F, 28.0F / 255.0F, 32.0F / 255.0F, 0.75F};
+
+      auto thumb = ui::column({
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Separator),
+          .borderWidth = 0.5F * scale,
+          .width = w,
+          .height = h,
+      });
+      std::array<Color, 3> wallpaper = dark ? std::array{wpDark0, wpDark1, wpDark2}
+          : split                         ? std::array{wpLight0, wpLight0, wpDark1}
+                                          : std::array{wpLight0, wpLight1, wpLight2};
+      thumb->addChild(modeLayer(0.0F, 0.0F, w, h, kPreviewRadius * scale, wallpaper, split));
+      const float pillW = 22.0F * scale;
+      const float pillH = 7.0F * scale;
+      const float inset = 6.0F * scale;
+      const Color pillStart = dark ? pillDark : pillLight;
+      const Color pillEnd = dark || split ? pillDark : pillLight;
+      thumb->addChild(modeLayer(inset, 5.0F * scale, pillW, pillH, pillH * 0.5F, {pillStart, pillStart, pillStart}, false));
+      thumb->addChild(modeLayer(w - inset - pillW, 5.0F * scale, pillW, pillH, pillH * 0.5F, {pillEnd, pillEnd, pillEnd}, false));
+      const Color winStart = dark ? winDark : winLight;
+      const Color winEnd = dark || split ? winDark : winLight;
+      // The auto window straddles the split: its own halves meet at the thumbnail's centre line.
+      const float winX = split ? w * 0.5F - 32.0F * scale : 18.0F * scale;
+      thumb->addChild(modeLayer(winX, 20.0F * scale, 64.0F * scale, 42.0F * scale, 5.0F * scale,
+                                {winStart, winStart, winEnd}, split));
+      return thumb;
     }
 
   } // namespace
@@ -485,7 +530,8 @@ namespace settings {
         return strip;
       }
       // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
-      auto strip = ui::row({.align = FlexAlign::Start, .gap = metrics::kPickerGap * scale, .fillWidth = true});
+      auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = 22.0F * scale,
+                            .fillWidth = true});
       auto ordered = setting.options;
       std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
         return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
@@ -495,19 +541,20 @@ namespace settings {
         auto tile = ui::button({
             .variant = ButtonVariant::Ghost,
             .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label1)),
-            .minHeight = metrics::kThumbHeight * scale,
-            .padding = Style::focusRingGap * scale,
+            .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
             .onClick = [commit, value = opt.value] { commit(value); },
-            .configure = [value = opt.value, scale](Button& button) {
+            .configure = [value = opt.value, scale, selected](Button& button) {
               button.setTabStop(false);
-              button.setFlexGrow(1.0F);
+              button.setFlexGrow(0.0F);
               button.addChild(makeModePreview(value, scale));
+              // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
+              button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
+                                   colorSpecFromRole(ColorRole::Accent));
             },
         });
         strip->addChild(ui::column(
-            {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale, .minWidth = metrics::kPickerTileWidth * scale,
-             .flexGrow = 1.0F},
+            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
             std::move(tile),
             ui::row(
                 {.justify = FlexJustify::Center},
@@ -1308,7 +1355,7 @@ namespace settings {
         ui::label({
             .text = entry.title,
             .fontSize = Style::fontSizeBody * scale,
-            .fontWeight = FontWeight::Bold,
+            .fontWeight = FontWeight::Normal,
             .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = titleMaxTwoLines ? std::optional<int>{2} : std::nullopt,
         })
@@ -1326,7 +1373,7 @@ namespace settings {
     }
     auto copy = ui::column(copyProps);
     copy->addChild(std::move(titleRow));
-    if (!entry.subtitle.empty()) {
+    if (settingEntryShowsCaption(entry) && !entry.subtitle.empty()) {
       auto subtitle = makeSettingSubtitleLabel(entry.subtitle, scale);
       if (compactTitleDescription) {
         subtitle->setFlexGrow(1.0F);

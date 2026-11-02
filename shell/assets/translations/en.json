@@ -1644,6 +1644,67 @@
       "row": "More options",
       "search-placeholder": "Search in {page}"
     },
+    "bluetooth": {
+      "address": "Address",
+      "battery": "Battery",
+      "blocked": "Blocked by the system",
+      "connect": "Connect",
+      "connected": "Connected",
+      "connecting": "Connecting…",
+      "discoverable-as": "Discoverable as “{name}”",
+      "forget": "Forget This Device",
+      "gone": "This device is no longer known",
+      "mine": "My Devices",
+      "nearby": "Nearby Devices",
+      "none": "No devices found",
+      "not-connected": "Not connected",
+      "unavailable": "No Bluetooth adapter"
+    },
+    "network": {
+      "cellular": "Mobile Data",
+      "connection": "Connection",
+      "ethernet": "Ethernet",
+      "unavailable": "Networking is not available",
+      "vpn": "VPN"
+    },
+    "sound": {
+      "input": "Input",
+      "input-volume": "Input Volume",
+      "mute": "Mute",
+      "no-devices": "No devices",
+      "output": "Output",
+      "output-volume": "Output Volume",
+      "unavailable": "Sound is not available",
+      "use": "Use"
+    },
+    "users": {
+      "admin": "Admin",
+      "none": "No other users",
+      "others": "Other Users",
+      "standard": "Standard"
+    },
+    "wifi": {
+      "band": "Band",
+      "connected": "Connected",
+      "connecting": "Connecting…",
+      "details": "Details…",
+      "disconnect": "Disconnect",
+      "forget": "Forget This Network",
+      "interface": "Interface",
+      "ip-address": "IP Address",
+      "join": "Join",
+      "known": "Known Networks",
+      "none": "No networks found",
+      "not-connected": "Not connected",
+      "off": "Off",
+      "other": "Other Networks",
+      "password": "Password",
+      "scan": "Scan",
+      "searching": "Searching…",
+      "signal": "Signal",
+      "status": "Status",
+      "unavailable": "Wi-Fi is not available"
+    },
     "pages": {
       "empty-hint": "The controls for this page arrive in a later update.",
       "empty-title": "Nothing to set here yet",

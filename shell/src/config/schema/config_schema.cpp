@@ -2712,14 +2712,14 @@ namespace noctalia::config::schema {
                 .tags = "close button cross dismiss hide panel notification toast popup dialog sheet settings window",
             }
         ),
-        // font_family is trimmed; empty falls back to sans-serif.
+        // font_family is trimmed; empty falls back to Inter.
         custom<ShellConfig>(
             "font_family",
             [](const toml::table& tbl, ShellConfig& out, std::string_view parentPath, Diagnostics& diag) {
               if (auto v = tbl["font_family"].value<std::string>()) {
                 out.fontFamily = StringUtils::trim(*v);
                 if (out.fontFamily.empty()) {
-                  out.fontFamily = "sans-serif";
+                  out.fontFamily = "Inter";
                 }
               } else {
                 warnWrongType(tbl, "font_family", parentPath, diag, "a string");

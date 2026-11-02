@@ -704,20 +704,17 @@ namespace settings {
     const bool showSources = !tabbed || openTab.contains("sources");
     const bool showPlugins = !tabbed || openTab.contains("plugins");
     if (tabbed && ctx.groupJumpRow != nullptr) {
-      for (const auto& [group, title] : {std::pair{"plugins", pluginsTitle}, std::pair{"sources", sourcesTitle}}) {
-        ctx.groupJumpRow->addChild(
-            ui::button({
-                .text = title,
-                .fontSize = Style::fontSizeCaption * scale,
-                .variant = openTab.contains(group) ? ButtonVariant::TabActive : ButtonVariant::Tab,
-                .radius = Style::scaledRadiusMd(scale),
-                .onClick = [&openTab, tab = std::string(group), rebuild = ctx.requestContentRebuild]() {
-                  openTab = {tab};
-                  rebuild();
-                },
-            })
-        );
-      }
+      // The two tabs are one segmented control; the open one is the lens (rulebook 9.6).
+      ctx.groupJumpRow->addChild(ui::segmented({
+          .options = std::vector<ui::SegmentedOption>{ui::SegmentedOption{.label = std::string(pluginsTitle)},
+                                                      ui::SegmentedOption{.label = std::string(sourcesTitle)}},
+          .selectedIndex = openTab.contains("sources") ? std::size_t{1} : std::size_t{0},
+          .scale = scale,
+          .onChange = [&openTab, rebuild = ctx.requestContentRebuild](std::size_t index) {
+            openTab = {index == 1 ? std::string("sources") : std::string("plugins")};
+            rebuild();
+          },
+      }));
     }
 
     if (ctx.config != nullptr && ctx.config->shell.offlineMode) {

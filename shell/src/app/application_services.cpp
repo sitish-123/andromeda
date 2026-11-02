@@ -1554,6 +1554,7 @@ void Application::initSystemBusServices() {
                     onNetworkStateChangedForEvents(state, origin);
                   }
                   m_externalIpService.onNetworkChanged();
+                  m_settingsWindow.onConnectivityChanged();
                   m_bar.refresh();
                   if (shouldRefreshControlCenter()) {
                     m_panelManager.refresh();
@@ -1562,6 +1563,7 @@ void Application::initSystemBusServices() {
         }
     );
     auto refreshBluetoothUi = [this, shouldRefreshControlCenter] {
+      m_settingsWindow.onConnectivityChanged();
       m_bar.refresh();
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();

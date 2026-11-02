@@ -46,6 +46,8 @@ namespace settings {
   [[nodiscard]] Flex* addSettingsCard(Flex& parent, std::string_view title, float scale);
   // A caption above a card (direction A); the returned body takes the rows. Empty caption: card only.
   [[nodiscard]] Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale);
+  // Wallpaper stand-in for previews (Displays, Dock): the mockup gradient of the resolved light or dark scheme.
+  void applyWallpaperIllustration(Flex& flex);
   // A live miniature of the dock on a wallpaper-like plane: edge, icon size and magnification follow `dock`.
   [[nodiscard]] std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale);
   // Hairline between the rows of a card body.

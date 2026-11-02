@@ -15,6 +15,9 @@ void SettingsWindow::applyNavEntry(const NavEntry& entry) {
   }
   m_selectedMonitorOverride = entry.monitor;
   m_expertOpen = entry.expert;
+  m_detail = entry.detail;
+  m_wifiJoinSsid.clear();
+  m_wifiPassword.clear();
   m_expertQuery.clear();
   m_contentScrollState.offset = 0.0F;
 }
@@ -25,9 +28,22 @@ void SettingsWindow::navigateTo(
   NavEntry next{.page = std::move(page), .bar = std::move(bar), .monitor = std::move(monitor), .expert = expert};
   applyNavEntry(next);
   m_highlightKey = std::move(highlight);
-  if (m_navHistory.empty() || m_navHistory[m_navIndex] != next) {
+  pushNavEntry(std::move(next));
+}
+
+void SettingsWindow::openDetail(std::string detail) {
+  NavEntry next{
+      .page = m_selectedSection, .bar = m_selectedBarName, .monitor = m_selectedMonitorOverride, .detail = std::move(detail)
+  };
+  applyNavEntry(next);
+  m_highlightKey.clear();
+  pushNavEntry(std::move(next));
+}
+
+void SettingsWindow::pushNavEntry(NavEntry entry) {
+  if (m_navHistory.empty() || m_navHistory[m_navIndex] != entry) {
     m_navHistory.resize(m_navHistory.empty() ? 0 : m_navIndex + 1);
-    m_navHistory.push_back(std::move(next));
+    m_navHistory.push_back(std::move(entry));
     m_navIndex = m_navHistory.size() - 1;
   }
   if (isOpen()) {

@@ -39,6 +39,10 @@
 #include <vector>
 
 class Box;
+class BluetoothService;
+class PipeWireService;
+class Slider;
+class INetworkService;
 class AsyncTextureCache;
 class Button;
 class AccountsService;
@@ -141,6 +145,16 @@ public:
   // Also rebuilds the calendar account rows when an account's sync failure changes.
   void setCalendarService(CalendarService* service);
   void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  // Services start after Settings exists, so the pages ask for them when they build.
+  void setConnectivityProviders(std::function<INetworkService*()> network, std::function<BluetoothService*()> bluetooth) {
+    m_networkProvider = std::move(network);
+    m_bluetoothProvider = std::move(bluetooth);
+  }
+  // Rebuilds an open Wi-Fi, Bluetooth or Network page; skipped while a password field is open.
+  void onConnectivityChanged();
+  void setAudioProvider(std::function<PipeWireService*()> audio) { m_audioProvider = std::move(audio); }
+  // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
+  void onAudioChanged();
   void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
@@ -173,6 +187,8 @@ private:
     std::string bar;
     std::string monitor;
     bool expert = false;
+    // A detail page inside the page, "kind:name" (a Wi-Fi network, a Bluetooth device); empty for the page itself.
+    std::string detail;
     bool operator==(const NavEntry&) const = default;
   };
   void destroyWindow();
@@ -238,6 +254,14 @@ private:
   void onLanguageChanged();
   void addDefaultAppsContent(float scale);
   void addDevicesContent(float scale);
+  void addWifiContent(float scale);
+  void addBluetoothContent(float scale);
+  void addNetworkContent(float scale);
+  void addSoundContent(float scale);
+  void addUsersContent(float scale);
+  void openDetail(std::string detail);
+  void leaveDetail();
+  void pushNavEntry(NavEntry entry);
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
   void finishDisplayConfirm(bool keep);
@@ -461,6 +485,16 @@ private:
   std::size_t m_navIndex = 0;
   // True while the page's expert options are open instead of the page itself.
   bool m_expertOpen = false;
+  std::string m_detail;
+  std::function<INetworkService*()> m_networkProvider;
+  std::function<BluetoothService*()> m_bluetoothProvider;
+  std::function<PipeWireService*()> m_audioProvider;
+  std::string m_soundSignature;
+  Slider* m_soundOutputSlider = nullptr;
+  Slider* m_soundInputSlider = nullptr;
+  // The Wi-Fi network whose password row is open, and the text typed so far.
+  std::string m_wifiJoinSsid;
+  std::string m_wifiPassword;
   std::string m_expertQuery;
   // Config path (or "section/title" for pathless rows) of the row a search result opened; shown highlighted.
   std::string m_highlightKey;

@@ -169,6 +169,8 @@ void Application::initUiRenderSurfacesAndSettings() {
       &m_compositorPlatform, m_accountsService.get()
   );
   m_settingsWindow.setSystemBus(m_systemBus.get());
+  m_settingsWindow.setConnectivityProviders([this] { return network(); }, [this] { return bluetooth(); });
+  m_settingsWindow.setAudioProvider([this] { return pipewire(); });
   m_settingsWindow.setFileWatcher(&m_fileWatcher);
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);
@@ -1243,6 +1245,7 @@ void Application::initWidgetControllersAndCallbacks() {
       }
       m_bar.refresh();
       m_liveActivity.refresh();
+      m_settingsWindow.onAudioChanged();
       m_desktopWidgetsController.requestUpdate();
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();

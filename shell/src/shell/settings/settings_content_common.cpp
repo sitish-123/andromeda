@@ -201,10 +201,10 @@ namespace settings {
 
   Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale) {
     Flex* bodyRaw = nullptr;
-    auto group = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale});
+    auto group = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale});
     if (!caption.empty()) {
       auto captionRow = ui::column({.align = FlexAlign::Stretch});
-      captionRow->setPadding(Style::spaceXs * scale, Style::spaceXs * scale);
+      captionRow->setPadding(0.0F, Style::spaceLg * scale);
       captionRow->addChild(
           makeLabel(caption, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Bold)
       );
@@ -218,13 +218,23 @@ namespace settings {
             .configure = [scale](Flex& container) {
               container.setFill(frameColors().cardFill);
               container.setBorder(frameColors().cardBorder, metrics::kCardBorderWidth * scale);
-              container.setRadius(Style::scaledRadiusXl(scale));
-              container.setPadding(Style::spaceXs * scale, Style::spaceMd * scale);
+              container.setRadius(Style::scaledRadiusLg(scale));
+              container.setPadding(Style::spaceXs * scale, Style::spaceLg * scale);
             },
         })
     );
     parent.addChild(std::move(group));
     return bodyRaw;
+  }
+
+  void applyWallpaperIllustration(Flex& flex) {
+    const bool light = isResolvedLightTheme();
+    const Color a = rgbHex(light ? 0xF6C9A8 : 0x24161C);
+    const Color b = rgbHex(light ? 0x9FB6FF : 0x121A33);
+    const Color c = rgbHex(light ? 0x8FE6D2 : 0x0C2A28);
+    flex.setFillGradient(
+        GradientDirection::Horizontal, {GradientStop{0.0F, a}, GradientStop{0.6F, b}, GradientStop{0.6F, b}, GradientStop{1.0F, c}}
+    );
   }
 
   std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale) {
@@ -258,11 +268,11 @@ namespace settings {
         .align = vertical ? (atEnd ? FlexAlign::End : FlexAlign::Start) : FlexAlign::Center,
         .justify = vertical ? FlexJustify::Center : (atEnd ? FlexJustify::End : FlexJustify::Start),
         .padding = kPreviewInset * scale,
-        .fill = colorSpecFromRole(ColorRole::Fill2),
         .radius = Style::scaledRadiusMd(scale),
         .minHeight = kPreviewHeight * scale,
         .fillWidth = true,
     });
+    applyWallpaperIllustration(*plane);
     plane->addChild(std::move(capsule));
     return plane;
   }
@@ -278,10 +288,10 @@ namespace settings {
       }
     }
     for (std::size_t k = shown.size(); k > 1; --k) {
-      body.insertChildAt(
-          shown[k - 1],
-          ui::separator({.thickness = metrics::kRowSeparatorThickness * scale, .spacing = Style::spaceXs * scale, .gradientEdges = false})
-      );
+      auto separator =
+          ui::separator({.thickness = metrics::kRowSeparatorThickness * scale, .spacing = 0.0F, .gradientEdges = false});
+      separator->setEndOutset(Style::spaceLg * scale);
+      body.insertChildAt(shown[k - 1], std::move(separator));
     }
   }
 
