@@ -202,7 +202,9 @@ namespace andromeda {
       const float opacity =
           std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
       alpha *= opacity;
-      m_blur.setAlpha(opacity);
+      // Blur leads the fade (ease-out cubic), so the backdrop is frosted before the fill is opaque.
+      const float lead = 1.0F - opacity;
+      m_blur.setAlpha(1.0F - lead * lead * lead);
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
