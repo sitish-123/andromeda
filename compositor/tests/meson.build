@@ -264,6 +264,17 @@ foreign_toplevel_client = executable(
   dependencies: [wayland_client_dep],
 )
 
+# Harness helper that requests an activation token with an app id hint (a launch) and prints it.
+activation_token_client = executable(
+  'activation-token-client',
+  [
+    'harness/clients/activation_token_client.cpp',
+    xdg_activation_client_h,
+    xdg_activation_client_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
 # Harness helper that unmaps its toplevel on a close request without destroying
 # it, so the compositor keeps the View registered but unmapped.
 unmap_client = executable(
@@ -623,6 +634,7 @@ harness_client_targets = [
   data_control_client,
   workspace_client,
   foreign_toplevel_client,
+  activation_token_client,
   unmap_client,
   popup_client,
   subsurface_client,

@@ -21,6 +21,8 @@
 #include "workspace/scratchpad.h"
 #include "xwayland/xwayland.h"
 
+#include <string_view>
+
 namespace andromeda {
 
   using namespace cursor_detail;
@@ -484,9 +486,23 @@ namespace andromeda {
     }
   }
 
+  const char* Cursor::effectiveXcursor(const char* name) const {
+    return m_launchBusy && std::string_view(name) == "default" ? "progress" : name;
+  }
+
+  void Cursor::setLaunchBusy(bool busy) {
+    if (m_launchBusy == busy) {
+      return;
+    }
+    m_launchBusy = busy;
+    if (!m_cursorHidden && m_activeXcursorManager != nullptr && m_activeXcursorName == "default") {
+      wlr_cursor_set_xcursor(m_cursor, m_activeXcursorManager, effectiveXcursor("default"));
+    }
+  }
+
   void Cursor::setXcursor(const char* name) {
     if (!m_cursorHidden) {
-      wlr_cursor_set_xcursor(m_cursor, m_xcursorManager, name);
+      wlr_cursor_set_xcursor(m_cursor, m_xcursorManager, effectiveXcursor(name));
     }
     m_activeXcursorManager = m_xcursorManager;
     m_activeXcursorName = name;

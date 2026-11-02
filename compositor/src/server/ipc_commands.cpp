@@ -1387,6 +1387,7 @@ namespace andromeda {
             {"source", cursor->clientCursorSourceForTest()},
             {"name", cursor->clientCursorNameForTest()},
             {"xwayland", cursor->clientCursorFromXwaylandForTest()},
+            {"xcursor", cursor->xcursorNameForTest()},
             {"image", std::move(image)},
         },
     }};

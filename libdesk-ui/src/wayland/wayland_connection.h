@@ -203,7 +203,8 @@ public:
   [[nodiscard]] WaylandOutput* findOutputByXdg(zxdg_output_v1* xdgOutput);
 
   [[nodiscard]] bool hasXdgActivation() const noexcept;
-  [[nodiscard]] std::string requestActivationToken(wl_surface* surface) const;
+  // appId marks the token as an app launch (the compositor shows the busy cursor until its window maps).
+  [[nodiscard]] std::string requestActivationToken(wl_surface* surface, const std::string& appId = {}) const;
   void activateSurface(wl_surface* surface);
 
   [[nodiscard]] wl_output* lastPointerOutput() const noexcept;

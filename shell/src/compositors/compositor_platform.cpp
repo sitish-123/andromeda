@@ -705,8 +705,8 @@ bool CompositorPlatform::hasXdgShell() const noexcept { return m_wayland.hasXdgS
 
 bool CompositorPlatform::hasXdgActivation() const noexcept { return m_wayland.hasXdgActivation(); }
 
-std::string CompositorPlatform::requestActivationToken(wl_surface* surface) const {
-  return m_wayland.requestActivationToken(surface);
+std::string CompositorPlatform::requestActivationToken(wl_surface* surface, const std::string& appId) const {
+  return m_wayland.requestActivationToken(surface, appId);
 }
 
 bool CompositorPlatform::hasGammaControl() const noexcept { return m_wayland.hasGammaControl(); }

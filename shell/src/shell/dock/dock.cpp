@@ -56,7 +56,7 @@ namespace {
     std::string token;
     if (platform.hasXdgActivation()) {
       // No layer-shell surface — binding it can misplace first launches on Hyprland.
-      token = platform.requestActivationToken(nullptr);
+      token = platform.requestActivationToken(nullptr, desktopEntryAppId(entry.id));
     }
     return desktop_entry_launch::LaunchOptions{
         .activationToken = std::move(token),

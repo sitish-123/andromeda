@@ -191,6 +191,8 @@ namespace andromeda {
     void handleDataDragEnded();
     void setCursorSurface(wlr_surface* surface, int32_t hotspotX, int32_t hotspotY, wl_client* owner);
     void setXcursor(const char* name);
+    // Rulebook §10: the arrow becomes the busy cursor (arrow + spinner) while an app launch is pending.
+    void setLaunchBusy(bool busy);
     void noteActivity();
     void hideCursor();
     bool beginMove(View* view, uint32_t button, bool deferUntilThreshold = false);
@@ -242,6 +244,9 @@ namespace andromeda {
     [[nodiscard]] std::string clientCursorSourceForTest() const;
     [[nodiscard]] std::string clientCursorNameForTest() const { return m_clientCursorShape; }
     [[nodiscard]] bool clientCursorFromXwaylandForTest() const { return m_clientCursorFromXwayland; }
+    [[nodiscard]] std::string xcursorNameForTest() const {
+      return m_activeXcursorName.empty() ? std::string{} : std::string(effectiveXcursor(m_activeXcursorName.c_str()));
+    }
     [[nodiscard]] std::optional<RenderedCursorStateForTest> renderedCursorStateForTest() const;
 #endif
 
@@ -407,6 +412,7 @@ namespace andromeda {
     wlr_xcursor_manager* m_activeXcursorManager = nullptr;
     std::string m_xcursorTheme;
     std::string m_activeXcursorName;
+    [[nodiscard]] const char* effectiveXcursor(const char* name) const;
     int m_xcursorSize = 0;
     wlr_pointer_constraint_v1* m_activeConstraint = nullptr;
     // A stable map ID preserves keyboard escape when a focus-sensitive rule stops matching, without retaining a
@@ -479,6 +485,7 @@ namespace andromeda {
     bool m_hoverFocusInvalidated = false;
     bool m_compositorOwnsCursor = false;
     bool m_cursorHidden = false;
+    bool m_launchBusy = false;
     std::string m_compositorCursorName;
     // What the focused client last asked the cursor to be, replayed when a
     // compositor override ends. Wayland scopes a cursor to the pointer focus,

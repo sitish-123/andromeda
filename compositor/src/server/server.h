@@ -553,6 +553,9 @@ namespace andromeda {
     // False once the snapshot has been reaped.
     [[nodiscard]] bool closeSnapshotAlive(CloseSnapshotId id) const;
 
+    // Busy cursor of a pending launch (rulebook §10): ends when the window maps, or after 5 s.
+    void endLaunchBusy(const std::optional<std::string>& token);
+
   private:
     friend class EisInput;
     void requestInputEmulation(uint64_t id, std::string_view name);
@@ -958,6 +961,15 @@ namespace andromeda {
     std::unordered_set<std::string> m_allowedInputNames;
     std::unordered_set<std::string> m_deniedInputNames;
     wl_event_source* m_backgroundFrameTimer = nullptr;
+    struct LaunchBusy {
+      std::string token;
+      std::chrono::steady_clock::time_point deadline;
+    };
+    std::vector<LaunchBusy> m_launchBusy;
+    wl_event_source* m_launchBusyTimer = nullptr;
+    void beginLaunchBusy(std::string token);
+    void syncLaunchBusy();
+    static int onLaunchBusyTimer(void* data);
     // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.

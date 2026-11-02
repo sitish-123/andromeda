@@ -25,6 +25,14 @@ enum class DesktopEntryOrigin : std::uint8_t {
   AppImage,
 };
 
+// App id hint for a launch token: the desktop id without ".desktop".
+[[nodiscard]] inline std::string desktopEntryAppId(std::string_view id) {
+  if (id.ends_with(".desktop")) {
+    id.remove_suffix(8);
+  }
+  return std::string(id);
+}
+
 struct DesktopEntry {
   std::string id;
   std::string path;

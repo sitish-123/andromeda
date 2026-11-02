@@ -365,6 +365,9 @@ namespace andromeda {
         targetWorkspace != nullptr && targetWorkspace->active(),
         targetWorkspace != nullptr && !targetWorkspace->active(), self->m_sessionLocked
     );
+    if (target != nullptr && target->mapped() && tokenName != nullptr) {
+      self->endLaunchBusy(std::string(tokenName)); // the launch raised a running app
+    }
     bool launchStartup = false;
     if (target != nullptr && token != nullptr) {
       const bool assigned = self->claimLaunchOrigin(*target, token);
@@ -454,6 +457,43 @@ namespace andromeda {
     );
   }
 
+  void Server::beginLaunchBusy(std::string token) {
+    constexpr auto kBusyLimit = std::chrono::seconds(5);
+    m_launchBusy.push_back({.token = std::move(token), .deadline = std::chrono::steady_clock::now() + kBusyLimit});
+    syncLaunchBusy();
+  }
+
+  // token: the launch token of the window; a window without one ends the oldest pending launch.
+  void Server::endLaunchBusy(const std::optional<std::string>& token) {
+    const auto match = token ? std::ranges::find(m_launchBusy, *token, &LaunchBusy::token) : m_launchBusy.begin();
+    if (match == m_launchBusy.end()) {
+      return;
+    }
+    m_launchBusy.erase(match);
+    syncLaunchBusy();
+  }
+
+  void Server::syncLaunchBusy() {
+    const auto now = std::chrono::steady_clock::now();
+    std::erase_if(m_launchBusy, [now](const LaunchBusy& busy) { return busy.deadline <= now; });
+    if (m_launchBusyTimer != nullptr) {
+      int delayMs = 0;
+      if (!m_launchBusy.empty()) {
+        const auto next = std::ranges::min(m_launchBusy, {}, &LaunchBusy::deadline).deadline;
+        delayMs = static_cast<int>(std::chrono::ceil<std::chrono::milliseconds>(next - now).count()) + 1;
+      }
+      wl_event_source_timer_update(m_launchBusyTimer, delayMs);
+    }
+    if (m_cursor != nullptr) {
+      m_cursor->setLaunchBusy(!m_launchBusy.empty());
+    }
+  }
+
+  int Server::onLaunchBusyTimer(void* data) {
+    static_cast<Server*>(data)->syncLaunchBusy();
+    return 0;
+  }
+
   void Server::trackActivationToken(wlr_xdg_activation_token_v1* token, bool compositorIssued) {
     auto* watch = new ActivationTokenWatch();
     watch->server = this;
@@ -500,6 +540,11 @@ namespace andromeda {
       if (Output* output = launchWorkspace->group()->output(); output != nullptr && output->wlr()->name != nullptr) {
         watch->launchOutputName = output->wlr()->name;
       }
+    }
+    // A launch shows the busy cursor: the shell's dock and launcher set the app id hint. Compositor spawns do not:
+    // most spawn keybinds run commands without a window (volume, brightness).
+    if (!watch->tokenName.empty() && token->app_id != nullptr) {
+      beginLaunchBusy(watch->tokenName);
     }
     watch->destroy.notify = onActivationTokenDestroy;
     wl_signal_add(&token->events.destroy, &watch->destroy);

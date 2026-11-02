@@ -1128,6 +1128,10 @@ namespace andromeda {
 
   // Event sources hold a Server pointer; they go once nothing that fires them is left.
   void Server::removeEventSources() {
+    if (m_launchBusyTimer != nullptr) {
+      wl_event_source_remove(m_launchBusyTimer);
+      m_launchBusyTimer = nullptr;
+    }
     if (m_backgroundFrameTimer != nullptr) {
       wl_event_source_remove(m_backgroundFrameTimer);
       m_backgroundFrameTimer = nullptr;
@@ -1292,6 +1296,7 @@ namespace andromeda {
     if (m_backgroundFrameTimer != nullptr) {
       wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
+    m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);

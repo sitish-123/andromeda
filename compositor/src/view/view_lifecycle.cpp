@@ -213,6 +213,9 @@ namespace andromeda {
   }
 
   void View::handleMap() {
+    if (!m_hasEverMapped) {
+      m_server->endLaunchBusy(m_launchToken);
+    }
     m_hasEverMapped = true;
     // The XDG map signal is emitted before the root surface commit signal.
     // Refresh only the root cache here, then let each descendant's own commit

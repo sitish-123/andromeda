@@ -360,7 +360,7 @@ bool AppProvider::activate(const LauncherResult& result) {
 
     std::string token;
     if (m_platform != nullptr && m_platform->hasXdgActivation()) {
-      token = m_platform->requestActivationToken(launchSurface);
+      token = m_platform->requestActivationToken(launchSurface, desktopEntryAppId(entry.id));
     }
     desktop_entry_launch::LaunchOptions launchOptions{
         .activationToken = std::move(token),
