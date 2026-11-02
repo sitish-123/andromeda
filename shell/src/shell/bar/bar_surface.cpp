@@ -865,6 +865,10 @@ namespace {
     // along it). Runs after sections are positioned so absolute coordinates are final; the
     // widget's hit target is widened to match the pill.
     if (instance.hoverUnderlay != nullptr) {
+      // In an island the hover pill is concentric with it (R7): the island height minus the cell inset on each side.
+      const float hoverCross = instance.barConfig.islands
+          ? std::max(1.0F, capsuleCross - 2.0F * std::round(Tokens::componentIslandCellInset * instance.barConfig.scale))
+          : capsuleCross;
       float underlayX = 0.0F;
       float underlayY = 0.0F;
       Node::absolutePosition(instance.hoverUnderlay, underlayX, underlayY);
@@ -886,11 +890,11 @@ namespace {
           rootY -= underlayY;
           const float mainExtent = isVertical ? root->height() : root->width();
           const float pad = mainExtent > 0.5F ? widget->barCapsuleSpec().padding * widget->contentScale() : 0.0F;
-          const float hoverW = isVertical ? capsuleCross : root->width() + 2.0F * pad;
-          const float hoverH = isVertical ? root->height() + 2.0F * pad : capsuleCross;
+          const float hoverW = isVertical ? hoverCross : root->width() + 2.0F * pad;
+          const float hoverH = isVertical ? root->height() + 2.0F * pad : hoverCross;
           box->setPosition(
-              isVertical ? rootX + (root->width() - capsuleCross) * 0.5F : rootX - pad,
-              isVertical ? rootY - pad : rootY + (root->height() - capsuleCross) * 0.5F
+              isVertical ? rootX + (root->width() - hoverCross) * 0.5F : rootX - pad,
+              isVertical ? rootY - pad : rootY + (root->height() - hoverCross) * 0.5F
           );
           box->setSize(hoverW, hoverH);
           box->setRadius(widget->resolvedBarCapsuleRadius(hoverW, hoverH));
@@ -945,11 +949,11 @@ namespace {
             const float mainStart = shellMainStart + member.sliceStart;
             const float mainEnd = shellMainStart + member.sliceEnd;
             const float mainExtent = std::max(0.0F, mainEnd - mainStart);
-            const float hoverW = isVertical ? capsuleCross : mainExtent;
-            const float hoverH = isVertical ? mainExtent : capsuleCross;
+            const float hoverW = isVertical ? hoverCross : mainExtent;
+            const float hoverH = isVertical ? mainExtent : hoverCross;
             box->setPosition(
-                isVertical ? rootX + (member.width - capsuleCross) * 0.5F : mainStart,
-                isVertical ? mainStart : rootY + (member.height - capsuleCross) * 0.5F
+                isVertical ? rootX + (member.width - hoverCross) * 0.5F : mainStart,
+                isVertical ? mainStart : rootY + (member.height - hoverCross) * 0.5F
             );
             box->setSize(hoverW, hoverH);
             box->setRadius(

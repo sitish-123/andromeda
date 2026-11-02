@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 // The one lens of a track (rulebook 6, P1): a lifted pane that travels between items. The edge toward the
 // target leads on `snap`, the other edge trails on `trail`, so the pane stretches across the gap and settles.
@@ -28,8 +29,12 @@ public:
     m_shadow = static_cast<Box*>(parent.addChild(std::move(shadow)));
     auto lens = ui::box({.visible = false, .participatesInLayout = false});
     m_lens = static_cast<Box*>(parent.addChild(std::move(lens)));
-    m_lens->setBorder(colorSpecFromRole(ColorRole::LensEdge), 0.5F * scale);
-    m_lens->setFill(colorSpecFromRole(ColorRole::Lens));
+    if (m_flatFill.has_value()) {
+      m_lens->setFill(*m_flatFill);
+    } else {
+      m_lens->setBorder(colorSpecFromRole(ColorRole::LensEdge), 0.5F * scale);
+      m_lens->setFill(colorSpecFromRole(ColorRole::Lens));
+    }
     m_shadow->setFill(colorSpecFromRole(
         ColorRole::Shadow, isResolvedLightTheme() ? Tokens::elevationE1.keyLight : Tokens::elevationE1.keyDark
     ));
@@ -37,6 +42,9 @@ public:
       apply();
     }
   }
+
+  // A flat pane: one fill, no edge, no shadow (the workspace capsule). Call before attach().
+  void setFlat(const ColorSpec& fill) { m_flatFill = fill; }
 
   // Order the lens and its shadow under the track's items.
   void setZIndex(int z) {
@@ -130,13 +138,14 @@ private:
     m_lens->setRadius(r);
     m_lens->setPosition(x, y);
     m_lens->setFrameSize(w, h);
-    m_shadow->setVisible(true);
+    m_shadow->setVisible(!m_flatFill.has_value());
     m_shadow->setRadius(r);
     m_shadow->setPosition(x, y + Tokens::elevationE1.keyY * m_scale);
     m_shadow->setFrameSize(w, h);
   }
 
   AnimationManager* m_animations = nullptr;
+  std::optional<ColorSpec> m_flatFill;
   Box* m_lens = nullptr;
   Box* m_shadow = nullptr;
   bool m_vertical = false;

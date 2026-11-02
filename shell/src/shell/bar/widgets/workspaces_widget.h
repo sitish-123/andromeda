@@ -2,6 +2,7 @@
 
 #include "compositors/compositor_platform.h"
 #include "render/animation/animation_manager.h"
+#include "shell/bar/lens_track.h"
 #include "shell/bar/widget.h"
 #include "system/icon_resolver.h"
 #include "ui/palette.h"
@@ -76,6 +77,7 @@ private:
   void startAnimation();
   void cancelAnimation();
   void finishAnimation();
+  void syncLens(bool animate);
   void applyItemLayout(Item& item);
   void applyItemLayouts();
   void snapshotItemsForRebuild();
@@ -181,6 +183,7 @@ private:
   WorkspacesStyle m_style = WorkspacesStyle::Regular;
   bool m_focusedOutputOnly = false;
   bool m_islandDots = false;
+  LensTrack m_lens; // islandDots: the current-workspace capsule, travels per P1
   bool m_changeColorOnHover = true;
   wl_output* m_lastFocusedOutput = nullptr;
   std::string m_cachedActiveWindowAppId;

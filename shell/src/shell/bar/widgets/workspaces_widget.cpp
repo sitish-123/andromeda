@@ -350,6 +350,11 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
   while (!m_container->children().empty()) {
     m_container->removeChild(m_container->children().back().get());
   }
+  if (m_islandDots && m_animations != nullptr) {
+    m_lens.setFlat(m_focusedColor);
+    m_lens.attach(*m_container, *m_animations, m_isVertical, m_contentScale);
+    m_lens.setZIndex(1);
+  }
   m_items.clear();
 
   struct RebuildEntry {
@@ -712,6 +717,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         || std::fabs(it.targetOpacity - it.currentOpacity) > 0.01F;
   });
   applyItemLayouts();
+  syncLens(animateFromSnapshot);
   m_rebuildSnapshot.clear();
 
   float total = 0.0F;
@@ -992,6 +998,23 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
   computeTargets();
   applyItemLayouts();
   startAnimation();
+  syncLens(true);
+}
+
+// The capsule leads toward the new workspace on snap and trails on trail (P1); the dots stay under it.
+void WorkspacesWidget::syncLens(bool animate) {
+  if (!m_islandDots) {
+    return;
+  }
+  for (const auto& item : m_items) {
+    if (!item.exiting && workspaceUsesFocusedStyle(item.workspace, item.output)) {
+      m_lens.moveTo(
+          item.targetX, item.targetX + item.targetWidth, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F, animate
+      );
+      return;
+    }
+  }
+  m_lens.hide();
 }
 
 void WorkspacesWidget::startAnimation() {
@@ -1495,6 +1518,9 @@ bool WorkspacesWidget::workspaceUsesFocusedStyle(const Workspace& workspace, wl_
 }
 
 ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_output* output) const {
+  if (m_islandDots && workspace.active) {
+    return m_occupiedColor; // the capsule (m_lens) carries the current workspace
+  }
   if (workspace.active) {
     return workspaceUsesFocusedStyle(workspace, output) ? m_focusedColor : m_occupiedColor;
   }
