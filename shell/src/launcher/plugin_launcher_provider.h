@@ -60,6 +60,10 @@ public:
 
   void initialize() override;
   void reset() override;
+  // Before the first query (and after a reset) nothing is stale: the next search sends one.
+  [[nodiscard]] std::optional<std::string> answeredQuery() const override {
+    return m_hasSentInitial ? std::optional(m_resultsQuery) : std::nullopt;
+  }
   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
   bool activate(const LauncherResult& result) override;
 

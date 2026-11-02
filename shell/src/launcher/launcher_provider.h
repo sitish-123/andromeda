@@ -96,6 +96,10 @@ public:
   // NOLINTNEXTLINE(performance-unnecessary-value-param)
   virtual void setResultsChangedCallback(std::function<void()> /*callback*/) {}
 
+  // The query that the results of an async provider answer; nullopt for synchronous providers, whose results always
+  // answer the current query. The search broker drops results that answer another query.
+  [[nodiscard]] virtual std::optional<std::string> answeredQuery() const { return std::nullopt; }
+
   // True while an async provider is still producing results. The launcher uses
   // it to show a loading state instead of "No results found".
   [[nodiscard]] virtual bool isLoading() const { return false; }
