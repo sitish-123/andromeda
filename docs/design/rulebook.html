@@ -334,6 +334,7 @@ canvas.plot { width: 100%; height: 120px; display: block; }
 <a class="sub" href="#ch-7-7-7-gestures" data-ch="7">7.7 Gestures</a>
 <a class="sub" href="#ch-7-7-8-reduced-motion" data-ch="7">7.8 Reduced motion</a>
 <a class="sub" href="#ch-7-7-9-implementation" data-ch="7">7.9 Implementation</a>
+<a class="sub" href="#ch-7-7-10-sources" data-ch="7">7.10 Sources</a>
 <a class="sub" href="#demo-6" data-ch="7">Live: Twelve springs</a>
 <a class="sub" href="#demo-7" data-ch="7">Live: Travel, press, toggle, content swap</a>
 <a class="sub" href="#demo-8" data-ch="7">Live: Grow from the island, morph in place</a>
@@ -1104,11 +1105,11 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 <tr>
 <td>snap</td>
 <td>0.26</td>
-<td>0.20</td>
+<td>0.15</td>
 <td>584</td>
-<td>0.80</td>
-<td>300 ms</td>
-<td>1.4 %</td>
+<td>0.85</td>
+<td>280 ms</td>
+<td>0.6 %</td>
 <td>lens leading edge, toggle knob, checkbox, small control positions</td>
 </tr>
 <tr>
@@ -1154,11 +1155,11 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 <tr>
 <td>morph</td>
 <td>0.46</td>
-<td>0.28</td>
+<td>0.25</td>
 <td>187</td>
-<td>0.72</td>
-<td>520 ms</td>
-<td>3.8 %</td>
+<td>0.75</td>
+<td>530 ms</td>
+<td>2.8 %</td>
 <td>center island expands (media, banner, OSD, live activity)</td>
 </tr>
 <tr>
@@ -1194,11 +1195,11 @@ white 18 %. Inside the lens, text goes to label_1 and weight 600; the symbol tak
 <tr>
 <td>release</td>
 <td>0.32</td>
-<td>0.35</td>
+<td>0.25</td>
 <td>386</td>
-<td>0.65</td>
-<td>340 ms</td>
-<td>6.7 %</td>
+<td>0.75</td>
+<td>370 ms</td>
+<td>2.8 %</td>
 <td>release after a press</td>
 </tr>
 <tr>
@@ -1456,6 +1457,87 @@ No bounce, no scale, no slide, no stagger. Gestures still track the finger 1:1; 
 <li>Budget: per-frame work of an animating shell surface under 2 ms at 1.5 scale; no animation drops below the output
   refresh rate in a 60 fps or 120 fps recording.</li>
 </ul>
+<h3 id="ch-7-7-10-sources">7.10 Sources</h3>
+<p>Every value above was checked against these primary sources (2026-11-02). Where none of them settles a value, the
+row says so.</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Source</th>
+<th>What it says</th>
+<th>Here</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>spring form</td>
+<td>Apple, <a href="https://developer.apple.com/videos/play/wwdc2023/10158/">Animate with springs (WWDC23)</a></td>
+<td>duration = perceptual duration; stiffness = (2 pi / duration)^2; damping from bounce; mass 1</td>
+<td>k = (2 pi / d)^2, z = 1 - b (7.2)</td>
+</tr>
+<tr>
+<td>how much bounce</td>
+<td>same</td>
+<td>bounce 0 is the default; ~0.15 "doesn't feel very bouncy"; ~0.30 noticeable; be cautious above ~0.4</td>
+<td>every bounce &lt;= 0.25; frequent controls (snap) 0.15</td>
+</tr>
+<tr>
+<td>bounce where momentum arrives</td>
+<td>Apple, <a href="https://developer.apple.com/videos/play/wwdc2018/803/">Designing Fluid Interfaces (WWDC18)</a></td>
+<td>start tuning at 100 % damping; reward momentum with a little overshoot (Music dismiss: 80 % damping)</td>
+<td>rule 7.1.3; open 0.78, morph 0.75</td>
+</tr>
+<tr>
+<td>retarget keeps velocity</td>
+<td>WWDC23 springs; WWDC18</td>
+<td>a retargeted spring uses its current velocity; fully redirectable interface</td>
+<td>rule 7.1.5</td>
+</tr>
+<tr>
+<td>gesture velocity, projection</td>
+<td>WWDC18</td>
+<td>1:1 tracking; project the end point with the deceleration rate; rubber-band at limits</td>
+<td>7.7 (rate 0.998 = UIScrollView normal)</td>
+</tr>
+<tr>
+<td>do not wait for settling</td>
+<td>WWDC23 springs</td>
+<td>settling duration is unpredictable; follow-ups use perceptual completion</td>
+<td>gates on progress (7.1.6), never on settle</td>
+</tr>
+<tr>
+<td>effects never overshoot</td>
+<td>Material 3, androidx <a href="https://github.com/androidx/androidx/blob/androidx-main/compose/material3/material3/src/commonMain/kotlin/androidx/compose/material3/tokens/ExpressiveMotionTokens.kt">ExpressiveMotionTokens</a> / StandardMotionTokens</td>
+<td>effects springs damping 1.0, stiffness 1600 (default) / 3800 (fast)</td>
+<td>fade 1542, fade_out 3948 (7.2)</td>
+</tr>
+<tr>
+<td>spatial spring range</td>
+<td>same</td>
+<td>expressive spatial: 380 / 0.8 (default), 800 / 0.6 (fast), 200 / 0.8 (slow); standard: 700 / 0.9, 1400 / 0.9, 300 / 0.9</td>
+<td>open 224 / 0.78 = expressive slow; move 322 / 0.9 and collapse 386 / 0.9 = standard band</td>
+</tr>
+<tr>
+<td>frequent interactions stay quiet</td>
+<td>Apple HIG <a href="https://developer.apple.com/design/human-interface-guidelines/motion">Motion</a></td>
+<td>avoid adding motion to frequent interactions; brief and precise feedback; let people cancel motion</td>
+<td>snap and release lowered to 0.15 / 0.25; input never waits (7.1.8)</td>
+</tr>
+<tr>
+<td>morph recipe</td>
+<td>no primary source: Apple does not publish Dynamic Island parameters. Recreations (<a href="https://www.sinasamaki.com/dynamic-island/">sinasamaki</a>, smoothui) use a spring on size, a short scale + blur crossfade on content, a firmer spring to collapse</td>
+<td>morph 0.46 / 0.25, collapse 0.32 / 0.10, faces 0.92 + blur 8 (7.4) are our choice; tune by side-by-side recording</td>
+<td></td>
+</tr>
+<tr>
+<td>content fade inside a moving shape</td>
+<td>Material <a href="https://developer.android.com/reference/com/google/android/material/transition/MaterialContainerTransform.ProgressThresholds">MaterialContainerTransform.ProgressThresholds</a></td>
+<td>content fades over a sub-range of the shape's progress</td>
+<td>35 % gate (7.4)</td>
+</tr>
+</tbody>
+</table>
 </section>
 <section class="demo" id="demo-6">
   <div class="eyebrow">7 · Motion</div>
@@ -2891,8 +2973,8 @@ rulebook yet, full restyle.</p>
 </div>
 <script>
 /* ---------- Spring engine (rulebook 7.2) ---------- */
-const SP = { snap:[.26,.20], trail:[.34,.20], move:[.35,.10], open:[.42,.22], close:[.28,0], morph:[.46,.28], collapse:[.32,.10],
-  page:[.32,.05], press:[.12,0], release:[.32,.35], fade:[.16,0], fade_out:[.10,0] };
+const SP = { snap:[.26,.15], trail:[.34,.20], move:[.35,.10], open:[.42,.22], close:[.28,0], morph:[.46,.25], collapse:[.32,.10],
+  page:[.32,.05], press:[.12,0], release:[.32,.25], fade:[.16,0], fade_out:[.10,0] };
 const EFFECT = new Set(['fade','fade_out']);
 const opt = { rm:false, slow:false, still: location.hash.includes('still') };
 function kz(n){ const [d,b] = SP[n]; const k = (2*Math.PI/d)**2; return { k, c: 2*(1-b)*Math.sqrt(k) }; }

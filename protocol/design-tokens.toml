@@ -250,9 +250,9 @@ contact_dark = 0.30
 
 # Springs (rulebook 7.2), mass 1. stiffness = (2 pi / response)^2, damping = ratio to critical = 1 - bounce.
 # Spatial springs may overshoot; effect springs (fade, fade_out) never do. There are no duration animations.
-[spring.snap]      # response 0.26 s, bounce 0.20: lens leading edge, toggle knob, small control positions
+[spring.snap]      # response 0.26 s, bounce 0.15: lens leading edge, toggle knob, small control positions
 stiffness = 584.0
-damping = 0.80
+damping = 0.85
 [spring.trail]     # response 0.34 s, bounce 0.20: lens trailing edge
 stiffness = 341.5
 damping = 0.80
@@ -265,9 +265,9 @@ damping = 0.78
 [spring.close]     # response 0.28 s, bounce 0: Return, dismissals
 stiffness = 503.6
 damping = 1.00
-[spring.morph]     # response 0.46 s, bounce 0.28: center island expands
+[spring.morph]     # response 0.46 s, bounce 0.25: center island expands
 stiffness = 186.6
-damping = 0.72
+damping = 0.75
 [spring.collapse]  # response 0.32 s, bounce 0.10: center island returns to rest
 stiffness = 385.5
 damping = 0.90
@@ -277,9 +277,9 @@ damping = 0.95
 [spring.press]     # response 0.12 s, bounce 0
 stiffness = 2741.6
 damping = 1.00
-[spring.release]   # response 0.32 s, bounce 0.35
+[spring.release]   # response 0.32 s, bounce 0.25
 stiffness = 385.5
-damping = 0.65
+damping = 0.75
 [spring.fade]      # response 0.16 s, bounce 0: opacity, colour, blur in
 stiffness = 1542.1
 damping = 1.00
