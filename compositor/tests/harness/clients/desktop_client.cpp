@@ -7,6 +7,10 @@
 //   desktop-client settings-state            print "KEY=VALUE" per managed setting, with " customized" when the
 //                                            settings file holds it
 //   desktop-client settings-set KEY VALUE    exit 1 and print the reason if the compositor rejects it
+//   desktop-client settings-watch            print every "KEY=VALUE" event, as settings-state does, until killed
+//   desktop-client layer-hold LAYER KEY VALUE  set KEY in LAYER, print "ready", then hold the connection until killed
+//                                            (DESKTOP_CLIENT_SETTINGS_VERSION=1 binds the v1 protocol;
+//                                            DESKTOP_CLIENT_LAYER_REPEAT=1 sends the request again after a stdin line and prints "repeated")
 //   desktop-client keybinds-state            print "CHORD=ACTION" per effective keybind, " customized" as above
 //   desktop-client keybind-set CHORD ACTION  exit 1 and print the reason if the compositor rejects it
 //   desktop-client shell-events              bind dsk_shell_v1 as the shell does and print "ready", then
@@ -14,7 +18,9 @@
 #include "desktop-unstable-v1-client-protocol.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <print>
 #include <string>
 #include <string_view>
@@ -61,6 +67,7 @@ namespace {
   void onSetting(void* data, dsk_settings_manager_v1*, const char* key, const char* value, uint32_t customized) {
     if (static_cast<State*>(data)->printInput) {
       std::println("{}={}{}", key, value, customized != 0 ? " customized" : "");
+      std::fflush(stdout);
     }
   }
   void onKeybind(void* data, dsk_settings_manager_v1*, const char* chord, const char* action, uint32_t customized) {
@@ -96,6 +103,11 @@ namespace {
   }
   const dsk_shell_v1_listener kShell = {.action = onShellAction, .lock_keys = onShellLockKeys, .bell = onShellBell};
 
+  uint32_t settingsVersion() {
+    const char* forced = std::getenv("DESKTOP_CLIENT_SETTINGS_VERSION");
+    return forced != nullptr ? static_cast<uint32_t>(std::atoi(forced)) : 2U;
+  }
+
   void global(void* data, wl_registry* registry, uint32_t name, const char* interface, uint32_t) {
     if (std::strcmp(interface, dsk_output_manager_v1_interface.name) == 0) {
       auto* state = static_cast<State*>(data);
@@ -105,7 +117,7 @@ namespace {
     } else if (std::strcmp(interface, dsk_settings_manager_v1_interface.name) == 0) {
       auto* state = static_cast<State*>(data);
       state->input = static_cast<dsk_settings_manager_v1*>(
-          wl_registry_bind(registry, name, &dsk_settings_manager_v1_interface, 1)
+          wl_registry_bind(registry, name, &dsk_settings_manager_v1_interface, settingsVersion())
       );
       dsk_settings_manager_v1_add_listener(state->input, &kInput, state);
     } else if (std::strcmp(interface, dsk_shell_v1_interface.name) == 0) {
@@ -123,6 +135,8 @@ int main(int argc, char** argv) {
   const std::string_view command = argc > 1 ? argv[1] : "";
   const bool inputCommand = command == "settings-state"
       || command == "settings-set"
+      || command == "layer-hold"
+      || command == "settings-watch"
       || command == "keybinds-state"
       || command == "keybind-set";
   if (!(command == "state" && argc == 2)
@@ -132,6 +146,8 @@ int main(int argc, char** argv) {
       && !(command == "property-set" && argc == 5)
       && !(command == "settings-state" && argc == 2)
       && !(command == "settings-set" && argc == 4)
+      && !(command == "layer-hold" && argc == 5)
+      && !(command == "settings-watch" && argc == 2)
       && !(command == "keybinds-state" && argc == 2)
       && !(command == "keybind-set" && argc == 4)
       && !(command == "shell-events" && argc == 2)) {
@@ -150,7 +166,7 @@ int main(int argc, char** argv) {
   State state;
   state.print = command == "state";
   state.printProperties = command == "properties-state";
-  state.printInput = command == "settings-state";
+  state.printInput = command == "settings-state" || command == "settings-watch";
   state.printKeybinds = command == "keybinds-state";
   wl_registry* registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &kRegistry, &state);
@@ -174,10 +190,30 @@ int main(int argc, char** argv) {
     }
     while (!state.inputDone && wl_display_dispatch(display) >= 0) {
     }
-    if (command == "settings-set") {
+    if (command == "settings-watch") {
+      while (wl_display_dispatch(display) >= 0) {
+      }
+    } else if (command == "settings-set") {
       state.printInput = false;
       dsk_settings_manager_v1_set(state.input, argv[2], argv[3]);
       wl_display_roundtrip(display);
+    } else if (command == "layer-hold") {
+      state.printInput = false;
+      dsk_settings_manager_v1_set_in_layer(state.input, argv[2], argv[3], argv[4]);
+      wl_display_roundtrip(display);
+      if (state.failure.empty()) {
+        std::println("ready");
+        std::fflush(stdout);
+        std::string line;
+        if (std::getenv("DESKTOP_CLIENT_LAYER_REPEAT") != nullptr && std::getline(std::cin, line)) {
+          dsk_settings_manager_v1_set_in_layer(state.input, argv[2], argv[3], argv[4]);
+          wl_display_roundtrip(display);
+          std::println("repeated");
+          std::fflush(stdout);
+        }
+        while (wl_display_dispatch(display) >= 0) {
+        }
+      }
     } else if (command == "keybind-set") {
       dsk_settings_manager_v1_bind(state.input, argv[2], argv[3]);
       wl_display_roundtrip(display);

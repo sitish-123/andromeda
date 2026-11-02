@@ -86,7 +86,8 @@ struct SettingsControlListeners {
 SettingsControl::SettingsControl(
     wl_registry* registry, std::uint32_t globalName, std::uint32_t version, ChangeCallback onChange
 )
-    : m_onChange(std::move(onChange)) {
+    : m_version(version),
+      m_onChange(std::move(onChange)) {
   if (registry == nullptr || globalName == 0) {
     return;
   }
@@ -116,6 +117,19 @@ void SettingsControl::set(const std::string& key, const std::string& value) {
   if (m_manager != nullptr) {
     m_lastFailure.clear();
     dsk_settings_manager_v1_set(m_manager, key.c_str(), value.c_str());
+  }
+}
+
+void SettingsControl::setInLayer(const std::string& layer, const std::string& key, const std::string& value) {
+  if (m_manager != nullptr && m_version >= 2) {
+    m_lastFailure.clear();
+    dsk_settings_manager_v1_set_in_layer(m_manager, layer.c_str(), key.c_str(), value.c_str());
+  }
+}
+
+void SettingsControl::clearLayer(const std::string& layer) {
+  if (m_manager != nullptr && m_version >= 2) {
+    dsk_settings_manager_v1_clear_layer(m_manager, layer.c_str());
   }
 }
 

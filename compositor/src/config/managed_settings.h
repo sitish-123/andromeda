@@ -51,6 +51,16 @@ namespace andromeda {
   // their `action`.
   [[nodiscard]] std::vector<std::pair<std::string, std::string>> documentKeybinds(std::string_view document);
 
+  // Volatile keys ("power.on_battery"): settable like any managed setting, kept in memory only, absent from
+  // managedSettingKeys() and the settings file. An empty value (monostate) restores the default.
+  [[nodiscard]] std::span<const std::string_view> volatileSettingKeys();
+  [[nodiscard]] bool isVolatileSetting(std::string_view key);
+  void setVolatileSetting(std::string_view key, const ManagedSettingValue& value);
+
+  // Layer values that sit above the settings file, as TOML merged over it on every config load. Never persisted.
+  void setManagedRuntimeOverlay(std::span<const std::pair<std::string, ManagedSettingValue>> values);
+  [[nodiscard]] const std::string& managedRuntimeOverlay();
+
   // True when the TOML document `root` sets `key`.
   [[nodiscard]] bool documentSetsKey(std::string_view root, std::string_view key);
 

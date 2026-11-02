@@ -9,6 +9,9 @@
 #include <array>
 #include <charconv>
 #include <format>
+#include <functional>
+#include <map>
+#include <sstream>
 #include <vector>
 
 namespace andromeda {
@@ -108,6 +111,7 @@ namespace andromeda {
       double max = 0.0;
       std::span<const std::string_view> choices{};
       std::string (*get)(const Config&) = nullptr;
+      bool isVolatile = false; // applied and sent to subscribers, never written to the settings file
     };
 
     // Every entry maps to a key the config reader accepts; the ranges repeat the reader's own.
@@ -392,13 +396,32 @@ namespace andromeda {
         Spec{"hot_corners.bottom_right.action", Kind::Action, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[3].action); }},
         Spec{"general.mod_key", Kind::Choice, 0, 0, kModKeys, [](const Config& c) { return text(c.general.modKey); }},
         Spec{"general.show_cheatsheet", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.showCheatsheet); }},
+        Spec{"power.on_battery", Kind::Bool, 0, 0, {}, [](const Config&) { return std::string("false"); }, true},
     };
 
-    const std::array kKeys = [] {
-      std::array<std::string_view, kSpecs.size()> keys{};
-      std::ranges::transform(kSpecs, keys.begin(), &Spec::key);
+    // Keys the settings file and the config reader know; volatile keys are in neither.
+    const std::vector<std::string_view> kKeys = [] {
+      std::vector<std::string_view> keys;
+      for (const Spec& spec : kSpecs) {
+        if (!spec.isVolatile) {
+          keys.push_back(spec.key);
+        }
+      }
       return keys;
     }();
+
+    const std::vector<std::string_view> kVolatileKeys = [] {
+      std::vector<std::string_view> keys;
+      for (const Spec& spec : kSpecs) {
+        if (spec.isVolatile) {
+          keys.push_back(spec.key);
+        }
+      }
+      return keys;
+    }();
+
+    std::map<std::string, std::string, std::less<>> volatileValues;
+    std::string runtimeOverlay;
 
     const Spec* findSpec(std::string_view key) {
       const auto it = std::ranges::find(kSpecs, key, &Spec::key);
@@ -460,10 +483,45 @@ namespace andromeda {
 
   std::span<const std::string_view> managedSettingKeys() { return kKeys; }
 
+  std::span<const std::string_view> volatileSettingKeys() { return kVolatileKeys; }
+
+  bool isVolatileSetting(std::string_view key) {
+    const Spec* spec = findSpec(key);
+    return spec != nullptr && spec->isVolatile;
+  }
+
+  void setVolatileSetting(std::string_view key, const ManagedSettingValue& value) {
+    const auto it = volatileValues.find(key);
+    if (const bool* flag = std::get_if<bool>(&value)) {
+      volatileValues.insert_or_assign(std::string(key), *flag ? "true" : "false");
+    } else if (it != volatileValues.end()) {
+      volatileValues.erase(it);
+    }
+  }
+
   std::string managedSettingValue(const Config& config, std::string_view key) {
     const Spec* spec = findSpec(key);
-    return spec != nullptr ? spec->get(config) : std::string();
+    if (spec == nullptr) {
+      return {};
+    }
+    if (spec->isVolatile) {
+      const auto it = volatileValues.find(key);
+      return it != volatileValues.end() ? it->second : spec->get(config);
+    }
+    return spec->get(config);
   }
+
+  void setManagedRuntimeOverlay(std::span<const std::pair<std::string, ManagedSettingValue>> values) {
+    toml::table root;
+    for (const auto& [key, value] : values) {
+      applySetting(root, key, value);
+    }
+    std::ostringstream out;
+    out << root;
+    runtimeOverlay = values.empty() ? std::string() : out.str();
+  }
+
+  const std::string& managedRuntimeOverlay() { return runtimeOverlay; }
 
   ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text) {
     const Spec* spec = findSpec(key);

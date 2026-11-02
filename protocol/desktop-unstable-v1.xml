@@ -100,7 +100,7 @@
       <arg name="reason" type="string"/>
     </event>
   </interface>
-  <interface name="dsk_settings_manager_v1" version="1">
+  <interface name="dsk_settings_manager_v1" version="2">
     <description summary="compositor settings and input devices">
       Every compositor setting a settings app may change: input, appearance,
       animation, layout, workspaces, overview, and focus. Settings are named by
@@ -109,7 +109,9 @@
       means unset, which restores the value from the user's config files or the
       built-in default. The compositor validates, applies, and persists every
       change in its settings file, which it loads after the user's config files,
-      so a change made here always takes effect.
+      so a change made here always takes effect. A volatile key (such as
+      "power.on_battery") is applied and sent to subscribers but never
+      persisted.
     </description>
 
     <enum name="kind">
@@ -156,6 +158,30 @@
       <description summary="stop recording a chord"/>
     </request>
 
+    <request name="set_in_layer" since="2">
+      <description summary="change one setting in a temporary layer">
+        Sets key to value in the named layer. A layer sits above the user's
+        values, is never written to the settings file, and is dropped when
+        this object is destroyed or its client disconnects; subscribers then
+        see the user's value again. An empty value removes the key from the
+        layer. A volatile key is rejected: it takes set. Layers apply in the
+        order they were first used, across all clients: a later layer sits
+        above an earlier one. Answered by setting events and done, or by
+        failed.
+      </description>
+      <arg name="layer" type="string"/>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+
+    <request name="clear_layer" since="2">
+      <description summary="drop a layer">
+        Removes every key of the named layer. Answered by setting events and
+        done.
+      </description>
+      <arg name="layer" type="string"/>
+    </request>
+
     <event name="device_added">
       <description summary="an input device is connected">
         Sent for every connected device on bind and whenever one connects.
@@ -172,7 +198,8 @@
       <description summary="effective value of one setting">
         Sent for every setting on bind and after every configuration change.
         customized is 1 when the settings file holds a value for the key, so
-        setting it to the empty value changes what applies.
+        setting it to the empty value changes what applies. It reflects the
+        user's value only: a layer does not change it.
       </description>
       <arg name="key" type="string"/>
       <arg name="value" type="string"/>

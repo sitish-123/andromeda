@@ -144,6 +144,21 @@ ANDROMEDA_TEST(everyKeyRoundTripsThroughTheConfigReader) {
   std::filesystem::remove(path);
 }
 
+ANDROMEDA_TEST(volatileKeysStayOutOfTheFileSet) {
+  using andromeda::isVolatileSetting;
+  CHECK(isVolatileSetting("power.on_battery"));
+  CHECK(!isVolatileSetting("input.touchpad.tap"));
+  for (const std::string_view key : managedSettingKeys()) {
+    CHECK(!isVolatileSetting(key));
+  }
+  const andromeda::Config defaults;
+  CHECK_EQ(managedSettingValue(defaults, "power.on_battery"), std::string("false"));
+  andromeda::setVolatileSetting("power.on_battery", ManagedSettingValue{true});
+  CHECK_EQ(managedSettingValue(defaults, "power.on_battery"), std::string("true"));
+  andromeda::setVolatileSetting("power.on_battery", ManagedSettingValue{std::monostate{}});
+  CHECK_EQ(managedSettingValue(defaults, "power.on_battery"), std::string("false"));
+}
+
 // The live appearance keys govern the compositor's own settings: an accent recolors the focus accent, and reduce motion
 // turns window opening into a fade and stops workspace slides.
 ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {

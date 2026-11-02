@@ -59,6 +59,11 @@ public:
   // Empty value clears the setting back to its device or built-in default.
   void set(const std::string& key, const std::string& value);
 
+  // Layer values sit above the user's values, are never persisted, and drop when the shell disconnects. Both need a
+  // version 2 compositor and do nothing on version 1. An empty value removes the key from the layer.
+  void setInLayer(const std::string& layer, const std::string& key, const std::string& value);
+  void clearLayer(const std::string& layer);
+
   [[nodiscard]] const std::vector<CompositorKeybind>& keybinds() const noexcept { return m_keybinds; }
   [[nodiscard]] const std::vector<CompositorAction>& actions() const noexcept { return m_actions; }
   // Empty action removes the settings file's entry for `chord`; "none" unbinds it.
@@ -79,6 +84,7 @@ private:
   std::function<void(std::string)> m_onCaptured;
   std::string m_lastFailure;
   bool m_keybindBatch = false;
+  std::uint32_t m_version = 0;
   bool m_ready = false;
   ChangeCallback m_onChange;
 };
