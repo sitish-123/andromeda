@@ -24,6 +24,8 @@ namespace {
   constexpr std::string_view kDefaultAppIcon = "application-x-executable";
   constexpr double kNameMatchPriority = 3'000.0;
   constexpr double kLocalizedNameMatchPriority = 1'500.0;
+  // Below any fuzzy score: those stay within a few points of zero even with their field weights.
+  constexpr double kTypoMatchScore = -1'000.0;
 
   double scoreEntry(std::string_view pattern, const DesktopEntry& entry) {
     if (pattern.empty()) {
@@ -70,7 +72,18 @@ namespace {
     const double idScore = FuzzyMatch::score(pattern, entry.idLower) * 1.5;
     const double execScore = FuzzyMatch::score(pattern, entry.execLower);
 
-    return std::max({nameScore, genericScore, keywordScore, catScore, idScore, execScore});
+    const double best = std::max({nameScore, genericScore, keywordScore, catScore, idScore, execScore});
+    if (FuzzyMatch::isMatch(best)) {
+      return best;
+    }
+    // Nothing matched: a misspelt name ranks below every real match, fewer typos first.
+    std::optional<int> typos = FuzzyMatch::typoDistance(pattern, entry.nameLower);
+    for (const std::string& name : entry.localizedNamesLower) {
+      if (const auto localized = FuzzyMatch::typoDistance(pattern, name)) {
+        typos = std::min(typos.value_or(*localized), *localized);
+      }
+    }
+    return typos.has_value() ? kTypoMatchScore - *typos : FuzzyMatch::noMatchScore;
   }
 
   double scoreAction(std::string_view pattern, const DesktopAction& action) {

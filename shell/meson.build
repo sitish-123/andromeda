@@ -1114,6 +1114,7 @@ if build_tests
     'annotation_raster',
     'animation_manager',
     'app_identity',
+    'app_provider_typo',
     'audio_glyphs',
     'audio_media_class',
     'audio_route_selection',
