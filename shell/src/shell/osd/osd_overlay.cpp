@@ -159,7 +159,7 @@ namespace {
 
   [[nodiscard]] float glyphSize(float s) { return (Style::fontSizeTitle + Style::borderWidth * 4) * s; }
 
-  [[nodiscard]] float valueFontSize(float s) { return Style::fontSizeBody * s; }
+  [[nodiscard]] float valueFontSize(float s) { return Tokens::typeTitle3.size * s; }
 
   [[nodiscard]] float progressHeight(float s) { return (Style::spaceXs + Style::borderWidth * 2) * s; }
 

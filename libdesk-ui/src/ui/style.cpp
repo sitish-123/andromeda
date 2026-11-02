@@ -1,5 +1,8 @@
 #include "ui/style.h"
 
+#include "design_tokens.h"
+#include "ui/palette.h"
+
 #include <algorithm>
 
 namespace {
@@ -72,7 +75,13 @@ namespace Style {
   bool reduceTransparency() noexcept { return g_reduceTransparency; }
 
   float glassAlpha(float alpha) noexcept {
-    return g_reduceTransparency || alpha >= 1.0F ? 1.0F : alpha * g_glassOpacity;
+    if (g_reduceTransparency || alpha >= 1.0F) {
+      return 1.0F;
+    }
+    // Configured opacities are relative to the dark tint_regular (0.70); the light scheme's tint_regular is thinner.
+    const std::uint32_t tint = isLightPalette() ? Tokens::schemeLight.tintRegular : Tokens::schemeDark.tintRegular;
+    const float schemeScale = static_cast<float>(tint & 0xffU) / 255.0F / kTintRegularAlpha;
+    return std::min(1.0F, alpha * g_glassOpacity * schemeScale);
   }
 
   bool closeButtonsEnabled() noexcept { return g_closeButtonsEnabled; }
