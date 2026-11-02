@@ -80,7 +80,8 @@ void Spinner::startLoop() {
     return;
   }
 
-  m_animId = animationManager()->animate(
+  // Timer: continuous linear loop, independent of the motion settings.
+  m_animId = animationManager()->animateTimer(
       0.0F, kTwoPi, kRevolutionMs, Easing::Linear,
       [this](float angle) {
         m_spinnerNode->setRotation(angle);

@@ -1209,8 +1209,8 @@ void HomeTab::startCrispFade() {
   }
   cancelCrispFade();
   Image* crisp = m_wallpaperBg;
-  m_wallpaperCrispAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+  m_wallpaperCrispAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springFade),
       [crisp](float v) { crisp->setOpacity(v); },
       [this] {
         m_wallpaperCrispAnimId = 0;

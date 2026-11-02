@@ -349,8 +349,8 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
     if (instance.barConfig.autoHide && instance.hideOpacity < 0.999F) {
       const float current = instance.hideOpacity;
       instance.autoHideDisablePending = true;
-      instance.animations.animate(
-          current, 1.0F, Style::animNormal, Easing::EaseOutCubic,
+      instance.animations.animateSpring(
+          current, 1.0F, Style::spring(Tokens::springMove),
           [this, inst = &instance](float v) {
             inst->hideOpacity = v;
             syncBarSlideLayerTransform(*inst);

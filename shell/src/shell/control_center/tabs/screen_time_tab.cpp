@@ -548,8 +548,8 @@ void ScreenTimeTab::beginRangeSlideOut(int nextRangeDays) {
   m_pendingRangeDays = nextRangeDays;
 
   PanelManager::instance().requestFrameTick();
-  m_rangeSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_rangeSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyRangeSlide(progress, false);
         PanelManager::instance().requestRedraw();
@@ -572,8 +572,8 @@ void ScreenTimeTab::beginRangeSlideIn() {
 
   applyRangeSlide(0.0F, true);
   PanelManager::instance().requestFrameTick();
-  m_rangeSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_rangeSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyRangeSlide(progress, true);
         PanelManager::instance().requestRedraw();

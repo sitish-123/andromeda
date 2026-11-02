@@ -1012,8 +1012,8 @@ void NotificationsTab::beginFilterSlideOut(std::size_t nextIndex) {
   m_filterSlideBaseY = m_list->y();
 
   PanelManager::instance().requestFrameTick();
-  m_filterSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_filterSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyFilterSlide(progress, false);
         PanelManager::instance().requestRedraw();
@@ -1046,8 +1046,8 @@ void NotificationsTab::beginFilterSlideIn() {
 
   applyFilterSlide(0.0F, true);
   PanelManager::instance().requestFrameTick();
-  m_filterSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_filterSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyFilterSlide(progress, true);
         PanelManager::instance().requestRedraw();

@@ -36,7 +36,6 @@ namespace {
   // M3: workspace dots -> lens cells (rulebook 9.1)
   constexpr float kIslandDotGap = 5.0F;
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
-  TOKENS_LIVE(kWorkspaceAnimDurationMs, static_cast<float>(Style::animNormal));
 
   [[nodiscard]] constexpr float workspaceLabelFontSize(bool minimal) {
     return minimal ? Style::fontSizeBody : Style::fontSizeMini;
@@ -650,8 +649,8 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         }
 
         m_animations->cancelForOwner(&m_hoverProgress);
-        m_animations->animate(
-            m_hoverProgress, 1.0F, Style::animFast, Easing::EaseOutCubic, applyHoverProgress, {}, &m_hoverProgress
+        m_animations->animateSpring(
+            m_hoverProgress, 1.0F, Style::spring(Tokens::springFadeOut), applyHoverProgress, {}, &m_hoverProgress
         );
         requestFrameTick();
       });
@@ -682,8 +681,8 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         }
 
         m_animations->cancelForOwner(&m_hoverProgress);
-        m_animations->animate(
-            m_hoverProgress, 0.0F, Style::animFast, Easing::EaseOutCubic, applyHoverProgress, {}, &m_hoverProgress
+        m_animations->animateSpring(
+            m_hoverProgress, 0.0F, Style::spring(Tokens::springFade), applyHoverProgress, {}, &m_hoverProgress
         );
         requestFrameTick();
       });
@@ -1011,8 +1010,8 @@ void WorkspacesWidget::startAnimation() {
   cancelAnimation();
   requestFrameTick();
   requestRedraw();
-  m_animId = mgr->animate(
-      0.0F, 1.0F, kWorkspaceAnimDurationMs, Easing::EaseOutCubic,
+  m_animId = mgr->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
       [this](float t) {
         for (auto& item : m_items) {
           item.currentWidth = std::lerp(item.fromWidth, item.targetWidth, t);

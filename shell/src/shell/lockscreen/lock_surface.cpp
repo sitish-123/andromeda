@@ -609,6 +609,7 @@ void LockSurface::startRyokuLive() {
   if (m_ryokuLive != 0) {
     m_animations.cancel(m_ryokuLive);
   }
+  // Timer: continuous loop that drives the Ryoku scene clock.
   m_ryokuLive = m_animations.animateTimer(
       0.0F, 1.0F, 20000.0F, Easing::Linear,
       [this](float /*progress*/) {
@@ -929,6 +930,7 @@ void LockSurface::startExitTransition() {
   m_transitionPhase = TransitionPhase::Exiting;
   syncTransitionCover();
   const float durationMs = m_transitionDurationMs * m_transitionProgress;
+  // Timer: the shader transition runs for the user-configured duration.
   m_transitionAnimation = m_animations.animateTimer(
       m_transitionProgress, 0.0F, durationMs, Easing::EaseInOutCubic,
       [this](float progress) {
@@ -1199,6 +1201,7 @@ void LockSurface::beginEnterAnimation() {
   m_transitionPhase = TransitionPhase::Entering;
   m_transitionProgress = 0.0F;
   syncTransitionCover();
+  // Timer: the shader transition runs for the user-configured duration.
   m_transitionAnimation = m_animations.animateTimer(
       0.0F, 1.0F, m_transitionDurationMs, Easing::EaseInOutCubic,
       [this](float progress) {

@@ -57,6 +57,7 @@ namespace {
   constexpr float kNotificationIconGlyphSizeCompact = 20.0F;
   constexpr float kNotificationIconReferenceSize = 36.0F;
   TOKENS_LIVE(kTopProgressInset, Style::spaceMd);
+  constexpr auto kExitSpringSettle = std::chrono::milliseconds(330);
   constexpr auto kExitFallbackGrace = std::chrono::milliseconds(50);
 
   float notificationIconRadius(float iconSize, float localScale = 1.0F) {
@@ -790,6 +791,7 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
             if (hovered) {
               cs.countdownAnimId = 0;
             } else {
+              // Timer: the countdown bar runs for the notification timeout.
               cs.countdownAnimId = inst->animations.animateTimer(
                   1.0F, 0.0F, static_cast<float>(newDuration), Easing::Linear,
                   [this, pb = cs.progressBar, notificationId = n.id](float v) {
@@ -809,8 +811,8 @@ void NotificationToast::onNotificationEvent(const Notification& n, NotificationE
           // Flash
           if (cs.cardForeground != nullptr) {
             cs.cardForeground->setOpacity(0.7F);
-            inst->animations.animate(
-                0.7F, 1.0F, Style::animFast, Easing::EaseOutCubic,
+            inst->animations.animateSpring(
+                0.7F, 1.0F, Style::spring(Tokens::springFade),
                 [content = cs.cardForeground](float v) { content->setOpacity(v); }, {}, cs.cardForeground
             );
           }
@@ -950,7 +952,7 @@ void NotificationToast::dismissPopup(std::size_t index) {
   }
   entry.exiting = true;
   entry.exitFallbackTimer.start(
-      std::chrono::milliseconds(Style::animNormal) + kExitFallbackGrace, [this, notificationId = entry.notificationId] {
+      kExitSpringSettle + kExitFallbackGrace, [this, notificationId = entry.notificationId] {
         if (findEntry(notificationId) != nullptr) {
           finishRemoval(notificationId);
           for (auto& inst : m_instances) {
@@ -1072,6 +1074,7 @@ void NotificationToast::addCardToInstance(Instance& inst, std::size_t entryIndex
     if (entry.replyInputFocused || entry.hovered) {
       cs.countdownAnimId = 0;
     } else {
+      // Timer: the countdown bar runs for the notification timeout.
       cs.countdownAnimId = inst.animations.animateTimer(
           startProgress, 0.0F, static_cast<float>(entry.displayDurationMs) * startProgress, Easing::Linear,
           [this, pb = cs.progressBar, notificationId = entry.notificationId](float v) {
@@ -1448,6 +1451,7 @@ void NotificationToast::resumeCountdowns(uint32_t notificationId) {
     state->progressBar->setProgress(remaining);
     const bool isDriver = !driverChosen;
     driverChosen = true;
+    // Timer: the countdown bar runs for the notification timeout.
     state->countdownAnimId = inst->animations.animateTimer(
         remaining, 0.0F, static_cast<float>(entry->displayDurationMs) * remaining, Easing::Linear,
         [this, progressBar = state->progressBar, notificationId](float v) {

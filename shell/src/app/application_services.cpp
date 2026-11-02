@@ -662,7 +662,8 @@ void Application::initStyleThemeAndWayland() {
   auto applyMotionConfig = [this] {
     auto& motion = MotionService::instance();
     motion.setSpeed(m_configService.config().shell.animation.speed);
-    motion.setEnabled(m_configService.config().shell.animation.enabled && !m_liveAppearance.state().reduceMotion);
+    motion.setEnabled(m_configService.config().shell.animation.enabled);
+    motion.setReduced(m_liveAppearance.state().reduceMotion);
   };
   auto applyStyleConfig = [this, lastCornerRadiusScale = std::numeric_limits<float>::quiet_NaN()] mutable {
     const float corner = m_configService.config().shell.cornerRadiusScale;
@@ -900,9 +901,8 @@ void Application::initStyleThemeAndWayland() {
     m_settingsPortal->setAccent(accent.r, accent.g, accent.b);
   }
   if (m_configService.config().theme.toolkitThemes) {
-    toolkit_theme::write(
-        m_themeService.resolvedMode(), colorForRole(ColorRole::Accent, 1.0F), colorForRole(ColorRole::OnAccent, 1.0F)
-    );
+    const auto& toolkit = m_themeService.toolkitColors();
+    toolkit_theme::write(m_themeService.resolvedMode(), toolkit.accent, toolkit.accentText, toolkit.onAccent);
   } else {
     toolkit_theme::remove();
   }

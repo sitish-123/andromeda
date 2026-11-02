@@ -247,7 +247,8 @@ void IdleGraceOverlay::startFadeIn(Instance& inst, std::chrono::milliseconds fad
   const auto durationMs = static_cast<float>(fadeIn.count());
   Instance* instPtr = &inst;
   Box* dimPtr = inst.dim;
-  inst.fadeAnimId = inst.animations.animate(
+  // Timer: the fade spans the configured idle grace period.
+  inst.fadeAnimId = inst.animations.animateTimer(
       start, 1.0F, durationMs, Easing::EaseInOutCubic, [dimPtr](float v) { dimPtr->setOpacity(v); },
       [this, instPtr] {
         instPtr->fadeAnimId = 0;

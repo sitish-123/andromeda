@@ -664,7 +664,6 @@ void Bar::attachWidgetsToSections(BarInstance& instance) {
       run.contentScale = widget->contentScale();
       run.hoverBoxes = std::move(hoverBoxes);
       run.accordion = accordion;
-      run.accordionDurationMs = cap.accordionDurationMs.value_or(static_cast<float>(Style::animNormal));
       run.accordionDelayMs = cap.accordionDelayMs.value_or(0.0F);
       run.accordionClip = clipPtr;
       run.accordionDirection = cap.accordionDirection;
@@ -718,8 +717,8 @@ void Bar::animateWidgetHoverHighlight(BarInstance& instance, Widget& widget, boo
   }
   const ColorSpec fill = widget.widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   instance.animations.cancelForOwner(box);
-  instance.animations.animate(
-      widget.barHoverProgress(), hovered ? 1.0F : 0.0F, Style::animFast, Easing::EaseOutCubic,
+  instance.animations.animateSpring(
+      widget.barHoverProgress(), hovered ? 1.0F : 0.0F, Style::spring(hovered ? Tokens::springFadeOut : Tokens::springFade),
       [&widget, box, fill](float progress) {
         widget.setBarHoverProgress(progress);
         box->setVisible(progress > 0.001F);
@@ -735,8 +734,8 @@ void Bar::animateWidgetHoverHighlight(BarInstance& instance, Widget& widget, boo
 void Bar::beginAccordionAnimation(BarInstance& instance, BarCapsuleRun& run, bool expanded) {
   run.accordionExpanded = expanded;
   instance.animations.cancelForOwner(run.shell);
-  instance.animations.animate(
-      run.accordionProgress, expanded ? 1.0F : 0.0F, run.accordionDurationMs, Easing::EaseOutCubic,
+  instance.animations.animateSpring(
+      run.accordionProgress, expanded ? 1.0F : 0.0F, Style::spring(Tokens::springMove),
       [&run, surface = instance.surface.get()](float progress) {
         run.accordionProgress = progress;
         if (surface != nullptr) {

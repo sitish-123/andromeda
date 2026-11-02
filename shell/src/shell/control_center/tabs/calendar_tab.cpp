@@ -433,8 +433,8 @@ void CalendarTab::beginSlideOut(int delta) {
   m_pendingMonthDelta = delta;
 
   PanelManager::instance().requestFrameTick();
-  m_monthSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_monthSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyMonthSlide(progress, false);
         PanelManager::instance().requestRedraw();
@@ -460,8 +460,8 @@ void CalendarTab::beginSlideIn() {
 
   applyMonthSlide(0.0F, true);
   PanelManager::instance().requestFrameTick();
-  m_monthSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_monthSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyMonthSlide(progress, true);
         PanelManager::instance().requestRedraw();

@@ -1286,8 +1286,8 @@ void WindowSwitcher::syncSelection(bool animate) {
 
   Instance* instance = m_instance;
   InputArea* animationOwner = instance->strip;
-  instance->carouselAnimId = instance->animations.animate(
-      0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic,
+  instance->carouselAnimId = instance->animations.animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
       [instance, transitions](float progress) {
         for (const CardTransition& transition : transitions) {
           transition.tile->setPosition(
@@ -1979,8 +1979,8 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
     instance.panel->setOpacity(0.0F);
     instance.panel->setScale(Style::windowSwitcherRevealScale);
     instance.dimmer->setOpacity(0.0F);
-    instance.animations.animate(
-        0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic,
+    instance.animations.animateSpring(
+        0.0F, 1.0F, Style::spring(Tokens::springFade),
         [panelNode = instance.panel, dimmer = instance.dimmer](float value) {
           panelNode->setOpacity(value);
           panelNode->setScale(Style::windowSwitcherRevealScale + (1.0F - Style::windowSwitcherRevealScale) * value);

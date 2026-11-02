@@ -493,8 +493,8 @@ void BatteryWidget::syncState(Renderer& renderer) {
     const auto newPct = static_cast<float>(s.percentage);
     if (m_animations != nullptr && std::abs(m_animatedPct - newPct) > 0.5F) {
       m_animations->cancel(m_fillAnim);
-      m_fillAnim = m_animations->animate(
-          m_animatedPct, newPct, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+      m_fillAnim = m_animations->animateSpring(
+          m_animatedPct, newPct, Style::spring(Tokens::springMove),
           [this](float v) {
             m_animatedPct = v;
             updateFillGeometry();

@@ -805,8 +805,8 @@ void Bar::setInstanceIpcVisible(BarInstance& instance, bool visible) {
   }
   const float current = instance.hideOpacity;
   const float target = visible ? 1.0F : 0.0F;
-  instance.animations.animate(
-      current, target, Style::animNormal, visible ? Easing::EaseOutCubic : Easing::EaseInQuad,
+  instance.animations.animateSpring(
+      current, target, Style::spring(visible ? Tokens::springMove : Tokens::springClose),
       [inst = &instance, this](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);

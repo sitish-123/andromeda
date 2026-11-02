@@ -22,10 +22,6 @@ namespace {
   constexpr float kDefaultWidth = 260.0F;
   constexpr float kMinFlingVelocity = 0.12F;
   constexpr float kFlingDeceleration = 0.003F;
-  constexpr float kMinScrollAnimDurationMs = 50.0F;
-  constexpr float kMaxScrollAnimDurationMs = 900.0F;
-  constexpr float kScrollAnimMsPerPx = 0.45F;
-  constexpr float kFlingAnimMsPerPx = 0.55F;
   constexpr float kRubberBandResistance = 0.5F;
   constexpr float kPageFlickVelocity = 0.3F; // px/ms
   constexpr float kPageProjectionMs = 120.0F;
@@ -196,7 +192,7 @@ void ScrollView::stopScrollAnimation() {
   m_targetScrollOffset = m_scrollOffset;
 }
 
-void ScrollView::animateScrollTo(float target, float durationMs) {
+void ScrollView::animateScrollTo(float target) {
   const float clampedTarget = clampOffset(target);
 
   if (animationManager() == nullptr) {
@@ -212,14 +208,9 @@ void ScrollView::animateScrollTo(float target, float durationMs) {
     return;
   }
 
-  const float distance = std::abs(clampedTarget - m_scrollOffset);
-  const float resolvedDuration = durationMs > 0.0F
-      ? durationMs
-      : std::clamp(distance * kScrollAnimMsPerPx, kMinScrollAnimDurationMs, static_cast<float>(Style::animNormal));
-
-  m_scrollAnimId = animationManager()->animate(
-      m_scrollOffset, clampedTarget, resolvedDuration, Easing::EaseOutCubic,
-      [this](float value) { applyScrollOffsetValue(value); }, [this] { m_scrollAnimId = 0; }, this
+  m_scrollAnimId = animationManager()->animateSpring(
+      m_scrollOffset, clampedTarget, Style::spring(Tokens::springMove),
+      [this](float value) { applyScrollOffsetValue(value); }, [this] { m_scrollAnimId = 0; }, this, 0.0F, Unit::Px
   );
   markPaintDirty();
 }
@@ -254,7 +245,7 @@ void ScrollView::springToPage(std::size_t page, float velocityPxPerS) {
     return;
   }
   m_scrollAnimId = animationManager()->animateSpring(
-      m_scrollOffset, target, {.damping = Tokens::springPage.damping, .stiffness = Tokens::springPage.stiffness},
+      m_scrollOffset, target, Style::spring(Tokens::springPage),
       [this](float value) { applyScrollOffsetValue(value, true); }, [this] { m_scrollAnimId = 0; }, this,
       velocityPxPerS
   );
@@ -290,9 +281,7 @@ void ScrollView::startFling() {
     return;
   }
 
-  const float duration =
-      std::clamp(std::abs(flingDistance) * kFlingAnimMsPerPx, kMinScrollAnimDurationMs, kMaxScrollAnimDurationMs);
-  animateScrollTo(target, duration);
+  animateScrollTo(target);
 }
 
 void ScrollView::applyScrollOffsetValue(float offset, bool allowOverscroll) {

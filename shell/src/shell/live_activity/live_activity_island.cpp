@@ -783,6 +783,7 @@ void LiveActivityIsland::ensureMirrorDriver(Instance& inst) {
     return;
   }
   auto* instPtr = &inst;
+  // Timer: continuous driver for the mirrored compositor motion, capped at kMirrorMaxMs.
   inst.revealAnimId = inst.animations.animateTimer(
       0.0F, 1.0F, kMirrorMaxMs, Easing::Linear, [this, instPtr](float) { stepMirror(*instPtr); }, {}, &inst
   );
@@ -1551,12 +1552,9 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
   syncDsk(inst, true);
   const auto setter = [this, instPtr](float value) { applyReveal(*instPtr, value); };
   const auto done = [this, instPtr] { finishReveal(*instPtr); };
-  if (MotionService::instance().enabled()) {
-    inst.revealAnimId = inst.animations.animateSpring(0.0F, 1.0F, revealSpring(inst.face != Face::Rest), setter, done, &inst, velocity);
-  } else {
-    inst.revealAnimId =
-        inst.animations.animateTimer(0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::Linear, setter, done, &inst);
-  }
+  inst.revealAnimId = inst.animations.animateSpring(
+      0.0F, 1.0F, revealSpring(inst.face != Face::Rest), setter, done, &inst, velocity
+  );
   inst.surface->requestRedraw();
 }
 

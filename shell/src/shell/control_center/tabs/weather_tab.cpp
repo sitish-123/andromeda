@@ -443,8 +443,8 @@ void WeatherTab::beginForecastSlideOut(ForecastView nextView) {
   m_pendingForecastView = nextView;
 
   PanelManager::instance().requestFrameTick();
-  m_forecastSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_forecastSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyForecastSlide(progress, false);
         PanelManager::instance().requestRedraw();
@@ -467,8 +467,8 @@ void WeatherTab::beginForecastSlideIn() {
 
   applyForecastSlide(0.0F, true);
   PanelManager::instance().requestFrameTick();
-  m_forecastSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_forecastSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyForecastSlide(progress, true);
         PanelManager::instance().requestRedraw();

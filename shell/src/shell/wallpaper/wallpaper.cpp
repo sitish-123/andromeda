@@ -42,6 +42,7 @@ using Random::randomFloat;
 
 namespace {
 
+  // Timer: the wallpaper transition runs for its configured duration, independent of the motion settings.
   constexpr Easing kWallpaperTransitionEasing = Easing::EaseInOutCubic;
   constexpr std::string_view kGlobalShuffleScope = "global";
 

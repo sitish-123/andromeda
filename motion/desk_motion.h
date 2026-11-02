@@ -120,8 +120,11 @@ namespace desk::motion {
     [[nodiscard]] double target() const { return m_to; }
     [[nodiscard]] double velocity() const { return m_velocity; }
     [[nodiscard]] bool settled() const { return m_settled; }
+    // Settles on the exact target once |x - target| < threshold and |v| < 62.5 x threshold. 0 keeps exact settling.
+    void setThreshold(double threshold) { m_threshold = threshold; }
 
   private:
+    double m_threshold = 0.0;
     SpringConfig m_config{};
     double m_from = 0.0;
     double m_to = 0.0;

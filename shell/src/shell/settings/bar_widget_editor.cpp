@@ -2480,15 +2480,6 @@ namespace settings {
         const auto accordionMsMax = static_cast<double>(*accordionMsRange.max);
         const auto accordionMsStep = static_cast<double>(*accordionMsRange.step);
         ctx.makeRow(
-            *panelPtr, groupEntry("accordion-duration"),
-            makeGroupSliderControl(
-                ctx, static_cast<double>(style.accordionDurationMs.value_or(Style::animNormal)), accordionMsMin,
-                accordionMsMax, accordionMsStep, true, [mutateGroup](double v) {
-                  mutateGroup([&](BarCapsuleGroupStyle& g) { g.accordionDurationMs = static_cast<std::int32_t>(v); });
-                }
-            )
-        );
-        ctx.makeRow(
             *panelPtr, groupEntry("accordion-delay"),
             makeGroupSliderControl(
                 ctx, static_cast<double>(style.accordionDelayMs.value_or(0)), accordionMsMin, accordionMsMax,

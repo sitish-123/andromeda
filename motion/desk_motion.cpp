@@ -499,6 +499,10 @@ namespace desk::motion {
     m_velocity = velocity;
     if (m_value == m_to && m_velocity == 0.0) {
       m_settled = true;
+    } else if (m_threshold > 0.0 && std::abs(m_value - m_to) < m_threshold && std::abs(m_velocity) < 62.5 * m_threshold) {
+      m_value = m_to;
+      m_velocity = 0.0;
+      m_settled = true;
     }
     return m_value;
   }

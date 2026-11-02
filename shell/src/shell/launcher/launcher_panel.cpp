@@ -2012,7 +2012,6 @@ void LauncherPanel::animateResultsTransition() {
     m_resultsViewport->setPosition(m_resultsTransitionBaseX, m_resultsViewport->y());
   }
   constexpr float startOpacity = 0.78F;
-  const auto duration = static_cast<float>(Style::animNormal);
   Flex* const viewport = m_resultsViewport;
   const float visualDirection = transition == ResultsTransition::NavigationForward ? 1.0F : -1.0F;
   const float direction = Style::rtl() ? -visualDirection : visualDirection;
@@ -2022,8 +2021,8 @@ void LauncherPanel::animateResultsTransition() {
   viewport->setOpacity(startOpacity);
   viewport->setScale(1.0F);
   viewport->setPosition(m_resultsTransitionBaseX + direction * travel, viewport->y());
-  animations->animate(
-      0.0F, 1.0F, duration, Easing::EaseOutCubic,
+  animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this, viewport, direction, travel](float progress) {
         viewport->setOpacity(startOpacity + (1.0F - startOpacity) * progress);
         viewport->setPosition(m_resultsTransitionBaseX + direction * travel * (1.0F - progress), viewport->y());

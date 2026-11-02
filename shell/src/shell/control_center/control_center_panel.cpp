@@ -751,8 +751,8 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
   PanelManager::instance().requestRedraw();
   PanelManager::instance().requestFrameTick();
 
-  m_tabTransitionAnimId = m_animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+  m_tabTransitionAnimId = m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         m_tabTransitionProgress = progress;
         applyTabTransitionLayout();

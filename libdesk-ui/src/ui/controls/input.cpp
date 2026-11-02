@@ -2211,18 +2211,18 @@ void Input::animatePasswordGlyphIn(GlyphNode& glyph) {
   glyph.setRotation(0.0F);
 
   auto* glyphPtr = &glyph;
-  // Driven linearly so each animated property carries its own curve. The owner is the glyph node, so a
+  // One bouncing spring drives scale, opacity and wobble. The owner is the glyph node, so a
   // backspace that destroys it cancels this animation.
-  animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animNormal), Easing::Linear,
-      [glyphPtr](float t) {
-        const float scaleEase = applyEasing(Easing::EaseOutCubic, t);
-        glyphPtr->setScale(kStartScale + (1.0F - kStartScale) * scaleEase);
-        glyphPtr->setOpacity(applyEasing(Easing::EaseOutCubic, std::min(1.0F, t / kFadeInFraction)));
+  animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springOpen),
+      [glyphPtr](float progress) {
+        const float t = std::min(progress, 1.0F);
+        glyphPtr->setScale(kStartScale + (1.0F - kStartScale) * progress);
+        glyphPtr->setOpacity(std::min(1.0F, t / kFadeInFraction));
 
         // Rotation stays on even for the rotationally symmetric circle mask: a non-zero rotation is what makes
         // the glyph renderer skip pixel snapping, which would otherwise jump the glyph a whole pixel per frame.
-        const float wobbleDecay = applyEasing(Easing::EaseOutCubic, 1.0F - t);
+        const float wobbleDecay = 1.0F - t;
         const float wobble = kWobbleAmplitude * std::sin(t * kWobbleSwings * std::numbers::pi_v<float>) * wobbleDecay;
         glyphPtr->setRotation(wobble);
       },
@@ -2231,7 +2231,7 @@ void Input::animatePasswordGlyphIn(GlyphNode& glyph) {
         glyphPtr->setScale(1.0F);
         glyphPtr->setRotation(0.0F);
       },
-      glyphPtr
+      glyphPtr, 0.0F, Unit::Scale
   );
 }
 

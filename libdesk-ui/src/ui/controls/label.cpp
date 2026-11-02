@@ -357,11 +357,8 @@ void Label::startSnapToZero() {
     return;
   }
   const float from = m_scrollOffset;
-  const float rewindSpeed = m_scrollSpeedPxPerSec * 8.0F;
-  float durationMs = std::max(36.0F, (from / rewindSpeed) * 1000.0F);
-  durationMs = std::min(durationMs, 180.0F);
-  m_snapAnimId = animationManager()->animate(
-      from, 0.0F, durationMs, Easing::EaseOutCubic,
+  m_snapAnimId = animationManager()->animateSpring(
+      from, 0.0F, Style::spring(Tokens::springClose),
       [this](float v) {
         m_scrollOffset = v;
         applyScrollPosition();

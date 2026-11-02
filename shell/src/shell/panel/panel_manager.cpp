@@ -1554,8 +1554,8 @@ void PanelManager::closePanel(bool animateClose) {
     const std::uint64_t gen = ++m_destroyGeneration;
     if (m_attachedToBar && m_attachedRevealClipNode != nullptr) {
       m_animations.cancelForOwner(m_attachedRevealClipNode);
-      m_animations.animate(
-          m_attachedRevealProgress, 0.0F, Style::animNormal, Easing::EaseInOutQuad,
+      m_animations.animateSpring(
+          m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
           [this](float v) { applyAttachedReveal(v); },
           [this, gen] {
             DeferredCall::callLater([this, gen] {
@@ -2424,14 +2424,7 @@ DskSurfaceClient::Curve PanelManager::opacityCurve(bool fast) {
 
 void PanelManager::fadeSceneRoot(float to, std::function<void()> onDone) {
   const auto setter = [this](float v) { m_sceneRoot->setOpacity(v); };
-  if (MotionService::instance().enabled()) {
-    m_animations.animateSpring(m_sceneRoot->opacity(), to, effectsSpring(), setter, std::move(onDone), m_sceneRoot.get());
-  } else {
-    m_animations.animateTimer(
-        m_sceneRoot->opacity(), to, static_cast<float>(Style::animNormal), Easing::EaseOutCubic, setter,
-        std::move(onDone), m_sceneRoot.get()
-    );
-  }
+  m_animations.animateSpring(m_sceneRoot->opacity(), to, effectsSpring(), setter, std::move(onDone), m_sceneRoot.get());
 }
 
 desk::motion::SpringConfig PanelManager::effectsSpring() {
@@ -2588,8 +2581,8 @@ void PanelManager::startAttachedOpenAnimation() {
   }
 
   m_attachedOpenAnimationPending = false;
-  m_animations.animate(
-      m_attachedRevealProgress, 1.0F, Style::animNormal, Easing::EaseOutCubic,
+  m_animations.animateSpring(
+      m_attachedRevealProgress, 1.0F, Style::spring(Tokens::springOpen),
       [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode
   );
 }
@@ -3190,14 +3183,14 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
       // The open reveal already animates the first appearance.
       (void)setCardHeight(target);
     } else {
-      m_contentFit.animation = m_animations.animate(
-          static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::animNormal, Easing::EaseOutCubic,
+      m_contentFit.animation = m_animations.animateSpring(
+          static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::spring(Tokens::springMove),
           [this](float height) {
             if (setCardHeight(static_cast<std::uint32_t>(std::lround(height)))) {
               placePanelChrome();
             }
           },
-          [this] { m_contentFit.animation = 0; }, m_sceneRoot.get()
+          [this] { m_contentFit.animation = 0; }, m_sceneRoot.get(), 0.0F, Unit::Px
       );
     }
     placePanelChrome();

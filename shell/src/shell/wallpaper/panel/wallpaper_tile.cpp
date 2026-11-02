@@ -588,8 +588,8 @@ void WallpaperTile::animateThumbScale(float targetScale) {
     return;
   }
 
-  m_thumbScaleAnimId = animationManager()->animate(
-      m_thumbScale, targetScale, Style::animFast, Easing::EaseOutCubic, [this](float value) { applyThumbScale(value); },
+  m_thumbScaleAnimId = animationManager()->animateSpring(
+      m_thumbScale, targetScale, Style::spring(targetScale > m_thumbScale ? Tokens::springSnap : Tokens::springMove), [this](float value) { applyThumbScale(value); },
       [this] { m_thumbScaleAnimId = 0; }, this
   );
   markPaintDirty();

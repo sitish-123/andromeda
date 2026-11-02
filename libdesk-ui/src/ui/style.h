@@ -1,16 +1,16 @@
 #pragma once
 
 #include "design_tokens.h"
+#include "motion/desk_motion.h"
 #include "ui/signal.h"
 
 namespace Style {
 
-  TOKENS_LIVE(barThicknessDefault, Tokens::componentIslandHeight);
+  [[nodiscard]] inline desk::motion::SpringConfig spring(const Tokens::Spring& token) {
+    return {.damping = token.damping, .stiffness = token.stiffness};
+  }
 
-  // duration animations are removed in M2
-  inline constexpr int animFast = 120;
-  inline constexpr int animNormal = 200;
-  inline constexpr int animSlow = 320;
+  TOKENS_LIVE(barThicknessDefault, Tokens::componentIslandHeight);
 
   inline constexpr float borderWidth = 1.0F;
   inline constexpr float emphasizedBorderWidth = 3.0F;

@@ -460,8 +460,8 @@ void TrayWidget::rebuild(Renderer& renderer) {
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
       const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
-      m_animations->animate(
-          *progress, 1.0F, Style::animFast, Easing::EaseOutCubic,
+      m_animations->animateSpring(
+          *progress, 1.0F, Style::spring(Tokens::springFadeOut),
           [this, hoverBoxPtr, fill, progress](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);
@@ -480,8 +480,8 @@ void TrayWidget::rebuild(Renderer& renderer) {
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
       const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
-      m_animations->animate(
-          *progress, 0.0F, Style::animFast, Easing::EaseOutCubic,
+      m_animations->animateSpring(
+          *progress, 0.0F, Style::spring(Tokens::springFade),
           [this, hoverBoxPtr, fill, progress](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);

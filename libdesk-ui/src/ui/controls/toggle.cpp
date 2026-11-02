@@ -63,8 +63,8 @@ void Toggle::setChecked(bool checked) {
     }
     float from = m_checked ? 0.0F : 1.0F;
     float to = m_checked ? 1.0F : 0.0F;
-    m_animId = animationManager()->animate(
-        from, to, Style::animFast, Easing::EaseOutCubic, [this](float t) { applyAnimatedState(t); },
+    m_animId = animationManager()->animateSpring(
+        from, to, Style::spring(Tokens::springSnap), [this](float t) { applyAnimatedState(t); },
         [this] { m_animId = 0; }, this
     );
     // Mark dirty so the surface's frame loop restarts and ticks the animation

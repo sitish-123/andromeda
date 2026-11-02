@@ -159,9 +159,9 @@ void DropZone::animateWidth(float target) {
   if (m_widthAnimation != 0) {
     animations->cancel(m_widthAnimation);
   }
-  m_widthAnimation = animations->animate(
-      m_animatedWidth, target, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
-      [this](float value) { applyAnimatedWidth(value); }, [this] { m_widthAnimation = 0; }, this
+  m_widthAnimation = animations->animateSpring(
+      m_animatedWidth, target, Style::spring(Tokens::springMove),
+      [this](float value) { applyAnimatedWidth(value); }, [this] { m_widthAnimation = 0; }, this, 0.0F, Unit::Px
   );
 }
 
@@ -181,9 +181,9 @@ void DropZone::animateHeight(float target) {
   if (m_heightAnimation != 0) {
     animations->cancel(m_heightAnimation);
   }
-  m_heightAnimation = animations->animate(
-      m_animatedHeight, target, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
-      [this](float value) { applyAnimatedHeight(value); }, [this] { m_heightAnimation = 0; }, this
+  m_heightAnimation = animations->animateSpring(
+      m_animatedHeight, target, Style::spring(Tokens::springMove),
+      [this](float value) { applyAnimatedHeight(value); }, [this] { m_heightAnimation = 0; }, this, 0.0F, Unit::Px
   );
 }
 

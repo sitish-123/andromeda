@@ -720,8 +720,9 @@ void Button::applyVisualState() {
     animationManager()->cancel(m_animId);
   }
 
-  m_animId = animationManager()->animate(
-      0.0F, 1.0F, Style::animFast, Easing::EaseOutCubic,
+  const bool toActive = m_hoveredVisual || m_pressedVisual;
+  m_animId = animationManager()->animateSpring(
+      0.0F, 1.0F, Style::spring(toActive ? Tokens::springFadeOut : Tokens::springFade),
       [this](float t) {
         applyColors(
             lerpColor(m_fromBg, m_targetBg, t), lerpColor(m_fromBorder, m_targetBorder, t),

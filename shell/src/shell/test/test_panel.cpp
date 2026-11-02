@@ -840,7 +840,8 @@ void TestPanel::create() {
   }
 
   if (m_animations != nullptr && m_transformDemoBox != nullptr) {
-    m_animations->animate(0.0F, 2.0F * std::numbers::pi_v<float>, 8000.0F, Easing::Linear, [this](float phase) {
+    // Timer: continuous demo loop.
+    m_animations->animateTimer(0.0F, 2.0F * std::numbers::pi_v<float>, 8000.0F, Easing::Linear, [this](float phase) {
       if (m_transformDemoBox != nullptr) {
         m_transformDemoBox->setRotation(phase);
         m_transformDemoBox->setScale(1.0F + 0.16F * std::sin(phase));

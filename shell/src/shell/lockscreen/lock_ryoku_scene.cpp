@@ -123,11 +123,11 @@ void LockRyokuScene::build(Node& root, AnimationManager& animations) {
   // Entry: everything fades up while the dial winds back onto the time.
   m_blast->setOpacity(0.0F);
   m_hud->setOpacity(0.0F);
-  m_animations->animate(0.0F, 1.0F, 350.0F, Easing::EaseOutCubic, [this](float v) {
+  m_animations->animateSpring(0.0F, 1.0F, Style::spring(Tokens::springFade), [this](float v) {
     m_blast->setOpacity(v);
     m_hud->setOpacity(v);
   });
-  m_animations->animate(0.9F, 0.0F, 1100.0F, Easing::EaseOutCubic, [this](float v) { m_introOffset = v; });
+  m_animations->animateSpring(0.9F, 0.0F, Style::spring(Tokens::springOpen), [this](float v) { m_introOffset = v; });
 }
 
 void LockRyokuScene::buildRing(Ring& ring, float tickLong, float tickShort, float numberSize) {
@@ -327,8 +327,8 @@ void LockRyokuScene::fadeColor(Label* label, bool lit) {
   m_animations->cancelForOwner(label);
   const Color from = label->color();
   const Color to = lit ? kWhite : kDim;
-  m_animations->animate(
-      0.0F, 1.0F, 200.0F, Easing::EaseOutCubic, [label, from, to](float v) { label->setColor(mix(from, to, v)); }, {},
+  m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springFade), [label, from, to](float v) { label->setColor(mix(from, to, v)); }, {},
       label
   );
 }
@@ -348,8 +348,8 @@ void LockRyokuScene::setPasswordLength(std::size_t length) {
     return;
   }
   m_animations->cancel(m_waitingAnim);
-  m_waitingAnim = m_animations->animate(
-      m_waitingOpacity, length == 0 ? 0.4F : 0.0F, 400.0F, Easing::EaseInOutCubic, [this](float v) {
+  m_waitingAnim = m_animations->animateSpring(
+      m_waitingOpacity, length == 0 ? 0.4F : 0.0F, Style::spring(length == 0 ? Tokens::springFade : Tokens::springFadeOut), [this](float v) {
         m_waitingOpacity = v;
         m_waiting->setOpacity(v);
       }
@@ -384,17 +384,20 @@ void LockRyokuScene::setActions(std::vector<Action> actions) {
 
 void LockRyokuScene::playRejected() {
   m_animations->cancelForOwner(&m_shake);
-  m_animations->animate(1.0F, 0.0F, 420.0F, Easing::Linear, [this](float v) { m_shake = v; }, {}, &m_shake);
+  m_animations->animateSpring(1.0F, 0.0F, Style::spring(Tokens::springRelease), [this](float v) { m_shake = v; }, {}, &m_shake);
 }
 
 void LockRyokuScene::playGranted(std::function<void()> onDone) {
   m_scanning = false;
   m_hint->setText(tracked("ACCESS GRANTED " + std::string(kStar), kHair));
   m_hint->setColor(kWhite);
-  m_animations->animateTimer(1.0F, 35.0F, 190.0F, Easing::EaseInQuad, [this](float v) { m_blast->setScale(v); });
-  m_animations->animateTimer(1.0F, 0.0F, 120.0F, Easing::EaseInQuad, [this](float v) { m_hud->setOpacity(v); });
-  m_animations->animateTimer(
-      0.0F, 1.0F, 130.0F, Easing::EaseInQuad, [this](float v) { m_flash->setOpacity(v); },
+  m_animations->animateSpring(
+      1.0F, 35.0F, Style::spring(Tokens::springOpen), [this](float v) { m_blast->setScale(v); }, {}, nullptr, 0.0F,
+      Unit::Scale
+  );
+  m_animations->animateSpring(1.0F, 0.0F, Style::spring(Tokens::springFadeOut), [this](float v) { m_hud->setOpacity(v); });
+  m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springFade), [this](float v) { m_flash->setOpacity(v); },
       [done = std::move(onDone)]() {
         if (done) {
           done();

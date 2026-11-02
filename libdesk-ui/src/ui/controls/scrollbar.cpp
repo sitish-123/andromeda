@@ -221,8 +221,8 @@ void Scrollbar::setExpanded(bool expanded) {
   if (m_expandAnim != 0) {
     animations->cancel(m_expandAnim);
   }
-  m_expandAnim = animations->animate(
-      m_expansion, target, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+  m_expandAnim = animations->animateSpring(
+      m_expansion, target, Style::spring(target > m_expansion ? Tokens::springSnap : Tokens::springMove),
       [this](float value) { applyExpansion(value); }, [this] { m_expandAnim = 0; }, this
   );
   // Starting an animation mutates nothing yet, so the surface has no reason to schedule a frame

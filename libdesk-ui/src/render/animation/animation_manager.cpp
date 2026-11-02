@@ -3,7 +3,9 @@
 #include "ui/style.h"
 #include "render/animation/motion_service.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 
 namespace {
   constexpr float kReducedMotionDurationMs = 1.0F;
@@ -12,13 +14,6 @@ namespace {
 AnimationManager::AnimationManager() { MotionService::instance().registerManager(this); }
 
 AnimationManager::~AnimationManager() { MotionService::instance().unregisterManager(this); }
-
-AnimationManager::Id AnimationManager::animate(
-    float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner
-) {
-  return animateInternal(from, to, durationMs, easing, std::move(setter), std::move(onComplete), owner, true, true);
-}
 
 AnimationManager::Id AnimationManager::animateTimer(
     float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
@@ -84,9 +79,12 @@ AnimationManager::Id AnimationManager::animateInternal(
 
 AnimationManager::Id AnimationManager::animateSpring(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner, float velocity
+    std::function<void()> onComplete, const void* owner, float velocity, Unit unit
 ) {
   const float start = MotionService::instance().enabled() ? from : to;
+  const float threshold = unitThreshold(unit);
+  desk::motion::Spring motion(start, to, spring, velocity);
+  motion.setThreshold(threshold);
   Id id = m_nextId++;
   m_animations.push_back(
       Entry{
@@ -98,8 +96,9 @@ AnimationManager::Id AnimationManager::animateSpring(
               .endValue = to,
               .setter = std::move(setter),
               .onComplete = std::move(onComplete),
-              .spring = desk::motion::Spring(start, to, spring, velocity),
+              .spring = motion,
               .lastStep = std::chrono::steady_clock::now(),
+              .threshold = threshold,
           },
       }
   );
@@ -108,15 +107,45 @@ AnimationManager::Id AnimationManager::animateSpring(
 
 AnimationManager::Id AnimationManager::animateSpatial(
     float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
-    std::function<void()> onComplete, const void* owner, float velocity
+    std::function<void()> onComplete, const void* owner, float velocity, Unit unit
 ) {
-  if (MotionService::instance().enabled()) {
-    return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity);
+  const auto& motion = MotionService::instance();
+  if (motion.enabled() && !motion.reduced()) {
+    return animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
   }
-  return animateTimer(
-      from, to, static_cast<float>(Style::animNormal), Easing::EaseOutCubic, std::move(setter), std::move(onComplete),
-      owner
-  );
+  if (setter) {
+    setter(to);
+  }
+  return animateSpring(to, to, spring, {}, std::move(onComplete), owner, 0.0F, unit);
+}
+
+AnimationManager::Id AnimationManager::animateGated(
+    float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter, float fraction,
+    std::function<void()> onPass, std::function<void()> onComplete, const void* owner, float velocity, Unit unit
+) {
+  const Id id = animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, velocity, unit);
+  auto& anim = m_animations.back().animation;
+  anim.gateFraction = std::clamp(fraction, 0.0F, 1.0F);
+  anim.onGate = std::move(onPass);
+  return id;
+}
+
+float AnimationManager::staggerDelayMs(int index) {
+  constexpr float kStaggerMs = 16.0F;
+  constexpr int kMaxStaggered = 6;
+  return kStaggerMs * static_cast<float>(std::clamp(index, 0, kMaxStaggered - 1));
+}
+
+AnimationManager::Id AnimationManager::animateStaggered(
+    int index, float from, float to, const desk::motion::SpringConfig& spring, std::function<void(float)> setter,
+    std::function<void()> onComplete, const void* owner, Unit unit
+) {
+  const auto& motion = MotionService::instance();
+  const Id id = animateSpring(from, to, spring, std::move(setter), std::move(onComplete), owner, 0.0F, unit);
+  if (motion.enabled() && !motion.reduced()) {
+    m_animations.back().animation.delayMs = staggerDelayMs(index);
+  }
+  return id;
 }
 
 float AnimationManager::velocity(Id id) const {
@@ -151,6 +180,7 @@ bool AnimationManager::retarget(Id id, float to, const desk::motion::SpringConfi
         entry.animation.spring = desk::motion::Spring(
             entry.animation.spring->value(), to, spring, entry.animation.spring->velocity()
         );
+        entry.animation.spring->setThreshold(entry.animation.threshold);
       } else {
         entry.animation.spring = desk::motion::Spring(to, to, {});
       }
@@ -179,6 +209,7 @@ void AnimationManager::reduceMotion() {
     }
     if (anim.spring) {
       anim.spring = desk::motion::Spring(anim.endValue, anim.endValue, {});
+      anim.delayMs = 0.0F;
       continue;
     }
     anim.startValue = anim.endValue;
@@ -198,12 +229,13 @@ void AnimationManager::cancelForOwner(const void* owner) {
   std::erase_if(m_animations, [owner](const Entry& e) { return e.owner == owner; });
 }
 
-void AnimationManager::tick(float /*deltaMs*/) {
+void AnimationManager::tick(float /*deltaMs*/) { tickAt(std::chrono::steady_clock::now()); }
+
+void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
   // Collect completed callbacks separately — onComplete may call animate()
   // which would push_back and invalidate iterators during iteration.
   std::vector<std::function<void()>> completedCallbacks;
-
-  const auto now = std::chrono::steady_clock::now();
+  std::vector<std::function<void()>> gateCallbacks;
 
   for (auto& entry : m_animations) {
     auto& anim = entry.animation;
@@ -212,12 +244,29 @@ void AnimationManager::tick(float /*deltaMs*/) {
     }
 
     if (anim.spring) {
-      const float stepMs = std::chrono::duration<float, std::milli>(now - anim.lastStep).count();
+      constexpr float kMaxStepMs = 50.0F;
+      float stepMs = std::clamp(std::chrono::duration<float, std::milli>(now - anim.lastStep).count(), 0.0F, kMaxStepMs);
       anim.lastStep = now;
+      if (anim.delayMs > 0.0F) {
+        anim.delayMs -= stepMs;
+        if (anim.delayMs > 0.0F) {
+          continue;
+        }
+        stepMs = -anim.delayMs;
+        anim.delayMs = 0.0F;
+      }
       const float value = static_cast<float>(anim.spring->step(stepMs * MotionService::instance().speed() / 1000.0F));
       anim.finished = anim.spring->settled();
       if (anim.setter) {
         anim.setter(value);
+      }
+      if (anim.onGate) {
+        const float travel = anim.endValue - anim.startValue;
+        const float progress = std::fabs(travel) > 1e-6F ? (value - anim.startValue) / travel : 1.0F;
+        if (anim.finished || progress >= anim.gateFraction) {
+          gateCallbacks.push_back(std::move(anim.onGate));
+          anim.onGate = nullptr;
+        }
       }
       if (anim.finished && anim.onComplete) {
         completedCallbacks.push_back(std::move(anim.onComplete));
@@ -250,6 +299,9 @@ void AnimationManager::tick(float /*deltaMs*/) {
 
   std::erase_if(m_animations, [](const Entry& e) { return e.animation.finished; });
 
+  for (auto& cb : gateCallbacks) {
+    cb();
+  }
   for (auto& cb : completedCallbacks) {
     cb();
   }

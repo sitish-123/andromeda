@@ -636,7 +636,7 @@ void Application::initPanelManagerAndPanels() {
     m_panelManager.closePanel(false);
     const bool isImage = entry.isImage();
     m_clipboardAutoPasteTimer.stop();
-    m_clipboardAutoPasteTimer.start(std::chrono::milliseconds(Style::animFast + 30), [this, isImage] {
+    m_clipboardAutoPasteTimer.start(std::chrono::milliseconds(150), [this, isImage] {
       DeferredCall::callLater([this, isImage] {
         const ClipboardAutoPasteMode activeMode = m_configService.config().shell.clipboardAutoPaste;
         (void)clipboard_paste::pasteEntry(isImage, activeMode, m_virtualKeyboardService);
@@ -708,7 +708,7 @@ void Application::initPanelManagerAndPanels() {
         return;
       }
       m_launcherAutoPasteTimer.stop();
-      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(Style::animFast + 30), [this] {
+      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(150), [this] {
         DeferredCall::callLater([this] {
           const ClipboardAutoPasteMode activeMode = m_configService.config().shell.launcher.autoPaste;
           (void)clipboard_paste::pasteEntry(false, activeMode, m_virtualKeyboardService);
@@ -1286,7 +1286,8 @@ void Application::initWidgetControllersAndCallbacks() {
         appearance.accent
     );
     Style::setGlass(appearance.glassOpacity, appearance.reduceTransparency);
-    MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled && !appearance.reduceMotion);
+    MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled);
+    MotionService::instance().setReduced(appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
     if (m_settingsPortal != nullptr) {
       const Color accent = colorForRole(ColorRole::Accent, 1.0F);
@@ -1295,9 +1296,8 @@ void Application::initWidgetControllersAndCallbacks() {
       m_settingsPortal->setReducedMotion(appearance.reduceMotion);
     }
     if (m_configService.config().theme.toolkitThemes) {
-      toolkit_theme::write(
-          m_themeService.resolvedMode(), colorForRole(ColorRole::Accent, 1.0F), colorForRole(ColorRole::OnAccent, 1.0F)
-      );
+      const auto& toolkit = m_themeService.toolkitColors();
+      toolkit_theme::write(m_themeService.resolvedMode(), toolkit.accent, toolkit.accentText, toolkit.onAccent);
     } else {
       toolkit_theme::remove();
     }

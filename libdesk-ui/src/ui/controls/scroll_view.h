@@ -90,7 +90,7 @@ private:
   void applyScrollOffsetValue(float offset, bool allowOverscroll = false);
   void releaseDrag();
   void stopScrollAnimation();
-  void animateScrollTo(float target, float durationMs = -1.0F);
+  void animateScrollTo(float target);
   void startFling();
   void settlePage(float velocityPxPerMs);
   void springToPage(std::size_t page, float velocityPxPerS);

@@ -383,8 +383,8 @@ void Select::animateCaret(bool open) {
     if (m_caretAnimId != 0) {
       animationManager()->cancel(m_caretAnimId);
     }
-    m_caretAnimId = animationManager()->animate(
-        m_caretProgress, to, Style::animNormal, Easing::EaseOutCubic,
+    m_caretAnimId = animationManager()->animateSpring(
+        m_caretProgress, to, Style::spring(Tokens::springSnap),
         [this](float t) {
           m_caretProgress = t;
           applyVisualState();

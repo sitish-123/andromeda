@@ -395,8 +395,8 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
     return;
   }
 
-  instance.animations.animate(
-      current, 1.0F, Style::animNormal, Easing::EaseOutCubic,
+  instance.animations.animateSpring(
+      current, 1.0F, Style::spring(Tokens::springMove),
       [inst = &instance, this](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);
@@ -506,8 +506,8 @@ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
   }
   instance.autoHideDelayTimer.stop();
   const float current = instance.hideOpacity;
-  instance.animations.animate(
-      current, 0.0F, Style::animNormal, Easing::EaseInQuad,
+  instance.animations.animateSpring(
+      current, 0.0F, Style::spring(Tokens::springClose),
       [this, inst = &instance](float v) {
         inst->hideOpacity = v;
         syncBarSlideLayerTransform(*inst);
