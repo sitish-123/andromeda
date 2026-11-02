@@ -770,6 +770,9 @@ namespace noctalia::cli {
     inline constexpr Command panelState{
         "panel-state", "Print the open panel id and its page, or none", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command panelRect{
+        "panel-rect", "Print the open panel card as x y width height and the island top, in output pixels, or none", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command panelToggle{
         "panel-toggle",
         "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center audio)",
@@ -1237,6 +1240,7 @@ namespace noctalia::cli {
       msg::osdToggle,
       msg::panelClose,
       msg::panelOpen,
+      msg::panelRect,
       msg::panelState,
       msg::panelToggle,
       msg::plugin,

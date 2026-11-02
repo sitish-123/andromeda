@@ -1029,10 +1029,22 @@ void Bar::fillIslandSource(PanelOpenRequest& request, std::string_view panelId) 
     return;
   }
   for (const auto& instance : m_instances) {
-    if (instance->output != request.output || instance->sheetTracker == nullptr || instance->surface == nullptr) {
+    if (instance->output != request.output || instance->surface == nullptr) {
       continue;
     }
-    const auto& r = instance->sheetTrackerRect;
+    std::array<float, 4> r{};
+    const Box* statusIsland = instance->islands[2];
+    const bool vertical = instance->barConfig.position == "left" || instance->barConfig.position == "right";
+    if (instance->sheetTracker != nullptr) {
+      r = instance->sheetTrackerRect;
+    } else if (vertical && instance->barConfig.islands && statusIsland != nullptr && statusIsland->visible()) {
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(statusIsland, x, y);
+      r = {x, y, statusIsland->width(), statusIsland->height()};
+    } else {
+      continue;
+    }
     float anchorX = r[0] + r[2] * 0.5F;
     float anchorY = r[1] + r[3] * 0.5F;
     if (m_platform != nullptr) {

@@ -396,6 +396,15 @@ void Application::initIpc() {
     const std::string context = m_panelManager.activePanel()->activeContext();
     return m_panelManager.activePanelId() + (context.empty() ? "" : " " + context) + "\n";
   });
+  m_ipcService.bind(noctalia::cli::msg::panelRect, [this](const std::string&) -> std::string {
+    const auto rect = m_panelManager.activePanelRect();
+    if (!m_panelManager.isOpen() || !rect.has_value()) {
+      return "none\n";
+    }
+    return std::format(
+        "{} {} {} {} {}\n", rect->x, rect->y, rect->width, rect->height, m_panelManager.activePanelIslandTop()
+    );
+  });
   m_ipcService.bind(noctalia::cli::msg::liveActivityStatus, [this](const std::string&) -> std::string {
     return m_liveActivity.describeActivity() + "\n";
   });
