@@ -1,0 +1,337 @@
+libdesk-ui/src/ui/controls/button.cpp|S1|badge->setPadding(2.0F, Style::spaceXs);
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kAlphaFieldWidth = 56.0F;
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kFormatSelectWidth = 76.0F;
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kHueThumbSize = 16.0F;
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kStripHeight = 12.0F;
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kSvThumbSize = 18.0F;
+libdesk-ui/src/ui/controls/color_picker.cpp|S1|constexpr float kSwatchSize = 24.0F;
+libdesk-ui/src/ui/controls/context_menu.cpp|S1|constexpr float kMenuPadding = 6.0F;
+libdesk-ui/src/ui/controls/context_menu.cpp|S1|constexpr float kSeparatorHeight = 10.0F;
+libdesk-ui/src/ui/controls/countdown_ring.cpp|S1|constexpr float kDefaultRingSize = 64.0F;
+libdesk-ui/src/ui/controls/countdown_ring.cpp|S1|constexpr float kDefaultThickness = 6.0F;
+libdesk-ui/src/ui/controls/glyph_picker.cpp|S1|.width = 180.0F * m_chromeScale,
+libdesk-ui/src/ui/controls/input.cpp|S1|.radius = 2.0F,
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kCursorMinHeight = 14.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kCursorRevealPadding = 2.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kCursorWidth = 1.25F;
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kMaxLabelRasterWidth = 8192.0F - 64.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kMinWidth = 48.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|constexpr float kTextInnerInset = 3.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|selectionStyle.radius = 2.0F;
+libdesk-ui/src/ui/controls/input.cpp|S1|selectionStyleEmb.radius = 2.0F;
+libdesk-ui/src/ui/controls/list_editor.cpp|S1|constexpr float kFreeformInputWidth = 190.0F;
+libdesk-ui/src/ui/controls/list_editor.cpp|S1|constexpr float kItemRowHeight = 26.0F;
+libdesk-ui/src/ui/controls/list_editor.cpp|S1|constexpr float kLabelCellWidth = 200.0F;
+libdesk-ui/src/ui/controls/list_editor.cpp|S1|constexpr float kSuggestedAddHeight = 30.0F;
+libdesk-ui/src/ui/controls/list_editor.cpp|S1|constexpr float kVerticalGap = 2.0F;
+libdesk-ui/src/ui/controls/scroll_view.cpp|S1|constexpr float kDefaultWidth = 260.0F;
+libdesk-ui/src/ui/controls/search_picker.cpp|S1|constexpr float kDefaultHeight = 360.0F;
+libdesk-ui/src/ui/controls/search_picker.cpp|S1|constexpr float kDefaultWidth = 320.0F;
+libdesk-ui/src/ui/controls/segmented.cpp|S1|button.setMinHeight((Style::controlHeight - 4.0F) * m_scale);
+libdesk-ui/src/ui/controls/select.cpp|S1|setMinWidth(80.0F);
+libdesk-ui/src/ui/controls/separator.cpp|S1|setSize(m_thickness + 2.0F * m_spacing, lineH);
+libdesk-ui/src/ui/controls/separator.cpp|S1|setSize(w, m_thickness + 2.0F * m_spacing);
+libdesk-ui/src/ui/controls/spinner.cpp|S1|constexpr float kDefaultSize = 20.0F;
+libdesk-ui/src/ui/controls/spinner.cpp|S1|constexpr float kDefaultThickness = 2.0F;
+libdesk-ui/src/ui/controls/stepper.cpp|S1|constexpr float kDefaultMinWidth = 100.0F;
+libdesk-ui/src/ui/controls/stepper.cpp|S1|constexpr float kInputTextInnerInset = 3.0F;
+libdesk-ui/src/ui/dialogs/file_dialog_view.cpp|S1|.width = 320.0F * scale,
+libdesk-ui/src/ui/dialogs/file_dialog_view.cpp|S1|constexpr float kGridMinCellWidth = 140.0F;
+libdesk-ui/src/ui/dialogs/file_entry_row.cpp|S1|constexpr float kDateColumnWidth = 152.0F;
+libdesk-ui/src/ui/dialogs/file_entry_row.cpp|S1|constexpr float kSizeColumnWidth = 96.0F;
+libdesk-ui/src/ui/dialogs/file_entry_tile.cpp|S1|constexpr float kPreviewHeightRatio = 0.68F;
+libdesk-ui/src/ui/dialogs/file_entry_tile.cpp|S1|constexpr float kPreviewInset = 12.0F;
+libdesk-ui/src/ui/dialogs/search_picker_popup.cpp|S1|constexpr float kPopupHeight = 380.0F;
+libdesk-ui/src/ui/dialogs/search_picker_popup.cpp|S1|constexpr float kPopupWidth = 420.0F;
+shell/src/shell/bar/bar.cpp|S1|.width = std::max(0.0F, 2.0F * (halfFree - kGap)),
+shell/src/shell/bar/bar.cpp|S1|.width = std::max(0.0F, static_cast<float>(it->logicalWidth) - 4.0F * (instance->bg->width() + 2.0F * kGap)),
+shell/src/shell/bar/bar.cpp|S1|constexpr float kGap = 12.0F;
+shell/src/shell/bar/bar_internal.h|S1|constexpr float kGroupHoverCrossInset = 2.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicBodyHeight = 14.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicBodyWidth = 22.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicCornerRadius = 4.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicHorizontalBodyHeight = 15.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicHorizontalBodyWidth = 25.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicTerminalHeight = 7.0F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|constexpr float kGraphicTerminalWidth = 2.5F;
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_bodyBg->setRadius(4.4F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_bodyBg->setSize(21.8F * s, 13.8F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_fillRect->setRadius(1.5F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_fillRect->setSize(12.0F * s * fraction, 7.0F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_terminalNub->setRadius(0.9F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|m_terminalNub->setSize(1.8F * s, 5.8F * s);
+shell/src/shell/bar/widgets/battery_widget.cpp|S1|rootNode->setSize(boxW, 24.0F * s);
+shell/src/shell/bar/widgets/notification_widget.cpp|S1|constexpr float kDotBaseSize = 6.0F;
+shell/src/shell/bar/widgets/screenshot_widget.cpp|S1|constexpr float kMenuWidth = 246.0F;
+shell/src/shell/bar/widgets/sysmon_widget.cpp|S1|constexpr float kGraphLineWidth = 0.75F;
+shell/src/shell/bar/widgets/taskbar_widget.cpp|S1|constexpr float kTaskMenuWidth = 240.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kListGlyphSize = 24.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kListPinGlyphSize = 16.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kListThumbSize = 40.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kPreviewImageHeight = 280.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kPreviewPlaceholderGlyphSize = 64.0F;
+shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kRowHeightEstimate = 46.0F;
+shell/src/shell/control_center/detail/detail_page.cpp|S1|constexpr float kEmptyBodyMaxWidth = 320.0F; // rulebook 9.13
+shell/src/shell/control_center/tabs/audio_tab.cpp|S1|constexpr float kCompactSliderControlHeight = 20.0F;
+shell/src/shell/control_center/tabs/audio_tab.cpp|S1|constexpr float kIconSizeSm = 28.0F;
+shell/src/shell/control_center/tabs/calendar_tab.cpp|S1|constexpr float kCalendarWeekColumnMinFontScale = 1.45F;
+shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconGlyphSize = 22.0F;
+shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconReferenceSize = 36.0F;
+shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconSize = 36.0F;
+shell/src/shell/control_center/tabs/quick_tab.cpp|S1|strip->setGap(2.0F * Tokens::componentSheetPadding * s);
+shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kAppIconSize = 28.0F;
+shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kBarGap = 2.0F;
+shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kChartHeight = 132.0F;
+shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kUsageBarHeight = 4.0F;
+shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kUsageDurationFontScale = 0.85F;
+shell/src/shell/control_center/tabs/system_tab.cpp|S1|constexpr float kGraphLineWidth = 0.75F;
+shell/src/shell/desktop/desktop_widget_factory.cpp|S1|constexpr float kDefaultBgPadding = 10.0F;
+shell/src/shell/desktop/desktop_widget_factory.cpp|S1|constexpr float kDefaultBgRadius = 12.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor.cpp|S1|.configure = [](Select& select) { select.setMinWidth(200.0F); },
+shell/src/shell/desktop/editor/desktop_widgets_editor.cpp|S1|constexpr float kCenterGuideThickness = 3.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor.cpp|S1|constexpr float kHandleSize = 14.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor.cpp|S1|constexpr float kRotatePadding = 14.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor_settings.cpp|S1|.padding = 2.0F,
+shell/src/shell/desktop/editor/desktop_widgets_editor_settings.cpp|S1|.width = 52.0F,
+shell/src/shell/desktop/editor/desktop_widgets_editor_settings.cpp|S1|constexpr float kInspectorCloseSize = 22.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor_settings.cpp|S1|constexpr float kInspectorWidth = 520.0F;
+shell/src/shell/desktop/editor/desktop_widgets_editor_settings.cpp|S1|constexpr float kSettingRowHeight = 34.0F;
+shell/src/shell/desktop/widgets/desktop_audio_visualizer_widget.cpp|S1|constexpr float kDefaultVisualizerHeight = 96.0F;
+shell/src/shell/desktop/widgets/desktop_audio_visualizer_widget.cpp|S1|constexpr float kDefaultVisualizerWidth = 240.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kCalendarWidth = 340.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kDayButtonSize = 34.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kDayCellHeight = 43.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kEventsWidth = 240.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kWeekColumnWidth = 24.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kWeekdayHeight = 20.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|constexpr float kWidgetHeight = 390.0F;
+shell/src/shell/desktop/widgets/desktop_calendar_widget.cpp|S1|m_eventsScroll->setSize(eventsWidth, std::max(1.0F, height - 40.0F * scale));
+shell/src/shell/desktop/widgets/desktop_fancy_audio_visualizer_widget.cpp|S1|constexpr float kBaseSize = 300.0F;
+shell/src/shell/desktop/widgets/desktop_label_widget.cpp|S1|constexpr float kBaseMaxWidth = 320.0F;
+shell/src/shell/desktop/widgets/desktop_login_box_widget.cpp|S1|constexpr float kLoginGlyphSize = 16.0F;
+shell/src/shell/desktop/widgets/desktop_media_player_widget.cpp|S1|constexpr float kArtSize = 120.0F;
+shell/src/shell/desktop/widgets/desktop_media_player_widget.cpp|S1|constexpr float kControlSize = 32.0F;
+shell/src/shell/desktop/widgets/desktop_media_player_widget.cpp|S1|constexpr float kPlayPauseSize = 40.0F;
+shell/src/shell/desktop/widgets/desktop_media_player_widget.cpp|S1|constexpr float kSpacing = 6.0F;
+shell/src/shell/desktop/widgets/desktop_media_player_widget.cpp|S1|constexpr float kVisualizerHeight = 26.0F;
+shell/src/shell/desktop/widgets/desktop_sticker_widget.cpp|S1|constexpr float kDefaultStickerSize = 200.0F;
+shell/src/shell/desktop/widgets/desktop_sysmon_widget.cpp|S1|constexpr float kBaseHeight = 80.0F;
+shell/src/shell/desktop/widgets/desktop_sysmon_widget.cpp|S1|constexpr float kBaseWidth = 180.0F;
+shell/src/shell/desktop/widgets/desktop_sysmon_widget.cpp|S1|constexpr float kGraphLineWidth = 0.75F;
+shell/src/shell/desktop/widgets/desktop_volume_widget.cpp|S1|constexpr float kBaseHeight = 120.0F;
+shell/src/shell/desktop/widgets/desktop_volume_widget.cpp|S1|constexpr float kBaseWidth = 220.0F;
+shell/src/shell/desktop/widgets/desktop_volume_widget.cpp|S1|constexpr float kMinTextWidth = 72.0F;
+shell/src/shell/desktop/widgets/desktop_volume_widget.cpp|S1|constexpr float kTextGap = 12.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kBaseHeight = 72.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kBaseWidth = 180.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kColumnGap = 8.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kForecastDayWidth = 34.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kForecastGlyphSlotWidth = 24.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kForecastRowHeight = 20.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kForecastSectionGap = 6.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kGlyphSlotWidth = 52.0F;
+shell/src/shell/desktop/widgets/desktop_weather_widget.cpp|S1|constexpr float kLineGap = 2.0F;
+shell/src/shell/display_mode/display_mode_panel.cpp|S1|constexpr float kButtonHeight = 112.0F;
+shell/src/shell/display_mode/display_mode_panel.cpp|S1|constexpr float kButtonWidth = 176.0F;
+shell/src/shell/dock/dock_context_menu.cpp|S1|constexpr float kMenuWidth = 240.0F;
+shell/src/shell/dock/dock_geometry.cpp|S1|constexpr float kBadgeMinSize = 16.0F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kBadgeMinSize = 16.0F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kDotGap = 3.0F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kDotMinSize = 4.0F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kDotSizeRatio = 0.09F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kLauncherGlyphSizeRatio = 0.8F;
+shell/src/shell/dock/dock_items.cpp|S1|constexpr float kMinimizedIndicatorThickness = 2.0F;
+shell/src/shell/launcher/launcher_panel.cpp|S1|constexpr float kIconSizeCompact = 28.0F;
+shell/src/shell/launcher/launcher_panel.cpp|S1|constexpr float kIconSizeDefault = 40.0F;
+shell/src/shell/launcher/launcher_panel.cpp|S1|constexpr float kLauncherAvatarSize = 44.0F;
+shell/src/shell/launcher/launcher_panel.cpp|S1|constexpr float kLauncherHeight = 620.0F;
+shell/src/shell/launcher/launcher_panel.cpp|S1|constexpr float kMenuWidth = 240.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|.fontSize = 22.0F,
+shell/src/shell/live_activity/live_activity_island.cpp|S1|.height = 14.0F,
+shell/src/shell/live_activity/live_activity_island.cpp|S1|auto bar = ui::box({.out = &inst.barBox[i], .fill = colorSpecFromRole(ColorRole::Accent), .radius = 1.5F});
+shell/src/shell/live_activity/live_activity_island.cpp|S1|auto bars = ui::node({.width = 3.0F * kBarWidth + 2.0F * kBarGap, .height = kArt});
+shell/src/shell/live_activity/live_activity_island.cpp|S1|bar->setSize(kBarWidth, 6.0F);
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kBarGap = 2.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kBarWidth = 3.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kCaptionGap = 8.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kCompactWidth = 360.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kHoverButtonGap = 8.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kHoverGap = 12.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kMaxCardHeight = 96.0F; // surface bound: banner with caption, title and two body lines is 88
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kMinCardHeight = 56.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kMinCardWidth = 240.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kOsdBarHeight = 4.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kRestMaxWidth = 280.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kRestPadding = 8.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kTitleMaxWidth = 158.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|constexpr float kWidth = 440.0F;
+shell/src/shell/live_activity/live_activity_island.cpp|S1|{.align = FlexAlign::Center, .gap = 12.0F, .paddingH = 16.0F, .width = inst.width, .height = kHeight},
+shell/src/shell/live_activity/live_activity_island.cpp|S1|{.align = FlexAlign::Center, .gap = 12.0F, .paddingH = kBannerPad, .width = inst.width, .height = kBannerHeight},
+shell/src/shell/live_activity/live_activity_island.cpp|S1|{.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = 12.0F, .paddingH = 12.0F, .width = inst.width, .height = kOsdHeight},
+shell/src/shell/lockscreen/lock_phone_row.cpp|S1|constexpr float kMaxPlayerWidth = 320.0F;
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|(*it)->setFontSize(12.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_blast->setSize(800.0F * s, sh);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_date->setFontSize(13.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_hint->setFontSize(10.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_hour->setFontSize(110.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_mask->setFontSize(14.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_minutes.radius = 320.0F * s;
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_needle->setSize(std::max(1.5F, 1.5F * s), 12.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_pillLine->setSize(std::max(1.0F, s), 35.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_seconds.radius = 480.0F * s;
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_user->setFontSize(18.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_waiting->setFontSize(10.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|m_weekday->setFontSize(18.0F * s);
+shell/src/shell/lockscreen/lock_ryoku_scene.cpp|S1|ring.container->setSize(2.0F * r, 2.0F * r);
+shell/src/shell/lockscreen/lock_surface.cpp|D1|0.0F, 1.0F, m_transitionDurationMs, Easing::EaseInOutCubic,
+shell/src/shell/lockscreen/lock_surface.cpp|D1|m_transitionProgress, 0.0F, durationMs, Easing::EaseInOutCubic,
+shell/src/shell/lockscreen/lock_surface.cpp|S1|.gap = 2.0F,
+shell/src/shell/lockscreen/lock_surface.cpp|S1|.gap = 2.0F,
+shell/src/shell/lockscreen/lock_surface.cpp|S1|.gap = 2.0F,
+shell/src/shell/lockscreen/lock_surface.cpp|S1|constexpr float kLayoutChipMaxWidth = 96.0F;
+shell/src/shell/lockscreen/lock_surface.cpp|S1|constexpr float kWeatherGlyphSize = 28.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kCompactDefaultWidthCap = 400.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kCompactMaxPanelHeight = 140.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kCompactMinPanelWidth = 240.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kRegularDefaultWidthCap = 810.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kRegularForecastGlyphSize = 18.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kRegularMaxPanelHeight = 320.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kRegularMediaArtSize = 40.0F;
+shell/src/shell/lockscreen/lockscreen_login_box.h|S1|constexpr float kRegularMinPanelWidth = 720.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kCloseButtonSize = 20.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kCloseGlyphSize = 12.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kNotificationIconGlyphSize = 24.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kNotificationIconGlyphSizeCompact = 20.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kNotificationIconReferenceSize = 36.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kNotificationIconSize = 45.0F;
+shell/src/shell/notification/notification_toast.cpp|S1|constexpr float kNotificationIconSizeCompact = 38.0F;
+shell/src/shell/panel/panel_manager.cpp|S1|constexpr float kContactShadowBaseThickness = 16.0F;
+shell/src/shell/panel/panel_manager.cpp|S1|m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY);
+shell/src/shell/panel/plugin_panel.cpp|S1|constexpr float kDefaultPanelHeight = 400.0F;
+shell/src/shell/panel/plugin_panel.cpp|S1|constexpr float kDefaultPanelWidth = 480.0F;
+shell/src/shell/phone/phone_panel.cpp|S1|constexpr float kActionHeight = 64.0F;
+shell/src/shell/session/session_panel.cpp|S1|ring->setFontSize(22.0F * scale);
+shell/src/shell/session/session_panel.cpp|S1|ring->setThickness(std::max(5.0F, 5.5F * scale));
+shell/src/shell/session/session_panel.h|S1|static constexpr float kActionButtonMinHeight = 112.0F;
+shell/src/shell/session/session_panel.h|S1|static constexpr float kButtonMinWidth = 152.0F;
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.gap = 2.0F * ctx.scale,
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.radius = std::max(1.0F, 1.5F * ctx.scale),
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.radius = std::max(1.0F, 1.5F * ctx.scale),
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.radius = std::max(1.0F, 2.0F * ctx.scale),
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.width = 140.0F * ctx.scale,
+shell/src/shell/settings/bar_widget_editor.cpp|S1|.width = 50.0F * ctx.scale,
+shell/src/shell/settings/bar_widget_editor.cpp|S1|group.padding = std::clamp(static_cast<float>(*ovr->widgetCapsulePadding), 0.0F, 48.0F);
+shell/src/shell/settings/bar_widget_editor.cpp|S1|group.radius = static_cast<float>(std::clamp(*ovr->widgetCapsuleRadius, 0.0, 80.0));
+shell/src/shell/settings/bar_widget_editor.cpp|S1|opts.width = 190.0F * ctx.scale;
+shell/src/shell/settings/config_export_dialog_modal.cpp|S1|constexpr float kDialogWidth = 560.0F;
+shell/src/shell/settings/keybind_recorder.cpp|S1|constexpr float kRecorderMinWidth = 220.0F;
+shell/src/shell/settings/plugin_store_content.cpp|S1|.height = 80.0F * scale,
+shell/src/shell/settings/plugin_store_content.cpp|S1|.width = 80.0F * scale,
+shell/src/shell/settings/plugin_store_content.cpp|S1|constexpr float kSourceBadgeMaxWidth = 120.0F;
+shell/src/shell/settings/plugin_store_content.cpp|S1|constexpr float kTagBadgeMaxWidth = 120.0F;
+shell/src/shell/settings/plugin_store_tile.cpp|S1|.height = 80.0F * scale,
+shell/src/shell/settings/plugin_store_tile.cpp|S1|.height = 80.0F * scale},
+shell/src/shell/settings/plugin_store_tile.cpp|S1|constexpr float kSourceBadgeMaxWidth = 120.0F;
+shell/src/shell/settings/settings_bar_management.cpp|S1|.width = 190.0F * ctx.scale,
+shell/src/shell/settings/settings_bar_management.cpp|S1|.width = 190.0F * ctx.scale,
+shell/src/shell/settings/settings_bar_management.cpp|S1|.width = 190.0F * ctx.scale,
+shell/src/shell/settings/settings_content_common.cpp|S1|constexpr float kPreviewHeight = 120.0F;
+shell/src/shell/settings/settings_content_common.cpp|S1|constexpr float kPreviewInset = 12.0F;
+shell/src/shell/settings/settings_content_datetime.cpp|S1|constexpr float kSelectWidth = 260.0F;
+shell/src/shell/settings/settings_content_default_apps.cpp|S1|constexpr float kSelectWidth = 260.0F;
+shell/src/shell/settings/settings_content_displays.cpp|S1|.height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
+shell/src/shell/settings/settings_content_displays.cpp|S1|.height = 2.0F * scale}));
+shell/src/shell/settings/settings_content_displays.cpp|S1|constexpr float kCanvasHeight = 148.0F;
+shell/src/shell/settings/settings_content_displays.cpp|S1|constexpr float kCanvasInset = 16.0F;
+shell/src/shell/settings/settings_content_displays.cpp|S1|constexpr float kCanvasWidth = 560.0F;
+shell/src/shell/settings/settings_content_displays.cpp|S1|constexpr float kSelectWidth = 190.0F;
+shell/src/shell/settings/settings_content_input.cpp|S1|constexpr float kSelectWidth = 220.0F;
+shell/src/shell/settings/settings_content_input.cpp|S1|constexpr float kSliderWidth = 200.0F;
+shell/src/shell/settings/settings_content_language.cpp|S1|constexpr float kSelectWidth = 260.0F;
+shell/src/shell/settings/settings_content_plugins.cpp|S1|.width = 190.0F,
+shell/src/shell/settings/settings_content_plugins.cpp|S1|.width = 300.0F * scale,
+shell/src/shell/settings/settings_content_plugins.cpp|S1|auto autoInfo = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
+shell/src/shell/settings/settings_content_plugins.cpp|S1|auto info = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
+shell/src/shell/settings/settings_content_plugins.cpp|S1|auto info = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
+shell/src/shell/settings/settings_content_shortcuts.cpp|S1|constexpr float kActionSelectWidth = 280.0F;
+shell/src/shell/settings/settings_content_shortcuts.cpp|S1|constexpr float kArgumentWidth = 220.0F;
+shell/src/shell/settings/settings_control_factory.cpp|S1|.height = (metrics::kThumbHeight - 2.0F * Style::focusRingGap) * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|.width = 190.0F * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|.width = 190.0F * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|.width = 220.0F * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|.width = 50.0F * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|.width = 50.0F * scale,
+shell/src/shell/settings/settings_control_factory.cpp|S1|constexpr float kPreviewRadius = metrics::kPickerRadius - 2.0F;
+shell/src/shell/settings/settings_control_factory.cpp|S1|constexpr float kSuffixSlotWidth = 36.0F;
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.height = std::max(1.0F, panelHeight - 2.0F * padding),
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.height = std::max(1.0F, panelHeight - 2.0F * padding),
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.height = std::max(1.0F, panelHeight - 2.0F * padding),
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.width = std::max(1.0F, panelWidth - 2.0F * padding),
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.width = std::max(1.0F, panelWidth - 2.0F * padding),
+shell/src/shell/settings/settings_dialog_presenter.cpp|S1|.width = std::max(1.0F, panelWidth - 2.0F * padding),
+shell/src/shell/settings/settings_registry_helpers.cpp|S1|constexpr float kBarCornerRadiusMax = 80.0F;
+shell/src/shell/settings/settings_registry_shell.cpp|S1|.width = 320.0F,
+shell/src/shell/settings/settings_registry_shell.cpp|S1|.width = 320.0F,
+shell/src/shell/settings/settings_registry_shell.cpp|S1|.width = 320.0F,
+shell/src/shell/settings/settings_registry_system.cpp|S1|.width = 320.0F,
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kEmptyStateMinHeight = 160.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kKeycapHeight = 20.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kNewBarInputWidth = 120.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kPickerGap = 8.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kPickerRadius = 12.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kPickerTileHeight = 64.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kPickerTileWidth = 96.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kRowHeight = 40.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kRowHeightTwoLine = 56.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSearchFieldHeight = 32.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarGroupGap = 16.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarPaddingH = 8.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarPaddingV = 8.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarRowGap = 8.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarRowHeight = 32.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarRowPaddingH = 8.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSidebarWidth = 240.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kSwatchSize = 20.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kThumbHeight = 56.0F;
+shell/src/shell/settings/settings_selection_style.h|S1|inline constexpr float kTitleBarHeight = 40.0F;
+shell/src/shell/settings/settings_window.cpp|S1|constexpr float kWindowHeight = 600.0F;
+shell/src/shell/settings/settings_window.cpp|S1|constexpr float kWindowMinHeight = 500.0F;
+shell/src/shell/settings/settings_window.cpp|S1|constexpr float kWindowMinWidth = 1020.0F;
+shell/src/shell/settings/settings_window.cpp|S1|constexpr float kWindowWidth = 1280.0F;
+shell/src/shell/settings/settings_window_palette.cpp|S1|.height = 52.0F * scale},
+shell/src/shell/settings/settings_window_palette.cpp|S1|{.align = FlexAlign::Center, .gap = Style::spaceXs * scale, .fillWidth = true, .height = 28.0F * scale},
+shell/src/shell/settings/settings_window_palette.cpp|S1|{.align = FlexAlign::Center, .gap = Style::spaceXs * scale, .fillWidth = true, .height = 32.0F * scale},
+shell/src/shell/settings/settings_window_popups.cpp|S1|.gap = 2.0F * scale,
+shell/src/shell/settings/settings_window_popups.cpp|S1|.width = 280.0F * scale,
+shell/src/shell/settings/widget_add_popup.cpp|S1|constexpr float kCreateHeight = 190.0F;
+shell/src/shell/settings/widget_add_popup.cpp|S1|constexpr float kCreateMaxWidth = 640.0F;
+shell/src/shell/settings/widget_add_popup.cpp|S1|constexpr float kCreateMinWidth = 360.0F;
+shell/src/shell/settings/widget_add_popup.cpp|S1|constexpr float kPickerHeight = 420.0F;
+shell/src/shell/settings/widget_add_popup.cpp|S1|constexpr float kPickerWidth = 520.0F;
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.configure = [scale](Select& select) { select.setMinWidth(220.0F * scale); },
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.configure = [scale](Select& select) { select.setMinWidth(220.0F * scale); },
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.configure = [scale](Select& select) { select.setMinWidth(220.0F * scale); },
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.gap = 2.0F,
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.height = 44.0F * scale,
+shell/src/shell/setup_wizard/setup_wizard_panel.cpp|S1|.width = 44.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.height = 100.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.height = 220.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.height = 28.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.height = 28.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.radius = 14.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.thickness = 2.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 180.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 220.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 220.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 28.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 28.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 280.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|.width = 360.0F * scale,
+shell/src/shell/test/test_panel.cpp|S1|grid->setSize(300.0F * scale, 0.0F);
+shell/src/shell/tooltip/tooltip_manager.cpp|S1|constexpr float kMaxContentWidth = 280.0F;
+shell/src/shell/tooltip/tooltip_manager.cpp|S1|constexpr float kTableMinPeerColumnWidth = 80.0F;
+shell/src/shell/tray/tray_menu.cpp|S1|constexpr float kMenuWidth = 246.0F;
+shell/src/shell/wallpaper/panel/wallpaper_panel.cpp|S1|.width = 210.0F * scale,
+shell/src/shell/wallpaper/panel/wallpaper_panel.cpp|S1|constexpr float kFavoriteSelectMinWidth = 168.0F;
+shell/src/shell/wallpaper/panel/wallpaper_panel.cpp|S1|constexpr float kMinTileWidth = 180.0F;
+shell/src/shell/wallpaper/panel/wallpaper_panel.cpp|S1|constexpr float kMonitorSelectMinWidth = 136.0F;

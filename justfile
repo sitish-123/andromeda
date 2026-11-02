@@ -120,3 +120,7 @@ dev-comp-off:
 # A test desktop in a window: dev compositor + dev shell with copies of your config. Rerun after a compositor rebuild.
 dev-nested:
     tests/dev-nested.sh
+
+# Rulebook lint: no float size literal, no duration easing in shell and libdesk-ui; only new violations fail. `just design-lint --update` rewrites the baseline.
+design-lint *args:
+    python3 docs/design/design_lint.py {{args}}

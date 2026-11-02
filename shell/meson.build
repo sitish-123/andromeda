@@ -1299,6 +1299,9 @@ if build_tests
   )
   test('idle_manager', idle_manager_exe)
 
+  test('design_lint', find_program('python3'),
+    args: [meson.project_source_root() / '..' / 'docs' / 'design' / 'design_lint.py', '--root', meson.project_source_root() / '..'])
+
   brightness_service_exe = executable('brightness_service_test',
     sources: files('tests/brightness_service_test.cpp'),
     dependencies: [noctalia_core_dep, wayland_server_dep],

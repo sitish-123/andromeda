@@ -1,0 +1,4 @@
+# rule | path glob | line substring | reason (required)
+S1 | libdesk-ui/src/ui/style.h | | token header: sizes are defined here
+S1 | libdesk-ui/src/ui/shadow_style.h | | token header: shadow sizes are defined here
+D1 | shell/src/shell/wallpaper/wallpaper.cpp | kWallpaperTransitionEasing | wallpaper crossfade is a fixed-duration effect (animateTimer)
