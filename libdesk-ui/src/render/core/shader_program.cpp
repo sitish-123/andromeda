@@ -1,5 +1,9 @@
 #include "render/core/shader_program.h"
 
+#include "render/core/startup_metrics.h"
+
+#include <chrono>
+
 #include <stdexcept>
 #include <string>
 
@@ -47,6 +51,7 @@ ShaderProgram& ShaderProgram::operator=(ShaderProgram&& other) noexcept {
 
 void ShaderProgram::create(const char* vertexSource, const char* fragmentSource) {
   destroy();
+  const auto buildStart = std::chrono::steady_clock::now();
 
   const GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSource);
   GLuint fragmentShader = 0;
@@ -81,6 +86,9 @@ void ShaderProgram::create(const char* vertexSource, const char* fragmentSource)
     destroy();
     throw std::runtime_error("shader link failed: " + log);
   }
+  startup_metrics::recordProgramBuild(
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - buildStart).count()
+  );
 }
 
 void ShaderProgram::destroy() {

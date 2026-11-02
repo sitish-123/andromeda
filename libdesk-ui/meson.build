@@ -180,6 +180,7 @@ _desk_ui_sources = files(
   'src/render/core/image_file_loader.cpp',
   'src/render/core/image_orientation.cpp',
   'src/render/core/shader_program.cpp',
+  'src/render/core/startup_metrics.cpp',
   'src/render/core/shared_texture_cache.cpp',
   'src/render/core/stb_image_resize_impl.cpp',
   'src/render/core/thumbnail_service.cpp',

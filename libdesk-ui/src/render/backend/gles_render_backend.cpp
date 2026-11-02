@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "render/backend/gles_framebuffer.h"
 #include "render/core/shader_program.h"
+#include "render/core/startup_metrics.h"
 #include "render/core/texture_manager.h"
 #include "render/gl_shared_context.h"
 #include "render/render_target.h"
@@ -426,6 +427,9 @@ void GlesRenderBackend::endFrame(RenderTarget& target, std::span<const DamageRec
   const EGLBoolean swapped = rects.empty()
       ? eglSwapBuffers(m_display, surface.eglSurface())
       : m_swapWithDamage(m_display, surface.eglSurface(), rects.data(), static_cast<EGLint>(rects.size() / 4));
+  if (swapped == EGL_TRUE) {
+    startup_metrics::recordFirstFrame();
+  }
   if (swapped != EGL_TRUE) {
     // A failed swap is not fatal: during compositor teardown (session logout,
     // output removal) the wl_egl_window backing buffer can be invalidated and

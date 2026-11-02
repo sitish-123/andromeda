@@ -2,9 +2,11 @@
 
 #include "core/log.h"
 #include "render/backend/render_backend.h"
+#include "render/core/startup_metrics.h"
 
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
+#include <chrono>
 #include <dlfcn.h>
 #include <format>
 #include <stdexcept>
@@ -176,6 +178,7 @@ void GlSharedContext::initialize(wl_display* display, bool createSharedContext) 
     throw std::runtime_error("GlSharedContext requires a valid Wayland display");
   }
 
+  const auto initStart = std::chrono::steady_clock::now();
   (void)dlerror();
   m_display = eglGetDisplay(reinterpret_cast<EGLNativeDisplayType>(display));
   if (m_display == EGL_NO_DISPLAY) {
@@ -208,6 +211,9 @@ void GlSharedContext::initialize(wl_display* display, bool createSharedContext) 
   } else {
     kLog.info("initialized EGL {}.{} without shared context (isolated GPU contexts)", major, minor);
   }
+  startup_metrics::recordEglInit(
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - initStart).count()
+  );
 }
 
 void GlSharedContext::recreateRootContext() {
