@@ -8,11 +8,13 @@
 #include "ui/style.h"
 
 #include <gio/gio.h>
+#include <sys/statvfs.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <map>
@@ -66,6 +68,20 @@ namespace settings {
     std::string memoryText() {
       const double bytes = static_cast<double>(sysconf(_SC_PHYS_PAGES)) * static_cast<double>(sysconf(_SC_PAGESIZE));
       return bytes > 0.0 ? std::format("{:.0f} GB", std::round(bytes / (1024.0 * 1024.0 * 1024.0))) : std::string{};
+    }
+
+    // Free and total space of the file system that holds the home folder.
+    std::string storageText() {
+      struct statvfs fs{};
+      const char* home = std::getenv("HOME");
+      if (statvfs(home != nullptr ? home : "/", &fs) != 0 || fs.f_blocks == 0) {
+        return {};
+      }
+      constexpr double kGb = 1000.0 * 1000.0 * 1000.0;
+      const double total = static_cast<double>(fs.f_blocks) * static_cast<double>(fs.f_frsize) / kGb;
+      const double free = static_cast<double>(fs.f_bavail) * static_cast<double>(fs.f_frsize) / kGb;
+      return i18n::tr("settings.about.storage-free", "free", std::format("{:.0f}", free), "total",
+                      std::format("{:.0f}", total));
     }
 
     void addFact(Flex& card, const char* key, const std::string& value, float scale) {
@@ -143,8 +159,31 @@ namespace settings {
     addFact(*facts, "settings.about.model", model, scale);
     addFact(*facts, "settings.about.processor", processorName(), scale);
     addFact(*facts, "settings.about.memory", memoryText(), scale);
+    addFact(*facts, "settings.about.storage", storageText(), scale);
     addFact(*facts, "settings.about.system", prop("OperatingSystemPrettyName"), scale);
     addFact(*facts, "settings.about.kernel", kernel, scale);
+
+    if (ctx.checkUpdates) {
+      addHeader(content, i18n::tr("settings.about.updates"), nullptr, scale);
+      Flex* card = addCard(content, scale);
+      auto u = row(scale);
+      const std::string status = ctx.updates == -2 ? i18n::tr("settings.about.updates-checking")
+          : ctx.updates == -3                      ? i18n::tr("settings.about.updates-failed")
+          : ctx.updates == -4                      ? i18n::tr("settings.about.updates-no-terminal")
+          : ctx.updates == 0                       ? i18n::tr("settings.about.updates-none")
+          : ctx.updates > 0 ? i18n::trp("settings.about.updates-count", ctx.updates)
+                            : i18n::tr("settings.about.updates-unchecked");
+      u->addChild(title(status, scale));
+      if (ctx.updates > 0) {
+        u->addChild(plainButton(i18n::tr("settings.about.updates-install"), ButtonVariant::Primary, scale,
+                                ctx.installUpdates));
+      }
+      if (ctx.updates != -2) {
+        u->addChild(plainButton(i18n::tr("settings.about.updates-check"), ButtonVariant::Default, scale,
+                                ctx.checkUpdates));
+      }
+      card->addChild(std::move(u));
+    }
   }
 
 } // namespace settings

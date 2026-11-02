@@ -12,6 +12,12 @@ namespace settings {
     bool renaming = false;
     // The error of the last rename; empty when it worked.
     std::string renameError;
+    // Software updates: -1 = not checked, -2 = checking, -3 = check failed,
+    // -4 = no terminal to run the update in, else the number of pending updates.
+    int updates = -1;
+    // Null when the system has no update checker (checkupdates).
+    std::function<void()> checkUpdates;
+    std::function<void()> installUpdates;
     std::function<void(std::string name)> rename;
   };
 

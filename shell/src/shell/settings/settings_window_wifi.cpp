@@ -1,8 +1,16 @@
 #include "shell/settings/settings_content_about.h"
 #include "shell/settings/settings_content_bluetooth.h"
+#include "core/deferred_call.h"
+#include "core/process/process.h"
 #include "dbus/system_interactive_call.h"
 
 #include <gio/gio.h>
+
+#include <algorithm>
+#include <chrono>
+#include <initializer_list>
+#include <utility>
+#include <vector>
 #include "shell/settings/settings_content_network.h"
 #include "shell/settings/settings_content_power.h"
 #include "shell/settings/settings_content_sound.h"
@@ -27,15 +35,25 @@ void SettingsWindow::addWifiContent(float scale) {
           .network = m_networkProvider ? m_networkProvider() : nullptr,
           .detail = m_detail,
           .joinSsid = m_wifiJoinSsid,
+          .joinError = m_wifiJoinError,
           .password = [this] { return m_wifiPassword; },
+          .identity = [this] { return m_wifiIdentity; },
           .openDetail = [this](std::string detail) { openDetail(std::move(detail)); },
           .setJoinSsid =
               [this](std::string ssid) {
                 m_wifiJoinSsid = std::move(ssid);
                 m_wifiPassword.clear();
+                m_wifiIdentity.clear();
+                m_wifiJoinError.clear();
                 requestContentRebuild();
               },
           .setPassword = [this](const std::string& text) { m_wifiPassword = text; },
+          .setIdentity = [this](const std::string& text) { m_wifiIdentity = text; },
+          .setJoinError =
+              [this](std::string error) {
+                m_wifiJoinError = std::move(error);
+                requestContentRebuild();
+              },
           .back = [this] { leaveDetail(); },
       }
   );
@@ -88,10 +106,15 @@ void SettingsWindow::addSoundContent(float scale) {
   }
   PipeWireService* audio = m_audioProvider ? m_audioProvider() : nullptr;
   m_soundSignature = settings::soundDeviceSignature(audio);
+  m_soundProgramSliders.clear();
   settings::addSettingsSound(
       *m_contentContainer,
       settings::SettingsSoundContext{
-          .scale = scale, .audio = audio, .outputSlider = &m_soundOutputSlider, .inputSlider = &m_soundInputSlider
+          .scale = scale,
+          .audio = audio,
+          .outputSlider = &m_soundOutputSlider,
+          .inputSlider = &m_soundInputSlider,
+          .programSliders = &m_soundProgramSliders,
       }
   );
 }
@@ -101,17 +124,26 @@ void SettingsWindow::onAudioChanged() {
     return;
   }
   PipeWireService* audio = m_audioProvider ? m_audioProvider() : nullptr;
-  if (settings::soundDeviceSignature(audio) != m_soundSignature) {
+  const auto dragging = [](const Slider* slider) { return slider != nullptr && slider->dragging(); };
+  const bool held = dragging(m_soundOutputSlider) || dragging(m_soundInputSlider)
+      || std::ranges::any_of(m_soundProgramSliders, [&](const auto& entry) { return dragging(entry.second); });
+  // A rebuild would end the drag; the next audio change after release rebuilds.
+  if (!held && settings::soundDeviceSignature(audio) != m_soundSignature) {
     requestContentRebuild();
     return;
   }
-  const auto follow = [](Slider* slider, const AudioNode* node) {
-    if (slider != nullptr && node != nullptr && !slider->dragging()) {
+  const auto follow = [&](Slider* slider, const AudioNode* node) {
+    if (slider != nullptr && node != nullptr && !dragging(slider)) {
       slider->setValue(node->volume);
     }
   };
   follow(m_soundOutputSlider, audio->defaultSink());
   follow(m_soundInputSlider, audio->defaultSource());
+  for (const auto& [id, slider] : m_soundProgramSliders) {
+    const auto& programs = audio->state().programOutputs;
+    const auto it = std::ranges::find(programs, id, &AudioNode::id);
+    follow(slider, it != programs.end() ? &*it : nullptr);
+  }
 }
 
 void SettingsWindow::addUsersContent(float scale) {
@@ -247,6 +279,29 @@ void SettingsWindow::addAboutContent(float scale) {
           .scale = scale,
           .renaming = m_renaming,
           .renameError = m_renameError,
+          .updates = m_updateCount,
+          .checkUpdates = !process::commandExists("checkupdates") ? std::function<void()>{} : [this] { checkUpdates(); },
+          .installUpdates = [this] {
+            // The package manager asks for the password in the terminal; the window stays open to show the result.
+            const std::string update = process::commandExists("yay") ? "yay -Syu" : "sudo pacman -Syu";
+            const std::string script = update + "; printf '\\nPress Enter to close. '; read -r _";
+            for (const auto& [terminal, flag] : std::initializer_list<std::pair<const char*, const char*>>{
+                     {"xdg-terminal-exec", ""}, {"foot", ""}, {"kitty", ""}, {"alacritty", "-e"}}) {
+              if (process::commandExists(terminal)) {
+                std::vector<std::string> args{terminal};
+                if (flag[0] != '\0') {
+                  args.emplace_back(flag);
+                }
+                args.insert(args.end(), {"sh", "-c", script});
+                // The count is stale once the update runs; the user checks again.
+                m_updateCount = process::runAsync(args) ? -1 : -4;
+                requestContentRebuild();
+                return;
+              }
+            }
+            m_updateCount = -4;
+            requestContentRebuild();
+          },
           .rename =
               [this](std::string name) {
                 const std::string hostname = settings::hostnameFromName(name);
@@ -279,4 +334,39 @@ void SettingsWindow::addAboutContent(float scale) {
               },
       }
   );
+}
+
+void SettingsWindow::checkUpdates() {
+  if (m_updateCount == -2) {
+    return;
+  }
+  m_updateCount = -2;
+  requestContentRebuild();
+  // checkupdates: exit 0 with one line per update, 2 when there are none, 1 on failure.
+  const bool started = process::runAsync(
+      std::vector<std::string>{"checkupdates"},
+      process::RunCallbacks{
+          .onExit =
+              [this, alive = std::weak_ptr<void>(m_aliveGuard)](process::RunResult result) {
+                // Runs on the process worker thread: count here, apply on the main loop.
+                const int count = result.exitCode == 2 ? 0
+                    : result.exitCode == 0
+                    ? static_cast<int>(std::ranges::count(result.out, '\n')) + (result.out.empty() ? 0 : 1)
+                    : -3;
+                DeferredCall::callLater([this, alive, count] {
+                  if (alive.expired()) {
+                    return;
+                  }
+                  m_updateCount = count;
+                  if (isOpen()) {
+                    requestContentRebuild();
+                  }
+                });
+              },
+      },
+      process::RunOptions{.timeout = std::chrono::minutes(2)}
+  );
+  if (!started) {
+    m_updateCount = -3;
+  }
 }

@@ -2,6 +2,7 @@
 
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
+#include "dbus/network/enterprise_credentials.h"
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content_common.h"
 #include "shell/settings/settings_page_rows.h"
@@ -83,14 +84,39 @@ namespace settings {
 
     void addJoinRow(Flex& card, const AccessPointInfo& ap, const SettingsWifiContext& ctx) {
       const float scale = ctx.scale;
-      auto r = row(scale);
-      auto join = [network = ctx.network, ap, close = ctx.setJoinSsid](const std::string& psk) {
-        if (psk.empty()) {
+      const bool enterprise = ap.isEnterprise();
+      // 802.1X: PEAP with MSCHAPv2 inside and the system CA store, the eduroam and Windows-domain default.
+      auto join = [network = ctx.network, ap, enterprise, identity = ctx.identity, close = ctx.setJoinSsid,
+                   fail = ctx.setJoinError](const std::string& secret) {
+        if (secret.empty()) {
+          fail(i18n::tr("settings.wifi.password-required"));
           return;
         }
-        network->activateAccessPoint(ap, psk);
+        if (enterprise) {
+          network_enterprise::EnterpriseCredentials credentials;
+          credentials.identity = identity();
+          credentials.password = secret;
+          if (network_enterprise::validate(credentials) != network_enterprise::Validation::Ok) {
+            fail(i18n::tr("settings.wifi.identity-required"));
+            return;
+          }
+          network->activateEnterpriseAccessPoint(ap, credentials);
+        } else {
+          network->activateAccessPoint(ap, secret);
+        }
         close({});
       };
+      if (enterprise) {
+        auto who = row(scale);
+        who->addChild(ui::input({
+            .value = ctx.identity(),
+            .placeholder = i18n::tr("settings.wifi.identity"),
+            .flexGrow = 1.0F,
+            .onChange = ctx.setIdentity,
+        }));
+        card.addChild(std::move(who));
+      }
+      auto r = row(scale);
       r->addChild(ui::input({
           .value = ctx.password(),
           .placeholder = i18n::tr("settings.wifi.password"),
@@ -104,6 +130,12 @@ namespace settings {
       r->addChild(plainButton(i18n::tr("settings.wifi.join"), ButtonVariant::Default, scale,
                                 [join, password = ctx.password] { join(password()); }));
       card.addChild(std::move(r));
+      if (!ctx.joinError.empty()) {
+        auto e = row(scale);
+        e->addChild(ui::label({.text = ctx.joinError, .fontSize = Style::fontSizeCaption * scale,
+                               .color = colorSpecFromRole(ColorRole::DangerText), .maxLines = 2, .flexGrow = 1.0F}));
+        card.addChild(std::move(e));
+      }
     }
 
     void addLists(Flex& content, const SettingsWifiContext& ctx) {
@@ -155,7 +187,12 @@ namespace settings {
         r->addChild(ui::label({.text = ap.ssid, .fontSize = Style::fontSizeBody * scale,
                                  .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1, .flexGrow = 1.0F}));
         addNetworkTrail(*r, ap, scale);
-        const bool asksPassword = ap.requiresCredentials() && !ap.isEnterprise();
+        const bool asksPassword = ap.requiresCredentials();
+        if (ap.isEnterprise()
+            && (!ctx.network->supportsEnterprise() || !network_enterprise::passwordAuthUsable(ap.keyManagement))) {
+          card->addChild(std::move(r));
+          continue;
+        }
         r->addChild(plainButton(
             i18n::tr("settings.wifi.join"), ButtonVariant::Ghost, scale,
             [network = ctx.network, ap, asksPassword, open = ctx.setJoinSsid] {

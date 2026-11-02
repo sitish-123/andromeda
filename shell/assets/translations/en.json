@@ -1668,6 +1668,7 @@
       "vpn": "VPN"
     },
     "sound": {
+      "apps": "Applications",
       "input": "Input",
       "input-volume": "Input Volume",
       "mute": "Mute",
@@ -1683,7 +1684,19 @@
       "model": "Model",
       "name": "Name",
       "processor": "Processor",
-      "system": "Operating System"
+      "storage": "Storage",
+      "storage-free": "{free} GB free of {total} GB",
+      "system": "Operating System",
+      "updates": "Software Updates",
+      "updates-check": "Check Now",
+      "updates-checking": "Checking for updates…",
+      "updates-count": "{count} update available",
+      "updates-count-plural": "{count} updates available",
+      "updates-failed": "Could not check for updates",
+      "updates-install": "Update…",
+      "updates-no-terminal": "No terminal found to run the update",
+      "updates-none": "Your system is up to date",
+      "updates-unchecked": "Not checked yet"
     },
     "power": {
       "battery": "Battery",
@@ -1717,6 +1730,8 @@
     "wifi": {
       "band": "Band",
       "connected": "Connected",
+      "identity": "User name",
+      "identity-required": "Enter your user name.",
       "connecting": "Connecting…",
       "details": "Details…",
       "disconnect": "Disconnect",
@@ -1729,6 +1744,7 @@
       "not-connected": "Not connected",
       "off": "Off",
       "other": "Other Networks",
+      "password-required": "Enter the password.",
       "password": "Password",
       "scan": "Scan",
       "searching": "Searching…",
@@ -1776,6 +1792,7 @@
         "accessibility": "Accessibility",
         "audio": "Audio",
         "authentication": "Authentication",
+        "removable-media": "Removable Media",
         "desktop": "Desktop",
         "automation": "Automation",
         "backdrop": "Backdrop",
@@ -3956,6 +3973,10 @@
         "password-style": {
           "description": "Visual style for password input masking",
           "label": "Password Style"
+        },
+        "automount-drives": {
+          "description": "Mount USB drives and memory cards when you insert them",
+          "label": "Mount Drives Automatically"
         },
         "polkit-agent": {
           "description": "Enable the built-in authentication agent",

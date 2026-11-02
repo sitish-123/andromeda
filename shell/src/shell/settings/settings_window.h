@@ -268,6 +268,7 @@ private:
   void addUsersContent(float scale);
   void addPowerContent(float scale);
   void addAboutContent(float scale);
+  void checkUpdates();
   void openDetail(std::string detail);
   void leaveDetail();
   void createNewUser();
@@ -507,9 +508,13 @@ private:
   // The Wi-Fi network whose password row is open, and the text typed so far.
   std::string m_wifiJoinSsid;
   std::string m_wifiPassword;
+  std::string m_wifiIdentity;
+  std::string m_wifiJoinError;
   settings::NewUserDraft m_newUser;
   bool m_userDeleteConfirm = false;
   bool m_renaming = false;
+  int m_updateCount = -1;
+  std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
   std::string m_renameError;
   bool m_userDeleteBusy = false;
   std::string m_userDeleteError;
