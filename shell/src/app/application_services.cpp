@@ -1417,9 +1417,18 @@ void Application::initSystemBusServices() {
     }
 
 
-    if (m_configService.config().shell.automountDrives) {
+    {
       try {
         m_udisksService = std::make_unique<UDisksService>(*m_systemBus);
+        m_udisksService->setAutomount(m_configService.config().shell.automountDrives);
+        m_configService.addReloadCallback(
+            [this] {
+              if (m_udisksService != nullptr) {
+                m_udisksService->setAutomount(m_configService.config().shell.automountDrives);
+              }
+            },
+            "automount"
+        );
         m_udisksService->setMountedCallback([this](const UDisksService::Mounted& drive) {
           NotificationRequest request;
           request.appName = i18n::tr("notifications.internal.drive");

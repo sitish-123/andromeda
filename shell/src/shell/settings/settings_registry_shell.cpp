@@ -264,6 +264,11 @@ namespace settings {
       appendRow(entries, shellRows, key);
     }
     entries.push_back(makeEntry(
+        SettingsSection::Devices, "removable-media", tr("settings.schema.shell.automount-drives.label"),
+        tr("settings.schema.shell.automount-drives.description"), {"shell", "automount_drives"},
+        ToggleSetting{cfg.shell.automountDrives}, "usb drive disk stick card mount removable"
+    ));
+    entries.push_back(makeEntry(
         SettingsSection::Shell, "keyboard-layout", tr("settings.schema.shell.keyboard-layout-custom-labels.label"),
         tr("settings.schema.shell.keyboard-layout-custom-labels.description"),
         {"shell", "keyboard_layout", "custom_labels"},
