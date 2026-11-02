@@ -11,6 +11,7 @@
 #include "wayland/hyprland/popup_grab_host.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -129,6 +130,8 @@ public:
   void onKeyboardEvent(const KeyboardEvent& event);
 
   [[nodiscard]] bool isOpen() const noexcept;
+  // Time the open spring needs to travel 35 % of its way: the content fades in from then on.
+  [[nodiscard]] static std::chrono::milliseconds openContentGate();
   [[nodiscard]] bool isOpenPanel(std::string_view panelId) const noexcept;
   [[nodiscard]] bool isPanelTransitionActive() const noexcept;
   [[nodiscard]] bool isAttachedOpen() const noexcept;
@@ -138,6 +141,10 @@ public:
   [[nodiscard]] std::string_view attachedSourceBarName() const noexcept;
   [[nodiscard]] const std::string& activePanelId() const noexcept;
   [[nodiscard]] Panel* activePanel() const noexcept { return m_activePanel; }
+  // The open panel card in output coordinates, when it is placed detached.
+  [[nodiscard]] std::optional<InputRect> activePanelRect() const noexcept { return m_panelOutputInputRect; }
+  // Screen y of the top of the island a vertical-bar sheet opened from.
+  [[nodiscard]] std::int32_t activePanelIslandTop() const noexcept { return m_contentFit.desiredTopY; }
   // True when a panel is open and it reports the given context as active (e.g. control-center tab).
   [[nodiscard]] bool isActivePanelContext(std::string_view context) const noexcept;
   [[nodiscard]] std::optional<LayerPopupParentContext> popupParentContextForSurface(wl_surface* surface) const noexcept;
@@ -288,6 +295,8 @@ private:
   bool m_morphExtend = false; // the sheet fill and blur extend into the margin while the island morph runs
   std::int32_t m_morphMarginX = 0;
   std::int32_t m_morphMarginY = 0;
+  // Room above the sheet up to the island top, so the clip starts as the whole island (P5).
+  std::int32_t m_morphMarginUp = 0;
   std::optional<float> m_islandBackgroundOpacity;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
@@ -326,13 +335,15 @@ private:
   // the panel's maximum height (the slot), and the visible card moves within it as the
   // content changes. The card keeps the slot edge the panel is anchored to: top-anchored
   // panels grow down, bottom-anchored ones up, centered ones both ways.
-  enum class CardAlign : std::uint8_t { Start, Center, End };
+  // Island: the card top follows `desiredTopY` (screen y), clamped into the slot.
+  enum class CardAlign : std::uint8_t { Start, Center, End, Island };
   struct ContentFit {
     bool enabled = false;
     CardAlign align = CardAlign::Start;
     std::int32_t slotInsetY = 0;
     std::uint32_t slotHeight = 0;
     std::int32_t slotOutputY = 0;
+    std::int32_t desiredTopY = 0;
     std::optional<AttachedPanelGeometry> attachedSlotGeometry;
     // Height the content asked for; the card animates toward it. 0 until first measured.
     std::uint32_t targetHeight = 0;
@@ -354,6 +365,17 @@ private:
   AttachedRevealDirection m_attachedRevealDirection = AttachedRevealDirection::Down;
   AttachedRevealDirection m_detachedRevealDirection = AttachedRevealDirection::Down;
   Timer m_keyboardRelaxTimer;
+  Timer m_contentGateTimer;
+  // Content opacity from the 35 % gate (rulebook 7.4 / P5): 0 until the open spring has travelled 35 %, then fades in.
+  float m_contentGate = 1.0F;
+  // Grow / Return (rulebook 7.4): the client mirrors the compositor's clip spring as a 0..1 progress and fits the
+  // content to the current shape (uniform scale, pinned to the shape's top and right edge).
+  float m_morphProgress = 1.0F;
+  AnimationManager::Id m_morphProgressId = 0;
+  bool m_returnFaded = false;
+  void driveContentMorph(float target, bool open);
+  void applyContentMorph();
+  void startContentGate();
   Timer m_captureCloseTimer;
   wl_callback* m_captureCloseFrame = nullptr;
   std::function<void()> m_afterCaptureClose;

@@ -755,6 +755,10 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   detachedShadowBleed.left = std::max(detachedShadowBleed.left, m_morphMarginX);
   detachedShadowBleed.right = std::max(detachedShadowBleed.right, m_morphMarginX);
   detachedShadowBleed.down = std::max(detachedShadowBleed.down, m_morphMarginY);
+  m_morphMarginUp = morphFromIsland && !isLeft && !isRight
+      ? static_cast<std::int32_t>(std::ceil(request.sourceRect[3] + Tokens::spaceChromeGap))
+      : 0;
+  detachedShadowBleed.up = std::max(detachedShadowBleed.up, m_morphMarginUp);
   const std::uint32_t detachedSurfaceWidth =
       shell::panel_surface::surfaceExtent(panelWidth, detachedShadowBleed.left, detachedShadowBleed.right);
   const std::uint32_t detachedSurfaceHeight =
@@ -774,6 +778,16 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       request.anchorY - static_cast<float>(panelHeight) * 0.5F, static_cast<std::int32_t>(panelHeight), outputHeight,
       screenPadding
   );
+
+  // A sheet opened from a vertical bar's island sits 8 from the bar, its top edge at the island's top, clamped to the
+  // output (rulebook 9.16): the slot sits as low as it can and the card follows the island inside it.
+  constexpr std::int32_t kVerticalSheetGap = 8;
+  const bool verticalIslandSheet = morphFromIsland && (isLeft || isRight) && request.hasAnchorPosition && m_contentFit.enabled
+      && !useCenterScreenLayout && !useScreenPosition && !useReservedEdgePlacement;
+  const std::int32_t slotTopForIsland = clampMargin(
+      static_cast<float>(outputHeight), static_cast<std::int32_t>(panelHeight), outputHeight, screenPadding
+  );
+  const auto islandTopY = static_cast<std::int32_t>(std::lround(request.anchorY - request.sourceRect[3] * 0.5F));
 
   std::uint32_t standaloneAnchor = 0;
   std::int32_t standaloneMarginTop = 0;
@@ -822,16 +836,22 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
       if (isLeft) {
         standaloneMarginLeft = clampMargin(
-            static_cast<float>(barRect.right + panelGap), static_cast<std::int32_t>(panelWidth), outputWidth,
-            screenPadding
-        );
-        standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
-      } else if (isRight) {
-        standaloneMarginLeft = clampMargin(
-            static_cast<float>(barRect.left - static_cast<std::int32_t>(panelWidth) - panelGap),
+            static_cast<float>(barRect.right + (verticalIslandSheet ? kVerticalSheetGap : panelGap)),
             static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
         );
-        standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
+        standaloneMarginTop = verticalIslandSheet ? slotTopForIsland
+            : useFloatingAnchor                   ? marginTopFromAnchor
+                                                  : centeredAlongBarY;
+      } else if (isRight) {
+        standaloneMarginLeft = clampMargin(
+            static_cast<float>(
+                barRect.left - static_cast<std::int32_t>(panelWidth) - (verticalIslandSheet ? kVerticalSheetGap : panelGap)
+            ),
+            static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
+        );
+        standaloneMarginTop = verticalIslandSheet ? slotTopForIsland
+            : useFloatingAnchor                   ? marginTopFromAnchor
+                                                  : centeredAlongBarY;
       } else if (isBottom) {
         standaloneMarginTop = clampMargin(
             static_cast<float>(barRect.top - static_cast<std::int32_t>(panelHeight) - panelGap),
@@ -859,6 +879,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
                                                       : CardAlign::End;
   } else if (isBottom) {
     detachedCardAlign = CardAlign::End;
+  } else if (verticalIslandSheet) {
+    detachedCardAlign = CardAlign::Island;
   } else if (isLeft || isRight) {
     detachedCardAlign = CardAlign::Center;
   }
@@ -1342,6 +1364,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   m_contentFit.slotInsetY = m_panelInsetY;
   m_contentFit.slotHeight = panelHeight;
   m_contentFit.slotOutputY = detachedPanelInputRect.y;
+  m_contentFit.desiredTopY = islandTopY;
   m_detachedBleedRight = detachedShadowBleed.right;
   m_detachedBleedBottom = detachedShadowBleed.down;
   m_attachedBackgroundOpacity = 1.0F;
@@ -1658,6 +1681,8 @@ void PanelManager::handleCaptureCloseFrame(void* data, wl_callback* callback, st
 
 void PanelManager::destroyPanel() {
   m_captureCloseTimer.stop();
+  m_contentGateTimer.stop();
+  m_contentGate = 1.0F;
   if (m_captureCloseFrame != nullptr) {
     wl_callback_destroy(m_captureCloseFrame);
     m_captureCloseFrame = nullptr;
@@ -2359,13 +2384,14 @@ void PanelManager::applyDetachedReveal(float progress) {
   }
 
   if (m_contentNode != nullptr) {
-    m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress));
+    m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * m_contentGate);
   }
   const int extendX = m_morphExtend ? m_morphMarginX : 0;
   const int extendY = m_morphExtend ? m_morphMarginY : 0;
+  const int extendUp = m_morphExtend ? m_morphMarginUp : 0;
   applyPanelCompositorBlur(
-      m_panelInsetX - extendX, m_panelInsetY, static_cast<int>(m_panelVisualWidth) + 2 * extendX,
-      static_cast<int>(m_panelVisualHeight) + extendY, static_cast<int>(std::lround(clipX)),
+      m_panelInsetX - extendX, m_panelInsetY - extendUp, static_cast<int>(m_panelVisualWidth) + 2 * extendX,
+      static_cast<int>(m_panelVisualHeight) + extendY + extendUp, static_cast<int>(std::lround(clipX)),
       static_cast<int>(std::lround(clipY)), static_cast<int>(std::lround(clipW)), static_cast<int>(std::lround(clipH))
   );
 }
@@ -2384,6 +2410,41 @@ DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
       static_cast<double>(m_panelInsetX), static_cast<double>(m_panelInsetY), static_cast<double>(m_panelVisualWidth),
       static_cast<double>(m_panelVisualHeight)
   };
+}
+
+std::chrono::milliseconds PanelManager::openContentGate() {
+  constexpr double kGateProgress = 0.35;
+  const desk::motion::SpringConfig config = Style::spring(Tokens::springOpen);
+  for (int ms = 1; ms < 1000; ++ms) {
+    if (desk::motion::solveSpringPhysics(0.0, 1.0, 0.0, static_cast<double>(ms) / 1000.0, config) >= kGateProgress) {
+      return std::chrono::milliseconds(ms);
+    }
+  }
+  return std::chrono::milliseconds(0);
+}
+
+void PanelManager::startContentGate() {
+  if (!MotionService::instance().enabled() || m_contentNode == nullptr) {
+    m_contentGate = 1.0F;
+    return;
+  }
+  m_contentGate = 0.0F;
+  m_contentNode->setOpacity(0.0F);
+  m_contentGateTimer.start(openContentGate(), [this] {
+    if (m_sceneRoot == nullptr) {
+      return;
+    }
+    m_animations.animateSpring(
+        0.0F, 1.0F, effectsSpring(),
+        [this](float v) {
+          m_contentGate = v;
+          if (m_contentNode != nullptr) {
+            m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * v);
+          }
+        },
+        {}, m_sceneRoot.get()
+    );
+  });
 }
 
 bool PanelManager::startDetachedMorph() {
@@ -2405,18 +2466,21 @@ bool PanelManager::startDetachedMorph() {
   m_morphExtend = true;
   placePanelChrome();
   applyDetachedReveal(1.0F);
+  startContentGate();
   m_morphSourceRadius = std::min(r[2], r[3]) * 0.5F;
   m_dsk->set(Property::Radius, {m_morphSourceRadius, 0.0, 0.0, 0.0});
-  m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
+  // The shape is the island from its first frame (7.4 source hand-off); only the content fades, from 35 %.
+  m_dsk->set(Property::Opacity, {m_gestureTracker.expired() ? 1.0 : 0.0, 0.0, 0.0, 0.0});
   if (!m_gestureTracker.expired()) {
     // The finger drives it: bind once the compositor reports where the island sits in this surface.
     m_dsk->setOnClipMapped([this](const DskSurfaceClient::Value& clip) { bindTrackerOpen(clip); });
     return true;
   }
-  m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
   m_dsk->animate(Property::Radius, Curve::SpringOpen, {panelRadius(), 0.0, 0.0, 0.0});
   animateMorphClip();
   m_morphClipRunning = true;
+  m_morphProgress = 0.0F;
+  driveContentMorph(1.0F, true);
   return true;
 }
 
@@ -2461,6 +2525,7 @@ bool PanelManager::startDetachedScaleOpen() {
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
   applyDetachedReveal(1.0F);
+  startContentGate();
   m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
   m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
   m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
@@ -2502,6 +2567,70 @@ void PanelManager::animateMorphClip() {
         }
       }
   );
+}
+
+void PanelManager::driveContentMorph(float target, bool open) {
+  if (!MotionService::instance().enabled() || m_sceneRoot == nullptr) {
+    m_morphProgress = target;
+    applyContentMorph();
+    return;
+  }
+  // Same spring and start frame as the compositor's clip, so the content stays fitted to the shape.
+  m_morphProgressId = m_animations.drive(
+      m_morphProgressId, m_morphProgress, target, Style::spring(open ? Tokens::springOpen : Tokens::springClose),
+      [this, open](float v) {
+        m_morphProgress = v;
+        applyContentMorph();
+        // Return: in the last 10 % of the close travel the shape is the island; it fades out on fade_out (7.4).
+        if (!open && !m_returnFaded && v <= 0.1F && m_dsk != nullptr) {
+          m_returnFaded = true;
+          m_dsk->animate(DskSurfaceClient::Property::Opacity, DskSurfaceClient::Curve::SpringEffectsFast, {0.0, 0.0, 0.0, 0.0});
+        }
+      },
+      [this] { m_morphProgressId = 0; }, m_sceneRoot.get(), 0.0F, Unit::Progress
+  );
+}
+
+void PanelManager::applyContentMorph() {
+  if (m_contentNode == nullptr) {
+    return;
+  }
+  const DskSurfaceClient::Value sheet = detachedSheetRect();
+  const float sheetW = static_cast<float>(sheet[2]);
+  const float sheetH = static_cast<float>(sheet[3]);
+  if (sheetW <= 0.0F || sheetH <= 0.0F || m_morphProgress >= 1.0F) {
+    m_contentNode->setScale(1.0F);
+    return;
+  }
+  // The island rect in this surface: the compositor's mapping when known, else the island sits right above the sheet.
+  std::array<float, 4> island{
+      static_cast<float>(sheet[0] + sheet[2]) - m_morphSourceRect[2],
+      static_cast<float>(sheet[1]) - m_morphSourceRect[3] - Tokens::spaceChromeGap, m_morphSourceRect[2],
+      m_morphSourceRect[3]
+  };
+  if (m_dsk != nullptr && m_dsk->mappedClip()) {
+    const auto& c = *m_dsk->mappedClip();
+    island = {static_cast<float>(c[0]), static_cast<float>(c[1]), static_cast<float>(c[2]), static_cast<float>(c[3])};
+  }
+  const float p = m_morphProgress;
+  const float w = std::lerp(island[2], sheetW, p);
+  const float h = std::lerp(island[3], sheetH, p);
+  const float top = std::lerp(island[1], static_cast<float>(sheet[1]), p);
+  const float right = std::lerp(island[0] + island[2], static_cast<float>(sheet[0]) + sheetW, p);
+  const float s = std::clamp(std::min(w / sheetW, h / sheetH), 0.2F, 1.0F);
+  // Scale about the point that keeps the sheet's top-right corner on the shape's top-right corner.
+  const float dx = right - (static_cast<float>(sheet[0]) + sheetW);
+  const float dy = top - static_cast<float>(sheet[1]);
+  const float k = 1.0F - s;
+  const float cornerX = static_cast<float>(sheet[0]) + sheetW - m_contentNode->x();
+  const float cornerY = static_cast<float>(sheet[1]) - m_contentNode->y();
+  m_contentNode->setTransformOrigin(
+      k > 0.001F ? cornerX + dx / k : cornerX, k > 0.001F ? cornerY + dy / k : cornerY
+  );
+  m_contentNode->setScale(s);
+  if (m_surface != nullptr) {
+    m_surface->requestRedraw();
+  }
 }
 
 void PanelManager::settleDetachedMorph() {
@@ -2566,15 +2695,41 @@ bool PanelManager::startDetachedMorphClose(std::uint64_t gen) {
     m_dsk->set(Property::Clip, detachedSheetRect());
     m_dsk->set(Property::Radius, {panelRadius(), 0.0, 0.0, 0.0});
   }
-  m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
+  // Return: the shape closes into the island on close while the content fades out on fade_out (7.4 exits overlap).
+  m_contentGateTimer.stop();
+  if (m_contentNode != nullptr && m_sceneRoot != nullptr) {
+    m_animations.animateSpring(
+        m_contentGate, 0.0F, Style::spring(Tokens::springFadeOut),
+        [this](float v) {
+          m_contentGate = v;
+          if (m_contentNode != nullptr) {
+            m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * v);
+          }
+        },
+        {}, m_sceneRoot.get()
+    );
+  }
+  if (m_morphSettled) {
+    m_morphProgress = 1.0F;
+  }
+  m_returnFaded = false;
   m_dsk->animate(Property::Radius, Curve::SpringClose, {m_morphSourceRadius, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Clip, Curve::SpringClose, *m_dsk->mappedClip(), [this, gen](DskSurfaceClient::EndReason) {
-    DeferredCall::callLater([this, gen] {
-      if (m_destroyGeneration == gen) {
-        destroyPanel();
+  m_dsk->animate(
+      Property::Clip, Curve::SpringClose, *m_dsk->mappedClip(),
+      [this, gen](DskSurfaceClient::EndReason) {
+        DeferredCall::callLater([this, gen] {
+          if (m_destroyGeneration == gen) {
+            destroyPanel();
+          }
+        });
+      },
+      // The content and the end fade follow the compositor's clock (7.1.7): start when its clip spring starts.
+      [this, gen](std::uint32_t) {
+        if (m_destroyGeneration == gen) {
+          driveContentMorph(0.0F, false);
+        }
       }
-    });
-  });
+  );
   return true;
 }
 
@@ -3117,8 +3272,9 @@ void PanelManager::placePanelChrome() {
   if (m_bgNode != nullptr) {
     const auto extendX = m_morphExtend ? static_cast<float>(m_morphMarginX) : 0.0F;
     const auto extendY = m_morphExtend ? static_cast<float>(m_morphMarginY) : 0.0F;
-    m_bgNode->setPosition(bgX - extendX, bgY);
-    m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY);
+    const auto extendUp = m_morphExtend ? static_cast<float>(m_morphMarginUp) : 0.0F;
+    m_bgNode->setPosition(bgX - extendX, bgY - extendUp);
+    m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY + extendUp);
   }
   // A content-fitted card changes height while the open spring runs: the clip follows it.
   if (m_morphClipRunning && m_dsk != nullptr && !m_closing && m_morphClipTarget != detachedSheetRect()) {
@@ -3219,6 +3375,8 @@ bool PanelManager::setCardHeight(std::uint32_t height) {
     offset = static_cast<std::int32_t>(slack);
   } else if (m_contentFit.align == CardAlign::Center) {
     offset = static_cast<std::int32_t>(slack / 2U);
+  } else if (m_contentFit.align == CardAlign::Island) {
+    offset = std::clamp(m_contentFit.desiredTopY - m_contentFit.slotOutputY, 0, static_cast<std::int32_t>(slack));
   }
   m_panelVisualHeight = height;
   m_panelInsetY = m_contentFit.slotInsetY + offset;
