@@ -557,7 +557,7 @@ of the same group share that line. In a list, a row with a leading symbol, avata
 indents its text past it (the separator indents with it); every row without one stays on the edge.</p>
 <p><strong>R7 Concentric radius.</strong> A shape inside another shape, at padding p from it, has radius = outer radius - p.
 Choose p so the result lands on the radius scale. Below 4 the result is 4. Capsules and circles stay capsules and
-circles. The focus ring is concentric outward: ring radius = shape radius + ring offset.
+circles. App icons keep their own shape. The focus ring is concentric outward: ring radius = shape radius + ring offset.
 Corners are continuous: corner smoothing 0.6 as Figma defines it (its match to iOS; built from Bezier curves,
 not a true superellipse; our extent and exponent formula is our own fit), the same formula in the
 shell, the compositor mask and the CSS. A corner too small to grow falls back toward a circular arc.</p>
@@ -2325,7 +2325,7 @@ detail pages, editing and every state. Mockup: <code>.agent/mockups/cc-v2-final.
 </tr>
 <tr>
 <td>detail page</td>
-<td>Slides in inside the sheet (P12); header h 48: back icon button 32, title-3, the module's toggle at the end; content = grouped rows (§9.7) on fill_1 cards r 16; footer: plain small buttons, the last opens the Settings page; Escape or back returns</td>
+<td>Slides in inside the sheet (P12); header h 48: back icon button 32, title-3, the module's toggle at the end; content = grouped rows (§9.7) on fill_1 cards r 12 (rows r 8 at p 4); footer: plain small buttons, the last opens the Settings page; Escape or back returns</td>
 </tr>
 <tr>
 <td>edit mode</td>

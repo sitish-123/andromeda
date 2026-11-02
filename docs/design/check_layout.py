@@ -29,6 +29,17 @@ RULES = {
     ".kc, .kc2": {"h": [20.0]},
     ".seg": {"h": [T["size"]["control_m"], T["size"]["control_s"]]},
     ".pop": {"h": [T["size"]["control_s"], T["size"]["control_m"]]},
+    ".sheet": {"w": [C["sheet"]["width"]]},
+    ".sheet .tile:not(.span2)": {"h": [C["tile"]["height"]], "w": [C["sheet"]["column"]]},
+    ".sheet .tile.span2": {"h": [C["tile"]["height"]]},
+    ".sheet .ri": {"h": [C["round_icon"]["size"]], "w": [C["round_icon"]["size"]]},
+    ".sheet .pill": {"h": [C["slider"]["height"]]},
+    ".sheet .media": {"h": [C["media"]["height"]]},
+    ".sheet .media .art": {"h": [C["media"]["art"]], "w": [C["media"]["art"]]},
+    ".island": {"h": [C["island"]["height"], 40.0, 56.0, 88.0]},  # rest 32; OSD, live activity, banner/media (9.2)
+    ".dock": {"h": [C["dock"]["icon"] + 2 * C["dock"]["padding"]]},
+    ".dock .app": {"h": [C["dock"]["icon"]], "w": [C["dock"]["icon"]]},
+    ".ws > span": {"h": [24.0]},
 }
 
 AUDIT = r"""
@@ -63,9 +74,9 @@ addEventListener('load', () => {
   const rad = el => { const r = px(getComputedStyle(el).borderTopLeftRadius); return r >= el.offsetHeight / 2 - 0.5 ? -1 : r; }; // -1 = capsule/circle
   const abs = el => { let x = 0, y = 0, e = el; while (e) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; } return {x, y}; };
   // R7 concentric radius: a rounded box inside a rounded box, near its corner, has radius = outer - inset (min 4).
-  for (const el of document.querySelectorAll('.win *')) {
+  for (const el of document.querySelectorAll('.win *, .sheet *, .island *, .dock *')) {
     if (el.closest('svg') || !el.offsetHeight) continue;
-    const r = rad(el); if (r <= 0) continue;
+    const r = rad(el); if (r <= 0 || el.matches('.app, .app *')) continue; // app icons keep their own shape
     let o = el.parentElement;
     while (o && !(rad(o) > 0)) o = o.parentElement;
     if (!o || !inScope(o)) continue;
@@ -75,11 +86,12 @@ addEventListener('load', () => {
     if (Math.abs(r - want) > 0.6) out.push(`R7: ${name(el)} radius ${r} at inset ${Math.max(dx, dy)} in radius ${R}, want ${want}`);
   }
   // R1 grid: boxes inside windows sit on the 2 px grid (size and offset to the window).
-  for (const w of document.querySelectorAll('.win')) {
+  for (const w of document.querySelectorAll('.win, .sheet, .island, .dock')) {
     const W = abs(w);
     for (const el of w.querySelectorAll('div, span')) {
       if (el.closest('svg') || !el.offsetHeight || getComputedStyle(el).display === 'inline') continue;
       if (el.children.length === 0 && el.textContent.trim() && !el.className) continue;
+      if (el.offsetHeight <= 8) continue; // dots and marks centre on whole pixels
       const a = abs(el), vals = [el.offsetHeight, a.y - W.y]; // widths and x follow text and flex shares
       if (vals.some(v => Math.abs(v / 2 - Math.round(v / 2)) > 0.01)) out.push(`R1: ${name(el)} box ${vals.join(',')} (h,y) off the 2 grid`);
     }
