@@ -1550,6 +1550,28 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   }
   {
     const float fixed = 2.0F * kBannerPad + kBannerGlyph + kHoverGap;
+    if (m_banner.has_value() && inst.bannerBody->visible()) {
+      // Pango caps maxLines per '\n' paragraph: keep the newest lines (chat bodies append) that fit two lines.
+      const std::string_view body = m_banner->body;
+      const float maxH = 2.0F * Tokens::typeFootnote.line + 0.5F;
+      inst.bannerBody->setMaxWidth(std::max(0.0F, inst.liveWidth - fixed));
+      std::size_t fit = std::string_view::npos;
+      for (std::size_t cut = body.size(); cut > 0;) {
+        const std::size_t nl = body.rfind('\n', cut - 1);
+        const std::size_t start = nl == std::string_view::npos ? 0 : nl + 1;
+        inst.bannerBody->setText(body.substr(start));
+        inst.bannerBody->layout(renderer);
+        if (fit != std::string_view::npos && inst.bannerBody->height() > maxH) {
+          break;
+        }
+        fit = start;
+        if (nl == std::string_view::npos) {
+          break;
+        }
+        cut = nl;
+      }
+      inst.bannerBody->setText(body.substr(fit == std::string_view::npos ? 0 : fit));
+    }
     for (Label* label : {inst.bannerTitle, inst.bannerBody}) {
       label->setMaxWidth(std::max(0.0F, inst.liveWidth - fixed));
       label->layout(renderer);
