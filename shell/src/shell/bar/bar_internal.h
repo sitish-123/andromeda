@@ -79,6 +79,7 @@ namespace bar_detail {
       BarInstance& instance, const ShellConfig::ShadowConfig& shadowConfig, float surfaceWidth, float surfaceHeight
   );
   float barMainPadding(const BarConfig& config);
+  float barMainPaddingEnd(const BarConfig& config);
   void layoutBarIslands(BarInstance& instance, bool isVertical);
   InputArea* tooltipAreaForHover(BarInstance& instance, InputArea* hoveredArea);
 

@@ -4,6 +4,7 @@
 #include "core/timer_manager.h"
 #include "design_tokens.h"
 #include "motion/desk_motion.h"
+#include "shell/bar/lens_track.h"
 #include "render/scene/input_dispatcher.h"
 #include "shell/dock/dock_items.h"
 #include "shell/dock/dock_model.h"
@@ -62,6 +63,8 @@ namespace shell::dock {
     Box* panel = nullptr;
     InputArea* viewport = nullptr;
     Flex* row = nullptr;
+    LensTrack lens;
+    std::size_t lensActiveIndex = static_cast<std::size_t>(-1);
     float scrollOffset = 0.0F;
     float maxScrollOffset = 0.0F;
     InputDispatcher inputDispatcher;

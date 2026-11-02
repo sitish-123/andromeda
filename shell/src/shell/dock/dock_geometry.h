@@ -41,7 +41,7 @@ namespace shell::dock {
   [[nodiscard]] std::uint32_t positionToAnchor(DockEdge edge);
   [[nodiscard]] bool isVerticalEdge(DockEdge edge);
   void shiftAlongEdge(DockEdge edge, float& x, float& y, float amount);
-  [[nodiscard]] std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount);
+  [[nodiscard]] std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount, bool separator = false);
   [[nodiscard]] std::int32_t dockThickness(const DockConfig& cfg);
   // Extra cross-axis surface padding so magnified icons (and badges) are not clipped.
   [[nodiscard]] std::int32_t dockHoverZoomCrossPad(const DockConfig& cfg);
@@ -54,7 +54,7 @@ namespace shell::dock {
   // device pixel short and leave a gap.
   [[nodiscard]] DockSurfaceGeometry computeSurfaceGeometry(
       const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
-      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight
+      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight, bool separator = false
   );
   [[nodiscard]] LayerSurfaceConfig makeLayerSurfaceConfig(
       const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,

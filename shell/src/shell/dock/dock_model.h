@@ -35,7 +35,10 @@ namespace shell::dock {
     wl_output* filterOutput = nullptr;
     std::string activeAppIdLower;
     std::vector<DockItemModel> items;
+    std::size_t pinnedCount = 0;
     std::uint64_t sourceSerial = 0;
+
+    [[nodiscard]] bool hasSeparator() const { return pinnedCount > 0 && pinnedCount < items.size(); }
   };
 
   struct DockModelDependencies {

@@ -34,6 +34,7 @@ namespace {
   // Badge geometry (component.badge at component.dock.icon), scaled with the icon size.
   TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
   constexpr float kBadgeMinSize = 16.0F;
+  TOKENS_LIVE(kBadgePaddingX, Tokens::componentBadgePaddingX);
   TOKENS_LIVE(kBadgeFontRatio, Tokens::typeCaption.size / Tokens::componentBadgeHeight);
   TOKENS_LIVE(kBadgeCornerInsetX, 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   TOKENS_LIVE(kBadgeCornerInsetY, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
@@ -42,10 +43,9 @@ namespace {
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
-  // M3: dock running bar -> dot, focused app -> lens (rulebook 9.4)
-  constexpr float kRunningBarLength = 14.0F;
-  constexpr float kRunningBarThickness = 3.0F;
-  constexpr float kRunningBarOffset = 4.0F;
+  // Running dot (rulebook 9.4): centred in the bottom padding, so 2 below the icon.
+  TOKENS_LIVE(kRunningDot, Tokens::componentDockRunningDot);
+  TOKENS_LIVE(kRunningDotOffset, (Tokens::componentDockPadding - Tokens::componentDockRunningDot) * 0.5F);
   // component.dock.padding and .gap space the icons; a cell adds none.
   constexpr float kCellPad = 0.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
@@ -411,6 +411,32 @@ namespace shell::dock {
 
   void handleItemClick(DockInstance& instance, const DockItemAction& action, DockItemClickContext& context);
 
+  // The focused app sits on the lens (rulebook 6, 9.4): the icon rect grown by the lens inset.
+  void syncDockLens(shell::dock::DockInstance& instance, const shell::dock::DockSnapshot& snapshot) {
+    const auto& cfg = instance.config;
+    const auto iSize = static_cast<float>(cfg.iconSize);
+    const float k = iSize / Tokens::componentDockIcon;
+    const float inset = Tokens::componentDockLensInset * k;
+    const bool vert = shell::dock::isVerticalEdge(cfg.position);
+    const std::size_t count = std::min(instance.items.size(), snapshot.items.size());
+    for (std::size_t i = 0; i < count; ++i) {
+      const auto& item = instance.items[i];
+      if (snapshot.items[i].active && item.area != nullptr) {
+        const float main = item.restMainPos;
+        const float cross = item.restCrossPos;
+        const bool animate = instance.lensActiveIndex != i;
+        instance.lensActiveIndex = i;
+        instance.lens.moveTo(
+            main - inset, main + iSize + inset, cross - inset, iSize + 2.0F * inset,
+            Tokens::componentDockLensRadius * k, animate
+        );
+        return;
+      }
+    }
+    instance.lensActiveIndex = static_cast<std::size_t>(-1);
+    instance.lens.hide();
+  }
+
   std::unique_ptr<InputArea> createLauncherButton(
       DockInstance& instance, const DockConfig& cfg, Renderer& renderer,
       const std::shared_ptr<DockItemClickContext>& clickContext
@@ -537,6 +563,7 @@ namespace shell::dock {
         : instance.slideRoot != nullptr            ? instance.slideRoot
                                                    : static_cast<Node*>(instance.panel);
     instance.row = static_cast<Flex*>(rowParent->addChild(std::move(freshRow)));
+        instance.lens.attach(*instance.row, instance.animations, vert, iSize / Tokens::componentDockIcon);
     const auto& itemModels = snapshot.items;
 
     if (launcherPosition == DockLauncherPosition::Start) {
@@ -545,9 +572,18 @@ namespace shell::dock {
 
     // Reserve up-front so emplace_back never reallocates while lambdas hold raw pointers.
     instance.items.reserve(itemModels.size());
-    const std::size_t pinnedCount = cfg.pinned.size();
+    const std::size_t pinnedCount = snapshot.pinnedCount;
 
     for (std::size_t itemIndex = 0; itemIndex < itemModels.size(); ++itemIndex) {
+      if (itemIndex == pinnedCount && pinnedCount > 0) {
+        instance.row->addChild(
+            ui::box({
+                .fill = colorSpecFromRole(ColorRole::Separator),
+                .width = vert ? Tokens::componentDockSeparatorHeight : 1.0F,
+                .height = vert ? 1.0F : Tokens::componentDockSeparatorHeight,
+            })
+        );
+      }
       const auto& model = itemModels[itemIndex];
       auto& item = instance.items.emplace_back();
       DockItemAction action{
@@ -656,15 +692,15 @@ namespace shell::dock {
             ui::box({
                 .out = &item.runningIndicator,
                 .fill = colorSpecFromRole(ColorRole::Label2),
-                .radius = kRunningBarThickness * 0.5F,
-                .width = vert ? kRunningBarThickness : kRunningBarLength,
-                .height = vert ? kRunningBarLength : kRunningBarThickness,
+                .radius = kRunningDot * 0.5F,
+                .width = kRunningDot,
+                .height = kRunningDot,
                 .visible = false,
                 .participatesInLayout = false,
                 .configure = [vert, edge, cellMain](Box& box) {
-                  const float centered = std::round((cellMain - kRunningBarLength) * 0.5F);
+                  const float centered = std::round((cellMain - kRunningDot) * 0.5F);
                   const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
-                  const float outer = atStart ? -(kRunningBarOffset + kRunningBarThickness) : cellMain + kRunningBarOffset;
+                  const float outer = atStart ? -(kRunningDotOffset + kRunningDot) : cellMain + kRunningDotOffset;
                   box.setPosition(vert ? outer : centered, vert ? centered : outer);
                 },
             })
@@ -846,6 +882,7 @@ namespace shell::dock {
     if (instance.surface == nullptr) {
       return;
     }
+    syncDockLens(instance, snapshot);
     Renderer& renderer = instance.surface->renderTarget().renderer();
 
     const auto& cfg = instance.config;
@@ -923,14 +960,14 @@ namespace shell::dock {
         item.minimizedIndicator->setVisible(model.allMinimized);
       }
       if (item.runningIndicator != nullptr) {
-        const bool runningNow = model.running && !model.allMinimized;
+        const bool runningNow = model.running && !model.allMinimized && !model.active;
         item.runningIndicator->setVisible(runningNow || item.runningScale > 0.001F);
         if (runningNow != item.runningShown) {
           item.runningShown = runningNow;
           if (item.runningAnimId != 0) {
             instance.animations.cancel(item.runningAnimId);
           }
-          // The bar grows from its center along its length on the effects spring.
+          // The dot grows from its center on the effects spring.
           item.runningAnimId = instance.animations.animateSpatial(
               item.runningScale, runningNow ? 1.0F : 0.0F,
               {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
@@ -990,7 +1027,7 @@ namespace shell::dock {
         item.badge->setVisible(show);
         item.badgeLabel->setVisible(show);
         if (show) {
-          const std::string label = (shown > 9) ? "9+" : std::to_string(shown);
+          const std::string label = (shown > 99) ? "99+" : std::to_string(shown);
           item.badgeLabel->setText(label);
           item.badgeLabel->setColor(
               unread ? fixedColorSpec(Color{.r = 1.0F, .g = 1.0F, .b = 1.0F}) : colorSpecFromRole(ColorRole::OnAccent)
@@ -998,8 +1035,13 @@ namespace shell::dock {
           item.badge->setFill(colorSpecFromRole(unread ? ColorRole::Danger : ColorRole::Accent));
           const float bd = std::max(kBadgeMinSize, static_cast<float>(cfg.iconSize) * kBadgeSizeRatio);
           item.badgeLabel->measure(renderer);
+          const float badgeW = std::max(bd, std::round(item.badgeLabel->width() + 2.0F * kBadgePaddingX));
+          if (edge != DockEdge::Right) {
+            item.badge->setPosition(item.badge->x() + item.badge->width() - badgeW, item.badge->y());
+          }
+          item.badge->setFrameSize(badgeW, bd);
           item.badgeLabel->setPosition(
-              std::round((bd - item.badgeLabel->width()) * 0.5F), std::round((bd - item.badgeLabel->height()) * 0.5F)
+              std::round((badgeW - item.badgeLabel->width()) * 0.5F), std::round((bd - item.badgeLabel->height()) * 0.5F)
           );
         }
       }

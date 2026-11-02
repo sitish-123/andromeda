@@ -933,7 +933,7 @@ void Dock::rebuildItems(shell::dock::DockInstance& instance) {
                   const auto geometry = shell::dock::computeSurfaceGeometry(
                       inst.config, m_config->config().shell.shadow,
                       inst.items.size() + shell::dock::dockLauncherButtonCount(inst.config), inst.fractionalScale,
-                      inst.outputLogicalWidth, inst.outputLogicalHeight
+                      inst.outputLogicalWidth, inst.outputLogicalHeight, inst.snapshot.hasSeparator()
                   );
                   const auto edge = inst.config.position;
                   const auto outW = static_cast<float>(inst.outputLogicalWidth);

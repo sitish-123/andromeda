@@ -33,8 +33,6 @@ namespace {
   }
 
   TOKENS_LIVE(kWorkspaceGap, Style::spaceXs);
-  // M3: workspace dots -> lens cells (rulebook 9.1)
-  constexpr float kIslandDotGap = 5.0F;
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
 
   [[nodiscard]] constexpr float workspaceLabelFontSize(bool minimal) {
@@ -162,7 +160,13 @@ void WorkspacesWidget::applyItemVisualStyle(Item& item) {
   }
   if (item.text != nullptr && item.showLabel) {
     item.text->setColor(workspaceTextColor(item.visualWorkspace, item.output));
+    item.text->setFontWeight(itemFontWeight(item.visualWorkspace));
   }
+}
+
+// The lens carries the current workspace's label at weight 600 (rulebook 6).
+FontWeight WorkspacesWidget::itemFontWeight(const Workspace& workspace) const {
+  return m_islandDots && workspace.active ? FontWeight::SemiBold : labelFontWeight();
 }
 
 bool WorkspacesWidget::shouldHoldPreviousVisualWorkspace(
@@ -350,6 +354,9 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
   while (!m_container->children().empty()) {
     m_container->removeChild(m_container->children().back().get());
   }
+  if (m_islandDots && m_animations != nullptr) {
+    m_lens.attach(*m_container, *m_animations, m_isVertical, m_contentScale);
+  }
   m_items.clear();
 
   struct RebuildEntry {
@@ -446,8 +453,8 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     }
   }
 
-  const float gap = (m_islandDots ? kIslandDotGap : kWorkspaceGap) * m_contentScale;
-  const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
+  const float gap = (m_islandDots ? 0.0F : kWorkspaceGap) * m_contentScale;
+  const float labelFontSize = workspaceLabelFontSize(isMinimal() || m_islandDots) * fontScale();
   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
   // Active and inactive labels share the configured weight: a heavier weight selects a different
   // face whose digits sit at a different height.
@@ -591,7 +598,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
           ui::label({
               .text = entry.label,
               .fontSize = labelFontSize,
-              .fontWeight = configuredFontWeight,
+              .fontWeight = itemFontWeight(ws),
               .fontFamily = labelFontFamily(),
               .color = workspaceTextColor(ws, entry.output),
               .baselineMode = LabelBaselineMode::Text,
@@ -618,6 +625,10 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
       setWorkspaceClickHandler(*area, entry.output, ws);
 
       area->setOnEnter([this, areaPtr](const InputArea::PointerData&) {
+        if (m_islandDots) {
+          setIslandHover(areaPtr, true);
+          return;
+        }
         if (!m_changeColorOnHover) {
           return;
         }
@@ -655,7 +666,18 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         requestFrameTick();
       });
 
+      area->setOnPress([this, areaPtr](const InputArea::PointerData& data) {
+        if (m_islandDots && data.button == BTN_LEFT) {
+          setIslandPress(areaPtr, data.pressed);
+        }
+      });
+
       area->setOnLeave([this, areaPtr] {
+        if (m_islandDots) {
+          setIslandHover(areaPtr, false);
+          setIslandPress(areaPtr, false);
+          return;
+        }
         if (m_hoveredArea != areaPtr) {
           return;
         }
@@ -705,6 +727,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     it.currentOpacity = it.fromOpacity;
   }
   updateItemFlowPositions();
+  syncLens(false);
 
   const bool needsAnimation = std::ranges::any_of(m_items, [](const Item& it) {
     return std::fabs(it.targetX - it.currentX) > 0.5F
@@ -826,12 +849,12 @@ void WorkspacesWidget::ensureItemLabel(Renderer& renderer, Item& item, const Wor
     return;
   }
 
-  const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
+  const float labelFontSize = workspaceLabelFontSize(isMinimal() || m_islandDots) * fontScale();
   item.text = static_cast<Label*>(item.area->addChild(
       ui::label({
           .text = item.label,
           .fontSize = labelFontSize,
-          .fontWeight = labelFontWeight(),
+          .fontWeight = itemFontWeight(workspace),
           .fontFamily = labelFontFamily(),
           .color = workspaceTextColor(workspace, item.output),
           .baselineMode = LabelBaselineMode::Text,
@@ -844,7 +867,7 @@ void WorkspacesWidget::recalculateItemMetrics(
     Renderer& renderer, Item& item, const Workspace& workspace, std::size_t displayIndex
 ) {
   const std::string label = workspaceLabel(workspace, displayIndex);
-  const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
+  const float labelFontSize = workspaceLabelFontSize(isMinimal() || m_islandDots) * fontScale();
   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
   const float baseSize = std::round(pillHeight);
   const float padding = isMinimal() ? (Style::spaceXs * m_contentScale) : (baseSize * 0.6F);
@@ -924,7 +947,7 @@ void WorkspacesWidget::recalculateItemMetrics(
     item.text->setVisible(item.showLabel);
     if (item.showLabel) {
       item.text->setText(label);
-      item.text->setFontWeight(configuredFontWeight);
+      item.text->setFontWeight(itemFontWeight(workspace));
       item.text->setColor(workspaceTextColor(workspace, item.output));
       item.text->measure(renderer);
     }
@@ -991,7 +1014,88 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
   }
   computeTargets();
   applyItemLayouts();
+  syncLens(true);
   startAnimation();
+}
+
+// P3: the wash is one fill step, in on fade_out and out on fade, so a quick pass does not flicker.
+void WorkspacesWidget::setIslandHover(InputArea* area, bool hovered) {
+  const auto it = std::ranges::find(m_items, area, &Item::area);
+  if (it == m_items.end() || it->exiting || it->indicator == nullptr || it->active) {
+    return;
+  }
+  const float to = hovered ? 1.0F : 0.0F;
+  const auto apply = [this, key = it->key](float value) {
+    const auto found = std::ranges::find(m_items, key, &Item::key);
+    if (found == m_items.end() || found->indicator == nullptr) {
+      return;
+    }
+    found->hover = value;
+    found->indicator->setFill(colorSpecFromRole(ColorRole::Fill1, value));
+    requestRedraw();
+  };
+  if (m_animations == nullptr) {
+    apply(to);
+    return;
+  }
+  it->hoverId = m_animations->drive(
+      it->hoverId, it->hover, to, Style::spring(hovered ? Tokens::springFadeOut : Tokens::springFade), apply,
+      [this, key = it->key] {
+        if (const auto found = std::ranges::find(m_items, key, &Item::key); found != m_items.end()) {
+          found->hoverId = 0;
+        }
+      },
+      &m_hoverProgress
+  );
+  requestFrameTick();
+}
+
+// P2: items up to 96 px scale to 0.96 on press and spring back on release.
+void WorkspacesWidget::setIslandPress(InputArea* area, bool pressed) {
+  const auto it = std::ranges::find(m_items, area, &Item::area);
+  if (it == m_items.end() || it->exiting || it->indicator == nullptr || m_animations == nullptr) {
+    return;
+  }
+  const auto apply = [this, key = it->key](float value) {
+    const auto found = std::ranges::find(m_items, key, &Item::key);
+    if (found == m_items.end() || found->indicator == nullptr) {
+      return;
+    }
+    found->press = value;
+    for (Node* node : {static_cast<Node*>(found->indicator), static_cast<Node*>(found->text)}) {
+      if (node != nullptr) {
+        node->setTransformOrigin(node->width() * 0.5F, node->height() * 0.5F);
+        node->setScale(value);
+      }
+    }
+    requestRedraw();
+  };
+  it->pressId = m_animations->drive(
+      it->pressId, it->press, pressed ? 0.96F : 1.0F,
+      Style::spring(pressed ? Tokens::springPress : Tokens::springRelease), apply,
+      [this, key = it->key] {
+        if (const auto found = std::ranges::find(m_items, key, &Item::key); found != m_items.end()) {
+          found->pressId = 0;
+        }
+      },
+      &m_hoverProgress, 0.0F, Unit::Scale, true
+  );
+  requestFrameTick();
+}
+
+void WorkspacesWidget::syncLens(bool animate) {
+  if (!m_islandDots) {
+    return;
+  }
+  for (const auto& item : m_items) {
+    if (!item.exiting && workspaceUsesFocusedStyle(item.workspace, item.output)) {
+      m_lens.moveTo(
+          item.targetX, item.targetX + item.targetWidth, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F, animate
+      );
+      return;
+    }
+  }
+  m_lens.hide();
 }
 
 void WorkspacesWidget::startAnimation() {
@@ -1495,6 +1599,9 @@ bool WorkspacesWidget::workspaceUsesFocusedStyle(const Workspace& workspace, wl_
 }
 
 ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_output* output) const {
+  if (m_islandDots) {
+    return clearColorSpec();
+  }
   if (workspace.active) {
     return workspaceUsesFocusedStyle(workspace, output) ? m_focusedColor : m_occupiedColor;
   }
@@ -1512,6 +1619,14 @@ ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_ou
 }
 
 ColorSpec WorkspacesWidget::workspaceTextColor(const Workspace& workspace, wl_output* output) const {
+  if (m_islandDots) {
+    if (workspace.urgent) {
+      return colorSpecFromRole(ColorRole::DangerText);
+    }
+    return workspaceUsesFocusedStyle(workspace, output) ? m_focusedColor
+        : workspace.occupied || workspace.active      ? m_occupiedColor
+                                                      : m_emptyColor;
+  }
   if (workspace.urgent) {
     return isMinimal() ? m_urgentColor : readableColorForFill(m_urgentColor);
   }

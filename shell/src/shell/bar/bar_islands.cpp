@@ -243,13 +243,37 @@ namespace {
     return std::round(Tokens::componentIslandInsetText * config.scale);
   }
 
+  // R5: symbol ends 8, text ends 12; the workspace track ends the left island at cell inset 4.
+  struct IslandInsets {
+    float start;
+    float end;
+  };
+
+  IslandInsets barIslandInsets(const BarConfig& config, std::size_t island) {
+    const float symbol = std::round(Tokens::componentIslandInsetSymbol * config.scale);
+    const float text = barIslandInset(config);
+    const float track = std::round(Tokens::componentIslandCellInset * config.scale);
+    switch (island) {
+    case 0:
+      return {symbol, track};
+    case 2:
+      return {symbol, text};
+    default:
+      return {text, text};
+    }
+  }
+
 
 } // namespace
 
 namespace bar_detail {
 
   float barMainPadding(const BarConfig& config) {
-    return config.islands ? barIslandInset(config) : static_cast<float>(config.padding);
+    return config.islands ? barIslandInsets(config, 0).start : static_cast<float>(config.padding);
+  }
+
+  float barMainPaddingEnd(const BarConfig& config) {
+    return config.islands ? barIslandInsets(config, 2).end : static_cast<float>(config.padding);
   }
 
   // Each island spans the bar's thickness and its section's extent plus an inset of 0.3 x thickness.
@@ -261,7 +285,6 @@ namespace bar_detail {
     float rootY = 0.0F;
     Node::absolutePosition(instance.slideRoot, rootX, rootY);
     const float cross = isVertical ? instance.bg->width() : instance.bg->height();
-    const float inset = barIslandInset(instance.barConfig);
     const std::array<Flex*, 3> sections{instance.startSection, instance.centerSection, instance.endSection};
     for (std::size_t i = 0; i < sections.size(); ++i) {
       Box* island = instance.islands[i];
@@ -286,10 +309,12 @@ namespace bar_detail {
       float x = 0.0F;
       float y = 0.0F;
       Node::absolutePosition(section, x, y);
-      const float w = isVertical ? cross : main + 2.0F * inset;
-      const float h = isVertical ? main + 2.0F * inset : cross;
+      const IslandInsets inset = barIslandInsets(instance.barConfig, i);
+      const float w = isVertical ? cross : main + inset.start + inset.end;
+      const float h = isVertical ? main + inset.start + inset.end : cross;
       island->setPosition(
-          isVertical ? instance.bg->x() : x - rootX - inset, isVertical ? y - rootY - inset : instance.bg->y()
+          isVertical ? instance.bg->x() : x - rootX - inset.start,
+          isVertical ? y - rootY - inset.start : instance.bg->y()
       );
       island->setSize(w, h);
       island->setRadius(std::min(w, h) * 0.5F);

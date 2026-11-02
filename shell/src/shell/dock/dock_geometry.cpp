@@ -155,13 +155,14 @@ namespace shell::dock {
     }
   }
 
-  std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount) {
+  std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount, bool separator) {
     const auto n = static_cast<std::int32_t>(itemCount);
     const std::int32_t cellSize = cfg.iconSize + kCellPad * 2;
     if (n == 0) {
       return cellSize + cfg.mainAxisPadding * 2;
     }
-    return n * cellSize + std::max(0, n - 1) * cfg.itemSpacing + cfg.mainAxisPadding * 2;
+    const std::int32_t sepSize = separator ? 1 + cfg.itemSpacing : 0;
+    return n * cellSize + std::max(0, n - 1) * cfg.itemSpacing + sepSize + cfg.mainAxisPadding * 2;
   }
 
   std::int32_t dockThickness(const DockConfig& cfg) { return cfg.iconSize + kCellPad * 2 + cfg.crossAxisPadding * 2; }
@@ -195,7 +196,7 @@ namespace shell::dock {
 
   DockSurfaceGeometry computeSurfaceGeometry(
       const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
-      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight
+      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight, bool separator
   ) {
     const DockEdge edge = cfg.position;
     const bool vertical = isVerticalEdge(edge);
@@ -205,7 +206,7 @@ namespace shell::dock {
     const int insetT = static_cast<int>(concave.logicalInset.top);
     const int insetR = static_cast<int>(concave.logicalInset.right);
     const int insetB = static_cast<int>(concave.logicalInset.bottom);
-    const auto panelW = dockContentSize(cfg, itemCount);
+    const auto panelW = dockContentSize(cfg, itemCount, separator);
     const auto panelH = dockThickness(cfg);
     const std::int32_t zoomPad = dockHoverZoomCrossPad(cfg);
     const std::int32_t mainPad = dockHoverZoomMainPad(cfg);

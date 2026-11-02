@@ -2,6 +2,7 @@
 
 #include "compositors/compositor_platform.h"
 #include "render/animation/animation_manager.h"
+#include "shell/bar/lens_track.h"
 #include "shell/bar/widget.h"
 #include "system/icon_resolver.h"
 #include "ui/palette.h"
@@ -78,6 +79,9 @@ private:
   void finishAnimation();
   void applyItemLayout(Item& item);
   void applyItemLayouts();
+  void syncLens(bool animate);
+  void setIslandHover(InputArea* area, bool hovered);
+  void setIslandPress(InputArea* area, bool pressed);
   void snapshotItemsForRebuild();
   void scheduleRebuildFromSnapshot();
   [[nodiscard]] float workspacePillRadius(float width, float height) const noexcept;
@@ -109,6 +113,7 @@ private:
   void syncItemTooltip(Item& item, const Workspace& workspace);
   void setWorkspaceClickHandler(InputArea& area, wl_output* output, const Workspace& workspace);
   void applyItemVisualStyle(Item& item);
+  [[nodiscard]] FontWeight itemFontWeight(const Workspace& workspace) const;
   void updateHoverOverlay();
   [[nodiscard]] bool shouldHoldPreviousVisualWorkspace(
       const Workspace& previousVisualWorkspace, const Workspace& currentWorkspace
@@ -147,6 +152,10 @@ private:
     float fromOpacity = 1.0F;
     float targetOpacity = 1.0F;
     float currentOpacity = 1.0F;
+    float hover = 0.0F;
+    float press = 1.0F;
+    AnimationManager::Id hoverId = 0;
+    AnimationManager::Id pressId = 0;
   };
 
   struct ItemSnapshot {
@@ -181,6 +190,7 @@ private:
   WorkspacesStyle m_style = WorkspacesStyle::Regular;
   bool m_focusedOutputOnly = false;
   bool m_islandDots = false;
+  LensTrack m_lens;
   bool m_changeColorOnHover = true;
   wl_output* m_lastFocusedOutput = nullptr;
   std::string m_cachedActiveWindowAppId;

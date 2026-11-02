@@ -356,7 +356,7 @@ namespace bar_detail {
       float innerSurfaceExtension
   ) {
     const auto barThickness = static_cast<float>(cfg.thickness);
-    const auto marginEnds = static_cast<float>(cfg.marginEnds);
+    const float marginEnds = cfg.islands ? Tokens::spaceChromeGap : static_cast<float>(cfg.marginEnds);
     const auto marginEdge = static_cast<float>(cfg.marginEdge);
     const bool isBottom = cfg.position == "bottom";
     const bool isRight = cfg.position == "right";
@@ -739,11 +739,13 @@ namespace {
 
     // When bar touches screen edge, put the padding inside the sections, and extend the hit targets of
     // the first/last widgets to cover the area. So clicking on the screen edge still triggers the widget.
-    const bool screenEdgeClick = instance.barConfig.marginEnds == 0 && padding > 0;
+    const float paddingEnd = barMainPaddingEnd(instance.barConfig);
+    const bool screenEdgeClick = instance.barConfig.marginEnds == 0 && !instance.barConfig.islands && padding > 0;
     const float paddingInsideSection = screenEdgeClick ? padding : 0.0F;
+    const float paddingInsideSectionEnd = screenEdgeClick ? paddingEnd : 0.0F;
     const float contentMainStart = screenEdgeClick ? 0.0F : padding;
     const float contentMainEnd =
-        std::max(contentMainStart, (isVertical ? barAreaH : barAreaW) - (screenEdgeClick ? 0.0F : padding));
+        std::max(contentMainStart, (isVertical ? barAreaH : barAreaW) - (screenEdgeClick ? 0.0F : paddingEnd));
     const float contentMainSpan = std::max(0.0F, contentMainEnd - contentMainStart);
 
     auto configureSlot = [&](Node* slot, float mainOffset, float mainSize) {
@@ -765,10 +767,10 @@ namespace {
     if (screenEdgeClick) {
       if (isVertical) {
         instance.startSection->setPadding(paddingInsideSection, 0.0F, 0.0F, 0.0F);
-        instance.endSection->setPadding(0.0F, 0.0F, paddingInsideSection, 0.0F);
+        instance.endSection->setPadding(0.0F, 0.0F, paddingInsideSectionEnd, 0.0F);
       } else {
         instance.startSection->setPadding(0.0F, 0.0F, 0.0F, paddingInsideSection);
-        instance.endSection->setPadding(0.0F, paddingInsideSection, 0.0F, 0.0F);
+        instance.endSection->setPadding(0.0F, paddingInsideSectionEnd, 0.0F, 0.0F);
       }
     } else {
       instance.startSection->setPadding(0.0F);

@@ -128,6 +128,7 @@ namespace shell::dock {
       }
     }
 
+    snapshot.pinnedCount = deps.pinnedEntries.size();
     snapshot.items.reserve(itemEntries.size());
     for (const auto& entry : itemEntries) {
       DockItemModel dockItem;

@@ -87,9 +87,6 @@
 
 namespace {
 
-  // M3: workspace dots -> lens cells (rulebook 9.1)
-  constexpr float kIslandDot = 7.0F;
-  constexpr float kIslandDotActiveWidth = 20.0F;
   constexpr Logger kLog("shell");
 
   template <typename T, typename... Args> std::unique_ptr<Widget> createWidget(float contentScale, Args&&... args) {
@@ -199,15 +196,21 @@ std::unique_ptr<Widget> WidgetFactory::create(
             options.showLabel = false;
             return createWidget<VolumeWidget>(context.contentScale, f.m_audio, f.m_easyEffects, options);
           }},
+      {"island_spacer", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
+            return createWidget<SpacerWidget>(
+                context.contentScale, context.verticalBar,
+                SpacerWidget::Options{.length = static_cast<int>(Tokens::componentIslandGroupGap)}
+            );
+          }},
       {"island_workspaces", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             auto options = workspacesWidgetDefinition().resolve(context.config, context.settingContext);
             options.islandDots = true;
-            options.showLabels = false;
-            options.pillScale = kIslandDot / Style::baseGlyphSize;
+            options.showLabels = true;
+            options.pillScale = Tokens::componentIslandCell / Style::baseGlyphSize;
             options.inactivePillSize = 1.0F;
-            options.activePillSize = kIslandDotActiveWidth / kIslandDot;
+            options.activePillSize = 1.0F;
             options.focusedColor = colorSpecFromRole(ColorRole::Label1);
-            options.occupiedColor = colorSpecFromRole(ColorRole::Label3);
+            options.occupiedColor = colorSpecFromRole(ColorRole::Label2);
             options.emptyColor = colorSpecFromRole(ColorRole::Label3);
             return createWidget<WorkspacesWidget>(
                 context.contentScale, f.m_platform, f.m_configService, context.output, options
