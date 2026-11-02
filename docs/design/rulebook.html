@@ -163,6 +163,7 @@ body { font-optical-sizing: none; font-variation-settings: "opsz" 14; }
 .btn.s { height: 24px; padding: 0 8px; min-width: 48px; font: 500 12px/16px var(--font); }
 .btn.m { height: 32px; padding: 0 12px; min-width: 64px; }
 .btn.l { height: 40px; padding: 0 16px; min-width: 80px; }
+.btn.s:not(.primary), .btn.m:not(.primary) { border-radius: 8px; }
 .btn.primary { background: var(--acc); color: #fff; font-weight: 600; }
 .btn.primary:hover { background-image: linear-gradient(rgba(255,255,255,.08), rgba(255,255,255,.08)); }
 .btn.secondary { background: var(--f2); color: var(--l1); font-weight: 500; } .btn.secondary:hover { background: var(--f3); }
@@ -1722,7 +1723,7 @@ row says so.</p>
 </tr>
 <tr>
 <td>banner</td>
-<td>w 360 x 88 (12 + 64 text block + 12), r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines; actions h 32 capsules, g 8, 12 above</td>
+<td>w 360 x 88 (12 + 64 text block + 12), r 24, p 12, thick glass, E3; app icon 32, g 12; line 1 caption app name label_2 + time right; title headline; body footnote label_2, two lines; actions h 32 r 8 (primary capsule), g 8, 12 above</td>
 </tr>
 <tr>
 <td>media</td>
@@ -1817,7 +1818,9 @@ row says so.</p>
 </tbody>
 </table>
 <h3 id="ch-9-9-5-buttons">9.5 Buttons</h3>
-<p>Actions are capsules. Values (fields, popups) are rounded rectangles.</p>
+<p>Shape follows emphasis (macOS Tahoe, WWDC25): small and regular buttons are rounded rectangles r 8; large buttons
+and the one primary action of a view are capsules. A button on a capsule surface (island, OSD, live activity) is a
+capsule or circle. Values (fields, pop-ups) are rounded rectangles r 8.</p>
 <table>
 <thead>
 <tr>

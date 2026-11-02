@@ -389,7 +389,8 @@ height = 16.0
 padding_x = 4.0
 overhang = 4.0
 
-[component.button]  # 9.5; capsules
+[component.button]  # 9.5; small and regular r 8, large and primary capsules
+radius = 8.0
 height_s = 24.0
 height_m = 32.0
 height_l = 40.0
