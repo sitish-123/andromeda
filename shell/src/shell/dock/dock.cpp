@@ -922,7 +922,7 @@ void Dock::rebuildItems(shell::dock::DockInstance& instance) {
                               ) { activateOrLaunchItem(inst, action); },
           .toggleLauncher =
               [this](shell::dock::DockInstance& inst) {
-                PanelOpenRequest request{.output = inst.output};
+                PanelOpenRequest request{.output = inst.output, .context = "apps"};
                 // The launcher grows out of the dock button when the compositor supports the clip morph.
                 if (inst.launcherArea != nullptr && inst.surface != nullptr) {
                   float x = 0.0F;

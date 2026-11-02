@@ -747,6 +747,11 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     const float chromeRows = 2.0F * Tokens::sizeControlXl * m_activePanel->contentScale();
     panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1.0F, static_cast<float>(outputHeight) - chromeRows)));
   }
+  const float centerTopFraction = useCenterScreenLayout && m_contentFit.enabled ? m_activePanel->centerTopFraction() : 0.0F;
+  const auto centerTopY = static_cast<std::int32_t>(std::lround(centerTopFraction * static_cast<float>(outputHeight)));
+  if (centerTopFraction > 0.0F) {
+    panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, outputHeight - centerTopY - screenPadding)));
+  }
   auto detachedShadowBleed =
       shell::panel_surface::bleed(m_activePanel->hasDecoration(), m_config->config().shell.shadow);
   // A morph from an island overshoots its clip into a transparent margin that the sheet fill extends over meanwhile.
@@ -870,7 +875,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   // Which slot edge a content-fitted card keeps: the one this placement anchors to.
   CardAlign detachedCardAlign = CardAlign::Start;
   if (useCenterScreenLayout) {
-    detachedCardAlign = CardAlign::Center;
+    detachedCardAlign = centerTopFraction > 0.0F ? CardAlign::Start : CardAlign::Center;
   } else if (useScreenPosition) {
     const bool anchoredTop = (standaloneAnchor & LayerShellAnchor::Top) != 0;
     const bool anchoredBottom = (standaloneAnchor & LayerShellAnchor::Bottom) != 0;
@@ -888,7 +893,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   if (useCenterScreenLayout) {
     standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
     standaloneMarginLeft = (outputWidth - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
-    standaloneMarginTop = (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
+    standaloneMarginTop = (centerTopFraction > 0.0F ? centerTopY : (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2)
+        - detachedShadowBleed.up;
   } else {
     if ((standaloneAnchor & LayerShellAnchor::Left) != 0) {
       standaloneMarginLeft -= detachedShadowBleed.left;
@@ -3313,7 +3319,7 @@ void PanelManager::placePanelChrome() {
     applyAttachedDecorationStyle();
   }
 
-  const float kPadding = m_activePanel->hasDecoration() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
+  const float kPadding = m_activePanel->hasDecoration() && m_activePanel->padsContent() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
   m_contentWidth = panelW - kPadding * 2.0F;
   // A content-fitted panel lays its content out at the target height once; while the card
   // animates toward it, the content node clips to the card instead of relaying out.
@@ -3331,7 +3337,7 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
   if (!m_contentFit.enabled) {
     return;
   }
-  const float padding = m_activePanel->hasDecoration() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
+  const float padding = m_activePanel->hasDecoration() && m_activePanel->padsContent() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
   const float natural = m_activePanel->measureContentHeight(renderer, m_contentWidth);
   const auto target = std::clamp<std::uint32_t>(
       static_cast<std::uint32_t>(std::ceil(std::max(0.0F, natural) + padding * 2.0F)), 1U,

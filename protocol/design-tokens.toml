@@ -522,14 +522,18 @@ button_inset = 8.0
 resize_band = 8.0
 
 [component.launcher]  # 9.14
-width = 648.0
+width = 680.0
 padding = 16.0
-search = 40.0
+search = 56.0
 search_radius = "= component.sheet.radius - component.launcher.padding"
 columns = 6
 rows = 4
 cell_height = 112.0
 icon = 64.0
+section_header = 28.0
+row = 40.0
+row_icon = 24.0
+footer = 36.0
 
 [component.lock]  # 9.15
 dim = 0.2

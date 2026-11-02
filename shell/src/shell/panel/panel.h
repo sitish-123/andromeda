@@ -63,6 +63,8 @@ public:
   // once at open and only the visible card inside it follows the content, because
   // resizing a layer surface blanks it for a frame on most compositors.
   [[nodiscard]] virtual bool fitsContentHeight() const noexcept { return false; }
+  // Centre-screen placement only: > 0 pins the card top at this fraction of the output height and grows it down.
+  [[nodiscard]] virtual float centerTopFraction() const noexcept { return 0.0F; }
   // Natural height of the content laid out at `contentWidth`, without padding. Called
   // after layout() and only when fitsContentHeight() is true; may leave the content laid
   // out at that height, so the caller lays it out again.
@@ -72,6 +74,8 @@ public:
     return 0.0F;
   }
   [[nodiscard]] virtual bool hasDecoration() const { return true; }
+  // False: the content reaches the card edge; the panel insets its own rows.
+  [[nodiscard]] virtual bool padsContent() const noexcept { return true; }
   [[nodiscard]] virtual LayerShellLayer layer() const { return LayerShellLayer::Top; }
   // Keyboard focus policy. `None` means the panel never takes keyboard focus, so the
   // app the user is typing into keeps it — that also rules out outside-click

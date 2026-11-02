@@ -966,6 +966,7 @@
       },
       "sections": {
         "all-apps": "All Apps",
+        "commands": "Commands",
         "other-apps": "Other Apps",
         "pinned": "Pinned",
         "providers": "Providers",
@@ -1029,6 +1030,9 @@
       "emoji": {
         "title": "Emoji"
       },
+      "web": {
+        "title": "Web"
+      },
       "panel": {
         "builtin": {
           "clipboard": "Clipboard",
@@ -1056,7 +1060,15 @@
         "title": "Windows"
       }
     },
-    "search-placeholder": "Search applications…"
+    "pill": {
+      "actions-hint": "Actions",
+      "close-hint": "Close",
+      "open": "Open",
+      "open-hint": "Open ↩",
+      "result-count": "{count} results",
+      "search-web": "Search the web for “{query}”"
+    },
+    "search-placeholder": "Search"
   },
   "live-activity": {
     "call-active": "On a call with {caller}",

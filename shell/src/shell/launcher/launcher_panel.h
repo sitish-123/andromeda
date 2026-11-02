@@ -27,6 +27,7 @@ class LauncherAppGridAdapter;
 class LauncherSectionsAdapter;
 class Renderer;
 class Segmented;
+class Separator;
 class ScrollView;
 class VirtualGridView;
 class VirtualListView;
@@ -65,6 +66,10 @@ public:
 
   [[nodiscard]] float preferredWidth() const override;
   [[nodiscard]] float preferredHeight() const override;
+  [[nodiscard]] bool fitsContentHeight() const noexcept override { return usesBrowserLayout(); }
+  [[nodiscard]] float centerTopFraction() const noexcept override { return usesBrowserLayout() ? 0.2F : 0.0F; }
+  [[nodiscard]] bool padsContent() const noexcept override { return !usesBrowserLayout(); }
+  [[nodiscard]] float measureContentHeight(Renderer& renderer, float contentWidth) override;
   [[nodiscard]] LayerShellKeyboard keyboardMode() const override { return LayerShellKeyboard::Exclusive; }
   [[nodiscard]] InputArea* initialFocusArea() const override;
   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
@@ -192,6 +197,9 @@ private:
   std::size_t m_selectedIndex = 0;
   std::size_t m_activeCategorySlotIndex = 0;
   bool m_browserMode = false;
+  Separator* m_pillSeparator = nullptr;
+  Flex* m_pillFooter = nullptr;
+  Label* m_pillCount = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
   std::optional<BrowserViewState> m_sessionReturnView;

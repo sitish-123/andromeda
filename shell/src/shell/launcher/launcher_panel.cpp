@@ -50,12 +50,13 @@ namespace {
   constexpr float kIconSizeDefault = 40.0F;
   constexpr float kIconSizeCompact = 28.0F;
   constexpr std::size_t kAppGridColumns = 6;
-  // Rulebook 9.14: p, search, g 16, the grid rows with g 8, g 8, page dots, p.
+  // Rulebook 9.14 at its tallest (the apps grid): field, hairline, p, grid rows with g 8, page dots, p.
   [[nodiscard]] float launcherSheetHeight() {
     const float rows = static_cast<float>(Tokens::componentLauncherRows);
-    return 2.0F * Tokens::componentLauncherPadding + Tokens::componentLauncherSearch + Tokens::spaceP16
+    return Tokens::componentLauncherSearch + 1.0F + 2.0F * Tokens::componentLauncherPadding
         + rows * Tokens::componentLauncherCellHeight + rows * Tokens::spaceP8 + Tokens::componentPageDotsRow;
   }
+  [[nodiscard]] bool isAppsQuery(std::string_view query) { return query == "apps"; }
   constexpr std::int32_t kCompactNavigationWidth = 680;
   constexpr float kLauncherAvatarSize = 44.0F;
   constexpr std::string_view kApplicationsProviderId = "Applications";
@@ -107,12 +108,24 @@ namespace {
     bool showIcons = true;
     bool showAppOriginIndicator = true;
     bool compact = false;
+    // Rulebook 9.14 pill rows: icon 24, one line, lens selection.
+    bool pill = false;
     std::optional<ColorSpec> appIconColorizeTint;
     std::optional<ColorSpec> listItemBackground;
   };
 
   [[nodiscard]] float launcherIconSize(const LauncherListStyle& style) {
+    if (style.pill) {
+      return Tokens::componentLauncherRowIcon * style.scale;
+    }
     return (style.compact ? kIconSizeCompact : kIconSizeDefault) * style.scale;
+  }
+
+  [[nodiscard]] float rowGap(const LauncherListStyle& style) {
+    if (style.pill) {
+      return Tokens::spaceP12 * style.scale;
+    }
+    return (style.compact ? Style::spaceSm : Style::spaceMd) * style.scale;
   }
 
   [[nodiscard]] float launcherGridIconSize(const LauncherListStyle& style) { return Tokens::componentLauncherIcon * style.scale; }
@@ -149,8 +162,11 @@ namespace {
     return std::ceil(std::max(launcherIconSize(style), textHeight) + paddingY * 2.0F);
   }
 
-  [[nodiscard]] LauncherListStyle launcherListStyleFrom(const ConfigService* config, float scale, float cardOpacity) {
-    LauncherListStyle style{.scale = scale, .appIconColorizeTint = std::nullopt, .listItemBackground = std::nullopt};
+  [[nodiscard]] LauncherListStyle
+  launcherListStyleFrom(bool pill, const ConfigService* config, float scale, float cardOpacity) {
+    LauncherListStyle style{
+        .scale = scale, .pill = pill, .appIconColorizeTint = std::nullopt, .listItemBackground = std::nullopt
+    };
     if (config != nullptr) {
       const auto& launcher = config->config().shell.launcher;
       style.showIcons = launcher.showIcons;
@@ -169,15 +185,16 @@ namespace {
     LauncherResultRow(LauncherListStyle style, AsyncTextureCache* asyncTextures)
         : m_style(style), m_asyncTextures(asyncTextures) {
       const float iconSize = launcherIconSize(m_style);
-      const float gap = (m_style.compact ? Style::spaceSm : Style::spaceMd) * m_style.scale;
-      const float paddingV = (m_style.compact ? Style::spaceXs * 0.5F : Style::spaceXs) * m_style.scale;
+      const float gap = rowGap(m_style);
+      const float paddingV =
+          m_style.pill ? 0.0F : (m_style.compact ? Style::spaceXs * 0.5F : Style::spaceXs) * m_style.scale;
       auto row = ui::row(
           {.out = &m_row,
            .align = FlexAlign::Center,
            .gap = gap,
            .paddingV = paddingV,
-           .paddingH = Style::spaceSm * m_style.scale,
-           .radius = Style::scaledRadiusMd(m_style.scale)}
+           .paddingH = (m_style.pill ? Tokens::spaceP12 : Style::spaceSm) * m_style.scale,
+           .radius = m_style.pill ? Tokens::radiusR12 * m_style.scale : Style::scaledRadiusMd(m_style.scale)}
       );
       addChild(std::move(row));
 
@@ -232,7 +249,7 @@ namespace {
               ui::label({
                   .out = &m_title,
                   .fontSize = Style::fontSizeBody * m_style.scale,
-                  .fontWeight = FontWeight::SemiBold,
+                  .fontWeight = m_style.pill ? FontWeight::Normal : FontWeight::SemiBold,
                   .color = colorSpecFromRole(ColorRole::Label1),
                   .maxLines = 1,
                   .baselineMode = LabelBaselineMode::TextFixedHeight,
@@ -266,6 +283,24 @@ namespace {
               .visible = false,
           })
       );
+
+      m_row->addChild(
+          ui::label({
+              .out = &m_openHint,
+              .text = i18n::tr("launcher.pill.open-hint"),
+              .fontSize = Style::fontSizeCaption * m_style.scale,
+              .color = colorSpecFromRole(ColorRole::Label2),
+              .maxLines = 1,
+              .visible = false,
+              .participatesInLayout = false,
+          })
+      );
+      if (m_style.pill) {
+        // Title, then the kind after g 8 on the same line.
+        m_textCol->setDirection(FlexDirection::Horizontal);
+        m_textCol->setAlign(FlexAlign::Center);
+        m_textCol->setGap(Tokens::spaceP8 * m_style.scale);
+      }
     }
 
     void setListStyle(LauncherListStyle style) { m_style = style; }
@@ -317,8 +352,11 @@ namespace {
         m_image->clear(renderer);
       }
 
-      const float gap = (m_style.compact ? Style::spaceSm : Style::spaceMd) * m_style.scale;
-      const float horizontalPad = Style::spaceSm * m_style.scale * 2.0F;
+      const float gap = rowGap(m_style);
+      const float horizontalPad = (m_style.pill ? Tokens::spaceP12 : Style::spaceSm) * m_style.scale * 2.0F;
+      const bool showOpenHint = m_style.pill && selected;
+      m_openHint->setVisible(showOpenHint);
+      m_openHint->setParticipatesInLayout(showOpenHint);
       const float leadingWidth = showLeadingVisual ? iconSize + gap : 0.0F;
       const float pinnedWidth = result.pinned ? Style::fontSizeBody * m_style.scale + gap : 0.0F;
       m_pinnedGlyph->setGlyphSize(Style::fontSizeBody * m_style.scale);
@@ -332,7 +370,9 @@ namespace {
       m_originGlyph->setVisible(hasOrigin);
       m_originGlyph->setParticipatesInLayout(hasOrigin);
       const float originWidth = hasOrigin ? Style::fontSizeBody * m_style.scale + gap : 0.0F;
-      const float textWidth = std::max(0.0F, width - leadingWidth - pinnedWidth - originWidth - horizontalPad);
+      const float hintWidth = showOpenHint ? m_openHint->width() + gap : 0.0F;
+      const float textWidth =
+          std::max(0.0F, width - leadingWidth - pinnedWidth - originWidth - hintWidth - horizontalPad);
       m_title->setText(singleLinePreview(result.title));
       m_title->setMaxWidth(textWidth);
 
@@ -343,7 +383,10 @@ namespace {
       } else {
         m_subtitle->setVisible(true);
         m_subtitle->setText(singleLinePreview(result.subtitle));
-        m_subtitle->setMaxWidth(textWidth);
+        // A pill row puts the kind after the title on one line; the title keeps its width first.
+        m_subtitle->setMaxWidth(
+            m_style.pill ? std::max(0.0F, textWidth - m_title->width() - Tokens::spaceP8 * m_style.scale) : textWidth
+        );
       }
 
       applyVisualState();
@@ -382,6 +425,23 @@ namespace {
 
   private:
     void applyVisualState() {
+      if (m_style.pill) {
+        // Rulebook 9.14: the current row is the lens; text keeps its label colours.
+        m_row->setFill(
+            m_selected ? colorSpecFromRole(ColorRole::Lens)
+                       : (m_hovered ? colorSpecFromRole(ColorRole::Fill1) : clearColorSpec())
+        );
+        m_row->clearBorder();
+        const ColorSpec label1 = colorSpecFromRole(ColorRole::Label1);
+        const ColorSpec label2 = colorSpecFromRole(ColorRole::Label2);
+        m_badgeLabel->setColor(label1);
+        m_glyph->setColor(label1);
+        m_title->setColor(label1);
+        m_subtitle->setColor(label2);
+        m_pinnedGlyph->setColor(label2);
+        m_originGlyph->setColor(label2);
+        return;
+      }
       if (m_selected) {
         m_row->setFill(colorSpecFromRole(ColorRole::Accent));
       } else if (m_hovered) {
@@ -409,6 +469,7 @@ namespace {
     }
 
     LauncherListStyle m_style{};
+    Label* m_openHint = nullptr;
     float m_rowHeight = 0.0F;
     bool m_selected = false;
     bool m_hovered = false;
@@ -785,6 +846,17 @@ namespace {
 
     void setListStyle(LauncherListStyle style) { m_style = style; }
     void setGridView(bool gridView) { m_gridView = gridView; }
+    void setPillStyle(bool pill) {
+      if (m_pillStyle == pill) {
+        return;
+      }
+      m_pillStyle = pill;
+      // Rulebook 9.14 header: footnote label_3 at inset 20 (the list sits at inset 8).
+      m_header->setPadding(0.0F, (pill ? Tokens::spaceP12 : Style::spaceXs) * m_style.scale);
+      m_headerLabel->setFontSize((pill ? Style::fontSizeCaption : Style::fontSizeBody) * m_style.scale);
+      m_headerLabel->setFontWeight(pill ? FontWeight::Normal : FontWeight::SemiBold);
+      m_headerLabel->setColor(colorSpecFromRole(pill ? ColorRole::Label3 : ColorRole::Label1));
+    }
 
     void bind(
         const LauncherSectionRowData& row, const std::vector<LauncherResult>& results,
@@ -865,6 +937,7 @@ namespace {
 
   private:
     LauncherListStyle m_style{};
+    bool m_pillStyle = false;
     Flex* m_header = nullptr;
     Glyph* m_headerGlyph = nullptr;
     Label* m_headerLabel = nullptr;
@@ -1215,7 +1288,37 @@ public:
     ++m_revision;
   }
 
+  struct Section {
+    std::string label;
+    std::string glyphName;
+    std::vector<std::size_t> resultIndices;
+  };
+
   void rebuild(const std::vector<LauncherCategory>& categories, std::string otherLabel) {
+    std::vector<Section> sections;
+    const std::size_t count = m_results == nullptr ? 0U : m_results->size();
+    std::vector<bool> assigned(count, false);
+    for (const LauncherCategory& category : categories) {
+      Section section{.label = category.label, .glyphName = category.glyphName, .resultIndices = {}};
+      for (std::size_t i = 0; i < count; ++i) {
+        if (!assigned[i] && (*m_results)[i].category == category.label) {
+          section.resultIndices.push_back(i);
+          assigned[i] = true;
+        }
+      }
+      sections.push_back(std::move(section));
+    }
+    Section other{.label = std::move(otherLabel), .glyphName = "apps", .resultIndices = {}};
+    for (std::size_t i = 0; i < count; ++i) {
+      if (!assigned[i]) {
+        other.resultIndices.push_back(i);
+      }
+    }
+    sections.push_back(std::move(other));
+    rebuildSections(sections);
+  }
+
+  void rebuildSections(const std::vector<Section>& sections) {
     m_rows.clear();
     m_visualResultOrder.clear();
     m_resultPositions.assign(m_results == nullptr ? 0U : m_results->size(), std::nullopt);
@@ -1223,58 +1326,59 @@ public:
     if (m_results == nullptr) {
       return;
     }
+    const std::size_t columns = m_gridView ? kAppGridColumns : 1;
+    for (const Section& section : sections) {
+      if (section.resultIndices.empty()) {
+        continue;
+      }
+      LauncherSectionRowData header;
+      header.kind = LauncherSectionRowData::Kind::Header;
+      header.label = section.label;
+      header.glyphName = m_pillStyle ? std::string() : section.glyphName;
+      m_rows.push_back(std::move(header));
 
-    std::vector<bool> assigned(m_results->size(), false);
-    const auto appendSection =
-        [this, &assigned](std::string label, std::string glyphName, const std::vector<std::size_t>& resultIndices) {
-          if (resultIndices.empty()) {
-            return;
-          }
-
-          LauncherSectionRowData header;
-          header.kind = LauncherSectionRowData::Kind::Header;
-          header.label = std::move(label);
-          header.glyphName = std::move(glyphName);
-          m_rows.push_back(std::move(header));
-
-          const std::size_t columns = m_gridView ? kAppGridColumns : 1;
-          for (std::size_t offset = 0; offset < resultIndices.size(); offset += columns) {
-            LauncherSectionRowData row;
-            row.kind = LauncherSectionRowData::Kind::Applications;
-            row.resultCount = std::min(columns, resultIndices.size() - offset);
-            const std::size_t rowIndex = m_rows.size();
-            for (std::size_t column = 0; column < row.resultCount; ++column) {
-              const std::size_t resultIndex = resultIndices[offset + column];
-              row.resultIndices[column] = resultIndex;
-              assigned[resultIndex] = true;
-              m_resultPositions[resultIndex] = ResultPosition{
-                  .row = rowIndex,
-                  .column = column,
-                  .visualOrder = m_visualResultOrder.size(),
-              };
-              m_visualResultOrder.push_back(resultIndex);
-            }
-            m_rows.push_back(std::move(row));
-          }
-        };
-
-    for (const LauncherCategory& category : categories) {
-      std::vector<std::size_t> categoryResults;
-      for (std::size_t i = 0; i < m_results->size(); ++i) {
-        if (!assigned[i] && (*m_results)[i].category == category.label) {
-          categoryResults.push_back(i);
+      for (std::size_t offset = 0; offset < section.resultIndices.size(); offset += columns) {
+        LauncherSectionRowData row;
+        row.kind = LauncherSectionRowData::Kind::Applications;
+        row.resultCount = std::min(columns, section.resultIndices.size() - offset);
+        const std::size_t rowIndex = m_rows.size();
+        for (std::size_t column = 0; column < row.resultCount; ++column) {
+          const std::size_t resultIndex = section.resultIndices[offset + column];
+          row.resultIndices[column] = resultIndex;
+          m_resultPositions[resultIndex] = ResultPosition{
+              .row = rowIndex,
+              .column = column,
+              .visualOrder = m_visualResultOrder.size(),
+          };
+          m_visualResultOrder.push_back(resultIndex);
         }
+        m_rows.push_back(std::move(row));
       }
-      appendSection(category.label, category.glyphName, categoryResults);
     }
+  }
 
-    std::vector<std::size_t> otherResults;
-    for (std::size_t i = 0; i < assigned.size(); ++i) {
-      if (!assigned[i]) {
-        otherResults.push_back(i);
+  // Rulebook 9.14 sections: plain footnote headers h 28, rows h 40.
+  void setPillStyle(bool pill) {
+    if (m_pillStyle != pill) {
+      m_pillStyle = pill;
+      ++m_revision;
+    }
+  }
+
+  // Height of the first `maxRows` result rows and the headers between them.
+  [[nodiscard]] float pillContentHeight(std::size_t maxRows) const {
+    float height = 0.0F;
+    std::size_t rows = 0;
+    for (const auto& row : m_rows) {
+      if (row.kind == LauncherSectionRowData::Kind::Header) {
+        height += Tokens::componentLauncherSectionHeader * m_style.scale;
+      } else if (rows++ < maxRows) {
+        height += Tokens::componentLauncherRow * m_style.scale;
+      } else {
+        break;
       }
     }
-    appendSection(std::move(otherLabel), "apps", otherResults);
+    return height;
   }
 
   [[nodiscard]] std::optional<std::size_t> firstResultIndex() const {
@@ -1352,6 +1456,11 @@ public:
     if (index >= m_rows.size()) {
       return 1.0F;
     }
+    if (m_pillStyle) {
+      return (m_rows[index].kind == LauncherSectionRowData::Kind::Header ? Tokens::componentLauncherSectionHeader
+                                                                         : Tokens::componentLauncherRow)
+          * m_style.scale;
+    }
     if (m_rows[index].kind == LauncherSectionRowData::Kind::Header) {
       const float textHeight =
           stableLabelHeight(renderer.measureFont(Style::fontSizeBody * m_style.scale, {FontWeight::SemiBold}));
@@ -1373,6 +1482,7 @@ public:
     auto* row = static_cast<LauncherSectionRow*>(&item);
     row->setListStyle(m_style);
     row->setGridView(m_gridView);
+    row->setPillStyle(m_pillStyle);
     row->bind(m_rows[index], *m_results, m_selectedResultIndex, width, item.height());
   }
 
@@ -1396,6 +1506,7 @@ private:
   std::uint64_t m_revision = 0;
   float m_applicationRowHeight = 1.0F;
   bool m_gridView = false;
+  bool m_pillStyle = false;
 };
 
 LauncherPanel::LauncherPanel(ConfigService* config, AccountsService* accounts, AsyncTextureCache* asyncTextures)
@@ -1411,6 +1522,20 @@ bool LauncherPanel::usesBrowserLayout() const {
 float LauncherPanel::preferredWidth() const { return scaled(usesBrowserLayout() ? Tokens::componentLauncherWidth : 560.0F); }
 
 float LauncherPanel::preferredHeight() const { return scaled(usesBrowserLayout() ? launcherSheetHeight() : 500.0F); }
+
+float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*contentWidth*/) {
+  const float scale = contentScale();
+  const float field = Tokens::componentLauncherSearch * scale;
+  if (m_query.empty()) {
+    return field;
+  }
+  if (!shouldUseLauncherSections() || m_launcherSectionsAdapter == nullptr || m_results.empty()) {
+    return preferredHeight();
+  }
+  // Field, hairline, list with p 8 above and below (8 rows visible), hairline, footer (rulebook 9.14).
+  return field + 1.0F + 2.0F * Tokens::spaceP8 * scale + m_launcherSectionsAdapter->pillContentHeight(8) + 1.0F
+      + Tokens::componentLauncherFooter * scale;
+}
 
 PanelPlacement LauncherPanel::panelPlacement() const noexcept {
   return m_config != nullptr ? m_config->config().shell.panel.launcherPlacement : PanelPlacement::Floating;
@@ -1554,7 +1679,7 @@ void LauncherPanel::create() {
       .flexGrow = 1.0F,
   });
 
-  const LauncherListStyle initialStyle = launcherListStyleFrom(m_config, scale, panelCardOpacity());
+  const LauncherListStyle initialStyle = launcherListStyleFrom(m_browserMode, m_config, scale, panelCardOpacity());
   m_listAdapter = std::make_unique<LauncherResultAdapter>(initialStyle, m_asyncTextures);
   m_gridAdapter = std::make_unique<LauncherAppGridAdapter>(initialStyle, m_asyncTextures);
   m_listAdapter->setResults(&m_results);
@@ -1688,30 +1813,71 @@ void LauncherPanel::create() {
   body->addChild(std::move(resultsViewport));
 
   if (m_browserMode) {
+    // The panel does not pad this content (padsContent): the field fills the 56 pill edge to edge.
     auto container = ui::column({
         .out = &m_container,
         .align = FlexAlign::Stretch,
-        .gap = Tokens::spaceP16 * scale,
-        // The panel host already insets the content by panelPadding; together they make the sheet's p 16.
-        .padding = (Tokens::componentLauncherPadding - Style::panelPadding) * scale,
         .fillWidth = true,
         .fillHeight = true,
     });
 
-    // Rulebook 9.14: search field h 40, r 12 (R7: 28 - 16), symbol 16 at inset 12, title-3 placeholder.
+    // Rulebook 9.14: pill h 56, symbol 20 label_2 at inset 20, g 12, title-3 field.
     input->setFlexGrow(1.0F);
     container->addChild(ui::row(
         {.align = FlexAlign::Center,
-         .gap = Style::spaceSm * scale,
-         .paddingH = Tokens::spaceP12 * scale,
-         .fill = colorSpecFromRole(ColorRole::Fill1),
-         .radius = Tokens::radiusR12 * scale,
+         .gap = Tokens::spaceP12 * scale,
+         .paddingH = Tokens::spaceP20 * scale,
          .minHeight = Tokens::componentLauncherSearch * scale,
          .fillWidth = true},
-        ui::glyph({.glyph = "search", .glyphSize = Tokens::sizeSymbolInline * scale, .color = colorSpecFromRole(ColorRole::Label3)}),
+        ui::glyph({.glyph = "search", .glyphSize = Tokens::sizeSymbolL * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
         std::move(input)
     ));
+    container->addChild(ui::separator({
+        .out = &m_pillSeparator,
+        .color = colorSpecFromRole(ColorRole::Separator),
+        .thickness = 1.0F,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    body->setPadding(Tokens::componentLauncherPadding * scale);
+    body->setVisible(false);
+    body->setParticipatesInLayout(false);
     container->addChild(std::move(body));
+
+    // Rulebook 9.14 footer: hairline, h 36, count leading, key hints trailing.
+    const auto keyHint = [scale](std::string text, std::string key) {
+      return ui::row(
+          {.align = FlexAlign::Center, .gap = Tokens::spaceP4 * scale},
+          ui::label({.text = std::move(text), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
+          ui::row(
+              {.align = FlexAlign::Center,
+               .paddingH = Tokens::spaceP4 * scale,
+               .fill = colorSpecFromRole(ColorRole::Fill1),
+               .radius = Tokens::radiusR4 * scale},
+              ui::label({.text = std::move(key), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)})
+          )
+      );
+    };
+    auto footer = ui::column({.out = &m_pillFooter, .align = FlexAlign::Stretch, .visible = false, .participatesInLayout = false});
+    footer->addChild(ui::separator({.color = colorSpecFromRole(ColorRole::Separator), .thickness = 1.0F}));
+    auto footerRow = ui::row({
+        .align = FlexAlign::Center,
+        .gap = Tokens::spaceP12 * scale,
+        .paddingH = Tokens::spaceP20 * scale,
+        .minHeight = Tokens::componentLauncherFooter * scale,
+        .fillWidth = true,
+    });
+    footerRow->addChild(ui::label({
+        .out = &m_pillCount,
+        .fontSize = Style::fontSizeCaption * scale,
+        .color = colorSpecFromRole(ColorRole::Label3),
+        .flexGrow = 1.0F,
+    }));
+    footerRow->addChild(keyHint(i18n::tr("launcher.pill.open"), "↩"));
+    footerRow->addChild(keyHint(i18n::tr("launcher.pill.actions-hint"), "⌘K"));
+    footerRow->addChild(keyHint(i18n::tr("launcher.pill.close-hint"), "esc"));
+    footer->addChild(std::move(footerRow));
+    container->addChild(std::move(footer));
     setRoot(std::move(container));
     // The rulebook 9.14 sheet has no category tabs: the filter is not in the tree and dies with this scope.
     m_categoryFilter = nullptr;
@@ -1740,7 +1906,7 @@ void LauncherPanel::refreshLauncherAppIconColorization() {
   if (m_listAdapter == nullptr || m_gridAdapter == nullptr || m_grid == nullptr) {
     return;
   }
-  const LauncherListStyle style = launcherListStyleFrom(m_config, contentScale(), panelCardOpacity());
+  const LauncherListStyle style = launcherListStyleFrom(m_browserMode, m_config, contentScale(), panelCardOpacity());
   m_listAdapter->setListStyle(style);
   m_gridAdapter->setListStyle(style);
   if (m_launcherSectionsAdapter != nullptr) {
@@ -1794,7 +1960,7 @@ void LauncherPanel::updatePageDots(std::size_t page, std::size_t pages) {
 
 bool LauncherPanel::shouldUseAppGrid() const {
   if (m_browserMode) {
-    return m_query.empty() && !m_results.empty() && supportsResultGrid();
+    return isAppsQuery(m_query) && !m_results.empty() && supportsResultGrid();
   }
   return m_config != nullptr && m_config->config().shell.launcher.appGrid && !m_results.empty() && supportsResultGrid();
 }
@@ -1869,13 +2035,71 @@ void LauncherPanel::animateResultsTransition() {
   , 0.0F, Unit::Progress);
 }
 
-bool LauncherPanel::shouldUseLauncherSections() const { return false; }
+bool LauncherPanel::shouldUseLauncherSections() const {
+  return m_browserMode && !m_query.empty() && !shouldUseAppGrid();
+}
+
+namespace {
+
+  std::vector<LauncherSectionsAdapter::Section> providerSections(
+      const std::vector<LauncherResult>& results, const std::vector<std::unique_ptr<LauncherProvider>>& providers
+  ) {
+  // docs/search.md §1 order: Applications, Commands, Settings, Windows, Files, then the others as they come.
+  const auto rank = [](std::string_view id) -> int {
+    if (id == kApplicationsProviderId) {
+      return 0;
+    }
+    if (id == "Session" || id == "Panels") {
+      return 1;
+    }
+    if (id == "Settings") {
+      return 2;
+    }
+    if (id == "Windows") {
+      return 3;
+    }
+    if (id == "Files") {
+      return 4;
+    }
+    return 5;
+  };
+  std::vector<std::pair<int, LauncherSectionsAdapter::Section>> sections;
+  const auto displayName = [&](std::string_view id) {
+    const auto provider = std::ranges::find(providers, id, [](const auto& candidate) { return candidate->id(); });
+    return provider == providers.end() ? std::string(id) : (*provider)->displayName();
+  };
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const std::string& id = results[i].providerId;
+    const int r = rank(id);
+    const std::string label = r == 1 ? i18n::tr("launcher.browser.sections.commands") : displayName(id);
+    auto it = std::ranges::find_if(sections, [&](const auto& entry) { return entry.second.label == label; });
+    if (it == sections.end()) {
+      sections.push_back({r, {.label = label, .glyphName = {}, .resultIndices = {}}});
+      it = std::prev(sections.end());
+    }
+    it->second.resultIndices.push_back(i);
+  }
+  std::ranges::stable_sort(sections, {}, &std::pair<int, LauncherSectionsAdapter::Section>::first);
+  std::vector<LauncherSectionsAdapter::Section> ordered;
+  ordered.reserve(sections.size());
+  for (auto& entry : sections) {
+    ordered.push_back(std::move(entry.second));
+  }
+  return ordered;
+}
+
+} // namespace
 
 void LauncherPanel::rebuildLauncherSections() {
   if (m_launcherSectionsAdapter == nullptr || m_launcherSections == nullptr) {
     return;
   }
-  if (shouldUseLauncherSections()) {
+  m_launcherSectionsAdapter->setPillStyle(m_browserMode);
+  if (m_browserMode && shouldUseLauncherSections()) {
+    (void)m_launcherSectionsAdapter->setGridView(false);
+    m_launcherSectionsAdapter->rebuildSections(providerSections(m_results, m_providers));
+    m_launcherSectionsAdapter->setSelectedResultIndex(m_selectedIndex);
+  } else if (shouldUseLauncherSections()) {
     (void)m_launcherSectionsAdapter->setGridView(
         m_config != nullptr && m_config->config().shell.launcher.appGrid && m_launcherShowIcons
     );
@@ -1895,7 +2119,7 @@ void LauncherPanel::syncLauncherViewLayout(Renderer* renderer) {
 
   const bool useGrid = shouldUseAppGrid();
   const float scale = contentScale();
-  const LauncherListStyle style = launcherListStyleFrom(m_config, scale, panelCardOpacity());
+  const LauncherListStyle style = launcherListStyleFrom(m_browserMode, m_config, scale, panelCardOpacity());
   m_grid->setScale(scale);
   m_listAdapter->setListStyle(style);
   m_gridAdapter->setListStyle(style);
@@ -1920,6 +2144,13 @@ void LauncherPanel::syncLauncherViewLayout(Renderer* renderer) {
     m_launcherRowHeight = 0.0F;
   }
 
+  if (m_browserMode && m_body != nullptr) {
+    // Rulebook 9.14: the grid sits at p 16; list rows put their lens at inset 8.
+    m_body->setPadding(useGrid ? Tokens::componentLauncherPadding * scale : Tokens::spaceP8 * scale);
+    if (m_launcherSections != nullptr) {
+      m_launcherSections->setItemGap(0.0F);
+    }
+  }
   if (useGrid) {
     m_grid->setColumns(kAppGridColumns);
     m_grid->setSquareCells(false);
@@ -1988,7 +2219,7 @@ void LauncherPanel::updateLauncherGridMetrics(Renderer& renderer) {
     return;
   }
 
-  const LauncherListStyle style = launcherListStyleFrom(m_config, contentScale(), panelCardOpacity());
+  const LauncherListStyle style = launcherListStyleFrom(m_browserMode, m_config, contentScale(), panelCardOpacity());
   float cellHeight = launcherRowHeight(renderer, style);
   if (m_usingAppGrid) {
     cellHeight = Tokens::componentLauncherCellHeight * contentScale();
@@ -2384,10 +2615,10 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   const bool trackUsage = m_config == nullptr || launcher.trackUsage;
   m_searchBroker.setOverviewPrefix(m_config != nullptr ? launcher.providerPrefix : "/");
   auto outcome = m_searchBroker.search({
-      .text = text,
+      .text = m_browserMode && isAppsQuery(text) ? std::string() : text,
       .scopedProviderId = m_scopedProviderId,
       .providerViewId = m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string(),
-      .applicationsOnly = m_browserMode && text.empty(),
+      .applicationsOnly = m_browserMode && (text.empty() || isAppsQuery(text)),
       .trackUsage = trackUsage,
       .sortByUsage = trackUsage && m_config != nullptr && launcher.sortByUsage,
   });
@@ -2414,7 +2645,7 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   }
 
   const int iconTargetSize = static_cast<int>(
-      std::round(launcherIconSize(launcherListStyleFrom(m_config, contentScale(), panelCardOpacity())))
+      std::round(launcherIconSize(launcherListStyleFrom(m_browserMode, m_config, contentScale(), panelCardOpacity())))
   );
   for (auto& result : m_allResults) {
     if (result.iconPath.empty() && !result.iconName.empty()) {
@@ -2993,6 +3224,16 @@ void LauncherPanel::refreshResults() {
     return;
   }
 
+  if (m_browserMode && m_results.empty() && !m_query.empty() && !m_anyProviderLoading) {
+    // Rulebook 9.14 / docs/search.md §1: never an empty sheet; offer the web search row.
+    const auto web = std::ranges::find(m_providers, "Web", [](const auto& provider) { return provider->id(); });
+    if (web != m_providers.end()) {
+      for (auto& result : (*web)->query(m_query)) {
+        result.providerId = (*web)->id();
+        m_results.push_back(std::move(result));
+      }
+    }
+  }
   syncLauncherViewLayout(nullptr);
   rebuildLauncherSections();
   m_grid->notifyDataChanged();
@@ -3050,6 +3291,17 @@ void LauncherPanel::applyEmptyState() {
   }
   m_emptyLabel->setVisible(empty);
   m_emptyLabel->setParticipatesInLayout(empty);
+  if (m_browserMode && m_body != nullptr && m_pillSeparator != nullptr && m_pillFooter != nullptr) {
+    const bool expanded = !m_query.empty();
+    m_body->setVisible(expanded);
+    m_body->setParticipatesInLayout(expanded);
+    m_pillSeparator->setVisible(expanded);
+    m_pillSeparator->setParticipatesInLayout(expanded);
+    const bool footer = expanded && !shouldUseAppGrid();
+    m_pillFooter->setVisible(footer);
+    m_pillFooter->setParticipatesInLayout(footer);
+    m_pillCount->setText(i18n::tr("launcher.pill.result-count", "count", m_results.size()));
+  }
   if (empty) {
     if (m_anyProviderLoading && !m_query.empty()) {
       m_emptyLabel->setText(i18n::tr("launcher.empty.loading"));
