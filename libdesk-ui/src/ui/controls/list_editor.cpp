@@ -19,7 +19,7 @@ namespace {
   std::unique_ptr<Label> makeListLabel(std::string_view text, float scale) {
     return ui::label({
         .text = std::string(text),
-        .fontSize = Style::fontSizeCaption * scale,
+        .fontSize = Style::fontSizeBody * scale,
         .color = colorSpecFromRole(ColorRole::Label1),
     });
   }
@@ -203,48 +203,49 @@ void ListEditor::rebuildRows() {
     }
   }
 
-  if (addRow) {
-    addChild(std::move(addRow));
-  }
-
+  // Rows: label, then fixed up / down / remove slots at the trailing edge so the buttons line up in a column.
+  const float slot = Tokens::sizeControlS * m_scale;
   for (std::size_t i = 0; i < m_items.size(); ++i) {
+    if (i > 0) {
+      addChild(ui::separator({.gradientEdges = false}));
+    }
     auto itemRow = ui::row({
         .align = FlexAlign::Center,
         .gap = Style::spaceXs * m_scale,
         .minHeight = itemRowHeight,
+        .fillWidth = true,
     });
+    auto label = makeListLabel(labelForValue(m_items[i]), m_scale);
+    label->setFlexGrow(1.0F);
+    itemRow->addChild(std::move(label));
 
-    auto labelCell = ui::row(
-        {
-            .align = FlexAlign::Center,
-            .minWidth = labelCellWidth,
-        },
-        makeListLabel(labelForValue(m_items[i]), m_scale)
-    );
-    itemRow->addChild(std::move(labelCell));
-
+    const auto moveSlot = [&](bool shown, std::string_view glyph, std::size_t to) {
+      if (!shown) {
+        itemRow->addChild(ui::box({.fill = clearColorSpec(), .width = slot, .height = slot}));
+        return;
+      }
+      addGhostIconButton(*itemRow, glyph, Tokens::sizeSymbolInline * m_scale, [this, i, to] {
+        if (m_onMoveRequested) {
+          m_onMoveRequested(i, to);
+        }
+      });
+    };
+    moveSlot(i > 0, "chevron-up", i - 1);
+    moveSlot(i + 1 < m_items.size(), "chevron-down", i + 1);
     addGhostIconButton(*itemRow, "close", Tokens::sizeSymbolInline * m_scale, [this, i] {
       if (m_onRemoveRequested) {
         m_onRemoveRequested(i);
       }
     });
 
-    if (i > 0) {
-      addGhostIconButton(*itemRow, "chevron-up", Tokens::sizeSymbolInline * m_scale, [this, i] {
-        if (m_onMoveRequested) {
-          m_onMoveRequested(i, i - 1);
-        }
-      });
-    }
-    if (i + 1 < m_items.size()) {
-      addGhostIconButton(*itemRow, "chevron-down", Tokens::sizeSymbolInline * m_scale, [this, i] {
-        if (m_onMoveRequested) {
-          m_onMoveRequested(i, i + 1);
-        }
-      });
-    }
-
     addChild(std::move(itemRow));
+  }
+
+  if (addRow) {
+    if (!m_items.empty()) {
+      addChild(ui::separator({.gradientEdges = false}));
+    }
+    addChild(std::move(addRow));
   }
 
   markLayoutDirty();
