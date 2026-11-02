@@ -7,6 +7,7 @@
 #include <andromedafx/render/audio.h>
 #include <wlr/util/box.h>
 
+struct wlr_output;
 struct wlr_output_state;
 struct wlr_renderer;
 struct wlr_scene;

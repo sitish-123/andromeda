@@ -20,7 +20,7 @@ namespace andromeda {
   ) {
     const auto& cfg = config().appearance.shadow;
     const ShadowStyle style = m_style.value_or(
-        ShadowStyle{.softness = cfg.softness, .offsetX = cfg.offsetX, .offsetY = cfg.offsetY}
+        ShadowStyle{.softness = cfg.softness, .offsetX = cfg.offsetX, .offsetY = cfg.offsetY, .opacity = {}, .contactOpacity = {}}
     );
     std::array<float, 4> shadow = baseColor(style.opacity);
 
