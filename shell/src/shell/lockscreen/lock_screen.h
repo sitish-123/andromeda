@@ -4,6 +4,7 @@
 #include "capture/screencopy_capture.h"
 #include "core/timer_manager.h"
 #include "render/core/lockscreen_transition_types.h"
+#include "shell/lockscreen/lock_auth_column.h"
 #include "shell/lockscreen/lock_fail_delay.h"
 
 #include <cstdint>
@@ -59,6 +60,8 @@ public:
   bool lock();
   // Lock from the paired phone (Link): password only, no grace, until the next unlock.
   bool lockFromPhone();
+  // Battery and network for the status island; the keyboard layout comes from the surface indicators.
+  void setStatus(LockAuthColumn::Status status);
   void primeDesktopCaptures();
   void clearPrimedDesktopCaptures();
   void unlock();
@@ -233,6 +236,7 @@ private:
   Timer m_failDelayTimer;
   bool m_passwordOnly = false;
   bool m_lastRejected = false;
+  LockAuthColumn::Status m_statusIsland;
   // LockFromPhone arrived during the unlock animation.
   bool m_phoneLockAfterUnlock = false;
 };

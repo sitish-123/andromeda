@@ -692,6 +692,18 @@ void LockScreen::onSystemResumed() {
   cancelOutputPowerOff();
 }
 
+void LockScreen::setStatus(LockAuthColumn::Status status) {
+  if (m_statusIsland == status) {
+    return;
+  }
+  m_statusIsland = std::move(status);
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setStatus(m_statusIsland);
+    }
+  }
+}
+
 bool LockScreen::lockFromPhone() {
   if (m_unlocking) {
     m_phoneLockAfterUnlock = true;
@@ -1457,6 +1469,7 @@ void LockScreen::updatePromptOnSurfaces() {
   for (auto& instance : m_instances) {
     instance.surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
     instance.surface->setAuthExtras(extras);
+    instance.surface->setStatus(m_statusIsland);
   }
 }
 

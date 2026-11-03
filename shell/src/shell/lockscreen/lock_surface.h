@@ -73,6 +73,7 @@ public:
     bool operator==(const AuthExtras&) const = default;
   };
   void setAuthExtras(const AuthExtras& extras);
+  void setStatus(const LockAuthColumn::Status& status);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
@@ -221,6 +222,7 @@ private:
   std::unique_ptr<LockAuthColumn> m_auth;
   bool m_authShownError = false;
   AuthExtras m_authExtras;
+  LockAuthColumn::Status m_statusIsland;
   Timer m_andromedaClock;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;

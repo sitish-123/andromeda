@@ -1749,6 +1749,8 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     } else if (m_authExtras.fingerprint) {
       state.trailing = LockAuthColumn::Trailing::Fingerprint;
     }
+    state.status = m_statusIsland;
+    state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
     state.time = formatLocalTime("%H:%M");
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
@@ -1773,6 +1775,14 @@ void LockSurface::startAndromedaClock() {
     requestLayout();
     startAndromedaClock();
   });
+}
+
+void LockSurface::setStatus(const LockAuthColumn::Status& status) {
+  if (m_statusIsland == status) {
+    return;
+  }
+  m_statusIsland = status;
+  requestUpdate();
 }
 
 void LockSurface::setAuthExtras(const AuthExtras& extras) {

@@ -4,11 +4,16 @@
 #include "core/log.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/network/inetwork_service.h"
+#include "dbus/network/network_display.h"
+#include "dbus/upower/upower_service.h"
+#include "shell/lockscreen/lock_auth_column.h"
 #include "pipewire/sound_player.h"
 #include "render/backend/render_backend.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <format>
 #include <exception>
 
 namespace {
@@ -115,7 +120,21 @@ void Application::requestAllSurfacesRedraw() {
   });
 }
 
+void Application::refreshLockStatus() {
+  LockAuthColumn::Status status;
+  if (upower() != nullptr && upower()->state().isPresent) {
+    const auto& battery = upower()->state();
+    status.batteryGlyph = batteryGlyphName(battery.percentage, battery.state);
+    status.batteryText = std::format("{}%", static_cast<int>(std::lround(battery.percentage)));
+  }
+  if (network() != nullptr && network()->hasStateSnapshot()) {
+    status.networkGlyph = network_display::glyphForState(network()->state());
+  }
+  m_lockScreen.setStatus(std::move(status));
+}
+
 void Application::onUpowerStateChangedForHooks() {
+  refreshLockStatus();
   if (upower() == nullptr) {
     return;
   }
@@ -141,6 +160,7 @@ void Application::onUpowerStateChangedForHooks() {
 }
 
 void Application::onNetworkStateChangedForEvents(const NetworkState& state, NetworkChangeOrigin origin) {
+  refreshLockStatus();
   if (!m_prevWirelessEnabledForEvents.has_value()) {
     m_prevWirelessEnabledForEvents = state.wirelessEnabled;
     return;

@@ -10,6 +10,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
 #include <numbers>
@@ -22,6 +23,7 @@ namespace {
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
   constexpr Color kLabel3 = rgba(1.0F, 1.0F, 1.0F, 0.46F);
   constexpr Color kDanger = rgba(1.0F, 107.0F / 255.0F, 94.0F / 255.0F, 1.0F);
+  constexpr Color kRegular = rgba(28.0F / 255.0F, 28.0F / 255.0F, 32.0F / 255.0F, 0.40F);
   constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.56F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kAccent = rgba(97.0F / 255.0F, 89.0F / 255.0F, 245.0F / 255.0F, 1.0F);
@@ -76,6 +78,13 @@ void LockAuthColumn::build(Node& root, AnimationManager& animations) {
   m_animations = &animations;
   m_group = addGroup(root);
   m_group->setZIndex(6);
+
+  m_island = addRect(*m_group);
+  m_batteryGlyph = addGlyph(*m_group);
+  m_batteryText = addLabel(*m_group, FontWeight::SemiBold, true);
+  m_batteryText->setFontFeatures("tnum");
+  m_networkGlyph = addGlyph(*m_group);
+  m_layoutText = addLabel(*m_group, FontWeight::SemiBold, true);
 
   m_date = addLabel(*m_group, FontWeight::SemiBold, true);
   m_clock = addLabel(*m_group, FontWeight::Light, true);
@@ -270,6 +279,64 @@ void LockAuthColumn::layout(Renderer& renderer, float sw, float sh, float scale)
     m_cardBody->setEllipsize(TextEllipsize::End);
     m_cardBody->measure(renderer);
     m_cardBody->setPosition(textX, cardY + pad + titleLine);
+  }
+
+  // Status island: h 32, r 16, p 0 12 0 8, g 8, at top 8 / right 8; parts that have nothing to show drop out.
+  {
+    const Status& st = m_state.status;
+    const float islandH = 32.0F * s;
+    const float gap = 8.0F * s;
+    struct Part {
+      Node* node;
+      bool show;
+    };
+    m_batteryGlyph->setVisible(!st.batteryGlyph.empty());
+    m_batteryText->setVisible(!st.batteryText.empty());
+    m_networkGlyph->setVisible(!st.networkGlyph.empty());
+    m_layoutText->setVisible(!st.layoutLabel.empty());
+    for (Glyph* glyph : {m_batteryGlyph, m_networkGlyph}) {
+      glyph->setGlyph(glyph == m_batteryGlyph ? st.batteryGlyph : st.networkGlyph);
+      glyph->setGlyphSize(16.0F * s);
+      glyph->setColor(kLabel1);
+      glyph->measure(renderer);
+    }
+    for (Label* label : {m_batteryText, m_layoutText}) {
+      label->setFontSize(Tokens::typeHeadline.size * s);
+      label->setLineHeight(Tokens::typeHeadline.line * s);
+      label->setColor(kLabel1);
+      label->setText(label == m_batteryText ? st.batteryText : st.layoutLabel);
+      label->measure(renderer);
+    }
+    const std::array<Part, 4> parts{{{m_batteryGlyph, !st.batteryGlyph.empty()},
+                                     {m_batteryText, !st.batteryText.empty()},
+                                     {m_networkGlyph, !st.networkGlyph.empty()},
+                                     {m_layoutText, !st.layoutLabel.empty()}}};
+    float contentW = 0.0F;
+    int shown = 0;
+    for (const Part& part : parts) {
+      if (part.show) {
+        contentW += part.node->width();
+        ++shown;
+      }
+    }
+    m_island->setVisible(shown > 0);
+    if (shown > 0) {
+      contentW += gap * static_cast<float>(shown - 1);
+      const float islandW = snap(8.0F * s + contentW + 12.0F * s);
+      const float islandX = snap(sw - 8.0F * s - islandW);
+      const float islandY = snap(8.0F * s);
+      m_island->setPosition(islandX, islandY);
+      m_island->setSize(islandW, islandH);
+      m_island->setStyle(RoundedRectStyle{.fill = kRegular, .border = kStroke, .radius = islandH * 0.5F, .borderWidth = 0.5F * s});
+      float x = islandX + 8.0F * s;
+      for (const Part& part : parts) {
+        if (!part.show) {
+          continue;
+        }
+        part.node->setPosition(snap(x), snap(islandY + (islandH - part.node->height()) * 0.5F));
+        x += part.node->width() + gap;
+      }
+    }
   }
 
   // Clock: hero 80 / 80 with its top at 1/4 of the height; the date line 8 above it.

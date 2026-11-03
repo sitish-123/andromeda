@@ -18,6 +18,15 @@ class LockAuthColumn {
 public:
   enum class Trailing { None, Face, Fingerprint, Go, Checking };
 
+  // Status island (rulebook 9.15, top right): battery, network, keyboard layout.
+  struct Status {
+    std::string batteryGlyph;
+    std::string batteryText;
+    std::string networkGlyph;
+    std::string layoutLabel;
+    bool operator==(const Status&) const = default;
+  };
+
   struct State {
     std::string user;
     std::size_t passwordLength = 0;
@@ -35,6 +44,7 @@ public:
     // Centered layout clock (rulebook 9.15): hero time, title-3 date 8 above it.
     std::string time;
     std::string date;
+    Status status;
 
     bool operator==(const State&) const = default;
   };
@@ -74,6 +84,11 @@ private:
   Glyph* m_cardGlyph = nullptr;
   Label* m_cardTitle = nullptr;
   Label* m_cardBody = nullptr;
+  RectNode* m_island = nullptr;
+  Glyph* m_batteryGlyph = nullptr;
+  Label* m_batteryText = nullptr;
+  Glyph* m_networkGlyph = nullptr;
+  Label* m_layoutText = nullptr;
   Label* m_date = nullptr;
   Label* m_clock = nullptr;
   Rect m_capsuleRect;

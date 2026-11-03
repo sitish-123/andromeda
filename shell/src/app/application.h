@@ -263,6 +263,8 @@ private:
   void requestAllSurfacesRedraw();
   void releaseSleepDelayInhibitIfPending();
   void onUpowerStateChangedForHooks();
+  // Battery and network for the lock screen's status island.
+  void refreshLockStatus();
   void applyPowerSourceProfile();
   [[nodiscard]] UPowerService* upower() const noexcept {
     return m_upowerModule != nullptr ? m_upowerModule->service() : nullptr;
