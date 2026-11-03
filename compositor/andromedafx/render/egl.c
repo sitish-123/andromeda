@@ -637,6 +637,40 @@ static bool egl_init_with_gbm(struct wlr_egl* egl, int drm_fd, bool allow_softwa
   return false;
 }
 
+// This thread's current EGL state. Every eglMakeCurrent and eglReleaseThread in the process goes through this file,
+// so the mirror is exact; it saves the eglGetCurrent* queries and same-context eglMakeCurrent calls each GL helper
+// would otherwise make several times per frame.
+static _Thread_local struct wlr_egl_context current_state = {
+    .display = EGL_NO_DISPLAY,
+    .context = EGL_NO_CONTEXT,
+    .draw_surface = EGL_NO_SURFACE,
+    .read_surface = EGL_NO_SURFACE,
+};
+
+static void forget_current(void) {
+  current_state = (struct wlr_egl_context){EGL_NO_DISPLAY, EGL_NO_CONTEXT, EGL_NO_SURFACE, EGL_NO_SURFACE};
+}
+
+static bool set_current(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context) {
+  const EGLDisplay call_display = display != EGL_NO_DISPLAY ? display : current_state.display;
+  if (context == EGL_NO_CONTEXT) {
+    // Unbound means no current display either, as eglGetCurrentDisplay reports.
+    display = EGL_NO_DISPLAY;
+    draw = read = EGL_NO_SURFACE;
+  }
+  if (current_state.display == display && current_state.context == context && current_state.draw_surface == draw
+      && current_state.read_surface == read) {
+    return true;
+  }
+  if (!eglMakeCurrent(call_display, draw, read, context)) {
+    // The state after a failed call is unknown; the next call must not skip.
+    current_state.context = (EGLContext)-1;
+    return false;
+  }
+  current_state = (struct wlr_egl_context){display, context, draw, read};
+  return true;
+}
+
 struct wlr_egl* wlr_egl_create_with_drm_fd(int drm_fd) {
   bool allow_software = drm_fd < 0;
 
@@ -672,6 +706,7 @@ error:
   wlr_log(WLR_ERROR, "Failed to initialize EGL context");
   free(egl);
   eglReleaseThread();
+  forget_current();
   return NULL;
 }
 
@@ -692,6 +727,7 @@ struct wlr_egl* wlr_egl_create_with_drm_fd_gbm(int drm_fd) {
   wlr_log(WLR_ERROR, "Failed to initialize EGL context through GBM");
   free(egl);
   eglReleaseThread();
+  forget_current();
   return NULL;
 }
 
@@ -731,7 +767,7 @@ void wlr_egl_destroy(struct wlr_egl* egl) {
   wlr_drm_format_set_finish(&egl->dmabuf_render_formats);
   wlr_drm_format_set_finish(&egl->dmabuf_texture_formats);
 
-  eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  wlr_egl_unset_current(egl);
   eglDestroyContext(egl->display, egl->context);
 
   if (egl->gbm_device != NULL || egl->exts.KHR_display_reference) {
@@ -739,6 +775,7 @@ void wlr_egl_destroy(struct wlr_egl* egl) {
   }
 
   eglReleaseThread();
+  forget_current();
 
   if (egl->gbm_device) {
     int gbm_fd = gbm_device_get_fd(egl->gbm_device);
@@ -765,12 +802,9 @@ bool wlr_egl_destroy_image(struct wlr_egl* egl, EGLImage image) {
 
 bool wlr_egl_make_current(struct wlr_egl* egl, struct wlr_egl_context* save_context) {
   if (save_context != NULL) {
-    save_context->display = eglGetCurrentDisplay();
-    save_context->context = eglGetCurrentContext();
-    save_context->draw_surface = eglGetCurrentSurface(EGL_DRAW);
-    save_context->read_surface = eglGetCurrentSurface(EGL_READ);
+    *save_context = current_state;
   }
-  if (!eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->context)) {
+  if (!set_current(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl->context)) {
     wlr_log(WLR_ERROR, "eglMakeCurrent failed");
     return false;
   }
@@ -778,7 +812,7 @@ bool wlr_egl_make_current(struct wlr_egl* egl, struct wlr_egl_context* save_cont
 }
 
 bool wlr_egl_unset_current(struct wlr_egl* egl) {
-  if (!eglMakeCurrent(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) {
+  if (current_state.context != EGL_NO_CONTEXT && !set_current(egl->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) {
     wlr_log(WLR_ERROR, "eglMakeCurrent failed");
     return false;
   }
@@ -786,19 +820,11 @@ bool wlr_egl_unset_current(struct wlr_egl* egl) {
 }
 
 bool wlr_egl_restore_context(struct wlr_egl_context* context) {
-  // If the saved context is a null-context, we must use the current
-  // display instead of the saved display because eglMakeCurrent() can't
-  // handle EGL_NO_DISPLAY.
-  EGLDisplay display = context->display == EGL_NO_DISPLAY ? eglGetCurrentDisplay() : context->display;
-
-  // If the current display is also EGL_NO_DISPLAY, we assume that there
-  // is currently no context set and no action needs to be taken to unset
-  // the context.
-  if (display == EGL_NO_DISPLAY) {
+  // A saved null context with no current display means nothing was bound before and nothing is bound now.
+  if (context->display == EGL_NO_DISPLAY && current_state.display == EGL_NO_DISPLAY) {
     return true;
   }
-
-  return eglMakeCurrent(display, context->draw_surface, context->read_surface, context->context);
+  return set_current(context->display, context->draw_surface, context->read_surface, context->context);
 }
 
 EGLImageKHR

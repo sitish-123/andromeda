@@ -6,9 +6,12 @@
 #include <EGL/eglext.h>
 #include <math.h>
 #include <stdlib.h>
+#include <time.h>
 #include <wlr/util/log.h>
 
 enum { kProbeWidth = 4, kProbeHeight = 2 };
+// Density follows the backdrop within this; each capture costs a fence (a mid-frame flush) and a readback.
+static const int64_t kProbeIntervalNs = 100 * 1000 * 1000;
 
 struct fx_backdrop_probe {
   struct fx_renderer* renderer; // NULL once the renderer is gone
@@ -17,7 +20,15 @@ struct fx_backdrop_probe {
   GLuint framebuffer;
   EGLSyncKHR sync;
   bool linear;
+  bool captured;          // the first capture runs at once: a new sheet stays hidden until its first sample
+  int64_t last_capture_ns; // CLOCK_MONOTONIC
 };
+
+static int64_t monotonic_ns(void) {
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
+}
 
 static const GLchar probe_vert_src[] = "attribute vec2 pos;\n"
                                        "uniform vec4 src;\n"
@@ -124,6 +135,11 @@ struct wlr_renderer* fx_backdrop_probe_renderer(const struct fx_backdrop_probe* 
   return probe != NULL && probe->renderer != NULL ? &probe->renderer->wlr_renderer : NULL;
 }
 
+bool fx_backdrop_probe_due(const struct fx_backdrop_probe* probe) {
+  return probe != NULL && probe->sync == EGL_NO_SYNC_KHR
+      && (!probe->captured || monotonic_ns() - probe->last_capture_ns >= kProbeIntervalNs);
+}
+
 bool fx_backdrop_probe_pending(const struct fx_backdrop_probe* probe) {
   return probe != NULL && probe->renderer != NULL && probe->sync != EGL_NO_SYNC_KHR;
 }
@@ -191,6 +207,8 @@ void fx_backdrop_probe_capture(
 
   probe->sync = egl->procs.eglCreateSyncKHR(egl->display, EGL_SYNC_FENCE_KHR, NULL);
   probe->linear = linear;
+  probe->captured = true;
+  probe->last_capture_ns = monotonic_ns();
 }
 
 bool fx_backdrop_probe_poll(struct fx_backdrop_probe* probe, float* luminance) {

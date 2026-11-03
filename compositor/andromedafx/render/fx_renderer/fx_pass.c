@@ -3075,7 +3075,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       probe_box.x, probe_box.y, probe_box.x + probe_box.width, probe_box.y + probe_box.height
   };
   if (fx_options->backdrop_probe != NULL && !fuse && pass->group_depth == 0 && !wlr_box_empty(&probe_box)
-      && !fx_backdrop_probe_pending(fx_options->backdrop_probe)
+      && fx_backdrop_probe_due(fx_options->backdrop_probe)
       && (tex_options->base.clip == NULL
           || pixman_region32_contains_rectangle(tex_options->base.clip, &probe_extents) == PIXMAN_REGION_IN)) {
     fx_backdrop_probe_capture(

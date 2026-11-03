@@ -8,6 +8,9 @@
 
 struct fx_renderer;
 
+/** True when no sample is in flight and the first sample, or 100 ms since the last one, is due. */
+bool fx_backdrop_probe_due(const struct fx_backdrop_probe* probe);
+
 /**
  * Draws the 4x2 sample grid of box (texture px, top-left origin) from texture into the probe and fences it. linear:
  * the texture holds linear-light values. Restores viewport, blend and

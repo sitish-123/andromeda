@@ -3,6 +3,7 @@
 # GPU frame time, missed frames, compositor and shell CPU, RSS and package power. Runs inside the user's session.
 # Needs: the compositor started with ANDROMEDA_FRAME_LOG=$OUT/frames.log, and foot, mpv, ffmpeg, ydotool, notify-send.
 # Usage: OUT=/tmp/glass-live SECONDS_PER=12 RECORD=0 tests/glass-live.sh
+#   SCENARIOS="cc_over_video worst" runs only those scenarios.
 #   RECORD=1 also records the screen to $OUT/run.mp4 (wf-recorder costs GPU time: use it on a second pass, not for numbers).
 set -uo pipefail
 OUT=${OUT:-/tmp/glass-live}
@@ -86,7 +87,12 @@ s_bar_dock_over_video() {
   sleep 1
 }
 s_idle() { sleep "$SECONDS_PER"; }
-s_video_full() { local v; v=$(video); edges; sleep "$SECONDS_PER"; kill "$v"; }
+# Fullscreen video must go straight to the screen: a "no" here means some node blocks direct scanout.
+s_video_full() {
+  local v; v=$(video); edges
+  echo "video_full direct_scanout: $(andromeda outputs --json 2> /dev/null | jq -r '.[0].direct_scanout.active // "unknown"')" > "$OUT/scanout.txt"
+  sleep "$SECONDS_PER"; kill "$v"
+}
 s_cc_over_video() {
   local v; v=$(video); edges
   local end=$((SECONDS + SECONDS_PER))
@@ -130,8 +136,8 @@ s_worst() {
 set_reduce "$([[ $REDUCE == 1 ]] && echo true || echo false)"; sleep 1
 rec=
 if [[ $RECORD == 1 ]]; then wf-recorder -f "$OUT/run.mp4" > "$OUT/wf-recorder.log" 2>&1 & rec=$!; sleep 1; fi
-for s in idle bar_dock_over_video video_full cc_over_video launcher_typing_over_scroll notifications_over_video slider_sweep_over_video \
-  scheme_flip_over_scroll worst; do
+for s in ${SCENARIOS:-idle bar_dock_over_video video_full cc_over_video launcher_typing_over_scroll notifications_over_video \
+  slider_sweep_over_video scheme_flip_over_scroll worst}; do
   scenario "$s" "s_$s"
   sleep 1
 done
@@ -164,4 +170,5 @@ while read -r name t0 t1 e0 e1 c0 c1 s0 s1 crss srss; do
   printf '%-30s %6d %7s %7s %7s %6d %6s %7s %6s %6s %6s %7s %6s %7s %5s %7s %7s %7s %7s\n' "$name" "$n" "$p50" "$p99" "$mx" "$missed" "$watts" \
     "$(cpu "$c0" "$c1")" "$(cpu "$s0" "$s1")" "$crss" "$srss" "$bkpx" "$lensn" "$bdkpx" "$fp16" "$rec50" "$rec99" "$exec50" "$exec99" | tee -a "$OUT/report.txt"
 done < "$OUT/scenarios.txt"
+cat "$OUT/scanout.txt" 2> /dev/null | tee -a "$OUT/report.txt"
 echo "budget: p99 GPU <= 4.17 ms (25 % of a 60 Hz frame); missed frames should be 0 outside idle" | tee -a "$OUT/report.txt"
