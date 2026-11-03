@@ -376,13 +376,21 @@ namespace {
     void setListStyle(LauncherListStyle style) { m_style = style; }
     void setReorderTarget(bool target) { m_reorderTarget = target; }
 
+    // A clipboard image thumbnail is a 32 square cover crop (launcher-media.html); other rows show a 24 icon.
+    [[nodiscard]] float leadingSize() const {
+      return m_thumbnail ? Tokens::spaceP32 * m_style.scale : launcherIconSize(m_style);
+    }
+
     void
     bind(Renderer& renderer, const LauncherResult& result, float width, float height, bool selected, bool hovered) {
       m_selected = selected;
       m_hovered = hovered;
       m_iconPath = result.iconPath;
       m_fallbackGlyph = result.glyphName.empty() ? "app-window" : result.glyphName;
-      const float iconSize = launcherIconSize(m_style);
+      m_thumbnail = result.presentation == "clipboard-image";
+      m_image->setFit(m_thumbnail ? ImageFit::Cover : ImageFit::Contain);
+      m_image->setRadius(m_thumbnail ? Tokens::radiusR8 * m_style.scale : 0.0F);
+      const float iconSize = leadingSize();
       m_iconTargetSize = static_cast<int>(std::round(iconSize));
       m_badgeVisible = !result.badge.empty();
       m_rowHeight = height;
@@ -487,7 +495,7 @@ namespace {
         ready = m_image->setSourceFile(renderer, m_iconPath, m_iconTargetSize, true);
       }
 
-      m_image->setSize(launcherIconSize(m_style), launcherIconSize(m_style));
+      m_image->setSize(leadingSize(), leadingSize());
       m_image->setVisible(ready);
       m_glyph->setGlyph(m_fallbackGlyph);
       m_glyph->setVisible(!ready);
@@ -565,6 +573,7 @@ namespace {
     std::string m_iconPath;
     std::string m_fallbackGlyph;
     int m_iconTargetSize = 0;
+    bool m_thumbnail = false;
     bool m_badgeVisible = false;
     bool m_reorderTarget = false;
   };
