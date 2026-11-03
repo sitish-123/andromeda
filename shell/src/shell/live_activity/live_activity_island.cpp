@@ -225,6 +225,9 @@ void LiveActivityIsland::setRestSources(
 void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
   const bool had = m_activity.has_value();
   m_activity = std::move(activity);
+  for (auto& inst : m_instances) {
+    applyLayer(*inst);
+  }
   if (m_activity.has_value() && m_activity->since.has_value()) {
     if (!m_callTimer.active()) {
       m_callTimer.startRepeating(std::chrono::seconds(1), [this] { refresh(); });
@@ -599,6 +602,23 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
   };
 }
 
+void LiveActivityIsland::setFullscreen(bool fullscreen) {
+  if (m_fullscreen == fullscreen) {
+    return;
+  }
+  m_fullscreen = fullscreen;
+  for (auto& inst : m_instances) {
+    applyLayer(*inst);
+  }
+}
+
+// The plain rest pill goes under a fullscreen window (Top layer), so fullscreen video gets direct scanout. A call at rest
+// stays over it; a collapse to rest moves down only when its morph ends.
+void LiveActivityIsland::applyLayer(Instance& inst) {
+  const bool under = inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
+  inst.surface->setLayer(under ? LayerShellLayer::Top : LayerShellLayer::Overlay);
+}
+
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
   if (m_activity.has_value() && (!m_activity->since.has_value() || inst.hovered || inst.space.restless)) {
     return Face::Live;
@@ -627,6 +647,9 @@ void LiveActivityIsland::updateFace(Instance& inst) {
     inst.hoverMedia = false;
   }
   const Face face = desiredFace(inst);
+  if (face != Face::Rest) {
+    inst.surface->setLayer(LayerShellLayer::Overlay);
+  }
   if (face == inst.face) {
     return;
   }
@@ -856,6 +879,7 @@ void LiveActivityIsland::finishReveal(Instance& inst) {
   const AnimationManager::Id driver = inst.revealAnimId;
   inst.revealAnimId = 0;
   inst.prevFace = inst.face;
+  applyLayer(inst);
   auto* instPtr = &inst;
   if (driver != 0) {
     inst.mirrorStop.start(std::chrono::milliseconds(1), [instPtr, driver] { instPtr->animations.cancel(driver); });

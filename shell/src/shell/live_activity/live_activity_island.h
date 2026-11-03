@@ -94,6 +94,8 @@ public:
   [[nodiscard]] bool osdVisible() const;
   [[nodiscard]] bool showBanner(const Notification& notification, NotificationEvent event);
   void setActivity(std::optional<LiveActivity> activity);
+  // A fullscreen window: the rest pill hides under it; other faces and an active call still show over it.
+  void setFullscreen(bool fullscreen);
   // IPC: "none" or "title|subtitle|secondary glyph|primary glyph"; press runs the button's action.
   [[nodiscard]] std::string describeActivity() const;
   bool pressActivityButton(bool secondary);
@@ -264,6 +266,7 @@ private:
   void applyBannerOffset(Instance& inst, float offset);
   [[nodiscard]] float bannerMinOffset(const Instance& inst) const;
   void updateFace(Instance& inst);
+  void applyLayer(Instance& inst);
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;
   void syncDsk(Instance& inst, bool animate);
@@ -323,4 +326,5 @@ private:
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
   bool m_refreshScheduled = false;
   std::vector<std::unique_ptr<Instance>> m_instances;
+  bool m_fullscreen = false;
 };

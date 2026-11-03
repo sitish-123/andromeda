@@ -1092,6 +1092,7 @@ void Application::initWaylandCallbacks() {
     m_bar.refresh();
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
+    m_liveActivity.setFullscreen(m_wayland.hasFullscreenToplevel());
   });
   m_wayland.setShellActionCallback([this](const std::string& command) {
     kLog.debug("shell action from compositor: {}", command);
