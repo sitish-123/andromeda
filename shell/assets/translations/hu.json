@@ -751,14 +751,14 @@
       "dbus-disabled": "D-Bus értesítések letiltva",
       "desktop-widgets-editor": "Widget-szerkesztő",
       "desktop-widgets-editor-enabled": "Az asztali widget-szerkesztő be van kapcsolva. Válts egy üres munkaterületre, hogy lásd a szerkesztőfelületet.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Várakozás a rendszergazda jóváhagyására a „greeter” fájlba történő íráshoz.",
-      "greeter-sync-pending-console": "A rendszergazda jóváhagyására vár. Hagyd jóvá a polkit felugró ablakot a Noctalia-ban, TTY-n vagy konzolon, vagy futtasd manuálisan a pkexec parancsot.",
+      "greeter-sync-pending-console": "A rendszergazda jóváhagyására vár. Hagyd jóvá a polkit felugró ablakot a Andromeda-ban, TTY-n vagy konzolon, vagy futtasd manuálisan a pkexec parancsot.",
       "greeter-sync-pending-manual": "A fájlok elő vannak készítve. Futtasd a terminálban: pkexec noctalia-greeter-apply-appearance „$XDG_RUNTIME_DIR/noctalia-greeter-sync” vagy állítsd be a shell.greeter_sync.privilege_command értéket (például ghostty -e pkexec), majd hajtsd végre újra a szinkronizálást.",
       "greeter-sync-success": "Megjelenés szinkronizálva. A változások a következő bejelentkezési képernyőn lépnek érvénybe.",
       "greeter-sync-timeout": "A Greeter szinkronizálása még mindig a rendszergazda jóváhagyására vár. Ellenőrizd, megjelenik-e a polkit parancssor a TTY-n vagy a konzolon, engedélyezd a polkit ügynököt a Biztonsági beállításokban, vagy futtasd manuálisan a pkexec parancsot.",
       "greeter-sync-timeout-manual": "A Greeter szinkronizálásához továbbra is rendszergazdai jóváhagyás szükséges. Futtasd a terminálban: pkexec noctalia-greeter-apply-appearance „$XDG_RUNTIME_DIR/noctalia-greeter-sync”",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Ez a gyorsbillentyű egyetlen billentyűt fogad el módosítók nélkül.",
       "keybind-invalid-printable": "A nyomtatható billentyűk (betűk, számok, szimbólumok) módosító billentyűt igényelnek, mint például a Ctrl vagy az Alt.",
       "keybind-invalid-super": "A Super/Windows billentyű nem használható shell gyorsbillentyűkben.",
@@ -830,7 +830,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "A {plugin} a plugin API {version} verzióját célozza meg. Ez a Noctalia az API {oldest}–{current} verzióit támogatja.",
+      "body-incompatible": "A {plugin} a plugin API {version} verzióját célozza meg. Ez a Andromeda az API {oldest}–{current} verzióit támogatja.",
       "body-timeout": "A {plugin} telepítése túl sokáig tartott.",
       "title": "Bővítmény nincs engedélyezve"
     }
@@ -1107,7 +1107,7 @@
       },
       "reset-page": "Nem sikerült visszaállítani néhány beállítást.",
       "support-report": "Nem sikerült menteni a támogatási jelentést.",
-      "sync-greeter": "Nem sikerült szinkronizálni a megjelenést a Noctalia Greeterrel.",
+      "sync-greeter": "Nem sikerült szinkronizálni a megjelenést a Andromeda Greeterrel.",
       "sync-greeter-timeout": "A Greeter szinkronizálása még mindig a rendszergazda jóváhagyására vár. Ellenőrizd, megjelenik-e a polkit parancssor a TTY-n vagy a konzolon, engedélyezd a polkit ügynököt a Biztonsági beállításokban, vagy futtasd manuálisan a pkexec parancsot.",
       "sync-greeter-timeout-manual": "A Greeter szinkronizálásához továbbra is rendszergazdai jóváhagyás szükséges. Futtasd a terminálban: pkexec noctalia-greeter-apply-appearance „$XDG_RUNTIME_DIR/noctalia-greeter-sync”",
       "widget": {
@@ -2022,7 +2022,7 @@
             "label": "Leállításkor"
           },
           "started": {
-            "description": "Parancs, ami a Noctalia indulása után lefut",
+            "description": "Parancs, ami a Andromeda indulása után lefut",
             "label": "Indításkor"
           },
           "theme-mode-changed": {
@@ -2726,9 +2726,9 @@
           "label": "Greeter szinkronizálási jogosultsági parancs"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Alkalmazásokat indít külön systemd szolgáltatásokban, hogy ne osszák meg Noctalia cgroupját",
+          "description": "Alkalmazásokat indít külön systemd szolgáltatásokban, hogy ne osszák meg Andromeda cgroupját",
           "label": "Alkalmazások indítása systemd szolgáltatásként",
-          "requires-systemd-session": "Szükséges, hogy a Noctalia systemd-felhasználói szolgáltatásként (uwsm vagy systemd-felhasználói egység) fusson"
+          "requires-systemd-session": "Szükséges, hogy a Andromeda systemd-felhasználói szolgáltatásként (uwsm vagy systemd-felhasználói egység) fusson"
         },
         "launch-apps-custom-command": {
           "description": "A programindítóból, a dokkból és a tálcáról elindított alkalmazásokat fogja közre; a $CMD-t az eredeti parancsra cseréli",
@@ -2916,8 +2916,8 @@
         },
         "sync-greeter": {
           "button": "Szinkronizálás most",
-          "description": "Másold az aktuális háttérképet és színeket a Noctalia Greeterbe (rendszergazdai jóváhagyás szükséges)",
-          "label": "Noctalia Greeter"
+          "description": "Másold az aktuális háttérképet és színeket a Andromeda Greeterbe (rendszergazdai jóváhagyás szükséges)",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Kis, anonim indítási pinget küld verzióval, OS-sel, kompozitorral, monitorfelbontásokkal, RAM-mal és UI skálával",
@@ -3695,7 +3695,7 @@
       "export-config-saved": "Konfiguráció exportálása mentve.",
       "filter-overridden": "Felülírva",
       "legacy-config-warning": "A régi konfiguráció átvitel alatt áll a memóriában: {issue}. Futtasd a noctalia beállítások érvényesítése parancsot a szükséges változtatásokhoz.",
-      "native-title": "Noctalia Beállítások",
+      "native-title": "Andromeda Beállítások",
       "no-results": "Nincsenek beállítások",
       "no-results-hint": "Próbálj meg egy másik beállításnevet vagy konfigurációs kulcsot.",
       "reset-page": "Oldal visszaállítása",

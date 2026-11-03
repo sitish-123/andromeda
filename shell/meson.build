@@ -1123,7 +1123,7 @@ install_data(
 )
 
 install_data(
-  'assets/noctalia.svg',
+  'assets/andromeda.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
 

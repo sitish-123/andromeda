@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Noctalia
+Name=Andromeda
 Comment=A sleek, customizable desktop shell crafted for Wayland.
 Exec=noctalia --daemon
-Icon=noctalia
+Icon=andromeda
 Terminal=false
 Categories=Settings;DesktopSettings;
 StartupNotify=false

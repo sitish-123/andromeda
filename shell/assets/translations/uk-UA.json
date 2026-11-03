@@ -902,14 +902,14 @@
       "calendar-reminder-open": "Відкрити",
       "calendar-reminder-untitled": "Подія без назви",
       "calendar-reminder-with-location": "",
-      "config-migration-body": "Оновіть {path} у вихідному файлі. Noctalia застосовує цю заміну лише тимчасово. Виконайте команду \"noctalia config validate\", щоб переглянути всі необхідні зміни.",
+      "config-migration-body": "Оновіть {path} у вихідному файлі. Andromeda застосовує цю заміну лише тимчасово. Виконайте команду \"noctalia config validate\", щоб переглянути всі необхідні зміни.",
       "config-migration-title": "Потрібно оновити конфігурацію",
       "dbus-disabled": "Сповіщення DBus вимкнено",
       "desktop-widgets-editor": "Редактор віджетів",
       "desktop-widgets-editor-enabled": "Редактор віджетів робочого столу увімкнено. Перейди на порожній робочий простір, щоб побачити оверлей редактора.",
-      "greeter-sync": "Вітальний екран Noctalia",
+      "greeter-sync": "Вітальний екран Andromeda",
       "greeter-sync-pending": "Синхронізація вигляду з greeter. Якщо з’явиться запит адміністратора, підтвердьте його; авторизація без пароля залежить від системної політики.",
-      "greeter-sync-pending-console": "Синхронізація зовнішнього вигляду з екраном входу. Якщо потрібна авторизація, підтвердьте запит polkit у Noctalia, у TTY або в консолі.",
+      "greeter-sync-pending-console": "Синхронізація зовнішнього вигляду з екраном входу. Якщо потрібна авторизація, підтвердьте запит polkit у Andromeda, у TTY або в консолі.",
       "greeter-sync-pending-legacy": "Синхронізація через автентифікований застарілий допоміжний засіб. Потрібне підтвердження адміністратора.",
       "greeter-sync-pending-manual": "Файли підготовлено для синхронізації через автентифікований застарілий механізм. Запустіть допоміжну команду застосування з позиційними аргументами в терміналі, зберігши значення NOCTALIA_GREETER_STATE_DIR, якщо використовуєте власний шлях, або налаштуйте shell.greeter_sync.privilege_command і повторіть синхронізацію.",
       "greeter-sync-pending-manual-pkexec": "Синхронізація зовнішнього вигляду з екраном входу. Якщо потрібна авторизація адміністратора, але запит не з’являється, виконайте в терміналі: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\".",
@@ -917,7 +917,7 @@
       "greeter-sync-timeout": "Синхронізація з екраном входу все ще очікує на авторизацію. Перевірте, чи є запит polkit у TTY або консолі, увімкніть агент polkit у налаштуваннях безпеки або виконайте команду pkexec вручну.",
       "greeter-sync-timeout-manual": "Для синхронізації через автентифікований застарілий механізм усе ще потрібне підтвердження адміністратора. Запустіть допоміжну команду застосування з позиційними аргументами в терміналі та збережіть значення NOCTALIA_GREETER_STATE_DIR, якщо використовуєте власний шлях.",
       "greeter-sync-timeout-manual-pkexec": "Для синхронізації з екраном входу все ще потрібна авторизація. Виконайте в терміналі: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Це поєднання клавіш приймає одну клавішу без модифікаторів.",
       "keybind-invalid-printable": "Клавіші з друкованими символами (літери, цифри тощо) працюватимуть лише з модифікатором, як-от Ctrl або Alt.",
       "keybind-invalid-super": "Клавіша Super/Windows не може бути використана у прив'язках клавіш оболонки.",
@@ -998,7 +998,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} очікує API {version}; ця версія Noctalia підтримує API {oldest}–{current}.",
+      "body-incompatible": "{plugin} очікує API {version}; ця версія Andromeda підтримує API {oldest}–{current}.",
       "body-timeout": "Установлення додатку «{plugin}» тривало надто довго.",
       "title": "Додаток не увімкнено."
     }
@@ -1300,7 +1300,7 @@
       },
       "reset-page": "Не вдалося скинути деякі налаштування.",
       "support-report": "Не вдалося зберегти звіт підтримки.",
-      "sync-greeter": "Не вдалося синхронізувати вигляд з Noctalia Greeter.",
+      "sync-greeter": "Не вдалося синхронізувати вигляд з Andromeda Greeter.",
       "sync-greeter-timeout": "Синхронізація з екраном входу ще чекає на авторизацію. Перевір усі TTY або термінали на запит від Polkit, увімкни агент Polkit в налаштуваннях безпеки, або виконай pkexec вручну.",
       "sync-greeter-timeout-manual": "Для синхронізації через автентифікований застарілий механізм усе ще потрібне підтвердження адміністратора. Запустіть допоміжну команду застосування з позиційними аргументами в терміналі та збережіть значення \"NOCTALIA_GREETER_STATE_DIR\", якщо використовуєте власний шлях.",
       "sync-greeter-timeout-manual-pkexec": "Для синхронізації з екраном входу все ще потрібна авторизація. Виконайте в терміналі: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -1715,7 +1715,7 @@
         "deprecated": "закинуто",
         "empty": "Немає ввімкнених додатків.",
         "held-back": "старіша версія",
-        "held-back-hint": "v{version} вимагає API {required}; ця версія оболонки Noctalia підтримує версії до API {current}. Онови оболонку Noctalia щоб мати змогу встановити цей додаток.",
+        "held-back-hint": "v{version} вимагає API {required}; ця версія оболонки Andromeda підтримує версії до API {current}. Онови оболонку Andromeda щоб мати змогу встановити цей додаток.",
         "incompatible-plugin-api": "Несумісний API",
         "remove": "Вилучити додаток",
         "requires": "Вимагає: {dependencies}",
@@ -1758,15 +1758,15 @@
         "update": "Оновити джерело"
       },
       "store": {
-        "add": "Додати до Noctalia",
+        "add": "Додати до Andromeda",
         "back-to-catalog": "Назад до каталогу додатків",
         "categories": "Категорії",
         "category-all": "Усі",
         "empty": "Додатки не знайдені.",
         "held-back": "Старіша версія",
-        "held-back-hint": "Встановлює v{version} для API {resolved}. Найновіша v{latest} потребує API {latestRequired}; ця версія оболонки Noctalia підтримує тільки до API {current}.",
+        "held-back-hint": "Встановлює v{version} для API {resolved}. Найновіша v{latest} потребує API {latestRequired}; ця версія оболонки Andromeda підтримує тільки до API {current}.",
         "incompatible": "Несумісно",
-        "incompatible-hint": "Потребує API {required}; ця версія оболонки Noctalia підтримує {oldest}–{current}.",
+        "incompatible-hint": "Потребує API {required}; ця версія оболонки Andromeda підтримує {oldest}–{current}.",
         "installed": "Встановлено",
         "loading": "Триває завантаження каталогу…",
         "no-readme": "Немає доступного опису.",
@@ -2274,7 +2274,7 @@
             "label": "При вимкненні"
           },
           "started": {
-            "description": "Команда для запуску після старту Noctalia",
+            "description": "Команда для запуску після старту Andromeda",
             "label": "При запуску"
           },
           "theme-mode-changed": {
@@ -2800,7 +2800,7 @@
           "label": "Автоматично синхронізувати"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Запускає програми в окремих службах systemd, щоб вони не ділили cgroup Noctalia",
+          "description": "Запускає програми в окремих службах systemd, щоб вони не ділили cgroup Andromeda",
           "label": "Запускати програми як служби systemd"
         },
         "niri-overview-type-to-launch": {
@@ -2971,8 +2971,8 @@
         },
         "sync-greeter": {
           "button": "Синхронізувати зараз",
-          "description": "Скопіювати поточний вигляд і розташування моніторів у Noctalia Greeter. Буде запитано дозвіл адміністратора, якщо системна політика не дозволяє синхронізацію без пароля для вашого користувача.",
-          "label": "Noctalia Привітання"
+          "description": "Скопіювати поточний вигляд і розташування моніторів у Andromeda Greeter. Буде запитано дозвіл адміністратора, якщо системна політика не дозволяє синхронізацію без пароля для вашого користувача.",
+          "label": "Andromeda Привітання"
         },
         "telemetry": {
           "description": "Надсилає невеликий анонімний стартовий пінг з версією, OS, композитором, роздільною здатністю монітора, RAM та UI scale",
@@ -3647,7 +3647,7 @@
       "export-config": "Експортувати конфігурацію…",
       "export-config-saved": "Конфігурацію експортовано.",
       "filter-overridden": "Змінені",
-      "native-title": "Параметри Noctalia",
+      "native-title": "Параметри Andromeda",
       "no-results": "Параметр не знайдено",
       "no-results-hint": "Спробуйте іншу назву налаштування або config key.",
       "offline-mode-notice": {
@@ -3673,7 +3673,7 @@
     "no-wallpaper-selected": "Тло екрана не вибрано.",
     "select-wallpaper": "Обери тло екрана.",
     "subtitle": "Кілька швидких варіантів для початку.",
-    "title": "Ласкаво просимо до Noctalia",
+    "title": "Ласкаво просимо до Andromeda",
     "wallpaper": "Шпалери",
     "wallpaper-scheme": "Схема генерування палітри"
   },

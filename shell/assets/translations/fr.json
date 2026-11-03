@@ -848,14 +848,14 @@
       "dbus-disabled": "Notifications DBus désactivées",
       "desktop-widgets-editor": "Éditeur de widgets",
       "desktop-widgets-editor-enabled": "L’éditeur de widgets de bureau est activé. Basculez sur un espace de travail vide pour ne pas superposer des fenêtres sur l'éditeur.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "En attente de l'approbation de l'administrateur pour écrire dans le greeter.",
-      "greeter-sync-pending-console": "En attente de l'autorisation de l'administrateur. Accepte la demande polkit dans Noctalia, sur un TTY ou une console, ou exécute pkexec manuellement.",
+      "greeter-sync-pending-console": "En attente de l'autorisation de l'administrateur. Accepte la demande polkit dans Andromeda, sur un TTY ou une console, ou exécute pkexec manuellement.",
       "greeter-sync-pending-manual": "Les fichiers sont prêts. Exécute cette commande dans un terminal : pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\". Tu peux aussi définir shell.greeter_sync.privilege_command (par exemple ghostty -e pkexec), puis relancer la synchronisation.",
       "greeter-sync-success": "Apparence synchronisée. Les modifications s’appliqueront au prochain écran de connexion.",
       "greeter-sync-timeout": "La synchronisation du greeter est toujours en attente de l'autorisation de l'administrateur. Vérifie si une demande polkit est affichée sur un TTY ou une console, active le polkit agent dans les paramètres de sécurité, ou exécute pkexec manuellement.",
       "greeter-sync-timeout-manual": "La synchronisation du greeter nécessite toujours l'autorisation de l'administrateur. Exécute cette commande dans un terminal : pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Ce raccourci accepte une seule touche sans modificateur.",
       "keybind-invalid-printable": "Les touches imprimables (lettres, chiffres, symboles) nécessitent un modificateur tel que Ctrl ou Alt.",
       "keybind-invalid-super": "La touche Super/Windows ne peut pas être utilisée dans les raccourcis du shell.",
@@ -927,7 +927,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} nécessite Noctalia {version} ou une version plus récente.",
+      "body-incompatible": "{plugin} nécessite Andromeda {version} ou une version plus récente.",
       "body-timeout": "L'installation de {plugin} a pris trop de temps.",
       "title": "Plugin désactivé"
     }
@@ -1199,7 +1199,7 @@
       },
       "reset-page": "Échec de la réinitialisation de certains paramètres.",
       "support-report": "Échec de l’enregistrement du rapport de support.",
-      "sync-greeter": "Impossible de synchroniser l’apparence avec Noctalia Greeter.",
+      "sync-greeter": "Impossible de synchroniser l’apparence avec Andromeda Greeter.",
       "sync-greeter-timeout": "La synchronisation du greeter est toujours en attente de l'autorisation de l'administrateur. Vérifie si une demande polkit est affichée sur un TTY ou une console, active le polkit agent dans les paramètres de sécurité, ou exécute pkexec manuellement.",
       "sync-greeter-timeout-manual": "La synchronisation du greeter nécessite toujours l'autorisation de l'administrateur. Exécute cette commande dans un terminal : pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "widget": {
@@ -1568,7 +1568,7 @@
         "deprecated": "Déprécié",
         "empty": "Aucun plugin activé.",
         "held-back": "ancienne version  ",
-        "held-back-hint": "v{version} nécessite l'API de plugins {required} ; cette version de Noctalia ne prend en charge que jusqu'à {current}. Mettez Noctalia à jour pour l'obtenir.",
+        "held-back-hint": "v{version} nécessite l'API de plugins {required} ; cette version de Andromeda ne prend en charge que jusqu'à {current}. Mettez Andromeda à jour pour l'obtenir.",
         "incompatible-plugin-api": "API du plugin incompatible",
         "remove": "Enlever le plugin",
         "requires": "A besoins de : {dependencies}",
@@ -1610,7 +1610,7 @@
         "update": "Mettre à jour la source"
       },
       "store": {
-        "add": "Ajoute à Noctalia",
+        "add": "Ajoute à Andromeda",
         "categories": "Catégories",
         "category-all": "Tout",
         "empty": "Aucun plugin trouvé",
@@ -1724,7 +1724,7 @@
           "label": "Noir pur"
         },
         "shell-theme-mode": {
-          "description": "Fixer le mode sombre ou clair de Noctalia; Suivre le synchronise avec le mode du thème",
+          "description": "Fixer le mode sombre ou clair de Andromeda; Suivre le synchronise avec le mode du thème",
           "label": "Mode du thème du shell"
         },
         "show-close-buttons": {
@@ -2137,7 +2137,7 @@
             "label": "Lors de l’arrêt du système"
           },
           "started": {
-            "description": "Commande à exécuter après le démarrage de Noctalia",
+            "description": "Commande à exécuter après le démarrage de Andromeda",
             "label": "Après le démarrage"
           },
           "theme-mode-changed": {
@@ -2789,7 +2789,7 @@
           "label": "Commande avec privilèges pour la synchronisation du greeter"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Lance les applications dans des services systemd distincts afin qu’elles ne partagent pas le même cgroup que Noctalia",
+          "description": "Lance les applications dans des services systemd distincts afin qu’elles ne partagent pas le même cgroup que Andromeda",
           "label": "Lancer les applications comme services systemd"
         },
         "launch-apps-custom-command": {
@@ -2997,8 +2997,8 @@
         },
         "sync-greeter": {
           "button": "Synchroniser maintenant",
-          "description": "Copie l'apparence actuelle et la disposition des écrans dans Noctalia Greeter. L'approbation administrateur est requit, sauf si la politique système autorise la synchronisation sans mot de passe pour votre utilisateur.",
-          "label": "Noctalia Greeter"
+          "description": "Copie l'apparence actuelle et la disposition des écrans dans Andromeda Greeter. L'approbation administrateur est requit, sauf si la politique système autorise la synchronisation sans mot de passe pour votre utilisateur.",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Envoie un court signal anonyme au démarrage contenant la version, le système d’exploitation, le compositeur, les résolutions d’écran, la quantité de mémoire vive et l’échelle de l’interface",
@@ -3473,7 +3473,7 @@
     },
     "window": {
       "export-config": "Exporter la configuration...",
-      "native-title": "Paramètres Noctalia",
+      "native-title": "Paramètres Andromeda",
       "no-results": "Pas de paramètre trouvé",
       "offline-mode-notice": {
         "template-store": "Les téléchargements des modèles de la communauté ne vont pas fonctionner. ",
@@ -3495,7 +3495,7 @@
     "no-wallpaper-selected": "Pas de fond d'écran sélectionné",
     "select-wallpaper": "Choisir un fond d'écran",
     "subtitle": "Quelques options avant de commencer.",
-    "title": "Bienvenue sur Noctalia",
+    "title": "Bienvenue sur Andromeda",
     "wallpaper": "Fond d'écran",
     "wallpaper-scheme": "Schéma de fond d’écran"
   },

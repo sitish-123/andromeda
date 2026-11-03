@@ -1340,14 +1340,14 @@
       "calendar-reminder-open": "Open",
       "calendar-reminder-untitled": "Untitled event",
       "calendar-reminder-with-location": "{when}\n{location}",
-      "config-migration-body": "Update {path} in the source file. Noctalia is applying this replacement only temporarily. Run noctalia config validate to list every required change.",
+      "config-migration-body": "Update {path} in the source file. Andromeda is applying this replacement only temporarily. Run noctalia config validate to list every required change.",
       "config-migration-title": "Configuration update needed",
       "dbus-disabled": "DBus notifications disabled",
       "desktop-widgets-editor": "Widget editor",
       "desktop-widgets-editor-enabled": "Desktop widget editor is on. Switch to an empty workspace so open windows do not cover the editor.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Syncing appearance to the greeter. If an administrator prompt appears, approve it; passwordless authorization follows system policy.",
-      "greeter-sync-pending-console": "Syncing appearance to the greeter. If authorization is required, approve the polkit prompt in Noctalia, on a TTY, or on a console.",
+      "greeter-sync-pending-console": "Syncing appearance to the greeter. If authorization is required, approve the polkit prompt in Andromeda, on a TTY, or on a console.",
       "greeter-sync-pending-legacy": "Syncing through the authenticated legacy helper. Administrator approval is required.",
       "greeter-sync-pending-manual": "Files are staged for authenticated legacy sync. Run the positional apply helper in a terminal, preserving NOCTALIA_GREETER_STATE_DIR if you use a custom path, or configure shell.greeter_sync.privilege_command and sync again.",
       "greeter-sync-pending-manual-pkexec": "Syncing appearance to the greeter. If administrator authorization is required and no prompt appears, run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\".",
@@ -1355,7 +1355,7 @@
       "greeter-sync-timeout": "Greeter sync is still waiting for authorization. Check a TTY or console for a polkit prompt, enable the polkit agent in Security settings, or run pkexec manually.",
       "greeter-sync-timeout-manual": "Authenticated legacy sync still needs administrator approval. Run the positional apply helper in a terminal and preserve NOCTALIA_GREETER_STATE_DIR if you use a custom path.",
       "greeter-sync-timeout-manual-pkexec": "Greeter sync still needs authorization. Run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "This shortcut accepts a single key without modifiers.",
       "keybind-invalid-printable": "Printable keys (letters, numbers, symbols) require a modifier such as Ctrl or Alt.",
       "keybind-invalid-super": "The Super/Windows key cannot be used in shell keybinds.",
@@ -1438,7 +1438,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} targets plugin API {version}; this Noctalia supports API {oldest}–{current}.",
+      "body-incompatible": "{plugin} targets plugin API {version}; this Andromeda supports API {oldest}–{current}.",
       "body-timeout": "{plugin} took too long to install.",
       "title": "Plugin not enabled"
     }
@@ -1745,7 +1745,7 @@
       },
       "reset-page": "Failed to reset some settings.",
       "support-report": "Failed to save support report.",
-      "sync-greeter": "Could not sync appearance to Noctalia Greeter.",
+      "sync-greeter": "Could not sync appearance to Andromeda Greeter.",
       "sync-greeter-timeout": "Greeter sync is still waiting for authorization. Check a TTY or console for a polkit prompt, enable the polkit agent in Security settings, or run pkexec manually.",
       "sync-greeter-timeout-manual": "Authenticated legacy sync still needs administrator approval. Run the positional apply helper in a terminal and preserve NOCTALIA_GREETER_STATE_DIR if you use a custom path.",
       "sync-greeter-timeout-manual-pkexec": "Greeter sync still needs authorization. Run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -2393,7 +2393,7 @@
         "deprecated": "deprecated",
         "empty": "No enabled plugins.",
         "held-back": "older version",
-        "held-back-hint": "v{version} needs plugin API {required}; this Noctalia supports up to {current}. Upgrade Noctalia to get it.",
+        "held-back-hint": "v{version} needs plugin API {required}; this Andromeda supports up to {current}. Upgrade Andromeda to get it.",
         "incompatible-plugin-api": "incompatible plugin API",
         "remove": "Remove plugin",
         "requires": "Requires: {dependencies}",
@@ -2437,15 +2437,15 @@
         "update": "Update source"
       },
       "store": {
-        "add": "Add to Noctalia",
+        "add": "Add to Andromeda",
         "back-to-catalog": "Back to the plugin catalog",
         "categories": "Categories",
         "category-all": "All",
         "empty": "No plugins found",
         "held-back": "Older version",
-        "held-back-hint": "Installs v{version} for plugin API {resolved}. The newest v{latest} needs plugin API {latestRequired}; this Noctalia supports up to {current}.",
+        "held-back-hint": "Installs v{version} for plugin API {resolved}. The newest v{latest} needs plugin API {latestRequired}; this Andromeda supports up to {current}.",
         "incompatible": "Incompatible",
-        "incompatible-hint": "Needs plugin API {required}; this Noctalia supports {oldest}–{current}.",
+        "incompatible-hint": "Needs plugin API {required}; this Andromeda supports {oldest}–{current}.",
         "installed": "Installed",
         "loading": "Loading catalog…",
         "no-readme": "No description available.",
@@ -2574,7 +2574,7 @@
           "label": "Pure Black"
         },
         "shell-theme-mode": {
-          "description": "Pin Noctalia's own light or dark mode; Follow keeps it in sync with Theme Mode",
+          "description": "Pin Andromeda's own light or dark mode; Follow keeps it in sync with Theme Mode",
           "label": "Shell Theme Mode"
         },
         "show-close-buttons": {
@@ -3052,7 +3052,7 @@
             "label": "On Shutdown"
           },
           "started": {
-            "description": "Command to run after Noctalia starts",
+            "description": "Command to run after Andromeda starts",
             "label": "On Started"
           },
           "theme-mode-changed": {
@@ -3540,7 +3540,7 @@
           "label": "Show Session Button"
         },
         "launcher-show-settings-button": {
-          "description": "Show a shortcut to Noctalia Settings",
+          "description": "Show a shortcut to Andromeda Settings",
           "label": "Show Settings Button"
         },
         "launcher-sort-by-usage": {
@@ -4057,9 +4057,9 @@
           "label": "Keyboard Layout Labels"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Launches applications in separate systemd services so they don't share Noctalia's cgroup",
+          "description": "Launches applications in separate systemd services so they don't share Andromeda's cgroup",
           "label": "Launch Apps as systemd Services",
-          "requires-systemd-session": "Requires Noctalia to run as a systemd user service (uwsm or a systemd user unit)"
+          "requires-systemd-session": "Requires Andromeda to run as a systemd user service (uwsm or a systemd user unit)"
         },
         "launch-apps-custom-command": {
           "description": "Wraps apps launched from the launcher, dock, and taskbar; substitutes $CMD with the original command",
@@ -4346,8 +4346,8 @@
         },
         "sync-greeter": {
           "button": "Sync Now",
-          "description": "Copy the current appearance and monitor arrangement to Noctalia Greeter. Administrator approval is requested unless system policy authorizes passwordless sync for your user.",
-          "label": "Noctalia Greeter"
+          "description": "Copy the current appearance and monitor arrangement to Andromeda Greeter. Administrator approval is requested unless system policy authorizes passwordless sync for your user.",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Sends a small anonymous startup ping with version, OS, compositor, monitor resolutions, RAM, and UI scale",
@@ -5063,7 +5063,7 @@
             "label": "Set EasyEffects profile"
           },
           "greeter-sync": {
-            "description": "Sync wallpaper, colors, and monitor layout to Noctalia Greeter",
+            "description": "Sync wallpaper, colors, and monitor layout to Andromeda Greeter",
             "label": "Sync greeter appearance"
           },
           "keyboard-backlight-down": {
@@ -5179,7 +5179,7 @@
             "label": "Invoke latest notification action"
           },
           "notification-show": {
-            "description": "Show an internal Noctalia notification",
+            "description": "Show an internal Andromeda notification",
             "label": "Show a notification"
           },
           "osd-disable": {
@@ -6164,8 +6164,8 @@
     "window": {
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
-      "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Noctalia is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
-      "native-title": "Noctalia Settings",
+      "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Andromeda is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
+      "native-title": "Andromeda Settings",
       "no-results": "No settings found",
       "no-results-hint": "Try a different setting name or config key.",
       "offline-mode-notice": {
@@ -6362,17 +6362,34 @@
     }
   },
   "setup-wizard": {
+    "andromeda-wallpaper": "Andromeda",
+    "appearance-body": "Choose a look. The desktop changes as you pick.",
+    "appearance-title": "Appearance",
+    "back": "Back",
     "browse": "Browse",
     "builtin-palette": "Built-In Palette",
+    "choose": "Choose…",
+    "colour": "Colour",
+    "continue": "Continue",
+    "done": "Done",
+    "done-body": "Three shortcuts to start with.",
+    "done-title": "You’re All Set",
     "footer-note": "You can change these later in settings.",
     "get-started": "Get Started",
+    "match-wallpaper": "Match wallpaper",
     "mode": "Mode",
     "no-wallpaper-selected": "No wallpaper selected",
     "select-wallpaper": "Select Wallpaper",
+    "share-usage": "Share anonymous usage data",
+    "skip": "Skip",
     "subtitle": "A few quick choices to get you started.",
-    "title": "Welcome to Noctalia",
+    "tip-clipboard": "Clipboard history",
+    "tip-emoji": "Emoji",
+    "tip-search": "Search apps and files",
+    "title": "Welcome to Andromeda",
     "wallpaper": "Wallpaper",
-    "wallpaper-scheme": "Wallpaper Scheme"
+    "wallpaper-scheme": "Wallpaper Scheme",
+    "welcome-body": "Set up your desktop in a minute. You can change everything later in Settings."
   },
   "system": {
     "hardware": {
