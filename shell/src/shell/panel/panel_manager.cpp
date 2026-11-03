@@ -2589,7 +2589,11 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   if (m_dsk == nullptr || !m_dsk->hasLiquidProperty()) {
     return;
   }
-  m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, {liquid, 0.0, 0.0, 0.0});
+  if (animate) {
+    m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, {liquid, 0.0, 0.0, 0.0});
+  } else {
+    m_dsk->set(DskSurfaceClient::Property::Liquid, {liquid, 0.0, 0.0, 0.0});
+  }
 }
 
 bool PanelManager::startDetachedScaleOpen() {
