@@ -36,9 +36,13 @@ public:
     m_onActivationDone = std::move(callback);
   }
 
+  void initialize() override;
   void reset() override;
   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
   bool activate(const LauncherResult& result) override;
+
+  // Sticker pack filter: "" both, "klipy" or "fluent".
+  void setPack(std::string pack);
 
   // Local path of the small animated GIF for a GIF result; empty while it downloads (results refresh when it lands).
   [[nodiscard]] std::string previewGif(const LauncherResult& result);
@@ -80,6 +84,7 @@ private:
   mutable bool m_loading = false;
   mutable std::vector<LauncherResult> m_results;
   mutable std::unordered_map<std::string, Media> m_media;
+  std::string m_pack;
   mutable bool m_fluentRequested = false;
   mutable std::vector<FluentSticker> m_fluent;
   mutable std::unordered_set<std::string> m_fluentDownloads;

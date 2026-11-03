@@ -64,6 +64,13 @@ std::string KlipyProvider::displayName() const {
   return i18n::tr(m_kind == Kind::Gifs ? "launcher.providers.gifs.title" : "launcher.providers.stickers.title");
 }
 
+// The Fluent index loads at startup, so opening the Stickers tab reads no file.
+void KlipyProvider::initialize() {
+  if (m_kind == Kind::Stickers && std::filesystem::exists(m_cacheDir / "fluent" / "index.tsv")) {
+    loadFluentIndex();
+  }
+}
+
 void KlipyProvider::reset() {
   m_debounce.stop();
   m_refresh.stop();
@@ -71,6 +78,13 @@ void KlipyProvider::reset() {
   m_requested.reset();
   m_loading = false;
   m_results.clear();
+}
+
+void KlipyProvider::setPack(std::string pack) {
+  if (pack != m_pack) {
+    m_pack = std::move(pack);
+    reset();
+  }
 }
 
 std::string KlipyProvider::customerId() const {
@@ -90,7 +104,11 @@ std::string KlipyProvider::customerId() const {
 
 std::vector<LauncherResult> KlipyProvider::query(std::string_view text) const {
   const std::string needle = StringUtils::trim(text);
-  std::vector<LauncherResult> results = fluentResults(needle);
+  std::vector<LauncherResult> results = m_pack == "klipy" ? std::vector<LauncherResult>{} : fluentResults(needle);
+  if (m_pack == "fluent") {
+    m_answered = needle;
+    return results;
+  }
   if (m_config == nullptr || m_http == nullptr || m_config->config().shell.launcher.gifApiKey.empty()) {
     m_answered = needle;
     // Stickers without a key still have the Fluent pack; the key hint lives in the GIFs tab then.

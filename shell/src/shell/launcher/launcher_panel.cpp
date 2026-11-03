@@ -113,6 +113,10 @@ namespace {
   // Tab order of the media modes; a mode shows only when its provider is registered.
   constexpr std::array<std::string_view, 5> kModeProviders{"Clipboard", "Emoji", "Gifs", "Stickers", "Symbols"};
   // Files scope kind chips: the daemon's kind word ("" = all) and the label key under launcher.files.kinds.
+  // Sticker packs: provider pack word, translation key.
+  constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kStickerPacks{{
+      {"", "all"}, {"klipy", "klipy"}, {"fluent", "fluent"},
+  }};
   constexpr std::array<std::pair<std::string_view, std::string_view>, 9> kFileKinds{{
       {"", "all"}, {"folder", "folder"}, {"pdf", "pdf"}, {"image", "image"}, {"video", "video"},
       {"audio", "audio"}, {"doc", "doc"}, {"sheet", "sheet"}, {"slides", "slides"},
@@ -1666,11 +1670,11 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
   // Hybrid material: liquid glass on the empty pill, frosted once it grows into the sheet.
   const float liquid = usesBrowserLayout() && !pillExpanded() ? 1.0F : 0.0F;
   if (m_sentLiquid != liquid) {
+    const bool animate = m_sentLiquid >= 0.0F;
     m_sentLiquid = liquid;
     PanelManager::instance().setPanelLiquid(liquid, animate);
   }
   if (!pillExpanded()) {
-    const bool animate = m_sentLiquid >= 0.0F;
     return field;
   }
   if (!shouldUseLauncherSections() || m_launcherSectionsAdapter == nullptr || m_results.empty()) {
@@ -1686,9 +1690,10 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
   const float previewHeight = (Tokens::componentLauncherPreviewMin
                                + (picture ? Tokens::componentLauncherPreviewMedia - Tokens::componentLauncherIcon : 0.0F))
       * scale;
-  const bool tabs = !m_modeProviderId.empty();
-  const float hairlines = tabs ? 3.0F : 2.0F; // under the field (and the tabs) and above the footer
-  return field + hairlines + (tabs ? Tokens::componentLauncherTabs * scale : 0.0F) + std::max(list, previewHeight)
+  // Mode tabs and the chip row (file kinds, sticker packs) each add a row and a hairline.
+  const float rows = (m_modeProviderId.empty() ? 0.0F : 1.0F) + (m_kindTabs != nullptr && m_kindTabs->visible() ? 1.0F : 0.0F);
+  const float hairlines = 2.0F + rows; // under the field (and each row) and above the footer
+  return field + hairlines + rows * Tokens::componentLauncherTabs * scale + std::max(list, previewHeight)
       + Tokens::componentLauncherFooter * scale;
 }
 
@@ -2836,6 +2841,7 @@ void LauncherPanel::setMode(std::string_view providerId) {
   m_modeProviderId = std::string(providerId);
   m_selectedIndex = 0;
   syncModeTabs();
+  syncKindTabs();
   if (m_input != nullptr && !m_input->value().empty()) {
     m_input->setValue("");
   }
@@ -2883,13 +2889,38 @@ void LauncherPanel::setFilesKind(std::size_t index) {
   onInputChanged(m_query);
 }
 
+void LauncherPanel::setStickerPack(std::size_t index) {
+  m_packIndex = index % kStickerPacks.size();
+  if (auto* stickers = stickersProvider()) {
+    stickers->setPack(std::string(kStickerPacks[m_packIndex].first));
+  }
+  m_selectedIndex = 0;
+  syncKindTabs();
+  onInputChanged(m_query);
+}
+
+KlipyProvider* LauncherPanel::stickersProvider() const {
+  const auto provider = std::ranges::find(m_providers, "Stickers", [](const auto& p) { return p->id(); });
+  return provider == m_providers.end() ? nullptr : dynamic_cast<KlipyProvider*>(provider->get());
+}
+
 void LauncherPanel::syncKindTabs() {
   if (m_kindTabs == nullptr) {
     return;
   }
   const float scale = contentScale();
+  // One chip row serves the Files scope (kinds) and the Stickers mode (packs).
+  const bool packs = m_browserMode && m_modeProviderId == "Stickers";
+  if (packs != m_kindTabsArePacks) {
+    for (Flex* tab : m_kindTabItems) {
+      (void)m_kindTabs->removeChild(tab);
+    }
+    m_kindTabItems.clear();
+    m_kindTabsArePacks = packs;
+  }
   if (m_kindTabItems.empty()) {
-    for (std::size_t i = 0; i < kFileKinds.size(); ++i) {
+    const std::size_t count = packs ? kStickerPacks.size() : kFileKinds.size();
+    for (std::size_t i = 0; i < count; ++i) {
       auto tab = ui::row({
           .align = FlexAlign::Center,
           .paddingH = Tokens::spaceP12 * scale,
@@ -2897,28 +2928,35 @@ void LauncherPanel::syncKindTabs() {
           .minHeight = Tokens::sizeControlS * scale,
       });
       tab->addChild(ui::label({
-          .text = i18n::tr(std::format("launcher.files.kinds.{}", kFileKinds[i].second)),
+          .text = packs ? i18n::tr(std::format("launcher.stickers.packs.{}", kStickerPacks[i].second))
+                        : i18n::tr(std::format("launcher.files.kinds.{}", kFileKinds[i].second)),
           .fontSize = Style::fontSizeBody * scale,
           .color = colorSpecFromRole(ColorRole::Label2),
       }));
       auto area = std::make_unique<InputArea>();
       area->setParticipatesInLayout(false);
       area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
-      area->setOnClick([this, i](const InputArea::PointerData&) { setFilesKind(i); });
+      area->setOnClick([this, i, packs](const InputArea::PointerData&) {
+        if (packs) {
+          setStickerPack(i);
+        } else {
+          setFilesKind(i);
+        }
+      });
       Flex* tabPtr = tab.get();
       tab->addChild(std::move(area));
       m_kindTabs->addChild(std::move(tab));
       m_kindTabItems.push_back(tabPtr);
     }
   }
-  const bool show = m_browserMode && m_filesScope;
+  const bool show = (m_browserMode && m_filesScope) || packs;
   m_kindTabs->setVisible(show);
   m_kindTabs->setParticipatesInLayout(show);
   m_kindTabsLine->setVisible(show);
   m_kindTabsLine->setParticipatesInLayout(show);
   for (std::size_t i = 0; i < m_kindTabItems.size(); ++i) {
     Flex* tab = m_kindTabItems[i];
-    const bool on = i == m_kindIndex;
+    const bool on = i == (packs ? m_packIndex : m_kindIndex);
     tab->setFill(on ? colorSpecFromRole(ColorRole::Lens) : clearColorSpec());
     if (auto* label = dynamic_cast<Label*>(tab->children().front().get())) {
       label->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
@@ -3463,6 +3501,10 @@ void LauncherPanel::onClose() {
   m_scopedPlaceholder.clear();
   m_filesScope = false;
   m_kindIndex = 0;
+  m_packIndex = 0;
+  if (auto* stickers = stickersProvider()) {
+    stickers->setPack({});
+  }
   if (auto* files = filesProvider()) {
     files->setScopeKind({});
   }

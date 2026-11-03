@@ -1116,6 +1116,13 @@
       "math": "Math",
       "typography": "Typography"
     },
+    "stickers": {
+      "packs": {
+        "all": "All",
+        "klipy": "Klipy",
+        "fluent": "Fluent 3D"
+      }
+    },
     "files": {
       "copy-path": "Copy Path",
       "count": "{count} file",

@@ -29,6 +29,7 @@ class Label;
 class LauncherResultAdapter;
 class LauncherAppGridAdapter;
 class FilesProvider;
+class KlipyProvider;
 class LauncherSectionsAdapter;
 class Renderer;
 class Segmented;
@@ -160,6 +161,8 @@ private:
   [[nodiscard]] bool pillExpanded() const;
   void activatePreviewAction();
   [[nodiscard]] FilesProvider* filesProvider() const;
+  [[nodiscard]] KlipyProvider* stickersProvider() const;
+  void setStickerPack(std::size_t index);
   void deleteSelectedClipboardEntry();
   void activateEmojiVariant(std::size_t tone);
   void showProviderOverview();
@@ -271,6 +274,8 @@ private:
   Separator* m_kindTabsLine = nullptr;
   std::vector<Flex*> m_kindTabItems;
   std::size_t m_kindIndex = 0;
+  std::size_t m_packIndex = 0;
+  bool m_kindTabsArePacks = false;
   Flex* m_pillKindHint = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
