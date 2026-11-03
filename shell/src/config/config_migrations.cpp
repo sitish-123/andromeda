@@ -816,7 +816,7 @@ namespace noctalia::config {
 
     // The `surface_variant` and `outline` palette roles resolved to surface_container and outline_variant,
     // so they were retired in favor of those names. `theme` is skipped (template custom colors use template
-    // tokens, not shell roles) and so are `variant` keys (button styles, where "outline" is not a color).
+    // tokens, not shell roles) and so are `variant` and `clock_style` keys (style names: "outline" is not a color).
     std::optional<std::string_view> renamedPaletteRole(std::string_view raw) {
       std::string token = StringUtils::trim(raw);
       StringUtils::toLowerInPlace(token);
@@ -833,7 +833,7 @@ namespace noctalia::config {
     void migratePaletteRoleNamesIn(toml::node& node, const std::string& path, OnChanged& onChanged) {
       if (auto* table = node.as_table()) {
         for (auto& [key, child] : *table) {
-          if (key.str() != "variant") {
+          if (key.str() != "variant" && key.str() != "clock_style") {
             migratePaletteRoleNamesIn(child, path + "." + std::string(key.str()), onChanged);
           }
         }
