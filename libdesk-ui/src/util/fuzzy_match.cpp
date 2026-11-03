@@ -43,19 +43,28 @@ namespace FuzzyMatch {
     if (allowed == 0) {
       return std::nullopt;
     }
-    const auto fold = [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); };
-    const std::size_t m = pattern.size();
+    // Hot per keystroke over every app: fold both strings once and reuse one table; no allocation per word start.
+    const auto fold = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c; };
+    const auto alnum = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; };
+    thread_local std::string p;
+    thread_local std::string t;
+    thread_local std::vector<int> d;
+    p.assign(pattern);
+    t.assign(text);
+    std::ranges::transform(p, p.begin(), fold);
+    std::ranges::transform(t, t.begin(), fold);
+    const std::size_t m = p.size();
     std::optional<int> best;
 
-    for (std::size_t start = 0; start < text.size(); ++start) {
-      const bool wordStart = start == 0 || std::isalnum(static_cast<unsigned char>(text[start - 1])) == 0;
-      if (!wordStart || std::isalnum(static_cast<unsigned char>(text[start])) == 0) {
+    for (std::size_t start = 0; start < t.size(); ++start) {
+      const bool wordStart = start == 0 || !alnum(t[start - 1]);
+      if (!wordStart || !alnum(t[start])) {
         continue;
       }
-      const std::string_view word = text.substr(start, std::min(text.size() - start, m + static_cast<std::size_t>(allowed)));
+      const std::string_view word = std::string_view(t).substr(start, std::min(t.size() - start, m + static_cast<std::size_t>(allowed)));
       const std::size_t n = word.size();
       // Optimal string alignment table; the answer is the best prefix of the word, so the last row's minimum.
-      std::vector<int> d((m + 1) * (n + 1));
+      d.assign((m + 1) * (n + 1), 0);
       const auto at = [&](std::size_t i, std::size_t j) -> int& { return d[i * (n + 1) + j]; };
       for (std::size_t i = 0; i <= m; ++i) {
         at(i, 0) = static_cast<int>(i);
@@ -65,9 +74,9 @@ namespace FuzzyMatch {
       }
       for (std::size_t i = 1; i <= m; ++i) {
         for (std::size_t j = 1; j <= n; ++j) {
-          const int cost = fold(pattern[i - 1]) == fold(word[j - 1]) ? 0 : 1;
+          const int cost = p[i - 1] == word[j - 1] ? 0 : 1;
           at(i, j) = std::min({at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + cost});
-          if (i > 1 && j > 1 && fold(pattern[i - 1]) == fold(word[j - 2]) && fold(pattern[i - 2]) == fold(word[j - 1])) {
+          if (i > 1 && j > 1 && p[i - 1] == word[j - 2] && p[i - 2] == word[j - 1]) {
             at(i, j) = std::min(at(i, j), at(i - 2, j - 2) + 1);
           }
         }
@@ -78,6 +87,9 @@ namespace FuzzyMatch {
       }
       if (distance <= allowed && (!best.has_value() || distance < *best)) {
         best = distance;
+        if (distance == 0) {
+          break;
+        }
       }
     }
     return best;
