@@ -5,7 +5,7 @@ project('andromeda-index', 'cpp',
 )
 
 sqlite_dep = dependency('sqlite3', version: '>=3.43') # FTS5 contentless_delete
-extract_deps = [dependency('poppler-glib'), dependency('libzip')]
+extract_deps = [dependency('poppler-glib'), dependency('libzip'), dependency('exiv2'), dependency('taglib')]
 
 core = static_library('index-core',
   'src/index_db.cpp',
@@ -23,7 +23,7 @@ core = static_library('index-core',
 core_dep = declare_dependency(link_with: core, include_directories: include_directories('src'), dependencies: [sqlite_dep, dependency('threads')])
 
 index_exe = executable('andromeda-index', 'src/main.cpp', dependencies: core_dep, install: true)
-extract_exe = executable('andromeda-index-extract', 'src/extract_main.cpp', 'src/extract.cpp', dependencies: [core_dep, extract_deps],
+extract_exe = executable('andromeda-index-extract', 'src/extract_main.cpp', 'src/extract.cpp', 'src/metadata_extract.cpp', dependencies: [core_dep, extract_deps],
                          install: true)
 
 user_unit_dir = get_option('prefix') / 'lib' / 'systemd' / 'user'

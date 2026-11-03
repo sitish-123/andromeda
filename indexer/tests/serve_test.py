@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Starts `andromeda-index serve` on a temp home with no index: it must crawl, answer on its socket, find a file
-# written after start within 1 s, and find words inside text, Office, EPUB, HTML and PDF files within 5 s.
+# written after start within 1 s, and find words inside text, Office, EPUB, HTML and PDF files and in photo and audio
+# metadata within 5 s.
 import os
 import shutil
 import socket
@@ -54,6 +55,19 @@ with open(os.path.join(docs, "wide.txt"), "wb") as f:
     f.write("notes about the marmoset, saved as UTF-16 without a byte order mark\n".encode("utf-16-le"))
 with open(os.path.join(docs, "scan.pdf"), "wb") as f:
     f.write(minimal_pdf("wombat"))
+# Photo and audio metadata: a JPEG with an EXIF camera model and a WAV with title and artist tags.
+media = []
+if shutil.which("ffmpeg") and shutil.which("exiv2"):
+    quiet = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    photo = os.path.join(docs, "holiday.jpg")
+    subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "color=c=blue:s=8x8", "-frames:v", "1", photo], **quiet)
+    subprocess.run(["exiv2", "-M", "set Exif.Image.Model Ascii Okapicam", photo], **quiet)
+    song = os.path.join(docs, "track01.wav")
+    subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono", "-t", "0.1",
+                    "-metadata", "title=Narwhal Lullaby", "-metadata", "artist=Quetzal Choir", song], **quiet)
+    media = [("okapicam", "holiday.jpg"), ("quetzal", "track01.wav")]
+else:
+    print("ffmpeg or exiv2 missing: photo and audio metadata not checked")
 sock_path = os.path.join(env["XDG_RUNTIME_DIR"], "andromeda-index.sock")
 failures = []
 
@@ -93,7 +107,7 @@ try:
         return False
 
     for word, name in [("pangolin", "report.docx"), ("narwhal", "minutes.odt"), ("axolotl", "novel.epub"),
-                       ("wombat", "scan.pdf"), ("cafe tap", "page.html"), ("marmoset", "wide.txt")]:
+                       ("wombat", "scan.pdf"), ("cafe tap", "page.html"), ("marmoset", "wide.txt")] + media:
         check(found_by_text(word, name, 5), f"{name} is found by a word inside")
     check(not found_by_text("scriptonly", "page.html", 0.2), "script text is not indexed")
 

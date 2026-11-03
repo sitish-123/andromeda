@@ -111,6 +111,10 @@ namespace andromeda::index {
       return pdfText(path);
     case DocumentKind::Zip:
       return zipText(path);
+    case DocumentKind::Photo:
+      return photoText(path);
+    case DocumentKind::Audio:
+      return audioText(path);
     case DocumentKind::None:
       break;
     }

@@ -176,8 +176,7 @@ namespace andromeda::index {
     // Three letters match words in nearly every document: noise that costs ~8 ms per query.
     const bool searchText = std::ranges::count_if(text, [](char c) { return std::isspace(static_cast<unsigned char>(c)) == 0; })
         >= kMinTextQuery;
-    const bool kindHasText = kind == FileKind::Any || kind == FileKind::Pdf || kind == FileKind::Doc
-        || kind == FileKind::Sheet || kind == FileKind::Slides;
+    const bool kindHasText = kind != FileKind::Folder && kind != FileKind::Video;
     std::vector<FileRow> content =
         searchText && kindHasText ? m_db.queryContent(text, kind == FileKind::Any ? limit : kMaxLimit, named) : std::vector<FileRow>{};
     if (kind != FileKind::Any) {

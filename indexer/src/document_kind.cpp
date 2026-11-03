@@ -14,6 +14,12 @@ namespace andromeda::index {
     constexpr std::string_view kTextExtensions[] = {"txt", "md",  "markdown", "rst", "org",
                                                     "tex", "csv", "tsv",      "srt", "vtt"};
 
+    // Photos and audio: only their metadata is indexed (camera, date, keywords; title, artist, album).
+    constexpr std::string_view kPhotoExtensions[] = {"jpg", "jpeg", "tif", "tiff", "heic", "heif", "webp", "avif",
+                                                     "png", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf"};
+    constexpr std::string_view kAudioExtensions[] = {"mp3", "flac", "ogg", "oga", "opus", "m4a",
+                                                     "aac", "wav", "aiff", "aif", "wma"};
+
     constexpr std::pair<std::string_view, FileKind> kKindOf[] = {
         {"pdf", FileKind::Pdf},
         {"png", FileKind::Image},     {"jpg", FileKind::Image},    {"jpeg", FileKind::Image},  {"gif", FileKind::Image},
@@ -92,6 +98,12 @@ namespace andromeda::index {
         || ext == "pptx"
         || ext == "epub") {
       return DocumentKind::Zip;
+    }
+    if (std::ranges::find(kPhotoExtensions, ext) != std::end(kPhotoExtensions)) {
+      return DocumentKind::Photo;
+    }
+    if (std::ranges::find(kAudioExtensions, ext) != std::end(kAudioExtensions)) {
+      return DocumentKind::Audio;
     }
     return DocumentKind::None;
   }
