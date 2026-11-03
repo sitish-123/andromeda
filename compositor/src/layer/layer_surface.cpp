@@ -300,11 +300,11 @@ namespace andromeda {
           std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
       alpha *= opacity;
       // A fade-in leads with the blur (ease-out cubic), so the backdrop is frosted before the fill is opaque; a
-      // fade-out keeps the blur with the fill, or the frost and its tint recipe outlast the content. The fade scales
-      // the blur size: an alpha fade would show the sharp backdrop and a blurred copy at once.
+      // fade-out drops the blur ahead of the fill (cubic), or the frost outlasts the content. The fade scales the blur
+      // size, which the eye reads on a log scale: a linear fade looks fully frosted until its last frames.
       const bool fadingOut = state->motion.target(SurfaceMotion::Property::Opacity)[0] < opacity;
       const float lead = 1.0F - opacity;
-      m_blurFade = fadingOut ? opacity : 1.0F - lead * lead * lead;
+      m_blurFade = fadingOut ? opacity * opacity * opacity : 1.0F - lead * lead * lead;
       m_blur.setFade(m_blurFade);
       for (SurfaceBlur& blur : m_shapeBlurs) {
         blur.setFade(m_blurFade);
