@@ -2590,7 +2590,13 @@ bool PanelManager::startDetachedScaleOpen() {
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
   applyDetachedReveal(1.0F);
-  startContentGate();
+  // The compositor fades the whole surface in, so the content shows from the first frame; the 35 % gate (rulebook
+  // 7.4) is only for content inside a growing shape.
+  m_contentGateTimer.stop();
+  m_contentGate = 1.0F;
+  if (m_contentNode != nullptr) {
+    m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress));
+  }
   m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
   m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
   m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
