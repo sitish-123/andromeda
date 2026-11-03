@@ -225,6 +225,7 @@ namespace settings {
       toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");
       toggle(Windows, "focus", "general.focus_on_activate", "focus activation request urgent");
       toggle(Windows, "focus", "general.show_cheatsheet", "keybind cheatsheet startup help");
+      toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
 

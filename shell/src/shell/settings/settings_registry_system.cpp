@@ -57,6 +57,25 @@ namespace settings {
             sliderFor(cfg.battery.warningThreshold, noctalia::config::schema::kBatteryWarningThresholdRange, true),
             "battery low warning threshold notification"
         ));
+        // Values are power-profiles-daemon profile names; empty keeps the current profile.
+        const auto profileOptions = [&] {
+          return std::vector<SelectOption>{
+              {.value = "", .label = tr("settings.schema.system.battery-profile.keep")},
+              {.value = "power-saver", .label = tr("power.profiles.power-saver")},
+              {.value = "balanced", .label = tr("power.profiles.balanced")},
+              {.value = "performance", .label = tr("power.profiles.performance")},
+          };
+        };
+        entries.push_back(makeEntry(
+            SettingsSection::System, "battery", tr("settings.schema.system.battery-profile-on-ac.label"),
+            tr("settings.schema.system.battery-profile-on-ac.description"), {"battery", "profile_on_ac"},
+            SelectSetting{profileOptions(), cfg.battery.profileOnAc, true}, "power mode profile charger plugged ac"
+        ));
+        entries.push_back(makeEntry(
+            SettingsSection::System, "battery", tr("settings.schema.system.battery-profile-on-battery.label"),
+            tr("settings.schema.system.battery-profile-on-battery.description"), {"battery", "profile_on_battery"},
+            SelectSetting{profileOptions(), cfg.battery.profileOnBattery, true}, "power mode profile battery unplugged"
+        ));
       }
       for (const auto& device : env.batteryDeviceOptions) {
         int value = 0;

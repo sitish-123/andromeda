@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
@@ -165,6 +167,117 @@ namespace settings {
       );
     }
 
+    void addToggleRow(Flex& body, std::string_view titleKey, std::string_view key, const SettingsInputContext& ctx) {
+      body.addChild(makeInputRow(
+          i18n::tr(titleKey),
+          makeInputToggle(
+              ctx.input->value(key) == "true", ctx.scale,
+              [set = ctx.set, key = std::string(key)](bool checked) { set(key, checked ? "true" : "false"); }
+          ),
+          key, ctx
+      ));
+    }
+
+    void addChoiceRow(
+        Flex& body, std::string_view titleKey, std::string_view key, std::vector<std::string> values,
+        std::vector<std::string> labels, const SettingsInputContext& ctx
+    ) {
+      const std::optional<std::size_t> selected = indexOf(values, ctx.input->value(key));
+      body.addChild(makeInputRow(
+          i18n::tr(titleKey),
+          makeInputSelect(
+              std::move(labels), selected, ctx.scale,
+              [set = ctx.set, key = std::string(key), values = std::move(values)](std::size_t index) {
+                set(key, values[index]);
+              }
+          ),
+          key, ctx
+      ));
+    }
+
+    // Icon themes with a cursors directory, in the XCursor search order (user dirs first, first name wins).
+    std::vector<std::string> cursorThemes() {
+      namespace fs = std::filesystem;
+      std::vector<fs::path> roots;
+      const char* home = std::getenv("HOME");
+      const char* dataHome = std::getenv("XDG_DATA_HOME");
+      if (dataHome != nullptr && *dataHome != '\0') {
+        roots.emplace_back(fs::path(dataHome) / "icons");
+      } else if (home != nullptr) {
+        roots.emplace_back(fs::path(home) / ".local/share/icons");
+      }
+      if (home != nullptr) {
+        roots.emplace_back(fs::path(home) / ".icons");
+      }
+      const char* dataDirs = std::getenv("XDG_DATA_DIRS");
+      std::string_view dirs = dataDirs != nullptr && *dataDirs != '\0' ? dataDirs : "/usr/local/share:/usr/share";
+      while (!dirs.empty()) {
+        const std::size_t colon = dirs.find(':');
+        roots.emplace_back(fs::path(dirs.substr(0, colon)) / "icons");
+        dirs = colon == std::string_view::npos ? std::string_view{} : dirs.substr(colon + 1);
+      }
+      std::vector<std::string> themes;
+      std::error_code ec;
+      for (const fs::path& root : roots) {
+        for (const fs::directory_entry& entry : fs::directory_iterator(root, ec)) {
+          std::string name = entry.path().filename().string();
+          if (fs::is_directory(entry.path() / "cursors", ec) && !std::ranges::contains(themes, name)) {
+            themes.push_back(std::move(name));
+          }
+        }
+      }
+      std::ranges::sort(themes);
+      return themes;
+    }
+
+    void addPointerCard(Flex& content, const SettingsInputContext& ctx) {
+      Flex* body = addSettingsCard(content, i18n::tr("settings.input.pointer"), ctx.scale);
+      const SettingsControl& input = *ctx.input;
+
+      std::vector<std::string> themes = cursorThemes();
+      if (const std::string current = input.value("input.cursor.theme");
+          !current.empty() && !std::ranges::contains(themes, current)) {
+        themes.insert(themes.begin(), current);
+      }
+      std::vector<std::string> themeLabels = themes;
+      addChoiceRow(*body, "settings.input.pointer.theme", "input.cursor.theme", std::move(themes),
+                   std::move(themeLabels), ctx);
+
+      std::vector<std::string> sizes = {"24", "32", "48", "64", "96"};
+      if (const std::string current = input.value("input.cursor.size");
+          !current.empty() && !std::ranges::contains(sizes, current)) {
+        sizes.insert(sizes.begin(), current);
+      }
+      std::vector<std::string> sizeLabels;
+      for (const std::string& size : sizes) {
+        sizeLabels.push_back(std::format("{} px", size));
+      }
+      addChoiceRow(*body, "settings.input.pointer.size", "input.cursor.size", std::move(sizes), std::move(sizeLabels),
+                   ctx);
+
+      addToggleRow(*body, "settings.input.pointer.hide-while-typing", "input.cursor.hide_when_typing", ctx);
+
+      // 0 = never hide.
+      addChoiceRow(
+          *body, "settings.input.pointer.hide-after", "input.cursor.hide_timeout_ms",
+          {"0", "3000", "5000", "10000", "30000", "60000"},
+          {i18n::tr("settings.input.pointer.hide-never"), "3 s", "5 s", "10 s", "30 s", "1 min"}, ctx
+      );
+
+      addToggleRow(*body, "settings.input.pointer.middle-click-paste", "input.middle_click_paste", ctx);
+    }
+
+    void addTabletCard(Flex& content, const SettingsInputContext& ctx) {
+      if (std::ranges::none_of(ctx.input->devices(), [](const InputDevice& d) {
+            return d.kind == InputDeviceKind::Tablet;
+          })) {
+        return;
+      }
+      Flex* body = addSettingsCard(content, i18n::tr("settings.input.tablet"), ctx.scale);
+      addToggleRow(*body, "settings.input.tablet.enabled", "input.tablet.enabled", ctx);
+      addToggleRow(*body, "settings.input.touchpad.left-handed", "input.tablet.left_handed", ctx);
+    }
+
     void addKeyboardCard(Flex& content, const SettingsInputContext& ctx) {
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.keyboard"), ctx.scale);
       const SettingsControl& input = *ctx.input;
@@ -292,6 +405,13 @@ namespace settings {
           numlockKey, ctx
       ));
 
+      addChoiceRow(
+          *body, "settings.input.keyboard.track-layout", "input.keyboard.track_layout", {"global", "window"},
+          {i18n::tr("settings.input.keyboard.track-layout.global"),
+           i18n::tr("settings.input.keyboard.track-layout.window")},
+          ctx
+      );
+
       // Caps Lock and Compose key behavior, from the two matching XKB option groups.
       for (const std::string_view group : {"caps", "compose"}) {
         const xkb::OptionGroup* optionGroup = xkb::findOptionGroup(catalog, group);
@@ -349,6 +469,17 @@ namespace settings {
       boolRow("settings.input.touchpad.natural-scroll", "input.touchpad.natural_scroll");
       boolRow("settings.input.touchpad.disable-while-typing", "input.touchpad.disable_while_typing");
       boolRow("settings.input.touchpad.left-handed", "input.touchpad.left_handed");
+      boolRow("settings.input.touchpad.natural-swipe", "input.touchpad.natural_swipe");
+      boolRow("settings.input.touchpad.disable-on-external-mouse", "input.touchpad.disable_on_external_mouse");
+
+      if (input.value("input.touchpad.tap") == "true") {
+        boolRow("settings.input.touchpad.tap-and-drag", "input.touchpad.tap_and_drag");
+        addChoiceRow(
+            *body, "settings.input.touchpad.tap-map", "input.touchpad.tap_button_map",
+            {"left_right_middle", "left_middle_right"},
+            {i18n::tr("settings.input.touchpad.tap-map.lrm"), i18n::tr("settings.input.touchpad.tap-map.lmr")}, ctx
+        );
+      }
 
       constexpr std::string_view clickKey = "input.touchpad.click_method";
       const std::vector<std::string> clickValues = {"button_areas", "clickfinger"};
@@ -391,6 +522,17 @@ namespace settings {
               [set = ctx.set](double v) { set("input.touchpad.sensitivity", std::format("{:.2f}", v)); }
           ),
           sensitivityKey, ctx
+      ));
+
+      constexpr std::string_view scrollKey = "input.touchpad.scroll_factor";
+      body->addChild(makeInputRow(
+          i18n::tr("settings.input.touchpad.scroll-speed"),
+          makeInputSlider(
+              toDouble(input.value(scrollKey), 1.0), 0.1, 3.0, 0.05, false, ctx.scale,
+              [set = ctx.set, key = std::string(scrollKey)](double v) { set(key, std::format("{:.2f}", v)); },
+              i18n::tr("settings.sliders.slow"), i18n::tr("settings.sliders.fast")
+          ),
+          scrollKey, ctx
       ));
     }
 
@@ -456,8 +598,10 @@ namespace settings {
       return;
     }
     if (ctx.pointer) {
+      addPointerCard(content, ctx);
       addMouseCard(content, ctx);
       addTouchpadCard(content, ctx);
+      addTabletCard(content, ctx);
     } else {
       addKeyboardCard(content, ctx);
     }

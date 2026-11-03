@@ -181,6 +181,22 @@ namespace andromeda {
             [](const Config& c) { return text(c.input.touchpad.naturalSwipe); }
         },
         Spec{
+            "input.touchpad.tap_and_drag",
+            Kind::Bool,
+            0,
+            0,
+            {},
+            [](const Config& c) { return text(c.input.touchpad.tapAndDrag.value_or(true)); }
+        },
+        Spec{
+            "input.window_snapping",
+            Kind::Bool,
+            0,
+            0,
+            {},
+            [](const Config& c) { return text(c.input.windowSnapping); }
+        },
+        Spec{
             "input.touchpad.left_handed",
             Kind::Bool,
             0,

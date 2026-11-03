@@ -4378,15 +4378,26 @@
           "description": "Override the battery warning threshold for this device (0 disables warnings for this device)",
           "label": "{device} Warning Threshold"
         },
-        "battery-warning-threshold": {
-          "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
-          "label": "Battery Warning Threshold"
-        },
         "app-priority": {
           "button": "Learn More",
           "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
           "label": "App Priority"
         }
+        },
+        "battery-warning-threshold": {
+          "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
+          "label": "Battery Warning Threshold"
+        },
+        "battery-profile": {
+          "keep": "Don't change"
+        },
+        "battery-profile-on-ac": {
+          "description": "Power mode to switch to when the charger is connected",
+          "label": "Power Mode on Charger"
+        },
+        "battery-profile-on-battery": {
+          "description": "Power mode to switch to when the charger is disconnected",
+          "label": "Power Mode on Battery"
       },
       "templates": {
         "builtin-ids": {
@@ -4730,6 +4741,10 @@
           "description": "Focus the window under the pointer"
         },
         "input-cursor-follows-focus": {
+        "input-window-snapping": {
+          "label": "Window Snapping",
+          "description": "Drag a window to a screen edge or corner to fill half or a quarter"
+        },
           "label": "Cursor Follows Focus",
           "description": "Move the pointer to a window when it gets focus from the keyboard"
         },
@@ -6234,6 +6249,9 @@
       "keyboard.numlock": "Enable Num Lock at login",
       "keyboard.option-none": "Off",
       "touchpad": "Touchpad",
+      "keyboard.track-layout": "Input source",
+      "keyboard.track-layout.global": "Same for all windows",
+      "keyboard.track-layout.window": "Per window",
       "touchpad.tap": "Tap to click",
       "touchpad.natural-scroll": "Natural scrolling",
       "touchpad.disable-while-typing": "Disable while typing",
@@ -6241,7 +6259,23 @@
       "touchpad.click-method": "Click method",
       "touchpad.click-method.button-areas": "Button areas",
       "touchpad.click-method.clickfinger": "Click-finger",
-      "mouse": "Mouse"
+      "touchpad.natural-swipe": "Natural swipe direction",
+      "touchpad.disable-on-external-mouse": "Disable when a mouse is connected",
+      "touchpad.tap-map": "Two- and three-finger tap",
+      "touchpad.tap-map.lrm": "Right click, middle click",
+      "touchpad.tap-map.lmr": "Middle click, right click",
+      "touchpad.scroll-speed": "Scroll speed",
+      "touchpad.tap-and-drag": "Tap and drag",
+      "mouse": "Mouse",
+      "pointer": "Pointer",
+      "pointer.theme": "Cursor theme",
+      "pointer.size": "Cursor size",
+      "pointer.hide-while-typing": "Hide while typing",
+      "pointer.hide-after": "Hide when idle",
+      "pointer.hide-never": "Never",
+      "pointer.middle-click-paste": "Middle-click paste",
+      "tablet": "Tablet",
+      "tablet.enabled": "Use tablet"
     },
     "datetime": {
       "unavailable": "org.freedesktop.timedate1 is not available on the system bus.",
