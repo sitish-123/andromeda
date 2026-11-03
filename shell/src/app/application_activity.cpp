@@ -25,6 +25,7 @@ void Application::initActivity() {
   }
   m_activityActions = std::make_unique<ActivityActions>(m_bus->connection(), m_systemBus != nullptr ? &m_systemBus->connection() : nullptr);
   m_backgroundWarningState = std::make_unique<BackgroundWarningState>(FileUtils::stateDir() + "/activity.json");
+  m_activityWindow.initialize(m_wayland, &m_configService, &m_renderContext, m_activityMonitor.get(), m_activityActions.get());
 
   BackgroundActivityMonitor::Hooks hooks;
   hooks.trayPids = [this]() { return m_trayService != nullptr ? m_trayService->itemPids() : std::vector<int>{}; };
@@ -57,10 +58,24 @@ void Application::initActivity() {
     }
     return features;
   };
-  // The Activity window (S5) replaces this: until then "Show" starts a sampling lease for `msg activity-dump`.
-  hooks.showActivity = [this](const std::string& /*rowKey*/) { m_activityMonitor->touch(); };
+  hooks.enabled = [this]() { return m_configService.config().system.background.warn; };
+  hooks.thresholds = [this]() {
+    const auto& cfg = m_configService.config().system.background;
+    BackgroundThresholds thresholds;
+    thresholds.minUptime = std::chrono::minutes(cfg.minUptimeMinutes);
+    thresholds.memoryBytes = static_cast<std::uint64_t>(cfg.memoryMb) * 1024 * 1024;
+    return thresholds;
+  };
+  hooks.sampled = [this]() {
+    m_activityDetails.snapshot(m_activityMonitor->activity().rows(), std::chrono::steady_clock::now());
+  };
+  hooks.showActivity = [this](const std::string& rowKey) { m_activityWindow.open(rowKey); };
   m_backgroundActivityMonitor = std::make_unique<BackgroundActivityMonitor>(
       *m_activityMonitor, *m_activityActions, *m_backgroundWarningState, m_notificationManager, std::move(hooks)
   );
+  m_activityWindow.setBackgroundMonitor(m_backgroundActivityMonitor.get());
+  m_activityWindow.setDetails(&m_activityDetails);
+  m_activityWindow.setSystemMonitorProvider([this]() { return m_systemMonitor.get(); });
+  m_activityWindow.setUPowerProvider([this]() { return upower(); });
   m_backgroundActivityMonitor->start();
 }

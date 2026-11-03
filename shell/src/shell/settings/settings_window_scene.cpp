@@ -760,6 +760,10 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
       }
     }
   }
+  if (m_activityFlaggedCount) {
+    env.backgroundActivityCount = m_activityFlaggedCount();
+  }
+  env.openActivity = m_openActivity;
   env.greeterSyncAvailable =
       m_config != nullptr && greeter::appearanceSyncAvailable(m_config->config().shell.greeterSync);
   const ThemeMode previewMode = m_config != nullptr ? shellThemeMode(m_config->config().theme) : ThemeMode::Dark;

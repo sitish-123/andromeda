@@ -1242,6 +1242,7 @@ void Application::initAuxServicesAndHooks() {
   });
 
   if (const auto distro = DistroDetector::detect(); distro.has_value()) {
+    m_activityWindow.onThemeChanged();
     const auto& label = !distro->prettyName.empty() ? distro->prettyName
         : !distro->name.empty()                     ? distro->name
                                                     : distro->id;

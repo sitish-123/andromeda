@@ -167,6 +167,10 @@ public:
   void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
+  void setActivity(std::function<std::optional<std::size_t>()> flaggedCount, std::function<void()> open) {
+    m_activityFlaggedCount = std::move(flaggedCount);
+    m_openActivity = std::move(open);
+  }
   void setNotificationManager(NotificationManager* manager) { m_notificationManager = manager; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
   // Backs plugin-store thumbnails; trimmed when the window closes.
@@ -531,6 +535,8 @@ private:
   std::function<void()> m_syncGreeterAppearance;
   std::function<void()> m_resetLauncherUsage;
   std::function<void()> m_resetScreenTime;
+  std::function<std::optional<std::size_t>()> m_activityFlaggedCount;
+  std::function<void()> m_openActivity;
   std::function<void()> m_resetEncryptedStorage;
   std::function<void()> m_saveWallpaperPaletteAsCustom;
 };

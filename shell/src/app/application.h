@@ -76,6 +76,7 @@
 #include "shell/tray/tray_menu.h"
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
 #include "shell/wallpaper/wallpaper.h"
+#include "shell/activity/activity_window.h"
 #include "system/activity_actions.h"
 #include "system/activity_monitor.h"
 #include "system/background_activity_monitor.h"
@@ -355,6 +356,13 @@ private:
   // Created on the first Activity request; samples only under a lease.
   std::unique_ptr<ActivityMonitor> m_activityMonitor;
   std::unique_ptr<ActivityActions> m_activityActions;
+  // Outlives the window: 24 h memory history fills from the background check.
+  ActivityDetails m_activityDetails;
+  // Declared after the monitor: it releases its monitor reference when it closes.
+  ActivityWindow m_activityWindow;
+  std::unique_ptr<DebugService> m_debugService;
+  std::unique_ptr<AndromedaShellService> m_andromedaShellService;
+  IdleInhibitor m_idleInhibitor;
   std::unique_ptr<BackgroundWarningState> m_backgroundWarningState;
   std::unique_ptr<BackgroundActivityMonitor> m_backgroundActivityMonitor;
   IdleManager m_idleManager;

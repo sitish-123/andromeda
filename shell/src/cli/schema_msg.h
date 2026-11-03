@@ -265,6 +265,9 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgSettingsOpenPositionals{
       Positional{"context", {}, {}, false, false, false},
   };
+  inline constexpr std::array kMsgActivityOpenPositionals{
+      Positional{"row", {}, {}, false, false, false},
+  };
   inline constexpr std::array kMsgSettingsOpenPluginPositionals{
       Positional{"plugin-id", {}, {}, true, false, false},
   };
@@ -392,6 +395,10 @@ namespace noctalia::cli {
   namespace msg {
     inline constexpr Command activityCheck{
         "activity-check", "Run the background-activity check now and post any new warnings", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command activityOpen{
+        "activity-open", "Open the Activity window, optionally with a row (app ID or unit name) selected", {}, {}, {},
+        kMsgActivityOpenPositionals, {}, false
     };
     inline constexpr Command activityDump{
         "activity-dump", "Print Activity rows as JSON and keep sampling for 10 s", {}, {}, {}, {}, {}, false
@@ -1146,10 +1153,11 @@ namespace noctalia::cli {
   } // namespace msg
 
   inline constexpr std::array kMsgSubcommands{
-      msg::airplaneStatus,
-      msg::airplaneToggle,
       msg::activityCheck,
       msg::activityDump,
+      msg::activityOpen,
+      msg::airplaneStatus,
+      msg::airplaneToggle,
       msg::annotate,
       msg::barAutoHideSet,
       msg::barHide,

@@ -101,13 +101,19 @@ void BackgroundActivityMonitor::start() {
 }
 
 void BackgroundActivityMonitor::checkNow(std::function<void(std::size_t)> done) {
-  if (m_hooks.enabled && !m_hooks.enabled()) {
-    if (done) {
-      done(0);
-    }
-    return;
-  }
   m_activity.sampleOnce([this, done = std::move(done)]() {
+    if (m_hooks.sampled) {
+      m_hooks.sampled();
+    }
+    m_flaggedCount = static_cast<std::size_t>(std::ranges::count_if(classifyRows(), [](const auto& entry) {
+      return entry.second.verdict.finding != BackgroundVerdict::Finding::None && !entry.second.ignored;
+    }));
+    if (m_hooks.enabled && !m_hooks.enabled()) {
+      if (done) {
+        done(0);
+      }
+      return;
+    }
     auto findings = evaluate();
     const std::size_t count = findings.size();
     if (!findings.empty()) {
@@ -119,12 +125,38 @@ void BackgroundActivityMonitor::checkNow(std::function<void(std::size_t)> done) 
   });
 }
 
-std::vector<BackgroundActivityMonitor::Finding> BackgroundActivityMonitor::evaluate() const {
-  const auto& service = m_activity.activity();
-  const auto& units = m_activity.userUnits().units();
+void BackgroundActivityMonitor::notifyPortalBackground(const std::string& appId, const std::string& name) {
+  m_activity.sampleOnce([this, appId, name]() {
+    Finding finding;
+    finding.rowKey = appId;
+    finding.name = name.empty() ? appId : name;
+    finding.units = rowUnits(appId);
+    NotificationRequest request;
+    request.appName = i18n::tr("notifications.internal.activity");
+    request.summary = i18n::tr("notifications.internal.activity-background-title", "name", finding.name);
+    request.body = i18n::tr("notifications.internal.activity-portal-body");
+    request.origin = NotificationOrigin::Internal;
+    request.persistInHistory = true;
+    request.icon = std::string("noctalia-glyph:activity");
+    if (!finding.units.empty()) {
+      request.actions = {"stop", i18n::tr("notifications.internal.activity-stop")};
+    }
+    request.actions.push_back("show");
+    request.actions.push_back(i18n::tr("notifications.internal.activity-show"));
+    kLog.info("portal background: {} ({} units)", appId, finding.units.size());
+    if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0) {
+      m_posted[id] = {std::move(finding)};
+    }
+  });
+}
+
+BackgroundContext BackgroundActivityMonitor::makeContext() const {
   BackgroundContext context;
   context.nowUsec = nowRealtimeUsec();
-  context.cpuCount = service.cpuCount();
+  context.cpuCount = m_activity.activity().cpuCount();
+  if (m_hooks.thresholds) {
+    context.thresholds = m_hooks.thresholds();
+  }
   if (const char* home = std::getenv("HOME"); home != nullptr) {
     context.homeDir = home;
   }
@@ -138,13 +170,88 @@ std::vector<BackgroundActivityMonitor::Finding> BackgroundActivityMonitor::evalu
   if (m_hooks.enabledFeatures) {
     context.enabledFeatures = m_hooks.enabledFeatures();
   }
-  context.hasTerminal = [&service, &units](const ActivityRow& row) {
+  // The context outlives this call: look the monitor's state up per call instead of capturing locals.
+  context.hasTerminal = [this](const ActivityRow& row) {
+    const auto& units = m_activity.userUnits().units();
+    const auto& service = m_activity.activity();
     return std::ranges::any_of(row.units, [&](const std::string& name) {
       const auto it = std::ranges::find(units, name, &SystemdUnit::name);
       return it != units.end() && cgroupHasTerminal(service.cgroupRoot(), it->controlGroup);
     });
   };
 
+  return context;
+}
+
+std::vector<SystemdUnit> BackgroundActivityMonitor::rowUnits(const std::string& rowKey) const {
+  std::vector<SystemdUnit> result;
+  const auto& rows = m_activity.activity().rows();
+  const auto row = std::ranges::find(rows, rowKey, &ActivityRow::key);
+  if (row == rows.end()) {
+    return result;
+  }
+  const auto& units = m_activity.userUnits().units();
+  for (const auto& name : row->units) {
+    if (const auto u = std::ranges::find(units, name, &SystemdUnit::name); u != units.end()) {
+      result.push_back(*u);
+    }
+  }
+  return result;
+}
+
+std::map<std::string, BackgroundActivityMonitor::RowState> BackgroundActivityMonitor::classifyRows() const {
+  const BackgroundContext context = makeContext();
+  const auto& units = m_activity.userUnits().units();
+  const auto autostart = autostartEntries();
+  std::map<std::string, RowState> states;
+  for (const auto& row : m_activity.activity().rows()) {
+    if (row.units.empty()) {
+      continue;
+    }
+    const auto unit = std::ranges::find(units, row.units.front(), &SystemdUnit::name);
+    if (unit == units.end()) {
+      continue;
+    }
+    states[row.key] = RowState{
+        .verdict = classifyBackground(row, unit->fragmentPath, unit->unitFilePreset, context),
+        .ignored = m_state.ignored(row.key),
+        .atLogin = unit->unitFileState == "enabled" || std::ranges::contains(autostart, unit->name, &AutostartEntry::unitName),
+    };
+  }
+  return states;
+}
+
+void BackgroundActivityMonitor::disableAtLogin(
+    const std::string& rowKey, std::function<void(const ActivityActionResult&)> reply
+) {
+  for (const auto& unit : rowUnits(rowKey)) {
+    m_actions.disableAtLogin(unit, autostartEntries(), autostartUserDir(), reply);
+  }
+}
+
+void BackgroundActivityMonitor::setIgnored(const std::string& rowKey, bool ignored) { m_state.setIgnored(rowKey, ignored); }
+
+std::string BackgroundActivityMonitor::reasonText(const RowState& state, std::uint64_t memoryBytes) {
+  switch (state.verdict.finding) {
+  case BackgroundVerdict::Finding::None:
+    return {};
+  case BackgroundVerdict::Finding::Duplicate:
+    return state.verdict.duplicates == ShellFeature::Plasma
+               ? i18n::tr("notifications.internal.activity-duplicate-plasma-body")
+               : i18n::tr("notifications.internal.activity-duplicate-body", "feature", featureText(state.verdict.duplicates));
+  case BackgroundVerdict::Finding::UsesResources:
+    return i18n::tr(
+        state.atLogin ? "notifications.internal.activity-background-body-login" : "notifications.internal.activity-background-body",
+        "memory", memoryText(memoryBytes), "ago", agoText(state.verdict.uptimeSec)
+    );
+  }
+  return {};
+}
+
+std::vector<BackgroundActivityMonitor::Finding> BackgroundActivityMonitor::evaluate() const {
+  const auto& service = m_activity.activity();
+  const auto& units = m_activity.userUnits().units();
+  const BackgroundContext context = makeContext();
   const auto autostart = autostartEntries();
   const auto& entries = desktopEntries();
   std::vector<Finding> findings;
@@ -231,19 +338,12 @@ void BackgroundActivityMonitor::notify(std::vector<Finding> findings) {
     return;
   }
   for (auto& finding : findings) {
-    std::string body;
+    const std::string body = reasonText(RowState{.verdict = finding.verdict, .atLogin = finding.atLogin}, finding.memoryBytes);
     std::vector<std::string> actions;
     if (finding.verdict.finding == BackgroundVerdict::Finding::Duplicate) {
-      body = finding.verdict.duplicates == ShellFeature::Plasma
-                 ? i18n::tr("notifications.internal.activity-duplicate-plasma-body")
-                 : i18n::tr("notifications.internal.activity-duplicate-body", "feature", featureText(finding.verdict.duplicates));
       actions = {"stop-disable", i18n::tr("notifications.internal.activity-stop-dont-start"), "keep",
                  i18n::tr("notifications.internal.activity-keep")};
     } else {
-      body = i18n::tr(
-          finding.atLogin ? "notifications.internal.activity-background-body-login" : "notifications.internal.activity-background-body",
-          "memory", memoryText(finding.memoryBytes), "ago", agoText(finding.verdict.uptimeSec)
-      );
       actions = {"stop", i18n::tr("notifications.internal.activity-stop")};
       if (finding.atLogin) {
         actions.insert(actions.end(), {"disable", i18n::tr("notifications.internal.activity-dont-start")});

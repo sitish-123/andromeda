@@ -4,3 +4,11 @@ S1 | libdesk-ui/src/ui/shadow_style.h | | token header: shadow sizes are defined
 D1 | shell/src/shell/wallpaper/wallpaper.cpp | kWallpaperTransitionEasing | wallpaper crossfade is a fixed-duration effect (animateTimer)
 S1 | shell/src/shell/bar/widget_factory.cpp | kIslandDotActiveWidth = | workspace dots: user choice 2026-11-02, see deviations.md
 S1 | shell/src/shell/bar/widgets/workspaces_widget.cpp | kIslandDotGap = | workspace dots: user choice 2026-11-02, see deviations.md
+S1 | shell/src/shell/activity/activity_window.cpp | kWindowWidth = | Activity window frame sizes from .agent/DESIGN.md "Activity app" (1120 x 720, user pick 2026-11-04)
+S1 | shell/src/shell/activity/activity_window.cpp | kWindowHeight = | Activity window frame sizes from .agent/DESIGN.md "Activity app"
+S1 | shell/src/shell/activity/activity_window.cpp | kWindowMinWidth = | Activity window minimum size: sidebar + list + inspector still fit
+S1 | shell/src/shell/activity/activity_window.cpp | kWindowMinHeight = | Activity window minimum size: sidebar + list + inspector still fit
+S1 | shell/src/shell/activity/activity_window.cpp | kInspectorWidth = | Activity inspector pane width from .agent/DESIGN.md "Activity app" (280)
+S1 | shell/src/shell/activity/activity_window.cpp | kColumnWidth = | Activity numeric column width (fits "999.9 %" / "99.9 GB" at body size)
+S1 | shell/src/shell/activity/activity_window.cpp | kEnergyWidth = | Activity Energy column: 4-bar meter width from the mockup
+S1 | shell/src/shell/activity/activity_window.cpp | kHistoryGraphWidth = | Activity History sparkline width from the mockup

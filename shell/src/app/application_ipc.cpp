@@ -1,4 +1,5 @@
 #include "app/main_loop.h"
+#include <cstdlib>
 #include <vector>
 #include <system_error>
 #include <string>
@@ -733,7 +734,6 @@ void Application::initIpc() {
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
 
-  registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
   m_ipcService.bind(
       noctalia::cli::msg::activityDump,
       [this](const std::string& /*args*/) -> std::string {
@@ -742,6 +742,18 @@ void Application::initIpc() {
         }
         m_activityMonitor->touch();
         return m_activityMonitor->dumpJson() + "\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
+      noctalia::cli::msg::activityOpen,
+      [this](const std::string& args) -> std::string {
+        if (m_activityMonitor == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_activityWindow.open(StringUtils::trim(args));
+        return "ok\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
@@ -758,6 +770,7 @@ void Application::initIpc() {
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
 
+  registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
 
   if (powerProfiles() != nullptr) {
     powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {

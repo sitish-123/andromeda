@@ -6,12 +6,14 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
 class ActivityMonitor;
 class ActivityActions;
+struct ActivityActionResult;
 class BackgroundWarningState;
 class NotificationManager;
 struct SystemdUnit;
@@ -24,7 +26,9 @@ public:
     std::function<std::vector<int>()> trayPids;               // PIDs that own a StatusNotifierItem
     std::function<std::set<ShellFeature>()> enabledFeatures; // shell features that make helpers redundant
     std::function<void(const std::string& rowKey)> showActivity;
-    std::function<bool()> enabled; // activity.background.warn
+    std::function<bool()> enabled; // system.background.warn
+    std::function<BackgroundThresholds()> thresholds;
+    std::function<void()> sampled; // after each check's sample, warning on or off (Activity history)
   };
 
   BackgroundActivityMonitor(
@@ -35,6 +39,27 @@ public:
   void start();
   // Runs one check now (IPC `activity-check`); done() runs after any notification is posted.
   void checkNow(std::function<void(std::size_t findings)> done = {});
+
+  // The Activity window's view of one row: its verdict, whether the user ignored it, whether it starts at login.
+  struct RowState {
+    BackgroundVerdict verdict;
+    bool ignored = false;
+    bool atLogin = false;
+  };
+  // Classifies every current row with the same rules as the warning (no notified/ignored filter). Costs one bus call
+  // per tray item and /proc reads for flag candidates: call it on demand, not every frame.
+  [[nodiscard]] std::map<std::string, RowState> classifyRows() const;
+  // Row actions for the Activity window; replies run on the main loop.
+  void disableAtLogin(const std::string& rowKey, std::function<void(const ActivityActionResult&)> reply);
+  void setIgnored(const std::string& rowKey, bool ignored);
+  // xdg-desktop-portal's NotifyBackground: a sandboxed app runs with no window. Posts one notification with Stop
+  // (when the app's units are known) and Show.
+  void notifyPortalBackground(const std::string& appId, const std::string& name);
+  // Rows with a finding the user did not ignore, as of the last check (Settings › Performance count).
+  // Empty until the first check has run.
+  [[nodiscard]] std::optional<std::size_t> flaggedCount() const noexcept { return m_flaggedCount; }
+  // The plain reason line for a finding (the notification body), or empty when the verdict has no finding.
+  [[nodiscard]] static std::string reasonText(const RowState& state, std::uint64_t memoryBytes);
 
   static constexpr auto kFirstCheck = std::chrono::minutes(10);
   static constexpr auto kInterval = std::chrono::minutes(30);
@@ -51,6 +76,8 @@ private:
     std::vector<SystemdUnit> units;
   };
 
+  [[nodiscard]] BackgroundContext makeContext() const;
+  [[nodiscard]] std::vector<SystemdUnit> rowUnits(const std::string& rowKey) const;
   std::vector<Finding> evaluate() const;
   void notify(std::vector<Finding> findings);
   void onAction(std::uint32_t id, const std::string& action);
@@ -62,5 +89,6 @@ private:
   Hooks m_hooks;
   Timer m_timer;
   bool m_started = false;
+  std::optional<std::size_t> m_flaggedCount;
   std::map<std::uint32_t, std::vector<Finding>> m_posted; // notification id -> its findings
 };

@@ -182,6 +182,12 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);
   m_settingsWindow.setIpcService(&m_ipcService);
+  m_settingsWindow.setActivity(
+      [this]() -> std::optional<std::size_t> {
+        return m_backgroundActivityMonitor != nullptr ? m_backgroundActivityMonitor->flaggedCount() : std::nullopt;
+      },
+      [this] { m_activityWindow.open({}); }
+  );
   m_settingsWindow.setAsyncTextureCache(&m_asyncTextureCache);
   m_settingsWindow.setOpenDesktopWidgetEditor([this] {
     if (m_lockscreenWidgetsController.isEditing()) {
@@ -501,6 +507,8 @@ void Application::initInputDispatch() {
     }
     if (m_settingsWindow.onPointerEvent(event))
       return;
+    if (m_activityWindow.onPointerEvent(event))
+      return;
     if (m_liveActivity.onPointerEvent(event))
       return;
     if (m_bar.onPointerEvent(event))
@@ -568,6 +576,10 @@ void Application::initInputDispatch() {
     }
     if (m_settingsWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
       m_settingsWindow.onKeyboardEvent(event);
+      return;
+    }
+    if (m_activityWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
+      m_activityWindow.onKeyboardEvent(event);
       return;
     }
     if (m_overviewLauncherCapture.handleKeyboardEvent(event)) {

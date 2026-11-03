@@ -4,6 +4,7 @@ Subscribe/Unsubscribe and per-unit GetAll for the Unit and Service/Scope interfa
 org.andromeda.MockSystemd.Start/Stop, which add or drop a running unit and emit UnitNew/JobRemoved/UnitRemoved
 the way systemd does. Appends each manager call to argv[1]."""
 import os
+import subprocess
 import time
 import sys
 
@@ -71,6 +72,7 @@ class Manager(dbus.service.Object):
         super().__init__(bus, "/org/freedesktop/systemd1")
         self.bus = bus
         self.log = log
+        self.mirrored = {}  # unit name -> real XDG_RUNTIME_DIR, for units started with StartWithCgroup
         self.units = {name: Unit(bus, name, state) for name, state in UNITS.items()}
         self.job = 0
 
@@ -96,10 +98,19 @@ class Manager(dbus.service.Object):
     def StopUnit(self, name, mode):
         self.record(f"StopUnit {name} {mode}")
         unit = self.units.pop(name)
+        if name in self.mirrored:
+            # A mirrored unit is real: stop it on the real user manager too, so its processes exit.
+            subprocess.run(["systemctl", "--user", "stop", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored.pop(name)}, check=False)
         unit.remove_from_connection()
         self.finish_job(name)
         self.UnitRemoved(name, unit_path(name))
         return f"/org/freedesktop/systemd1/job/{self.job}"
+
+    @dbus.service.method(MANAGER, in_signature="ssi")
+    def KillUnit(self, name, whom, signal):
+        self.record(f"KillUnit {name} {whom} {signal}")
+        if name in self.mirrored:
+            subprocess.run(["systemctl", "--user", "kill", f"--signal={signal}", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
 
     def set_file_state(self, names, state):
         for n in names:
@@ -157,6 +168,8 @@ class Manager(dbus.service.Object):
     def StartWithCgroup(self, name, slice_, cgroup):
         """Mirrors a real unit so the client reads that unit's real cgroup files."""
         self.units[name] = Unit(self.bus, name, ("active", slice_, "", "transient", "", 1), cgroup)
+        if os.environ.get("REAL_RUNTIME"):
+            self.mirrored[name] = os.environ["REAL_RUNTIME"]
         self.UnitNew(name, unit_path(name))
         self.finish_job(name)
 

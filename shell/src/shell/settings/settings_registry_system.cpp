@@ -103,6 +103,18 @@ namespace settings {
           "app priority cpu scheduler sched_ext scx boost performance"
       ));
     }
+    if (env.openActivity) {
+      const std::size_t count = env.backgroundActivityCount.value_or(0);
+      entries.push_back(makeEntry(
+          SettingsSection::System, "performance", tr("settings.schema.system.background-activity.label"),
+          !env.backgroundActivityCount ? tr("settings.schema.system.background-activity.description-unchecked")
+          : count == 0                 ? tr("settings.schema.system.background-activity.description-none")
+          : count == 1 ? tr("settings.schema.system.background-activity.description-one")
+                       : tr("settings.schema.system.background-activity.description", "count", std::to_string(count)),
+          {}, ButtonSetting{.label = tr("settings.schema.system.background-activity.button"), .action = env.openActivity},
+          "background activity services task manager processes memory cpu autostart login"
+      ));
+    }
     appendRow(entries, shellRows, "screen_time_enabled");
     const SettingVisibility monitorOn = [](const Config& c) { return c.system.monitor.enabled; };
     auto systemMonitorRows = generateSchemaEntries(

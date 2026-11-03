@@ -4,7 +4,7 @@
 # tree (NOCTALIA_CGROUP_ROOT) holding 480 MB; pipewire and the other mock units have no cgroup files and stay quiet.
 # `msg activity-check` must post exactly one finding, a second check none (state survives in
 # ~/.local/state/.../activity.json), and the notification's "stop" action must call StopUnit. Writes artifacts to $OUT
-# (default ./artifacts/activity-warning).
+# (default ./artifacts/activity-warning), with settings.png: the Settings search for the Background Activity row.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/activity-warning}
 source "$(dirname "$0")/lib.sh"
@@ -30,6 +30,9 @@ with_noctalia '
   for _ in $(seq 50); do [[ $(findings) -ge 1 ]] && break; sleep 0.1; done
   "$NOCTALIA" msg activity-check > /dev/null
   sleep 1 # real time: a second check would post within this second
+  "$NOCTALIA" msg settings-open "search:background activity" > /dev/null
+  sleep 1.5 # real time: the Settings window maps and paints
+  grim "$OUT/settings.png"
   echo "findings=$(findings)" > "$OUT/result.txt"
   [[ -s $HOME/.local/state/noctalia/activity.json || -n $(find "$HOME/.local/state" -name activity.json 2>/dev/null) ]] \
     && echo "state=saved" >> "$OUT/result.txt"

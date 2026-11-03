@@ -149,6 +149,25 @@ void ActivityActions::stop(const SystemdUnit& unit, Reply reply) {
   }
 }
 
+void ActivityActions::forceQuit(const SystemdUnit& unit, Reply reply) {
+  constexpr std::int32_t kSigKill = 9;
+  if (unit.systemManager) {
+    callSystemInteractive("KillUnit", g_variant_new("(ssi)", unit.name.c_str(), "all", kSigKill), std::move(reply));
+    return;
+  }
+  try {
+    proxyFor(unit, kManagerPath)
+        .callMethodAsync("KillUnit")
+        .onInterface(kManager)
+        .withArguments(unit.name, std::string("all"), kSigKill)
+        .uponReplyInvoke([reply = std::move(reply)](const std::optional<sdbus::Error>& error) {
+          reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
+        });
+  } catch (const sdbus::Error& e) {
+    reply(fromError(e.what()));
+  }
+}
+
 void ActivityActions::disableAtLogin(
     const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply
 ) {
