@@ -216,6 +216,7 @@ _desk_ui_sources = files(
   'src/time/time_format.cpp',
   'src/ui/app_icon_colorization.cpp',
   'src/ui/builders.cpp',
+  'src/ui/auth/auth_chrome.cpp',
   'src/ui/auth/auth_column.cpp',
   'src/ui/auth/ryoku_auth_scene.cpp',
   'src/ui/controls/box.cpp',

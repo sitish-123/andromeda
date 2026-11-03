@@ -112,7 +112,8 @@ if jemalloc_option.enabled() and not is_glibc
   error('jemalloc support requires glibc')
 endif
 
-if is_glibc
+# Not under sanitizers: the launcher preloads jemalloc, and ASan must come first in the initial library list.
+if is_glibc and not sanitize
   jemalloc_dep = dependency('jemalloc', required: jemalloc_option)
   if jemalloc_dep.found()
     jemalloc_deps += [jemalloc_dep]
@@ -937,9 +938,6 @@ _noctalia_sources = files(
   'src/ipc/cli.cpp',
 )
 
-if sanitize
-  _noctalia_sources += files('src/core/lsan_suppressions.cpp')
-endif
 
 git_program = find_program('git', required: false)
 if git_program.found()
@@ -1075,8 +1073,10 @@ noctalia_shell_module = shared_module('noctalia-shell',
 # Small on purpose: greeter mode runs from it before any login (.agent/DESIGN.md "Shell greeter mode").
 noctalia_exe = executable('noctalia',
   sources: files('src/main.cpp', 'src/greeter/greeter_host.cpp', 'src/greeter/greetd_client.cpp')
-    + _protocol_headers,
-  dependencies: [desk_ui_dep, tomlplusplus_dep, nlohmann_dep, libsodium_dep, xkbcommon_dep]
+    + _protocol_headers
+    # The sanitizer runtime reads the suppressions from the executable, not from the RTLD_LOCAL module.
+    + (sanitize ? files('src/core/lsan_suppressions.cpp') : []),
+  dependencies: [desk_ui_dep, gio_dep, tomlplusplus_dep, nlohmann_dep, libsodium_dep, xkbcommon_dep]
     + (dl_dep.found() ? [dl_dep] : []),
   include_directories: _noctalia_inc,
   cpp_args: _noctalia_cpp_args,

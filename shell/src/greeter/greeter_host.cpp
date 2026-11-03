@@ -8,9 +8,11 @@
 #include "render/render_context.h"
 #include "render/scene/node.h"
 #include "time/time_format.h"
+#include "ui/auth/auth_chrome.h"
 #include "ui/auth/auth_column.h"
 #include "ui/builders.h"
 #include "ui/controls/image.h"
+#include "cursor-shape-v1-client-protocol.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
@@ -25,7 +27,12 @@
 #include <print>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <filesystem>
+#include <format>
+#include <gio/gio.h>
+#include <linux/input-event-codes.h>
+#include <pwd.h>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -44,6 +51,26 @@ namespace {
   constexpr Logger kLog("greeter");
   // Root-owned, written by the appearance sync helper; the only config greeter mode reads.
   constexpr const char* kDefaultStateDir = "/var/lib/noctalia-greeter";
+
+  std::filesystem::path stateDir() {
+    const char* dir = std::getenv("NOCTALIA_GREETER_STATE_DIR");
+    return dir != nullptr && dir[0] != '\0' ? dir : kDefaultStateDir;
+  }
+
+  std::string readState(const char* name) {
+    std::ifstream in(stateDir() / name);
+    std::string value;
+    std::getline(in, value);
+    return value;
+  }
+
+  void writeState(const char* name, const std::string& value) {
+    std::ofstream out(stateDir() / name, std::ios::trunc);
+    out << value << '\n';
+    if (!out) {
+      kLog.warn("cannot write {}", (stateDir() / name).string());
+    }
+  }
 
   std::atomic<bool> g_quit{false};
   // Fixed capacity, so typing never reallocates and leaves password prefixes in freed memory.
@@ -67,8 +94,7 @@ namespace {
 
   GreeterConfig loadGreeterConfig() {
     GreeterConfig config;
-    const char* dir = std::getenv("NOCTALIA_GREETER_STATE_DIR");
-    const std::filesystem::path path = std::filesystem::path(dir != nullptr ? dir : kDefaultStateDir) / "sync.toml";
+    const std::filesystem::path path = stateDir() / "sync.toml";
     toml::table table;
     try {
       table = toml::parse_file(path.string());
@@ -141,26 +167,36 @@ namespace {
     return false;
   }
 
-  // The session to start: andromeda.desktop when installed, else the first other wayland session by file name.
-  std::optional<GreetdSessionCommand> findSession() {
+  struct SessionEntry {
+    std::string id;
+    std::string name;
+    GreetdSessionCommand command;
+  };
+
+  // Installed wayland sessions, andromeda first, then by file name; a file name found twice keeps the first
+  // XDG_DATA_DIRS entry.
+  std::vector<SessionEntry> listSessions() {
     const char* env = std::getenv("XDG_DATA_DIRS");
     std::stringstream dirs(env != nullptr && env[0] != '\0' ? env : "/usr/local/share:/usr/share");
     std::vector<std::filesystem::path> entries;
     for (std::string dir; std::getline(dirs, dir, ':');) {
       std::error_code ec;
       for (const auto& entry : std::filesystem::directory_iterator(std::filesystem::path(dir) / "wayland-sessions", ec)) {
-        if (entry.path().extension() == ".desktop") {
+        if (entry.path().extension() == ".desktop"
+            && std::ranges::none_of(entries, [&](const auto& p) { return p.filename() == entry.path().filename(); })) {
           entries.push_back(entry.path());
         }
       }
     }
     std::ranges::sort(entries, {}, [](const auto& p) { return p.filename(); });
     std::ranges::stable_partition(entries, [](const auto& p) { return p.filename() == "andromeda.desktop"; });
+    std::vector<SessionEntry> sessions;
     for (const auto& path : entries) {
       std::ifstream in(path);
       std::string exec;
       std::string tryExec;
       std::string desktopNames;
+      std::string name;
       bool hidden = false;
       bool inEntry = false;
       for (std::string line; std::getline(in, line);) {
@@ -174,6 +210,8 @@ namespace {
           tryExec = line.substr(8);
         } else if (line.starts_with("DesktopNames=")) {
           desktopNames = line.substr(13);
+        } else if (line.starts_with("Name=")) {
+          name = line.substr(5);
         } else if (line == "Hidden=true" || line == "NoDisplay=true") {
           hidden = true;
         }
@@ -185,21 +223,133 @@ namespace {
       if (words.empty()) {
         continue;
       }
-      GreetdSessionCommand command;
-      command.command = words.front();
-      command.arguments.assign(words.begin() + 1, words.end());
+      SessionEntry session;
+      session.id = path.stem().string();
+      session.name = name.empty() ? session.id : name;
+      session.command.command = words.front();
+      session.command.arguments.assign(words.begin() + 1, words.end());
       std::ranges::replace(desktopNames, ';', ':');
       while (desktopNames.ends_with(':')) {
         desktopNames.pop_back();
       }
-      command.environment.push_back({"XDG_SESSION_TYPE", "wayland"});
+      session.command.environment.push_back({"XDG_SESSION_TYPE", "wayland"});
       if (!desktopNames.empty()) {
-        command.environment.push_back({"XDG_CURRENT_DESKTOP", desktopNames});
+        session.command.environment.push_back({"XDG_CURRENT_DESKTOP", desktopNames});
       }
-      command.environment.push_back({"XDG_SESSION_DESKTOP", path.stem().string()});
-      return command;
+      session.command.environment.push_back({"XDG_SESSION_DESKTOP", session.id});
+      sessions.push_back(std::move(session));
     }
-    return std::nullopt;
+    return sessions;
+  }
+
+  struct UserEntry {
+    std::string login;
+    std::string display;
+  };
+
+  // Regular accounts: UID 1000-59999 with a login shell.
+  std::vector<UserEntry> listUsers() {
+    std::vector<UserEntry> users;
+    setpwent();
+    while (const passwd* pw = getpwent()) {
+      const std::string_view shell = pw->pw_shell != nullptr ? pw->pw_shell : "";
+      if (pw->pw_uid < 1000 || pw->pw_uid >= 60000 || shell.ends_with("nologin") || shell.ends_with("false")) {
+        continue;
+      }
+      std::string gecos = pw->pw_gecos != nullptr ? pw->pw_gecos : "";
+      gecos = gecos.substr(0, gecos.find(','));
+      users.push_back({pw->pw_name, gecos.empty() ? pw->pw_name : gecos});
+    }
+    endpwent();
+    std::ranges::sort(users, {}, &UserEntry::login);
+    return users;
+  }
+
+  GDBusConnection* systemBus() {
+    static GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, nullptr);
+    return bus;
+  }
+
+  // Short timeouts: these run on the UI thread, and a missing service must not stall the greeter.
+  GVariant* properties(const char* dest, const char* path, const char* iface) {
+    if (systemBus() == nullptr) {
+      return nullptr;
+    }
+    GVariant* reply = g_dbus_connection_call_sync(
+        systemBus(), dest, path, "org.freedesktop.DBus.Properties", "GetAll", g_variant_new("(s)", iface),
+        G_VARIANT_TYPE("(a{sv})"), G_DBUS_CALL_FLAGS_NONE, 300, nullptr, nullptr
+    );
+    if (reply == nullptr) {
+      return nullptr;
+    }
+    GVariant* dict = g_variant_get_child_value(reply, 0);
+    g_variant_unref(reply);
+    return dict;
+  }
+
+  const char* batteryGlyph(double percentage, std::uint32_t state) {
+    // UPower states: 1 charging, 4 fully charged, 5 pending charge.
+    if (state == 1) {
+      return "battery-charging";
+    }
+    if (state == 4 || state == 5) {
+      return "battery-plugged";
+    }
+    return percentage >= 85.0 ? "battery-4"
+        : percentage >= 55.0  ? "battery-3"
+        : percentage >= 30.0  ? "battery-2"
+        : percentage >= 10.0  ? "battery-1"
+                              : "battery";
+  }
+
+  AuthColumn::Status readStatus() {
+    AuthColumn::Status status;
+    if (GVariant* dict = properties(
+            "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device"
+        )) {
+      gboolean present = FALSE;
+      gdouble percentage = 0.0;
+      guint32 state = 0;
+      g_variant_lookup(dict, "IsPresent", "b", &present);
+      g_variant_lookup(dict, "Percentage", "d", &percentage);
+      g_variant_lookup(dict, "State", "u", &state);
+      if (present != FALSE) {
+        status.batteryGlyph = batteryGlyph(percentage, state);
+        status.batteryText = std::format("{}%", static_cast<int>(std::lround(percentage)));
+      }
+      g_variant_unref(dict);
+    }
+    if (GVariant* dict =
+            properties("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager")) {
+      const gchar* type = nullptr;
+      guint32 state = 0;
+      g_variant_lookup(dict, "PrimaryConnectionType", "&s", &type);
+      g_variant_lookup(dict, "State", "u", &state);
+      // NM_STATE_CONNECTED_SITE = 60 and above.
+      const std::string_view kind = type != nullptr ? type : "";
+      status.networkGlyph = state < 60 ? "wifi-off" : kind == "802-11-wireless" ? "wifi" : "network";
+      g_variant_unref(dict);
+    }
+    return status;
+  }
+
+  // logind with interactive = false: its polkit rules decide; the greeter never runs a command for this.
+  void logindCall(const char* method) {
+    if (systemBus() == nullptr) {
+      kLog.error("no system bus; cannot {}", method);
+      return;
+    }
+    GError* error = nullptr;
+    GVariant* reply = g_dbus_connection_call_sync(
+        systemBus(), "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", method,
+        g_variant_new("(b)", FALSE), nullptr, G_DBUS_CALL_FLAGS_NONE, 5000, nullptr, &error
+    );
+    if (reply != nullptr) {
+      g_variant_unref(reply);
+    } else {
+      kLog.error("logind {} failed: {}", method, error != nullptr ? error->message : "unknown error");
+      g_clear_error(&error);
+    }
   }
 
   std::size_t codepointCount(const std::string& text) {
@@ -240,13 +390,28 @@ namespace {
     std::unique_ptr<Node> root;
     Image* wallpaper = nullptr;
     AuthColumn auth;
+    AuthChrome chrome;
     bool built = false;
   };
 
   class GreeterHost {
   public:
-    explicit GreeterHost(std::string user) : m_user(std::move(user)), m_config(loadGreeterConfig()) {
+    explicit GreeterHost(std::string user)
+        : m_user(std::move(user)), m_config(loadGreeterConfig()), m_users(listUsers()), m_sessions(listSessions()) {
       m_password.reserve(kPasswordCapacity);
+      const auto known = [this](const std::string& login) {
+        return std::ranges::any_of(m_users, [&](const UserEntry& u) { return u.login == login; });
+      };
+      if (m_user.empty()) {
+        const std::string last = readState("last-user");
+        m_user = known(last) ? last : m_users.empty() ? std::string{} : m_users.front().login;
+      }
+      const std::string lastSession = readState("last-session");
+      for (std::size_t i = 0; i < m_sessions.size(); ++i) {
+        if (m_sessions[i].id == lastSession) {
+          m_sessionIndex = i;
+        }
+      }
     }
     ~GreeterHost() { wipe(m_password); }
 
@@ -259,6 +424,8 @@ namespace {
       m_render.initialize(m_gl);
       m_wayland.setOutputChangeCallback([this] { syncOutputs(); });
       m_wayland.setKeyboardEventCallback([this](const KeyboardEvent& event) { onKey(event); });
+      m_wayland.setPointerEventCallback([this](const PointerEvent& event) { onPointer(event); });
+      m_wayland.setKeyboardLayoutChangeCallback([this] { relayout(); });
       syncOutputs();
       if (const char* sock = std::getenv("GREETD_SOCK"); sock != nullptr && m_greetd.connect(sock)) {
         createSession();
@@ -292,6 +459,12 @@ namespace {
         }
 
         int timeoutMs = msToNextMinute();
+        if (m_trimmed) {
+          const auto untilStatus = std::chrono::duration_cast<std::chrono::milliseconds>(
+              m_nextStatus - std::chrono::steady_clock::now()
+          );
+          timeoutMs = std::min(timeoutMs, static_cast<int>(std::max<std::int64_t>(0, untilStatus.count())));
+        }
         if (Surface::hasPendingFrameWork() || Surface::hasPendingRenders()) {
           timeoutMs = 0;
         }
@@ -349,6 +522,15 @@ namespace {
             && !Surface::hasPendingFrameWork() && !Surface::hasPendingRenders()) {
           m_trimmed = true;
           trimAllocator();
+          m_nextStatus = std::chrono::steady_clock::now();
+        }
+        // UPower and NetworkManager are read after the first frame and then every 30 s, never before it.
+        if (m_trimmed && std::chrono::steady_clock::now() >= m_nextStatus) {
+          m_nextStatus = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+          if (auto status = readStatus(); status != m_status) {
+            m_status = std::move(status);
+            relayout();
+          }
         }
       }
       return 0;
@@ -367,9 +549,15 @@ namespace {
 
     void syncOutputs() {
       std::erase_if(m_views, [this](const std::unique_ptr<OutputView>& view) {
-        return std::ranges::none_of(m_wayland.outputs(), [&](const WaylandOutput& o) {
+        const bool gone = std::ranges::none_of(m_wayland.outputs(), [&](const WaylandOutput& o) {
           return eligible(o) && o.output == view->output;
         });
+        if (gone && (view.get() == m_menuView || view.get() == m_pointerView)) {
+          m_menuView = nullptr;
+          m_pointerView = nullptr;
+          m_menu = AuthChrome::Menu::None;
+        }
+        return gone;
       });
       for (const auto& output : m_wayland.outputs()) {
         if (!eligible(output) || std::ranges::any_of(m_views, [&](const auto& v) { return v->output == output.output; })) {
@@ -430,6 +618,7 @@ namespace {
         }
         view.wallpaper = static_cast<Image*>(view.root->addChild(std::move(wallpaper)));
         view.auth.build(*view.root, view.animations);
+        view.chrome.build(*view.root);
         view.surface->setSceneRoot(view.root.get());
         view.built = true;
         needsLayout = true;
@@ -441,7 +630,7 @@ namespace {
       view.wallpaper->setPosition(0.0F, 0.0F);
       view.wallpaper->setSize(w, h);
       AuthColumn::State state;
-      state.user = m_user;
+      state.user = displayName(m_user);
       state.placeholder = "Password";
       state.passwordLength = codepointCount(m_password);
       state.trailing = m_phase == Phase::Posting || m_phase == Phase::Starting ? AuthColumn::Trailing::Checking
@@ -452,8 +641,14 @@ namespace {
       state.hintError = m_hintError;
       state.time = formatLocalTime("%H:%M");
       state.date = formatLocalTime("%A, %-d %B");
+      state.status = m_status;
+      if (m_wayland.keyboardLayoutNames().size() > 1) {
+        state.status.layoutLabel = m_wayland.currentKeyboardLayoutName();
+      }
       view.auth.setState(std::move(state));
       view.auth.layout(renderer, w, h, 1.0F);
+      view.chrome.setState(chromeState(view));
+      view.chrome.layout(renderer, w, h, 1.0F);
     }
 
     // greetd is strictly one request, one reply: Creating -> (Waiting) -> Posting -> Starting, or Cancelling -> Creating
@@ -517,6 +712,8 @@ namespace {
         if (!m_password.empty()) {
           m_password.pop_back();
         }
+      } else if (event.sym == XKB_KEY_Escape && m_menu != AuthChrome::Menu::None) {
+        m_menu = AuthChrome::Menu::None;
       } else if (event.sym == XKB_KEY_Escape) {
         wipe(m_password);
         m_submitQueued = false;
@@ -526,6 +723,159 @@ namespace {
         return;
       }
       relayout();
+    }
+
+    [[nodiscard]] std::string displayName(const std::string& login) const {
+      for (const auto& user : m_users) {
+        if (user.login == login) {
+          return user.display;
+        }
+      }
+      return login;
+    }
+
+    [[nodiscard]] static std::string initialOf(const std::string& name) {
+      if (name.empty()) {
+        return {};
+      }
+      const auto lead = static_cast<unsigned char>(name[0]);
+      std::string out = name.substr(0, lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4);
+      if (out.size() == 1 && out[0] >= 'a' && out[0] <= 'z') {
+        out[0] = static_cast<char>(out[0] - 'a' + 'A');
+      }
+      return out;
+    }
+
+    // Menu entries; the host acts on the index in pickItem().
+    [[nodiscard]] AuthChrome::State chromeState(const OutputView& view) const {
+      AuthChrome::State state;
+      state.usersChip = m_users.size() > 1;
+      if (m_sessions.size() > 1 && m_sessionIndex < m_sessions.size()) {
+        state.sessionLabel = m_sessions[m_sessionIndex].name;
+      }
+      if (&view != m_menuView) {
+        return state;
+      }
+      state.menu = m_menu;
+      state.hover = m_hover;
+      if (m_menu == AuthChrome::Menu::Power) {
+        state.items = {{"moon", "Sleep", {}}, {"refresh", "Restart", {}}, {"power", "Shut down", {}}};
+      } else if (m_menu == AuthChrome::Menu::Session) {
+        for (const auto& session : m_sessions) {
+          state.items.push_back({{}, session.name, {}});
+        }
+        state.current = static_cast<int>(m_sessionIndex);
+      } else if (m_menu == AuthChrome::Menu::Users) {
+        for (std::size_t i = 0; i < m_users.size(); ++i) {
+          state.items.push_back({{}, m_users[i].display, initialOf(m_users[i].display)});
+          if (m_users[i].login == m_user) {
+            state.current = static_cast<int>(i);
+          }
+        }
+      }
+      return state;
+    }
+
+    OutputView* viewFor(wl_surface* surface) {
+      for (auto& view : m_views) {
+        if (view->surface->wlSurface() == surface) {
+          return view.get();
+        }
+      }
+      return nullptr;
+    }
+
+    void onPointer(const PointerEvent& event) {
+      if (event.type == PointerEvent::Type::Enter) {
+        // A client sets its cursor on every enter; without it the compositor draws none over the greeter (G0).
+        m_wayland.setCursorShape(event.serial, WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+      }
+      if (event.type == PointerEvent::Type::Enter || event.type == PointerEvent::Type::Motion) {
+        if (event.surface != nullptr) {
+          m_pointerView = viewFor(event.surface);
+        }
+        m_pointerX = static_cast<float>(event.sx);
+        m_pointerY = static_cast<float>(event.sy);
+        if (m_pointerView != nullptr && m_pointerView == m_menuView) {
+          const auto hit = m_pointerView->chrome.hitTest(m_pointerX, m_pointerY);
+          const int hover = hit.target == AuthChrome::Target::Item ? hit.index : -1;
+          if (hover != m_hover) {
+            m_hover = hover;
+            relayout();
+          }
+        }
+        return;
+      }
+      if (event.type != PointerEvent::Type::Button || !event.pressed || event.button != BTN_LEFT
+          || m_pointerView == nullptr) {
+        return;
+      }
+      const auto hit = m_pointerView->chrome.hitTest(m_pointerX, m_pointerY);
+      const auto toggle = [this](AuthChrome::Menu menu) {
+        const bool same = m_menu == menu && m_menuView == m_pointerView;
+        m_menu = same ? AuthChrome::Menu::None : menu;
+        m_menuView = same ? nullptr : m_pointerView;
+        m_hover = -1;
+      };
+      switch (hit.target) {
+      case AuthChrome::Target::Power:
+        toggle(AuthChrome::Menu::Power);
+        break;
+      case AuthChrome::Target::Session:
+        toggle(AuthChrome::Menu::Session);
+        break;
+      case AuthChrome::Target::Users:
+        toggle(AuthChrome::Menu::Users);
+        break;
+      case AuthChrome::Target::Item:
+        pickItem(hit.index);
+        break;
+      case AuthChrome::Target::Menu:
+        return;
+      case AuthChrome::Target::None:
+        m_menu = AuthChrome::Menu::None;
+        m_menuView = nullptr;
+        break;
+      }
+      relayout();
+    }
+
+    void pickItem(int index) {
+      const auto menu = m_menu;
+      m_menu = AuthChrome::Menu::None;
+      m_menuView = nullptr;
+      m_hover = -1;
+      if (index < 0) {
+        return;
+      }
+      const auto i = static_cast<std::size_t>(index);
+      if (menu == AuthChrome::Menu::Power) {
+        static constexpr std::array<const char*, 3> kMethods{"Suspend", "Reboot", "PowerOff"};
+        if (i < kMethods.size()) {
+          logindCall(kMethods[i]);
+        }
+      } else if (menu == AuthChrome::Menu::Session && i < m_sessions.size()) {
+        m_sessionIndex = i;
+      } else if (menu == AuthChrome::Menu::Users && i < m_users.size() && m_users[i].login != m_user) {
+        switchUser(m_users[i].login);
+      }
+    }
+
+    // A new user needs a new PAM conversation: cancel the open one; its reply starts the next (Cancelling).
+    void switchUser(const std::string& login) {
+      if (m_phase == Phase::Posting || m_phase == Phase::Starting) {
+        return;
+      }
+      m_user = login;
+      wipe(m_password);
+      m_submitQueued = false;
+      m_hint.clear();
+      m_hintError = false;
+      if (m_phase == Phase::Creating || m_phase == Phase::Waiting) {
+        m_phase = m_greetd.requestCancelSession() ? Phase::Cancelling : Phase::Idle;
+      } else if (m_phase == Phase::Idle && m_greetd.isConnected()) {
+        createSession();
+      }
     }
 
     void onGreetdReadable() {
@@ -563,8 +913,10 @@ namespace {
           createSession();
         } else if (m_phase == Phase::Starting) {
           m_sessionStarted = true;
-        } else if (const auto session = findSession()) {
-          m_phase = m_greetd.requestStartSession(*session) ? Phase::Starting : Phase::Idle;
+        } else if (m_sessionIndex < m_sessions.size()) {
+          writeState("last-user", m_user);
+          writeState("last-session", m_sessions[m_sessionIndex].id);
+          m_phase = m_greetd.requestStartSession(m_sessions[m_sessionIndex].command) ? Phase::Starting : Phase::Idle;
           relayout();
         } else {
           kLog.error("no wayland session is installed");
@@ -595,6 +947,17 @@ namespace {
 
     std::string m_user;
     GreeterConfig m_config;
+    std::vector<UserEntry> m_users;
+    std::vector<SessionEntry> m_sessions;
+    std::size_t m_sessionIndex = 0;
+    AuthColumn::Status m_status;
+    std::chrono::steady_clock::time_point m_nextStatus{};
+    AuthChrome::Menu m_menu = AuthChrome::Menu::None;
+    OutputView* m_menuView = nullptr;
+    OutputView* m_pointerView = nullptr;
+    float m_pointerX = 0.0F;
+    float m_pointerY = 0.0F;
+    int m_hover = -1;
     GreetdClient m_greetd;
     Phase m_phase = Phase::Idle;
     std::string m_password;

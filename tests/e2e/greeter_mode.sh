@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shell greeter mode (`noctalia greeter`, .agent/DESIGN.md "Shell greeter mode") against mock_greetd.py: the greeter
 # opens a session for the user at start; a wrong password is posted, rejected, and a new session opens; the right
-# password starts the session from andromeda.desktop and the greeter exits 0. Writes requests.jsonl and greeter.log
+# password starts the session from andromeda.desktop and the greeter exits 0; the cursor stays visible (G0). Writes requests.jsonl and greeter.log
 # to $OUT.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/greeter-mode}
@@ -26,6 +26,11 @@ run env XDG_DATA_DIRS="$RUNTIME/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/gree
 greeter=$!
 wait_for "no session opened at start" atleast create_session 1
 wait_for "no first frame" grep -q 'first frame at' "$OUT/greeter.log"
+
+# G0: the cursor stays visible over the greeter (the client sets its shape on pointer enter).
+run "$ROOT/compositor/build-debug/tests/pointer-client" 1280 720 move 300 300 > /dev/null 2>&1 || true
+cursor_drawn() { run "$ANDROMEDA" cursor-state --json | jq -e '(.ok // .).image != null' > /dev/null; }
+wait_for "no cursor image over the greeter" cursor_drawn
 
 run wtype "wrong" -k Return
 wait_for "the wrong password was not posted" posted wrong

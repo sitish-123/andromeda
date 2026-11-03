@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+# greetd default_session command for the shell's greeter mode (.agent/DESIGN.md "Shell greeter mode"):
+# `andromeda --greeter` runs `noctalia greeter` as its only client and ends when it exits.
+set -eu
+
+NOCTALIA_BIN="${NOCTALIA_BIN:-$(command -v noctalia || echo /usr/bin/noctalia)}"
+COMPOSITOR_BIN="${NOCTALIA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
+# Outputs, cursor and keyboard for andromeda --greeter; unset = its own default (/etc/andromeda/greeter.toml).
+GREETER_CONFIG="${NOCTALIA_GREETER_ANDROMEDA_CONFIG:-}"
+
+# Logs go to syslog through greetd unless NOCTALIA_GREETER_LOG=stderr or a file path: the VT stays clean.
+case "${NOCTALIA_GREETER_LOG:-}" in
+"") exec >/dev/null 2>&1 ;;
+stderr) ;;
+*) exec >>"${NOCTALIA_GREETER_LOG}" 2>&1 ;;
+esac
+
+XDG_RUNTIME_DIR="/tmp/noctalia-runtime-$(id -u)"
+export XDG_RUNTIME_DIR
+mkdir -p "${XDG_RUNTIME_DIR}"
+chmod 700 "${XDG_RUNTIME_DIR}"
+unset WAYLAND_DISPLAY
+
+for bin in "${COMPOSITOR_BIN}" "${NOCTALIA_BIN}"; do
+  if [ ! -x "${bin}" ]; then
+    echo "error: ${bin} not found"
+    exit 1
+  fi
+done
+
+# andromeda runs -s through /bin/sh: quote the binary and each argument greetd passed.
+_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+_cmd="$(_quote "${NOCTALIA_BIN}") greeter"
+for _arg in "$@"; do
+  _cmd="${_cmd} $(_quote "${_arg}")"
+done
+set -- --greeter -s "${_cmd}"
+if [ -n "${GREETER_CONFIG}" ]; then
+  set -- "$@" -c "${GREETER_CONFIG}"
+fi
+
+export WLR_LOG="${WLR_LOG:-error}"
+echo "launch: ${COMPOSITOR_BIN} $*"
+# The compositor's session bus carries the accessibility bus (docs/accessibility.md A2); the greeter itself uses none.
+if command -v dbus-run-session >/dev/null 2>&1; then
+  exec dbus-run-session -- "${COMPOSITOR_BIN}" "$@"
+fi
+exec "${COMPOSITOR_BIN}" "$@"

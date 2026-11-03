@@ -24,7 +24,7 @@ configure m=mode install_prefix=prefix:
 build m=mode: (_ensure-configured m)
     # Named targets fail on a dir configured before they existed; regenerate first (no-op when current).
     ninja -C build-{{m}} build.ninja
-    meson compile -C build-{{m}} noctalia noctalia-calc
+    meson compile -C build-{{m}} noctalia noctalia-shell noctalia-calc
 
 _ensure-configured m=mode:
     #!/usr/bin/env bash

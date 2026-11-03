@@ -45,10 +45,14 @@ namespace {
       preload += own;
     }
     setenv("LD_PRELOAD", preload.c_str(), 1);
-    if (std::getenv("MALLOC_CONF") == nullptr) {
-      setenv("MALLOC_CONF", kJemallocConf, 1);
-      setenv("NOCTALIA_MALLOC_CONF_SET", "1", 1);
+    // The user's own MALLOC_CONF keys come last, so they override single keys as with the old compiled-in malloc_conf.
+    std::string conf = kJemallocConf;
+    if (const char* own = std::getenv("MALLOC_CONF"); own != nullptr) {
+      setenv("NOCTALIA_MALLOC_CONF_ORIG", own, 1);
+      conf += ',';
+      conf += own;
     }
+    setenv("MALLOC_CONF", conf.c_str(), 1);
     setenv("NOCTALIA_JEMALLOC", "1", 1);
     // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep noctalia` must work.
     std::error_code ec;

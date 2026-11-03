@@ -1,0 +1,11 @@
+[terminal]
+vt = 1
+
+[general]
+# User logins run /etc/pam.d/gdm-face: pam_gaze hands the keyring password over only under that service name.
+service = "gdm-face"
+
+# Shell greeter mode; replaces config.toml at parity with the old greeter (TASK-lockscreen GM6).
+[default_session]
+command = "/usr/lib/noctalia/andromeda-greeter-session"
+user = "greeter"

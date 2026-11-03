@@ -25,6 +25,7 @@
 #include <print>
 #include <sched.h>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 
 
@@ -251,20 +252,25 @@ namespace {
 
 // The shell behind the `noctalia` launcher (src/main.cpp), which has already set the allocator and the locale.
 extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int argc, char* argv[]) {
-  // Undo the launcher's jemalloc preload in the environment: apps the shell starts must not inherit it.
-  if (std::getenv("NOCTALIA_JEMALLOC") != nullptr) {
-    if (const char* orig = std::getenv("NOCTALIA_LD_PRELOAD_ORIG"); orig != nullptr) {
-      setenv("LD_PRELOAD", orig, 1);
-    } else {
-      unsetenv("LD_PRELOAD");
-    }
-    if (std::getenv("NOCTALIA_MALLOC_CONF_SET") != nullptr) {
-      unsetenv("MALLOC_CONF");
-    }
-    unsetenv("NOCTALIA_LD_PRELOAD_ORIG");
-    unsetenv("NOCTALIA_MALLOC_CONF_SET");
-    unsetenv("NOCTALIA_JEMALLOC");
+  // Undo the launcher's jemalloc preload in the environment: apps the shell starts must not inherit it. The check on
+  // LD_PRELOAD itself keeps a stale inherited NOCTALIA_JEMALLOC from deleting the user's own preload.
+#ifdef NOCTALIA_JEMALLOC_PATH
+  const char* preload = std::getenv("LD_PRELOAD");
+  if (std::getenv("NOCTALIA_JEMALLOC") != nullptr && preload != nullptr
+      && std::string_view(preload).starts_with(NOCTALIA_JEMALLOC_PATH)) {
+    const auto restore = [](const char* name, const char* saved) {
+      if (const char* orig = std::getenv(saved); orig != nullptr) {
+        setenv(name, orig, 1);
+      } else {
+        unsetenv(name);
+      }
+      unsetenv(saved);
+    };
+    restore("LD_PRELOAD", "NOCTALIA_LD_PRELOAD_ORIG");
+    restore("MALLOC_CONF", "NOCTALIA_MALLOC_CONF_ORIG");
   }
+#endif
+  unsetenv("NOCTALIA_JEMALLOC");
 
   const bool isDaemonChild = takeDaemonPipeFromEnv();
   bool shouldDaemonize = false;
