@@ -393,7 +393,6 @@ namespace noctalia::cli {
     inline constexpr Command activityCheck{
         "activity-check", "Run the background-activity check now and post any new warnings", {}, {}, {}, {}, {}, false
     };
-    };
     inline constexpr Command activityDump{
         "activity-dump", "Print Activity rows as JSON and keep sampling for 10 s", {}, {}, {}, {}, {}, false
     };
