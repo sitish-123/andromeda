@@ -22,6 +22,7 @@
 #include <vector>
 
 class Box;
+class DskSurfaceClient;
 class DskTrackerClient;
 class Flex;
 class Node;
@@ -67,6 +68,8 @@ struct BarInstance {
   // after `surface`: it is destroyed first. Shared so an opening panel can hold it weakly.
   std::shared_ptr<DskTrackerClient> sheetTracker;
   std::array<float, 4> sheetTrackerRect{};
+  // Liquid glass on the islands (dsk_surface_v1 v5); destroyed before `surface`.
+  std::unique_ptr<DskSurfaceClient> dsk;
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;

@@ -1363,7 +1363,14 @@ void LiveActivityIsland::loadArt(Instance& inst, Renderer& renderer, const std::
 void LiveActivityIsland::applyContent(Instance& inst) {
   Renderer& renderer = inst.surface->renderTarget().renderer();
 
-  inst.material->setFill(colorSpecFromRole(materialRole(), Style::glassAlpha(inst.space.backgroundOpacity)));
+  // A small shape: liquid glass with the launcher pill's clear tint (light 30 %, dark 34 %).
+  const bool liquid = inst.dsk != nullptr && inst.dsk->hasLiquidProperty() && !Style::reduceTransparency();
+  if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
+    inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+  }
+  inst.material->setFill(colorSpecFromRole(
+      materialRole(), liquid ? (isLightPalette() ? 0.30F : 0.34F) : Style::glassAlpha(inst.space.backgroundOpacity)
+  ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 
   bool mic = false;

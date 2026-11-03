@@ -309,14 +309,31 @@ void Bar::destroyInstance(std::uint32_t outputName) {
   }
 }
 
+bool Bar::syncIslandLiquid(BarInstance& instance) {
+  dsk_surface_manager_v1* manager = m_platform != nullptr ? m_platform->wayland().dskSurfaceManager() : nullptr;
+  const bool want = instance.barConfig.islands && !Style::reduceTransparency();
+  if (instance.dsk == nullptr && want && manager != nullptr && instance.surface != nullptr
+      && instance.surface->wlSurface() != nullptr) {
+    instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
+  }
+  if (instance.dsk == nullptr || !instance.dsk->hasLiquidProperty()) {
+    return false;
+  }
+  instance.dsk->set(DskSurfaceClient::Property::Liquid, {want ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+  return want;
+}
+
 void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
   const Color material = colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity));
+  // Islands are small shapes: liquid glass with the launcher pill's clear tint (light 30 %, dark 34 %).
+  const bool liquid = syncIslandLiquid(instance);
+  const Color islandMaterial = liquid ? colorForRole(materialRole(), isLightPalette() ? 0.30F : 0.34F) : material;
   const auto applyMaterial = [&](Box* box, bool painted) {
     auto style = box->style();
-    style.fill = painted ? material : rgba(0.0F, 0.0F, 0.0F, 0.0F);
+    style.fill = painted ? (box == instance.bg ? material : islandMaterial) : rgba(0.0F, 0.0F, 0.0F, 0.0F);
     style.border = resolveColorSpec(instance.barConfig.border);
     style.borderWidth = painted ? instance.barConfig.borderWidth : 0.0F;
     if (painted && instance.barConfig.islands) {

@@ -1187,7 +1187,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     );
   }
 
-  instance.paletteConn = paletteChanged().connect([inst = &instance] {
+  instance.paletteConn = paletteChanged().connect([this, inst = &instance] {
     applyBackgroundPalette(*inst);
     if (inst->surface != nullptr) {
       inst->surface->requestRedraw();

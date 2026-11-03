@@ -173,7 +173,9 @@ private:
   void applyPendingWorkspaceReveal();
   void reevaluateSmartAutoHide();
   void startHideFadeOut(BarInstance& instance, bool immediate = false);
-  static void applyBackgroundPalette(BarInstance& instance);
+  void applyBackgroundPalette(BarInstance& instance);
+  // Turns liquid glass on for an islands bar; true when the compositor runs it.
+  bool syncIslandLiquid(BarInstance& instance);
   [[nodiscard]] std::string showBarIpc(std::string_view args);
   [[nodiscard]] std::string hideBarIpc(std::string_view args);
   [[nodiscard]] std::string toggleBarIpc(std::string_view args);
