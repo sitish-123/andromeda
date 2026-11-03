@@ -2431,15 +2431,15 @@ float PanelManager::detachedBackgroundOpacity() const {
   return m_islandBackgroundOpacity.value_or(shell::panel_surface::backgroundOpacity(m_config));
 }
 
-float PanelManager::detachedFillAlpha() const {
+ColorSpec PanelManager::detachedFill() const {
   const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
-  if (Style::reduceTransparency()) {
-    return thick;
+  if (Style::reduceTransparency() || m_panelLiquid <= 0.0F) {
+    return colorSpecFromRole(panelMaterialRole(), thick);
   }
-  // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html):
-  // light white 30 %, dark 34 %.
-  const float liquid = isLightPalette() ? 0.30F : 0.34F;
-  return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
+  // Lit glass (.agent/DESIGN.md "Launcher pill: lit glass"): lighter than any window behind it, light white 62 %,
+  // dark #484854 at 46 %.
+  const Color lit = isLightPalette() ? Color{1.0F, 1.0F, 1.0F, 0.62F} : Color{72.0F / 255.0F, 72.0F / 255.0F, 84.0F / 255.0F, 0.46F};
+  return fixedColorSpec(lerpColor(colorForRole(panelMaterialRole(), thick), lit, m_panelLiquid));
 }
 
 DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
@@ -2557,7 +2557,7 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   const auto apply = [this](float v) {
     m_panelLiquid = std::clamp(v, 0.0F, 1.0F);
     if (!m_attachedToBar && m_bgNode != nullptr) {
-      static_cast<Box*>(m_bgNode)->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+      static_cast<Box*>(m_bgNode)->setFill(detachedFill());
     }
   };
   if (!animate || m_sceneRoot == nullptr) {
@@ -3057,7 +3057,7 @@ void PanelManager::onConfigReloaded() {
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+    bg->setFill(detachedFill());
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
@@ -3176,7 +3176,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
         const float backgroundOpacity = detachedBackgroundOpacity();
-        bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+        bg->setFill(detachedFill());
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(
