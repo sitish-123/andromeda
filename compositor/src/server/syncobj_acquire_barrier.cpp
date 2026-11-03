@@ -7,12 +7,15 @@
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #include <xf86drm.h>
 
 namespace andromeda {
 
   namespace {
+
+    std::function<bool(wlr_surface*)> g_scannedOut;
 
     struct SurfaceWatch;
 
@@ -22,6 +25,7 @@ namespace andromeda {
       bool syncobj = false;
       int fenceFd = -1;
       wl_event_source* source = nullptr;
+      wl_event_source* timeout = nullptr;
       SurfaceWatch* watch = nullptr;
       uint32_t seq = 0;
     };
@@ -32,6 +36,9 @@ namespace andromeda {
       }
       if (lock->source != nullptr) {
         wl_event_source_remove(lock->source);
+      }
+      if (lock->timeout != nullptr) {
+        wl_event_source_remove(lock->timeout);
       }
       if (lock->fenceFd >= 0) {
         close(lock->fenceFd);
@@ -67,6 +74,23 @@ namespace andromeda {
       return 0;
     }
 
+    // A hold never outlasts a refresh: the client's next GPU work can wait for a buffer the screen releases only once a
+    // newer commit shows (direct scanout), and that commit would wait here forever. Then the buffer applies unready, as
+    // in wlroots, and KMS or the render waits on its fence.
+    constexpr int kMaxHoldMs = 20;
+
+    int onHoldTimeout(void* data) {
+      releaseLock(static_cast<AcquireLock*>(data));
+      return 0;
+    }
+
+    void armHoldTimeout(AcquireLock* lock) {
+      lock->timeout = wl_event_loop_add_timer(lock->watch->loop, onHoldTimeout, lock);
+      if (lock->timeout != nullptr) {
+        wl_event_source_timer_update(lock->timeout, kMaxHoldMs);
+      }
+    }
+
     // Implicit-sync dmabuf clients (Mesa EGL without linux-drm-syncobj) commit while their GPU write may still run; a
     // frame that samples the buffer then waits for the client's GPU work. Hold the commit until the write fence
     // signals, as mutter and KWin do. A signalled fence costs two syscalls and no delay.
@@ -95,6 +119,7 @@ namespace andromeda {
       }
       lock->seq = wlr_surface_lock_pending(watch->surface);
       watch->locks.push_back(lock);
+      armHoldTimeout(lock);
     }
 
     void onClientCommit(wl_listener* listener, void* /*data*/) {
@@ -109,6 +134,9 @@ namespace andromeda {
           andromedafx_linux_drm_syncobj_state_acquire_point(surface, &surface->pending, &point);
       if (timeline == nullptr) {
         holdForImplicitFence(watch, surface->pending.buffer);
+        return;
+      }
+      if (g_scannedOut && g_scannedOut(surface)) {
         return;
       }
       // WAIT_FOR_SUBMIT reports a point that has not materialized yet as unsignalled instead of failing.
@@ -127,6 +155,7 @@ namespace andromeda {
       }
       lock->seq = wlr_surface_lock_pending(surface);
       watch->locks.push_back(lock);
+      armHoldTimeout(lock);
     }
 
     void onSurfaceDestroy(wl_listener* listener, void* /*data*/) {
@@ -145,12 +174,16 @@ namespace andromeda {
 
   } // namespace
 
-  SyncobjAcquireBarrier::SyncobjAcquireBarrier(wlr_compositor* compositor) {
+  SyncobjAcquireBarrier::SyncobjAcquireBarrier(wlr_compositor* compositor, std::function<bool(wlr_surface*)> scannedOut) {
+    g_scannedOut = std::move(scannedOut);
     m_newSurface.notify = onNewSurface;
     wl_signal_add(&compositor->events.new_surface, &m_newSurface);
   }
 
-  SyncobjAcquireBarrier::~SyncobjAcquireBarrier() { wl_list_remove(&m_newSurface.link); }
+  SyncobjAcquireBarrier::~SyncobjAcquireBarrier() {
+    wl_list_remove(&m_newSurface.link);
+    g_scannedOut = {};
+  }
 
   void SyncobjAcquireBarrier::onNewSurface(wl_listener* /*listener*/, void* data) {
     auto* watch = new SurfaceWatch();

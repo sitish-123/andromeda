@@ -1,8 +1,10 @@
 #pragma once
 
+#include <functional>
 #include <wayland-server-core.h>
 
 struct wlr_compositor;
+struct wlr_surface;
 
 namespace andromeda {
 
@@ -13,7 +15,9 @@ namespace andromeda {
   // commit until its acquire point has signalled, so a buffer reaches the scene only once it is ready to show.
   class SyncobjAcquireBarrier {
   public:
-    explicit SyncobjAcquireBarrier(wlr_compositor* compositor);
+    // scannedOut: true while the surface's buffer is on a plane (direct scanout). Its commits are not held: the client's
+    // next GPU work can wait for that buffer's release, which comes only once the next commit is shown.
+    SyncobjAcquireBarrier(wlr_compositor* compositor, std::function<bool(wlr_surface*)> scannedOut);
     ~SyncobjAcquireBarrier();
 
     SyncobjAcquireBarrier(const SyncobjAcquireBarrier&) = delete;

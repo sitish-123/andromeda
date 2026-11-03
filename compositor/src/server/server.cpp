@@ -671,7 +671,17 @@ namespace andromeda {
     effectRegistry().prepare(m_renderer);
     m_compositor = wlr_compositor_create(m_display, 5, m_renderer);
     if (explicitSync) {
-      m_syncobjAcquireBarrier = std::make_unique<SyncobjAcquireBarrier>(m_compositor);
+      m_syncobjAcquireBarrier = std::make_unique<SyncobjAcquireBarrier>(m_compositor, [this](wlr_surface* surface) {
+        for (const auto& output : m_outputs) {
+          wlr_scene_buffer* buffer =
+              output->sceneOutput() != nullptr ? wlr_scene_output_direct_scanout_buffer(output->sceneOutput()) : nullptr;
+          wlr_scene_surface* sceneSurface = buffer != nullptr ? wlr_scene_surface_try_from_buffer(buffer) : nullptr;
+          if (sceneSurface != nullptr && sceneSurface->surface == surface) {
+            return true;
+          }
+        }
+        return false;
+      });
       m_syncobjUnmapRelease = std::make_unique<SyncobjUnmapRelease>(m_compositor);
       m_syncobjSupersededRelease = std::make_unique<SyncobjSupersededRelease>(m_compositor);
     }

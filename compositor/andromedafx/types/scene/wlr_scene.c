@@ -5658,6 +5658,59 @@ enum scene_direct_scanout_result {
   SCANOUT_SUCCESS,
 };
 
+// Black rects at the bottom of the list (the fullscreen backdrop behind a buffer with alpha) change no pixel on a
+// plane: KMS blends the primary plane over a black CRTC background, as the composite blends over a black clear.
+static int scanout_list_len(const struct render_list_entry* list, int len) {
+  while (len > 1 && list[len - 1].node->type == WLR_SCENE_NODE_RECT) {
+    const struct wlr_scene_rect* rect = wlr_scene_rect_from_node(list[len - 1].node);
+    if (rect->color[0] != 0.0f || rect->color[1] != 0.0f || rect->color[2] != 0.0f) {
+      break;
+    }
+    len--;
+  }
+  return len;
+}
+
+// ANDROMEDA_SCANOUT_DEBUG=1: once per second, log the nodes that keep an output composited.
+static void log_composited_entries(const struct render_list_entry* list, int len) {
+  static bool enabled = false;
+  static bool checked = false;
+  static int64_t last_ns = 0;
+  if (!checked) {
+    enabled = getenv("ANDROMEDA_SCANOUT_DEBUG") != NULL;
+    checked = true;
+  }
+  if (!enabled) {
+    return;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  const int64_t now_ns = timespec_to_nsec(&now);
+  if (now_ns - last_ns < 1000000000) {
+    return;
+  }
+  last_ns = now_ns;
+  for (int i = 0; i < len; i++) {
+    struct wlr_scene_node* node = list[i].node;
+    int w = 0, h = 0;
+    const char* kind = "tree";
+    const char* app = "";
+    if (node->type == WLR_SCENE_NODE_BUFFER) {
+      struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+      kind = "buffer";
+      scene_node_get_size(node, &w, &h);
+      struct wlr_scene_surface* surface = wlr_scene_surface_try_from_buffer(buffer);
+      if (surface != NULL && surface->surface->resource != NULL) {
+        app = surface->surface->role != NULL ? surface->surface->role->name : "no-role";
+      }
+    } else if (node->type == WLR_SCENE_NODE_RECT) {
+      kind = "rect";
+      scene_node_get_size(node, &w, &h);
+    }
+    wlr_log(WLR_INFO, "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d", i + 1, len, kind, app, list[i].x, list[i].y, w, h);
+  }
+}
+
 static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     struct render_list_entry* entry, struct wlr_output_state* state, const struct render_data* data,
     enum wlr_scene_direct_scanout_status* status
@@ -6417,8 +6470,9 @@ static bool scene_output_build_state(
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COLOR;
   } else if (list_len == 0) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE;
-  } else if (list_len > 1) {
+  } else if (scanout_list_len(list_data, list_len) > 1) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COMPOSITED;
+    log_composited_entries(list_data, list_len);
   } else if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE;
   } else {
