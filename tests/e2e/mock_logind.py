@@ -71,6 +71,24 @@ class Manager(Delayed, dbus.service.Object):
         with open(self.log, "a") as out:
             out.write(line + "\n")
 
+    @dbus.service.method(MANAGER, in_signature="t")
+    def SuspendWithFlags(self, flags):
+        self.record_line(f"SuspendWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, in_signature="t")
+    def RebootWithFlags(self, flags):
+        self.record_line(f"RebootWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, in_signature="t")
+    def PowerOffWithFlags(self, flags):
+        self.record_line(f"PowerOffWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, out_signature="a(ssssuu)")
+    def ListInhibitors(self):
+        # MOCK_BLOCK="sleep:shutdown" lists one block inhibitor held by another app.
+        what = os.environ.get("MOCK_BLOCK", "")
+        return [(what, "Mock App", "test", "block", dbus.UInt32(1000), dbus.UInt32(1))] if what else []
+
     @dbus.service.method(MANAGER, out_signature="s")
     def CanHibernate(self):
         return self.can_hibernate
