@@ -28,6 +28,7 @@ class Input;
 class Label;
 class LauncherResultAdapter;
 class LauncherAppGridAdapter;
+class FilesProvider;
 class LauncherSectionsAdapter;
 class Renderer;
 class Segmented;
@@ -155,6 +156,7 @@ private:
   void syncEmojiStrip();
   [[nodiscard]] bool pillExpanded() const;
   void activatePreviewAction();
+  [[nodiscard]] FilesProvider* filesProvider() const;
   void deleteSelectedClipboardEntry();
   void activateEmojiVariant(std::size_t tone);
   void showProviderOverview();

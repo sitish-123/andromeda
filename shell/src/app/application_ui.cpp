@@ -49,6 +49,7 @@
 #include "launcher/panel_provider.h"
 #include "launcher/plugin_launcher_provider.h"
 #include "launcher/session_provider.h"
+#include "launcher/files_provider.h"
 #include "launcher/klipy_provider.h"
 #include "launcher/symbol_provider.h"
 #include "launcher/web_search_provider.h"
@@ -722,6 +723,9 @@ void Application::initPanelManagerAndPanels() {
         KlipyProvider::Kind::Stickers, &m_configService, &m_httpClient, &m_clipboardService
     ));
     launcherPanel->addProvider(std::make_unique<SymbolProvider>(&m_clipboardService));
+    auto files = std::make_unique<FilesProvider>(&m_clipboardService, m_bus.get());
+    m_filesProvider = files.get();
+    launcherPanel->addProvider(std::move(files));
     launcherPanel->setCopiedActivationCallback([this] {
       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
       if (mode == ClipboardAutoPasteMode::Off) {

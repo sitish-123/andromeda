@@ -153,6 +153,7 @@ class PolkitPollSource;
 class PowerProfilesService;
 class ScreenSaverPollSource;
 class ScreenSaverService;
+class FilesProvider;
 class SessionBus;
 class SessionBusPollSource;
 class SoundPlayer;
@@ -426,6 +427,8 @@ private:
   PanelManager m_panelManager;
   // Owned by m_panelManager; kept raw so plugin launcher providers can be re-applied.
   LauncherPanel* m_launcherPanel = nullptr;
+  // Owned by the launcher panel; polled for index daemon answers.
+  FilesProvider* m_filesProvider = nullptr;
   // Ids of plugin-backed panels currently registered with m_panelManager, so a
   // reload can retire the previous set before registering the new one.
   std::vector<std::string> m_pluginPanelIds;

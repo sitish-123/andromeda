@@ -1114,6 +1114,13 @@
       "math": "Math",
       "typography": "Typography"
     },
+    "files": {
+      "copy-path": "Copy Path",
+      "modified": "Modified",
+      "reveal": "Reveal",
+      "size": "Size",
+      "title": "Files"
+    },
     "klipy": {
       "add-key": "Add a Klipy API key",
       "add-key-hint": "Settings → Launcher → GIF API Key",

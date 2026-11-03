@@ -11,6 +11,7 @@
 #include "i18n/i18n.h"
 #include "launcher/app_provider.h"
 #include "launcher/clipboard_provider.h"
+#include "launcher/files_provider.h"
 #include "launcher/klipy_provider.h"
 #include "render/core/image_decoder.h"
 #include "render/core/texture_manager.h"
@@ -43,6 +44,7 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string_view>
@@ -2840,16 +2842,20 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     entry = it == entries.end() ? nullptr : &*it;
   }
   const bool clip = result.presentation.starts_with("clipboard");
-  const bool hasAction = clip || (entry != nullptr && !entry->actions.empty());
+  const bool file = result.providerId == "Files";
+  const bool hasAction = clip || file || (entry != nullptr && !entry->actions.empty());
   m_previewAction->setVisible(hasAction);
   m_previewAction->setParticipatesInLayout(hasAction);
   if (clip) {
     m_previewAction->setText(i18n::tr(result.pinned ? "launcher.clipboard.unpin" : "launcher.clipboard.pin"));
+  } else if (file) {
+    m_previewAction->setText(i18n::tr("launcher.files.reveal"));
   } else if (hasAction) {
     m_previewAction->setText(entry->actions.front().name);
   }
-  m_previewDelete->setVisible(clip);
-  m_previewDelete->setParticipatesInLayout(clip);
+  m_previewDelete->setText(i18n::tr(file ? "launcher.files.copy-path" : "launcher.clipboard.delete"));
+  m_previewDelete->setVisible(clip || file);
+  m_previewDelete->setParticipatesInLayout(clip || file);
   const bool body = result.presentation == "clipboard-text";
   m_previewBody->setVisible(body);
   m_previewBody->setParticipatesInLayout(body);
@@ -2925,6 +2931,17 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
         meta[count++] = {i18n::tr("launcher.clipboard.size"), formatByteSize(bytes)};
       }
     }
+  } else if (file) {
+    // One stat on selection: the index answer carries no sizes, and the file may have changed since.
+    std::error_code ec;
+    const auto status = std::filesystem::status(result.id, ec);
+    if (!ec && std::filesystem::is_regular_file(status)) {
+      meta[count++] = {i18n::tr("launcher.files.size"), formatByteSize(std::filesystem::file_size(result.id, ec))};
+    }
+    if (const auto written = std::filesystem::last_write_time(result.id, ec); !ec) {
+      meta[count++] = {i18n::tr("launcher.files.modified"),
+                       formatTimeAgo(std::chrono::clock_cast<std::chrono::system_clock>(written))};
+    }
   } else if (emoji) {
     meta[count++] = {i18n::tr("launcher.pill.category"), result.category};
     std::string codepoints;
@@ -2975,6 +2992,11 @@ void LauncherPanel::deleteSelectedClipboardEntry() {
   if (m_selectedIndex >= m_results.size()) {
     return;
   }
+  if (auto* files = filesProvider(); files != nullptr && m_results[m_selectedIndex].providerId == "Files") {
+    files->copyPath(m_results[m_selectedIndex]);
+    finishActivation(*files, m_results[m_selectedIndex].id, false);
+    return;
+  }
   const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
   if (provider != m_providers.end()) {
     if (auto* clipboard = dynamic_cast<ClipboardProvider*>(provider->get()); clipboard != nullptr
@@ -2984,8 +3006,18 @@ void LauncherPanel::deleteSelectedClipboardEntry() {
   }
 }
 
+FilesProvider* LauncherPanel::filesProvider() const {
+  const auto provider = std::ranges::find(m_providers, "Files", [](const auto& p) { return p->id(); });
+  return provider == m_providers.end() ? nullptr : dynamic_cast<FilesProvider*>(provider->get());
+}
+
 void LauncherPanel::activatePreviewAction() {
   if (m_selectedIndex >= m_results.size()) {
+    return;
+  }
+  if (auto* files = filesProvider(); files != nullptr && m_results[m_selectedIndex].providerId == "Files") {
+    files->reveal(m_results[m_selectedIndex]);
+    finishActivation(*files, m_results[m_selectedIndex].id, false);
     return;
   }
   if (m_results[m_selectedIndex].presentation.starts_with("clipboard")) {

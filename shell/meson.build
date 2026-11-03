@@ -486,6 +486,7 @@ _noctalia_sources = files(
   'src/launcher/dmenu_stdin_provider.cpp',
   'src/launcher/clipboard_provider.cpp',
   'src/launcher/emoji_provider.cpp',
+  'src/launcher/files_provider.cpp',
   'src/launcher/math_provider.cpp',
   'src/launcher/panel_catalog.cpp',
   'src/launcher/panel_provider.cpp',

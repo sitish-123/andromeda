@@ -3,6 +3,7 @@
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "dbus/idle/screensaver_poll_source.h"
+#include "launcher/files_provider.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/session_bus_poll_source.h"
@@ -33,6 +34,9 @@ std::vector<PollSource*> Application::currentPollSources() {
     sources.push_back(m_screenRecorder.get());
   }
   sources.push_back(&m_timePollSource);
+  if (m_filesProvider != nullptr) {
+    sources.push_back(m_filesProvider);
+  }
   sources.push_back(&m_configPollSource);
   sources.push_back(&m_desktopEntryPollSource);
   sources.push_back(&m_iconThemePollSource);

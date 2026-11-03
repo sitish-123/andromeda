@@ -1,0 +1,258 @@
+#include "launcher/files_provider.h"
+
+#include "clipboard/clipboard_service.h"
+#include "core/log.h"
+#include "dbus/session_bus.h"
+#include "i18n/i18n.h"
+#include "net/url_open.h"
+#include "util/string_utils.h"
+
+#include <glib.h>
+#include <sdbus-c++/IProxy.h>
+#include <sdbus-c++/Types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+#include <array>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+
+namespace {
+
+  constexpr Logger kLog("files");
+
+  std::string fileUri(const std::string& path) {
+    gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+    if (uri == nullptr) {
+      return {};
+    }
+    std::string out = uri;
+    g_free(uri);
+    return out;
+  }
+
+  std::string socketPath() {
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    return runtime == nullptr || runtime[0] == '\0' ? std::string() : std::string(runtime) + "/andromeda-index.sock";
+  }
+
+  // The folder as the user reads it: the home folder as "~".
+  std::string displayFolder(const std::string& path) {
+    std::string folder = std::filesystem::path(path).parent_path().string();
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && home[0] != '\0') {
+      const std::string_view h(home);
+      if (folder == h) {
+        return "~";
+      }
+      if (folder.starts_with(h) && folder.size() > h.size() && folder[h.size()] == '/') {
+        return "~" + folder.substr(h.size());
+      }
+    }
+    return folder;
+  }
+
+} // namespace
+
+FilesProvider::FilesProvider(ClipboardService* clipboard, SessionBus* bus) : m_clipboard(clipboard), m_bus(bus) {}
+
+FilesProvider::~FilesProvider() { disconnect(); }
+
+std::string FilesProvider::displayName() const { return i18n::tr("launcher.files.title"); }
+
+bool FilesProvider::connect() const {
+  if (m_fd >= 0) {
+    return true;
+  }
+  const std::string path = socketPath();
+  sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  if (path.empty() || path.size() >= sizeof(addr.sun_path)) {
+    return false;
+  }
+  std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+  const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  if (fd < 0) {
+    return false;
+  }
+  if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+    kLog.debug("andromeda-index not reachable: {}", std::strerror(errno));
+    close(fd);
+    return false;
+  }
+  m_fd = fd;
+  return true;
+}
+
+void FilesProvider::disconnect() const {
+  if (m_fd >= 0) {
+    close(m_fd);
+  }
+  m_fd = -1;
+  m_received.clear();
+  m_pending.clear();
+  m_requested.reset();
+  m_loading = false;
+}
+
+void FilesProvider::reset() {
+  m_requested.reset();
+  m_answered.reset();
+  m_results.clear();
+  m_loading = false;
+}
+
+std::vector<LauncherResult> FilesProvider::query(std::string_view text) const {
+  // The broker matches answers to the text it asked, so the raw text is the key; the daemon gets it trimmed.
+  const std::string key(text);
+  std::string needle = StringUtils::trim(text);
+  std::erase(needle, '\n');
+  if (needle.size() < kMinQuery) {
+    m_answered = key;
+    m_requested.reset();
+    m_results.clear();
+    m_loading = false;
+    return {};
+  }
+  if (m_answered == key) {
+    // Back to an answered query: an answer still on its way is for another text now.
+    m_requested.reset();
+    m_loading = false;
+    return m_results;
+  }
+  if (m_requested == key) {
+    return {};
+  }
+  const std::string line = "query " + std::to_string(kLimit) + " " + needle + "\n";
+  // Without the daemon there is no Files section; the next query tries to connect again.
+  if (!connect() || send(m_fd, line.data(), line.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(line.size())) {
+    disconnect();
+    m_answered = key;
+    m_results.clear();
+    return {};
+  }
+  m_pending.push_back(key);
+  m_requested = key;
+  m_loading = true;
+  return {};
+}
+
+void FilesProvider::doAddPollFds(std::vector<pollfd>& fds) {
+  if (m_fd >= 0) {
+    fds.push_back({.fd = m_fd, .events = POLLIN, .revents = 0});
+  }
+}
+
+void FilesProvider::dispatch(const std::vector<pollfd>& fds, std::size_t startIdx) {
+  if (m_fd < 0 || startIdx >= fds.size() || fds[startIdx].revents == 0) {
+    return;
+  }
+  std::array<char, 16384> buffer{};
+  while (true) {
+    const ssize_t n = read(m_fd, buffer.data(), buffer.size());
+    if (n > 0) {
+      m_received.append(buffer.data(), static_cast<std::size_t>(n));
+      continue;
+    }
+    if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+      // The daemon went away: the open query is answered with nothing, so the section stops loading.
+      const std::optional<std::string> open = m_requested;
+      disconnect();
+      if (open.has_value()) {
+        onAnswer(*open, {});
+      }
+      return;
+    }
+    break;
+  }
+  // Each answer ends with an empty line; an answer with no rows is that empty line alone.
+  while (!m_received.empty() && !m_pending.empty()) {
+    std::size_t bodyEnd = 0;
+    std::size_t consumed = 0;
+    if (m_received.front() == '\n') {
+      consumed = 1;
+    } else if (const std::size_t end = m_received.find("\n\n"); end != std::string::npos) {
+      bodyEnd = end + 1;
+      consumed = end + 2;
+    } else {
+      break;
+    }
+    const std::string body = m_received.substr(0, bodyEnd);
+    m_received.erase(0, consumed);
+    const std::string text = std::move(m_pending.front());
+    m_pending.pop_front();
+    if (text == m_requested) {
+      onAnswer(text, body);
+    }
+  }
+}
+
+void FilesProvider::onAnswer(const std::string& text, const std::string& body) const {
+  m_results.clear();
+  std::size_t start = 0;
+  for (std::size_t end = body.find('\n'); end != std::string::npos; end = body.find('\n', start)) {
+    const std::string_view row = std::string_view(body).substr(start, end - start);
+    start = end + 1;
+    // path \t mtime_ns \t size \t f|d
+    const std::size_t tab = row.find('\t');
+    if (tab == std::string_view::npos || row.empty()) {
+      continue;
+    }
+    const std::string path(row.substr(0, tab));
+    const bool folder = row.ends_with("\td");
+    LauncherResult r;
+    r.id = path;
+    r.title = std::filesystem::path(path).filename().string();
+    r.subtitle = displayFolder(path);
+    r.glyphName = folder ? "folder" : "file";
+    r.presentation = folder ? "folder" : "file";
+    r.category = displayName();
+    m_results.push_back(std::move(r));
+  }
+  kLog.debug("{} files for \"{}\"", m_results.size(), text);
+  m_answered = text;
+  m_requested.reset();
+  m_loading = false;
+  if (m_onResultsChanged) {
+    m_onResultsChanged();
+  }
+}
+
+bool FilesProvider::activate(const LauncherResult& result) {
+  if (!net::openInBrowser(fileUri(result.id))) {
+    kLog.warn("opening {} failed", result.id);
+  }
+  return true;
+}
+
+void FilesProvider::reveal(const LauncherResult& result) const {
+  const std::string folder = std::filesystem::path(result.id).parent_path().string();
+  if (m_bus == nullptr) {
+    (void)net::openInBrowser(fileUri(folder));
+    return;
+  }
+  if (m_fileManager == nullptr) {
+    m_fileManager = sdbus::createProxy(
+        m_bus->connection(), sdbus::ServiceName{"org.freedesktop.FileManager1"},
+        sdbus::ObjectPath{"/org/freedesktop/FileManager1"}
+    );
+  }
+  m_fileManager->callMethodAsync("ShowItems")
+      .onInterface("org.freedesktop.FileManager1")
+      .withArguments(std::vector<std::string>{fileUri(result.id)}, std::string())
+      .uponReplyInvoke([folder](std::optional<sdbus::Error> error) {
+        // No file manager owns FileManager1: open the folder itself.
+        if (error.has_value() && !net::openInBrowser(fileUri(folder))) {
+          kLog.warn("showing {} failed: {}", folder, error->what());
+        }
+      });
+}
+
+void FilesProvider::copyPath(const LauncherResult& result) const {
+  if (m_clipboard != nullptr) {
+    (void)m_clipboard->copyText(result.id);
+  }
+}
