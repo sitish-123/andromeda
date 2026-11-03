@@ -1848,7 +1848,6 @@ namespace settings {
           body.addChild(std::move(groupRow));
         }
 
-        const bool pendingDelete = ctx.pendingDeleteWidgetName == widgetName;
         const bool renaming = ctx.renamingWidgetName == widgetName;
 
         if (!currentLaneInherited && !currentLaneKey.empty()) {
@@ -1901,11 +1900,9 @@ namespace settings {
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
-                    .onClick = [&renamingWidgetName = ctx.renamingWidgetName,
-                                &pendingDeleteWidgetName = ctx.pendingDeleteWidgetName, widgetName,
+                    .onClick = [&renamingWidgetName = ctx.renamingWidgetName, widgetName,
                                 requestRebuild = ctx.requestRebuild] {
                       renamingWidgetName = widgetName;
-                      pendingDeleteWidgetName.clear();
                       requestRebuild();
                     },
                 })
@@ -1922,12 +1919,29 @@ namespace settings {
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
-                    .onClick = [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                                &renamingWidgetName = ctx.renamingWidgetName, widgetName,
-                                requestRebuild = ctx.requestRebuild] {
-                      pendingDeleteWidgetName = widgetName;
-                      renamingWidgetName.clear();
-                      requestRebuild();
+                    .onClick = [confirmDelete = ctx.confirmDelete, &selectedLaneWidgets = ctx.selectedLaneWidgets,
+                                &renamingWidgetName = ctx.renamingWidgetName, config = &ctx.config, widgetName,
+                                clearOverride = ctx.clearOverride, setOverrides = ctx.setOverrides,
+                                closeHostedEditor = ctx.closeHostedEditor] {
+                      confirmDelete(
+                          i18n::tr("settings.entities.widget.instance.delete-confirm-title", "name", widgetName),
+                          i18n::tr("settings.entities.widget.instance.delete-confirm-desc"),
+                          i18n::tr("settings.entities.widget.instance.delete"),
+                          [&selectedLaneWidgets, &renamingWidgetName, config, widgetName, clearOverride, setOverrides,
+                           closeHostedEditor] {
+                            renamingWidgetName.clear();
+                            // The config as it is now: the content may have rebuilt while the alert was open.
+                            auto referenceRemovals = widgetReferenceRemovalOverrides(*config, widgetName);
+                            if (!referenceRemovals.empty()) {
+                              selectedLaneWidgets.clear();
+                              setOverrides(std::move(referenceRemovals));
+                            }
+                            clearOverride({"widget", widgetName});
+                            if (closeHostedEditor) {
+                              closeHostedEditor();
+                            }
+                          }
+                      );
                     },
                 })
             );
@@ -2003,76 +2017,6 @@ namespace settings {
               })
           );
           body.addChild(std::move(renameRow));
-        }
-
-        if (pendingDelete) {
-          auto confirmPanel = ui::column(
-              {
-                  .align = FlexAlign::Stretch,
-                  .gap = Style::spaceXs * ctx.scale,
-                  .padding = Style::spaceSm * ctx.scale,
-                  .fill = colorSpecFromRole(ColorRole::Fill1),
-                  .radius = Style::scaledRadiusSm(ctx.scale),
-                  .border = colorSpecFromRole(ColorRole::Danger),
-              },
-              makeLabel(
-                  i18n::tr("settings.entities.widget.instance.delete-confirm-title", "name", widgetName),
-                  Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
-              ),
-              makeLabel(
-                  i18n::tr("settings.entities.widget.instance.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-                  colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
-              ),
-              ui::row(
-                  {
-                      .align = FlexAlign::Center,
-                      .gap = Style::spaceSm * ctx.scale,
-                  },
-                  ui::spacer(),
-                  ui::button({
-                      .text = i18n::tr("common.actions.cancel"),
-                      .fontSize = Style::fontSizeCaption * ctx.scale,
-                      .variant = ButtonVariant::Ghost,
-                      .minHeight = Style::controlHeight * ctx.scale,
-                      .paddingV = Style::spaceXs * ctx.scale,
-                      .paddingH = Style::spaceSm * ctx.scale,
-                      .radius = Style::scaledRadiusSm(ctx.scale),
-                      .onClick =
-                          [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                           requestRebuild = ctx.requestRebuild] {
-                            pendingDeleteWidgetName.clear();
-                            requestRebuild();
-                          },
-                  }),
-                  ui::button({
-                      .text = i18n::tr("settings.entities.widget.instance.delete"),
-                      .glyph = "trash",
-                      .fontSize = Style::fontSizeCaption * ctx.scale,
-                      .glyphSize = Style::fontSizeCaption * ctx.scale,
-                      .variant = ButtonVariant::Destructive,
-                      .minHeight = Style::controlHeight * ctx.scale,
-                      .paddingV = Style::spaceXs * ctx.scale,
-                      .paddingH = Style::spaceSm * ctx.scale,
-                      .radius = Style::scaledRadiusSm(ctx.scale),
-                      .onClick = [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                                  &selectedLaneWidgets = ctx.selectedLaneWidgets, config = ctx.config, widgetName,
-                                  clearOverride = ctx.clearOverride, setOverrides = ctx.setOverrides,
-                                  closeHostedEditor = ctx.closeHostedEditor] {
-                        pendingDeleteWidgetName.clear();
-                        auto referenceRemovals = widgetReferenceRemovalOverrides(config, widgetName);
-                        if (!referenceRemovals.empty()) {
-                          selectedLaneWidgets.clear();
-                          setOverrides(std::move(referenceRemovals));
-                        }
-                        clearOverride({"widget", widgetName});
-                        if (closeHostedEditor) {
-                          closeHostedEditor();
-                        }
-                      },
-                  })
-              )
-          );
-          body.addChild(std::move(confirmPanel));
         }
 
         // The panel only needs the bar and monitor the lane belongs to; currentLanePath is empty for widgets
@@ -3553,12 +3497,10 @@ namespace settings {
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusMd(ctx.scale),
                 .onClick = [&editingWidgetName = ctx.editingWidgetName, &renamingWidgetName = ctx.renamingWidgetName,
-                            &pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
                             &pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath,
                             openWidgetAddPopup = ctx.openWidgetAddPopup, lanePath] {
                   editingWidgetName.clear();
                   renamingWidgetName.clear();
-                  pendingDeleteWidgetName.clear();
                   pendingDeleteWidgetSettingPath.clear();
                   if (openWidgetAddPopup) {
                     openWidgetAddPopup(lanePath);

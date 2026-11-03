@@ -52,18 +52,6 @@ namespace settings {
       return ui::button(std::move(props));
     }
 
-    std::unique_ptr<Flex> makeConfirmPanel(float scale) {
-      return ui::column({
-          .align = FlexAlign::Stretch,
-          .gap = Style::spaceXs * scale,
-          .padding = Style::spaceSm * scale,
-          .configure = [scale](Flex& panel) {
-            panel.setRadius(Style::scaledRadiusSm(scale));
-            panel.setFill(colorSpecFromRole(ColorRole::Fill1));
-            panel.setBorder(colorSpecFromRole(ColorRole::Danger), Style::borderWidth);
-          },
-      });
-    }
 
     std::string normalizedConfigId(std::string_view text) { return StringUtils::trim(text); }
 
@@ -169,8 +157,6 @@ namespace settings {
           )) {
         const std::string barName = ctx.selectedBar->name;
         const std::string match = ctx.selectedMonitorOverride->match;
-        const bool pendingDelete =
-            ctx.pendingDeleteMonitorOverrideBarName == barName && ctx.pendingDeleteMonitorOverrideMatch == match;
         const bool renaming =
             ctx.renamingMonitorOverrideBarName == barName && ctx.renamingMonitorOverrideMatch == match;
         auto* management = makeSection(content, i18n::tr("settings.entities.monitor-override.management"), ctx.scale);
@@ -244,45 +230,6 @@ namespace settings {
                   )
               )
           );
-        } else if (pendingDelete) {
-          auto confirmPanel = makeConfirmPanel(ctx.scale);
-
-          confirmPanel->addChild(makeLabel(
-              i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
-              Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
-          ));
-          confirmPanel->addChild(makeLabel(
-              i18n::tr("settings.entities.monitor-override.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-              colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
-          ));
-
-          confirmPanel->addChild(
-              ui::row(
-                  {
-                      .align = FlexAlign::Center,
-                      .gap = Style::spaceSm * ctx.scale,
-                  },
-                  ui::spacer(),
-                  makeManagementButton(
-                      i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, ctx.scale,
-                      [&pendingDeleteMonitorOverrideBarName = ctx.pendingDeleteMonitorOverrideBarName,
-                       &pendingDeleteMonitorOverrideMatch = ctx.pendingDeleteMonitorOverrideMatch,
-                       requestRebuild = ctx.requestRebuild] {
-                        pendingDeleteMonitorOverrideBarName.clear();
-                        pendingDeleteMonitorOverrideMatch.clear();
-                        requestRebuild();
-                      }
-                  ),
-                  makeManagementButton(
-                      i18n::tr("settings.entities.monitor-override.delete"), ButtonVariant::Destructive, ctx.scale,
-                      [deleteMonitorOverride = ctx.deleteMonitorOverride, barName, match] {
-                        deleteMonitorOverride(barName, match);
-                      },
-                      "trash"
-                  )
-              )
-          );
-          management->addChild(std::move(confirmPanel));
         } else {
           management->addChild(
               ui::row(
@@ -295,28 +242,22 @@ namespace settings {
                       i18n::tr("settings.entities.monitor-override.rename"), ButtonVariant::Ghost, ctx.scale,
                       [&renamingMonitorOverrideBarName = ctx.renamingMonitorOverrideBarName,
                        &renamingMonitorOverrideMatch = ctx.renamingMonitorOverrideMatch,
-                       &pendingDeleteMonitorOverrideBarName = ctx.pendingDeleteMonitorOverrideBarName,
-                       &pendingDeleteMonitorOverrideMatch = ctx.pendingDeleteMonitorOverrideMatch, barName, match,
-                       requestRebuild = ctx.requestRebuild] {
+                       barName, match, requestRebuild = ctx.requestRebuild] {
                         renamingMonitorOverrideBarName = barName;
                         renamingMonitorOverrideMatch = match;
-                        pendingDeleteMonitorOverrideBarName.clear();
-                        pendingDeleteMonitorOverrideMatch.clear();
                         requestRebuild();
                       }
                   ),
                   makeManagementButton(
                       i18n::tr("settings.entities.monitor-override.delete"), ButtonVariant::Ghost, ctx.scale,
-                      [&pendingDeleteMonitorOverrideBarName = ctx.pendingDeleteMonitorOverrideBarName,
-                       &pendingDeleteMonitorOverrideMatch = ctx.pendingDeleteMonitorOverrideMatch,
-                       &renamingMonitorOverrideBarName = ctx.renamingMonitorOverrideBarName,
-                       &renamingMonitorOverrideMatch = ctx.renamingMonitorOverrideMatch, barName, match,
-                       requestRebuild = ctx.requestRebuild] {
-                        pendingDeleteMonitorOverrideBarName = barName;
-                        pendingDeleteMonitorOverrideMatch = match;
-                        renamingMonitorOverrideBarName.clear();
-                        renamingMonitorOverrideMatch.clear();
-                        requestRebuild();
+                      [confirmDelete = ctx.confirmDelete, deleteMonitorOverride = ctx.deleteMonitorOverride, barName,
+                       match] {
+                        confirmDelete(
+                            i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
+                            i18n::tr("settings.entities.monitor-override.delete-confirm-desc"),
+                            i18n::tr("settings.entities.monitor-override.delete"),
+                            [deleteMonitorOverride, barName, match] { deleteMonitorOverride(barName, match); }
+                        );
                       },
                       "trash"
                   )
@@ -337,7 +278,6 @@ namespace settings {
 
       const std::string tableName = ctx.selectedDockMonitorOverride->tableName;
       const std::string match = ctx.selectedDockMonitorOverride->match;
-      const bool pendingDelete = ctx.pendingDeleteDockMonitorOverride == tableName;
       const bool renaming = ctx.renamingDockMonitorOverride == tableName;
       auto* management = makeSection(content, i18n::tr("settings.entities.monitor-override.management"), ctx.scale);
 
@@ -404,61 +344,27 @@ namespace settings {
         return;
       }
 
-      if (pendingDelete) {
-        auto confirmPanel = makeConfirmPanel(ctx.scale);
-        confirmPanel->addChild(makeLabel(
-            i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
-            Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
-        ));
-        confirmPanel->addChild(makeLabel(
-            i18n::tr("settings.entities.monitor-override.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-            colorSpecFromRole(ColorRole::Label1)
-        ));
-        confirmPanel->addChild(
-            ui::row(
-                {.align = FlexAlign::Center, .gap = Style::spaceSm * ctx.scale}, ui::spacer(),
-                makeManagementButton(
-                    i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, ctx.scale,
-                    [&pendingDeleteDockMonitorOverride = ctx.pendingDeleteDockMonitorOverride,
-                     requestRebuild = ctx.requestRebuild] {
-                      pendingDeleteDockMonitorOverride.clear();
-                      requestRebuild();
-                    }
-                ),
-                makeManagementButton(
-                    i18n::tr("settings.entities.monitor-override.delete"), ButtonVariant::Destructive, ctx.scale,
-                    [deleteDockMonitorOverride = ctx.deleteDockMonitorOverride, tableName] {
-                      deleteDockMonitorOverride(tableName);
-                    },
-                    "trash"
-                )
-            )
-        );
-        management->addChild(std::move(confirmPanel));
-        return;
-      }
-
       management->addChild(
           ui::row(
               {.align = FlexAlign::Center, .gap = Style::spaceXs * ctx.scale}, ui::spacer(),
               makeManagementButton(
                   i18n::tr("settings.entities.monitor-override.rename"), ButtonVariant::Ghost, ctx.scale,
-                  [&renamingDockMonitorOverride = ctx.renamingDockMonitorOverride,
-                   &pendingDeleteDockMonitorOverride = ctx.pendingDeleteDockMonitorOverride, tableName,
+                  [&renamingDockMonitorOverride = ctx.renamingDockMonitorOverride, tableName,
                    requestRebuild = ctx.requestRebuild] {
                     renamingDockMonitorOverride = tableName;
-                    pendingDeleteDockMonitorOverride.clear();
                     requestRebuild();
                   }
               ),
               makeManagementButton(
                   i18n::tr("settings.entities.monitor-override.delete"), ButtonVariant::Ghost, ctx.scale,
-                  [&pendingDeleteDockMonitorOverride = ctx.pendingDeleteDockMonitorOverride,
-                   &renamingDockMonitorOverride = ctx.renamingDockMonitorOverride, tableName,
-                   requestRebuild = ctx.requestRebuild] {
-                    pendingDeleteDockMonitorOverride = tableName;
-                    renamingDockMonitorOverride.clear();
-                    requestRebuild();
+                  [confirmDelete = ctx.confirmDelete, deleteDockMonitorOverride = ctx.deleteDockMonitorOverride, match,
+                   tableName] {
+                    confirmDelete(
+                        i18n::tr("settings.entities.monitor-override.delete-confirm-title", "name", match),
+                        i18n::tr("settings.entities.monitor-override.delete-confirm-desc"),
+                        i18n::tr("settings.entities.monitor-override.delete"),
+                        [deleteDockMonitorOverride, tableName] { deleteDockMonitorOverride(tableName); }
+                    );
                   },
                   "trash"
               )
@@ -480,7 +386,6 @@ namespace settings {
           return;
         }
 
-        const bool pendingDelete = overrideOnly && ctx.pendingDeleteBarName == barName;
         const bool renaming = overrideOnly && ctx.renamingBarName == barName;
         auto* management = makeSection(content, i18n::tr("settings.entities.bar.management"), ctx.scale);
 
@@ -539,39 +444,6 @@ namespace settings {
                   )
               )
           );
-        } else if (pendingDelete) {
-          auto confirmPanel = makeConfirmPanel(ctx.scale);
-
-          confirmPanel->addChild(makeLabel(
-              i18n::tr("settings.entities.bar.delete-confirm-title", "name", barName), Style::fontSizeBody * ctx.scale,
-              colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
-          ));
-          confirmPanel->addChild(makeLabel(
-              i18n::tr("settings.entities.bar.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-              colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
-          ));
-
-          confirmPanel->addChild(
-              ui::row(
-                  {
-                      .align = FlexAlign::Center,
-                      .gap = Style::spaceSm * ctx.scale,
-                  },
-                  ui::spacer(),
-                  makeManagementButton(
-                      i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, ctx.scale,
-                      [&pendingDeleteBarName = ctx.pendingDeleteBarName, requestRebuild = ctx.requestRebuild] {
-                        pendingDeleteBarName.clear();
-                        requestRebuild();
-                      }
-                  ),
-                  makeManagementButton(
-                      i18n::tr("settings.entities.bar.delete"), ButtonVariant::Destructive, ctx.scale,
-                      [deleteBar = ctx.deleteBar, barName] { deleteBar(barName); }, "trash"
-                  )
-              )
-          );
-          management->addChild(std::move(confirmPanel));
         } else {
           auto actionRow = ui::row({
               .align = FlexAlign::Center,
@@ -593,10 +465,8 @@ namespace settings {
           if (overrideOnly) {
             actionRow->addChild(makeManagementButton(
                 i18n::tr("settings.entities.bar.rename"), ButtonVariant::Ghost, ctx.scale,
-                [&renamingBarName = ctx.renamingBarName, &pendingDeleteBarName = ctx.pendingDeleteBarName, barName,
-                 requestRebuild = ctx.requestRebuild] {
+                [&renamingBarName = ctx.renamingBarName, barName, requestRebuild = ctx.requestRebuild] {
                   renamingBarName = barName;
-                  pendingDeleteBarName.clear();
                   requestRebuild();
                 }
             ));
@@ -605,11 +475,12 @@ namespace settings {
           if (ctx.configService->canDeleteBarOverride(barName)) {
             actionRow->addChild(makeManagementButton(
                 i18n::tr("settings.entities.bar.delete"), ButtonVariant::Ghost, ctx.scale,
-                [&pendingDeleteBarName = ctx.pendingDeleteBarName, &renamingBarName = ctx.renamingBarName, barName,
-                 requestRebuild = ctx.requestRebuild] {
-                  pendingDeleteBarName = barName;
-                  renamingBarName.clear();
-                  requestRebuild();
+                [confirmDelete = ctx.confirmDelete, deleteBar = ctx.deleteBar, barName] {
+                  confirmDelete(
+                      i18n::tr("settings.entities.bar.delete-confirm-title", "name", barName),
+                      i18n::tr("settings.entities.bar.delete-confirm-desc"), i18n::tr("settings.entities.bar.delete"),
+                      [deleteBar, barName] { deleteBar(barName); }
+                  );
                 },
                 "trash"
             ));

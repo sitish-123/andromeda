@@ -61,7 +61,6 @@ namespace settings {
     std::string& editingWidgetName;
     std::string& editingCapsuleGroupId;
     std::vector<std::string>& selectedLaneWidgets;
-    std::string& pendingDeleteWidgetName;
     std::string& pendingDeleteWidgetSettingPath;
     std::string& renamingWidgetName;
     std::string& pendingGestureKey;
@@ -111,6 +110,7 @@ namespace settings {
     std::function<void()> afterIdleBehaviorApply;
     std::function<void()> afterNotificationFilterApply;
     std::function<void()> closeHostedEditor;
+    std::function<void(std::string, std::string, std::string, std::function<void()>)> confirmDelete;
     bool supportsTaskbarWorkspaceGrouping = true;
   };
 

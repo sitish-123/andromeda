@@ -289,6 +289,7 @@ private:
   );
   void openActionsMenu();
   void openConfigExportDialog();
+  void showDeleteAlert(std::string title, std::string body, std::string action, std::function<void()> onConfirm);
   void openBarWidgetAddPopup(const std::vector<std::string>& lanePath);
   // Request is taken by value because opening the popup can close the sheet that owns the forwarding control.
   void openSearchPickerPopup(settings::SearchPickerOpenRequest request);
@@ -464,7 +465,6 @@ private:
   std::string m_editingWidgetName;
   std::string m_editingCapsuleGroupId;
   std::vector<std::string> m_selectedLaneWidgets;
-  std::string m_pendingDeleteWidgetName;
   std::string m_pendingDeleteWidgetSettingPath;
   std::string m_renamingWidgetName;
   // Gesture whose action row has a chosen command that still needs its argument typed.
@@ -481,13 +481,9 @@ private:
   bool m_expandedSettingGroupsSeededExpandAll = false;
   std::string m_creatingBarName;
   std::string m_renamingBarName;
-  std::string m_pendingDeleteBarName;
   std::string m_renamingMonitorOverrideBarName;
   std::string m_renamingMonitorOverrideMatch;
-  std::string m_pendingDeleteMonitorOverrideBarName;
-  std::string m_pendingDeleteMonitorOverrideMatch;
   std::string m_renamingDockMonitorOverride;
-  std::string m_pendingDeleteDockMonitorOverride;
   std::string m_selectedBarName;
   std::string m_selectedMonitorOverride;
   std::string m_selectedSection;

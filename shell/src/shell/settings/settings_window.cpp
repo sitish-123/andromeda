@@ -695,13 +695,9 @@ void SettingsWindow::destroyWindow() {
   m_statusIsError = false;
   m_creatingBarName.clear();
   m_renamingBarName.clear();
-  m_pendingDeleteBarName.clear();
   m_renamingMonitorOverrideBarName.clear();
   m_renamingMonitorOverrideMatch.clear();
-  m_pendingDeleteMonitorOverrideBarName.clear();
-  m_pendingDeleteMonitorOverrideMatch.clear();
   m_renamingDockMonitorOverride.clear();
-  m_pendingDeleteDockMonitorOverride.clear();
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
   m_searchQuery.clear();
@@ -721,7 +717,6 @@ void SettingsWindow::destroyWindow() {
   m_editingWidgetName.clear();
   m_editingCapsuleGroupId.clear();
   m_selectedLaneWidgets.clear();
-  m_pendingDeleteWidgetName.clear();
   m_pendingDeleteWidgetSettingPath.clear();
   m_renamingWidgetName.clear();
   m_sidebarScrollState = {};
@@ -987,15 +982,11 @@ void SettingsWindow::clearTransientSettingsState() {
   m_editingCapsuleGroupId.clear();
   m_selectedLaneWidgets.clear();
   m_renamingWidgetName.clear();
-  m_pendingDeleteWidgetName.clear();
   m_pendingDeleteWidgetSettingPath.clear();
   m_creatingBarName.clear();
   m_renamingBarName.clear();
-  m_pendingDeleteBarName.clear();
   m_renamingMonitorOverrideBarName.clear();
   m_renamingMonitorOverrideMatch.clear();
-  m_pendingDeleteMonitorOverrideBarName.clear();
-  m_pendingDeleteMonitorOverrideMatch.clear();
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
   m_expertOpen = false;
@@ -1186,26 +1177,19 @@ void SettingsWindow::onKeyboardEvent(const KeyboardEvent& event) {
         || !m_editingCapsuleGroupId.empty()
         || !m_selectedLaneWidgets.empty()
         || !m_renamingWidgetName.empty()
-        || !m_pendingDeleteWidgetName.empty()
         || !m_pendingDeleteWidgetSettingPath.empty()
         || !m_creatingBarName.empty()
         || !m_renamingBarName.empty()
-        || !m_pendingDeleteBarName.empty()
-        || !m_renamingMonitorOverrideBarName.empty()
-        || !m_pendingDeleteMonitorOverrideBarName.empty()) {
+        || !m_renamingMonitorOverrideBarName.empty()) {
       m_editingWidgetName.clear();
       m_editingCapsuleGroupId.clear();
       m_selectedLaneWidgets.clear();
       m_renamingWidgetName.clear();
-      m_pendingDeleteWidgetName.clear();
       m_pendingDeleteWidgetSettingPath.clear();
       m_creatingBarName.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       requestRebuild();
       return;
     }

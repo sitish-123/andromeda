@@ -916,7 +916,6 @@ settings::SettingsContentContext SettingsWindow::makeContentContext(
       .editingWidgetName = m_editingWidgetName,
       .editingCapsuleGroupId = m_editingCapsuleGroupId,
       .selectedLaneWidgets = m_selectedLaneWidgets,
-      .pendingDeleteWidgetName = m_pendingDeleteWidgetName,
       .pendingDeleteWidgetSettingPath = m_pendingDeleteWidgetSettingPath,
       .renamingWidgetName = m_renamingWidgetName,
       .pendingGestureKey = m_pendingGestureKey,
@@ -988,6 +987,10 @@ settings::SettingsContentContext SettingsWindow::makeContentContext(
       .afterIdleBehaviorApply = {},
       .afterNotificationFilterApply = {},
       .closeHostedEditor = {},
+      .confirmDelete =
+          [this](std::string title, std::string body, std::string action, std::function<void()> onConfirm) {
+            showDeleteAlert(std::move(title), std::move(body), std::move(action), std::move(onConfirm));
+          },
       .supportsTaskbarWorkspaceGrouping = m_platform != nullptr && m_platform->supportsTaskbarWorkspaceGrouping(),
   };
 }
@@ -1064,13 +1067,9 @@ void SettingsWindow::rebuildSettingsContent() {
           .selectedMonitorOverride = selectedMonitorOverride,
           .selectedDockMonitorOverride = selectedDockMonitorOverride,
           .renamingBarName = m_renamingBarName,
-          .pendingDeleteBarName = m_pendingDeleteBarName,
           .renamingMonitorOverrideBarName = m_renamingMonitorOverrideBarName,
           .renamingMonitorOverrideMatch = m_renamingMonitorOverrideMatch,
-          .pendingDeleteMonitorOverrideBarName = m_pendingDeleteMonitorOverrideBarName,
-          .pendingDeleteMonitorOverrideMatch = m_pendingDeleteMonitorOverrideMatch,
           .renamingDockMonitorOverride = m_renamingDockMonitorOverride,
-          .pendingDeleteDockMonitorOverride = m_pendingDeleteDockMonitorOverride,
           .requestRebuild = [this] { requestContentRebuild(/*refreshRegistry=*/true, /*refreshFilterRow=*/true); },
           .renameBar =
               [this](std::string oldName, std::string newName) { renameBar(std::move(oldName), std::move(newName)); },
@@ -1095,6 +1094,10 @@ void SettingsWindow::rebuildSettingsContent() {
                                        ) { renameDockMonitorOverride(std::move(oldTableName), std::move(newMatch)); },
           .deleteDockMonitorOverride =
               [this](std::string tableName) { deleteDockMonitorOverride(std::move(tableName)); },
+          .confirmDelete =
+              [this](std::string title, std::string body, std::string action, std::function<void()> onConfirm) {
+                showDeleteAlert(std::move(title), std::move(body), std::move(action), std::move(onConfirm));
+              },
       }
     );
   }

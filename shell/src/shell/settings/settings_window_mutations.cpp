@@ -320,11 +320,8 @@ void SettingsWindow::createBar(std::string name) {
       navigateTo("bar", name);
       m_creatingBarName.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -344,11 +341,8 @@ void SettingsWindow::renameBar(std::string oldName, std::string newName) {
       }
       m_selectedMonitorOverride.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -369,11 +363,8 @@ void SettingsWindow::deleteBar(std::string name) {
         m_contentScrollState.offset = 0.0F;
       }
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       markSettingsWriteSuccess();
       return;
     }
@@ -403,8 +394,6 @@ void SettingsWindow::createMonitorOverride(std::string barName, std::string matc
       navigateTo("bar", barName, false, {}, match);
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -425,8 +414,6 @@ void SettingsWindow::renameMonitorOverride(std::string barName, std::string oldM
       }
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -447,8 +434,6 @@ void SettingsWindow::deleteMonitorOverride(std::string barName, std::string matc
       }
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       markSettingsWriteSuccess();
       return;
     }
@@ -464,7 +449,6 @@ void SettingsWindow::createDockMonitorOverride(std::string match) {
     if (m_config->createDockMonitorOverride(match)) {
       navigateTo("desktop-dock", {}, false, {}, match);
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -483,7 +467,6 @@ void SettingsWindow::renameDockMonitorOverride(std::string oldTableName, std::st
         m_selectedMonitorOverride = newMatch;
       }
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -503,7 +486,6 @@ void SettingsWindow::deleteDockMonitorOverride(std::string tableName) {
         m_contentScrollState.offset = 0.0F;
       }
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       markSettingsWriteSuccess();
       return;
     }

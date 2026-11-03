@@ -74,7 +74,6 @@ namespace settings {
         .editingWidgetName = ctx.editingWidgetName,
         .editingCapsuleGroupId = ctx.editingCapsuleGroupId,
         .selectedLaneWidgets = ctx.selectedLaneWidgets,
-        .pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
         .pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath,
         .renamingWidgetName = ctx.renamingWidgetName,
         .makeGestureActionRow = [&factory](
@@ -97,6 +96,7 @@ namespace settings {
         .resetBarLane = ctx.resetBarLane,
         .renameWidgetInstance = ctx.renameWidgetInstance,
         .closeHostedEditor = ctx.closeHostedEditor,
+        .confirmDelete = ctx.confirmDelete,
         .openWidgetInspector = ctx.openWidgetInspectorEditor,
         .openCapsuleGroupInspector = ctx.openCapsuleGroupEditor,
         .makeResetButton = [&factory](const std::vector<std::string>& path) { return factory.makeResetButton(path); },

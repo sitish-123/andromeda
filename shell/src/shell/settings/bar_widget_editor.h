@@ -29,7 +29,6 @@ namespace settings {
     std::string& editingWidgetName;
     std::string& editingCapsuleGroupId;
     std::vector<std::string>& selectedLaneWidgets;
-    std::string& pendingDeleteWidgetName;
     std::string& pendingDeleteWidgetSettingPath;
     std::string& renamingWidgetName;
     std::function<std::unique_ptr<Node>(const GestureActionSetting&, const std::string&, std::vector<std::string>)>
@@ -53,6 +52,8 @@ namespace settings {
     std::function<void(std::string, std::string, std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>>)>
         renameWidgetInstance;
     std::function<void()> closeHostedEditor;
+    // Shows a destructive alert (title, body, action label); the action runs only on confirm.
+    std::function<void(std::string, std::string, std::string, std::function<void()>)> confirmDelete;
     std::function<void(std::vector<std::string> laneListPath, std::string widgetName)> openWidgetInspector;
     std::function<void(std::vector<std::string> laneListPath, std::string groupId)> openCapsuleGroupInspector;
     std::function<std::unique_ptr<Button>(const std::vector<std::string>&)> makeResetButton;

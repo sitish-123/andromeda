@@ -23,6 +23,7 @@
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_registry.h"
 #include "shell/settings/settings_window.h"
+#include "shell/settings/settings_alert.h"
 #include "shell/settings/template_store_content.h"
 #include "shell/settings/widget_settings_registry.h"
 #include "theme/community_templates.h"
@@ -406,6 +407,21 @@ void SettingsWindow::openActionsMenu() {
   );
 }
 
+void SettingsWindow::showDeleteAlert(
+    std::string title, std::string body, std::string action, std::function<void()> onConfirm
+) {
+  settings::showSettingsAlert(
+      m_modalHost,
+      settings::SettingsAlertRequest{
+          .title = std::move(title),
+          .body = std::move(body),
+          .buttons = {{.text = i18n::tr("common.actions.cancel")},
+                      {.text = std::move(action), .variant = ButtonVariant::Destructive, .onClick = std::move(onConfirm)}},
+          .scale = uiScale(),
+      }
+  );
+}
+
 void SettingsWindow::openConfigExportDialog() {
   if (m_surface == nullptr || m_config == nullptr) {
     return;
@@ -455,7 +471,6 @@ void SettingsWindow::openBarWidgetAddPopup(const std::vector<std::string>& laneP
       const Config& activeConfig = m_config->config();
       auto laneItems = barWidgetItemsForPath(activeConfig, selectedLanePath);
 
-      m_pendingDeleteWidgetName.clear();
       m_pendingDeleteWidgetSettingPath.clear();
       m_renamingWidgetName.clear();
       m_editingWidgetName.clear();
@@ -2066,7 +2081,6 @@ void SettingsWindow::openWidgetInspectorEditor(std::vector<std::string> laneList
     m_editingWidgetName = widgetName;
     m_editingCapsuleGroupId.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath = std::move(laneListPath);
     std::string title = widgetName;
@@ -2091,7 +2105,6 @@ void SettingsWindow::openCapsuleGroupEditor(std::vector<std::string> laneListPat
     m_editingCapsuleGroupId = std::move(groupId);
     m_editingWidgetName.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath = std::move(laneListPath);
     openBarWidgetEditorSheet(i18n::tr("settings.entities.widget.group.title"), [this](Flex& body) {
@@ -2333,7 +2346,6 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
     m_editingWidgetName.clear();
     m_editingCapsuleGroupId.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath.clear();
 
