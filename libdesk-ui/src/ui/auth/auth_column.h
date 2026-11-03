@@ -103,6 +103,8 @@ public:
   [[nodiscard]] Rect capsule() const noexcept { return m_capsuleRect; }
   // The layer that recedes to 40 % while the Glance sheet is open; host cards attach here.
   [[nodiscard]] Node& glanceLayer() noexcept { return *m_glanceGroup; }
+  // Avatar, name and capsule (the lock screen editor dims it).
+  [[nodiscard]] Node& columnLayer() noexcept { return *m_columnGroup; }
 
 private:
   void applySheet();

@@ -88,6 +88,8 @@ public:
   void fillPlacementInput(AuthPlacementInput& in) const;
   void layout(Renderer& renderer, const AuthPlacement& place, float scale);
   [[nodiscard]] Control hitTest(float x, float y) const;
+  // The widget row: value and label per widget (the editor's gallery shows one per kind as samples).
+  [[nodiscard]] std::vector<std::pair<std::string, std::string>> widgets() const;
 
 private:
   struct Card {
@@ -121,7 +123,6 @@ private:
 
   [[nodiscard]] std::vector<std::string> chipTexts() const;
   [[nodiscard]] int glanceCardCount() const;
-  [[nodiscard]] std::vector<std::pair<std::string, std::string>> widgets() const;
   [[nodiscard]] bool bottomCard() const;
   void layoutMediaCard(Renderer& renderer, Card& card, const AuthRect& rect, float s);
   void layoutNoticeCard(Renderer& renderer, Card& card, const LockNoticeGroup& group, const AuthRect& rect, float s);

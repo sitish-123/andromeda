@@ -1201,6 +1201,13 @@
       "widgets": "Widgets",
       "remove": "Remove",
       "bottom-slot": "Bottom slot",
+      "snap-zones": "Snap to zones",
+      "zone-top": "Top",
+      "zone-middle": "Middle",
+      "zone-auth": "Auth · fixed",
+      "layout-alert-title": "Use the {name} layout?",
+      "layout-alert-body": "The widgets you placed on this display are removed.",
+      "layout-alert-confirm": "Use Layout",
       "bottom": {
         "media": "Media",
         "phone": "Phone",

@@ -69,14 +69,17 @@ namespace {
 
 bool LockEditorBar::segmentEnabled(int index) noexcept {
   const auto segment = static_cast<Segment>(index);
-  return segment != Segment::Free && segment != Segment::Wallpaper;
+  return segment != Segment::Wallpaper;
 }
 
-std::vector<LockEditorBar::Hit> LockEditorBar::focusOrder(bool panelOpen) {
+std::vector<LockEditorBar::Hit> LockEditorBar::focusOrder(bool panelOpen, bool freeMode) {
   std::vector<Hit> order;
   for (int i = 0; i < kSegments; ++i) {
     if (segmentEnabled(i)) {
       order.push_back({Target::Segment, i});
+    }
+    if (freeMode && static_cast<Segment>(i) == Segment::Free) {
+      order.push_back({Target::Snap, -1});
     }
   }
   order.push_back({Target::Done, -1});
@@ -99,6 +102,8 @@ void LockEditorBar::build(Node& root) {
     m_segments[i].bg = addRect(*m_group);
     m_segments[i].label = addLabel(*m_group, FontWeight::Medium);
   }
+  m_snap.bg = addRect(*m_group);
+  m_snap.label = addLabel(*m_group, FontWeight::Medium);
   m_done.bg = addRect(*m_group);
   m_done.label = addLabel(*m_group, FontWeight::SemiBold);
   m_doneFocus = addRect(*m_group);
@@ -160,12 +165,41 @@ void LockEditorBar::layout(Renderer& renderer, float sw, float scale) {
   }
   m_done.label->setText(i18n::tr("lockscreen.editor.done"));
 
+  const bool freeMode = m_state.mode == Segment::Free;
+  m_snap.label->setText("◫ " + i18n::tr("lockscreen.editor.snap-zones"));
+  m_snap.bg->setVisible(freeMode);
+  m_snap.label->setVisible(freeMode);
+  m_snap.rect = {};
+  // Snap to zones: a toggle chip, fill_1 and label_1 while on.
+  const auto layoutSnap = [&](float x, float y) {
+    const bool focusedSnap = focused(Target::Snap, -1);
+    m_snap.label->setFontSize(13.0F * s);
+    m_snap.label->setColor(m_state.snapZones ? kLabel1 : kLabel2);
+    m_snap.label->measure(renderer);
+    const float h = kChipHeight * s;
+    const float w = std::round(m_snap.label->width() + kChipPad * 2.0F * s);
+    m_snap.rect = {x, y, w, h};
+    const bool hover = m_state.hover == Hit{Target::Snap, -1};
+    place(m_snap.bg, x, y, w, h,
+          RoundedRectStyle{
+              .fill = m_state.snapZones || hover ? kFill1 : kClear,
+              .border = focusedSnap ? kAccentText : kClear,
+              .radius = h * 0.5F,
+              .borderWidth = focusedSnap ? 2.0F * s : 0.0F,
+          });
+    m_snap.label->setPosition(std::round(x + kChipPad * s), std::round(y + (h - m_snap.label->height()) * 0.5F));
+  };
+
   // Measure first: the bar hugs its chips and sits centred.
   float width = kBarPad * s;
   for (int i = 0; i < kSegments; ++i) {
     Chip& chip = m_segments[static_cast<std::size_t>(i)];
     layoutChip(renderer, chip, 0.0F, 0.0F, s, i == mode, segmentEnabled(i), false);
     width += chip.rect.w + kBarPad * s;
+    if (freeMode && static_cast<Segment>(i) == Segment::Free) {
+      layoutSnap(0.0F, 0.0F);
+      width += m_snap.rect.w + kBarPad * s;
+    }
   }
   m_done.label->setFontSize(13.0F * s);
   m_done.label->measure(renderer);
@@ -185,6 +219,10 @@ void LockEditorBar::layout(Renderer& renderer, float sw, float scale) {
     Chip& chip = m_segments[static_cast<std::size_t>(i)];
     layoutChip(renderer, chip, x, chipY, s, i == mode, segmentEnabled(i), focused(Target::Segment, i));
     x += chip.rect.w + kBarPad * s;
+    if (freeMode && static_cast<Segment>(i) == Segment::Free) {
+      layoutSnap(x, chipY);
+      x += m_snap.rect.w + kBarPad * s;
+    }
   }
   x += 8.0F * s - kBarPad * s;
   const float chipH = kChipHeight * s;
@@ -352,6 +390,9 @@ LockEditorBar::Hit LockEditorBar::hitTest(float x, float y) const {
   }
   if (m_done.rect.contains(x, y)) {
     return {Target::Done, -1};
+  }
+  if (m_state.mode == Segment::Free && m_snap.rect.contains(x, y)) {
+    return {Target::Snap, -1};
   }
   return {Target::Bar, -1};
 }

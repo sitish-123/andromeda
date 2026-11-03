@@ -4,6 +4,7 @@
 
 #include <array>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Label;
@@ -36,6 +37,8 @@ public:
     // Row places shown (0 = no row in this layout) and widgets placed in them.
     int places = 0;
     std::vector<std::string> widgets;
+    // Gallery samples per kind (LockCards::kWidgetKinds order): value, label.
+    std::vector<std::pair<std::string, std::string>> samples;
     bool bottom = false;
     int bottomSlot = 0;
     Panel panel = Panel::None;
@@ -57,6 +60,12 @@ public:
   [[nodiscard]] static std::vector<Hit> focusOrder(const State& state);
 
 private:
+  struct Tile {
+    RectNode* bg = nullptr;
+    Label* value = nullptr;
+    Label* name = nullptr;
+    Rect rect;
+  };
   struct Place {
     RectNode* outline = nullptr;
     Label* plus = nullptr;
@@ -71,7 +80,7 @@ private:
   RectNode* m_panelBg = nullptr;
   Rect m_panelRect;
   Label* m_title = nullptr;
-  std::array<LockEditorGallery::Chip, kKinds> m_kinds{};
+  std::array<Tile, kKinds> m_kinds{};
   LockEditorGallery::Chip m_remove;
   std::array<LockEditorGallery::Chip, kBottomNames.size()> m_bottomKinds{};
 };

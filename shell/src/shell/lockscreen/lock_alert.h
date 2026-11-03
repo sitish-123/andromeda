@@ -10,7 +10,7 @@ class RectNode;
 class Renderer;
 
 // Rulebook 9.10 alert on the lock screen (system-modal): 40 % black scrim, w 320, r 24, p 24, solid popover;
-// title-3, body label_2, Cancel (default) and a destructive capsule side by side.
+// title-3, body label_2, Cancel (default) and a destructive capsule side by side. The lock screen editor uses it too.
 class LockAlert {
 public:
   struct State {
@@ -18,6 +18,8 @@ public:
     std::string title;
     std::string body;
     std::string confirm;
+    // Keyboard focus (rulebook 9.10): Cancel, the default button, unless Tab moved it to the confirm button.
+    bool confirmFocused = false;
     bool operator==(const State&) const = default;
   };
   enum class Hit { None, Cancel, Confirm, Inside };

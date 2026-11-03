@@ -112,7 +112,8 @@ void LockscreenWidgetsController::initialize(const LockscreenWidgetsControllerSe
   m_editor->setExitRequestedCallback([this] { exitEdit(); });
   m_lockEditor = std::make_unique<LockEditor>();
   m_lockEditor->initialize(
-      services.widgets.wayland, m_config, m_renderContext, services.widgets.textureCache, m_lockScreen
+      services.widgets.wayland, m_config, m_renderContext, services.widgets.textureCache, m_lockScreen,
+      services.widgets.runtime
   );
   loadSnapshotFromConfig();
   m_initialized = true;

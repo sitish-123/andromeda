@@ -28,6 +28,9 @@ namespace {
   constexpr float kPad = 16.0F;
   constexpr float kChipHeight = 28.0F;
   constexpr float kMinPanelWidth = 360.0F;
+  constexpr float kTileWidth = 112.0F;
+  constexpr float kTileHeight = 72.0F;
+  constexpr Color kFill2 = rgba(1.0F, 1.0F, 1.0F, 0.16F);
 
   RectNode* addRect(Node& parent) {
     auto rect = std::make_unique<RectNode>();
@@ -53,6 +56,8 @@ namespace {
         .border = on ? kAccentText : kSlotEdge,
         .radius = 16.0F * s,
         .borderWidth = (on ? 2.0F : 1.5F) * s,
+        .borderDash = on ? 0.0F : 6.0F * s,
+        .borderGap = 4.0F * s,
     };
   }
 
@@ -100,7 +105,11 @@ void LockEditorSlots::build(Node& root) {
     chip.bg = addRect(*m_group);
     chip.label = addLabel(*m_group, FontWeight::Medium);
   };
-  std::ranges::for_each(m_kinds, addChip);
+  for (Tile& tile : m_kinds) {
+    tile.bg = addRect(*m_group);
+    tile.value = addLabel(*m_group, FontWeight::SemiBold);
+    tile.name = addLabel(*m_group, FontWeight::Normal);
+  }
   addChip(m_remove);
   std::ranges::for_each(m_bottomKinds, addChip);
 }
@@ -123,6 +132,8 @@ void LockEditorSlots::layout(
     }
     const Hit hit{Target::Place, i};
     const bool on = state.focus == hit || (state.panel == Panel::Widget && state.editPlace == i);
+    // Mock section 2: only empty places carry the slot edge; a placed widget shows its card until it is picked.
+    p.outline->setVisible(i >= placed || on || state.hover == hit);
     place(p.outline, p.rect, outline(on, state.hover == hit, s));
     if (i >= placed) {
       p.plus->setText("+");
@@ -147,10 +158,11 @@ void LockEditorSlots::layout(
   const bool canRemove = widgetPanel && state.editPlace >= 0 && state.editPlace < placed;
   m_panelBg->setVisible(widgetPanel || bottomPanel);
   m_title->setVisible(widgetPanel || bottomPanel);
-  for (auto& chip : m_kinds) {
-    chip.bg->setVisible(widgetPanel);
-    chip.label->setVisible(widgetPanel);
-    chip.rect = {};
+  for (Tile& tile : m_kinds) {
+    tile.bg->setVisible(widgetPanel);
+    tile.value->setVisible(widgetPanel);
+    tile.name->setVisible(widgetPanel);
+    tile.rect = {};
   }
   m_remove.bg->setVisible(canRemove);
   m_remove.label->setVisible(canRemove);
@@ -173,12 +185,6 @@ void LockEditorSlots::layout(
   };
   std::vector<Item> items;
   if (widgetPanel) {
-    const std::string current = canRemove ? state.widgets[static_cast<std::size_t>(state.editPlace)] : std::string{};
-    for (int i = 0; i < kKinds; ++i) {
-      auto& chip = m_kinds[static_cast<std::size_t>(i)];
-      chip.label->setText(kindLabel(LockCards::kWidgetKinds[static_cast<std::size_t>(i)]));
-      items.push_back({&chip, current == LockCards::kWidgetKinds[static_cast<std::size_t>(i)], {Target::Kind, i}});
-    }
     if (canRemove) {
       m_remove.label->setText(i18n::tr("lockscreen.editor.remove"));
       items.push_back({&m_remove, false, {Target::Remove, -1}});
@@ -203,9 +209,17 @@ void LockEditorSlots::layout(
     LockEditorGallery::layoutChip(renderer, *item.chip, 0.0F, 0.0F, s, item.on, false, false);
     chipsW += item.chip->rect.w + gap;
   }
-  chipsW -= gap;
-  const float w = std::min(sw - 32.0F * s, std::max(kMinPanelWidth * s, pad + m_title->width() + 24.0F * s + chipsW + pad));
-  const float h = pad + kChipHeight * s + pad;
+  if (!items.empty()) {
+    chipsW -= gap;
+  }
+  // The widget gallery: one tile per kind under the header row (as the clock style gallery).
+  const float tileW = kTileWidth * s;
+  const float tileH = kTileHeight * s;
+  const float tilesW = widgetPanel ? kKinds * tileW + (kKinds - 1) * 8.0F * s : 0.0F;
+  const float w = std::min(
+      sw - 32.0F * s, std::max({kMinPanelWidth * s, pad + m_title->width() + 24.0F * s + chipsW + pad, tilesW + pad * 2.0F})
+  );
+  const float h = pad + kChipHeight * s + (widgetPanel ? 12.0F * s + tileH : 0.0F) + pad;
   const float x = std::round((sw - w) * 0.5F);
   const float y = std::round(sh - 24.0F * s - h);
   m_panelRect = {x, y, w, h};
@@ -217,6 +231,43 @@ void LockEditorSlots::layout(
         renderer, *item.chip, std::round(cx), y + pad, s, item.on, state.focus == item.hit, state.hover == item.hit
     );
     cx += item.chip->rect.w + gap;
+  }
+  if (!widgetPanel) {
+    return;
+  }
+  const std::string current = canRemove ? state.widgets[static_cast<std::size_t>(state.editPlace)] : std::string{};
+  const float tilesY = y + pad + kChipHeight * s + 12.0F * s;
+  for (int i = 0; i < kKinds; ++i) {
+    Tile& tile = m_kinds[static_cast<std::size_t>(i)];
+    const auto kind = LockCards::kWidgetKinds[static_cast<std::size_t>(i)];
+    const Hit hit{Target::Kind, i};
+    const bool on = current == kind;
+    const bool ring = on || state.focus == hit;
+    tile.rect = {std::round(x + pad + static_cast<float>(i) * (tileW + 8.0F * s)), tilesY, tileW, tileH};
+    place(tile.bg, tile.rect,
+          RoundedRectStyle{
+              .fill = on || state.hover == hit ? kFill2 : kFill1,
+              .border = ring ? kAccentText : kClear,
+              .radius = 16.0F * s,
+              .borderWidth = ring ? 1.5F * s : 0.0F,
+          });
+    const bool sample = static_cast<std::size_t>(i) < state.samples.size();
+    tile.value->setText(sample ? state.samples[static_cast<std::size_t>(i)].first : std::string("\u2014"));
+    tile.value->setFontSize(Tokens::typeTitle3.size * s);
+    tile.value->setColor(kLabel1);
+    tile.value->setMaxWidth(tileW - 16.0F * s);
+    tile.value->measure(renderer);
+    tile.name->setText(kindLabel(kind));
+    tile.name->setFontSize(Tokens::typeFootnote.size * s);
+    tile.name->setColor(kLabel2);
+    tile.name->setMaxWidth(tileW - 16.0F * s);
+    tile.name->measure(renderer);
+    const float stack = tile.value->height() + 4.0F * s + tile.name->height();
+    const float top = tile.rect.y + (tileH - stack) * 0.5F;
+    tile.value->setPosition(std::round(tile.rect.x + (tileW - tile.value->width()) * 0.5F), std::round(top));
+    tile.name->setPosition(
+        std::round(tile.rect.x + (tileW - tile.name->width()) * 0.5F), std::round(top + tile.value->height() + 4.0F * s)
+    );
   }
 }
 

@@ -18,7 +18,7 @@ public:
   static constexpr int kLayouts = 4;
   static constexpr int kThemes = 2;
 
-  enum class Target { None, Segment, Done, LayoutCard, ThemeChip, Panel, Bar };
+  enum class Target { None, Segment, Snap, Done, LayoutCard, ThemeChip, Panel, Bar };
   struct Hit {
     Target target = Target::None;
     int index = -1;
@@ -31,6 +31,8 @@ public:
     // Index into kLayoutNames / kThemeNames.
     int layout = 0;
     int theme = 0;
+    // Free mode: "Snap to zones" (mock section 2: a toggle right after the Free segment).
+    bool snapZones = true;
     // Keyboard focus ring; Target::None = no ring.
     Hit focus;
     Hit hover;
@@ -46,10 +48,10 @@ public:
   // scale = accessibility.ui_scale.
   void layout(Renderer& renderer, float sw, float scale);
   [[nodiscard]] Hit hitTest(float x, float y) const;
-  // Free and Wallpaper open with L6c and L7; until then they draw dimmed and take no input.
+  // Wallpaper opens with L7; until then it draws dimmed and takes no input.
   [[nodiscard]] static bool segmentEnabled(int index) noexcept;
-  // Keyboard order: enabled segments, Done, then the panel's cards and chips while it is open.
-  [[nodiscard]] static std::vector<Hit> focusOrder(bool panelOpen);
+  // Keyboard order: enabled segments (Snap after Free in Free mode), Done, then the open panel's cards and chips.
+  [[nodiscard]] static std::vector<Hit> focusOrder(bool panelOpen, bool freeMode);
 
 private:
   struct Rect {
@@ -78,6 +80,7 @@ private:
 
   State m_state;
   Node* m_group = nullptr;
+  Chip m_snap;
   RectNode* m_barBg = nullptr;
   Rect m_barRect;
   std::array<Chip, kSegments> m_segments;

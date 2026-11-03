@@ -29,7 +29,7 @@ namespace {
   constexpr Color kOn = rgba(1.0F, 1.0F, 1.0F, 0.92F);
   constexpr Color kOnText = rgba(20.0F / 255.0F, 20.0F / 255.0F, 24.0F / 255.0F, 1.0F);
   constexpr Color kAccentText = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
-  // The renderer draws no dashed stroke: the mock's 1.5 px dashed slot edge is a solid white 55 % edge here.
+  // Mock section 2: a free slot has a 1.5 px dashed white 55 % edge; the picked slot a solid accent ring.
   constexpr Color kSlotEdge = rgba(1.0F, 1.0F, 1.0F, 0.55F);
   constexpr Color kClear = rgba(0.0F, 0.0F, 0.0F, 0.0F);
 
@@ -151,6 +151,8 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
               .border = slotOn ? kAccentText : kSlotEdge,
               .radius = 16.0F * s,
               .borderWidth = (slotOn ? 2.0F : 1.5F) * s,
+              .borderDash = slotOn ? 0.0F : 6.0F * s,
+              .borderGap = 4.0F * s,
           });
   }
 

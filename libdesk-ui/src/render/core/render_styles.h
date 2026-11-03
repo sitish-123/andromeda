@@ -96,6 +96,10 @@ struct RoundedRectStyle {
   bool noAa = false;
   bool invertFill = false;
   float borderWidth = 0.0F;
+  // Dashed border: dash and gap lengths along the edge, in the same units as borderWidth; 0 = solid. The pattern is
+  // stretched so a whole number of dashes fits the perimeter. Uses the top-left radius for every corner.
+  float borderDash = 0.0F;
+  float borderGap = 0.0F;
   bool outerShadow = false;
   float shadowCutoutOffsetX = 0.0F;
   float shadowCutoutOffsetY = 0.0F;
@@ -122,6 +126,8 @@ constexpr bool operator==(const RoundedRectStyle& lhs, const RoundedRectStyle& r
       && lhs.noAa == rhs.noAa
       && lhs.invertFill == rhs.invertFill
       && lhs.borderWidth == rhs.borderWidth
+      && lhs.borderDash == rhs.borderDash
+      && lhs.borderGap == rhs.borderGap
       && lhs.outerShadow == rhs.outerShadow
       && lhs.shadowCutoutOffsetX == rhs.shadowCutoutOffsetX
       && lhs.shadowCutoutOffsetY == rhs.shadowCutoutOffsetY

@@ -24,6 +24,7 @@ namespace {
   constexpr Color kFill2 = rgba(1.0F, 1.0F, 1.0F, 26.0F / 255.0F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kScrim = rgba(0.0F, 0.0F, 0.0F, 0.40F);
+  constexpr Color kFocusRing = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
 
   float snap(float v) { return std::round(v); }
 
@@ -45,8 +46,8 @@ namespace {
 
 void LockAlert::build(Node& parent) {
   m_group = parent.addChild(std::make_unique<Node>());
-  // Above the session chrome (z 7).
-  m_group->setZIndex(8);
+  // Above the session chrome (z 7) and the editor's panels (z 9).
+  m_group->setZIndex(20);
   m_scrim = addRect(*m_group);
   m_panel = addRect(*m_group);
   m_title = addLabel(*m_group, FontWeight::SemiBold);
@@ -108,10 +109,15 @@ void LockAlert::layout(Renderer& renderer, float sw, float sh, float scale) {
   m_confirmRect = {x + bw + 8.0F * s, y, bw, button};
   m_cancel->setPosition(m_cancelRect.x, y);
   m_cancel->setSize(bw, button);
-  m_cancel->setStyle(RoundedRectStyle{.fill = kFill2, .radius = 8.0F * s});
+  const float ring = 2.0F * s;
+  m_cancel->setStyle(RoundedRectStyle{
+      .fill = kFill2, .border = kFocusRing, .radius = 8.0F * s, .borderWidth = m_state.confirmFocused ? 0.0F : ring
+  });
   m_confirm->setPosition(m_confirmRect.x, y);
   m_confirm->setSize(bw, button);
-  m_confirm->setStyle(RoundedRectStyle{.fill = kDanger, .radius = button * 0.5F});
+  m_confirm->setStyle(RoundedRectStyle{
+      .fill = kDanger, .border = kFocusRing, .radius = button * 0.5F, .borderWidth = m_state.confirmFocused ? ring : 0.0F
+  });
   for (auto [label, rect, text] : {std::tuple{m_cancelLabel, m_cancelRect, i18n::tr("lockscreen.alert.cancel")},
                                    std::tuple{m_confirmLabel, m_confirmRect, m_state.confirm}}) {
     label->setFontSize(Tokens::typeBody.size * s);

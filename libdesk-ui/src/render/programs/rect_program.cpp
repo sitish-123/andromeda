@@ -53,6 +53,7 @@ uniform float u_softness;
 uniform int u_no_aa;
 uniform int u_invert_fill;
 uniform float u_border_width;
+uniform vec2 u_border_dash; // dash, gap; x <= 0 = solid
 uniform int u_outer_shadow;
 uniform vec2 u_shadow_cutout_offset;
 uniform int u_shadow_exclusion;
@@ -272,6 +273,61 @@ vec4 gradient_fill(float position) {
     return mix(c2, c3, gradient_segment_t(position, stops.z, stops.w));
 }
 
+// Dash coverage at p: arc length along the rounded outline (clockwise from the top edge after the top-left corner),
+// folded into one dash period; the period is stretched so the perimeter holds a whole number of periods.
+float dash_mask(vec2 p) {
+    if (u_border_dash.x <= 0.0) {
+        return 1.0;
+    }
+    vec2 size = u_rect_size;
+    float r = clamp(u_radii.x, 0.0, 0.5 * min(size.x, size.y));
+    float w = size.x - 2.0 * r;
+    float h = size.y - 2.0 * r;
+    float q = 1.5707963 * r;
+    float perimeter = 2.0 * (w + h) + 4.0 * q;
+    float s;
+    bool left = p.x < r;
+    bool right = p.x > size.x - r;
+    bool top = p.y < r;
+    bool bottom = p.y > size.y - r;
+    if (top && right) {
+        vec2 d = p - vec2(size.x - r, r);
+        s = w + r * atan(d.x, -d.y);
+    } else if (bottom && right) {
+        vec2 d = p - vec2(size.x - r, size.y - r);
+        s = w + q + h + r * atan(d.y, d.x);
+    } else if (bottom && left) {
+        vec2 d = p - vec2(r, size.y - r);
+        s = 2.0 * w + 2.0 * q + h + r * atan(-d.x, d.y);
+    } else if (top && left) {
+        vec2 d = p - vec2(r, r);
+        s = 2.0 * w + 3.0 * q + 2.0 * h + r * atan(-d.y, -d.x);
+    } else {
+        // Straight edges: the nearest one.
+        float dt = p.y;
+        float db = size.y - p.y;
+        float dl = p.x;
+        float dr = size.x - p.x;
+        float m = min(min(dt, db), min(dl, dr));
+        if (m == dt) {
+            s = p.x - r;
+        } else if (m == dr) {
+            s = w + q + (p.y - r);
+        } else if (m == db) {
+            s = w + 2.0 * q + h + (size.x - r - p.x);
+        } else {
+            s = 2.0 * w + 3.0 * q + h + (size.y - r - p.y);
+        }
+    }
+    float period = u_border_dash.x + max(u_border_dash.y, 0.0);
+    float count = max(1.0, floor(perimeter / period + 0.5));
+    period = perimeter / count;
+    float dash = period * u_border_dash.x / (u_border_dash.x + max(u_border_dash.y, 0.0));
+    float t = mod(s, period);
+    float edge = 0.6;
+    return smoothstep(0.0, edge, t) * (1.0 - smoothstep(dash - edge, dash, t));
+}
+
 void main() {
     float aa = max(u_softness, 0.85);
     vec2 local_point = v_pixel;
@@ -333,8 +389,9 @@ void main() {
     }
     float inner_coverage = coverage_for(inner_distance);
 
+    float dash = dash_mask(local_point);
     if (fill_base.a <= 0.0) {
-        float ring_coverage = outer_coverage * (1.0 - inner_coverage);
+        float ring_coverage = outer_coverage * (1.0 - inner_coverage) * dash;
         float out_alpha = u_border_color.a * ring_coverage;
         if (out_alpha <= 0.0) {
             discard;
@@ -347,11 +404,13 @@ void main() {
     // inner_coverage == 1, the border ring lives where inner_coverage == 0.
     // Mix between them so a translucent fill never sits on top of a
     // full-area border backplane (which would mask its opacity).
-    vec3 border_pm = u_border_color.rgb * u_border_color.a;
+    // Between dashes the ring shows the fill.
+    float border_a = mix(fill_base.a, u_border_color.a, dash);
+    vec3 border_pm = mix(fill_base.rgb * fill_base.a, u_border_color.rgb * u_border_color.a, dash);
     vec3 fill_pm = fill_base.rgb * fill_base.a;
 
     vec3 interior_rgb = mix(border_pm, fill_pm, inner_coverage);
-    float interior_a = mix(u_border_color.a, fill_base.a, inner_coverage);
+    float interior_a = mix(border_a, fill_base.a, inner_coverage);
 
     // Apply outer shape mask
     float out_alpha = interior_a * outer_coverage;
@@ -393,6 +452,7 @@ void RectProgram::ensureInitialized() {
   m_noAaLocation = glGetUniformLocation(m_program.id(), "u_no_aa");
   m_invertFillLocation = glGetUniformLocation(m_program.id(), "u_invert_fill");
   m_borderWidthLocation = glGetUniformLocation(m_program.id(), "u_border_width");
+  m_borderDashLocation = glGetUniformLocation(m_program.id(), "u_border_dash");
   m_outerShadowLocation = glGetUniformLocation(m_program.id(), "u_outer_shadow");
   m_shadowCutoutOffsetLocation = glGetUniformLocation(m_program.id(), "u_shadow_cutout_offset");
   m_shadowExclusionLocation = glGetUniformLocation(m_program.id(), "u_shadow_exclusion");
@@ -424,6 +484,7 @@ void RectProgram::ensureInitialized() {
       || m_cornerShapesLocation < 0
       || m_logicalInsetLocation < 0
       || m_borderWidthLocation < 0
+      || m_borderDashLocation < 0
       || m_outerShadowLocation < 0
       || m_shadowCutoutOffsetLocation < 0
       || m_shadowExclusionLocation < 0
@@ -460,6 +521,7 @@ void RectProgram::destroy() {
   m_noAaLocation = -1;
   m_invertFillLocation = -1;
   m_borderWidthLocation = -1;
+  m_borderDashLocation = -1;
   m_outerShadowLocation = -1;
   m_shadowCutoutOffsetLocation = -1;
   m_shadowExclusionLocation = -1;
@@ -532,6 +594,7 @@ void RectProgram::draw(
   glUniform1i(m_noAaLocation, style.noAa ? 1 : 0);
   glUniform1i(m_invertFillLocation, style.invertFill ? 1 : 0);
   glUniform1f(m_borderWidthLocation, style.borderWidth);
+  glUniform2f(m_borderDashLocation, style.borderDash, style.borderGap);
   glUniform1i(m_outerShadowLocation, style.outerShadow ? 1 : 0);
   glUniform2f(m_shadowCutoutOffsetLocation, style.shadowCutoutOffsetX, style.shadowCutoutOffsetY);
   glUniform1i(m_shadowExclusionLocation, style.shadowExclusion ? 1 : 0);

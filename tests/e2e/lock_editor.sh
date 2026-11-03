@@ -2,8 +2,9 @@
 # The lock screen editor (L6a) runs unlocked and edits a draft: `msg lockscreen-widgets-edit` opens it, keys pick the
 # Glance layout in the Layout panel, Escape drops that draft (config unchanged), Done saves it (layout = "glance"), and
 # the Slots clock gallery saves a picked style (clock_style = "bold"), and the widget row and bottom slot save
-# widgets = ["weather"] and bottom_slot = "phone".
-# Writes editor.png, panel.png, gallery.png, slots.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
+# widgets = ["weather"] and bottom_slot = "phone", Free saves a placed, arrow-moved widget (layout = "custom"), and a
+# layout pick after that asks first. Writes editor.png, panel.png, gallery.png, slots.png, free.png, alert.png and
+# noctalia.log to $OUT (default ./artifacts/lock-editor).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-editor}
 source "$(dirname "$0")/lib.sh"
@@ -14,12 +15,13 @@ with_noctalia '
   fail() { echo "FAIL: $*" >&2; exit 1; }
   msg() { "$NOCTALIA" msg "$@" 2>&1 || true; }
   wait_for() { local what=$1; shift; for _ in $(seq 50); do "$@" && return; sleep 0.1; done; fail "$what"; }
-  opened() { grep -c "lock-editor.* opened on" "$OUT/noctalia.log" | grep -qx "$1"; }
+  # Keys typed before the editor has the keyboard go to the old focus: wait for its "keyboard focus" line.
+  opened() { grep -c "lock-editor.* keyboard focus" "$OUT/noctalia.log" | grep -qx "$1"; }
   closed() { grep -c "lock-editor.* closed" "$OUT/noctalia.log" | grep -qx "$1"; }
   saved() { grep -rqs "layout = \"glance\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   keys() { for k in "$@"; do wtype -k "$k"; done; }
-  # Focus order with the panel open: Slots, Layout, Theme, Done, Centered, Glance, Split, Minimal, Andromeda, Ryoku.
-  pick_glance() { keys Tab Tab Return Tab Tab Tab Tab Return; }
+  # Focus order with the panel open: Slots, Free, Layout, Theme, Done, Centered, Glance, Split, Minimal, Andromeda, Ryoku.
+  pick_glance() { keys Tab Tab Tab Return Tab Tab Tab Tab Return; }
 
   wtype -s 3600000 &
   sleep 0.3
@@ -39,7 +41,7 @@ with_noctalia '
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open again"
   wait_for "editor did not open again" opened 2
   pick_glance
-  keys Escape Tab Tab Tab Tab Return
+  keys Escape Tab Tab Tab Tab Tab Return
   wait_for "Done did not close the editor" closed 2
   wait_for "Done did not save layout = glance" saved
 
@@ -47,10 +49,10 @@ with_noctalia '
   bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a third time"
   wait_for "editor did not open a third time" opened 3
-  keys Tab Tab Tab Tab Tab Return Tab Tab Return
+  keys Tab Tab Tab Tab Tab Tab Return Tab Tab Return
   sleep 0.5 # real time: one frame
   grim "$OUT/gallery.png"
-  keys Escape Tab Tab Tab Tab Return
+  keys Escape Tab Tab Tab Tab Tab Return
   wait_for "Done did not close the editor after the gallery" closed 3
   wait_for "Done did not save clock_style = bold" bold
 
@@ -63,17 +65,59 @@ with_noctalia '
   phone() { grep -rqs "bottom_slot = \"phone\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a fourth time"
   wait_for "editor did not open a fourth time" opened 4
-  keys Tab Tab Return Tab Tab Tab Return
+  keys Tab Tab Tab Return Tab Tab Tab Return
   sleep 0.5 # real time: one frame
   grim "$OUT/centered.png"
   keys Escape
-  keys Tab Tab Tab Tab Tab Tab Return Return Tab Tab Tab Tab Return
+  keys Tab Tab Tab Tab Tab Tab Tab Return Return Tab Tab Tab Tab Return
   sleep 0.5 # real time: one frame
   grim "$OUT/slots.png"
-  keys Tab Return Tab Tab Tab Tab Return
+  keys Tab Return Tab Tab Tab Tab Tab Return
   wait_for "Done did not close the editor after the slots" closed 4
   for _ in $(seq 50); do widgets && break; sleep 0.1; done
   widgets || { dump; fail "Done did not save widgets = [\"weather\"]"; }
   wait_for "Done did not save bottom_slot = phone" phone
+
+  # Free: Tab Tab Return picks the Free segment; Tab Return turns Snap to zones off (drops on the 32 grid); four Tabs
+  # on (Layout, Theme, Done) = the first add chip (Clock), Return adds it selected. Right Right moves it 8 (no snap back to 32); two Shift+Tabs (the new item, then Done)
+  # reach Done. Saved: a clock widget whose centre x is 24 past the 32 grid (snapped x + 80 + 8), layout = "custom".
+  # Exit 0 when a lock clock widget exists; with "moved", only one whose centre x is 24 past the 32 grid.
+  lock_clock() {
+    python3 - "$HOME" "$1" <<"PY"
+import pathlib, sys, tomllib
+home, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
+for f in list((home / ".config/noctalia").rglob("*.toml")) + list((home / ".local/state/noctalia").rglob("*.toml")):
+    data = tomllib.loads(f.read_text())
+    for w in data.get("lockscreen_widgets", {}).get("widget", {}).values():
+        if w.get("type") == "clock" and (mode != "moved" or round(w.get("cx", -1)) % 32 == 24):
+            sys.exit(0)
+sys.exit(1)
+PY
+  }
+  free_saved() { lock_clock moved; }
+  custom() { grep -rqs "layout = \"custom\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a fifth time"
+  wait_for "editor did not open a fifth time" opened 5
+  keys Tab Tab Return Tab Return Tab Tab Tab Tab Return Right Right
+  sleep 0.5 # real time: one frame
+  grim "$OUT/free.png"
+  keys ISO_Left_Tab ISO_Left_Tab Return
+  wait_for "Done did not close the editor after Free" closed 5
+  wait_for "Done did not save the moved clock widget" free_saved
+  wait_for "Done did not save layout = custom" custom
+
+  # Layout change with placed widgets asks first (rulebook 9.10 alert, Cancel focused): Return cancels, the pick again,
+  # Tab Return confirms; Escape closes the panel, five Tabs = Done. Saved: layout = "glance", the clock widget gone.
+  glance() { grep -rqs "layout = \"glance\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  no_clock() { ! lock_clock any; }
+  [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a sixth time"
+  wait_for "editor did not open a sixth time" opened 6
+  pick_glance
+  sleep 0.5 # real time: one frame
+  grim "$OUT/alert.png"
+  keys Return Return Tab Return Escape Tab Tab Tab Tab Tab Return
+  wait_for "Done did not close the editor after the layout alert" closed 6
+  wait_for "Done did not save layout = glance after the alert" glance
+  wait_for "the confirmed layout change kept the clock widget" no_clock
 '
 echo "PASS: lock editor opens, Escape discards, Done saves; artifacts: $OUT"

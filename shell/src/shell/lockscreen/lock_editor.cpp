@@ -11,6 +11,7 @@
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 #include "render/scene/wallpaper_node.h"
+#include "shell/desktop/desktop_widget_factory.h"
 #include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lock_surface.h"
 #include "shell/wallpaper/wallpaper_geometry.h"
@@ -21,7 +22,9 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <format>
 #include <cmath>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -48,8 +51,9 @@ LockEditor::~LockEditor() { close(); }
 
 void LockEditor::initialize(
     WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, SharedTextureCache* textureCache,
-    LockScreen* lockScreen
+    LockScreen* lockScreen, const DesktopWidgetRuntimeServices& widgetServices
 ) {
+  m_widgetFactory = std::make_unique<DesktopWidgetFactory>(widgetServices);
   m_wayland = &wayland;
   m_config = config;
   m_renderContext = renderContext;
@@ -95,6 +99,12 @@ void LockEditor::open() {
   m_widgetsEdited = false;
   m_slotState = {};
   m_slotState.bottomSlot = indexOf(LockEditorSlots::kBottomNames, lock.bottomSlot);
+  m_freeState = {};
+  m_freeLoaded = false;
+  m_freeEdited = false;
+  m_freeDiscard = false;
+  m_layoutPicked = false;
+  m_pendingLayout = -1;
 
   auto config = LayerSurfaceConfig{
       .nameSpace = "noctalia-lock-editor",
@@ -145,6 +155,11 @@ void LockEditor::close() {
   m_clockTimer.stop();
   m_animations.cancelAll();
   m_wallpaperLease.reset();
+  // The live widgets go first, while the scene that holds their nodes (and their GL context) is still alive.
+  if (m_renderContext != nullptr) {
+    m_renderContext->makeCurrent(m_surface->renderTarget());
+  }
+  m_free.clear();
   m_surface->setSceneRoot(nullptr);
   m_root.reset();
   m_wallpaper = nullptr;
@@ -169,6 +184,17 @@ void LockEditor::prepareFrame(bool needsUpdate, bool needsLayout) {
   if (build) {
     UiPhaseScope phase(UiPhase::Layout);
     buildScene(width, height);
+    m_focusFrames = 120;
+  }
+  // Keys typed before the compositor hands the keyboard over are lost; tests wait for this line before typing.
+  if (m_focusFrames > 0) {
+    if (m_wayland->lastKeyboardSurface() == m_surface->wlSurface()) {
+      m_focusFrames = -1;
+      kLog.info("keyboard focus");
+    } else {
+      --m_focusFrames;
+      m_surface->requestLayout();
+    }
   }
   if (build || needsUpdate || needsLayout) {
     UiPhaseScope phase(UiPhase::Layout);
@@ -194,7 +220,10 @@ void LockEditor::buildScene(float width, float height) {
   m_cards.build(m_auth.glanceLayer());
   m_gallery.build(*m_root);
   m_slots.build(*m_root);
+  m_free.setFactory(m_widgetFactory.get(), &m_animations, [this] { refresh(); });
+  m_free.build(*m_root);
   m_bar.build(*m_root);
+  m_alert.build(*m_root);
   m_surface->setSceneRoot(m_root.get());
 }
 
@@ -278,6 +307,15 @@ void LockEditor::layoutScene(float width, float height) {
   LockCards::Data cards = m_lockScreen != nullptr ? m_lockScreen->previewCards(preview) : LockCards::Data{};
   cards.preview = slotsMode;
   cards.rowSlots = slotsMode && rowLayout ? LockEditorSlots::kPlaces : 0;
+  if (slotsMode) {
+    // Gallery samples: one widget of each kind with this draft's live data.
+    LockCards::Data samples = cards;
+    samples.widgetIds.assign(LockCards::kWidgetKinds.begin(), LockCards::kWidgetKinds.end());
+    samples.preview = true;
+    LockCards sampler;
+    sampler.setData(std::move(samples));
+    m_slotState.samples = sampler.widgets();
+  }
   m_cards.setData(std::move(cards));
   m_cards.fillPlacementInput(input);
   const AuthPlacement place = placeAuth(input);
@@ -285,6 +323,10 @@ void LockEditor::layoutScene(float width, float height) {
   m_auth.setSheetOpen(false, true);
   m_auth.setState(std::move(state));
   m_auth.layout(renderer, place, width, scale);
+  // Mock section 2: the account column sits at 55 % while editing; the editor never edits it.
+  if (m_auth.columnLayer().visible() && m_auth.columnLayer().opacity() > 0.0F) {
+    m_auth.columnLayer().setOpacity(0.55F);
+  }
   m_cards.layout(renderer, place, scale);
   m_auth.glanceLayer().setVisible(!ryoku);
 
@@ -303,7 +345,8 @@ void LockEditor::layoutScene(float width, float height) {
   // The clock slot: the date and clock block, 16 wider on each side (mock section 2: 400 x 128 at the 80 clock).
   const float top = std::min(place.date.y, place.clockY);
   const float bottom = std::max(place.date.bottom(), place.clockY + place.clockHeight());
-  const float slotW = std::max(400.0F * scale, place.date.w + 32.0F * scale);
+  // Centered's date line spans the output: the slot hugs the clock instead (about 3 x the clock size wide).
+  const float slotW = std::max(400.0F * scale, 3.0F * place.clockSize + 32.0F * scale);
   const float slotX = place.clockCentred ? place.clockX - slotW * 0.5F : place.clockX - 16.0F * scale;
   m_clock.slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots && place.clock;
   m_gallery.layout(
@@ -326,8 +369,33 @@ void LockEditor::layoutScene(float width, float height) {
       scale
   );
 
+  m_width = width;
+  m_height = height;
+  m_scale = scale;
+  const bool freeMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Free;
+  if (freeMode && !m_freeLoaded) {
+    loadFreeItems(width, height);
+  }
+  m_zones = lock_free::zones(place, width, height, scale);
+  m_freeState.active = freeMode;
+  m_free.layout(renderer, m_freeState, m_zones, width, height, scale);
+
+  m_draft.snapZones = m_freeState.snapZones;
   m_bar.setState(m_draft);
   m_bar.layout(renderer, width, scale);
+
+  LockAlert::State alert;
+  if (m_pendingLayout >= 0) {
+    const std::string name = i18n::tr(
+        std::string("lockscreen.editor.layouts.") + LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_pendingLayout)]
+    );
+    alert.title = i18n::tr("lockscreen.editor.layout-alert-title", "name", name);
+    alert.body = i18n::tr("lockscreen.editor.layout-alert-body");
+    alert.confirm = i18n::tr("lockscreen.editor.layout-alert-confirm");
+    alert.confirmFocused = m_alertConfirmFocus;
+  }
+  m_alert.setState(std::move(alert));
+  m_alert.layout(renderer, width, height, scale);
 }
 
 LockscreenConfig LockEditor::previewConfig() const {
@@ -432,16 +500,189 @@ void LockEditor::activateSlots(LockEditorSlots::Hit hit, bool keyboard) {
   refresh();
 }
 
+void LockEditor::loadFreeItems(float width, float height) {
+  m_freeLoaded = true;
+  m_freeState.items.clear();
+  for (const DesktopWidgetState& widget : m_config->config().lockscreenWidgets.widgets) {
+    if (widget.type == "login_box" || widget.outputName != m_connector) {
+      continue;
+    }
+    const float sx = widget.placementWidth > 0.0F ? width / widget.placementWidth : 1.0F;
+    const float sy = widget.placementHeight > 0.0F ? height / widget.placementHeight : 1.0F;
+    // An auto-sized widget (box 0) shows as a 160 x 96 box until it is resized here.
+    const float w = widget.boxWidth > 0.0F ? widget.boxWidth * sx : 160.0F * m_scale;
+    const float h = widget.boxHeight > 0.0F ? widget.boxHeight * sy : 96.0F * m_scale;
+    m_freeState.items.push_back(
+        {widget.id, widget.type, {widget.cx * sx - w * 0.5F, widget.cy * sy - h * 0.5F, w, h}, widget.settings}
+    );
+  }
+}
+
+void LockEditor::activateFree(LockEditorFree::Hit hit) {
+  using Target = LockEditorFree::Target;
+  switch (hit.target) {
+  case Target::Item:
+  case Target::Resize:
+    m_freeState.selected = hit.index;
+    break;
+  case Target::Add: {
+    const float s = m_scale;
+    const AuthRect box{0.0F, 0.0F, 160.0F * s, 96.0F * s};
+    // The middle band first, then the top band, from the band's centre rightwards and then from its left edge, past
+    // the boxes already there; a full output adds nothing.
+    const auto free = [&](const AuthRect& r) {
+      return std::ranges::none_of(m_freeState.items, [&](const LockEditorFree::Item& item) {
+        return lock_free::overlaps(item.box, r);
+      });
+    };
+    std::optional<AuthRect> placed;
+    const bool snap = m_freeState.snapZones;
+    const std::array bands{std::pair{m_zones.middle, lock_free::Zone::Middle}, std::pair{m_zones.top, lock_free::Zone::Top}};
+    for (const auto& [band, zone] : bands) {
+      // With Snap to zones a widget lives in one band: skip a band it does not fit.
+      if (snap && (box.h > band.h || box.w > band.w)) {
+        continue;
+      }
+      const float step = box.w + lock_free::kFreeGrid * s;
+      const float centre = band.x + (band.w - box.w) * 0.5F;
+      for (float x = centre; !placed.has_value() && x + box.w <= band.right(); x += step) {
+        const auto at = lock_free::place(
+            {x, band.y + (band.h - box.h) * 0.5F, box.w, box.h}, m_zones, snap, snap ? zone : lock_free::Zone::None,
+            true, m_width, m_height, s
+        );
+        if (at.has_value() && free(*at)) {
+          placed = at;
+        }
+      }
+      for (float x = band.x; !placed.has_value() && x < centre; x += step) {
+        const auto at = lock_free::place(
+            {x, band.y + (band.h - box.h) * 0.5F, box.w, box.h}, m_zones, snap, snap ? zone : lock_free::Zone::None,
+            true, m_width, m_height, s
+        );
+        if (at.has_value() && free(*at)) {
+          placed = at;
+        }
+      }
+      if (placed.has_value()) {
+        break;
+      }
+    }
+    if (!placed.has_value()) {
+      break;
+    }
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    m_freeState.items.push_back(
+        {std::format("lockscreen-widget-{:016x}", static_cast<std::uint64_t>(stamp)),
+         LockEditorFree::kTypes[static_cast<std::size_t>(hit.index)], *placed, {}}
+    );
+    m_freeState.selected = static_cast<int>(m_freeState.items.size()) - 1;
+    m_freeEdited = true;
+    break;
+  }
+  case Target::None:
+    m_freeState.selected = -1;
+    break;
+  case Target::Toolbar:
+    break;
+  }
+  refresh();
+}
+
+void LockEditor::nudgeFree(int dx, int dy, bool big, bool resize) {
+  const int index = m_freeState.selected;
+  if (index < 0 || index >= static_cast<int>(m_freeState.items.size())) {
+    return;
+  }
+  AuthRect& box = m_freeState.items[static_cast<std::size_t>(index)].box;
+  const auto next = lock_free::place(
+      lock_free::nudge(box, dx, dy, big, resize, m_scale), m_zones, m_freeState.snapZones, lock_free::zoneOf(box, m_zones),
+      false, m_width, m_height, m_scale
+  );
+  if (next.has_value()) {
+    box = *next;
+    m_freeEdited = true;
+    refresh();
+  }
+}
+
+// This output's lock widgets become the Free items; other outputs and the login box keep theirs.
+void LockEditor::saveFree() {
+  LockscreenWidgetsConfig widgets = m_config->config().lockscreenWidgets;
+  std::vector<DesktopWidgetState> kept;
+  std::vector<DesktopWidgetState> mine;
+  for (DesktopWidgetState& widget : widgets.widgets) {
+    (widget.type != "login_box" && widget.outputName == m_connector ? mine : kept).push_back(std::move(widget));
+  }
+  for (const LockEditorFree::Item& item : m_freeState.items) {
+    DesktopWidgetState state;
+    if (const auto old = std::ranges::find(mine, item.id, &DesktopWidgetState::id); old != mine.end()) {
+      state = *old;
+    }
+    state.id = item.id;
+    state.type = item.type;
+    state.settings = item.settings;
+    state.outputName = m_connector;
+    state.cx = item.box.x + item.box.w * 0.5F;
+    state.cy = item.box.y + item.box.h * 0.5F;
+    state.placementWidth = m_width;
+    state.placementHeight = m_height;
+    state.boxWidth = item.box.w;
+    state.boxHeight = item.box.h;
+    kept.push_back(std::move(state));
+  }
+  widgets.widgets = std::move(kept);
+  widgets.enabled = std::ranges::any_of(widgets.widgets, [](const DesktopWidgetState& w) { return w.type != "login_box"; });
+  if (!m_config->setLockscreenWidgetsState(widgets)) {
+    kLog.warn("failed to save the lock screen widgets");
+  }
+}
+
+bool LockEditor::hasFreeWidgets() const {
+  if (m_freeLoaded) {
+    return !m_freeState.items.empty();
+  }
+  return std::ranges::any_of(m_config->config().lockscreenWidgets.widgets, [this](const DesktopWidgetState& widget) {
+    return widget.type != "login_box" && widget.outputName == m_connector;
+  });
+}
+
+void LockEditor::pickLayout(int index) {
+  if (hasFreeWidgets()) {
+    m_pendingLayout = index;
+    m_alertConfirmFocus = false;
+    return;
+  }
+  m_draft.layout = index;
+  m_layoutPicked = true;
+}
+
+void LockEditor::closeAlert(bool confirm) {
+  if (confirm && m_pendingLayout >= 0) {
+    m_draft.layout = m_pendingLayout;
+    m_layoutPicked = true;
+    m_freeState.items.clear();
+    m_freeState.selected = -1;
+    m_freeLoaded = true;
+    m_freeEdited = false;
+    m_freeDiscard = true;
+  }
+  m_pendingLayout = -1;
+  refresh();
+}
+
 void LockEditor::setFocus(const Focus& focus) {
   m_draft.focus = {};
   m_clock.focus = {};
   m_slotState.focus = {};
+  m_freeState.focus = {};
   if (const auto* bar = std::get_if<LockEditorBar::Hit>(&focus)) {
     m_draft.focus = *bar;
   } else if (const auto* clock = std::get_if<LockEditorGallery::Hit>(&focus)) {
     m_clock.focus = *clock;
+  } else if (const auto* slot = std::get_if<LockEditorSlots::Hit>(&focus)) {
+    m_slotState.focus = *slot;
   } else {
-    m_slotState.focus = std::get<LockEditorSlots::Hit>(focus);
+    m_freeState.focus = std::get<LockEditorFree::Hit>(focus);
   }
 }
 
@@ -497,12 +738,15 @@ void LockEditor::activate(LockEditorBar::Hit hit) {
     }
     break;
   }
+  case Target::Snap:
+    m_freeState.snapZones = !m_freeState.snapZones;
+    break;
   case Target::Done:
     save();
     close();
     return;
   case Target::LayoutCard:
-    m_draft.layout = hit.index;
+    pickLayout(hit.index);
     break;
   case Target::ThemeChip:
     m_draft.theme = hit.index;
@@ -519,7 +763,7 @@ void LockEditor::activate(LockEditorBar::Hit hit) {
 
 void LockEditor::moveFocus(int step) {
   std::vector<Focus> order;
-  for (const auto& hit : LockEditorBar::focusOrder(m_draft.panelOpen)) {
+  for (const auto& hit : LockEditorBar::focusOrder(m_draft.panelOpen, m_draft.mode == LockEditorBar::Segment::Free)) {
     order.emplace_back(hit);
   }
   for (const auto& hit : LockEditorGallery::focusOrder(m_clock, static_cast<int>(clockStyles().size()))) {
@@ -528,8 +772,12 @@ void LockEditor::moveFocus(int step) {
   for (const auto& hit : LockEditorSlots::focusOrder(m_slotState)) {
     order.emplace_back(hit);
   }
+  for (const auto& hit : LockEditorFree::focusOrder(m_freeState)) {
+    order.emplace_back(hit);
+  }
   const Focus current = m_clock.focus.target != LockEditorGallery::Target::None ? Focus{m_clock.focus}
       : m_slotState.focus.target != LockEditorSlots::Target::None             ? Focus{m_slotState.focus}
+      : m_freeState.focus.target != LockEditorFree::Target::None              ? Focus{m_freeState.focus}
                                                                                 : Focus{m_draft.focus};
   const auto it = std::ranges::find(order, current);
   const int count = static_cast<int>(order.size());
@@ -540,7 +788,13 @@ void LockEditor::moveFocus(int step) {
 }
 
 void LockEditor::save() {
-  const std::string layout = LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)];
+  // Free placement is its own layout: the lock keeps the Centered auth area and draws the placed widgets.
+  const std::string layout = m_freeEdited ? std::string("custom")
+      : m_layoutPicked                     ? std::string(LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)])
+                                           : m_config->config().lockscreen.layout;
+  if (m_freeEdited || m_freeDiscard) {
+    saveFree();
+  }
   const std::string theme = LockEditorBar::kThemeNames[static_cast<std::size_t>(m_draft.theme)];
   const auto& lock = m_config->config().lockscreen;
   const LockscreenConfig preview = previewConfig();
@@ -574,6 +828,15 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
   }
   const auto x = static_cast<float>(event.sx);
   const auto y = static_cast<float>(event.sy);
+  if (m_pendingLayout >= 0) {
+    if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
+      const LockAlert::Hit hit = m_alert.hitTest(x, y);
+      if (hit == LockAlert::Hit::Cancel || hit == LockAlert::Hit::Confirm) {
+        closeAlert(hit == LockAlert::Hit::Confirm);
+      }
+    }
+    return true;
+  }
   const LockEditorBar::Hit barHit = m_bar.hitTest(x, y);
   const LockEditorGallery::Hit galleryHit =
       barHit.target == LockEditorBar::Target::None ? m_gallery.hitTest(x, y) : LockEditorGallery::Hit{};
@@ -581,7 +844,37 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
       barHit.target == LockEditorBar::Target::None && galleryHit.target == LockEditorGallery::Target::None
       ? m_slots.hitTest(x, y)
       : LockEditorSlots::Hit{};
+  LockEditorFree::Hit freeHit =
+      barHit.target == LockEditorBar::Target::None ? m_free.hitTest(x, y) : LockEditorFree::Hit{};
+  // The boxes are drawn from the last frame: a box removed since then is gone.
+  if (freeHit.index >= static_cast<int>(m_freeState.items.size())
+      && (freeHit.target == LockEditorFree::Target::Item || freeHit.target == LockEditorFree::Target::Resize)) {
+    freeHit = {};
+  }
+  if (m_free.dragging()) {
+    auto& item = m_freeState.items[static_cast<std::size_t>(m_free.dragIndex())];
+    if (event.type == PointerEvent::Type::Motion && m_free.moved(x, y)) {
+      item.box = m_free.drag(x, y, m_scale);
+      refresh();
+    } else if (event.type == PointerEvent::Type::Button && !event.pressed && event.button == BTN_LEFT) {
+      if (m_free.moved(x, y)) {
+        // A refused drop (over the auth area) puts the box back where the drag started.
+        item.box = m_free.end(x, y, m_freeState, m_zones, m_width, m_height, m_scale).value_or(m_freeDragStart);
+        m_freeEdited = true;
+      } else {
+        // A click only selects.
+        item.box = m_freeDragStart;
+        m_free.cancel();
+      }
+      refresh();
+    }
+    return true;
+  }
   if (event.type == PointerEvent::Type::Motion || event.type == PointerEvent::Type::Enter) {
+    if (freeHit != m_freeState.hover) {
+      m_freeState.hover = freeHit;
+      refresh();
+    }
     if (barHit != m_draft.hover || galleryHit != m_clock.hover || slotHit != m_slotState.hover) {
       m_draft.hover = barHit;
       m_clock.hover = galleryHit;
@@ -592,6 +885,7 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
     m_draft.hover = {};
     m_clock.hover = {};
     m_slotState.hover = {};
+    m_freeState.hover = {};
     refresh();
   } else if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
     setFocus(LockEditorBar::Hit{});
@@ -599,6 +893,12 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
       activateGallery(galleryHit);
     } else if (slotHit.target != LockEditorSlots::Target::None) {
       activateSlots(slotHit, false);
+    } else if (m_freeState.active && barHit.target == LockEditorBar::Target::None) {
+      activateFree(freeHit);
+      if (freeHit.target == LockEditorFree::Target::Item || freeHit.target == LockEditorFree::Target::Resize) {
+        m_freeDragStart = m_freeState.items[static_cast<std::size_t>(freeHit.index)].box;
+        m_free.begin(m_freeState, freeHit.index, freeHit.target == LockEditorFree::Target::Resize, x, y);
+      }
     } else {
       if (barHit.target == LockEditorBar::Target::None) {
         closePanels();
@@ -613,6 +913,28 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   if (!isOpen() || !event.pressed || event.preedit) {
     return;
   }
+  if (m_pendingLayout >= 0) {
+    // Rulebook 9.10: Cancel has focus; Tab or arrows move it, Enter picks the focused button, Escape cancels.
+    switch (event.sym) {
+    case XKB_KEY_Escape:
+      closeAlert(false);
+      return;
+    case XKB_KEY_Tab:
+    case XKB_KEY_ISO_Left_Tab:
+    case XKB_KEY_Left:
+    case XKB_KEY_Right:
+      m_alertConfirmFocus = !m_alertConfirmFocus;
+      refresh();
+      return;
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+    case XKB_KEY_space:
+      closeAlert(m_alertConfirmFocus);
+      return;
+    default:
+      return;
+    }
+  }
   switch (event.sym) {
   case XKB_KEY_Escape:
     if (m_draft.panelOpen || m_clock.open || m_slotState.panel != LockEditorSlots::Panel::None) {
@@ -626,6 +948,42 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   case XKB_KEY_Tab:
     moveFocus((event.modifiers & KeyMod::Shift) != 0 ? -1 : 1);
     return;
+  case XKB_KEY_Delete:
+  case XKB_KEY_BackSpace:
+    if (m_freeState.active && m_freeState.selected >= 0) {
+      m_free.cancel();
+      m_freeState.items.erase(m_freeState.items.begin() + m_freeState.selected);
+      m_freeState.selected = -1;
+      setFocus(LockEditorBar::Hit{});
+      m_freeEdited = true;
+      refresh();
+    }
+    return;
+  default:
+    break;
+  }
+  // Free with a selected widget: arrows move it 4 (Shift 32), Ctrl+arrows resize it.
+  if (m_freeState.active && m_freeState.selected >= 0) {
+    const bool big = (event.modifiers & KeyMod::Shift) != 0;
+    const bool resize = (event.modifiers & KeyMod::Ctrl) != 0;
+    switch (event.sym) {
+    case XKB_KEY_Left:
+      nudgeFree(-1, 0, big, resize);
+      return;
+    case XKB_KEY_Right:
+      nudgeFree(1, 0, big, resize);
+      return;
+    case XKB_KEY_Up:
+      nudgeFree(0, -1, big, resize);
+      return;
+    case XKB_KEY_Down:
+      nudgeFree(0, 1, big, resize);
+      return;
+    default:
+      break;
+    }
+  }
+  switch (event.sym) {
   case XKB_KEY_ISO_Left_Tab:
   case XKB_KEY_Left:
   case XKB_KEY_Up:
@@ -642,6 +1000,8 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
       activateGallery(m_clock.focus);
     } else if (m_slotState.focus.target != LockEditorSlots::Target::None) {
       activateSlots(m_slotState.focus, true);
+    } else if (m_freeState.focus.target != LockEditorFree::Target::None) {
+      activateFree(m_freeState.focus);
     } else if (m_draft.focus.target != LockEditorBar::Target::None) {
       activate(m_draft.focus);
     }

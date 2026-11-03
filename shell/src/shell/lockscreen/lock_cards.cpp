@@ -286,12 +286,12 @@ void LockCards::layout(Renderer& renderer, const AuthPlacement& place, float sca
     } else if (slot == "media" && m_data.media.has_value()) {
       layoutMediaCard(renderer, card, place.media, s);
     } else if (slot != "none") {
-      // Editor preview of a slot without data: the slot's name on the card.
-      glassCard(card.bg, place.media, s);
+      // Editor preview of a slot without data (mock section 2): "Bottom slot · Media", footnote, centred.
       const std::string name = slot == "phone" ? i18n::tr("lockscreen.cards.phone")
           : slot == "notifications"            ? i18n::tr("lockscreen.cards.notifications-label")
                                                : i18n::tr("lockscreen.widgets.media");
-      setText(renderer, card.title, name, Tokens::typeBody.size * s, Tokens::typeBody.line * s, kLabel2, place.media.w - 32.0F * s);
+      setText(renderer, card.title, i18n::tr("lockscreen.editor.bottom-slot") + " · " + name, Tokens::typeFootnote.size * s,
+              Tokens::typeFootnote.line * s, kLabel2, place.media.w - 32.0F * s);
       card.title->setPosition(snap(place.media.x + (place.media.w - card.title->width()) * 0.5F),
                               snap(place.media.y + (place.media.h - card.title->height()) * 0.5F));
     }
