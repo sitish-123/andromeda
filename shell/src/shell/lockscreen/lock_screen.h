@@ -5,6 +5,7 @@
 #include "core/timer_manager.h"
 #include "render/core/lockscreen_transition_types.h"
 #include "ui/auth/auth_column.h"
+#include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_fail_delay.h"
 
 #include <cstdint>
@@ -39,6 +40,7 @@ class SharedTextureCache;
 class SystemBus;
 class ShellWaylandConnection;
 class WeatherService;
+struct LockscreenConfig;
 enum class LockscreenTransition : std::uint8_t;
 
 class LockScreen {
@@ -96,6 +98,8 @@ public:
   // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
   [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
   [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
+  // Live card and widget data for the editor preview, with `lock` as the widget and bottom slot choice.
+  [[nodiscard]] LockCards::Data previewCards(const LockscreenConfig& lock) const;
   [[nodiscard]] bool isSessionLocked() const noexcept;
   [[nodiscard]] bool isReadyForSleep() const;
   /// Revoke passwordless unlock and wait for an uncovered lock frame before sleep.

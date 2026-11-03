@@ -1197,7 +1197,23 @@
       },
       "theme-note": "Blur · Dim · Clock colour follows the wallpaper",
       "theme-note-ryoku": "The greeter's look; layouts and slots do not apply",
-      "ryoku-preview": "Ryoku draws its own scene when the screen locks"
+      "ryoku-preview": "Ryoku draws its own scene when the screen locks",
+      "widgets": "Widgets",
+      "remove": "Remove",
+      "bottom-slot": "Bottom slot",
+      "bottom": {
+        "media": "Media",
+        "phone": "Phone",
+        "notifications": "Notifications",
+        "none": "None"
+      }
+    },
+    "widgets": {
+      "weather": "Weather",
+      "battery": "Battery",
+      "phone": "Phone",
+      "notifications": "Notifications",
+      "media": "Media"
     },
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",

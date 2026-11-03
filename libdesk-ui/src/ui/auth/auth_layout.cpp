@@ -70,37 +70,49 @@ namespace {
 
     sizeClock(p, in, 80.0F, s);
     p.clockX = cx;
+    bool widgets = in.widgets > 0;
     bool media = in.media;
     bool chips = in.chips;
-    // The account column is fixed; the content above yields: it moves up, then drops the chips, then the card.
+    // The account column is fixed; the content above yields: it moves up, then drops the chips, the row, the card.
     for (;;) {
       float top = snap(in.sh * 0.25F);
       float h = p.clockHeight();
+      if (widgets) {
+        h += (20.0F + kWidgetH) * s;
+      }
       if (media) {
-        h += (20.0F + kCardH) * s;
+        h += ((widgets ? kCardGap : 20.0F) + kCardH) * s;
       }
       if (chips) {
-        h += ((media ? kCardGap : 20.0F) + kChipH) * s;
+        h += ((media || widgets ? kCardGap : 20.0F) + kChipH) * s;
       }
       const float limit = accountTop - kMinGap * s;
       if (top + h > limit) {
         top = std::max((kMinTop + kDateLine + kDateGap) * s, limit - h);
       }
-      if (top + h <= limit || (!media && !chips)) {
+      if (top + h <= limit || (!widgets && !media && !chips)) {
         p.clockY = snap(top);
         p.clock = top + h <= limit;
         break;
       }
-      (chips ? chips : media) = false;
+      (chips ? chips : widgets ? widgets : media) = false;
     }
     p.date = rect(0.0F, p.clockY - (kDateGap + kDateLine) * s, in.sw, kDateLine * s);
     float y = p.clockY + p.clockHeight();
+    float gap = 20.0F;
+    if (widgets) {
+      const float w = stackHeight(in.widgets, kWidgetW, kCardGap) * s;
+      p.widgets = rect(cx - w * 0.5F, y + gap * s, w, kWidgetH * s);
+      y = p.widgets.bottom();
+      gap = kCardGap;
+    }
     if (media) {
-      p.media = rect(cx - 180.0F * s, y + 20.0F * s, 360.0F * s, kCardH * s);
+      p.media = rect(cx - 180.0F * s, y + gap * s, 360.0F * s, kCardH * s);
       y = p.media.bottom();
+      gap = kCardGap;
     }
     if (chips) {
-      p.chips = rect(cx - 180.0F * s, y + (media ? kCardGap : 20.0F) * s, 360.0F * s, kChipH * s);
+      p.chips = rect(cx - 180.0F * s, y + gap * s, 360.0F * s, kChipH * s);
     }
     placeChrome(p, in, s);
     placeCardBottom(p, s);

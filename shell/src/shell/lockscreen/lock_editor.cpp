@@ -91,6 +91,10 @@ void LockEditor::open() {
   m_clock.size = indexOf(LockEditorGallery::kSizeNames, lock.clockSize);
   m_clock.hour24 = lock.clockFormat24h;
   m_clock.seconds = lock.clockSeconds;
+  m_widgets = LockCards::widgetList(lock.widgets);
+  m_widgetsEdited = false;
+  m_slotState = {};
+  m_slotState.bottomSlot = indexOf(LockEditorSlots::kBottomNames, lock.bottomSlot);
 
   auto config = LayerSurfaceConfig{
       .nameSpace = "noctalia-lock-editor",
@@ -187,7 +191,9 @@ void LockEditor::buildScene(float width, float height) {
   notice->setFontWeight(FontWeight::Medium);
   m_themeNotice = static_cast<Label*>(m_root->addChild(std::move(notice)));
   m_themeNotice->setZIndex(5);
+  m_cards.build(m_auth.glanceLayer());
   m_gallery.build(*m_root);
+  m_slots.build(*m_root);
   m_bar.build(*m_root);
   m_surface->setSceneRoot(m_root.get());
 }
@@ -267,11 +273,19 @@ void LockEditor::layoutScene(float width, float height) {
   };
   input.clockSize = clockSizeFor(preview.clockSize);
   input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
+  const bool slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots;
+  const bool rowLayout = input.layout == AuthLayout::Centered || input.layout == AuthLayout::Split;
+  LockCards::Data cards = m_lockScreen != nullptr ? m_lockScreen->previewCards(preview) : LockCards::Data{};
+  cards.preview = slotsMode;
+  cards.rowSlots = slotsMode && rowLayout ? LockEditorSlots::kPlaces : 0;
+  m_cards.setData(std::move(cards));
+  m_cards.fillPlacementInput(input);
   const AuthPlacement place = placeAuth(input);
   // Glance previews the glance layer: the auth sheet stays closed until a key, as on the lock.
   m_auth.setSheetOpen(false, true);
   m_auth.setState(std::move(state));
   m_auth.layout(renderer, place, width, scale);
+  m_cards.layout(renderer, place, scale);
   m_auth.glanceLayer().setVisible(!ryoku);
 
   m_themeNotice->setVisible(ryoku);
@@ -298,6 +312,20 @@ void LockEditor::layoutScene(float width, float height) {
       width, height, scale
   );
 
+  m_slotState.widgets = shownWidgets();
+  m_slotState.active = slotsMode;
+  m_slotState.places = LockCards::rowRect(place).empty() ? 0 : LockEditorSlots::kPlaces;
+  m_slotState.bottom = place.layout == AuthLayout::Centered && !place.media.empty();
+  std::vector<LockEditorSlots::Rect> placeRects;
+  for (int i = 0; i < m_slotState.places; ++i) {
+    const AuthRect r = LockCards::widgetRect(place, static_cast<std::size_t>(i), scale);
+    placeRects.push_back({r.x, r.y, r.w, r.h});
+  }
+  m_slots.layout(
+      renderer, m_slotState, placeRects, {place.media.x, place.media.y, place.media.w, place.media.h}, width, height,
+      scale
+  );
+
   m_bar.setState(m_draft);
   m_bar.layout(renderer, width, scale);
 }
@@ -308,26 +336,124 @@ LockscreenConfig LockEditor::previewConfig() const {
   lock.clockSize = LockEditorGallery::kSizeNames[static_cast<std::size_t>(m_clock.size)];
   lock.clockFormat24h = m_clock.hour24;
   lock.clockSeconds = m_clock.seconds;
+  lock.widgets = shownWidgets();
+  lock.bottomSlot = LockEditorSlots::kBottomNames[static_cast<std::size_t>(m_slotState.bottomSlot)];
   return lock;
+}
+
+std::vector<std::string> LockEditor::shownWidgets() const {
+  if (m_widgets.empty() && !m_widgetsEdited
+      && authLayoutFromName(LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)]) == AuthLayout::Split) {
+    return {"phone", "notifications"};
+  }
+  return m_widgets;
+}
+
+void LockEditor::closePanels() {
+  m_draft.panelOpen = false;
+  m_clock.open = false;
+  m_slotState.panel = LockEditorSlots::Panel::None;
+  m_slotState.editPlace = -1;
+}
+
+void LockEditor::activateSlots(LockEditorSlots::Hit hit, bool keyboard) {
+  using Target = LockEditorSlots::Target;
+  using Panel = LockEditorSlots::Panel;
+  const auto backTo = [&](LockEditorSlots::Hit slot) {
+    closePanels();
+    if (keyboard) {
+      setFocus(slot);
+    }
+  };
+  switch (hit.target) {
+  case Target::Place: {
+    const int place = std::min(hit.index, static_cast<int>(shownWidgets().size()));
+    const bool same = m_slotState.panel == Panel::Widget && m_slotState.editPlace == place;
+    closePanels();
+    if (!same) {
+      m_slotState.panel = Panel::Widget;
+      m_slotState.editPlace = place;
+      if (keyboard) {
+        setFocus(LockEditorSlots::Hit{Target::Kind, 0});
+      }
+    }
+    break;
+  }
+  case Target::Kind: {
+    std::vector<std::string> list = shownWidgets();
+    const std::string kind(LockCards::kWidgetKinds[static_cast<std::size_t>(hit.index)]);
+    const auto place = static_cast<std::size_t>(std::max(0, m_slotState.editPlace));
+    if (place < list.size()) {
+      list[place] = kind;
+    } else {
+      list.push_back(kind);
+    }
+    // A kind shows once: picking a placed kind moves it here.
+    for (std::size_t i = 0; i < list.size(); ++i) {
+      if (i != std::min(place, list.size() - 1) && list[i] == kind) {
+        list.erase(list.begin() + static_cast<std::ptrdiff_t>(i));
+        break;
+      }
+    }
+    m_widgets = LockCards::widgetList(list);
+    m_widgetsEdited = true;
+    backTo({Target::Place, static_cast<int>(std::min(place, m_widgets.size() - 1))});
+    break;
+  }
+  case Target::Remove: {
+    std::vector<std::string> list = shownWidgets();
+    if (m_slotState.editPlace >= 0 && m_slotState.editPlace < static_cast<int>(list.size())) {
+      list.erase(list.begin() + m_slotState.editPlace);
+    }
+    m_widgets = std::move(list);
+    m_widgetsEdited = true;
+    backTo({Target::Place, std::max(0, m_slotState.editPlace)});
+    break;
+  }
+  case Target::BottomSlot: {
+    const bool open = m_slotState.panel == Panel::Bottom;
+    closePanels();
+    if (!open) {
+      m_slotState.panel = Panel::Bottom;
+      if (keyboard) {
+        setFocus(LockEditorSlots::Hit{Target::BottomKind, m_slotState.bottomSlot});
+      }
+    }
+    break;
+  }
+  case Target::BottomKind:
+    m_slotState.bottomSlot = hit.index;
+    backTo({Target::BottomSlot, -1});
+    break;
+  case Target::None:
+  case Target::Panel:
+    break;
+  }
+  refresh();
 }
 
 void LockEditor::setFocus(const Focus& focus) {
   m_draft.focus = {};
   m_clock.focus = {};
+  m_slotState.focus = {};
   if (const auto* bar = std::get_if<LockEditorBar::Hit>(&focus)) {
     m_draft.focus = *bar;
+  } else if (const auto* clock = std::get_if<LockEditorGallery::Hit>(&focus)) {
+    m_clock.focus = *clock;
   } else {
-    m_clock.focus = std::get<LockEditorGallery::Hit>(focus);
+    m_slotState.focus = std::get<LockEditorSlots::Hit>(focus);
   }
 }
 
 void LockEditor::activateGallery(LockEditorGallery::Hit hit) {
   using Target = LockEditorGallery::Target;
   switch (hit.target) {
-  case Target::ClockSlot:
-    m_clock.open = !m_clock.open;
-    m_draft.panelOpen = false;
+  case Target::ClockSlot: {
+    const bool open = !m_clock.open;
+    closePanels();
+    m_clock.open = open;
     break;
+  }
   case Target::Style:
     m_clock.style = hit.index;
     startClock();
@@ -362,11 +488,12 @@ void LockEditor::activate(LockEditorBar::Hit hit) {
   case Target::Segment: {
     const auto segment = static_cast<Segment>(hit.index);
     if (segment == Segment::Layout || segment == Segment::Theme) {
-      m_draft.panelOpen = !m_draft.panelOpen;
-      m_clock.open = false;
+      const bool open = !m_draft.panelOpen;
+      closePanels();
+      m_draft.panelOpen = open;
     } else if (LockEditorBar::segmentEnabled(hit.index)) {
       m_draft.mode = segment;
-      m_draft.panelOpen = false;
+      closePanels();
     }
     break;
   }
@@ -398,7 +525,12 @@ void LockEditor::moveFocus(int step) {
   for (const auto& hit : LockEditorGallery::focusOrder(m_clock, static_cast<int>(clockStyles().size()))) {
     order.emplace_back(hit);
   }
-  const Focus current = m_clock.focus.target != LockEditorGallery::Target::None ? Focus{m_clock.focus} : Focus{m_draft.focus};
+  for (const auto& hit : LockEditorSlots::focusOrder(m_slotState)) {
+    order.emplace_back(hit);
+  }
+  const Focus current = m_clock.focus.target != LockEditorGallery::Target::None ? Focus{m_clock.focus}
+      : m_slotState.focus.target != LockEditorSlots::Target::None             ? Focus{m_slotState.focus}
+                                                                                : Focus{m_draft.focus};
   const auto it = std::ranges::find(order, current);
   const int count = static_cast<int>(order.size());
   int index = it == order.end() ? (step > 0 ? -1 : count) : static_cast<int>(it - order.begin());
@@ -424,6 +556,10 @@ void LockEditor::save() {
   change("clock_size", preview.clockSize, lock.clockSize);
   change("clock_format_24h", preview.clockFormat24h, lock.clockFormat24h);
   change("clock_seconds", preview.clockSeconds, lock.clockSeconds);
+  if (m_widgetsEdited) {
+    change("widgets", m_widgets, lock.widgets);
+  }
+  change("bottom_slot", preview.bottomSlot, lock.bottomSlot);
   if (!changes.empty() && !m_config->setOverrides(changes)) {
     kLog.warn("failed to save the lock screen editor draft");
   }
@@ -441,24 +577,31 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
   const LockEditorBar::Hit barHit = m_bar.hitTest(x, y);
   const LockEditorGallery::Hit galleryHit =
       barHit.target == LockEditorBar::Target::None ? m_gallery.hitTest(x, y) : LockEditorGallery::Hit{};
+  const LockEditorSlots::Hit slotHit =
+      barHit.target == LockEditorBar::Target::None && galleryHit.target == LockEditorGallery::Target::None
+      ? m_slots.hitTest(x, y)
+      : LockEditorSlots::Hit{};
   if (event.type == PointerEvent::Type::Motion || event.type == PointerEvent::Type::Enter) {
-    if (barHit != m_draft.hover || galleryHit != m_clock.hover) {
+    if (barHit != m_draft.hover || galleryHit != m_clock.hover || slotHit != m_slotState.hover) {
       m_draft.hover = barHit;
       m_clock.hover = galleryHit;
+      m_slotState.hover = slotHit;
       refresh();
     }
   } else if (event.type == PointerEvent::Type::Leave) {
     m_draft.hover = {};
     m_clock.hover = {};
+    m_slotState.hover = {};
     refresh();
   } else if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
-    m_draft.focus = {};
-    m_clock.focus = {};
+    setFocus(LockEditorBar::Hit{});
     if (galleryHit.target != LockEditorGallery::Target::None) {
       activateGallery(galleryHit);
+    } else if (slotHit.target != LockEditorSlots::Target::None) {
+      activateSlots(slotHit, false);
     } else {
       if (barHit.target == LockEditorBar::Target::None) {
-        m_clock.open = false;
+        closePanels();
       }
       activate(barHit);
     }
@@ -472,9 +615,8 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   }
   switch (event.sym) {
   case XKB_KEY_Escape:
-    if (m_draft.panelOpen || m_clock.open) {
-      m_draft.panelOpen = false;
-      m_clock.open = false;
+    if (m_draft.panelOpen || m_clock.open || m_slotState.panel != LockEditorSlots::Panel::None) {
+      closePanels();
       setFocus(LockEditorBar::Hit{});
       refresh();
     } else {
@@ -498,6 +640,8 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   case XKB_KEY_space:
     if (m_clock.focus.target != LockEditorGallery::Target::None) {
       activateGallery(m_clock.focus);
+    } else if (m_slotState.focus.target != LockEditorSlots::Target::None) {
+      activateSlots(m_slotState.focus, true);
     } else if (m_draft.focus.target != LockEditorBar::Target::None) {
       activate(m_draft.focus);
     }

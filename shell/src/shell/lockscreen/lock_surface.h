@@ -63,6 +63,10 @@ class LockscreenWidgetsHost;
 void fillLockClockState(
     AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
 );
+// The lockscreen.widgets / bottom_slot choice and the widget values (battery, weather) for LockCards.
+void fillLockWidgetData(
+    LockCards::Data& data, const LockscreenConfig& lock, const WeatherService* weather, const AuthColumn::Status& status
+);
 
 class LockSurface : public Surface {
 public:

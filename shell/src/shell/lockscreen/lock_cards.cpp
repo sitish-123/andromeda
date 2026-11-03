@@ -92,6 +92,10 @@ namespace {
 } // namespace
 
 void LockCards::build(Node& parent) {
+  // The editor builds a new scene on each open; nodes of the last scene are freed.
+  m_cards.clear();
+  m_chips.clear();
+  m_widgets.clear();
   m_group = parent.addChild(std::make_unique<Node>());
   for (Button& button : m_buttons) {
     button.bg = addRect(*m_group);
@@ -126,27 +130,92 @@ std::vector<std::string> LockCards::chipTexts() const {
   return chips;
 }
 
-std::vector<std::pair<std::string, std::string>> LockCards::widgets() const {
-  std::vector<std::pair<std::string, std::string>> out;
-  if (m_data.phone.has_value()) {
-    out.emplace_back(std::format("{}%", m_data.phone->battery), m_data.phone->name);
-  }
-  long count = 0;
-  for (const LockNoticeGroup& group : m_data.groups) {
-    count += group.count;
-  }
-  if (count > 0) {
-    out.emplace_back(std::to_string(count), i18n::tr("lockscreen.cards.notifications-label"));
+std::vector<std::string> LockCards::widgetList(const std::vector<std::string>& ids) {
+  std::vector<std::string> out;
+  for (const std::string& id : ids) {
+    if (out.size() < kMaxWidgets && std::ranges::find(kWidgetKinds, id) != kWidgetKinds.end()
+        && std::ranges::find(out, id) == out.end()) {
+      out.push_back(id);
+    }
   }
   return out;
 }
 
+AuthRect LockCards::rowRect(const AuthPlacement& place) {
+  return place.layout == AuthLayout::Split ? place.cards : place.layout == AuthLayout::Centered ? place.widgets : AuthRect{};
+}
+
+AuthRect LockCards::widgetRect(const AuthPlacement& place, std::size_t i, float scale) {
+  const float s = std::max(0.1F, scale);
+  const AuthRect row = rowRect(place);
+  return {row.x + static_cast<float>(i) * snap((112.0F + kCardGap) * s), row.y, snap(112.0F * s), row.h};
+}
+
+std::vector<std::pair<std::string, std::string>> LockCards::widgets() const {
+  std::vector<std::pair<std::string, std::string>> out;
+  long count = 0;
+  for (const LockNoticeGroup& group : m_data.groups) {
+    count += group.count;
+  }
+  const std::string notices = i18n::tr("lockscreen.cards.notifications-label");
+  if (m_data.widgetIds.empty()) {
+    if (m_data.phone.has_value()) {
+      out.emplace_back(std::format("{}%", m_data.phone->battery), m_data.phone->name);
+    }
+    if (count > 0) {
+      out.emplace_back(std::to_string(count), notices);
+    }
+    return out;
+  }
+  // A widget without data takes no place on the lock; the editor shows its name and a dash.
+  const auto add = [&](bool has, std::string value, std::string label) {
+    if (has || m_data.preview) {
+      out.emplace_back(has ? std::move(value) : "\u2014", std::move(label));
+    }
+  };
+  for (const std::string& id : m_data.widgetIds) {
+    if (id == "weather") {
+      add(!m_data.weather.empty(), m_data.weather,
+          m_data.weatherLabel.empty() ? i18n::tr("lockscreen.widgets.weather") : m_data.weatherLabel);
+    } else if (id == "battery") {
+      add(!m_data.battery.empty(), m_data.battery, i18n::tr("lockscreen.widgets.battery"));
+    } else if (id == "phone") {
+      add(m_data.phone.has_value(), m_data.phone.has_value() ? std::format("{}%", m_data.phone->battery) : "",
+          m_data.phone.has_value() ? m_data.phone->name : i18n::tr("lockscreen.cards.phone"));
+    } else if (id == "notifications") {
+      add(count > 0 || m_data.preview, std::to_string(count), notices);
+    }
+  }
+  return out;
+}
+
+bool LockCards::bottomCard() const {
+  if (m_data.bottomSlot == "none") {
+    return false;
+  }
+  if (m_data.preview) {
+    return true;
+  }
+  if (m_data.bottomSlot == "phone") {
+    return m_data.phone.has_value();
+  }
+  if (m_data.bottomSlot == "notifications") {
+    return !m_data.groups.empty();
+  }
+  return m_data.media.has_value();
+}
+
 void LockCards::fillPlacementInput(AuthPlacementInput& in) const {
-  in.media = m_data.media.has_value();
+  const int row = static_cast<int>(widgets().size());
+  // While the editor shows slots, the bottom slot keeps its place even at "none" so it can be picked again.
+  in.media = in.layout == AuthLayout::Centered ? bottomCard() || m_data.rowSlots > 0 : m_data.media.has_value();
   in.chips = !chipTexts().empty();
   in.cards = in.layout == AuthLayout::Glance ? glanceCardCount()
-      : in.layout == AuthLayout::Split       ? static_cast<int>(widgets().size())
+      : in.layout == AuthLayout::Split       ? std::max(row, m_data.rowSlots)
                                              : 0;
+  in.widgets = in.layout == AuthLayout::Centered && (!m_data.widgetIds.empty() || m_data.rowSlots > 0)
+      ? std::max(row, m_data.rowSlots)
+      : 0;
 }
 
 void LockCards::hideAll() {
@@ -207,9 +276,25 @@ void LockCards::layout(Renderer& renderer, const AuthPlacement& place, float sca
   }
 
   std::size_t next = 0;
-  if (!place.media.empty() && m_data.media.has_value()) {
-    layoutMediaCard(renderer, m_cards[next], place.media, s);
-    ++next;
+  if (!place.media.empty()) {
+    const std::string& slot = place.layout == AuthLayout::Centered ? m_data.bottomSlot : std::string("media");
+    Card& card = m_cards[next++];
+    if (slot == "phone" && m_data.phone.has_value()) {
+      layoutPhoneCard(renderer, card, place.media, s);
+    } else if (slot == "notifications" && !m_data.groups.empty()) {
+      layoutNoticeCard(renderer, card, m_data.groups.front(), place.media, s);
+    } else if (slot == "media" && m_data.media.has_value()) {
+      layoutMediaCard(renderer, card, place.media, s);
+    } else if (slot != "none") {
+      // Editor preview of a slot without data: the slot's name on the card.
+      glassCard(card.bg, place.media, s);
+      const std::string name = slot == "phone" ? i18n::tr("lockscreen.cards.phone")
+          : slot == "notifications"            ? i18n::tr("lockscreen.cards.notifications-label")
+                                               : i18n::tr("lockscreen.widgets.media");
+      setText(renderer, card.title, name, Tokens::typeBody.size * s, Tokens::typeBody.line * s, kLabel2, place.media.w - 32.0F * s);
+      card.title->setPosition(snap(place.media.x + (place.media.w - card.title->width()) * 0.5F),
+                              snap(place.media.y + (place.media.h - card.title->height()) * 0.5F));
+    }
   }
   if (place.layout == AuthLayout::Glance && !place.cards.empty()) {
     std::size_t row = 0;
@@ -250,8 +335,8 @@ void LockCards::layout(Renderer& renderer, const AuthPlacement& place, float sca
     }
   }
 
-  // Split widget row: 112 x 56, p 12; value title-3, label footnote label_2.
-  if (place.layout == AuthLayout::Split && !place.cards.empty()) {
+  // Widget row (Split, or Centered with lockscreen.widgets): 112 x 56, p 12; value title-3, label footnote label_2.
+  if (!rowRect(place).empty()) {
     const auto items = widgets();
     while (m_widgets.size() < items.size()) {
       m_widgets.push_back(
@@ -259,10 +344,7 @@ void LockCards::layout(Renderer& renderer, const AuthPlacement& place, float sca
       );
     }
     for (std::size_t i = 0; i < items.size(); ++i) {
-      const AuthRect rect{
-          place.cards.x + static_cast<float>(i) * snap((112.0F + kCardGap) * s), place.cards.y, snap(112.0F * s),
-          place.cards.h
-      };
+      const AuthRect rect = widgetRect(place, i, s);
       Widget& widget = m_widgets[i];
       glassCard(widget.bg, rect, s);
       const float innerW = rect.w - 24.0F * s;

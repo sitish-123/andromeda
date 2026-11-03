@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The lock screen editor (L6a) runs unlocked and edits a draft: `msg lockscreen-widgets-edit` opens it, keys pick the
 # Glance layout in the Layout panel, Escape drops that draft (config unchanged), Done saves it (layout = "glance"), and
-# the Slots clock gallery saves a picked style (clock_style = "bold").
-# Writes editor.png, panel.png, gallery.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
+# the Slots clock gallery saves a picked style (clock_style = "bold"), and the widget row and bottom slot save
+# widgets = ["weather"] and bottom_slot = "phone".
+# Writes editor.png, panel.png, gallery.png, slots.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-editor}
 source "$(dirname "$0")/lib.sh"
@@ -52,5 +53,27 @@ with_noctalia '
   keys Escape Tab Tab Tab Tab Return
   wait_for "Done did not close the editor after the gallery" closed 3
   wait_for "Done did not save clock_style = bold" bold
+
+  # Step 2 saved Glance (no row): the Layout panel picks Centered (3 Tabs past Layout), Escape closes the panel.
+  # Slots: the first row place opens the widget gallery on Weather (Return picks it); four Tabs on = the bottom slot,
+  # whose chooser opens on Media; Tab Return picks Phone; four Tabs on = Done.
+  # The writer may wrap the array over lines: match the key, then "weather" in the next lines.
+  widgets() { grep -rhsA3 "^ *widgets = \[" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia" | grep -q "\"weather\""; }
+  dump() { grep -rhsA12 "^\[lockscreen\]" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia" >&2 || true; }
+  phone() { grep -rqs "bottom_slot = \"phone\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a fourth time"
+  wait_for "editor did not open a fourth time" opened 4
+  keys Tab Tab Return Tab Tab Tab Return
+  sleep 0.5 # real time: one frame
+  grim "$OUT/centered.png"
+  keys Escape
+  keys Tab Tab Tab Tab Tab Tab Return Return Tab Tab Tab Tab Return
+  sleep 0.5 # real time: one frame
+  grim "$OUT/slots.png"
+  keys Tab Return Tab Tab Tab Tab Return
+  wait_for "Done did not close the editor after the slots" closed 4
+  for _ in $(seq 50); do widgets && break; sleep 0.1; done
+  widgets || { dump; fail "Done did not save widgets = [\"weather\"]"; }
+  wait_for "Done did not save bottom_slot = phone" phone
 '
 echo "PASS: lock editor opens, Escape discards, Done saves; artifacts: $OUT"

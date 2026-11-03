@@ -575,6 +575,10 @@ struct LockscreenConfig {
   std::string clockSize;
   bool clockFormat24h = true;
   bool clockSeconds = false;
+  // Small widgets in the widget row (weather | battery | phone | notifications), <= 4; empty = the layout's own row.
+  std::vector<std::string> widgets;
+  // Centered card under the widget row: media | phone | notifications | none.
+  std::string bottomSlot = "media";
   bool allowEmptyPassword = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade,    LockscreenTransition::Wipe,
                                                    LockscreenTransition::Disc,    LockscreenTransition::Stripes,

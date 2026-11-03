@@ -1884,6 +1884,9 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     }
   }
   cards.charging = visible ? m_statusIsland.chargingText : std::string{};
+  if (visible && m_config != nullptr) {
+    fillLockWidgetData(cards, m_config->config().lockscreen, m_weather, m_statusIsland);
+  }
   m_cards.setData(std::move(cards));
   // A ringing phone call (rulebook 9.15 call card); it takes the reason card's place above the account.
   LockCallCard::State call;
@@ -2065,6 +2068,19 @@ std::string lockClockFontFamily(const ClockStyle& clock) {
   }
   families.emplace(key, family);
   return family;
+}
+
+void fillLockWidgetData(
+    LockCards::Data& data, const LockscreenConfig& lock, const WeatherService* weather, const AuthColumn::Status& status
+) {
+  data.widgetIds = LockCards::widgetList(lock.widgets);
+  data.bottomSlot = lock.bottomSlot;
+  data.battery = status.batteryText;
+  if (weather != nullptr && weather->enabled() && weather->hasData()) {
+    const auto& current = weather->snapshot().current;
+    data.weather = std::format("{}°", static_cast<int>(std::lround(weather->displayTemperature(current.temperatureC))));
+    data.weatherLabel = WeatherService::shortDescriptionForCode(current.weatherCode);
+  }
 }
 
 void fillLockClockState(

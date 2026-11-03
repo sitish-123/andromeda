@@ -1361,6 +1361,14 @@ void LockScreen::applyOutputRestriction() {
   requestLayout();
 }
 
+LockCards::Data LockScreen::previewCards(const LockscreenConfig& lock) const {
+  LockCards::Data data = collectLockCards(m_mpris, m_link, m_notifications);
+  data.charging = m_statusIsland.chargingText;
+  fillLockWidgetData(data, lock, m_weather, m_statusIsland);
+  data.preview = true;
+  return data;
+}
+
 bool LockScreen::hasOwnWallpaper(const std::string& connectorName) const {
   if (m_configService == nullptr) {
     return false;

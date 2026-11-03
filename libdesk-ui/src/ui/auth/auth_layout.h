@@ -29,6 +29,8 @@ struct AuthPlacementInput {
   bool chips = false;
   // Glance card column and Split widget row: number of entries.
   int cards = 0;
+  // Centered widget row (lockscreen.widgets): number of widgets, 0 = no row.
+  int widgets = 0;
   // lockscreen.clock_size at scale 1 (64 / 80 / 96 / 120); 0 = the layout's own size. Lines: 2 or 3 for stacked
   // and word styles.
   float clockSize = 0.0F;
@@ -56,7 +58,9 @@ struct AuthPlacement {
   // Date line (title-3), 8 above the clock, or 8 below it in label_2 (Minimal).
   AuthRect date;
   bool dateSecondary = false;
-  // Centered: media card, then the chips row. Glance: card column. Split: widget row. Empty = no slot.
+  // Centered: widget row, media (bottom slot) card, then the chips row. Glance: card column. Split: widget row (cards).
+  // Empty = no slot.
+  AuthRect widgets;
   AuthRect media;
   AuthRect chips;
   AuthRect cards;

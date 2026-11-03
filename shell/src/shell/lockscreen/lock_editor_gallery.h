@@ -51,6 +51,14 @@ public:
   [[nodiscard]] static std::vector<Hit> focusOrder(const State& state, int styleCount);
   [[nodiscard]] const Rect& panelRect() const noexcept { return m_panelRect; }
 
+  struct Chip {
+    RectNode* bg = nullptr;
+    Label* label = nullptr;
+    Rect rect;
+  };
+  // Option chip (h 28, capsule): white when on, an accent ring when focused. The label text is set by the caller.
+  static void layoutChip(Renderer& renderer, Chip& chip, float x, float y, float s, bool on, bool focused, bool hover);
+
 private:
   struct Tile {
     RectNode* bg = nullptr;
@@ -58,14 +66,6 @@ private:
     Label* name = nullptr;
     Rect rect;
   };
-  struct Chip {
-    RectNode* bg = nullptr;
-    Label* label = nullptr;
-    Rect rect;
-  };
-
-  void layoutChip(Renderer& renderer, Chip& chip, float x, float y, float s, bool on, bool focused, bool hover);
-
   State m_state;
   Node* m_group = nullptr;
   RectNode* m_slot = nullptr;

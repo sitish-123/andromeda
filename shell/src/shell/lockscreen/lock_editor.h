@@ -4,8 +4,10 @@
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/shared_texture_cache.h"
+#include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_editor_bar.h"
 #include "shell/lockscreen/lock_editor_gallery.h"
+#include "shell/lockscreen/lock_editor_slots.h"
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
 
@@ -13,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <variant>
+#include <vector>
 
 class ConfigService;
 class Label;
@@ -54,9 +57,14 @@ private:
   void buildScene(float width, float height);
   void layoutScene(float width, float height);
   void applyWallpaper();
-  using Focus = std::variant<LockEditorBar::Hit, LockEditorGallery::Hit>;
+  using Focus = std::variant<LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit>;
   void activate(LockEditorBar::Hit hit);
   void activateGallery(LockEditorGallery::Hit hit);
+  // keyboard = opened by a key: the focus moves into the opened panel.
+  void activateSlots(LockEditorSlots::Hit hit, bool keyboard);
+  void closePanels();
+  // The draft widget list as the row shows it: an empty list in Split = that layout's own row.
+  [[nodiscard]] std::vector<std::string> shownWidgets() const;
   void setFocus(const Focus& focus);
   [[nodiscard]] LockscreenConfig previewConfig() const;
   void moveFocus(int step);
@@ -81,6 +89,12 @@ private:
   LockEditorBar::State m_draft;
   LockEditorGallery m_gallery;
   LockEditorGallery::State m_clock;
+  LockCards m_cards;
+  LockEditorSlots m_slots;
+  LockEditorSlots::State m_slotState;
+  // Draft lockscreen.widgets; written on Done only after an edit (an untouched empty list stays empty).
+  std::vector<std::string> m_widgets;
+  bool m_widgetsEdited = false;
 
   std::string m_connector;
   std::uint32_t m_outputName = 0;

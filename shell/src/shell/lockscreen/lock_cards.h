@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -45,14 +46,37 @@ public:
     bool operator==(const Phone&) const = default;
   };
 
+  // lockscreen.widgets kinds, in gallery order.
+  static constexpr std::array<std::string_view, 4> kWidgetKinds{"weather", "battery", "phone", "notifications"};
+  static constexpr std::size_t kMaxWidgets = 4;
+
   struct Data {
     std::optional<Media> media;
     std::vector<LockNoticeGroup> groups;
     std::optional<Phone> phone;
     // Charging chip text; empty while not charging.
     std::string charging;
+    // Battery percent ("82%"); empty without a battery.
+    std::string battery;
+    // Weather widget: temperature ("18°") and short description; empty without weather data.
+    std::string weather;
+    std::string weatherLabel;
+    // lockscreen.widgets after widgetList(); empty = the layout's own row (Split: phone + notifications).
+    std::vector<std::string> widgetIds;
+    // lockscreen.bottom_slot: media | phone | notifications | none.
+    std::string bottomSlot = "media";
+    // Editor preview: a placed widget or bottom slot without data shows its name and a dash; the row takes at least
+    // rowSlots places (the editor draws "+" in the free ones).
+    bool preview = false;
+    int rowSlots = 0;
     bool operator==(const Data&) const = default;
   };
+
+  // Known kinds only, no duplicates, at most kMaxWidgets.
+  [[nodiscard]] static std::vector<std::string> widgetList(const std::vector<std::string>& ids);
+  // The widget row slot of `place` (Centered: widgets, Split: cards) and the rect of its widget i.
+  [[nodiscard]] static AuthRect rowRect(const AuthPlacement& place);
+  [[nodiscard]] static AuthRect widgetRect(const AuthPlacement& place, std::size_t i, float scale);
 
   enum class Control { None, Previous, PlayPause, Next };
 
@@ -98,6 +122,7 @@ private:
   [[nodiscard]] std::vector<std::string> chipTexts() const;
   [[nodiscard]] int glanceCardCount() const;
   [[nodiscard]] std::vector<std::pair<std::string, std::string>> widgets() const;
+  [[nodiscard]] bool bottomCard() const;
   void layoutMediaCard(Renderer& renderer, Card& card, const AuthRect& rect, float s);
   void layoutNoticeCard(Renderer& renderer, Card& card, const LockNoticeGroup& group, const AuthRect& rect, float s);
   void layoutPhoneCard(Renderer& renderer, Card& card, const AuthRect& rect, float s);
