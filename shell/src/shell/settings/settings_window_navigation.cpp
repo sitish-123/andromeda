@@ -1,3 +1,4 @@
+#include "dbus/logind/power_config_service.h"
 #include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_window.h"
 
@@ -20,6 +21,12 @@ void SettingsWindow::applyNavEntry(const NavEntry& entry) {
   m_wifiPassword.clear();
   m_expertQuery.clear();
   m_contentScrollState.offset = 0.0F;
+  // Swap, initramfs and logind can change outside Settings; the page shows them as they are now.
+  if (m_selectedSection == "power" && m_powerConfigProvider) {
+    if (PowerConfigService* config = m_powerConfigProvider(); config != nullptr) {
+      config->refresh();
+    }
+  }
 }
 
 void SettingsWindow::navigateTo(
