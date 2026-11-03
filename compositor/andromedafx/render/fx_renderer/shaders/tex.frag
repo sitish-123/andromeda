@@ -206,16 +206,24 @@ void main() {
     float band = min(min(liquid_size.x, liquid_size.y) * 0.25, 16.0);
     vec2 p = gl_FragCoord.xy;
     float d = liquid_distance(p);
-    vec2 normal = vec2(liquid_distance(p + vec2(1.0, 0.0)) - liquid_distance(p - vec2(1.0, 0.0)),
-                       liquid_distance(p + vec2(0.0, 1.0)) - liquid_distance(p - vec2(0.0, 1.0)));
-    normal = length(normal) > 0.0 ? normalize(normal) : vec2(0.0);
-    float t = clamp(1.0 + d / band, 0.0, 1.0);
-    // Refraction: sample from further inside, strongest at the rim (up to 0.75 band).
-    uv -= normal * (t * t * band * 0.75 * liquid) * liquid_texel;
-    // Specular: a thin bright line along the edge, brighter on the top and left (light from the top left).
-    float edge = smoothstep(-3.0, -0.5, d) * (1.0 - smoothstep(-0.5, 0.5, d));
-    float facing = 0.55 + 0.45 * max(dot(normal, normalize(vec2(-1.0, 1.0))), 0.0);
-    rim = liquid * (0.18 * t * t + 0.5 * edge) * facing;
+    // Past the rim band there is no refraction and no rim: skip the four extra distance evaluations.
+    if (d > -band) {
+      vec2 normal = vec2(liquid_distance(p + vec2(1.0, 0.0)) - liquid_distance(p - vec2(1.0, 0.0)),
+                         liquid_distance(p + vec2(0.0, 1.0)) - liquid_distance(p - vec2(0.0, 1.0)));
+      normal = length(normal) > 0.0 ? normalize(normal) : vec2(0.0);
+      float t = clamp(1.0 + d / band, 0.0, 1.0);
+      // Refraction: sample from further inside, strongest at the rim (up to 0.75 band).
+      uv -= normal * (t * t * band * 0.75 * liquid) * liquid_texel;
+      // Specular: a reflection, not an outline. A key glint where the edge faces the top-left light, a faint back
+      // glint opposite, near nothing on the sides between. The blur target is y-down, so the light is (-1, -1).
+      float edge = smoothstep(-2.0, -0.5, d) * (1.0 - smoothstep(-0.5, 0.5, d));
+      float l = dot(normal, normalize(vec2(-1.0, -1.0)));
+      float key = pow(max(l, 0.0), 4.0);
+      float back = 0.35 * pow(max(-l, 0.0), 4.0);
+      float facing = 0.06 + key + back;
+      float glow = clamp(1.0 + 2.0 * d / band, 0.0, 1.0);
+      rim = liquid * (0.08 * glow * glow + 0.45 * edge) * facing;
+    }
   }
   vec4 color = convert_color(sample_texture(uv));
   color.rgb += rim * color.a;
