@@ -11,6 +11,8 @@
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
 #include "ui/auth/auth_column.h"
+#include "shell/lockscreen/lock_call_card.h"
+#include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_phone_row.h"
 #include "ui/auth/ryoku_auth_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
@@ -34,6 +36,7 @@ class Box;
 class Flex;
 class Glyph;
 class HttpClient;
+class NotificationManager;
 class Image;
 class Input;
 class Label;
@@ -94,12 +97,14 @@ public:
   void setBlackout(bool blackout);
   [[nodiscard]] bool isBlackout() const noexcept { return m_blackout; }
   void setOnLogin(std::function<void()> onLogin);
+  void setOnDeclineCall(std::function<void(const std::string&)> onDeclineCall);
   void setOnCycleLayout(std::function<void()> onCycleLayout);
   void setOnPasswordChanged(std::function<void(const std::string&)> onPasswordChanged);
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
   void setPhoneServices(const LinkService* link);
+  void setNotificationManager(const NotificationManager* notifications);
   void selectAllPassword();
   void clearPasswordSelection();
   void onThemeChanged();
@@ -170,6 +175,7 @@ private:
   [[nodiscard]] std::vector<SessionPanelActionConfig> resolveSessionActions() const;
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
   void layoutAndromeda(Renderer& renderer, float sw, float sh);
+  void wakeGlance();
   void startAndromedaClock();
   void startRyokuLive();
   void startRyokuIdleClock();
@@ -194,6 +200,14 @@ private:
   Box* m_backdrop = nullptr;
   Flex* m_loginPanel = nullptr;
   LockPhoneRow m_phoneRow;
+  // Andromeda theme: media card, chips, Glance cards, Split widgets (rulebook 9.15).
+  LockCards m_cards;
+  LockCallCard m_callCard;
+  std::function<void(const std::string&)> m_onDeclineCall;
+  // Device whose ringing call the user chose to decline on this surface.
+  std::string m_declinePending;
+  const LinkService* m_link = nullptr;
+  const NotificationManager* m_notifications = nullptr;
   Flex* m_infoRow = nullptr;
   Flex* m_mediaBlock = nullptr;
   Image* m_mediaArt = nullptr;
@@ -221,9 +235,12 @@ private:
   bool m_ryokuShownError = false;
   std::unique_ptr<AuthColumn> m_auth;
   bool m_authShownError = false;
+  // Minimal layout: the island shows after the first pointer move of this lock.
+  bool m_pointerMoved = false;
   AuthExtras m_authExtras;
   AuthColumn::Status m_statusIsland;
   Timer m_andromedaClock;
+  Timer m_glanceIdle;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;

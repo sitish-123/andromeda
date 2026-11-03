@@ -1177,8 +1177,26 @@
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
+    "call": {
+      "answer-on-phone": "Answer on phone",
+      "decline": "Decline",
+      "decline-pending": "Type your password to decline the call",
+      "incoming": "Incoming call"
+    },
+    "cards": {
+      "charging": "Charging · {percent} %",
+      "charging-full-in": "Charging · full in {time}",
+      "notifications": "{count} notification",
+      "notifications-plural": "{count} notifications",
+      "notifications-label": "Notifications",
+      "now": "now",
+      "phone": "Phone",
+      "unlock-to-read": "Unlock to read"
+    },
     "fail-delay": "Try again in {time}",
     "failed-attempts": "{count} failed attempts",
+    "glance-hint": "Press any key to unlock",
+    "glance-hint-face": "Press any key or look at the camera to unlock",
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
     "pam-error": "Can't check your password: {message}",

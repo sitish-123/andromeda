@@ -1,3 +1,4 @@
+#include "i18n/i18n.h"
 #include "application.h"
 #include "application_internal.h"
 #include "core/deferred_call.h"
@@ -126,6 +127,13 @@ void Application::refreshLockStatus() {
     const auto& battery = upower()->state();
     status.batteryGlyph = batteryGlyphName(battery.percentage, battery.state);
     status.batteryText = std::format("{}%", static_cast<int>(std::lround(battery.percentage)));
+    if (battery.state == BatteryState::Charging) {
+      const std::int64_t minutes = battery.timeToFull / 60;
+      status.chargingText = minutes <= 0 ? i18n::tr("lockscreen.cards.charging", "percent", std::lround(battery.percentage))
+          : minutes < 60
+          ? i18n::tr("lockscreen.cards.charging-full-in", "time", std::format("{} min", minutes))
+          : i18n::tr("lockscreen.cards.charging-full-in", "time", std::format("{} h {} min", minutes / 60, minutes % 60));
+    }
   }
   if (network() != nullptr && network()->hasStateSnapshot()) {
     status.networkGlyph = network_display::glyphForState(network()->state());

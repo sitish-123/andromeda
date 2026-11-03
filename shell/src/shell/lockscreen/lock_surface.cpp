@@ -4,6 +4,7 @@
 #include "core/files/resource_paths.h"
 #include "core/log.h"
 #include "core/ui_phase.h"
+#include "dbus/link/link_service.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "ext-session-lock-v1-client-protocol.h"
@@ -598,6 +599,8 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   } else {
     m_auth = std::make_unique<AuthColumn>();
     m_auth->build(m_root, m_animations);
+    m_cards.build(m_auth->glanceLayer());
+    m_callCard.build(m_root);
     startAndromedaClock();
   }
   requestUpdate();
@@ -668,7 +671,13 @@ LockSurface::~LockSurface() {
   }
 }
 
+void LockSurface::setNotificationManager(const NotificationManager* notifications) {
+  m_notifications = notifications;
+  requestUpdate();
+}
+
 void LockSurface::setPhoneServices(const LinkService* link) {
+  m_link = link;
   m_phoneRow.setServices(link);
   requestUpdate();
 }
@@ -742,6 +751,10 @@ void LockSurface::setLockedState(bool locked) {
   }
   m_locked = locked;
   if (m_locked) {
+    m_pointerMoved = false;
+    if (m_auth != nullptr) {
+      m_auth->setSheetOpen(false, true);
+    }
     // Never carry a revealed password across lock cycles.
     if (m_passwordField != nullptr) {
       m_passwordField->setPasswordRevealed(false);
@@ -1015,6 +1028,10 @@ void LockSurface::setBlackout(bool blackout) {
 
 void LockSurface::setOnLogin(std::function<void()> onLogin) { m_onLogin = std::move(onLogin); }
 
+void LockSurface::setOnDeclineCall(std::function<void(const std::string&)> onDeclineCall) {
+  m_onDeclineCall = std::move(onDeclineCall);
+}
+
 void LockSurface::setOnCycleLayout(std::function<void()> onCycleLayout) { m_onCycleLayout = std::move(onCycleLayout); }
 
 void LockSurface::setOnPasswordChanged(std::function<void(const std::string&)> onPasswordChanged) {
@@ -1054,11 +1071,43 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
     break;
   case PointerEvent::Type::Motion:
     m_inputDispatcher.pointerMotion(static_cast<float>(event.sx), static_cast<float>(event.sy), event.serial);
+    if (!m_pointerMoved) {
+      m_pointerMoved = true;
+      requestLayout();
+    }
+    wakeGlance();
     break;
   case PointerEvent::Type::Button: {
     const bool pressed = event.pressed;
     const auto x = static_cast<float>(event.sx);
     const auto y = static_cast<float>(event.sy);
+    if (m_locked && pressed && m_callCard.declineHit(x, y)) {
+      m_declinePending = m_callCard.state().deviceId;
+      if (m_onDeclineCall) {
+        m_onDeclineCall(m_declinePending);
+      }
+      focusPasswordField();
+      requestLayout();
+    }
+    if (m_locked && pressed) {
+      wakeGlance();
+      if (m_auth != nullptr && m_mpris != nullptr && m_cards.data().media.has_value()) {
+        const std::string& bus = m_cards.data().media->busName;
+        switch (m_cards.hitTest(x, y)) {
+        case LockCards::Control::Previous:
+          (void)m_mpris->previous(bus);
+          break;
+        case LockCards::Control::PlayPause:
+          (void)m_mpris->playPause(bus);
+          break;
+        case LockCards::Control::Next:
+          (void)m_mpris->next(bus);
+          break;
+        case LockCards::Control::None:
+          break;
+        }
+      }
+    }
     if (m_locked && pressed && passwordFieldContainsPoint(x, y)) {
       focusPasswordField();
     }
@@ -1098,6 +1147,9 @@ void LockSurface::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   }
 
+  if (m_locked && event.pressed) {
+    wakeGlance();
+  }
   if (m_locked
       && event.pressed
       && m_passwordField != nullptr
@@ -1659,7 +1711,8 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   } else if (m_auth != nullptr) {
     layoutAndromeda(renderer, sw, sh);
   }
-  m_phoneRow.layout(renderer, sw, sh, m_locked);
+  // Andromeda shows the phone in its cards; the corner row stays for Ryoku.
+  m_phoneRow.layout(renderer, sw, sh, m_locked && m_auth == nullptr);
   layoutTransitionCover();
   syncTransitionCover();
 }
@@ -1751,6 +1804,7 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     }
     state.status = m_statusIsland;
     state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
+    state.glanceHint = i18n::tr(m_authExtras.face ? "lockscreen.glance-hint-face" : "lockscreen.glance-hint");
     state.time = formatLocalTime("%H:%M");
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
@@ -1760,11 +1814,75 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   }
   const bool shake = visible && m_error && m_authExtras.rejected && !m_authShownError;
   m_authShownError = m_error;
+  const float scale = m_config != nullptr ? m_config->config().accessibility.uiScale : 1.0F;
+  LockCards::Data cards;
+  if (visible) {
+    cards = collectLockCards(m_mpris, m_link, m_notifications);
+    if (cards.media.has_value() && !cards.media->artUrl.empty()) {
+      cards.media->artPath = mpris::resolveArtworkSource(
+          m_httpClient, m_pendingArtDownloads, cards.media->artUrl, [this] { requestLayout(); }, m_aliveGuard
+      );
+    }
+  }
+  cards.charging = visible ? m_statusIsland.chargingText : std::string{};
+  m_cards.setData(std::move(cards));
+  // A ringing phone call (rulebook 9.15 call card); it takes the reason card's place above the account.
+  LockCallCard::State call;
+  if (visible && m_link != nullptr) {
+    if (const auto active = m_link->activeCall(); active.has_value() && active->ringing) {
+      const bool content = m_config != nullptr && m_config->config().lockscreen.notificationContent == "shown";
+      call.deviceId = active->deviceId;
+      call.title = content && !active->caller.empty() ? active->caller : i18n::tr("lockscreen.call.incoming");
+      call.detail = active->device;
+      call.declinePending = m_declinePending == active->deviceId;
+    }
+  }
+  if (call.deviceId.empty()) {
+    m_declinePending.clear();
+  } else {
+    state.reasonTitle.clear();
+    state.reasonBody.clear();
+    if (call.declinePending && !state.hintError) {
+      state.hint = i18n::tr("lockscreen.call.decline-pending");
+    }
+  }
+  AuthPlacementInput input{
+      .layout = authLayoutFromName(m_config != nullptr ? m_config->config().lockscreen.layout : std::string{}),
+      .sw = sw,
+      .sh = sh,
+      .scale = scale,
+      .pointerMoved = m_pointerMoved,
+      .reasonCard = !state.reasonTitle.empty(),
+      .callBlock = call.deviceId.empty() ? 0.0F : LockCallCard::kBlockHeight,
+  };
+  m_cards.fillPlacementInput(input);
+  const AuthPlacement place = placeAuth(input);
   m_auth->setState(std::move(state));
-  m_auth->layout(renderer, sw, sh, m_config != nullptr ? m_config->config().accessibility.uiScale : 1.0F);
+  m_auth->layout(renderer, place, sw, scale);
+  m_cards.layout(renderer, place, scale);
+  m_callCard.setState(std::move(call));
+  m_callCard.layout(renderer, place.columnCx, place.cardBottom, scale);
   if (shake) {
     m_auth->playRejected();
   }
+}
+
+// Glance: any key, click or pointer move Grows the auth sheet; it Returns after 10 s idle with an empty field.
+void LockSurface::wakeGlance() {
+  if (m_auth == nullptr || m_ryoku != nullptr || !m_locked || m_config == nullptr
+      || authLayoutFromName(m_config->config().lockscreen.layout) != AuthLayout::Glance) {
+    return;
+  }
+  if (!m_auth->sheetOpen()) {
+    m_auth->setSheetOpen(true);
+    requestRedraw();
+  }
+  m_glanceIdle.start(std::chrono::seconds(10), [this] {
+    if (m_password.empty() && !m_authenticating && m_auth != nullptr) {
+      m_auth->setSheetOpen(false);
+      requestRedraw();
+    }
+  });
 }
 
 // One layout at each minute boundary keeps the clock right without a per-second frame.

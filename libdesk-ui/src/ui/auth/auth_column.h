@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/animation/animation_manager.h"
+#include "ui/auth/auth_layout.h"
 
 #include <cstddef>
 #include <string>
@@ -25,6 +26,8 @@ public:
     std::string batteryText;
     std::string networkGlyph;
     std::string layoutLabel;
+    // Lock screen charging chip ("Charging · full in 1 h 20 min"); empty while not charging. The island ignores it.
+    std::string chargingText;
     bool operator==(const Status&) const = default;
   };
 
@@ -45,6 +48,8 @@ public:
     // Centered layout clock (rulebook 9.15): hero time, title-3 date 8 above it.
     std::string time;
     std::string date;
+    // Glance layout: the line 72 above the bottom while the auth sheet is closed.
+    std::string glanceHint;
     Status status;
 
     bool operator==(const State&) const = default;
@@ -59,17 +64,37 @@ public:
 
   void build(Node& root, AnimationManager& animations);
   void setState(State state);
-  // scale = accessibility.ui_scale.
+  // Centered layout; scale = accessibility.ui_scale.
   void layout(Renderer& renderer, float sw, float sh, float scale);
+  // place = placeAuth() for the same sw, sh and scale.
+  void layout(Renderer& renderer, const AuthPlacement& place, float sw, float scale);
   // Wrong password: the capsule shakes 3 x 8 px on the snap spring.
   void playRejected();
+  // Glance layout: the auth sheet Grows from the centre (open spring) or Returns (close spring); instant = no motion.
+  void setSheetOpen(bool open, bool instant = false);
+  [[nodiscard]] bool sheetOpen() const noexcept { return m_sheetOpen; }
 
   [[nodiscard]] Rect capsule() const noexcept { return m_capsuleRect; }
+  // The layer that recedes to 40 % while the Glance sheet is open; host cards attach here.
+  [[nodiscard]] Node& glanceLayer() noexcept { return *m_glanceGroup; }
 
 private:
+  void applySheet();
+
   AnimationManager* m_animations = nullptr;
   State m_state;
+  AuthPlacement m_place;
+  bool m_sheetOpen = false;
+  // 0 = sheet closed, 1 = open.
+  float m_sheetT = 0.0F;
+  AnimationManager::Id m_sheetAnim = 0;
   Node* m_group = nullptr;
+  // Clock, date and glance hint: recede to 40 % while the Glance sheet is open.
+  Node* m_glanceGroup = nullptr;
+  Label* m_glanceHint = nullptr;
+  // Sheet, reason card and account column: fade in with the sheet in Glance.
+  Node* m_columnGroup = nullptr;
+  RectNode* m_sheet = nullptr;
   RectNode* m_avatar = nullptr;
   Label* m_initial = nullptr;
   Label* m_name = nullptr;

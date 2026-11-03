@@ -24,6 +24,7 @@ struct ext_session_lock_v1;
 struct wl_surface;
 struct wl_output;
 class ConfigService;
+class NotificationManager;
 
 class CompositorPlatform;
 class FaceAuthenticator;
@@ -56,7 +57,8 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
-  void setPhoneServices(const LinkService* link);
+  void setPhoneServices(LinkService* link);
+  void setNotificationManager(const NotificationManager* notifications);
   bool lock();
   // Lock from the paired phone (Link): password only, no grace, until the next unlock.
   bool lockFromPhone();
@@ -221,7 +223,10 @@ private:
   MprisService* m_mpris = nullptr;
   const WeatherService* m_weather = nullptr;
   HttpClient* m_httpClient = nullptr;
-  const LinkService* m_link = nullptr;
+  LinkService* m_link = nullptr;
+  // Decline pressed on the call card: declined after the next successful unlock if that call still rings.
+  std::string m_pendingDecline;
+  const NotificationManager* m_notifications = nullptr;
   Timer m_suspendTimeoutTimer;
   Timer m_outputPowerOffTimer;
   // CLOCK_BOOTTIME millis when the lock flow started; grace expires gracePeriodSeconds after it.

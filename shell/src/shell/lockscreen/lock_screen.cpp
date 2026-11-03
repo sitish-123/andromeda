@@ -4,6 +4,7 @@
 #include "auth/face_authenticator.h"
 #include "auth/fingerprint_authenticator.h"
 #include "capture/screencopy_util.h"
+#include "dbus/link/link_service.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
@@ -185,7 +186,16 @@ void LockScreen::setLoginBoxServices(
   }
 }
 
-void LockScreen::setPhoneServices(const LinkService* link) {
+void LockScreen::setNotificationManager(const NotificationManager* notifications) {
+  m_notifications = notifications;
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setNotificationManager(m_notifications);
+    }
+  }
+}
+
+void LockScreen::setPhoneServices(LinkService* link) {
   m_link = link;
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {
@@ -309,6 +319,12 @@ void LockScreen::unlock() {
   resetGracePeriod();
   invalidatePendingAuthentication();
   stopFingerprint();
+  if (!m_pendingDecline.empty() && m_link != nullptr) {
+    if (const auto call = m_link->activeCall(); call.has_value() && call->ringing && call->deviceId == m_pendingDecline) {
+      m_link->declineCall(m_pendingDecline);
+    }
+  }
+  m_pendingDecline.clear();
   stopFace();
   m_failDelay.reset();
   m_failDelayTimer.stop();
@@ -1397,10 +1413,12 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setSleepReadyCallback([this] { handleSleepReady(); });
   surface->setTransitionCallback([this] { handleTransitionStateChanged(); });
   surface->setOnLogin([this] { tryAuthenticate(); });
+  surface->setOnDeclineCall([this](const std::string& deviceId) { m_pendingDecline = deviceId; });
   surface->setOnCycleLayout([this] { cycleKeyboardLayout(); });
   surface->setOnPasswordChanged([this](const std::string& value) { handlePasswordEdited(value); });
   surface->setLoginBoxServices(m_sessionActions, m_mpris, m_weather, m_httpClient);
   surface->setPhoneServices(m_link);
+  surface->setNotificationManager(m_notifications);
   surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
   applyIndicatorsToSurface(*surface);
 

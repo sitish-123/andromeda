@@ -183,6 +183,9 @@ Application::Application()
 
     // Keep bar widgets in sync with notification state changes.
     scheduleNotificationShellRefresh();
+    if (m_lockScreen.isActive()) {
+      m_lockScreen.requestUpdate();
+    }
   });
 
   m_notificationManager.setStateCallback([this] {

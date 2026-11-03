@@ -3,6 +3,7 @@
 #include "render/core/color.h"
 #include "render/core/render_styles.h"
 #include "render/core/renderer.h"
+#include "render/animation/motion_service.h"
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/glyph.h"
@@ -26,6 +27,8 @@ namespace {
   constexpr Color kRegular = rgba(28.0F / 255.0F, 28.0F / 255.0F, 32.0F / 255.0F, 0.40F);
   constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.56F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
+  // fill_1 (dark): the capsule inside the Glance sheet.
+  constexpr Color kFill1 = rgba(1.0F, 1.0F, 1.0F, 15.0F / 255.0F);
   constexpr Color kAccent = rgba(97.0F / 255.0F, 89.0F / 255.0F, 245.0F / 255.0F, 1.0F);
   constexpr Color kTextShadow = rgba(0.0F, 0.0F, 0.0F, 0.30F);
   constexpr Color kAvatarFrom = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
@@ -86,55 +89,69 @@ void AuthColumn::build(Node& root, AnimationManager& animations) {
   m_networkGlyph = addGlyph(*m_group);
   m_layoutText = addLabel(*m_group, FontWeight::SemiBold, true);
 
-  m_date = addLabel(*m_group, FontWeight::SemiBold, true);
-  m_clock = addLabel(*m_group, FontWeight::Light, true);
+  m_glanceGroup = addGroup(*m_group);
+  m_date = addLabel(*m_glanceGroup, FontWeight::SemiBold, true);
+  m_clock = addLabel(*m_glanceGroup, FontWeight::Light, true);
   m_clock->setFontFeatures("tnum");
+  m_glanceHint = addLabel(*m_glanceGroup, FontWeight::Medium, true);
 
-  m_card = addRect(*m_group);
-  m_cardGlyph = addGlyph(*m_group);
-  m_cardTitle = addLabel(*m_group, FontWeight::SemiBold, false);
-  m_cardBody = addLabel(*m_group, FontWeight::Medium, false);
+  m_columnGroup = addGroup(*m_group);
+  m_sheet = addRect(*m_columnGroup);
+  m_card = addRect(*m_columnGroup);
+  m_cardGlyph = addGlyph(*m_columnGroup);
+  m_cardTitle = addLabel(*m_columnGroup, FontWeight::SemiBold, false);
+  m_cardBody = addLabel(*m_columnGroup, FontWeight::Medium, false);
 
-  m_avatar = addRect(*m_group);
-  m_initial = addLabel(*m_group, FontWeight::SemiBold, false);
-  m_name = addLabel(*m_group, FontWeight::SemiBold, true);
+  m_avatar = addRect(*m_columnGroup);
+  m_initial = addLabel(*m_columnGroup, FontWeight::SemiBold, false);
+  m_name = addLabel(*m_columnGroup, FontWeight::SemiBold, true);
 
-  m_capsuleGroup = addGroup(*m_group);
+  m_capsuleGroup = addGroup(*m_columnGroup);
   m_capsule = addRect(*m_capsuleGroup);
   m_field = addLabel(*m_capsuleGroup, FontWeight::Medium, false);
   m_go = addRect(*m_capsuleGroup);
   m_goGlyph = addGlyph(*m_capsuleGroup);
   m_trailingGlyph = addGlyph(*m_capsuleGroup);
 
-  m_hint = addLabel(*m_group, FontWeight::Medium, true);
-  m_owner = addLabel(*m_group, FontWeight::Medium, true);
+  m_hint = addLabel(*m_columnGroup, FontWeight::Medium, true);
+  m_owner = addLabel(*m_columnGroup, FontWeight::Medium, true);
 }
 
 void AuthColumn::setState(State state) { m_state = std::move(state); }
 
 void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
+  layout(renderer, placeAuth({.sw = sw, .sh = sh, .scale = scale, .reasonCard = !m_state.reasonTitle.empty()}), sw, scale);
+}
+
+void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw, float scale) {
   // An empty placeholder means the session is not locked (or blacked out): draw nothing.
   m_group->setVisible(!m_state.placeholder.empty());
   if (m_state.placeholder.empty()) {
     return;
   }
   const float s = std::max(0.1F, scale);
-  const float cx = sw * 0.5F;
+  m_place = place;
+  const float cx = place.columnCx;
   const auto snap = [](float v) { return std::round(v); };
 
-  // Capsule: 240 x 40, its centre at 3/4 of the height.
-  const float capW = 240.0F * s;
-  const float capH = 40.0F * s;
-  const float capX = snap(cx - capW * 0.5F);
-  const float capY = snap(sh * 0.75F - capH * 0.5F);
+  const float capW = place.capsule.w;
+  const float capH = place.capsule.h;
+  const float capX = place.capsule.x;
+  const float capY = place.capsule.y;
   m_capsuleRect = {capX, capY, capW, capH};
 
   m_capsuleGroup->setPosition(capX, capY);
   m_capsuleGroup->setOpacity(m_state.inputOff ? 0.6F : 1.0F);
   m_capsule->setPosition(0.0F, 0.0F);
   m_capsule->setSize(capW, capH);
+  const bool inSheet = !place.sheet.empty();
   m_capsule->setStyle(
-      RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = capH * 0.5F, .borderWidth = 0.5F * s}
+      RoundedRectStyle{
+          .fill = inSheet ? kFill1 : kThick,
+          .border = inSheet ? Color{} : kStroke,
+          .radius = capH * 0.5F,
+          .borderWidth = inSheet ? 0.0F : 0.5F * s,
+      }
   );
 
   const bool typing = m_state.passwordLength > 0;
@@ -179,7 +196,10 @@ void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
     );
   }
 
-  // Name (title-3) 16 above the capsule, avatar 64 12 above the name.
+  // Name (title-3) 16 above the capsule, avatar 64 12 above the name; Minimal shows neither.
+  m_name->setVisible(place.account);
+  m_avatar->setVisible(place.account);
+  m_initial->setVisible(place.account);
   m_name->setFontSize(Tokens::typeTitle3.size * s);
   m_name->setLineHeight(Tokens::typeTitle3.line * s);
   m_name->setColor(kLabel1);
@@ -238,6 +258,10 @@ void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
     m_owner->setTextAlign(TextAlign::Center);
     m_owner->measure(renderer);
     m_owner->setPosition(snap(cx - m_owner->width() * 0.5F), snap(hintY + footLine + 24.0F * s));
+    // Glance: the sheet grows down to hold the owner message with its 24 bottom padding.
+    if (!m_place.sheet.empty()) {
+      m_place.sheet.h = snap(hintY + footLine + 24.0F * s + m_owner->height() + 24.0F * s - m_place.sheet.y);
+    }
   }
 
   // Reason card (lock from phone): 360 wide, 32 above the avatar.
@@ -319,7 +343,10 @@ void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
         ++shown;
       }
     }
-    m_island->setVisible(shown > 0);
+    m_island->setVisible(place.chrome && shown > 0);
+    for (const Part& part : parts) {
+      part.node->setVisible(place.chrome && part.show);
+    }
     if (shown > 0) {
       contentW += gap * static_cast<float>(shown - 1);
       const float islandW = snap(8.0F * s + contentW + 12.0F * s);
@@ -339,27 +366,91 @@ void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
     }
   }
 
-  // Clock: hero 80 / 80 with its top at 1/4 of the height; the date line 8 above it.
-  const float heroLine = Tokens::typeHero.line * s;
-  const float clockY = snap(sh * 0.25F);
-  m_clock->setVisible(!m_state.time.empty());
-  m_date->setVisible(!m_state.date.empty());
-  m_clock->setFontSize(Tokens::typeHero.size * s);
+  // Clock: hero role at the layout's size (line height = size); the date line 8 above it, or 8 below (Minimal).
+  const float heroLine = place.clockSize;
+  const float clockY = place.clockY;
+  const auto lineX = [&](float width) { return snap(place.clockCentred ? place.clockX - width * 0.5F : place.clockX); };
+  m_clock->setVisible(place.clock && !m_state.time.empty());
+  m_date->setVisible(place.clock && !m_state.date.empty());
+  m_clock->setFontSize(place.clockSize);
   m_clock->setLineHeight(heroLine);
   m_clock->setColor(kLabel1);
   m_clock->setText(m_state.time);
   m_clock->measure(renderer);
-  m_clock->setPosition(snap(cx - m_clock->width() * 0.5F), snap(clockY + (heroLine - m_clock->height()) * 0.5F));
+  m_clock->setPosition(lineX(m_clock->width()), snap(clockY + (heroLine - m_clock->height()) * 0.5F));
   const float dateLine = Tokens::typeTitle3.line * s;
   m_date->setFontSize(Tokens::typeTitle3.size * s);
   m_date->setLineHeight(dateLine);
-  m_date->setColor(kLabel1);
+  m_date->setColor(place.dateSecondary ? kLabel2 : kLabel1);
   m_date->setText(m_state.date);
   m_date->measure(renderer);
-  const float dateY = clockY - 8.0F * s - dateLine;
-  m_date->setPosition(snap(cx - m_date->width() * 0.5F), snap(dateY + (dateLine - m_date->height()) * 0.5F));
+  m_date->setPosition(lineX(m_date->width()), snap(place.date.y + (dateLine - m_date->height()) * 0.5F));
+
+  // Glance hint: footnote label_2, centred, its line 72 above the bottom.
+  m_glanceHint->setVisible(inSheet && !m_state.glanceHint.empty());
+  if (inSheet && !m_state.glanceHint.empty()) {
+    m_glanceHint->setFontSize(Tokens::typeFootnote.size * s);
+    m_glanceHint->setLineHeight(footLine);
+    m_glanceHint->setColor(kLabel2);
+    m_glanceHint->setText(m_state.glanceHint);
+    m_glanceHint->measure(renderer);
+    m_glanceHint->setPosition(snap(sw * 0.5F - m_glanceHint->width() * 0.5F), place.glanceHintY);
+  }
 
   m_shakeAmplitude = 8.0F * s;
+  applySheet();
+}
+
+void AuthColumn::setSheetOpen(bool open, bool instant) {
+  m_sheetOpen = open;
+  const float target = open ? 1.0F : 0.0F;
+  if (instant || m_animations == nullptr) {
+    if (m_animations != nullptr && m_sheetAnim != 0) {
+      m_animations->cancel(m_sheetAnim);
+    }
+    m_sheetAnim = 0;
+    m_sheetT = target;
+    applySheet();
+    return;
+  }
+  // Reduced motion: a plain fade (applySheet keeps the full size).
+  const bool reduced = MotionService::instance().reduced();
+  const auto& spring = reduced ? (open ? Tokens::springFade : Tokens::springFadeOut)
+                               : (open ? Tokens::springOpen : Tokens::springClose);
+  m_sheetAnim = m_animations->drive(
+      m_sheetAnim, m_sheetT, target, Style::spring(spring),
+      [this](float t) {
+        m_sheetT = t;
+        applySheet();
+      },
+      [this] { m_sheetAnim = 0; }, m_columnGroup
+  );
+}
+
+// Glance: the sheet Grows from 60 % of its size at the centre while the column fades in; the glance layer recedes
+// to 40 % and its hint fades out. Other layouts: no sheet, everything at full opacity.
+void AuthColumn::applySheet() {
+  const AuthRect& sheet = m_place.sheet;
+  if (sheet.empty()) {
+    m_sheet->setVisible(false);
+    m_columnGroup->setVisible(true);
+    m_columnGroup->setOpacity(1.0F);
+    m_glanceGroup->setOpacity(1.0F);
+    return;
+  }
+  const float t = std::clamp(m_sheetT, 0.0F, 1.0F);
+  const float k = MotionService::instance().reduced() ? 1.0F : 0.6F + 0.4F * m_sheetT;
+  const float w = sheet.w * k;
+  const float h = sheet.h * k;
+  m_sheet->setVisible(t > 0.0F);
+  m_sheet->setPosition(std::round(sheet.x + (sheet.w - w) * 0.5F), std::round(sheet.y + (sheet.h - h) * 0.5F));
+  m_sheet->setSize(std::round(w), std::round(h));
+  const float s = sheet.w / 360.0F;
+  m_sheet->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+  m_columnGroup->setOpacity(t);
+  m_columnGroup->setVisible(t > 0.0F);
+  m_glanceGroup->setOpacity(1.0F - 0.6F * t);
+  m_glanceHint->setOpacity(1.0F - t);
 }
 
 void AuthColumn::playRejected() {

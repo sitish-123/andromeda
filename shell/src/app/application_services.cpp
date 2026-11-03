@@ -1875,7 +1875,12 @@ void Application::initSessionBusServices() {
           m_lockScreen.requestUpdate();
         }
       });
-      m_linkService->setActivityCallback([this]() { syncLiveActivity(); });
+      m_linkService->setActivityCallback([this]() {
+        syncLiveActivity();
+        if (m_lockScreen.isActive()) {
+          m_lockScreen.requestUpdate();
+        }
+      });
       m_lockScreen.setPhoneServices(m_linkService.get());
       m_quickShareService = std::make_unique<QuickShareService>(*m_bus, m_notificationManager, m_clipboardService);
       m_quickShareService->setChangeCallback([this, shouldRefreshControlCenter]() {
