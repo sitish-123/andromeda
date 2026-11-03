@@ -52,6 +52,16 @@ public:
     markContentDirty();
   }
 
+  // Diagonal ink gradient, packed 0xRRGGBBAA; both 0 = the label color.
+  void setGradient(std::uint32_t from, std::uint32_t to) {
+    if (m_font.gradientFrom == from && m_font.gradientTo == to) {
+      return;
+    }
+    m_font.gradientFrom = from;
+    m_font.gradientTo = to;
+    markContentDirty();
+  }
+
   // Extra font axes ("wdth=75"); empty = the font's defaults.
   void setVariations(std::string variations) {
     if (m_font.variations == variations) {

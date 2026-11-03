@@ -49,6 +49,8 @@ public:
   void setStroke(float em);
   // Extra font axes ("wdth=75"); empty = the font's defaults.
   void setVariations(std::string variations);
+  // Diagonal ink gradient, packed 0xRRGGBBAA; both 0 = the label color.
+  void setGradient(std::uint32_t from, std::uint32_t to);
   void setColor(const ColorSpec& color);
   // Explicit fixed color.
   void setColor(const Color& color);

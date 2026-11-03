@@ -8,7 +8,7 @@
 
 // Rulebook 9.15 clock styles: presets of font, weight, layout and effect for the lock screen clock. The fonts are the
 // bundled OFL files under assets/fonts/lock (Inter is the shell's own font).
-enum class ClockLayout { Line, Stacked, Words };
+enum class ClockLayout { Line, Stacked, Words, Analog, Flip };
 
 struct ClockStyle {
   std::string_view id;
@@ -24,6 +24,8 @@ struct ClockStyle {
   float stroke = 0.0F;
   // Extra font axes, "wdth=75".
   std::string_view variations;
+  // Gradient: the ink runs from the palette primary_fixed to tertiary_fixed.
+  bool gradient = false;
   // Live: the weight follows the seconds, light at :00 to bold at :59.
   bool live = false;
   // Two-tone: the minutes in accent_text.

@@ -55,6 +55,7 @@ namespace {
     hashCombine(seed, std::hash<float>{}(font.tracking));
     hashCombine(seed, std::hash<float>{}(font.stroke));
     hashCombine(seed, std::hash<std::string>{}(font.variations));
+    hashCombine(seed, std::hash<std::uint64_t>{}((std::uint64_t{font.gradientFrom} << 32U) | font.gradientTo));
     return seed;
   }
 
@@ -719,7 +720,8 @@ void CairoTextRenderer::measureCharSpans(
 // ── Rasterization ───────────────────────────────────────────────────────────
 
 void CairoTextRenderer::rasterizeLayout(
-    float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, CacheEntry& entry
+    float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, const TextFont& font,
+    CacheEntry& entry
 ) {
   entry.tinted = tinted;
   // Pixel-sized surface: ceil the logical rect up.
@@ -872,6 +874,19 @@ void CairoTextRenderer::rasterizeLayout(
     if (tinted) {
       // A8: rgb ignored, opaque alpha so show_glyphs writes coverage = 1.
       cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 1.0);
+    } else if (font.gradientFrom != 0 || font.gradientTo != 0) {
+      const auto stop = [](cairo_pattern_t* pattern, double at, std::uint32_t rgba) {
+        cairo_pattern_add_color_stop_rgba(
+            pattern, at, ((rgba >> 24U) & 0xFFU) / 255.0, ((rgba >> 16U) & 0xFFU) / 255.0,
+            ((rgba >> 8U) & 0xFFU) / 255.0, (rgba & 0xFFU) / 255.0
+        );
+      };
+      cairo_pattern_t* gradient =
+          cairo_pattern_create_linear(0.0, -tilePlan.yTopPx, pxWidth, pxHeight - tilePlan.yTopPx);
+      stop(gradient, 0.0, font.gradientFrom);
+      stop(gradient, 1.0, font.gradientTo);
+      cairo_set_source(cr, gradient);
+      cairo_pattern_destroy(gradient);
     } else {
       cairo_set_source_rgba(cr, color.r, color.g, color.b, color.a);
     }
@@ -1014,7 +1029,7 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
 
   PangoLayout* layout =
       buildLayout(contentScale, text, fontSize, font, maxWidth * contentScale, maxLines, align, ellipsize, useMarkup);
-  const bool tinted = !containsColorGlyph(layout);
+  const bool tinted = font.gradientFrom == 0 && font.gradientTo == 0 && !containsColorGlyph(layout);
   if (tinted) {
     key.colorRgba = 0U;
   }
@@ -1023,7 +1038,7 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
     rasterColor.a = 1.0F;
   }
   CacheEntry entry{};
-  rasterizeLayout(contentScale, layout, rasterColor, tinted, font.stroke * fontSize * contentScale, entry);
+  rasterizeLayout(contentScale, layout, rasterColor, tinted, font.stroke * fontSize * contentScale, font, entry);
   g_object_unref(layout);
 
   MetricsKey mkey;

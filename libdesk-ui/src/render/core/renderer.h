@@ -45,6 +45,9 @@ struct TextFont {
   float tracking = 0.0F; // letter spacing in em, from dynamicTracking(size)
   float stroke = 0.0F;   // > 0: glyph outlines only, this wide in em
   std::string variations; // extra font axes, "wdth=75"; opsz is set from the size
+  // Diagonal ink gradient, top left to bottom right, packed 0xRRGGBBAA; both 0 = the draw color.
+  std::uint32_t gradientFrom = 0;
+  std::uint32_t gradientTo = 0;
 
   bool operator==(const TextFont&) const = default;
 };

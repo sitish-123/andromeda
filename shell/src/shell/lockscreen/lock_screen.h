@@ -64,6 +64,8 @@ public:
   bool lockFromPhone();
   // Battery and network for the status island; the keyboard layout comes from the surface indicators.
   void setStatus(AuthColumn::Status status);
+  // Gradient clock colors from the resolved palette, packed 0xRRGGBBAA.
+  void setClockGradient(std::uint32_t from, std::uint32_t to);
   void primeDesktopCaptures();
   void clearPrimedDesktopCaptures();
   void unlock();
@@ -242,6 +244,8 @@ private:
   bool m_passwordOnly = false;
   bool m_lastRejected = false;
   AuthColumn::Status m_statusIsland;
+  std::uint32_t m_clockGradientFrom = 0;
+  std::uint32_t m_clockGradientTo = 0;
   // LockFromPhone arrived during the unlock animation.
   bool m_phoneLockAfterUnlock = false;
 };

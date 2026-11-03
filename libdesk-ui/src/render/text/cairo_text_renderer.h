@@ -197,7 +197,8 @@ private:
   // rasterizes as CAIRO_FORMAT_ARGB32 with `color` baked in (for COLR emoji
   // content).
   void rasterizeLayout(
-      float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, CacheEntry& entry
+      float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, const TextFont& font,
+      CacheEntry& entry
   );
   // Extract logical metrics from a laid-out PangoLayout, dividing by PANGO_SCALE and by scale.
   TextMetrics metricsFromLayout(float contentScale, PangoLayout* layout) const;

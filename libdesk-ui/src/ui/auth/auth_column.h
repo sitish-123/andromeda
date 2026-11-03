@@ -1,7 +1,9 @@
 #pragma once
 
 #include "render/animation/animation_manager.h"
+#include "ui/auth/analog_clock.h"
 #include "ui/auth/auth_layout.h"
+#include "ui/auth/flip_clock.h"
 
 #include <array>
 #include <cstddef>
@@ -59,6 +61,16 @@ public:
     float clockStroke = 0.0F;
     // Extra font axes ("wdth=75").
     std::string clockVariations;
+    // Gradient ink, packed 0xRRGGBBAA; both 0 = solid label color.
+    std::uint32_t clockGradientFrom = 0;
+    std::uint32_t clockGradientTo = 0;
+    // Analog style: draw the dial at this time instead of the text lines; hour < 0 = text clock.
+    int analogHour = -1;
+    int analogMinute = 0;
+    // Flip style: the first line's "hh:mm" on two cards.
+    bool flip = false;
+    // Live style: small seconds after the first line (mockup: 20 px at a 64 px clock, label_2); empty = none.
+    std::string liveSeconds;
     // Two-tone: the part after the first ':' in accent_text.
     bool clockTwoTone = false;
     std::string date;
@@ -133,6 +145,9 @@ private:
   // Clock lines (stacked and word styles use up to three); the accent label holds the two-tone minutes.
   std::array<Label*, 3> m_clockLines{};
   Label* m_clockAccent = nullptr;
+  Label* m_clockSeconds = nullptr;
+  AnalogClock m_analog;
+  FlipClock m_flip;
   Rect m_capsuleRect;
   float m_shakeAmplitude = 8.0F;
 };

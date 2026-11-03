@@ -99,6 +99,10 @@ void AuthColumn::build(Node& root, AnimationManager& animations) {
   }
   m_clockAccent = addLabel(*m_glanceGroup, FontWeight::Light, true);
   m_clockAccent->setFontFeatures("tnum");
+  m_clockSeconds = addLabel(*m_glanceGroup, FontWeight::Medium, true);
+  m_clockSeconds->setFontFeatures("tnum");
+  m_analog.build(*m_glanceGroup);
+  m_flip.build(*m_glanceGroup);
   m_glanceHint = addLabel(*m_glanceGroup, FontWeight::Medium, true);
 
   m_columnGroup = addGroup(*m_group);
@@ -387,15 +391,33 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     label->setTracking(m_state.clockTracking);
     label->setStroke(m_state.clockStroke);
     label->setVariations(m_state.clockVariations);
+    label->setGradient(m_state.clockGradientFrom, m_state.clockGradientTo);
     label->setLineHeight(heroLine);
     label->setColor(color);
     label->setText(text);
     label->measure(renderer);
   };
   m_clockAccent->setVisible(false);
+  const bool analog = place.clock && m_state.analogHour >= 0;
+  m_analog.setVisible(analog);
+  if (analog) {
+    const float diameter = snap(heroLine * static_cast<float>(place.clockLines));
+    m_analog.layout(lineX(diameter), snap(clockY), diameter, m_state.analogHour, m_state.analogMinute, kLabel1);
+  }
+  const std::size_t flipColon = lines.empty() ? std::string::npos : lines.front().find(':');
+  const bool flip = place.clock && m_state.flip && flipColon != std::string::npos;
+  m_flip.setVisible(flip);
+  if (flip) {
+    const std::string& text = lines.front();
+    const std::size_t end = text.find(':', flipColon + 1);
+    m_flip.layout(
+        renderer, lineX(FlipClock::widthFor(heroLine)), snap(clockY), heroLine, text.substr(0, flipColon),
+        text.substr(flipColon + 1, end == std::string::npos ? std::string::npos : end - flipColon - 1), kLabel1
+    );
+  }
   for (std::size_t i = 0; i < m_clockLines.size(); ++i) {
     Label* label = m_clockLines[i];
-    const bool shown = place.clock && i < lines.size() && i < static_cast<std::size_t>(place.clockLines)
+    const bool shown = !analog && !flip && place.clock && i < lines.size() && i < static_cast<std::size_t>(place.clockLines)
         && !lines[i].empty();
     label->setVisible(shown);
     if (!shown) {
@@ -414,6 +436,17 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     }
     styleLine(label, lines[i], kLabel1);
     label->setPosition(lineX(label->width()), snap(y + (heroLine - label->height()) * 0.5F));
+  }
+  const bool seconds = place.clock && !analog && !flip && !m_state.liveSeconds.empty() && m_clockLines[0]->visible();
+  m_clockSeconds->setVisible(seconds);
+  if (seconds) {
+    Label* first = m_clockLines[0];
+    m_clockSeconds->setFontSize(heroLine * 20.0F / 64.0F);
+    m_clockSeconds->setColor(kLabel2);
+    m_clockSeconds->setText(m_state.liveSeconds);
+    m_clockSeconds->measure(renderer);
+    // Top-aligned superscript; the line keeps its centre, so the seconds hang off the right edge.
+    m_clockSeconds->setPosition(snap(first->x() + first->width() + 4.0F * s), snap(first->y() + 8.0F * s));
   }
   const float dateLine = Tokens::typeTitle3.line * s;
   m_date->setFontSize(Tokens::typeTitle3.size * s);

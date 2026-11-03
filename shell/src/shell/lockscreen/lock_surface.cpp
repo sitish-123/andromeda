@@ -1858,8 +1858,20 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     state.clockWeight = clockWeightAt(clock, local.tm_sec);
     state.clockTracking = clock.tracking;
     state.clockStroke = clock.stroke;
+    if (clock.gradient) {
+      state.clockGradientFrom = m_clockGradientFrom;
+      state.clockGradientTo = m_clockGradientTo;
+    }
     state.clockVariations = std::string(clock.variations);
     state.clockTwoTone = clock.twoTone;
+    state.flip = clock.layout == ClockLayout::Flip;
+    if (clock.live && !lock.clockSeconds) {
+      state.liveSeconds = std::format("{:02}", local.tm_sec);
+    }
+    if (clock.layout == ClockLayout::Analog) {
+      state.analogHour = local.tm_hour;
+      state.analogMinute = local.tm_min;
+    }
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
       state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
@@ -2071,6 +2083,15 @@ void LockSurface::startAndromedaClock() {
     requestLayout();
     startAndromedaClock();
   });
+}
+
+void LockSurface::setClockGradient(std::uint32_t from, std::uint32_t to) {
+  if (m_clockGradientFrom == from && m_clockGradientTo == to) {
+    return;
+  }
+  m_clockGradientFrom = from;
+  m_clockGradientTo = to;
+  requestLayout();
 }
 
 void LockSurface::setStatus(const AuthColumn::Status& status) {

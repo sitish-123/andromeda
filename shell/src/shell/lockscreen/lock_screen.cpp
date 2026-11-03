@@ -717,6 +717,16 @@ void LockScreen::setStatus(AuthColumn::Status status) {
     if (instance.surface != nullptr) {
       instance.surface->setStatus(m_statusIsland);
     }
+void LockScreen::setClockGradient(std::uint32_t from, std::uint32_t to) {
+  m_clockGradientFrom = from;
+  m_clockGradientTo = to;
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setClockGradient(from, to);
+    }
+  }
+}
+
   }
 }
 
@@ -1490,6 +1500,7 @@ void LockScreen::updatePromptOnSurfaces() {
     instance.surface->setStatus(m_statusIsland);
   }
 }
+    instance.surface->setClockGradient(m_clockGradientFrom, m_clockGradientTo);
 
 void LockScreen::applyIndicatorsToSurface(LockSurface& surface) const {
   const bool capsLock = m_wayland != nullptr && m_wayland->keyboardLockKeysState().capsLock;

@@ -6,8 +6,9 @@
 
 namespace {
 
-  constexpr std::array<ClockStyle, 12> kStyles{{
+  constexpr std::array<ClockStyle, 16> kStyles{{
       {.id = "classic", .family = "Inter", .file = "", .weight = 300},
+      {.id = "bold", .family = "Inter", .file = "", .weight = 600, .tracking = -0.03F},
       {.id = "editorial", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 300},
       {.id = "italic", .family = "Instrument Serif", .file = "InstrumentSerif-Italic.ttf", .weight = 400},
       {.id = "stacked", .family = "Space Grotesk", .file = "SpaceGrotesk-Variable.ttf", .weight = 600,
@@ -22,6 +23,9 @@ namespace {
       {.id = "live", .family = "Bricolage Grotesque", .file = "BricolageGrotesque-Variable.ttf", .weight = 200,
        .live = true},
       {.id = "dot-matrix", .family = "Doto", .file = "Doto-Variable.ttf", .weight = 600, .variations = "ROND=100"},
+      {.id = "gradient", .family = "Inter", .file = "", .weight = 300, .gradient = true},
+      {.id = "analog", .family = "Inter", .file = "", .weight = 300, .layout = ClockLayout::Analog},
+      {.id = "flip", .family = "Inter", .file = "", .weight = 600, .layout = ClockLayout::Flip},
       {.id = "outline", .family = "Space Grotesk", .file = "SpaceGrotesk-Variable.ttf", .weight = 600, .stroke = 0.02F},
   }};
 
@@ -89,7 +93,11 @@ std::vector<std::string> clockLines(const ClockStyle& style, const std::tm& time
   case ClockLayout::Words:
     // Words read the 12 h clock; seconds do not apply.
     return {std::string(kOnes[static_cast<std::size_t>(time.tm_hour % 12)]), minuteWords(time.tm_min)};
+  case ClockLayout::Analog:
+    // Two lines of room for the dial; the text stays for screen readers.
+    return {hh, mm};
   case ClockLayout::Line:
+  case ClockLayout::Flip:
     break;
   }
   return {format.seconds ? std::format("{}:{}:{}", hh, mm, ss) : std::format("{}:{}", hh, mm)};

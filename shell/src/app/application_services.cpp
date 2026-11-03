@@ -882,6 +882,12 @@ void Application::initStyleThemeAndWayland() {
     m_settingsWindow.setResolvedPalette(generated, mode);
     const auto& shellTokens = m_themeService.isLightMode() ? generated.light : generated.dark;
     const auto primary = shellTokens.find("primary");
+    // The lock clock sits on a dimmed wallpaper: the light fixed tones keep the gradient legible.
+    const auto gradientFrom = generated.dark.find("primary_fixed");
+    const auto gradientTo = generated.dark.find("tertiary_fixed");
+    if (gradientFrom != generated.dark.end() && gradientTo != generated.dark.end()) {
+      m_lockScreen.setClockGradient((gradientFrom->second << 8U) | 0xFFU, (gradientTo->second << 8U) | 0xFFU);
+    }
     m_liveAppearance.publish(
         m_themeService.resolvedShellMode(), primary != shellTokens.end() ? formatRgbHex(rgbHex(primary->second)) : ""
     );

@@ -96,6 +96,11 @@ void Label::setTracking(std::optional<float> em) {
   m_measureCached = false;
 }
 
+void Label::setGradient(std::uint32_t from, std::uint32_t to) {
+  m_textNode->setGradient(from, to);
+  m_measureCached = false;
+}
+
 void Label::setVariations(std::string variations) {
   m_textNode->setVariations(std::move(variations));
   m_measureCached = false;

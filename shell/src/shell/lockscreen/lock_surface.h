@@ -81,6 +81,8 @@ public:
   };
   void setAuthExtras(const AuthExtras& extras);
   void setStatus(const AuthColumn::Status& status);
+  // Gradient clock colors, packed 0xRRGGBBAA.
+  void setClockGradient(std::uint32_t from, std::uint32_t to);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
@@ -258,6 +260,8 @@ private:
   bool m_pointerMoved = false;
   AuthExtras m_authExtras;
   AuthColumn::Status m_statusIsland;
+  std::uint32_t m_clockGradientFrom = 0;
+  std::uint32_t m_clockGradientTo = 0;
   Timer m_andromedaClock;
   Timer m_glanceIdle;
   // Clock style font file -> the family fontconfig registered it under.
