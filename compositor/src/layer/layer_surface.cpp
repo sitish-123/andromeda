@@ -29,6 +29,12 @@ namespace andromeda {
 
   namespace {
 
+    // A spring overshoot above 1 would upscale the buffer and flip its whole-pixel position and size for the frames it
+    // takes to settle, so the shown scale stops at the buffer's own size.
+    double shownScale(const SurfaceMotion& motion) {
+      return std::clamp(motion.value(SurfaceMotion::Property::Scale)[0], 0.01, 1.0);
+    }
+
     struct RoundedShape {
       wlr_box box;
       int radius;
@@ -329,7 +335,7 @@ namespace andromeda {
     }
     using Property = SurfaceMotion::Property;
     const SurfaceMotion& motion = state->motion;
-    const double scale = std::max(0.01, motion.value(Property::Scale)[0]);
+    const double scale = shownScale(motion);
     const auto& translate = motion.value(Property::Translate);
     const double width = m_layerSurface->surface->current.width;
     const double height = m_layerSurface->surface->current.height;
@@ -631,7 +637,7 @@ namespace andromeda {
     m_blur.setLiquid(m_liquid);
     if (state != nullptr) {
       const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
-      const double scale = std::max(0.01, state->motion.value(SurfaceMotion::Property::Scale)[0]);
+      const double scale = shownScale(state->motion);
       const wlr_box scaled{
           static_cast<int>(std::lround(c[0] * scale)), static_cast<int>(std::lround(c[1] * scale)),
           static_cast<int>(std::lround(c[2] * scale)), static_cast<int>(std::lround(c[3] * scale))
