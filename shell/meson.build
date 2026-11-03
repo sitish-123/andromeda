@@ -1229,6 +1229,7 @@ if build_tests
     'lock_fail_delay',
     'lock_notice_groups',
     'auth_layout',
+    'clock_style',
     'lockscreen_session_actions',
     'log',
     'math_provider',

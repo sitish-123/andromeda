@@ -219,6 +219,7 @@ _desk_ui_sources = files(
   'src/ui/auth/auth_chrome.cpp',
   'src/ui/auth/auth_column.cpp',
   'src/ui/auth/auth_layout.cpp',
+  'src/ui/auth/clock_style.cpp',
   'src/ui/auth/ryoku_auth_scene.cpp',
   'src/ui/controls/box.cpp',
   'src/ui/controls/button.cpp',

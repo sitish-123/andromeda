@@ -570,6 +570,11 @@ struct LockscreenConfig {
   std::string notificationContent = "hidden";
   // Shown under the account, for example a phone number to call if found.
   std::string ownerMessage;
+  // Clock style id (libdesk-ui ui/auth/clock_style.h); s | m | l | xl, empty = the layout's size.
+  std::string clockStyle = "classic";
+  std::string clockSize;
+  bool clockFormat24h = true;
+  bool clockSeconds = false;
   bool allowEmptyPassword = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade,    LockscreenTransition::Wipe,
                                                    LockscreenTransition::Disc,    LockscreenTransition::Stripes,

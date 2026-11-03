@@ -168,6 +168,10 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::layout, "layout"),
         field(&LockscreenConfig::notificationContent, "notification_content"),
         field(&LockscreenConfig::ownerMessage, "owner_message"),
+        field(&LockscreenConfig::clockStyle, "clock_style"),
+        field(&LockscreenConfig::clockSize, "clock_size"),
+        field(&LockscreenConfig::clockFormat24h, "clock_format_24h"),
+        field(&LockscreenConfig::clockSeconds, "clock_seconds"),
         field(&LockscreenConfig::allowEmptyPassword, "allow_empty_password"),
         enumArrayField(
             &LockscreenConfig::transitions, "transition", kLockscreenTransitions, std::optional<LockscreenTransition>{}
