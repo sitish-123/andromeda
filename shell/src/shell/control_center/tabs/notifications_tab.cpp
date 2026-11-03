@@ -979,7 +979,7 @@ void NotificationsTab::applyFilterSlide(float progress, bool slidingIn) {
     return;
   }
 
-  const float travel = m_root->width();
+  const float travel = m_root->width() * 0.12F;
   if (travel <= 0.0F) {
     return;
   }
@@ -987,7 +987,7 @@ void NotificationsTab::applyFilterSlide(float progress, bool slidingIn) {
   const auto direction = static_cast<float>(m_filterSlideDirection);
   if (slidingIn) {
     m_list->setPosition(m_filterSlideBaseX + direction * travel * (1.0F - progress), m_filterSlideBaseY);
-    m_list->setOpacity(0.7F + 0.3F * progress);
+    m_list->setOpacity(progress);
   } else {
     m_list->setPosition(m_filterSlideBaseX - direction * travel * progress, m_filterSlideBaseY);
     m_list->setOpacity(1.0F - 0.3F * progress);
@@ -1006,33 +1006,14 @@ void NotificationsTab::beginFilterSlideOut(std::size_t nextIndex) {
     return;
   }
 
-  m_pendingFilterIndex = nextIndex;
+  // One motion: the list swaps at once and the new one slides in a short way while it fades in.
   m_filterSlideDirection = nextIndex > m_filterIndex ? 1 : -1;
-  m_filterSlideBaseX = m_list->x();
-  m_filterSlideBaseY = m_list->y();
-
-  PanelManager::instance().requestFrameTick();
-  m_filterSlideAnimId = animations->animateSpring(
-      0.0F, 1.0F, Style::spring(Tokens::springPage),
-      [this](float progress) {
-        applyFilterSlide(progress, false);
-        PanelManager::instance().requestRedraw();
-      },
-      [this] {
-        m_filterSlideAnimId = 0;
-        if (m_pendingFilterIndex != std::numeric_limits<std::size_t>::max()) {
-          m_filterIndex = m_pendingFilterIndex;
-        }
-        m_pendingFilterIndex = std::numeric_limits<std::size_t>::max();
-        m_lastRebuildFilterIndex = static_cast<std::size_t>(-1);
-        if (m_list != nullptr) {
-          m_list->scrollView().setScrollOffset(0.0F);
-        }
-        m_startFilterSlideIn = true;
-        PanelManager::instance().requestLayout();
-      },
-      m_list
-  , 0.0F, Unit::Progress);
+  m_filterIndex = nextIndex;
+  m_pendingFilterIndex = std::numeric_limits<std::size_t>::max();
+  m_lastRebuildFilterIndex = static_cast<std::size_t>(-1);
+  m_list->scrollView().setScrollOffset(0.0F);
+  m_startFilterSlideIn = true;
+  PanelManager::instance().requestLayout();
 }
 
 void NotificationsTab::beginFilterSlideIn() {
