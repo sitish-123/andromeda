@@ -1348,5 +1348,10 @@ TimeService::Precision Application::timePrecisionNeeded() const {
   // automation wakes through its own deadline instead.
   return TimeService::Precision::Minute;
 }
+
 void Application::syncLockStreamPause() {
+  const PowerProfilesService* profiles = powerProfiles();
+  m_lockscreenWidgetsController.setStreamsPaused(
       profiles != nullptr && profiles->activeProfile() == "power-saver", m_compositorPlatform.outputPowerStates()
+  );
+}
