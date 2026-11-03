@@ -153,7 +153,7 @@ namespace {
 
   [[nodiscard]] bool isDetailPresentation(const LauncherResult& result) { return result.presentation == "detail"; }
   [[nodiscard]] bool isMediaPresentation(const LauncherResult& result) {
-    return result.presentation == "gif" || result.presentation == "sticker";
+    return result.presentation == "gif" || result.presentation == "sticker" || result.presentation == "file-image";
   }
 
   [[nodiscard]] std::string providerOverviewId(std::string_view prefix) {

@@ -14,7 +14,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -37,6 +39,37 @@ namespace {
   std::string socketPath() {
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     return runtime == nullptr || runtime[0] == '\0' ? std::string() : std::string(runtime) + "/andromeda-index.sock";
+  }
+
+  bool isImage(std::string_view path) {
+    constexpr std::array<std::string_view, 9> kImages = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jxl", ".avif"};
+    std::string lower(path.substr(path.size() > 6 ? path.size() - 6 : 0));
+    std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return std::ranges::any_of(kImages, [&](std::string_view ext) { return lower.ends_with(ext); });
+  }
+
+  // The freedesktop thumbnail of a file ($XDG_CACHE_HOME/thumbnails/{x-large,large,normal}/<md5 of uri>.png), or empty.
+  std::string cachedThumbnail(const std::string& path) {
+    const std::string uri = fileUri(path);
+    if (uri.empty()) {
+      return {};
+    }
+    gchar* md5 = g_compute_checksum_for_string(G_CHECKSUM_MD5, uri.c_str(), -1);
+    const std::string name = std::string(md5) + ".png";
+    g_free(md5);
+    const char* cache = std::getenv("XDG_CACHE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path base = cache != nullptr && cache[0] != '\0'
+        ? std::filesystem::path(cache)
+        : std::filesystem::path(home != nullptr ? home : "") / ".cache";
+    std::error_code ec;
+    for (const char* size : {"x-large", "large", "normal"}) {
+      const auto file = base / "thumbnails" / size / name;
+      if (std::filesystem::exists(file, ec)) {
+        return file.string();
+      }
+    }
+    return {};
   }
 
   // The folder as the user reads it: the home folder as "~".
@@ -209,6 +242,13 @@ void FilesProvider::onAnswer(const std::string& text, const std::string& body) c
     r.subtitle = displayFolder(path);
     r.glyphName = folder ? "folder" : "file";
     r.presentation = folder ? "folder" : "file";
+    // Images preview themselves; other files use a thumbnail a file manager already made, if any.
+    if (!folder) {
+      r.iconPath = isImage(path) ? path : cachedThumbnail(path);
+      if (!r.iconPath.empty()) {
+        r.presentation = "file-image";
+      }
+    }
     r.category = displayName();
     m_results.push_back(std::move(r));
   }

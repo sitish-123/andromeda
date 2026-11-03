@@ -33,6 +33,8 @@ public:
   [[nodiscard]] std::string displayName() const override;
   [[nodiscard]] std::string_view defaultGlyphName() const override { return "folder"; }
   [[nodiscard]] bool defaultIncludeInGlobalSearch() const override { return true; }
+  // Files the user opens, reveals or copies rise in the section by frecency.
+  [[nodiscard]] bool trackUsage() const override { return true; }
   [[nodiscard]] bool isLoading() const override { return m_loading; }
   [[nodiscard]] std::optional<std::string> answeredQuery() const override { return m_answered; }
   void setResultsChangedCallback(std::function<void()> callback) override { m_onResultsChanged = std::move(callback); }
