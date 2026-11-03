@@ -427,8 +427,8 @@ namespace noctalia::config {
       }
     }
 
-    // lockscreen.style (ryoku | classic) became lockscreen.theme (ryoku | andromeda). A config without either key keeps
-    // the Ryoku look it had; only a first start with no config gets the Andromeda default.
+    // lockscreen.style (ryoku | classic) became lockscreen.theme (ryoku | andromeda). keepRyokuWhenUnset writes ryoku
+    // when neither key is set, for installs from before the theme key.
     template <typename OnChanged>
     void migrateLockscreenTheme(toml::table& root, bool keepRyokuWhenUnset, OnChanged&& onChanged) {
       auto* section = root["lockscreen"].as_table();
@@ -453,7 +453,9 @@ namespace noctalia::config {
     }
 
     void migrateLockscreenThemeSidecar(toml::table& root, schema::Diagnostics& diag) {
-      migrateLockscreenTheme(root, false, [&diag](const std::string& path) {
+      // A file that records an older config_version comes from an install that had the Ryoku look; a fresh overrides
+      // file has no version yet and keeps the Andromeda default.
+      migrateLockscreenTheme(root, root.contains(kConfigVersionKey), [&diag](const std::string& path) {
         diag.warn(path, "lockscreen style is now theme");
       });
     }
@@ -1165,7 +1167,7 @@ namespace noctalia::config {
           });
         }
     );
-    migrateLockscreenTheme(root, !root.empty(), [&issues](const std::string& path) {
+    migrateLockscreenTheme(root, false, [&issues](const std::string& path) {
       issues.push_back({
           .migrationVersion = kLockscreenThemeMigrationVersion,
           .path = path,

@@ -614,6 +614,7 @@ _noctalia_sources = files(
   'src/shell/switcher/window_switcher_tile.cpp',
   'src/shell/profile/avatar_path.cpp',
   'src/shell/greeter/greeter_appearance_sync.cpp',
+  'src/shell/lockscreen/lock_auth_column.cpp',
   'src/shell/lockscreen/lock_fail_delay.cpp',
   'src/shell/lockscreen/lock_screen.cpp',
   'src/shell/lockscreen/lock_ryoku_scene.cpp',

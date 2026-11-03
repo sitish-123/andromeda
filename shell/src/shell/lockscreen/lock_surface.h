@@ -10,6 +10,7 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "shell/lockscreen/lock_auth_column.h"
 #include "shell/lockscreen/lock_phone_row.h"
 #include "shell/lockscreen/lock_ryoku_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
@@ -60,6 +61,18 @@ public:
   void setLockedState(bool locked);
   void setPromptState(std::string user, const std::string& password, std::string status, bool error, bool authenticating);
   void setKeyboardIndicators(bool capsLock, bool hasMultipleLayouts, bool layoutSwitchable, std::string layoutLabel);
+  // Auth facts the Andromeda column shows beyond the status line.
+  struct AuthExtras {
+    bool passwordOnly = false;
+    bool failDelay = false;
+    int failures = 0;
+    // The last error was a wrong password (shake), not a PAM error.
+    bool rejected = false;
+    bool face = false;
+    bool fingerprint = false;
+    bool operator==(const AuthExtras&) const = default;
+  };
+  void setAuthExtras(const AuthExtras& extras);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
@@ -155,6 +168,7 @@ private:
   void ensureLayoutChipInPasswordRow();
   [[nodiscard]] std::vector<SessionPanelActionConfig> resolveSessionActions() const;
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
+  void layoutAndromeda(Renderer& renderer, float sw, float sh);
   void startRyokuLive();
   void startRyokuIdleClock();
   [[nodiscard]] lockscreen_login_box::LoginBoxStyle resolveLoginStyle() const;
@@ -203,6 +217,9 @@ private:
   Timer m_ryokuClock;
   AnimationManager::Id m_ryokuLive = 0;
   bool m_ryokuShownError = false;
+  std::unique_ptr<LockAuthColumn> m_auth;
+  bool m_authShownError = false;
+  AuthExtras m_authExtras;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;

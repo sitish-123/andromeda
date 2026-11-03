@@ -59,9 +59,14 @@ void LockFailDelay::reset() {
   }
 }
 
-std::int64_t LockFailDelay::remainingMs(std::int64_t nowMs) const {
-  // The cap keeps a wall clock set back from stretching the wait.
-  return std::clamp<std::int64_t>(m_untilMs - nowMs, 0, delayMsFor(m_failures));
+std::int64_t LockFailDelay::remainingMs(std::int64_t nowMs) {
+  // A wall clock set back would stretch the wait: restart the current step from now instead.
+  const std::int64_t step = delayMsFor(m_failures);
+  if (m_untilMs - nowMs > step) {
+    m_untilMs = nowMs + step;
+    save();
+  }
+  return std::max<std::int64_t>(m_untilMs - nowMs, 0);
 }
 
 void LockFailDelay::save() const {

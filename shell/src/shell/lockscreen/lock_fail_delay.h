@@ -14,7 +14,7 @@ public:
 
   void recordRejected(std::int64_t nowMs);
   void reset();
-  [[nodiscard]] std::int64_t remainingMs(std::int64_t nowMs) const;
+  [[nodiscard]] std::int64_t remainingMs(std::int64_t nowMs);
   [[nodiscard]] int failures() const noexcept { return m_failures; }
 
   [[nodiscard]] static std::int64_t delayMsFor(int failures);

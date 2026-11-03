@@ -232,4 +232,7 @@ private:
   LockFailDelay m_failDelay{LockFailDelay::defaultPath()};
   Timer m_failDelayTimer;
   bool m_passwordOnly = false;
+  bool m_lastRejected = false;
+  // LockFromPhone arrived during the unlock animation.
+  bool m_phoneLockAfterUnlock = false;
 };

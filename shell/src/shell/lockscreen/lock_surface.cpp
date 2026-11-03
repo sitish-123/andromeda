@@ -595,6 +595,9 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
     m_ryoku = std::make_unique<LockRyokuScene>();
     m_ryoku->build(m_root, m_animations);
     startRyokuLive();
+  } else {
+    m_auth = std::make_unique<LockAuthColumn>();
+    m_auth->build(m_root, m_animations);
   }
   requestUpdate();
 }
@@ -1652,6 +1655,8 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
   if (m_ryoku != nullptr) {
     layoutRyoku(renderer, sw, sh, loginStyle);
+  } else if (m_auth != nullptr) {
+    layoutAndromeda(renderer, sw, sh);
   }
   m_phoneRow.layout(renderer, sw, sh, m_locked);
   layoutTransitionCover();
@@ -1696,6 +1701,65 @@ void LockSurface::layoutRyoku(
   }
   m_ryoku->setActions(std::move(actions));
   m_ryoku->layout(renderer, sw, sh);
+}
+
+// Andromeda keeps the real password field laid out but invisible (as Ryoku does), so it keeps focus and input,
+// and draws rulebook 9.15's auth column instead of the old login panel.
+void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
+  m_loginPanel->setOpacity(0.0F);
+  if (m_authPanel != nullptr) {
+    m_authPanel->setVisible(false);
+  }
+  const bool visible = m_locked && !m_blackout;
+  LockAuthColumn::State state;
+  if (visible) {
+    const auto& lock = m_config != nullptr ? m_config->config().lockscreen : LockscreenConfig{};
+    const bool typing = !m_password.empty();
+    state.user = m_user;
+    state.passwordLength = m_password.size();
+    state.ownerMessage = lock.ownerMessage;
+    if (m_authExtras.failDelay) {
+      state.placeholder = m_status;
+      state.inputOff = true;
+      state.hint = i18n::tr("lockscreen.failed-attempts", "count", m_authExtras.failures);
+    } else {
+      state.placeholder = i18n::tr("lockscreen.password-placeholder");
+      state.hint = m_status == i18n::tr("lockscreen.ready") ? std::string{} : m_status;
+      state.hintError = m_error;
+      if (!m_error && typing && m_capsLock) {
+        state.hint = i18n::tr("lockscreen.caps-lock-on");
+      }
+    }
+    if (m_authenticating) {
+      state.trailing = LockAuthColumn::Trailing::Checking;
+      state.hint.clear();
+    } else if (typing) {
+      state.trailing = LockAuthColumn::Trailing::Go;
+    } else if (m_authExtras.face) {
+      state.trailing = LockAuthColumn::Trailing::Face;
+    } else if (m_authExtras.fingerprint) {
+      state.trailing = LockAuthColumn::Trailing::Fingerprint;
+    }
+    if (m_authExtras.passwordOnly) {
+      state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
+      state.reasonBody = i18n::tr("lockscreen.phone-lock.body");
+    }
+  }
+  const bool shake = visible && m_error && m_authExtras.rejected && !m_authShownError;
+  m_authShownError = m_error;
+  m_auth->setState(std::move(state));
+  m_auth->layout(renderer, sw, sh, m_config != nullptr ? m_config->config().accessibility.uiScale : 1.0F);
+  if (shake) {
+    m_auth->playRejected();
+  }
+}
+
+void LockSurface::setAuthExtras(const AuthExtras& extras) {
+  if (m_authExtras == extras) {
+    return;
+  }
+  m_authExtras = extras;
+  requestUpdate();
 }
 
 void LockSurface::updateCopy() {

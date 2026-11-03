@@ -213,7 +213,7 @@ bool LockScreen::lock() {
     return true;
   }
   m_lockedAtMillis = bootTimeMillis();
-  m_graceAllowed = true;
+  m_graceAllowed = !m_passwordOnly;
   kLog.debug("lock requested, grace starts at {}", m_lockedAtMillis);
   if (!m_wayland->hasSessionLockManager()) {
     invalidateDesktopCaptures();
@@ -379,6 +379,9 @@ void LockScreen::finishUnlock() {
   clearInstances();
   m_pointerSurface = nullptr;
   wl_display_flush(m_wayland->display());
+  if (std::exchange(m_phoneLockAfterUnlock, false)) {
+    (void)lockFromPhone();
+  }
 }
 
 void LockScreen::onFontChanged() { requestLayout(); }
@@ -690,6 +693,10 @@ void LockScreen::onSystemResumed() {
 }
 
 bool LockScreen::lockFromPhone() {
+  if (m_unlocking) {
+    m_phoneLockAfterUnlock = true;
+    return true;
+  }
   m_passwordOnly = true;
   stopFingerprint();
   stopFace();
@@ -1438,8 +1445,18 @@ void LockScreen::resetLockState() {
 void LockScreen::clearInstances() { m_instances.clear(); }
 
 void LockScreen::updatePromptOnSurfaces() {
+  const LockSurface::AuthExtras extras{
+      .passwordOnly = m_passwordOnly,
+      .failDelay = m_failDelayTimer.active(),
+      .failures = m_failDelay.failures(),
+      .rejected = m_lastRejected,
+      .face = m_face != nullptr && faceEnabled(),
+      .fingerprint = m_fingerprint != nullptr && !m_passwordOnly
+          && (m_configService == nullptr || m_configService->config().lockscreen.fingerprint),
+  };
   for (auto& instance : m_instances) {
     instance.surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
+    instance.surface->setAuthExtras(extras);
   }
 }
 
@@ -1584,8 +1601,16 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
     return;
   }
 
-  m_status = result.message.empty() ? i18n::tr("lockscreen.authentication-failed") : result.message;
+  if (result.rejected) {
+    m_status = i18n::tr("lockscreen.wrong-password");
+  } else {
+    m_status = i18n::tr(
+        "lockscreen.pam-error", "message",
+        result.message.empty() ? i18n::tr("lockscreen.authentication-failed") : result.message
+    );
+  }
   m_statusIsError = true;
+  m_lastRejected = result.rejected;
   if (result.rejected) {
     m_failDelay.recordRejected(wallClockMillis());
     applyFailDelay();

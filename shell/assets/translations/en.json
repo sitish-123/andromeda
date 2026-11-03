@@ -1155,8 +1155,10 @@
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
     "fail-delay": "Try again in {time}",
+    "failed-attempts": "{count} failed attempts",
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
+    "pam-error": "Can't check your password: {message}",
     "password-required": "Password required",
     "ready": "Type your password and press Enter.",
     "ryoku": {
@@ -1165,7 +1167,12 @@
       "type": "Type your key"
     },
     "unlocked": "Unlocked",
+    "wrong-password": "Wrong password",
     "waiting": "Waiting for lock confirmation…",
+    "phone-lock": {
+      "body": "Face unlock is off until you type your password",
+      "title": "Locked from your phone"
+    },
     "phone-notifications": "{count} phone notification",
     "phone-notifications-plural": "{count} phone notifications"
   },

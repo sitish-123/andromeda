@@ -26,8 +26,9 @@ int main() {
     LockFailDelay delay(path);
     TEST_CHECK(delay.failures() == 6);
     TEST_CHECK(delay.remainingMs(31'000) == 30'000);
-    // A clock set back cannot stretch the wait past the current step.
+    // A clock set back cannot stretch the wait past the current step, and the countdown keeps running after it.
     TEST_CHECK(delay.remainingMs(-1'000'000) == 60'000);
+    TEST_CHECK(delay.remainingMs(-990'000) == 50'000);
     for (int i = 0; i < 10; ++i) {
       delay.recordRejected(0);
     }
