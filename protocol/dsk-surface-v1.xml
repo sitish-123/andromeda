@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="5">
+  <interface name="dsk_surface_manager_v1" version="6">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="5">
+  <interface name="dsk_surface_v1" version="6">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -187,6 +187,21 @@
       <arg name="y" type="fixed"/>
       <arg name="width" type="fixed"/>
       <arg name="height" type="fixed"/>
+    </event>
+
+    <enum name="backdrop" since="6">
+      <entry name="light" value="0" summary="the blurred backdrop is bright"/>
+      <entry name="dark" value="1" summary="the blurred backdrop is dark"/>
+    </enum>
+
+    <event name="backdrop" since="6">
+      <description summary="the backdrop under the liquid glass changed tone">
+        Sent while the liquid property is above 0: once when the first
+        measurement of the blurred backdrop arrives, then each time it moves
+        between light and dark. The compositor applies hysteresis, so a
+        backdrop near the threshold does not flicker.
+      </description>
+      <arg name="tone" type="uint" enum="backdrop"/>
     </event>
   </interface>
 

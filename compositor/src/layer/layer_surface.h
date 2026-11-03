@@ -43,6 +43,9 @@ namespace andromeda {
     [[nodiscard]] bool blurActive() const { return m_blur.active(); }
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
 
+    // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns
+    // true while a sample still waits for the GPU.
+    bool pollBackdrop();
     void focus();
     // A grabbing xdg_popup of this layer mapped. wlroots routes the grab's keys to the seat's focused surface and
     // never moves focus itself, so an on-demand layer that does not hold the keyboard yet takes it here.
@@ -98,6 +101,7 @@ namespace andromeda {
     float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
     ResolvedLayerRule m_rule;
+    bool m_backdropDark = false;
     AnimatedValue m_fade{1.0};
     bool m_mapped = false;
     bool m_arrangingOut = false;

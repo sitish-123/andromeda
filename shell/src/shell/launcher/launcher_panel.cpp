@@ -1688,6 +1688,28 @@ bool LauncherPanel::usesBrowserLayout() const {
       && (m_config == nullptr || m_config->config().shell.launcher.layout == ShellConfig::LauncherLayout::Full);
 }
 
+void LauncherPanel::onGlassToneChanged(float dark) {
+  m_glassDark = dark;
+  // The dark scheme's labels over the dark liquid tint; 0.68 = the input's placeholder alpha.
+  const auto toward = [dark](ColorRole role, std::uint32_t darkToken, float alpha = 1.0F) {
+    Color color = lerpColor(colorForRole(role), rgbaHex(darkToken), dark);
+    color.a *= alpha;
+    return color;
+  };
+  if (m_pillSearchGlyph != nullptr) {
+    m_pillSearchGlyph->setColor(
+        dark > 0.0F ? fixedColorSpec(toward(ColorRole::Label2, Tokens::schemeDark.label2))
+                    : colorSpecFromRole(ColorRole::Label2)
+    );
+  }
+  if (m_input != nullptr) {
+    m_input->setTextColorOverride(
+        dark > 0.0F ? std::optional{toward(ColorRole::Label1, Tokens::schemeDark.label1)} : std::nullopt,
+        dark > 0.0F ? std::optional{toward(ColorRole::Label2, Tokens::schemeDark.label2, 0.68F)} : std::nullopt
+    );
+  }
+}
+
 float LauncherPanel::preferredWidth() const { return scaled(usesBrowserLayout() ? Tokens::componentLauncherWidth : 560.0F); }
 
 float LauncherPanel::preferredHeight() const { return scaled(usesBrowserLayout() ? launcherSheetHeight() : 500.0F); }
@@ -2068,7 +2090,12 @@ void LauncherPanel::create() {
          .paddingH = Tokens::spaceP20 * scale,
          .minHeight = Tokens::componentLauncherSearch * scale,
          .fillWidth = true},
-        ui::glyph({.glyph = "search", .glyphSize = Tokens::sizeSymbolL * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
+        ui::glyph(
+            {.out = &m_pillSearchGlyph,
+             .glyph = "search",
+             .glyphSize = Tokens::sizeSymbolL * scale,
+             .color = colorSpecFromRole(ColorRole::Label2)}
+        ),
         filesToken(),
         std::move(input)
     ));
@@ -3607,6 +3634,8 @@ void LauncherPanel::onClose() {
   // The scene tree (and all nodes) is destroyed by PanelManager after onClose().
   m_container = nullptr;
   m_input = nullptr;
+  m_pillSearchGlyph = nullptr;
+  m_glassDark = 0.0F;
   m_categoryFilter = nullptr;
   m_body = nullptr;
   m_resultsViewport = nullptr;

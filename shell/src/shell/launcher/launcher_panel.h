@@ -60,6 +60,7 @@ public:
   void onOpen(std::string_view context) override;
   void onClose() override;
   void onIconThemeChanged() override;
+  void onGlassToneChanged(float dark) override;
 
   void clearUsage();
   void syncUsageOrderingState();
@@ -234,6 +235,8 @@ private:
   Separator* m_previewDivider = nullptr;
   Image* m_previewImage = nullptr;
   Glyph* m_previewGlyph = nullptr;
+  Glyph* m_pillSearchGlyph = nullptr;
+  float m_glassDark = 0.0F;
   Label* m_previewEmoji = nullptr;
   Flex* m_previewTones = nullptr;
   std::array<Label*, 5> m_previewToneLabels{};

@@ -13,6 +13,7 @@ const dsk_surface_v1_listener DskSurfaceClient::kListener = {
     .started = handleStarted,
     .done = handleDone,
     .clip_mapped = handleClipMapped,
+    .backdrop = handleBackdrop,
 };
 
 DskSurfaceClient::DskSurfaceClient(dsk_surface_manager_v1* manager, wl_surface* surface)
@@ -113,6 +114,14 @@ void DskSurfaceClient::handleClipMapped(
 
 void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t reason) {
   auto* self = static_cast<DskSurfaceClient*>(data);
+void DskSurfaceClient::handleBackdrop(void* data, dsk_surface_v1* /*surface*/, uint32_t tone) {
+  auto* self = static_cast<DskSurfaceClient*>(data);
+  self->m_backdropDark = tone == DSK_SURFACE_V1_BACKDROP_DARK;
+  if (self->m_onBackdrop) {
+    self->m_onBackdrop(*self->m_backdropDark);
+  }
+}
+
   self->m_started.erase(serial);
   const auto it = self->m_pending.find(serial);
   if (it == self->m_pending.end()) {

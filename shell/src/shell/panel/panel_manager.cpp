@@ -415,6 +415,11 @@ WaylandConnection* PanelManager::wayland() const noexcept {
 }
 
 void PanelManager::initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext) {
+  m_glassPaletteConn = paletteChanged().connect([this] {
+    if (isOpen()) {
+      updateGlassTone();
+    }
+  });
   m_platform = &platform;
   m_config = config;
   m_renderContext = renderContext;
@@ -1750,6 +1755,10 @@ void PanelManager::destroyPanel() {
   m_dsk.reset();
   m_panelLiquid = 0.0F;
   m_liquidAnimation = 0;
+  m_liquidTarget = 0.0F;
+  m_backdropDark = false;
+  m_glassDark = 0.0F;
+  m_glassDarkAnimation = 0;
   m_scaleMode = false;
   m_morphExtend = false;
   m_morphClipRunning = false;
@@ -2456,6 +2465,58 @@ float PanelManager::detachedFillAlpha() const {
   return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
 }
 
+
+ColorSpec PanelManager::detachedFill() const {
+  const float alpha = detachedFillAlpha();
+  if (m_glassDark <= 0.0F) {
+    return colorSpecFromRole(panelMaterialRole(), alpha);
+  }
+  // The dark liquid tint (34 %, see detachedFillAlpha) of the dark scheme, whatever the light palette.
+  const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
+  const float darkAlpha = thick + (std::min(thick, 0.34F) - thick) * m_panelLiquid;
+  Color fill = lerpColor(colorForRole(panelMaterialRole()), rgbaHex(Tokens::schemeDark.tintThick), m_glassDark);
+  fill.a = std::lerp(alpha, darkAlpha, m_glassDark);
+  return fixedColorSpec(fill);
+}
+
+void PanelManager::bindBackdrop() {
+  if (m_dsk == nullptr) {
+    return;
+  }
+  m_dsk->setOnBackdrop([this](bool dark) {
+    m_backdropDark = dark;
+    updateGlassTone();
+  });
+}
+
+void PanelManager::updateGlassTone() {
+  const float target =
+      isLightPalette() && !Style::reduceTransparency() && m_backdropDark && m_liquidTarget >= 1.0F ? 1.0F : 0.0F;
+  const auto apply = [this](float v) {
+    m_glassDark = std::clamp(v, 0.0F, 1.0F);
+    if (!m_attachedToBar && m_bgNode != nullptr) {
+      static_cast<Box*>(m_bgNode)->setFill(detachedFill());
+    }
+    if (m_activePanel != nullptr) {
+      m_activePanel->onGlassToneChanged(m_glassDark);
+    }
+  };
+  if (m_glassDarkAnimation == 0 && m_glassDark == target) {
+    // Same tone: re-resolve the blended colors, e.g. after a palette change.
+    apply(m_glassDark);
+  } else if (m_sceneRoot == nullptr || !MotionService::instance().enabled()) {
+    m_animations.cancel(m_glassDarkAnimation);
+    m_glassDarkAnimation = 0;
+    apply(target);
+  } else {
+    // Rulebook 7.4: a material change cross-fades on the fade spring.
+    m_glassDarkAnimation = m_animations.drive(
+        m_glassDarkAnimation, m_glassDark, target, Style::spring(Tokens::springFade), apply,
+        [this] { m_glassDarkAnimation = 0; }, m_sceneRoot.get()
+    );
+  }
+}
+
 DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
   return {
       static_cast<double>(m_panelInsetX), static_cast<double>(m_panelInsetY), static_cast<double>(m_panelVisualWidth),
@@ -2507,6 +2568,7 @@ bool PanelManager::startDetachedMorph() {
     return false;
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  bindBackdrop();
   m_morphSettled = false;
   const auto& r = m_morphSourceRect;
   if (!m_dsk->setClipFrom(source, {r[0], r[1], r[2], r[3]})) {
@@ -2571,7 +2633,7 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   const auto apply = [this](float v) {
     m_panelLiquid = std::clamp(v, 0.0F, 1.0F);
     if (!m_attachedToBar && m_bgNode != nullptr) {
-      static_cast<Box*>(m_bgNode)->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+      static_cast<Box*>(m_bgNode)->setFill(detachedFill());
     }
   };
   if (!animate || m_sceneRoot == nullptr) {
@@ -2588,7 +2650,10 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
   if (m_dsk == nullptr && manager != nullptr && m_wlSurface != nullptr) {
     m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+    bindBackdrop();
   }
+  m_liquidTarget = liquid;
+  updateGlassTone();
   if (m_dsk == nullptr || !m_dsk->hasLiquidProperty()) {
     return;
   }
@@ -2607,6 +2672,7 @@ bool PanelManager::startDetachedScaleOpen() {
     return false;
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  bindBackdrop();
   applyDetachedReveal(1.0F);
   // The compositor fades the whole surface in, so the content shows from the first frame; the 35 % gate (rulebook
   // 7.4) is only for content inside a growing shape.
@@ -3124,7 +3190,8 @@ void PanelManager::onConfigReloaded() {
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+    bg->setFill(detachedFill());
+    updateGlassTone();
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
@@ -3243,7 +3310,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
         const float backgroundOpacity = detachedBackgroundOpacity();
-        bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+        bg->setFill(detachedFill());
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(

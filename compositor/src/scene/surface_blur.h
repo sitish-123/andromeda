@@ -48,6 +48,11 @@ namespace andromeda {
     // Forces a live blur of everything below, overriding the optimized option, for a surface drawn over scene
     // content the cached background blur lacks.
     void setLive(bool live);
+    // Samples the blurred backdrop on each render of the node (wlr_scene_blur_set_backdrop_sampling).
+    void setBackdropSampling(bool enabled);
+    // Never blocks: true with the mean luminance (0 to 1) when a sample finished since the last call.
+    bool pollBackdrop(float* luminance);
+    [[nodiscard]] bool backdropPending() const;
     // Disable the node (unmap path); update() re-enables.
     void hide();
     // True while the blur node is shown.
@@ -61,6 +66,7 @@ namespace andromeda {
     float m_alpha = 1.0F;
     float m_liquid = 0.0F;
     float m_fade = 1.0F;
+    bool m_backdropSampling = false;
   };
 
 } // namespace andromeda

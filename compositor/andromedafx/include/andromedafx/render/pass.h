@@ -184,6 +184,8 @@ struct fx_render_box_shadow_options {
   struct wlr_render_color color;
 };
 
+struct fx_backdrop_probe;
+
 struct fx_render_blur_pass_options {
   struct fx_render_texture_options tex_options;
   struct fx_framebuffer* current_buffer;
@@ -196,6 +198,7 @@ struct fx_render_blur_pass_options {
   float liquid; // 0 to 1, see fx_render_texture_options.liquid
   struct wlr_box liquid_box;
   float liquid_radius;
+  struct fx_backdrop_probe* backdrop_probe; // optional: sampled from the blurred region, see backdrop_probe.h
 };
 
 struct fx_gles_render_pass* fx_get_render_pass(struct wlr_render_pass* render_pass);

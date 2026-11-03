@@ -32,6 +32,8 @@ public:
   virtual void onOpen(std::string_view context) { (void)context; }
   virtual void onClose() {}
   virtual void onIconThemeChanged() {}
+  // Liquid glass tone, 0 to 1: 1 = the dark liquid look a light palette takes over a dark backdrop (adaptive glass).
+  virtual void onGlassToneChanged(float dark) { (void)dark; }
   virtual void scrollFocusedInputIntoView(InputArea* area) { (void)area; }
   [[nodiscard]] virtual bool isContextActive(std::string_view context) const {
     (void)context;

@@ -226,6 +226,8 @@ struct wlr_scene_shadow {
   struct clipped_region clipped_region;
 };
 
+struct fx_backdrop_probe;
+
 struct wlr_scene_blur {
   struct wlr_scene_node node;
   int width, height;
@@ -243,6 +245,9 @@ struct wlr_scene_blur {
   bool should_only_blur_bottom_layer;
 
   struct linked_node transparency_mask_source;
+
+  bool backdrop_sampling;
+  struct fx_backdrop_probe* backdrop_probe; // created on the first render with sampling on
 };
 
 /** A scene-graph node telling SceneFX to render the optimized blur */
@@ -893,6 +898,18 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha);
  * Sets the liquid glass strength, 0 to 1: refraction at the rim and a soft specular rim.
  */
 void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
+
+/**
+ * Turns backdrop luminance sampling on or off. While on, each render of this node samples its blurred region; the
+ * result arrives through wlr_scene_blur_poll_backdrop(). Nothing is sampled on frames that do not draw the node.
+ */
+void wlr_scene_blur_set_backdrop_sampling(struct wlr_scene_blur* blur, bool enabled);
+
+/** Never blocks. True with luminance (0 to 1) when a sample of the blurred backdrop finished since the last poll. */
+bool wlr_scene_blur_poll_backdrop(struct wlr_scene_blur* blur, float* luminance);
+
+/** True while a sample waits for the GPU. */
+bool wlr_scene_blur_backdrop_pending(const struct wlr_scene_blur* blur);
 
 /**
  * Sets the shape whose edge gets the liquid rim (node-local, logical px), when it differs from the node box.

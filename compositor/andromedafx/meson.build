@@ -28,6 +28,7 @@ andromedafx_sources = files(
   'render/color.c',
   'render/egl.c',
   'render/pixel_format.c',
+  'render/fx_renderer/backdrop_probe.c',
   'render/fx_renderer/fx_framebuffer.c',
   'render/fx_renderer/fx_offscreen_buffers.c',
   'render/fx_renderer/fx_pass.c',

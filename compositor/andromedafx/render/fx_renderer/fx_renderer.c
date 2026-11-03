@@ -3,6 +3,7 @@
         https://gitlab.freedesktop.org/wlroots/wlroots/-/tree/master/render/gles2
 */
 
+#include "render/fx_renderer/backdrop_probe.h"
 #include "render/fx_renderer/fx_renderer.h"
 
 #include "render/egl.h"
@@ -126,6 +127,8 @@ static void fx_renderer_destroy(struct wlr_renderer* wlr_renderer) {
 
   struct fx_texture *tex, *tex_tmp;
   wl_list_for_each_safe(tex, tex_tmp, &renderer->textures, link) { fx_texture_destroy(tex); }
+
+  fx_backdrop_probes_release(renderer);
 
   struct fx_output_lut *lut, *lut_tmp;
   wl_list_for_each_safe(lut, lut_tmp, &renderer->output_luts, link) { fx_output_lut_destroy(lut); }
@@ -591,6 +594,7 @@ struct wlr_renderer* fx_renderer_create_egl(struct wlr_egl* egl) {
 
   wl_list_init(&renderer->buffers);
   wl_list_init(&renderer->textures);
+  wl_list_init(&renderer->backdrop_probes);
   wl_list_init(&renderer->offscreen_buffers);
   wl_list_init(&renderer->output_luts);
 

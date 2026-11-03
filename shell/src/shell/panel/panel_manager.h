@@ -246,6 +246,12 @@ private:
   [[nodiscard]] float detachedFillAlpha() const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
+  // The detached fill: the material role, blended toward the dark liquid tint by m_glassDark.
+  [[nodiscard]] ColorSpec detachedFill() const;
+  // Adaptive glass: listens for dsk_surface_v1.backdrop on the current m_dsk.
+  void bindBackdrop();
+  // Drives m_glassDark toward the dark look while a light palette's liquid pill sits over a dark backdrop.
+  void updateGlassTone();
   void startAttachedOpenAnimation();
   void publishAttachedPanelGeometry(float revealProgress);
   // Restyle the attached-panel decoration nodes (bg fill, drop shadow, contact shadow)
@@ -313,6 +319,11 @@ private:
   AnimationManager::Id m_liquidAnimation = 0;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
+  float m_liquidTarget = 0.0F;
+  bool m_backdropDark = false;
+  float m_glassDark = 0.0F; // 0..1, see updateGlassTone
+  AnimationManager::Id m_glassDarkAnimation = 0;
+  Signal<>::ScopedConnection m_glassPaletteConn;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().
   // Also m_panels (which own their own Nodes parented under m_sceneRoot) must be destroyed
   // before m_animations for the same reason.

@@ -2,6 +2,7 @@
 #include "render/color.h"
 #include "render/egl.h"
 #include "render/fx_renderer/animation_history.h"
+#include "render/fx_renderer/backdrop_probe.h"
 #include "render/fx_renderer/effect.h"
 #include "render/fx_renderer/fx_renderer.h"
 #include "render/fx_renderer/shaders.h"
@@ -2973,6 +2974,25 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     goto finish;
   }
   struct fx_texture* blur_texture = fx_get_texture(wlr_texture);
+
+  // Liquid nodes never fuse; a fused blur holds a half-size image the probe box does not address. The blur buffer is
+  // fresh only inside this frame's damage, so a partial redraw (a caret blink) samples nothing.
+  const struct wlr_box probe_box = tex_options->clip_box == NULL ? (struct wlr_box){0}
+      : wlr_box_empty(&fx_options->liquid_box)                  ? *tex_options->clip_box
+                                                                : fx_options->liquid_box;
+  const pixman_box32_t probe_extents = {
+      probe_box.x, probe_box.y, probe_box.x + probe_box.width, probe_box.y + probe_box.height
+  };
+  if (fx_options->backdrop_probe != NULL && !fuse && pass->group_depth == 0 && !wlr_box_empty(&probe_box)
+      && !fx_backdrop_probe_pending(fx_options->backdrop_probe)
+      && (tex_options->base.clip == NULL
+          || pixman_region32_contains_rectangle(tex_options->base.clip, &probe_extents) == PIXMAN_REGION_IN)) {
+    fx_backdrop_probe_capture(
+        fx_options->backdrop_probe, blur_texture->tex, blur_texture->target, buffer->buffer->width,
+        buffer->buffer->height, &probe_box, pass->has_color_transform
+    );
+    fx_framebuffer_bind(pass->buffer);
+  }
 
   // Get a stencil of the window ignoring transparent regions
   bool masked = false;

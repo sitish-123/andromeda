@@ -612,6 +612,15 @@ void Input::setSurfaceRole(ColorRole role) {
   applyVisualState();
 }
 
+void Input::setTextColorOverride(std::optional<Color> text, std::optional<Color> placeholder) {
+  if (m_textOverride == text && m_placeholderOverride == placeholder) {
+    return;
+  }
+  m_textOverride = text;
+  m_placeholderOverride = placeholder;
+  applyVisualState();
+}
+
 void Input::setFrameRadius(float radius) {
   const float clamped = std::max(0.0F, radius);
   if (m_frameRadius == clamped) {
@@ -1660,11 +1669,16 @@ void Input::applyVisualState() {
   m_cursor->setStyle(cursorStyle);
 
   const bool showingPlaceholder = m_value.empty() && !m_placeholder.empty();
-  const ColorSpec textColor = m_invalid
+  ColorSpec textColor = m_invalid
       ? colorSpecFromRole(ColorRole::Danger)
       : (showingPlaceholder
              ? colorSpecFromRole(ColorRole::Label2, kPlaceholderAlpha)
              : (readOnly ? colorSpecFromRole(ColorRole::Label2) : colorSpecFromRole(ColorRole::Label1)));
+  if (!m_invalid && showingPlaceholder && m_placeholderOverride) {
+    textColor = fixedColorSpec(*m_placeholderOverride);
+  } else if (!m_invalid && !showingPlaceholder && !readOnly && m_textOverride) {
+    textColor = fixedColorSpec(*m_textOverride);
+  }
   m_label->setColor(textColor);
   const Color passwordGlyphColor = resolveColorSpec(textColor);
   for (auto* glyph : m_passwordGlyphs) {

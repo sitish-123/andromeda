@@ -291,6 +291,7 @@ struct fx_renderer {
 
   struct wl_list buffers;           // fx_framebuffer.link
   struct wl_list textures;          // fx_texture.link
+  struct wl_list backdrop_probes;   // fx_backdrop_probe.link
   struct wl_list offscreen_buffers; // fx_offscreen_buffers.link
   struct wl_list output_luts;       // fx_output_lut.link
 

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,6 +71,9 @@ public:
   /// Unfocused frame fill. Fields on a SurfaceContainer card use Surface so they stand out; focus always fills with
   /// Surface.
   void setSurfaceRole(ColorRole role);
+  // Fixed text and placeholder colors in place of the palette roles, e.g. a field on glass that takes the dark look
+  // in a light palette. nullopt returns to the role colors.
+  void setTextColorOverride(std::optional<Color> text, std::optional<Color> placeholder);
   void setFrameRadius(float radius);
   [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
   [[nodiscard]] bool passwordRevealed() const noexcept { return m_passwordRevealed; }
@@ -263,6 +267,8 @@ private:
   bool m_frameVisible = true;
   bool m_embeddedOnSolidPrimary = false;
   ColorRole m_surfaceRole = ColorRole::Fill2;
+  std::optional<Color> m_textOverride;
+  std::optional<Color> m_placeholderOverride;
   float m_surfaceOpacity = 1.0F;
   float m_frameRadius = Tokens::radiusR8;
   bool m_enabled = true;

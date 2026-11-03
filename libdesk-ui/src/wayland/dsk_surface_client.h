@@ -57,6 +57,9 @@ public:
   void setOnClipMapped(std::function<void(const Value&)> callback) { m_onClipMapped = std::move(callback); }
 
   [[nodiscard]] dsk_surface_v1* resource() const noexcept { return m_surface; }
+  // dsk_surface_v1.backdrop (v6): the blurred backdrop under the liquid glass turned dark (true) or light (false).
+  [[nodiscard]] std::optional<bool> backdropDark() const noexcept { return m_backdropDark; }
+  void setOnBackdrop(std::function<void(bool dark)> callback) { m_onBackdrop = std::move(callback); }
 
 private:
   static const dsk_surface_v1_listener kListener;
@@ -65,11 +68,14 @@ private:
   static void handleClipMapped(void* data, dsk_surface_v1* surface, int32_t x, int32_t y, int32_t width, int32_t height);
 
   dsk_surface_v1* m_surface = nullptr;
+  static void handleBackdrop(void* data, dsk_surface_v1* surface, uint32_t tone);
   uint32_t m_nextSerial = 1;
   std::optional<Value> m_mappedClip;
   std::function<void(const Value&)> m_onClipMapped;
   std::unordered_map<uint32_t, DoneCallback> m_pending;
   std::unordered_map<uint32_t, StartedCallback> m_started;
+  std::optional<bool> m_backdropDark;
+  std::function<void(bool)> m_onBackdrop;
 };
 
 // A compositor-owned gesture on a surface: the compositor tracks the input, runs inertia to a snap, and writes the

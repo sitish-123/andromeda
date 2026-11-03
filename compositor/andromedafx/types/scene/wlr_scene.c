@@ -1,4 +1,5 @@
 #include "andromedafx/types/wlr_scene.h"
+#include "andromedafx/render/backdrop_probe.h"
 
 #include "render/color.h"
 #include "render/fx_renderer/animation_history.h"
@@ -532,6 +533,7 @@ void wlr_scene_node_destroy(struct wlr_scene_node* node) {
   } else if (node->type == WLR_SCENE_NODE_BLUR) {
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
     linked_node_destroy(&blur->transparency_mask_source);
+    fx_backdrop_probe_destroy(blur->backdrop_probe);
   } else if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
     struct wlr_scene_optimized_blur* optimized = wlr_scene_optimized_blur_from_node(node);
     pixman_region32_fini(&optimized->pending);
@@ -2502,6 +2504,28 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_backdrop_sampling(struct wlr_scene_blur* blur, bool enabled) {
+  if (blur->backdrop_sampling == enabled) {
+    return;
+  }
+  blur->backdrop_sampling = enabled;
+  if (!enabled) {
+    fx_backdrop_probe_destroy(blur->backdrop_probe);
+    blur->backdrop_probe = NULL;
+  } else {
+    // Sample the current backdrop at once rather than on the next unrelated damage.
+    scene_node_update(&blur->node, NULL);
+  }
+}
+
+bool wlr_scene_blur_poll_backdrop(struct wlr_scene_blur* blur, float* luminance) {
+  return blur->backdrop_probe != NULL && fx_backdrop_probe_poll(blur->backdrop_probe, luminance);
+}
+
+bool wlr_scene_blur_backdrop_pending(const struct wlr_scene_blur* blur) {
+  return fx_backdrop_probe_pending(blur->backdrop_probe);
+}
+
 void wlr_scene_blur_set_ignore_alpha(struct wlr_scene_blur* blur, float ignore_alpha) {
   if (blur->ignore_alpha == ignore_alpha) {
     return;
@@ -3948,6 +3972,17 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
                   },
         .liquid_radius = (float)blur->liquid_radius * data->scale,
     };
+    if (blur->backdrop_sampling) {
+      struct wlr_renderer* renderer = data->output->output->renderer;
+      if (blur->backdrop_probe != NULL && fx_backdrop_probe_renderer(blur->backdrop_probe) != renderer) {
+        fx_backdrop_probe_destroy(blur->backdrop_probe);
+        blur->backdrop_probe = NULL;
+      }
+      if (blur->backdrop_probe == NULL) {
+        blur->backdrop_probe = fx_backdrop_probe_create(renderer);
+      }
+      blur_options.backdrop_probe = blur->backdrop_probe;
+    }
     fx_render_pass_add_blur(fx_pass, &blur_options);
     break;
   }

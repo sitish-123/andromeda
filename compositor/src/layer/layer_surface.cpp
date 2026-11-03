@@ -659,6 +659,18 @@ namespace andromeda {
         );
       }
     }
+  bool LayerSurface::pollBackdrop() {
+    float luminance = 0.0F;
+    if (m_blur.pollBackdrop(&luminance)) {
+      // Hysteresis: a backdrop near the threshold keeps its tone instead of flickering.
+      m_backdropDark = m_backdropDark ? luminance < 0.45F : luminance < 0.35F;
+      if (const DskSurfaceManager* dsk = m_server->dskSurfaces()) {
+        dsk->sendBackdrop(m_layerSurface->surface, m_backdropDark);
+      }
+    }
+    return m_blur.backdropPending();
+  }
+
     // A client blur region is the exact shape, so the alpha test of blur_ignore_alpha must not cut it: a clear liquid
     // tint (alpha 0.34) would lose its whole blur.
     if (region != nullptr && m_rule.blur.value_or(true)) {
@@ -679,6 +691,7 @@ namespace andromeda {
         for (const RoundedShape& shape : shapes) {
           shapeClips.push_back(wlr_box{
               nodeBox.x + scaled(shape.box.x), nodeBox.y + scaled(shape.box.y), scaled(shape.box.width),
+    m_blur.setBackdropSampling(m_liquid > 0.0F);
               scaled(shape.box.height)
           });
         }

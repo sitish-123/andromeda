@@ -233,6 +233,9 @@ namespace andromeda {
     static void onBackgroundPopupUpdate(Output* self, void* data);
     static void onDestroy(Output* self, void* data);
     static int onFrameRetryTimer(void* data);
+    static int onBackdropTimer(void* data);
+    // Reads finished backdrop samples of liquid layers on this output; re-checks in 16 ms while one is in flight.
+    void pollBackdrops();
     static int onEffectFrameTimer(void* data);
     static int onDirectScanoutTimer(void* data);
 
@@ -321,6 +324,7 @@ namespace andromeda {
     uint64_t m_refreshNs = 0;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
+    wl_event_source* m_backdropTimer = nullptr;
     Output* m_mirrorSource = nullptr;
     int m_mirrorTargets = 0;
     // A mirror target draws only when its source delivered a new frame or a full redraw was asked for; every commit

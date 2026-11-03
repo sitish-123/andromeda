@@ -195,6 +195,7 @@ namespace andromeda {
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
+    m_backdropTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onBackdropTimer, this);
     m_directScanoutTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
 
@@ -1465,6 +1466,10 @@ namespace andromeda {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
     }
+    if (m_backdropTimer != nullptr) {
+      wl_event_source_remove(m_backdropTimer);
+      m_backdropTimer = nullptr;
+    }
     if (m_effectFrameTimer != nullptr) {
       wl_event_source_remove(m_effectFrameTimer);
       m_effectFrameTimer = nullptr;
@@ -1751,6 +1756,24 @@ namespace andromeda {
 
   void Output::onDestroy(Output* self, void* /*data*/) {
     self->handleDestroy();
+  }
+
+  int Output::onBackdropTimer(void* data) {
+    static_cast<Output*>(data)->pollBackdrops();
+    return 0;
+  }
+
+  void Output::pollBackdrops() {
+    constexpr int kBackdropRecheckMs = 16;
+    bool pending = false;
+    for (const auto& layer : m_server->layerSurfaces()) {
+      if (layer->output() == this && layer->pollBackdrop()) {
+        pending = true;
+      }
+    }
+    if (pending && m_backdropTimer != nullptr) {
+      wl_event_source_timer_update(m_backdropTimer, kBackdropRecheckMs);
+    }
   }
 
   int Output::onFrameRetryTimer(void* data) {
@@ -2291,6 +2314,8 @@ namespace andromeda {
     if (FifoManager* fifo = m_server->fifoManager()) {
       fifo->latched(m_output);
     }
+
+    pollBackdrops();
 
     // Unconditional: see comment above. Never gate this on commit success.
     wlr_scene_output_send_frame_done(m_sceneOutput, &now);
