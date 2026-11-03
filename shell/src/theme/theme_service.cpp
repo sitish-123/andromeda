@@ -41,7 +41,8 @@ namespace noctalia::theme {
     constexpr auto kLog = Logger("theme");
 
     constexpr float kTransitionDurationMs = 400.0F;
-    constexpr std::chrono::milliseconds kTransitionTick{8};
+    // One 60 Hz frame: a faster tick repaints every surface more often than the screen can show it.
+    constexpr std::chrono::milliseconds kTransitionTick{16};
 
     struct ResolvedTheme {
       GeneratedPalette generated;
