@@ -5,6 +5,8 @@
 #include "core/deferred_call.h"
 #include "core/input/key_modifiers.h"
 #include "core/log.h"
+#include "dbus/systemd/systemd_unit_name.h"
+#include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "render/render_context.h"
 #include "shell/settings/settings_content_common.h"
@@ -14,13 +16,11 @@
 #include "system/app_identity.h"
 #include "system/desktop_entry.h"
 #include "system/system_monitor_service.h"
-#include "dbus/systemd/systemd_unit_name.h"
-#include "dbus/upower/upower_service.h"
-#include "ui/controls/graph.h"
-#include "ui/controls/glyph.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/glyph.h"
+#include "ui/controls/graph.h"
 #include "ui/controls/image.h"
 #include "ui/controls/input.h"
 #include "ui/controls/label.h"
@@ -79,29 +79,41 @@ namespace {
 
   // Four bars; the warning colour from three up (a "High energy" app).
   std::unique_ptr<Flex> energyMeter(int bars, float scale) {
-    auto meter = ui::row({.align = FlexAlign::End, .justify = FlexJustify::End, .gap = Tokens::spaceP2 * scale, .width = kEnergyWidth * scale});
+    auto meter = ui::row(
+        {.align = FlexAlign::End,
+         .justify = FlexJustify::End,
+         .gap = Tokens::spaceP2 * scale,
+         .width = kEnergyWidth * scale}
+    );
     for (int i = 0; i < 4; ++i) {
       const bool on = i < bars;
-      meter->addChild(ui::box({
-          .width = Tokens::spaceP4 * scale,
-          .height = (Tokens::spaceP4 + Tokens::spaceP2 * static_cast<float>(i + 1)) * scale,
-          .configure = [on, bars](Box& box) {
-            box.setRadius(1.0F);
-            box.setFill(colorSpecFromRole(on ? (bars >= 3 ? ColorRole::Warning : ColorRole::Label2) : ColorRole::Fill3));
-          },
-      }));
+      meter->addChild(
+          ui::box({
+              .width = Tokens::spaceP4 * scale,
+              .height = (Tokens::spaceP4 + Tokens::spaceP2 * static_cast<float>(i + 1)) * scale,
+              .configure = [on, bars](Box& box) {
+                box.setRadius(1.0F);
+                box.setFill(
+                    colorSpecFromRole(on ? (bars >= 3 ? ColorRole::Warning : ColorRole::Label2) : ColorRole::Fill3)
+                );
+              },
+          })
+      );
     }
     return meter;
   }
 
-  std::unique_ptr<Flex> chip(std::string text, float scale, ColorRole fill = ColorRole::Fill2, ColorRole label = ColorRole::Label1) {
+  std::unique_ptr<Flex>
+  chip(std::string text, float scale, ColorRole fill = ColorRole::Fill2, ColorRole label = ColorRole::Label1) {
     return ui::row(
         {.align = FlexAlign::Center,
          .paddingH = Style::spaceSm * scale,
          .fill = colorSpecFromRole(fill),
          .radius = Tokens::spaceP20 * scale / 2.0F,
          .height = Tokens::spaceP20 * scale},
-        ui::label({.text = std::move(text), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(label)})
+        ui::label(
+            {.text = std::move(text), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(label)}
+        )
     );
   }
 
@@ -116,11 +128,11 @@ namespace {
     if (startedUsec == 0) {
       return "–";
     }
-    const auto now = std::chrono::duration_cast<std::chrono::microseconds>(
-                         std::chrono::system_clock::now().time_since_epoch()
-    )
-                         .count();
-    const auto seconds = static_cast<std::uint64_t>(std::max<std::int64_t>(0, now - static_cast<std::int64_t>(startedUsec))) / 1'000'000;
+    const auto now =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    const auto seconds =
+        static_cast<std::uint64_t>(std::max<std::int64_t>(0, now - static_cast<std::int64_t>(startedUsec))) / 1'000'000;
     if (seconds >= 3600) {
       return std::format("{} h {} min", seconds / 3600, (seconds % 3600) / 60);
     }
@@ -243,7 +255,9 @@ const BackgroundActivityMonitor::RowState* ActivityWindow::rowState(const std::s
 
 bool ActivityWindow::needsAttention(const ActivityRow& row) const {
   const auto* state = rowState(row.key);
-  return state != nullptr && !state->ignored && state->verdict.notify
+  return state != nullptr
+      && !state->ignored
+      && state->verdict.notify
       && state->verdict.finding != BackgroundVerdict::Finding::None;
 }
 
@@ -298,7 +312,9 @@ void ActivityWindow::open(const std::string& rowKey) {
       m_surface->requestLayout();
     }
   });
-  m_surface->setPrepareFrameCallback([this](bool needsUpdate, bool needsLayout) { prepareFrame(needsUpdate, needsLayout); });
+  m_surface->setPrepareFrameCallback([this](bool needsUpdate, bool needsLayout) {
+    prepareFrame(needsUpdate, needsLayout);
+  });
   m_surface->setUpdateCallback([] {});
 
   const float scale = uiScale();
@@ -372,7 +388,9 @@ void ActivityWindow::onSample() {
         activity.rows(), m_monitor->userUnits().units(), activity.cgroupRoot(), activity.cpuCount(), start,
         [this] { requestRebuild(); }
     );
-    kLog.debug("details {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    kLog.debug(
+        "details {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+    );
     if (!sampled) {
       requestRebuild(); // a unit-list change: new rows show now, rates wait for the next sample
       return;
@@ -423,7 +441,9 @@ void ActivityWindow::prepareFrame(bool /*needsUpdate*/, bool needsLayout) {
     m_rebuildRequested = false;
     const auto start = std::chrono::steady_clock::now();
     buildScene(renderer, width, height);
-    kLog.debug("rebuild {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    kLog.debug(
+        "rebuild {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+    );
     return;
   }
   if (needsLayout || m_sceneRoot->width() != width || m_sceneRoot->height() != height) {
@@ -487,17 +507,19 @@ std::unique_ptr<Flex> ActivityWindow::buildSidebar(float scale) {
   } else {
     m_keptSearch.reset();
     m_searchScale = scale;
-    sidebar->addChild(ui::input({
-        .out = &m_searchInput,
-        .value = m_query,
-        .placeholder = i18n::tr("activity.search"),
-        .fontSize = Style::fontSizeBody * scale,
-        .height = settings::metrics::kSearchFieldHeight * scale,
-        .onChange = [this](const std::string& text) {
-          m_query = text;
-          requestRebuild();
-        },
-    }));
+    sidebar->addChild(
+        ui::input({
+            .out = &m_searchInput,
+            .value = m_query,
+            .placeholder = i18n::tr("activity.search"),
+            .fontSize = Style::fontSizeBody * scale,
+            .height = settings::metrics::kSearchFieldHeight * scale,
+            .onChange = [this](const std::string& text) {
+              m_query = text;
+              requestRebuild();
+            },
+        })
+    );
   }
   sidebar->addChild(ui::node({.height = Style::spaceSm * scale}));
 
@@ -525,42 +547,48 @@ std::unique_ptr<Flex> ActivityWindow::buildSidebar(float scale) {
         .paddingH = settings::metrics::kSidebarRowPaddingH * scale,
         .gap = settings::metrics::kSidebarRowGap * scale,
         .radius = Style::scaledRadiusMd(scale),
-        .onClick = [this, tab] {
-          m_tab = tab;
-          m_listScroll = {};
-          requestRebuild();
-        },
-        .configure = [scale, count, warn, tab](Button& button) {
-          button.setTabStop(false);
-          if (Label* label = button.label(); label != nullptr) {
-            label->setFlexGrow(1.0F);
-          }
-          if (warn > 0) {
-            button.addChild(ui::row(
-                {.align = FlexAlign::Center,
-                 .justify = FlexJustify::Center,
-                 .paddingH = Tokens::spaceP4 * scale,
-                 .fill = colorSpecFromRole(ColorRole::Warning),
-                 .radius = Tokens::radiusR8 * scale,
-                 .minWidth = Tokens::sizeSymbol * scale,
-                 .height = Tokens::sizeSymbol * scale},
-                ui::label({
-                    .text = std::to_string(warn),
-                    .fontSize = Style::fontSizeCaption * scale,
-                    .fontWeight = FontWeight::Bold,
-                    .color = colorSpecFromRole(ColorRole::AccentText),
-                })
-            ));
-          }
-          if (tab == Tab::Battery || tab == Tab::History) {
-            return;
-          }
-          button.addChild(ui::label({
-              .text = std::to_string(count),
-              .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Label2),
-          }));
-        },
+        .onClick =
+            [this, tab] {
+              m_tab = tab;
+              m_listScroll = {};
+              requestRebuild();
+            },
+        .configure =
+            [scale, count, warn, tab](Button& button) {
+              button.setTabStop(false);
+              if (Label* label = button.label(); label != nullptr) {
+                label->setFlexGrow(1.0F);
+              }
+              if (warn > 0) {
+                button.addChild(
+                    ui::row(
+                        {.align = FlexAlign::Center,
+                         .justify = FlexJustify::Center,
+                         .paddingH = Tokens::spaceP4 * scale,
+                         .fill = colorSpecFromRole(ColorRole::Warning),
+                         .radius = Tokens::radiusR8 * scale,
+                         .minWidth = Tokens::sizeSymbol * scale,
+                         .height = Tokens::sizeSymbol * scale},
+                        ui::label({
+                            .text = std::to_string(warn),
+                            .fontSize = Style::fontSizeCaption * scale,
+                            .fontWeight = FontWeight::Bold,
+                            .color = colorSpecFromRole(ColorRole::AccentText),
+                        })
+                    )
+                );
+              }
+              if (tab == Tab::Battery || tab == Tab::History) {
+                return;
+              }
+              button.addChild(
+                  ui::label({
+                      .text = std::to_string(count),
+                      .fontSize = Style::fontSizeCaption * scale,
+                      .color = colorSpecFromRole(ColorRole::Label2),
+                  })
+              );
+            },
     });
   };
   sidebar->addChild(tabRow(Tab::Apps, "apps", i18n::tr("activity.tab-apps"), apps, 0));
@@ -574,19 +602,32 @@ std::unique_ptr<Flex> ActivityWindow::buildSidebar(float scale) {
 
 std::unique_ptr<Flex> ActivityWindow::buildSystemGraphs(float scale) {
   auto box = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale});
-  box->addChild(ui::label({
-      .text = i18n::tr("activity.system"),
-      .fontSize = Style::fontSizeCaption * scale,
-      .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::Label2),
-  }));
+  box->addChild(
+      ui::label({
+          .text = i18n::tr("activity.system"),
+          .fontSize = Style::fontSizeCaption * scale,
+          .fontWeight = FontWeight::Bold,
+          .color = colorSpecFromRole(ColorRole::Label2),
+      })
+  );
   const float width = (kSidebarWidth - 2.0F * settings::metrics::kSidebarPaddingH) * scale;
   const auto add = [&](std::string name, std::string value, std::vector<float> values, ColorRole role) {
-    box->addChild(ui::row(
-        {.align = FlexAlign::Center},
-        ui::label({.text = std::move(name), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label1), .flexGrow = 1.0F}),
-        ui::label({.text = std::move(value), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)})
-    ));
+    box->addChild(
+        ui::row(
+            {.align = FlexAlign::Center},
+            ui::label(
+                {.text = std::move(name),
+                 .fontSize = Style::fontSizeCaption * scale,
+                 .color = colorSpecFromRole(ColorRole::Label1),
+                 .flexGrow = 1.0F}
+            ),
+            ui::label(
+                {.text = std::move(value),
+                 .fontSize = Style::fontSizeCaption * scale,
+                 .color = colorSpecFromRole(ColorRole::Label2)}
+            )
+        )
+    );
     box->addChild(makeGraph(std::move(values), width, kSidebarGraphHeight * scale, role));
   };
   std::vector<SystemStats> stats = m_sysmon != nullptr ? m_sysmon->history() : std::vector<SystemStats>{};
@@ -599,12 +640,17 @@ std::unique_ptr<Flex> ActivityWindow::buildSystemGraphs(float scale) {
     ram.push_back(static_cast<float>(sample.ramUsagePercent));
     gpu.push_back(static_cast<float>(sample.gpuUsagePercent.value_or(0.0)));
   }
-  add(i18n::tr("activity.column-cpu"), std::format("{:.0f} %", last.cpuUsagePercent), normalized(cpu, 100.0F), ColorRole::Accent);
+  add(i18n::tr("activity.column-cpu"), std::format("{:.0f} %", last.cpuUsagePercent), normalized(cpu, 100.0F),
+      ColorRole::Accent);
   add(i18n::tr("activity.column-memory"),
-      std::format("{:.1f} of {:.0f} GB", static_cast<double>(last.ramUsedMb) / 1024.0, static_cast<double>(last.ramTotalMb) / 1024.0),
+      std::format(
+          "{:.1f} of {:.0f} GB", static_cast<double>(last.ramUsedMb) / 1024.0,
+          static_cast<double>(last.ramTotalMb) / 1024.0
+      ),
       normalized(ram, 100.0F), ColorRole::Accent);
   if (last.gpuUsagePercent.has_value()) {
-    add(i18n::tr("activity.column-gpu"), std::format("{:.0f} %", *last.gpuUsagePercent), normalized(gpu, 100.0F), ColorRole::Accent);
+    add(i18n::tr("activity.column-gpu"), std::format("{:.0f} %", *last.gpuUsagePercent), normalized(gpu, 100.0F),
+        ColorRole::Accent);
   }
   add(i18n::tr("activity.disk"), std::format("{:.1f} MB/s", m_diskHistory.empty() ? 0.0F : m_diskHistory.back()),
       normalized(m_diskHistory, 1.0F), ColorRole::Label2);
@@ -643,46 +689,53 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
       .paddingH = Style::spaceSm * scale,
       .gap = Style::spaceSm * scale,
       .radius = Style::scaledRadiusMd(scale),
-      .onClick = [this, key = row.key] {
-        m_selectedKey = key;
-        m_actionError.clear();
-        requestRebuild();
-      },
-      .configure = [&](Button& button) {
-        button.setTabStop(false);
-        button.insertChildAt(0, std::move(image));
-        if (m_details != nullptr) {
-          const bool open = m_details->expanded(row.key);
-          button.insertChildAt(0, ui::button({
-              .glyph = open ? "chevron-down" : "chevron-right",
-              .glyphSize = Tokens::sizeSymbolInline * scale,
-              .variant = ButtonVariant::Ghost,
-              .padding = 0.0F,
-              .width = kChevron * scale,
-              .height = kChevron * scale,
-              .onClick = [this, key = row.key, open] {
-                m_details->setExpanded(key, !open); // groups fill in on the next sample
-                requestRebuild();
-              },
-          }));
-        }
-        if (Label* name = button.label(); name != nullptr) {
-          name->setMaxLines(1);
-        }
-        button.addChild(ui::label({
-            .text = caption,
-            .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::Label3),
-            .maxLines = 1,
-            .ellipsize = TextEllipsize::End,
-            .flexGrow = 1.0F,
-        }));
-        const double gpu = m_details != nullptr ? m_details->gpuPercent(row.key) : 0.0;
-        button.addChild(cell(cpuText(row.cpuPercent), scale));
-        button.addChild(cell(memoryText(row.memoryBytes), scale, ColorRole::Label1));
-        button.addChild(cell(std::format("{:.0f} %", gpu), scale));
-        button.addChild(energyMeter(energyBars(row.cpuPercent, gpu), scale));
-      },
+      .onClick =
+          [this, key = row.key] {
+            m_selectedKey = key;
+            m_actionError.clear();
+            requestRebuild();
+          },
+      .configure =
+          [&](Button& button) {
+            button.setTabStop(false);
+            button.insertChildAt(0, std::move(image));
+            if (m_details != nullptr) {
+              const bool open = m_details->expanded(row.key);
+              button.insertChildAt(
+                  0,
+                  ui::button({
+                      .glyph = open ? "chevron-down" : "chevron-right",
+                      .glyphSize = Tokens::sizeSymbolInline * scale,
+                      .variant = ButtonVariant::Ghost,
+                      .padding = 0.0F,
+                      .width = kChevron * scale,
+                      .height = kChevron * scale,
+                      .onClick = [this, key = row.key, open] {
+                        m_details->setExpanded(key, !open); // groups fill in on the next sample
+                        requestRebuild();
+                      },
+                  })
+              );
+            }
+            if (Label* name = button.label(); name != nullptr) {
+              name->setMaxLines(1);
+            }
+            button.addChild(
+                ui::label({
+                    .text = caption,
+                    .fontSize = Style::fontSizeCaption * scale,
+                    .color = colorSpecFromRole(ColorRole::Label3),
+                    .maxLines = 1,
+                    .ellipsize = TextEllipsize::End,
+                    .flexGrow = 1.0F,
+                })
+            );
+            const double gpu = m_details != nullptr ? m_details->gpuPercent(row.key) : 0.0;
+            button.addChild(cell(cpuText(row.cpuPercent), scale));
+            button.addChild(cell(memoryText(row.memoryBytes), scale, ColorRole::Label1));
+            button.addChild(cell(std::format("{:.0f} %", gpu), scale));
+            button.addChild(energyMeter(energyBars(row.cpuPercent, gpu), scale));
+          },
   });
 }
 
@@ -693,23 +746,25 @@ void ActivityWindow::addRow(Renderer& renderer, Flex& card, const ActivityRow& r
     return;
   }
   for (const auto& group : *groups) {
-    card.addChild(ui::row(
-        {.align = FlexAlign::Center,
-         .gap = Style::spaceSm * scale,
-         .paddingH = Style::spaceSm * scale,
-         .height = kChildRowHeight * scale},
-        ui::node({.width = (kChevron + kRowIcon + Style::spaceSm) * scale}),
-        ui::label({
-            .text = group.count > 1 ? std::format("{} ({})", group.command, group.count) : group.command,
-            .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::Label2),
-            .maxLines = 1,
-            .ellipsize = TextEllipsize::End,
-            .flexGrow = 1.0F,
-        }),
-        cell(cpuText(group.cpuPercent), scale), cell(memoryText(group.residentBytes), scale),
-        cell("–", scale, ColorRole::Label3), ui::node({.width = kEnergyWidth * scale})
-    ));
+    card.addChild(
+        ui::row(
+            {.align = FlexAlign::Center,
+             .gap = Style::spaceSm * scale,
+             .paddingH = Style::spaceSm * scale,
+             .height = kChildRowHeight * scale},
+            ui::node({.width = (kChevron + kRowIcon + Style::spaceSm) * scale}),
+            ui::label({
+                .text = group.count > 1 ? std::format("{} ({})", group.command, group.count) : group.command,
+                .fontSize = Style::fontSizeCaption * scale,
+                .color = colorSpecFromRole(ColorRole::Label2),
+                .maxLines = 1,
+                .ellipsize = TextEllipsize::End,
+                .flexGrow = 1.0F,
+            }),
+            cell(cpuText(group.cpuPercent), scale), cell(memoryText(group.residentBytes), scale),
+            cell("–", scale, ColorRole::Label3), ui::node({.width = kEnergyWidth * scale})
+        )
+    );
   }
 }
 
@@ -729,13 +784,15 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
       })
   );
   const auto headerCell = [&](std::string key, float width) {
-    header->addChild(ui::label({
-        .text = i18n::tr(key),
-        .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::Label2),
-        .width = width * scale,
-        .textAlign = TextAlign::End,
-    }));
+    header->addChild(
+        ui::label({
+            .text = i18n::tr(key),
+            .fontSize = Style::fontSizeCaption * scale,
+            .color = colorSpecFromRole(ColorRole::Label2),
+            .width = width * scale,
+            .textAlign = TextAlign::End,
+        })
+    );
   };
   if (m_tab == Tab::Battery) {
     headerCell("activity.column-impact", kColumnWidth);
@@ -751,14 +808,16 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
   column->addChild(std::move(header));
 
   ScrollView* scroll = nullptr;
-  column->addChild(ui::scrollView({
-      .out = &scroll,
-      .state = &m_listScroll,
-      .scrollbarAutoHide = true,
-      .viewportPaddingH = Style::spaceLg * scale,
-      .viewportPaddingV = Style::spaceSm * scale,
-      .flexGrow = 1.0F,
-  }));
+  column->addChild(
+      ui::scrollView({
+          .out = &scroll,
+          .state = &m_listScroll,
+          .scrollbarAutoHide = true,
+          .viewportPaddingH = Style::spaceLg * scale,
+          .viewportPaddingV = Style::spaceSm * scale,
+          .flexGrow = 1.0F,
+      })
+  );
   Flex& list = *scroll->content();
   list.setAlign(FlexAlign::Stretch);
   list.setGap(Style::spaceLg * scale);
@@ -766,12 +825,14 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
   const auto& rows = m_monitor->activity().rows();
   const bool any = std::ranges::any_of(rows, [this](const ActivityRow& row) { return inTab(row, m_tab); });
   if (!any) {
-    list.addChild(ui::label({
-        .text = i18n::tr(m_monitor->sampling() && !rows.empty() ? "activity.empty" : "activity.loading"),
-        .fontSize = Style::fontSizeBody * scale,
-        .color = colorSpecFromRole(ColorRole::Label2),
-        .textAlign = TextAlign::Center,
-    }));
+    list.addChild(
+        ui::label({
+            .text = i18n::tr(m_monitor->sampling() && !rows.empty() ? "activity.empty" : "activity.loading"),
+            .fontSize = Style::fontSizeBody * scale,
+            .color = colorSpecFromRole(ColorRole::Label2),
+            .textAlign = TextAlign::Center,
+        })
+    );
     return column;
   }
 
@@ -814,8 +875,12 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
     addHistoryCards(renderer, list, scale);
   } else {
     using Finding = BackgroundVerdict::Finding;
-    addCard(i18n::tr("activity.group-uses-resources"), [&](const ActivityRow& row) { return finding(row, Finding::UsesResources); });
-    addCard(i18n::tr("activity.group-duplicates"), [&](const ActivityRow& row) { return finding(row, Finding::Duplicate); });
+    addCard(i18n::tr("activity.group-uses-resources"), [&](const ActivityRow& row) {
+      return finding(row, Finding::UsesResources);
+    });
+    addCard(i18n::tr("activity.group-duplicates"), [&](const ActivityRow& row) {
+      return finding(row, Finding::Duplicate);
+    });
     addCard(i18n::tr("activity.group-other-background"), [&](const ActivityRow& row) {
       return !ignored(row) && !finding(row, Finding::UsesResources) && !finding(row, Finding::Duplicate);
     });
@@ -839,12 +904,14 @@ void ActivityWindow::addBatteryCards(Renderer& /*renderer*/, Flex& list, float s
   } else {
     line = i18n::tr("activity.battery-plugged", "percent", std::format("{:.0f}", battery.percentage));
   }
-  status->addChild(ui::label({
-      .text = line,
-      .fontSize = Style::fontSizeBody * scale,
-      .color = colorSpecFromRole(ColorRole::Label1),
-      .height = kRowHeight * scale,
-  }));
+  status->addChild(
+      ui::label({
+          .text = line,
+          .fontSize = Style::fontSizeBody * scale,
+          .color = colorSpecFromRole(ColorRole::Label1),
+          .height = kRowHeight * scale,
+      })
+  );
 
   // Impact = each row's share of all CPU time its units used since they started, plus its GPU share now.
   std::vector<std::pair<double, const ActivityRow*>> ranked;
@@ -854,7 +921,7 @@ void ActivityWindow::addBatteryCards(Renderer& /*renderer*/, Flex& list, float s
       continue;
     }
     const double weight = static_cast<double>(row.cpuUsageUsec) / 1e6
-                        + (m_details != nullptr ? m_details->gpuPercent(row.key) * 2.0 : 0.0);
+        + (m_details != nullptr ? m_details->gpuPercent(row.key) * 2.0 : 0.0);
     total += weight;
     ranked.emplace_back(weight, &row);
   }
@@ -870,21 +937,38 @@ void ActivityWindow::addBatteryCards(Renderer& /*renderer*/, Flex& list, float s
     }
     const RowIdentity id = identityFor(*row);
     std::string reason = i18n::tr(
-        "activity.battery-reason", "cpu", std::format("{:.0f}", static_cast<double>(row->cpuUsageUsec) / 6e7),
-        "uptime", uptimeText(row->startedUsec)
+        "activity.battery-reason", "cpu", std::format("{:.0f}", static_cast<double>(row->cpuUsageUsec) / 6e7), "uptime",
+        uptimeText(row->startedUsec)
     );
     if (battery.onBattery && battery.energyRate > 0.0) {
       reason += std::format(" · ~{:.1f} W", battery.energyRate * share / 100.0);
     }
-    card->addChild(ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale, .minHeight = Tokens::sizeRowTwoCompact * scale},
-        ui::column(
-            {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
-            ui::label({.text = id.name, .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1, .ellipsize = TextEllipsize::End}),
-            ui::label({.text = reason, .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 1, .ellipsize = TextEllipsize::End})
-        ),
-        cell(std::format("{:.0f} %", share), scale, ColorRole::Label1)
-    ));
+    card->addChild(
+        ui::row(
+            {.align = FlexAlign::Center,
+             .gap = Style::spaceSm * scale,
+             .paddingH = Style::spaceSm * scale,
+             .minHeight = Tokens::sizeRowTwoCompact * scale},
+            ui::column(
+                {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
+                ui::label(
+                    {.text = id.name,
+                     .fontSize = Style::fontSizeBody * scale,
+                     .color = colorSpecFromRole(ColorRole::Label1),
+                     .maxLines = 1,
+                     .ellipsize = TextEllipsize::End}
+                ),
+                ui::label(
+                    {.text = reason,
+                     .fontSize = Style::fontSizeCaption * scale,
+                     .color = colorSpecFromRole(ColorRole::Label2),
+                     .maxLines = 1,
+                     .ellipsize = TextEllipsize::End}
+                )
+            ),
+            cell(std::format("{:.0f} %", share), scale, ColorRole::Label1)
+        )
+    );
   }
 }
 
@@ -899,21 +983,38 @@ void ActivityWindow::addHistoryCards(Renderer& /*renderer*/, Flex& list, float s
       card = settings::addSettingsGroupCard(list, i18n::tr("activity.history-memory"), scale);
     }
     const float peak = *std::ranges::max_element(history->longMemoryMb);
-    card->addChild(ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale, .height = kRowHeight * scale},
-        ui::label({.text = identityFor(row).name, .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1, .ellipsize = TextEllipsize::End, .flexGrow = 1.0F}),
-        makeGraph(normalized(history->longMemoryMb), kHistoryGraphWidth * scale, Tokens::sizeControlS * scale, ColorRole::Accent),
-        cell(memoryText(static_cast<std::uint64_t>(peak) * 1024 * 1024), scale, ColorRole::Label1)
-    ));
+    card->addChild(
+        ui::row(
+            {.align = FlexAlign::Center,
+             .gap = Style::spaceSm * scale,
+             .paddingH = Style::spaceSm * scale,
+             .height = kRowHeight * scale},
+            ui::label(
+                {.text = identityFor(row).name,
+                 .fontSize = Style::fontSizeBody * scale,
+                 .color = colorSpecFromRole(ColorRole::Label1),
+                 .maxLines = 1,
+                 .ellipsize = TextEllipsize::End,
+                 .flexGrow = 1.0F}
+            ),
+            makeGraph(
+                normalized(history->longMemoryMb), kHistoryGraphWidth * scale, Tokens::sizeControlS * scale,
+                ColorRole::Accent
+            ),
+            cell(memoryText(static_cast<std::uint64_t>(peak) * 1024 * 1024), scale, ColorRole::Label1)
+        )
+    );
   }
   if (card == nullptr) {
-    list.addChild(ui::label({
-        .text = i18n::tr("activity.history-empty"),
-        .fontSize = Style::fontSizeBody * scale,
-        .color = colorSpecFromRole(ColorRole::Label2),
-        .maxLines = 3,
-        .textAlign = TextAlign::Center,
-    }));
+    list.addChild(
+        ui::label({
+            .text = i18n::tr("activity.history-empty"),
+            .fontSize = Style::fontSizeBody * scale,
+            .color = colorSpecFromRole(ColorRole::Label2),
+            .maxLines = 3,
+            .textAlign = TextAlign::Center,
+        })
+    );
   }
 }
 
@@ -926,40 +1027,44 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   });
   const ActivityRow* row = selectedRow();
   if (row == nullptr) {
-    inspector->addChild(ui::label({
-        .text = i18n::tr("activity.inspector-empty"),
-        .fontSize = Style::fontSizeBody * scale,
-        .color = colorSpecFromRole(ColorRole::Label2),
-        .maxLines = 3,
-    }));
+    inspector->addChild(
+        ui::label({
+            .text = i18n::tr("activity.inspector-empty"),
+            .fontSize = Style::fontSizeBody * scale,
+            .color = colorSpecFromRole(ColorRole::Label2),
+            .maxLines = 3,
+        })
+    );
     return inspector;
   }
 
   const RowIdentity id = identityFor(*row);
   Image* icon = nullptr;
   const int inspectorPx = static_cast<int>(std::round(kInspectorIcon * scale));
-  inspector->addChild(ui::row(
-      {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-      ui::image({.out = &icon, .width = kInspectorIcon * scale, .height = kInspectorIcon * scale}),
-      ui::column(
-          {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
-          ui::label({
-              .text = id.name,
-              .fontSize = Style::fontSizeTitle * scale,
-              .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Label1),
-              .maxLines = 1,
-              .ellipsize = TextEllipsize::End,
-          }),
-          ui::label({
-              .text = unescapeUnitName(row->units.empty() ? row->key : row->units.front()),
-              .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Label2),
-              .maxLines = 1,
-              .ellipsize = TextEllipsize::Middle,
-          })
+  inspector->addChild(
+      ui::row(
+          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+          ui::image({.out = &icon, .width = kInspectorIcon * scale, .height = kInspectorIcon * scale}),
+          ui::column(
+              {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
+              ui::label({
+                  .text = id.name,
+                  .fontSize = Style::fontSizeTitle * scale,
+                  .fontWeight = FontWeight::Bold,
+                  .color = colorSpecFromRole(ColorRole::Label1),
+                  .maxLines = 1,
+                  .ellipsize = TextEllipsize::End,
+              }),
+              ui::label({
+                  .text = unescapeUnitName(row->units.empty() ? row->key : row->units.front()),
+                  .fontSize = Style::fontSizeCaption * scale,
+                  .color = colorSpecFromRole(ColorRole::Label2),
+                  .maxLines = 1,
+                  .ellipsize = TextEllipsize::Middle,
+              })
+          )
       )
-  ));
+  );
   if (const std::string path = iconPath(id.icon, inspectorPx); !path.empty()) {
     icon->setSourceFile(renderer, path, inspectorPx);
   }
@@ -980,12 +1085,25 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (const auto* history = m_details != nullptr ? m_details->history(row->key) : nullptr;
       history != nullptr && history->memoryMb.size() > 1) {
     const float width = (kInspectorWidth - 2.0F * Style::spaceLg) * scale;
-    inspector->addChild(ui::row(
-        {.align = FlexAlign::Center},
-        ui::label({.text = i18n::tr("activity.graph-memory"), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2), .flexGrow = 1.0F}),
-        ui::label({.text = memoryText(row->memoryBytes), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label1)})
-    ));
-    inspector->addChild(makeGraph(normalized(history->memoryMb), width, kInspectorGraphHeight * scale, ColorRole::Accent));
+    inspector->addChild(
+        ui::row(
+            {.align = FlexAlign::Center},
+            ui::label(
+                {.text = i18n::tr("activity.graph-memory"),
+                 .fontSize = Style::fontSizeCaption * scale,
+                 .color = colorSpecFromRole(ColorRole::Label2),
+                 .flexGrow = 1.0F}
+            ),
+            ui::label(
+                {.text = memoryText(row->memoryBytes),
+                 .fontSize = Style::fontSizeCaption * scale,
+                 .color = colorSpecFromRole(ColorRole::Label1)}
+            )
+        )
+    );
+    inspector->addChild(
+        makeGraph(normalized(history->memoryMb), width, kInspectorGraphHeight * scale, ColorRole::Accent)
+    );
   }
 
   inspector->addChild(factRow(i18n::tr("activity.column-cpu"), cpuText(row->cpuPercent), scale));
@@ -993,96 +1111,112 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   inspector->addChild(factRow(i18n::tr("activity.column-gpu"), std::format("{:.0f} %", gpu), scale));
   inspector->addChild(factRow(
       i18n::tr("activity.fact-disk"),
-      std::format("{:.1f} / {:.1f} MB/s", row->ioReadBytesPerSec / (1024.0 * 1024.0), row->ioWriteBytesPerSec / (1024.0 * 1024.0)),
+      std::format(
+          "{:.1f} / {:.1f} MB/s", row->ioReadBytesPerSec / (1024.0 * 1024.0),
+          row->ioWriteBytesPerSec / (1024.0 * 1024.0)
+      ),
       scale
   ));
   inspector->addChild(factRow(i18n::tr("activity.fact-running-for"), uptimeText(row->startedUsec), scale));
   inspector->addChild(factRow(i18n::tr("activity.fact-units"), std::to_string(row->units.size()), scale));
   const auto* state = rowState(row->key);
   if (state != nullptr && !row->hasWindow) {
-    inspector->addChild(factRow(
-        i18n::tr("activity.fact-at-login"), i18n::tr(state->atLogin ? "activity.yes" : "activity.no"), scale
-    ));
+    inspector->addChild(
+        factRow(i18n::tr("activity.fact-at-login"), i18n::tr(state->atLogin ? "activity.yes" : "activity.no"), scale)
+    );
   }
-  if (const std::string reason = state != nullptr ? BackgroundActivityMonitor::reasonText(*state, row->memoryBytes) : "";
+  if (const std::string reason =
+          state != nullptr ? BackgroundActivityMonitor::reasonText(*state, row->memoryBytes) : "";
       !reason.empty()) {
-    inspector->addChild(ui::row(
-        {.align = FlexAlign::Start,
-         .gap = Style::spaceSm * scale,
-         .padding = Style::spaceSm * scale,
-         .fill = colorSpecFromRole(ColorRole::Warning, 0.14F),
-         .radius = Style::scaledRadiusMd(scale)},
-        ui::glyph({
-            .glyph = "alert-circle",
-            .glyphSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::Warning),
-        }),
-        ui::label({
-            .text = reason,
-            .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::Label1),
-            .maxLines = 4,
-            .flexGrow = 1.0F,
-        })
-    ));
+    inspector->addChild(
+        ui::row(
+            {.align = FlexAlign::Start,
+             .gap = Style::spaceSm * scale,
+             .padding = Style::spaceSm * scale,
+             .fill = colorSpecFromRole(ColorRole::Warning, 0.14F),
+             .radius = Style::scaledRadiusMd(scale)},
+            ui::glyph({
+                .glyph = "alert-circle",
+                .glyphSize = Style::fontSizeBody * scale,
+                .color = colorSpecFromRole(ColorRole::Warning),
+            }),
+            ui::label({
+                .text = reason,
+                .fontSize = Style::fontSizeCaption * scale,
+                .color = colorSpecFromRole(ColorRole::Label1),
+                .maxLines = 4,
+                .flexGrow = 1.0F,
+            })
+        )
+    );
   }
 
   inspector->addChild(ui::spacer());
   if (!m_actionError.empty()) {
-    inspector->addChild(ui::label({
-        .text = m_actionError,
-        .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::Warning),
-        .maxLines = 3,
-    }));
+    inspector->addChild(
+        ui::label({
+            .text = m_actionError,
+            .fontSize = Style::fontSizeCaption * scale,
+            .color = colorSpecFromRole(ColorRole::Warning),
+            .maxLines = 3,
+        })
+    );
   }
-  inspector->addChild(ui::button({
-      .text = i18n::tr(row->hasWindow ? "activity.action-quit" : "activity.action-stop"),
-      .fontSize = Style::fontSizeBody * scale,
-      .enabled = m_actions != nullptr,
-      .variant = ButtonVariant::Default,
-      .minHeight = Style::controlHeight * scale,
-      .radius = Style::controlHeight * scale / 2.0F,
-      .onClick = [this] { stopSelected(); },
-  }));
-  inspector->addChild(ui::button({
-      .text = i18n::tr("activity.action-force-quit"),
-      .fontSize = Style::fontSizeCaption * scale,
-      .enabled = m_actions != nullptr,
-      .variant = ButtonVariant::Ghost,
-      .minHeight = Style::controlHeightSm * scale,
-      .radius = Style::controlHeightSm * scale / 2.0F,
-      .onClick = [this] { forceQuitSelected(); },
-  }));
+  inspector->addChild(
+      ui::button({
+          .text = i18n::tr(row->hasWindow ? "activity.action-quit" : "activity.action-stop"),
+          .fontSize = Style::fontSizeBody * scale,
+          .enabled = m_actions != nullptr,
+          .variant = ButtonVariant::Default,
+          .minHeight = Style::controlHeight * scale,
+          .radius = Style::controlHeight * scale / 2.0F,
+          .onClick = [this] { stopSelected(); },
+      })
+  );
+  inspector->addChild(
+      ui::button({
+          .text = i18n::tr("activity.action-force-quit"),
+          .fontSize = Style::fontSizeCaption * scale,
+          .enabled = m_actions != nullptr,
+          .variant = ButtonVariant::Ghost,
+          .minHeight = Style::controlHeightSm * scale,
+          .radius = Style::controlHeightSm * scale / 2.0F,
+          .onClick = [this] { forceQuitSelected(); },
+      })
+  );
   if (state != nullptr && state->atLogin && m_background != nullptr) {
-    inspector->addChild(ui::button({
-        .text = i18n::tr("notifications.internal.activity-dont-start"),
-        .fontSize = Style::fontSizeBody * scale,
-        .variant = ButtonVariant::Default,
-        .minHeight = Style::controlHeight * scale,
-        .radius = Style::controlHeight * scale / 2.0F,
-        .onClick = [this, key = row->key] {
-          m_background->disableAtLogin(key, [this](const ActivityActionResult& result) {
-            m_actionError = result.ok ? "" : result.accessDenied ? i18n::tr("activity.error-admin") : result.error;
-            refreshRowStates(true);
-            requestRebuild();
-          });
-        },
-    }));
+    inspector->addChild(
+        ui::button({
+            .text = i18n::tr("notifications.internal.activity-dont-start"),
+            .fontSize = Style::fontSizeBody * scale,
+            .variant = ButtonVariant::Default,
+            .minHeight = Style::controlHeight * scale,
+            .radius = Style::controlHeight * scale / 2.0F,
+            .onClick = [this, key = row->key] {
+              m_background->disableAtLogin(key, [this](const ActivityActionResult& result) {
+                m_actionError = result.ok ? "" : result.accessDenied ? i18n::tr("activity.error-admin") : result.error;
+                refreshRowStates(true);
+                requestRebuild();
+              });
+            },
+        })
+    );
   }
   if (state != nullptr && !row->hasWindow && m_background != nullptr) {
-    inspector->addChild(ui::button({
-        .text = i18n::tr(state->ignored ? "activity.action-unignore" : "activity.action-ignore"),
-        .fontSize = Style::fontSizeBody * scale,
-        .variant = ButtonVariant::Ghost,
-        .minHeight = Style::controlHeight * scale,
-        .radius = Style::controlHeight * scale / 2.0F,
-        .onClick = [this, key = row->key, ignored = state->ignored] {
-          m_background->setIgnored(key, !ignored);
-          refreshRowStates(true);
-          requestRebuild();
-        },
-    }));
+    inspector->addChild(
+        ui::button({
+            .text = i18n::tr(state->ignored ? "activity.action-unignore" : "activity.action-ignore"),
+            .fontSize = Style::fontSizeBody * scale,
+            .variant = ButtonVariant::Ghost,
+            .minHeight = Style::controlHeight * scale,
+            .radius = Style::controlHeight * scale / 2.0F,
+            .onClick = [this, key = row->key, ignored = state->ignored] {
+              m_background->setIgnored(key, !ignored);
+              refreshRowStates(true);
+              requestRebuild();
+            },
+        })
+    );
   }
   return inspector;
 }
@@ -1196,13 +1330,16 @@ void ActivityWindow::onKeyboardEvent(const KeyboardEvent& event) {
   }
   const InputArea* focused = m_inputDispatcher.focusedArea();
   const bool typing = focused != nullptr
-                   && (focused->capturesAllKeys() || (m_searchInput != nullptr && focused == m_searchInput->inputArea()));
+      && (focused->capturesAllKeys() || (m_searchInput != nullptr && focused == m_searchInput->inputArea()));
   if (typing && event.pressed && event.sym == XKB_KEY_Escape) {
     m_inputDispatcher.setFocus(nullptr);
     invalidate();
     return;
   }
-  if (typing && !(event.pressed && (event.modifiers & KeyMod::Ctrl) != 0 && (event.sym == XKB_KEY_w || event.sym == XKB_KEY_q))) {
+  if (typing
+      && !(
+          event.pressed && (event.modifiers & KeyMod::Ctrl) != 0 && (event.sym == XKB_KEY_w || event.sym == XKB_KEY_q)
+      )) {
     m_inputDispatcher.keyEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);
     invalidate();
     return;
@@ -1211,7 +1348,9 @@ void ActivityWindow::onKeyboardEvent(const KeyboardEvent& event) {
     DeferredCall::callLater([this] { close(); });
     return;
   }
-  if (event.pressed && (event.modifiers & KeyMod::Ctrl) != 0 && (event.sym == XKB_KEY_f || event.sym == XKB_KEY_F)
+  if (event.pressed
+      && (event.modifiers & KeyMod::Ctrl) != 0
+      && (event.sym == XKB_KEY_f || event.sym == XKB_KEY_F)
       && m_searchInput != nullptr) {
     m_inputDispatcher.setFocus(m_searchInput->inputArea());
     invalidate();

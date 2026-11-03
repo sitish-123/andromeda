@@ -52,7 +52,9 @@ public:
   // GPU shares, history and process groups; owned by the caller so 24 h history outlives the window.
   void setDetails(ActivityDetails* details) { m_details = details; }
   // Services that start after the window exists; asked for on open.
-  void setSystemMonitorProvider(std::function<SystemMonitorService*()> provider) { m_sysmonProvider = std::move(provider); }
+  void setSystemMonitorProvider(std::function<SystemMonitorService*()> provider) {
+    m_sysmonProvider = std::move(provider);
+  }
   void setUPowerProvider(std::function<UPowerService*()> provider) { m_upowerProvider = std::move(provider); }
 
   // rowKey selects that row (and its tab) when it exists.
@@ -118,7 +120,7 @@ private:
   std::string m_selectedKey;
   std::string m_query;
   Input* m_searchInput = nullptr;
-  Node m_placeholderRoot; // input root while the scene rebuilds
+  Node m_placeholderRoot;             // input root while the scene rebuilds
   std::unique_ptr<Node> m_keptSearch; // the search field between removal from the old tree and the new sidebar
   float m_searchScale = 0.0F;
   std::string m_actionError;
