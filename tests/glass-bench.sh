@@ -1,12 +1,55 @@
 #!/usr/bin/env bash
-# Glass cost bench (CLAUDE.md Decisions: glass rendering plan). Runs a headless desktop per mode (fixed 1920x1080@60, so
+# Glass cost bench (CLAUDE.md Decisions: glass rendering plan). Runs a headless desktop per mode (fixed BENCH_MODE output, so
 # the parent session cannot resize or throttle it), drives fixed scenarios
 # and reports per-frame GPU time (timer queries, ANDROMEDA_FRAME_LOG), frame counts, compositor CPU and RSS, package
 # energy (RAPL) and GPU busy (intel_gpu_top, needs CAP_PERFMON).
 # Usage: tests/glass-bench.sh [modes...]   modes: off clear tinted frosted nolens (tinted, lens off)
 #   (default: off nolens tinted)
-# Env: SECONDS_PER=8 (seconds per scenario), OUT=/tmp/glass-bench, BUDGET_SCALE=1.0 (this GPU's speed / UHD 620's).
+#   sudo tests/glass-bench.sh limit | restore   low-end limits on this laptop (Arc 140T, Ultra 7 255H) and back.
+# Low end = UHD 620 laptop (24 EU x 8 lanes at 1150 MHz, 2-4 core U chip): GPU pinned at its lowest clock (RPn, 800 MHz here:
+# the driver rejects less; BUDGET_SCALE covers the rest), CPUs 6-9
+# (E-cores) capped at LOW_CPU_KHZ, and compositor + shell share 200 % CPU in glass-bench.slice. Memory bandwidth
+# cannot be limited (~120 GB/s here vs ~38 GB/s), so bandwidth-bound blur still reads optimistic.
+# Env: SECONDS_PER=8 (seconds per scenario), OUT=/tmp/glass-bench, BUDGET_SCALE (default: GPU lanes x pinned MHz
+#   over UHD 620's), LOWEND=0 runs without limits, BENCH_MODE=1920x1200@60 (a 1.5K low-end laptop panel; glass cost grows
+#   with the pixel count), CONF_HOME=$HOME (source of the andromeda and noctalia config and ~/Pictures),
+#   TOKENS=$ROOT/protocol/design-tokens.toml, RENDER_NODE (for example /dev/dri/renderD128 on a dual-GPU laptop).
 set -uo pipefail
+GPU=/sys/class/drm/card1
+LOW_GPU_MHZ=${LOW_GPU_MHZ:-$(cat "$GPU/gt_RPn_freq_mhz")}
+LOW_CPU_KHZ=${LOW_CPU_KHZ:-2600000}
+LOW_CPUS=(6 7 8 9)
+BENCH_MODE=${BENCH_MODE:-1920x1200@60}
+CONF_HOME=${CONF_HOME:-$HOME}
+case ${1:-} in
+  limit | restore)
+    [[ $EUID -eq 0 ]] || { echo "run as: sudo $0 $1" >&2; exit 2; }
+    if [[ $1 == limit ]]; then gmin=$LOW_GPU_MHZ gmax=$LOW_GPU_MHZ; else gmin=$(cat "$GPU/gt_RPn_freq_mhz") gmax=$(cat "$GPU/gt_RP0_freq_mhz"); fi
+    [[ $1 == restore ]] && gmin=100
+    # Lower min first when going down, raise max first when going up: the driver rejects min > max.
+    echo "$gmin" > "$GPU/gt_min_freq_mhz"; echo "$gmax" > "$GPU/gt_max_freq_mhz"; echo "$gmin" > "$GPU/gt_min_freq_mhz"
+    for c in "${LOW_CPUS[@]}"; do
+      f=/sys/devices/system/cpu/cpu$c/cpufreq
+      if [[ $1 == limit ]]; then echo "$LOW_CPU_KHZ" > "$f/scaling_max_freq"; else cat "$f/cpuinfo_max_freq" > "$f/scaling_max_freq"; fi
+    done
+    echo "gpu $(cat "$GPU/gt_min_freq_mhz")-$(cat "$GPU/gt_max_freq_mhz") MHz, cpu ${LOW_CPUS[*]} max $(cat /sys/devices/system/cpu/cpu${LOW_CPUS[0]}/cpufreq/scaling_max_freq) kHz"
+    exit 0 ;;
+esac
+LOWEND=${LOWEND:-1}
+SLICE=()
+if [[ $LOWEND == 1 ]]; then
+  gpu_mhz=$(cat "$GPU/gt_max_freq_mhz")
+  cpu_khz=$(cat /sys/devices/system/cpu/cpu${LOW_CPUS[0]}/cpufreq/scaling_max_freq)
+  if [[ $(cat "$GPU/gt_min_freq_mhz") != "$gpu_mhz" || $gpu_mhz -gt 800 || $cpu_khz -gt $LOW_CPU_KHZ ]]; then
+    echo "low-end limits are not set (gpu $(cat "$GPU/gt_min_freq_mhz")-$gpu_mhz MHz, cpu max $cpu_khz kHz)." >&2
+    echo "run: sudo $0 limit   (after the bench: sudo $0 restore), or LOWEND=0 $0" >&2
+    exit 2
+  fi
+  systemctl --user set-property --runtime glass-bench.slice AllowedCPUs="${LOW_CPUS[0]}-${LOW_CPUS[-1]}" CPUQuota=200% \
+    CPUQuotaPeriodSec=10ms || exit 2
+  SLICE=(systemd-run --user --scope -q --slice=glass-bench.slice)
+  BUDGET_SCALE=${BUDGET_SCALE:-$(awk -v m="$gpu_mhz" 'BEGIN {printf "%.2f", 1024 * m / (192 * 1150)}')}
+fi
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ANDROMEDA=${ANDROMEDA:-$ROOT/compositor/build-live/andromeda}
 NOCTALIA=${NOCTALIA:-$ROOT/shell/build-f7/noctalia}
@@ -29,13 +72,13 @@ make_config() {
     *) echo "unknown mode $mode" >&2; exit 2 ;;
   esac
   sed -e '/^autostart *=/d' -e '/^show_cheatsheet *=/d' -e '/^reduce_transparency *=/d' -e '/^glass *=/d' \
-    -e '/^glass_opacity *=/d' -e '/^\[general\]/a show_cheatsheet = false' ~/.config/andromeda/config.toml > "$dst"
+    -e '/^glass_opacity *=/d' -e '/^\[general\]/a show_cheatsheet = false' "$CONF_HOME/.config/andromeda/config.toml" > "$dst"
   if grep -q '^\[appearance\]' "$dst"; then
     sed -i "/^\[appearance\]/a reduce_transparency = $reduce\nglass = $glass" "$dst"
   else
     printf '\n[appearance]\nreduce_transparency = %s\nglass = %s\n' "$reduce" "$glass" >> "$dst"
   fi
-  printf '\n[output.HEADLESS-1]\nmode = "1920x1080@60"\n' >> "$dst"
+  printf '\n[output.HEADLESS-1]\nmode = "%s"\n' "$BENCH_MODE" >> "$dst"
 }
 
 energy() { cat "$RAPL" 2>/dev/null || echo 0; }
@@ -60,21 +103,22 @@ run_mode() {
   local R; R=$(mktemp -d /tmp/glass-bench.XXXX)
   local H=$R/home
   mkdir -p "$H/.config" "$H/.local/state"
-  cp -r ~/.config/noctalia "$H/.config/" 2>/dev/null || true
-  cp -r ~/.local/state/noctalia "$H/.local/state/" 2>/dev/null || true
-  ln -s ~/Pictures "$H/Pictures"
+  cp -r "$CONF_HOME/.config/noctalia" "$H/.config/" 2>/dev/null || true
+  cp -r "$CONF_HOME/.local/state/noctalia" "$H/.local/state/" 2>/dev/null || true
+  ln -s "$CONF_HOME/Pictures" "$H/Pictures"
   make_config "$mode" "$R/andromeda.toml"
 
-  env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$R" WLR_BACKENDS=headless \
+  "${SLICE[@]}" env -u DISPLAY -u WAYLAND_DISPLAY -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$R" WLR_BACKENDS=headless \
+    ${RENDER_NODE:+WLR_RENDER_DRM_DEVICE=$RENDER_NODE} \
     WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1 \
     ANDROMEDA_FRAME_LOG="$dir/frames.log" ANDROMEDA_LENS="$([[ $mode == nolens ]] && echo 0 || echo 1)" "$ANDROMEDA" -c "$R/andromeda.toml" > "$R/andromeda.log" 2>&1 &
   local comp=$!
   for _ in $(seq 100); do [[ -S $R/wayland-0 ]] && break; sleep 0.05; done
   [[ -S $R/wayland-0 ]] || { echo "andromeda did not start ($mode)" >&2; tail -n 20 "$R/andromeda.log" >&2; kill $comp; return 1; }
 
-  env -u DISPLAY -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME HOME="$H" \
+  "${SLICE[@]}" env -u DISPLAY -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_STATE_HOME -u XDG_CACHE_HOME HOME="$H" \
     XDG_RUNTIME_DIR="$R" WAYLAND_DISPLAY=wayland-0 ANDROMEDA_SOCKET="$R/andromeda-wayland-0.sock" \
-    ANDROMEDA_DEV_TOKENS="$ROOT/protocol/design-tokens.toml" NOCTALIA="$NOCTALIA" LOG="$R/noctalia.log" \
+    ANDROMEDA_DEV_TOKENS="${TOKENS:-$ROOT/protocol/design-tokens.toml}" NOCTALIA="$NOCTALIA" LOG="$R/noctalia.log" \
     PIPEWIRE_RUNTIME_DIR="$XDG_RUNTIME_DIR" PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native" \
     setsid dbus-run-session -- bash -c '"$NOCTALIA" > "$LOG" 2>&1 & wait' &
   local shell=$!
@@ -154,4 +198,15 @@ for name in idle cc_over_motion open_close launcher_typing worst; do
   done
 done
 echo "budget: p99 <= ${budget} ms (25 % of 16.7 ms, BUDGET_SCALE=$BUDGET_SCALE); idle frames must be 0"
+echo "output: $BENCH_MODE"
+[[ $LOWEND == 1 ]] && echo "low end: gpu $gpu_mhz MHz, cpu ${LOW_CPUS[*]} at $((cpu_khz / 1000)) MHz, 200 % quota"
 [[ -s $OUT/${MODES[0]}/gpu.json ]] || echo "gpu busy: n/a (grant once: sudo setcap cap_perfmon+ep /usr/bin/intel_gpu_top)"
+# Power is reported, not budgeted (CLAUDE.md glass rendering plan): warn when a mode draws > 10 % more than off.
+if [[ -s $OUT/off/scenarios.txt ]]; then
+  for mode in "${MODES[@]}"; do
+    [[ $mode == off ]] && continue
+    awk -v m="$mode" 'NR == FNR {w[$1] = $5; next} w[$1] > 0 && $5 > w[$1] * 1.10 {
+      printf "power warning: %s %s %.2f W vs off %.2f W (+%.0f %%)\n", $1, m, $5, w[$1], ($5 / w[$1] - 1) * 100}' \
+      "$OUT/off/scenarios.txt" "$OUT/$mode/scenarios.txt"
+  done
+fi
