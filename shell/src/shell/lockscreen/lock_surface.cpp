@@ -592,11 +592,11 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
 
   if (m_config != nullptr && m_config->config().lockscreen.theme == "ryoku") {
     (void)text::registerFontFile(paths::assetPath("fonts/Outfit-Black.ttf"));
-    m_ryoku = std::make_unique<LockRyokuScene>();
+    m_ryoku = std::make_unique<RyokuAuthScene>();
     m_ryoku->build(m_root, m_animations);
     startRyokuLive();
   } else {
-    m_auth = std::make_unique<LockAuthColumn>();
+    m_auth = std::make_unique<AuthColumn>();
     m_auth->build(m_root, m_animations);
     startAndromedaClock();
   }
@@ -1692,7 +1692,7 @@ void LockSurface::layoutRyoku(
   m_ryokuShownError = statusError;
   m_ryoku->setPasswordLength(m_password.size());
 
-  std::vector<LockRyokuScene::Action> actions;
+  std::vector<RyokuAuthScene::Action> actions;
   if (m_sessionActions != nullptr) {
     for (const auto& cfg : resolveSessionActions()) {
       const std::string label =
@@ -1720,7 +1720,7 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     m_authPanel->setVisible(false);
   }
   const bool visible = m_locked && !m_blackout;
-  LockAuthColumn::State state;
+  AuthColumn::State state;
   if (visible) {
     const auto& lock = m_config != nullptr ? m_config->config().lockscreen : LockscreenConfig{};
     const bool typing = !m_password.empty();
@@ -1740,14 +1740,14 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
       }
     }
     if (m_authenticating) {
-      state.trailing = LockAuthColumn::Trailing::Checking;
+      state.trailing = AuthColumn::Trailing::Checking;
       state.hint.clear();
     } else if (typing) {
-      state.trailing = LockAuthColumn::Trailing::Go;
+      state.trailing = AuthColumn::Trailing::Go;
     } else if (m_authExtras.face) {
-      state.trailing = LockAuthColumn::Trailing::Face;
+      state.trailing = AuthColumn::Trailing::Face;
     } else if (m_authExtras.fingerprint) {
-      state.trailing = LockAuthColumn::Trailing::Fingerprint;
+      state.trailing = AuthColumn::Trailing::Fingerprint;
     }
     state.status = m_statusIsland;
     state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
@@ -1777,7 +1777,7 @@ void LockSurface::startAndromedaClock() {
   });
 }
 
-void LockSurface::setStatus(const LockAuthColumn::Status& status) {
+void LockSurface::setStatus(const AuthColumn::Status& status) {
   if (m_statusIsland == status) {
     return;
   }

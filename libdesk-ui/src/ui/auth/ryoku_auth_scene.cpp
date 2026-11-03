@@ -1,4 +1,4 @@
-#include "shell/lockscreen/lock_ryoku_scene.h"
+#include "ui/auth/ryoku_auth_scene.h"
 
 #include "render/core/color.h"
 #include "render/core/render_styles.h"
@@ -93,7 +93,7 @@ namespace {
   }
 } // namespace
 
-void LockRyokuScene::build(Node& root, AnimationManager& animations) {
+void RyokuAuthScene::build(Node& root, AnimationManager& animations) {
   m_animations = &animations;
   m_background = addRect(root, RoundedRectStyle{.fill = rgba(0.0F, 0.0F, 0.0F, 1.0F)}, 0);
 
@@ -130,7 +130,7 @@ void LockRyokuScene::build(Node& root, AnimationManager& animations) {
   m_animations->animateSpring(0.9F, 0.0F, Style::spring(Tokens::springOpen), [this](float v) { m_introOffset = v; });
 }
 
-void LockRyokuScene::buildRing(Ring& ring, float tickLong, float tickShort, float numberSize) {
+void RyokuAuthScene::buildRing(Ring& ring, float tickLong, float tickShort, float numberSize) {
   ring.tickLong = tickLong;
   ring.tickShort = tickShort;
   ring.numberSize = numberSize;
@@ -146,7 +146,7 @@ void LockRyokuScene::buildRing(Ring& ring, float tickLong, float tickShort, floa
   }
 }
 
-void LockRyokuScene::layout(Renderer& renderer, float sw, float sh) {
+void RyokuAuthScene::layout(Renderer& renderer, float sw, float sh) {
   m_s = sh / 768.0F;
   const float s = m_s;
 
@@ -238,7 +238,7 @@ void LockRyokuScene::layout(Renderer& renderer, float sw, float sh) {
   m_user->setPosition(right - m_user->width(), m_hint->y() - 10.0F * s - m_user->height());
 }
 
-void LockRyokuScene::layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, float numberInset) {
+void RyokuAuthScene::layoutRing(Renderer& renderer, Ring& ring, float cx, float cy, float numberInset) {
   const float r = ring.radius;
   ring.container->setPosition(cx - r, cy - r);
   ring.container->setSize(2.0F * r, 2.0F * r);
@@ -263,7 +263,7 @@ void LockRyokuScene::layoutRing(Renderer& renderer, Ring& ring, float cx, float 
   }
 }
 
-bool LockRyokuScene::tick(bool smooth) {
+bool RyokuAuthScene::tick(bool smooth) {
   const float ms = smooth ? msOfDay() : std::floor(msOfDay() / 1000.0F) * 1000.0F;
   const float secAngle = -std::fmod(ms, 60000.0F) / 60000.0F * 2.0F * kPi + m_introOffset * 1.6F;
   const float minAngle = -std::fmod(ms, 3600000.0F) / 3600000.0F * 2.0F * kPi + m_introOffset;
@@ -300,7 +300,7 @@ bool LockRyokuScene::tick(bool smooth) {
 }
 
 // The tick facing the pill (display angle 0) is lit; neighbours fade over 4 degrees, as in Ryoku.
-void LockRyokuScene::spotlight(Ring& ring, float ringAngle) {
+void RyokuAuthScene::spotlight(Ring& ring, float ringAngle) {
   // The dial is centred off the left edge, so about half of it is off screen; hidden nodes are not drawn.
   const float margin = 30.0F * m_s;
   const auto onScreen = [&](float angle, float radius) {
@@ -323,7 +323,7 @@ void LockRyokuScene::spotlight(Ring& ring, float ringAngle) {
   }
 }
 
-void LockRyokuScene::fadeColor(Label* label, bool lit) {
+void RyokuAuthScene::fadeColor(Label* label, bool lit) {
   m_animations->cancelForOwner(label);
   const Color from = label->color();
   const Color to = lit ? kWhite : kDim;
@@ -333,15 +333,15 @@ void LockRyokuScene::fadeColor(Label* label, bool lit) {
   );
 }
 
-void LockRyokuScene::setUser(const std::string& name) { m_user->setText(tracked(upper(name), kThin)); }
+void RyokuAuthScene::setUser(const std::string& name) { m_user->setText(tracked(upper(name), kThin)); }
 
-void LockRyokuScene::setHint(const std::string& text, bool isError, bool scanning) {
+void RyokuAuthScene::setHint(const std::string& text, bool isError, bool scanning) {
   m_scanning = scanning && !isError;
   m_hint->setText(tracked(upper(text), kHair));
   m_hint->setColor(isError ? kError : (m_scanning ? kWhite : kDim));
 }
 
-void LockRyokuScene::setPasswordLength(std::size_t length) {
+void RyokuAuthScene::setPasswordLength(std::size_t length) {
   const bool wasEmpty = m_passwordLength == 0;
   m_passwordLength = length;
   if (wasEmpty == (length == 0)) {
@@ -356,7 +356,7 @@ void LockRyokuScene::setPasswordLength(std::size_t length) {
   );
 }
 
-void LockRyokuScene::setActions(std::vector<Action> actions) {
+void RyokuAuthScene::setActions(std::vector<Action> actions) {
   std::vector<std::string> names;
   names.reserve(actions.size());
   for (const Action& action : actions) {
@@ -382,12 +382,12 @@ void LockRyokuScene::setActions(std::vector<Action> actions) {
   }
 }
 
-void LockRyokuScene::playRejected() {
+void RyokuAuthScene::playRejected() {
   m_animations->cancelForOwner(&m_shake);
   m_animations->animateSpring(1.0F, 0.0F, Style::spring(Tokens::springRelease), [this](float v) { m_shake = v; }, {}, &m_shake);
 }
 
-void LockRyokuScene::playGranted(std::function<void()> onDone) {
+void RyokuAuthScene::playGranted(std::function<void()> onDone) {
   m_scanning = false;
   m_hint->setText(tracked("ACCESS GRANTED " + std::string(kStar), kHair));
   m_hint->setColor(kWhite);

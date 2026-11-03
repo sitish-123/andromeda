@@ -6,7 +6,7 @@
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
 #include "dbus/upower/upower_service.h"
-#include "shell/lockscreen/lock_auth_column.h"
+#include "ui/auth/auth_column.h"
 #include "pipewire/sound_player.h"
 #include "render/backend/render_backend.h"
 
@@ -121,7 +121,7 @@ void Application::requestAllSurfacesRedraw() {
 }
 
 void Application::refreshLockStatus() {
-  LockAuthColumn::Status status;
+  AuthColumn::Status status;
   if (upower() != nullptr && upower()->state().isPresent) {
     const auto& battery = upower()->state();
     status.batteryGlyph = batteryGlyphName(battery.percentage, battery.state);

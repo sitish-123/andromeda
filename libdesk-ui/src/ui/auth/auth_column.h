@@ -12,9 +12,10 @@ class RectNode;
 class Renderer;
 
 // The Andromeda auth area (rulebook 9.15): avatar, name, password capsule, hint and owner message, plus the
-// lock-from-phone reason card. LockSurface keeps the real password field (invisible) and the auth state; this class
-// only draws. The column never moves between states; only the capsule and the hint change.
-class LockAuthColumn {
+// lock-from-phone reason card, for the lock screen and the greeter. The host keeps the real password field (invisible)
+// and the auth state; this class only draws. The column never moves between states; only the capsule and the hint
+// change.
+class AuthColumn {
 public:
   enum class Trailing { None, Face, Fingerprint, Go, Checking };
 

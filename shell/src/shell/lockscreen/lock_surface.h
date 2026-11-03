@@ -10,9 +10,9 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
-#include "shell/lockscreen/lock_auth_column.h"
+#include "ui/auth/auth_column.h"
 #include "shell/lockscreen/lock_phone_row.h"
-#include "shell/lockscreen/lock_ryoku_scene.h"
+#include "ui/auth/ryoku_auth_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "wayland/surface.h"
 
@@ -73,7 +73,7 @@ public:
     bool operator==(const AuthExtras&) const = default;
   };
   void setAuthExtras(const AuthExtras& extras);
-  void setStatus(const LockAuthColumn::Status& status);
+  void setStatus(const AuthColumn::Status& status);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
@@ -215,14 +215,14 @@ private:
   Input* m_passwordField = nullptr;
   Button* m_passwordRevealButton = nullptr;
   Button* m_loginButton = nullptr;
-  std::unique_ptr<LockRyokuScene> m_ryoku;
+  std::unique_ptr<RyokuAuthScene> m_ryoku;
   Timer m_ryokuClock;
   AnimationManager::Id m_ryokuLive = 0;
   bool m_ryokuShownError = false;
-  std::unique_ptr<LockAuthColumn> m_auth;
+  std::unique_ptr<AuthColumn> m_auth;
   bool m_authShownError = false;
   AuthExtras m_authExtras;
-  LockAuthColumn::Status m_statusIsland;
+  AuthColumn::Status m_statusIsland;
   Timer m_andromedaClock;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;

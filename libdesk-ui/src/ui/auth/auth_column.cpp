@@ -1,4 +1,4 @@
-#include "shell/lockscreen/lock_auth_column.h"
+#include "ui/auth/auth_column.h"
 
 #include "render/core/color.h"
 #include "render/core/render_styles.h"
@@ -74,7 +74,7 @@ namespace {
 
 } // namespace
 
-void LockAuthColumn::build(Node& root, AnimationManager& animations) {
+void AuthColumn::build(Node& root, AnimationManager& animations) {
   m_animations = &animations;
   m_group = addGroup(root);
   m_group->setZIndex(6);
@@ -110,9 +110,9 @@ void LockAuthColumn::build(Node& root, AnimationManager& animations) {
   m_owner = addLabel(*m_group, FontWeight::Medium, true);
 }
 
-void LockAuthColumn::setState(State state) { m_state = std::move(state); }
+void AuthColumn::setState(State state) { m_state = std::move(state); }
 
-void LockAuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
+void AuthColumn::layout(Renderer& renderer, float sw, float sh, float scale) {
   // An empty placeholder means the session is not locked (or blacked out): draw nothing.
   m_group->setVisible(!m_state.placeholder.empty());
   if (m_state.placeholder.empty()) {
@@ -362,7 +362,7 @@ void LockAuthColumn::layout(Renderer& renderer, float sw, float sh, float scale)
   m_shakeAmplitude = 8.0F * s;
 }
 
-void LockAuthColumn::playRejected() {
+void AuthColumn::playRejected() {
   if (m_animations == nullptr) {
     return;
   }

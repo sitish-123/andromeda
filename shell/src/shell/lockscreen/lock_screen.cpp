@@ -692,7 +692,7 @@ void LockScreen::onSystemResumed() {
   cancelOutputPowerOff();
 }
 
-void LockScreen::setStatus(LockAuthColumn::Status status) {
+void LockScreen::setStatus(AuthColumn::Status status) {
   if (m_statusIsland == status) {
     return;
   }

@@ -12,11 +12,11 @@ class Node;
 class RectNode;
 class Renderer;
 
-// The Ryoku lock screen, matching the greeter's Ryoku login (greeter/src/greeter/ryoku_scene.*): black, the minute
+// The Ryoku auth screen, for the lock screen and the greeter: black, the minute
 // and second dial turning with the time beside the hour, the date, session actions at the top right, and the user,
-// hint, and star-masked password row at the bottom right. LockSurface keeps its real password field (invisible, over
+// hint, and star-masked password row at the bottom right. The host keeps its real password field (invisible, over
 // the mask row) and all auth state; this class only draws and animates.
-class LockRyokuScene {
+class RyokuAuthScene {
 public:
   struct Rect {
     float x = 0.0F;
