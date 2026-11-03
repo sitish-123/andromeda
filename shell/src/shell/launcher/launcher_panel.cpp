@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -3067,7 +3068,12 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
       )
   );
 
-  m_previewTitle->setText(singleLinePreview(result.title));
+  std::string title = singleLinePreview(result.title);
+  if (emoji && !title.empty()) {
+    // CLDR emoji names are lower case; the preview shows them in sentence case.
+    title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+  }
+  m_previewTitle->setText(title);
   m_previewTitle->setMaxWidth(m_previewPane->width() - 2.0F * Tokens::spaceP20 * scale);
   const std::string kind = result.origin.empty() ? result.subtitle : result.subtitle + " · " + result.origin;
   m_previewKind->setText(singleLinePreview(kind));
@@ -3183,6 +3189,9 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     }
   } else if (emoji) {
     meta[count++] = {i18n::tr("launcher.pill.category"), result.category};
+    if (const int uses = m_usageTracker.getCount(result.providerId, result.id); uses > 0) {
+      meta[count++] = {i18n::tr("launcher.pill.used"), i18n::trp("launcher.pill.times", uses)};
+    }
     std::string codepoints;
     for (std::size_t i = 0; i < result.badge.size();) {
       char32_t cp = 0;
