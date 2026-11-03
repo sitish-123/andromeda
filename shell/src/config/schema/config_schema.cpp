@@ -240,11 +240,29 @@ namespace noctalia::config::schema {
       };
       return s;
     }
+
+    const Schema<SystemConfig::BackgroundConfig>& systemBackgroundSchema() {
+      static const Schema<SystemConfig::BackgroundConfig> s = {
+          field(
+              &SystemConfig::BackgroundConfig::warn, "warn",
+              RowSpec{
+                  .section = "system",
+                  .group = "monitor",
+                  .label = "services.background-warning",
+                  .tags = "activity background services autostart memory warning notification",
+              }
+          ),
+          field(&SystemConfig::BackgroundConfig::memoryMb, "memory_mb", Range<std::int64_t>{50, 8192}),
+          field(&SystemConfig::BackgroundConfig::minUptimeMinutes, "min_uptime_minutes", Range<std::int64_t>{1, 1440}),
+      };
+      return s;
+    }
   } // namespace
 
   const Schema<SystemConfig>& systemSchema() {
     static const Schema<SystemConfig> s = {
         subTable(&SystemConfig::monitor, "monitor", systemMonitorSchema()),
+        subTable(&SystemConfig::background, "background", systemBackgroundSchema()),
     };
     return s;
   }

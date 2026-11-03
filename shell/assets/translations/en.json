@@ -4033,6 +4033,10 @@
         },
         "weather": {
           "description": "Enable the weather service via open-meteo.com",
+        "background-warning": {
+          "description": "Notify when an app with no window keeps using memory or duplicates a shell feature",
+          "label": "Background Service Warnings"
+        },
           "label": "Weather"
         },
         "weather-effects": {

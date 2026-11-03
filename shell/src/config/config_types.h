@@ -1509,6 +1509,15 @@ struct SystemConfig {
 
   MonitorConfig monitor;
 
+  // The background-service warning (Activity): windowless units over these limits notify once.
+  struct BackgroundConfig {
+    bool warn = true;
+    std::int32_t memoryMb = 200;
+    std::int32_t minUptimeMinutes = 30;
+    bool operator==(const BackgroundConfig&) const = default;
+  };
+  BackgroundConfig background;
+
   bool operator==(const SystemConfig&) const = default;
 };
 
