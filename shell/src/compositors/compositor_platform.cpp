@@ -1797,6 +1797,14 @@ bool CompositorPlatform::setOutputPower(bool on) const {
   return true;
 }
 
+std::unordered_map<std::string, bool> CompositorPlatform::outputPowerStates() const {
+  std::unordered_map<std::string, bool> states;
+  for (const auto& backend : m_focusedOutputBackends) {
+    states.merge(backend->outputPowerStates());
+  }
+  return states;
+}
+
 bool CompositorPlatform::shouldSuppressLockTransition() const {
   if (m_outputPowerOffPending) {
     return true;

@@ -16,6 +16,7 @@
 #include "scripting/script_api_context.h"
 #include "shell/desktop/desktop_widget_factory.h"
 #include "shell/lockscreen/lock_shader.h"
+#include "shell/lockscreen/lock_video.h"
 #include "util/file_utils.h"
 #include "ui/builders.h"
 
@@ -41,6 +42,7 @@ namespace {
 
   using SettingsMap = std::unordered_map<std::string, WidgetSettingValue>;
 
+
   struct Slot {
     explicit Slot(int fd) : server(fd) {}
 
@@ -52,6 +54,8 @@ namespace {
     std::unique_ptr<DesktopWidget> widget;
     // Set instead of widget for a `shader` slot.
     std::unique_ptr<LockShader> shader;
+    // Set with shader for a `video` slot: the shader draws its frames.
+    std::unique_ptr<LockVideo> video;
     std::chrono::steady_clock::time_point lastShaderFrame;
     bool dmabufsAttached = false;
     // Index of the shader buffer the shell shows; the next frame goes into the other one.
@@ -91,6 +95,19 @@ namespace {
   void render(RenderContext& context, Slot& slot, float deltaMs) {
     if (slot.shader != nullptr) {
       LockShader& shader = *slot.shader;
+      if (slot.video != nullptr) {
+        if (const auto frame = slot.video->takeFrame(); frame.has_value()) {
+          const bool shown = frame->dmabuf.has_value() ? shader.setChannel0Dmabuf(*frame->dmabuf)
+                                                       : shader.setChannel0Pixels(frame->pixels, frame->width, frame->height);
+          if (!shown) {
+            kLog.warn("video frame import failed; decoding in software");
+            (void)slot.video->fallBack();
+            slot.dirty = false;
+            return;
+          }
+        }
+      }
+      slot.dirty = false;
       const auto& dmabufs = shader.dmabufs();
       bool sent = false;
       if (slot.server.dmabufAllowed() && dmabufs.size() == 2) {
@@ -143,7 +160,8 @@ namespace {
   }
 
   [[nodiscard]] bool animating(const Slot& slot) {
-    if (slot.shader != nullptr) {
+    // A video slot draws when a frame arrives (dirty), not on every tick.
+    if (slot.shader != nullptr && slot.video == nullptr) {
       return true;
     }
     return slot.widget != nullptr && (slot.widget->needsFrameTick() || slot.animations.hasActive());
@@ -225,17 +243,27 @@ int runLockHelper(int argc, char* argv[]) {
         kLog.warn("skipping slot '{}'", type);
         continue;
       }
-      if (type == "shader") {
+      if (type == "shader" || type == "video") {
         const SettingsMap settings = readSettings((*table)["settings"].as_table());
         const auto it = settings.find("path");
         const std::string* path = it != settings.end() ? std::get_if<std::string>(&it->second) : nullptr;
-        const std::string source = path != nullptr ? readFileText(FileUtils::expandUserPath(*path)) : "";
+        const bool video = type == "video";
+        const std::string source = video ? std::string(LockVideo::kCoverShader)
+            : path != nullptr            ? readFileText(FileUtils::expandUserPath(*path))
+                                         : "";
         try {
           slot->shader = std::make_unique<LockShader>(
               shared, source, static_cast<std::uint32_t>(std::lround(width * scale)),
               static_cast<std::uint32_t>(std::lround(height * scale))
           );
+          if (video) {
+            slot->video = std::make_unique<LockVideo>(
+                path != nullptr ? FileUtils::expandUserPath(*path).string() : std::string{}, true
+            );
+            slot->dirty = false;
+          }
         } catch (const std::exception& e) {
+          slot->shader.reset();
           // The slot stays open with no frames, so the shell keeps its placeholder and does not restart.
           kLog.warn("shader slot '{}': {}", path != nullptr ? *path : std::string{}, e.what());
         }
@@ -295,11 +323,14 @@ int runLockHelper(int argc, char* argv[]) {
     bool waitingAnimation = false;
     for (auto& slot : slots) {
       const bool shaderDue = slot->shader == nullptr || now - slot->lastShaderFrame >= std::chrono::milliseconds(kFrameIntervalMs);
-      if (slot->server.requested() && (slot->dirty || animating(*slot)) && shaderDue) {
+      const bool wants = slot->server.requested() && !slot->server.paused() && (slot->dirty || animating(*slot));
+      if (wants && shaderDue) {
         render(context, *slot, deltaMs);
         rendered = true;
       }
-      waitingAnimation = waitingAnimation || (animating(*slot) && slot->server.requested());
+      // A frame held back by the pacing (a video frame) needs a wake when it is due.
+      waitingAnimation = waitingAnimation || (wants && !shaderDue)
+          || (animating(*slot) && slot->server.requested() && !slot->server.paused());
     }
     if (rendered) {
       lastFrame = now;
@@ -310,6 +341,9 @@ int runLockHelper(int argc, char* argv[]) {
     fds.push_back({.fd = DeferredCall::wakeFd(), .events = POLLIN, .revents = 0});
     for (const auto& slot : slots) {
       fds.push_back({.fd = slot->server.fd(), .events = POLLIN, .revents = 0});
+    }
+    for (const auto& slot : slots) {
+      fds.push_back({.fd = slot->video != nullptr ? slot->video->wakeFd() : -1, .events = POLLIN, .revents = 0});
     }
     int timeout = TimerManager::instance().pollTimeoutMs();
     if (waitingAnimation) {
@@ -337,6 +371,18 @@ int runLockHelper(int argc, char* argv[]) {
       }
       if (slots[i]->server.takeResend()) {
         slots[i]->dirty = true;
+      }
+      if (slots[i]->video != nullptr) {
+        slots[i]->video->setPaused(slots[i]->server.paused());
+      }
+      if (fds[i + 2 + slots.size()].revents != 0) {
+        if (slots[i]->video->dispatch()) {
+          slots[i]->dirty = true;
+        } else {
+          // The shell keeps the last frame; without its video the shader has nothing new to draw.
+          slots[i]->video.reset();
+          slots[i]->shader.reset();
+        }
       }
     }
   }

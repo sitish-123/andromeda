@@ -7,6 +7,8 @@
 
 #include <functional>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 class Bar;
 class ConfigService;
@@ -46,6 +48,8 @@ public:
   void onLockStateChanged();
   void onOutputChange();
   void onSecondTick();
+  // See LockscreenWidgetsHost::setStreamsPaused.
+  void setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower);
   // True when a visible widget renders a value that changes every second.
   [[nodiscard]] bool wantsSecondTicks() const;
   void requestLayout();

@@ -172,6 +172,12 @@ void LockscreenWidgetsController::onOutputChange() {
   }
 }
 
+void LockscreenWidgetsController::setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower) {
+  if (m_host != nullptr) {
+    m_host->setStreamsPaused(powerSaver, std::move(outputPower));
+  }
+}
+
 void LockscreenWidgetsController::onSecondTick() {
   if (!m_initialized) {
     return;
@@ -380,13 +386,9 @@ void LockscreenWidgetsController::applyVisibility() {
   }
 
   const bool enabled = m_config->config().lockscreenWidgets.enabled;
-  if (!enabled) {
-    if (isEditing() && m_editor != nullptr) {
-      m_snapshot = fromDesktopWidgetsEditorSnapshot(m_editor->close());
-      saveSnapshotToConfig();
-    }
-    m_host->hide();
-    return;
+  if (!enabled && isEditing() && m_editor != nullptr) {
+    m_snapshot = fromDesktopWidgetsEditorSnapshot(m_editor->close());
+    saveSnapshotToConfig();
   }
 
   if (isEditing()) {
@@ -398,7 +400,8 @@ void LockscreenWidgetsController::applyVisibility() {
     return;
   }
 
-  m_host->show(m_snapshot, *m_lockScreen);
+  // With widgets off the host still plays a video or shader wallpaper.
+  m_host->show(enabled ? m_snapshot : LockscreenWidgetsSnapshot{}, *m_lockScreen);
 }
 
 void LockscreenWidgetsController::handleConfigReload() {
@@ -409,7 +412,8 @@ void LockscreenWidgetsController::handleConfigReload() {
   if (!isEditing()) {
     loadSnapshotFromConfig();
     if (m_host != nullptr && m_lockScreen != nullptr) {
-      m_host->rebuild(m_snapshot, *m_lockScreen);
+      const bool enabled = m_config == nullptr || m_config->config().lockscreenWidgets.enabled;
+      m_host->rebuild(enabled ? m_snapshot : LockscreenWidgetsSnapshot{}, *m_lockScreen);
       // Plugin-level settings live in [plugin_settings], outside the widget snapshot, so
       // the host's instance diff cannot see them change.
       if (m_config != nullptr && m_config->lastChange().plugins) {

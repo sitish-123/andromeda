@@ -16,7 +16,7 @@
 
 namespace {
 
-  constexpr int kSlots = 3;
+  constexpr int kSlots = 4;
   using Clock = std::chrono::steady_clock;
 
   std::string writeTemp(const std::string& text) {
@@ -49,9 +49,16 @@ namespace {
     return frame.has_value() && frame->pixels != nullptr ? frame->pixels + ((frame->height / 2) * frame->width + frame->width / 2) * 4 : nullptr;
   }
 
+  // Pixel (x, y) of slot `i`'s current memfd frame, or empty.
+  const std::uint8_t* pixel(const PixelStreamClient& client, std::uint32_t x, std::uint32_t y) {
+    const auto frame = client.frame();
+    return frame.has_value() && frame->pixels != nullptr ? frame->pixels + (y * frame->width + x) * 4 : nullptr;
+  }
+
 } // namespace
 
-// Spawns `noctalia lock-helper` with a plugin slot, a shader slot and a shader that does not compile.
+// Spawns `noctalia lock-helper` with a plugin slot, a shader slot, a shader that does not compile and a
+// video slot (tests/lock_helper/bluered.webm: blue top half, red bottom half).
 // Args: <noctalia binary> <plugin source root>.
 int main(int argc, char* argv[]) {
   TEST_CHECK(argc == 3);
@@ -71,8 +78,10 @@ int main(int argc, char* argv[]) {
       "dark = true\nplugin_sources = [\"{}\"]\n"
       "[[slot]]\nfd = 4\ntype = \"me/lockbox:box\"\nwidth = 40\nheight = 40\nscale = 1.0\n"
       "[[slot]]\nfd = 5\ntype = \"shader\"\nwidth = 32\nheight = 16\nscale = 2.0\n[slot.settings]\npath = \"{}\"\n"
-      "[[slot]]\nfd = 6\ntype = \"shader\"\nwidth = 16\nheight = 16\nscale = 1.0\n[slot.settings]\npath = \"{}\"\n",
-      argv[2], green, broken
+      "[[slot]]\nfd = 6\ntype = \"shader\"\nwidth = 16\nheight = 16\nscale = 1.0\n[slot.settings]\npath = \"{}\"\n"
+      "[[slot]]\nfd = 7\ntype = \"video\"\nwidth = 32\nheight = 16\nscale = 1.0\n[slot.settings]\n"
+      "path = \"{}/bluered.webm\"\n",
+      argv[2], green, broken, argv[2]
   );
   const int startFd = ::memfd_create("start", 0);
   TEST_CHECK(::write(startFd, start.data(), start.size()) == static_cast<ssize_t>(start.size()));
@@ -136,6 +145,28 @@ int main(int argc, char* argv[]) {
   clients[1].releaseFrame();
   pump(clients, deadline, [&] { return centre(clients[1]) != nullptr; });
   TEST_CHECK(centre(clients[1]) != nullptr);
+
+  // The video slot shows decoded frames upright, scaled to the slot.
+  pump(clients, deadline, [&] { return clients[3].frame().has_value(); });
+  if (const auto video = clients[3].frame(); video.has_value() && video->dmabufFd >= 0) {
+    clients[3].refuseDmabuf();
+    clients[3].releaseFrame();
+    pump(clients, deadline, [&] { return pixel(clients[3], 0, 0) != nullptr; });
+  }
+  const std::uint8_t* top = pixel(clients[3], 16, 3);
+  const std::uint8_t* bottom = pixel(clients[3], 16, 12);
+  TEST_CHECK(top != nullptr && bottom != nullptr);
+  TEST_CHECK(top[2] > 180 && top[0] < 80);
+  TEST_CHECK(bottom[0] > 180 && bottom[2] < 80);
+
+  // A paused slot sends nothing, even when asked; resuming brings the next frame.
+  clients[1].setPaused(true);
+  clients[1].releaseFrame();
+  pump(clients, Clock::now() + std::chrono::milliseconds(300), [&] { return clients[1].frame().has_value(); });
+  TEST_CHECK(!clients[1].frame().has_value());
+  clients[1].setPaused(false);
+  pump(clients, deadline, [&] { return clients[1].frame().has_value(); });
+  TEST_CHECK(clients[1].frame().has_value());
 
   // Stdin EOF ends the helper.
   ::close(alive[1]);

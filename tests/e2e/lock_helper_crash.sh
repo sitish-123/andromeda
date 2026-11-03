@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Plugin lock widgets draw in `noctalia lock-helper`, not in the shell (L5b). While locked the helper starts and its
 # frame shows (slot.png: a red box at 200,200), and a shader slot reaches the shell as a dmabuf (a green box at
-# 400,200). Killing the helper leaves the session locked, the shell starts a new
-# helper, and the password field still takes input (a wrong password reaches PAM). Writes slot.png, restarted.png and
+# 400,200). A shader lock wallpaper (lockscreen.wallpaper = a .frag file) fills the background (green at
+# 40,600). Killing the helper leaves the session locked, the shell starts a new helper, and the password field
+# still takes input (a wrong password reaches PAM). Writes slot.png, restarted.png and
 # noctalia.log to $OUT (default ./artifacts/lock-helper-crash).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-helper-crash}
@@ -21,6 +22,7 @@ setup_wizard_enabled = false
 
 [lockscreen]
 layout = "custom"
+wallpaper = "~/green.frag"
 
 [lockscreen_widgets]
 enabled = true
@@ -53,6 +55,7 @@ with_noctalia '
   wait_for() { local what=$1; shift; for _ in $(seq 100); do "$@" && return; sleep 0.1; done; grim "$OUT/fail.png" || true; fail "$what"; }
   helpers() { grep -c "started lock helper pid" "$OUT/noctalia.log" | grep -qx "$1"; }
   green() { grim -g "400,200 1x1" -t ppm - | tail -c 3 | od -An -tu1 | awk "{ exit !(\$1 < 60 && \$2 > 200) }"; }
+  backdrop() { grim -g "40,600 1x1" -t ppm - | tail -c 3 | od -An -tu1 | awk "{ exit !(\$2 > \$1 + 30 && \$2 > \$3 + 30) }"; }
   red() { grim -g "200,200 1x1" -t ppm - | tail -c 3 | od -An -tu1 | awk "{ exit !(\$1 > 200 && \$2 < 60) }"; }
 
   wtype -s 3600000 &
@@ -62,6 +65,7 @@ with_noctalia '
   wait_for "the lock helper did not start" helpers 1
   wait_for "the helper frame did not show" red
   wait_for "the shader frame did not show" green
+  wait_for "the shader wallpaper did not show" backdrop
   grep -q "shader slot sends dmabufs" "$OUT/noctalia.log" || fail "the shader slot did not send dmabufs"
   ! grep -q "dmabuf import failed" "$OUT/noctalia.log" || fail "the shell did not import the dmabuf"
   grim "$OUT/slot.png"

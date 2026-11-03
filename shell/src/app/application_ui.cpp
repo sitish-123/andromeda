@@ -405,12 +405,16 @@ void Application::initLockScreenAndSession() {
       [this] {
         m_idleGraceOverlay.hide();
         m_lockscreenWidgetsController.onLockStateChanged();
+        syncLockStreamPause();
         releaseSleepDelayInhibitIfPending();
         requestAllSurfacesRedraw();
       },
       [this] { releaseSleepDelayInhibitIfPending(); }
   );
-  m_compositorPlatform.setOutputPowerChangeCallback([this] { m_lockScreen.onOutputPowerChanged(); });
+  m_compositorPlatform.setOutputPowerChangeCallback([this] {
+    m_lockScreen.onOutputPowerChanged();
+    syncLockStreamPause();
+  });
   if (m_logindService != nullptr) {
     m_logindService->setSessionLockIntegrationEnabled(m_configService.isLockScreenEnabled());
     m_logindService->setLockBeforeSuspendEnabled(m_configService.shouldLockBeforeSuspend());
@@ -1344,3 +1348,5 @@ TimeService::Precision Application::timePrecisionNeeded() const {
   // automation wakes through its own deadline instead.
   return TimeService::Precision::Minute;
 }
+void Application::syncLockStreamPause() {
+      profiles != nullptr && profiles->activeProfile() == "power-saver", m_compositorPlatform.outputPowerStates()

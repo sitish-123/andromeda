@@ -17,7 +17,8 @@
 // resend) and REQUEST {2, 0} whenever it is ready for a frame. In version 2 a companion may
 // attach GPU buffers with DMABUF {3, id, width, height, fourcc, modifier lo, modifier hi, stride,
 // offset} carrying one dmabuf fd; a REQUEST then frees every buffer but the one last shown, and
-// NO_DMABUF {3, 0} from the shell asks for memfd buffers instead. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
+// NO_DMABUF {3, 0} from the shell asks for memfd buffers instead, and PAUSE {4, 1|0} stops or
+// resumes frames (decode and drawing) while nobody can see them. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
 // sealed memfd (RGBA8, tightly packed rows), and answers each REQUEST with FRAME {2, id}. The
 // buffer named by a FRAME stays owned by the shell until its next REQUEST.
 class PixelStreamClient {
@@ -76,6 +77,8 @@ public:
   void releaseFrame();
   // Asks the companion for memfd buffers from now on (the dmabuf could not be imported).
   void refuseDmabuf();
+  // Sends PAUSE on an adopted (version 2) socket, now and after each adopt().
+  void setPaused(bool paused);
   // Drops the connection and reconnects immediately; a new connection receives the current
   // frame right away. Used when the consumer lost its copy (graphics context reset). An adopted
   // socket stays open and sends HELLO again instead, which asks the companion to resend.
@@ -115,6 +118,7 @@ private:
   std::array<Buffer, kMaxBuffers> m_buffers{};
   std::optional<std::uint32_t> m_frameBuffer;
   bool m_requested = false;
+  bool m_paused = false;
   std::uint64_t m_serial = 0;
   ChangeCallback m_onChange;
 };

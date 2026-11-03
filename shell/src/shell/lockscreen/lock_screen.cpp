@@ -28,6 +28,8 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <chrono>
 #include <cmath>
 #include <format>
@@ -1397,6 +1399,31 @@ std::string LockScreen::wallpaperPathForOutput(const std::string& connectorName)
   return m_configService->getWallpaperPath(connectorName);
 }
 
+std::string LockScreen::liveWallpaperType(const std::string& path) {
+  std::string extension = std::filesystem::path(path).extension().string();
+  std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return std::tolower(c); });
+  if (extension == ".mp4" || extension == ".webm" || extension == ".mkv" || extension == ".mov" || extension == ".m4v") {
+    return "video";
+  }
+  if (extension == ".frag" || extension == ".glsl") {
+    return "shader";
+  }
+  return {};
+}
+
+void LockScreen::applyWallpaperPath(LockSurface& surface, const std::string& connectorName) const {
+  const std::string path = wallpaperPathForOutput(connectorName);
+  if (liveWallpaperType(path).empty()) {
+    surface.setWallpaperPath(path);
+    surface.setOwnWallpaper(hasOwnWallpaper(connectorName));
+    return;
+  }
+  // The helper draws a live wallpaper above this one; until its first frame the desktop look shows.
+  const auto& config = m_configService->config();
+  surface.setWallpaperPath(config.wallpaper.enabled ? m_configService->getWallpaperPath(connectorName) : std::string{});
+  surface.setOwnWallpaper(false);
+}
+
 void LockScreen::applyWallpaperStyleToSurfaces() {
   if (!isActive() || m_configService == nullptr) {
     return;
@@ -1408,8 +1435,7 @@ void LockScreen::applyWallpaperStyleToSurfaces() {
     if (instance.surface == nullptr || instance.surface->isBlackout()) {
       continue;
     }
-    instance.surface->setWallpaperPath(wallpaperPathForOutput(instance.connectorName));
-    instance.surface->setOwnWallpaper(hasOwnWallpaper(instance.connectorName));
+    applyWallpaperPath(*instance.surface, instance.connectorName);
     instance.surface->setWallpaperFillMode(fillMode);
     instance.surface->setWallpaperCoverage(
         wallpaperTextureCoverage(m_wayland->outputs(), instance.outputName, fillMode)
@@ -1426,8 +1452,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   applyLockscreenStyle(*surface);
   surface->setOutputKey(desktop_widgets::outputKey(output));
   if (m_configService != nullptr) {
-    surface->setWallpaperPath(wallpaperPathForOutput(output.connectorName));
-    surface->setOwnWallpaper(hasOwnWallpaper(output.connectorName));
+    applyWallpaperPath(*surface, output.connectorName);
     const WallpaperFillMode fillMode = m_configService->config().wallpaper.fillMode;
     surface->setWallpaperFillMode(fillMode);
     surface->setWallpaperCoverage(wallpaperTextureCoverage(m_wayland->outputs(), output.name, fillMode));

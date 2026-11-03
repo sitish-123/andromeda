@@ -174,6 +174,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   auto wallpaper = std::make_unique<WallpaperNode>();
   m_wallpaper = static_cast<WallpaperNode*>(m_backgroundLayer->addChild(std::move(wallpaper)));
   m_wallpaper->setZIndex(0);
+  m_liveWallpaperLayer = m_backgroundLayer->addChild(ui::node({}));
 
   m_backgroundLayer->addChild(
       ui::box({

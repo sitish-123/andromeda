@@ -1502,6 +1502,7 @@ void Application::initSystemBusServices() {
                   if (!state.activeProfile.empty()) {
                     onPowerProfileChangedForEvents(state, origin);
                   }
+                  syncLockStreamPause();
                 },
         }
     );

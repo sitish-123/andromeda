@@ -25,6 +25,8 @@ public:
   [[nodiscard]] bool takeResend() noexcept { return std::exchange(m_resend, false); }
   // Writable RGBA8 pixels (width * height * 4, top-down) for the next frame; empty on failure.
   [[nodiscard]] std::span<std::uint8_t> frameBuffer(std::uint32_t width, std::uint32_t height);
+  // True while the shell asked for no frames (screen off, power saver): stop decoding and drawing.
+  [[nodiscard]] bool paused() const noexcept { return m_paused; }
   // Hands the frame buffer to the shell. Needs requested().
   bool sendFrame();
 
@@ -58,6 +60,7 @@ private:
   bool m_requested = false;
   bool m_hello = false;
   bool m_resend = false;
+  bool m_paused = false;
   std::uint32_t m_version = 0;
   bool m_noDmabuf = false;
 };

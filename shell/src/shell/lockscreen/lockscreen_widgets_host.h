@@ -9,6 +9,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class ConfigService;
@@ -41,6 +42,9 @@ public:
   void reloadPluginWidgets(LockScreen& lockScreen);
   void onOutputChange(LockScreen& lockScreen);
   void onSecondTick();
+  // Pauses helper slots: video and shader slots under the power-saver profile, and every slot on
+  // an output that is off (`outputPower`: connector -> on).
+  void setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower);
   // True when a live widget renders a value that changes every second.
   [[nodiscard]] bool wantsSecondTicks() const;
   void prepareFrame(LockSurface& surface, bool needsUpdate, bool needsLayout);
@@ -54,7 +58,10 @@ private:
     std::unique_ptr<DesktopWidget> widget;
     // Plugin widgets draw in the lock helper process; their frames arrive in `stream`.
     PixelStreamView* stream = nullptr;
+    // Null for a live wallpaper: the still wallpaper under it shows until the first frame.
     Node* placeholder = nullptr;
+    // A video or shader wallpaper filling the surface's live wallpaper layer.
+    bool wallpaper = false;
     // Output scale the helper renders this slot at; a change needs a new helper.
     float streamScale = 0.0F;
     float intrinsicWidth = 0.0F;
@@ -62,8 +69,10 @@ private:
   };
 
   void syncSurfaces(LockScreen& lockScreen);
+  void applyStreamPause();
   void createInstance(const DesktopWidgetState& state, LockSurface& surface, const WaylandOutput& output);
-  void createStreamInstance(const DesktopWidgetState& state, LockSurface& surface);
+  void createStreamInstance(const DesktopWidgetState& state, LockSurface& surface, bool wallpaper = false);
+  void syncWallpapers(LockScreen& lockScreen);
   void scheduleHelper(std::chrono::milliseconds delay);
   void startHelper();
   void onStreamDropped();
@@ -80,6 +89,8 @@ private:
   LockscreenWidgetsSnapshot m_snapshot;
   bool m_visible = false;
   std::vector<std::unique_ptr<WidgetInstance>> m_instances;
+  bool m_powerSaver = false;
+  std::unordered_map<std::string, bool> m_outputPower;
   scripting::ScriptApiContext* m_scriptApi = nullptr;
   LockHelperProcess m_helper;
   Timer m_helperTimer;

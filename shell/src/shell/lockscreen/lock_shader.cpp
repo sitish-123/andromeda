@@ -3,6 +3,7 @@
 #include "render/gl_shared_context.h"
 
 #include <EGL/eglext.h>
+#include <GLES2/gl2ext.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -26,6 +27,8 @@ uniform vec3 iResolution;
 uniform float iTime;
 uniform float iTimeDelta;
 uniform int iFrame;
+uniform sampler2D iChannel0;
+uniform vec3 iChannelResolution[4];
 #line 1
 )";
 
@@ -70,6 +73,12 @@ LockShader::LockShader(GlSharedContext& shared, const std::string& source, std::
   try {
     glGenTextures(2, m_textures.data());
     glGenFramebuffers(2, m_framebuffers.data());
+    glGenTextures(1, &m_channel);
+    glBindTexture(GL_TEXTURE_2D, m_channel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     for (std::size_t i = 0; i < 2; ++i) {
       glBindTexture(GL_TEXTURE_2D, m_textures[i]);
       glTexImage2D(
@@ -108,6 +117,8 @@ LockShader::LockShader(GlSharedContext& shared, const std::string& source, std::
     m_time = glGetUniformLocation(m_program, "iTime");
     m_timeDelta = glGetUniformLocation(m_program, "iTimeDelta");
     m_frame = glGetUniformLocation(m_program, "iFrame");
+    m_channel0 = glGetUniformLocation(m_program, "iChannel0");
+    m_channelResolution = glGetUniformLocation(m_program, "iChannelResolution");
     exportDmabufs();
   } catch (...) {
     release();
@@ -170,6 +181,87 @@ void LockShader::exportDmabufs() {
   }
 }
 
+bool LockShader::setChannel0Dmabuf(const PixelStreamServer::Dmabuf& buffer) {
+  const auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
+  const auto targetTexture = reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(
+      eglGetProcAddress("glEGLImageTargetTexture2DOES")
+  );
+  if (createImage == nullptr || targetTexture == nullptr || !makeCurrent()) {
+    return false;
+  }
+  const std::array<EGLint, 17> attributes = {
+      EGL_WIDTH,
+      static_cast<EGLint>(buffer.width),
+      EGL_HEIGHT,
+      static_cast<EGLint>(buffer.height),
+      EGL_LINUX_DRM_FOURCC_EXT,
+      static_cast<EGLint>(buffer.fourcc),
+      EGL_DMA_BUF_PLANE0_FD_EXT,
+      buffer.fd,
+      EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+      static_cast<EGLint>(buffer.offset),
+      EGL_DMA_BUF_PLANE0_PITCH_EXT,
+      static_cast<EGLint>(buffer.stride),
+      EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
+      static_cast<EGLint>(buffer.modifier & 0xffffffffU),
+      EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
+      static_cast<EGLint>(buffer.modifier >> 32U),
+      EGL_NONE,
+  };
+  while (glGetError() != GL_NO_ERROR) {
+  }
+  const EGLImageKHR image = createImage(m_display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes.data());
+  if (image == EGL_NO_IMAGE_KHR) {
+    return false;
+  }
+  glBindTexture(GL_TEXTURE_2D, m_channel);
+  targetTexture(GL_TEXTURE_2D, image);
+  releaseChannelImage();
+  m_channelImage = image;
+  m_channelWidth = buffer.width;
+  m_channelHeight = buffer.height;
+  return glGetError() == GL_NO_ERROR;
+}
+
+bool LockShader::setChannel0Pixels(std::span<const std::uint8_t> rgba, std::uint32_t width, std::uint32_t height) {
+  if (rgba.size() < std::size_t{width} * 4 * height || !makeCurrent()) {
+    return false;
+  }
+  while (glGetError() != GL_NO_ERROR) {
+  }
+  releaseChannelImage();
+  glBindTexture(GL_TEXTURE_2D, m_channel);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  if (width == m_channelWidth && height == m_channelHeight) {
+    glTexSubImage2D(
+        GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA, GL_UNSIGNED_BYTE,
+        rgba.data()
+    );
+  } else {
+    glTexImage2D(
+        GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
+        GL_UNSIGNED_BYTE, rgba.data()
+    );
+  }
+  m_channelWidth = width;
+  m_channelHeight = height;
+  return glGetError() == GL_NO_ERROR;
+}
+
+void LockShader::releaseChannelImage() noexcept {
+  if (m_channelImage == EGL_NO_IMAGE) {
+    return;
+  }
+  const auto destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+  if (destroyImage != nullptr) {
+    destroyImage(m_display, m_channelImage);
+  }
+  m_channelImage = EGL_NO_IMAGE;
+  // A texture that held an EGLImage gets fresh storage on the next upload.
+  m_channelWidth = 0;
+  m_channelHeight = 0;
+}
+
 bool LockShader::draw(std::size_t index) {
   if (index >= m_framebuffers.size() || !makeCurrent()) {
     return false;
@@ -183,6 +275,10 @@ bool LockShader::draw(std::size_t index) {
   glUniform1f(m_time, std::chrono::duration<float>(now - m_start).count());
   glUniform1f(m_timeDelta, std::chrono::duration<float>(now - m_last).count());
   glUniform1i(m_frame, m_frameCount++);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, m_channel);
+  glUniform1i(m_channel0, 0);
+  glUniform3f(m_channelResolution, static_cast<GLfloat>(m_channelWidth), static_cast<GLfloat>(m_channelHeight), 1.0F);
   m_last = now;
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   glEnableVertexAttribArray(static_cast<GLuint>(m_position));
@@ -211,8 +307,10 @@ void LockShader::release() noexcept {
     }
     glDeleteFramebuffers(2, m_framebuffers.data());
     glDeleteTextures(2, m_textures.data());
+    glDeleteTextures(1, &m_channel);
     eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   }
+  releaseChannelImage();
   if (m_context != EGL_NO_CONTEXT) {
     eglDestroyContext(m_display, m_context);
   }
@@ -222,6 +320,7 @@ void LockShader::release() noexcept {
   m_dmabufs.clear();
   m_context = EGL_NO_CONTEXT;
   m_program = 0;
+  m_channel = 0;
   m_framebuffers = {};
   m_textures = {};
 }

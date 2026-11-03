@@ -261,6 +261,8 @@ private:
   bool runShellCommandBlocking(const std::string& command);
   bool runIdleAction(const IdleActionRequest& action);
   bool setOutputPower(bool on);
+  // Lock helper slots stop under the power-saver profile and on outputs that are off.
+  void syncLockStreamPause();
   void onIconThemeChanged();
   // Finest time boundary the currently visible shell UI needs. Drives the time
   // poll source so it can park between boundaries instead of waking every second.

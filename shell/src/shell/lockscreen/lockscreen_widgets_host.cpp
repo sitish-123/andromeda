@@ -172,6 +172,9 @@ void LockscreenWidgetsHost::syncSurfaces(LockScreen& lockScreen) {
   }
 
   std::erase_if(m_instances, [this](std::unique_ptr<WidgetInstance>& instance) {
+    if (instance->wallpaper) {
+      return false;
+    }
     const DesktopWidgetState* state = findStateById(m_snapshot, instance->state.id);
     if (state == nullptr || !state->enabled) {
       detachFromSurface(*instance);
@@ -243,7 +246,47 @@ void LockscreenWidgetsHost::syncSurfaces(LockScreen& lockScreen) {
     }
   }
 
+  syncWallpapers(lockScreen);
   lockScreen.forEachSurface([&](LockSurface& surface) { surface.setWidgetsHost(this); });
+}
+
+void LockscreenWidgetsHost::syncWallpapers(LockScreen& lockScreen) {
+  std::vector<DesktopWidgetState> wanted;
+  std::vector<LockSurface*> surfaces;
+  lockScreen.forEachSurface([&](LockSurface& surface) {
+    const WaylandOutput* output = m_wayland->findOutputByWl(surface.output());
+    if (output == nullptr || surface.isBlackout()) {
+      return;
+    }
+    const std::string path = lockScreen.wallpaperPathForOutput(output->connectorName);
+    DesktopWidgetState state;
+    state.type = LockScreen::liveWallpaperType(path);
+    if (state.type.empty()) {
+      return;
+    }
+    state.id = "@wallpaper:" + output->connectorName;
+    state.settings.emplace("path", path);
+    wanted.push_back(std::move(state));
+    surfaces.push_back(&surface);
+  });
+  std::erase_if(m_instances, [&](std::unique_ptr<WidgetInstance>& instance) {
+    if (!instance->wallpaper) {
+      return false;
+    }
+    for (std::size_t i = 0; i < wanted.size(); ++i) {
+      if (wanted[i].id == instance->state.id && wanted[i].type == instance->state.type
+          && wanted[i].settings == instance->state.settings && surfaces[i] == instance->surface) {
+        return false;
+      }
+    }
+    detachFromSurface(*instance);
+    return true;
+  });
+  for (std::size_t i = 0; i < wanted.size(); ++i) {
+    if (findInstance(wanted[i].id) == nullptr) {
+      createStreamInstance(wanted[i], *surfaces[i], true);
+    }
+  }
 }
 
 void LockscreenWidgetsHost::createInstance(
@@ -252,8 +295,8 @@ void LockscreenWidgetsHost::createInstance(
   if (m_factory == nullptr || m_renderContext == nullptr) {
     return;
   }
-  // Plugin code and user shaders run only in the lock helper.
-  if (scripting::isValidPluginEntryId(state.type) || state.type == "shader") {
+  // Plugin code, user shaders and video decode run only in the lock helper.
+  if (scripting::isValidPluginEntryId(state.type) || state.type == "shader" || state.type == "video") {
     createStreamInstance(state, surface);
     return;
   }
@@ -384,7 +427,7 @@ void LockscreenWidgetsHost::detachFromSurface(WidgetInstance& instance) {
   LockSurface* surface = instance.surface;
 
   if (instance.transformNode != nullptr && surface != nullptr) {
-    if (Node* layer = surface->widgetLayer(); layer != nullptr) {
+    if (Node* layer = instance.transformNode->parent(); layer != nullptr) {
       (void)layer->removeChild(instance.transformNode);
     }
     instance.transformNode = nullptr;
@@ -413,17 +456,34 @@ void LockscreenWidgetsHost::prepareFrame(LockSurface& surface, bool needsUpdate,
     layer->setPosition(0.0F, 0.0F);
     layer->setSize(surfaceW, surfaceH);
   }
+  if (Node* live = surface.liveWallpaperLayer(); live != nullptr) {
+    live->setPosition(0.0F, 0.0F);
+    live->setSize(surfaceW, surfaceH);
+  }
 
   for (auto& instance : m_instances) {
     if (instance->surface != &surface || (instance->widget == nullptr && instance->stream == nullptr)) {
       continue;
     }
-    if (instance->widget == nullptr) {
-      if (m_wayland != nullptr) {
-        desktop_widgets::clampStateToOutput(
-            *m_wayland, instance->state, instance->intrinsicWidth, instance->intrinsicHeight
-        );
+    if (instance->wallpaper) {
+      // The helper renders at the surface size: a new size needs a new helper slot.
+      if ((instance->intrinsicWidth != surfaceW || instance->intrinsicHeight != surfaceH) && surfaceW > 0.0F
+          && surfaceH > 0.0F) {
+        instance->intrinsicWidth = surfaceW;
+        instance->intrinsicHeight = surfaceH;
+        instance->stream->setSize(surfaceW, surfaceH);
+        if (!m_helperTimer.active()) {
+          scheduleHelper(kHelperStartDelay);
+        }
       }
+      instance->state.cx = surfaceW * 0.5F;
+      instance->state.cy = surfaceH * 0.5F;
+    } else if (instance->widget == nullptr && m_wayland != nullptr) {
+      desktop_widgets::clampStateToOutput(
+          *m_wayland, instance->state, instance->intrinsicWidth, instance->intrinsicHeight
+      );
+    }
+    if (instance->widget == nullptr) {
       if (instance->streamScale > 0.0F && instance->streamScale != surface.renderTarget().contentScale()
           && !m_helperTimer.active()) {
         scheduleHelper(kHelperStartDelay);
@@ -492,24 +552,32 @@ void LockscreenWidgetsHost::prepareFrame(LockSurface& surface, bool needsUpdate,
   }
 }
 
-void LockscreenWidgetsHost::createStreamInstance(const DesktopWidgetState& state, LockSurface& surface) {
+void LockscreenWidgetsHost::createStreamInstance(const DesktopWidgetState& state, LockSurface& surface, bool wallpaper) {
   auto instance = std::make_unique<WidgetInstance>();
   instance->state = state;
   instance->surface = &surface;
-  instance->intrinsicWidth = state.boxWidth > 0.0F ? state.boxWidth : kDefaultStreamSize;
-  instance->intrinsicHeight = state.boxHeight > 0.0F ? state.boxHeight : kDefaultStreamSize;
+  instance->wallpaper = wallpaper;
+  if (wallpaper) {
+    instance->intrinsicWidth = std::max(1.0F, static_cast<float>(surface.width()));
+    instance->intrinsicHeight = std::max(1.0F, static_cast<float>(surface.height()));
+  } else {
+    instance->intrinsicWidth = state.boxWidth > 0.0F ? state.boxWidth : kDefaultStreamSize;
+    instance->intrinsicHeight = state.boxHeight > 0.0F ? state.boxHeight : kDefaultStreamSize;
+  }
 
   auto transformNode = ui::node({});
   transformNode->setAnimationManager(&instance->animations);
-  auto placeholder = std::make_unique<RectNode>();
-  placeholder->setSize(instance->intrinsicWidth, instance->intrinsicHeight);
-  placeholder->setStyle({.fill = colorForRole(ColorRole::Fill1), .radius = kPlaceholderRadius});
-  instance->placeholder = transformNode->addChild(std::move(placeholder));
+  if (!wallpaper) {
+    auto placeholder = std::make_unique<RectNode>();
+    placeholder->setSize(instance->intrinsicWidth, instance->intrinsicHeight);
+    placeholder->setStyle({.fill = colorForRole(ColorRole::Fill1), .radius = kPlaceholderRadius});
+    instance->placeholder = transformNode->addChild(std::move(placeholder));
+  }
   auto stream = std::make_unique<PixelStreamView>();
   stream->setSize(instance->intrinsicWidth, instance->intrinsicHeight);
   instance->stream = static_cast<PixelStreamView*>(transformNode->addChild(std::move(stream)));
 
-  if (Node* layer = surface.widgetLayer(); layer != nullptr) {
+  if (Node* layer = wallpaper ? surface.liveWallpaperLayer() : surface.widgetLayer(); layer != nullptr) {
     instance->transformNode = layer->addChild(std::move(transformNode));
   }
   m_instances.push_back(std::move(instance));
@@ -570,17 +638,41 @@ void LockscreenWidgetsHost::startHelper() {
   }
   for (std::size_t i = 0; i < streams.size(); ++i) {
     WidgetInstance* instance = streams[i];
-    instance->placeholder->setVisible(true);
+    Node* placeholder = instance->placeholder;
+    if (placeholder != nullptr) {
+      placeholder->setVisible(true);
+    }
     if (i >= fds.size()) {
       continue;
     }
-    Node* placeholder = instance->placeholder;
     instance->stream->adopt(fds[i], [this, placeholder](bool connected) {
-      placeholder->setVisible(!connected);
+      if (placeholder != nullptr) {
+        placeholder->setVisible(!connected);
+      }
       if (!connected) {
         onStreamDropped();
       }
     });
+  }
+  applyStreamPause();
+}
+
+void LockscreenWidgetsHost::setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower) {
+  m_powerSaver = powerSaver;
+  m_outputPower = std::move(outputPower);
+  applyStreamPause();
+}
+
+void LockscreenWidgetsHost::applyStreamPause() {
+  for (const auto& instance : m_instances) {
+    if (instance->stream == nullptr || instance->surface == nullptr || m_wayland == nullptr) {
+      continue;
+    }
+    const WaylandOutput* output = m_wayland->findOutputByWl(instance->surface->output());
+    const auto power = output != nullptr ? m_outputPower.find(output->connectorName) : m_outputPower.end();
+    // Power saver stops only the slots that draw every frame; plugin widgets keep updating.
+    const bool animated = instance->state.type == "video" || instance->state.type == "shader";
+    instance->stream->setPaused((m_powerSaver && animated) || (power != m_outputPower.end() && !power->second));
   }
 }
 

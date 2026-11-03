@@ -98,6 +98,8 @@ public:
   // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
   [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
   [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
+  // "video" or "shader" for a wallpaper the lock helper plays (by file extension), else empty.
+  [[nodiscard]] static std::string liveWallpaperType(const std::string& path);
   // Live card and widget data for the editor preview, with `lock` as the widget and bottom slot choice.
   [[nodiscard]] LockCards::Data previewCards(const LockscreenConfig& lock) const;
   [[nodiscard]] bool isSessionLocked() const noexcept;
@@ -157,6 +159,7 @@ private:
   void applyLockscreenStyle(LockSurface& surface) const;
   void applyOutputRestriction();
   void applyWallpaperStyleToSurfaces();
+  void applyWallpaperPath(LockSurface& surface, const std::string& connectorName) const;
   [[nodiscard]] bool isInteractiveOutput(const WaylandOutput& output) const;
   void createInstance(const WaylandOutput& output);
   void chooseTransition();

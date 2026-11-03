@@ -20,6 +20,7 @@ namespace {
     kHello = 1,
     kRequest = 2,
     kNoDmabuf = 3,
+    kPause = 4,
   };
 
   enum : std::uint32_t {
@@ -82,6 +83,9 @@ void PixelStreamClient::adopt(int fd) {
   m_fd = fd;
   if (send(kHello, kDmabufProtocolVersion) && send(kRequest, 0)) {
     m_requested = true;
+  }
+  if (m_paused) {
+    (void)send(kPause, 1);
   }
 }
 
@@ -354,6 +358,12 @@ void PixelStreamClient::attachDmabuf(
 void PixelStreamClient::refuseDmabuf() {
   if (connected()) {
     (void)send(kNoDmabuf, 0);
+  }
+}
+
+void PixelStreamClient::setPaused(bool paused) {
+  if (std::exchange(m_paused, paused) != paused && m_path.empty() && connected()) {
+    (void)send(kPause, paused ? 1 : 0);
   }
 }
 

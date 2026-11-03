@@ -135,6 +135,8 @@ public:
   [[nodiscard]] wl_output* output() const noexcept { return m_output; }
   void syncOutputScale(std::int32_t bufferScale, std::uint32_t configuredScaleNumerator);
   [[nodiscard]] Node* widgetLayer() noexcept { return m_widgetLayer; }
+  // Above the wallpaper, below the tint: a video or shader wallpaper from the lock helper.
+  [[nodiscard]] Node* liveWallpaperLayer() noexcept { return m_liveWallpaperLayer; }
   void setOutputKey(std::string outputKey) { m_outputKey = std::move(outputKey); }
   void setWidgetsHost(LockscreenWidgetsHost* host) noexcept { m_widgetsHost = host; }
 
@@ -218,6 +220,7 @@ private:
   Node m_root;
   Node* m_backgroundLayer = nullptr;
   Node* m_widgetLayer = nullptr;
+  Node* m_liveWallpaperLayer = nullptr;
   LockscreenTransitionCover* m_transitionCover = nullptr;
   WallpaperNode* m_wallpaper = nullptr;
   Box* m_tintOverlay = nullptr;

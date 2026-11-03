@@ -14,6 +14,7 @@ namespace {
     kHello = 1,
     kRequest = 2,
     kNoDmabuf = 3,
+    kPause = 4,
   };
 
   enum : std::uint32_t {
@@ -59,6 +60,8 @@ bool PixelStreamServer::dispatch() {
     } else if (type == kHello) {
       m_resend = std::exchange(m_hello, true);
       m_version = readLe32(message.data() + 4);
+    } else if (type == kPause && m_version >= 2) {
+      m_paused = readLe32(message.data() + 4) != 0;
     } else if (type == kNoDmabuf) {
       // The memfd path renders again from scratch.
       m_noDmabuf = true;

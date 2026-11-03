@@ -83,6 +83,9 @@ glib_dep            = dependency('glib-2.0')
 gobject_dep         = dependency('gobject-2.0')
 gio_dep             = dependency('gio-2.0')
 gstreamer_dep       = dependency('gstreamer-1.0')
+gstreamer_app_dep   = dependency('gstreamer-app-1.0')
+gstreamer_video_dep = dependency('gstreamer-video-1.0')
+gstreamer_allocators_dep = dependency('gstreamer-allocators-1.0')
 libsecret_dep       = dependency('libsecret-1', version: '>=0.20')
 libsodium_dep       = dependency('libsodium', version: '>=1.0.18')
 libxcrypt_dep       = dependency('libxcrypt')
@@ -636,6 +639,7 @@ _noctalia_sources = files(
   'src/shell/lockscreen/lock_helper.cpp',
   'src/shell/lockscreen/lock_helper_process.cpp',
   'src/shell/lockscreen/lock_shader.cpp',
+  'src/shell/lockscreen/lock_video.cpp',
   'src/shell/lockscreen/lock_notice_groups.cpp',
   'src/shell/lockscreen/lock_screen.cpp',
   'src/shell/lockscreen/lockscreen_session_actions.cpp',
@@ -1021,6 +1025,9 @@ _noctalia_system_dependencies = [
   gobject_dep,
   gio_dep,
   gstreamer_dep,
+  gstreamer_app_dep,
+  gstreamer_video_dep,
+  gstreamer_allocators_dep,
   libsecret_dep,
   libsodium_dep,
   libxcrypt_dep,

@@ -47,6 +47,8 @@ public:
   // Streams from a connected socket the caller made (PixelStreamClient::adopt). The view blanks
   // when that stream drops, and `onChange(connected)` runs after each frame and on the drop.
   void adopt(int fd, std::function<void(bool connected)> onChange);
+  // Stops or resumes the companion's frames (adopted streams only).
+  void setPaused(bool paused) { m_client.setPaused(paused); }
   void setRadius(float radius);
   // `buttons` is an InputArea button mask: left enables drags (Down/Move/Up/Cancel), right and
   // middle enable their clicks. Hover Moves are reported whenever a handler is set.

@@ -200,6 +200,8 @@ public:
 
   [[nodiscard]] bool requestSessionExit() const;
   [[nodiscard]] bool setOutputPower(bool on) const;
+  // Connector name -> powered on, for the outputs the compositor reports.
+  [[nodiscard]] std::unordered_map<std::string, bool> outputPowerStates() const;
   void setOutputPowerOffPending(bool pending) noexcept { m_outputPowerOffPending = pending; }
   [[nodiscard]] bool shouldSuppressLockTransition() const;
   void setOutputPowerChangeCallback(const ChangeCallback& callback);
