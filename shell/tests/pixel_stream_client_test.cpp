@@ -18,6 +18,8 @@
 namespace {
   constexpr std::uint32_t kBuffer = 1;
   constexpr std::uint32_t kFrame = 2;
+  constexpr std::uint32_t kDmabuf = 3;
+  constexpr std::uint32_t kAbgr8888 = 0x34324241;
 
   void putLe32(std::vector<std::uint8_t>& out, std::uint32_t value) {
     for (std::size_t i = 0; i < 4; ++i) {
@@ -225,8 +227,40 @@ int main() {
     companion.send({kBuffer, PixelStreamClient::kMaxBuffers, 2, 1}, fd); // id out of range
     ::close(fd);
   });
+  expectRejected(companion, client, [&] {
+    const int fd = makeBuffer(2, 1, 1);
+    companion.send({kDmabuf, 0, 2, 1, kAbgr8888, 0, 0, 8, 0}, fd); // DMABUF to a version 1 client
+    ::close(fd);
+  });
   expectRejected(companion, client, [&] { companion.send({kBuffer, 0, 2, 1}); }); // BUFFER without its fd
   expectRejected(companion, client, [&] { companion.send({9, 0}); });             // unknown message
+
+  // An adopted (version 2) stream takes a DMABUF only when its layout fits the buffer.
+  for (const std::uint32_t stride : {8U, 4U, 16U}) {
+    std::array<int, 2> pair{};
+    TEST_CHECK(::socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair.data()) == 0);
+    PixelStreamClient adopted;
+    adopted.adopt(pair[0]);
+    const int fd = makeBuffer(2, 1, 1);
+    std::vector<std::uint8_t> payload;
+    for (const std::uint32_t field : {kDmabuf, 0U, 2U, 1U, kAbgr8888, 0U, 0U, stride, 0U}) {
+      putLe32(payload, field);
+    }
+    iovec vector{.iov_base = payload.data(), .iov_len = payload.size()};
+    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int))> control{};
+    msghdr message{.msg_iov = &vector, .msg_iovlen = 1, .msg_control = control.data(), .msg_controllen = control.size()};
+    cmsghdr* header = CMSG_FIRSTHDR(&message);
+    header->cmsg_level = SOL_SOCKET;
+    header->cmsg_type = SCM_RIGHTS;
+    header->cmsg_len = CMSG_LEN(sizeof(int));
+    std::memcpy(CMSG_DATA(header), &fd, sizeof(int));
+    TEST_CHECK(::sendmsg(pair[1], &message, MSG_NOSIGNAL) == static_cast<ssize_t>(payload.size()));
+    ::close(fd);
+    adopted.dispatch(POLLIN);
+    // Stride 4 is below width * 4; stride 16 reads past the 8-byte buffer.
+    TEST_CHECK(adopted.connected() == (stride == 8));
+    ::close(pair[1]);
+  }
 
   // An empty path stops streaming and never retries.
   companion.accept(client);

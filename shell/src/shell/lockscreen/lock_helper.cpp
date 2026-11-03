@@ -97,6 +97,9 @@ namespace {
         // Buffer ids 1 and 2 are the shader's two dmabufs; id 0 stays the memfd buffer.
         if (!slot.dmabufsAttached) {
           slot.dmabufsAttached = slot.server.attachDmabuf(1, dmabufs[0]) && slot.server.attachDmabuf(2, dmabufs[1]);
+          if (slot.dmabufsAttached) {
+            kLog.info("shader slot sends dmabufs");
+          }
         }
         const std::size_t next = 1 - slot.shownBuffer;
         if (slot.dmabufsAttached && shader.draw(next) && slot.server.sendDmabufFrame(static_cast<std::uint32_t>(next) + 1)) {

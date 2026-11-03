@@ -3,6 +3,7 @@
 #include "core/log.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
@@ -242,6 +243,10 @@ bool PixelStreamClient::readMessage() {
     attachBuffer(readLe32(payload.data() + 4), readLe32(payload.data() + 8), readLe32(payload.data() + 12), fds.fds[0]);
     return connected();
   }
+  if (type == kDmabuf && !m_path.empty()) {
+    fail("DMABUF on a version 1 stream");
+    return false;
+  }
   if (type == kDmabuf && size == kDmabufMessageSize && fds.count == 1) {
     const std::uint8_t* p = payload.data();
     const std::uint64_t modifier = readLe32(p + 20) | (std::uint64_t{readLe32(p + 24)} << 32U);
@@ -317,6 +322,19 @@ void PixelStreamClient::attachDmabuf(
       || height > kMaxDimension) {
     ::close(fd);
     fail("DMABUF out of range or replaces the buffer the shell is reading");
+    return;
+  }
+  constexpr auto code = [](char a, char b, char c, char d) {
+    return std::uint32_t(a) | std::uint32_t(b) << 8U | std::uint32_t(c) << 16U | std::uint32_t(d) << 24U;
+  };
+  const bool rgba8 = fourcc == code('A', 'B', '2', '4') || fourcc == code('X', 'B', '2', '4')
+      || fourcc == code('A', 'R', '2', '4') || fourcc == code('X', 'R', '2', '4');
+  const off_t fdSize = ::lseek(fd, 0, SEEK_END);
+  if (!rgba8 || std::size_t{width} * height > kMaxPixels || stride < std::uint64_t{width} * 4
+      || stride > INT32_MAX || offset > INT32_MAX || fdSize < 0
+      || static_cast<std::uint64_t>(fdSize) < offset + std::uint64_t{stride} * height) {
+    ::close(fd);
+    fail("DMABUF layout does not fit its buffer");
     return;
   }
   Buffer& buffer = m_buffers[id];
