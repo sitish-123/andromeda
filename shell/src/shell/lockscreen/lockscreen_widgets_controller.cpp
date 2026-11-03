@@ -141,7 +141,13 @@ void LockscreenWidgetsController::registerIpc(IpcService& ipc) {
   });
 }
 
-void LockscreenWidgetsController::onLockStateChanged() { applyVisibility(); }
+void LockscreenWidgetsController::onLockStateChanged() {
+  // The editor runs only while unlocked: a lock keeps the edits and closes it.
+  if (isEditing() && m_lockScreen != nullptr && m_lockScreen->isActive()) {
+    exitEdit();
+  }
+  applyVisibility();
+}
 
 void LockscreenWidgetsController::onOutputChange() {
   if (!m_initialized || m_lockScreen == nullptr) {

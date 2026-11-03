@@ -590,7 +590,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   });
   setPrepareFrameCallback([this](bool needsUpdate, bool needsLayout) { prepareFrame(needsUpdate, needsLayout); });
 
-  if (m_config != nullptr && m_config->config().lockscreen.style == "ryoku") {
+  if (m_config != nullptr && m_config->config().lockscreen.theme == "ryoku") {
     (void)text::registerFontFile(paths::assetPath("fonts/Outfit-Black.ttf"));
     m_ryoku = std::make_unique<LockRyokuScene>();
     m_ryoku->build(m_root, m_animations);

@@ -562,8 +562,14 @@ struct LockscreenConfig {
   int gracePeriodSeconds = 0;
   bool fingerprint = true;
   bool face = true;
-  // "ryoku" (the greeter's Ryoku look, so login and unlock match) or "classic".
-  std::string style = "ryoku";
+  // "andromeda" (rulebook 9.15) or "ryoku" (the greeter's look, so login and unlock match).
+  std::string theme = "andromeda";
+  // centered | glance | split | minimal | custom
+  std::string layout = "centered";
+  // hidden: app + count only, and "Incoming call" without the caller; shown: full content.
+  std::string notificationContent = "hidden";
+  // Shown under the account, for example a phone number to call if found.
+  std::string ownerMessage;
   bool allowEmptyPassword = false;
   std::vector<LockscreenTransition> transitions = {LockscreenTransition::Fade,    LockscreenTransition::Wipe,
                                                    LockscreenTransition::Disc,    LockscreenTransition::Stripes,

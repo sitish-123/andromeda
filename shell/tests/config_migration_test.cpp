@@ -902,6 +902,38 @@ monitors = ["eDP-1"]
     expect(disabled["dock"]["monitor"].node() == nullptr, "disabled dock gained enabled monitor overrides");
   }
 
+  void checkLockscreenThemeMigration() {
+    // style maps to theme: classic -> andromeda, ryoku -> ryoku; the old key goes.
+    toml::table classic = toml::parse("[lockscreen]\nstyle = \"classic\"\n");
+    noctalia::config::LegacyConfigIssues issues;
+    noctalia::config::normalizeLegacyConfig(classic, issues);
+    expect(classic["lockscreen"]["theme"].value<std::string>() == "andromeda", "classic did not become andromeda");
+    expect(!classic["lockscreen"]["style"], "style was kept next to theme");
+    expect(hasIssuePath(issues, "lockscreen.style"), "style migration raised no issue");
+
+    // An existing config without either key keeps the Ryoku look, silently.
+    toml::table unset = toml::parse("[bar.main]\nradius = 12\n");
+    noctalia::config::LegacyConfigIssues unsetIssues;
+    noctalia::config::normalizeLegacyConfig(unset, unsetIssues);
+    expect(unset["lockscreen"]["theme"].value<std::string>() == "ryoku", "an existing config lost the Ryoku look");
+    expect(unsetIssues.empty(), "an unset theme raised an issue");
+
+    // An explicit theme wins over a leftover style.
+    toml::table both = toml::parse("[lockscreen]\ntheme = \"andromeda\"\nstyle = \"ryoku\"\n");
+    noctalia::config::LegacyConfigIssues bothIssues;
+    noctalia::config::normalizeLegacyConfig(both, bothIssues);
+    expect(both["lockscreen"]["theme"].value<std::string>() == "andromeda", "style overrode an explicit theme");
+
+    // The Settings overrides file migrates without inventing a theme.
+    toml::table sidecar = toml::parse("[lockscreen]\nstyle = \"classic\"\n");
+    noctalia::config::schema::Diagnostics diag;
+    (void)noctalia::config::applyPendingConfigMigrations(sidecar, 16, diag);
+    expect(sidecar["lockscreen"]["theme"].value<std::string>() == "andromeda", "sidecar style was not migrated");
+    toml::table emptySidecar = toml::parse("[dock]\nradius = 8\n");
+    (void)noctalia::config::applyPendingConfigMigrations(emptySidecar, 16, diag);
+    expect(!emptySidecar["lockscreen"], "sidecar migration invented a theme");
+  }
+
   void checkPaletteRoleNamesMigration() {
     toml::table sidecar = toml::parse(R"(
 config_version = 15
@@ -1107,6 +1139,7 @@ int main() {
   checkKeyboardLayoutCustomLabelsMigration();
   checkWorkspacesDisplayMigration();
   checkPaletteRoleNamesMigration();
+  checkLockscreenThemeMigration();
   checkPluginAutoUpdateModeMigration();
   checkVersionGating();
   checkReminderFingerprint();

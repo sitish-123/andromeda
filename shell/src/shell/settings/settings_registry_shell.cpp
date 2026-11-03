@@ -100,16 +100,16 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     {
-      SelectSetting style{
-          {SelectOption{.value = "ryoku", .label = tr("settings.schema.lockscreen.style.ryoku")},
-           SelectOption{.value = "classic", .label = tr("settings.schema.lockscreen.style.classic")}},
-          cfg.lockscreen.style
+      SelectSetting theme{
+          {SelectOption{.value = "andromeda", .label = tr("settings.schema.lockscreen.theme.andromeda")},
+           SelectOption{.value = "ryoku", .label = tr("settings.schema.lockscreen.theme.ryoku")}},
+          cfg.lockscreen.theme
       };
-      style.segmented = true;
+      theme.segmented = true;
       auto e = makeEntry(
-          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.style.label"),
-          tr("settings.schema.lockscreen.style.description"), {"lockscreen", "style"}, std::move(style),
-          "lock screen style ryoku classic look theme"
+          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.theme.label"),
+          tr("settings.schema.lockscreen.theme.description"), {"lockscreen", "theme"}, std::move(theme),
+          "lock screen style ryoku andromeda classic look theme"
       );
       e.visibleWhen = lockscreenOn;
       entries.push_back(std::move(e));

@@ -3078,10 +3078,10 @@
           "description": "Choose which monitors show the lock screen; leave empty to show on all monitors",
           "label": "Monitors"
         },
-        "style": {
-          "classic": "Classic",
-          "description": "Ryoku matches the login screen: a turning dial clock on black. Classic is the widget lock screen",
-          "label": "Lock Screen Style",
+        "theme": {
+          "andromeda": "Andromeda",
+          "description": "Andromeda is the default lock screen. Ryoku matches the login screen: a turning dial clock on black",
+          "label": "Lock Screen Theme",
           "ryoku": "Ryoku"
         },
         "tint-intensity": {
