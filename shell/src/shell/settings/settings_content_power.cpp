@@ -1,5 +1,6 @@
 #include "shell/settings/settings_content_power.h"
 
+#include "dbus/logind/power_config_service.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
@@ -9,9 +10,11 @@
 #include "ui/controls/flex.h"
 #include "ui/style.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -59,6 +62,72 @@ namespace settings {
           .onChange = [&profiles, shown](std::size_t index) { (void)profiles.setActiveProfile(shown[index]); },
       }));
       card->addChild(std::move(r));
+    }
+
+    // Labels for logind Handle* values; a value set outside Settings keeps its raw name.
+    std::string handleLabel(const std::string& value) {
+      static constexpr std::string_view kKnown[] = {"suspend", "hibernate", "suspend-then-hibernate", "lock", "ignore",
+                                                    "poweroff"};
+      if (std::ranges::contains(kKnown, value)) {
+        return i18n::tr("settings.power.action." + value);
+      }
+      return value;
+    }
+
+    void addHandleRow(Flex& card, PowerConfigService& config, const std::string& labelKey, const std::string& key,
+                      const std::string& current, bool allowPoweroff, float scale) {
+      const PowerConfigState& state = config.state();
+      std::vector<std::string> values{"suspend"};
+      if (state.canHibernate) {
+        values.emplace_back("hibernate");
+      }
+      if (state.canSuspendThenHibernate) {
+        values.emplace_back("suspend-then-hibernate");
+      }
+      values.insert(values.end(), {"lock", "ignore"});
+      if (allowPoweroff) {
+        values.emplace_back("poweroff");
+      }
+      if (!current.empty() && !std::ranges::contains(values, current)) {
+        values.push_back(current);
+      }
+      std::vector<std::string> labels;
+      std::optional<std::size_t> selected;
+      for (std::size_t i = 0; i < values.size(); ++i) {
+        labels.push_back(handleLabel(values[i]));
+        if (values[i] == current) {
+          selected = i;
+        }
+      }
+      auto r = row(scale);
+      r->addChild(title(i18n::tr(labelKey), scale));
+      r->addChild(ui::select({
+          .options = std::move(labels),
+          .selectedIndex = selected,
+          .clearSelection = !selected.has_value(),
+          .fontSize = Style::fontSizeBody * scale,
+          .glyphSize = Style::fontSizeBody * scale,
+          .enabled = state.helperInstalled,
+          .onSelectionChanged =
+              [&config, key, values, current](std::size_t index, std::string_view /*label*/) {
+                if (index < values.size() && values[index] != current) {
+                  config.set(key, values[index]);
+                }
+              },
+      }));
+      card.addChild(std::move(r));
+    }
+
+    void addLidButtonsCard(Flex& content, PowerConfigService& config, float scale) {
+      const PowerConfigState& state = config.state();
+      addHeader(content, i18n::tr("settings.power.lid-buttons"), nullptr, scale);
+      Flex* card = addCard(content, scale);
+      if (state.hasLid) {
+        addHandleRow(*card, config, "settings.power.lid-battery", "lid-battery", state.lidBattery, false, scale);
+        addHandleRow(*card, config, "settings.power.lid-power", "lid-power", state.lidPower, false, scale);
+        addHandleRow(*card, config, "settings.power.lid-docked", "lid-docked", state.lidDocked, false, scale);
+      }
+      addHandleRow(*card, config, "settings.power.power-key", "power-key", state.powerKey, true, scale);
     }
 
     void addBatteryCard(Flex& content, UPowerService& upower, const UPowerDeviceInfo& battery, float scale) {
@@ -110,6 +179,9 @@ namespace settings {
     }
     if (battery != nullptr && battery->isPresent) {
       addBatteryCard(content, *ctx.upower, *battery, scale);
+    }
+    if (ctx.powerConfig != nullptr) {
+      addLidButtonsCard(content, *ctx.powerConfig, scale);
     }
   }
 

@@ -20,6 +20,7 @@
 #include "dbus/link/link_service.h"
 #include "dbus/link/quickshare_service.h"
 #include "dbus/logind/logind_service.h"
+#include "dbus/logind/power_config_service.h"
 #include "dbus/modem/modem_manager_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
@@ -1309,6 +1310,8 @@ void Application::initSystemBusServices() {
     if (m_systemBus->nameHasOwner("org.freedesktop.login1")) {
       try {
         m_logindService = std::make_unique<LogindService>(*m_systemBus);
+        m_powerConfigService = std::make_unique<PowerConfigService>(*m_systemBus);
+        m_powerConfigService->setChangeCallback([this] { m_settingsWindow.onPowerChanged(); });
         m_logindService->setPrepareForSleepCallback([this](bool sleeping) {
           // Idle grace overlay must not survive suspend; hide on both edges as a fallback when
           // fade-complete cleanup races with process freeze.

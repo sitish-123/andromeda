@@ -436,6 +436,7 @@ _noctalia_sources = files(
   'src/dbus/idle/screensaver_service.cpp',
   'src/dbus/locale/locale_service.cpp',
   'src/dbus/logind/logind_service.cpp',
+  'src/dbus/logind/power_config_service.cpp',
   'src/dbus/timedate/timedate_service.cpp',
   'src/dbus/modem/modem_manager_service.cpp',
   'src/dbus/mpris/mpris_art.cpp',

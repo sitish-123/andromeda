@@ -177,6 +177,7 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setConnectivityProviders([this] { return network(); }, [this] { return bluetooth(); });
   m_settingsWindow.setAudioProvider([this] { return pipewire(); });
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
+  m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });
   m_settingsWindow.setFileWatcher(&m_fileWatcher);
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);

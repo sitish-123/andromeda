@@ -272,6 +272,7 @@ void SettingsWindow::addPowerContent(float scale) {
           .scale = scale,
           .upower = m_upower,
           .profiles = m_powerProfilesProvider ? m_powerProfilesProvider() : nullptr,
+          .powerConfig = m_powerConfigProvider ? m_powerConfigProvider() : nullptr,
       }
   );
 }

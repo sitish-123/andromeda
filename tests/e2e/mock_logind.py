@@ -97,6 +97,23 @@ class Manager(Delayed, dbus.service.Object):
     def CanSuspendThenHibernate(self):
         return self.can_suspend_then_hibernate
 
+    def properties(self):
+        # MOCK_LID_BATTERY etc. override the logind defaults (logind.conf(5)).
+        return {
+            "HandleLidSwitch": os.environ.get("MOCK_LID_BATTERY", "suspend"),
+            "HandleLidSwitchExternalPower": os.environ.get("MOCK_LID_POWER", "suspend"),
+            "HandleLidSwitchDocked": os.environ.get("MOCK_LID_DOCKED", "ignore"),
+            "HandlePowerKey": os.environ.get("MOCK_POWER_KEY", "poweroff"),
+        }
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface, prop):
+        return self.properties()[prop]
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.properties()
+
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 bus = dbus.bus.BusConnection(os.environ["DBUS_SYSTEM_BUS_ADDRESS"])

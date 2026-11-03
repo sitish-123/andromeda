@@ -48,6 +48,7 @@ class AsyncTextureCache;
 class Button;
 class AccountsService;
 class PowerProfilesService;
+class PowerConfigService;
 class CalendarService;
 class ClipboardService;
 class NotificationManager;
@@ -158,6 +159,7 @@ public:
   void setPowerProfilesProvider(std::function<PowerProfilesService*()> profiles) {
     m_powerProfilesProvider = std::move(profiles);
   }
+  void setPowerConfigProvider(std::function<PowerConfigService*()> config) { m_powerConfigProvider = std::move(config); }
   // Battery level, charge limit or power mode changed: the Battery and Power page shows them.
   void onPowerChanged();
   // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
@@ -497,6 +499,7 @@ private:
   std::function<BluetoothService*()> m_bluetoothProvider;
   std::function<PipeWireService*()> m_audioProvider;
   std::function<PowerProfilesService*()> m_powerProfilesProvider;
+  std::function<PowerConfigService*()> m_powerConfigProvider;
   std::string m_soundSignature;
   Slider* m_soundOutputSlider = nullptr;
   Slider* m_soundInputSlider = nullptr;

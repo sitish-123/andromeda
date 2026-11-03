@@ -1,6 +1,7 @@
 #pragma once
 
 class Flex;
+class PowerConfigService;
 class PowerProfilesService;
 class UPowerService;
 
@@ -10,9 +11,10 @@ namespace settings {
     float scale = 1.0F;
     UPowerService* upower = nullptr;
     PowerProfilesService* profiles = nullptr;
+    PowerConfigService* powerConfig = nullptr;
   };
 
-  // Battery and Power page head (direction A, .agent/DESIGN.md): battery hero, Power Mode, Battery card.
+  // Battery and Power page head (direction A, .agent/DESIGN.md): battery hero, Power Mode, Battery card, Lid & Power Button.
   // The page's registry rows (session panel, idle) follow it.
   void addSettingsPower(Flex& content, const SettingsPowerContext& ctx);
 

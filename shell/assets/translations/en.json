@@ -1874,11 +1874,24 @@
       "updates-unchecked": "Not checked yet"
     },
     "power": {
+      "action": {
+        "hibernate": "Hibernate",
+        "ignore": "Do Nothing",
+        "lock": "Lock Screen",
+        "poweroff": "Shut Down",
+        "suspend": "Sleep",
+        "suspend-then-hibernate": "Sleep, Then Hibernate"
+      },
       "battery": "Battery",
       "health": "Battery Health",
+      "lid-battery": "Lid Closed on Battery",
+      "lid-buttons": "Lid & Power Button",
+      "lid-docked": "Lid Closed with Display",
+      "lid-power": "Lid Closed on Power",
       "limit": "Limit Charging",
       "limit-to": "Limit Charging to {percent}%",
-      "mode": "Power Mode"
+      "mode": "Power Mode",
+      "power-key": "Power Button"
     },
     "users": {
       "account-name": "Account Name",

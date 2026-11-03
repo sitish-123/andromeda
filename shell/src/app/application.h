@@ -135,6 +135,7 @@ class EasyEffectsService;
 class INetworkService;
 class IwdSecretAgent;
 class LogindService;
+class PowerConfigService;
 class MainLoop;
 class ModemManagerService;
 class MprisService;
@@ -331,6 +332,7 @@ private:
   std::optional<std::string> m_earlySessionBusError;
   std::unique_ptr<SystemBus> m_systemBus;
   std::unique_ptr<LogindService> m_logindService;
+  std::unique_ptr<PowerConfigService> m_powerConfigService;
   // Set on PrepareForSleep(true); cleared when the session lock engages (or the lock aborts).
   bool m_releaseSleepDelayWhenLocked = false;
   // Set before Noctalia-initiated suspend so PrepareForSleep skips lock-before-sleep.
