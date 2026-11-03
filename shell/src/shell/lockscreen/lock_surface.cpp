@@ -1806,6 +1806,14 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
     state.glanceHint = i18n::tr(m_authExtras.face ? "lockscreen.glance-hint-face" : "lockscreen.glance-hint");
     state.time = formatLocalTime("%H:%M");
+    const ClockStyle& clock = clockStyleById(lock.clockStyle);
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
+    state.clockFamily = clockFontFamily(clock);
+    state.clockWeight = clock.weight;
+    state.clockTwoTone = clock.twoTone;
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
       state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
@@ -1855,6 +1863,10 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
       .reasonCard = !state.reasonTitle.empty(),
       .callBlock = call.deviceId.empty() ? 0.0F : LockCallCard::kBlockHeight,
   };
+  if (m_config != nullptr) {
+    input.clockSize = clockSizeFor(m_config->config().lockscreen.clockSize);
+  }
+  input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
   m_cards.fillPlacementInput(input);
   const AuthPlacement place = placeAuth(input);
   m_auth->setState(std::move(state));
@@ -1885,11 +1897,30 @@ void LockSurface::wakeGlance() {
   });
 }
 
-// One layout at each minute boundary keeps the clock right without a per-second frame.
+// A clock style's bundled font is registered on first use, not at shell start, so the start budget pays nothing.
+std::string LockSurface::clockFontFamily(const ClockStyle& clock) {
+  if (clock.file.empty()) {
+    return std::string(clock.family);
+  }
+  const std::string key(clock.file);
+  if (const auto it = m_clockFonts.find(key); it != m_clockFonts.end()) {
+    return it->second;
+  }
+  std::string family = text::registerFontFile(paths::assetPath("fonts/lock/" + key));
+  if (family.empty()) {
+    family = std::string(clock.family);
+  }
+  m_clockFonts.emplace(key, family);
+  return family;
+}
+
+// One layout at each minute (or second, with clock_seconds) boundary keeps the clock right without idle frames.
 void LockSurface::startAndromedaClock() {
+  const bool seconds = m_config != nullptr && m_config->config().lockscreen.clockSeconds;
+  const std::int64_t period = seconds ? 1000 : 60000;
   const auto now = std::chrono::system_clock::now();
-  const auto intoMinute = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 60000;
-  m_andromedaClock.start(std::chrono::milliseconds(60000) - intoMinute + std::chrono::milliseconds(5), [this] {
+  const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % period;
+  m_andromedaClock.start(std::chrono::milliseconds(period - into + 5), [this] {
     requestLayout();
     startAndromedaClock();
   });

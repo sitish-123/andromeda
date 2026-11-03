@@ -3,8 +3,10 @@
 #include "render/animation/animation_manager.h"
 #include "ui/auth/auth_layout.h"
 
+#include <array>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 class Glyph;
 class Label;
@@ -47,6 +49,12 @@ public:
     std::string reasonBody;
     // Centered layout clock (rulebook 9.15): hero time, title-3 date 8 above it.
     std::string time;
+    // Clock style (clock_style.h): one entry per line; empty = `time` on one line in the hero font.
+    std::vector<std::string> clockLines;
+    std::string clockFamily;
+    int clockWeight = 300;
+    // Two-tone: the part after the first ':' in accent_text.
+    bool clockTwoTone = false;
     std::string date;
     // Glance layout: the line 72 above the bottom while the auth sheet is closed.
     std::string glanceHint;
@@ -116,7 +124,9 @@ private:
   Glyph* m_networkGlyph = nullptr;
   Label* m_layoutText = nullptr;
   Label* m_date = nullptr;
-  Label* m_clock = nullptr;
+  // Clock lines (stacked and word styles use up to three); the accent label holds the two-tone minutes.
+  std::array<Label*, 3> m_clockLines{};
+  Label* m_clockAccent = nullptr;
   Rect m_capsuleRect;
   float m_shakeAmplitude = 8.0F;
 };

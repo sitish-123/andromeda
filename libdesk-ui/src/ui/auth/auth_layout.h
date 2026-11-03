@@ -29,6 +29,10 @@ struct AuthPlacementInput {
   bool chips = false;
   // Glance card column and Split widget row: number of entries.
   int cards = 0;
+  // lockscreen.clock_size at scale 1 (64 / 80 / 96 / 120); 0 = the layout's own size. Lines: 2 or 3 for stacked
+  // and word styles.
+  float clockSize = 0.0F;
+  int clockLines = 1;
   // Minimal: the island and session button show only after the pointer moves.
   bool pointerMoved = false;
   // Lock from phone: the reason card sits 32 above the avatar and takes room from the content above.
@@ -44,9 +48,11 @@ struct AuthPlacement {
   // Clock block. Centered and Minimal centre the text on clockX; Glance and Split start it at clockX.
   bool clockCentred = true;
   float clockX = 0.0F;
-  // Top of the clock line; its height = clockSize.
+  // Top of the clock block: clockLines lines, each clockSize high.
   float clockY = 0.0F;
   float clockSize = 80.0F;
+  int clockLines = 1;
+  [[nodiscard]] float clockHeight() const noexcept { return clockSize * static_cast<float>(clockLines); }
   // Date line (title-3), 8 above the clock, or 8 below it in label_2 (Minimal).
   AuthRect date;
   bool dateSecondary = false;

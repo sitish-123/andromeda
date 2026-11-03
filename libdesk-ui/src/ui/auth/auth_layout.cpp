@@ -36,6 +36,11 @@ namespace {
 
   float snap(float v) { return std::round(v); }
 
+  void sizeClock(AuthPlacement& p, const AuthPlacementInput& in, float layoutSize, float s) {
+    p.clockSize = (in.clockSize > 0.0F ? in.clockSize : layoutSize) * s;
+    p.clockLines = std::max(1, in.clockLines);
+  }
+
   AuthRect rect(float x, float y, float w, float h) { return {snap(x), snap(y), snap(w), snap(h)}; }
 
   float stackHeight(int count, float item, float gap) {
@@ -63,14 +68,14 @@ namespace {
     p.capsule = rect(cx - kCapsuleW * 0.5F * s, in.sh * 0.75F - kCapsuleH * 0.5F * s, kCapsuleW * s, kCapsuleH * s);
     const float accountTop = p.capsule.y - (kAccountHead + aboveAccount(in)) * s;
 
-    p.clockSize = 80.0F * s;
+    sizeClock(p, in, 80.0F, s);
     p.clockX = cx;
     bool media = in.media;
     bool chips = in.chips;
     // The account column is fixed; the content above yields: it moves up, then drops the chips, then the card.
     for (;;) {
       float top = snap(in.sh * 0.25F);
-      float h = p.clockSize;
+      float h = p.clockHeight();
       if (media) {
         h += (20.0F + kCardH) * s;
       }
@@ -89,7 +94,7 @@ namespace {
       (chips ? chips : media) = false;
     }
     p.date = rect(0.0F, p.clockY - (kDateGap + kDateLine) * s, in.sw, kDateLine * s);
-    float y = p.clockY + p.clockSize;
+    float y = p.clockY + p.clockHeight();
     if (media) {
       p.media = rect(cx - 180.0F * s, y + 20.0F * s, 360.0F * s, kCardH * s);
       y = p.media.bottom();
@@ -108,11 +113,12 @@ namespace {
     const float cx = in.sw * 0.5F;
     p.clockCentred = false;
     p.clockX = snap(kEdge * s);
-    p.clockSize = 80.0F * s;
+    sizeClock(p, in, 80.0F, s);
     p.date = rect(kEdge * s, 120.0F * s, 400.0F * s, kDateLine * s);
     p.clockY = p.date.bottom() + snap(kDateGap * s);
     if (in.cards > 0) {
-      p.cards = rect(kEdge * s, 252.0F * s, 400.0F * s, stackHeight(in.cards, kCardH, kCardGap) * s);
+      // 252 for the default clock; a taller clock pushes the column down to 24 below it.
+      p.cards = rect(kEdge * s, std::max(252.0F * s, p.clockY + p.clockHeight() + 24.0F * s), 400.0F * s, stackHeight(in.cards, kCardH, kCardGap) * s);
     }
     // Sheet: p 32 / 24 / 24 around the column; the capsule keeps its place in the column.
     const float sheetH = (32.0F + kAccountHead + kAccountFoot + 24.0F) * s;
@@ -130,14 +136,14 @@ namespace {
     p.layout = AuthLayout::Split;
     p.clockCentred = false;
     p.clockX = snap(kEdge * s);
-    p.clockSize = 96.0F * s;
+    sizeClock(p, in, 96.0F, s);
     const float rowH = in.cards > 0 ? (24.0F + kWidgetH) * s : 0.0F;
-    const float blockH = (kDateLine + kDateGap) * s + p.clockSize + rowH;
+    const float blockH = (kDateLine + kDateGap) * s + p.clockHeight() + rowH;
     const float blockTop = snap(in.sh * 0.5F - blockH * 0.5F);
     p.date = rect(kEdge * s, blockTop, 400.0F * s, kDateLine * s);
     p.clockY = p.date.bottom() + snap(kDateGap * s);
     if (in.cards > 0) {
-      p.cards = rect(kEdge * s, p.clockY + p.clockSize + 24.0F * s, stackHeight(in.cards, kWidgetW, kCardGap) * s, kWidgetH * s);
+      p.cards = rect(kEdge * s, p.clockY + p.clockHeight() + 24.0F * s, stackHeight(in.cards, kWidgetW, kCardGap) * s, kWidgetH * s);
     }
     p.capsule = rect(in.sw - (160.0F + kCapsuleW) * s, 0.0F, kCapsuleW * s, kCapsuleH * s);
     p.columnCx = p.capsule.x + p.capsule.w * 0.5F;
@@ -159,13 +165,16 @@ namespace {
     p.layout = AuthLayout::Minimal;
     const float cx = in.sw * 0.5F;
     p.clockX = cx;
-    p.clockSize = 96.0F * s;
-    p.clockY = snap(in.sh * 0.4F);
-    p.date = rect(0.0F, p.clockY + p.clockSize + kDateGap * s, in.sw, kDateLine * s);
+    sizeClock(p, in, 96.0F, s);
+    p.capsule = rect(cx - kCapsuleW * 0.5F * s, in.sh - (96.0F + kCapsuleH) * s, kCapsuleW * s, kCapsuleH * s);
+    // Top at 2/5; a tall clock (stacked, XL) moves up so the date stays 24 above the capsule.
+    const float blockH = p.clockHeight() + (kDateGap + kDateLine) * s;
+    const float limit = p.capsule.y - (kMinGap + aboveAccount(in)) * s - blockH;
+    p.clockY = snap(std::max(kMinTop * s, std::min(in.sh * 0.4F, limit)));
+    p.date = rect(0.0F, p.clockY + p.clockHeight() + kDateGap * s, in.sw, kDateLine * s);
     p.dateSecondary = true;
     p.account = false;
     p.columnCx = cx;
-    p.capsule = rect(cx - kCapsuleW * 0.5F * s, in.sh - (96.0F + kCapsuleH) * s, kCapsuleW * s, kCapsuleH * s);
     p.chrome = in.pointerMoved;
     placeChrome(p, in, s);
     placeCardBottom(p, s);

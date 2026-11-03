@@ -30,6 +30,8 @@ namespace {
   // fill_1 (dark): the capsule inside the Glance sheet.
   constexpr Color kFill1 = rgba(1.0F, 1.0F, 1.0F, 15.0F / 255.0F);
   constexpr Color kAccent = rgba(97.0F / 255.0F, 89.0F / 255.0F, 245.0F / 255.0F, 1.0F);
+  // accent_text (dark): #8c85ff.
+  constexpr Color kAccentText = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
   constexpr Color kTextShadow = rgba(0.0F, 0.0F, 0.0F, 0.30F);
   constexpr Color kAvatarFrom = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
   constexpr Color kAvatarTo = rgba(1.0F, 95.0F / 255.0F, 162.0F / 255.0F, 1.0F);
@@ -91,8 +93,12 @@ void AuthColumn::build(Node& root, AnimationManager& animations) {
 
   m_glanceGroup = addGroup(*m_group);
   m_date = addLabel(*m_glanceGroup, FontWeight::SemiBold, true);
-  m_clock = addLabel(*m_glanceGroup, FontWeight::Light, true);
-  m_clock->setFontFeatures("tnum");
+  for (Label*& line : m_clockLines) {
+    line = addLabel(*m_glanceGroup, FontWeight::Light, true);
+    line->setFontFeatures("tnum");
+  }
+  m_clockAccent = addLabel(*m_glanceGroup, FontWeight::Light, true);
+  m_clockAccent->setFontFeatures("tnum");
   m_glanceHint = addLabel(*m_glanceGroup, FontWeight::Medium, true);
 
   m_columnGroup = addGroup(*m_group);
@@ -370,14 +376,42 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
   const float heroLine = place.clockSize;
   const float clockY = place.clockY;
   const auto lineX = [&](float width) { return snap(place.clockCentred ? place.clockX - width * 0.5F : place.clockX); };
-  m_clock->setVisible(place.clock && !m_state.time.empty());
   m_date->setVisible(place.clock && !m_state.date.empty());
-  m_clock->setFontSize(place.clockSize);
-  m_clock->setLineHeight(heroLine);
-  m_clock->setColor(kLabel1);
-  m_clock->setText(m_state.time);
-  m_clock->measure(renderer);
-  m_clock->setPosition(lineX(m_clock->width()), snap(clockY + (heroLine - m_clock->height()) * 0.5F));
+  const std::vector<std::string> lines =
+      m_state.clockLines.empty() ? std::vector<std::string>{m_state.time} : m_state.clockLines;
+  const auto weight = static_cast<FontWeight>(m_state.clockWeight);
+  const auto styleLine = [&](Label* label, const std::string& text, Color color) {
+    label->setFontFamily(m_state.clockFamily);
+    label->setFontWeight(weight);
+    label->setFontSize(place.clockSize);
+    label->setLineHeight(heroLine);
+    label->setColor(color);
+    label->setText(text);
+    label->measure(renderer);
+  };
+  m_clockAccent->setVisible(false);
+  for (std::size_t i = 0; i < m_clockLines.size(); ++i) {
+    Label* label = m_clockLines[i];
+    const bool shown = place.clock && i < lines.size() && i < static_cast<std::size_t>(place.clockLines)
+        && !lines[i].empty();
+    label->setVisible(shown);
+    if (!shown) {
+      continue;
+    }
+    const float y = clockY + heroLine * static_cast<float>(i);
+    const std::size_t colon = lines[i].find(':');
+    if (m_state.clockTwoTone && colon != std::string::npos) {
+      styleLine(label, lines[i].substr(0, colon + 1), kLabel1);
+      styleLine(m_clockAccent, lines[i].substr(colon + 1), kAccentText);
+      m_clockAccent->setVisible(true);
+      const float x = lineX(label->width() + m_clockAccent->width());
+      label->setPosition(x, snap(y + (heroLine - label->height()) * 0.5F));
+      m_clockAccent->setPosition(x + label->width(), snap(y + (heroLine - m_clockAccent->height()) * 0.5F));
+      continue;
+    }
+    styleLine(label, lines[i], kLabel1);
+    label->setPosition(lineX(label->width()), snap(y + (heroLine - label->height()) * 0.5F));
+  }
   const float dateLine = Tokens::typeTitle3.line * s;
   m_date->setFontSize(Tokens::typeTitle3.size * s);
   m_date->setLineHeight(dateLine);

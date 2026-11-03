@@ -11,6 +11,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
 #include "ui/auth/auth_column.h"
+#include "ui/auth/clock_style.h"
 #include "shell/lockscreen/lock_call_card.h"
 #include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_phone_row.h"
@@ -24,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -176,6 +178,7 @@ private:
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
   void layoutAndromeda(Renderer& renderer, float sw, float sh);
   void wakeGlance();
+  [[nodiscard]] std::string clockFontFamily(const ClockStyle& clock);
   void startAndromedaClock();
   void startRyokuLive();
   void startRyokuIdleClock();
@@ -241,6 +244,8 @@ private:
   AuthColumn::Status m_statusIsland;
   Timer m_andromedaClock;
   Timer m_glanceIdle;
+  // Clock style font file -> the family fontconfig registered it under.
+  std::unordered_map<std::string, std::string> m_clockFonts;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;
