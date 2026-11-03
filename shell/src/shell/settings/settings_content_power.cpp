@@ -138,7 +138,9 @@ namespace settings {
       Flex* card = addCard(content, scale);
       if (state.hasLid) {
         addHandleRow(*card, config, "settings.power.lid-battery", "lid-battery", state.lidBattery, false, scale);
-        addHandleRow(*card, config, "settings.power.lid-power", "lid-power", state.lidPower, false, scale);
+        // Unset (logind returns "") follows HandleLidSwitch (logind.conf(5)).
+        addHandleRow(*card, config, "settings.power.lid-power", "lid-power",
+                     state.lidPower.empty() ? state.lidBattery : state.lidPower, false, scale);
         addHandleRow(*card, config, "settings.power.lid-docked", "lid-docked", state.lidDocked, false, scale);
       }
       addHandleRow(*card, config, "settings.power.power-key", "power-key", state.powerKey, true, scale);

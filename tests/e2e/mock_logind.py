@@ -101,7 +101,8 @@ class Manager(Delayed, dbus.service.Object):
         # MOCK_LID_BATTERY etc. override the logind defaults (logind.conf(5)).
         return {
             "HandleLidSwitch": os.environ.get("MOCK_LID_BATTERY", "suspend"),
-            "HandleLidSwitchExternalPower": os.environ.get("MOCK_LID_POWER", "suspend"),
+            # logind returns "" when HandleLidSwitchExternalPower= is unset.
+            "HandleLidSwitchExternalPower": os.environ.get("MOCK_LID_POWER", ""),
             "HandleLidSwitchDocked": os.environ.get("MOCK_LID_DOCKED", "ignore"),
             "HandlePowerKey": os.environ.get("MOCK_POWER_KEY", "poweroff"),
         }
