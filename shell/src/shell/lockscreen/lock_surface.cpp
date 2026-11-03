@@ -598,6 +598,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   } else {
     m_auth = std::make_unique<LockAuthColumn>();
     m_auth->build(m_root, m_animations);
+    startAndromedaClock();
   }
   requestUpdate();
 }
@@ -1707,6 +1708,14 @@ void LockSurface::layoutRyoku(
 // and draws rulebook 9.15's auth column instead of the old login panel.
 void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   m_loginPanel->setOpacity(0.0F);
+  // The old widget layer gives way to the rulebook layouts (lock widgets return in L3).
+  m_widgetLayer->setVisible(false);
+  // Dim = black at tint_intensity (rulebook 9.15 Dim; the legibility clamp comes with the wallpaper work).
+  if (m_tintOverlay != nullptr && m_tintIntensity > 0.0F) {
+    m_tintOverlay->setStyle(
+        RoundedRectStyle{.fill = rgba(0.0F, 0.0F, 0.0F, std::min(m_tintIntensity, 0.6F)), .fillMode = FillMode::Solid}
+    );
+  }
   if (m_authPanel != nullptr) {
     m_authPanel->setVisible(false);
   }
@@ -1740,6 +1749,8 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     } else if (m_authExtras.fingerprint) {
       state.trailing = LockAuthColumn::Trailing::Fingerprint;
     }
+    state.time = formatLocalTime("%H:%M");
+    state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
       state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
       state.reasonBody = i18n::tr("lockscreen.phone-lock.body");
@@ -1752,6 +1763,16 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   if (shake) {
     m_auth->playRejected();
   }
+}
+
+// One layout at each minute boundary keeps the clock right without a per-second frame.
+void LockSurface::startAndromedaClock() {
+  const auto now = std::chrono::system_clock::now();
+  const auto intoMinute = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 60000;
+  m_andromedaClock.start(std::chrono::milliseconds(60000) - intoMinute + std::chrono::milliseconds(5), [this] {
+    requestLayout();
+    startAndromedaClock();
+  });
 }
 
 void LockSurface::setAuthExtras(const AuthExtras& extras) {

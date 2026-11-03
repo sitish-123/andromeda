@@ -169,6 +169,7 @@ private:
   [[nodiscard]] std::vector<SessionPanelActionConfig> resolveSessionActions() const;
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
   void layoutAndromeda(Renderer& renderer, float sw, float sh);
+  void startAndromedaClock();
   void startRyokuLive();
   void startRyokuIdleClock();
   [[nodiscard]] lockscreen_login_box::LoginBoxStyle resolveLoginStyle() const;
@@ -220,6 +221,7 @@ private:
   std::unique_ptr<LockAuthColumn> m_auth;
   bool m_authShownError = false;
   AuthExtras m_authExtras;
+  Timer m_andromedaClock;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;

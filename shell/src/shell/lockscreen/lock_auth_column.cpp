@@ -77,6 +77,10 @@ void LockAuthColumn::build(Node& root, AnimationManager& animations) {
   m_group = addGroup(root);
   m_group->setZIndex(6);
 
+  m_date = addLabel(*m_group, FontWeight::SemiBold, true);
+  m_clock = addLabel(*m_group, FontWeight::Light, true);
+  m_clock->setFontFeatures("tnum");
+
   m_card = addRect(*m_group);
   m_cardGlyph = addGlyph(*m_group);
   m_cardTitle = addLabel(*m_group, FontWeight::SemiBold, false);
@@ -267,6 +271,27 @@ void LockAuthColumn::layout(Renderer& renderer, float sw, float sh, float scale)
     m_cardBody->measure(renderer);
     m_cardBody->setPosition(textX, cardY + pad + titleLine);
   }
+
+  // Clock: hero 80 / 80 with its top at 1/4 of the height; the date line 8 above it.
+  const float heroLine = Tokens::typeHero.line * s;
+  const float clockY = snap(sh * 0.25F);
+  m_clock->setVisible(!m_state.time.empty());
+  m_date->setVisible(!m_state.date.empty());
+  m_clock->setFontSize(Tokens::typeHero.size * s);
+  m_clock->setLineHeight(heroLine);
+  m_clock->setColor(kLabel1);
+  m_clock->setText(m_state.time);
+  m_clock->measure(renderer);
+  m_clock->setPosition(snap(cx - m_clock->width() * 0.5F), snap(clockY + (heroLine - m_clock->height()) * 0.5F));
+  const float dateLine = Tokens::typeTitle3.line * s;
+  m_date->setFontSize(Tokens::typeTitle3.size * s);
+  m_date->setLineHeight(dateLine);
+  m_date->setColor(kLabel1);
+  m_date->setText(m_state.date);
+  m_date->measure(renderer);
+  const float dateY = clockY - 8.0F * s - dateLine;
+  m_date->setPosition(snap(cx - m_date->width() * 0.5F), snap(dateY + (dateLine - m_date->height()) * 0.5F));
+
   m_shakeAmplitude = 8.0F * s;
 }
 

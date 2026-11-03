@@ -32,6 +32,9 @@ public:
     // Empty = no reason card.
     std::string reasonTitle;
     std::string reasonBody;
+    // Centered layout clock (rulebook 9.15): hero time, title-3 date 8 above it.
+    std::string time;
+    std::string date;
 
     bool operator==(const State&) const = default;
   };
@@ -71,6 +74,8 @@ private:
   Glyph* m_cardGlyph = nullptr;
   Label* m_cardTitle = nullptr;
   Label* m_cardBody = nullptr;
+  Label* m_date = nullptr;
+  Label* m_clock = nullptr;
   Rect m_capsuleRect;
   float m_shakeAmplitude = 8.0F;
 };
