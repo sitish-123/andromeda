@@ -964,6 +964,8 @@ namespace andromeda {
       return;
     }
 
+    applyBackgroundOpaqueRegion();
+
     if ((m_layerSurface->current.committed & WLR_LAYER_SURFACE_V1_STATE_LAYER) != 0) {
       m_rule = resolveLayerRules(
           config(), ruleText(m_layerSurface->namespace_), layerOf(m_layerSurface->current.layer), m_server->uptimeMs()
@@ -988,6 +990,32 @@ namespace andromeda {
         out->markDirty(Dirty::LayerArrange);
       }
     }
+  }
+
+  // Client opaque regions are ignored in general (scene surface.c: a browser declared translucent pixels opaque). A
+  // wallpaper has nothing of value beneath it, so its region is trusted: the output background under it is culled.
+  void LayerSurface::applyBackgroundOpaqueRegion() {
+    wlr_surface* surface = m_layerSurface->surface;
+    const bool trusted = m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND;
+    struct Ctx {
+      wlr_surface* surface;
+      const pixman_region32_t* region;
+    };
+    pixman_region32_t empty;
+    pixman_region32_init(&empty);
+    Ctx ctx{surface, trusted ? &surface->opaque_region : &empty};
+    wlr_scene_node_for_each_buffer(
+        &m_scene->tree->node,
+        [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+          const auto& ctx = *static_cast<Ctx*>(data);
+          wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+          if (sceneSurface != nullptr && sceneSurface->surface == ctx.surface) {
+            wlr_scene_buffer_set_opaque_region(buffer, ctx.region);
+          }
+        },
+        &ctx
+    );
+    pixman_region32_fini(&empty);
   }
 
   void LayerSurface::handleDestroy() {

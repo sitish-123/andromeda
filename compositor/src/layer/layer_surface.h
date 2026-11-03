@@ -83,6 +83,7 @@ namespace andromeda {
     void syncPopupTree();
     // Tell an open overview to re-resolve this output's mirrored background stack.
     void notifyDesktopStack();
+    void applyBackgroundOpaqueRegion();
     void updateBlur();
     void applyConfig();
     void refreshStartupRuleEffects();

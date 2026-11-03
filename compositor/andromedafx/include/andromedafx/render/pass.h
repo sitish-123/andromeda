@@ -287,6 +287,9 @@ bool fx_render_pass_add_optimized_blur(
  */
 bool fx_render_pass_optimized_blur_stale(const struct fx_gles_render_pass* pass);
 
+/** True when the optimized blur cache holds a valid blur for this pass, so a partial re-render can update it. */
+bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pass);
+
 /**
  * Render from one buffer to another. False when the source cannot be sampled.
  */

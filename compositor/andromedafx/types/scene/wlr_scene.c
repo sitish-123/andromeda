@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/backend.h>
+#include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/config.h>
 #include <wlr/render/drm_syncobj.h>
 #include <wlr/render/swapchain.h>
@@ -1218,7 +1219,8 @@ static void restack_xwayland_surface(struct wlr_scene_node* node, struct wlr_box
 }
 #endif
 
-// Adds the box of every enabled blur node that samples the optimized cache, grown by the blur reach.
+// Adds the visible part of every enabled blur node that samples the optimized cache, grown by the blur reach. A node
+// hidden under an opaque window (a bar island under fullscreen video) needs no cache until it shows again.
 static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y, int reach, pixman_region32_t* out) {
   if (!node->enabled) {
     return;
@@ -1230,8 +1232,12 @@ static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y
     }
   } else if (node->type == WLR_SCENE_NODE_BLUR) {
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
-    if (blur->should_only_blur_bottom_layer) {
-      pixman_region32_union_rect(out, out, x - reach, y - reach, blur->width + 2 * reach, blur->height + 2 * reach);
+    if (blur->should_only_blur_bottom_layer && pixman_region32_not_empty(&node->visible)) {
+      pixman_region32_t grown;
+      pixman_region32_init(&grown);
+      wlr_region_expand(&grown, &node->visible, reach);
+      pixman_region32_union(out, out, &grown);
+      pixman_region32_fini(&grown);
     }
   }
 }
@@ -1296,13 +1302,15 @@ static bool scene_node_update_iterator(
 
   if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
     struct wlr_scene_optimized_blur* scene_blur = wlr_scene_optimized_blur_from_node(node);
-    if (optimized_blur_needs_render(scene_blur)) {
-      // Restore the visible region back to default, without any opaque
-      // regions. This ensures that all nodes below are fully re-rendered
-      // and not culled by above nodes.
-      pixman_region32_clear(data->visible);
-      pixman_region32_copy(data->visible, data->update_region);
+    // Nodes below are not culled where the cache re-renders now, so its capture sees them; elsewhere they stay
+    // culled by opaque nodes above (a fullscreen window over the wallpaper).
+    pixman_region32_t work;
+    pixman_region32_init(&work);
+    if (optimized_blur_work(scene_blur, &work)) {
+      pixman_region32_intersect(&work, &work, data->update_region);
+      pixman_region32_union(data->visible, data->visible, &work);
     }
+    pixman_region32_fini(&work);
   }
 
   struct wlr_box box = {.x = lx, .y = ly};
@@ -1556,6 +1564,8 @@ void wlr_scene_set_effect_light_layer(struct wlr_scene* scene, struct wlr_scene_
 }
 
 static void scene_update_region(struct wlr_scene* scene, const pixman_region32_t* update_region) {
+  // Visibility changes which blur nodes sample the optimized cache.
+  scene->update_serial++;
   pixman_region32_t visible;
   pixman_region32_init(&visible);
   pixman_region32_copy(&visible, update_region);
@@ -3888,6 +3898,16 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
     break;
   case WLR_SCENE_NODE_OPTIMIZED_BLUR:;
     struct wlr_scene_optimized_blur* scene_blur = wlr_scene_optimized_blur_from_node(node);
+    // A valid cache whose content or blur parameters changed (wallpaper, glass slider, scheme) needs a new blur only
+    // where blur nodes sample it; a whole-output re-blur costs about 10 ms on a low-end GPU. The rest waits in pending.
+    if (scene_blur->dirty && fx_pass->has_blur && fx_render_pass_optimized_blur_reusable(fx_pass)) {
+      int blur_x, blur_y;
+      if (wlr_scene_node_coords(node, &blur_x, &blur_y)) {
+        pixman_region32_union_rect(&scene_blur->pending, &scene_blur->pending, blur_x, blur_y, scene_blur->width,
+                                   scene_blur->height);
+        scene_blur->dirty = false;
+      }
+    }
     // Re-render the optimized blur buffer when needed. Retry rendering
     // until there's a visible blur_node. A stale cache waits for a dirty mark.
     pixman_region32_t work;
@@ -5751,6 +5771,10 @@ static void log_composited_entries(struct wlr_scene* scene, const struct render_
       struct wlr_scene_surface* surface = wlr_scene_surface_try_from_buffer(buffer);
       if (surface != NULL && surface->surface->resource != NULL) {
         app = surface->surface->role != NULL ? surface->surface->role->name : "no-role";
+        struct wlr_layer_surface_v1* layer = wlr_layer_surface_v1_try_from_wlr_surface(surface->surface);
+        if (layer != NULL && layer->namespace != NULL) {
+          app = layer->namespace;
+        }
       }
     } else if (node->type == WLR_SCENE_NODE_RECT) {
       kind = "rect";
@@ -5759,8 +5783,19 @@ static void log_composited_entries(struct wlr_scene* scene, const struct render_
     pixman_region32_t opaque;
     pixman_region32_init(&opaque);
     scene_node_opaque_region(scene_effects_get(scene, false), node, list[i].x, list[i].y, &opaque);
-    wlr_log(WLR_INFO, "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d visible %u opaque %u", i + 1, len, kind, app,
-            list[i].x, list[i].y, w, h, region_area(&node->visible), region_area(&opaque));
+    uint32_t client_opaque = 0;
+    float opacity = 1.0f;
+    bool corners = false;
+    if (node->type == WLR_SCENE_NODE_BUFFER) {
+      struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+      client_opaque = buffer->buffer_is_opaque ? UINT32_MAX : region_area(&buffer->opaque_region);
+      opacity = buffer->opacity;
+      corners = !fx_corner_radii_is_empty(&buffer->corners) || !wlr_box_empty(&buffer->corner_box);
+    }
+    wlr_log(WLR_INFO,
+            "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d visible %u opaque %u (client %u alpha %.2f corners %d)",
+            i + 1, len, kind, app, list[i].x, list[i].y, w, h, region_area(&node->visible), region_area(&opaque),
+            client_opaque, opacity, corners);
     pixman_region32_fini(&opaque);
   }
 }

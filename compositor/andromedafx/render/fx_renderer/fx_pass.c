@@ -3185,6 +3185,12 @@ bool fx_render_pass_optimized_blur_stale(const struct fx_gles_render_pass* pass)
           || !optimized_buffer_fits(pass, fbos->optimized_no_blur_buffer));
 }
 
+bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pass) {
+  const struct fx_offscreen_buffers* fbos = pass->fx_offscreen_buffers;
+  return pass->group_depth == 0 && fbos != NULL && fbos->optimized_blur_buffer != NULL && fbos->optimized_blur_valid
+      && !fx_render_pass_optimized_blur_stale(pass);
+}
+
 bool fx_render_pass_add_optimized_blur(
     struct fx_gles_render_pass* pass, struct fx_render_blur_pass_options* fx_options
 ) {
