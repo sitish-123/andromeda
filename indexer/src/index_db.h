@@ -34,9 +34,7 @@ namespace andromeda::index {
 
     void begin();
     void commit();
-    // Rebuilds the trigram name index from the files table.
-    void rebuildNames();
-    // Inserts a row with a known id into a bulk database.
+    // Inserts a row with a known id into a bulk database, name index included.
     void insert(std::int64_t id, std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir);
     // Ends a bulk build: switches the file to WAL for normal use.
     void finishBulk();
@@ -55,6 +53,7 @@ namespace andromeda::index {
 
     sqlite3* m_db = nullptr;
     sqlite3_stmt* m_insert = nullptr;
+    sqlite3_stmt* m_insertName = nullptr;
     sqlite3_stmt* m_parentOf = nullptr;
     sqlite3_stmt* m_child = nullptr;
   };

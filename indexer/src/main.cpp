@@ -51,11 +51,10 @@ int main(int argc, char** argv) {
     }
     std::filesystem::rename(fresh, target);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    std::printf("%lld files, %lld folders, %lld skipped folders in %lld ms (walk %lld, db writer %lld, name index %lld)\n",
+    std::printf("%lld files, %lld folders, %lld skipped folders in %lld ms (walk %lld, db writer %lld)\n",
                 static_cast<long long>(stats.files), static_cast<long long>(stats.folders),
                 static_cast<long long>(stats.skippedFolders), static_cast<long long>(ms.count()),
-                static_cast<long long>(stats.walkMs), static_cast<long long>(stats.dbMs),
-                static_cast<long long>(stats.indexMs));
+                static_cast<long long>(stats.walkMs), static_cast<long long>(stats.dbMs));
     return 0;
   }
   if (command == "query" && argc > 2) {

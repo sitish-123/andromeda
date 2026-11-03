@@ -13,11 +13,10 @@ namespace andromeda::index {
     std::int64_t skippedFolders = 0;
     std::int64_t walkMs = 0; // wall time of the parallel walk, database writes included
     std::int64_t dbMs = 0;   // writer thread busy time
-    std::int64_t indexMs = 0;
   };
 
   // Walks root on a thread pool and writes every entry to db, which must be empty (a bulk database), applying the
-  // skip rules; then builds the name index.
+  // skip rules.
   CrawlStats crawl(IndexDb& db, const std::filesystem::path& root);
 
 } // namespace andromeda::index

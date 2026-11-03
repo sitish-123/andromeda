@@ -213,9 +213,6 @@ namespace andromeda::index {
     walk.push({root.string(), rootId, true});
     walk.run();
     stats.walkMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
-    const auto t = Clock::now();
-    db.rebuildNames();
-    stats.indexMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - t).count();
     return stats;
   }
 

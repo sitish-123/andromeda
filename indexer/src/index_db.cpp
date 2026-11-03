@@ -67,12 +67,14 @@ namespace andromeda::index {
         m_db, "INSERT INTO files(id, parent, name, mtime, size, is_dir) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", -1,
         SQLITE_PREPARE_PERSISTENT, &m_insert, nullptr
     );
+    sqlite3_prepare_v3(m_db, "INSERT INTO names(rowid, name) VALUES (?1, ?2)", -1, SQLITE_PREPARE_PERSISTENT, &m_insertName, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT parent, name FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_parentOf, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT id FROM files WHERE parent = ?1 AND name = ?2", -1, SQLITE_PREPARE_PERSISTENT, &m_child, nullptr);
   }
 
   IndexDb::~IndexDb() {
     sqlite3_finalize(m_insert);
+    sqlite3_finalize(m_insertName);
     sqlite3_finalize(m_parentOf);
     sqlite3_finalize(m_child);
     sqlite3_close(m_db);
@@ -90,11 +92,13 @@ namespace andromeda::index {
     sqlite3_bind_int(m_insert, 6, isDir ? 1 : 0);
     sqlite3_step(m_insert);
     sqlite3_reset(m_insert);
+    sqlite3_bind_int64(m_insertName, 1, id);
+    sqlite3_bind_text(m_insertName, 2, name.data(), static_cast<int>(name.size()), SQLITE_STATIC);
+    sqlite3_step(m_insertName);
+    sqlite3_reset(m_insertName);
   }
 
   void IndexDb::finishBulk() { sqlite3_exec(m_db, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;", nullptr, nullptr, nullptr); }
-
-  void IndexDb::rebuildNames() { sqlite3_exec(m_db, "INSERT INTO names(names) VALUES ('rebuild')", nullptr, nullptr, nullptr); }
 
   std::string IndexDb::pathOf(std::int64_t id) const {
     std::vector<std::string> parts;
