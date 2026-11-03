@@ -29,6 +29,7 @@
 #include "server/color_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/fifo.h"
+#include "server/greeter_mode.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "view/view.h"
@@ -145,6 +146,16 @@ namespace andromeda {
       return names.insert(std::move(name)).first->c_str();
     }
 #endif
+
+    // Greeter outputs have no user config: 160 DPI per 1.0 scale, in 0.25 steps, from 1 to 3.
+    [[nodiscard]] float greeterScale(const wlr_output& output, const wlr_output_mode* mode) {
+      const int width = mode != nullptr ? mode->width : output.width;
+      if (output.phys_width <= 0 || width <= 0) {
+        return 1.0F;
+      }
+      const double dpi = width * 25.4 / output.phys_width;
+      return static_cast<float>(std::clamp(std::round(dpi / 160.0 * 4.0) / 4.0, 1.0, 3.0));
+    }
 
   } // namespace
 
@@ -661,6 +672,9 @@ namespace andromeda {
 
       if (configuredScale) {
         wlr_output_state_set_scale(&state, static_cast<float>(*configuredScale));
+        scaleStaged = true;
+      } else if (greeterMode()) {
+        wlr_output_state_set_scale(&state, greeterScale(*m_output, stagedMode));
         scaleStaged = true;
       } else if (m_appliedConfiguredScale) {
         wlr_output_state_set_scale(&state, m_defaultScale);

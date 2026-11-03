@@ -1393,7 +1393,7 @@ namespace andromeda {
     m_configWatcher->watch(configWatchPaths());
     showConfigDiagnostics();
     m_cheatsheet = std::make_unique<Cheatsheet>(*this, m_cheatsheetTree);
-    if (config().general.showCheatsheet) {
+    if (config().general.showCheatsheet && !greeterMode()) {
       m_cheatsheet->showOnStartup();
     }
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
