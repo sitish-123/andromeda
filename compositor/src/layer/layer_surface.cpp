@@ -21,6 +21,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 #include <optional>
 #include <cstdlib>
 
@@ -533,6 +534,7 @@ namespace andromeda {
     // The surface tree moves with the dsk translate; the blur node is its sibling, so it moves by the same offset.
     wlr_box nodeBox = box;
     fx_corner_radii corners = corner_radii_none();
+    double motionScale = 1.0;
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
     const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
     m_blur.setLiquid(
@@ -549,6 +551,11 @@ namespace andromeda {
       const auto& translate = state->motion.value(SurfaceMotion::Property::Translate);
       nodeBox.x = static_cast<int>(std::lround(translate[0] + box.width * (1.0 - scale) / 2.0));
       nodeBox.y = static_cast<int>(std::lround(translate[1] + box.height * (1.0 - scale) / 2.0));
+      // The surface tree shows the buffer at this scale, so the blur node and the client region shrink with it;
+      // a full-size blur would draw a second, offset shape during a scale open or close.
+      nodeBox.width = static_cast<int>(std::lround(box.width * scale));
+      nodeBox.height = static_cast<int>(std::lround(box.height * scale));
+      motionScale = scale;
       if (scaled.width > 0 && scaled.height > 0) {
         dskClip = scaled;
         dskClip->x += nodeBox.x;
@@ -575,10 +582,29 @@ namespace andromeda {
       region = nullptr;
       clip = dskClip;
     }
+    pixman_region32_t scaledRegion;
+    pixman_region32_init(&scaledRegion);
+    if (region != nullptr && motionScale != 1.0) {
+      int count = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(region, &count);
+      std::vector<pixman_box32_t> scaled(static_cast<std::size_t>(count));
+      for (int i = 0; i < count; ++i) {
+        scaled[static_cast<std::size_t>(i)] = {
+            static_cast<int32_t>(std::lround(rects[i].x1 * motionScale)),
+            static_cast<int32_t>(std::lround(rects[i].y1 * motionScale)),
+            static_cast<int32_t>(std::lround(rects[i].x2 * motionScale)),
+            static_cast<int32_t>(std::lround(rects[i].y2 * motionScale)),
+        };
+      }
+      pixman_region32_fini(&scaledRegion);
+      pixman_region32_init_rects(&scaledRegion, scaled.data(), count);
+      region = &scaledRegion;
+    }
     m_blur.update(
         m_scene->tree, m_layerSurface->surface, nodeBox, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
         region
     );
+    pixman_region32_fini(&scaledRegion);
   }
 
   void LayerSurface::applyConfig() {
