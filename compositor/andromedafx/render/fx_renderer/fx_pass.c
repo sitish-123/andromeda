@@ -2982,6 +2982,9 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   if (masked) {
     struct fx_render_texture_options tex_options = fx_options->tex_options;
     tex_options.discard_transparent = fx_options->ignore_alpha;
+    // The stencil is the surface's shape: test its own alpha, not the blur fade, or a fading surface loses its whole
+    // blur at once when fade x pixel alpha drops below the threshold.
+    tex_options.base.alpha = NULL;
     tex_options.clipped_region = fx_options->clipped_region;
     fx_render_pass_add_texture(pass, &tex_options);
 

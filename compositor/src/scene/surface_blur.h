@@ -42,6 +42,9 @@ namespace andromeda {
     void setAlpha(float alpha);
     // Liquid glass strength, 0 to 1 (dsk_surface_v1 property liquid).
     void setLiquid(float liquid);
+    // Fade of a surface, 0 to 1: it scales the blur size, so a fading surface defocuses its backdrop instead of
+    // blending a blurred copy over the sharp one.
+    void setFade(float fade);
     // Forces a live blur of everything below, overriding the optimized option, for a surface drawn over scene
     // content the cached background blur lacks.
     void setLive(bool live);
@@ -57,6 +60,7 @@ namespace andromeda {
     bool m_live = false;
     float m_alpha = 1.0F;
     float m_liquid = 0.0F;
+    float m_fade = 1.0F;
   };
 
 } // namespace andromeda

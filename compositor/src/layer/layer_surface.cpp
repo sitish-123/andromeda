@@ -203,9 +203,10 @@ namespace andromeda {
       const float opacity =
           std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
       alpha *= opacity;
-      // Blur leads the fade (ease-out cubic), so the backdrop is frosted before the fill is opaque.
+      // Blur leads the fade (ease-out cubic), so the backdrop is frosted before the fill is opaque. The fade scales
+      // the blur size: an alpha fade would show the sharp backdrop and a blurred copy at once.
       const float lead = 1.0F - opacity;
-      m_blur.setAlpha(1.0F - lead * lead * lead);
+      m_blur.setFade(1.0F - lead * lead * lead);
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
@@ -564,6 +565,11 @@ namespace andromeda {
             static_cast<int>(std::lround(state->motion.value(SurfaceMotion::Property::Radius)[0] * scale))
         );
       }
+    }
+    // A client blur region is the exact shape, so the alpha test of blur_ignore_alpha must not cut it: a clear liquid
+    // tint (alpha 0.34) would lose its whole blur.
+    if (region != nullptr && m_rule.blur.value_or(true)) {
+      options.ignoreAlpha = 0.0F;
     }
     if (region != nullptr && m_rule.blur.value_or(true) && dskClip && pixman_region32_not_empty(region)) {
       // The clip and its corner radius are the exact shape; a client region is a pixel staircase that shows past the

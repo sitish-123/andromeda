@@ -120,7 +120,7 @@ namespace andromeda {
       wlr_scene_blur_set_alpha(m_node, m_alpha);
     }
     wlr_scene_blur_set_liquid(m_node, m_liquid);
-    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid));
+    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * m_fade);
     // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
     // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
     if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
@@ -172,7 +172,14 @@ namespace andromeda {
     m_liquid = liquid;
     if (m_node != nullptr) {
       wlr_scene_blur_set_liquid(m_node, liquid);
-      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid));
+      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid) * m_fade);
+    }
+  }
+
+  void SurfaceBlur::setFade(float fade) {
+    m_fade = fade;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * fade);
     }
   }
 
