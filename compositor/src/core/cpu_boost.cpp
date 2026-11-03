@@ -97,7 +97,7 @@ namespace andromeda {
     }
     const int events = sd_bus_get_events(m_bus);
     wl_event_source_fd_update(
-        m_source, WL_EVENT_READABLE | ((events > 0 && (events & POLLOUT) != 0) ? WL_EVENT_WRITABLE : 0U)
+        m_source, WL_EVENT_READABLE | ((events > 0 && (events & POLLOUT) != 0) ? static_cast<uint32_t>(WL_EVENT_WRITABLE) : 0U)
     );
   }
 
