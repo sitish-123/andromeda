@@ -17,11 +17,14 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <optional>
 #include <sched.h>
+#include <sys/auxv.h>
+#include <sys/prctl.h>
 #include <print>
 #include <string>
 #include <string_view>
@@ -161,6 +164,38 @@ const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,
 
 namespace {
 
+  // The cap_sys_nice file capability (GPU high priority, SCHED_RR) makes this a secure-exec process: glibc drops LD_*,
+  // TMPDIR, LOCPATH, GLIBC_TUNABLES and more from environ, and the kernel marks it non-dumpable. Spawned apps would
+  // inherit the trimmed environment, and core dumps and perf attach would stop. The kernel keeps the full initial
+  // environment in /proc/self/environ: put back each variable glibc removed, and allow dumps again.
+  void restoreSecureExecState() {
+    if (getauxval(AT_SECURE) == 0) {
+      return;
+    }
+    if (FILE* initial = std::fopen("/proc/self/environ", "r")) {
+      std::string entry;
+      for (int c = std::fgetc(initial);; c = std::fgetc(initial)) {
+        if (c != EOF && c != '\0') {
+          entry.push_back(static_cast<char>(c));
+          continue;
+        }
+        const std::size_t eq = entry.find('=');
+        if (eq != std::string::npos && eq > 0) {
+          const std::string name = entry.substr(0, eq);
+          if (std::getenv(name.c_str()) == nullptr) {
+            setenv(name.c_str(), entry.c_str() + eq + 1, 0);
+          }
+        }
+        entry.clear();
+        if (c == EOF) {
+          break;
+        }
+      }
+      std::fclose(initial);
+    }
+    prctl(PR_SET_DUMPABLE, 1);
+  }
+
   // Frames must not wait behind CPU-bound clients: under a 32-job build the main thread waited 0.65 ms per wake-up at
   // SCHED_OTHER (15 us idle). SCHED_RR runs it before every normal task, as KWin does. RESET_ON_FORK keeps worker
   // threads and spawned clients at normal priority. Kernel RT throttling still leaves 5% of each CPU to normal tasks.
@@ -178,6 +213,7 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
+  restoreSecureExecState();
 #if defined(__GLIBC__) && !defined(ANDROMEDA_USE_JEMALLOC)
   // glibc fallback when jemalloc is unavailable: a bounded arena count keeps a
   // long-running compositor from fragmenting across per-thread arenas.

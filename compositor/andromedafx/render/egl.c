@@ -381,6 +381,39 @@ static bool egl_init_display(struct wlr_egl* egl, EGLDisplay display, bool allow
   return true;
 }
 
+static bool has_cap_sys_nice(void) {
+  FILE* status = fopen("/proc/self/status", "r");
+  if (status == NULL) {
+    return false;
+  }
+  char line[128];
+  unsigned long long eff = 0;
+  while (fgets(line, sizeof(line), status) != NULL) {
+    if (sscanf(line, "CapEff: %llx", &eff) == 1) {
+      break;
+    }
+  }
+  fclose(status);
+  return (eff >> 23) & 1; // bit 23 = CAP_SYS_NICE
+}
+
+// i915 and xe refuse a high-priority context without CAP_SYS_NICE; amdgpu grants it to the DRM master.
+static bool needs_cap_sys_nice(struct wlr_egl* egl) {
+  if (egl->device == EGL_NO_DEVICE_EXT || !egl->exts.EXT_device_drm) {
+    return false;
+  }
+  const char* path = egl->procs.eglQueryDeviceStringEXT(egl->device, EGL_DRM_DEVICE_FILE_EXT);
+  int fd = path != NULL ? open(path, O_RDWR | O_CLOEXEC) : -1;
+  if (fd < 0) {
+    return false;
+  }
+  drmVersion* version = drmGetVersion(fd);
+  close(fd);
+  bool intel = version != NULL && (strcmp(version->name, "i915") == 0 || strcmp(version->name, "xe") == 0);
+  drmFreeVersion(version);
+  return intel;
+}
+
 static bool egl_init(struct wlr_egl* egl, EGLenum platform, void* remote_display, bool allow_software) {
   // A GBM display is private to this wlr_egl because andromedafx created the GBM
   // device. It can always be terminated, even without reference tracking.
@@ -458,6 +491,9 @@ static bool egl_init(struct wlr_egl* egl, EGLenum platform, void* remote_display
     eglQueryContext(egl->display, egl->context, EGL_CONTEXT_PRIORITY_LEVEL_IMG, &priority);
     if (priority != EGL_CONTEXT_PRIORITY_HIGH_IMG) {
       wlr_log(WLR_INFO, "Failed to obtain a high priority context");
+    } else if (needs_cap_sys_nice(egl) && !has_cap_sys_nice()) {
+      // Mesa reports HIGH even when i915/xe refused it.
+      wlr_log(WLR_ERROR, "No CAP_SYS_NICE: the GPU context runs at normal priority (setcap cap_sys_nice=ep on the binary)");
     } else {
       wlr_log(WLR_DEBUG, "Obtained high priority context");
     }

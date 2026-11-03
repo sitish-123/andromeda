@@ -2,3 +2,4 @@
 !.gitignore
 !PKGBUILD
 !andromeda-link.install
+!andromeda-compositor.install

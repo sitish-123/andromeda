@@ -108,6 +108,8 @@ dev-live-off:
 dev-comp:
     [ -d compositor/build-live ] || meson setup compositor/build-live compositor --buildtype=debugoptimized --prefix=/usr -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
     ninja -C compositor/build-live andromeda
+    # A relink drops the file cap; without it the GPU context is not high priority.
+    sudo setcap cap_sys_nice=ep compositor/build-live/andromeda || echo 'run: sudo setcap cap_sys_nice=ep compositor/build-live/andromeda (GPU high priority)'
     mkdir -p ~/.config/systemd/user/andromeda.service.d
     printf '[Service]\nExecStart=\nExecStart=%s/compositor/build-live/andromeda\n' "$PWD" > ~/.config/systemd/user/andromeda.service.d/dev-live.conf
     systemctl --user daemon-reload
