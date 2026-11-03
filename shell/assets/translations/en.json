@@ -1980,6 +1980,7 @@
         "osd": "OSD",
         "overview": "Overview",
         "pinned-apps": "Pinned Apps",
+        "performance": "Performance",
         "polkit": "Polkit",
         "power": "Power",
         "privacy": "Privacy",
@@ -4323,6 +4324,11 @@
           "label": "{device} Warning Threshold"
         },
         "battery-warning-threshold": {
+        "app-priority": {
+          "button": "Learn More",
+          "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
+          "label": "App Priority"
+        },
           "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
           "label": "Battery Warning Threshold"
         }

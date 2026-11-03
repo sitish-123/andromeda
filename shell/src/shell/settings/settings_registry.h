@@ -343,6 +343,7 @@ namespace settings {
     bool ddcutilAvailable = false;              // disable ddcutil toggle when ddcutil is not on PATH
     bool systemdUserManaged = false;            // disable systemd app launching when the shell is not a user unit
     bool gammaControlAvailable = false;         // hide night-light entries when gamma control is unavailable
+    std::string schedExtScheduler; // the running sched_ext scheduler; app priority (CPU weights) has no effect under it
     bool greeterSyncAvailable = false;          // hide greeter appearance sync when greeter is not installed
     std::vector<SelectOption> availableOutputs; // monitor selectors available on this machine
     bool batteryAvailable = false;

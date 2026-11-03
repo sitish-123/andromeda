@@ -49,6 +49,7 @@
 #include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
+#include <fstream>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -743,6 +744,21 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
   env.ddcutilAvailable = (m_dependencies != nullptr && m_dependencies->hasDdcutil());
   env.systemdUserManaged = process::runningUnderSystemdUserManager();
   env.gammaControlAvailable = (m_wayland != nullptr && m_wayland->hasGammaControl());
+  if (std::ifstream state("/sys/kernel/sched_ext/state"); state) {
+    std::string value;
+    std::getline(state, value);
+    if (value == "enabled") {
+      std::ifstream ops("/sys/kernel/sched_ext/root/ops");
+      std::getline(ops, env.schedExtScheduler);
+      // "scx_lavd_1.1.4_x86_64_unknown_linux_gnu" -> "scx_lavd"
+      if (const auto cut = env.schedExtScheduler.find('_', 4); cut != std::string::npos) {
+        env.schedExtScheduler.resize(cut);
+      }
+      if (env.schedExtScheduler.empty()) {
+        env.schedExtScheduler = "sched_ext";
+      }
+    }
+  }
   env.greeterSyncAvailable =
       m_config != nullptr && greeter::appearanceSyncAvailable(m_config->config().shell.greeterSync);
   const ThemeMode previewMode = m_config != nullptr ? shellThemeMode(m_config->config().theme) : ThemeMode::Dark;
