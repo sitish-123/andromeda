@@ -1,4 +1,5 @@
 #include "effect_light_frag_src.h"
+#include "andromedafx/render/frame_stats.h"
 #include "render/color.h"
 #include "render/egl.h"
 #include "render/fx_renderer/animation_history.h"
@@ -99,6 +100,24 @@ static uint32_t offscreen_buffer_format(const struct fx_gles_render_pass* pass, 
 
 // Allocates or reuses *slot at the requested size. Restores the pass target;
 // returns NULL on allocation failure.
+static struct fx_frame_stats frame_stats;
+
+struct fx_frame_stats fx_frame_stats_take(void) {
+  struct fx_frame_stats taken = frame_stats;
+  frame_stats = (struct fx_frame_stats){0};
+  return taken;
+}
+
+static uint64_t region_area(const pixman_region32_t* region) {
+  int count = 0;
+  const pixman_box32_t* boxes = pixman_region32_rectangles(region, &count);
+  uint64_t area = 0;
+  for (int i = 0; i < count; i++) {
+    area += (uint64_t)(boxes[i].x2 - boxes[i].x1) * (uint64_t)(boxes[i].y2 - boxes[i].y1);
+  }
+  return area;
+}
+
 static struct fx_framebuffer* ensure_offscreen_buffer_size(
     struct fx_gles_render_pass* pass, struct fx_framebuffer** slot, bool alpha, int width, int height
 ) {
@@ -2142,7 +2161,9 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
 // Backdrop blur inside a captured group must see the scene beneath the group,
 // plus already rendered siblings in every enclosing capture, not transparent
 // scratch storage. Build that view without applying the pending parent effects.
-static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pass) {
+// `bounds` (may be NULL = whole buffer) limits the rebuild to what the caller reads: a full-output clear and copy per
+// glass node per frame costs more than the blur itself on a low-end GPU.
+static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pass, const pixman_region32_t* bounds) {
   if (pass->animation_depth == 0) {
     return pass->buffer;
   }
@@ -2153,9 +2174,23 @@ static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pas
   }
   pass->buffer = target;
   fx_framebuffer_bind(target);
-  glDisable(GL_SCISSOR_TEST);
-  glClearColor(0, 0, 0, 0);
-  glClear(GL_COLOR_BUFFER_BIT);
+  frame_stats.backdrop_rebuilds++;
+  frame_stats.backdrop_px += bounds != NULL ? region_area(bounds)
+                                            : (uint64_t)target->buffer->width * (uint64_t)target->buffer->height;
+  if (bounds != NULL) {
+    struct wlr_render_rect_options clear = {
+        .box = {.width = target->buffer->width, .height = target->buffer->height},
+        .color = {0, 0, 0, 0},
+        .clip = bounds,
+        .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+    };
+    struct fx_render_rect_options fx_clear = fx_render_rect_options_default(&clear);
+    fx_render_pass_add_rect(pass, &fx_clear);
+  } else {
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+  }
   for (unsigned i = pass->isolation_depth; i <= pass->animation_depth; i++) {
     struct fx_framebuffer* layer = i == pass->animation_depth ? saved : pass->animation_parents[i];
     struct wlr_box layer_box = {.width = layer->buffer->width, .height = layer->buffer->height};
@@ -2172,6 +2207,7 @@ static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pas
     struct wlr_render_texture_options options = {
         .texture = texture,
         .dst_box = layer_box,
+        .clip = bounds,
         .transfer_function =
             pass->has_color_transform ? WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR : WLR_COLOR_TRANSFER_FUNCTION_SRGB,
         .blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED,
@@ -2736,6 +2772,8 @@ static struct fx_framebuffer* get_main_buffer_blur(
   wlr_region_expand(&damage, &damage, blur_data_calc_size(&blur_data));
   // Make sure that the region doesn't expand past the buffer bounds
   pixman_region32_intersect_rect(&damage, &damage, 0, 0, buffer_bounds.width, buffer_bounds.height);
+  frame_stats.blurs++;
+  frame_stats.blur_px += region_area(&damage);
 
   // damage region will be scaled, make a temp
   pixman_region32_t scaled_damage;
@@ -2977,7 +3015,20 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       // Isn't as efficient as just using the optimized blur buffer
       blur_options.current_buffer = fbos->optimized_no_blur_buffer;
     } else {
-      blur_options.current_buffer = animation_backdrop(pass);
+      // The blur reads the clip expanded by its kernel size; the lens reads the node box.
+      pixman_region32_t reads;
+      pixman_region32_init_rect(&reads, fx_options->tex_options.base.dst_box.x, fx_options->tex_options.base.dst_box.y,
+                                fx_options->tex_options.base.dst_box.width, fx_options->tex_options.base.dst_box.height);
+      if (fx_options->tex_options.base.clip != NULL) {
+        pixman_region32_intersect(&reads, &reads, fx_options->tex_options.base.clip);
+      }
+      const struct blur_data reach = blur_data_apply_strength(fx_options->blur_data, fx_options->blur_strength);
+      wlr_region_expand(&reads, &reads, blur_data_calc_size(&reach));
+      pixman_region32_union_rect(&reads, &reads, fx_options->tex_options.base.dst_box.x,
+                                 fx_options->tex_options.base.dst_box.y, fx_options->tex_options.base.dst_box.width,
+                                 fx_options->tex_options.base.dst_box.height);
+      blur_options.current_buffer = animation_backdrop(pass, pass->animation_depth > 0 ? &reads : NULL);
+      pixman_region32_fini(&reads);
     }
     sharp = blur_options.current_buffer;
     buffer = get_main_buffer_blur(pass, &blur_options, fuse ? &final_upsample : NULL);
@@ -3072,6 +3123,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       if (copy != NULL) {
         pixman_region32_t region;
         pixman_region32_init_rect(&region, probe_box.x, probe_box.y, probe_box.width, probe_box.height);
+        frame_stats.lens++;
+        frame_stats.lens_px += (uint64_t)probe_box.width * (uint64_t)probe_box.height;
         if (fx_render_pass_read_to_buffer(pass, &region, copy, sharp)) {
           lens = fx_texture_from_buffer(&renderer->wlr_renderer, copy->buffer);
         }
@@ -3165,7 +3218,7 @@ bool fx_render_pass_add_optimized_blur(
   struct fx_framebuffer* blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_blur_buffer, false);
   struct fx_framebuffer* no_blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_no_blur_buffer, false);
   struct fx_framebuffer* fx_buffer = NULL;
-  struct fx_framebuffer* backdrop = animation_backdrop(pass);
+  struct fx_framebuffer* backdrop = animation_backdrop(pass, NULL);
   if (blur_buffer != NULL && no_blur_buffer != NULL) {
     struct fx_render_blur_pass_options blur_options = *fx_options;
     blur_options.current_buffer = backdrop;
@@ -3427,6 +3480,7 @@ struct fx_gles_render_pass* fx_begin_buffer_pass(
       (*blend_buffer)->blend_parent = buffer;
     }
     target = *blend_buffer;
+    frame_stats.fp16_passes++;
     memcpy(pass->output_matrix, state.matrix, sizeof(pass->output_matrix));
     pass->output_tf = state.tf;
     if (state.lut != NULL) {

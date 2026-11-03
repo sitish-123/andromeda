@@ -39,6 +39,7 @@
 
 extern "C" {
 #include <andromedafx/render/effect.h>
+#include <andromedafx/render/frame_stats.h>
 #include <wlr/util/transform.h>
 }
 
@@ -1451,13 +1452,16 @@ namespace andromeda {
     }
   }
 
-  // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns.
+  // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns, then effect work
+  // (fx_frame_stats): blurs blur_px lens lens_px backdrop_rebuilds backdrop_px fp16_passes.
   struct Output::FrameTimers {
     static constexpr std::size_t kDepth = 3;
     std::array<wlr_scene_timer, kDepth> timers{};
     std::array<bool, kDepth> used{};
     std::array<int64_t, kDepth> startNs{};
+    std::array<fx_frame_stats, kDepth> stats{};
     std::size_t next = 0;
+    std::size_t built = kDepth;
 
     static FILE* log() {
       static FILE* file = [] {
@@ -1473,15 +1477,24 @@ namespace andromeda {
 
     // Writes the slot's finished frame, then hands the slot to the next build.
     wlr_scene_timer* take(const char* output) {
+      // The effect work done since the last take belongs to the frame that take built.
+      const fx_frame_stats work = fx_frame_stats_take();
+      if (built < kDepth) {
+        stats[built] = work;
+      }
       wlr_scene_timer* timer = &timers[next];
       if (used[next]) {
         const int64_t total = wlr_scene_timer_get_duration_ns(timer);
         if (total >= 0) {
-          std::fprintf(log(), "%lld %s %lld %lld\n", static_cast<long long>(startNs[next]), output,
-                       static_cast<long long>(timer->pre_render_duration),
-                       static_cast<long long>(total - timer->pre_render_duration));
+          const fx_frame_stats& st = stats[next];
+          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u\n", static_cast<long long>(startNs[next]),
+                       output, static_cast<long long>(timer->pre_render_duration),
+                       static_cast<long long>(total - timer->pre_render_duration), st.blurs,
+                       static_cast<unsigned long long>(st.blur_px), st.lens, static_cast<unsigned long long>(st.lens_px),
+                       st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes);
         }
       }
+      built = next;
       timespec now{};
       clock_gettime(CLOCK_MONOTONIC, &now);
       startNs[next] = static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
