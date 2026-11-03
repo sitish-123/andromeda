@@ -33,7 +33,8 @@ namespace andromeda {
   // Validates `text` against `key`'s type and range.
   [[nodiscard]] ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text);
 
-  // The file Andromeda writes these settings to, next to `configRoot`. It is loaded after config.toml and its includes.
+  // The file Andromeda writes these settings to: next to `configRoot`, or in the user's config dir when `configRoot`
+  // is a system default. It is loaded after config.toml and its includes.
   [[nodiscard]] std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot);
 
   // Sets or removes `key` in the generated settings `file`. Returns false on I/O error.

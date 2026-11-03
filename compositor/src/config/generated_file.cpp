@@ -32,6 +32,9 @@ namespace andromeda {
     const std::string document = editGeneratedToml(existing, header, edit);
     std::filesystem::path temporary = file;
     temporary += ".tmp";
+    std::error_code error;
+    // A fresh install has no user config dir yet.
+    std::filesystem::create_directories(file.parent_path(), error);
     {
       std::ofstream out(temporary, std::ios::trunc);
       out << document;
@@ -39,7 +42,6 @@ namespace andromeda {
         return false;
       }
     }
-    std::error_code error;
     std::filesystem::rename(temporary, file, error);
     return !error;
   }

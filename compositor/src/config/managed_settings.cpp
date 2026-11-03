@@ -4,10 +4,12 @@
 #include "config/keybind_parse.h"
 #include "config/config_registry.h"
 #include "config/value_parse.h"
+#include "andromeda_data_dir.h"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdlib>
 #include <format>
 #include <functional>
 #include <map>
@@ -625,7 +627,24 @@ namespace andromeda {
   }
 
   std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot) {
-    return configRoot.parent_path() / "settings.toml";
+    // A root from a system config dir means the user has no config.toml yet: the user's choices still belong in
+    // the user's config dir, never next to a read-only system file.
+    std::vector<std::filesystem::path> systemDirs{std::filesystem::path(kDataDir) / "andromeda"};
+    const char* configDirs = std::getenv("XDG_CONFIG_DIRS");
+    std::istringstream dirs(configDirs != nullptr && configDirs[0] != '\0' ? configDirs : "/etc/xdg");
+    for (std::string dir; std::getline(dirs, dir, ':');) {
+      if (!dir.empty()) {
+        systemDirs.push_back(std::filesystem::path(dir) / "andromeda");
+      }
+    }
+    if (std::ranges::find(systemDirs, configRoot.parent_path()) == systemDirs.end()) {
+      return configRoot.parent_path() / "settings.toml";
+    }
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0') {
+      return std::filesystem::path(xdg) / "andromeda/settings.toml";
+    }
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path(home != nullptr ? home : "") / ".config/andromeda/settings.toml";
   }
 
   bool saveManagedKeybind(const std::filesystem::path& file, std::string_view chord, std::string_view action) {

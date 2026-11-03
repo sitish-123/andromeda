@@ -58,11 +58,11 @@ void LiveAppearanceSync::flush() {
   if (m_control == nullptr || !m_control->ready()) {
     return;
   }
-  if (!m_scheme.empty() && m_control->value("appearance.scheme") != m_scheme) {
-    m_control->set("appearance.scheme", m_scheme);
+  if (!m_scheme.empty()) {
+    push("appearance.scheme", m_scheme, m_control->value("appearance.scheme") != m_scheme);
   }
-  if (!m_accent.empty() && normalizeColor(m_control->value("appearance.accent")) != m_accent) {
-    m_control->set("appearance.accent", m_accent);
+  if (!m_accent.empty()) {
+    push("appearance.accent", m_accent, normalizeColor(m_control->value("appearance.accent")) != m_accent);
   }
   if (!m_scheme.empty()) {
     const bool light = m_scheme == "light";
@@ -73,11 +73,23 @@ void LiveAppearanceSync::flush() {
     };
     for (const auto& [key, value] : recipe) {
       const std::string text = std::format("{:g}", value);
-      if (m_control->value(key) != text) {
-        m_control->set(key, text);
-      }
+      push(key, text, m_control->value(key) != text);
     }
   }
+}
+
+// Sends each wanted value once: a refused set (failed event) notifies again, and resending would loop until the
+// compositor's buffer to this client overflows.
+void LiveAppearanceSync::push(const std::string& key, const std::string& value, bool differs) {
+  if (!differs) {
+    m_sent.erase(key);
+    return;
+  }
+  if (const auto it = m_sent.find(key); it != m_sent.end() && it->second == value) {
+    return;
+  }
+  m_sent.insert_or_assign(key, value);
+  m_control->set(key, value);
 }
 
 void LiveAppearanceSync::onSettingsChanged() {

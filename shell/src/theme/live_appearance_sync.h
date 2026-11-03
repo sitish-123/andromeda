@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 class SettingsControl;
 class ShellWaylandConnection;
@@ -40,11 +41,13 @@ public:
 private:
   void onSettingsChanged();
   void flush();
+  void push(const std::string& key, const std::string& value, bool differs);
 
   std::unique_ptr<SettingsControl> m_control;
   LiveAppearance m_state;
   std::string m_scheme;
   std::string m_accent;
+  std::unordered_map<std::string, std::string> m_sent; // last value set per key, until the compositor has it
   ChangeCallback m_onChange;
   std::function<void(std::string_view)> m_onExternalScheme;
 };
