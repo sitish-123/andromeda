@@ -12,6 +12,7 @@
 #include "system/internal_app_metadata.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/builders.h"
+#include "ui/controls/flex.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
@@ -81,6 +82,14 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
   if (!rootNode->visible() || !rootNode->participatesInLayout()) {
     return;
   }
+  m_vertical = containerHeight > containerWidth;
+  if (m_collapsing) {
+    rootNode->setOpacity(m_collapseFrom > 0.0F ? std::clamp(m_shownWidth / m_collapseFrom, 0.0F, 1.0F) : 0.0F);
+    rootNode->setClipChildren(true);
+    rootNode->setSize(m_shownWidth, rootNode->height());
+    return;
+  }
+  rootNode->setOpacity(1.0F);
 
   const bool showingEmptyPlaceholder = m_lastEmptyState && m_showEmptyLabel;
   const bool isVertical = containerHeight > containerWidth;
@@ -121,23 +130,22 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
 
     const float contentWidth = showTitle ? m_title->x() + m_title->width() : iconWidth;
     const float target = std::clamp(contentWidth, minLength, maxLength);
-    if (m_animations == nullptr || m_shownWidth <= 0.0F) {
+    const auto [gapsShown, gapsHidden] = gapsBeside();
+    m_targetContent = target;
+    if (m_animations == nullptr || (m_shownWidth <= 0.0F && !m_fromHidden && m_widthAnimId == 0)) {
       m_shownWidth = target;
-      m_targetWidth = target;
-    } else if (target != m_targetWidth) {
-      m_targetWidth = target;
-      m_widthAnimId = m_animations->drive(
-          m_widthAnimId, m_shownWidth, target, Style::spring(Tokens::springMove),
-          [this](float w) {
-            m_shownWidth = w;
-            if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
-              bounds->markLayoutDirty();
-            }
-            requestUpdate();
-          },
-          [this] { m_widthAnimId = 0; }, this, 0.0F, Unit::Px
-      );
-      requestFrameTick();
+    } else if (m_fromHidden) {
+      m_fromHidden = false;
+      morphWidth(gapsHidden, target + gapsShown);
+    } else if (m_widthAnimId != 0) {
+      if (target + gapsShown != m_targetWidth) {
+        morphWidth(m_shownWidth, target + gapsShown);
+      }
+    } else if (target != m_shownWidth) {
+      morphWidth(m_shownWidth + gapsShown, target + gapsShown);
+    }
+    if (m_widthAnimId == 0) {
+      m_shownWidth = target;
     }
     rootNode->setClipChildren(m_widthAnimId != 0);
     rootNode->setSize(m_shownWidth, contentHeight);
@@ -147,23 +155,110 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
 void ActiveWindowWidget::doUpdate(Renderer& renderer) { syncState(renderer); }
 
 void ActiveWindowWidget::syncWidgetVisibility(bool showWidget) {
-  if (Node* rootNode = root(); rootNode != nullptr) {
-    if (rootNode->visible() != showWidget || rootNode->participatesInLayout() != showWidget) {
-      rootNode->setVisible(showWidget);
-      rootNode->setParticipatesInLayout(showWidget);
-      if (!showWidget) {
-        rootNode->setSize(0.0F, 0.0F);
-        if (m_animations != nullptr && m_widthAnimId != 0) {
-          m_animations->cancel(m_widthAnimId);
-        }
-        m_widthAnimId = 0;
-        m_shownWidth = 0.0F;
-      }
-      requestUpdate();
-    } else if (!showWidget && (rootNode->width() > 0.0F || rootNode->height() > 0.0F)) {
+  Node* rootNode = root();
+  if (rootNode == nullptr) {
+    return;
+  }
+  if (showWidget && m_collapsing) {
+    m_collapsing = false;
+    requestUpdate();
+    return;
+  }
+  if (!showWidget && m_collapsing) {
+    return;
+  }
+  if (!showWidget && m_animations != nullptr && !m_vertical && rootNode->visible() && rootNode->width() > 0.0F) {
+    const auto [gapsShown, gapsHidden] = gapsBeside();
+    m_collapsing = true;
+    m_collapseFrom = m_widthAnimId != 0 ? m_shownWidth : rootNode->width() + gapsShown;
+    morphWidth(m_collapseFrom, gapsHidden);
+    requestUpdate();
+    return;
+  }
+  if (rootNode->visible() != showWidget || rootNode->participatesInLayout() != showWidget) {
+    rootNode->setVisible(showWidget);
+    rootNode->setParticipatesInLayout(showWidget);
+    if (showWidget) {
+      m_fromHidden = m_animations != nullptr && !m_vertical;
+    } else {
       rootNode->setSize(0.0F, 0.0F);
+      m_shownWidth = 0.0F;
+    }
+    requestUpdate();
+  } else if (!showWidget && (rootNode->width() > 0.0F || rootNode->height() > 0.0F)) {
+    rootNode->setSize(0.0F, 0.0F);
+  }
+}
+
+std::pair<float, float> ActiveWindowWidget::gapsBeside() const {
+  Node* bounds = layoutBoundsNode();
+  const auto* section = bounds != nullptr ? dynamic_cast<const Flex*>(bounds->parent()) : nullptr;
+  if (section == nullptr) {
+    return {0.0F, 0.0F};
+  }
+  bool before = false;
+  bool after = false;
+  bool seen = false;
+  for (const auto& child : section->children()) {
+    if (child.get() == bounds) {
+      seen = true;
+    } else if (child->visible() && child->participatesInLayout()) {
+      (seen ? after : before) = true;
     }
   }
+  const float gap = section->gap();
+  return {gap * static_cast<float>(int(before) + int(after)), before && after ? gap : 0.0F};
+}
+
+void ActiveWindowWidget::setGapExcluded(bool excluded) {
+  Node* bounds = layoutBoundsNode();
+  auto* section = bounds != nullptr ? dynamic_cast<Flex*>(bounds->parent()) : nullptr;
+  if (section == nullptr || m_gapExcluded == excluded) {
+    return;
+  }
+  section->setChildGapExcluded(bounds, excluded);
+  m_gapExcluded = excluded;
+}
+
+void ActiveWindowWidget::morphWidth(float fromExtent, float toExtent) {
+  setGapExcluded(true);
+  m_targetWidth = toExtent;
+  m_widthAnimId = m_animations->drive(
+      m_widthAnimId, fromExtent, toExtent, Style::spring(Tokens::springMove),
+      [this](float w) {
+        m_shownWidth = std::max(0.0F, w);
+        if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
+          bounds->markLayoutDirty();
+        }
+        requestUpdate();
+      },
+      [this] { finishMorph(); }, this, 0.0F, Unit::Px
+  );
+  if (m_widthAnimId == 0) {
+    finishMorph();
+  }
+  requestFrameTick();
+}
+
+void ActiveWindowWidget::finishMorph() {
+  m_widthAnimId = 0;
+  setGapExcluded(false);
+  if (m_collapsing) {
+    m_collapsing = false;
+    if (Node* rootNode = root(); rootNode != nullptr) {
+      rootNode->setVisible(false);
+      rootNode->setParticipatesInLayout(false);
+      rootNode->setSize(0.0F, 0.0F);
+      rootNode->setOpacity(1.0F);
+    }
+    m_shownWidth = 0.0F;
+  } else {
+    m_shownWidth = m_targetContent;
+  }
+  if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
+    bounds->markLayoutDirty();
+  }
+  requestUpdate();
 }
 
 void ActiveWindowWidget::applyTitleScrollMode(bool titleVisible) {
@@ -230,7 +325,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
     if (m_area != nullptr) {
       m_area->clearTooltip();
     }
-    if (m_icon != nullptr) {
+    if (m_icon != nullptr && !m_collapsing) {
       m_icon->clear(renderer);
     }
     return;

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 class Image;
 class Label;
@@ -52,6 +53,11 @@ private:
   void applyTitleScrollMode(bool titleVisible);
   void syncWidgetVisibility(bool showWidget);
   void syncState(Renderer& renderer);
+  // Gaps the section draws beside this widget: first while it is shown, second once it is hidden.
+  [[nodiscard]] std::pair<float, float> gapsBeside() const;
+  void setGapExcluded(bool excluded);
+  void morphWidth(float fromExtent, float toExtent);
+  void finishMorph();
   [[nodiscard]] std::string resolveIconPath(const std::string& appId);
   void buildDesktopIconIndex();
 
@@ -80,8 +86,16 @@ private:
   std::string m_lastTooltipTitle;
   bool m_lastEmptyState = false;
   bool m_iconColorizeRefreshPending = false;
-  float m_shownWidth = 0.0F; // springs to m_targetWidth so the island and its neighbours move, not jump
+  // While m_widthAnimId runs, the section gap is excluded and m_shownWidth is the extent (width + gaps), so
+  // show, hide and title changes move the island and its neighbours on one spring.
+  float m_shownWidth = 0.0F;
   float m_targetWidth = 0.0F;
+  float m_targetContent = 0.0F; // width without gaps that the running spring ends at
+  float m_collapseFrom = 0.0F;
   std::uint32_t m_widthAnimId = 0;
+  bool m_collapsing = false;
+  bool m_fromHidden = false;
+  bool m_gapExcluded = false;
+  bool m_vertical = false;
   Signal<>::ScopedConnection m_appIconColorizeConn;
 };
