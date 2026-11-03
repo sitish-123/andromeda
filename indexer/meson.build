@@ -9,6 +9,7 @@ extract_deps = [dependency('poppler-glib'), dependency('libzip')]
 
 core = static_library('index-core',
   'src/index_db.cpp',
+  'src/name_fold.cpp',
   'src/crawler.cpp',
   'src/skip_rules.cpp',
   'src/folder_reader.cpp',

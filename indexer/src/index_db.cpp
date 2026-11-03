@@ -1,6 +1,7 @@
 #include "index_db.h"
 
 #include "extract.h"
+#include "name_fold.h"
 
 #include <emmintrin.h>
 #include <sqlite3.h>
@@ -104,13 +105,6 @@ namespace andromeda::index {
       return static_cast<const char*>(memmem(at, static_cast<std::size_t>(end - at), needle.data(), n));
     }
 
-    std::string folded(std::string_view text) {
-      std::string out(text);
-      for (char& c : out) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-      }
-      return out;
-    }
   } // namespace
 
   IndexDb::IndexDb(const std::filesystem::path& file, bool bulk) {
@@ -357,7 +351,7 @@ namespace andromeda::index {
   void IndexDb::appendName(std::int64_t id, std::string_view name, std::int64_t mtime) const {
     m_entries.push_back({.id = static_cast<std::uint32_t>(id), .offset = static_cast<std::uint32_t>(m_folded.size()),
                          .mtime = mtime});
-    m_folded += folded(name);
+    m_folded += foldName(name);
     m_folded += '\0';
   }
 
@@ -370,7 +364,7 @@ namespace andromeda::index {
   }
 
   std::vector<FileRow> IndexDb::queryNames(std::string_view text, int limit) const {
-    const std::string needle = folded(trimmed(text));
+    const std::string needle = foldName(trimmed(text));
     if (needle.size() < 3 || m_db == nullptr) {
       return {};
     }

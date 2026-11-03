@@ -48,6 +48,9 @@ int main() {
   touch(root / ".hidden/report.txt");
   touch(root / "app/node_modules/report.js");
   touch(root / "ab.txt");
+  touch(root / "Documents/Résumé Élan.pdf");
+  touch(root / "Documents/ОТЧЁТ за год.txt");
+  touch(root / "Documents/Straße Æon.md");
   touch(root / "Sdk/build-tools/NOTICE-tools.txt");
   touch(root / "code/app/builddir/build.ninja");
   touch(root / "code/app/builddir/generated-notice.txt");
@@ -66,6 +69,10 @@ int main() {
     check(!found(db, "report", "report.txt"), "hidden folder is skipped");
     check(!found(db, "report", "report.js"), "node_modules is skipped");
     check(found(db, "notice-tools", "NOTICE-tools.txt"), "a folder named build-something is indexed");
+    check(found(db, "resume elan", "Résumé Élan.pdf"), "accents are ignored in names");
+    check(found(db, "RÉSUMÉ", "Résumé Élan.pdf"), "accented capitals match");
+    check(found(db, "отчёт", "ОТЧЁТ за год.txt"), "Cyrillic names match without case");
+    check(found(db, "strasse aeon", "Straße Æon.md"), "ß and Æ match ss and ae");
     check(!found(db, "generated-notice", "generated-notice.txt"), "a Ninja build folder is skipped");
     check(!found(db, "cargo-notice", "cargo-notice.txt"), "a folder with CACHEDIR.TAG is skipped");
     check(db.queryNames("ab", 50).empty(), "a query under 3 characters returns nothing");

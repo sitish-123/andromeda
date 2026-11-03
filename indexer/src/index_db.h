@@ -72,7 +72,7 @@ namespace andromeda::index {
     // Removes path and everything below it.
     void removeTree(std::string_view path);
 
-    // Name search, case-insensitive for ASCII: exact name first, then name prefix, then substring; newer files
+    // Name search, without case or accents (foldName): exact name first, then name prefix, then substring; newer files
     // first within each group. Queries need 3 characters; shorter ones return nothing. The first query loads the
     // names into memory; loadNames() does it ahead of time. Writes by insert() after the load are not seen.
     [[nodiscard]] std::vector<FileRow> queryNames(std::string_view text, int limit) const;
@@ -114,7 +114,7 @@ namespace andromeda::index {
     sqlite3_stmt* m_row = nullptr;
     sqlite3_stmt* m_parentOf = nullptr;
     sqlite3_stmt* m_child = nullptr;
-    // ASCII-lowercased names, each followed by a NUL (names never hold one), so a match never spans two names.
+    // Folded names (foldName), each followed by a NUL (names never hold one), so a match never spans two names.
     mutable std::string m_folded;
     mutable std::vector<NameEntry> m_entries;
     mutable std::size_t m_removed = 0;
