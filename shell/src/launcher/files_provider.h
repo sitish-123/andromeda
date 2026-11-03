@@ -8,6 +8,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 class ClipboardService;
@@ -22,6 +24,10 @@ class FilesProvider final : public LauncherProvider, public PollSource {
 public:
   static constexpr std::size_t kMinQuery = 3;
   static constexpr int kLimit = 8;
+  // The Files scope ("Show all files"): more rows, newest first.
+  static constexpr int kScopedLimit = 50;
+  // Id of the "Show all files" row after the section's files.
+  static constexpr std::string_view kShowAllId = "files:show-all";
 
   FilesProvider(ClipboardService* clipboard, SessionBus* bus);
   ~FilesProvider() override;
@@ -41,6 +47,8 @@ public:
 
   void reset() override;
   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
+  // The Files scope: the launcher routes every query here while its scope token shows.
+  [[nodiscard]] std::vector<LauncherResult> queryPrefixed(std::string_view text) const override;
   bool activate(const LauncherResult& result) override;
 
   // Opens the folder of a result with the file selected.
@@ -56,16 +64,21 @@ protected:
 private:
   [[nodiscard]] bool connect() const;
   void disconnect() const;
-  void onAnswer(const std::string& text, const std::string& body) const;
+  // A request is the asked text plus whether it came from the Files scope.
+  using Request = std::pair<std::string, bool>;
+
+  [[nodiscard]] std::vector<LauncherResult> request(std::string_view text, bool scoped) const;
+  void onAnswer(const Request& request, const std::string& body) const;
 
   ClipboardService* m_clipboard = nullptr;
   SessionBus* m_bus = nullptr;
   std::function<void()> m_onResultsChanged;
   mutable int m_fd = -1;
   mutable std::string m_received;
-  mutable std::deque<std::string> m_pending; // queries sent, oldest first
-  mutable std::optional<std::string> m_requested;
+  mutable std::deque<Request> m_pending; // queries sent, oldest first
+  mutable std::optional<Request> m_requested;
   mutable std::optional<std::string> m_answered;
+  mutable bool m_answeredScoped = false;
   mutable std::vector<LauncherResult> m_results;
   mutable bool m_loading = false;
   mutable std::unique_ptr<sdbus::IProxy> m_fileManager; // kept alive for pending ShowItems replies

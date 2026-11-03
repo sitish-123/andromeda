@@ -1087,6 +1087,7 @@
     },
     "pill": {
       "actions-hint": "Actions",
+      "back-hint": "Back",
       "category": "Category",
       "close-hint": "Close",
       "open": "Open",
@@ -1116,8 +1117,11 @@
     },
     "files": {
       "copy-path": "Copy Path",
+      "count": "{count} file",
+      "count-plural": "{count} files",
       "modified": "Modified",
       "reveal": "Reveal",
+      "show-all": "Show all files",
       "size": "Size",
       "title": "Files"
     },

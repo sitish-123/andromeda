@@ -152,6 +152,7 @@ private:
   void bindPreview(Renderer& renderer);
   void setMode(std::string_view providerId);
   void cycleMode(int direction);
+  void setFilesScope(bool on);
   void syncModeTabs();
   void syncEmojiStrip();
   [[nodiscard]] bool pillExpanded() const;
@@ -256,6 +257,10 @@ private:
   std::string m_previewIconPath;
   Label* m_pillCount = nullptr;
   Label* m_pillOpenHint = nullptr;
+  Flex* m_pillBackHint = nullptr;
+  // "Show all files" scope: a "Files" token in the field; every query goes to Files only (50 rows, newest first).
+  bool m_filesScope = false;
+  Flex* m_filesToken = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
   std::optional<BrowserViewState> m_sessionReturnView;

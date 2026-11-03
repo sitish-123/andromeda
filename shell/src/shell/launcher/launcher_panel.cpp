@@ -1978,6 +1978,32 @@ void LauncherPanel::create() {
 
     // Rulebook 9.14: pill h 56, symbol 20 label_2 at inset 20, g 12, title-3 field.
     input->setFlexGrow(1.0F);
+    // DESIGN.md "Show all" B: fill_1 capsule h 24, footnote label_1, x symbol; a click leaves the scope.
+    const auto filesToken = [this, scale] {
+      auto token = ui::row({
+          .out = &m_filesToken,
+          .align = FlexAlign::Center,
+          .gap = Tokens::spaceP4 * scale,
+          .paddingH = Tokens::spaceP8 * scale,
+          .fill = colorSpecFromRole(ColorRole::Fill1),
+          .radius = Tokens::sizeControlS * 0.5F * scale,
+          .minHeight = Tokens::sizeControlS * scale,
+          .visible = m_filesScope,
+          .participatesInLayout = m_filesScope,
+      });
+      token->addChild(ui::label({
+          .text = i18n::tr("launcher.files.title"),
+          .fontSize = Style::fontSizeCaption * scale,
+          .color = colorSpecFromRole(ColorRole::Label1),
+      }));
+      token->addChild(ui::glyph({.glyph = "x", .glyphSize = Tokens::sizeSymbolInline * scale, .color = colorSpecFromRole(ColorRole::Label2)}));
+      auto area = std::make_unique<InputArea>();
+      area->setParticipatesInLayout(false);
+      area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
+      area->setOnClick([this](const InputArea::PointerData&) { setFilesScope(false); });
+      token->addChild(std::move(area));
+      return token;
+    };
     container->addChild(ui::row(
         {.align = FlexAlign::Center,
          .gap = Tokens::spaceP12 * scale,
@@ -1985,6 +2011,7 @@ void LauncherPanel::create() {
          .minHeight = Tokens::componentLauncherSearch * scale,
          .fillWidth = true},
         ui::glyph({.glyph = "search", .glyphSize = Tokens::sizeSymbolL * scale, .color = colorSpecFromRole(ColorRole::Label2)}),
+        filesToken(),
         std::move(input)
     ));
     container->addChild(ui::separator({
@@ -2192,6 +2219,9 @@ void LauncherPanel::create() {
     }));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.open"), "↩", &m_pillOpenHint));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.actions-hint"), "⌘K"));
+    auto backHint = keyHint(i18n::tr("launcher.pill.back-hint"), "⌫");
+    m_pillBackHint = backHint.get();
+    footerRow->addChild(std::move(backHint));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.close-hint"), "esc"));
     footer->addChild(std::move(footerRow));
     container->addChild(std::move(footer));
@@ -2679,7 +2709,7 @@ bool LauncherPanel::isContextActive(std::string_view context) const {
   return provider != m_providers.end() && StringUtils::trim(context) == (*provider)->prefix();
 }
 
-bool LauncherPanel::pillExpanded() const { return !m_query.empty() || !m_modeProviderId.empty(); }
+bool LauncherPanel::pillExpanded() const { return !m_query.empty() || !m_modeProviderId.empty() || m_filesScope; }
 
 void LauncherPanel::syncModeTabs() {
   if (m_modeTabs == nullptr) {
@@ -2778,6 +2808,20 @@ void LauncherPanel::setMode(std::string_view providerId) {
   onInputChanged("");
 }
 
+void LauncherPanel::setFilesScope(bool on) {
+  m_filesScope = on;
+  m_selectedIndex = 0;
+  if (m_filesToken != nullptr) {
+    m_filesToken->setVisible(on);
+    m_filesToken->setParticipatesInLayout(on);
+  }
+  if (m_launcherSections != nullptr) {
+    m_launcherSections->scrollView().setScrollOffset(0.0F);
+  }
+  queueResultsTransition(on ? ResultsTransition::NavigationForward : ResultsTransition::NavigationBackward);
+  onInputChanged(m_query);
+}
+
 void LauncherPanel::cycleMode(int direction) {
   if (m_modeTabItems.empty() || m_modeProviderId.empty()) {
     return;
@@ -2842,7 +2886,7 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     entry = it == entries.end() ? nullptr : &*it;
   }
   const bool clip = result.presentation.starts_with("clipboard");
-  const bool file = result.providerId == "Files";
+  const bool file = result.providerId == "Files" && result.id != FilesProvider::kShowAllId;
   const bool hasAction = clip || file || (entry != nullptr && !entry->actions.empty());
   m_previewAction->setVisible(hasAction);
   m_previewAction->setParticipatesInLayout(hasAction);
@@ -3309,6 +3353,7 @@ void LauncherPanel::onClose() {
   m_allResults.clear();
   m_scopedProviderId.clear();
   m_scopedPlaceholder.clear();
+  m_filesScope = false;
   m_activeCategoryType = All;
   m_activeCategorySlotIndex = 0;
   m_activeCategory.clear();
@@ -3480,7 +3525,8 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   auto outcome = m_searchBroker.search({
       .text = m_browserMode && isAppsQuery(text) ? std::string() : text,
       .scopedProviderId = m_scopedProviderId,
-      .providerViewId = !m_modeProviderId.empty()
+      .providerViewId = m_filesScope ? std::string("Files")
+          : !m_modeProviderId.empty()
           ? m_modeProviderId
           : (m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string()),
       .applicationsOnly = m_browserMode && m_modeProviderId.empty() && (text.empty() || isAppsQuery(text)),
@@ -4166,7 +4212,18 @@ void LauncherPanel::applyEmptyState() {
     const bool footer = expanded && !shouldUseAppGrid();
     m_pillFooter->setVisible(footer);
     m_pillFooter->setParticipatesInLayout(footer);
-    m_pillCount->setText(i18n::tr("launcher.pill.result-count", "count", m_results.size()));
+    m_pillCount->setText(
+        m_filesScope ? i18n::trp("launcher.files.count", static_cast<long>(m_results.size()))
+                     : i18n::tr("launcher.pill.result-count", "count",
+                                std::ranges::count_if(m_results, [](const LauncherResult& r) { return r.id != FilesProvider::kShowAllId; }))
+    );
+    m_pillBackHint->setVisible(m_filesScope);
+    m_pillBackHint->setParticipatesInLayout(m_filesScope);
+    if (m_filesToken != nullptr) {
+      if (auto* area = dynamic_cast<InputArea*>(m_filesToken->children().back().get())) {
+        area->setFrameSize(m_filesToken->width(), m_filesToken->height());
+      }
+    }
     const bool pasteMode = !m_modeProviderId.empty();
     m_pillOpenHint->setText(i18n::tr(pasteMode ? "launcher.pill.paste" : "launcher.pill.open"));
   }
@@ -4394,6 +4451,10 @@ void LauncherPanel::activateSelected() {
   }
 
   const auto& result = m_results[m_selectedIndex];
+  if (result.providerId == "Files" && result.id == FilesProvider::kShowAllId) {
+    setFilesScope(true);
+    return;
+  }
   if (result.providerId == kProviderOverviewProviderId && result.id.starts_with(kProviderOverviewResultPrefix)) {
     std::string prefix = result.id.substr(kProviderOverviewResultPrefix.size());
     if (!prefix.empty()) {
@@ -4429,6 +4490,10 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
   const bool sectionNav =
       shouldUseLauncherSections() && m_launcherSectionsAdapter != nullptr && m_launcherSections != nullptr;
   const bool gridNav = !sectionNav && m_usingAppGrid && m_grid != nullptr;
+  if (m_filesScope && sym == XKB_KEY_BackSpace && m_query.empty()) {
+    setFilesScope(false);
+    return true;
+  }
   const int columns = gridNav ? static_cast<int>(std::max<std::size_t>(1, m_grid->layoutColumnCount())) : 1;
 
   const auto moveSelection = [this](int delta) {

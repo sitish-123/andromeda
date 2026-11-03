@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
+#include <limits>
 
 namespace {
 
@@ -138,19 +140,24 @@ void FilesProvider::reset() {
   m_loading = false;
 }
 
-std::vector<LauncherResult> FilesProvider::query(std::string_view text) const {
+std::vector<LauncherResult> FilesProvider::query(std::string_view text) const { return request(text, false); }
+
+std::vector<LauncherResult> FilesProvider::queryPrefixed(std::string_view text) const { return request(text, true); }
+
+std::vector<LauncherResult> FilesProvider::request(std::string_view text, bool scoped) const {
   // The broker matches answers to the text it asked, so the raw text is the key; the daemon gets it trimmed.
-  const std::string key(text);
+  const Request key{std::string(text), scoped};
   std::string needle = StringUtils::trim(text);
   std::erase(needle, '\n');
   if (needle.size() < kMinQuery) {
-    m_answered = key;
+    m_answered = key.first;
+    m_answeredScoped = scoped;
     m_requested.reset();
     m_results.clear();
     m_loading = false;
     return {};
   }
-  if (m_answered == key) {
+  if (m_answered == key.first && m_answeredScoped == scoped) {
     // Back to an answered query: an answer still on its way is for another text now.
     m_requested.reset();
     m_loading = false;
@@ -159,11 +166,12 @@ std::vector<LauncherResult> FilesProvider::query(std::string_view text) const {
   if (m_requested == key) {
     return {};
   }
-  const std::string line = "query " + std::to_string(kLimit) + " " + needle + "\n";
+  const std::string line = "query " + std::to_string(scoped ? kScopedLimit : kLimit) + " " + needle + "\n";
   // Without the daemon there is no Files section; the next query tries to connect again.
   if (!connect() || send(m_fd, line.data(), line.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(line.size())) {
     disconnect();
-    m_answered = key;
+    m_answered = key.first;
+    m_answeredScoped = scoped;
     m_results.clear();
     return {};
   }
@@ -192,7 +200,7 @@ void FilesProvider::dispatch(const std::vector<pollfd>& fds, std::size_t startId
     }
     if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       // The daemon went away: the open query is answered with nothing, so the section stops loading.
-      const std::optional<std::string> open = m_requested;
+      const std::optional<Request> open = m_requested;
       disconnect();
       if (open.has_value()) {
         onAnswer(*open, {});
@@ -215,16 +223,18 @@ void FilesProvider::dispatch(const std::vector<pollfd>& fds, std::size_t startId
     }
     const std::string body = m_received.substr(0, bodyEnd);
     m_received.erase(0, consumed);
-    const std::string text = std::move(m_pending.front());
+    const Request request = std::move(m_pending.front());
     m_pending.pop_front();
-    if (text == m_requested) {
-      onAnswer(text, body);
+    if (request == m_requested) {
+      onAnswer(request, body);
     }
   }
 }
 
-void FilesProvider::onAnswer(const std::string& text, const std::string& body) const {
+void FilesProvider::onAnswer(const Request& request, const std::string& body) const {
+  const auto& [text, scoped] = request;
   m_results.clear();
+  std::vector<std::int64_t> mtimes;
   std::size_t start = 0;
   for (std::size_t end = body.find('\n'); end != std::string::npos; end = body.find('\n', start)) {
     const std::string_view row = std::string_view(body).substr(start, end - start);
@@ -236,6 +246,7 @@ void FilesProvider::onAnswer(const std::string& text, const std::string& body) c
     }
     const std::string path(row.substr(0, tab));
     const bool folder = row.substr(row.size() - 4, 2) == "\td";
+    mtimes.push_back(std::atoll(std::string(row.substr(tab + 1)).c_str()));
     LauncherResult r;
     r.id = path;
     r.title = std::filesystem::path(path).filename().string();
@@ -252,8 +263,32 @@ void FilesProvider::onAnswer(const std::string& text, const std::string& body) c
     r.category = displayName();
     m_results.push_back(std::move(r));
   }
-  kLog.debug("{} files for \"{}\"", m_results.size(), text);
+  kLog.debug("{} files for \"{}\"{}", m_results.size(), text, scoped ? " in the Files scope" : "");
+  if (scoped) {
+    std::vector<std::size_t> order(m_results.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+      order[i] = i;
+    }
+    std::ranges::stable_sort(order, std::greater{}, [&](std::size_t i) { return mtimes[i]; });
+    std::vector<LauncherResult> sorted;
+    sorted.reserve(order.size());
+    for (const std::size_t i : order) {
+      sorted.push_back(std::move(m_results[i]));
+    }
+    m_results = std::move(sorted);
+  } else if (!m_results.empty()) {
+    LauncherResult all;
+    all.id = std::string(kShowAllId);
+    all.title = i18n::tr("launcher.files.show-all");
+    all.glyphName = "list";
+    all.presentation = "action";
+    all.category = displayName();
+    // Last row of the Files section, whatever the other rows score.
+    all.score = std::numeric_limits<double>::lowest();
+    m_results.push_back(std::move(all));
+  }
   m_answered = text;
+  m_answeredScoped = scoped;
   m_requested.reset();
   m_loading = false;
   if (m_onResultsChanged) {
