@@ -19,6 +19,7 @@ public:
   NmHotspot(const NmHotspot&) = delete;
   NmHotspot& operator=(const NmHotspot&) = delete;
 
+  // Cached; NetworkManager's ActiveConnections change signal invalidates it. The control center asks on every redraw.
   [[nodiscard]] bool active() const;
   // Returns an error message, empty once the request is sent; activation completes asynchronously.
   [[nodiscard]] std::string setEnabled(bool enabled);
@@ -28,6 +29,10 @@ private:
   [[nodiscard]] std::string findApDevice() const;
   [[nodiscard]] std::string activeFor(const std::string& profile) const;
 
+  [[nodiscard]] bool queryActive() const;
+
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_nm;
+  mutable bool m_activeKnown = false;
+  mutable bool m_active = false;
 };

@@ -65,7 +65,18 @@ namespace {
 
 } // namespace
 
-NmHotspot::NmHotspot(SystemBus& bus) : m_bus(bus), m_nm(sdbus::createProxy(bus.connection(), kNmBusName, kNmPath)) {}
+NmHotspot::NmHotspot(SystemBus& bus) : m_bus(bus), m_nm(sdbus::createProxy(bus.connection(), kNmBusName, kNmPath)) {
+  m_nm->uponSignal("PropertiesChanged")
+      .onInterface("org.freedesktop.DBus.Properties")
+      .call([this](
+                const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changed,
+                const std::vector<std::string>& /*invalidated*/
+            ) {
+        if (interfaceName == kNmInterface && changed.contains("ActiveConnections")) {
+          m_activeKnown = false;
+        }
+      });
+}
 
 NmHotspot::~NmHotspot() = default;
 
@@ -118,8 +129,15 @@ std::string NmHotspot::activeFor(const std::string& profile) const {
 }
 
 bool NmHotspot::active() const {
-  // Checks only active Wi-Fi connections: listing every saved profile costs ~30 D-Bus calls, and the
-  // control center asks on each network change (signal strength updates every few seconds).
+  if (!m_activeKnown) {
+    m_active = queryActive();
+    m_activeKnown = true;
+  }
+  return m_active;
+}
+
+// Checks only active Wi-Fi connections: listing every saved profile costs ~30 D-Bus calls.
+bool NmHotspot::queryActive() const {
   try {
     const auto active =
         m_nm->getProperty("ActiveConnections").onInterface(kNmInterface).get<std::vector<sdbus::ObjectPath>>();
