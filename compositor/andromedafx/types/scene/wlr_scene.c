@@ -20,6 +20,7 @@
 #include "util/time.h"
 
 #include <assert.h>
+#include <drm_fourcc.h>
 #include <math.h>
 #include <pixman.h>
 #include <stdio.h>
@@ -524,6 +525,7 @@ void wlr_scene_node_destroy(struct wlr_scene_node* node) {
       wl_list_remove(&scene->gamma_control_manager_v1_destroy.link);
       wl_list_remove(&scene->gamma_control_manager_v1_set_gamma.link);
       wl_list_remove(&scene->color_manager_v1_destroy.link);
+      pixman_region32_fini(&scene->blur_visibility_stale);
     } else {
       assert(node->parent);
     }
@@ -578,6 +580,7 @@ struct wlr_scene* wlr_scene_create(void) {
 
   scene->blur_data = blur_data_get_default();
   scene->background_color[3] = 1.0f;
+  pixman_region32_init(&scene->blur_visibility_stale);
 
   return scene;
 }
@@ -855,7 +858,7 @@ static void scene_node_opaque_region(
       return;
     }
 
-    if (!scene_buffer->buffer_is_opaque) {
+    if (!scene_buffer->buffer_is_opaque && !scene_buffer->over_black) {
       pixman_region32_copy(opaque, &scene_buffer->opaque_region);
       pixman_region32_intersect_rect(opaque, opaque, 0, 0, width, height);
       pixman_region32_translate(opaque, x, y);
@@ -2787,8 +2790,9 @@ void wlr_scene_buffer_set_buffer_with_options(
 
   // If this is a buffer change, check if it's a single pixel buffer.
   // Cache that so we can still apply rendering optimisations even when
-  // the original buffer has been freed after texture upload.
-  if (buffer != scene_buffer->buffer) {
+  // the original buffer has been freed after texture upload. A 1x1 shm
+  // buffer can change content in place, so it is checked on each commit.
+  if (buffer != scene_buffer->buffer || (buffer != NULL && buffer->width == 1 && buffer->height == 1)) {
     scene_buffer->is_single_pixel_buffer = false;
     struct wlr_client_buffer* client_buffer = NULL;
     if (buffer != NULL) {
@@ -2803,6 +2807,21 @@ void wlr_scene_buffer_set_buffer_with_options(
         scene_buffer->single_pixel_buffer_color[1] = single_pixel_buffer->g;
         scene_buffer->single_pixel_buffer_color[2] = single_pixel_buffer->b;
         scene_buffer->single_pixel_buffer_color[3] = single_pixel_buffer->a;
+      } else if (client_buffer->source->width == 1 && client_buffer->source->height == 1) {
+        // A 1x1 shm buffer stretched by a viewport (input-only surfaces) counts as a single pixel when fully
+        // transparent, so the scene skips drawing it over the whole output.
+        void* data = NULL;
+        uint32_t format = 0;
+        size_t stride = 0;
+        if (wlr_buffer_begin_data_ptr_access(client_buffer->source, WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format,
+                                             &stride)) {
+          const bool alpha_last_byte = format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_ABGR8888;
+          if (alpha_last_byte && ((const uint8_t*)data)[3] == 0) {
+            scene_buffer->is_single_pixel_buffer = true;
+            memset(scene_buffer->single_pixel_buffer_color, 0, sizeof(scene_buffer->single_pixel_buffer_color));
+          }
+          wlr_buffer_end_data_ptr_access(client_buffer->source);
+        }
       }
     }
   }
@@ -2919,6 +2938,22 @@ void wlr_scene_buffer_set_buffer_with_damage(
 
 void wlr_scene_buffer_set_buffer(struct wlr_scene_buffer* scene_buffer, struct wlr_buffer* buffer) {
   wlr_scene_buffer_set_buffer_with_options(scene_buffer, buffer, NULL);
+}
+
+void wlr_scene_buffer_set_over_black(struct wlr_scene_buffer* scene_buffer, bool over_black) {
+  if (scene_buffer->over_black == over_black) {
+    return;
+  }
+  scene_buffer->over_black = over_black;
+  int x, y;
+  if (!wlr_scene_node_coords(&scene_buffer->node, &x, &y)) {
+    return;
+  }
+  pixman_region32_t update_region;
+  pixman_region32_init(&update_region);
+  scene_node_bounds(&scene_buffer->node, x, y, &update_region);
+  scene_update_region(scene_node_get_root(&scene_buffer->node), &update_region);
+  pixman_region32_fini(&update_region);
 }
 
 void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer* scene_buffer, const pixman_region32_t* region) {
@@ -3913,11 +3948,14 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
             ? fx_render_pass_add_optimized_blur(fx_pass, &blur_options)
             : false;
         // Pixels that this frame did not draw stay pending.
+        struct wlr_scene* scene_root = scene_node_get_root(node);
         if (result && whole) {
           scene_blur->dirty = false;
           pixman_region32_clear(&scene_blur->pending);
+          pixman_region32_union(&scene_root->blur_visibility_stale, &scene_root->blur_visibility_stale, &work);
         } else if (result) {
           pixman_region32_subtract(&scene_blur->pending, &scene_blur->pending, &rendered);
+          pixman_region32_union(&scene_root->blur_visibility_stale, &scene_root->blur_visibility_stale, &rendered);
         }
         pixman_region32_fini(&rendered);
         pixman_region32_fini(&clip);
@@ -5535,6 +5573,14 @@ static bool construct_render_list_iterator(
     }
   }
 
+  // A fully transparent single-pixel buffer (an input-only surface such as a panel click shield) draws nothing.
+  if (node->type == WLR_SCENE_NODE_BUFFER && !(data->persistent_effects && effect_over_node(node) != NULL)) {
+    struct wlr_scene_buffer* scene_buffer = wlr_scene_buffer_from_node(node);
+    if (scene_buffer->is_single_pixel_buffer && scene_buffer->single_pixel_buffer_color[3] == 0) {
+      return false;
+    }
+  }
+
   pixman_region32_t intersection;
   pixman_region32_init(&intersection);
   const int expand = data->effect_expand > 0 ? scene_node_effect_expand(node) : 0;
@@ -5672,7 +5718,7 @@ static int scanout_list_len(const struct render_list_entry* list, int len) {
 }
 
 // ANDROMEDA_SCANOUT_DEBUG=1: once per second, log the nodes that keep an output composited.
-static void log_composited_entries(const struct render_list_entry* list, int len) {
+static void log_composited_entries(struct wlr_scene* scene, const struct render_list_entry* list, int len) {
   static bool enabled = false;
   static bool checked = false;
   static int64_t last_ns = 0;
@@ -5690,6 +5736,9 @@ static void log_composited_entries(const struct render_list_entry* list, int len
     return;
   }
   last_ns = now_ns;
+  const struct scene_effects* effects = scene_effects_get(scene, false);
+  wlr_log(WLR_INFO, "scanout blocked: effects transient %u persistent %u bounded %u", effects ? effects->transient : 0,
+          effects ? effects->persistent : 0, effects ? effects->bounded : 0);
   for (int i = 0; i < len; i++) {
     struct wlr_scene_node* node = list[i].node;
     int w = 0, h = 0;
@@ -5707,7 +5756,12 @@ static void log_composited_entries(const struct render_list_entry* list, int len
       kind = "rect";
       scene_node_get_size(node, &w, &h);
     }
-    wlr_log(WLR_INFO, "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d", i + 1, len, kind, app, list[i].x, list[i].y, w, h);
+    pixman_region32_t opaque;
+    pixman_region32_init(&opaque);
+    scene_node_opaque_region(scene_effects_get(scene, false), node, list[i].x, list[i].y, &opaque);
+    wlr_log(WLR_INFO, "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d visible %u opaque %u", i + 1, len, kind, app,
+            list[i].x, list[i].y, w, h, region_area(&node->visible), region_area(&opaque));
+    pixman_region32_fini(&opaque);
   }
 }
 
@@ -6241,6 +6295,16 @@ static bool scene_output_build_state(
     return true;
   }
 
+  struct wlr_scene* stale_scene = scene_output->scene;
+  if (pixman_region32_not_empty(&stale_scene->blur_visibility_stale)) {
+    pixman_region32_t stale;
+    pixman_region32_init(&stale);
+    pixman_region32_copy(&stale, &stale_scene->blur_visibility_stale);
+    pixman_region32_clear(&stale_scene->blur_visibility_stale);
+    scene_update_region(stale_scene, &stale);
+    pixman_region32_fini(&stale);
+  }
+
   struct wlr_output* output = scene_output->output;
   enum wlr_scene_debug_damage_option debug_damage = scene_output->scene->debug_damage_option;
   struct scene_effects* effects = scene_effects_get(scene_output->scene, false);
@@ -6472,7 +6536,7 @@ static bool scene_output_build_state(
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE;
   } else if (scanout_list_len(list_data, list_len) > 1) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COMPOSITED;
-    log_composited_entries(list_data, list_len);
+    log_composited_entries(scene_output->scene, list_data, list_len);
   } else if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE;
   } else {

@@ -166,6 +166,9 @@ struct wlr_scene {
     struct blur_data blur_data;
     // Bumped on every node update; keys the optimized blur's consumer cache.
     uint64_t update_serial;
+    // Layout area where an optimized blur finished re-rendering. Visibility there was computed with nothing culled
+    // below the blur (it had to capture those nodes); the next frame recomputes it so they are culled again.
+    pixman_region32_t blur_visibility_stale;
 
     // Painted where no node covers the output. A rect matching it exactly
     // is dropped from the render list instead of drawn.
@@ -329,6 +332,7 @@ struct wlr_scene_buffer {
     bool own_buffer;
     int buffer_width, buffer_height;
     bool buffer_is_opaque;
+    bool over_black;
 
     struct wlr_drm_syncobj_timeline* wait_timeline;
     uint64_t wait_point;
@@ -1038,6 +1042,12 @@ void wlr_scene_buffer_set_buffer_with_options(
  * determine if buffers which reside under this one need to be rendered or not.
  */
 void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer* scene_buffer, const pixman_region32_t* region);
+
+/**
+ * Declares that everything below the buffer is opaque black. A premultiplied buffer over black shows its own color
+ * channels, so the buffer is then drawn without blending and culls what lies below it.
+ */
+void wlr_scene_buffer_set_over_black(struct wlr_scene_buffer* scene_buffer, bool over_black);
 
 /**
  * Set the source rectangle describing the region of the buffer which will be

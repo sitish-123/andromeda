@@ -50,6 +50,9 @@ namespace andromeda {
     // only for an opaque fullscreen window with a valid tile.
     void setFullscreenOpaque(bool opaque);
     void setBackdropBox(int x, int y, int width, int height);
+    // The root surface buffer of a fullscreen window over the opaque black backdrop draws without blending and culls
+    // what is below it.
+    void markOverBlack(wlr_scene_node* surfaceNode, bool overBlack);
     // Re-read the backdrop color after a config reload.
     void reloadBackdropColor();
     // Offsets centering a client buffer that does not match the output. Negative
