@@ -18,6 +18,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace settings {
@@ -175,6 +176,31 @@ namespace settings {
       const bool swapOk = state.diskSwapBytes >= state.ramBytes;
       // logind's CanHibernate already checks that swap can hold the current memory; full-RAM swap is advice.
       const bool checksPass = !state.lockdown && state.resumeConfigured && state.canHibernate;
+      // logind hibernates on these by itself; without a proven resume that can lose the session.
+      std::vector<std::string> unsafeKeys;
+      if (!config.hibernateVerified()) {
+        const std::pair<const char*, const std::string*> handles[] = {
+            {"lid-battery", &state.lidBattery}, {"lid-power", &state.lidPower},
+            {"lid-docked", &state.lidDocked}, {"power-key", &state.powerKey}};
+        for (const auto& [key, value] : handles) {
+          if (*value == "hibernate" || *value == "suspend-then-hibernate") {
+            unsafeKeys.emplace_back(key);
+          }
+        }
+      }
+      if (!unsafeKeys.empty()) {
+        auto warnRow = row(scale);
+        warnRow->addChild(title(i18n::tr("settings.power.unsafe-hibernate"), scale));
+        if (state.helperInstalled) {
+          warnRow->addChild(plainButton(i18n::tr("settings.power.use-sleep"), ButtonVariant::Default, scale,
+                                        [&config, unsafeKeys] {
+                                          for (const std::string& key : unsafeKeys) {
+                                            config.set(key, "suspend");
+                                          }
+                                        }));
+        }
+        card->addChild(std::move(warnRow));
+      }
       const char* status = config.hibernateVerified() ? "settings.power.hibernate-ready"
           : checksPass                                ? "settings.power.hibernate-needs-test"
                                                       : "settings.power.hibernate-not-ready";

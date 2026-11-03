@@ -24,8 +24,6 @@ namespace {
   constexpr auto kManagerInterface = "org.freedesktop.login1.Manager";
   constexpr auto kHelperPath = "/usr/lib/noctalia/andromeda-power-config";
   constexpr auto kSystemHelperPath = "/usr/lib/noctalia/andromeda-power-system";
-  // Printed by the restored kernel (kernel/power/hibernate.c, pm_pr_dbg) once pm_debug_messages is on.
-  constexpr auto kRestoredMessage = "Hibernation image restored successfully";
   constexpr auto kSleepDropIn = "/etc/systemd/sleep.conf.d/60-andromeda.conf";
 
   std::string readFile(const char* path) {
@@ -144,7 +142,11 @@ PowerConfigService::PowerConfigService(SystemBus& bus) {
   // restarted around it): the kernel log decides.
   std::istringstream saved(trimmed(readFile(trialPath().c_str())));
   std::string word, boot;
-  if (saved >> word >> boot >> m_trialSince && word == "pending") {
+  if (saved >> word >> boot && word == "pending") {
+    // Older files have no start time; 0 searches the whole boot.
+    if (!(saved >> m_trialSince)) {
+      m_trialSince = 0;
+    }
     if (boot != bootId()) {
       kLog.warn("hibernate trial failed: the machine booted fresh instead of resuming");
       writeTrial("failed");
@@ -185,7 +187,7 @@ void PowerConfigService::startTrial() {
   if (m_manager == nullptr || !m_state.canHibernate) {
     return;
   }
-  // pm_debug_messages makes the restored kernel log kRestoredMessage; it resets to 0 at the next boot.
+  // pm_debug_messages makes the restored kernel log "Hibernation image restored successfully"; trial-check resets it.
   set("trial-debug", "on", [this](bool ok) {
     if (!ok) {
       return;
@@ -207,29 +209,17 @@ void PowerConfigService::startTrial() {
   });
 }
 
-// Passed only when the restored kernel logged kRestoredMessage after the trial began. A lid suspend or an aborted
-// hibernate also ends in PrepareForSleep(false), but without that message.
+// Passed only when the restored kernel logged that message after the trial began. A lid suspend or an aborted
+// hibernate also ends in PrepareForSleep(false), but without that message. The helper reads the kernel log as root
+// and retries while journald catches up; exit 1 = no restore, any other failure (a cancelled prompt) stays pending.
 void PowerConfigService::finishTrial() {
-  const std::weak_ptr<int> alive = m_aliveToken;
-  const bool started = process::runAsync(
-      std::vector<std::string>{"journalctl", "-k", "-b", "--no-pager", "-o", "cat", "--since",
-                               "@" + std::to_string(m_trialSince), "--grep", kRestoredMessage},
-      process::RunCallbacks{
-          .onExit =
-              [this, alive](const process::RunResult& result) {
-                if (alive.expired()) {
-                  return;
-                }
-                const bool restored = result.out.contains(kRestoredMessage);
-                kLog.info("hibernate trial: {}", restored ? "resumed from the image" : "no restore in the kernel log");
-                writeTrial(restored ? "ok" : "failed");
-                refresh();
-              },
-      }
-  );
-  if (!started) {
-    writeTrial("failed");
-  }
+  set("trial-check", std::to_string(m_trialSince), [this](bool ok) {
+    if (ok || m_state.lastExit == 1) {
+      kLog.info("hibernate trial: {}", ok ? "resumed from the image" : "no restore in the kernel log");
+      writeTrial(ok ? "ok" : "failed");
+      notify();
+    }
+  });
 }
 
 void PowerConfigService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }

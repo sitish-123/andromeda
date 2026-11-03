@@ -16,6 +16,7 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "dbus/logind/power_config_service.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
@@ -1038,6 +1039,11 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
     }
     return m_sessionActionRunner.lockThenSuspendDetached();
   case IdleActionKind::Hibernate:
+    // Resume is not proven since the last kernel, command line or swap change: sleep keeps the session safe.
+    if (m_powerConfigService != nullptr && !m_powerConfigService->hibernateVerified()) {
+      kLog.warn("idle hibernate: resume not proven, sleeping instead");
+      return m_sessionActionRunner.requestSuspendDetached();
+    }
     return m_sessionActionRunner.requestHibernateDetached();
   }
   return false;

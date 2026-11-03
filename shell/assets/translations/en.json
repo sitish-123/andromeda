@@ -1928,6 +1928,8 @@
       "guide": "Official Steps for This Setup",
       "not-supported": "Set Up by Hand",
       "open-guide": "Open Guide",
+      "unsafe-hibernate": "Hibernate Is Set but Resume Is Not Proven",
+      "use-sleep": "Use Sleep Instead",
       "set-up-resume": "Set Up",
       "trial-failed": "Last Test Failed: No Resume From the Image",
       "trial-never": "Test Hibernate Once (Save Your Work First)",

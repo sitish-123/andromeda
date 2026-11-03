@@ -10,7 +10,8 @@
 #   swapfile                          <GiB> 1-299 (ext4, xfs, f2fs only)
 #   resume-apply / resume-rollback    auto (swap partition + Limine or systemd-boot only)
 #   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
-#   trial-debug                       on|off (/sys/power/pm_debug_messages, so a trial hibernate can prove the restore)
+#   trial-debug                       on (/sys/power/pm_debug_messages, so a trial hibernate can prove the restore)
+#   trial-check                       <unix time the trial began>: exit 0 when the restored kernel logged the restore
 set -eu
 PATH=/usr/bin
 [ $# -eq 2 ] || { echo "usage: $0 <key> <value>" >&2; exit 2; }
@@ -43,10 +44,30 @@ sys() { if [ -n "${ANDROMEDA_POWER_ETC:-}" ]; then echo "would run: $*"; else "$
 # Sources: .agent/power-sources.md (kernel swsusp, kernel-install(8), CachyOS boot manager wiki).
 # Documented in Documentation/ABI/testing/sysfs-power: "1" turns on the suspend/hibernation debug messages.
 if [ "$key" = trial-debug ]; then
-  case $value in on) bit=1 ;; off) bit=0 ;; *) echo "bad value: $value" >&2; exit 2 ;; esac
-  [ -n "${ANDROMEDA_POWER_ETC:-}" ] && { echo "would write $bit"; exit 0; }
-  echo "$bit" >/sys/power/pm_debug_messages
+  [ "$value" = on ] || { echo "bad value: $value" >&2; exit 2; }
+  [ -w /sys/power/pm_debug_messages ] || [ -n "${ANDROMEDA_POWER_ETC:-}" ] \
+    || manual "this kernel has no /sys/power/pm_debug_messages, so a trial cannot prove the restore" \
+      https://docs.kernel.org/power/swsusp.html
+  [ -n "${ANDROMEDA_POWER_ETC:-}" ] && { echo "would write 1"; exit 0; }
+  echo 1 >/sys/power/pm_debug_messages
   exit 0
+fi
+
+# Reads the kernel log as root (users outside the journal groups cannot), retries while journald catches up after
+# the resume, then turns the debug messages off again. The message is from kernel/power/hibernate.c.
+if [ "$key" = trial-check ]; then
+  case $value in *[!0-9]* | '') echo "bad time: $value" >&2; exit 2 ;; esac
+  found=1
+  for _ in 1 2 3 4 5; do
+    if journalctl -k -b --no-pager -o cat --since "@$value" --grep 'Hibernation image restored successfully' \
+      >/dev/null 2>&1; then
+      found=0
+      break
+    fi
+    sleep 2
+  done
+  [ -n "${ANDROMEDA_POWER_ETC:-}" ] || echo 0 >/sys/power/pm_debug_messages 2>/dev/null || true
+  exit $found
 fi
 
 if [ "$key" = resume-apply ] || [ "$key" = resume-rollback ]; then
@@ -58,7 +79,9 @@ if [ "$key" = resume-apply ] || [ "$key" = resume-rollback ]; then
   swaps=${swaps:-/proc/swaps}
   # The initramfs must read resume=: mkinitcpio needs the systemd or resume hook; dracut reads it (dracut.cmdline(7)).
   if [ -f "$root/etc/mkinitcpio.conf" ]; then
-    grep -Eq '^HOOKS=.*[( ](systemd|resume)[ )]' "$root/etc/mkinitcpio.conf" \
+    # mkinitcpio sources mkinitcpio.conf, then mkinitcpio.conf.d/*.conf; the last HOOKS= wins.
+    cat "$root/etc/mkinitcpio.conf" "$root"/etc/mkinitcpio.conf.d/*.conf 2>/dev/null | grep '^HOOKS=' | tail -n 1 \
+      | grep -Eq '[( ](systemd|resume)[ )]' \
       || manual "the initramfs has no resume support (mkinitcpio HOOKS lack systemd or resume)" https://www.freedesktop.org/software/systemd/man/latest/systemd-hibernate-resume-generator.html
   elif ! command -v dracut >/dev/null; then
     manual "initramfs generator not supported" https://www.freedesktop.org/software/systemd/man/latest/systemd-hibernate-resume-generator.html
