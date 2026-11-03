@@ -1865,31 +1865,7 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     state.status = m_statusIsland;
     state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
     state.glanceHint = i18n::tr(m_authExtras.face ? "lockscreen.glance-hint-face" : "lockscreen.glance-hint");
-    state.time = formatLocalTime("%H:%M");
-    const ClockStyle& clock = clockStyleById(lock.clockStyle);
-    const std::time_t now = std::time(nullptr);
-    std::tm local{};
-    localtime_r(&now, &local);
-    state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
-    state.clockFamily = clockFontFamily(clock);
-    state.clockWeight = clockWeightAt(clock, local.tm_sec);
-    state.clockTracking = clock.tracking;
-    state.clockStroke = clock.stroke;
-    if (clock.gradient) {
-      state.clockGradientFrom = m_clockGradientFrom;
-      state.clockGradientTo = m_clockGradientTo;
-    }
-    state.clockVariations = std::string(clock.variations);
-    state.clockTwoTone = clock.twoTone;
-    state.flip = clock.layout == ClockLayout::Flip;
-    if (clock.live && !lock.clockSeconds) {
-      state.liveSeconds = std::format("{:02}", local.tm_sec);
-    }
-    if (clock.layout == ClockLayout::Analog) {
-      state.analogHour = local.tm_hour;
-      state.analogMinute = local.tm_min;
-    }
-    state.date = formatLocalTime("%A, %-d %B");
+    fillLockClockState(state, lock, m_clockGradientFrom, m_clockGradientTo);
     if (m_authExtras.passwordOnly) {
       state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
       state.reasonBody = i18n::tr("lockscreen.phone-lock.body");
@@ -2073,20 +2049,52 @@ void LockSurface::wakeGlance() {
 }
 
 // A clock style's bundled font is registered on first use, not at shell start, so the start budget pays nothing.
-std::string LockSurface::clockFontFamily(const ClockStyle& clock) {
+std::string lockClockFontFamily(const ClockStyle& clock) {
   if (clock.file.empty()) {
     return std::string(clock.family);
   }
+  // Each bundled font file registers once per process.
+  static std::unordered_map<std::string, std::string> families;
   const std::string key(clock.file);
-  if (const auto it = m_clockFonts.find(key); it != m_clockFonts.end()) {
+  if (const auto it = families.find(key); it != families.end()) {
     return it->second;
   }
   std::string family = text::registerFontFile(paths::assetPath("fonts/lock/" + key));
   if (family.empty()) {
     family = std::string(clock.family);
   }
-  m_clockFonts.emplace(key, family);
+  families.emplace(key, family);
   return family;
+}
+
+void fillLockClockState(
+    AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
+) {
+  state.time = formatLocalTime("%H:%M");
+  const ClockStyle& clock = clockStyleById(lock.clockStyle);
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
+  state.clockFamily = lockClockFontFamily(clock);
+  state.clockWeight = clockWeightAt(clock, local.tm_sec);
+  state.clockTracking = clock.tracking;
+  state.clockStroke = clock.stroke;
+  if (clock.gradient) {
+    state.clockGradientFrom = gradientFrom;
+    state.clockGradientTo = gradientTo;
+  }
+  state.clockVariations = std::string(clock.variations);
+  state.clockTwoTone = clock.twoTone;
+  state.flip = clock.layout == ClockLayout::Flip;
+  if (clock.live && !lock.clockSeconds) {
+    state.liveSeconds = std::format("{:02}", local.tm_sec);
+  }
+  if (clock.layout == ClockLayout::Analog) {
+    state.analogHour = local.tm_hour;
+    state.analogMinute = local.tm_min;
+  }
+  state.date = formatLocalTime("%A, %-d %B");
 }
 
 // One layout at each minute (or second, with clock_seconds) boundary keeps the clock right without idle frames.

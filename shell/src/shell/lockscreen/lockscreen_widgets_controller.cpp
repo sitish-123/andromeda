@@ -8,6 +8,7 @@
 #include "shell/desktop/editor/desktop_widgets_editor.h"
 #include "shell/desktop/editor/desktop_widgets_editor_types.h"
 #include "shell/dock/dock.h"
+#include "shell/lockscreen/lock_editor.h"
 #include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lock_surface.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
@@ -109,6 +110,10 @@ void LockscreenWidgetsController::initialize(const LockscreenWidgetsControllerSe
   m_editor = std::make_unique<DesktopWidgetsEditor>(DesktopWidgetsEditorProfile::lockscreen());
   m_editor->initialize(services.widgets);
   m_editor->setExitRequestedCallback([this] { exitEdit(); });
+  m_lockEditor = std::make_unique<LockEditor>();
+  m_lockEditor->initialize(
+      services.widgets.wayland, m_config, m_renderContext, services.widgets.textureCache, m_lockScreen
+  );
   loadSnapshotFromConfig();
   m_initialized = true;
   applyVisibility();
@@ -142,7 +147,7 @@ void LockscreenWidgetsController::registerIpc(IpcService& ipc) {
 }
 
 void LockscreenWidgetsController::onLockStateChanged() {
-  // The editor runs only while unlocked: a lock keeps the edits and closes it.
+  // The editors run only while unlocked: a lock closes them (the old editor keeps its edits, LockEditor drops its draft).
   if (isEditing() && m_lockScreen != nullptr && m_lockScreen->isActive()) {
     exitEdit();
   }
@@ -219,6 +224,10 @@ void LockscreenWidgetsController::enterEdit() {
   if (m_lockScreen->isActive()) {
     return;
   }
+  if (m_lockEditor != nullptr) {
+    m_lockEditor->open();
+    return;
+  }
   if (m_config != nullptr && !m_config->config().lockscreenWidgets.enabled) {
     LockscreenWidgetsConfig enabled = m_config->config().lockscreenWidgets;
     enabled.enabled = true;
@@ -247,6 +256,10 @@ void LockscreenWidgetsController::enterEdit() {
 }
 
 void LockscreenWidgetsController::exitEdit() {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    m_lockEditor->close();
+    return;
+  }
   if (!isEditing() || m_editor == nullptr || m_lockScreen == nullptr) {
     return;
   }
@@ -287,7 +300,9 @@ void LockscreenWidgetsController::toggleEdit() {
   }
 }
 
-bool LockscreenWidgetsController::isEditing() const noexcept { return m_editor != nullptr && m_editor->isOpen(); }
+bool LockscreenWidgetsController::isEditing() const noexcept {
+  return (m_lockEditor != nullptr && m_lockEditor->isOpen()) || (m_editor != nullptr && m_editor->isOpen());
+}
 
 std::optional<LayerPopupParentContext>
 LockscreenWidgetsController::popupParentContextForSurface(wl_surface* surface) const {
@@ -305,6 +320,9 @@ std::optional<LayerPopupParentContext> LockscreenWidgetsController::fallbackPopu
 }
 
 bool LockscreenWidgetsController::onPointerEvent(const PointerEvent& event) {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    return m_lockEditor->onPointerEvent(event);
+  }
   if (isEditing() && m_editor != nullptr) {
     return m_editor->onPointerEvent(event);
   }
@@ -312,6 +330,10 @@ bool LockscreenWidgetsController::onPointerEvent(const PointerEvent& event) {
 }
 
 void LockscreenWidgetsController::onKeyboardEvent(const KeyboardEvent& event) {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    m_lockEditor->onKeyboardEvent(event);
+    return;
+  }
   if (!isEditing() || m_editor == nullptr) {
     return;
   }

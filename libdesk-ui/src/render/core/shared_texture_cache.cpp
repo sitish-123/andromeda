@@ -36,6 +36,8 @@ namespace {
     return true;
   }
 
+  constexpr int kBlurredMaxSide = 1024;
+
   // 90th-percentile relative luminance (WCAG) over a sample of about 64k pixels.
   [[nodiscard]] float brightLuminance(const std::vector<std::uint8_t>& rgba) {
     const std::size_t pixels = rgba.size() / 4U;
@@ -586,6 +588,16 @@ void SharedTextureCache::workerLoop(std::size_t slot) {
       };
     };
     const auto blur = [alphaMask](DecodedImage& image) {
+      if (image.request.blur <= 0.0F) {
+        if (!alphaMask) {
+          image.brightLuminance = brightLuminance(image.pixels);
+        }
+        return;
+      }
+      // A blurred image keeps no fine detail, so a small copy looks the same and blurs many times faster.
+      while (std::max(image.width, image.height) > kBlurredMaxSide) {
+        halveInPlace(image.pixels, image.width, image.height, 4);
+      }
       const float radius = image.request.blur * static_cast<float>(std::max(image.width, image.height));
       blurRgba(image.pixels, image.width, image.height, static_cast<int>(std::lround(radius)));
       if (!alphaMask) {

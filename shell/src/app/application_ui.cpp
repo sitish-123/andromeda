@@ -209,14 +209,7 @@ void Application::initUiRenderSurfacesAndSettings() {
     if (m_desktopWidgetsController.isEditing()) {
       m_desktopWidgetsController.exitEdit();
     }
-    const bool wasEditing = m_lockscreenWidgetsController.isEditing();
     m_lockscreenWidgetsController.toggleEdit();
-    if (!wasEditing && m_lockscreenWidgetsController.isEditing()) {
-      notify::info(
-          "Noctalia", i18n::tr("notifications.internal.lockscreen-widgets-editor"),
-          i18n::tr("notifications.internal.lockscreen-widgets-editor-enabled")
-      );
-    }
   });
   m_settingsWindow.setSyncGreeterAppearance([this] { performGreeterSync(); });
   m_settingsWindow.setSaveWallpaperPaletteAsCustom([this] {

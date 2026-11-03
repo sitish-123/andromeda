@@ -89,6 +89,13 @@ public:
   void onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] bool isActive() const noexcept;
+  // Palette colours of the gradient clock style (packed 0xRRGGBBAA).
+  [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> clockGradient() const noexcept {
+    return {m_clockGradientFrom, m_clockGradientTo};
+  }
+  // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
+  [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
+  [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
   [[nodiscard]] bool isSessionLocked() const noexcept;
   [[nodiscard]] bool isReadyForSleep() const;
   /// Revoke passwordless unlock and wait for an uncovered lock frame before sleep.
@@ -147,9 +154,6 @@ private:
   void applyOutputRestriction();
   void applyWallpaperStyleToSurfaces();
   [[nodiscard]] bool isInteractiveOutput(const WaylandOutput& output) const;
-  // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
-  [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
-  [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
   void createInstance(const WaylandOutput& output);
   void chooseTransition();
   void handleTransitionStateChanged();

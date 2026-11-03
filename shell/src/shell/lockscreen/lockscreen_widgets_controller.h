@@ -13,6 +13,7 @@ class ConfigService;
 class Dock;
 class DesktopWidgetsController;
 class IpcService;
+class LockEditor;
 class LockScreen;
 class DesktopWidgetsEditor;
 class LockscreenWidgetsHost;
@@ -84,4 +85,5 @@ private:
   std::function<void()> m_onExitEdit;
   std::unique_ptr<LockscreenWidgetsHost> m_host;
   std::unique_ptr<DesktopWidgetsEditor> m_editor;
+  std::unique_ptr<LockEditor> m_lockEditor;
 };

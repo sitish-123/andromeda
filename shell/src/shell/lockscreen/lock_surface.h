@@ -57,6 +57,13 @@ struct SessionPanelActionConfig;
 
 class LockscreenWidgetsHost;
 
+// Font family of a clock style; registers its bundled font file on first use.
+[[nodiscard]] std::string lockClockFontFamily(const ClockStyle& clock);
+// Clock lines, font, effects and date of lockscreen.clock_* at the current local time (lock screen and its editor).
+void fillLockClockState(
+    AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
+);
+
 class LockSurface : public Surface {
 public:
   explicit LockSurface(WaylandConnection& connection, ConfigService* config = nullptr);
@@ -189,7 +196,6 @@ private:
   // Runs power menu item `index`, or first asks with the inhibitor alert when another app blocks it.
   void requestPower(int index);
   void runPower(int index, bool skipInhibitors);
-  [[nodiscard]] std::string clockFontFamily(const ClockStyle& clock);
   void startAndromedaClock();
   void startRyokuLive();
   void startRyokuIdleClock();
@@ -268,7 +274,6 @@ private:
   Timer m_andromedaClock;
   Timer m_glanceIdle;
   // Clock style font file -> the family fontconfig registered it under.
-  std::unordered_map<std::string, std::string> m_clockFonts;
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;

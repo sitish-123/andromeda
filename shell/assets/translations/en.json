@@ -1174,6 +1174,27 @@
     }
   },
   "lockscreen": {
+    "editor": {
+      "slots": "Slots",
+      "free": "Free",
+      "wallpaper": "Wallpaper",
+      "layout": "Layout",
+      "theme": "Theme",
+      "done": "Done",
+      "layouts": {
+        "centered": "Centered",
+        "glance": "Glance",
+        "split": "Split",
+        "minimal": "Minimal"
+      },
+      "themes": {
+        "andromeda": "Andromeda",
+        "ryoku": "Ryoku"
+      },
+      "theme-note": "Blur · Dim · Clock colour follows the wallpaper",
+      "theme-note-ryoku": "The greeter's look; layouts and slots do not apply",
+      "ryoku-preview": "Ryoku draws its own scene when the screen locks"
+    },
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
