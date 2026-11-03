@@ -6,6 +6,7 @@
 #include "wayland/dsk_surface_client.h"
 
 #include <memory>
+#include <utility>
 
 struct dsk_surface_manager_v1;
 struct wl_surface;
@@ -26,6 +27,7 @@ public:
       m_dsk = std::make_unique<DskSurfaceClient>(manager, surface);
       m_surface = surface;
       m_paletteConn = paletteChanged().connect([this] { send(); });
+      m_sent = {-1.0, -1.0};
     }
     m_kind = kind;
     send();
@@ -44,11 +46,18 @@ private:
     }
     const bool glass = !Style::reduceTransparency();
     const double level = !glass ? 0.0 : m_kind == Kind::Shape ? Style::liquidLevel() : Style::sheetLevel();
-    m_dsk->set(DskSurfaceClient::Property::Liquid, {level, glass ? 1.0 : 0.0, 0.0, 0.0});
+    // A light/dark fade emits paletteChanged every frame; the values only change with the glass settings.
+    const std::pair<double, double> next{level, glass ? 1.0 : 0.0};
+    if (next == m_sent) {
+      return;
+    }
+    m_sent = next;
+    m_dsk->set(DskSurfaceClient::Property::Liquid, {next.first, next.second, 0.0, 0.0});
   }
 
   std::unique_ptr<DskSurfaceClient> m_dsk;
   wl_surface* m_surface = nullptr;
   Kind m_kind = Kind::Sheet;
+  std::pair<double, double> m_sent{-1.0, -1.0};
   Signal<>::ScopedConnection m_paletteConn;
 };
