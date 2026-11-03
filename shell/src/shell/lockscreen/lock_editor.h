@@ -9,6 +9,7 @@
 #include "shell/lockscreen/lock_editor_bar.h"
 #include "shell/lockscreen/lock_editor_free.h"
 #include "shell/lockscreen/lock_editor_gallery.h"
+#include "shell/lockscreen/lock_editor_wallpaper.h"
 #include "shell/lockscreen/lock_editor_slots.h"
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
@@ -61,9 +62,13 @@ private:
   void buildScene(float width, float height);
   void layoutScene(float width, float height);
   void applyWallpaper();
-  using Focus = std::variant<LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit, LockEditorFree::Hit>;
+  using Focus = std::variant<
+      LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit, LockEditorFree::Hit, LockEditorWallpaper::Hit>;
   void activate(LockEditorBar::Hit hit);
   void activateGallery(LockEditorGallery::Hit hit);
+  // x = the pointer for a slider press; a key press (x < 0) steps the slider by `step`.
+  void activateWallpaper(LockEditorWallpaper::Hit hit, float x, int step = 0);
+  void loadWallpaperItems();
   // keyboard = opened by a key: the focus moves into the opened panel.
   void activateSlots(LockEditorSlots::Hit hit, bool keyboard);
   void closePanels();
@@ -102,6 +107,18 @@ private:
   LockEditorBar::State m_draft;
   LockEditorGallery m_gallery;
   LockEditorGallery::State m_clock;
+  LockEditorWallpaper m_wallpaperPanel;
+  LockEditorWallpaper::State m_wall;
+  std::vector<LockEditorWallpaper::Item> m_wallItems;
+  // The Blur or Dim slider under a held pointer button.
+  LockEditorWallpaper::Target m_wallDrag = LockEditorWallpaper::Target::None;
+  // Each control writes its own key on Done, so an untouched slider keeps the saved value.
+  bool m_wallPicked = false;
+  bool m_blurEdited = false;
+  bool m_dimEdited = false;
+  // Wheel and touchpad travel not yet turned into a row (in 1/120 notches).
+  int m_wallScroll = 0;
+  float m_wallpaperBlur = -1.0F;
   LockCards m_cards;
   LockEditorSlots m_slots;
   LockEditorSlots::State m_slotState;

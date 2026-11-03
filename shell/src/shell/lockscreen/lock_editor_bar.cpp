@@ -67,10 +67,7 @@ namespace {
 
 } // namespace
 
-bool LockEditorBar::segmentEnabled(int index) noexcept {
-  const auto segment = static_cast<Segment>(index);
-  return segment != Segment::Wallpaper;
-}
+bool LockEditorBar::segmentEnabled(int /*index*/) noexcept { return true; }
 
 std::vector<LockEditorBar::Hit> LockEditorBar::focusOrder(bool panelOpen, bool freeMode) {
   std::vector<Hit> order;

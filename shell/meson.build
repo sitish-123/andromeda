@@ -640,6 +640,8 @@ _noctalia_sources = files(
   'src/shell/lockscreen/lock_helper_process.cpp',
   'src/shell/lockscreen/lock_shader.cpp',
   'src/shell/lockscreen/lock_video.cpp',
+  'src/shell/lockscreen/lock_editor_wallpaper.cpp',
+  'src/shell/lockscreen/lock_thumbnail.cpp',
   'src/shell/lockscreen/lock_notice_groups.cpp',
   'src/shell/lockscreen/lock_screen.cpp',
   'src/shell/lockscreen/lockscreen_session_actions.cpp',

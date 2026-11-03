@@ -16,6 +16,7 @@
 #include "scripting/script_api_context.h"
 #include "shell/desktop/desktop_widget_factory.h"
 #include "shell/lockscreen/lock_shader.h"
+#include "shell/lockscreen/lock_thumbnail.h"
 #include "shell/lockscreen/lock_video.h"
 #include "util/file_utils.h"
 #include "ui/builders.h"
@@ -170,6 +171,9 @@ namespace {
 } // namespace
 
 int runLockHelper(int argc, char* argv[]) {
+  if (argc == 5 && std::strcmp(argv[2], "--thumbnail") == 0) {
+    return lock_thumbnail::render(argv[3], argv[4]);
+  }
   int startFd = -1;
   for (int i = 2; i + 1 < argc; ++i) {
     if (std::strcmp(argv[i], "--start-fd") == 0) {

@@ -1377,6 +1377,9 @@ bool LockScreen::hasOwnWallpaper(const std::string& connectorName) const {
   }
   const auto& lock = m_configService->config().lockscreen;
   const auto it = lock.wallpaperOutputs.find(connectorName);
+  if (it != lock.wallpaperOutputs.end() && it->second == kDesktopWallpaper) {
+    return false;
+  }
   return !lock.wallpaper.empty() || (it != lock.wallpaperOutputs.end() && !it->second.empty());
 }
 
@@ -1386,11 +1389,13 @@ std::string LockScreen::wallpaperPathForOutput(const std::string& connectorName)
   }
   const auto& config = m_configService->config();
   if (const auto it = config.lockscreen.wallpaperOutputs.find(connectorName);
-      it != config.lockscreen.wallpaperOutputs.end() && !it->second.empty()) {
+      it != config.lockscreen.wallpaperOutputs.end() && !it->second.empty() && it->second != kDesktopWallpaper) {
     return it->second;
   }
+  const bool desktop = config.lockscreen.wallpaperOutputs.contains(connectorName)
+      && config.lockscreen.wallpaperOutputs.at(connectorName) == kDesktopWallpaper;
   const std::string& customWallpaper = config.lockscreen.wallpaper;
-  if (!customWallpaper.empty()) {
+  if (!customWallpaper.empty() && !desktop) {
     return customWallpaper;
   }
   if (!config.wallpaper.enabled) {

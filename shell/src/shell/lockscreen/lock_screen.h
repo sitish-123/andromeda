@@ -100,6 +100,8 @@ public:
   [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
   // "video" or "shader" for a wallpaper the lock helper plays (by file extension), else empty.
   [[nodiscard]] static std::string liveWallpaperType(const std::string& path);
+  // wallpaper_outputs value that shows the desktop wallpaper on that display, whatever lockscreen.wallpaper says.
+  static constexpr const char* kDesktopWallpaper = "desktop";
   // Live card and widget data for the editor preview, with `lock` as the widget and bottom slot choice.
   [[nodiscard]] LockCards::Data previewCards(const LockscreenConfig& lock) const;
   [[nodiscard]] bool isSessionLocked() const noexcept;

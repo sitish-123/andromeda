@@ -48,7 +48,7 @@ public:
   // scale = accessibility.ui_scale.
   void layout(Renderer& renderer, float sw, float scale);
   [[nodiscard]] Hit hitTest(float x, float y) const;
-  // Wallpaper opens with L7; until then it draws dimmed and takes no input.
+  // Every segment takes input; kept for the bar's dimmed-segment drawing.
   [[nodiscard]] static bool segmentEnabled(int index) noexcept;
   // Keyboard order: enabled segments (Snap after Free in Free mode), Done, then the open panel's cards and chips.
   [[nodiscard]] static std::vector<Hit> focusOrder(bool panelOpen, bool freeMode);
