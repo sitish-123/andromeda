@@ -175,6 +175,7 @@ namespace settings {
                 },
             .contentPadding = padding,
             .windowMargin = 24.0F * dialogScale,
+            .scale = dialogScale,
         }
     );
     if (!m_colorModal.has_value()) {
@@ -259,6 +260,7 @@ namespace settings {
                 },
             .contentPadding = padding,
             .windowMargin = 24.0F * dialogScale,
+            .scale = dialogScale,
         }
     );
     if (!m_glyphModal.has_value()) {
@@ -343,6 +345,7 @@ namespace settings {
                 },
             .contentPadding = padding,
             .windowMargin = 24.0F * dialogScale,
+            .scale = dialogScale,
         }
     );
     if (!m_fileModal.has_value()) {

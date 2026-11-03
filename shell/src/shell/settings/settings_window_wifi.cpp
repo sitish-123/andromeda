@@ -1,5 +1,6 @@
 #include "shell/settings/settings_content_about.h"
 #include "shell/settings/settings_content_bluetooth.h"
+#include "shell/settings/settings_alert.h"
 #include "core/deferred_call.h"
 #include "core/process/process.h"
 #include "dbus/system_interactive_call.h"
@@ -150,6 +151,20 @@ void SettingsWindow::addUsersContent(float scale) {
   if (m_selectedSection != "users") {
     return;
   }
+  const auto deleteUser = m_accounts == nullptr ? std::function<void(unsigned)>{} : [this](unsigned uid) {
+    m_userDeleteBusy = true;
+    requestContentRebuild();
+    m_accounts->deleteUser(uid, [this](std::string error) {
+      m_userDeleteBusy = false;
+      m_userDeleteError = std::move(error);
+      if (m_userDeleteError.empty() && m_detail.starts_with("user:")) {
+        leaveDetail();
+      }
+      if (isOpen()) {
+        requestContentRebuild();
+      }
+    });
+  };
   settings::addSettingsUsers(
       *m_contentContainer,
       settings::SettingsUsersContext{
@@ -157,36 +172,34 @@ void SettingsWindow::addUsersContent(float scale) {
           .detail = m_detail,
           .draft = m_accounts != nullptr ? &m_newUser : nullptr,
           // A create in flight keeps its draft: the reply writes to it, and a second create must wait.
-          .deleteConfirm = m_userDeleteConfirm,
           .deleteBusy = m_userDeleteBusy,
           .deleteError = m_userDeleteError,
-          .setDeleteConfirm =
-              [this](bool confirm) {
-                m_userDeleteConfirm = confirm;
+          .confirmDelete =
+              [this, scale, deleteUser](unsigned uid, std::string login) {
                 m_userDeleteError.clear();
-                requestContentRebuild();
+                settings::showSettingsAlert(
+                    m_modalHost,
+                    settings::SettingsAlertRequest{
+                        .title = i18n::tr("settings.users.delete-confirm", "name", login),
+                        .body = i18n::tr("settings.users.delete-body"),
+                        .buttons = {
+                            {.text = i18n::tr("common.actions.cancel")},
+                            {.text = i18n::tr("settings.users.delete"),
+                             .variant = ButtonVariant::Destructive,
+                             .onClick = [deleteUser, uid] { deleteUser(uid); }},
+                        },
+                        // Cancel is the default for a destructive action, so Enter never deletes.
+                        .defaultIndex = 0,
+                        .scale = scale,
+                    }
+                );
               },
-          .deleteUser = m_accounts == nullptr ? std::function<void(unsigned)>{} : [this](unsigned uid) {
-            m_userDeleteConfirm = false;
-            m_userDeleteBusy = true;
-            requestContentRebuild();
-            m_accounts->deleteUser(uid, [this](std::string error) {
-              m_userDeleteBusy = false;
-              m_userDeleteError = std::move(error);
-              if (m_userDeleteError.empty() && m_detail.starts_with("user:")) {
-                leaveDetail();
-              }
-              if (isOpen()) {
-                requestContentRebuild();
-              }
-            });
-          },
+          .deleteUser = deleteUser,
           .openDetail = [this](std::string detail) {
             if (!m_newUser.busy) {
               clearNewUser();
             }
             if (!m_userDeleteBusy) {
-              m_userDeleteConfirm = false;
               m_userDeleteError.clear();
             }
             openDetail(std::move(detail));

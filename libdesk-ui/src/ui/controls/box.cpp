@@ -1,5 +1,7 @@
 #include "ui/controls/box.h"
 
+#include "design_tokens.h"
+
 #include "render/core/render_styles.h"
 #include "render/scene/rect_node.h"
 #include "ui/palette.h"
@@ -139,7 +141,22 @@ void Box::setPanelStyle(bool showBorder) {
   syncStyle();
 }
 
-void Box::setDialogStyle() { setPanelStyle(true); }
+void Box::setDialogStyle() {
+  m_fill = colorSpecFromRole(ColorRole::Popover);
+  m_border = colorSpecFromRole(ColorRole::Stroke);
+  m_borderWidth = Style::borderWidth;
+  m_resolveFill = true;
+  m_resolveBorder = true;
+  m_style.fill = resolveColorSpec(m_fill);
+  m_style.border = resolveColorSpec(m_border);
+  m_style.borderWidth = m_borderWidth;
+  m_style.fillMode = FillMode::Solid;
+  m_style.corners = {};
+  m_style.logicalInset = {};
+  m_style.radius = Style::scaledRadius(Tokens::componentDialogRadius);
+  m_style.softness = 1.0F;
+  syncStyle();
+}
 
 void Box::setCardStyle(float scale, float fillOpacity, bool showBorder) {
   setFill(colorSpecFromRole(ColorRole::Fill2, fillOpacity));

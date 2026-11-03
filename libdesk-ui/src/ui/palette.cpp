@@ -118,6 +118,10 @@ const Color& colorForRole(ColorRole role) noexcept {
     return palette.sliderTrack;
   case ColorRole::SliderEdge:
     return palette.sliderEdge;
+  case ColorRole::Popover:
+    return palette.popover;
+  case ColorRole::Scrim:
+    return palette.scrim;
   }
 
   return palette.label1;
@@ -242,6 +246,8 @@ Palette lerpPalette(const Palette& a, const Palette& b, float t) {
       .onSliderFill = lerpColor(a.onSliderFill, b.onSliderFill, t),
       .sliderTrack = lerpColor(a.sliderTrack, b.sliderTrack, t),
       .sliderEdge = lerpColor(a.sliderEdge, b.sliderEdge, t),
+      .popover = lerpColor(a.popover, b.popover, t),
+      .scrim = lerpColor(a.scrim, b.scrim, t),
   };
 }
 
@@ -274,5 +280,7 @@ Palette tokenPalette(bool light) noexcept {
       .onSliderFill = tokenColor(s.onSliderFill),
       .sliderTrack = tokenColor(s.sliderTrack),
       .sliderEdge = tokenColor(s.sliderEdge),
+      .popover = tokenColor(s.popover),
+      .scrim = tokenColor(s.scrim),
   };
 }

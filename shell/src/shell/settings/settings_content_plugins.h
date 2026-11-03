@@ -63,10 +63,8 @@ namespace settings {
     std::function<void(std::string id)> onRemove;
     std::function<void()> openStore;
 
-    // Plugin id awaiting delete confirmation; its row shows an inline confirm panel.
-    std::string pendingDeletePluginId;
-    std::function<void(std::string id)> requestDeleteConfirm;
-    std::function<void()> cancelDelete;
+    // Opens the delete alert.
+    std::function<void(std::string id, std::string name)> requestDeleteConfirm;
   };
 
   // Render the Plugins section into `content` when ctx.selectedSection == "plugins".

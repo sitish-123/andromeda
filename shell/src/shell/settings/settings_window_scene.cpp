@@ -20,6 +20,7 @@
 #include "shell/greeter/greeter_appearance_sync.h"
 #include "shell/profile/avatar_path.h"
 #include "shell/settings/font_family_catalog.h"
+#include "shell/settings/settings_alert.h"
 #include "shell/settings/settings_bar_management.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
@@ -1169,7 +1170,6 @@ void SettingsWindow::rebuildSettingsContent() {
                 [this](std::string query) {
                   m_pluginSearchQuery = std::move(query);
                   m_contentScrollState.offset = 0.0F;
-                  m_pendingDeletePluginId.clear();
                   m_pluginSearchDebounceTimer.start(kSearchDebounceInterval, [this] { requestContentRebuild(); });
                 },
             .plugins = m_pluginList,
@@ -1226,22 +1226,34 @@ void SettingsWindow::rebuildSettingsContent() {
                 [this](const std::string& id) {
                   if (m_pluginManager != nullptr) {
                     m_pluginManager->remove(id);
-                    m_pendingDeletePluginId.clear();
                     markPluginListDirty();
                     requestSceneRebuild();
                   }
                 },
             .openStore = [this] { openPluginStore(); },
-            .pendingDeletePluginId = m_pendingDeletePluginId,
             .requestDeleteConfirm =
-                [this](std::string id) {
-                  m_pendingDeletePluginId = std::move(id);
-                  requestSceneRebuild();
-                },
-            .cancelDelete =
-                [this] {
-                  m_pendingDeletePluginId.clear();
-                  requestSceneRebuild();
+                [this, scale](std::string id, std::string name) {
+                  settings::showSettingsAlert(
+                      m_modalHost,
+                      settings::SettingsAlertRequest{
+                          .title = i18n::tr("settings.plugins.plugins.delete-confirm-title", "name", name),
+                          .body = i18n::tr("settings.plugins.plugins.delete-confirm-desc"),
+                          .buttons = {
+                              {.text = i18n::tr("common.actions.cancel")},
+                              {.text = i18n::tr("settings.plugins.plugins.delete"),
+                               .variant = ButtonVariant::Destructive,
+                               .onClick =
+                                   [this, id] {
+                                     if (m_pluginManager != nullptr) {
+                                       m_pluginManager->remove(id);
+                                       markPluginListDirty();
+                                       requestSceneRebuild();
+                                     }
+                                   }},
+                          },
+                          .scale = scale,
+                      }
+                  );
                 },
         }
     );

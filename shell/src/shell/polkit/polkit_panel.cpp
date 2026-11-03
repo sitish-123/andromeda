@@ -5,6 +5,7 @@
 #include "core/files/resource_paths.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
+#include "design_tokens.h"
 #include "dbus/polkit/polkit_agent.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
@@ -71,7 +72,7 @@ void PolkitPanel::create() {
       .out = &m_rootLayout,
       .align = FlexAlign::Stretch,
       .gap = Style::spaceMd * scale,
-      .padding = Style::spaceLg * scale,
+      .padding = Tokens::componentDialogPadding * scale,
   });
 
   auto focusArea = ui::inputArea({});
@@ -105,14 +106,14 @@ void PolkitPanel::create() {
           ui::label({
               .out = &m_titleLabel,
               .text = i18n::tr("auth.polkit.title"),
-              .fontSize = Style::fontSizeTitle * scale,
-              .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::AccentText),
+              .fontSize = Tokens::typeTitle3.size * scale,
+              .fontWeight = FontWeight::SemiBold,
+              .color = colorSpecFromRole(ColorRole::Label1),
           }),
           ui::label({
               .out = &m_messageLabel,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::Label1),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 6,
           })
       )
@@ -172,7 +173,12 @@ void PolkitPanel::create() {
           ui::button({
               .out = &m_cancelButton,
               .text = i18n::tr("common.actions.cancel"),
-              .variant = ButtonVariant::Outline,
+              .fontSize = Style::fontSizeBody * scale,
+              .variant = ButtonVariant::Default,
+              .minHeight = Tokens::sizeControlM * scale,
+              .paddingV = 0.0F,
+              .paddingH = Style::spaceMd * scale,
+              .radius = Style::scaledRadiusMd(scale),
               .onClick =
                   [this] {
                     cancelAuth();
@@ -182,7 +188,12 @@ void PolkitPanel::create() {
           ui::button({
               .out = &m_submitButton,
               .text = i18n::tr("auth.polkit.authenticate"),
+              .fontSize = Style::fontSizeBody * scale,
               .variant = ButtonVariant::Primary,
+              .minHeight = Tokens::sizeControlM * scale,
+              .paddingV = 0.0F,
+              .paddingH = Style::spaceMd * scale,
+              .radius = Tokens::sizeControlM * scale * 0.5F,
               .onClick = [this] { submit(); },
           })
       )

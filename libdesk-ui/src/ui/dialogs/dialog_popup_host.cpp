@@ -1,5 +1,7 @@
 #include "ui/dialogs/dialog_popup_host.h"
 
+#include "design_tokens.h"
+
 #include "ui/ui_settings.h"
 #include "core/deferred_call.h"
 #include "core/input/keybind_matcher.h"
@@ -425,7 +427,7 @@ void DialogPopupHost::buildScene(std::uint32_t width, std::uint32_t height) {
   m_sceneRoot->setAnimationManager(&m_animations);
   if (Style::popupShadowsEnabled()) {
     m_panelShadow =
-        popup_chrome::addShadow(*m_sceneRoot, m_chrome, shadowStyle(), Style::scaledRadiusXl());
+        popup_chrome::addShadow(*m_sceneRoot, m_chrome, shadowStyle(), Style::scaledRadius(Tokens::componentDialogRadius));
   }
 
   auto bg = ui::box({

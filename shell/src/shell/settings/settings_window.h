@@ -488,7 +488,6 @@ private:
   std::string m_pendingDeleteMonitorOverrideMatch;
   std::string m_renamingDockMonitorOverride;
   std::string m_pendingDeleteDockMonitorOverride;
-  std::string m_pendingDeletePluginId;
   std::string m_selectedBarName;
   std::string m_selectedMonitorOverride;
   std::string m_selectedSection;
@@ -511,7 +510,6 @@ private:
   std::string m_wifiIdentity;
   std::string m_wifiJoinError;
   settings::NewUserDraft m_newUser;
-  bool m_userDeleteConfirm = false;
   bool m_renaming = false;
   int m_updateCount = -1;
   std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;

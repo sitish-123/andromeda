@@ -1777,6 +1777,7 @@
       "create": "Create User",
       "delete": "Delete",
       "delete-confirm": "Delete {name} and their home folder?",
+      "delete-body": "Their account and every file in their home folder are removed. You cannot undo this.",
       "delete-ellipsis": "Delete User…",
       "creating": "Waiting for authorization…",
       "error-login": "Use lowercase letters, digits, - and _; start with a letter.",

@@ -24,11 +24,10 @@ namespace settings {
     std::string detail;
     // Null when AccountsService is missing: no Add User button.
     NewUserDraft* draft = nullptr;
-    // The user page asks before it deletes; the text is the error of a failed delete.
-    bool deleteConfirm = false;
+    // The user page asks in an alert before it deletes; the text is the error of a failed delete.
     bool deleteBusy = false;
     std::string deleteError;
-    std::function<void(bool)> setDeleteConfirm;
+    std::function<void(unsigned uid, std::string login)> confirmDelete;
     std::function<void(unsigned uid)> deleteUser;
     std::function<void(std::string)> openDetail;
     // Validates the draft, then creates the user.

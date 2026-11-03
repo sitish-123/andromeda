@@ -1,5 +1,7 @@
 #include "shell/settings/settings_window.h"
 
+#include "shell/settings/settings_alert.h"
+
 #include "shell/settings/settings_pages.h"
 
 #include "calendar/calendar_service.h"
@@ -39,6 +41,7 @@
 #include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <cstdint>
 #include <linux/input-event-codes.h>
@@ -463,6 +466,25 @@ void SettingsWindow::open(std::string context) {
     };
     refocus();
     DeferredCall::callLater(refocus);
+    // E2E hook: a second settings-open shows a modal, since headless tests have no pointer to reach the menus.
+    if (const char* modal = std::getenv("NOCTALIA_SETTINGS_TEST_MODAL"); modal != nullptr && !m_modalHost.isOpen()) {
+      DeferredCall::callLater([this, kind = std::string(modal)] {
+        if (kind == "export") {
+          openConfigExportDialog();
+        } else if (kind == "alert") {
+          settings::showSettingsAlert(
+              m_modalHost,
+              settings::SettingsAlertRequest{
+                  .title = i18n::tr("settings.users.delete-confirm", "name", "test"),
+                  .body = i18n::tr("settings.users.delete-body"),
+                  .buttons = {{.text = i18n::tr("common.actions.cancel")},
+                              {.text = i18n::tr("settings.users.delete"), .variant = ButtonVariant::Destructive}},
+                  .scale = uiScale(),
+              }
+          );
+        }
+      });
+    }
     return;
   }
 

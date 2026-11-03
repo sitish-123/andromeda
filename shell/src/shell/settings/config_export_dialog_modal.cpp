@@ -1,6 +1,7 @@
 #include "shell/settings/config_export_dialog_modal.h"
 
 #include "core/deferred_call.h"
+#include "design_tokens.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "ui/builders.h"
@@ -11,11 +12,6 @@
 #include <utility>
 
 namespace settings {
-  namespace {
-
-    constexpr float kDialogWidth = 560.0F;
-
-  } // namespace
 
   ConfigExportDialogModal::~ConfigExportDialogModal() {
     if (m_open) {
@@ -45,7 +41,7 @@ namespace settings {
     m_callback = std::move(request.callback);
     clearNodePointers();
 
-    const float padding = 12.0F * m_scale;
+    const float padding = 0.0F;
     const std::weak_ptr<void> aliveGuard = m_aliveGuard;
     m_modalId = m_host->push(
         SettingsModalRequest{
@@ -71,6 +67,7 @@ namespace settings {
                 },
             .contentPadding = padding,
             .windowMargin = 24.0F * m_scale,
+            .scale = m_scale,
         }
     );
     m_open = m_modalId.has_value();
@@ -92,23 +89,23 @@ namespace settings {
 
   std::unique_ptr<Node> ConfigExportDialogModal::build() {
     clearNodePointers();
-    const float gap = Style::spaceMd * m_scale;
+    const float inset = Tokens::componentDialogPadding * m_scale;
     auto root = ui::column({
         .out = &m_root,
         .align = FlexAlign::Stretch,
-        .gap = gap,
-        .padding = gap,
     });
 
     auto header = ui::row({
         .align = FlexAlign::Center,
         .gap = Style::spaceSm * m_scale,
+        .paddingH = inset,
+        .minHeight = Tokens::componentDialogHeader * m_scale,
     });
     header->addChild(
         ui::label({
             .text = i18n::tr("settings.export-config.title"),
-            .fontSize = Style::fontSizeTitle * m_scale,
-            .fontWeight = FontWeight::Bold,
+            .fontSize = Tokens::typeTitle3.size * m_scale,
+            .fontWeight = FontWeight::SemiBold,
             .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
@@ -136,7 +133,8 @@ namespace settings {
     }
     root->addChild(std::move(header));
 
-    root->addChild(
+    auto body = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceSm * m_scale, .paddingH = inset});
+    body->addChild(
         ui::column(
             {
                 .align = FlexAlign::Stretch,
@@ -153,7 +151,7 @@ namespace settings {
         )
     );
 
-    root->addChild(
+    body->addChild(
         ui::column(
             {
                 .align = FlexAlign::Stretch,
@@ -182,19 +180,23 @@ namespace settings {
         )
     );
 
+    root->addChild(std::move(body));
+
+    const float buttonHeight = Tokens::sizeControlM * m_scale;
     root->addChild(
         ui::row(
             {
                 .align = FlexAlign::Center,
                 .justify = FlexJustify::End,
                 .gap = Style::spaceSm * m_scale,
+                .padding = inset,
             },
             ui::button({
                 .text = i18n::tr("common.actions.cancel"),
                 .fontSize = Style::fontSizeBody * m_scale,
-                .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeight * m_scale,
-                .paddingV = Style::spaceXs * m_scale,
+                .variant = ButtonVariant::Default,
+                .minHeight = buttonHeight,
+                .paddingV = 0.0F,
                 .paddingH = Style::spaceMd * m_scale,
                 .radius = Style::scaledRadiusMd(m_scale),
                 .onClick =
@@ -212,10 +214,10 @@ namespace settings {
                 .text = i18n::tr("settings.export-config.export"),
                 .fontSize = Style::fontSizeBody * m_scale,
                 .variant = ButtonVariant::Primary,
-                .minHeight = Style::controlHeight * m_scale,
-                .paddingV = Style::spaceXs * m_scale,
+                .minHeight = buttonHeight,
+                .paddingV = 0.0F,
                 .paddingH = Style::spaceMd * m_scale,
-                .radius = Style::scaledRadiusMd(m_scale),
+                .radius = buttonHeight * 0.5F,
                 .onClick = [this] {
                   const std::weak_ptr<void> aliveGuard = m_aliveGuard;
                   DeferredCall::callLater([this, aliveGuard] {
@@ -235,7 +237,7 @@ namespace settings {
     if (m_root == nullptr) {
       return {.width = 1.0F, .height = 1.0F};
     }
-    const float width = std::min(kDialogWidth * m_scale, space.maxContentWidth);
+    const float width = std::min(Tokens::componentDialogWidth * m_scale, space.maxContentWidth);
     LayoutConstraints constraints;
     constraints.setExactWidth(width);
     const float height = std::min(m_root->measure(renderer, constraints).height, space.maxContentHeight);
@@ -318,7 +320,7 @@ namespace settings {
                 .text = description,
                 .fontSize = Style::fontSizeCaption * m_scale,
                 .color = colorSpecFromRole(ColorRole::Label2),
-                .maxWidth = (kDialogWidth - 92.0F) * m_scale,
+                .maxWidth = (Tokens::componentDialogWidth - 92.0F) * m_scale,
                 .maxLines = 3,
             })
         )

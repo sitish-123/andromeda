@@ -58,8 +58,10 @@ namespace {
           .normal = makeState(
               colorSpecFromRole(ColorRole::Accent), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
           ),
-          .hover =
-              makeState(colorSpecFromRole(ColorRole::Fill3), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)),
+          // Hover (and input focus, which draws as hover) washes the accent, never swaps it for grey (rulebook 6).
+          .hover = makeState(
+              colorSpecFromRole(ColorRole::Accent, 0.9F), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
+          ),
           .pressed = makeState(
               colorSpecFromRole(ColorRole::Accent), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
           ),
@@ -96,8 +98,9 @@ namespace {
               colorSpecFromRole(ColorRole::Danger), colorSpecFromRole(ColorRole::Stroke),
               colorSpecFromRole(ColorRole::OnAccent)
           ),
-          .hover =
-              makeState(colorSpecFromRole(ColorRole::Fill3), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)),
+          .hover = makeState(
+              colorSpecFromRole(ColorRole::Danger, 0.9F), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
+          ),
           .pressed = makeState(
               colorSpecFromRole(ColorRole::Danger), colorSpecFromRole(ColorRole::Danger),
               colorSpecFromRole(ColorRole::OnAccent)

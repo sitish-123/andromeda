@@ -193,24 +193,17 @@ namespace settings {
       card->addChild(std::move(r));
 
       auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      const std::string status = ctx.deleteBusy ? i18n::tr("settings.users.creating")
-          : ctx.deleteConfirm                   ? i18n::tr("settings.users.delete-confirm", "name", user->login)
-                                                : ctx.deleteError;
+      const std::string status = ctx.deleteBusy ? i18n::tr("settings.users.creating") : ctx.deleteError;
       actions->addChild(ui::label({
           .text = status,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ctx.deleteError.empty() || ctx.deleteConfirm ? ColorRole::Label2 : ColorRole::DangerText),
+          .color = colorSpecFromRole(ctx.deleteError.empty() ? ColorRole::Label2 : ColorRole::DangerText),
           .maxLines = 2,
           .flexGrow = 1.0F,
       }));
-      if (ctx.deleteConfirm && !ctx.deleteBusy) {
-        actions->addChild(plainButton(i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, scale,
-                                      [set = ctx.setDeleteConfirm] { set(false); }));
-        actions->addChild(plainButton(i18n::tr("settings.users.delete"), ButtonVariant::Destructive, scale,
-                                      [del = ctx.deleteUser, uid] { del(uid); }));
-      } else if (!ctx.deleteBusy) {
+      if (!ctx.deleteBusy) {
         actions->addChild(plainButton(i18n::tr("settings.users.delete-ellipsis"), ButtonVariant::Destructive, scale,
-                                      [set = ctx.setDeleteConfirm] { set(true); }));
+                                      [confirm = ctx.confirmDelete, uid, login = user->login] { confirm(uid, login); }));
       }
       content.addChild(std::move(actions));
     }

@@ -100,7 +100,7 @@ namespace noctalia::theme {
     out.accentText = accentTextOn(out.accent, *surface);
 
     // One plane colour: thin and thick materials would otherwise pull labels toward two different backgrounds.
-    out.solidRegular = out.solidThin = out.tintRegular = out.tintThick = opaque(*surface);
+    out.solidRegular = out.solidThin = out.tintRegular = out.tintThick = out.popover = opaque(*surface);
 
     const std::array<::Color, 1> planes = {out.solidRegular};
     out.label1 = clampLabel(tokens.label1, planes);
