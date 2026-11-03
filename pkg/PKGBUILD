@@ -101,6 +101,7 @@ package_noctalia-desktop-git() {
   # Shell greeter mode: installed but not active; greetd keeps the noctalia-greeter config until parity (GM6).
   install -Dm755 desktop/session/greetd/andromeda-greeter-session "$pkgdir/usr/lib/noctalia/andromeda-greeter-session"
   install -Dm644 desktop/session/greetd/config-greeter-mode.toml "$pkgdir/usr/share/noctalia/greetd-greeter-mode.toml"
+  install -Dm644 desktop/session/pam.d/andromeda-greeter "$pkgdir/etc/pam.d/andromeda-greeter"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
   ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/noctalia.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

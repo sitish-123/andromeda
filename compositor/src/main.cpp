@@ -397,7 +397,8 @@ int main(int argc, char** argv) {
       std::println(stderr, "error: --greeter needs -s <greeter command>");
       return EXIT_FAILURE;
     }
-    if (configPath == nullptr) {
+    // Optional file: an explicit path that is missing raises the config error banner on the login screen.
+    if (configPath == nullptr && std::filesystem::exists("/etc/andromeda/greeter.toml")) {
       configPath = "/etc/andromeda/greeter.toml";
     }
   }
