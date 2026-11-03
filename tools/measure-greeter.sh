@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Greeter budget (TASK-lockscreen G3): first frame and memory of a greeter client in a headless Andromeda, against
-# mock_greetd.py (password-only PAM) and an empty private system bus. First frame = the first output commit after
-# exec, polled through the compositor CLI (resolution ~ one poll). Memory is read once the output is idle for 300 ms.
+# mock_greetd.py (password-only PAM) and an empty private system bus. First frame = the client's own libdesk-ui
+# "first frame at N ms after process start" log line (an output commit is no proof: mapping a window commits before
+# the client draws). Memory is read once the output is idle for 300 ms.
 # Env: GREETER (a command; the shell's greeter mode later), ANDROMEDA, RUNS (5), OUT. Results: $OUT/results.txt.
 set -euo pipefail
 OUT=${OUT:-/tmp/measure-greeter}
@@ -29,17 +30,17 @@ for i in $(seq 0 $((RUNS - 1))); do
   mock=$!
   for _ in $(seq 100); do grep -q ready "$OUT/mock-$i.log" && break; sleep 0.05; done
   mkdir -p "$RUNTIME/greeter-state-$i"
-  base=$(commits)
   start=$(now_ms)
   # shellcheck disable=SC2086 # GREETER is a command line
   run env XDG_DATA_DIRS="$RUNTIME/share:/usr/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state-$i" \
     DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" GREETD_SOCK="$sock" NOCTALIA_GREETER_LOG=stderr $GREETER > "$OUT/greeter-$i.log" 2>&1 &
   pid=$! spid=$!
-  until (($(commits) > base)); do
+  until grep -q 'first frame at' "$OUT/greeter-$i.log"; do
     kill -0 "$pid" 2> /dev/null || { echo "run $i: greeter exited, see $OUT/greeter-$i.log" >&2; exit 1; }
     (($(now_ms) - start < 20000)) || { echo "run $i: no first frame" >&2; exit 1; }
+    sleep 0.01
   done
-  ff=$(($(now_ms) - start))
+  ff=$(grep -o 'first frame at [0-9]*' "$OUT/greeter-$i.log" | head -1 | grep -o '[0-9]*$')
   last=$(commits) quiet=$(now_ms)
   while (($(now_ms) - quiet < 300)); do
     sleep 0.05
@@ -48,6 +49,7 @@ for i in $(seq 0 $((RUNS - 1))); do
   done
   # $! is the subshell that runs lib.sh's run(); the greeter is its deepest child.
   while c=$(pgrep -P "$pid" | head -1) && [[ -n $c ]]; do pid=$c; done
+  cp "/proc/$pid/smaps" "$OUT/smaps-$i.txt"
   rss=$(field VmRSS "$pid") anon=$(field RssAnon "$pid") thr=$(field Threads "$pid")
   echo "$i $ff $((rss / 1024)) $((anon / 1024)) $thr $(cat "/proc/$pid/comm")" | tee -a "$OUT/runs.txt"
   kill "$pid" "$mock" 2> /dev/null || true

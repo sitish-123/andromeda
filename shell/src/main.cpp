@@ -8,6 +8,7 @@
 #include "core/build_info.h"
 #include "core/log.h"
 #include "core/process/process_fds.h"
+#include "greeter/greeter_host.h"
 #include "ipc/cli.h"
 #include "launcher/dmenu_cli.h"
 #include "scripting/plugin_lint.h"
@@ -303,6 +304,8 @@ int main(int argc, char* argv[]) {
     // Internal mode for PAM authentication after re-exec.
     if (std::strcmp(argv[1], "pam-helper") == 0)
       return PamAuthenticator::runHelperMode(argc, argv);
+    if (std::strcmp(argv[1], "greeter") == 0)
+      return runGreeterHost(argc, argv);
     if (std::strcmp(argv[1], "config") == 0)
       return noctalia::config::runCli(argc, argv);
     if (std::strcmp(argv[1], "dmenu") == 0)

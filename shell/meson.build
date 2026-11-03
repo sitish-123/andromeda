@@ -372,6 +372,8 @@ endforeach
 # ── Main sources ──────────────────────────────────────────────────────────────
 _noctalia_sources = files(
   'src/app/application.cpp',
+  'src/greeter/greetd_client.cpp',
+  'src/greeter/greeter_host.cpp',
   'src/app/application_events.cpp',
   'src/app/application_ipc.cpp',
   'src/app/application_plugins.cpp',
