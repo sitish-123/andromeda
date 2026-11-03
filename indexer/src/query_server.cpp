@@ -99,10 +99,13 @@ namespace andromeda::index {
   bool QueryServer::serve(int fd) {
     std::string& pending = m_clients[fd];
     std::array<char, 4096> buffer{};
+    // A client that half-closes after its request still gets the answer.
+    bool closed = false;
     while (true) {
       const ssize_t n = read(fd, buffer.data(), buffer.size());
       if (n == 0) {
-        return false;
+        closed = true;
+        break;
       }
       if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -124,7 +127,8 @@ namespace andromeda::index {
     }
     // Answers are at most kMaxLimit rows and fit the socket buffer; a client that does not read is dropped
     // rather than allowed to block the daemon.
-    return out.empty() || send(fd, out.data(), out.size(), MSG_NOSIGNAL | MSG_DONTWAIT) == static_cast<ssize_t>(out.size());
+    const bool sent = out.empty() || send(fd, out.data(), out.size(), MSG_NOSIGNAL | MSG_DONTWAIT) == static_cast<ssize_t>(out.size());
+    return sent && !closed;
   }
 
   std::string QueryServer::answer(std::string_view line) const {

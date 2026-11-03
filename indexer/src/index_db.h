@@ -74,8 +74,8 @@ namespace andromeda::index {
     [[nodiscard]] std::int64_t count() const;
 
   private:
-    // Entries sorted by id (crawl ids and add() ids only grow), so offsets grow too. 16 bytes: ids fit 32 bits,
-    // as each id is one more than the largest so far.
+    // Entries sorted by id (add() never reuses an id held here, removed or not), so offsets grow too. 16 bytes:
+    // ids fit 32 bits, as each id is one more than the largest so far.
     struct NameEntry {
       std::uint32_t id;
       std::uint32_t offset; // into m_folded

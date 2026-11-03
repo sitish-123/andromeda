@@ -169,8 +169,12 @@ namespace andromeda::index {
   std::int64_t IndexDb::add(std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir) {
     sqlite3_stmt* stmt = nullptr;
     sqlite3_prepare_v2(m_db, "SELECT coalesce(max(id), 0) + 1 FROM files", -1, &stmt, nullptr);
-    const std::int64_t id = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 1;
+    std::int64_t id = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 1;
     sqlite3_finalize(stmt);
+    // A removed newest entry still sits in memory; its id must not be given out again.
+    if (m_loaded && !m_entries.empty()) {
+      id = std::max<std::int64_t>(id, m_entries.back().id + 1);
+    }
     insert(id, parent, name, mtime, size, isDir);
     if (m_loaded) {
       appendName(id, name, mtime);

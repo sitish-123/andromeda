@@ -65,6 +65,15 @@ int main() {
     const auto rows = db.queryNames("report", 10);
     check(!rows.empty() && rows.front().name == "Report", "exact name ranks first");
 
+    // A deleted newest entry frees its id for the next add(); the old name must not come back with it.
+    const auto docs = db.idOf((root / "Documents").string());
+    check(docs.has_value(), "folder id is found");
+    const std::int64_t swap = db.add(*docs, "zz-swap-file.tmp", 1, 0, false);
+    db.removeTree(swap);
+    const std::int64_t fresh = db.add(*docs, "zz-fresh-notes.txt", 2, 0, false);
+    db.update(fresh, 3, 0);
+    check(db.queryNames("zz-swap", 10).empty(), "a removed name does not come back on id reuse");
+    check(found(db, "zz-fresh", "zz-fresh-notes.txt"), "an entry added after a removal is found");
     fs::remove(root / "Documents/report-draft.txt");
     db.removeTree((root / "Documents/report-draft.txt").string());
     check(!found(db, "draft", "report-draft.txt"), "removed file is gone");
