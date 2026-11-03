@@ -465,8 +465,11 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     auto seeded = scripting::seedEntrySettings(*pluginEntry->entry, settings);
     static const std::unordered_map<std::string, WidgetSettingValue> kNoPluginOverrides;
     const auto* pluginOverrides = &kNoPluginOverrides;
-    if (m_scriptDeps.configService != nullptr) {
-      const auto& pluginSettings = m_scriptDeps.configService->config().plugins.pluginSettings;
+    const auto* allPluginSettings = m_scriptDeps.configService != nullptr
+        ? &m_scriptDeps.configService->config().plugins.pluginSettings
+        : m_scriptDeps.pluginSettings;
+    if (allPluginSettings != nullptr) {
+      const auto& pluginSettings = *allPluginSettings;
       if (const auto psIt = pluginSettings.find(pluginEntry->manifest->id); psIt != pluginSettings.end()) {
         pluginOverrides = &psIt->second;
       }

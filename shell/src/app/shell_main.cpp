@@ -1,6 +1,7 @@
 #include "app/application.h"
 #include "app/single_instance_lock.h"
 #include "auth/pam_authenticator.h"
+#include "shell/lockscreen/lock_helper.h"
 #include "cli/completions.h"
 #include "cli/help.h"
 #include "cli/schema_root.h"
@@ -303,6 +304,8 @@ extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int
     // Internal mode for PAM authentication after re-exec.
     if (std::strcmp(argv[1], "pam-helper") == 0)
       return PamAuthenticator::runHelperMode(argc, argv);
+    if (std::strcmp(argv[1], "lock-helper") == 0)
+      return runLockHelper(argc, argv);
     if (std::strcmp(argv[1], "config") == 0)
       return noctalia::config::runCli(argc, argv);
     if (std::strcmp(argv[1], "dmenu") == 0)

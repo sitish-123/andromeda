@@ -13,8 +13,8 @@
 // docs/user/plugins/development/declarative-ui.mdx, "Pixel streams").
 //
 // The companion listens on a filesystem SOCK_SEQPACKET socket. All fields are little-endian
-// uint32. The shell sends HELLO {1, version} once and REQUEST {2, 0} whenever it is ready for a
-// frame. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
+// uint32. The shell sends HELLO {1, version} once (again on an adopted socket, to ask for a
+// resend) and REQUEST {2, 0} whenever it is ready for a frame. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
 // sealed memfd (RGBA8, tightly packed rows), and answers each REQUEST with FRAME {2, id}. The
 // buffer named by a FRAME stays owned by the shell until its next REQUEST.
 class PixelStreamClient {
@@ -44,6 +44,9 @@ public:
   // connection attempt is due immediately. An empty path stops streaming.
   bool setPath(std::string path);
   [[nodiscard]] const std::string& path() const noexcept { return m_path; }
+  // Streams over an already connected socket (one end of a socketpair) instead of a path, and
+  // takes ownership of it. A drop is final: there is no path to reconnect to.
+  void adopt(int fd);
 
   [[nodiscard]] int fd() const noexcept { return m_fd; }
   [[nodiscard]] bool connected() const noexcept { return m_fd >= 0; }
@@ -59,7 +62,8 @@ public:
   // Returns the frame's buffer to the companion and requests the next frame.
   void releaseFrame();
   // Drops the connection and reconnects immediately; a new connection receives the current
-  // frame right away. Used when the consumer lost its copy (graphics context reset).
+  // frame right away. Used when the consumer lost its copy (graphics context reset). An adopted
+  // socket stays open and sends HELLO again instead, which asks the companion to resend.
   void reconnect();
 
 private:

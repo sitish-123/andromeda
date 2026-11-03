@@ -72,6 +72,15 @@ bool PixelStreamClient::setPath(std::string path) {
   return true;
 }
 
+void PixelStreamClient::adopt(int fd) {
+  disconnect();
+  m_path.clear();
+  m_fd = fd;
+  if (send(kHello, kProtocolVersion) && send(kRequest, 0)) {
+    m_requested = true;
+  }
+}
+
 std::optional<std::chrono::steady_clock::time_point> PixelStreamClient::retryAt() const {
   if (connected() || m_path.empty()) {
     return std::nullopt;
@@ -142,6 +151,13 @@ void PixelStreamClient::fail(std::string_view reason) {
 
 void PixelStreamClient::reconnect() {
   if (m_path.empty()) {
+    // An adopted socket cannot reconnect; a second HELLO asks for the current frame again.
+    if (connected() && send(kHello, kProtocolVersion)) {
+      m_frameBuffer.reset();
+      if (!m_requested && send(kRequest, 0)) {
+        m_requested = true;
+      }
+    }
     return;
   }
   disconnect();

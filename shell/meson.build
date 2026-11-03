@@ -482,6 +482,7 @@ _noctalia_sources = files(
   'src/ipc/ipc_client.cpp',
   'src/ipc/ipc_service.cpp',
   'src/ipc/pixel_stream_client.cpp',
+  'src/ipc/pixel_stream_server.cpp',
   'src/ipc/pixel_stream_service.cpp',
   'src/launcher/app_provider.cpp',
   'src/launcher/dmenu_cli.cpp',
@@ -629,6 +630,7 @@ _noctalia_sources = files(
   'src/shell/lockscreen/lock_editor_free.cpp',
   'src/shell/lockscreen/lock_editor_slots.cpp',
   'src/shell/lockscreen/lock_free_layout.cpp',
+  'src/shell/lockscreen/lock_helper.cpp',
   'src/shell/lockscreen/lock_notice_groups.cpp',
   'src/shell/lockscreen/lock_screen.cpp',
   'src/shell/lockscreen/lockscreen_session_actions.cpp',
@@ -1358,6 +1360,17 @@ if build_tests
       endif
     endif
   endforeach
+
+  lock_helper_test_exe = executable('lock_helper_test',
+    sources: files('tests/lock_helper_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  test('lock_helper', lock_helper_test_exe,
+    args: [noctalia_exe, meson.current_source_dir() / 'tests' / 'lock_helper'],
+    depends: [noctalia_exe, noctalia_shell_module],
+    timeout: 60,
+  )
 
   screencopy_connection_isolation_exe = executable('screencopy_connection_isolation_test',
     sources: files('tests/screencopy_connection_isolation_test.cpp') + [_wlr_screencopy_test_server_h],
