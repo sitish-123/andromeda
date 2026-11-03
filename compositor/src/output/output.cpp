@@ -1487,11 +1487,15 @@ namespace andromeda {
         const int64_t total = wlr_scene_timer_get_duration_ns(timer);
         if (total >= 0) {
           const fx_frame_stats& st = stats[next];
-          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u\n", static_cast<long long>(startNs[next]),
+          int64_t cpuNs = -1;
+          int64_t gpuExecNs = -1;
+          (void)fx_render_timer_split(timer->render_timer, &cpuNs, &gpuExecNs);
+          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld\n", static_cast<long long>(startNs[next]),
                        output, static_cast<long long>(timer->pre_render_duration),
                        static_cast<long long>(total - timer->pre_render_duration), st.blurs,
                        static_cast<unsigned long long>(st.blur_px), st.lens, static_cast<unsigned long long>(st.lens_px),
-                       st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes);
+                       st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes,
+                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs));
         }
       }
       built = next;
@@ -1840,6 +1844,7 @@ namespace andromeda {
 
   int Output::onFrameRetryTimer(void* data) {
     auto* self = static_cast<Output*>(data);
+    self->m_frameRetryArmed = false;
     if (outputFrameAllowed(self->m_server->stopping(), self->m_server->session())) {
       wlr_output_schedule_frame(self->m_output);
     }
@@ -1928,6 +1933,7 @@ namespace andromeda {
   void Output::armFrameRetry() {
     if (m_frameRetryTimer != nullptr && outputFrameAllowed(m_server->stopping(), m_server->session())) {
       wl_event_source_timer_update(m_frameRetryTimer, kFrameRetryDelayMs);
+      m_frameRetryArmed = true;
     }
   }
 
@@ -2046,8 +2052,10 @@ namespace andromeda {
       return;
     }
     const OutputFrameScope frameScope(*m_server);
-    if (m_frameRetryTimer != nullptr) {
+    // A disarm is a timerfd_settime syscall: only when armed.
+    if (m_frameRetryArmed) {
       wl_event_source_timer_update(m_frameRetryTimer, 0);
+      m_frameRetryArmed = false;
     }
     m_handlingFrame = true;
 
@@ -2242,6 +2250,9 @@ namespace andromeda {
         }
         sceneOptions.timer = m_frameTimers->take(m_output->name);
       }
+      // Before the render, so clients draw their next frame while we composite (1-3 ms more per period). No client
+      // request runs until this handler returns, so the call at the bottom then finds no new callbacks.
+      wlr_scene_output_send_frame_done(m_sceneOutput, &now);
       bool built = false;
       {
         ANDROMEDA_ZONE("Output::buildState");

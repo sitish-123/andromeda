@@ -45,4 +45,8 @@ struct wlr_texture* fx_texture_from_buffer(struct wlr_renderer* wlr_renderer, st
 
 void fx_texture_get_attribs(struct wlr_texture* texture, struct fx_texture_attribs* attribs);
 
+// After wlr_render_timer_get_duration_ns: CPU record time and GPU execution time (first to last GPU timestamp) of
+// the pass, in ns. False for a timer of another renderer.
+bool fx_render_timer_split(struct wlr_render_timer* timer, int64_t* cpu_ns, int64_t* gpu_exec_ns);
+
 #endif

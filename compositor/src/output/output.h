@@ -324,6 +324,7 @@ namespace andromeda {
     uint64_t m_refreshNs = 0;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
+    bool m_frameRetryArmed = false;
     wl_event_source* m_backdropTimer = nullptr;
     Output* m_mirrorSource = nullptr;
     int m_mirrorTargets = 0;

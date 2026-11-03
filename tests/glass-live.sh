@@ -139,7 +139,7 @@ done
 
 # Report. frames.log: start_ns output cpu_ns gpu_ns. A missed frame = more than 1.5 refresh intervals since the last one.
 hz_ms=16.68
-printf '%-30s %6s %7s %7s %7s %6s %6s %7s %6s %6s %6s %7s %6s %7s %5s\n' scenario frames p50ms p99ms maxms missed watts comp% shell% compMB shellMB blurKpx lens bdKpx fp16 | tee "$OUT/report.txt"
+printf '%-30s %6s %7s %7s %7s %6s %6s %7s %6s %6s %6s %7s %6s %7s %5s %7s %7s %7s %7s\n' scenario frames p50ms p99ms maxms missed watts comp% shell% compMB shellMB blurKpx lens bdKpx fp16 rec50 rec99 exec50 exec99 | tee "$OUT/report.txt"
 hz=$(getconf CLK_TCK)
 while read -r name t0 t1 e0 e1 c0 c1 s0 s1 crss srss; do
   awk -v from="$t0" -v to="$t1" '$1 >= from && $1 < to {print $1, $4}' "$FRAMES" | sort -n > "$OUT/.f"
@@ -153,10 +153,15 @@ while read -r name t0 t1 e0 e1 c0 c1 s0 s1 crss srss; do
   # backdrop rebuild area and FP16 passes.
   read -r bkpx lensn bdkpx fp16 < <(awk -v from="$t0" -v to="$t1" '$1 >= from && $1 < to && NF >= 11 {n++; b += $6; l += $7; d += $10; f += $11}
     END {if (n == 0) print "- - - -"; else printf "%.0f %.2f %.0f %.2f\n", b / n / 1000, l / n, d / n / 1000, f / n}' "$FRAMES")
+  # Frame log columns 12-13: CPU record time and GPU execution time; p99 minus both is time queued behind other GPU work.
+  read -r rec50 rec99 exec50 exec99 < <(awk -v from="$t0" -v to="$t1" '$1 >= from && $1 < to && NF >= 13 && $13 >= 0 {n++; r[n] = $12; x[n] = $13}
+    END {if (n == 0) {print "- - - -"; exit}
+      asort(r); asort(x); i50 = int(n * 0.5); i99 = int(n * 0.99); if (i50 < 1) i50 = 1; if (i99 < 1) i99 = 1
+      printf "%.2f %.2f %.2f %.2f\n", r[i50] / 1e6, r[i99] / 1e6, x[i50] / 1e6, x[i99] / 1e6}' "$FRAMES")
   secs=$(awk -v a="$t0" -v b="$t1" 'BEGIN {print (b - a) / 1e9}')
   watts=$(awk -v a="$e0" -v b="$e1" -v s="$secs" 'BEGIN {print (b > a && s > 0) ? sprintf("%.2f", (b - a) / 1e6 / s) : "n/a"}')
   cpu() { awk -v a="$1" -v b="$2" -v s="$secs" -v hz="$hz" 'BEGIN {printf "%.1f", (b - a) / hz / s * 100}'; }
-  printf '%-30s %6d %7s %7s %7s %6d %6s %7s %6s %6s %6s %7s %6s %7s %5s\n' "$name" "$n" "$p50" "$p99" "$mx" "$missed" "$watts" \
-    "$(cpu "$c0" "$c1")" "$(cpu "$s0" "$s1")" "$crss" "$srss" "$bkpx" "$lensn" "$bdkpx" "$fp16" | tee -a "$OUT/report.txt"
+  printf '%-30s %6d %7s %7s %7s %6d %6s %7s %6s %6s %6s %7s %6s %7s %5s %7s %7s %7s %7s\n' "$name" "$n" "$p50" "$p99" "$mx" "$missed" "$watts" \
+    "$(cpu "$c0" "$c1")" "$(cpu "$s0" "$s1")" "$crss" "$srss" "$bkpx" "$lensn" "$bdkpx" "$fp16" "$rec50" "$rec99" "$exec50" "$exec99" | tee -a "$OUT/report.txt"
 done < "$OUT/scenarios.txt"
 echo "budget: p99 GPU <= 4.17 ms (25 % of a 60 Hz frame); missed frames should be 0 outside idle" | tee -a "$OUT/report.txt"

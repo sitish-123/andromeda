@@ -181,6 +181,7 @@ static struct wlr_render_pass* begin_buffer_pass_with_output(
   if (options->timer) {
     timer = fx_get_render_timer(options->timer);
     clock_gettime(CLOCK_MONOTONIC, &timer->cpu_start);
+    renderer->procs.glQueryCounterEXT(timer->begin_id, GL_TIMESTAMP_EXT);
   }
 
   struct fx_framebuffer* buffer = fx_framebuffer_get_or_create(renderer, wlr_buffer);
@@ -287,6 +288,7 @@ static struct wlr_render_timer* fx_render_timer_create(struct wlr_renderer* wlr_
   struct wlr_egl_context prev_ctx;
   wlr_egl_make_current(renderer->egl, &prev_ctx);
   renderer->procs.glGenQueriesEXT(1, &timer->id);
+  renderer->procs.glGenQueriesEXT(1, &timer->begin_id);
   wlr_egl_restore_context(&prev_ctx);
 
   return &timer->base;
@@ -317,11 +319,24 @@ static int fx_get_render_time(struct wlr_render_timer* wlr_timer) {
 
   GLuint64 gl_render_end;
   renderer->procs.glGetQueryObjectui64vEXT(timer->id, GL_QUERY_RESULT_EXT, &gl_render_end);
+  GLuint64 gl_render_begin;
+  renderer->procs.glGetQueryObjectui64vEXT(timer->begin_id, GL_QUERY_RESULT_EXT, &gl_render_begin);
+  timer->gpu_exec_ns = (int64_t)(gl_render_end - gl_render_begin);
 
   int64_t cpu_nsec_total = timespec_to_nsec(&timer->cpu_end) - timespec_to_nsec(&timer->cpu_start);
 
   wlr_egl_restore_context(&prev_ctx);
   return gl_render_end - timer->gl_cpu_end + cpu_nsec_total;
+}
+
+bool fx_render_timer_split(struct wlr_render_timer* wlr_timer, int64_t* cpu_ns, int64_t* gpu_exec_ns) {
+  if (wlr_timer == NULL || !wlr_render_timer_is_fx(wlr_timer)) {
+    return false;
+  }
+  struct fx_render_timer* timer = fx_get_render_timer(wlr_timer);
+  *cpu_ns = timespec_to_nsec(&timer->cpu_end) - timespec_to_nsec(&timer->cpu_start);
+  *gpu_exec_ns = timer->gpu_exec_ns;
+  return true;
 }
 
 static void fx_render_timer_destroy(struct wlr_render_timer* wlr_timer) {
@@ -331,6 +346,7 @@ static void fx_render_timer_destroy(struct wlr_render_timer* wlr_timer) {
   struct wlr_egl_context prev_ctx;
   wlr_egl_make_current(renderer->egl, &prev_ctx);
   renderer->procs.glDeleteQueriesEXT(1, &timer->id);
+  renderer->procs.glDeleteQueriesEXT(1, &timer->begin_id);
   wlr_egl_restore_context(&prev_ctx);
   free(timer);
 }

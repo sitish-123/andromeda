@@ -174,7 +174,10 @@ struct fx_render_timer {
   struct timespec cpu_start;
   struct timespec cpu_end;
   GLuint id;
+  GLuint begin_id;
   GLint64 gl_cpu_end;
+  // Set by the duration read: first to last GPU timestamp of the pass.
+  int64_t gpu_exec_ns;
 };
 
 bool wlr_render_timer_is_fx(struct wlr_render_timer* timer);
