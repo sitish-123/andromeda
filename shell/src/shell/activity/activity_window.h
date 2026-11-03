@@ -15,13 +15,16 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 class ActivityActions;
 class Button;
 class ActivityMonitor;
 class ConfigService;
 class Flex;
+class Graph;
 class Input;
+class Label;
 class RenderContext;
 class Renderer;
 class ShellWaylandConnection;
@@ -80,6 +83,13 @@ private:
   void addBatteryCards(Renderer& renderer, Flex& list, float scale);
   void addHistoryCards(Renderer& renderer, Flex& list, float scale);
   void onSample();
+  // After a sample: updates the bound labels and graphs in place when structureKey() still matches the scene,
+  // else rebuilds it. A full rebuild costs several ms on the main thread; an in-place update well under one.
+  void refreshAfterSample();
+  [[nodiscard]] std::string structureKey() const;
+  [[nodiscard]] std::string captionFor(const ActivityRow& row) const;
+  [[nodiscard]] const ActivityRow* findRow(const std::string& key) const;
+  void updateLive();
   void forceQuitSelected();
   [[nodiscard]] const ActivityRow* selectedRow() const;
   [[nodiscard]] const BackgroundActivityMonitor::RowState* rowState(const std::string& key) const;
@@ -127,4 +137,16 @@ private:
   bool m_pointerInside = false;
   bool m_rebuildRequested = false;
   bool m_buttonDown = false;
+
+  struct LiveText {
+    Label* label = nullptr;
+    std::function<std::string()> text;
+  };
+  struct LiveGraph {
+    Graph* graph = nullptr;
+    std::function<std::vector<float>()> values;
+  };
+  std::vector<LiveText> m_liveText; // pointers into m_sceneRoot; cleared on each rebuild
+  std::vector<LiveGraph> m_liveGraphs;
+  std::string m_structure; // structureKey() of the current scene
 };

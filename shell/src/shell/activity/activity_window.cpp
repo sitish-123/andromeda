@@ -168,7 +168,7 @@ namespace {
     });
   }
 
-  std::unique_ptr<Flex> factRow(std::string key, std::string value, float scale) {
+  std::unique_ptr<Flex> factRow(std::string key, std::string value, float scale, Label** valueOut = nullptr) {
     return ui::row(
         {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = Tokens::sizeRowCompact * scale},
         ui::label({
@@ -178,6 +178,7 @@ namespace {
             .flexGrow = 1.0F,
         }),
         ui::label({
+            .out = valueOut,
             .text = std::move(value),
             .fontSize = Style::fontSizeCaption * scale,
             .color = colorSpecFromRole(ColorRole::Label1),
@@ -386,7 +387,7 @@ void ActivityWindow::onSample() {
     const auto start = std::chrono::steady_clock::now();
     const bool sampled = m_details->update(
         activity.rows(), m_monitor->userUnits().units(), activity.cgroupRoot(), activity.cpuCount(), start,
-        [this] { requestRebuild(); }
+        [this] { refreshAfterSample(); }
     );
     kLog.debug(
         "details {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
@@ -404,7 +405,7 @@ void ActivityWindow::onSample() {
       m_diskHistory.pop_front();
     }
   }
-  requestRebuild();
+  refreshAfterSample();
 }
 
 void ActivityWindow::requestRebuild() {
@@ -464,6 +465,8 @@ void ActivityWindow::buildScene(Renderer& renderer, float width, float height) {
   // A non-null root drops hover (which points into the old tree) but keeps focus; nullptr would also blur the
   // search field and drop its preedit text.
   m_inputDispatcher.setSceneRoot(&m_placeholderRoot);
+  m_liveText.clear();
+  m_liveGraphs.clear();
   if (m_searchInput != nullptr && m_searchInput->parent() != nullptr) {
     m_keptSearch = m_searchInput->parent()->removeChild(m_searchInput);
   }
@@ -491,6 +494,93 @@ void ActivityWindow::buildScene(Renderer& renderer, float width, float height) {
   m_surface->setSceneRoot(m_sceneRoot.get());
   if (searchFocused && m_searchInput != nullptr) {
     m_inputDispatcher.setFocus(m_searchInput->inputArea());
+  }
+  m_structure = structureKey();
+}
+
+std::string ActivityWindow::captionFor(const ActivityRow& row) const {
+  if (const auto* state = rowState(row.key); state != nullptr && !row.hasWindow) {
+    return std::format(
+        "{} · {}", i18n::tr(state->atLogin ? "activity.caption-at-login" : "activity.caption-on-demand"),
+        uptimeText(row.startedUsec)
+    );
+  }
+  if (row.units.size() > 1) {
+    return i18n::tr("activity.caption-units", "count", std::to_string(row.units.size()));
+  }
+  return {};
+}
+
+const ActivityRow* ActivityWindow::findRow(const std::string& key) const {
+  const auto& rows = m_monitor->activity().rows();
+  const auto it = std::ranges::find(rows, key, &ActivityRow::key);
+  return it != rows.end() ? &*it : nullptr;
+}
+
+std::string ActivityWindow::structureKey() const {
+  // Everything that decides which nodes exist: row order and membership, captions, chips, meters, counts, groups.
+  std::string key = std::format(
+      "{}|{}|{}|{}|{}|{}", static_cast<int>(m_tab), m_query, m_selectedKey, m_actionError, uiScale(),
+      m_monitor->sampling()
+  );
+  for (const auto& row : m_monitor->activity().rows()) {
+    const double gpu = m_details != nullptr ? m_details->gpuPercent(row.key) : 0.0;
+    key += std::format(
+        "\n{}|{}|{}|{}|{}|{}", row.key, row.hasWindow, row.units.size(), captionFor(row), needsAttention(row),
+        energyBars(row.cpuPercent, gpu)
+    );
+    if (const auto* state = rowState(row.key); state != nullptr) {
+      key += std::format(
+          "|{}|{}|{}|{}", static_cast<int>(state->verdict.finding), state->ignored, state->atLogin,
+          BackgroundActivityMonitor::reasonText(*state, row.memoryBytes).empty()
+      );
+    }
+    if (m_details != nullptr && m_details->expanded(row.key)) {
+      key += "|+";
+      if (const auto* groups = m_details->groups(row.key); groups != nullptr) {
+        for (const auto& group : *groups) {
+          key += std::format(",{}:{}", group.command, group.count);
+        }
+      }
+    }
+  }
+  if (const ActivityRow* row = selectedRow(); row != nullptr && m_details != nullptr) {
+    const auto* history = m_details->history(row->key);
+    key += history != nullptr && history->memoryMb.size() > 1 ? "|graph" : "|nograph";
+  }
+  if (m_sysmon != nullptr) {
+    const auto history = m_sysmon->history();
+    key += !history.empty() && history.back().gpuUsagePercent.has_value() ? "|gpu" : "|nogpu";
+  }
+  return key;
+}
+
+void ActivityWindow::updateLive() {
+  const auto start = std::chrono::steady_clock::now();
+  for (const auto& [label, text] : m_liveText) {
+    label->setText(text());
+  }
+  for (const auto& [graph, values] : m_liveGraphs) {
+    graph->setValues(values());
+  }
+  invalidate();
+  kLog.debug(
+      "live {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+  );
+}
+
+void ActivityWindow::refreshAfterSample() {
+  if (m_surface == nullptr) {
+    return;
+  }
+  refreshRowStates(false);
+  if ((m_tab == Tab::Apps || m_tab == Tab::Background)
+      && m_sceneRoot != nullptr
+      && !m_rebuildRequested
+      && structureKey() == m_structure) {
+    updateLive();
+  } else {
+    requestRebuild();
   }
 }
 
@@ -611,7 +701,9 @@ std::unique_ptr<Flex> ActivityWindow::buildSystemGraphs(float scale) {
       })
   );
   const float width = (kSidebarWidth - 2.0F * settings::metrics::kSidebarPaddingH) * scale;
-  const auto add = [&](std::string name, std::string value, std::vector<float> values, ColorRole role) {
+  const auto add = [&](std::string name, std::function<std::string()> value, std::function<std::vector<float>()> values,
+                       ColorRole role) {
+    Label* valueLabel = nullptr;
     box->addChild(
         ui::row(
             {.align = FlexAlign::Center},
@@ -622,38 +714,58 @@ std::unique_ptr<Flex> ActivityWindow::buildSystemGraphs(float scale) {
                  .flexGrow = 1.0F}
             ),
             ui::label(
-                {.text = std::move(value),
+                {.out = &valueLabel,
+                 .text = value(),
                  .fontSize = Style::fontSizeCaption * scale,
                  .color = colorSpecFromRole(ColorRole::Label2)}
             )
         )
     );
-    box->addChild(makeGraph(std::move(values), width, kSidebarGraphHeight * scale, role));
+    auto* graph = static_cast<Graph*>(box->addChild(makeGraph(values(), width, kSidebarGraphHeight * scale, role)));
+    m_liveText.push_back({valueLabel, std::move(value)});
+    m_liveGraphs.push_back({graph, std::move(values)});
   };
-  std::vector<SystemStats> stats = m_sysmon != nullptr ? m_sysmon->history() : std::vector<SystemStats>{};
-  const SystemStats last = stats.empty() ? SystemStats{} : stats.back();
-  std::deque<float> cpu;
-  std::deque<float> ram;
-  std::deque<float> gpu;
-  for (const auto& sample : stats) {
-    cpu.push_back(static_cast<float>(sample.cpuUsagePercent));
-    ram.push_back(static_cast<float>(sample.ramUsagePercent));
-    gpu.push_back(static_cast<float>(sample.gpuUsagePercent.value_or(0.0)));
+  const auto stats = [this] { return m_sysmon != nullptr ? m_sysmon->history() : std::vector<SystemStats>{}; };
+  const auto last = [stats] {
+    const auto all = stats();
+    return all.empty() ? SystemStats{} : all.back();
+  };
+  const auto series = [stats](auto pick) {
+    return [stats, pick] {
+      std::deque<float> values;
+      for (const auto& sample : stats()) {
+        values.push_back(static_cast<float>(pick(sample)));
+      }
+      return normalized(values, 100.0F);
+    };
+  };
+  add(
+      i18n::tr("activity.column-cpu"), [last] { return std::format("{:.0f} %", last().cpuUsagePercent); },
+      series([](const SystemStats& s) { return s.cpuUsagePercent; }), ColorRole::Accent
+  );
+  add(
+      i18n::tr("activity.column-memory"),
+      [last] {
+        const SystemStats now = last();
+        return std::format(
+            "{:.1f} of {:.0f} GB", static_cast<double>(now.ramUsedMb) / 1024.0,
+            static_cast<double>(now.ramTotalMb) / 1024.0
+        );
+      },
+      series([](const SystemStats& s) { return s.ramUsagePercent; }), ColorRole::Accent
+  );
+  if (last().gpuUsagePercent.has_value()) {
+    add(
+        i18n::tr("activity.column-gpu"),
+        [last] { return std::format("{:.0f} %", last().gpuUsagePercent.value_or(0.0)); },
+        series([](const SystemStats& s) { return s.gpuUsagePercent.value_or(0.0); }), ColorRole::Accent
+    );
   }
-  add(i18n::tr("activity.column-cpu"), std::format("{:.0f} %", last.cpuUsagePercent), normalized(cpu, 100.0F),
-      ColorRole::Accent);
-  add(i18n::tr("activity.column-memory"),
-      std::format(
-          "{:.1f} of {:.0f} GB", static_cast<double>(last.ramUsedMb) / 1024.0,
-          static_cast<double>(last.ramTotalMb) / 1024.0
-      ),
-      normalized(ram, 100.0F), ColorRole::Accent);
-  if (last.gpuUsagePercent.has_value()) {
-    add(i18n::tr("activity.column-gpu"), std::format("{:.0f} %", *last.gpuUsagePercent), normalized(gpu, 100.0F),
-        ColorRole::Accent);
-  }
-  add(i18n::tr("activity.disk"), std::format("{:.1f} MB/s", m_diskHistory.empty() ? 0.0F : m_diskHistory.back()),
-      normalized(m_diskHistory, 1.0F), ColorRole::Label2);
+  add(
+      i18n::tr("activity.disk"),
+      [this] { return std::format("{:.1f} MB/s", m_diskHistory.empty() ? 0.0F : m_diskHistory.back()); },
+      [this] { return normalized(m_diskHistory, 1.0F); }, ColorRole::Label2
+  );
   return box;
 }
 
@@ -666,15 +778,7 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
   if (const std::string path = iconPath(id.icon, iconPx); !path.empty()) {
     icon->setSourceFile(renderer, path, iconPx);
   }
-  std::string caption;
-  if (const auto* state = rowState(row.key); state != nullptr && !row.hasWindow) {
-    caption = std::format(
-        "{} · {}", i18n::tr(state->atLogin ? "activity.caption-at-login" : "activity.caption-on-demand"),
-        uptimeText(row.startedUsec)
-    );
-  } else if (row.units.size() > 1) {
-    caption = i18n::tr("activity.caption-units", "count", std::to_string(row.units.size()));
-  }
+  const std::string caption = captionFor(row);
   return ui::button({
       .text = id.name,
       .fontSize = Style::fontSizeBody * scale,
@@ -731,9 +835,21 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
                 })
             );
             const double gpu = m_details != nullptr ? m_details->gpuPercent(row.key) : 0.0;
-            button.addChild(cell(cpuText(row.cpuPercent), scale));
-            button.addChild(cell(memoryText(row.memoryBytes), scale, ColorRole::Label1));
-            button.addChild(cell(std::format("{:.0f} %", gpu), scale));
+            const auto bind = [&](std::unique_ptr<Label> label, auto text) {
+              m_liveText.push_back(
+                  {static_cast<Label*>(button.addChild(std::move(label))), [this, key = row.key, text] {
+                     const ActivityRow* live = findRow(key);
+                     return live != nullptr ? text(*live) : std::string();
+                   }}
+              );
+            };
+            bind(cell(cpuText(row.cpuPercent), scale), [](const ActivityRow& r) { return cpuText(r.cpuPercent); });
+            bind(cell(memoryText(row.memoryBytes), scale, ColorRole::Label1), [](const ActivityRow& r) {
+              return memoryText(r.memoryBytes);
+            });
+            bind(cell(std::format("{:.0f} %", gpu), scale), [this](const ActivityRow& r) {
+              return std::format("{:.0f} %", m_details != nullptr ? m_details->gpuPercent(r.key) : 0.0);
+            });
             button.addChild(energyMeter(energyBars(row.cpuPercent, gpu), scale));
           },
   });
@@ -746,6 +862,20 @@ void ActivityWindow::addRow(Renderer& renderer, Flex& card, const ActivityRow& r
     return;
   }
   for (const auto& group : *groups) {
+    auto cpuCell = cell(cpuText(group.cpuPercent), scale);
+    auto memoryCell = cell(memoryText(group.residentBytes), scale);
+    const auto bind = [this, key = row.key, command = group.command](Label* label, auto text) {
+      m_liveText.push_back({label, [this, key, command, text] {
+                              const auto* live = m_details != nullptr ? m_details->groups(key) : nullptr;
+                              if (live == nullptr) {
+                                return std::string();
+                              }
+                              const auto it = std::ranges::find(*live, command, &ProcessGroupUsage::command);
+                              return it != live->end() ? text(*it) : std::string();
+                            }});
+    };
+    bind(cpuCell.get(), [](const ProcessGroupUsage& g) { return cpuText(g.cpuPercent); });
+    bind(memoryCell.get(), [](const ProcessGroupUsage& g) { return memoryText(g.residentBytes); });
     card.addChild(
         ui::row(
             {.align = FlexAlign::Center,
@@ -761,8 +891,8 @@ void ActivityWindow::addRow(Renderer& renderer, Flex& card, const ActivityRow& r
                 .ellipsize = TextEllipsize::End,
                 .flexGrow = 1.0F,
             }),
-            cell(cpuText(group.cpuPercent), scale), cell(memoryText(group.residentBytes), scale),
-            cell("–", scale, ColorRole::Label3), ui::node({.width = kEnergyWidth * scale})
+            std::move(cpuCell), std::move(memoryCell), cell("–", scale, ColorRole::Label3),
+            ui::node({.width = kEnergyWidth * scale})
         )
     );
   }
@@ -1085,6 +1215,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (const auto* history = m_details != nullptr ? m_details->history(row->key) : nullptr;
       history != nullptr && history->memoryMb.size() > 1) {
     const float width = (kInspectorWidth - 2.0F * Style::spaceLg) * scale;
+    Label* graphValue = nullptr;
     inspector->addChild(
         ui::row(
             {.align = FlexAlign::Center},
@@ -1095,29 +1226,45 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
                  .flexGrow = 1.0F}
             ),
             ui::label(
-                {.text = memoryText(row->memoryBytes),
+                {.out = &graphValue,
+                 .text = memoryText(row->memoryBytes),
                  .fontSize = Style::fontSizeCaption * scale,
                  .color = colorSpecFromRole(ColorRole::Label1)}
             )
         )
     );
-    inspector->addChild(
+    auto* graph = static_cast<Graph*>(inspector->addChild(
         makeGraph(normalized(history->memoryMb), width, kInspectorGraphHeight * scale, ColorRole::Accent)
-    );
+    ));
+    m_liveText.push_back({graphValue, [this, key = row->key] {
+                            const ActivityRow* live = findRow(key);
+                            return live != nullptr ? memoryText(live->memoryBytes) : std::string();
+                          }});
+    m_liveGraphs.push_back({graph, [this, key = row->key] {
+                              const auto* live = m_details != nullptr ? m_details->history(key) : nullptr;
+                              return live != nullptr ? normalized(live->memoryMb) : std::vector<float>{};
+                            }});
   }
 
-  inspector->addChild(factRow(i18n::tr("activity.column-cpu"), cpuText(row->cpuPercent), scale));
-  inspector->addChild(factRow(i18n::tr("activity.column-memory"), memoryText(row->memoryBytes), scale));
-  inspector->addChild(factRow(i18n::tr("activity.column-gpu"), std::format("{:.0f} %", gpu), scale));
-  inspector->addChild(factRow(
-      i18n::tr("activity.fact-disk"),
-      std::format(
-          "{:.1f} / {:.1f} MB/s", row->ioReadBytesPerSec / (1024.0 * 1024.0),
-          row->ioWriteBytesPerSec / (1024.0 * 1024.0)
-      ),
-      scale
-  ));
-  inspector->addChild(factRow(i18n::tr("activity.fact-running-for"), uptimeText(row->startedUsec), scale));
+  const auto fact = [&](std::string name, std::function<std::string(const ActivityRow&)> text) {
+    Label* value = nullptr;
+    inspector->addChild(factRow(std::move(name), text(*row), scale, &value));
+    m_liveText.push_back({value, [this, key = row->key, text = std::move(text)] {
+                            const ActivityRow* live = findRow(key);
+                            return live != nullptr ? text(*live) : std::string();
+                          }});
+  };
+  fact(i18n::tr("activity.column-cpu"), [](const ActivityRow& r) { return cpuText(r.cpuPercent); });
+  fact(i18n::tr("activity.column-memory"), [](const ActivityRow& r) { return memoryText(r.memoryBytes); });
+  fact(i18n::tr("activity.column-gpu"), [this](const ActivityRow& r) {
+    return std::format("{:.0f} %", m_details != nullptr ? m_details->gpuPercent(r.key) : 0.0);
+  });
+  fact(i18n::tr("activity.fact-disk"), [](const ActivityRow& r) {
+    return std::format(
+        "{:.1f} / {:.1f} MB/s", r.ioReadBytesPerSec / (1024.0 * 1024.0), r.ioWriteBytesPerSec / (1024.0 * 1024.0)
+    );
+  });
+  fact(i18n::tr("activity.fact-running-for"), [](const ActivityRow& r) { return uptimeText(r.startedUsec); });
   inspector->addChild(factRow(i18n::tr("activity.fact-units"), std::to_string(row->units.size()), scale));
   const auto* state = rowState(row->key);
   if (state != nullptr && !row->hasWindow) {
@@ -1128,6 +1275,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (const std::string reason =
           state != nullptr ? BackgroundActivityMonitor::reasonText(*state, row->memoryBytes) : "";
       !reason.empty()) {
+    Label* reasonLabel = nullptr;
     inspector->addChild(
         ui::row(
             {.align = FlexAlign::Start,
@@ -1141,6 +1289,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
                 .color = colorSpecFromRole(ColorRole::Warning),
             }),
             ui::label({
+                .out = &reasonLabel,
                 .text = reason,
                 .fontSize = Style::fontSizeCaption * scale,
                 .color = colorSpecFromRole(ColorRole::Label1),
@@ -1149,6 +1298,13 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
             })
         )
     );
+    m_liveText.push_back({reasonLabel, [this, key = row->key] {
+                            const ActivityRow* live = findRow(key);
+                            const auto* liveState = rowState(key);
+                            return live != nullptr && liveState != nullptr
+                                ? BackgroundActivityMonitor::reasonText(*liveState, live->memoryBytes)
+                                : std::string();
+                          }});
   }
 
   inspector->addChild(ui::spacer());

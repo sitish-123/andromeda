@@ -155,6 +155,8 @@ private:
   std::unique_ptr<sdbus::IProxy> m_watcherProxy;
   std::unique_ptr<sdbus::IProxy> m_dbusProxy;
   std::unordered_map<std::string, TrayItemInfo> m_items;
+  // itemPids() cache: a bus name keeps its owner's PID (unique names are never reused), so each costs one bus call.
+  mutable std::unordered_map<std::string, std::uint32_t> m_itemPids;
   std::unordered_map<std::string, std::unique_ptr<sdbus::IProxy>> m_itemProxies;
   std::unordered_map<std::string, MenuCache> m_menuCache;
   std::unordered_set<std::string> m_pathOnlyResolutionsInFlight;
