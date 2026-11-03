@@ -42,6 +42,9 @@ public:
   PixelStreamView& operator=(const PixelStreamView&) = delete;
 
   void setPath(const std::string& path);
+  // Streams from a connected socket the caller made (PixelStreamClient::adopt). The view blanks
+  // when that stream drops, and `onChange(connected)` runs after each frame and on the drop.
+  void adopt(int fd, std::function<void(bool connected)> onChange);
   void setRadius(float radius);
   // `buttons` is an InputArea button mask: left enables drags (Down/Move/Up/Cancel), right and
   // middle enable their clicks. Hover Moves are reported whenever a handler is set.
@@ -70,6 +73,7 @@ private:
   int m_displayWidth = 0;
   int m_displayHeight = 0;
 
+  std::function<void(bool connected)> m_onAdoptedChange;
   PointerHandler m_pointerHandler;
   KeyHandler m_keyHandler;
   std::uint32_t m_buttons = 0;

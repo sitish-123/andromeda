@@ -134,6 +134,14 @@ void PixelStreamView::setPath(const std::string& path) {
   markLayoutDirty();
 }
 
+void PixelStreamView::adopt(int fd, std::function<void(bool connected)> onChange) {
+  cancelDrag();
+  m_onAdoptedChange = std::move(onChange);
+  m_client.adopt(fd);
+  m_clearPending = true;
+  markLayoutDirty();
+}
+
 void PixelStreamView::setRadius(float radius) { m_image->setRadius(radius); }
 
 void PixelStreamView::setPointerHandler(PointerHandler handler, std::uint32_t buttons, bool scroll) {
@@ -183,8 +191,12 @@ void PixelStreamView::emit(PointerKind kind, float x, float y, float dx, float d
 void PixelStreamView::onStreamChanged() {
   if (!m_client.connected()) {
     cancelDrag();
+    m_clearPending = m_clearPending || m_onAdoptedChange != nullptr;
   }
   markLayoutDirty();
+  if (m_onAdoptedChange) {
+    m_onAdoptedChange(m_client.connected());
+  }
 }
 
 std::optional<std::pair<float, float>> PixelStreamView::imagePosition(float localX, float localY) const {

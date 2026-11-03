@@ -1,9 +1,12 @@
 #pragma once
 
 #include "config/config_types.h"
+#include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
+#include "shell/lockscreen/lock_helper_process.h"
 #include "shell/desktop/desktop_widget_factory.h"
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,6 +14,10 @@
 class ConfigService;
 class LockScreen;
 class LockSurface;
+class PixelStreamView;
+namespace scripting {
+  class ScriptApiContext;
+}
 class RenderContext;
 class WaylandConnection;
 
@@ -19,6 +26,10 @@ using LockscreenWidgetsSnapshot = LockscreenWidgetsConfig;
 class LockscreenWidgetsHost {
 public:
   LockscreenWidgetsHost() = default;
+  // Stream callbacks capture the host: stop the helper and drop the views first.
+  ~LockscreenWidgetsHost() { hide(); }
+  LockscreenWidgetsHost(const LockscreenWidgetsHost&) = delete;
+  LockscreenWidgetsHost& operator=(const LockscreenWidgetsHost&) = delete;
 
   void initialize(const DesktopWidgetServices& services);
   void show(const LockscreenWidgetsSnapshot& snapshot, LockScreen& lockScreen);
@@ -41,12 +52,21 @@ private:
     AnimationManager animations;
     Node* transformNode = nullptr;
     std::unique_ptr<DesktopWidget> widget;
+    // Plugin widgets draw in the lock helper process; their frames arrive in `stream`.
+    PixelStreamView* stream = nullptr;
+    Node* placeholder = nullptr;
+    // Output scale the helper renders this slot at; a change needs a new helper.
+    float streamScale = 0.0F;
     float intrinsicWidth = 0.0F;
     float intrinsicHeight = 0.0F;
   };
 
   void syncSurfaces(LockScreen& lockScreen);
   void createInstance(const DesktopWidgetState& state, LockSurface& surface, const WaylandOutput& output);
+  void createStreamInstance(const DesktopWidgetState& state, LockSurface& surface);
+  void scheduleHelper(std::chrono::milliseconds delay);
+  void startHelper();
+  void onStreamDropped();
   void attachToSurface(WidgetInstance& instance);
   void detachFromSurface(WidgetInstance& instance);
   void syncSurfaceFrameTick(LockSurface* surface);
@@ -60,4 +80,8 @@ private:
   LockscreenWidgetsSnapshot m_snapshot;
   bool m_visible = false;
   std::vector<std::unique_ptr<WidgetInstance>> m_instances;
+  scripting::ScriptApiContext* m_scriptApi = nullptr;
+  LockHelperProcess m_helper;
+  Timer m_helperTimer;
+  int m_helperRestarts = 0;
 };
