@@ -76,6 +76,14 @@ package_andromeda-compositor-git() {
   meson install -C build-compositor --destdir "$pkgdir"
   install -Dm644 desktop/session/background.slice.d/andromeda-lp-e-cores.conf \
     "$pkgdir/usr/lib/systemd/user/background.slice.d/andromeda-lp-e-cores.conf"
+  install -Dm644 desktop/session/memory/user-session.slice.conf \
+    "$pkgdir/usr/lib/systemd/user/session.slice.d/andromeda-ui-memory.conf"
+  install -Dm644 desktop/session/memory/user-service.conf \
+    "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-ui-memory.conf"
+  for slice in user.slice user-.slice; do
+    install -Dm644 desktop/session/memory/user-system.slice.conf \
+      "$pkgdir/usr/lib/systemd/system/$slice.d/andromeda-ui-memory.conf"
+  done
   install -Dm644 desktop/compositor/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
