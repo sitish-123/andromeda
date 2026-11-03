@@ -1178,7 +1178,16 @@
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
     "power": {
+    "alert": {
+      "cancel": "Cancel",
+      "restart-title": "Restart anyway?",
+      "shutdown-body": "An app is preventing shutdown. Unsaved work in open apps is lost.",
+      "shutdown-title": "Shut down anyway?",
+      "sleep-body": "An app is preventing sleep.",
+      "sleep-title": "Sleep anyway?"
+    },
       "restart": "Restart",
+      "blocked": "Can't do that: an app is blocking it",
       "shutdown": "Shut down",
       "sleep": "Sleep"
     },

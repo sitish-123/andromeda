@@ -5,6 +5,10 @@
 #include "core/log.h"
 #include "core/ui_phase.h"
 #include "dbus/link/link_service.h"
+#include "shell/session/power_inhibitors.h"
+
+#include <unistd.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "ext-session-lock-v1-client-protocol.h"
@@ -602,6 +606,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
     m_cards.build(m_auth->glanceLayer());
     m_callCard.build(m_root);
     m_chrome.build(m_root);
+    m_alert.build(m_root);
     startAndromedaClock();
   }
   requestUpdate();
@@ -1090,6 +1095,19 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
     const bool pressed = event.pressed;
     const auto x = static_cast<float>(event.sx);
     const auto y = static_cast<float>(event.sy);
+    // The inhibitor alert is modal: it takes every press until Cancel or the destructive button.
+    if (m_locked && pressed && m_alert.shown()) {
+      const LockAlert::Hit hit = m_alert.hitTest(x, y);
+      if (hit == LockAlert::Hit::Cancel || hit == LockAlert::Hit::Confirm) {
+        const int index = m_powerAlert;
+        m_powerAlert = -1;
+        if (hit == LockAlert::Hit::Confirm) {
+          runPower(index, true);
+        }
+        requestLayout();
+      }
+      break;
+    }
     if (m_locked && pressed && m_auth != nullptr && handleChromePress(x, y)) {
       requestLayout();
       break;
@@ -1160,6 +1178,18 @@ void LockSurface::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   }
 
+  if (m_locked && event.pressed && m_powerAlert >= 0) {
+    // Modal alert: Escape and Enter cancel (Cancel is the default button); other keys do nothing.
+    if (event.sym == XKB_KEY_Escape || event.sym == XKB_KEY_Return || event.sym == XKB_KEY_KP_Enter) {
+      m_powerAlert = -1;
+      requestLayout();
+    }
+    return;
+  }
+  if (m_locked && event.pressed && !m_powerError.empty()) {
+    m_powerError.clear();
+    requestLayout();
+  }
   if (m_locked && event.pressed) {
     wakeGlance();
   }
@@ -1863,9 +1893,13 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   } else {
     state.reasonTitle.clear();
     state.reasonBody.clear();
-    if (call.declinePending && !state.hintError) {
+    if (call.declinePending && !state.hintError && m_powerError.empty()) {
       state.hint = i18n::tr("lockscreen.call.decline-pending");
     }
+  }
+  if (visible && !m_powerError.empty()) {
+    state.hint = m_powerError;
+    state.hintError = true;
   }
   AuthPlacementInput input{
       .layout = authLayoutFromName(m_config != nullptr ? m_config->config().lockscreen.layout : std::string{}),
@@ -1904,11 +1938,58 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     chrome = {};
   }
   m_chrome.setVisible(chromeShown);
+  LockAlert::State alert;
+  if (visible && m_powerAlert >= 0) {
+    static constexpr std::array<const char*, 3> kTitles{
+        "lockscreen.alert.sleep-title", "lockscreen.alert.restart-title", "lockscreen.alert.shutdown-title"
+    };
+    static constexpr std::array<const char*, 3> kConfirms{
+        "lockscreen.power.sleep", "lockscreen.power.restart", "lockscreen.power.shutdown"
+    };
+    const auto i = static_cast<std::size_t>(m_powerAlert);
+    alert.title = i18n::tr(kTitles[i]);
+    alert.body = i18n::tr(m_powerAlert == 0 ? "lockscreen.alert.sleep-body" : "lockscreen.alert.shutdown-body");
+    alert.confirm = i18n::tr(kConfirms[i]);
+  }
+  m_alert.setState(std::move(alert));
+  m_alert.layout(renderer, sw, sh, scale);
   m_chrome.setState(std::move(chrome));
   m_chrome.layout(renderer, sw, sh, scale);
   if (shake) {
     m_auth->playRejected();
   }
+}
+
+void LockSurface::requestPower(int index) {
+  if (index < 0 || index > 2) {
+    return;
+  }
+  // Sleep checks sleep inhibitors; Restart and Shut down check shutdown ones. The shell's own locks never count.
+  const char* what = index == 0 ? "sleep" : "shutdown";
+  if (powerActionBlocked(listLogindInhibitors(), what, static_cast<std::uint32_t>(::getpid()))) {
+    m_powerAlert = index;
+    return;
+  }
+  runPower(index, false);
+}
+
+void LockSurface::runPower(int index, bool skipInhibitors) {
+  if (m_sessionActions == nullptr) {
+    return;
+  }
+  static constexpr std::array<const char*, 3> kActions{"suspend", "reboot", "shutdown"};
+  const auto i = static_cast<std::size_t>(index);
+  bool ok = false;
+  if (skipInhibitors) {
+    ok = m_sessionActions->requestPowerSkippingInhibitors(kActions[i]);
+  } else if (index == 0) {
+    ok = m_sessionActions->requestSuspendDetached();
+  } else if (index == 1) {
+    ok = m_sessionActions->requestRebootDetached();
+  } else {
+    ok = m_sessionActions->requestShutdownDetached();
+  }
+  m_powerError = ok ? std::string{} : i18n::tr("lockscreen.power.blocked");
 }
 
 bool LockSurface::handleChromePress(float x, float y) {
@@ -1924,13 +2005,7 @@ bool LockSurface::handleChromePress(float x, float y) {
     if (m_sessionActions == nullptr) {
       return true;
     }
-    if (hit.index == 0) {
-      (void)m_sessionActions->requestSuspendDetached();
-    } else if (hit.index == 1) {
-      (void)m_sessionActions->requestRebootDetached();
-    } else if (hit.index == 2) {
-      (void)m_sessionActions->requestShutdownDetached();
-    }
+    requestPower(hit.index);
     return true;
   }
   case AuthChrome::Target::Menu:

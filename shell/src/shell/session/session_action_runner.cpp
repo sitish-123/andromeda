@@ -305,6 +305,32 @@ bool SessionActionRunner::requestRebootUefiDetached() const {
   return callLogind("reboot_uefi", "SetRebootToFirmwareSetup") && callLogind("reboot_uefi", "Reboot");
 }
 
+bool SessionActionRunner::requestPowerSkippingInhibitors(std::string_view action) const {
+  // SD_LOGIND_SKIP_INHIBITORS (systemd login-util.h).
+  constexpr std::uint64_t kSkipInhibitors = std::uint64_t{1} << 4;
+  const char* method = action == "suspend" ? "SuspendWithFlags"
+      : action == "reboot"                 ? "RebootWithFlags"
+      : action == "shutdown"               ? "PowerOffWithFlags"
+                                           : nullptr;
+  if (method == nullptr) {
+    return false;
+  }
+  logActionContext(action);
+  std::scoped_lock lock(m_powerMutex);
+  try {
+    const auto connection = sdbus::createSystemBusConnection();
+    const auto manager = sdbus::createProxy(
+        *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+    );
+    manager->callMethod(method).onInterface("org.freedesktop.login1.Manager").withArguments(kSkipInhibitors);
+    kLog.info("{}: logind {} accepted", action, method);
+    return true;
+  } catch (const sdbus::Error& e) {
+    kLog.warn("{}: logind {} failed: {}", action, method, e.what());
+    return false;
+  }
+}
+
 bool SessionActionRunner::requestShutdownDetached() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);

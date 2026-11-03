@@ -32,6 +32,9 @@ public:
   [[nodiscard]] bool requestRebootDetached() const;
   [[nodiscard]] bool requestRebootUefiDetached() const;
   [[nodiscard]] bool requestShutdownDetached() const;
+  // "suspend", "reboot" or "shutdown" past other apps' block inhibitors (logind *WithFlags with
+  // SD_LOGIND_SKIP_INHIBITORS); polkit may refuse it without admin rights.
+  [[nodiscard]] bool requestPowerSkippingInhibitors(std::string_view action) const;
   [[nodiscard]] bool requestHibernateDetached() const;
   [[nodiscard]] bool requestSuspendThenHibernateDetached() const;
   [[nodiscard]] bool lockThenSuspendDetached() const;

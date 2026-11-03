@@ -13,6 +13,7 @@
 #include "ui/auth/auth_chrome.h"
 #include "ui/auth/auth_column.h"
 #include "ui/auth/clock_style.h"
+#include "shell/lockscreen/lock_alert.h"
 #include "shell/lockscreen/lock_call_card.h"
 #include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_phone_row.h"
@@ -181,6 +182,9 @@ private:
   void wakeGlance();
   // Pointer press on the session button or its menu; true when the chrome took the press.
   bool handleChromePress(float x, float y);
+  // Runs power menu item `index`, or first asks with the inhibitor alert when another app blocks it.
+  void requestPower(int index);
+  void runPower(int index, bool skipInhibitors);
   [[nodiscard]] std::string clockFontFamily(const ClockStyle& clock);
   void startAndromedaClock();
   void startRyokuLive();
@@ -212,6 +216,11 @@ private:
   // Session button + power menu (rulebook 9.15): Sleep, Restart, Shut down.
   AuthChrome m_chrome;
   bool m_powerMenuOpen = false;
+  LockAlert m_alert;
+  // Power menu item waiting on the inhibitor alert (0 Sleep, 1 Restart, 2 Shut down); -1 = none.
+  int m_powerAlert = -1;
+  // Shown as an error hint when logind refused to override the inhibitors; cleared on the next key.
+  std::string m_powerError;
   int m_powerHover = -1;
   std::function<void(const std::string&)> m_onDeclineCall;
   // Device whose ringing call the user chose to decline on this surface.
