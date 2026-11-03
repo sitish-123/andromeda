@@ -3207,9 +3207,6 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
       }
     }
     meta[count++] = {i18n::tr("launcher.pill.unicode"), codepoints};
-    if (const int uses = m_usageTracker.getCount(result.providerId, result.id); uses > 0) {
-      meta[count++] = {i18n::tr("launcher.pill.used"), i18n::trp("launcher.pill.times", uses)};
-    }
   }
   for (std::size_t i = 0; i < m_previewMetaRows.size(); ++i) {
     const bool show = i < count;
