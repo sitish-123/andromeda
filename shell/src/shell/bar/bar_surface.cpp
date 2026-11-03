@@ -1231,6 +1231,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
 
   // A rebuilt scene may sit on a new surface, so always send the region once.
   instance.clickThroughInputRegion.reset();
+  instance.islandBlurStrips.clear();
   syncBarAutoHideInputRegion(instance);
   syncBarSurfaceChrome(instance);  syncSheetTracker(instance);
 }
@@ -1266,6 +1267,7 @@ void Bar::updateWidgets(BarInstance& instance) {
   updateSection(instance.endWidgets);
   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
   notifyCenterIslandSpace(instance);
+  applyBarCompositorBlur(instance);
   if (instance.barConfig.deadZone.clickThrough) {
     syncBarAutoHideInputRegion(instance);
   }  syncSheetTracker(instance);
@@ -1313,6 +1315,7 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
     layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
     notifyCenterIslandSpace(instance);
   }
+  applyBarCompositorBlur(instance);
   // Click-through input follows the widgets, which move whenever a widget resizes.
   if (instance.barConfig.deadZone.clickThrough) {
     syncBarAutoHideInputRegion(instance);

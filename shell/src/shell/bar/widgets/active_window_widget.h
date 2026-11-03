@@ -80,5 +80,8 @@ private:
   std::string m_lastTooltipTitle;
   bool m_lastEmptyState = false;
   bool m_iconColorizeRefreshPending = false;
+  float m_shownWidth = 0.0F; // springs to m_targetWidth so the island and its neighbours move, not jump
+  float m_targetWidth = 0.0F;
+  std::uint32_t m_widthAnimId = 0;
   Signal<>::ScopedConnection m_appIconColorizeConn;
 };

@@ -4,6 +4,7 @@
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "i18n/i18n.h"
+#include "render/animation/animation_manager.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "system/app_identity.h"
@@ -119,7 +120,27 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     m_title->setPosition(showIcon ? m_icon->width() + spacing : 0.0F, labelY);
 
     const float contentWidth = showTitle ? m_title->x() + m_title->width() : iconWidth;
-    rootNode->setSize(std::clamp(contentWidth, minLength, maxLength), contentHeight);
+    const float target = std::clamp(contentWidth, minLength, maxLength);
+    if (m_animations == nullptr || m_shownWidth <= 0.0F) {
+      m_shownWidth = target;
+      m_targetWidth = target;
+    } else if (target != m_targetWidth) {
+      m_targetWidth = target;
+      m_widthAnimId = m_animations->drive(
+          m_widthAnimId, m_shownWidth, target, Style::spring(Tokens::springMove),
+          [this](float w) {
+            m_shownWidth = w;
+            if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
+              bounds->markLayoutDirty();
+            }
+            requestUpdate();
+          },
+          [this] { m_widthAnimId = 0; }, this, 0.0F, Unit::Px
+      );
+      requestFrameTick();
+    }
+    rootNode->setClipChildren(m_widthAnimId != 0);
+    rootNode->setSize(m_shownWidth, contentHeight);
   }
 }
 
@@ -132,6 +153,11 @@ void ActiveWindowWidget::syncWidgetVisibility(bool showWidget) {
       rootNode->setParticipatesInLayout(showWidget);
       if (!showWidget) {
         rootNode->setSize(0.0F, 0.0F);
+        if (m_animations != nullptr && m_widthAnimId != 0) {
+          m_animations->cancel(m_widthAnimId);
+        }
+        m_widthAnimId = 0;
+        m_shownWidth = 0.0F;
       }
       requestUpdate();
     } else if (!showWidget && (rootNode->width() > 0.0F || rootNode->height() > 0.0F)) {

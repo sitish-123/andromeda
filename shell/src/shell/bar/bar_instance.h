@@ -80,6 +80,7 @@ struct BarInstance {
   InputArea deadZoneAxisSink;
   float hideOpacity = 1.0F;
   AnimationManager::Id slideAnimId = 0;
+  std::vector<InputRect> islandBlurStrips; // last island region sent; empty = none sent
   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
   bool ipcLayoutReleased = false;
   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.

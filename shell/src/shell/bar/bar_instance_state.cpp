@@ -432,6 +432,7 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
   }
   if (!instance.barConfig.compositorBlur || !barContentVisuallyShown(instance)) {
     instance.surface->clearBlurRegion();
+    instance.islandBlurStrips.clear();
     return;
   }
 
@@ -457,7 +458,11 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
       );
       strips.insert(strips.end(), rects.begin(), rects.end());
     }
+    if (strips == instance.islandBlurStrips) {
+      return;
+    }
     instance.surface->setBlurRegion(strips);
+    instance.islandBlurStrips = std::move(strips);
     return;
   }
   float absX = 0.0F;
