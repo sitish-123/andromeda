@@ -49,6 +49,11 @@ namespace andromeda {
     return m_values[static_cast<std::size_t>(property)];
   }
 
+  const SurfaceMotion::Value& SurfaceMotion::target(Property property) const {
+    const Track& track = m_tracks[static_cast<std::size_t>(property)];
+    return track.running ? track.to : value(property);
+  }
+
   bool SurfaceMotion::animating() const {
     for (const Track& track : m_tracks) {
       if (track.running) {

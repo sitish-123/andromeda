@@ -203,10 +203,11 @@ namespace andromeda {
       const float opacity =
           std::clamp(static_cast<float>(state->motion.value(SurfaceMotion::Property::Opacity)[0]), 0.0F, 1.0F);
       alpha *= opacity;
-      // Blur leads the fade (ease-out cubic), so the backdrop is frosted before the fill is opaque. The fade scales
+      // A fade-in leads with the blur (ease-out cubic), so the backdrop is frosted before the fill is opaque; a
+      // fade-out keeps the blur with the fill, or the frost and its tint recipe outlast the content. The fade scales
       // the blur size: an alpha fade would show the sharp backdrop and a blurred copy at once.
       const float lead = 1.0F - opacity;
-      m_blur.setFade(1.0F - lead * lead * lead);
+      m_blur.setFade(fadingOut ? opacity : 1.0F - lead * lead * lead);
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
@@ -242,6 +243,7 @@ namespace andromeda {
     }
     using Property = SurfaceMotion::Property;
     const SurfaceMotion& motion = state->motion;
+      const bool fadingOut = state->motion.target(SurfaceMotion::Property::Opacity)[0] < opacity;
     const double scale = std::max(0.01, motion.value(Property::Scale)[0]);
     const auto& translate = motion.value(Property::Translate);
     const double width = m_layerSurface->surface->current.width;

@@ -36,6 +36,8 @@ namespace andromeda {
     SurfaceMotion();
 
     [[nodiscard]] const Value& value(Property property) const;
+    // Where the property ends: the running animation's target, else the current value.
+    [[nodiscard]] const Value& target(Property property) const;
     [[nodiscard]] bool animating() const;
 
     // Jumps; a running animation on the property ends as Cancelled.
