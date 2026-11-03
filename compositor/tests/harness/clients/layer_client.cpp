@@ -52,6 +52,10 @@ namespace {
                      wl_fixed_to_int(h));
         std::fflush(stdout);
       },
+      .backdrop = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t tone) {
+        std::println("dsk-backdrop {}", tone);
+        std::fflush(stdout);
+      },
   };
   const dsk_tracker_v1_listener kDskTrackerListener = {
       .interacting = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/) {
