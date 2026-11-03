@@ -668,6 +668,9 @@ namespace settings {
       if (norm.action == "lock_and_suspend") {
         return i18n::tr("settings.idle.behavior.kind.lock-and-suspend");
       }
+      if (norm.action == "hibernate") {
+        return i18n::tr("settings.idle.behavior.kind.hibernate");
+      }
       if (row.name.empty()) {
         return i18n::tr("settings.idle.behavior.unnamed");
       }

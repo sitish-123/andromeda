@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <memory>
 #include <string>
@@ -35,6 +36,11 @@ struct PowerConfigState {
   // resume= is set, or a systemd initramfs on UEFI can resume through the HibernateLocation EFI variable.
   bool resumeConfigured = false;
   bool helperInstalled = false;
+  // Trial hibernate: "" (never), "pending", "ok" (the restored kernel logged the restore), "failed".
+  std::string trial;
+  // stderr of the last helper run that failed; exit 3 means "not supported here, show the guide".
+  std::string lastError;
+  int lastExit = 0;
 };
 
 class PowerConfigService {
@@ -50,15 +56,24 @@ public:
   // key/value as andromeda-power-config accepts them. Refreshes after the helper exits.
   void set(const std::string& key, const std::string& value, ResultCallback done = {});
 
+  // Hibernates once to prove that this machine resumes; hibernate choices unlock only after "ok".
+  void startTrial();
+  // CanHibernate, a passed trial, and no change since to the kernel, command line or disk swap.
+  [[nodiscard]] bool hibernateVerified() const;
+
   [[nodiscard]] const PowerConfigState& state() const noexcept { return m_state; }
 
 private:
   void readSystem();
   void readLogind();
   void notify();
+  void writeTrial(const std::string& value);
+  void finishTrial();
 
   std::unique_ptr<sdbus::IProxy> m_manager;
   PowerConfigState m_state;
   ChangeCallback m_changeCallback;
+  std::time_t m_trialSince = 0;
+  std::string m_trialFingerprint;
   std::shared_ptr<int> m_aliveToken = std::make_shared<int>(0);
 };

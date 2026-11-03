@@ -1796,6 +1796,7 @@
         "command-placeholder": "notify-send \"Idle\"",
         "kind": {
           "custom": "Custom",
+          "hibernate": "Hibernate",
           "lock": "Lock",
           "lock-and-suspend": "Lock & Suspend",
           "screen-off": "Screen Off",
@@ -1922,7 +1923,15 @@
       "make-swap": "Make Swap Space",
       "check-resume": "Resume at Boot",
       "check-resume-ok": "Configured",
-      "check-resume-missing": "Not Configured"
+      "check-resume-missing": "Not Configured",
+      "hibernate-needs-test": "Needs a Test",
+      "not-supported": "Set Up by Hand",
+      "set-up-resume": "Set Up",
+      "trial-failed": "Last Test Failed: No Resume From the Image",
+      "trial-never": "Test Hibernate Once (Save Your Work First)",
+      "trial-ok": "Test Passed: Resume Works",
+      "trial-pending": "Testing…",
+      "trial-start": "Test Now"
     },
     "users": {
       "account-name": "Account Name",

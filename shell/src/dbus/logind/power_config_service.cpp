@@ -3,7 +3,11 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "dbus/system_bus.h"
+#include "util/file_utils.h"
 
+#include <ctime>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <sdbus-c++/Error.h>
 #include <sdbus-c++/IProxy.h>
@@ -19,6 +23,9 @@ namespace {
   const sdbus::ObjectPath kLogindObjectPath{"/org/freedesktop/login1"};
   constexpr auto kManagerInterface = "org.freedesktop.login1.Manager";
   constexpr auto kHelperPath = "/usr/lib/noctalia/andromeda-power-config";
+  constexpr auto kSystemHelperPath = "/usr/lib/noctalia/andromeda-power-system";
+  // Printed by the restored kernel (kernel/power/hibernate.c, pm_pr_dbg) once pm_debug_messages is on.
+  constexpr auto kRestoredMessage = "Hibernation image restored successfully";
   constexpr auto kSleepDropIn = "/etc/systemd/sleep.conf.d/60-andromeda.conf";
 
   std::string readFile(const char* path) {
@@ -83,6 +90,38 @@ namespace {
     return ::access("/usr/bin/dracut", X_OK) == 0;
   }
 
+  std::string trimmed(std::string s) {
+    while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) {
+      s.pop_back();
+    }
+    return s;
+  }
+
+  // A resume from hibernation keeps the boot ID; a cold boot gets a new one.
+  std::string bootId() { return trimmed(readFile("/proc/sys/kernel/random/boot_id")); }
+
+  std::string trialPath() { return FileUtils::stateDir() + "/hibernate-trial"; }
+
+  // What a passed trial depends on: kernel, command line and disk swap. Any change asks for a new trial.
+  std::string resumeFingerprint() {
+    std::string swaps;
+    std::istringstream in(readFile("/proc/swaps"));
+    std::string line;
+    std::getline(in, line);
+    for (std::string name, type, size; in >> name >> type >> size;) {
+      std::getline(in, line);
+      if (!name.starts_with("/dev/zram")) {
+        swaps += name + ":" + size + ";";
+      }
+    }
+    const std::string all =
+        readFile("/proc/sys/kernel/osrelease") + readFile("/proc/cmdline") + swaps;
+    return std::format("{:016x}", std::hash<std::string>{}(all));
+  }
+
+  bool isSystemKey(const std::string& key) {
+    return key == "swapfile" || key == "resume-apply" || key == "resume-rollback";
+  }
   bool resumeConfigured() {
     std::string resume = readFile("/sys/power/resume");
     while (!resume.empty() && resume.back() == '\n') {
@@ -101,10 +140,97 @@ PowerConfigService::PowerConfigService(SystemBus& bus) {
   } catch (const sdbus::Error& e) {
     kLog.warn("logind unavailable: {}", e.what());
   }
+  // "pending <boot id> <epoch>" from another boot: the trial hibernate never resumed. From this boot (the shell
+  // restarted around it): the kernel log decides.
+  std::istringstream saved(trimmed(readFile(trialPath().c_str())));
+  std::string word, boot;
+  if (saved >> word >> boot >> m_trialSince && word == "pending") {
+    if (boot != bootId()) {
+      kLog.warn("hibernate trial failed: the machine booted fresh instead of resuming");
+      writeTrial("failed");
+    } else {
+      finishTrial();
+    }
+  }
+  if (m_manager != nullptr) {
+    m_manager->uponSignal("PrepareForSleep").onInterface(kManagerInterface).call([this](bool sleeping) {
+      if (!sleeping && m_state.trial == "pending") {
+        finishTrial();
+      }
+    });
+  }
   refresh();
 }
 
 PowerConfigService::~PowerConfigService() = default;
+
+void PowerConfigService::writeTrial(const std::string& value) {
+  std::error_code ec;
+  std::filesystem::create_directories(FileUtils::stateDir(), ec);
+  std::string line = value;
+  if (value == "pending") {
+    line += " " + bootId() + " " + std::to_string(m_trialSince);
+  } else if (value == "ok") {
+    line += " " + resumeFingerprint();
+  }
+  std::ofstream(trialPath()) << line << '\n';
+  m_state.trial = value;
+}
+
+bool PowerConfigService::hibernateVerified() const {
+  return m_state.canHibernate && m_state.trial == "ok" && m_trialFingerprint == resumeFingerprint();
+}
+
+void PowerConfigService::startTrial() {
+  if (m_manager == nullptr || !m_state.canHibernate) {
+    return;
+  }
+  // pm_debug_messages makes the restored kernel log kRestoredMessage; it resets to 0 at the next boot.
+  set("trial-debug", "on", [this](bool ok) {
+    if (!ok) {
+      return;
+    }
+    m_trialSince = std::time(nullptr);
+    writeTrial("pending");
+    notify();
+    const std::weak_ptr<int> alive = m_aliveToken;
+    m_manager->callMethodAsync("Hibernate").onInterface(kManagerInterface).withArguments(false).uponReplyInvoke(
+        [this, alive](std::optional<sdbus::Error> e) {
+          if (alive.expired() || !e.has_value()) {
+            return;
+          }
+          kLog.warn("hibernate trial refused: {}", e->what());
+          writeTrial("");
+          notify();
+        }
+    );
+  });
+}
+
+// Passed only when the restored kernel logged kRestoredMessage after the trial began. A lid suspend or an aborted
+// hibernate also ends in PrepareForSleep(false), but without that message.
+void PowerConfigService::finishTrial() {
+  const std::weak_ptr<int> alive = m_aliveToken;
+  const bool started = process::runAsync(
+      std::vector<std::string>{"journalctl", "-k", "-b", "--no-pager", "-o", "cat", "--since",
+                               "@" + std::to_string(m_trialSince), "--grep", kRestoredMessage},
+      process::RunCallbacks{
+          .onExit =
+              [this, alive](const process::RunResult& result) {
+                if (alive.expired()) {
+                  return;
+                }
+                const bool restored = result.out.contains(kRestoredMessage);
+                kLog.info("hibernate trial: {}", restored ? "resumed from the image" : "no restore in the kernel log");
+                writeTrial(restored ? "ok" : "failed");
+                refresh();
+              },
+      }
+  );
+  if (!started) {
+    writeTrial("failed");
+  }
+}
 
 void PowerConfigService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
@@ -138,7 +264,11 @@ void PowerConfigService::readSystem() {
   m_state.ramBytes = meminfoBytes("MemTotal");
   m_state.diskSwapBytes = diskSwapBytes();
   m_state.resumeConfigured = resumeConfigured();
-  m_state.helperInstalled = ::access(kHelperPath, X_OK) == 0;
+  m_state.helperInstalled = ::access(kHelperPath, X_OK) == 0 && ::access(kSystemHelperPath, X_OK) == 0;
+  std::istringstream saved(trimmed(readFile(trialPath().c_str())));
+  m_state.trial.clear();
+  m_trialFingerprint.clear();
+  saved >> m_state.trial >> m_trialFingerprint;
 }
 
 void PowerConfigService::readLogind() {
@@ -187,29 +317,36 @@ void PowerConfigService::readLogind() {
 
 void PowerConfigService::set(const std::string& key, const std::string& value, ResultCallback done) {
   const std::weak_ptr<int> alive = m_aliveToken;
+  const auto shared = std::make_shared<ResultCallback>(std::move(done));
   // pkexec, not run0: the polkit action's exec.path annotation applies to pkexec only.
   const bool started = process::runAsync(
-      std::vector<std::string>{"pkexec", kHelperPath, key, value},
+      std::vector<std::string>{"pkexec", isSystemKey(key) ? kSystemHelperPath : kHelperPath, key, value},
       process::RunCallbacks{
           .onExit =
-              [this, alive, key, value, done = std::move(done)](process::RunResult result) {
+              [this, alive, key, value, shared](const process::RunResult& result) {
                 if (alive.expired()) {
                   return;
                 }
+                m_state.lastExit = result.exitCode;
+                m_state.lastError = result ? std::string{} : trimmed(result.err);
                 if (!result) {
                   kLog.warn("power config {}={} failed (exit {}): {}", key, value, result.exitCode, result.err);
                 }
+                // Swap or boot entries changed: a passed trial no longer proves resume.
+                if (result && isSystemKey(key)) {
+                  writeTrial("");
+                }
                 refresh();
-                if (done) {
-                  done(static_cast<bool>(result));
+                if (*shared) {
+                  (*shared)(static_cast<bool>(result));
                 }
               },
       }
   );
   if (!started) {
     kLog.warn("power config: pkexec did not start");
-    if (done) {
-      done(false);
+    if (*shared) {
+      (*shared)(false);
     }
   }
 }

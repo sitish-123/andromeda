@@ -111,10 +111,10 @@ namespace settings {
                       const std::string& current, bool allowPoweroff, float scale) {
       const PowerConfigState& state = config.state();
       std::vector<std::string> values{"suspend"};
-      if (state.canHibernate) {
+      if (config.hibernateVerified()) {
         values.emplace_back("hibernate");
       }
-      if (state.canSuspendThenHibernate) {
+      if (config.hibernateVerified() && state.canSuspendThenHibernate) {
         values.emplace_back("suspend-then-hibernate");
       }
       values.insert(values.end(), {"lock", "ignore"});
@@ -155,7 +155,7 @@ namespace settings {
       } else if (!state.sleepMode.empty()) {
         addValueRow(*card, i18n::tr("settings.power.sleep-mode"), modeLabel(state.sleepMode), scale);
       }
-      if (state.canSuspendThenHibernate) {
+      if (config.hibernateVerified() && state.canSuspendThenHibernate) {
         addChoiceRow(*card, config, i18n::tr("settings.power.hibernate-after"), "hibernate-delay",
                      {"off", "30min", "1h", "2h", "3h"},
                      [](const std::string& v) { return i18n::tr("settings.power.delay." + v); }, state.hibernateDelay,
@@ -170,9 +170,11 @@ namespace settings {
       Flex* card = addCard(content, scale);
       const bool swapOk = state.diskSwapBytes >= state.ramBytes;
       // logind's CanHibernate already checks that swap can hold the current memory; full-RAM swap is advice.
-      const bool ready = !state.lockdown && state.resumeConfigured && state.canHibernate;
-      addValueRow(*card, i18n::tr("settings.power.hibernate-status"),
-                  i18n::tr(ready ? "settings.power.hibernate-ready" : "settings.power.hibernate-not-ready"), scale);
+      const bool checksPass = !state.lockdown && state.resumeConfigured && state.canHibernate;
+      const char* status = config.hibernateVerified() ? "settings.power.hibernate-ready"
+          : checksPass                                ? "settings.power.hibernate-needs-test"
+                                                      : "settings.power.hibernate-not-ready";
+      addValueRow(*card, i18n::tr("settings.power.hibernate-status"), i18n::tr(status), scale);
       if (state.lockdown) {
         addValueRow(*card, i18n::tr("settings.power.check-lockdown"), i18n::tr("settings.power.check-lockdown-on"),
                     scale);
@@ -188,9 +190,36 @@ namespace settings {
                                       [&config, neededGib] { config.set("swapfile", std::to_string(neededGib)); }));
       }
       card->addChild(std::move(swapRow));
-      addValueRow(*card, i18n::tr("settings.power.check-resume"),
-                  i18n::tr(state.resumeConfigured ? "settings.power.check-resume-ok" : "settings.power.check-resume-missing"),
-                  scale);
+      if (!state.resumeConfigured && state.helperInstalled) {
+        auto resumeRow = row(scale);
+        resumeRow->addChild(title(i18n::tr("settings.power.check-resume"), scale));
+        resumeRow->addChild(plainButton(i18n::tr("settings.power.set-up-resume"), ButtonVariant::Default, scale,
+                                        [&config] { config.set("resume-apply", "auto"); }));
+        card->addChild(std::move(resumeRow));
+      } else {
+        addValueRow(*card, i18n::tr("settings.power.check-resume"),
+                    i18n::tr(state.resumeConfigured ? "settings.power.check-resume-ok"
+                                                    : "settings.power.check-resume-missing"),
+                    scale);
+      }
+      // Exit 3: the helper does not support this setup; its reason tells the user what to do by hand.
+      if (state.lastExit == 3 && !state.lastError.empty()) {
+        addValueRow(*card, i18n::tr("settings.power.not-supported"), state.lastError, scale);
+      }
+      if (!checksPass) {
+        return;
+      }
+      auto trialRow = row(scale);
+      // An "ok" from before a kernel, command line or swap change counts as never tested.
+      const std::string trialKey = config.hibernateVerified() ? "ok"
+          : state.trial == "pending" || state.trial == "failed" ? state.trial
+                                                                : "never";
+      trialRow->addChild(title(i18n::tr("settings.power.trial-" + trialKey), scale));
+      if (trialKey == "never" || trialKey == "failed") {
+        trialRow->addChild(plainButton(i18n::tr("settings.power.trial-start"), ButtonVariant::Default, scale,
+                                       [&config] { config.startTrial(); }));
+      }
+      card->addChild(std::move(trialRow));
     }
 
     void addBatteryCard(Flex& content, UPowerService& upower, const UPowerDeviceInfo& battery, float scale) {

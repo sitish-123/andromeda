@@ -9,6 +9,7 @@
 #include "core/process/process.h"
 #include "core/scoped_timer.h"
 #include "core/ui_phase.h"
+#include "dbus/logind/power_config_service.h"
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "ipc/ipc_service.h"
@@ -929,6 +930,8 @@ settings::SettingsContentContext SettingsWindow::makeContentContext(
       .pageQuery = m_expertQuery,
       .highlightKey = m_highlightKey,
       .batteryDeviceOptions = batteryDeviceOptions(),
+      .canHibernate = m_powerConfigProvider && m_powerConfigProvider() != nullptr
+          && m_powerConfigProvider()->hibernateVerified(),
       .editingWidgetName = m_editingWidgetName,
       .editingCapsuleGroupId = m_editingCapsuleGroupId,
       .selectedLaneWidgets = m_selectedLaneWidgets,

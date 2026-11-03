@@ -49,7 +49,7 @@ resume_command = "notify-send 'Idle' 'Back from idle'"
 
 | Setting               | Type   | Default     | Description                                                                                                                                    |
 | --------------------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `action`              | string | `"command"` | What the behavior does: `lock`, `screen_off`, `suspend`, `lock_and_suspend`, or `command`                                                      |
+| `action`              | string | `"command"` | What the behavior does: `lock`, `screen_off`, `suspend`, `lock_and_suspend`, `hibernate`, or `command`                                         |
 | `enabled`             | bool   | `true`      | Enable or disable this behavior                                                                                                                |
 | `timeout`             | number | `0`         | Seconds before the behavior triggers; fractional values are allowed (e.g. `0.3`); `0` disables this behavior while unlocked                    |
 | `locked_timeout`      | number | `0`         | Alternate timeout while the session is locked; `0` uses `timeout`. With `timeout = 0`, a positive value enables the behavior only while locked |

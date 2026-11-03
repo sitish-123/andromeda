@@ -1,15 +1,25 @@
 #!/bin/sh
-# Runs as root through pkexec (org.andromeda.power.configure). Accepts only whitelisted keys and values.
-# Usage: andromeda-power-config <key> <value>
+# Runs as root through pkexec. Installed twice: as andromeda-power-config (polkit org.andromeda.power.configure,
+# admin kept for a few minutes) for the drop-in keys and trial-debug, and as andromeda-power-system
+# (org.andromeda.power.system, admin every time) for swapfile and resume-*, which change disks and boot entries.
+# Accepts only whitelisted keys and values.
+# Usage: andromeda-power-config|andromeda-power-system <key> <value>
 #   lid-battery|lid-power|lid-docked  suspend|hibernate|suspend-then-hibernate|lock|ignore
 #   power-key                         same, plus poweroff
 #   hibernate-delay                   off|30min|1h|2h|3h
 #   swapfile                          <GiB> 1-299 (ext4, xfs, f2fs only)
+#   resume-apply / resume-rollback    auto (swap partition + Limine or systemd-boot only)
 #   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
+#   trial-debug                       on|off (/sys/power/pm_debug_messages, so a trial hibernate can prove the restore)
 set -eu
 PATH=/usr/bin
 [ $# -eq 2 ] || { echo "usage: $0 <key> <value>" >&2; exit 2; }
 key=$1 value=$2
+case $key in
+  swapfile | resume-apply | resume-rollback) want=andromeda-power-system ;;
+  *) want=andromeda-power-config ;;
+esac
+[ "$(basename "$0")" = "$want" ] || { echo "$key needs $want" >&2; exit 2; }
 # ANDROMEDA_POWER_ETC is a test root; root always writes /etc.
 [ "$(id -u)" -ne 0 ] || ANDROMEDA_POWER_ETC=
 logind_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/logind.conf.d
@@ -18,10 +28,93 @@ sleep_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/sleep.conf.d
 # Commands that change the running system; the test root only prints them.
 sys() { if [ -n "${ANDROMEDA_POWER_ETC:-}" ]; then echo "would run: $*"; else "$@"; fi; }
 
+# resume-apply auto | resume-rollback auto: add resume=UUID=<swap partition> to the kernel command line and rebuild
+# the boot entries with the distro tool, then check the new entry. Supported: a swap partition with Limine
+# (limine-mkinitcpio-hook, /etc/default/limine) or systemd-boot (/etc/kernel/cmdline, kernel-install). Anything else
+# exits 3 and Settings shows the guide. A failed check restores the backup and rebuilds again.
+# Sources: .agent/power-sources.md (kernel swsusp, kernel-install(8), CachyOS boot manager wiki).
+# Documented in Documentation/ABI/testing/sysfs-power: "1" turns on the suspend/hibernation debug messages.
+if [ "$key" = trial-debug ]; then
+  case $value in on) bit=1 ;; off) bit=0 ;; *) echo "bad value: $value" >&2; exit 2 ;; esac
+  [ -n "${ANDROMEDA_POWER_ETC:-}" ] && { echo "would write $bit"; exit 0; }
+  echo "$bit" >/sys/power/pm_debug_messages
+  exit 0
+fi
+
+if [ "$key" = resume-apply ] || [ "$key" = resume-rollback ]; then
+  [ "$value" = auto ] || { echo "bad value: $value" >&2; exit 2; }
+  root=${ANDROMEDA_POWER_ETC:-}
+  # The test root brings stub bootctl, blkid and rebuild tools, its own swaps table and mkinitcpio.conf.
+  [ -z "$root" ] || PATH=$root/bin:$PATH
+  swaps=${root:+$root/swaps}
+  swaps=${swaps:-/proc/swaps}
+  # The initramfs must read resume=: mkinitcpio needs the systemd or resume hook; dracut reads it (dracut.cmdline(7)).
+  if [ -f "$root/etc/mkinitcpio.conf" ]; then
+    grep -Eq '^HOOKS=.*[( ](systemd|resume)[ )]' "$root/etc/mkinitcpio.conf" \
+      || { echo "the initramfs has no resume support (mkinitcpio HOOKS lack systemd or resume)" >&2; exit 3; }
+  elif ! command -v dracut >/dev/null; then
+    echo "initramfs generator not supported" >&2; exit 3
+  fi
+  loader=$(bootctl status 2>/dev/null | awk -F': *' '/Product:/ { print $2; exit }')
+  esp=$(bootctl --print-esp-path 2>/dev/null || true)
+  case $loader in
+    Limine*)
+      conf=$root/etc/default/limine
+      [ -f "$conf" ] || { echo "no $conf" >&2; exit 3; }
+      # Per-kernel KERNEL_CMDLINE["name"] entries may not take the default line: not supported.
+      if grep -Eq '^KERNEL_CMDLINE\[[^d]' "$conf"; then echo "per-kernel command lines" >&2; exit 3; fi
+      # Without a base default line, += would replace the command line taken from /etc/kernel/cmdline.
+      grep -Eq '^KERNEL_CMDLINE\[default\]=.*root=' "$conf" \
+        || { echo "no KERNEL_CMDLINE[default] line with root= in $conf" >&2; exit 3; }
+      entries=$esp/limine.conf
+      rebuild() { limine-mkinitcpio; }
+      ;;
+    systemd-boot*)
+      conf=$root/etc/kernel/cmdline
+      [ -f "$conf" ] || { echo "no $conf" >&2; exit 3; }
+      entries=$(bootctl --print-boot-path)/loader/entries
+      rebuild() { kernel-install add-all; }
+      ;;
+    *) echo "boot loader not supported: ${loader:-unknown}" >&2; exit 3 ;;
+  esac
+  backup=$conf.andromeda-backup
+  if [ "$key" = resume-rollback ]; then
+    [ -f "$backup" ] || { echo "no backup" >&2; exit 3; }
+    mv "$backup" "$conf"
+    rebuild
+    exit 0
+  fi
+  dev=$(awk '$2 == "partition" && $1 !~ /^\/dev\/zram/ { print $1; exit }' "$swaps")
+  [ -n "$dev" ] || { echo "no swap partition (swap files are not supported)" >&2; exit 3; }
+  case $dev in
+    /dev/dm-* | /dev/mapper/*) echo "encrypted or LVM swap needs crypttab/initramfs steps by hand" >&2; exit 3 ;;
+  esac
+  uuid=$(blkid -s UUID -o value "$dev")
+  [ -n "$uuid" ] || { echo "no UUID for $dev" >&2; exit 3; }
+  if grep -q 'resume=' "$conf"; then echo "resume= is already set in $conf" >&2; exit 3; fi
+  if grep -rqs "resume=UUID=$uuid" "$entries"; then echo "a boot entry already has resume=UUID=$uuid" >&2; exit 3; fi
+  cp -p "$conf" "$backup"
+  case $loader in
+    Limine*) printf 'KERNEL_CMDLINE[default]+=" resume=UUID=%s"\n' "$uuid" >>"$conf" ;;
+    systemd-boot*) sed -i "1s/\$/ resume=UUID=$uuid/" "$conf" ;;
+  esac
+  # The new entry must keep root= next to resume=, so a lost base command line cannot pass.
+  if rebuild && grep -rhs "resume=UUID=$uuid" "$entries" | grep -q 'root='; then
+    echo "resume=UUID=$uuid added; backup $backup"
+    exit 0
+  fi
+  echo "check failed: the boot entries have no resume=UUID=$uuid; restoring $conf" >&2
+  mv "$backup" "$conf"
+  rebuild || true
+  exit 5
+fi
+
 # swapfile <GiB>: grow or make the disk swap file for hibernation (mkswap(8) --size --file). The new file is made
 # beside the old one first, so a failure leaves the old swap in place.
 if [ "$key" = swapfile ]; then
   case $value in [1-9] | [1-9][0-9] | [1-2][0-9][0-9]) ;; *) echo "bad size: $value" >&2; exit 2 ;; esac
+  # A new file has new extents; a resume_offset= on the command line would then point at the wrong blocks.
+  if grep -q 'resume_offset=' /proc/cmdline; then echo "resume_offset= is set; resize the swap file by hand" >&2; exit 3; fi
   path=$(awk '$2 == "file" && $1 !~ /^\/dev\/zram/ { print $1; exit }' /proc/swaps)
   [ -n "$path" ] || path=/swapfile
   path=${ANDROMEDA_POWER_ETC:-}$path
@@ -41,9 +134,11 @@ if [ "$key" = swapfile ]; then
   fi
   new=$path.new
   rm -f "$new"
+  trap 'rm -f "$new"' EXIT
   mkswap --size "${value}G" --file "$new" >/dev/null
   if grep -q "^$path " /proc/swaps; then sys swapoff "$path"; fi
   mv "$new" "$path"
+  trap - EXIT
   sys swapon "$path"
   if ! grep -qs "^${path#"${ANDROMEDA_POWER_ETC:-}"}[[:space:]]" "${ANDROMEDA_POWER_ETC:-}/etc/fstab"; then
     unit=$(systemd-escape -p --suffix=swap "${path#"${ANDROMEDA_POWER_ETC:-}"}")
@@ -92,7 +187,7 @@ chmod 644 "$tmp"
 mv "$tmp" "$file"
 trap - EXIT
 
-# logind rereads its drop-ins on SIGHUP; sleep.conf is read at each sleep.
+# logind rereads its config on SIGHUP (systemd-logind.service(8)).
 if [ "$section" = Login ] && [ -z "${ANDROMEDA_POWER_ETC:-}" ]; then
   systemctl kill -s HUP systemd-logind.service
 fi

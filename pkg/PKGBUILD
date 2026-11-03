@@ -103,6 +103,8 @@ package_noctalia-desktop-git() {
   install -Dm644 desktop/session/greetd/config-greeter-mode.toml "$pkgdir/usr/share/noctalia/greetd-greeter-mode.toml"
   install -Dm644 desktop/session/pam.d/andromeda-greeter "$pkgdir/etc/pam.d/andromeda-greeter"
   install -Dm755 desktop/session/power/andromeda-power-config "$pkgdir/usr/lib/noctalia/andromeda-power-config"
+  # A copy, not a link: polkit picks the action by the program path, and the second path needs admin every time.
+  install -Dm755 desktop/session/power/andromeda-power-config "$pkgdir/usr/lib/noctalia/andromeda-power-system"
   install -Dm644 desktop/session/power/org.andromeda.power.configure.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.power.configure.policy"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"

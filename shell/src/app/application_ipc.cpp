@@ -1037,6 +1037,8 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
       return m_sessionActionRunner.requestSuspendDetached();
     }
     return m_sessionActionRunner.lockThenSuspendDetached();
+  case IdleActionKind::Hibernate:
+    return m_sessionActionRunner.requestHibernateDetached();
   }
   return false;
 }

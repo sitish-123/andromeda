@@ -123,6 +123,11 @@ location = "https://example.invalid/bad"
       fail("idle: screen_off did not retain its additional resume command");
     }
 
+    const IdleBehaviorConfig hibernate{.name = "hibernate", .enabled = true, .timeoutSeconds = 600, .action = "hibernate"};
+    if (resolveIdleBehaviorActions(hibernate).idleAction.kind != IdleActionKind::Hibernate) {
+      fail("idle: hibernate did not resolve to native hibernate");
+    }
+
     const IdleBehaviorConfig custom{
         .name = "custom",
         .enabled = true,

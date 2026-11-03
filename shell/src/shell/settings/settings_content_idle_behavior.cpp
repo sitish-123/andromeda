@@ -26,13 +26,17 @@ namespace settings {
   ) {
     const float scale = ctx.scale;
 
-    const std::vector<SelectOption> idleActionOptions = {
+    std::vector<SelectOption> idleActionOptions = {
         {"lock", i18n::tr("settings.idle.behavior.kind.lock"), {}},
         {"screen_off", i18n::tr("settings.idle.behavior.kind.screen-off"), {}},
         {"suspend", i18n::tr("settings.idle.behavior.kind.suspend"), {}},
         {"lock_and_suspend", i18n::tr("settings.idle.behavior.kind.lock-and-suspend"), {}},
-        {"command", i18n::tr("settings.idle.behavior.kind.custom"), {}},
     };
+    // Offered only where logind can hibernate; a row already set to hibernate keeps its choice.
+    if (ctx.canHibernate || row.action == "hibernate") {
+      idleActionOptions.push_back({"hibernate", i18n::tr("settings.idle.behavior.kind.hibernate"), {}});
+    }
+    idleActionOptions.push_back({"command", i18n::tr("settings.idle.behavior.kind.custom"), {}});
 
     IdleBehaviorConfig norm = row;
     normalizeIdleBehaviorAction(norm);

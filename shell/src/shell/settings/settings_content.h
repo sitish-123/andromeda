@@ -57,6 +57,8 @@ namespace settings {
     // Key of the row a search result opened; drawn highlighted and scrolled into view.
     std::string_view highlightKey;
     std::vector<SelectOption> batteryDeviceOptions;
+    // logind CanHibernate=yes and a trial hibernate resumed; gates the Hibernate idle action.
+    bool canHibernate = false;
 
     std::string& editingWidgetName;
     std::string& editingCapsuleGroupId;

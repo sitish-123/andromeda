@@ -247,6 +247,13 @@ ResolvedIdleBehavior resolveIdleBehaviorActions(const IdleBehaviorConfig& behavi
         .resumeCommand = tmp.resumeCommand,
     };
   }
+  if (act == "hibernate") {
+    return {
+        .idleAction = idleAction(IdleActionKind::Hibernate),
+        .resumeAction = {},
+        .resumeCommand = tmp.resumeCommand,
+    };
+  }
   if (act == "lock_and_suspend") {
     return {
         .idleAction = idleAction(IdleActionKind::LockAndSuspend),
