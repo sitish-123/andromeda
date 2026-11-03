@@ -2436,9 +2436,9 @@ ColorSpec PanelManager::detachedFill() const {
   if (Style::reduceTransparency() || m_panelLiquid <= 0.0F) {
     return colorSpecFromRole(panelMaterialRole(), thick);
   }
-  // Lit glass (.agent/DESIGN.md "Launcher pill: lit glass"): lighter than any window behind it, light white 62 %,
-  // dark #484854 at 46 %.
-  const Color lit = isLightPalette() ? Color{1.0F, 1.0F, 1.0F, 0.62F} : Color{72.0F / 255.0F, 72.0F / 255.0F, 84.0F / 255.0F, 0.46F};
+  // Lit glass (.agent/DESIGN.md "Launcher pill: lit glass"): lighter than any window behind it, light white 50 %,
+  // dark #484854 at 34 % (user 2026-11-03: 62/46 % read too opaque).
+  const Color lit = isLightPalette() ? Color{1.0F, 1.0F, 1.0F, 0.50F} : Color{72.0F / 255.0F, 72.0F / 255.0F, 84.0F / 255.0F, 0.34F};
   return fixedColorSpec(lerpColor(colorForRole(panelMaterialRole(), thick), lit, m_panelLiquid));
 }
 
