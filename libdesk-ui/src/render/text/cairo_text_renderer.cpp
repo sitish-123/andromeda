@@ -54,6 +54,7 @@ namespace {
     hashCombine(seed, std::hash<std::string>{}(font.features));
     hashCombine(seed, std::hash<float>{}(font.tracking));
     hashCombine(seed, std::hash<float>{}(font.stroke));
+    hashCombine(seed, std::hash<std::string>{}(font.variations));
     return seed;
   }
 
@@ -377,7 +378,11 @@ PangoFontDescription* CairoTextRenderer::newFontDescription(const TextFont& font
   pango_font_description_set_weight(desc, static_cast<PangoWeight>(font.weight));
   pango_font_description_set_absolute_size(desc, static_cast<double>(rasterSize) * PANGO_SCALE);
   // Fonts without an opsz axis ignore the variation. The axis is pinned to the logical size, never the renderer's pick.
-  pango_font_description_set_variations(desc, std::format("opsz={:.2f}", std::clamp(opsz, 14.0F, 32.0F)).c_str());
+  std::string axes = std::format("opsz={:.2f}", std::clamp(opsz, 14.0F, 32.0F));
+  if (!font.variations.empty()) {
+    axes += "," + font.variations;
+  }
+  pango_font_description_set_variations(desc, axes.c_str());
   return desc;
 }
 

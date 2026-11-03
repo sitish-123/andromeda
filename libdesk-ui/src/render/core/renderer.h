@@ -44,6 +44,7 @@ struct TextFont {
   std::string features;
   float tracking = 0.0F; // letter spacing in em, from dynamicTracking(size)
   float stroke = 0.0F;   // > 0: glyph outlines only, this wide in em
+  std::string variations; // extra font axes, "wdth=75"; opsz is set from the size
 
   bool operator==(const TextFont&) const = default;
 };

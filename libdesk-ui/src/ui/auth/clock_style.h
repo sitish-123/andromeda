@@ -22,6 +22,10 @@ struct ClockStyle {
   float tracking = 0.0F;
   // Outline style: stroke width in em; 0 = filled.
   float stroke = 0.0F;
+  // Extra font axes, "wdth=75".
+  std::string_view variations;
+  // Live: the weight follows the seconds, light at :00 to bold at :59.
+  bool live = false;
   // Two-tone: the minutes in accent_text.
   bool twoTone = false;
 };
@@ -32,6 +36,8 @@ struct ClockStyle {
 [[nodiscard]] const ClockStyle& clockStyleById(std::string_view id) noexcept;
 // lockscreen.clock.size: s 64, m 80, l 96, xl 120; anything else = 0 (the layout's own size).
 [[nodiscard]] float clockSizeFor(std::string_view size) noexcept;
+// The style's weight; a live style's weight at `second` (0-59), 200 to 600.
+[[nodiscard]] int clockWeightAt(const ClockStyle& style, int second) noexcept;
 
 struct ClockFormat {
   bool h24 = true;

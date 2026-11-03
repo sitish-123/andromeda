@@ -57,6 +57,8 @@ public:
     float clockTracking = 0.0F;
     // Outline width in em (the outline style); 0 = filled.
     float clockStroke = 0.0F;
+    // Extra font axes ("wdth=75").
+    std::string clockVariations;
     // Two-tone: the part after the first ':' in accent_text.
     bool clockTwoTone = false;
     std::string date;

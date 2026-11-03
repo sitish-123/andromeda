@@ -1855,9 +1855,10 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     localtime_r(&now, &local);
     state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
     state.clockFamily = clockFontFamily(clock);
-    state.clockWeight = clock.weight;
+    state.clockWeight = clockWeightAt(clock, local.tm_sec);
     state.clockTracking = clock.tracking;
     state.clockStroke = clock.stroke;
+    state.clockVariations = std::string(clock.variations);
     state.clockTwoTone = clock.twoTone;
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {
@@ -2061,7 +2062,8 @@ std::string LockSurface::clockFontFamily(const ClockStyle& clock) {
 
 // One layout at each minute (or second, with clock_seconds) boundary keeps the clock right without idle frames.
 void LockSurface::startAndromedaClock() {
-  const bool seconds = m_config != nullptr && m_config->config().lockscreen.clockSeconds;
+  const bool seconds = m_config != nullptr
+      && (m_config->config().lockscreen.clockSeconds || clockStyleById(m_config->config().lockscreen.clockStyle).live);
   const std::int64_t period = seconds ? 1000 : 60000;
   const auto now = std::chrono::system_clock::now();
   const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % period;

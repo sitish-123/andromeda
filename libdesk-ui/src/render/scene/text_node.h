@@ -52,6 +52,15 @@ public:
     markContentDirty();
   }
 
+  // Extra font axes ("wdth=75"); empty = the font's defaults.
+  void setVariations(std::string variations) {
+    if (m_font.variations == variations) {
+      return;
+    }
+    m_font.variations = std::move(variations);
+    markContentDirty();
+  }
+
   // Letter spacing in em in place of the Inter dynamic tracking; nullopt restores it.
   void setTracking(std::optional<float> em) {
     if (m_trackingOverride == em) {

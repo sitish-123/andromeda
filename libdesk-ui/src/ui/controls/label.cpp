@@ -96,6 +96,11 @@ void Label::setTracking(std::optional<float> em) {
   m_measureCached = false;
 }
 
+void Label::setVariations(std::string variations) {
+  m_textNode->setVariations(std::move(variations));
+  m_measureCached = false;
+}
+
 void Label::setStroke(float em) {
   m_textNode->setStroke(em);
   m_measureCached = false;

@@ -47,6 +47,8 @@ public:
   void setTracking(std::optional<float> em);
   // Glyph outlines only, `em` wide; 0 = filled glyphs.
   void setStroke(float em);
+  // Extra font axes ("wdth=75"); empty = the font's defaults.
+  void setVariations(std::string variations);
   void setColor(const ColorSpec& color);
   // Explicit fixed color.
   void setColor(const Color& color);

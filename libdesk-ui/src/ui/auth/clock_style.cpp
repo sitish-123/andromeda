@@ -1,11 +1,12 @@
 #include "ui/auth/clock_style.h"
 
+#include <algorithm>
 #include <array>
 #include <format>
 
 namespace {
 
-  constexpr std::array<ClockStyle, 9> kStyles{{
+  constexpr std::array<ClockStyle, 11> kStyles{{
       {.id = "classic", .family = "Inter", .file = "", .weight = 300},
       {.id = "editorial", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 300},
       {.id = "italic", .family = "Instrument Serif", .file = "InstrumentSerif-Italic.ttf", .weight = 400},
@@ -16,6 +17,10 @@ namespace {
       {.id = "two-tone", .family = "Inter", .file = "", .weight = 600, .twoTone = true},
       {.id = "words", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 400, .layout = ClockLayout::Words},
       {.id = "mono", .family = "JetBrains Mono", .file = "JetBrainsMono-Variable.ttf", .weight = 300},
+      {.id = "condensed", .family = "Bricolage Grotesque", .file = "BricolageGrotesque-Variable.ttf", .weight = 500,
+       .variations = "wdth=75"},
+      {.id = "live", .family = "Bricolage Grotesque", .file = "BricolageGrotesque-Variable.ttf", .weight = 200,
+       .live = true},
       {.id = "outline", .family = "Space Grotesk", .file = "SpaceGrotesk-Variable.ttf", .weight = 600, .stroke = 0.02F},
   }};
 
@@ -87,4 +92,8 @@ std::vector<std::string> clockLines(const ClockStyle& style, const std::tm& time
     break;
   }
   return {format.seconds ? std::format("{}:{}:{}", hh, mm, ss) : std::format("{}:{}", hh, mm)};
+}
+
+int clockWeightAt(const ClockStyle& style, int second) noexcept {
+  return style.live ? 200 + (400 * std::clamp(second, 0, 59)) / 59 : style.weight;
 }
