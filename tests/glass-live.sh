@@ -27,8 +27,9 @@ for t in foot mpv ffmpeg ydotool notify-send; do command -v "$t" > /dev/null || 
 
 comp=$(pgrep -xn -u "$(id -u)" andromeda); shellpid=$(pgrep -xn -u "$(id -u)" noctalia)
 glass0=$(sed -n 's/^glass *= *//p' "$SETTINGS" | head -1); scheme0=$(sed -n "s/^scheme *= *'\?\([a-z]*\)'\?/\1/p" "$SETTINGS" | head -1)
+reduce0=$(sed -n 's/^reduce_transparency *= *\([a-z]*\).*/\1/p' "$SETTINGS" | head -1)
 restore() {
-  sed -i '/^reduce_transparency = true # glass-live$/d' "$SETTINGS"
+  if [[ -n $reduce0 ]]; then set_reduce "$reduce0"; else sed -i '/^reduce_transparency *=/d' "$SETTINGS"; fi
   [[ -f $SHELL_CONF.glass-live ]] && mv "$SHELL_CONF.glass-live" "$SHELL_CONF"
   [[ -f $SHELL_CONF.glass-live-none ]] && rm -f "$SHELL_CONF" "$SHELL_CONF.glass-live-none"
   set_glass "${glass0:-0.5}"; set_scheme "${scheme0:-light}"
@@ -37,6 +38,12 @@ restore() {
 }
 trap restore EXIT
 set_glass() { sed -i "s/^glass *=.*/glass = $1/" "$SETTINGS"; }
+# A second reduce_transparency key makes the whole settings file fail to parse.
+set_reduce() {
+  sed -i '/^reduce_transparency = true # glass-live$/d' "$SETTINGS"
+  if grep -q '^reduce_transparency *=' "$SETTINGS"; then sed -i "s/^reduce_transparency *=.*/reduce_transparency = $1/" "$SETTINGS"
+  else sed -i "/^\[appearance\]/a reduce_transparency = $1" "$SETTINGS"; fi
+}
 set_scheme() { sed -i "s/^scheme *=.*/scheme = '$1'/" "$SETTINGS"; }
 msg() { noctalia msg "$@" > /dev/null 2>&1; }
 energy() { sudo -n cat "$RAPL" 2> /dev/null || echo 0; }
@@ -120,7 +127,7 @@ s_worst() {
 }
 
 [[ -n $GLASS ]] && { set_glass "$GLASS"; sleep 1; }
-[[ $REDUCE == 1 ]] && { sed -i '/^\[appearance\]/a reduce_transparency = true # glass-live' "$SETTINGS"; sleep 1; }
+set_reduce "$([[ $REDUCE == 1 ]] && echo true || echo false)"; sleep 1
 rec=
 if [[ $RECORD == 1 ]]; then wf-recorder -f "$OUT/run.mp4" > "$OUT/wf-recorder.log" 2>&1 & rec=$!; sleep 1; fi
 for s in idle bar_dock_over_video video_full cc_over_video launcher_typing_over_scroll notifications_over_video slider_sweep_over_video \
