@@ -118,8 +118,29 @@ std::string NmHotspot::activeFor(const std::string& profile) const {
 }
 
 bool NmHotspot::active() const {
+  // Checks only active Wi-Fi connections: listing every saved profile costs ~30 D-Bus calls, and the
+  // control center asks on each network change (signal strength updates every few seconds).
   try {
-    return !activeFor(findProfile()).empty();
+    const auto active =
+        m_nm->getProperty("ActiveConnections").onInterface(kNmInterface).get<std::vector<sdbus::ObjectPath>>();
+    for (const auto& path : active) {
+      const auto connection = proxy(m_bus, path);
+      if (connection->getProperty("Type").onInterface(kActiveInterface).get<std::string>() != "802-11-wireless") {
+        continue;
+      }
+      const auto profile = connection->getProperty("Connection").onInterface(kActiveInterface).get<sdbus::ObjectPath>();
+      Settings settings;
+      proxy(m_bus, profile)->callMethod("GetSettings").onInterface(kConnectionInterface).storeResultsTo(settings);
+      const auto wireless = settings.find("802-11-wireless");
+      if (wireless == settings.end()) {
+        continue;
+      }
+      const auto mode = wireless->second.find("mode");
+      if (mode != wireless->second.end() && mode->second.get<std::string>() == "ap") {
+        return true;
+      }
+    }
+    return false;
   } catch (const sdbus::Error& e) {
     kLog.debug("hotspot state unavailable: {}", e.what());
     return false;
