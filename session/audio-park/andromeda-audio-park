@@ -70,7 +70,8 @@ unpark() {
 # A park sink left by a killed run still holds streams; give them back first.
 [[ -z $(sink_index "$PARK") ]] || unpark
 trap 'unpark; kill $(jobs -p) 2> /dev/null; exit 0' TERM INT
-coproc EVENTS { exec pactl subscribe; }
+# Only sink and stream events: each pactl call below is a client event, and waking on those loops forever.
+coproc EVENTS { pactl subscribe | exec grep --line-buffered -E "on (sink|sink-input) "; }
 
 while :; do
   work=0
