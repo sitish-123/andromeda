@@ -96,6 +96,12 @@ void RenderTarget::create(wl_surface* surface, RenderBackend& backend) {
   }
 }
 
+void RenderTarget::createOffscreen(RenderContext& context) {
+  destroy();
+  m_renderer.setContext(&context);
+  m_surfaceTarget = context.backend().createOffscreenTarget();
+}
+
 void RenderTarget::setContentScale(float scale) noexcept {
   m_contentScale = scale > 0.0F && std::isfinite(scale) ? scale : 1.0F;
 }

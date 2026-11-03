@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sched.h>
 #include <format>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -43,6 +44,7 @@ namespace {
 
   constexpr Logger kLog("gl");
 
+  // EGL_SURFACE_TYPE is index 1: initializeSurfaceless clears it, the surfaceless platform has no window configs.
   constexpr EGLint kConfigAttributes[] = {
       EGL_SURFACE_TYPE,
       EGL_WINDOW_BIT,
@@ -189,7 +191,26 @@ void GlSharedContext::initialize(wl_display* display, bool createSharedContext) 
     const std::string loaderDetail = loaderError != nullptr ? loaderError : "";
     throw std::runtime_error(eglDisplayFailureDetail(eglGetError(), loaderDetail));
   }
+  initializeDisplay(EGL_WINDOW_BIT, createSharedContext);
+  startup_metrics::recordEglInit(
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - initStart).count()
+  );
+}
 
+void GlSharedContext::initializeSurfaceless() {
+  const auto getPlatformDisplay =
+      reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(eglGetProcAddress("eglGetPlatformDisplayEXT"));
+  if (getPlatformDisplay == nullptr) {
+    throw std::runtime_error("eglGetPlatformDisplayEXT is missing");
+  }
+  m_display = getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
+  if (m_display == EGL_NO_DISPLAY) {
+    throw std::runtime_error(std::format("no surfaceless EGL display (EGL error 0x{:04x})", eglGetError()));
+  }
+  initializeDisplay(0, true);
+}
+
+void GlSharedContext::initializeDisplay(EGLint surfaceType, bool createSharedContext) {
   EGLint major = 0;
   EGLint minor = 0;
   if (eglInitialize(m_display, &major, &minor) != EGL_TRUE) {
@@ -201,7 +222,9 @@ void GlSharedContext::initialize(wl_display* display, bool createSharedContext) 
   }
 
   EGLint configCount = 0;
-  if (eglChooseConfig(m_display, kConfigAttributes, &m_config, 1, &configCount) != EGL_TRUE || configCount != 1) {
+  std::vector<EGLint> configAttributes(std::begin(kConfigAttributes), std::end(kConfigAttributes));
+  configAttributes[1] = surfaceType;
+  if (eglChooseConfig(m_display, configAttributes.data(), &m_config, 1, &configCount) != EGL_TRUE || configCount != 1) {
     throw std::runtime_error("eglChooseConfig failed");
   }
 
@@ -214,9 +237,6 @@ void GlSharedContext::initialize(wl_display* display, bool createSharedContext) 
   } else {
     kLog.info("initialized EGL {}.{} without shared context (isolated GPU contexts)", major, minor);
   }
-  startup_metrics::recordEglInit(
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - initStart).count()
-  );
 }
 
 void GlSharedContext::recreateRootContext() {

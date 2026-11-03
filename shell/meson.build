@@ -1241,6 +1241,7 @@ if build_tests
     'auth_layout',
     'lock_free_layout',
     'clock_style',
+    'offscreen_render',
     'lockscreen_session_actions',
     'log',
     'math_provider',

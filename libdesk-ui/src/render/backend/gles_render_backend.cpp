@@ -9,6 +9,7 @@
 #include "render/render_target.h"
 
 #include <GLES2/gl2.h>
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <chrono>
@@ -255,6 +256,53 @@ void main() {
     bool m_createFailureLogged = false;
   };
 
+  // Owns an FBO that stands in for the window buffer; created in the first frame, when the context is current.
+  class GlesOffscreenTarget final : public RenderSurfaceTarget {
+  public:
+    explicit GlesOffscreenTarget(TextureManager& textures) : m_textures(textures) {}
+    ~GlesOffscreenTarget() override { destroy(); }
+
+    GlesOffscreenTarget(const GlesOffscreenTarget&) = delete;
+    GlesOffscreenTarget& operator=(const GlesOffscreenTarget&) = delete;
+
+    void resize(std::uint32_t bufferWidth, std::uint32_t bufferHeight) override {
+      m_width = bufferWidth;
+      m_height = bufferHeight;
+    }
+    void destroy() override {
+      m_framebuffer.destroy();
+      m_hasFrame = false;
+    }
+    [[nodiscard]] bool isReady() const noexcept override { return m_width > 0 && m_height > 0; }
+
+    // Binds the FBO, recreating it after a resize. Needs the context current.
+    bool bind() {
+      if (!m_framebuffer.valid() || m_framebuffer.width() != m_width || m_framebuffer.height() != m_height) {
+        m_hasFrame = false;
+        if (!m_framebuffer.create(m_textures, m_width, m_height)) {
+          return false;
+        }
+      }
+      m_framebuffer.bind();
+      return true;
+    }
+    // Buffer age 1 once a frame exists: the FBO keeps its pixels between frames.
+    [[nodiscard]] int age() const noexcept { return m_hasFrame ? 1 : 0; }
+    void markFrame() noexcept { m_hasFrame = true; }
+    [[nodiscard]] bool hasFrame() const noexcept { return m_hasFrame; }
+
+  private:
+    TextureManager& m_textures;
+    GlesFramebuffer m_framebuffer;
+    std::uint32_t m_width = 0;
+    std::uint32_t m_height = 0;
+    bool m_hasFrame = false;
+  };
+
+  GlesOffscreenTarget* glesOffscreenTarget(RenderTarget& target) {
+    return dynamic_cast<GlesOffscreenTarget*>(target.surfaceTarget());
+  }
+
   GlesSurfaceTarget& glesSurfaceTarget(RenderTarget& target) {
     auto* surface = dynamic_cast<GlesSurfaceTarget*>(target.surfaceTarget());
     if (surface == nullptr || !surface->isReady()) {
@@ -358,6 +406,9 @@ bool GlesRenderBackend::makeCurrentNoSurface() {
 }
 
 bool GlesRenderBackend::makeCurrent(RenderTarget& target) {
+  if (auto* offscreen = glesOffscreenTarget(target); offscreen != nullptr) {
+    return offscreen->isReady() && makeCurrentNoSurface() && offscreen->bind();
+  }
   auto& surface = glesSurfaceTarget(target);
   if (eglGetCurrentDisplay() == m_display
       && eglGetCurrentContext() == m_context
@@ -399,6 +450,9 @@ bool GlesRenderBackend::beginFrame(RenderTarget& target) {
 }
 
 int GlesRenderBackend::bufferAge(RenderTarget& target) {
+  if (const auto* offscreen = glesOffscreenTarget(target); offscreen != nullptr) {
+    return offscreen->age();
+  }
   if (!m_bufferAge) {
     return 0;
   }
@@ -410,6 +464,10 @@ int GlesRenderBackend::bufferAge(RenderTarget& target) {
 }
 
 void GlesRenderBackend::endFrame(RenderTarget& target, std::span<const DamageRect> damage) {
+  if (auto* offscreen = glesOffscreenTarget(target); offscreen != nullptr) {
+    offscreen->markFrame();
+    return;
+  }
   auto& surface = glesSurfaceTarget(target);
   const auto swapStart = std::chrono::steady_clock::now();
   std::vector<EGLint> rects;
@@ -482,6 +540,32 @@ void GlesRenderBackend::abandonAfterGraphicsReset() noexcept {
 
 std::unique_ptr<RenderSurfaceTarget> GlesRenderBackend::createSurfaceTarget(wl_surface* surface) {
   return std::make_unique<GlesSurfaceTarget>(m_display, m_config, surface);
+}
+
+std::unique_ptr<RenderSurfaceTarget> GlesRenderBackend::createOffscreenTarget() {
+  return std::make_unique<GlesOffscreenTarget>(m_textureManager);
+}
+
+bool GlesRenderBackend::readPixels(RenderTarget& target, std::span<std::uint8_t> rgba) {
+  auto* offscreen = glesOffscreenTarget(target);
+  const std::size_t width = target.bufferWidth();
+  const std::size_t height = target.bufferHeight();
+  const std::size_t stride = width * 4;
+  if (offscreen == nullptr || !offscreen->hasFrame() || rgba.size() < stride * height || !makeCurrent(target)) {
+    return false;
+  }
+  glPixelStorei(GL_PACK_ALIGNMENT, 1);
+  glReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+  // GL rows start at the bottom.
+  std::vector<std::uint8_t> row(stride);
+  for (std::size_t top = 0, bottom = height - 1; top < bottom; ++top, --bottom) {
+    std::uint8_t* a = rgba.data() + top * stride;
+    std::uint8_t* b = rgba.data() + bottom * stride;
+    std::copy_n(a, stride, row.data());
+    std::copy_n(b, stride, a);
+    std::copy_n(row.data(), stride, b);
+  }
+  return true;
 }
 
 std::unique_ptr<RenderFramebuffer> GlesRenderBackend::createFramebuffer(std::uint32_t width, std::uint32_t height) {

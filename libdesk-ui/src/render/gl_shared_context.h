@@ -27,6 +27,8 @@ public:
   GlSharedContext& operator=(const GlSharedContext&) = delete;
 
   void initialize(wl_display* display, bool createSharedContext = true);
+  // For processes without a compositor connection; render with offscreen targets only.
+  void initializeSurfaceless();
   void cleanup();
   void recreateRootContext();
 
@@ -53,6 +55,7 @@ public:
   void reportGraphicsReset(RenderGraphicsResetStatus status, std::string_view source) const;
 
 private:
+  void initializeDisplay(EGLint surfaceType, bool createSharedContext);
   void buildContextAttributes();
   [[nodiscard]] EGLContext createContextWithCurrentAttributes(EGLContext shareContext) const;
   void usePlainContextAttributes() noexcept;

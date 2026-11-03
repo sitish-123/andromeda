@@ -131,6 +131,11 @@ public:
   virtual void abandonAfterGraphicsReset() noexcept = 0;
 
   [[nodiscard]] virtual std::unique_ptr<RenderSurfaceTarget> createSurfaceTarget(wl_surface* surface) = 0;
+  // Renders into GPU memory instead of a wl_surface, for processes without a compositor connection.
+  [[nodiscard]] virtual std::unique_ptr<RenderSurfaceTarget> createOffscreenTarget() = 0;
+  // Copies an offscreen target's last frame as top-down RGBA8 rows, premultiplied alpha;
+  // `rgba` holds bufferWidth * bufferHeight * 4 bytes. False when the target has no frame.
+  virtual bool readPixels(RenderTarget& target, std::span<std::uint8_t> rgba) = 0;
   [[nodiscard]] virtual std::unique_ptr<RenderFramebuffer>
   createFramebuffer(std::uint32_t width, std::uint32_t height) = 0;
   virtual void bindFramebuffer(const RenderFramebuffer& framebuffer) = 0;

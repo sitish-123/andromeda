@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -37,6 +38,8 @@ public:
   // Returns false if the surface could not be made current (e.g. teardown);
   // best-effort callers may ignore it, render paths must skip the frame.
   bool makeCurrent(RenderTarget& target);
+  // See RenderBackend::readPixels.
+  bool readPixels(RenderTarget& target, std::span<std::uint8_t> rgba);
   void setTextFontFamily(std::string family);
   void setTextBaseDirection(bool rtl);
   void notifyFontConfigChanged();

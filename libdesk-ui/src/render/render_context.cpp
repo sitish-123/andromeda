@@ -210,6 +210,10 @@ bool RenderContext::makeCurrent(RenderTarget& target) {
   return m_backend != nullptr && !m_graphicsResetPending && m_backend->makeCurrent(target);
 }
 
+bool RenderContext::readPixels(RenderTarget& target, std::span<std::uint8_t> rgba) {
+  return m_backend != nullptr && !m_graphicsResetPending && m_backend->readPixels(target, rgba);
+}
+
 void RenderContext::setTextFontFamily(std::string family) {
   if (family.empty()) {
     family = "sans-serif";
