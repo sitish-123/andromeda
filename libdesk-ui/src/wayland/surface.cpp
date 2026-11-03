@@ -1273,6 +1273,9 @@ void Surface::render() {
     // Nothing changed: commit only the frame callback and keep the current buffer.
     wl_surface_commit(m_surface);
   }
+  if (presented && m_nextPresentCallback) {
+    std::exchange(m_nextPresentCallback, {})();
+  }
   traceSurfaceEvent(*this, "render-end");
   recordSurfaceProfileEvent(*this, SurfaceProfileEvent::Render, renderMs);
   logSlowSurfaceOperation(

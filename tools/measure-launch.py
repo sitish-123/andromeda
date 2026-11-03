@@ -20,6 +20,7 @@ NOCTALIA = os.environ["NOCTALIA"]
 OUT = os.environ["OUT"]
 RUNS = int(os.environ.get("RUNS", "5"))
 APPS = os.environ.get("APPS", "foot gnome-calculator dolphin").split()
+MODES = os.environ.get("MODES", "Clipboard Emoji Gifs Stickers Symbols").split()
 SOCK = os.path.join(os.environ["XDG_RUNTIME_DIR"], "noctalia-" + os.environ["WAYLAND_DISPLAY"] + ".sock")
 TIMEOUT_S = 20.0
 
@@ -119,6 +120,22 @@ def first_commit_after(action):
     return ms_since(start)
 
 
+def shell_open_ms(command, log_path):
+    """Open to first presented frame, from the shell's own log line (no poll delay)."""
+    wait_idle()
+    with open(log_path) as f:
+        f.seek(0, os.SEEK_END)
+        ipc(command)
+        deadline = time.monotonic() + TIMEOUT_S
+        while time.monotonic() < deadline:
+            line = f.readline()
+            if "open to first frame" in line:
+                return float(line.rsplit("frame", 1)[1].split()[0])
+            if not line:
+                time.sleep(0.002)
+    raise SystemExit("timeout waiting for the open log line of " + command)
+
+
 def summary(name, values):
     line = f"{name}: median {statistics.median(values):.0f} ms (runs {', '.join(f'{v:.0f}' for v in values)})"
     print(line, flush=True)
@@ -157,15 +174,21 @@ def main():
     print(lines[-1], flush=True)
     lines.append(summary("shell start to first frame", starts[1:]))
 
-    def open_launcher():
-        ipc("panel-open launcher")
-
+    shell_log = os.path.join(OUT, f"shell-{RUNS}.log")
     opens = []
     for _ in range(RUNS):
-        opens.append(first_commit_after(open_launcher))
+        opens.append(shell_open_ms("panel-open launcher", shell_log))
         wait_idle()
         msg("panel-close")
     lines.append(summary("launcher open to first frame", opens))
+
+    for mode in MODES:
+        times = []
+        for _ in range(RUNS):
+            times.append(shell_open_ms("panel-open launcher mode:" + mode, shell_log))
+            wait_idle()
+            msg("panel-close")
+        lines.append(summary(f"launcher {mode} mode open to first frame", times))
 
     for app in APPS:
         times = []

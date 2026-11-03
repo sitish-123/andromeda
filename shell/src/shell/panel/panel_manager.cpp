@@ -34,6 +34,7 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -592,6 +593,13 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   if (m_inTransition || m_afterCaptureClose) {
     return;
   }
+  // tools/measure-launch.py reads this line: it has no poll delay, unlike the compositor commit probe.
+  const auto logFirstFrame = [panelId, start = std::chrono::steady_clock::now()](Surface& surface) {
+    surface.callOnNextPresent([panelId, start] {
+      const std::chrono::duration<double, std::milli> ms = std::chrono::steady_clock::now() - start;
+      kLog.info("panel \"{}\" open to first frame {:.1f} ms", panelId, ms.count());
+    });
+  };
 
   if (request.output == nullptr && m_platform != nullptr) {
     request.output = m_platform->focusedInteractiveOutput(std::chrono::milliseconds(1200));
@@ -1302,6 +1310,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     m_layerSurface = layerSurfaceUnique.get();
     m_surface = std::move(layerSurfaceUnique);
     configureSurfaceCallbacks(*m_surface);
+    logFirstFrame(*m_surface);
     if (wantsOutsideDismiss) {
       m_panelOutputInputRect = InputRect{visualX, visualY, static_cast<int>(panelWidth), static_cast<int>(panelHeight)};
       m_clickShield.setPanelInputRect(request.output, *m_panelOutputInputRect);
@@ -1393,6 +1402,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   m_attachedPanelGeometry.reset();
   m_attachedToBar = false;
   configureSurfaceCallbacks(*m_surface);
+  logFirstFrame(*m_surface);
   if (wantsOutsideDismiss) {
     m_panelOutputInputRect = detachedPanelInputRect;
     m_clickShield.setPanelInputRect(request.output, *m_panelOutputInputRect);
