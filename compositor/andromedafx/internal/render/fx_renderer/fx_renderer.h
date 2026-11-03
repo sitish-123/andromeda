@@ -203,6 +203,11 @@ struct fx_renderer {
   int drm_fd;
   struct wlr_allocator* allocator;
 
+  // GL timestamp minus CLOCK_MONOTONIC (ns), resynced once per second: a GL_TIMESTAMP read is a register read that
+  // spins on i915 forcewake, too slow for every frame.
+  int64_t gl_clock_offset_ns;
+  int64_t gl_clock_synced_ns;
+
   struct wlr_drm_format_set shm_texture_formats;
 
   bool is_gles3;

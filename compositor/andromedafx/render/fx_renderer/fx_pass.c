@@ -13,6 +13,7 @@
 #include "andromedafx/render/fx_renderer/fx_renderer.h"
 #include "andromedafx/types/fx/blur_data.h"
 #include "util/matrix.h"
+#include "util/time.h"
 
 #include <GLES2/gl2ext.h>
 #include <assert.h>
@@ -488,10 +489,15 @@ static bool render_pass_submit(struct wlr_render_pass* wlr_pass) {
     renderer->procs.glGetInteger64vEXT(GL_GPU_DISJOINT_EXT, &disjoint);
     // set up the query
     renderer->procs.glQueryCounterEXT(timer->id, GL_TIMESTAMP_EXT);
-    // get end-of-CPU-work time in GL time domain
-    renderer->procs.glGetInteger64vEXT(GL_TIMESTAMP_EXT, &timer->gl_cpu_end);
-    // get end-of-CPU-work time in CPU time domain
     clock_gettime(CLOCK_MONOTONIC, &timer->cpu_end);
+    const int64_t cpu_end_ns = timespec_to_nsec(&timer->cpu_end);
+    if (renderer->gl_clock_synced_ns == 0 || cpu_end_ns - renderer->gl_clock_synced_ns > 1000000000) {
+      GLint64 gl_now;
+      renderer->procs.glGetInteger64vEXT(GL_TIMESTAMP_EXT, &gl_now);
+      renderer->gl_clock_offset_ns = gl_now - cpu_end_ns;
+      renderer->gl_clock_synced_ns = cpu_end_ns;
+    }
+    timer->gl_cpu_end = cpu_end_ns + renderer->gl_clock_offset_ns;
   }
 
   TRACY_FN(tracy_gpu_zone_end(&gpu_ctx); tracy_gpu_zone_end(&pass->frame_gpu_zone); gpu_zones_open = false;)
