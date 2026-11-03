@@ -1935,7 +1935,12 @@
       "trial-never": "Test Hibernate Once (Save Your Work First)",
       "trial-ok": "Test Passed: Resume Works",
       "trial-pending": "Testing…",
-      "trial-start": "Test Now"
+      "trial-start": "Test Now",
+      "trial-wait": "After the Steps Above",
+      "step": "{n}. {text}",
+      "step-done": "Done",
+      "step-restart": "Restart to Finish",
+      "restart": "Restart"
     },
     "users": {
       "account-name": "Account Name",

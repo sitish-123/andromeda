@@ -118,7 +118,7 @@ namespace {
   }
 
   bool isSystemKey(const std::string& key) {
-    return key == "swapfile" || key == "resume-apply" || key == "resume-rollback";
+    return key == "swapfile" || key == "resume-apply" || key == "resume-rollback" || key == "initramfs-systemd";
   }
   bool resumeConfigured() {
     std::string resume = readFile("/sys/power/resume");
@@ -254,6 +254,10 @@ void PowerConfigService::readSystem() {
   m_state.ramBytes = meminfoBytes("MemTotal");
   m_state.diskSwapBytes = diskSwapBytes();
   m_state.resumeConfigured = resumeConfigured();
+  const bool uefi = ::access("/sys/firmware/efi/efivars", F_OK) == 0;
+  m_state.canSwitchInitramfs = uefi && ::access("/usr/bin/mkinitcpio", X_OK) == 0 && !systemdInitramfs();
+  // The helper leaves this after a new initramfs; /run is empty again after a reboot.
+  m_state.restartNeeded = ::access("/run/andromeda-power/restart", F_OK) == 0;
   m_state.helperInstalled = ::access(kHelperPath, X_OK) == 0 && ::access(kSystemHelperPath, X_OK) == 0;
   std::istringstream saved(trimmed(readFile(trialPath().c_str())));
   m_state.trial.clear();
@@ -348,6 +352,20 @@ void PowerConfigService::set(const std::string& key, const std::string& value, R
       (*shared)(false);
     }
   }
+}
+
+void PowerConfigService::reboot() {
+  if (m_manager == nullptr) {
+    return;
+  }
+  // interactive = true: polkit may ask when other sessions are open.
+  m_manager->callMethodAsync("Reboot").onInterface(kManagerInterface).withArguments(true).uponReplyInvoke(
+      [](std::optional<sdbus::Error> e) {
+        if (e.has_value()) {
+          kLog.warn("reboot refused: {}", e->what());
+        }
+      }
+  );
 }
 
 void PowerConfigService::notify() {

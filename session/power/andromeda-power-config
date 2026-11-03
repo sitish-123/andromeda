@@ -9,6 +9,7 @@
 #   hibernate-delay                   off|30min|1h|2h|3h
 #   swapfile                          <GiB> 1-299 (ext4, xfs, f2fs only)
 #   resume-apply / resume-rollback    auto (swap partition + Limine or systemd-boot only)
+#   initramfs-systemd                 auto (UEFI + mkinitcpio: switch to the systemd initramfs, which resumes by itself)
 #   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
 #   trial-debug                       on (/sys/power/pm_debug_messages, so a trial hibernate can prove the restore)
 #   trial-check                       <unix time the trial began>: exit 0 when the restored kernel logged the restore
@@ -17,7 +18,7 @@ PATH=/usr/bin
 [ $# -eq 2 ] || { echo "usage: $0 <key> <value>" >&2; exit 2; }
 key=$1 value=$2
 case $key in
-  swapfile | resume-apply | resume-rollback) want=andromeda-power-system ;;
+  swapfile | resume-apply | resume-rollback | initramfs-systemd) want=andromeda-power-system ;;
   *) want=andromeda-power-config ;;
 esac
 [ "$(basename "$0")" = "$want" ] || { echo "$key needs $want" >&2; exit 2; }
@@ -68,6 +69,59 @@ if [ "$key" = trial-check ]; then
   done
   [ -n "${ANDROMEDA_POWER_ETC:-}" ] || echo 0 >/sys/power/pm_debug_messages 2>/dev/null || true
   exit $found
+fi
+
+# initramfs-systemd auto: a systemd initramfs resumes from the HibernateLocation EFI variable that systemd writes on
+# hibernate (systemd-hibernate-resume-generator(8)), so no resume= or resume_offset= is needed. Hook mapping per
+# `mkinitcpio -H systemd` and `-H sd-vconsole`: udev -> systemd, keymap + consolefont -> sd-vconsole; base stays for
+# the rescue shell. Other hooks (encrypt, lvm2, ...) need sd-* steps by hand. Backs up mkinitcpio.conf and every preset
+# image, rebuilds with mkinitcpio -P, and restores both when the build fails. Success leaves /run/andromeda-power/restart
+# (gone after a reboot), so Settings asks for a restart before the test.
+if [ "$key" = initramfs-systemd ]; then
+  [ "$value" = auto ] || { echo "bad value: $value" >&2; exit 2; }
+  root=${ANDROMEDA_POWER_ETC:-}
+  # The test root brings a stub mkinitcpio, sys/firmware/efi, etc/mkinitcpio.conf and presets.
+  [ -z "$root" ] || PATH=$root/bin:$PATH
+  guide=https://www.freedesktop.org/software/systemd/man/latest/systemd-hibernate-resume-generator.html
+  [ -d "$root/sys/firmware/efi" ] || manual "BIOS boot: the systemd initramfs resumes only on UEFI; add resume= by hand" "$guide"
+  command -v mkinitcpio >/dev/null || manual "initramfs generator not supported" "$guide"
+  conf=$root/etc/mkinitcpio.conf
+  if grep -qs '^HOOKS=' "$root"/etc/mkinitcpio.conf.d/*.conf; then manual "HOOKS is set in mkinitcpio.conf.d" "$guide"; fi
+  [ "$(grep -c '^HOOKS=' "$conf")" = 1 ] && grep -q '^HOOKS=([^)]*)[[:space:]]*$' "$conf" \
+    || manual "no single one-line HOOKS=(...) in $conf" "$guide"
+  new= vconsole=
+  for hook in $(sed -n 's/^HOOKS=(\([^)]*\)).*/\1/p' "$conf"); do
+    case $hook in
+      systemd) echo "the initramfs already uses systemd"; exit 0 ;;
+      udev) hook=systemd ;;
+      keymap | consolefont)
+        [ -z "$vconsole" ] || continue
+        vconsole=1 hook=sd-vconsole ;;
+      base | autodetect | microcode | modconf | kms | keyboard | block | filesystems | fsck) ;;
+      *) manual "the $hook hook has no automatic systemd equivalent" "$guide" ;;
+    esac
+    new=${new:+$new }$hook
+  done
+  case " $new " in *" systemd "*) ;; *) manual "HOOKS has no udev hook to replace" "$guide" ;; esac
+  # Image paths from the presets (mkinitcpio.d/*.preset: <name>_image= or <name>_uki=), without root.
+  images=$(sed -n 's/^[A-Za-z0-9]*_\(image\|uki\)="\{0,1\}\(\/[^"$]*\)"\{0,1\}[[:space:]]*$/\2/p' \
+    "$root"/etc/mkinitcpio.d/*.preset 2>/dev/null)
+  backup=$root/var/lib/andromeda-power/initramfs-backup
+  rm -rf "$backup"
+  mkdir -p "$backup"
+  cp -p "$conf" "$backup/mkinitcpio.conf"
+  for img in $images; do [ ! -f "$root$img" ] || cp -p --parents "$root$img" "$backup"; done
+  sed -i "s/^HOOKS=.*/HOOKS=($new)/" "$conf"
+  if mkinitcpio -P; then
+    mkdir -p "$root/run/andromeda-power"
+    : >"$root/run/andromeda-power/restart"
+    echo "HOOKS=($new); backup $backup"
+    exit 0
+  fi
+  echo "mkinitcpio -P failed; restored $conf and the images from $backup" >&2
+  cp -p "$backup/mkinitcpio.conf" "$conf"
+  for img in $images; do [ ! -f "$backup$root$img" ] || cp -p "$backup$root$img" "$root$img"; done
+  exit 5
 fi
 
 if [ "$key" = resume-apply ] || [ "$key" = resume-rollback ]; then

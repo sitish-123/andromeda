@@ -35,6 +35,10 @@ struct PowerConfigState {
   std::uint64_t diskSwapBytes = 0;
   // resume= is set, or a systemd initramfs on UEFI can resume through the HibernateLocation EFI variable.
   bool resumeConfigured = false;
+  // UEFI with a mkinitcpio initramfs without the systemd hook: the helper key initramfs-systemd can switch it.
+  bool canSwitchInitramfs = false;
+  // A new initramfs is built but the running system booted the old one.
+  bool restartNeeded = false;
   bool helperInstalled = false;
   // Trial hibernate: "" (never), "pending", "ok" (the restored kernel logged the restore), "failed".
   std::string trial;
@@ -62,6 +66,7 @@ public:
   void startTrial();
   // CanHibernate, a passed trial, and no change since to the kernel, command line or disk swap.
   [[nodiscard]] bool hibernateVerified() const;
+  void reboot();
 
   [[nodiscard]] const PowerConfigState& state() const noexcept { return m_state; }
 

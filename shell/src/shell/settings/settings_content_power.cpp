@@ -177,7 +177,7 @@ namespace settings {
       Flex* card = addCard(content, scale);
       const bool swapOk = state.diskSwapBytes >= state.ramBytes;
       // logind's CanHibernate already checks that swap can hold the current memory; full-RAM swap is advice.
-      const bool checksPass = !state.lockdown && state.resumeConfigured && state.canHibernate;
+      const bool checksPass = !state.lockdown && state.resumeConfigured && !state.restartNeeded && state.canHibernate;
       // logind hibernates on these by itself; without a proven resume that can lose the session.
       std::vector<std::string> unsafeKeys;
       if (!config.hibernateVerified()) {
@@ -212,27 +212,33 @@ namespace settings {
                     scale);
         return;
       }
-      auto swapRow = row(scale);
-      swapRow->addChild(title(i18n::tr("settings.power.check-swap", "swap", gib(state.diskSwapBytes), "ram",
-                                       gib(state.ramBytes)),
-                              scale));
-      if (!swapOk && state.helperInstalled) {
-        const std::uint64_t neededGib = (state.ramBytes + (1ULL << 30) - 1) >> 30;
-        swapRow->addChild(plainButton(i18n::tr("settings.power.make-swap"), ButtonVariant::Default, scale,
-                                      [&config, neededGib] { config.set("swapfile", std::to_string(neededGib)); }));
-      }
-      card->addChild(std::move(swapRow));
-      if (!state.resumeConfigured && state.helperInstalled) {
-        auto resumeRow = row(scale);
-        resumeRow->addChild(title(i18n::tr("settings.power.check-resume"), scale));
-        resumeRow->addChild(plainButton(i18n::tr("settings.power.set-up-resume"), ButtonVariant::Default, scale,
-                                        [&config] { config.set("resume-apply", "auto"); }));
-        card->addChild(std::move(resumeRow));
-      } else {
-        addValueRow(*card, i18n::tr("settings.power.check-resume"),
-                    i18n::tr(state.resumeConfigured ? "settings.power.check-resume-ok"
-                                                    : "settings.power.check-resume-missing"),
-                    scale);
+      // Guided setup: numbered steps, each with its status or the one button that does it.
+      int stepNumber = 0;
+      const auto stepTitle = [&stepNumber](const std::string& text) {
+        return i18n::tr("settings.power.step", "n", std::to_string(++stepNumber), "text", text);
+      };
+      const auto addStep = [&](const std::string& text, bool done, const std::string& action,
+                               std::function<void()> onClick) {
+        if (done || !state.helperInstalled) {
+          addValueRow(*card, stepTitle(text),
+                      done ? i18n::tr("settings.power.step-done") : i18n::tr("settings.power.check-resume-missing"),
+                      scale);
+          return;
+        }
+        auto r = row(scale);
+        r->addChild(title(stepTitle(text), scale));
+        r->addChild(plainButton(i18n::tr(action), ButtonVariant::Default, scale, std::move(onClick)));
+        card->addChild(std::move(r));
+      };
+      const std::uint64_t neededGib = (state.ramBytes + (1ULL << 30) - 1) >> 30;
+      addStep(i18n::tr("settings.power.check-swap", "swap", gib(state.diskSwapBytes), "ram", gib(state.ramBytes)), swapOk,
+              "settings.power.make-swap", [&config, neededGib] { config.set("swapfile", std::to_string(neededGib)); });
+      // UEFI + mkinitcpio: the systemd initramfs resumes from HibernateLocation, also from a swap file.
+      const std::string resumeKey = state.canSwitchInitramfs ? "initramfs-systemd" : "resume-apply";
+      addStep(i18n::tr("settings.power.check-resume"), state.resumeConfigured || state.restartNeeded,
+              "settings.power.set-up-resume", [&config, resumeKey] { config.set(resumeKey, "auto"); });
+      if (state.restartNeeded) {
+        addStep(i18n::tr("settings.power.step-restart"), false, "settings.power.restart", [&config] { config.reboot(); });
       }
       // Exit 3: the helper does not support this setup; its reason tells the user what to do by hand.
       if (state.lastExit == 3 && !state.lastError.empty()) {
@@ -248,6 +254,8 @@ namespace settings {
         }
       }
       if (!checksPass) {
+        addValueRow(*card, stepTitle(i18n::tr("settings.power.trial-start")), i18n::tr("settings.power.trial-wait"),
+                    scale);
         return;
       }
       auto trialRow = row(scale);
@@ -255,7 +263,7 @@ namespace settings {
       const std::string trialKey = config.hibernateVerified() ? "ok"
           : state.trial == "pending" || state.trial == "failed" ? state.trial
                                                                 : "never";
-      trialRow->addChild(title(i18n::tr("settings.power.trial-" + trialKey), scale));
+      trialRow->addChild(title(stepTitle(i18n::tr("settings.power.trial-" + trialKey)), scale));
       if (trialKey == "never" || trialKey == "failed") {
         trialRow->addChild(plainButton(i18n::tr("settings.power.trial-start"), ButtonVariant::Default, scale,
                                        [&config] { config.startTrial(); }));
