@@ -71,8 +71,10 @@ make_config() {
     frosted) glass=1.0 ;;
     *) echo "unknown mode $mode" >&2; exit 2 ;;
   esac
+  local src=$CONF_HOME/.config/andromeda/config.toml
+  [[ -f $src ]] || src=<(printf '[general]\n')
   sed -e '/^autostart *=/d' -e '/^show_cheatsheet *=/d' -e '/^reduce_transparency *=/d' -e '/^glass *=/d' \
-    -e '/^glass_opacity *=/d' -e '/^\[general\]/a show_cheatsheet = false' "$CONF_HOME/.config/andromeda/config.toml" > "$dst"
+    -e '/^glass_opacity *=/d' -e '/^\[general\]/a show_cheatsheet = false' "$src" > "$dst"
   if grep -q '^\[appearance\]' "$dst"; then
     sed -i "/^\[appearance\]/a reduce_transparency = $reduce\nglass = $glass" "$dst"
   else
