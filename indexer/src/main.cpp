@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
       if (live.dirty() && now >= quietAt) {
         live.flush();
         if (content) {
-          content->wake();
+          content->wakeLive();
         }
       } else if (!live.dirty() && now >= nextSweep) {
         live.sweep();

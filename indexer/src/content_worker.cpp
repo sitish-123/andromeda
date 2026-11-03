@@ -29,10 +29,13 @@ namespace andromeda::index {
     constexpr auto kIdleRecheck = std::chrono::minutes(10);
     constexpr auto kBatteryRecheck = std::chrono::minutes(1);
 
-    void lowerPriority() {
+    // An unprivileged thread cannot leave SCHED_IDLE again, so each lane keeps its policy for life.
+    void lowerPriority(bool live) {
       const sched_param param{};
-      pthread_setschedparam(pthread_self(), SCHED_IDLE, &param);
-      syscall(SYS_ioprio_set, kIoprioWhoProcess, 0, kIoprioClassIdle << kIoprioClassShift);
+      pthread_setschedparam(pthread_self(), live ? SCHED_BATCH : SCHED_IDLE, &param);
+      if (!live) {
+        syscall(SYS_ioprio_set, kIoprioWhoProcess, 0, kIoprioClassIdle << kIoprioClassShift);
+      }
     }
 
     constexpr int kExtractTimeoutMs = 30'000;
@@ -132,6 +135,34 @@ namespace andromeda::index {
       int m_out = -1;
     };
 
+    enum class Read { Done, Skipped, NoHelper };
+
+    Read readOne(IndexDb& db, std::optional<Extractor>& extractor, const ContentTask& task) {
+      if (!needsHelper(documentKind(task.path))) {
+        db.storeContent(task.id, task.mtime, extractPlain(task.path));
+        return Read::Done;
+      }
+      if (!extractor || !extractor->ok()) {
+        extractor.emplace();
+        if (!extractor->ok()) {
+          return Read::NoHelper;
+        }
+      }
+      // The helper reads one path per line.
+      if (task.path.find('\n') != std::string::npos) {
+        db.storeContent(task.id, task.mtime, std::nullopt);
+        return Read::Skipped;
+      }
+      db.markExtracting(task.id, task.mtime);
+      const auto text = extractor->extract(task.path);
+      // A crash or a hang: the file is recorded as unreadable and the next file gets a new helper.
+      db.storeContent(task.id, task.mtime, text ? *text : std::nullopt);
+      if (!text) {
+        extractor.reset();
+      }
+      return Read::Done;
+    }
+
     std::string firstLine(const std::filesystem::path& file) {
       std::ifstream in(file);
       std::string line;
@@ -154,48 +185,79 @@ namespace andromeda::index {
     return false;
   }
 
-  ContentWorker::ContentWorker(std::filesystem::path dbFile) : m_dbFile(std::move(dbFile)), m_thread([this] { run(); }) {}
+  ContentWorker::ContentWorker(std::filesystem::path dbFile) : m_dbFile(std::move(dbFile)) {
+    {
+      IndexDb db(m_dbFile);
+      if (db.ok()) {
+        db.failInterrupted();
+      }
+    }
+    m_bulk.woken = true;
+    m_bulkThread = std::thread([this] { run(false); });
+    m_liveThread = std::thread([this] { run(true); });
+  }
 
   ContentWorker::~ContentWorker() {
     {
       const std::lock_guard lock(m_mutex);
       m_stop = true;
     }
-    m_cv.notify_one();
-    m_thread.join();
+    m_bulk.cv.notify_one();
+    m_live.cv.notify_one();
+    m_bulkThread.join();
+    m_liveThread.join();
   }
 
-  void ContentWorker::wake() {
+  void ContentWorker::wake() { wakeLane(m_bulk); }
+
+  void ContentWorker::wakeLive() { wakeLane(m_live); }
+
+  void ContentWorker::wakeLane(Lane& lane) {
     {
       const std::lock_guard lock(m_mutex);
-      m_woken = true;
+      lane.woken = true;
     }
-    m_cv.notify_one();
+    lane.cv.notify_one();
   }
 
-  void ContentWorker::run() {
-    lowerPriority();
+  bool ContentWorker::claim(std::int64_t id) {
+    const std::lock_guard lock(m_mutex);
+    return m_claimed.insert(id).second;
+  }
+
+  void ContentWorker::release(std::int64_t id) {
+    const std::lock_guard lock(m_mutex);
+    m_claimed.erase(id);
+  }
+
+  void ContentWorker::run(bool live) {
+    lowerPriority(live);
     IndexDb db(m_dbFile);
     if (!db.ok()) {
       return;
     }
-    db.failInterrupted();
+    Lane& lane = live ? m_live : m_bulk;
     while (true) {
       {
         std::unique_lock lock(m_mutex);
-        m_cv.wait_for(lock, kIdleRecheck, [this] { return m_woken || m_stop; });
+        lane.cv.wait_for(lock, kIdleRecheck, [&] { return lane.woken || m_stop; });
         if (m_stop) {
           return;
         }
-        m_woken = false;
+        lane.woken = false;
       }
       const auto start = std::chrono::steady_clock::now();
       std::size_t done = 0;
       std::optional<Extractor> extractor;
-      for (const ContentTask& task : db.contentTasks()) {
+      const auto tasks = live ? db.contentTasks(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                    (std::chrono::system_clock::now() - kLiveWindow).time_since_epoch())
+                                                    .count(),
+                                                kLiveBatch)
+                              : db.contentTasks();
+      for (const ContentTask& task : tasks) {
         while (batteryLow(kLowBattery)) {
           std::unique_lock lock(m_mutex);
-          if (m_cv.wait_for(lock, kBatteryRecheck, [this] { return m_stop; })) {
+          if (lane.cv.wait_for(lock, kBatteryRecheck, [this] { return m_stop; })) {
             return;
           }
         }
@@ -205,40 +267,29 @@ namespace andromeda::index {
             return;
           }
         }
-        if (!needsHelper(documentKind(task.path))) {
-          db.storeContent(task.id, task.mtime, extractPlain(task.path));
-          ++done;
+        // The other lane may hold the file, or have read it since this list was made.
+        if (!claim(task.id)) {
           continue;
         }
-        if (!extractor || !extractor->ok()) {
-          extractor.emplace();
-          if (!extractor->ok()) {
-            std::fprintf(stderr, "content: andromeda-index-extract did not start\n");
-            break;
-          }
+        const Read read = db.needsContent(task.id, task.mtime) ? readOne(db, extractor, task) : Read::Skipped;
+        release(task.id);
+        if (read == Read::NoHelper) {
+          std::fprintf(stderr, "content: andromeda-index-extract did not start\n");
+          break;
         }
-        // The helper reads one path per line.
-        if (task.path.find('\n') != std::string::npos) {
-          db.storeContent(task.id, task.mtime, std::nullopt);
-          continue;
-        }
-        db.markExtracting(task.id, task.mtime);
-        const auto text = extractor->extract(task.path);
-        // A crash or a hang: the file is recorded as unreadable and the next file gets a new helper.
-        db.storeContent(task.id, task.mtime, text ? *text : std::nullopt);
-        if (!text) {
-          extractor.reset();
-        }
-        ++done;
+        done += read == Read::Done ? 1 : 0;
       }
       extractor.reset();
       if (done > 0) {
         db.releaseMemory();
         malloc_trim(0);
-        std::fprintf(stderr, "content: %zu files read in %lld ms\n", done,
+        std::fprintf(stderr, "content: %s: %zu files read in %lld ms\n", live ? "live" : "bulk", done,
                      static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                 std::chrono::steady_clock::now() - start)
                                                 .count()));
+      }
+      if (live) {
+        wakeLane(m_bulk);
       }
     }
   }

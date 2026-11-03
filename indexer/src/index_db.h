@@ -80,8 +80,11 @@ namespace andromeda::index {
     [[nodiscard]] std::int64_t count() const;
 
     // Content index (FTS5, unicode61 without diacritics): words in file text, prefix match on the last word.
-    // Files whose text is missing or older than the file, extractable by name and at most kMaxContentFile bytes.
-    [[nodiscard]] std::vector<ContentTask> contentTasks() const;
+    // Files whose text is missing or older than the file, extractable by name and at most kMaxContentFile bytes;
+    // newest first, at most limit, only files changed at or after minMtime (nanoseconds).
+    [[nodiscard]] std::vector<ContentTask> contentTasks(std::int64_t minMtime = 0, std::int64_t limit = -1) const;
+    // True while the file still has this mtime and its text for this mtime is not stored.
+    [[nodiscard]] bool needsContent(std::int64_t id, std::int64_t mtime) const;
     // Marks a file as being read before extraction starts, so a crash in an extractor skips the file next time.
     void markExtracting(std::int64_t id, std::int64_t mtime);
     // Replaces the text of a file; nullopt records a file that could not be read.

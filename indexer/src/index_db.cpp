@@ -112,7 +112,9 @@ namespace andromeda::index {
     std::filesystem::create_directories(file.parent_path(), ec);
     const char* pragmas = bulk ? "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;"
                                : "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
-    if (sqlite3_open(file.c_str(), &m_db) != SQLITE_OK || sqlite3_exec(m_db, pragmas, nullptr, nullptr, nullptr) != SQLITE_OK
+    // The timeout comes first: the schema writes below race the other connections (content worker lanes).
+    const bool opened = sqlite3_open(file.c_str(), &m_db) == SQLITE_OK && sqlite3_busy_timeout(m_db, 5000) == SQLITE_OK;
+    if (!opened || sqlite3_exec(m_db, pragmas, nullptr, nullptr, nullptr) != SQLITE_OK
         || !migrate(m_db) || sqlite3_exec(m_db, kSchema, nullptr, nullptr, nullptr) != SQLITE_OK
         || sqlite3_exec(m_db, std::format("PRAGMA user_version = {}", kSchemaVersion).c_str(), nullptr, nullptr, nullptr)
             != SQLITE_OK) {
@@ -128,7 +130,6 @@ namespace andromeda::index {
     sqlite3_prepare_v3(m_db, "SELECT name, mtime, size, is_dir FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_row, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT parent, name FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_parentOf, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT id FROM files WHERE parent = ?1 AND name = ?2", -1, SQLITE_PREPARE_PERSISTENT, &m_child, nullptr);
-    sqlite3_busy_timeout(m_db, 5000); // the content worker writes on its own connection
     sqlite3_create_function(m_db, "extractable", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr, extractableFunction,
                             nullptr, nullptr);
   }
@@ -413,14 +414,16 @@ namespace andromeda::index {
     return rows;
   }
 
-  std::vector<ContentTask> IndexDb::contentTasks() const {
+  std::vector<ContentTask> IndexDb::contentTasks(std::int64_t minMtime, std::int64_t limit) const {
     sqlite3_stmt* stmt = nullptr;
     sqlite3_prepare_v2(m_db,
                        "SELECT f.id, f.mtime FROM files f LEFT JOIN extracted e ON e.id = f.id "
                        "WHERE f.is_dir = 0 AND f.size <= ?1 AND (e.id IS NULL OR e.mtime != f.mtime) AND extractable(f.name) "
-                       "ORDER BY f.mtime DESC",
+                       "AND f.mtime >= ?2 ORDER BY f.mtime DESC LIMIT ?3",
                        -1, &stmt, nullptr);
     sqlite3_bind_int64(stmt, 1, kMaxContentFile);
+    sqlite3_bind_int64(stmt, 2, minMtime);
+    sqlite3_bind_int64(stmt, 3, limit);
     std::vector<ContentTask> tasks;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       tasks.push_back({.id = sqlite3_column_int64(stmt, 0), .mtime = sqlite3_column_int64(stmt, 1), .path = {}});
@@ -430,6 +433,19 @@ namespace andromeda::index {
       task.path = pathOf(task.id);
     }
     return tasks;
+  }
+
+  bool IndexDb::needsContent(std::int64_t id, std::int64_t mtime) const {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+                       "SELECT 1 FROM files f WHERE f.id = ?1 AND f.mtime = ?2 "
+                       "AND NOT EXISTS (SELECT 1 FROM extracted e WHERE e.id = ?1 AND e.mtime = ?2)",
+                       -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    sqlite3_bind_int64(stmt, 2, mtime);
+    const bool needed = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    return needed;
   }
 
   void IndexDb::markExtracting(std::int64_t id, std::int64_t mtime) {
