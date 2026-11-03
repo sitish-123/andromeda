@@ -50,6 +50,8 @@ def minimal_pdf(text):
     return out
 
 
+with open(os.path.join(docs, "wide.txt"), "wb") as f:
+    f.write("notes about the marmoset, saved as UTF-16 without a byte order mark\n".encode("utf-16-le"))
 with open(os.path.join(docs, "scan.pdf"), "wb") as f:
     f.write(minimal_pdf("wombat"))
 sock_path = os.path.join(env["XDG_RUNTIME_DIR"], "andromeda-index.sock")
@@ -91,7 +93,7 @@ try:
         return False
 
     for word, name in [("pangolin", "report.docx"), ("narwhal", "minutes.odt"), ("axolotl", "novel.epub"),
-                       ("wombat", "scan.pdf"), ("cafe tap", "page.html")]:
+                       ("wombat", "scan.pdf"), ("cafe tap", "page.html"), ("marmoset", "wide.txt")]:
         check(found_by_text(word, name, 5), f"{name} is found by a word inside")
     check(not found_by_text("scriptonly", "page.html", 0.2), "script text is not indexed")
 

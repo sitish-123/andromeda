@@ -30,13 +30,66 @@ namespace andromeda::index {
       return data;
     }
 
+    // The encoding of text that holds NUL bytes: UTF-16 or UTF-32 by byte order mark, else by where the NULs of
+    // ASCII characters fall in the first 4 KB; nullptr for binary data.
+    const char* wideEncoding(std::string_view data) {
+      const auto starts = [&](std::string_view bom) { return data.starts_with(bom); };
+      if (starts(std::string_view("\xFF\xFE\0\0", 4))) {
+        return "UTF-32LE";
+      }
+      if (starts(std::string_view("\0\0\xFE\xFF", 4))) {
+        return "UTF-32BE";
+      }
+      if (starts("\xFF\xFE")) {
+        return "UTF-16LE";
+      }
+      if (starts("\xFE\xFF")) {
+        return "UTF-16BE";
+      }
+      const std::size_t n = std::min<std::size_t>(data.size(), 4096) & ~std::size_t{3};
+      if (n < 16) {
+        return nullptr;
+      }
+      std::array<std::size_t, 4> zeros{};
+      for (std::size_t i = 0; i < n; ++i) {
+        zeros[i % 4] += data[i] == '\0' ? 1 : 0;
+      }
+      const auto mostly = [&](std::size_t lane) { return zeros[lane] * 10 >= (n / 4) * 9; };
+      const auto rarely = [&](std::size_t lane) { return zeros[lane] * 10 <= (n / 4); };
+      if (rarely(0) && mostly(1) && mostly(2) && mostly(3)) {
+        return "UTF-32LE";
+      }
+      if (mostly(0) && mostly(1) && mostly(2) && rarely(3)) {
+        return "UTF-32BE";
+      }
+      if (rarely(0) && mostly(1) && rarely(2) && mostly(3)) {
+        return "UTF-16LE";
+      }
+      if (mostly(0) && rarely(1) && mostly(2) && rarely(3)) {
+        return "UTF-16BE";
+      }
+      return nullptr;
+    }
+
     std::optional<std::string> plainText(const std::string& path) {
       auto data = readHead(path, kMaxText);
-      // A NUL near the start marks a binary file under a text extension.
-      if (!data || data->find('\0') < 4096) {
+      if (!data || data->find('\0') >= 4096) {
+        return data;
+      }
+      // NULs near the start: UTF-16 or UTF-32 text, or a binary file under a text extension.
+      const char* encoding = wideEncoding(*data);
+      if (encoding == nullptr) {
         return std::nullopt;
       }
-      return data;
+      gsize written = 0;
+      gchar* utf8 = g_convert(data->data(), static_cast<gssize>(data->size() & ~std::size_t{3}), "UTF-8", encoding,
+                              nullptr, &written, nullptr);
+      if (utf8 == nullptr) {
+        return std::nullopt;
+      }
+      std::string text(utf8, written);
+      g_free(utf8);
+      return text;
     }
 
     std::optional<std::string> pdfText(const std::string& path) {
