@@ -1084,6 +1084,16 @@ namespace andromeda {
       wheel.action = KeybindAction::WindowFocusRight;
       keybinds.push_back(std::move(wheel));
     }
+    {
+      // Ctrl+Shift+Esc without Mod, as on Windows and GNOME.
+      Keybind activity;
+      activity.modifiers = WLR_MODIFIER_CTRL | WLR_MODIFIER_SHIFT;
+      activity.keysym = XKB_KEY_Escape;
+      activity.repeat = false;
+      activity.action = KeybindAction::Spawn;
+      activity.payload = SpawnArg{.command = "noctalia msg activity-open"};
+      keybinds.push_back(std::move(activity));
+    }
 
     return keybinds;
   }
