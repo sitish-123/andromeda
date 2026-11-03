@@ -170,6 +170,7 @@ class TrayService;
 class UPowerService;
 class UDisksService;
 class GlobalShortcutsPortal;
+class BackgroundPortal;
 class InhibitPortal;
 class ScreenRecorder;
 class NmHotspot;
@@ -388,6 +389,7 @@ private:
   ScreenSaverModule* m_screenSaverModule = nullptr;
   std::optional<bool> m_profileAppliedOnBattery;
   ExternalIpService m_externalIpService{&m_httpClient, &m_configService};
+  std::unique_ptr<BackgroundPortal> m_backgroundPortal;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;

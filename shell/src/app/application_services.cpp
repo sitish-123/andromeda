@@ -37,6 +37,7 @@
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
 #include "dbus/portal/global_shortcuts_portal.h"
+#include "dbus/portal/background_portal.h"
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
@@ -1093,6 +1094,9 @@ void Application::initWaylandCallbacks() {
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
     m_liveActivity.setFullscreen(m_wayland.hasFullscreenToplevel());
+    if (m_backgroundPortal != nullptr) {
+      m_backgroundPortal->onToplevelsChanged();
+    }
   });
   m_wayland.setShellActionCallback([this](const std::string& command) {
     kLog.debug("shell action from compositor: {}", command);
@@ -1867,6 +1871,24 @@ void Application::initSessionBusServices() {
 
     try {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
+      m_backgroundPortal = std::make_unique<BackgroundPortal>(
+          *m_bus,
+          [this] {
+            BackgroundPortal::AppStates states;
+            for (const auto& appId : m_wayland.runningAppIds()) {
+              states[appId] = 1;
+            }
+            if (const auto active = m_wayland.activeToplevel(); active.has_value() && !active->appId.empty()) {
+              states[active->appId] = 2;
+            }
+            return states;
+          },
+          [this](const std::string& appId, const std::string& name) {
+            if (m_backgroundActivityMonitor != nullptr) {
+              m_backgroundActivityMonitor->notifyPortalBackground(appId, name);
+            }
+          }
+      );
       m_globalShortcutsPortal = std::make_unique<GlobalShortcutsPortal>(*m_bus);
       m_screenRecorder = std::make_unique<ScreenRecorder>(*m_bus, m_notificationManager);
       m_screenRecorder->setActiveCallback([this]() { syncLiveActivity(); });
@@ -1874,7 +1896,7 @@ void Application::initSessionBusServices() {
         m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
       }
     } catch (const sdbus::Error& e) {
-      kLog.warn("inhibit or global shortcuts portal disabled: {}", e.what());
+      kLog.warn("inhibit, background or global shortcuts portal disabled: {}", e.what());
     }
 
     try {

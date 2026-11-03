@@ -473,6 +473,7 @@ _noctalia_sources = files(
   'src/dbus/link/quickshare_service.cpp',
   'src/dbus/network/nm_hotspot.cpp',
   'src/dbus/portal/global_shortcuts_portal.cpp',
+  'src/dbus/portal/background_portal.cpp',
   'src/dbus/portal/inhibit_portal.cpp',
   'src/dbus/portal/settings_portal.cpp',
   'src/dbus/udisks/udisks_service.cpp',

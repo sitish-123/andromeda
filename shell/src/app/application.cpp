@@ -38,6 +38,7 @@
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
 #include "dbus/portal/global_shortcuts_portal.h"
+#include "dbus/portal/background_portal.h"
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
