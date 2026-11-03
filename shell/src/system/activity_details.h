@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -13,8 +14,12 @@
 struct ActivityRow;
 struct SystemdUnit;
 
-// PIDs in a unit's cgroup and its child cgroups.
-[[nodiscard]] std::vector<int> cgroupPids(const std::string& cgroupRoot, const std::string& controlGroup);
+// PIDs in a unit's cgroup and its child cgroups; `ids` (optional) gets each cgroup's ID (its cgroup2 inode).
+[[nodiscard]] std::vector<int>
+cgroupPids(const std::string& cgroupRoot, const std::string& controlGroup, std::vector<std::uint64_t>* ids = nullptr);
+
+// TCP bytes received + sent per socket inode, by owning cgroup ID (NETLINK_SOCK_DIAG with tcp_info; no root needed).
+[[nodiscard]] std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCgroup();
 
 // utime + stime of one process in clock ticks (/proc/<pid>/stat), 0 when it has exited.
 [[nodiscard]] std::uint64_t readProcessCpuTicks(int pid);
@@ -59,6 +64,8 @@ public:
   [[nodiscard]] bool expanded(const std::string& rowKey) const { return m_expanded.contains(rowKey); }
 
   [[nodiscard]] double gpuPercent(const std::string& rowKey) const;
+  // TCP bytes per second (received + sent) since the previous sample; empty before the second sample.
+  [[nodiscard]] std::optional<double> networkBytesPerSec(const std::string& rowKey) const;
   [[nodiscard]] const RowHistory* history(const std::string& rowKey) const;
   [[nodiscard]] const std::vector<ProcessGroupUsage>* groups(const std::string& rowKey) const;
   [[nodiscard]] const std::map<std::string, RowHistory>& histories() const noexcept { return m_history; }
@@ -76,6 +83,7 @@ public:
     std::map<std::string, std::map<std::string, std::uint64_t>> clientBusyNs;
     std::map<int, std::uint64_t> pidTicks; // CPU ticks of expanded rows' processes at the previous probe
     std::map<int, DrmFds> drmFds;
+    std::map<std::uint32_t, std::uint64_t> socketBytes; // TCP socket inode -> bytes at the previous probe
   };
   struct ProbeRow {
     std::string key;
@@ -85,6 +93,7 @@ public:
   struct ProbeResult {
     ProbeState state;
     std::map<std::string, double> gpuPercent;
+    std::map<std::string, double> networkBytesPerSec;
     std::map<std::string, std::vector<ProcessGroupUsage>> groups;
   };
   // The worker job: touches no ActivityDetails member.
@@ -96,6 +105,7 @@ public:
 private:
   std::map<std::string, RowHistory> m_history;
   std::map<std::string, double> m_gpuPercent;
+  std::map<std::string, double> m_networkBytesPerSec;
   std::set<std::string> m_expanded;
   std::map<std::string, std::vector<ProcessGroupUsage>> m_groups;
   ProbeState m_probeState;

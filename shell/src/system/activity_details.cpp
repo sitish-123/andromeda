@@ -6,10 +6,19 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <linux/inet_diag.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <linux/sock_diag.h>
+#include <linux/tcp.h>
+#include <netinet/in.h>
 #include <sstream>
+#include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -71,7 +80,8 @@ namespace {
 
 } // namespace
 
-std::vector<int> cgroupPids(const std::string& cgroupRoot, const std::string& controlGroup) {
+std::vector<int>
+cgroupPids(const std::string& cgroupRoot, const std::string& controlGroup, std::vector<std::uint64_t>* ids) {
   std::vector<int> pids;
   if (controlGroup.empty()) {
     return pids;
@@ -86,6 +96,9 @@ std::vector<int> cgroupPids(const std::string& cgroupRoot, const std::string& co
     }
   }
   for (const auto& cgroup : cgroups) {
+    if (struct stat st{}; ids != nullptr && ::stat(cgroup.c_str(), &st) == 0) {
+      ids->push_back(st.st_ino);
+    }
     forEachLine(readFile(cgroup / "cgroup.procs"), [&](std::string_view line) {
       if (const auto pid = static_cast<int>(toU64(line)); pid > 0) {
         pids.push_back(pid);
@@ -168,6 +181,64 @@ namespace {
 
 } // namespace
 
+std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCgroup() {
+  std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> result;
+  const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_SOCK_DIAG);
+  if (fd < 0) {
+    return result;
+  }
+  for (const std::uint8_t family : {std::uint8_t{AF_INET}, std::uint8_t{AF_INET6}}) {
+    struct {
+      nlmsghdr header;
+      inet_diag_req_v2 request;
+    } message{};
+    message.header.nlmsg_len = sizeof(message);
+    message.header.nlmsg_type = SOCK_DIAG_BY_FAMILY;
+    message.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    message.request.sdiag_family = family;
+    message.request.sdiag_protocol = IPPROTO_TCP;
+    message.request.idiag_states = ~0U;
+    message.request.idiag_ext = 1U << (INET_DIAG_INFO - 1);
+    if (::send(fd, &message, sizeof(message), 0) < 0) {
+      continue;
+    }
+    alignas(nlmsghdr) char buffer[32768];
+    for (bool done = false; !done;) {
+      const ssize_t received = ::recv(fd, buffer, sizeof(buffer), 0);
+      if (received <= 0) {
+        break;
+      }
+      auto left = static_cast<unsigned int>(received);
+      for (auto* header = reinterpret_cast<nlmsghdr*>(buffer); NLMSG_OK(header, left);
+           header = NLMSG_NEXT(header, left)) {
+        if (header->nlmsg_type == NLMSG_DONE || header->nlmsg_type == NLMSG_ERROR) {
+          done = true;
+          break;
+        }
+        const auto* diag = static_cast<const inet_diag_msg*>(NLMSG_DATA(header));
+        auto attrLeft = static_cast<int>(header->nlmsg_len - NLMSG_LENGTH(sizeof(*diag)));
+        std::uint64_t cgroup = 0;
+        std::uint64_t bytes = 0;
+        for (auto* attr = reinterpret_cast<const rtattr*>(diag + 1); RTA_OK(attr, attrLeft);
+             attr = RTA_NEXT(attr, attrLeft)) {
+          if (attr->rta_type == INET_DIAG_CGROUP_ID && RTA_PAYLOAD(attr) >= sizeof(std::uint64_t)) {
+            std::memcpy(&cgroup, RTA_DATA(attr), sizeof(cgroup));
+          } else if (attr->rta_type == INET_DIAG_INFO) {
+            tcp_info info{};
+            std::memcpy(&info, RTA_DATA(attr), std::min<std::size_t>(RTA_PAYLOAD(attr), sizeof(info)));
+            bytes = info.tcpi_bytes_received + info.tcpi_bytes_acked;
+          }
+        }
+        if (cgroup != 0 && diag->idiag_inode != 0) {
+          result[cgroup][diag->idiag_inode] = bytes;
+        }
+      }
+    }
+  }
+  ::close(fd);
+  return result;
+}
+
 std::uint64_t readProcessCpuTicks(int pid) {
   const std::string stat = readFile(std::format("/proc/{}/stat", pid));
   // comm may contain spaces: fields restart after the last ')'. utime and stime are fields 14 and 15.
@@ -246,6 +317,7 @@ bool ActivityDetails::update(
         m_probing = false;
         m_probeState = std::move(result.state);
         m_gpuPercent = std::move(result.gpuPercent);
+        m_networkBytesPerSec = std::move(result.networkBytesPerSec);
         m_groups = std::move(result.groups);
         if (probed) {
           probed();
@@ -266,13 +338,35 @@ ActivityDetails::ProbeResult ActivityDetails::probe(
   ProbeResult result;
   result.state.at = now;
   std::set<int> seenPids;
+  const auto tcp = readTcpBytesByCgroup();
   for (const auto& row : rows) {
     std::vector<int> pids;
+    std::vector<std::uint64_t> cgroupIds;
     for (const auto& cg : row.controlGroups) {
-      auto unitPids = cgroupPids(cgroupRoot, cg);
+      auto unitPids = cgroupPids(cgroupRoot, cg, &cgroupIds);
       pids.insert(pids.end(), unitPids.begin(), unitPids.end());
     }
     seenPids.insert(pids.begin(), pids.end());
+    std::uint64_t netDelta = 0;
+    for (const std::uint64_t id : cgroupIds) {
+      const auto sockets = tcp.find(id);
+      if (sockets == tcp.end()) {
+        continue;
+      }
+      for (const auto& [inode, bytes] : sockets->second) {
+        // A socket first seen after the first probe opened since then: all its bytes are new.
+        const auto before = state.socketBytes.find(inode);
+        if (before != state.socketBytes.end()) {
+          netDelta += bytes >= before->second ? bytes - before->second : 0;
+        } else if (seconds > 0.0) {
+          netDelta += bytes;
+        }
+        result.state.socketBytes[inode] = bytes;
+      }
+    }
+    if (seconds > 0.0) {
+      result.networkBytesPerSec[row.key] = static_cast<double>(netDelta) / seconds;
+    }
     std::map<std::string, std::uint64_t> deltaNs; // by engine, summed over the row's clients
     for (auto& [client, busy] : readGpuClients(pids, state.drmFds, now)) {
       if (const auto before = state.clientBusyNs.find(client); before != state.clientBusyNs.end()) {
@@ -359,6 +453,7 @@ void ActivityDetails::resetShort() {
   m_probing = false;
   ++m_generation;
   m_gpuPercent.clear();
+  m_networkBytesPerSec.clear();
   m_groups.clear();
   m_lastUpdate = {};
 }
@@ -369,6 +464,11 @@ void ActivityDetails::setExpanded(const std::string& rowKey, bool expanded) {
   } else {
     m_expanded.erase(rowKey);
   }
+}
+
+std::optional<double> ActivityDetails::networkBytesPerSec(const std::string& rowKey) const {
+  const auto it = m_networkBytesPerSec.find(rowKey);
+  return it != m_networkBytesPerSec.end() ? std::optional{it->second} : std::nullopt;
 }
 
 double ActivityDetails::gpuPercent(const std::string& rowKey) const {

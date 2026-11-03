@@ -2,6 +2,7 @@
 # Activity window (S5). A foot window runs in a real transient scope that the private bus's mock systemd mirrors.
 # Fails when:
 #   - `msg activity-open act-test` maps no Activity window,
+#   - the act-test row (tcp_chatter.py, about 2.5 MB/s over localhost) reports no TCP rate (net_bps) in the dump,
 #   - the selected act-test row does not reach the dump,
 #   - Delete while typing in the search field (Ctrl+F) quits the selected app,
 #   - Delete (Quit on the selected row) does not stop the scope and close the foot window.
@@ -18,11 +19,12 @@ printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.confi
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_systemd1.py"
 export SCOPE REAL_RUNTIME POINTER=$ROOT/compositor/build-debug/tests/pointer-client
+export CHATTER="$(cd "$(dirname "$0")" && pwd)/tcp_chatter.py"
 BEFORE_NOCTALIA='REAL_RUNTIME=$REAL_RUNTIME python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done'
 with_noctalia '
   XDG_RUNTIME_DIR=$REAL_RUNTIME systemd-run --user --quiet --scope --unit="$SCOPE" \
-    env XDG_RUNTIME_DIR="$RUNTIME" foot --config=/dev/null --title=act-test sh -c "sleep 300" > /dev/null 2>&1 &
+    env XDG_RUNTIME_DIR="$RUNTIME" foot --config=/dev/null --title=act-test python3 "$CHATTER" > /dev/null 2>&1 &
   foot_pid=$!
   scope_cgroup=""
   for _ in $(seq 50); do
@@ -52,6 +54,13 @@ with_noctalia '
   done
   jq -e '"'"'any(.. | objects; .app_id? == "dev.andromeda.Activity")'"'"' "$OUT/windows.json" > /dev/null \
     || { echo "FAIL: no Activity window mapped"; exit 1; }
+  for _ in $(seq 50); do
+    "$NOCTALIA" msg activity-dump > "$OUT/dump.json"
+    jq -e '"'"'any(.rows[]; .app_id == "act-test" and (.net_bps // 0) > 100000)'"'"' "$OUT/dump.json" > /dev/null && break
+    sleep 0.1
+  done
+  jq -e '"'"'any(.rows[]; .app_id == "act-test" and (.net_bps // 0) > 100000)'"'"' "$OUT/dump.json" > /dev/null \
+    || { echo "FAIL: no TCP rate for act-test: $(jq -c '"'"'.rows[] | select(.app_id == "act-test") | .net_bps'"'"' "$OUT/dump.json")"; exit 1; }
   grim "$OUT/window.png"
 
   alive() { local s; s=$(ps -o stat= -p "$foot_pid" 2> /dev/null || true); [[ -n $s && $s != Z* ]]; } # an exited child stays a zombie

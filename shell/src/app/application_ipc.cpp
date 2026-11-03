@@ -741,7 +741,15 @@ void Application::initIpc() {
           return "error: no session bus\n";
         }
         m_activityMonitor->touch();
-        return m_activityMonitor->dumpJson() + "\n";
+        auto dump = nlohmann::json::parse(m_activityMonitor->dumpJson());
+        for (auto& row : dump["rows"]) {
+          const std::string key = row["key"];
+          row["gpu_percent"] = m_activityDetails.gpuPercent(key);
+          if (const auto net = m_activityDetails.networkBytesPerSec(key)) {
+            row["net_bps"] = *net;
+          }
+        }
+        return dump.dump() + "\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );

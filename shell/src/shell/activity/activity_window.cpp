@@ -1264,6 +1264,14 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
         "{:.1f} / {:.1f} MB/s", r.ioReadBytesPerSec / (1024.0 * 1024.0), r.ioWriteBytesPerSec / (1024.0 * 1024.0)
     );
   });
+  fact(i18n::tr("activity.fact-network"), [this](const ActivityRow& r) {
+    const auto rate = m_details != nullptr ? m_details->networkBytesPerSec(r.key) : std::nullopt;
+    if (!rate.has_value()) {
+      return std::string("–");
+    }
+    return *rate >= 1024.0 * 1024.0 ? std::format("{:.1f} MB/s", *rate / (1024.0 * 1024.0))
+                                    : std::format("{:.0f} KB/s", *rate / 1024.0);
+  });
   fact(i18n::tr("activity.fact-running-for"), [](const ActivityRow& r) { return uptimeText(r.startedUsec); });
   inspector->addChild(factRow(i18n::tr("activity.fact-units"), std::to_string(row->units.size()), scale));
   const auto* state = rowState(row->key);

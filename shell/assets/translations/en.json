@@ -29,6 +29,7 @@
     "error-admin": "You need administrator rights.",
     "fact-at-login": "Starts at login",
     "fact-disk": "Disk read / write",
+    "fact-network": "Network, TCP only",
     "fact-running-for": "Running for",
     "fact-units": "Units",
     "graph-memory": "Memory, 10 min",
