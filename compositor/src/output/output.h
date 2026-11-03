@@ -341,6 +341,9 @@ namespace andromeda {
     EffectSlot m_screenEffectSlot;
     EffectAudio m_effectAudio{}; // bands and availability latched at the last effect frame
     uint64_t m_effectFrames = 0;
+    // ANDROMEDA_FRAME_LOG: GPU timer queries, read two frames later so the GPU is done (tests/glass-bench.sh).
+    struct FrameTimers;
+    std::unique_ptr<FrameTimers> m_frameTimers;
     float m_effectSeconds = 0.0F;
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads andromeda_time
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`

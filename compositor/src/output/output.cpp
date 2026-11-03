@@ -43,6 +43,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cstdio>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -1450,6 +1451,54 @@ namespace andromeda {
     }
   }
 
+  // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns.
+  struct Output::FrameTimers {
+    static constexpr std::size_t kDepth = 3;
+    std::array<wlr_scene_timer, kDepth> timers{};
+    std::array<bool, kDepth> used{};
+    std::array<int64_t, kDepth> startNs{};
+    std::size_t next = 0;
+
+    static FILE* log() {
+      static FILE* file = [] {
+        const char* path = std::getenv("ANDROMEDA_FRAME_LOG");
+        FILE* f = path != nullptr && path[0] != '\0' ? std::fopen(path, "w") : nullptr;
+        if (f != nullptr) {
+          std::setvbuf(f, nullptr, _IOLBF, 0);
+        }
+        return f;
+      }();
+      return file;
+    }
+
+    // Writes the slot's finished frame, then hands the slot to the next build.
+    wlr_scene_timer* take(const char* output) {
+      wlr_scene_timer* timer = &timers[next];
+      if (used[next]) {
+        const int64_t total = wlr_scene_timer_get_duration_ns(timer);
+        if (total >= 0) {
+          std::fprintf(log(), "%lld %s %lld %lld\n", static_cast<long long>(startNs[next]), output,
+                       static_cast<long long>(timer->pre_render_duration),
+                       static_cast<long long>(total - timer->pre_render_duration));
+        }
+      }
+      timespec now{};
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      startNs[next] = static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
+      used[next] = true;
+      next = (next + 1) % kDepth;
+      return timer;
+    }
+
+    ~FrameTimers() {
+      for (std::size_t i = 0; i < kDepth; ++i) {
+        if (used[i]) {
+          wlr_scene_timer_finish(&timers[i]);
+        }
+      }
+    }
+  };
+
   Output::~Output() {
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
@@ -2173,6 +2222,12 @@ namespace andromeda {
       if (sceneOptions.require_animation_success) {
         sceneOptions.workspace_from = m_workspaceGroup->revealRoot(false);
         sceneOptions.workspace_to = m_workspaceGroup->revealRoot(true);
+      }
+      if (FrameTimers::log() != nullptr) {
+        if (m_frameTimers == nullptr) {
+          m_frameTimers = std::make_unique<FrameTimers>();
+        }
+        sceneOptions.timer = m_frameTimers->take(m_output->name);
       }
       bool built = false;
       {
