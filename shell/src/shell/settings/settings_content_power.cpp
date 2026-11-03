@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -74,6 +75,38 @@ namespace settings {
       return value;
     }
 
+    // A select that writes key=value through the root helper; disabled until the helper is installed.
+    void addChoiceRow(Flex& card, PowerConfigService& config, const std::string& label, const std::string& key,
+                      const std::vector<std::string>& values,
+                      const std::function<std::string(const std::string&)>& labelFor, const std::string& current,
+                      float scale) {
+      std::vector<std::string> labels;
+      std::optional<std::size_t> selected;
+      for (std::size_t i = 0; i < values.size(); ++i) {
+        labels.push_back(labelFor(values[i]));
+        if (values[i] == current) {
+          selected = i;
+        }
+      }
+      auto r = row(scale);
+      r->addChild(title(label, scale));
+      r->addChild(ui::select({
+          .options = std::move(labels),
+          .selectedIndex = selected,
+          .clearSelection = !selected.has_value(),
+          .fontSize = Style::fontSizeBody * scale,
+          .glyphSize = Style::fontSizeBody * scale,
+          .enabled = config.state().helperInstalled,
+          .onSelectionChanged =
+              [&config, key, values, current](std::size_t index, std::string_view /*label*/) {
+                if (index < values.size() && values[index] != current) {
+                  config.set(key, values[index]);
+                }
+              },
+      }));
+      card.addChild(std::move(r));
+    }
+
     void addHandleRow(Flex& card, PowerConfigService& config, const std::string& labelKey, const std::string& key,
                       const std::string& current, bool allowPoweroff, float scale) {
       const PowerConfigState& state = config.state();
@@ -91,31 +124,7 @@ namespace settings {
       if (!current.empty() && !std::ranges::contains(values, current)) {
         values.push_back(current);
       }
-      std::vector<std::string> labels;
-      std::optional<std::size_t> selected;
-      for (std::size_t i = 0; i < values.size(); ++i) {
-        labels.push_back(handleLabel(values[i]));
-        if (values[i] == current) {
-          selected = i;
-        }
-      }
-      auto r = row(scale);
-      r->addChild(title(i18n::tr(labelKey), scale));
-      r->addChild(ui::select({
-          .options = std::move(labels),
-          .selectedIndex = selected,
-          .clearSelection = !selected.has_value(),
-          .fontSize = Style::fontSizeBody * scale,
-          .glyphSize = Style::fontSizeBody * scale,
-          .enabled = state.helperInstalled,
-          .onSelectionChanged =
-              [&config, key, values, current](std::size_t index, std::string_view /*label*/) {
-                if (index < values.size() && values[index] != current) {
-                  config.set(key, values[index]);
-                }
-              },
-      }));
-      card.addChild(std::move(r));
+      addChoiceRow(card, config, i18n::tr(labelKey), key, values, handleLabel, current, scale);
     }
 
     void addLidButtonsCard(Flex& content, PowerConfigService& config, float scale) {
@@ -128,6 +137,60 @@ namespace settings {
         addHandleRow(*card, config, "settings.power.lid-docked", "lid-docked", state.lidDocked, false, scale);
       }
       addHandleRow(*card, config, "settings.power.power-key", "power-key", state.powerKey, true, scale);
+    }
+
+    std::string gib(std::uint64_t bytes) { return std::format("{:.0f} GB", static_cast<double>(bytes) / (1ULL << 30)); }
+
+    void addSleepCard(Flex& content, PowerConfigService& config, float scale) {
+      const PowerConfigState& state = config.state();
+      addHeader(content, i18n::tr("settings.power.sleep"), nullptr, scale);
+      Flex* card = addCard(content, scale);
+      const auto modeLabel = [](const std::string& mode) {
+        return mode == "s2idle" || mode == "shallow" || mode == "deep" ? i18n::tr("settings.power.sleep-mode-" + mode)
+                                                                        : mode;
+      };
+      if (state.sleepModes.size() > 1) {
+        addChoiceRow(*card, config, i18n::tr("settings.power.sleep-mode"), "sleep-mode", state.sleepModes, modeLabel,
+                     state.sleepMode, scale);
+      } else if (!state.sleepMode.empty()) {
+        addValueRow(*card, i18n::tr("settings.power.sleep-mode"), modeLabel(state.sleepMode), scale);
+      }
+      if (state.canSuspendThenHibernate) {
+        addChoiceRow(*card, config, i18n::tr("settings.power.hibernate-after"), "hibernate-delay",
+                     {"off", "30min", "1h", "2h", "3h"},
+                     [](const std::string& v) { return i18n::tr("settings.power.delay." + v); }, state.hibernateDelay,
+                     scale);
+      }
+    }
+
+    // Each check names what blocks hibernation on this machine; swap below RAM size gets a fix (andromeda-power-config).
+    void addHibernateCard(Flex& content, PowerConfigService& config, float scale) {
+      const PowerConfigState& state = config.state();
+      addHeader(content, i18n::tr("settings.power.hibernate"), nullptr, scale);
+      Flex* card = addCard(content, scale);
+      const bool swapOk = state.diskSwapBytes >= state.ramBytes;
+      // logind's CanHibernate already checks that swap can hold the current memory; full-RAM swap is advice.
+      const bool ready = !state.lockdown && state.resumeConfigured && state.canHibernate;
+      addValueRow(*card, i18n::tr("settings.power.hibernate-status"),
+                  i18n::tr(ready ? "settings.power.hibernate-ready" : "settings.power.hibernate-not-ready"), scale);
+      if (state.lockdown) {
+        addValueRow(*card, i18n::tr("settings.power.check-lockdown"), i18n::tr("settings.power.check-lockdown-on"),
+                    scale);
+        return;
+      }
+      auto swapRow = row(scale);
+      swapRow->addChild(title(i18n::tr("settings.power.check-swap", "swap", gib(state.diskSwapBytes), "ram",
+                                       gib(state.ramBytes)),
+                              scale));
+      if (!swapOk && state.helperInstalled) {
+        const std::uint64_t neededGib = (state.ramBytes + (1ULL << 30) - 1) >> 30;
+        swapRow->addChild(plainButton(i18n::tr("settings.power.make-swap"), ButtonVariant::Default, scale,
+                                      [&config, neededGib] { config.set("swapfile", std::to_string(neededGib)); }));
+      }
+      card->addChild(std::move(swapRow));
+      addValueRow(*card, i18n::tr("settings.power.check-resume"),
+                  i18n::tr(state.resumeConfigured ? "settings.power.check-resume-ok" : "settings.power.check-resume-missing"),
+                  scale);
     }
 
     void addBatteryCard(Flex& content, UPowerService& upower, const UPowerDeviceInfo& battery, float scale) {
@@ -182,6 +245,8 @@ namespace settings {
     }
     if (ctx.powerConfig != nullptr) {
       addLidButtonsCard(content, *ctx.powerConfig, scale);
+      addSleepCard(content, *ctx.powerConfig, scale);
+      addHibernateCard(content, *ctx.powerConfig, scale);
     }
   }
 

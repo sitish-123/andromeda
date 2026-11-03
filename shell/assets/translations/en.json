@@ -1891,7 +1891,31 @@
       "limit": "Limit Charging",
       "limit-to": "Limit Charging to {percent}%",
       "mode": "Power Mode",
-      "power-key": "Power Button"
+      "power-key": "Power Button",
+      "sleep": "Sleep",
+      "sleep-mode": "Sleep Mode",
+      "sleep-mode-deep": "Deep Sleep (S3)",
+      "sleep-mode-s2idle": "Modern Standby (s2idle)",
+      "sleep-mode-shallow": "Standby",
+      "hibernate-after": "Hibernate After Sleeping",
+      "delay": {
+        "1h": "1 Hour",
+        "2h": "2 Hours",
+        "30min": "30 Minutes",
+        "3h": "3 Hours",
+        "off": "Never"
+      },
+      "hibernate": "Hibernate",
+      "hibernate-status": "Status",
+      "hibernate-ready": "Ready",
+      "hibernate-not-ready": "Not Ready",
+      "check-lockdown": "Secure Boot",
+      "check-lockdown-on": "Kernel lockdown blocks hibernation",
+      "check-swap": "Swap on Disk: {swap} ({ram} Recommended)",
+      "make-swap": "Make Swap Space",
+      "check-resume": "Resume at Boot",
+      "check-resume-ok": "Configured",
+      "check-resume-missing": "Not Configured"
     },
     "users": {
       "account-name": "Account Name",

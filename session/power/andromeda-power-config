@@ -4,6 +4,7 @@
 #   lid-battery|lid-power|lid-docked  suspend|hibernate|suspend-then-hibernate|lock|ignore
 #   power-key                         same, plus poweroff
 #   hibernate-delay                   off|30min|1h|2h|3h
+#   swapfile                          <GiB> 1-299 (ext4, xfs, f2fs only)
 #   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
 set -eu
 PATH=/usr/bin
@@ -13,6 +14,48 @@ key=$1 value=$2
 [ "$(id -u)" -ne 0 ] || ANDROMEDA_POWER_ETC=
 logind_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/logind.conf.d
 sleep_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/sleep.conf.d
+
+# Commands that change the running system; the test root only prints them.
+sys() { if [ -n "${ANDROMEDA_POWER_ETC:-}" ]; then echo "would run: $*"; else "$@"; fi; }
+
+# swapfile <GiB>: grow or make the disk swap file for hibernation (mkswap(8) --size --file). The new file is made
+# beside the old one first, so a failure leaves the old swap in place.
+if [ "$key" = swapfile ]; then
+  case $value in [1-9] | [1-9][0-9] | [1-2][0-9][0-9]) ;; *) echo "bad size: $value" >&2; exit 2 ;; esac
+  path=$(awk '$2 == "file" && $1 !~ /^\/dev\/zram/ { print $1; exit }' /proc/swaps)
+  [ -n "$path" ] || path=/swapfile
+  path=${ANDROMEDA_POWER_ETC:-}$path
+  fs=$(findmnt -no FSTYPE -T "$(dirname "$path")")
+  case $fs in
+    ext4 | xfs | f2fs) ;;
+    *) echo "not supported on $fs" >&2; exit 3 ;;
+  esac
+  old_kib=0
+  [ -f "$path" ] && old_kib=$(($(stat -c %s "$path") / 1024))
+  avail_kib=$(df -k --output=avail "$(dirname "$path")" | tail -n 1)
+  [ "$avail_kib" -gt $((value * 1048576 + 1048576)) ] || { echo "not enough free disk space" >&2; exit 4; }
+  if grep -q "^$path " /proc/swaps; then
+    used_kib=$(awk -v p="$path" '$1 == p { print $4 }' /proc/swaps)
+    free_kib=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)
+    [ "$used_kib" -lt "$free_kib" ] || { echo "not enough free memory to turn the old swap off" >&2; exit 4; }
+  fi
+  new=$path.new
+  rm -f "$new"
+  mkswap --size "${value}G" --file "$new" >/dev/null
+  if grep -q "^$path " /proc/swaps; then sys swapoff "$path"; fi
+  mv "$new" "$path"
+  sys swapon "$path"
+  if ! grep -qs "^${path#"${ANDROMEDA_POWER_ETC:-}"}[[:space:]]" "${ANDROMEDA_POWER_ETC:-}/etc/fstab"; then
+    unit=$(systemd-escape -p --suffix=swap "${path#"${ANDROMEDA_POWER_ETC:-}"}")
+    mkdir -p "${ANDROMEDA_POWER_ETC:-}/etc/systemd/system"
+    printf '[Swap]\nWhat=%s\n\n[Install]\nWantedBy=swap.target\n' "${path#"${ANDROMEDA_POWER_ETC:-}"}" \
+      >"${ANDROMEDA_POWER_ETC:-}/etc/systemd/system/$unit"
+    sys systemctl daemon-reload
+    sys systemctl enable "$unit"
+  fi
+  echo "swap file $path: $((old_kib / 1048576)) GiB -> $value GiB"
+  exit 0
+fi
 
 case $key in
   lid-battery) section=Login dir=$logind_dir name=HandleLidSwitch ;;
