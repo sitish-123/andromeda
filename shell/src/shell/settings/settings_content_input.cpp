@@ -278,6 +278,16 @@ namespace settings {
       addToggleRow(*body, "settings.input.touchpad.left-handed", "input.tablet.left_handed", ctx);
     }
 
+    void addTouchscreenCard(Flex& content, const SettingsInputContext& ctx) {
+      if (std::ranges::none_of(ctx.input->devices(), [](const InputDevice& d) {
+            return d.kind == InputDeviceKind::Touch;
+          })) {
+        return;
+      }
+      Flex* body = addSettingsCard(content, i18n::tr("settings.input.touchscreen"), ctx.scale);
+      addToggleRow(*body, "settings.input.touchscreen.enabled", "input.touch.enabled", ctx);
+    }
+
     void addKeyboardCard(Flex& content, const SettingsInputContext& ctx) {
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.keyboard"), ctx.scale);
       const SettingsControl& input = *ctx.input;
@@ -453,6 +463,7 @@ namespace settings {
         return;
       }
       Flex* body = addSettingsCard(content, i18n::tr("settings.input.touchpad"), ctx.scale);
+      addToggleRow(*body, "settings.input.touchpad.enabled", "input.touchpad.enabled", ctx);
 
       const auto boolRow = [&](std::string_view titleKey, std::string_view key) {
         body->addChild(makeInputRow(
@@ -474,6 +485,14 @@ namespace settings {
 
       if (input.value("input.touchpad.tap") == "true") {
         boolRow("settings.input.touchpad.tap-and-drag", "input.touchpad.tap_and_drag");
+        if (input.value("input.touchpad.tap_and_drag") != "false") {
+          addChoiceRow(
+              *body, "settings.input.touchpad.drag-lock", "input.touchpad.drag_lock", {"off", "timeout", "sticky"},
+              {i18n::tr("settings.input.touchpad.drag-lock.off"), i18n::tr("settings.input.touchpad.drag-lock.timeout"),
+               i18n::tr("settings.input.touchpad.drag-lock.sticky")},
+              ctx
+          );
+        }
         addChoiceRow(
             *body, "settings.input.touchpad.tap-map", "input.touchpad.tap_button_map",
             {"left_right_middle", "left_middle_right"},
@@ -602,6 +621,7 @@ namespace settings {
       addMouseCard(content, ctx);
       addTouchpadCard(content, ctx);
       addTabletCard(content, ctx);
+      addTouchscreenCard(content, ctx);
     } else {
       addKeyboardCard(content, ctx);
     }

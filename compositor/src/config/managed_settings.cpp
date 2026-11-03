@@ -28,6 +28,7 @@ namespace andromeda {
     constexpr std::array<std::string_view, 2> kAccel = {"flat", "adaptive"};
     constexpr std::array<std::string_view, 2> kClickMethod = {"button_areas", "clickfinger"};
     constexpr std::array<std::string_view, 2> kTapMap = {"left_right_middle", "left_middle_right"};
+    constexpr std::array<std::string_view, 3> kDragLock = {"off", "timeout", "sticky"};
     constexpr std::array<std::string_view, 2> kScheme = {"dark", "light"};
     constexpr std::array<std::string_view, 5> kButtons = {
         "MouseLeft", "MouseRight", "MouseMiddle", "MouseBack", "MouseForward",
@@ -58,6 +59,10 @@ namespace andromeda {
         return "";
       }
       return *method == ClickMethod::ButtonAreas ? "button_areas" : "clickfinger";
+    }
+
+    std::string text(const std::optional<DragLock>& lock) {
+      return lock ? std::string(kDragLock[static_cast<size_t>(*lock)]) : "";
     }
 
     std::string text(const std::optional<TapButtonMap>& map) {
@@ -188,6 +193,14 @@ namespace andromeda {
             {},
             [](const Config& c) { return text(c.input.touchpad.tapAndDrag.value_or(true)); }
         },
+        Spec{
+            "input.touchpad.drag_lock", Kind::Choice, 0, 0, kDragLock,
+            [](const Config& c) { return text(c.input.touchpad.dragLock); }
+        },
+        Spec{
+            "input.touchpad.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.touchpad.enabled); }
+        },
+        Spec{"input.touch.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.touch.enabled); }},
         Spec{
             "input.window_snapping",
             Kind::Bool,

@@ -6290,6 +6290,11 @@
       "touchpad.tap-map.lmr": "Middle click, right click",
       "touchpad.scroll-speed": "Scroll speed",
       "touchpad.tap-and-drag": "Tap and drag",
+      "touchpad.drag-lock": "Drag lock",
+      "touchpad.drag-lock.off": "Off",
+      "touchpad.drag-lock.timeout": "Short pause",
+      "touchpad.drag-lock.sticky": "Until next tap",
+      "touchpad.enabled": "Use touchpad",
       "mouse": "Mouse",
       "pointer": "Pointer",
       "pointer.theme": "Cursor theme",
@@ -6299,7 +6304,9 @@
       "pointer.hide-never": "Never",
       "pointer.middle-click-paste": "Middle-click paste",
       "tablet": "Tablet",
-      "tablet.enabled": "Use tablet"
+      "tablet.enabled": "Use tablet",
+      "touchscreen": "Touchscreen",
+      "touchscreen.enabled": "Use touchscreen"
     },
     "datetime": {
       "unavailable": "org.freedesktop.timedate1 is not available on the system bus.",
