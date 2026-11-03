@@ -1,15 +1,18 @@
 #pragma once
 
+#include "config/config_types.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/shared_texture_cache.h"
 #include "shell/lockscreen/lock_editor_bar.h"
+#include "shell/lockscreen/lock_editor_gallery.h"
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <variant>
 
 class ConfigService;
 class Label;
@@ -51,7 +54,11 @@ private:
   void buildScene(float width, float height);
   void layoutScene(float width, float height);
   void applyWallpaper();
+  using Focus = std::variant<LockEditorBar::Hit, LockEditorGallery::Hit>;
   void activate(LockEditorBar::Hit hit);
+  void activateGallery(LockEditorGallery::Hit hit);
+  void setFocus(const Focus& focus);
+  [[nodiscard]] LockscreenConfig previewConfig() const;
   void moveFocus(int step);
   void save();
   void refresh();
@@ -72,11 +79,13 @@ private:
   AuthColumn m_auth;
   LockEditorBar m_bar;
   LockEditorBar::State m_draft;
+  LockEditorGallery m_gallery;
+  LockEditorGallery::State m_clock;
 
   std::string m_connector;
   std::uint32_t m_outputName = 0;
   std::string m_wallpaperPath;
   bool m_ownWallpaper = false;
   SharedTextureCache::Lease m_wallpaperLease;
-  Timer m_clock;
+  Timer m_clockTimer;
 };

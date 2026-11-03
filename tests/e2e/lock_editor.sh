@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The lock screen editor (L6a) runs unlocked and edits a draft: `msg lockscreen-widgets-edit` opens it, keys pick the
-# Glance layout in the Layout panel, Escape drops that draft (config unchanged), and Done saves it (layout = "glance").
-# Writes editor.png, panel.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
+# Glance layout in the Layout panel, Escape drops that draft (config unchanged), Done saves it (layout = "glance"), and
+# the Slots clock gallery saves a picked style (clock_style = "bold").
+# Writes editor.png, panel.png, gallery.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-editor}
 source "$(dirname "$0")/lib.sh"
@@ -40,5 +41,16 @@ with_noctalia '
   keys Escape Tab Tab Tab Tab Return
   wait_for "Done did not close the editor" closed 2
   wait_for "Done did not save layout = glance" saved
+
+  # Slots: Tab past the bar to the clock slot, Return opens the gallery, Tab Tab = the second style (bold).
+  bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a third time"
+  wait_for "editor did not open a third time" opened 3
+  keys Tab Tab Tab Tab Tab Return Tab Tab Return
+  sleep 0.5 # real time: one frame
+  grim "$OUT/gallery.png"
+  keys Escape Tab Tab Tab Tab Return
+  wait_for "Done did not close the editor after the gallery" closed 3
+  wait_for "Done did not save clock_style = bold" bold
 '
 echo "PASS: lock editor opens, Escape discards, Done saves; artifacts: $OUT"

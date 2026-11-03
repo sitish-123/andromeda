@@ -81,6 +81,16 @@ void LockEditor::open() {
   m_draft = {};
   m_draft.layout = indexOf(LockEditorBar::kLayoutNames, lock.layout);
   m_draft.theme = indexOf(LockEditorBar::kThemeNames, lock.theme);
+  m_clock = {};
+  const auto styles = clockStyles();
+  for (std::size_t i = 0; i < styles.size(); ++i) {
+    if (&styles[i] == &clockStyleById(lock.clockStyle)) {
+      m_clock.style = static_cast<int>(i);
+    }
+  }
+  m_clock.size = indexOf(LockEditorGallery::kSizeNames, lock.clockSize);
+  m_clock.hour24 = lock.clockFormat24h;
+  m_clock.seconds = lock.clockSeconds;
 
   auto config = LayerSurfaceConfig{
       .nameSpace = "noctalia-lock-editor",
@@ -114,11 +124,11 @@ void LockEditor::open() {
 
 // One layout at each minute (or second) boundary, as on the lock (LockSurface::startAndromedaClock).
 void LockEditor::startClock() {
-  const auto& lock = m_config->config().lockscreen;
+  const LockscreenConfig lock = previewConfig();
   const std::int64_t period = lock.clockSeconds || clockStyleById(lock.clockStyle).live ? 1000 : 60000;
   const auto now = std::chrono::system_clock::now();
   const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % period;
-  m_clock.start(std::chrono::milliseconds(period - into + 5), [this] {
+  m_clockTimer.start(std::chrono::milliseconds(period - into + 5), [this] {
     refresh();
     startClock();
   });
@@ -128,7 +138,7 @@ void LockEditor::close() {
   if (!isOpen()) {
     return;
   }
-  m_clock.stop();
+  m_clockTimer.stop();
   m_animations.cancelAll();
   m_wallpaperLease.reset();
   m_surface->setSceneRoot(nullptr);
@@ -177,6 +187,7 @@ void LockEditor::buildScene(float width, float height) {
   notice->setFontWeight(FontWeight::Medium);
   m_themeNotice = static_cast<Label*>(m_root->addChild(std::move(notice)));
   m_themeNotice->setZIndex(5);
+  m_gallery.build(*m_root);
   m_bar.build(*m_root);
   m_surface->setSceneRoot(m_root.get());
 }
@@ -244,7 +255,8 @@ void LockEditor::layoutScene(float width, float height) {
   state.ownerMessage = config.lockscreen.ownerMessage;
   const auto [gradientFrom, gradientTo] =
       m_lockScreen != nullptr ? m_lockScreen->clockGradient() : std::pair<std::uint32_t, std::uint32_t>{0, 0};
-  fillLockClockState(state, config.lockscreen, gradientFrom, gradientTo);
+  const LockscreenConfig preview = previewConfig();
+  fillLockClockState(state, preview, gradientFrom, gradientTo);
   AuthPlacementInput input{
       .layout = authLayoutFromName(LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)]),
       .sw = width,
@@ -253,7 +265,7 @@ void LockEditor::layoutScene(float width, float height) {
       // Minimal hides its chrome until the pointer moves; the preview always shows it.
       .pointerMoved = true,
   };
-  input.clockSize = clockSizeFor(config.lockscreen.clockSize);
+  input.clockSize = clockSizeFor(preview.clockSize);
   input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
   const AuthPlacement place = placeAuth(input);
   // Glance previews the glance layer: the auth sheet stays closed until a key, as on the lock.
@@ -274,8 +286,67 @@ void LockEditor::layoutScene(float width, float height) {
     );
   }
 
+  // The clock slot: the date and clock block, 16 wider on each side (mock section 2: 400 x 128 at the 80 clock).
+  const float top = std::min(place.date.y, place.clockY);
+  const float bottom = std::max(place.date.bottom(), place.clockY + place.clockHeight());
+  const float slotW = std::max(400.0F * scale, place.date.w + 32.0F * scale);
+  const float slotX = place.clockCentred ? place.clockX - slotW * 0.5F : place.clockX - 16.0F * scale;
+  m_clock.slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots && place.clock;
+  m_gallery.layout(
+      renderer, m_clock,
+      {std::round(slotX), std::round(top - 12.0F * scale), std::round(slotW), std::round(bottom - top + 24.0F * scale)},
+      width, height, scale
+  );
+
   m_bar.setState(m_draft);
   m_bar.layout(renderer, width, scale);
+}
+
+LockscreenConfig LockEditor::previewConfig() const {
+  LockscreenConfig lock = m_config->config().lockscreen;
+  lock.clockStyle = std::string(clockStyles()[static_cast<std::size_t>(m_clock.style)].id);
+  lock.clockSize = LockEditorGallery::kSizeNames[static_cast<std::size_t>(m_clock.size)];
+  lock.clockFormat24h = m_clock.hour24;
+  lock.clockSeconds = m_clock.seconds;
+  return lock;
+}
+
+void LockEditor::setFocus(const Focus& focus) {
+  m_draft.focus = {};
+  m_clock.focus = {};
+  if (const auto* bar = std::get_if<LockEditorBar::Hit>(&focus)) {
+    m_draft.focus = *bar;
+  } else {
+    m_clock.focus = std::get<LockEditorGallery::Hit>(focus);
+  }
+}
+
+void LockEditor::activateGallery(LockEditorGallery::Hit hit) {
+  using Target = LockEditorGallery::Target;
+  switch (hit.target) {
+  case Target::ClockSlot:
+    m_clock.open = !m_clock.open;
+    m_draft.panelOpen = false;
+    break;
+  case Target::Style:
+    m_clock.style = hit.index;
+    startClock();
+    break;
+  case Target::Size:
+    m_clock.size = hit.index;
+    break;
+  case Target::Hour24:
+    m_clock.hour24 = !m_clock.hour24;
+    break;
+  case Target::Seconds:
+    m_clock.seconds = !m_clock.seconds;
+    startClock();
+    break;
+  case Target::None:
+  case Target::Panel:
+    break;
+  }
+  refresh();
 }
 
 void LockEditor::refresh() {
@@ -292,6 +363,7 @@ void LockEditor::activate(LockEditorBar::Hit hit) {
     const auto segment = static_cast<Segment>(hit.index);
     if (segment == Segment::Layout || segment == Segment::Theme) {
       m_draft.panelOpen = !m_draft.panelOpen;
+      m_clock.open = false;
     } else if (LockEditorBar::segmentEnabled(hit.index)) {
       m_draft.mode = segment;
       m_draft.panelOpen = false;
@@ -319,15 +391,19 @@ void LockEditor::activate(LockEditorBar::Hit hit) {
 }
 
 void LockEditor::moveFocus(int step) {
-  const std::vector<LockEditorBar::Hit> order = LockEditorBar::focusOrder(m_draft.panelOpen);
-  if (order.empty()) {
-    return;
+  std::vector<Focus> order;
+  for (const auto& hit : LockEditorBar::focusOrder(m_draft.panelOpen)) {
+    order.emplace_back(hit);
   }
-  const auto it = std::ranges::find(order, m_draft.focus);
+  for (const auto& hit : LockEditorGallery::focusOrder(m_clock, static_cast<int>(clockStyles().size()))) {
+    order.emplace_back(hit);
+  }
+  const Focus current = m_clock.focus.target != LockEditorGallery::Target::None ? Focus{m_clock.focus} : Focus{m_draft.focus};
+  const auto it = std::ranges::find(order, current);
   const int count = static_cast<int>(order.size());
   int index = it == order.end() ? (step > 0 ? -1 : count) : static_cast<int>(it - order.begin());
   index = ((index + step) % count + count) % count;
-  m_draft.focus = order[static_cast<std::size_t>(index)];
+  setFocus(order[static_cast<std::size_t>(index)]);
   refresh();
 }
 
@@ -335,11 +411,21 @@ void LockEditor::save() {
   const std::string layout = LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)];
   const std::string theme = LockEditorBar::kThemeNames[static_cast<std::size_t>(m_draft.theme)];
   const auto& lock = m_config->config().lockscreen;
-  if (layout == lock.layout && theme == lock.theme) {
-    return;
-  }
-  if (!m_config->setOverrides({{{"lockscreen", "layout"}, layout}, {{"lockscreen", "theme"}, theme}})) {
-    kLog.warn("failed to save the lock screen layout {} and theme {}", layout, theme);
+  const LockscreenConfig preview = previewConfig();
+  std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> changes;
+  const auto change = [&](const char* key, const auto& next, const auto& now) {
+    if (next != now) {
+      changes.push_back({{"lockscreen", key}, next});
+    }
+  };
+  change("layout", layout, lock.layout);
+  change("theme", theme, lock.theme);
+  change("clock_style", preview.clockStyle, lock.clockStyle);
+  change("clock_size", preview.clockSize, lock.clockSize);
+  change("clock_format_24h", preview.clockFormat24h, lock.clockFormat24h);
+  change("clock_seconds", preview.clockSeconds, lock.clockSeconds);
+  if (!changes.empty() && !m_config->setOverrides(changes)) {
+    kLog.warn("failed to save the lock screen editor draft");
   }
 }
 
@@ -352,18 +438,30 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
   }
   const auto x = static_cast<float>(event.sx);
   const auto y = static_cast<float>(event.sy);
+  const LockEditorBar::Hit barHit = m_bar.hitTest(x, y);
+  const LockEditorGallery::Hit galleryHit =
+      barHit.target == LockEditorBar::Target::None ? m_gallery.hitTest(x, y) : LockEditorGallery::Hit{};
   if (event.type == PointerEvent::Type::Motion || event.type == PointerEvent::Type::Enter) {
-    const LockEditorBar::Hit hover = m_bar.hitTest(x, y);
-    if (hover != m_draft.hover) {
-      m_draft.hover = hover;
+    if (barHit != m_draft.hover || galleryHit != m_clock.hover) {
+      m_draft.hover = barHit;
+      m_clock.hover = galleryHit;
       refresh();
     }
   } else if (event.type == PointerEvent::Type::Leave) {
     m_draft.hover = {};
+    m_clock.hover = {};
     refresh();
   } else if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
     m_draft.focus = {};
-    activate(m_bar.hitTest(x, y));
+    m_clock.focus = {};
+    if (galleryHit.target != LockEditorGallery::Target::None) {
+      activateGallery(galleryHit);
+    } else {
+      if (barHit.target == LockEditorBar::Target::None) {
+        m_clock.open = false;
+      }
+      activate(barHit);
+    }
   }
   return true;
 }
@@ -374,9 +472,10 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   }
   switch (event.sym) {
   case XKB_KEY_Escape:
-    if (m_draft.panelOpen) {
+    if (m_draft.panelOpen || m_clock.open) {
       m_draft.panelOpen = false;
-      m_draft.focus = {};
+      m_clock.open = false;
+      setFocus(LockEditorBar::Hit{});
       refresh();
     } else {
       close();
@@ -397,7 +496,9 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   case XKB_KEY_Return:
   case XKB_KEY_KP_Enter:
   case XKB_KEY_space:
-    if (m_draft.focus.target != LockEditorBar::Target::None) {
+    if (m_clock.focus.target != LockEditorGallery::Target::None) {
+      activateGallery(m_clock.focus);
+    } else if (m_draft.focus.target != LockEditorBar::Target::None) {
       activate(m_draft.focus);
     }
     return;

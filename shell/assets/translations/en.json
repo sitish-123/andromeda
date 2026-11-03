@@ -1181,6 +1181,9 @@
       "layout": "Layout",
       "theme": "Theme",
       "done": "Done",
+      "clock-style": "Clock style",
+      "hour24": "24-hour",
+      "seconds": "Seconds",
       "layouts": {
         "centered": "Centered",
         "glance": "Glance",
