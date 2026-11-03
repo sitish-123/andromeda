@@ -1154,8 +1154,10 @@
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
+    "fail-delay": "Try again in {time}",
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
+    "password-required": "Password required",
     "ready": "Type your password and press Enter.",
     "ryoku": {
       "checking": "Checking your key",

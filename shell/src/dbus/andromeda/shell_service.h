@@ -8,10 +8,13 @@ class SessionBus;
 class NotificationManager;
 
 // org.andromeda.Shell1: what Andromeda Link's link-session needs from the shell. Do Not Disturb, read and set, with
-// PropertiesChanged; ScreenOff().
+// PropertiesChanged; ScreenOff(); LockFromPhone().
 class AndromedaShellService {
 public:
-  AndromedaShellService(SessionBus& bus, NotificationManager& notifications, std::function<bool()> screenOff);
+  AndromedaShellService(
+      SessionBus& bus, NotificationManager& notifications, std::function<bool()> screenOff,
+      std::function<bool()> lockFromPhone
+  );
 
   // Call after any notification state change; signals only a Do Not Disturb change.
   void notificationStateChanged();
@@ -19,6 +22,7 @@ public:
 private:
   NotificationManager& m_notifications;
   std::function<bool()> m_screenOff;
+  std::function<bool()> m_lockFromPhone;
   std::unique_ptr<sdbus::IObject> m_object;
   bool m_doNotDisturb;
 };

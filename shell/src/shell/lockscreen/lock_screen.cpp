@@ -29,12 +29,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <format>
 #include <ctime>
 #include <string>
 #include <thread>
 #include <utility>
 
 namespace {
+
+  [[nodiscard]] std::int64_t wallClockMillis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  }
 
   constexpr Logger kLog("lockscreen");
 
@@ -127,6 +133,9 @@ bool LockScreen::initialize(
   if (m_systemBus != nullptr) {
     m_fingerprint = std::make_unique<FingerprintAuthenticator>(*m_systemBus);
     m_fingerprint->setAuthenticatedCallback([this] {
+      if (m_passwordOnly) {
+        return;
+      }
       m_status = i18n::tr("lockscreen.unlocked");
       m_statusIsError = false;
       updatePromptOnSurfaces();
@@ -137,6 +146,9 @@ bool LockScreen::initialize(
     });
     m_face = std::make_unique<FaceAuthenticator>(*m_systemBus, m_user);
     m_face->setAuthenticatedCallback([this]() {
+      if (m_passwordOnly) {
+        return;
+      }
       m_status = i18n::tr("lockscreen.unlocked");
       m_statusIsError = false;
       updatePromptOnSurfaces();
@@ -298,6 +310,9 @@ void LockScreen::unlock() {
   invalidatePendingAuthentication();
   stopFingerprint();
   stopFace();
+  m_failDelay.reset();
+  m_failDelayTimer.stop();
+  m_passwordOnly = false;
 
   if (m_locked) {
     m_unlocking = true;
@@ -510,7 +525,7 @@ void LockScreen::onPointerEvent(const PointerEvent& event) {
     m_pointerSurface = event.surface;
   }
 
-  if (event.type == PointerEvent::Type::Button && m_face != nullptr) {
+  if (event.type == PointerEvent::Type::Button && m_face != nullptr && faceEnabled()) {
     m_face->onUserActivity();
   }
 
@@ -549,7 +564,7 @@ void LockScreen::onKeyboardEvent(const KeyboardEvent& event) {
   if (!event.pressed) {
     return;
   }
-  if (m_face != nullptr) {
+  if (m_face != nullptr && faceEnabled()) {
     m_face->onUserActivity();
   }
 
@@ -672,6 +687,24 @@ void LockScreen::onSystemResumed() {
   resetGracePeriod();
   cancelPendingAfterLocked();
   cancelOutputPowerOff();
+}
+
+bool LockScreen::lockFromPhone() {
+  m_passwordOnly = true;
+  stopFingerprint();
+  stopFace();
+  const bool ok = lock();
+  // lock() arms the grace window; a phone lock never offers it.
+  resetGracePeriod();
+  if (!ok) {
+    m_passwordOnly = false;
+  }
+  if (ok && m_locked && !m_failDelayTimer.active()) {
+    m_status = i18n::tr("lockscreen.password-required");
+    m_statusIsError = false;
+    updatePromptOnSurfaces();
+  }
+  return ok;
 }
 
 bool LockScreen::isSessionLocked() const noexcept { return m_locked; }
@@ -910,6 +943,9 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
   // Idle status is empty; the surface renders the password hint itself.
   self->m_status.clear();
   self->m_statusIsError = false;
+  if (!self->applyFailDelay() && self->m_passwordOnly) {
+    self->m_status = i18n::tr("lockscreen.password-required");
+  }
   for (auto& instance : self->m_instances) {
     instance.surface->setLockedState(true);
     instance.surface->setOnLogin([self] { self->tryAuthenticate(); });
@@ -1460,6 +1496,11 @@ void LockScreen::invalidatePendingAuthentication() {
 }
 
 void LockScreen::handlePasswordEdited(const std::string& value) {
+  if (m_failDelayTimer.active()) {
+    clearSensitiveString(m_password);
+    updatePromptOnSurfaces();
+    return;
+  }
   if (m_authenticating) {
     clearSensitiveString(m_password);
     m_password = value;
@@ -1478,6 +1519,11 @@ void LockScreen::handlePasswordEdited(const std::string& value) {
 
 void LockScreen::tryAuthenticate() {
   if (m_authenticating || !m_locked || m_unlocking) {
+    return;
+  }
+  if (applyFailDelay()) {
+    clearSensitiveString(m_password);
+    updatePromptOnSurfaces();
     return;
   }
   if (m_password.empty()) {
@@ -1540,6 +1586,10 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
 
   m_status = result.message.empty() ? i18n::tr("lockscreen.authentication-failed") : result.message;
   m_statusIsError = true;
+  if (result.rejected) {
+    m_failDelay.recordRejected(wallClockMillis());
+    applyFailDelay();
+  }
   updatePromptOnSurfaces();
   startFingerprint();
   if (m_face != nullptr && faceEnabled()) {
@@ -1547,8 +1597,32 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
   }
 }
 
+bool LockScreen::applyFailDelay() {
+  const std::int64_t remainingMs = m_failDelay.remainingMs(wallClockMillis());
+  if (remainingMs <= 0) {
+    if (m_failDelayTimer.active()) {
+      m_failDelayTimer.stop();
+      m_status.clear();
+      m_statusIsError = false;
+    }
+    return false;
+  }
+  const std::int64_t seconds = (remainingMs + 999) / 1000;
+  m_status = i18n::tr("lockscreen.fail-delay", "time", std::format("{}:{:02}", seconds / 60, seconds % 60));
+  m_statusIsError = true;
+  m_failDelayTimer.start(std::chrono::milliseconds(remainingMs % 1000 == 0 ? 1000 : remainingMs % 1000), [this] {
+    m_failDelayTimer.stop();
+    if (!applyFailDelay()) {
+      m_status.clear();
+      m_statusIsError = false;
+    }
+    updatePromptOnSurfaces();
+  });
+  return true;
+}
+
 void LockScreen::startFingerprint() {
-  if (m_fingerprint == nullptr) {
+  if (m_fingerprint == nullptr || m_passwordOnly) {
     return;
   }
   if (m_configService != nullptr && !m_configService->config().lockscreen.fingerprint) {
@@ -1563,7 +1637,9 @@ void LockScreen::stopFingerprint() {
   }
 }
 
-bool LockScreen::faceEnabled() const { return m_configService == nullptr || m_configService->config().lockscreen.face; }
+bool LockScreen::faceEnabled() const {
+  return !m_passwordOnly && (m_configService == nullptr || m_configService->config().lockscreen.face);
+}
 
 void LockScreen::startFace() {
   if (m_face != nullptr && faceEnabled()) {
@@ -1581,7 +1657,10 @@ void LockScreen::handleBiometricStatus(const std::string& message, bool isError)
   if (!isActive()) {
     return;
   }
-  // Don't clobber a password the user is typing.
+  // Don't clobber a password the user is typing, or the fail-delay countdown.
+  if (m_failDelayTimer.active()) {
+    return;
+  }
   if (!m_password.empty()) {
     kLog.debug("status hidden while typing: {}", message);
     return;

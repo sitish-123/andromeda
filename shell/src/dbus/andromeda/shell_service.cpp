@@ -14,9 +14,11 @@ namespace {
 } // namespace
 
 AndromedaShellService::AndromedaShellService(
-    SessionBus& bus, NotificationManager& notifications, std::function<bool()> screenOff
+    SessionBus& bus, NotificationManager& notifications, std::function<bool()> screenOff,
+    std::function<bool()> lockFromPhone
 )
-    : m_notifications(notifications), m_screenOff(std::move(screenOff)), m_doNotDisturb(notifications.doNotDisturb()) {
+    : m_notifications(notifications), m_screenOff(std::move(screenOff)), m_lockFromPhone(std::move(lockFromPhone)),
+      m_doNotDisturb(notifications.doNotDisturb()) {
   bus.connection().requestName(kBusName);
   m_object = sdbus::createObject(bus.connection(), kObjectPath);
   m_object
@@ -27,6 +29,12 @@ AndromedaShellService::AndromedaShellService(
           sdbus::registerMethod("ScreenOff").implementedAs([this] {
             if (!m_screenOff()) {
               throw sdbus::Error(sdbus::Error::Name{"org.andromeda.Shell1.Error.Failed"}, "the outputs stayed on");
+            }
+          }),
+          // Any session client may call this: it only makes the lock stricter (biometrics and grace off).
+          sdbus::registerMethod("LockFromPhone").implementedAs([this] {
+            if (!m_lockFromPhone()) {
+              throw sdbus::Error(sdbus::Error::Name{"org.andromeda.Shell1.Error.Failed"}, "the session did not lock");
             }
           })
       )

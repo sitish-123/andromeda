@@ -4,6 +4,7 @@
 #include "capture/screencopy_capture.h"
 #include "core/timer_manager.h"
 #include "render/core/lockscreen_transition_types.h"
+#include "shell/lockscreen/lock_fail_delay.h"
 
 #include <cstdint>
 #include <functional>
@@ -56,6 +57,8 @@ public:
   );
   void setPhoneServices(const LinkService* link);
   bool lock();
+  // Lock from the paired phone (Link): password only, no grace, until the next unlock.
+  bool lockFromPhone();
   void primeDesktopCaptures();
   void clearPrimedDesktopCaptures();
   void unlock();
@@ -153,6 +156,8 @@ private:
   void handlePasswordEdited(const std::string& value);
   void tryAuthenticate();
   void handleAuthResult(std::uint64_t generation, const PamAuthenticator::Result& result);
+  // Shows the wrong-password countdown while it runs; false when no delay is active.
+  bool applyFailDelay();
   void invalidatePendingAuthentication();
   void startFingerprint();
   void stopFingerprint();
@@ -224,4 +229,7 @@ private:
   double m_pointerEnterX = 0.0;
   double m_pointerEnterY = 0.0;
   Timer m_unlockTransitionTimer;
+  LockFailDelay m_failDelay{LockFailDelay::defaultPath()};
+  Timer m_failDelayTimer;
+  bool m_passwordOnly = false;
 };

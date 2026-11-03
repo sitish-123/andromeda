@@ -1843,9 +1843,10 @@ void Application::initSessionBusServices() {
       m_debugService.reset();
     }
     try {
-      m_andromedaShellService = std::make_unique<AndromedaShellService>(*m_bus, m_notificationManager, [this] {
-        return setOutputPower(false);
-      });
+      m_andromedaShellService = std::make_unique<AndromedaShellService>(
+          *m_bus, m_notificationManager, [this] { return setOutputPower(false); },
+          [this] { return m_lockScreen.lockFromPhone(); }
+      );
     } catch (const std::exception& e) {
       kLog.warn("org.andromeda.Shell1 disabled: {}", e.what());
       m_andromedaShellService.reset();
