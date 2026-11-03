@@ -1736,6 +1736,7 @@ void PanelManager::destroyPanel() {
   m_sceneRoot.reset();
   m_dsk.reset();
   m_panelLiquid = 0.0F;
+  m_liquidAnimation = 0;
   m_scaleMode = false;
   m_morphExtend = false;
   m_morphClipRunning = false;
@@ -2552,13 +2553,23 @@ DskSurfaceClient::Value PanelManager::detachedScaleShift(double scale) const {
   return {(1.0 - scale) * (ax - sw * 0.5), (1.0 - scale) * (ay - sh * 0.5), 0.0, 0.0};
 }
 
-void PanelManager::setPanelLiquid(float liquid) {
-  if (m_panelLiquid != liquid) {
-    m_panelLiquid = liquid;
+void PanelManager::setPanelLiquid(float liquid, bool animate) {
+  const auto apply = [this](float v) {
+    m_panelLiquid = std::clamp(v, 0.0F, 1.0F);
     if (!m_attachedToBar && m_bgNode != nullptr) {
       static_cast<Box*>(m_bgNode)->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
     }
-    requestLayout();
+  };
+  if (!animate || m_sceneRoot == nullptr) {
+    m_animations.cancel(m_liquidAnimation);
+    m_liquidAnimation = 0;
+    apply(liquid);
+  } else if (m_panelLiquid != liquid) {
+    // The fill cross-fades on the spring the compositor uses for its Liquid property (Curve::SpringOpen).
+    m_liquidAnimation = m_animations.drive(
+        m_liquidAnimation, m_panelLiquid, liquid, Style::spring(Tokens::springOpen), apply,
+        [this] { m_liquidAnimation = 0; }, m_sceneRoot.get()
+    );
   }
   dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
   if (m_dsk == nullptr && manager != nullptr && m_wlSurface != nullptr) {

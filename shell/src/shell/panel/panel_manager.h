@@ -85,7 +85,8 @@ public:
   void openSettingsWindow(std::string context = "");
   // Liquid glass strength (0..1) of the open panel's backdrop; animates on the open spring. No-op on compositors
   // without dsk_surface_v1 version 5.
-  void setPanelLiquid(float liquid);
+  // animate = false sets the fill at once (first value after open).
+  void setPanelLiquid(float liquid, bool animate = true);
   // Closes any open panel, then opens the settings window at the plugin's settings.
   // False when the settings window is unavailable, or the plugin is unknown, disabled, or
   // exposes no settings.
@@ -306,6 +307,7 @@ private:
   std::int32_t m_morphMarginUp = 0;
   std::optional<float> m_islandBackgroundOpacity;
   float m_panelLiquid = 0.0F; // 0..1, see setPanelLiquid
+  AnimationManager::Id m_liquidAnimation = 0;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().

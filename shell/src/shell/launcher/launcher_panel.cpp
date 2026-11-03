@@ -1667,9 +1667,10 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
   const float liquid = usesBrowserLayout() && !pillExpanded() ? 1.0F : 0.0F;
   if (m_sentLiquid != liquid) {
     m_sentLiquid = liquid;
-    PanelManager::instance().setPanelLiquid(liquid);
+    PanelManager::instance().setPanelLiquid(liquid, animate);
   }
   if (!pillExpanded()) {
+    const bool animate = m_sentLiquid >= 0.0F;
     return field;
   }
   if (!shouldUseLauncherSections() || m_launcherSectionsAdapter == nullptr || m_results.empty()) {
