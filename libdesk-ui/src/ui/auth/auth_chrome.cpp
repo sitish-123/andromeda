@@ -99,6 +99,8 @@ void AuthChrome::layoutChip(Renderer& renderer, Chip& chip, float x, float y, bo
   }
 }
 
+void AuthChrome::setVisible(bool visible) { m_group->setVisible(visible); }
+
 void AuthChrome::layout(Renderer& renderer, float sw, float sh, float scale) {
   const float s = std::max(0.1F, scale);
   const float y = std::round(sh - (kEdge + kControl) * s);

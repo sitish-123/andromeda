@@ -10,6 +10,7 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "ui/auth/auth_chrome.h"
 #include "ui/auth/auth_column.h"
 #include "ui/auth/clock_style.h"
 #include "shell/lockscreen/lock_call_card.h"
@@ -178,6 +179,8 @@ private:
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
   void layoutAndromeda(Renderer& renderer, float sw, float sh);
   void wakeGlance();
+  // Pointer press on the session button or its menu; true when the chrome took the press.
+  bool handleChromePress(float x, float y);
   [[nodiscard]] std::string clockFontFamily(const ClockStyle& clock);
   void startAndromedaClock();
   void startRyokuLive();
@@ -206,6 +209,10 @@ private:
   // Andromeda theme: media card, chips, Glance cards, Split widgets (rulebook 9.15).
   LockCards m_cards;
   LockCallCard m_callCard;
+  // Session button + power menu (rulebook 9.15): Sleep, Restart, Shut down.
+  AuthChrome m_chrome;
+  bool m_powerMenuOpen = false;
+  int m_powerHover = -1;
   std::function<void(const std::string&)> m_onDeclineCall;
   // Device whose ringing call the user chose to decline on this surface.
   std::string m_declinePending;

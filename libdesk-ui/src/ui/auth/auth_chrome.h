@@ -41,6 +41,8 @@ public:
   };
 
   void build(Node& root);
+  // Minimal lock layout: the chrome hides until the pointer moves.
+  void setVisible(bool visible);
   void setState(State state);
   [[nodiscard]] const State& state() const noexcept { return m_state; }
   // scale = accessibility.ui_scale.

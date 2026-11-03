@@ -601,6 +601,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
     m_auth->build(m_root, m_animations);
     m_cards.build(m_auth->glanceLayer());
     m_callCard.build(m_root);
+    m_chrome.build(m_root);
     startAndromedaClock();
   }
   requestUpdate();
@@ -1075,12 +1076,24 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
       m_pointerMoved = true;
       requestLayout();
     }
+    if (m_powerMenuOpen) {
+      const AuthChrome::Hit hit = m_chrome.hitTest(static_cast<float>(event.sx), static_cast<float>(event.sy));
+      const int hover = hit.target == AuthChrome::Target::Item ? hit.index : -1;
+      if (hover != m_powerHover) {
+        m_powerHover = hover;
+        requestLayout();
+      }
+    }
     wakeGlance();
     break;
   case PointerEvent::Type::Button: {
     const bool pressed = event.pressed;
     const auto x = static_cast<float>(event.sx);
     const auto y = static_cast<float>(event.sy);
+    if (m_locked && pressed && m_auth != nullptr && handleChromePress(x, y)) {
+      requestLayout();
+      break;
+    }
     if (m_locked && pressed && m_callCard.declineHit(x, y)) {
       m_declinePending = m_callCard.state().deviceId;
       if (m_onDeclineCall) {
@@ -1874,9 +1887,64 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   m_cards.layout(renderer, place, scale);
   m_callCard.setState(std::move(call));
   m_callCard.layout(renderer, place.columnCx, place.cardBottom, scale);
+
+  AuthChrome::State chrome;
+  if (m_powerMenuOpen) {
+    chrome.menu = AuthChrome::Menu::Power;
+    chrome.items = {
+        {"moon", i18n::tr("lockscreen.power.sleep"), {}},
+        {"refresh", i18n::tr("lockscreen.power.restart"), {}},
+        {"power", i18n::tr("lockscreen.power.shutdown"), {}},
+    };
+    chrome.hover = m_powerHover;
+  }
+  const bool chromeShown = visible && place.chrome && m_sessionActions != nullptr;
+  if (!chromeShown) {
+    m_powerMenuOpen = false;
+    chrome = {};
+  }
+  m_chrome.setVisible(chromeShown);
+  m_chrome.setState(std::move(chrome));
+  m_chrome.layout(renderer, sw, sh, scale);
   if (shake) {
     m_auth->playRejected();
   }
+}
+
+bool LockSurface::handleChromePress(float x, float y) {
+  const AuthChrome::Hit hit = m_chrome.hitTest(x, y);
+  switch (hit.target) {
+  case AuthChrome::Target::Power:
+    m_powerMenuOpen = !m_powerMenuOpen;
+    m_powerHover = -1;
+    return true;
+  case AuthChrome::Target::Item: {
+    m_powerMenuOpen = false;
+    m_powerHover = -1;
+    if (m_sessionActions == nullptr) {
+      return true;
+    }
+    if (hit.index == 0) {
+      (void)m_sessionActions->requestSuspendDetached();
+    } else if (hit.index == 1) {
+      (void)m_sessionActions->requestRebootDetached();
+    } else if (hit.index == 2) {
+      (void)m_sessionActions->requestShutdownDetached();
+    }
+    return true;
+  }
+  case AuthChrome::Target::Menu:
+    return true;
+  case AuthChrome::Target::Session:
+  case AuthChrome::Target::Users:
+  case AuthChrome::Target::None:
+    break;
+  }
+  if (m_powerMenuOpen) {
+    m_powerMenuOpen = false;
+    return true;
+  }
+  return false;
 }
 
 // Glance: any key, click or pointer move Grows the auth sheet; it Returns after 10 s idle with an empty field.

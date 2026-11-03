@@ -752,6 +752,7 @@
       "notifications": "{count} notifications",
       "off": "Off",
       "on": "On",
+      "power-hint": "Lock, restart, shut down",
       "settings-tooltip": "Settings",
       "wifi": "Wi-Fi"
     }
@@ -1177,6 +1178,11 @@
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
+    "power": {
+      "restart": "Restart",
+      "shutdown": "Shut down",
+      "sleep": "Sleep"
+    },
     "call": {
       "answer-on-phone": "Answer on phone",
       "decline": "Decline",
