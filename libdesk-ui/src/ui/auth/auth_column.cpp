@@ -102,7 +102,7 @@ void AuthColumn::build(Node& root, AnimationManager& animations) {
   m_clockSeconds = addLabel(*m_glanceGroup, FontWeight::Medium, true);
   m_clockSeconds->setFontFeatures("tnum");
   m_analog.build(*m_glanceGroup);
-  m_flip.build(*m_glanceGroup);
+  m_flip.build(*m_glanceGroup, animations);
   m_glanceHint = addLabel(*m_glanceGroup, FontWeight::Medium, true);
 
   m_columnGroup = addGroup(*m_group);
