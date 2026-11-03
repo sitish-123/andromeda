@@ -240,8 +240,8 @@ private:
   [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
   // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
   [[nodiscard]] float detachedBackgroundOpacity() const;
-  // The detached panel fill: tint_thick, eased toward the lit glass tint while setPanelLiquid is on.
-  [[nodiscard]] ColorSpec detachedFill() const;
+  // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
+  [[nodiscard]] float detachedFillAlpha() const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();

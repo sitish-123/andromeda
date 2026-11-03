@@ -10,9 +10,9 @@
 namespace andromeda {
 
   namespace {
-    // Lit glass keeps the full blur (.agent/DESIGN.md "Launcher pill: lit glass"): a light blur left a dark terminal
-    // readable through the pill.
-    float liquidBlurStrength(float /*liquid*/) { return 1.0F; }
+    // Liquid glass needs a light blur, or the refraction bends a smear (.agent/mockups/launcher-material.html: liquid
+    // blur 10 px against the frosted sheet's strong blur).
+    float liquidBlurStrength(float liquid) { return 1.0F - 0.65F * liquid; }
 
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
