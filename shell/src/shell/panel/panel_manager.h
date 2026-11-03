@@ -231,6 +231,8 @@ private:
   void settleDetachedMorph();
   bool startDetachedMorphClose(std::uint64_t gen);
   void animateMorphClip();
+  // Grows or shrinks a detached card as one compositor clip on the open spring; false = no dsk surface.
+  bool morphCardHeight(std::uint32_t target);
   bool startDetachedScaleOpen();
   bool startDetachedScaleClose(std::uint64_t gen);
   [[nodiscard]] DskSurfaceClient::Value detachedScaleShift(double scale) const;
@@ -299,6 +301,7 @@ private:
   bool m_morphSettled = false;
   bool m_scaleMode = false;
   bool m_morphClipRunning = false;
+  bool m_cardClipRunning = false;
   DskSurfaceClient::Value m_morphClipTarget{};
   bool m_morphExtend = false; // the sheet fill and blur extend into the margin while the island morph runs
   std::int32_t m_morphMarginX = 0;

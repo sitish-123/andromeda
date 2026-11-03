@@ -1750,6 +1750,7 @@ void PanelManager::destroyPanel() {
   m_scaleMode = false;
   m_morphExtend = false;
   m_morphClipRunning = false;
+  m_cardClipRunning = false;
   m_morphSource = nullptr;
   m_gestureTracker.reset();
   m_commitTracker = nullptr;
@@ -2650,6 +2651,55 @@ void PanelManager::animateMorphClip() {
   );
 }
 
+bool PanelManager::morphCardHeight(std::uint32_t target) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (m_attachedToBar || m_dsk == nullptr || m_closing || m_morphClipRunning || !MotionService::instance().enabled()) {
+    return false;
+  }
+  if (m_contentFit.animation != 0) {
+    m_animations.cancel(m_contentFit.animation);
+    m_contentFit.animation = 0;
+  }
+  const auto radiusFor = [this](const DskSurfaceClient::Value& rect) {
+    return std::min(static_cast<double>(panelRadius()), rect[3] / 2.0);
+  };
+  if (!m_cardClipRunning) {
+    const DskSurfaceClient::Value from = detachedSheetRect();
+    m_dsk->set(Property::Clip, from);
+    m_dsk->set(Property::Radius, {radiusFor(from), 0.0, 0.0, 0.0});
+  }
+  // The card is drawn at the larger height; the clip reveals or hides it, so the shape, its blur and the content
+  // move as one. A shrink keeps the tall card until the clip lands.
+  if (target > m_panelVisualHeight && setCardHeight(target)) {
+    placePanelChrome();
+  }
+  DskSurfaceClient::Value to = detachedSheetRect();
+  to[3] = target;
+  if (m_contentFit.align == CardAlign::End) {
+    to[1] += static_cast<double>(m_panelVisualHeight) - target;
+  } else if (m_contentFit.align == CardAlign::Center) {
+    to[1] += (static_cast<double>(m_panelVisualHeight) - target) / 2.0;
+  }
+  m_cardClipRunning = true;
+  m_dsk->animate(Property::Radius, Curve::SpringOpen, {radiusFor(to), 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Clip, Curve::SpringOpen, to, [this, target](DskSurfaceClient::EndReason reason) {
+    if (reason != DskSurfaceClient::EndReason::Finished || m_dsk == nullptr || m_closing) {
+      return;
+    }
+    m_cardClipRunning = false;
+    if (setCardHeight(target)) {
+      placePanelChrome();
+    }
+    m_dsk->set(Property::Clip, {0.0, 0.0, 0.0, 0.0});
+    m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
+    if (m_surface != nullptr) {
+      m_surface->requestRedraw();
+    }
+  });
+  return true;
+}
+
 void PanelManager::driveContentMorph(float target, bool open) {
   if (!MotionService::instance().enabled() || m_sceneRoot == nullptr) {
     m_morphProgress = target;
@@ -3428,7 +3478,7 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
         m_contentFit.animation = 0;
       }
       (void)setCardHeight(target);
-    } else {
+    } else if (!morphCardHeight(target)) {
       m_contentFit.animation = m_animations.drive(
           m_contentFit.animation, static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::spring(Tokens::springMove),
           [this](float height) {
