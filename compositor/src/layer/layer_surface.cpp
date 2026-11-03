@@ -34,36 +34,80 @@ namespace andromeda {
       int radius;
     };
 
-    // A client blur region that is one rounded rectangle, sent as a pixel staircase (one band per row inside the
-    // curve, e.g. Surface::tessellateRoundedRect) -> its box and corner radius, so the blur gets the shader's
-    // anti-aliased edge instead of the staircase. Several shapes, holes or an asymmetric band -> nullopt.
-    std::optional<RoundedShape> roundedShapeOf(const pixman_region32_t* region) {
-      int count = 0;
-      const pixman_box32_t* rects = pixman_region32_rectangles(region, &count);
-      if (count == 0) {
-        return std::nullopt;
+    // One rounded rectangle sent as a pixel staircase (one band per row inside the curve, e.g.
+    // Surface::tessellateRoundedRect; rects in band order) -> its box and corner radius. Holes or an asymmetric band
+    // -> nullopt.
+    std::optional<RoundedShape> roundedShapeOf(const std::vector<pixman_box32_t>& rects) {
+      pixman_box32_t e = rects.front();
+      for (const pixman_box32_t& r : rects) {
+        e = {std::min(e.x1, r.x1), std::min(e.y1, r.y1), std::max(e.x2, r.x2), std::max(e.y2, r.y2)};
       }
-      const pixman_box32_t* e = pixman_region32_extents(region);
-      const int width = e->x2 - e->x1;
-      const int height = e->y2 - e->y1;
+      const int width = e.x2 - e.x1;
+      const int height = e.y2 - e.y1;
       std::optional<int> radius;
-      for (int i = 0; i < count; ++i) {
+      for (std::size_t i = 0; i < rects.size(); ++i) {
         const pixman_box32_t& r = rects[i];
         const bool sameBand = i > 0 && rects[i - 1].y1 == r.y1;
         const bool gap = i > 0 && rects[i - 1].y2 != r.y1;
-        const int left = r.x1 - e->x1;
-        const int right = e->x2 - r.x2;
+        const int left = r.x1 - e.x1;
+        const int right = e.x2 - r.x2;
         if (sameBand || gap || std::abs(left - right) > 1) {
           return std::nullopt;
         }
         // The last row of a corner band reaches the full width; pixman merges it into the straight band below.
         if (!radius && left == 0 && right == 0) {
-          const int offset = r.y1 - e->y1;
+          const int offset = r.y1 - e.y1;
           radius = offset > 0 ? offset + 1 : 0;
         }
       }
       // No full-width band: a capsule, the curve spans the whole short side.
-      return RoundedShape{{e->x1, e->y1, width, height}, radius.value_or(std::min(width, height) / 2)};
+      return RoundedShape{{e.x1, e.y1, width, height}, radius.value_or(std::min(width, height) / 2)};
+    }
+
+    // A client blur region made of rounded rectangles (a bar sends all its islands in one region) -> one shape each,
+    // so every blur gets the shader's anti-aliased edge instead of the staircase. Any other shape -> empty.
+    std::vector<RoundedShape> roundedShapesOf(const pixman_region32_t* region) {
+      int count = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(region, &count);
+      // Rects that touch across adjacent bands belong to one shape.
+      std::vector<int> parent(static_cast<std::size_t>(count));
+      for (int i = 0; i < count; ++i) {
+        parent[static_cast<std::size_t>(i)] = i;
+      }
+      const auto root = [&parent](int i) {
+        while (parent[static_cast<std::size_t>(i)] != i) {
+          i = parent[static_cast<std::size_t>(i)];
+        }
+        return i;
+      };
+      for (int i = 0; i < count; ++i) {
+        for (int j = i - 1; j >= 0 && rects[j].y2 >= rects[i].y1; --j) {
+          if (rects[j].y2 == rects[i].y1 && rects[j].x1 < rects[i].x2 && rects[i].x1 < rects[j].x2) {
+            parent[static_cast<std::size_t>(root(i))] = root(j);
+          }
+        }
+      }
+      std::vector<int> roots;
+      std::vector<std::vector<pixman_box32_t>> groups;
+      for (int i = 0; i < count; ++i) {
+        const int r = root(i);
+        auto it = std::ranges::find(roots, r);
+        if (it == roots.end()) {
+          roots.push_back(r);
+          groups.emplace_back();
+          it = roots.end() - 1;
+        }
+        groups[static_cast<std::size_t>(it - roots.begin())].push_back(rects[i]);
+      }
+      std::vector<RoundedShape> shapes;
+      for (const auto& group : groups) {
+        const auto shape = roundedShapeOf(group);
+        if (!shape) {
+          return {};
+        }
+        shapes.push_back(*shape);
+      }
+      return shapes;
     }
     constexpr Logger kLog("layer");
 
@@ -245,7 +289,11 @@ namespace andromeda {
       // the blur size: an alpha fade would show the sharp backdrop and a blurred copy at once.
       const bool fadingOut = state->motion.target(SurfaceMotion::Property::Opacity)[0] < opacity;
       const float lead = 1.0F - opacity;
-      m_blur.setFade(fadingOut ? opacity : 1.0F - lead * lead * lead);
+      m_blurFade = fadingOut ? opacity : 1.0F - lead * lead * lead;
+      m_blur.setFade(m_blurFade);
+      for (SurfaceBlur& blur : m_shapeBlurs) {
+        blur.setFade(m_blurFade);
+      }
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
@@ -577,10 +625,10 @@ namespace andromeda {
     double motionScale = 1.0;
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
     const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
-    m_blur.setLiquid(
-        state != nullptr ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[0], 0.0, 1.0))
-                         : 0.0F
-    );
+    m_liquid = state != nullptr
+        ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[0], 0.0, 1.0))
+        : 0.0F;
+    m_blur.setLiquid(m_liquid);
     if (state != nullptr) {
       const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
       const double scale = std::max(0.01, state->motion.value(SurfaceMotion::Property::Scale)[0]);
@@ -610,6 +658,8 @@ namespace andromeda {
     if (region != nullptr && m_rule.blur.value_or(true)) {
       options.ignoreAlpha = 0.0F;
     }
+    std::vector<RoundedShape> shapes;
+    std::vector<wlr_box> shapeClips;
     if (region != nullptr && m_rule.blur.value_or(true) && dskClip && pixman_region32_not_empty(region)) {
       // The clip and its corner radius are the exact shape; a client region is a pixel staircase that shows past the
       // anti-aliased corner.
@@ -617,13 +667,17 @@ namespace andromeda {
       clip = dskClip;
       options.enabled = true;
     } else if (region != nullptr && m_rule.blur.value_or(true)) {
-      if (const auto shape = roundedShapeOf(region)) {
+      shapes = roundedShapesOf(region);
+      if (!shapes.empty()) {
         const auto scaled = [motionScale](int v) { return static_cast<int>(std::lround(v * motionScale)); };
-        clip = wlr_box{
-            nodeBox.x + scaled(shape->box.x), nodeBox.y + scaled(shape->box.y), scaled(shape->box.width),
-            scaled(shape->box.height)
-        };
-        corners = corner_radii_all(scaled(shape->radius));
+        for (const RoundedShape& shape : shapes) {
+          shapeClips.push_back(wlr_box{
+              nodeBox.x + scaled(shape.box.x), nodeBox.y + scaled(shape.box.y), scaled(shape.box.width),
+              scaled(shape.box.height)
+          });
+        }
+        clip = shapeClips.front();
+        corners = corner_radii_all(scaled(shapes.front().radius));
         region = nullptr;
       } else if (!pixman_region32_not_empty(region)) {
         // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to
@@ -658,6 +712,23 @@ namespace andromeda {
         region
     );
     pixman_region32_fini(&scaledRegion);
+    if (m_shapeBlurs.size() + 1 < shapes.size()) {
+      m_shapeBlurs.resize(shapes.size() - 1);
+    }
+    for (std::size_t i = 0; i < m_shapeBlurs.size(); ++i) {
+      SurfaceBlur& blur = m_shapeBlurs[i];
+      if (i + 1 >= shapes.size()) {
+        blur.hide();
+        continue;
+      }
+      blur.setLiquid(m_liquid);
+      blur.setFade(m_blurFade);
+      blur.update(
+          m_scene->tree, m_layerSurface->surface, nodeBox, box,
+          corner_radii_all(static_cast<int>(std::lround(shapes[i + 1].radius * motionScale))), &shapeClips[i + 1],
+          options
+      );
+    }
   }
 
   void LayerSurface::applyConfig() {
@@ -753,6 +824,9 @@ namespace andromeda {
     m_server->scheduleIpcLayersEvent();
     m_server->updateIdleInhibit();
     m_blur.hide();
+    for (SurfaceBlur& blur : m_shapeBlurs) {
+      blur.hide();
+    }
     m_fade.snap(1.0);
     // Avoid sending configures while unmapping (wrong serial / client abort).
     m_arrangingOut = true;

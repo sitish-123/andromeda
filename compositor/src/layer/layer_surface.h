@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "config/config.h"
 #include "core/animation.h"
 #include "scene/node.h"
@@ -90,6 +92,10 @@ namespace andromeda {
     wlr_scene_layer_surface_v1* m_scene = nullptr;
     wlr_scene_tree* m_popupTree = nullptr;
     SurfaceBlur m_blur;
+    // Blur nodes for the 2nd and later shapes of a client blur region (bar islands in one surface).
+    std::vector<SurfaceBlur> m_shapeBlurs;
+    float m_liquid = 0.0F;
+    float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};
