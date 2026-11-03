@@ -734,6 +734,30 @@ void Application::initIpc() {
   );
 
   registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
+  m_ipcService.bind(
+      noctalia::cli::msg::activityDump,
+      [this](const std::string& /*args*/) -> std::string {
+        if (ensureActivityMonitor() == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_activityMonitor->touch();
+        return m_activityMonitor->dumpJson() + "\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
+      noctalia::cli::msg::activityCheck,
+      [this](const std::string& /*args*/) -> std::string {
+        if (m_backgroundActivityMonitor == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_backgroundActivityMonitor->checkNow();
+        return "ok\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
 
   if (powerProfiles() != nullptr) {
     powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {

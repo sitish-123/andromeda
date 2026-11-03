@@ -662,6 +662,7 @@ void Application::initServices() {
   initSystemBusServices();
   initBrightnessAndPipewire();
   initSessionBusServices();
+  initActivity();
 }
 
 void Application::initStyleThemeAndWayland() {

@@ -76,6 +76,10 @@
 #include "shell/tray/tray_menu.h"
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
 #include "shell/wallpaper/wallpaper.h"
+#include "system/activity_actions.h"
+#include "system/activity_monitor.h"
+#include "system/background_activity_monitor.h"
+#include "system/background_warning_state.h"
 #include "system/battery_warning_monitor.h"
 #include "system/dependency_service.h"
 #include "system/desktop_entry_poll_source.h"
@@ -205,6 +209,8 @@ private:
   void initEarlySessionBusAndTray();
   void initSessionBusServices();
   void initUi();
+  ActivityMonitor* ensureActivityMonitor();
+  void initActivity();
   // Sub-phases of initUi(), called in order.
   void initUiRenderSurfacesAndSettings();
   void initLockScreenAndSession();
@@ -344,6 +350,11 @@ private:
   std::unique_ptr<DebugService> m_debugService;
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
   IdleInhibitor m_idleInhibitor;
+  // Created on the first Activity request; samples only under a lease.
+  std::unique_ptr<ActivityMonitor> m_activityMonitor;
+  std::unique_ptr<ActivityActions> m_activityActions;
+  std::unique_ptr<BackgroundWarningState> m_backgroundWarningState;
+  std::unique_ptr<BackgroundActivityMonitor> m_backgroundActivityMonitor;
   IdleManager m_idleManager;
   PluginIdleWatches m_pluginIdleWatches;
   IdleGraceOverlay m_idleGraceOverlay;

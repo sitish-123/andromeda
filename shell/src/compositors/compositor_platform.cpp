@@ -2000,3 +2000,16 @@ bool CompositorPlatform::sameWorkspaceModelSnapshot(
   }
   return true;
 }
+
+std::vector<std::pair<int, std::string>> CompositorPlatform::windowPids() const {
+  std::vector<std::pair<int, std::string>> result;
+  if (m_workspaceMetadataBackend == nullptr) {
+    return result;
+  }
+  for (const auto& window : m_workspaceMetadataBackend->workspaceWindows()) {
+    if (window.pid > 0) {
+      result.emplace_back(window.pid, window.appId);
+    }
+  }
+  return result;
+}

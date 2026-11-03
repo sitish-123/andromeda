@@ -390,6 +390,13 @@ namespace noctalia::cli {
   };
 
   namespace msg {
+    inline constexpr Command activityCheck{
+        "activity-check", "Run the background-activity check now and post any new warnings", {}, {}, {}, {}, {}, false
+    };
+    };
+    inline constexpr Command activityDump{
+        "activity-dump", "Print Activity rows as JSON and keep sampling for 10 s", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command annotate{
         "annotate",
         "Draw on the screen over running apps, or annotate an image file; press Z or the Freeze button to capture the "
@@ -1142,6 +1149,8 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgSubcommands{
       msg::airplaneStatus,
       msg::airplaneToggle,
+      msg::activityCheck,
+      msg::activityDump,
       msg::annotate,
       msg::barAutoHideSet,
       msg::barHide,

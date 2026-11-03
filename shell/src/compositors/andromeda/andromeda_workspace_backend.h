@@ -63,6 +63,7 @@ private:
     bool active = false;
     std::int32_t x = 0;
     std::int32_t y = 0;
+    std::int32_t pid = 0;
     std::optional<WindowMinimizeState> minimizeState;
 
     bool operator==(const Window&) const = default;
