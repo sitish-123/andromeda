@@ -561,6 +561,13 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
     w = std::max(inst.restWidth, std::min(inst.faceWidth[static_cast<std::size_t>(face)], inst.liveWidth));
     break;
   case Face::Osd:
+    if (!inst.osdBar->visible()) {
+      w = std::clamp(inst.faceWidth[static_cast<std::size_t>(face)], inst.restWidth, inst.liveWidth);
+      h = std::max(kMinCardHeight, inst.faceHeight[static_cast<std::size_t>(face)]);
+      radius = h * 0.5F;
+      break;
+    }
+    [[fallthrough]];
   case Face::HoverMedia:
   case Face::Banner:
   case Face::Live:
@@ -1266,6 +1273,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   tint->addChild(std::move(banner));
 
   auto ring = ui::box({.out = &inst.ring, .fill = clearColorSpec()});
+  // The stroke lies over every face; it must not take the hits meant for the face buttons.
+  ring->setHitTestVisible(false);
   auto restArea = ui::inputArea({
       .onEnter = [this, instPtr](const InputArea::PointerData&) { hoverEnter(*instPtr); },
       .onLeave = [this, instPtr] { hoverLeave(*instPtr); },
@@ -1420,7 +1429,9 @@ void LiveActivityIsland::applyContent(Instance& inst) {
 
   // Live card.
   const LiveActivity& a = m_shown;
-  inst.icon->setGlyph(a.glyph);
+  if (!a.glyph.empty()) {
+    inst.icon->setGlyph(a.glyph);
+  }
   inst.title->setText(a.title);
   inst.subtitle->setText(a.subtitle);
   inst.subtitle->setVisible(!a.subtitle.empty());
@@ -1529,7 +1540,18 @@ void LiveActivityIsland::applyContent(Instance& inst) {
       );
     }
   }
-  inst.faceWidth[static_cast<std::size_t>(Face::Osd)] = static_cast<float>(kOsdWidth);
+  {
+    // A level OSD keeps its fixed width; a text OSD hugs glyph and text and ellipsizes at the expanded width.
+    float osdW = static_cast<float>(kOsdWidth);
+    const bool textOnly = m_osd.has_value() && !m_osd->showProgress;
+    const float osdFixed = 2.0F * 12.0F + Tokens::componentIslandIcon + 12.0F;
+    inst.osdValue->setMaxWidth(textOnly ? std::max(0.0F, inst.liveWidth - osdFixed) : 0.0F);
+    if (textOnly) {
+      inst.osdValue->layout(renderer);
+      osdW = std::min(osdFixed + inst.osdValue->width(), inst.liveWidth);
+    }
+    inst.faceWidth[static_cast<std::size_t>(Face::Osd)] = osdW;
+  }
   inst.faceHeight[static_cast<std::size_t>(Face::Osd)] = kMinCardHeight;
 
   // Banner face.
@@ -2011,7 +2033,8 @@ void LiveActivityIsland::tickBars() {
       }
       inst->barLevel[i] += (std::clamp(target, 0.0F, 1.0F) - inst->barLevel[i]) * 0.4F;
       const float h = 4.0F + inst->barLevel[i] * (kArt - 4.0F);
-      inst->barBox[i]->setSize(kBarWidth, h);
+      // Paint-only resize: a layout pass here would rebuild the whole island content 30 times a second.
+      inst->barBox[i]->setFrameSize(kBarWidth, h);
       inst->barBox[i]->setPosition(n * (kBarWidth + kBarGap), std::round((kArt - h) * 0.5F));
     }
     if (inst->face == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible()) {
