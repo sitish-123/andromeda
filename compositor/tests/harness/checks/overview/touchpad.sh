@@ -32,7 +32,6 @@ configure() {
   cat > "$ANDROMEDA_CONFIG" <<EOF
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 
 [animation.overview]

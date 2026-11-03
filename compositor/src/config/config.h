@@ -653,8 +653,7 @@ namespace andromeda {
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
-    // cheatsheet, the diagnostics banner, the quit confirmation, and overview
-    // badge text.
+    // diagnostics banner, the quit confirmation, and overview badge text.
     struct Colors {
       struct TitleBar {
         std::array<float, 4> background{0.1607843F, 0.1607843F, 0.2F, 1.0F};
@@ -1063,8 +1062,6 @@ namespace andromeda {
       bool xwaylandNativeResolution = false;
       // Run an XSETTINGS manager in Xwayland that announces the X screen scale and cursor theme. Requires restart.
       bool xwaylandXsettings = true;
-      // Show the keybinds cheatsheet overlay on startup.
-      bool showCheatsheet = true;
       // Honor activation requests by focusing and revealing the target window.
       bool focusOnActivate = false;
       // Hang a modal dialog on its parent's frame, so it follows the parent and holds its input.
@@ -1294,7 +1291,6 @@ namespace andromeda {
   [[nodiscard]] const std::vector<std::filesystem::path>& configWatchPaths();
   [[nodiscard]] const std::vector<ConfigDiagnostic>& configDiagnostics();
   [[nodiscard]] const std::filesystem::path& configRootPath();
-  [[nodiscard]] bool configFileMissing();
   [[nodiscard]] bool configHasMissingIncludes();
   // Applies the live appearance keys to the settings they govern: appearance.accent replaces colors.accent_primary;
   // reduce_transparency turns blur off; increase_contrast draws borders at least 2 px wide;

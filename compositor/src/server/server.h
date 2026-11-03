@@ -166,7 +166,6 @@ namespace andromeda {
   class ScratchpadManager;
   class ConfigBanner;
   class FpsOverlay;
-  class Cheatsheet;
   class QuitConfirm;
   class Ipc;
 
@@ -223,7 +222,6 @@ namespace andromeda {
     [[nodiscard]] Overview* overview() const { return m_overview.get(); }
     [[nodiscard]] ConfigBanner* configBanner() const { return m_configBanner.get(); }
     [[nodiscard]] FpsOverlay* fpsOverlay() const { return m_fpsOverlay.get(); }
-    [[nodiscard]] Cheatsheet* cheatsheet() const { return m_cheatsheet.get(); }
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).
     [[nodiscard]] wlr_scene_tree* dragTree() const { return m_dragTree; }
@@ -355,7 +353,6 @@ namespace andromeda {
       return pending;
     }
     void relayoutBanner();
-    void relayoutCheatsheet();
     void relayoutQuitConfirm();
     void spawn(const char* command, const char* description = nullptr, bool withActivationToken = false);
     void handleConfigReload(const ConfigReloadResult& result);
@@ -934,7 +931,6 @@ namespace andromeda {
 #endif
     wlr_scene_tree* m_bannerTree = nullptr;
     std::unique_ptr<FpsOverlay> m_fpsOverlay;
-    wlr_scene_tree* m_cheatsheetTree = nullptr;
     wlr_scene_tree* m_quitConfirmTree = nullptr;
 
     bool m_nested = false;
@@ -1143,7 +1139,6 @@ namespace andromeda {
     TeardownStep m_stepLayerSurfaces{this, &Server::clearLayerSurfaces};
     std::unique_ptr<SessionLock> m_sessionLock;
     std::unique_ptr<Overview> m_overview;
-    std::unique_ptr<Cheatsheet> m_cheatsheet;
     std::unique_ptr<ConfigBanner> m_configBanner;
     TeardownStep m_stepCloseSnapshots{this, &Server::clearCloseSnapshots};
     std::unique_ptr<HintRect> m_insertHint;

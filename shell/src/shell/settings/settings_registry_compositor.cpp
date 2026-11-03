@@ -224,18 +224,16 @@ namespace settings {
       toggle(Windows, "focus", "input.focus.follows_mouse", "focus follows mouse hover pointer");
       toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");
       toggle(Windows, "focus", "general.focus_on_activate", "focus activation request urgent");
-      toggle(Windows, "focus", "general.show_cheatsheet", "keybind cheatsheet startup help");
       toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
 
       // Hot corners run a compositor action; the shell's own panels are reached through shell: actions.
-      constexpr std::array<std::pair<std::string_view, std::string_view>, 5> kCornerActions{{
+      constexpr std::array<std::pair<std::string_view, std::string_view>, 4> kCornerActions{{
           {"shell:panel-toggle launcher", "launcher"},
           {"shell:panel-toggle control-center", "control-center"},
           {"shell:window-switcher", "window-switcher"},
           {"overview-toggle", "overview"},
-          {"cheatsheet-toggle", "cheatsheet"},
       }};
       for (const std::string_view corner : {"top_left", "top_right", "bottom_left", "bottom_right"}) {
         const std::string prefix = "hot_corners." + std::string(corner);

@@ -100,7 +100,6 @@ echo 'wheel steps vertically, Shift-wheel steps horizontally, factors count notc
 cat > "$ANDROMEDA_CONFIG" <<'EOF'
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 [animation]
 enabled = false

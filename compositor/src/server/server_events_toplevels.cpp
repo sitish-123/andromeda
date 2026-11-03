@@ -22,7 +22,6 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"

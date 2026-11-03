@@ -17,9 +17,8 @@ mkdir -p "$H/.config" "$H/.local/state"
 cp -r ~/.config/noctalia "$H/.config/" 2>/dev/null || true
 cp -r ~/.local/state/noctalia "$H/.local/state/" 2>/dev/null || true
 ln -s ~/Pictures "$H/Pictures"
-# The user's compositor config without its autostart (the shell starts below) and without the cheatsheet on each start.
-sed -e '/^autostart *=/d' -e '/^show_cheatsheet *=/d' -e '/^\[general\]/a show_cheatsheet = false' \
-  ~/.config/andromeda/config.toml > "$RUNTIME/andromeda.toml"
+# The user's compositor config without its autostart (the shell starts below).
+sed -e '/^autostart *=/d' ~/.config/andromeda/config.toml > "$RUNTIME/andromeda.toml"
 
 env -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$RUNTIME" WAYLAND_DISPLAY="$PARENT" WLR_BACKENDS=wayland \
   "$ANDROMEDA" -c "$RUNTIME/andromeda.toml" > "$RUNTIME/andromeda.log" 2>&1 &

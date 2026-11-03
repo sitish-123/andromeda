@@ -7,7 +7,6 @@
 #include "layer/layer_surface.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "server/actions.h"
 #include "server/greeter_mode.h"
 #include "server/server.h"

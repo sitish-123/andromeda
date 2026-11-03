@@ -4891,10 +4891,6 @@
           "label": "Focus on Activation",
           "description": "Focus and reveal a window when an app asks for attention"
         },
-        "general-show-cheatsheet": {
-          "label": "Shortcut Cheatsheet",
-          "description": "Show the keyboard shortcut cheatsheet when the session starts"
-        },
         "hot-corners-top-left-enabled": {
           "label": "Top Left Corner",
           "description": "Run an action when the pointer rests in the top left corner"
@@ -4947,8 +4943,7 @@
           "launcher": "Launcher",
           "control-center": "Control Center",
           "window-switcher": "Window Switcher",
-          "overview": "Overview",
-          "cheatsheet": "Shortcut Cheatsheet"
+          "overview": "Overview"
         },
         "general-mod-key": {
           "label": "Mod Key",

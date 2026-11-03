@@ -22,7 +22,6 @@
 #include "lock/session_lock.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/color.h"
 #include "scene/config_banner.h"
 #include "scene/fps_overlay.h"
@@ -781,7 +780,6 @@ namespace andromeda {
     m_xwaylandUnmanagedTree = wlr_scene_tree_create(&m_scene->tree);
     m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&m_scene->tree);
     m_imPopupTree = wlr_scene_tree_create(&m_scene->tree);
-    m_cheatsheetTree = wlr_scene_tree_create(&m_scene->tree);
     m_bannerTree = wlr_scene_tree_create(&m_scene->tree);
     m_quitConfirmTree = wlr_scene_tree_create(&m_scene->tree);
     m_lockTree = wlr_scene_tree_create(&m_scene->tree);
@@ -1404,10 +1402,6 @@ namespace andromeda {
     m_fpsOverlay = std::make_unique<FpsOverlay>(*this, m_bannerTree);
     m_configWatcher->watch(configWatchPaths());
     showConfigDiagnostics();
-    m_cheatsheet = std::make_unique<Cheatsheet>(*this, m_cheatsheetTree);
-    if (config().general.showCheatsheet && !greeterMode()) {
-      m_cheatsheet->showOnStartup();
-    }
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
     if (!notifyServiceReady(notifySocket)) {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
@@ -1455,12 +1449,6 @@ namespace andromeda {
   void Server::relayoutBanner() {
     if (m_configBanner != nullptr) {
       m_configBanner->relayout();
-    }
-  }
-
-  void Server::relayoutCheatsheet() {
-    if (m_cheatsheet != nullptr) {
-      m_cheatsheet->relayout();
     }
   }
 

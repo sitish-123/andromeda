@@ -11,7 +11,6 @@
 #include "input/shortcut_keysym.h"
 #include "input/text_input.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
@@ -622,14 +621,6 @@ namespace andromeda {
           for (int i = 0; i < nsyms && !handled; ++i) {
             handled = overview->handleFallbackKey(syms[i]);
           }
-        }
-      }
-      // Any non-modifier key press dismisses the cheatsheet, except the key
-      // that just toggled it.
-      if (Cheatsheet* sheet = m_server->cheatsheet(); sheet != nullptr && sheet->visible()) {
-        const bool cheatsheetBind = matched.has_value() && isCheatsheetAction(matched->action);
-        if (!cheatsheetBind && !modifierOnly) {
-          sheet->hide();
         }
       }
       if (handled) {

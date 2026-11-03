@@ -21,7 +21,6 @@
 #include "output/rendered_state_commit.h"
 #include "output/sdr_format.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/config_banner.h"
 #include "scene/fps_overlay.h"
 #include "scene/node.h"
@@ -2035,9 +2034,6 @@ namespace andromeda {
     if (has(pending, Dirty::Backdrop)) {
       m_server->updateBackdrop();
     }
-    if (has(pending, Dirty::Cheatsheet)) {
-      m_server->relayoutCheatsheet();
-    }
     if (has(pending, Dirty::QuitConfirm)) {
       m_server->relayoutQuitConfirm();
     }
@@ -2149,9 +2145,6 @@ namespace andromeda {
     } else if (m_server->configBanner() != nullptr && m_server->configBanner()->visible()) {
       tearingFrameEligible = false;
       m_tearingFallbackReason = "configuration banner visible";
-    } else if (m_server->cheatsheet() != nullptr && m_server->cheatsheet()->visible()) {
-      tearingFrameEligible = false;
-      m_tearingFallbackReason = "cheatsheet visible";
     } else if (m_server->quitConfirm() != nullptr && m_server->quitConfirm()->visible()) {
       tearingFrameEligible = false;
       m_tearingFallbackReason = "quit confirmation visible";

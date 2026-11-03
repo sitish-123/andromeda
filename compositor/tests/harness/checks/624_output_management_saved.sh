@@ -43,7 +43,6 @@ files = ["displays.toml"]
 
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 EOF
 

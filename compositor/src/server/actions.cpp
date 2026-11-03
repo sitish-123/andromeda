@@ -9,7 +9,6 @@
 #include "output/identity.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/fps_overlay.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_shell.h"
@@ -2035,27 +2034,6 @@ namespace andromeda {
       return true;
     }
 
-    bool actionCheatsheetToggle(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->toggle();
-      }
-      return true;
-    }
-
-    bool actionCheatsheetOpen(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->show();
-      }
-      return true;
-    }
-
-    bool actionCheatsheetClose(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->hide();
-      }
-      return true;
-    }
-
     // +1 magnifies the output under the pointer one step, -1 shrinks it one step, 0 turns the magnifier off.
     template <int Direction> bool actionZoom(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       constexpr double kStep = 1.25;
@@ -2313,9 +2291,6 @@ namespace andromeda {
         &actionOverviewToggle,
         &actionOverviewOpen,
         &actionOverviewClose,
-        &actionCheatsheetToggle,
-        &actionCheatsheetOpen,
-        &actionCheatsheetClose,
         &actionFpsOverlayToggle,
         &actionMoveToScratchpad,
         &actionScratchpadToggle,

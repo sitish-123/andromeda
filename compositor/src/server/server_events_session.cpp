@@ -21,7 +21,6 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -122,9 +121,6 @@ namespace andromeda {
       m_effects.applyOutputEffects();
       cancelModifierTap();
       m_overview->forceClose();
-      if (m_cheatsheet != nullptr) {
-        m_cheatsheet->hide();
-      }
       if (m_quitConfirm != nullptr) {
         m_quitConfirm->hide();
       }

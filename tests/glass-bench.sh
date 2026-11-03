@@ -61,7 +61,7 @@ MODES=("$@")
 mkdir -p "$OUT"
 RAPL=/sys/class/powercap/intel-rapl:0/energy_uj
 
-# The user's compositor config with the glass mode set in [appearance], no autostart, no cheatsheet.
+# The user's compositor config with the glass mode set in [appearance], no autostart.
 make_config() {
   local mode=$1 dst=$2 reduce=false glass=0.5
   case $mode in
@@ -73,8 +73,8 @@ make_config() {
   esac
   local src=$CONF_HOME/.config/andromeda/config.toml
   [[ -f $src ]] || src=<(printf '[general]\n')
-  sed -e '/^autostart *=/d' -e '/^show_cheatsheet *=/d' -e '/^reduce_transparency *=/d' -e '/^glass *=/d' \
-    -e '/^glass_opacity *=/d' -e '/^\[general\]/a show_cheatsheet = false' "$src" > "$dst"
+  sed -e '/^autostart *=/d' -e '/^reduce_transparency *=/d' -e '/^glass *=/d' \
+    -e '/^glass_opacity *=/d' "$src" > "$dst"
   if grep -q '^\[appearance\]' "$dst"; then
     sed -i "/^\[appearance\]/a reduce_transparency = $reduce\nglass = $glass" "$dst"
   else

@@ -426,7 +426,6 @@ namespace andromeda {
         Spec{"hot_corners.bottom_right.delay_ms", Kind::Int, 0, 10000, {}, [](const Config& c) { return text(c.hotCorners.corners[3].delayMs); }},
         Spec{"hot_corners.bottom_right.action", Kind::Action, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[3].action); }},
         Spec{"general.mod_key", Kind::Choice, 0, 0, kModKeys, [](const Config& c) { return text(c.general.modKey); }},
-        Spec{"general.show_cheatsheet", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.showCheatsheet); }},
         Spec{"power.on_battery", Kind::Bool, 0, 0, {}, [](const Config&) { return std::string("false"); }, true},
     };
 

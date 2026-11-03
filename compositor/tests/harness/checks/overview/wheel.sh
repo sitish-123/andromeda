@@ -109,7 +109,6 @@ expect_notch -1 1
 cat > "$ANDROMEDA_CONFIG" << 'EOF'
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 
 [output."HEADLESS-1"]

@@ -92,7 +92,6 @@ mod_key = "Super"
 xwayland = true
 xwayland_native_resolution = false
 xwayland_xsettings = true
-show_cheatsheet = true
 focus_on_activate = false
 attach_modal_dialogs = true
 honor_restored_maximize = false
@@ -105,7 +104,6 @@ honor_restored_maximize = false
 | `xwayland`                   | bool         | `true`                    | Start Xwayland lazily for X11 applications. Changes require a restart.                                                                                                               |
 | `xwayland_native_resolution` | bool         | `false`                   | Show outputs to X11 applications at their physical resolution, so they render sharp on scaled outputs. Changes require a restart.                                                    |
 | `xwayland_xsettings`         | bool         | `true`                    | Announce the interface scale and cursor theme to X11 applications through XSETTINGS. Turn it off to run your own XSETTINGS manager, such as `xsettingsd`. Changes require a restart. |
-| `show_cheatsheet`            | bool         | `true`                    | Show the keybind cheatsheet when Andromeda starts.                                                                                                                                     |
 | `focus_on_activate`          | bool         | `false`                   | Let application activation requests focus and reveal their target.                                                                                                                   |
 | `attach_modal_dialogs`       | bool         | `true`                    | Attach a modal dialog to its parent, so it follows the parent and holds its input. See [Dialogs](layout.md#dialogs).                                                                 |
 | `honor_restored_maximize`    | bool         | `false`                   | Honor maximize requests an application makes while its window opens, until it acknowledges its opening layout.                                                                       |

@@ -35,7 +35,7 @@ namespace andromeda {
     [[nodiscard]] const std::vector<std::filesystem::path>& watchPaths() const { return m_watchPaths; }
     [[nodiscard]] const std::filesystem::path& rootPath() const { return m_rootPath; }
     // True when the session is running on built-in defaults because no file was
-    // found. Drives the "no config" notice on the cheatsheet.
+    // found.
     [[nodiscard]] bool fileMissing() const { return m_fileMissing; }
     [[nodiscard]] uint64_t generation() const { return m_generation; }
     [[nodiscard]] bool missingIncludes() const { return m_missingIncludes; }

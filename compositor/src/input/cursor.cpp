@@ -9,7 +9,6 @@
 #include "input/xcursor_matcher.h"
 #include "lock/session_lock.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
 #include "server/dsk_surface.h"
@@ -887,8 +886,7 @@ namespace andromeda {
         && m_server->sessionLock() == nullptr
         && (m_server->session() == nullptr || m_server->session()->active)
         && (m_server->quitConfirm() == nullptr || !m_server->quitConfirm()->visible())
-        && (m_server->overview() == nullptr || !m_server->overview()->active())
-        && (m_server->cheatsheet() == nullptr || !m_server->cheatsheet()->visible());
+        && (m_server->overview() == nullptr || !m_server->overview()->active());
   }
 
   void Cursor::setInputCaptured(bool captured) {
@@ -986,18 +984,6 @@ namespace andromeda {
       const uint32_t modifiers = m_server->keyboardModifiers();
       bool mouseBindExecuted = false;
       const std::optional<Keybind> bound = m_server->handleMouseBind(button, modifiers, &mouseBindExecuted);
-      // Any press dismisses the cheatsheet, as any key press does, except one that just ran a cheatsheet action. Unlike
-      // a key press, an unbound press is consumed: the overlay hides whatever sits under the cursor, so the click that
-      // dismisses it must not also reach that surface.
-      if (Cheatsheet* sheet = m_server->cheatsheet(); sheet != nullptr
-          && sheet->visible()
-          && !(bound.has_value() && mouseBindExecuted && isCheatsheetAction(bound->action))) {
-        sheet->hide();
-        if (!bound.has_value()) {
-          m_swallowedButtons.push_back(button);
-          return;
-        }
-      }
       if (bound.has_value()) {
         if (mouseBindExecuted
             && bound->action == KeybindAction::LayoutScrollDrag

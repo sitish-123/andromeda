@@ -252,7 +252,6 @@ namespace andromeda {
         .animation = before.animation != after.animation,
         .input = before.input != after.input || before.hotCorners != after.hotCorners,
         .overviewPresentation = before.overview != after.overview || before.colors != after.colors,
-        .internalUi = before.colors != after.colors || before.general.modKey != after.general.modKey,
         .effects = effectsChanged,
         .dialogAttachment = before.general.attachModalDialogs != after.general.attachModalDialogs
             || (before.windowRules != after.windowRules
@@ -273,7 +272,6 @@ namespace andromeda {
         .animation = true,
         .input = true,
         .overviewPresentation = true,
-        .internalUi = true,
         .effects = true,
         .dialogAttachment = true,
     };
@@ -381,7 +379,6 @@ namespace andromeda {
     add(workspaceLayout, "workspace layout");
     add(sceneBlur, "scene blur");
     add(viewChrome, "view chrome");
-    add(internalUi, "internal UI");
     add(animation, "animation state");
     add(layerEffects, "layer effects");
     add(input, "input");

@@ -11,7 +11,7 @@ boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
   # No first-run wizard: it takes the keyboard from the window under test.
   printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
-  printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$RUNTIME/andromeda.toml"
+  printf '[general]\nautostart = []\n' > "$RUNTIME/andromeda.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
   cat > "$RUNTIME/bus.conf" <<'CONF'
 <busconfig>

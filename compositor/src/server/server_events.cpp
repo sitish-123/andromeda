@@ -21,7 +21,6 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -119,9 +118,6 @@ namespace andromeda {
       for (const auto& output : m_outputs) {
         output->applyCursorConfig();
       }
-    }
-    if (effects.internalUi) {
-      markDirty(Dirty::Cheatsheet);
     }
     if (effects.outputState) {
       // A successful output-policy reload is the explicit boundary for
@@ -300,7 +296,6 @@ namespace andromeda {
       );
     }
     showConfigDiagnostics();
-    markDirty(Dirty::Cheatsheet);
     if (m_configWatcher != nullptr) {
       m_configWatcher->watch(configWatchPaths());
     }

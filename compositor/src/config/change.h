@@ -82,7 +82,6 @@ namespace andromeda {
     bool animation = false;
     bool input = false;
     bool overviewPresentation = false;
-    bool internalUi = false;
     bool effects = false;
     // Whether a modal dialog attaches to its parent: the global switch or a rule that may opt one out.
     bool dialogAttachment = false;
@@ -99,7 +98,6 @@ namespace andromeda {
           || animation
           || input
           || overviewPresentation
-          || internalUi
           || effects
           || dialogAttachment;
     }

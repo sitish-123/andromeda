@@ -256,8 +256,6 @@ namespace andromeda {
 
   const std::filesystem::path& configRootPath() { return configStore().rootPath(); }
 
-  bool configFileMissing() { return configStore().fileMissing(); }
-
   bool configHasMissingIncludes() { return configStore().missingIncludes(); }
 
   void ConfigStore::load(const char* explicitPath) {

@@ -21,7 +21,6 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -108,7 +107,7 @@ namespace andromeda {
     m_outputs.push_back(std::make_unique<Output>(*this, output));
     applyConfiguredMirrors();
     scheduleDisplacedViewRestore();
-    markDirty(Dirty::Backdrop | Dirty::Banner | Dirty::Cheatsheet | Dirty::QuitConfirm);
+    markDirty(Dirty::Backdrop | Dirty::Banner | Dirty::QuitConfirm);
     if (m_sessionLocked) {
       updateLockBlank();
       raiseLockTree();
@@ -171,7 +170,7 @@ namespace andromeda {
     if (hadRuntimeEffect && !m_stopping) {
       m_effects.prepare(m_renderer);
     }
-    markDirty(Dirty::Banner | Dirty::Cheatsheet | Dirty::QuitConfirm);
+    markDirty(Dirty::Banner | Dirty::QuitConfirm);
     if (m_sessionLocked) {
       updateLockBlank();
     }
@@ -1374,7 +1373,7 @@ namespace andromeda {
         reassignOutputViews(entry.output, fallback);
       }
       scheduleDisplacedViewRestore();
-      markDirty(Dirty::Banner | Dirty::Cheatsheet | Dirty::QuitConfirm);
+      markDirty(Dirty::Banner | Dirty::QuitConfirm);
       if (m_sessionLocked) {
         updateLockBlank();
       }

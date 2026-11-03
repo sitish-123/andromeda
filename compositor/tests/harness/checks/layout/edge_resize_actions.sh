@@ -68,7 +68,6 @@ reset_config() {
   cat > "$ANDROMEDA_CONFIG" <<'EOF'
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 EOF
   cat >> "$ANDROMEDA_CONFIG"

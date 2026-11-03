@@ -57,7 +57,6 @@ CONFIG
 cat > "$RUNTIME/config.toml" << 'CONFIG'
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 [animation]
 enabled = false

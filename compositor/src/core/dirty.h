@@ -15,10 +15,9 @@ namespace andromeda {
     // it animates, including hidden workspaces.
     Layout = 1U << 1,
     // Chrome that sits over the layout: the config-error banner, the desktop
-    // backdrop, the keybind cheatsheet, the session-quit confirmation.
+    // backdrop, the session-quit confirmation.
     Banner = 1U << 2,
     Backdrop = 1U << 3,
-    Cheatsheet = 1U << 4,
     QuitConfirm = 1U << 5,
   };
 

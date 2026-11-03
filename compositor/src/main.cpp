@@ -6,7 +6,7 @@
 #include "core/fdlimit.h"
 #include "core/log.h"
 #include "core/process.h"
-#include "scene/cheatsheet_rows.h"
+#include "config/action_groups.h"
 #include "server/ipc.h"
 #include "server/ipc_commands.h"
 #include "server/greeter_mode.h"
@@ -324,7 +324,7 @@ int main(int argc, char** argv) {
         std::println("");
         std::println("Send an action to the running compositor.");
         std::println("Use `msg spawn <cmd...>` as shorthand for `msg spawn:<cmd...>`.");
-        std::println("Available actions, grouped as the cheatsheet groups them:");
+        std::println("Available actions, grouped by area:");
         for (const andromeda::Group group : andromeda::fixedGroupOrder()) {
           std::vector<std::string> names;
           std::vector<std::string_view> summaries;

@@ -177,11 +177,6 @@ Named effect `set` and `cycle` arguments are checked against preset/pool kind wh
 
 Hot corners are inactive while the output's focused window is fullscreen. This check follows the output containing the corner, including when keyboard focus remains on another monitor. A fullscreen window on a different output or an inactive workspace does not block the corner. Neither does a retained fullscreen window after another window on that output takes focus.
 
-## Cheatsheet
-
-The cheatsheet lists active keybinds. It opens at startup when `general.show_cheatsheet` is enabled. Use `cheatsheet-toggle`, `cheatsheet-open`, or `cheatsheet-close` from a bind or `andromeda msg`.
-
-Any non-modifier key or mouse button closes it. Normal bound actions still run.
 
 ## Example: Noctalia shell integration
 

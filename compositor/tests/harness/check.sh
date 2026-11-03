@@ -344,7 +344,7 @@ row() {
   detail "$status" "$text"
 }
 
-# No autostart, no Xwayland, no cheatsheet: a check wants a bare compositor, and
+# No autostart, no Xwayland: a check wants a bare compositor, and
 # each of those would spawn processes outside the container. A check that needs
 # X11 opts in with `# harness: xwayland=true` in its header, or with
 # `# harness: xwayland=native` for xwayland_native_resolution, which needs a restart.
@@ -354,7 +354,6 @@ write_default_config() {
 [general]
 xwayland = $([[ $xwayland == false ]] && echo false || echo true)
 xwayland_native_resolution = $([[ $xwayland == native ]] && echo true || echo false)
-show_cheatsheet = false
 autostart = []
 EOF
   if [[ -n $cursor_theme ]]; then

@@ -252,9 +252,6 @@ namespace andromeda {
     }
 
     constexpr ActionSpec kActionSpecs[] = {
-        {"cheatsheet-close", "", "Hide the keybind cheatsheet", KeybindAction::CheatsheetClose},
-        {"cheatsheet-open", "", "Show the keybind cheatsheet", KeybindAction::CheatsheetOpen},
-        {"cheatsheet-toggle", "", "Show or hide the keybind cheatsheet", KeybindAction::CheatsheetToggle},
         {"column-center", "", "Center the focused column in the viewport", KeybindAction::ColumnCenter},
         {"column-focus-first", "", "Focus the first column in the workspace", KeybindAction::ColumnFocusFirst},
         {"column-focus-last", "", "Focus the last column in the workspace", KeybindAction::ColumnFocusLast},

@@ -88,7 +88,7 @@ def check(binary, abstract=False, fail_import=False, managed=True):
             (root / "bin" / name).symlink_to(helper)
         config = root / "config.toml"
         config.write_text(
-            '[general]\nxwayland = false\nshow_cheatsheet = false\n'
+            '[general]\nxwayland = false\n'
             f'autostart = {json.dumps([] if managed else [str(root / "bin" / "autostart")])}\n'
             '[environment]\nANDROMEDA_READINESS_TEST = "configured"\n'
         )
