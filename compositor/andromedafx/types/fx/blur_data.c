@@ -20,7 +20,7 @@ bool blur_data_should_parameters_blur_effects(struct blur_data* blur_data) {
       || blur_data->noise > 0.0f;
 }
 
-int blur_data_calc_size(struct blur_data* blur_data) { return pow(2, blur_data->num_passes + 1) * blur_data->radius; }
+int blur_data_calc_size(const struct blur_data* blur_data) { return pow(2, blur_data->num_passes + 1) * blur_data->radius; }
 
 static float lerp(float a, float b, float f) { return (a * (1.0 - f)) + (b * f); }
 
