@@ -148,6 +148,14 @@ private:
   bool m_focusFirstTile = false;
   bool m_staggerPending = false;
   std::vector<std::pair<Flex*, std::pair<float, float>>> m_flipFrom; // tile -> position in the grid before a reflow
+  Button* m_notificationsButton = nullptr;
+  Box* m_unreadBadge = nullptr; // accent dot on the footer bell while there are unread notifications
+  std::vector<std::pair<float, float>> m_slotPos; // edit slot origins in the grid from the last layout (not animated)
+  float m_grabX = 0.0F; // pointer offset inside the dragged tile
+  float m_grabY = 0.0F;
+  float m_dragX = 0.0F; // last pointer position in the grid
+  float m_dragY = 0.0F;
+  void placeDraggedTile();
   std::array<Timer, 6> m_staggerTimers;
   Button* m_tileSource = nullptr;
   bool m_tileDragging = false;

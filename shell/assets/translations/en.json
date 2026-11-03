@@ -752,6 +752,7 @@
       "notifications": "{count} notifications",
       "off": "Off",
       "on": "On",
+      "power-hint": "Lock, restart, shut down",
       "settings-tooltip": "Settings",
       "wifi": "Wi-Fi"
     }

@@ -12,6 +12,7 @@
 #include "shell/phone/phone_state.h"
 #include "system/brightness_service.h"
 #include "system/rfkill_helper.h"
+#include "notification/notification_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
 #include "ui/controls/button.h"
@@ -747,7 +748,7 @@ bool QuickTab::tileAvailable(std::string_view id) const {
   if (id == "mic_mute") {
     return m_services.audio != nullptr && m_services.audio->defaultSource() != nullptr;
   }
-  return id == "wifi" || id == "bluetooth" || id == "notification" || id == "dark_mode";
+  return id == "wifi" || id == "bluetooth" || id == "notification" || id == "dark_mode" || id == "session";
 }
 
 void QuickTab::buildPages(const std::vector<std::string>& order) {
@@ -870,13 +871,13 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
 
   m_profile = ShortcutRegistry::create("power_profile", m_services.shortcutServices());
   auto profile = std::make_unique<Button>();
-  profile->setVariant(ButtonVariant::Secondary);
+  // Plain footer text like the battery status, not a filled chip.
+  profile->setVariant(ButtonVariant::Ghost);
+  profile->setStateFillless(true);
   profile->setDirection(FlexDirection::Horizontal);
   profile->setAlign(FlexAlign::Center);
-  profile->setControlHeight(Tokens::componentButtonHeightS * s);
-  profile->setRadius(Tokens::componentButtonRadius * s);
-  profile->setPadding(0.0F, Tokens::componentButtonInsetS * s, 0.0F, Tokens::componentButtonInsetS * s);
-  profile->setGap(Tokens::componentButtonGap * s);
+  profile->setPadding(0.0F);
+  profile->setGap(Tokens::spaceP8 * s);
   profile->setOnClick([this] { m_openTab("detail-power"); });
   profile->setOnRightClick([this] {
     if (m_profile != nullptr) {
@@ -885,7 +886,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   });
   m_profileBox = profile.get();
   profile->addChild(makeGlyph(m_profileGlyph));
-  profile->addChild(makeLabel(m_profileText, Tokens::typeFootnote, s, ColorRole::Label1));
+  profile->addChild(makeLabel(m_profileText, Tokens::typeFootnote, s, ColorRole::Label2));
   footer->addChild(std::move(profile));
 
   const auto iconButton = [&](Button*& out, std::string_view glyph, std::function<void()> click) {
@@ -895,11 +896,27 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
     b->setRadius(Tokens::componentButtonRadius * s);
     footer->addChild(std::move(b));
   };
+  iconButton(m_notificationsButton, "bell", [this] { m_openTab("notifications"); });
+  m_notificationsButton->setTooltip(i18n::tr("control-center.tabs.notifications"));
+  {
+    auto badge = ui::box({
+        .out = &m_unreadBadge,
+        .fill = colorSpecFromRole(ColorRole::Accent),
+        .visible = false,
+        .participatesInLayout = false,
+    });
+    badge->setHitTestVisible(false);
+    badge->setZIndex(2);
+    m_notificationsButton->addChild(std::move(badge));
+  }
   iconButton(m_editButton, "pencil", [this] { setEditing(true); });
   m_editButton->setTooltip(i18n::tr("control-center.quick.edit-tooltip"));
   Button* settings = nullptr;
   iconButton(settings, "settings", [] { PanelManager::instance().openSettingsWindow(); });
   settings->setTooltip(i18n::tr("control-center.quick.settings-tooltip"));
+  Button* power = nullptr;
+  iconButton(power, "shutdown", [] { PanelManager::instance().togglePanel("session"); });
+  power->setTooltip(i18n::tr("control-center.shortcuts.session"));
   return footer;
 }
 
@@ -986,7 +1003,32 @@ void QuickTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight
     m_galleryArea->setFrameSize(m_editGallery->width(), m_editGallery->height());
   }
   m_editReflowPending = false;
+  m_slotPos.clear();
+  for (const Flex* card : m_editCards) {
+    m_slotPos.emplace_back(offsetIn(card, m_editGrid, false), offsetIn(card, m_editGrid, true));
+  }
+  if (m_dragIndex >= 0 && static_cast<std::size_t>(m_dragIndex) < m_editCards.size()) {
+    const Flex* dragged = m_editCards[static_cast<std::size_t>(m_dragIndex)];
+    std::erase_if(m_flipFrom, [dragged](const auto& entry) { return entry.first == dragged; });
+  }
   animateFlip();
+  placeDraggedTile();
+}
+
+// The dragged tile sits under the pointer, above the other rows; layout and FLIP never move it.
+void QuickTab::placeDraggedTile() {
+  if (m_dragIndex < 0 || static_cast<std::size_t>(m_dragIndex) >= m_editCards.size() || m_editGrid == nullptr) {
+    return;
+  }
+  Flex* card = m_editCards[static_cast<std::size_t>(m_dragIndex)];
+  Node* row = card->parent();
+  if (row == nullptr) {
+    return;
+  }
+  row->setZIndex(5);
+  card->setPosition(
+      m_dragX - m_grabX - offsetIn(row, m_editGrid, false), m_dragY - m_grabY - offsetIn(row, m_editGrid, true)
+  );
 }
 
 void QuickTab::animateScale(Flex& card, float to) {
@@ -1016,7 +1058,14 @@ void QuickTab::animateFlip() {
     card->setPosition(dx, dy);
     manager->animateSpring(
         0.0F, 1.0F, springOf(Tokens::springMove),
-        [target, dx, dy, toX, toY](float t) { target->setPosition(dx + (toX - dx) * t, dy + (toY - dy) * t); }, {},
+        [this, target, dx, dy, toX, toY](float t) {
+          if (m_dragIndex >= 0 && static_cast<std::size_t>(m_dragIndex) < m_editCards.size()
+              && m_editCards[static_cast<std::size_t>(m_dragIndex)] == target) {
+            return;
+          }
+          target->setPosition(dx + (toX - dx) * t, dy + (toY - dy) * t);
+        },
+        {},
         target, 0.0F, Unit::Progress
     );
   }
@@ -1071,7 +1120,9 @@ void QuickTab::syncExtras() {
   for (ToggleRow& row : m_extras) {
     Shortcut* shortcut = row.shortcut.get();
     std::string subtitle;
-    if (shortcut->id() == "mic_mute") {
+    if (shortcut->id() == "session") {
+      subtitle = i18n::tr("control-center.quick.power-hint");
+    } else if (shortcut->id() == "mic_mute") {
       subtitle = i18n::tr(shortcut->active() ? "control-center.quick.muted" : "control-center.quick.on");
     } else {
       const std::string label = shortcut->displayLabel();
@@ -1102,11 +1153,19 @@ void QuickTab::syncFooter() {
   m_footer->setVisible(true);
   if (battery) {
     m_batteryGlyph->setGlyph(batteryGlyphName(state->percentage, state->state));
-    const std::string stateLabel = batteryStateLabel(state->state);
-    m_batteryText->setText(
-        stateLabel.empty() ? std::format("{:.0F}%", state->percentage)
-                           : std::format("{:.0F}% · {}", state->percentage, stateLabel)
-    );
+    // The glyph already shows the charge state (plugged in, charging), so the text is the level only.
+    m_batteryText->setText(std::format("{:.0F}%", state->percentage));
+  }
+  const std::size_t unread = m_services.notifications != nullptr ? m_services.notifications->unreadNotificationCount() : 0;
+  m_unreadBadge->setVisible(unread > 0);
+  if (unread > 0) {
+    // A dot at the bell's top right, as on the bar bell; no count.
+    const float s = contentScale();
+    const float d = 7.0F * s;
+    const float b = Tokens::componentButtonHeightM * s;
+    m_unreadBadge->setSize(d, d);
+    m_unreadBadge->setRadius(d * 0.5F);
+    m_unreadBadge->setPosition(std::round(b * 0.5F + 3.0F * s), std::round(b * 0.5F - 9.0F * s));
   }
   if (profile) {
     m_profileGlyph->setGlyph(m_profile->displayIcon());
@@ -1306,7 +1365,14 @@ void QuickTab::buildEditParts(Flex& root) {
     const int index = m_pressedIndex;
     const bool badge = m_pressedBadge;
     if (m_dragIndex >= 0 && static_cast<std::size_t>(m_dragIndex) < m_editCards.size()) {
-      animateScale(*m_editCards[static_cast<std::size_t>(m_dragIndex)], 1.0F);
+      Flex* card = m_editCards[static_cast<std::size_t>(m_dragIndex)];
+      animateScale(*card, 1.0F);
+      if (card->parent() != nullptr) {
+        card->parent()->setZIndex(0);
+      }
+      m_flipFrom.clear();
+      m_flipFrom.push_back({card, {offsetIn(card, m_editGrid, false), offsetIn(card, m_editGrid, true)}});
+      PanelManager::instance().requestLayout();
     }
     m_dragIndex = -1;
     m_pressedIndex = -1;
@@ -1327,10 +1393,17 @@ void QuickTab::buildEditParts(Flex& root) {
       m_dragIndex = m_pressedIndex;
       m_dragMoved = true;
       Flex* card = m_editCards[static_cast<std::size_t>(m_dragIndex)];
+      m_grabX = m_pressX - offsetIn(card, m_editGrid, false);
+      m_grabY = m_pressY - offsetIn(card, m_editGrid, true);
       card->setTransformOrigin(card->width() * 0.5F, card->height() * 0.5F);
       animateScale(*card, Tokens::componentEditDragScale);
       card->setZIndex(5);
     }
+    m_dragX = d.localX;
+    m_dragY = d.localY;
+    placeDraggedTile();
+    syncLiftShadow();
+    PanelManager::instance().requestRedraw();
     const int slot = editSlotAt(d.localX, d.localY);
     if (slot < 0 || slot == m_dragIndex) {
       return;
@@ -1453,10 +1526,12 @@ void QuickTab::reflowEditGrid() {
 
 int QuickTab::editSlotAt(float x, float y) const {
   const float pad = Tokens::componentSheetGap * contentScale() * 0.5F;
+  const bool laidOut = m_slotPos.size() == m_editCards.size();
   for (std::size_t i = 0; i < m_editCards.size(); ++i) {
     const Flex* card = m_editCards[i];
-    const float cx = offsetIn(card, m_editGrid, false);
-    const float cy = offsetIn(card, m_editGrid, true);
+    // Slots come from layout, not from tiles that are sliding or under the pointer, so a swap cannot undo itself.
+    const float cx = laidOut ? m_slotPos[i].first : offsetIn(card, m_editGrid, false);
+    const float cy = laidOut ? m_slotPos[i].second : offsetIn(card, m_editGrid, true);
     if (x >= cx - pad && x < cx + card->width() + pad && y >= cy - pad && y < cy + card->height() + pad) {
       return static_cast<int>(i);
     }
@@ -1505,7 +1580,10 @@ void QuickTab::rebuildEdit() {
   reflowEditGrid();
 
   std::vector<std::unique_ptr<Flex>> gallery;
-  for (const std::string& id : tileOrderDefault()) {
+  // The gallery offers the default tiles plus controls that are not in the default layout.
+  std::vector<std::string> galleryIds = tileOrderDefault();
+  galleryIds.emplace_back("session");
+  for (const std::string& id : galleryIds) {
     if (!tileAvailable(id) || std::ranges::find(m_editOrder, id) != m_editOrder.end()) {
       continue;
     }
