@@ -608,12 +608,21 @@ static const struct wlr_render_pass_impl render_pass_impl = {
 // Initialize the stenciling work. Returns false when the pass target has no
 // stencil buffer, in which case no mask is active and stencil_mask_close and
 // stencil_mask_fini must be skipped.
-static bool stencil_mask_init(struct fx_gles_render_pass* pass) {
+// Clears the stencil only inside box: the mask writes only there, so the rest stays 0. A full-target clear per masked
+// node is a slow stencil clear on Intel. The projection is FLIPPED_180, so buffer coordinates are scissor coordinates.
+static void stencil_clear_box(const struct wlr_box* box) {
+  glEnable(GL_SCISSOR_TEST);
+  glScissor(box->x, box->y, box->width, box->height);
+  glClearStencil(0);
+  glClear(GL_STENCIL_BUFFER_BIT);
+  glDisable(GL_SCISSOR_TEST);
+}
+
+static bool stencil_mask_init(struct fx_gles_render_pass* pass, const struct wlr_box* box) {
   if (!fx_framebuffer_ensure_stencil(pass->buffer)) {
     return false;
   }
-  glClearStencil(0);
-  glClear(GL_STENCIL_BUFFER_BIT);
+  stencil_clear_box(box);
   glEnable(GL_STENCIL_TEST);
 
   glStencilFunc(GL_ALWAYS, 1, 0xFF);
@@ -637,9 +646,8 @@ static void stencil_mask_close(bool draw_inside_mask) {
 }
 
 // Finish stenciling and clear the buffer
-static void stencil_mask_fini(void) {
-  glClearStencil(0);
-  glClear(GL_STENCIL_BUFFER_BIT);
+static void stencil_mask_fini(const struct wlr_box* box) {
+  stencil_clear_box(box);
   glDisable(GL_STENCIL_TEST);
 }
 
@@ -2018,7 +2026,12 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   );
   push_fx_debug(renderer);
 
-  if (options->wait_timeline != NULL) {
+  // The export + EGL wait costs about 12 syscalls; a point that has already signalled (always so for commits the
+  // acquire barrier released) needs one check.
+  bool wait_signalled = false;
+  if (options->wait_timeline != NULL
+      && !(wlr_drm_syncobj_timeline_check(options->wait_timeline, options->wait_point, 0, &wait_signalled)
+           && wait_signalled)) {
     int sync_file_fd = wlr_drm_syncobj_timeline_export_sync_file(options->wait_timeline, options->wait_point);
     if (sync_file_fd < 0) {
       TRACY_BOTH_ZONES_END_FAIL;
@@ -3074,8 +3087,10 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
 
   // Get a stencil of the window ignoring transparent regions
   bool masked = false;
+  // A copy: the non-fused path below overwrites dst_box with the whole buffer.
+  const struct wlr_box mask_box = fx_options->tex_options.base.dst_box;
   if (fx_options->ignore_alpha > 0.0f && fx_options->tex_options.base.texture) {
-    masked = stencil_mask_init(pass);
+    masked = stencil_mask_init(pass, &mask_box);
   }
   if (masked) {
     struct fx_render_texture_options tex_options = fx_options->tex_options;
@@ -3150,7 +3165,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
 
   // Finish stenciling
   if (masked) {
-    stencil_mask_fini();
+    stencil_mask_fini(&mask_box);
   }
 
 finish:
