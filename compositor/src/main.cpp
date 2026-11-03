@@ -406,6 +406,7 @@ int main(int argc, char** argv) {
   try {
     kLog.info("starting andromeda version={} commit={}", andromeda::build_info::version(), andromeda::build_info::revision());
     andromeda::loadConfig(configPath);
+    raiseMainThreadPriority();
     andromeda::Server server;
 
     // SIGINT and SIGTERM are handled on the event loop by the server itself.
@@ -413,7 +414,6 @@ int main(int argc, char** argv) {
     // restores the default before exec.
     andromeda::installChildReaper();
 
-    raiseMainThreadPriority();
     if (!server.start(startupCmd)) {
       kLog.error("failed to start server");
       return EXIT_FAILURE;

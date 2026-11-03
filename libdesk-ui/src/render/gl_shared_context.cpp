@@ -8,6 +8,9 @@
 #include <GLES2/gl2.h>
 #include <chrono>
 #include <dlfcn.h>
+#include <filesystem>
+#include <fstream>
+#include <sched.h>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -290,8 +293,36 @@ EGLContext GlSharedContext::createContext(EGLContext shareContext, std::string_v
   return context;
 }
 
+namespace {
+
+  // Mesa submits GL work on its own "gdrv" thread, created with each context. The render thread waits for it, so it
+  // shares that thread's real-time policy: at SCHED_OTHER a parallel build delays every frame.
+  void shareSchedulingWithDriverThreads() {
+    const int policy = sched_getscheduler(0) & ~SCHED_RESET_ON_FORK;
+    sched_param param{};
+    if ((policy != SCHED_RR && policy != SCHED_FIFO) || sched_getparam(0, &param) != 0) {
+      return;
+    }
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+      std::ifstream commFile(entry.path() / "comm");
+      std::string comm;
+      std::getline(commFile, comm);
+      if (comm.contains("gdrv")) {
+        sched_setscheduler(static_cast<pid_t>(std::stol(entry.path().filename().string())), policy | SCHED_RESET_ON_FORK,
+                           &param);
+      }
+    }
+  }
+
+} // namespace
+
 EGLContext GlSharedContext::createContextWithCurrentAttributes(EGLContext shareContext) const {
-  return eglCreateContext(m_display, m_config, shareContext, m_contextAttributes.data());
+  EGLContext context = eglCreateContext(m_display, m_config, shareContext, m_contextAttributes.data());
+  if (context != EGL_NO_CONTEXT) {
+    shareSchedulingWithDriverThreads();
+  }
+  return context;
 }
 
 void GlSharedContext::usePlainContextAttributes() noexcept {
