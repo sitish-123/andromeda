@@ -766,7 +766,15 @@ namespace settings {
       commitValue = [commit, inverted](double magValue) { commit(*inverted ? -magValue : magValue); };
     }
 
-    slider->setOnDragEnd([commitValue, sliderPtr] { commitValue(sliderPtr->value()); });
+    const std::string joined = joinSettingPath(path);
+    // The glass slider has a detent at Tinted (0.5, the design values), as Apple's Clear / Tinted choice.
+    const bool glassDetent = joined == "appearance.glass";
+    slider->setOnDragEnd([commitValue, sliderPtr, glassDetent] {
+      if (glassDetent && std::abs(sliderPtr->value() - 0.5) < 0.08) {
+        sliderPtr->setValue(0.5);
+      }
+      commitValue(sliderPtr->value());
+    });
 
     const auto commitInputText = [commitValue, sliderPtr, valueInputPtr, minValue, maxValue,
                                   integerValue](const std::string& text) {
@@ -793,10 +801,11 @@ namespace settings {
     if (auto invert = makeInvertSlot(invertSlot, invertEnabled, inverted, commitValue, sliderPtr, scale)) {
       wrap->addChild(std::move(invert));
     }
-    const std::string joined = joinSettingPath(path);
     std::pair<std::string, std::string> ends;
     if (joined == "accessibility.ui_scale") {
       ends = {"A", "A"};
+    } else if (glassDetent) {
+      ends = {i18n::tr("settings.sliders.clear"), i18n::tr("settings.sliders.frosted")};
     } else if (joined == "dock.icon_size") {
       ends = {i18n::tr("settings.sliders.small"), i18n::tr("settings.sliders.large")};
     }

@@ -121,9 +121,19 @@ namespace Style {
   void setPopupShadowsEnabled(bool enabled);
 
   // Live appearance for glass materials: `opacity` (0..1) multiplies their alpha; reduce transparency makes them solid.
-  void setGlass(float opacity, bool reduceTransparency) noexcept;
+  // glass: the Clear (0) to Frosted (1) slider, 0.5 = Tinted, the design values (appearance.glass).
+  void setGlass(float glass, bool reduceTransparency) noexcept;
+  [[nodiscard]] float glass() noexcept;
   // Alpha a glass material fill uses in place of its configured `alpha`.
   [[nodiscard]] float glassAlpha(float alpha) noexcept;
+  // glassAlpha without the light scheme's thinner tint, so panel sheets stay dense over dark content.
+  [[nodiscard]] float panelGlassAlpha(float alpha) noexcept;
+  // Tint of liquid glass shapes (islands, dock, launcher pill) at the glass level; Tinted: light 0.62, dark 0.40.
+  [[nodiscard]] float liquidTintAlpha(bool light) noexcept;
+  // dsk_surface_v1 liquid value [0] for a liquid shape: 1 at Clear, 0 at Frosted, 0 with Reduce Transparency.
+  [[nodiscard]] float liquidLevel() noexcept;
+  // The liquid value for sheets: half the shapes' clarity, so their blur is a step denser, not a different material.
+  [[nodiscard]] float sheetLevel() noexcept;
   [[nodiscard]] bool reduceTransparency() noexcept;
 
   [[nodiscard]] bool closeButtonsEnabled() noexcept;

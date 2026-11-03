@@ -1926,7 +1926,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
 
   bool use_effects =
       !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region)
-      || fx_options->liquid > 0.0f;
+      || fx_options->liquid > 0.0f || fx_options->rim > 0.0f;
   // A non-empty sample box selects the clamp variant. Everything else runs
   // the same fetch as before the clamp existed, so a driver only ever sees
   // the extra uniform on fractionally cropped surfaces.
@@ -2100,6 +2100,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     glUniform2f(shader->effects.clip_position, clipped_region_box.x, clipped_region_box.y);
     uniform_corner_radii_set(&shader->effects.clip_radius, &clipped_region_corners);
     glUniform1f(shader->effects.liquid, fx_options->liquid);
+    glUniform1f(shader->effects.rim, fx_options->rim);
     const bool liquid_shape = !wlr_box_empty(&fx_options->liquid_box);
     const struct wlr_box liquid_box = liquid_shape ? fx_options->liquid_box : *clip_box;
     glUniform2f(shader->effects.liquid_size, liquid_box.width, liquid_box.height);
@@ -2107,6 +2108,18 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     glUniform1f(shader->effects.liquid_radius, liquid_shape ? fx_options->liquid_radius : -1.0f);
     glUniform2f(shader->effects.liquid_texel, 1.0f / (float)texture->wlr_texture.width,
                 1.0f / (float)texture->wlr_texture.height);
+    // Unit 2: units 0 and 1 hold the source and the colour LUT.
+    glUniform1i(shader->effects.lens_tex, 2);
+    const bool lens = fx_options->lens_texture != NULL && fx_options->liquid > 0.0f;
+    glUniform1f(shader->effects.lens, lens ? fx_options->liquid : 0.0f);
+    if (lens) {
+      struct fx_texture* lens_texture = fx_get_texture(fx_options->lens_texture);
+      glActiveTexture(GL_TEXTURE2);
+      glBindTexture(GL_TEXTURE_2D, lens_texture->tex);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glActiveTexture(GL_TEXTURE0);
+    }
   }
 
   set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
@@ -2115,6 +2128,11 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   render(&dst_box, &clip_region, shader->pos_attrib);
   pixman_region32_fini(&clip_region);
 
+  if (use_effects && fx_options->lens_texture != NULL) {
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+  }
   glBindTexture(texture->target, 0);
 
   pop_fx_debug(renderer);
@@ -2940,12 +2958,14 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       && fbos->optimized_blur_buffer != NULL
       && !fx_render_pass_optimized_blur_stale(pass);
   struct fx_framebuffer* buffer = NULL;
+  // The unblurred backdrop the blur reads; the lens samples a copy of it.
+  struct fx_framebuffer* sharp = use_optimized ? fbos->optimized_no_blur_buffer : NULL;
   // The final upsample draws straight into the pass target unless the
   // optimized buffer already holds the finished blur or the composite would do
   // more than copy it.
   // Liquid glass needs the composite draw: the fused upsample has no refraction.
   const bool fuse =
-      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && blur_composite_is_copy(pass, tex_options);
+      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && fx_options->rim <= 0.0f && blur_composite_is_copy(pass, tex_options);
   struct blur_data final_upsample = {0};
   TRACY_ZONE_TEXT_f("Use Optimized Blur: %d", fx_options->use_optimized_blur);
   TRACY_ZONE_TEXT_f("Fused Composite: %d", fuse);
@@ -2959,6 +2979,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     } else {
       blur_options.current_buffer = animation_backdrop(pass);
     }
+    sharp = blur_options.current_buffer;
     buffer = get_main_buffer_blur(pass, &blur_options, fuse ? &final_upsample : NULL);
   } else {
     buffer = fbos->optimized_blur_buffer;
@@ -3035,9 +3056,35 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     tex_options->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     tex_options->clipped_region = fx_options->clipped_region;
     tex_options->liquid = fx_options->liquid;
+    tex_options->rim = fx_options->rim;
     tex_options->liquid_box = fx_options->liquid_box;
     tex_options->liquid_radius = fx_options->liquid_radius;
+    // Lens: a copy of the sharp backdrop, only the shape's rectangle. The live target cannot be sampled while it is
+    // drawn into, and the blur buffers hold only the blurred image.
+    struct wlr_texture* lens = NULL;
+    static int lens_enabled = -1;
+    if (lens_enabled < 0) {
+      const char* env = getenv("ANDROMEDA_LENS");
+      lens_enabled = env == NULL || strcmp(env, "0") != 0;
+    }
+    if (lens_enabled && fx_options->liquid > 0.0f && sharp != NULL && !wlr_box_empty(&probe_box)) {
+      struct fx_framebuffer* copy = ensure_offscreen_buffer(pass, &target_buffers(pass)->lens_source, true);
+      if (copy != NULL) {
+        pixman_region32_t region;
+        pixman_region32_init_rect(&region, probe_box.x, probe_box.y, probe_box.width, probe_box.height);
+        if (fx_render_pass_read_to_buffer(pass, &region, copy, sharp)) {
+          lens = fx_texture_from_buffer(&renderer->wlr_renderer, copy->buffer);
+        }
+        pixman_region32_fini(&region);
+        fx_framebuffer_bind(pass->buffer);
+      }
+    }
+    tex_options->lens_texture = lens;
     fx_render_pass_add_texture(pass, tex_options);
+    tex_options->lens_texture = NULL;
+    if (lens != NULL) {
+      wlr_texture_destroy(lens);
+    }
   }
 
   wlr_texture_destroy(&blur_texture->wlr_texture);

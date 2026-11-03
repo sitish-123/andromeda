@@ -13,6 +13,8 @@
 struct wlr_layer_surface_v1;
 struct wlr_scene_layer_surface_v1;
 struct wlr_scene_tree;
+struct wlr_scene_border;
+struct wlr_box;
 struct wlr_surface;
 struct wlr_xdg_popup;
 
@@ -41,11 +43,11 @@ namespace andromeda {
     [[nodiscard]] bool hasKeyboardFocus() const;
     [[nodiscard]] SurfaceBlurOptions blurOptions() const;
     [[nodiscard]] bool blurActive() const { return m_blur.active(); }
-    [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
-
     // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns
     // true while a sample still waits for the GPU.
     bool pollBackdrop();
+    [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
+
     void focus();
     // A grabbing xdg_popup of this layer mapped. wlroots routes the grab's keys to the seat's focused surface and
     // never moves focus itself, so an on-demand layer that does not hold the keyboard yet takes it here.
@@ -87,6 +89,7 @@ namespace andromeda {
     void applyFadeAlpha();
     // Applies dsk_surface_v1 translate, scale, clip and radius to the surface tree.
     void applySurfaceMotion();
+    void applyStroke(wlr_scene_tree* tree, const wlr_box* clip, int radius);
     [[nodiscard]] wlr_scene_tree* surfaceTree() const;
     void beginCloseAnimation(wlr_scene_tree* tree);
 
@@ -98,10 +101,14 @@ namespace andromeda {
     // Blur nodes for the 2nd and later shapes of a client blur region (bar islands in one surface).
     std::vector<SurfaceBlur> m_shapeBlurs;
     float m_liquid = 0.0F;
+    float m_rim = 0.0F;
+    bool m_backdropDark = false;
     float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
+    // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.
+    wlr_scene_border* m_stroke = nullptr;
+    float m_surfaceAlpha = 1.0F;
     ResolvedLayerRule m_rule;
-    bool m_backdropDark = false;
     AnimatedValue m_fade{1.0};
     bool m_mapped = false;
     bool m_arrangingOut = false;

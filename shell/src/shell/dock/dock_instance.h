@@ -16,6 +16,7 @@
 #include <vector>
 
 class Box;
+class DskSurfaceClient;
 class CompositorPlatform;
 class ConfigService;
 class Flex;
@@ -53,6 +54,8 @@ namespace shell::dock {
     std::uint64_t modelSerial = 0;
     std::uint64_t entriesVersion = 0;
     std::unique_ptr<LayerSurface> surface;
+    // Liquid glass on the dock (dsk_surface_v1 v5); declared after `surface`: destroyed first.
+    std::unique_ptr<DskSurfaceClient> dsk;
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;

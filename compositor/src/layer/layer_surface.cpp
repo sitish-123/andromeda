@@ -14,6 +14,7 @@ extern "C" {
 #include "input/seat.h"
 #include "output/output.h"
 #include "overview/overview.h"
+#include "scene/border_rect.h"
 #include "server/dsk_surface.h"
 #include "server/server.h"
 #include "view/popup.h"
@@ -31,8 +32,12 @@ namespace andromeda {
 
     // A spring overshoot above 1 would upscale the buffer and flip its whole-pixel position and size for the frames it
     // takes to settle, so the shown scale stops at the buffer's own size.
-    double shownScale(const SurfaceMotion& motion) {
-      return std::clamp(motion.value(SurfaceMotion::Property::Scale)[0], 0.01, 1.0);
+    // A spring tail that shrinks the surface by less than half a pixel shows as 1: resampling at 0.999 would smear
+    // 1 px lines (the sheet hairline) until the spring settles.
+    double shownScale(const SurfaceMotion& motion, const wlr_surface* surface) {
+      const double scale = std::clamp(motion.value(SurfaceMotion::Property::Scale)[0], 0.01, 1.0);
+      const double extent = std::max(surface->current.width, surface->current.height);
+      return (1.0 - scale) * extent < 0.5 ? 1.0 : scale;
     }
 
     // Scale and Translate together scale about an anchor (PanelManager::detachedScaleShift). A shown scale clamped
@@ -43,6 +48,10 @@ namespace andromeda {
       const double keep = scale == shownScale ? 1.0 : (1.0 - shownScale) / (1.0 - scale);
       return {translate[0] * keep, translate[1] * keep};
     }
+
+    // The blur's corner is this much rounder than the shape: an integer or staircase radius can come out smaller than
+    // the client's anti-aliased curve, and the blurred backdrop then shows past it as bright dots on the corners.
+    constexpr int kBlurCornerSlack = 1;
 
     struct RoundedShape {
       wlr_box box;
@@ -319,6 +328,45 @@ namespace andromeda {
           &alpha
       );
     }
+    if (alpha != m_surfaceAlpha) {
+      m_surfaceAlpha = alpha;
+      applySurfaceMotion();
+    }
+  }
+
+  void LayerSurface::applyStroke(wlr_scene_tree* tree, const wlr_box* clip, int radius) {
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
+    const auto rgba = state != nullptr ? state->motion.value(SurfaceMotion::Property::Stroke) : SurfaceMotion::Value{};
+    const float alpha = std::clamp(static_cast<float>(rgba[3]), 0.0F, 1.0F) * m_surfaceAlpha;
+    constexpr int kWidth = 1;
+    if (tree == nullptr || clip == nullptr || alpha <= 0.0F || clip->width <= 2 * kWidth
+        || clip->height <= 2 * kWidth) {
+      if (m_stroke != nullptr) {
+        wlr_scene_node_set_enabled(&m_stroke->node, false);
+      }
+      return;
+    }
+    const float color[4]{
+        std::clamp(static_cast<float>(rgba[0]), 0.0F, 1.0F) * alpha,
+        std::clamp(static_cast<float>(rgba[1]), 0.0F, 1.0F) * alpha,
+        std::clamp(static_cast<float>(rgba[2]), 0.0F, 1.0F) * alpha, alpha
+    };
+    if (m_stroke == nullptr) {
+      m_stroke = wlr_scene_border_create(m_scene->tree, color, color);
+      if (m_stroke == nullptr) {
+        return;
+      }
+    }
+    wlr_scene_border_set_colors(m_stroke, color, color);
+    // The ring lies inside the clip, as the client's border lies inside its sheet.
+    const BorderRing ring = makeBorderRing(clip->width - 2 * kWidth, clip->height - 2 * kWidth, radius, kWidth, 0);
+    applyBorderGeometry(m_stroke, ring, kWidth, 0);
+    wlr_scene_node_set_position(
+        &m_stroke->node, tree->node.x + clip->x + kWidth + ring.box.x, tree->node.y + clip->y + kWidth + ring.box.y
+    );
+    wlr_scene_node_place_above(&m_stroke->node, &tree->node);
+    wlr_scene_node_set_enabled(&m_stroke->node, true);
   }
 
   wlr_scene_tree* LayerSurface::surfaceTree() const {
@@ -340,11 +388,12 @@ namespace andromeda {
     const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
     wlr_scene_tree* tree = state != nullptr ? surfaceTree() : nullptr;
     if (tree == nullptr) {
+      applyStroke(nullptr, nullptr, 0);
       return;
     }
     using Property = SurfaceMotion::Property;
     const SurfaceMotion& motion = state->motion;
-    const double scale = shownScale(motion);
+    const double scale = shownScale(motion, m_layerSurface->surface);
     const auto translate = shownTranslate(motion, scale);
     const double width = m_layerSurface->surface->current.width;
     const double height = m_layerSurface->surface->current.height;
@@ -363,12 +412,17 @@ namespace andromeda {
         static_cast<int>(std::lround(clip[2] * scale)), static_cast<int>(std::lround(clip[3] * scale))
     };
     const bool clipped = clipBox.width > 0 && clipBox.height > 0;
-    wlr_scene_tree_set_clip(tree, clipped ? &clipBox : nullptr);
-
+    const int radius = static_cast<int>(std::lround(motion.value(Property::Radius)[0] * scale));
+    // With a stroke the surface stops 1 px inside the clip, so the ring shows the blur through it as the client's own
+    // hairline does, instead of lying on the opaque fill. The tree clip cuts the corner mask's 1 px outer fringe.
+    const bool stroked = clipped && motion.value(Property::Stroke)[3] > 0.0 && clipBox.width > 2 && clipBox.height > 2;
+    const wlr_box fillBox =
+        stroked ? wlr_box{clipBox.x + 1, clipBox.y + 1, clipBox.width - 2, clipBox.height - 2} : clipBox;
+    wlr_scene_tree_set_clip(tree, clipped ? &fillBox : nullptr);
     struct Corners {
       int radius;
       const wlr_box* box;
-    } corners{static_cast<int>(std::lround(motion.value(Property::Radius)[0] * scale)), clipped ? &clipBox : nullptr};
+    } corners{stroked ? std::max(radius - 1, 0) : radius, clipped ? &fillBox : nullptr};
     wlr_scene_node_for_each_buffer(
         &tree->node,
         [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
@@ -378,6 +432,7 @@ namespace andromeda {
         },
         &corners
     );
+    applyStroke(tree, clipped ? &clipBox : nullptr, radius);
 
     updateBlur();
     const double level = std::clamp(motion.value(Property::Elevation)[0], 0.0, 2.0);
@@ -547,6 +602,7 @@ namespace andromeda {
     self->m_sceneUpdate.link.next = nullptr;
     self->m_sceneDestroy.link.next = nullptr;
     self->m_shadow.reset();
+    self->m_stroke = nullptr; // a child of the destroyed scene tree
     wlr_scene_node_destroy(&self->m_popupTree->node);
     self->m_popupTree = nullptr;
   }
@@ -624,6 +680,18 @@ namespace andromeda {
     wlr_xdg_popup_unconstrain_from_box(popup, &box);
   }
 
+  bool LayerSurface::pollBackdrop() {
+    float luminance = 0.0F;
+    if (m_blur.pollBackdrop(&luminance)) {
+      // Hysteresis: a backdrop near the threshold keeps its tone instead of flickering.
+      m_backdropDark = m_backdropDark ? luminance < 0.45F : luminance < 0.35F;
+      if (const DskSurfaceManager* dsk = m_server->dskSurfaces()) {
+        dsk->sendBackdrop(m_layerSurface->surface, m_backdropDark);
+      }
+    }
+    return m_blur.backdropPending();
+  }
+
   void LayerSurface::updateBlur() {
     const wlr_box box{0, 0, m_layerSurface->surface->current.width, m_layerSurface->surface->current.height};
     SurfaceBlurOptions options = blurOptions();
@@ -643,10 +711,16 @@ namespace andromeda {
     m_liquid = state != nullptr
         ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[0], 0.0, 1.0))
         : 0.0F;
+    // Liquid value [1]: the specular rim alone, for frosted sheets of the same glass family.
+    m_rim = state != nullptr
+        ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[1], 0.0, 1.0))
+        : 0.0F;
     m_blur.setLiquid(m_liquid);
+    m_blur.setRim(m_rim);
+    m_blur.setBackdropSampling(m_liquid > 0.0F);
     if (state != nullptr) {
       const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
-      const double scale = shownScale(state->motion);
+      const double scale = shownScale(state->motion, m_layerSurface->surface);
       const wlr_box scaled{
           static_cast<int>(std::lround(c[0] * scale)), static_cast<int>(std::lround(c[1] * scale)),
           static_cast<int>(std::lround(c[2] * scale)), static_cast<int>(std::lround(c[3] * scale))
@@ -663,23 +737,10 @@ namespace andromeda {
         dskClip = scaled;
         dskClip->x += nodeBox.x;
         dskClip->y += nodeBox.y;
-        corners = corner_radii_all(
-            static_cast<int>(std::lround(state->motion.value(SurfaceMotion::Property::Radius)[0] * scale))
-        );
+        const double radius = state->motion.value(SurfaceMotion::Property::Radius)[0] * scale;
+        corners = corner_radii_all(radius > 0.0 ? static_cast<int>(std::ceil(radius)) + kBlurCornerSlack : 0);
       }
     }
-  bool LayerSurface::pollBackdrop() {
-    float luminance = 0.0F;
-    if (m_blur.pollBackdrop(&luminance)) {
-      // Hysteresis: a backdrop near the threshold keeps its tone instead of flickering.
-      m_backdropDark = m_backdropDark ? luminance < 0.45F : luminance < 0.35F;
-      if (const DskSurfaceManager* dsk = m_server->dskSurfaces()) {
-        dsk->sendBackdrop(m_layerSurface->surface, m_backdropDark);
-      }
-    }
-    return m_blur.backdropPending();
-  }
-
     // A client blur region is the exact shape, so the alpha test of blur_ignore_alpha must not cut it: a clear liquid
     // tint (alpha 0.34) would lose its whole blur.
     if (region != nullptr && m_rule.blur.value_or(true)) {
@@ -700,12 +761,11 @@ namespace andromeda {
         for (const RoundedShape& shape : shapes) {
           shapeClips.push_back(wlr_box{
               nodeBox.x + scaled(shape.box.x), nodeBox.y + scaled(shape.box.y), scaled(shape.box.width),
-    m_blur.setBackdropSampling(m_liquid > 0.0F);
               scaled(shape.box.height)
           });
         }
         clip = shapeClips.front();
-        corners = corner_radii_all(scaled(shapes.front().radius));
+        corners = corner_radii_all(scaled(shapes.front().radius) + kBlurCornerSlack);
         region = nullptr;
       } else if (!pixman_region32_not_empty(region)) {
         // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to
@@ -750,10 +810,11 @@ namespace andromeda {
         continue;
       }
       blur.setLiquid(m_liquid);
+      blur.setRim(m_rim);
       blur.setFade(m_blurFade);
       blur.update(
           m_scene->tree, m_layerSurface->surface, nodeBox, box,
-          corner_radii_all(static_cast<int>(std::lround(shapes[i + 1].radius * motionScale))), &shapeClips[i + 1],
+          corner_radii_all(static_cast<int>(std::lround(shapes[i + 1].radius * motionScale)) + kBlurCornerSlack), &shapeClips[i + 1],
           options
       );
     }

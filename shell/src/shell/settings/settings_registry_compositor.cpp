@@ -161,8 +161,8 @@ namespace settings {
       );
       if (!isOn("appearance.reduce_transparency")) {
         slider(
-            TextScale, "accessibility", "appearance.glass_opacity", 0.0, 1.0, 0.05, false,
-            "glass opacity transparency material"
+            Appearance, "surfaces", "appearance.glass", 0.0, 1.0, 0.05, false,
+            "glass clear tinted frosted liquid transparency material blur"
         );
       }
       toggle(Motion, "motion", "appearance.reduce_motion", "accessibility reduce motion animations");

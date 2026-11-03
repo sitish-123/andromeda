@@ -14,6 +14,7 @@
 #include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
 
@@ -216,6 +217,11 @@ namespace shell::dock {
     uiAssertNotRendering("shell::dock::buildScene");
     if (instance.surface == nullptr) {
       return;
+    }
+    if (instance.dsk == nullptr && instance.surface->wlSurface() != nullptr) {
+      if (auto* manager = deps.platform.wayland().dskSurfaceManager(); manager != nullptr) {
+        instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
+      }
     }
 
     Renderer& renderer = instance.surface->renderTarget().renderer();
@@ -422,7 +428,12 @@ namespace shell::dock {
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg) {
     if (instance.panel == nullptr)
       return;
-    const float opacity = Style::glassAlpha(cfg.backgroundOpacity);
+    // A small shape: liquid glass with the launcher pill's clear tint.
+    const bool liquid = instance.dsk != nullptr && instance.dsk->hasLiquidProperty() && !Style::reduceTransparency();
+    if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
+      instance.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
+    }
+    const float opacity = liquid ? Style::liquidTintAlpha(isLightPalette()) : Style::glassAlpha(cfg.backgroundOpacity);
     instance.panel->setFill(colorSpecFromRole(materialRole(), opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }

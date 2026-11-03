@@ -1210,8 +1210,8 @@
       "sleep-title": "Sleep anyway?"
     },
     "power": {
-      "restart": "Restart",
       "blocked": "Can't do that: an app is blocking it",
+      "restart": "Restart",
       "shutdown": "Shut down",
       "sleep": "Sleep"
     },
@@ -2003,8 +2003,8 @@
         "notifications": "Notifications",
         "osd": "OSD",
         "overview": "Overview",
-        "pinned-apps": "Pinned Apps",
         "performance": "Performance",
+        "pinned-apps": "Pinned Apps",
         "polkit": "Polkit",
         "power": "Power",
         "privacy": "Privacy",
@@ -4406,7 +4406,6 @@
           "button": "Learn More",
           "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
           "label": "App Priority"
-        }
         },
         "battery-warning-threshold": {
           "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
@@ -4422,6 +4421,7 @@
         "battery-profile-on-battery": {
           "description": "Power mode to switch to when the charger is disconnected",
           "label": "Power Mode on Battery"
+        }
       },
       "templates": {
         "builtin-ids": {
@@ -4564,9 +4564,9 @@
           "label": "Reduce Transparency",
           "description": "Draw glass panels as solid surfaces and turn blur off"
         },
-        "appearance-glass-opacity": {
-          "label": "Glass Opacity",
-          "description": "How see-through glass panels are"
+        "appearance-glass": {
+          "label": "Glass",
+          "description": "From Clear to Frosted for every glass surface; the middle is Tinted"
         },
         "appearance-reduce-motion": {
           "label": "Reduce Motion",
@@ -4764,11 +4764,11 @@
           "label": "Focus Follows Mouse",
           "description": "Focus the window under the pointer"
         },
-        "input-cursor-follows-focus": {
         "input-window-snapping": {
           "label": "Window Snapping",
           "description": "Drag a window to a screen edge or corner to fill half or a quarter"
         },
+        "input-cursor-follows-focus": {
           "label": "Cursor Follows Focus",
           "description": "Move the pointer to a window when it gets focus from the keyboard"
         },
@@ -6151,7 +6151,9 @@
       }
     },
     "sliders": {
+      "clear": "Clear",
       "fast": "Fast",
+      "frosted": "Frosted",
       "large": "Large",
       "long": "Long",
       "short": "Short",
@@ -6272,10 +6274,10 @@
       "keyboard.repeat-delay": "Repeat delay",
       "keyboard.numlock": "Enable Num Lock at login",
       "keyboard.option-none": "Off",
-      "touchpad": "Touchpad",
       "keyboard.track-layout": "Input source",
       "keyboard.track-layout.global": "Same for all windows",
       "keyboard.track-layout.window": "Per window",
+      "touchpad": "Touchpad",
       "touchpad.tap": "Tap to click",
       "touchpad.natural-scroll": "Natural scrolling",
       "touchpad.disable-while-typing": "Disable while typing",

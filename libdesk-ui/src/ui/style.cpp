@@ -4,6 +4,7 @@
 #include "ui/palette.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -15,7 +16,7 @@ namespace {
   bool g_popupShadowsEnabled = true;
   bool g_cardBordersEnabled = true;
   bool g_closeButtonsEnabled = true;
-  float g_glassOpacity = 1.0F;
+  float g_glass = 0.5F;
   bool g_reduceTransparency = false;
 
 } // namespace
@@ -67,10 +68,25 @@ namespace Style {
   bool popupShadowsEnabled() noexcept { return g_popupShadowsEnabled; }
   void setPopupShadowsEnabled(bool enabled) { g_popupShadowsEnabled = enabled; }
 
-  void setGlass(float opacity, bool reduceTransparency) noexcept {
-    g_glassOpacity = std::clamp(opacity, 0.0F, 1.0F);
+  void setGlass(float glass, bool reduceTransparency) noexcept {
+    g_glass = std::clamp(glass, 0.0F, 1.0F);
     g_reduceTransparency = reduceTransparency;
   }
+
+  float glass() noexcept { return g_glass; }
+
+  namespace {
+    // Piecewise through Clear (0), Tinted (0.5, the design values) and Frosted (1).
+    float glassLerp(float clear, float tinted, float frosted) noexcept {
+      return g_glass < 0.5F ? std::lerp(clear, tinted, g_glass * 2.0F) : std::lerp(tinted, frosted, g_glass * 2.0F - 1.0F);
+    }
+  } // namespace
+
+  float liquidTintAlpha(bool light) noexcept { return light ? glassLerp(0.36F, 0.62F, 0.84F) : glassLerp(0.24F, 0.40F, 0.60F); }
+
+  float liquidLevel() noexcept { return g_reduceTransparency ? 0.0F : 1.0F - g_glass; }
+
+  float sheetLevel() noexcept { return 0.5F * liquidLevel(); }
 
   bool reduceTransparency() noexcept { return g_reduceTransparency; }
 
@@ -81,7 +97,12 @@ namespace Style {
     // Configured opacities are relative to the dark tint_regular (0.70); the light scheme's tint_regular is thinner.
     const std::uint32_t tint = isLightPalette() ? Tokens::schemeLight.tintRegular : Tokens::schemeDark.tintRegular;
     const float schemeScale = static_cast<float>(tint & 0xffU) / 255.0F / kTintRegularAlpha;
-    return std::min(1.0F, alpha * g_glassOpacity * schemeScale);
+    return std::min(1.0F, alpha * glassLerp(0.8F, 1.0F, 1.12F) * schemeScale);
+  }
+
+  float panelGlassAlpha(float alpha) noexcept {
+    // One glass: at Tinted a sheet has the small shapes' tint (0.88 x 0.72 = 0.63 light); only its blur is denser.
+    return g_reduceTransparency || alpha >= 1.0F ? 1.0F : std::min(1.0F, alpha * glassLerp(0.5F, 0.72F, 1.08F));
   }
 
   bool closeButtonsEnabled() noexcept { return g_closeButtonsEnabled; }

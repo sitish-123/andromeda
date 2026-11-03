@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wayland/glass_surface.h"
 #include "core/timer_manager.h"
 #include "notification/notification.h"
 #include "render/animation/animation_manager.h"
@@ -92,6 +93,7 @@ private:
     wl_output* output = nullptr;
 
     std::unique_ptr<LayerSurface> surface;
+    GlassSurface glass; // after surface: destroyed first
     // Declaration order matters: sceneRoot must be destroyed before `animations`,
     // because ~Node() calls cancelForOwner() on its AnimationManager.
     AnimationManager animations;

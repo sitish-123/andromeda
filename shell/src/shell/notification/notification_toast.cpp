@@ -2339,6 +2339,7 @@ void NotificationToast::updateInputRegion(Instance& inst) const {
     inst.surface->clearBlurRegion();
   } else {
     inst.surface->setBlurRegion(blurRects);
+    inst.glass.apply(m_wayland->dskSurfaceManager(), inst.surface->wlSurface(), GlassSurface::Kind::Sheet);
   }
 }
 

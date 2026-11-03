@@ -1,3 +1,4 @@
+#include "wayland/glass_surface.h"
 #include "shell/switcher/window_switcher.h"
 #include "config/app_icon_settings.h"
 
@@ -607,6 +608,7 @@ struct WindowSwitcher::Instance {
   wl_output* output = nullptr;
   float uiLayoutScale = 1.0F;
   std::unique_ptr<LayerSurface> surface;
+  GlassSurface glass; // after surface: destroyed first
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;
   InputArea* input = nullptr;
@@ -1793,6 +1795,7 @@ void WindowSwitcher::positionPanel(Instance& instance, float screenW, float scre
     blurRects.insert(blurRects.end(), strips.begin(), strips.end());
   }
   instance.surface->setBlurRegion(blurRects);
+  instance.glass.apply(m_wayland->dskSurfaceManager(), instance.surface->wlSurface(), GlassSurface::Kind::Sheet);
 }
 
 void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::uint32_t height) {

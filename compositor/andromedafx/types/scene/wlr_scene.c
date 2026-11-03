@@ -2504,6 +2504,15 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim) {
+  if (blur->rim == rim) {
+    return;
+  }
+
+  blur->rim = rim;
+  scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_backdrop_sampling(struct wlr_scene_blur* blur, bool enabled) {
   if (blur->backdrop_sampling == enabled) {
     return;
@@ -3961,6 +3970,7 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
         .liquid = blur->liquid,
+        .rim = blur->rim,
         .liquid_box =
             wlr_box_empty(&blur->liquid_box)
                 ? (struct wlr_box){0}

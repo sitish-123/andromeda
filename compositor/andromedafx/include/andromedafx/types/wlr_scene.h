@@ -239,6 +239,7 @@ struct wlr_scene_blur {
   float alpha;
   float ignore_alpha;
   float liquid; // liquid glass strength, 0 to 1
+  float rim; // specular rim only, 0 to 1: no refraction and no lighter blur (frosted sheets)
   struct wlr_box liquid_box; // node-local; empty = the node box and corners
   int liquid_radius;
 
@@ -898,6 +899,11 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha);
  * Sets the liquid glass strength, 0 to 1: refraction at the rim and a soft specular rim.
  */
 void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
+
+/**
+ * Sets the specular rim alone, 0 to 1, for shapes that stay frosted. The drawn rim is the larger of rim and liquid.
+ */
+void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim);
 
 /**
  * Turns backdrop luminance sampling on or off. While on, each render of this node samples its blurred region; the

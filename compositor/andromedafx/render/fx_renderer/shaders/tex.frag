@@ -56,6 +56,11 @@ uniform float clip_radius_bottom_right;
 
 // Liquid glass (0 = off): the backdrop bends toward the centre near the rim and a soft specular rim lights the edge.
 uniform float liquid;
+// Specular rim alone (0 = off) for frosted shapes: the rim draws at max(liquid, rim), refraction only with liquid.
+uniform float rim;
+// Lens (0 = off): the sharp backdrop, displaced by the glass thickness, shows through the rim band over the blur.
+uniform float lens;
+uniform sampler2D lens_tex;
 // UV step of one framebuffer pixel; the y sign follows the texture orientation.
 uniform vec2 liquid_texel;
 // The shape whose edge gets the rim; liquid_radius < 0 = the quad's own corners.
@@ -200,8 +205,11 @@ float liquid_distance(vec2 point) {
 void main() {
   vec2 uv = v_texcoord;
 #if EFFECTS
-  float rim = 0.0;
-  if (liquid > 0.0) {
+  float specular = 0.0;
+  float lens_weight = 0.0;
+  vec2 lens_uv = uv;
+  float shine = max(liquid, rim);
+  if (shine > 0.0) {
     // Rim band: a quarter of the short side, at most 16 px. t = 1 at the edge, 0 at the band's inner end.
     float band = min(min(liquid_size.x, liquid_size.y) * 0.25, 16.0);
     vec2 p = gl_FragCoord.xy;
@@ -212,21 +220,30 @@ void main() {
                          liquid_distance(p + vec2(0.0, 1.0)) - liquid_distance(p - vec2(0.0, 1.0)));
       normal = length(normal) > 0.0 ? normalize(normal) : vec2(0.0);
       float t = clamp(1.0 + d / band, 0.0, 1.0);
-      // Refraction: sample from further inside, strongest at the rim (up to 0.75 band).
-      uv -= normal * (t * t * band * 0.75 * liquid) * liquid_texel;
-      // Specular: a reflection, not an outline. A key glint where the edge faces the top-left light, a faint back
-      // glint opposite, near nothing on the sides between. The blur target is y-down, so the light is (-1, -1).
-      float edge = smoothstep(-2.0, -0.5, d) * (1.0 - smoothstep(-0.5, 0.5, d));
+      // Refraction: sample from further inside, strongest at the rim (up to 0.8 band at Clear, 0.4 at Tinted).
+      uv -= normal * (t * t * band * 0.8 * liquid) * liquid_texel;
+      // Lens: a convex edge magnifies the sharp backdrop toward the centre; it fades into the blur over the band.
+      lens_uv = uv - normal * (t * t * band * 0.6 * lens) * liquid_texel;
+      lens_weight = lens * t * t * 0.85;
+      // Specular: a reflection, not an outline. Brightest on the outermost pixel (d = -0.5), fading over 2.5 px
+      // inward; the coverage mask cuts it outside. pow 8 keeps the key glint on the curves that face the top-left
+      // light (a straight top edge gets 6 %), a back glint opposite, a faint even rim between. y-down: light (-1, -1).
+      float inner = clamp(1.0 + (d + 0.5) / 2.5, 0.0, 1.0);
+      float edge = inner * inner;
       float l = dot(normal, normalize(vec2(-1.0, -1.0)));
-      float key = pow(max(l, 0.0), 4.0);
-      float back = 0.35 * pow(max(-l, 0.0), 4.0);
-      float facing = 0.06 + key + back;
+      float key = pow(max(l, 0.0), 8.0);
+      float back = 0.4 * pow(max(-l, 0.0), 8.0);
+      float facing = 0.1 + key + back;
       float glow = clamp(1.0 + 2.0 * d / band, 0.0, 1.0);
-      rim = liquid * (0.08 * glow * glow + 0.45 * edge) * facing;
+      specular = shine * (0.08 * glow * glow + 0.45 * edge) * facing;
     }
   }
-  vec4 color = convert_color(sample_texture(uv));
-  color.rgb += rim * color.a;
+  vec4 base = sample_texture(uv);
+  if (lens_weight > 0.0) {
+    base = mix(base, texture2D(lens_tex, clamp(lens_uv, 0.0, 1.0)), lens_weight);
+  }
+  vec4 color = convert_color(base);
+  color.rgb += specular * color.a;
 #else
   vec4 color = convert_color(sample_texture(uv));
 #endif

@@ -42,6 +42,8 @@ namespace andromeda {
     void setAlpha(float alpha);
     // Liquid glass strength, 0 to 1 (dsk_surface_v1 property liquid).
     void setLiquid(float liquid);
+    // Specular rim alone (frosted sheets): no refraction, no lighter blur.
+    void setRim(float rim);
     // Fade of a surface, 0 to 1: it scales the blur size, so a fading surface defocuses its backdrop instead of
     // blending a blurred copy over the sharp one.
     void setFade(float fade);
@@ -65,6 +67,7 @@ namespace andromeda {
     bool m_live = false;
     float m_alpha = 1.0F;
     float m_liquid = 0.0F;
+    float m_rim = 0.0F;
     float m_fade = 1.0F;
     bool m_backdropSampling = false;
   };

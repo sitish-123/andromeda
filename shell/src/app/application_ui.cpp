@@ -1302,10 +1302,10 @@ void Application::initWidgetControllersAndCallbacks() {
   m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
     kLog.info(
         "live appearance: glass={:.2f} reduce_transparency={} increase_contrast={} reduce_motion={} accent={}",
-        appearance.glassOpacity, appearance.reduceTransparency, appearance.increaseContrast, appearance.reduceMotion,
+        appearance.glass, appearance.reduceTransparency, appearance.increaseContrast, appearance.reduceMotion,
         appearance.accent
     );
-    Style::setGlass(appearance.glassOpacity, appearance.reduceTransparency);
+    Style::setGlass(appearance.glass, appearance.reduceTransparency);
     MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled);
     MotionService::instance().setReduced(appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);

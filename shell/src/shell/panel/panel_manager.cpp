@@ -418,6 +418,9 @@ void PanelManager::initialize(CompositorPlatform& platform, ConfigService* confi
   m_glassPaletteConn = paletteChanged().connect([this] {
     if (isOpen()) {
       updateGlassTone();
+      if (m_dsk != nullptr && !m_attachedToBar && m_dsk->hasLiquidProperty()) {
+        m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_panelLiquid));
+      }
     }
   });
   m_platform = &platform;
@@ -996,7 +999,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
 
   // It keeps the island's glass, as an attached panel keeps the bar's.
   m_islandBackgroundOpacity = morphFromIsland && m_activePanel->inheritsBarBackgroundOpacity()
-      ? std::optional<float>{Style::glassAlpha(barConfig.backgroundOpacity)}
+      ? std::optional<float>{Style::panelGlassAlpha(barConfig.backgroundOpacity)}
       : std::nullopt;
   const bool useAttachedPlacement = activePlacement == PanelPlacement::Attached
       && !morphFromIsland
@@ -1211,7 +1214,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     m_panelVisualWidth = panelWidth;
     m_panelVisualHeight = panelHeight;
     m_attachedBackgroundOpacity = m_activePanel->inheritsBarBackgroundOpacity()
-        ? Style::glassAlpha(barConfig.backgroundOpacity)
+        ? Style::panelGlassAlpha(barConfig.backgroundOpacity)
         : m_activePanel->attachedBackgroundOpacityOverride();
     m_attachedContactShadow = barConfig.contactShadow;
     m_attachedRevealProgress = 0.0F;
@@ -2459,12 +2462,25 @@ float PanelManager::detachedFillAlpha() const {
   if (Style::reduceTransparency()) {
     return thick;
   }
-  // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html):
-  // light white 30 %, dark 34 %.
-  const float liquid = isLightPalette() ? 0.30F : 0.34F;
+  // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html).
+  const float liquid = Style::liquidTintAlpha(isLightPalette());
   return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
 }
 
+void PanelManager::sendSheetStroke() {
+  if (m_dsk == nullptr || !m_dsk->hasStrokeProperty() || m_attachedToBar) {
+    return;
+  }
+  const bool borders = m_config != nullptr && m_config->config().shell.panel.borders;
+  const Color c = borders ? resolveColorSpec(detachedBorder(detachedBackgroundOpacity()))
+                          : Color{};
+  m_dsk->set(DskSurfaceClient::Property::Stroke, {c.r, c.g, c.b, c.a});
+}
+
+// Liquid shapes get the compositor's specular rim instead of the sheet hairline, so the hairline fades with liquid.
+ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
+  return scaleAlpha(shell::panel_surface::borderColor(m_config, backgroundOpacity), 1.0F - m_panelLiquid);
+}
 
 ColorSpec PanelManager::detachedFill() const {
   const float alpha = detachedFillAlpha();
@@ -2487,6 +2503,17 @@ void PanelManager::bindBackdrop() {
     m_backdropDark = dark;
     updateGlassTone();
   });
+  // One glass system: every detached sheet carries the specular rim, liquid or frosted.
+  if (!m_attachedToBar && m_dsk->hasLiquidProperty()) {
+    m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_liquidTarget));
+  }
+}
+
+// The liquid value for a sheet blending `liquid` (0 frosted, 1 liquid) at the glass level, with the rim always on.
+DskSurfaceClient::Value PanelManager::sheetLiquid(float liquid) {
+  const bool glass = !Style::reduceTransparency();
+  const float level = std::lerp(Style::sheetLevel(), Style::liquidLevel(), std::clamp(liquid, 0.0F, 1.0F));
+  return {glass ? level : 0.0, glass ? 1.0 : 0.0, 0.0, 0.0};
 }
 
 void PanelManager::updateGlassTone() {
@@ -2569,6 +2596,7 @@ bool PanelManager::startDetachedMorph() {
   }
   m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
   bindBackdrop();
+  sendSheetStroke();
   m_morphSettled = false;
   const auto& r = m_morphSourceRect;
   if (!m_dsk->setClipFrom(source, {r[0], r[1], r[2], r[3]})) {
@@ -2633,7 +2661,11 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   const auto apply = [this](float v) {
     m_panelLiquid = std::clamp(v, 0.0F, 1.0F);
     if (!m_attachedToBar && m_bgNode != nullptr) {
-      static_cast<Box*>(m_bgNode)->setFill(detachedFill());
+      auto* bg = static_cast<Box*>(m_bgNode);
+      bg->setFill(detachedFill());
+      if (m_config != nullptr && m_config->config().shell.panel.borders) {
+        bg->setBorder(detachedBorder(detachedBackgroundOpacity()), shell::panel_surface::borderWidth(m_config));
+      }
     }
   };
   if (!animate || m_sceneRoot == nullptr) {
@@ -2658,9 +2690,9 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
     return;
   }
   if (animate) {
-    m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, {liquid, 0.0, 0.0, 0.0});
+    m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, sheetLiquid(liquid));
   } else {
-    m_dsk->set(DskSurfaceClient::Property::Liquid, {liquid, 0.0, 0.0, 0.0});
+    m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(liquid));
   }
 }
 
@@ -2739,6 +2771,7 @@ bool PanelManager::morphCardHeight(std::uint32_t target) {
   };
   if (!m_cardClipRunning) {
     const DskSurfaceClient::Value from = detachedSheetRect();
+    sendSheetStroke();
     m_dsk->set(Property::Clip, from);
     m_dsk->set(Property::Radius, {radiusFor(from), 0.0, 0.0, 0.0});
   }
@@ -2896,6 +2929,7 @@ bool PanelManager::startDetachedMorphClose(std::uint64_t gen) {
   }
   // A settled sheet has no clip: start from its own rect. A clip mid-open retargets from where it is.
   if (m_morphSettled) {
+    sendSheetStroke();
     m_dsk->set(Property::Clip, detachedSheetRect());
     m_dsk->set(Property::Radius, {panelRadius(), 0.0, 0.0, 0.0});
   }
@@ -3194,7 +3228,7 @@ void PanelManager::onConfigReloaded() {
     updateGlassTone();
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
-          shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
+          detachedBorder(panelBackgroundOpacity),
           shell::panel_surface::borderWidth(m_config)
       );
     }
@@ -3230,7 +3264,7 @@ void PanelManager::onConfigReloaded() {
   const auto& barConfig = *barConfigOpt;
   bool changed = false;
   if (m_activePanel->inheritsBarBackgroundOpacity()) {
-    const float newOpacity = Style::glassAlpha(barConfig.backgroundOpacity);
+    const float newOpacity = Style::panelGlassAlpha(barConfig.backgroundOpacity);
     if (std::abs(newOpacity - m_attachedBackgroundOpacity) >= 0.001F) {
       m_attachedBackgroundOpacity = newOpacity;
       m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity));
@@ -3314,7 +3348,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(
-              shell::panel_surface::borderColor(m_config, backgroundOpacity),
+              detachedBorder(backgroundOpacity),
               shell::panel_surface::borderWidth(m_config)
           );
         }
@@ -3545,7 +3579,8 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
   if (target != m_contentFit.targetHeight) {
     const bool firstMeasure = m_contentFit.targetHeight == 0;
     m_contentFit.targetHeight = target;
-    if (firstMeasure || m_panelVisualHeight == target) {
+    // A running card clip still heads for its old target while the card keeps its tall height: retarget it.
+    if (firstMeasure || (m_panelVisualHeight == target && !m_cardClipRunning)) {
       // The open reveal already animates the first appearance.
       if (m_contentFit.animation != 0) {
         m_animations.cancel(m_contentFit.animation);

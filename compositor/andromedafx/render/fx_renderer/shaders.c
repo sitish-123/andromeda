@@ -317,6 +317,9 @@ bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source sourc
   shader->effects.clip_radius.bottom_left = glGetUniformLocation(prog, "clip_radius_bottom_left");
   shader->effects.clip_radius.bottom_right = glGetUniformLocation(prog, "clip_radius_bottom_right");
   shader->effects.liquid = glGetUniformLocation(prog, "liquid");
+  shader->effects.rim = glGetUniformLocation(prog, "rim");
+  shader->effects.lens = glGetUniformLocation(prog, "lens");
+  shader->effects.lens_tex = glGetUniformLocation(prog, "lens_tex");
   shader->effects.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
   shader->effects.liquid_size = glGetUniformLocation(prog, "liquid_size");
   shader->effects.liquid_position = glGetUniformLocation(prog, "liquid_position");

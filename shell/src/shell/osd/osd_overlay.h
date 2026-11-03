@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wayland/glass_surface.h"
 #include "render/animation/animation_manager.h"
 #include "wayland/layer_surface.h"
 
@@ -97,6 +98,7 @@ private:
     std::int32_t scale = 1;
     float uiLayoutScale = 1.0F;
     std::unique_ptr<LayerSurface> surface;
+    GlassSurface glass; // after surface: destroyed first
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;

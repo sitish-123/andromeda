@@ -177,7 +177,7 @@ namespace andromeda {
               }
           ),
           registry::color("accent", &A::accent),
-          real("glass_opacity", 0.0, 1.0, &A::glassOpacity),
+          real("glass", 0.0, 1.0, &A::glass),
           boolean("reduce_transparency", &A::reduceTransparency),
           boolean("increase_contrast", &A::increaseContrast),
           boolean("reduce_motion", &A::reduceMotion),

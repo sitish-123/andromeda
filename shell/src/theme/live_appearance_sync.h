@@ -12,7 +12,7 @@ class ShellWaylandConnection;
 struct LiveAppearance {
   std::string scheme;
   std::string accent; // "#rrggbb"; empty when unset
-  float glassOpacity = 1.0F;
+  float glass = 0.5F; // appearance.glass: 0 Clear, 0.5 Tinted, 1 Frosted
   bool reduceTransparency = false;
   bool increaseContrast = false;
   bool reduceMotion = false;

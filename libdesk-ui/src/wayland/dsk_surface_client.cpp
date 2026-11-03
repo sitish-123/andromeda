@@ -65,6 +65,8 @@ bool DskSurfaceClient::hasElevationProperty() const {
 
 bool DskSurfaceClient::hasLiquidProperty() const { return dsk_surface_v1_get_version(m_surface) >= 5; }
 
+bool DskSurfaceClient::hasStrokeProperty() const { return dsk_surface_v1_get_version(m_surface) >= 7; }
+
 DskSurfaceClient::Curve DskSurfaceClient::effectiveCurve(Curve curve) const {
   return compatCurve(curve, dsk_surface_v1_get_version(m_surface));
 }
@@ -112,8 +114,6 @@ void DskSurfaceClient::handleClipMapped(
   }
 }
 
-void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t reason) {
-  auto* self = static_cast<DskSurfaceClient*>(data);
 void DskSurfaceClient::handleBackdrop(void* data, dsk_surface_v1* /*surface*/, uint32_t tone) {
   auto* self = static_cast<DskSurfaceClient*>(data);
   self->m_backdropDark = tone == DSK_SURFACE_V1_BACKDROP_DARK;
@@ -122,6 +122,8 @@ void DskSurfaceClient::handleBackdrop(void* data, dsk_surface_v1* /*surface*/, u
   }
 }
 
+void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint32_t serial, uint32_t reason) {
+  auto* self = static_cast<DskSurfaceClient*>(data);
   self->m_started.erase(serial);
   const auto it = self->m_pending.find(serial);
   if (it == self->m_pending.end()) {

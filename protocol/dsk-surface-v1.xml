@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="6">
+  <interface name="dsk_surface_manager_v1" version="7">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="6">
+  <interface name="dsk_surface_v1" version="7">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -74,7 +74,8 @@
       <entry name="clip" value="3" summary="a, b, c, d = x, y, width, height, surface-local px"/>
       <entry name="radius" value="4" summary="a = corner radius, px"/>
       <entry name="elevation" value="5" since="4" summary="a = level 0..2: 0 none, 1 float (elevation.e2), 2 over (elevation.e3)"/>
-      <entry name="liquid" value="6" since="5" summary="a = liquid glass 0..1: refraction and a specular rim on the backdrop blur"/>
+      <entry name="liquid" value="6" since="5" summary="a = liquid glass 0..1: refraction and a specular rim on the backdrop blur; b = specular rim alone 0..1 (frosted shapes)"/>
+      <entry name="stroke" value="7" since="7" summary="a, b, c, d = r, g, b, alpha 0..1 of a 1 px hairline inside the clip shape; drawn only while a clip is set"/>
     </enum>
 
     <enum name="curve">

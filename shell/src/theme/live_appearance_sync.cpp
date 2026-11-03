@@ -88,7 +88,7 @@ void LiveAppearanceSync::onSettingsChanged() {
   const LiveAppearance next{
       .scheme = c.value("appearance.scheme"),
       .accent = normalizeColor(c.value("appearance.accent")),
-      .glassOpacity = parseUnit(c.value("appearance.glass_opacity"), 1.0F),
+      .glass = parseUnit(c.value("appearance.glass"), 0.5F),
       .reduceTransparency = c.value("appearance.reduce_transparency") == "true",
       .increaseContrast = c.value("appearance.increase_contrast") == "true",
       .reduceMotion = c.value("appearance.reduce_motion") == "true",

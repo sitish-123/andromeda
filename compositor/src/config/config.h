@@ -787,8 +787,8 @@ namespace andromeda {
       ColorScheme scheme = ColorScheme::Dark;
       // Unset: the design-token accent.
       std::optional<std::array<float, 4>> accent;
-      // Multiplies the alpha of glass materials; reduceTransparency replaces them with their solid fallbacks.
-      double glassOpacity = 1.0;
+      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with solids.
+      double glass = 0.5;
       bool reduceTransparency = false;
       bool increaseContrast = false;
       bool reduceMotion = false;

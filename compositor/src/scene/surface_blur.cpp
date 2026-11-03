@@ -10,9 +10,9 @@
 namespace andromeda {
 
   namespace {
-    // Liquid glass needs a light blur, or the refraction bends a smear (.agent/mockups/launcher-material.html: liquid
-    // blur 10 px against the frosted sheet's strong blur).
-    float liquidBlurStrength(float liquid) { return 1.0F - 0.65F * liquid; }
+    // Liquid is the glass slider's clarity (1 Clear, 0.5 Tinted, 0 Frosted): Clear blurs at 30 %, Tinted at 65 %, so
+    // the rim refraction bends shapes, not a smear, yet the backdrop stays calm behind text.
+    float liquidBlurStrength(float liquid) { return 1.0F - 0.7F * liquid; }
 
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
@@ -120,6 +120,7 @@ namespace andromeda {
       wlr_scene_blur_set_alpha(m_node, m_alpha);
     }
     wlr_scene_blur_set_liquid(m_node, m_liquid);
+    wlr_scene_blur_set_rim(m_node, m_rim);
     wlr_scene_blur_set_backdrop_sampling(m_node, m_backdropSampling);
     wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * m_fade);
     // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
@@ -187,6 +188,13 @@ namespace andromeda {
     if (m_node != nullptr) {
       wlr_scene_blur_set_liquid(m_node, liquid);
       wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid) * m_fade);
+    }
+  }
+
+  void SurfaceBlur::setRim(float rim) {
+    m_rim = rim;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_rim(m_node, rim);
     }
   }
 

@@ -523,6 +523,14 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->pad = static_cast<float>(std::min(space->edgeMargin, kShadowPad)) / inst->scale;
     inst->from = inst->to = inst->cur = faceRect(*inst, Face::Rest);
     syncDsk(*inst, false);
+    inst->paletteConn = paletteChanged().connect([this, instPtr = inst.get()] {
+      // The scene is built on the first configure; a theme change can arrive before it.
+      if (instPtr->material == nullptr) {
+        return;
+      }
+      applyContent(*instPtr);
+      instPtr->surface->requestRedraw();
+    });
     m_instances.push_back(std::move(inst));
     updateFace(*m_instances.back());
   }
@@ -1363,13 +1371,13 @@ void LiveActivityIsland::loadArt(Instance& inst, Renderer& renderer, const std::
 void LiveActivityIsland::applyContent(Instance& inst) {
   Renderer& renderer = inst.surface->renderTarget().renderer();
 
-  // A small shape: liquid glass with the launcher pill's clear tint (light 30 %, dark 34 %).
+  // A small shape: liquid glass with the launcher pill's clear tint.
   const bool liquid = inst.dsk != nullptr && inst.dsk->hasLiquidProperty() && !Style::reduceTransparency();
   if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
-    inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+    inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
   }
   inst.material->setFill(colorSpecFromRole(
-      materialRole(), liquid ? (isLightPalette() ? 0.30F : 0.34F) : Style::glassAlpha(inst.space.backgroundOpacity)
+      materialRole(), liquid ? Style::liquidTintAlpha(isLightPalette()) : Style::glassAlpha(inst.space.backgroundOpacity)
   ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 

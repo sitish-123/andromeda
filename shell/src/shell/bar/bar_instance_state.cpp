@@ -319,7 +319,7 @@ bool Bar::syncIslandLiquid(BarInstance& instance) {
   if (instance.dsk == nullptr || !instance.dsk->hasLiquidProperty()) {
     return false;
   }
-  instance.dsk->set(DskSurfaceClient::Property::Liquid, {want ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+  instance.dsk->set(DskSurfaceClient::Property::Liquid, {want ? Style::liquidLevel() : 0.0, want ? 1.0 : 0.0, 0.0, 0.0});
   return want;
 }
 
@@ -328,9 +328,9 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
     return;
   }
   const Color material = colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity));
-  // Islands are small shapes: liquid glass with the launcher pill's clear tint (light 30 %, dark 34 %).
+  // Islands are small shapes: liquid glass with the launcher pill's clear tint.
   const bool liquid = syncIslandLiquid(instance);
-  const Color islandMaterial = liquid ? colorForRole(materialRole(), isLightPalette() ? 0.30F : 0.34F) : material;
+  const Color islandMaterial = liquid ? colorForRole(materialRole(), Style::liquidTintAlpha(isLightPalette())) : material;
   const auto applyMaterial = [&](Box* box, bool painted) {
     auto style = box->style();
     style.fill = painted ? (box == instance.bg ? material : islandMaterial) : rgba(0.0F, 0.0F, 0.0F, 0.0F);
@@ -465,13 +465,12 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
       float x = 0.0F;
       float y = 0.0F;
       Node::absolutePosition(island, x, y);
-      // The region is a pixel staircase; 1 px inside the pill it stays under the tint's anti-aliased edge.
-      constexpr int kInset = 1;
+      // The exact pill: the compositor takes the liquid rim's shape from this region and masks the blur's staircase
+      // with its own anti-aliased corners, so an inset would move the rim 1 px inside the edge.
       const auto rects = Surface::tessellateRoundedRect(
-          static_cast<int>(std::lround(x)) + kInset, static_cast<int>(std::lround(y)) + kInset,
-          static_cast<int>(std::lround(island->width())) - 2 * kInset,
-          static_cast<int>(std::lround(island->height())) - 2 * kInset,
-          std::min(island->width(), island->height()) * 0.5F - static_cast<float>(kInset)
+          static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
+          static_cast<int>(std::lround(island->width())), static_cast<int>(std::lround(island->height())),
+          std::min(island->width(), island->height()) * 0.5F
       );
       strips.insert(strips.end(), rects.begin(), rects.end());
     }

@@ -365,7 +365,7 @@ namespace andromeda {
         Spec{"appearance.opaque_fullscreen", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.opaqueFullscreen); }},
         Spec{"appearance.scheme", Kind::Choice, 0, 0, kScheme, [](const Config& c) { return text(c.appearance.scheme); }},
         Spec{"appearance.accent", Kind::Color, 0, 0, {}, [](const Config& c) { return text(c.appearance.accent); }},
-        Spec{"appearance.glass_opacity", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.glassOpacity); }},
+        Spec{"appearance.glass", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.glass); }},
         Spec{"appearance.reduce_transparency", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceTransparency); }},
         Spec{"appearance.increase_contrast", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.increaseContrast); }},
         Spec{"appearance.reduce_motion", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceMotion); }},
