@@ -35,6 +35,15 @@ namespace andromeda {
       return std::clamp(motion.value(SurfaceMotion::Property::Scale)[0], 0.01, 1.0);
     }
 
+    // Scale and Translate together scale about an anchor (PanelManager::detachedScaleShift). A shown scale clamped
+    // from the spring's value keeps that anchor: the translate shrinks with it, or its overshoot moves the surface.
+    std::array<double, 2> shownTranslate(const SurfaceMotion& motion, double shownScale) {
+      const double scale = motion.value(SurfaceMotion::Property::Scale)[0];
+      const auto& translate = motion.value(SurfaceMotion::Property::Translate);
+      const double keep = scale == shownScale ? 1.0 : (1.0 - shownScale) / (1.0 - scale);
+      return {translate[0] * keep, translate[1] * keep};
+    }
+
     struct RoundedShape {
       wlr_box box;
       int radius;
@@ -336,7 +345,7 @@ namespace andromeda {
     using Property = SurfaceMotion::Property;
     const SurfaceMotion& motion = state->motion;
     const double scale = shownScale(motion);
-    const auto& translate = motion.value(Property::Translate);
+    const auto translate = shownTranslate(motion, scale);
     const double width = m_layerSurface->surface->current.width;
     const double height = m_layerSurface->surface->current.height;
     // Scale about the surface center. The scene takes surface units per scene unit, the inverse of the shown size.
@@ -642,7 +651,7 @@ namespace andromeda {
           static_cast<int>(std::lround(c[0] * scale)), static_cast<int>(std::lround(c[1] * scale)),
           static_cast<int>(std::lround(c[2] * scale)), static_cast<int>(std::lround(c[3] * scale))
       };
-      const auto& translate = state->motion.value(SurfaceMotion::Property::Translate);
+      const auto translate = shownTranslate(state->motion, scale);
       nodeBox.x = static_cast<int>(std::lround(translate[0] + box.width * (1.0 - scale) / 2.0));
       nodeBox.y = static_cast<int>(std::lround(translate[1] + box.height * (1.0 - scale) / 2.0));
       // The surface tree shows the buffer at this scale, so the blur node and the client region shrink with it;
