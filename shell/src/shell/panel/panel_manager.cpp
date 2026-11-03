@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -1718,6 +1719,8 @@ void PanelManager::handleCaptureCloseFrame(void* data, wl_callback* callback, st
 void PanelManager::destroyPanel() {
   m_captureCloseTimer.stop();
   m_contentGateTimer.stop();
+  m_openHoldTimer.stop();
+  m_pendingOpen = nullptr;
   m_contentGate = 1.0F;
   if (m_captureCloseFrame != nullptr) {
     wl_callback_destroy(m_captureCloseFrame);
@@ -1760,7 +1763,9 @@ void PanelManager::destroyPanel() {
   m_liquidAnimation = 0;
   m_liquidTarget = 0.0F;
   m_backdropDark = false;
+  m_backdropMeasured = false;
   m_glassDark = 0.0F;
+  m_glassTarget = 0.0F;
   m_glassDarkAnimation = 0;
   m_scaleMode = false;
   m_morphExtend = false;
@@ -2483,16 +2488,9 @@ ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
 }
 
 ColorSpec PanelManager::detachedFill() const {
-  const float alpha = detachedFillAlpha();
-  if (m_glassDark <= 0.0F) {
-    return colorSpecFromRole(panelMaterialRole(), alpha);
-  }
-  // The dark liquid tint (34 %, see detachedFillAlpha) of the dark scheme, whatever the light palette.
-  const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
-  const float darkAlpha = thick + (std::min(thick, 0.34F) - thick) * m_panelLiquid;
-  Color fill = lerpColor(colorForRole(panelMaterialRole()), rgbaHex(Tokens::schemeDark.tintThick), m_glassDark);
-  fill.a = std::lerp(alpha, darkAlpha, m_glassDark);
-  return fixedColorSpec(fill);
+  // Low-contrast backdrop: the tint gets denser (up to the light Frosted tint, 0.84); it never changes colour.
+  const float base = detachedFillAlpha();
+  return colorSpecFromRole(panelMaterialRole(), std::lerp(base, std::max(base, 0.84F), m_glassDark));
 }
 
 void PanelManager::bindBackdrop() {
@@ -2501,7 +2499,13 @@ void PanelManager::bindBackdrop() {
   }
   m_dsk->setOnBackdrop([this](bool dark) {
     m_backdropDark = dark;
-    updateGlassTone();
+    // The first measurement lands 1-2 frames after the sheet maps, inside the open motion: apply it at once.
+    const bool first = !m_backdropMeasured;
+    m_backdropMeasured = true;
+    updateGlassTone(first);
+    if (m_pendingOpen) {
+      releaseHeldOpen();
+    }
   });
   // One glass system: every detached sheet carries the specular rim, liquid or frosted.
   if (!m_attachedToBar && m_dsk->hasLiquidProperty()) {
@@ -2516,22 +2520,40 @@ DskSurfaceClient::Value PanelManager::sheetLiquid(float liquid) {
   return {glass ? level : 0.0, glass ? 1.0 : 0.0, 0.0, 0.0};
 }
 
-void PanelManager::updateGlassTone() {
-  const float target =
-      isLightPalette() && !Style::reduceTransparency() && m_backdropDark && m_liquidTarget >= 1.0F ? 1.0F : 0.0F;
+float PanelManager::densityCardOpacity(float opacity) const {
+  // Light cards are black fill_1 (4 %) x opacity: on the denser white sheet they need up to 8 % to stay visible.
+  return !m_attachedToBar && isLightPalette() ? std::lerp(opacity, 2.0F, m_glassDark) : opacity;
+}
+
+void PanelManager::updateGlassTone(bool instant) {
+  // Glass whose backdrop is the same tone as its tint (light on dark, dark on bright) loses contrast: make it denser.
+  const bool contrastLow = isLightPalette() ? m_backdropDark : !m_backdropDark;
+  float target = m_backdropMeasured && !Style::reduceTransparency() && contrastLow ? 1.0F : 0.0F;
+  // While open, density only rises (user: no pulsing over a changing backdrop); a light/dark switch resets it.
+  const bool light = isLightPalette();
+  const bool sameScheme = m_glassToneLight == light;
+  m_glassToneLight = light;
+  // Against the last target, not the animated m_glassDark: a palette cross-fade calls this every frame and would
+  // freeze a running fade.
+  if (sameScheme && target < m_glassTarget) {
+    target = m_glassTarget;
+  }
+  m_glassTarget = target;
   const auto apply = [this](float v) {
     m_glassDark = std::clamp(v, 0.0F, 1.0F);
     if (!m_attachedToBar && m_bgNode != nullptr) {
       static_cast<Box*>(m_bgNode)->setFill(detachedFill());
-    }
-    if (m_activePanel != nullptr) {
-      m_activePanel->onGlassToneChanged(m_glassDark);
+      if (m_activePanel != nullptr) {
+        m_activePanel->setPanelCardOpacity(
+            densityCardOpacity(shell::panel_surface::cardOpacity(m_config, detachedBackgroundOpacity()))
+        );
+      }
     }
   };
   if (m_glassDarkAnimation == 0 && m_glassDark == target) {
     // Same tone: re-resolve the blended colors, e.g. after a palette change.
     apply(m_glassDark);
-  } else if (m_sceneRoot == nullptr || !MotionService::instance().enabled()) {
+  } else if (instant || m_sceneRoot == nullptr || !MotionService::instance().enabled()) {
     m_animations.cancel(m_glassDarkAnimation);
     m_glassDarkAnimation = 0;
     apply(target);
@@ -2715,12 +2737,32 @@ bool PanelManager::startDetachedScaleOpen() {
   }
   m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
   m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
-  m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
-  m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
   m_scaleMode = true;
+  const auto start = [this] {
+    m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
+    m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
+    m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
+  };
+  // Glass density follows the backdrop, measured 2-3 frames after the first draw. Hold the sheet invisible until
+  // then, so its density never changes in view. 0.004, not 0: the blur must still render.
+  if (!Style::reduceTransparency() && Style::liquidLevel() > 0.0F) {
+    m_dsk->set(Property::Opacity, {0.004, 0.0, 0.0, 0.0});
+    m_pendingOpen = start;
+    m_openHoldTimer.start(std::chrono::milliseconds(50), [this] { releaseHeldOpen(); });
+  } else {
+    m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
+    start();
+  }
   return true;
+}
+
+void PanelManager::releaseHeldOpen() {
+  m_openHoldTimer.stop();
+  auto start = std::move(m_pendingOpen);
+  m_pendingOpen = nullptr;
+  if (start && m_dsk != nullptr) {
+    start();
+  }
 }
 
 bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
@@ -2729,6 +2771,8 @@ bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
   if (m_dsk == nullptr || !m_scaleMode) {
     return false;
   }
+  m_openHoldTimer.stop();
+  m_pendingOpen = nullptr;
   m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
   m_dsk->animate(Property::Translate, Curve::SpringClose, detachedScaleShift(kScaleOpenFrom));
   m_dsk->animate(
@@ -3220,7 +3264,7 @@ void PanelManager::onConfigReloaded() {
   }
   const float panelBackgroundOpacity =
       m_attachedToBar ? m_attachedBackgroundOpacity : detachedBackgroundOpacity();
-  m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity));
+  m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity)));
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
@@ -3267,7 +3311,7 @@ void PanelManager::onConfigReloaded() {
     const float newOpacity = Style::panelGlassAlpha(barConfig.backgroundOpacity);
     if (std::abs(newOpacity - m_attachedBackgroundOpacity) >= 0.001F) {
       m_attachedBackgroundOpacity = newOpacity;
-      m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity));
+      m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity)));
       changed = true;
     }
   }
@@ -3367,7 +3411,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
     m_activePanel->setAnimationManager(&m_animations);
     const float panelBackgroundOpacity =
         m_attachedToBar ? m_attachedBackgroundOpacity : detachedBackgroundOpacity();
-    m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity));
+    m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity)));
     m_activePanel->create();
     m_activePanel->onOpen(m_pendingOpenContext);
     m_pendingOpenContext.clear();

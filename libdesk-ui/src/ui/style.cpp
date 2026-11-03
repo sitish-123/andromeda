@@ -82,7 +82,15 @@ namespace Style {
     }
   } // namespace
 
-  float liquidTintAlpha(bool light) noexcept { return light ? glassLerp(0.36F, 0.62F, 0.84F) : glassLerp(0.24F, 0.40F, 0.60F); }
+  float liquidTintAlpha(bool light) noexcept {
+    return light ? glassLerp(0.20F, 0.34F, 0.84F) : glassLerp(0.24F, 0.40F, 0.60F);
+  }
+
+  float liquidTintFor(std::optional<bool> backdropDark) noexcept {
+    const bool light = isLightPalette();
+    const float tint = liquidTintAlpha(light);
+    return backdropDark.has_value() && *backdropDark == light ? std::max(tint, 0.84F) : tint;
+  }
 
   float liquidLevel() noexcept { return g_reduceTransparency ? 0.0F : 1.0F - g_glass; }
 
@@ -101,8 +109,9 @@ namespace Style {
   }
 
   float panelGlassAlpha(float alpha) noexcept {
-    // One glass: at Tinted a sheet has the small shapes' tint (0.88 x 0.72 = 0.63 light); only its blur is denser.
-    return g_reduceTransparency || alpha >= 1.0F ? 1.0F : std::min(1.0F, alpha * glassLerp(0.5F, 0.72F, 1.08F));
+    // One glass: at Tinted a light sheet has the small shapes' tint (0.88 x 0.386 = 0.34); only its blur is denser.
+    const float scale = isLightPalette() ? glassLerp(0.227F, 0.386F, 1.08F) : glassLerp(0.5F, 0.72F, 1.08F);
+    return g_reduceTransparency || alpha >= 1.0F ? 1.0F : std::min(1.0F, alpha * scale);
   }
 
   bool closeButtonsEnabled() noexcept { return g_closeButtonsEnabled; }

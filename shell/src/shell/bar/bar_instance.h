@@ -70,6 +70,7 @@ struct BarInstance {
   std::array<float, 4> sheetTrackerRect{};
   // Liquid glass on the islands (dsk_surface_v1 v5); destroyed before `surface`.
   std::unique_ptr<DskSurfaceClient> dsk;
+  std::optional<bool> backdropDark; // dsk_surface_v1.backdrop, unset until the first measurement
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;

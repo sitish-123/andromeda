@@ -213,6 +213,8 @@ namespace shell::dock {
     instance.surface->setBlurRegion(blurStrips);
   }
 
+  void applyPanelPalette(DockInstance& instance, const DockConfig& cfg);
+
   void buildScene(DockInstance& instance, DockInstanceDependencies deps, const DockInstanceCallbacks& callbacks) {
     uiAssertNotRendering("shell::dock::buildScene");
     if (instance.surface == nullptr) {
@@ -221,6 +223,11 @@ namespace shell::dock {
     if (instance.dsk == nullptr && instance.surface->wlSurface() != nullptr) {
       if (auto* manager = deps.platform.wayland().dskSurfaceManager(); manager != nullptr) {
         instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
+        instance.dsk->setOnBackdrop([inst = &instance](bool dark) {
+          inst->backdropDark = dark;
+          applyPanelPalette(*inst, inst->config);
+          inst->surface->requestRedraw();
+        });
       }
     }
 
@@ -433,7 +440,7 @@ namespace shell::dock {
     if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
       instance.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
     }
-    const float opacity = liquid ? Style::liquidTintAlpha(isLightPalette()) : Style::glassAlpha(cfg.backgroundOpacity);
+    const float opacity = liquid ? Style::liquidTintFor(instance.backdropDark) : Style::glassAlpha(cfg.backgroundOpacity);
     instance.panel->setFill(colorSpecFromRole(materialRole(), opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }

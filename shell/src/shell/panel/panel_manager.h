@@ -246,14 +246,16 @@ private:
   [[nodiscard]] float detachedBackgroundOpacity() const;
   // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
   [[nodiscard]] float detachedFillAlpha() const;
-  // The detached fill: the material role, blended toward the dark liquid tint by m_glassDark.
+  // The detached fill: the material role; m_glassDark (low-contrast backdrop) makes the tint denser.
   [[nodiscard]] ColorSpec detachedFill() const;
   [[nodiscard]] ColorSpec detachedBorder(float backgroundOpacity) const;
   [[nodiscard]] static DskSurfaceClient::Value sheetLiquid(float liquid);
   // Adaptive glass: listens for dsk_surface_v1.backdrop on the current m_dsk.
   void bindBackdrop();
-  // Drives m_glassDark toward the dark look while a light palette's liquid pill sits over a dark backdrop.
-  void updateGlassTone();
+  // Low-contrast backdrop (light glass on dark, dark glass on bright): m_glassDark -> 1; instant skips the cross-fade.
+  void updateGlassTone(bool instant = false);
+  void releaseHeldOpen();
+  [[nodiscard]] float densityCardOpacity(float opacity) const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
@@ -323,6 +325,9 @@ private:
   AnimationManager::Id m_liquidAnimation = 0;
   float m_liquidTarget = 0.0F;
   bool m_backdropDark = false;
+  bool m_backdropMeasured = false;
+  bool m_glassToneLight = false; // scheme of the last updateGlassTone
+  float m_glassTarget = 0.0F;    // last m_glassDark target, for the rise-only rule
   float m_glassDark = 0.0F; // 0..1, see updateGlassTone
   AnimationManager::Id m_glassDarkAnimation = 0;
   Signal<>::ScopedConnection m_glassPaletteConn;
@@ -395,6 +400,9 @@ private:
   AttachedRevealDirection m_detachedRevealDirection = AttachedRevealDirection::Down;
   Timer m_keyboardRelaxTimer;
   Timer m_contentGateTimer;
+  // The scale-open motion, held until the first backdrop measurement (light glass) or 50 ms.
+  Timer m_openHoldTimer;
+  std::function<void()> m_pendingOpen;
   // Content opacity from the 35 % gate (rulebook 7.4 / P5): 0 until the open spring has travelled 35 %, then fades in.
   float m_contentGate = 1.0F;
   // Grow / Return (rulebook 7.4): the client mirrors the compositor's clip spring as a 0..1 progress and fits the

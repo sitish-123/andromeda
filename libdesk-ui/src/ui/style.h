@@ -4,6 +4,8 @@
 #include "motion/desk_motion.h"
 #include "ui/signal.h"
 
+#include <optional>
+
 namespace Style {
 
   [[nodiscard]] inline desk::motion::SpringConfig spring(const Tokens::Spring& token) {
@@ -128,8 +130,11 @@ namespace Style {
   [[nodiscard]] float glassAlpha(float alpha) noexcept;
   // glassAlpha without the light scheme's thinner tint, so panel sheets stay dense over dark content.
   [[nodiscard]] float panelGlassAlpha(float alpha) noexcept;
-  // Tint of liquid glass shapes (islands, dock, launcher pill) at the glass level; Tinted: light 0.62, dark 0.40.
+  // Tint of liquid glass shapes (islands, dock, launcher pill) at the glass level; Tinted: light 0.34, dark 0.40.
   [[nodiscard]] float liquidTintAlpha(bool light) noexcept;
+  // liquidTintAlpha for the current scheme, denser (up to 0.84) over a same-tone backdrop (light on dark, dark on
+  // bright); backdropDark = dsk_surface_v1.backdrop, unset before the first measurement.
+  [[nodiscard]] float liquidTintFor(std::optional<bool> backdropDark) noexcept;
   // dsk_surface_v1 liquid value [0] for a liquid shape: 1 at Clear, 0 at Frosted, 0 with Reduce Transparency.
   [[nodiscard]] float liquidLevel() noexcept;
   // The liquid value for sheets: half the shapes' clarity, so their blur is a step denser, not a different material.

@@ -128,6 +128,7 @@ private:
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
+    std::optional<bool> backdropDark;
     // sceneRoot must be destroyed before `animations`: ~Node() cancels its animations.
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;

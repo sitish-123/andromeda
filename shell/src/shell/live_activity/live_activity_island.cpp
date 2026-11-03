@@ -517,6 +517,11 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->surface->setInputRegion({});
     if (auto* manager = m_wayland->dskSurfaceManager(); manager != nullptr) {
       inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
+      inst->dsk->setOnBackdrop([this, instPtr = inst.get()](bool dark) {
+        instPtr->backdropDark = dark;
+        applyContent(*instPtr);
+        instPtr->surface->requestRedraw();
+      });
     }
     inst->liveWidth = std::min(inst->width, static_cast<float>(kExpandedWidth));
     inst->restWidth = std::min(space->width / inst->scale, static_cast<float>(kRestWidth));
@@ -1377,7 +1382,7 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
   }
   inst.material->setFill(colorSpecFromRole(
-      materialRole(), liquid ? Style::liquidTintAlpha(isLightPalette()) : Style::glassAlpha(inst.space.backgroundOpacity)
+      materialRole(), liquid ? Style::liquidTintFor(inst.backdropDark) : Style::glassAlpha(inst.space.backgroundOpacity)
   ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 

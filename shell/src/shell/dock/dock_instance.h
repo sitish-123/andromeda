@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class Box;
@@ -56,6 +57,7 @@ namespace shell::dock {
     std::unique_ptr<LayerSurface> surface;
     // Liquid glass on the dock (dsk_surface_v1 v5); declared after `surface`: destroyed first.
     std::unique_ptr<DskSurfaceClient> dsk;
+    std::optional<bool> backdropDark;
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
