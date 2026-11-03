@@ -15,6 +15,7 @@ core = static_library('index-core',
   'src/live_index.cpp',
   'src/query_server.cpp',
   'src/document_kind.cpp',
+  'src/text_extract.cpp',
   'src/content_worker.cpp',
   dependencies: [sqlite_dep, dependency('threads')],
 )

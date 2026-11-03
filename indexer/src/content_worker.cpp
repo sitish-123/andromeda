@@ -1,5 +1,6 @@
 #include "content_worker.h"
 
+#include "extract.h"
 #include "index_db.h"
 
 #include <fcntl.h>
@@ -203,6 +204,11 @@ namespace andromeda::index {
           if (m_stop) {
             return;
           }
+        }
+        if (!needsHelper(documentKind(task.path))) {
+          db.storeContent(task.id, task.mtime, extractPlain(task.path));
+          ++done;
+          continue;
         }
         if (!extractor || !extractor->ok()) {
           extractor.emplace();

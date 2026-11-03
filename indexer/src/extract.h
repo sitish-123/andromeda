@@ -24,6 +24,11 @@ namespace andromeda::index {
   // archive or PDF).
   [[nodiscard]] std::optional<std::string> extractText(const std::string& path);
 
+  // Text of a Text or Html document, read without a helper process.
+  [[nodiscard]] std::optional<std::string> extractPlain(const std::string& path);
+  // PDF, Office and EPUB need andromeda-index-extract (poppler, libzip).
+  [[nodiscard]] inline bool needsHelper(DocumentKind kind) { return kind == DocumentKind::Pdf || kind == DocumentKind::Zip; }
+
   // Markup without its tags: each tag becomes a space; script and style bodies are dropped; common entities decoded.
   [[nodiscard]] std::string stripTags(std::string_view markup, std::size_t maxBytes);
 
