@@ -46,7 +46,7 @@ namespace {
   // The pixel at the centre of slot `i`'s current frame, or empty.
   const std::uint8_t* centre(const PixelStreamClient& client) {
     const auto frame = client.frame();
-    return frame.has_value() ? frame->pixels + ((frame->height / 2) * frame->width + frame->width / 2) * 4 : nullptr;
+    return frame.has_value() && frame->pixels != nullptr ? frame->pixels + ((frame->height / 2) * frame->width + frame->width / 2) * 4 : nullptr;
   }
 
 } // namespace
@@ -106,14 +106,22 @@ int main(int argc, char* argv[]) {
     clients[i].adopt(pairs[i][0]);
   }
   const auto deadline = Clock::now() + std::chrono::seconds(20);
-  pump(clients, deadline, [&] { return centre(clients[0]) != nullptr && centre(clients[1]) != nullptr; });
+  pump(clients, deadline, [&] { return centre(clients[0]) != nullptr && clients[1].frame().has_value(); });
 
   const std::uint8_t* box = centre(clients[0]);
   TEST_CHECK(box != nullptr && box[0] > 200 && box[3] > 200);
+  // The shader slot renders at its buffer size (logical size x scale), as a dmabuf where the driver exports one.
   const auto shaderFrame = clients[1].frame();
-  // The shader slot renders at its buffer size (logical size x scale).
   TEST_CHECK(shaderFrame.has_value() && shaderFrame->width == 64 && shaderFrame->height == 32);
+  if (shaderFrame->dmabufFd >= 0) {
+    TEST_CHECK(shaderFrame->stride >= 64 * 4);
+    // A shell that cannot import it gets memfd frames from then on.
+    clients[1].refuseDmabuf();
+    clients[1].releaseFrame();
+    pump(clients, deadline, [&] { return centre(clients[1]) != nullptr; });
+  }
   const std::uint8_t* shader = centre(clients[1]);
+  TEST_CHECK(shader != nullptr);
   TEST_CHECK(shader[0] < 30 && shader[1] > 220 && shader[3] == 255);
   // A shader that does not compile keeps its stream open and sends nothing.
   TEST_CHECK(clients[2].connected() && !clients[2].frame().has_value());

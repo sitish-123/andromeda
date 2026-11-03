@@ -37,6 +37,7 @@ public:
   bool updateSubImage(
       TextureHandle& handle, const std::uint8_t* data, int x, int y, int width, int height, TextureDataFormat format
   ) override;
+  [[nodiscard]] TextureHandle importDmabuf(const DmabufImage& image) override;
   void unload(TextureHandle& handle) override;
   void cleanup() override;
   void abandonGpuResources() noexcept override;

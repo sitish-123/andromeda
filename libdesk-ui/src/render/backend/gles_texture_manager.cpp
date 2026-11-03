@@ -6,6 +6,8 @@
 #include "render/core/image_source_log.h"
 
 #include <GLES2/gl2.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES2/gl2ext.h>
 #include <atomic>
 #include <cstring>
@@ -231,6 +233,67 @@ TextureHandle GlesTextureManager::loadFromRaw(
   }
 
   return uploadRgba(rgba.data(), width, height, mipmap);
+}
+
+TextureHandle GlesTextureManager::importDmabuf(const DmabufImage& image) {
+  static const auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
+  static const auto destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+  static const auto targetTexture =
+      reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+  const EGLDisplay display = eglGetCurrentDisplay();
+  if (createImage == nullptr || destroyImage == nullptr || targetTexture == nullptr || display == EGL_NO_DISPLAY
+      || image.fd < 0 || image.width <= 0 || image.height <= 0) {
+    return {};
+  }
+  const EGLint attributes[] = {
+      EGL_WIDTH,
+      image.width,
+      EGL_HEIGHT,
+      image.height,
+      EGL_LINUX_DRM_FOURCC_EXT,
+      static_cast<EGLint>(image.fourcc),
+      EGL_DMA_BUF_PLANE0_FD_EXT,
+      image.fd,
+      EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+      static_cast<EGLint>(image.offset),
+      EGL_DMA_BUF_PLANE0_PITCH_EXT,
+      static_cast<EGLint>(image.stride),
+      EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
+      static_cast<EGLint>(image.modifier & 0xFFFFFFFFU),
+      EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
+      static_cast<EGLint>(image.modifier >> 32),
+      EGL_NONE,
+  };
+  const EGLImageKHR eglImage = createImage(display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attributes);
+  if (eglImage == EGL_NO_IMAGE_KHR) {
+    kLog.warn("dmabuf import failed (EGL error 0x{:04x})", static_cast<unsigned>(eglGetError()));
+    return {};
+  }
+  while (glGetError() != GL_NO_ERROR) {
+  }
+  GLuint tex = 0;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  targetTexture(GL_TEXTURE_2D, eglImage);
+  // The texture keeps the buffer alive; the image is only the handle used to bind it.
+  destroyImage(display, eglImage);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  if (glGetError() != GL_NO_ERROR) {
+    glDeleteTextures(1, &tex);
+    return {};
+  }
+  m_textures.emplace_back(tex);
+  return TextureHandle{
+      .id = TextureId{tex},
+      .width = image.width,
+      .height = image.height,
+      .sourceWidth = image.width,
+      .sourceHeight = image.height,
+      .generation = m_generation,
+  };
 }
 
 void GlesTextureManager::unload(TextureHandle& handle) {

@@ -14,19 +14,32 @@
 //
 // The companion listens on a filesystem SOCK_SEQPACKET socket. All fields are little-endian
 // uint32. The shell sends HELLO {1, version} once (again on an adopted socket, to ask for a
-// resend) and REQUEST {2, 0} whenever it is ready for a frame. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
+// resend) and REQUEST {2, 0} whenever it is ready for a frame. In version 2 a companion may
+// attach GPU buffers with DMABUF {3, id, width, height, fourcc, modifier lo, modifier hi, stride,
+// offset} carrying one dmabuf fd; a REQUEST then frees every buffer but the one last shown, and
+// NO_DMABUF {3, 0} from the shell asks for memfd buffers instead. The companion attaches shared buffers with BUFFER {1, id, width, height} carrying one
 // sealed memfd (RGBA8, tightly packed rows), and answers each REQUEST with FRAME {2, id}. The
 // buffer named by a FRAME stays owned by the shell until its next REQUEST.
 class PixelStreamClient {
 public:
   struct Frame {
+    // Null for a dmabuf frame.
     const std::uint8_t* pixels = nullptr;
     int width = 0;
     int height = 0;
+    // A dmabuf frame: fd >= 0, still owned by the client. `serial` changes with every attach.
+    int dmabufFd = -1;
+    std::uint32_t fourcc = 0;
+    std::uint64_t modifier = 0;
+    std::uint32_t stride = 0;
+    std::uint32_t offset = 0;
+    std::uint64_t serial = 0;
   };
   using ChangeCallback = std::function<void()>;
 
   static constexpr std::uint32_t kProtocolVersion = 1;
+  // Sent only on adopted sockets (the lock helper): plugin companions keep version 1.
+  static constexpr std::uint32_t kDmabufProtocolVersion = 2;
   static constexpr std::size_t kMaxBuffers = 4;
   static constexpr std::uint32_t kMaxDimension = 4096;
   static constexpr std::size_t kMaxPixels = std::size_t{4096} * 1024;
@@ -61,6 +74,8 @@ public:
   [[nodiscard]] std::optional<Frame> frame() const;
   // Returns the frame's buffer to the companion and requests the next frame.
   void releaseFrame();
+  // Asks the companion for memfd buffers from now on (the dmabuf could not be imported).
+  void refuseDmabuf();
   // Drops the connection and reconnects immediately; a new connection receives the current
   // frame right away. Used when the consumer lost its copy (graphics context reset). An adopted
   // socket stays open and sends HELLO again instead, which asks the companion to resend.
@@ -72,6 +87,12 @@ private:
     std::size_t size = 0;
     int width = 0;
     int height = 0;
+    int dmabufFd = -1;
+    std::uint32_t fourcc = 0;
+    std::uint64_t modifier = 0;
+    std::uint32_t stride = 0;
+    std::uint32_t offset = 0;
+    std::uint64_t serial = 0;
   };
 
   void connect();
@@ -81,6 +102,10 @@ private:
   // Reads one message. Returns false when the socket has nothing more to read or failed.
   bool readMessage();
   void attachBuffer(std::uint32_t id, std::uint32_t width, std::uint32_t height, int fd);
+  void attachDmabuf(
+      std::uint32_t id, std::uint32_t width, std::uint32_t height, std::uint32_t fourcc, std::uint64_t modifier,
+      std::uint32_t stride, std::uint32_t offset, int fd
+  );
   void unmap(Buffer& buffer);
   void notify();
 
@@ -90,5 +115,6 @@ private:
   std::array<Buffer, kMaxBuffers> m_buffers{};
   std::optional<std::uint32_t> m_frameBuffer;
   bool m_requested = false;
+  std::uint64_t m_serial = 0;
   ChangeCallback m_onChange;
 };

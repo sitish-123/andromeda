@@ -120,8 +120,38 @@ PixelStreamView::~PixelStreamView() {
   if (m_service != nullptr && PixelStreamService::current() == m_service) {
     m_service->remove(m_client);
   }
-  if (m_renderer != nullptr && m_texture.valid()) {
+  if (m_renderer != nullptr) {
     m_renderer->textureManager().unload(m_texture);
+    unloadImported(m_renderer->textureManager());
+  }
+}
+
+const TextureHandle* PixelStreamView::importedTexture(TextureManager& textures, const PixelStreamClient::Frame& frame) {
+  for (const Imported& imported : m_imported) {
+    if (imported.serial == frame.serial) {
+      return imported.texture.valid() ? &imported.texture : nullptr;
+    }
+  }
+  // Attaches only replace buffers, so the oldest serial is a buffer the client no longer holds.
+  Imported& slot = *std::ranges::min_element(m_imported, {}, &Imported::serial);
+  textures.unload(slot.texture);
+  slot.serial = frame.serial;
+  slot.texture = textures.importDmabuf({
+      .fd = frame.dmabufFd,
+      .width = frame.width,
+      .height = frame.height,
+      .fourcc = frame.fourcc,
+      .modifier = frame.modifier,
+      .stride = frame.stride,
+      .offset = frame.offset,
+  });
+  return slot.texture.valid() ? &slot.texture : nullptr;
+}
+
+void PixelStreamView::unloadImported(TextureManager& textures) {
+  for (Imported& imported : m_imported) {
+    textures.unload(imported.texture);
+    imported = {};
   }
 }
 
@@ -223,10 +253,23 @@ void PixelStreamView::doLayout(Renderer& renderer) {
     m_image->clear(renderer);
     textures.unload(m_texture);
     m_texture = {};
+    unloadImported(textures);
     m_displayWidth = 0;
     m_displayHeight = 0;
   }
-  if (const auto frame = m_client.frame(); frame.has_value()) {
+  if (const auto frame = m_client.frame(); frame.has_value() && frame->dmabufFd >= 0) {
+    if (const TextureHandle* texture = importedTexture(textures, *frame); texture != nullptr) {
+      m_image->setExternalTexture(renderer, *texture);
+      m_image->markPaintDirty();
+      m_displayWidth = frame->width;
+      m_displayHeight = frame->height;
+    } else {
+      // Another GPU or driver: ask for memfd frames, which every shell can upload.
+      m_client.refuseDmabuf();
+    }
+    // The image keeps sampling this buffer; the companion leaves it alone until a later frame shows.
+    m_client.releaseFrame();
+  } else if (frame.has_value()) {
     const bool sameSize = m_texture.valid() && m_texture.width == frame->width && m_texture.height == frame->height;
     const bool uploaded = (sameSize
                            && textures.updateSubImage(
@@ -255,6 +298,7 @@ void PixelStreamView::doInvalidateGpuResources(Renderer& renderer) {
   // The old texture died with the context and the companion may already be reusing the buffer
   // it came from; a fresh connection is answered with the current frame.
   m_texture = {};
+  m_imported = {};
   m_client.reconnect();
   markLayoutDirty();
 }

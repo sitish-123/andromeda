@@ -1,11 +1,15 @@
 #pragma once
 
+#include "ipc/pixel_stream_server.h"
+
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <chrono>
 #include <cstdint>
+#include <array>
 #include <span>
 #include <string>
+#include <vector>
 
 class GlSharedContext;
 
@@ -21,18 +25,25 @@ public:
   LockShader(const LockShader&) = delete;
   LockShader& operator=(const LockShader&) = delete;
 
-  // Draws the next frame and copies it into `rgba` as top-down RGBA8 rows (width * height * 4).
-  bool render(std::span<std::uint8_t> rgba);
+  // Draws the next frame into frame buffer `index` (0 or 1) and waits until the GPU is done.
+  bool draw(std::size_t index);
+  // Copies frame buffer `index` into `rgba` as top-down RGBA8 rows (width * height * 4).
+  bool read(std::size_t index, std::span<std::uint8_t> rgba);
+  // The two frame buffers as dmabufs, in index order; empty when the driver cannot export them.
+  [[nodiscard]] const std::vector<PixelStreamServer::Dmabuf>& dmabufs() const noexcept { return m_dmabufs; }
   [[nodiscard]] std::uint32_t width() const noexcept { return m_width; }
   [[nodiscard]] std::uint32_t height() const noexcept { return m_height; }
 
 private:
   void release() noexcept;
+  void exportDmabufs();
+  bool makeCurrent();
 
   EGLDisplay m_display = EGL_NO_DISPLAY;
   EGLContext m_context = EGL_NO_CONTEXT;
-  GLuint m_texture = 0;
-  GLuint m_framebuffer = 0;
+  std::array<GLuint, 2> m_textures{};
+  std::array<GLuint, 2> m_framebuffers{};
+  std::vector<PixelStreamServer::Dmabuf> m_dmabufs;
   GLuint m_program = 0;
   GLint m_position = -1;
   GLint m_resolution = -1;

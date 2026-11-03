@@ -53,6 +53,9 @@ namespace {
     // Set instead of widget for a `shader` slot.
     std::unique_ptr<LockShader> shader;
     std::chrono::steady_clock::time_point lastShaderFrame;
+    bool dmabufsAttached = false;
+    // Index of the shader buffer the shell shows; the next frame goes into the other one.
+    std::size_t shownBuffer = 1;
     Timer secondTimer;
     bool needsUpdate = true;
     bool needsLayout = true;
@@ -87,9 +90,24 @@ namespace {
 
   void render(RenderContext& context, Slot& slot, float deltaMs) {
     if (slot.shader != nullptr) {
-      const auto pixels = slot.server.frameBuffer(slot.shader->width(), slot.shader->height());
-      if (!pixels.empty() && slot.shader->render(pixels)) {
-        slot.server.sendFrame();
+      LockShader& shader = *slot.shader;
+      const auto& dmabufs = shader.dmabufs();
+      bool sent = false;
+      if (slot.server.dmabufAllowed() && dmabufs.size() == 2) {
+        // Buffer ids 1 and 2 are the shader's two dmabufs; id 0 stays the memfd buffer.
+        if (!slot.dmabufsAttached) {
+          slot.dmabufsAttached = slot.server.attachDmabuf(1, dmabufs[0]) && slot.server.attachDmabuf(2, dmabufs[1]);
+        }
+        const std::size_t next = 1 - slot.shownBuffer;
+        if (slot.dmabufsAttached && shader.draw(next) && slot.server.sendDmabufFrame(static_cast<std::uint32_t>(next) + 1)) {
+          slot.shownBuffer = next;
+          sent = true;
+        }
+      } else {
+        const auto pixels = slot.server.frameBuffer(shader.width(), shader.height());
+        sent = !pixels.empty() && shader.draw(0) && shader.read(0, pixels) && slot.server.sendFrame();
+      }
+      if (sent) {
         slot.lastShaderFrame = std::chrono::steady_clock::now();
       }
       // The shader leaves its own context current; widget code expects the renderer's.

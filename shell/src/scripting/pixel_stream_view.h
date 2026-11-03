@@ -4,6 +4,7 @@
 #include "render/core/texture_handle.h"
 #include "render/scene/input_area.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <utility>
 
 class Image;
+class TextureManager;
 class PixelStreamService;
 
 // Displays frames from a companion process (see PixelStreamClient) aspect-fit inside its box,
@@ -63,7 +65,17 @@ private:
   void doInvalidateGpuResources(Renderer& renderer) override;
   void doRebindRenderer(Renderer& renderer) override { m_renderer = &renderer; }
 
+  // Imports a dmabuf frame once per attached buffer; null when the import failed.
+  const TextureHandle* importedTexture(TextureManager& textures, const PixelStreamClient::Frame& frame);
+  void unloadImported(TextureManager& textures);
+
   PixelStreamClient m_client;
+  // Dmabuf buffers wrapped as textures, keyed by the client's attach serial.
+  struct Imported {
+    std::uint64_t serial = 0;
+    TextureHandle texture;
+  };
+  std::array<Imported, PixelStreamClient::kMaxBuffers> m_imported{};
   PixelStreamService* m_service = nullptr;
   Renderer* m_renderer = nullptr;
   Image* m_image = nullptr;

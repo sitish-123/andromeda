@@ -2,9 +2,13 @@
 
 #include "render/gl_shared_context.h"
 
+#include <EGL/eglext.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <array>
 #include <stdexcept>
+#include <cstdint>
 #include <vector>
 
 namespace {
@@ -25,11 +29,12 @@ uniform int iFrame;
 #line 1
 )";
 
-  // Shadertoy ignores the alpha a shader writes; so does the lock.
+  // Shadertoy ignores the alpha a shader writes; so does the lock. fragCoord keeps Shadertoy's
+  // bottom-left origin while row 0 of the buffer holds the top row, as the shell reads images.
   constexpr char kFragmentSuffix[] = R"(
 void main() {
   vec4 color = vec4(0.0);
-  mainImage(color, gl_FragCoord.xy);
+  mainImage(color, vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y));
   gl_FragColor = vec4(color.rgb, 1.0);
 }
 )";
@@ -63,18 +68,20 @@ LockShader::LockShader(GlSharedContext& shared, const std::string& source, std::
     throw std::runtime_error("no GL context for the shader");
   }
   try {
-    glGenTextures(1, &m_texture);
-    glBindTexture(GL_TEXTURE_2D, m_texture);
-    glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
-        GL_UNSIGNED_BYTE, nullptr
-    );
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glGenFramebuffers(1, &m_framebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-      throw std::runtime_error("shader framebuffer incomplete");
+    glGenTextures(2, m_textures.data());
+    glGenFramebuffers(2, m_framebuffers.data());
+    for (std::size_t i = 0; i < 2; ++i) {
+      glBindTexture(GL_TEXTURE_2D, m_textures[i]);
+      glTexImage2D(
+          GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
+          GL_UNSIGNED_BYTE, nullptr
+      );
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffers[i]);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_textures[i], 0);
+      if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        throw std::runtime_error("shader framebuffer incomplete");
+      }
     }
 
     const GLuint vertex = compile(GL_VERTEX_SHADER, kVertexShader);
@@ -101,6 +108,7 @@ LockShader::LockShader(GlSharedContext& shared, const std::string& source, std::
     m_time = glGetUniformLocation(m_program, "iTime");
     m_timeDelta = glGetUniformLocation(m_program, "iTimeDelta");
     m_frame = glGetUniformLocation(m_program, "iFrame");
+    exportDmabufs();
   } catch (...) {
     release();
     throw;
@@ -109,14 +117,65 @@ LockShader::LockShader(GlSharedContext& shared, const std::string& source, std::
 
 LockShader::~LockShader() { release(); }
 
-bool LockShader::render(std::span<std::uint8_t> rgba) {
-  const std::size_t stride = std::size_t{m_width} * 4;
-  if (rgba.size() < stride * m_height
-      || eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, m_context) != EGL_TRUE) {
+bool LockShader::makeCurrent() {
+  return eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, m_context) == EGL_TRUE;
+}
+
+void LockShader::exportDmabufs() {
+  const auto createImage = reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(eglGetProcAddress("eglCreateImageKHR"));
+  const auto destroyImage = reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(eglGetProcAddress("eglDestroyImageKHR"));
+  const auto query = reinterpret_cast<PFNEGLEXPORTDMABUFIMAGEQUERYMESAPROC>(
+      eglGetProcAddress("eglExportDMABUFImageQueryMESA")
+  );
+  const auto exportImage =
+      reinterpret_cast<PFNEGLEXPORTDMABUFIMAGEMESAPROC>(eglGetProcAddress("eglExportDMABUFImageMESA"));
+  if (createImage == nullptr || destroyImage == nullptr || query == nullptr || exportImage == nullptr) {
+    return;
+  }
+  for (const GLuint texture : m_textures) {
+    const EGLImageKHR image = createImage(
+        m_display, m_context, EGL_GL_TEXTURE_2D_KHR, reinterpret_cast<EGLClientBuffer>(std::uintptr_t{texture}),
+        nullptr
+    );
+    int fourcc = 0;
+    int planes = 0;
+    EGLuint64KHR modifier = 0;
+    int fd = -1;
+    EGLint stride = 0;
+    EGLint offset = 0;
+    const bool exported = image != EGL_NO_IMAGE_KHR
+        && query(m_display, image, &fourcc, &planes, &modifier) == EGL_TRUE
+        && planes == 1
+        && exportImage(m_display, image, &fd, &stride, &offset) == EGL_TRUE;
+    if (image != EGL_NO_IMAGE_KHR) {
+      destroyImage(m_display, image);
+    }
+    if (!exported) {
+      // Both buffers or none: the memfd path covers the rest.
+      for (const auto& dmabuf : m_dmabufs) {
+        ::close(dmabuf.fd);
+      }
+      m_dmabufs.clear();
+      return;
+    }
+    m_dmabufs.push_back({
+        .fd = fd,
+        .width = m_width,
+        .height = m_height,
+        .fourcc = static_cast<std::uint32_t>(fourcc),
+        .modifier = modifier,
+        .stride = static_cast<std::uint32_t>(stride),
+        .offset = static_cast<std::uint32_t>(offset),
+    });
+  }
+}
+
+bool LockShader::draw(std::size_t index) {
+  if (index >= m_framebuffers.size() || !makeCurrent()) {
     return false;
   }
   const auto now = std::chrono::steady_clock::now();
-  glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffers[index]);
   glViewport(0, 0, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height));
   glDisable(GL_BLEND);
   glUseProgram(m_program);
@@ -129,15 +188,18 @@ bool LockShader::render(std::span<std::uint8_t> rgba) {
   glEnableVertexAttribArray(static_cast<GLuint>(m_position));
   glVertexAttribPointer(static_cast<GLuint>(m_position), 2, GL_FLOAT, GL_FALSE, 0, kQuad.data());
   glDrawArrays(GL_TRIANGLES, 0, 6);
+  // The shell samples the dmabuf as soon as FRAME arrives; it has no fence to wait on.
+  glFinish();
+  return true;
+}
+
+bool LockShader::read(std::size_t index, std::span<std::uint8_t> rgba) {
+  if (index >= m_framebuffers.size() || rgba.size() < std::size_t{m_width} * 4 * m_height || !makeCurrent()) {
+    return false;
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffers[index]);
   glPixelStorei(GL_PACK_ALIGNMENT, 1);
   glReadPixels(0, 0, static_cast<GLsizei>(m_width), static_cast<GLsizei>(m_height), GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-  // GL rows start at the bottom.
-  std::vector<std::uint8_t> row(stride);
-  for (std::size_t top = 0, bottom = m_height - 1; top < bottom; ++top, --bottom) {
-    std::copy_n(rgba.data() + top * stride, stride, row.data());
-    std::copy_n(rgba.data() + bottom * stride, stride, rgba.data() + top * stride);
-    std::copy_n(row.data(), stride, rgba.data() + bottom * stride);
-  }
   return true;
 }
 
@@ -147,19 +209,19 @@ void LockShader::release() noexcept {
     if (m_program != 0) {
       glDeleteProgram(m_program);
     }
-    if (m_framebuffer != 0) {
-      glDeleteFramebuffers(1, &m_framebuffer);
-    }
-    if (m_texture != 0) {
-      glDeleteTextures(1, &m_texture);
-    }
+    glDeleteFramebuffers(2, m_framebuffers.data());
+    glDeleteTextures(2, m_textures.data());
     eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   }
   if (m_context != EGL_NO_CONTEXT) {
     eglDestroyContext(m_display, m_context);
   }
+  for (const auto& dmabuf : m_dmabufs) {
+    ::close(dmabuf.fd);
+  }
+  m_dmabufs.clear();
   m_context = EGL_NO_CONTEXT;
   m_program = 0;
-  m_framebuffer = 0;
-  m_texture = 0;
+  m_framebuffers = {};
+  m_textures = {};
 }

@@ -28,6 +28,22 @@ public:
   // Hands the frame buffer to the shell. Needs requested().
   bool sendFrame();
 
+  // The shell takes dmabuf buffers: it said version 2 and did not refuse them.
+  [[nodiscard]] bool dmabufAllowed() const noexcept { return m_version >= 2 && !m_noDmabuf; }
+  struct Dmabuf {
+    int fd = -1;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint32_t fourcc = 0;
+    std::uint64_t modifier = 0;
+    std::uint32_t stride = 0;
+    std::uint32_t offset = 0;
+  };
+  // Attaches a dmabuf as buffer `id` (1..3; 0 is the memfd buffer). The fd stays the caller's.
+  bool attachDmabuf(std::uint32_t id, const Dmabuf& buffer);
+  // Shows dmabuf buffer `id`. Needs requested(); the shell owns it until a later frame is shown.
+  bool sendDmabufFrame(std::uint32_t id);
+
 private:
   void releaseBuffer();
   bool sendMessage(std::span<const std::uint8_t> payload, int passFd);
@@ -42,4 +58,6 @@ private:
   bool m_requested = false;
   bool m_hello = false;
   bool m_resend = false;
+  std::uint32_t m_version = 0;
+  bool m_noDmabuf = false;
 };

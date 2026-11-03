@@ -13,11 +13,13 @@ namespace {
   enum : std::uint32_t {
     kHello = 1,
     kRequest = 2,
+    kNoDmabuf = 3,
   };
 
   enum : std::uint32_t {
     kBuffer = 1,
     kFrame = 2,
+    kDmabuf = 3,
   };
 
   void writeLe32(std::uint8_t* out, std::uint32_t value) {
@@ -56,6 +58,11 @@ bool PixelStreamServer::dispatch() {
       m_requested = true;
     } else if (type == kHello) {
       m_resend = std::exchange(m_hello, true);
+      m_version = readLe32(message.data() + 4);
+    } else if (type == kNoDmabuf) {
+      // The memfd path renders again from scratch.
+      m_noDmabuf = true;
+      m_resend = true;
     } else {
       return false;
     }
@@ -104,6 +111,34 @@ bool PixelStreamServer::sendFrame() {
   std::array<std::uint8_t, 8> frame{};
   writeLe32(frame.data(), kFrame);
   writeLe32(frame.data() + 4, 0);
+  if (!sendMessage(frame, -1)) {
+    return false;
+  }
+  m_requested = false;
+  return true;
+}
+
+bool PixelStreamServer::attachDmabuf(std::uint32_t id, const Dmabuf& buffer) {
+  std::array<std::uint8_t, 36> message{};
+  writeLe32(message.data(), kDmabuf);
+  writeLe32(message.data() + 4, id);
+  writeLe32(message.data() + 8, buffer.width);
+  writeLe32(message.data() + 12, buffer.height);
+  writeLe32(message.data() + 16, buffer.fourcc);
+  writeLe32(message.data() + 20, static_cast<std::uint32_t>(buffer.modifier));
+  writeLe32(message.data() + 24, static_cast<std::uint32_t>(buffer.modifier >> 32U));
+  writeLe32(message.data() + 28, buffer.stride);
+  writeLe32(message.data() + 32, buffer.offset);
+  return id != 0 && sendMessage(message, buffer.fd);
+}
+
+bool PixelStreamServer::sendDmabufFrame(std::uint32_t id) {
+  if (!m_requested) {
+    return false;
+  }
+  std::array<std::uint8_t, 8> frame{};
+  writeLe32(frame.data(), kFrame);
+  writeLe32(frame.data() + 4, id);
   if (!sendMessage(frame, -1)) {
     return false;
   }
