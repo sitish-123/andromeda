@@ -1,0 +1,19 @@
+project('andromeda-index', 'cpp',
+  version: '0.1.0',
+  meson_version: '>=1.1',
+  default_options: ['cpp_std=c++23', 'warning_level=3', 'werror=true', 'b_ndebug=if-release'],
+)
+
+sqlite_dep = dependency('sqlite3', version: '>=3.43') # FTS5 trigram tokenizer
+
+core = static_library('index-core',
+  'src/index_db.cpp',
+  'src/crawler.cpp',
+  'src/skip_rules.cpp',
+  dependencies: sqlite_dep,
+)
+core_dep = declare_dependency(link_with: core, include_directories: include_directories('src'), dependencies: sqlite_dep)
+
+executable('andromeda-index', 'src/main.cpp', dependencies: core_dep, install: true)
+
+test('index_core', executable('index_core_test', 'tests/index_core_test.cpp', dependencies: core_dep))
